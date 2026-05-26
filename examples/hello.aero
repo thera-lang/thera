@@ -1,0 +1,10 @@
+fn main(args: Args) -> Result<Int, Error> {
+    let name  = args.flag('name',  default: 'world');
+    let count = args.flag('count', default: 1);
+
+    for _ in 0..count {
+        println('Hello, ${name}!');
+    }
+
+    return Ok(0);
+}

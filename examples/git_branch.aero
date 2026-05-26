@@ -1,0 +1,32 @@
+import std.process;
+
+fn current_branch() -> Result<String, Error> {
+    let out = process.run('git', ['rev-parse', '--abbrev-ref', 'HEAD'])?;
+    return Ok(out.stdout.trim());
+}
+
+fn all_branches() -> Result<List<String>, Error> {
+    let out = process.run('git', ['branch', '--format=%(refname:short)'])?;
+    let branches = out.stdout
+        .lines()
+        .map(line => line.trim())
+        .filter(line => line.len() > 0)
+        .to_list();
+    return Ok(branches);
+}
+
+fn main(args: Args) -> Result<Int, Error> {
+    let show_all = args.flag('all', default: false);
+
+    if show_all {
+        let branches = all_branches()?;
+        for branch in branches {
+            println(branch);
+        }
+    } else {
+        let branch = current_branch()?;
+        println(branch);
+    }
+
+    return Ok(0);
+}

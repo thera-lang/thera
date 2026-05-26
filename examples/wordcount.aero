@@ -1,0 +1,27 @@
+import std.fs;
+
+type Counts = {
+    lines: Int,
+    words: Int,
+    bytes: Int,
+}
+
+fn count(text: String) -> Counts {
+    return Counts {
+        lines: text.lines().len(),
+        words: text.split_whitespace().len(),
+        bytes: text.byte_len(),
+    };
+}
+
+fn main(args: Args) -> Result<Int, Error> {
+    let path = args.positional(0).ok_or('usage: wordcount <file>')?;
+    let text = fs.read_text(path)?;
+    let c    = count(text);
+
+    println('${c.lines}\tlines');
+    println('${c.words}\twords');
+    println('${c.bytes}\tbytes');
+
+    return Ok(0);
+}
