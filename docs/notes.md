@@ -19,8 +19,8 @@
 ## Strings
 
 - Store strings as UTF-8 under the hood.
-- Make your base `char` (`rune`?) type a 32-bit Unicode scalar.
-- Prevent standard integer indexing on strings, and instead force the user to
+- Make the base `char` (`rune`?) type a 32-bit Unicode scalar.
+- Prevent standard integer indexing on strings; instead force the user to
   iterate via explicit .chars() (code points) or .graphemes() (user-perceived
   characters) to guarantee they never accidentally slice an emoji or special
   character in half.
@@ -31,7 +31,6 @@
   - for Dart, you have top level functions
   - for Java, you specify the entry-point class
   - for Python, you are running that modulo (and some wierd init method)
-  - entry-point is Main.main()? implements mainable?
   - fn main(args: Args) -> int
 - are we going for a simple language or a token efficient one?
   - we could require all params to be named, or we could support positional args

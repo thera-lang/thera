@@ -1,0 +1,54 @@
+// std.testing — assertion functions for use in *_test.aero files.
+//
+// Assertions return Result<Void, Error>. A failure throws an error that
+// propagates out of the test function via ?. Test functions must therefore
+// return Result<Void, Error> and call each assertion with ?.
+//
+// Eq, Display, and Debug are defined in std.core, which is auto-imported.
+//
+// Open question: how does a test failure plumb through a stack trace so the
+// runner can report the source location of the failing assertion?
+//
+// All assertion functions are plain functions — not built-in statements —
+// so they cannot be silently disabled by a build flag.
+
+// Assert that `condition` is true.
+fn assert(condition: Bool, message: String = 'assertion failed') -> Result<Void, Error> {
+    if !condition {
+        throw message;
+    }
+    return Ok(());
+}
+
+// Assert that `actual` equals `expected`.
+fn assert_eq<T: Eq + Debug>(actual: T, expected: T) -> Result<Void, Error> {
+    if actual != expected {
+        throw 'assert_eq failed\n  actual:   ${actual.debug()}\n  expected: ${expected.debug()}';
+    }
+    return Ok(());
+}
+
+// Assert that `actual` does not equal `unexpected`.
+fn assert_ne<T: Eq + Debug>(actual: T, unexpected: T) -> Result<Void, Error> {
+    if actual == unexpected {
+        throw 'assert_ne failed: both values were ${actual.debug()}';
+    }
+    return Ok(());
+}
+
+// Assert that `result` is Ok, and return the inner value.
+// Useful for unwrapping in a test without a manual match.
+fn assert_ok<T, E: Debug>(result: Result<T, E>) -> Result<T, Error> {
+    match result {
+        Ok(value) => return Ok(value),
+        Err(e)    => throw 'assert_ok failed: got Err(${e.debug()})',
+    }
+}
+
+// Assert that `result` is Err.
+fn assert_err<T, E>(result: Result<T, E>) -> Result<Void, Error> {
+    match result {
+        Ok(_)  => throw 'assert_err failed: got Ok',
+        Err(_) => return Ok(()),
+    }
+}

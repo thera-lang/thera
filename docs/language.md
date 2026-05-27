@@ -48,13 +48,13 @@ count = count + 1;
 
 ### Primitives
 
-| Type     | Description                     | Example         |
-| -------- | ------------------------------- | --------------- |
-| `Int`    | 64-bit signed integer           | `42`, `-7`      |
-| `Double` | 64-bit floating-point           | `3.14`          |
-| `Bool`   | Boolean                         | `true`, `false` |
-| `String` | UTF-8 text                      | `'hello'`       |
-| `()`     | Unit type (absence of a value)  |                 |
+| Type          | Description                                                    | Example         |
+| ------------- | -------------------------------------------------------------- | --------------- |
+| `Int`         | 64-bit signed integer                                          | `42`, `-7`      |
+| `Double`      | 64-bit floating-point                                          | `3.14`          |
+| `Bool`        | Boolean                                                        | `true`, `false` |
+| `String`      | UTF-8 text                                                     | `'hello'`       |
+| `Void` / `()` | Unit type; the two names are interchangeable, following Swift. |                 |
 
 String literals use single quotes. Interpolation uses `${}`:
 
@@ -64,11 +64,11 @@ let greeting = 'Hello, ${name}!';
 
 ### Collections
 
-| Type        | Description                           | Example                             |
-| ----------- | ------------------------------------- | ----------------------------------- |
-| `List<T>`   | Ordered sequence                      | `[1, 2, 3]`                         |
-| `Map<K, V>` | Key-value store                       | `{'a': 1, 'b': 2}`                  |
-| `Set<T>`    | Unordered collection of unique values | `Set.from([1, 2, 3])`               |
+| Type        | Description                           | Example               |
+| ----------- | ------------------------------------- | --------------------- |
+| `List<T>`   | Ordered sequence                      | `[1, 2, 3]`           |
+| `Map<K, V>` | Key-value store                       | `{'a': 1, 'b': 2}`    |
+| `Set<T>`    | Unordered collection of unique values | `Set.from([1, 2, 3])` |
 
 ```aero
 let names: List<String>      = ['alice', 'bob'];
@@ -96,8 +96,8 @@ Structs are nominal types. Fields are immutable by default.
 
 ```aero
 type Point = {
-    x: Float,
-    y: Float,
+    x: Double,
+    y: Double,
 }
 
 let p = Point { x: 1.0, y: 2.0 };
@@ -112,6 +112,14 @@ println('${p.x}, ${p.y}');
 fn add(a: Int, b: Int) -> Int {
     return a + b;
 }
+```
+
+Functions with no meaningful return value omit the return type annotation; it
+defaults to `Void`. The two forms below are equivalent:
+
+```aero
+fn log(msg: String) -> Void { println(msg); }
+fn log(msg: String)         { println(msg); }
 ```
 
 Functions are first-class values. Lambdas use `=>`:
@@ -185,6 +193,22 @@ fn read_port(args: Args) -> Result<Int, Error> {
 match read_port(args) {
     Ok(port) => println('listening on ${port}'),
     Error(e)   => println('error: ${e.message}'),
+}
+```
+
+### `throw`
+
+`throw expr` is sugar for `return Err(expr)` in a `Result`-returning function.
+It is a reserved keyword — not an exception mechanism. There is no stack
+unwinding; control simply returns to the caller with an `Err` value.
+
+```aero
+fn parse_port(s: String) -> Result<Int, Error> {
+    let n = s.parse<Int>()?;
+    if n < 1 || n > 65535 {
+        throw 'port out of range: ${n}';
+    }
+    return n;   // implicitly Ok(n)
 }
 ```
 
@@ -271,6 +295,10 @@ import std.process;
 let text = fs.read_text('config.toml')?;
 ```
 
+`std.core` is automatically imported into every file. It provides the
+fundamental interfaces (`Eq`, `Display`, `Debug`) and does not need to appear
+in an explicit import statement.
+
 ---
 
 ## Process execution
@@ -304,13 +332,47 @@ let output  = args.flag('output',  default: 'out.txt');
 
 ## Interfaces
 
-Interfaces describe capability. Structs implement them explicitly.
+Interfaces describe capability. Structs implement them explicitly. No
+inheritance — composition is preferred.
 
 ```aero
-interface Display {
-    fn display(self) -> String;
+interface Greet {
+    fn greet(self) -> String;
 }
 
+impl Greet for User {
+    fn greet(self) -> String {
+        return 'Hello, ${self.name}!';
+    }
+}
+```
+
+### Display and Debug
+
+Two standard interfaces handle string conversion. Both are defined in
+`std.core` and available everywhere without an explicit import.
+
+- **`Display`** — user-facing representation. Used by string interpolation
+  (`${value}`) and `println`. Opt-in; implement when the type has a meaningful
+  human-readable form.
+- **`Debug`** — developer-facing representation. Used by assertion failure
+  messages, logging, and diagnostic output. Shows internal structure (field
+  names and values). Auto-derived for structs; can be overridden.
+
+Primitive types (`Int`, `Double`, `Bool`, `String`) implement both
+automatically. Structs get a default `Debug` implementation that prints all
+fields; `Display` must be implemented explicitly.
+
+```aero
+// auto-derived Debug for a struct prints all fields:
+//   Point { x: 1.0, y: 2.0 }
+
+type Point = {
+    x: Double,
+    y: Double,
+}
+
+// explicit Display for a user-facing format
 impl Display for Point {
     fn display(self) -> String {
         return '(${self.x}, ${self.y})';
@@ -318,7 +380,8 @@ impl Display for Point {
 }
 ```
 
-No inheritance. Composition is preferred.
+String interpolation (`${}`) requires `Display`. Attempting to interpolate a
+type that does not implement `Display` is a compile error.
 
 ---
 
@@ -332,3 +395,104 @@ fn healthz(req: Request) -> Result<Response, Error> {
     return Ok(Response.text('ok'));
 }
 ```
+
+---
+
+## Testing
+
+Test files are co-located with the source file they test, using a `_test`
+suffix: `src/foo.aero` is tested by `src/foo_test.aero`. The test file imports
+its sibling module and has access to its exported symbols.
+
+Test functions are marked with `@test`, take no arguments, and return
+`Result<Void, Error>`. A test passes when it returns `Ok(())` and fails when
+it returns `Err`. Assertions return `Result<Void, Error>` and are called with
+`?` so that the first failure propagates out of the test immediately.
+
+```aero
+// src/math_test.aero
+import std.testing;
+import './math';
+
+@test
+fn test_add() -> Result<Void, Error> {
+    testing.assert_eq(add(2, 3), 5)?;
+    testing.assert_eq(add(-1, 1), 0)?;
+    return Ok(());
+}
+
+@test
+fn test_parse_config() -> Result<Void, Error> {
+    let cfg = parse_config('testdata/config.toml')?;
+    testing.assert_eq(cfg.host, 'localhost')?;
+    return Ok(());
+}
+```
+
+### Assertions
+
+Assertions live in `std.testing` and are plain functions — not built-in
+statements. They cannot be silently disabled by a compiler flag or build mode.
+Each returns `Result<Void, Error>`; call with `?` to propagate failures.
+
+| Function                                       | Behaviour                          |
+| ---------------------------------------------- | ---------------------------------- |
+| `testing.assert(condition)`                    | Fails if condition is false        |
+| `testing.assert(condition, 'message')`         | Fails with a custom message        |
+| `testing.assert_eq(actual, expected)`          | Fails if values are not equal      |
+| `testing.assert_ne(actual, unexpected)`        | Fails if values are equal          |
+| `testing.assert_ok(result)` → inner value      | Fails if result is Err             |
+| `testing.assert_err(result)`                   | Fails if result is Ok              |
+
+---
+
+## The `aero` tool
+
+The `aero` command-line tool is the primary interface for working with Aero
+programs. Its **primary design goal is to be useful to LLMs**; its secondary
+goal is to be useful to humans.
+
+That principle shapes output defaults: commands are silent on success and emit
+only on failure. This keeps LLM context clean — no output means no problem.
+Verbose mode is available when a human wants more detail.
+
+### Commands
+
+| Command      | Description                    |
+| ------------ | ------------------------------ |
+| `aero run`   | Run a source file              |
+| `aero test`  | Run tests                      |
+| `aero check` | Type-check without running     |
+| `aero fmt`   | Format source files in place   |
+| `aero build` | Compile to a standalone binary |
+
+### `aero test`
+
+Discovers and runs all `*_test.aero` files reachable from the current directory
+(or a given path).
+
+**Default mode (LLM-optimised):** silent on success; prints only failures. Exit
+code is 0 if all tests pass, non-zero otherwise. An LLM can run `aero test` and
+treat any output as a signal requiring attention.
+
+**Verbose mode (`--verbose`):** prints a summary line (tests run, passed,
+failed) and one line per test executed.
+
+```
+$ aero test                          # silent — all passed
+$ aero test                          # one failure
+FAIL src/math_test.aero::test_add
+  assert_eq failed: got 4, expected 5
+  at src/math_test.aero:6
+
+$ aero test --verbose
+src/math_test.aero::test_add         ok
+src/math_test.aero::test_add_neg     ok
+src/util_test.aero::test_trim        ok
+3 passed, 0 failed
+```
+
+Additional flags:
+
+- `aero test <path>` — run tests under a specific file or directory
+- `aero test --filter <pattern>` — run only tests whose name matches

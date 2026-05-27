@@ -260,6 +260,52 @@ the compiler in Rust (or in Aero itself) is the natural path.
 - **Package manager** — Go-style URL imports, or a central registry (npm/PyPI
   style)? Relevant early because stdlib scope decisions depend on it.
 
+### Error ergonomics: implicit Result promotion and `throw`
+
+Two related ideas for reducing boilerplate in `Result`-returning functions:
+
+**1. Implicit `Ok` wrapping on `return`**
+
+In a function returning `Result<T, Error>`, a bare `return foo` auto-promotes
+to `return Ok(foo)`. Explicit `return Ok(foo)` remains valid. This makes the
+happy path read like a non-Result function.
+
+**2. `throw` as sugar for `return Err(...)`**
+
+`throw expr` in a `Result`-returning function desugars to `return Err(expr)`.
+No stack unwinding, no exceptions — purely a shorthand for the error return
+path. The keyword is familiar to developers but takes on entirely new,
+value-based semantics.
+
+Combined with `?` for propagation, a full example:
+
+```aero
+fn parse_port(s: String) -> Result<Int, Error> {
+    let n = s.parse<Int>()?;               // propagate parse error
+    if n < 1 || n > 65535 {
+        throw 'port out of range: ${n}';   // return Err(...)
+    }
+    return n;                              // return Ok(n)
+}
+```
+
+Open questions: Does explicit `return Ok(foo)` still work (almost certainly
+yes)? How does this interact with `Result<Result<T,E>, E>` return types? Is
+`throw` the right keyword, or something else (e.g. `fail`, `raise`)?
+
+### Error ergonomics: Zig-style `try` / `catch` keywords
+
+Zig repurposes `try` and `catch` as purely value-based syntax over error types,
+with no exceptions or stack unwinding:
+
+- `try expr` — propagate error to caller (equivalent to `?`)
+- `expr catch fallback` — evaluate to `fallback` if `expr` is an error
+- `expr catch |e| { ... }` — handle the error inline
+
+This is an alternative (or complement) to `?` that some find more readable.
+Aero currently uses `?`; `catch` as an inline default handler is worth
+considering as an additional form.
+
 ### Option types vs. nullable type system
 
 This decision is deferred. The tradeoffs:

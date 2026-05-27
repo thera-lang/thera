@@ -1,0 +1,48 @@
+import std.testing;
+
+import 'wordcount';
+
+@test
+fn test_empty_string() -> Result<Void, Error> {
+    testing.assert_eq(count('').lines, 0)?;
+    testing.assert_eq(count('').words, 0)?;
+    testing.assert_eq(count('').bytes, 0)?;
+    return Ok(());
+}
+
+@test
+fn test_single_line() -> Result<Void, Error> {
+    let c = count('hello world');
+    testing.assert_eq(c.lines, 1)?;
+    testing.assert_eq(c.words, 2)?;
+    testing.assert_eq(c.bytes, 11)?;
+    return Ok(());
+}
+
+@test
+fn test_multiple_lines() -> Result<Void, Error> {
+    let c = count('one\ntwo\nthree');
+    testing.assert_eq(c.lines, 3)?;
+    testing.assert_eq(c.words, 3)?;
+    return Ok(());
+}
+
+@test
+fn test_blank_lines_not_counted_as_words() -> Result<Void, Error> {
+    let c = count('hello\n\nworld');
+    testing.assert_eq(c.lines, 3)?;
+    testing.assert_eq(c.words, 2)?;
+    return Ok(());
+}
+
+@test
+fn test_leading_and_trailing_whitespace() -> Result<Void, Error> {
+    testing.assert_eq(count('  hello world  ').words, 2)?;
+    return Ok(());
+}
+
+@test
+fn test_trailing_newline() -> Result<Void, Error> {
+    testing.assert_eq(count('hello\n').words, count('hello').words)?;
+    return Ok(());
+}
