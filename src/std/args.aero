@@ -1,0 +1,34 @@
+// std.args — command-line argument parsing.
+//
+// Args is passed to main by the runtime and is not constructed directly.
+// std.args is auto-imported into every file; no explicit import is needed.
+
+type Args = {
+    // Opaque runtime handle — fields are not accessed directly.
+}
+
+impl Args {
+    // Return the positional argument at index, or None if not provided.
+    //
+    //   let path = args.positional(0).ok_or('usage: tool <path>')?;
+    fn positional(self, _ index: Int) -> Option<String>
+
+    // Return the value of a named flag, or `value` if the flag was not provided.
+    // The return type is inferred from the default value.
+    //
+    //   let verbose = args.flag('verbose', default: false);
+    //   let output  = args.flag('output',  default: 'out.txt');
+    fn flag<T>(self, _ name: String, default value: T) -> T
+
+    // Return true if a boolean flag was passed on the command line (e.g. --verbose).
+    // Use flag() with a Bool default when you want an explicit true/false; use
+    // has() when the flag is a simple on/off switch with no value.
+    //
+    //   if args.has('dry-run') { ... }
+    fn has(self, _ name: String) -> Bool
+
+    // Return all positional arguments as a list.
+    //
+    //   let paths = args.positionals();
+    fn positionals(self) -> List<String>
+}

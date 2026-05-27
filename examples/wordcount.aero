@@ -6,7 +6,7 @@ type Counts = {
     bytes: Int,
 }
 
-fn count(text: String) -> Counts {
+fn count(_ text: String) -> Counts {
     return Counts {
         lines: text.lines().len(),
         words: text.split_whitespace().len(),

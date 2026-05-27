@@ -118,8 +118,8 @@ Functions with no meaningful return value omit the return type annotation; it
 defaults to `Void`. The two forms below are equivalent:
 
 ```aero
-fn log(msg: String) -> Void { println(msg); }
-fn log(msg: String)         { println(msg); }
+fn log(_ msg: String) -> Void { println(msg); }
+fn log(_ msg: String)         { println(msg); }
 ```
 
 Functions are first-class values. Lambdas use `=>`:
@@ -128,6 +128,39 @@ Functions are first-class values. Lambdas use `=>`:
 let double = x => x * 2;
 let names = users.map(u => u.name);
 ```
+
+### Named parameters
+
+Parameters are named at call sites by default. The parameter name in the
+definition becomes the external label:
+
+```aero
+fn greet(name: String, times: Int) { ... }
+
+greet(name: 'alice', times: 3);
+```
+
+Use `_` before the parameter name to suppress the label at the call site. This
+is appropriate when the type or context makes the argument's role obvious:
+
+```aero
+fn println(_ msg: String) { ... }
+
+println('hello');   // no label — reads naturally
+```
+
+Use `external internal` to give a parameter a different external label from its
+internal identifier. This is useful when the natural label is a keyword or reads
+awkwardly as a variable name inside the function body:
+
+```aero
+fn flag<T>(_ name: String, default value: T) -> T { ... }
+
+args.flag('verbose', default: false);
+```
+
+Here `default` is the label at the call site; `value` is the name used inside
+the function body (avoiding a clash with a potential `default` keyword).
 
 ---
 
@@ -143,7 +176,7 @@ the calling code never observes the difference.
 // fetch_user may block on a network call; double does not.
 // The caller treats them the same way.
 
-fn double(x: Int) -> Int {
+fn double(_ x: Int) -> Int {
     return x * 2;
 }
 
@@ -153,7 +186,7 @@ fn fetch_user(id: Int) -> Result<User, Error> {
 }
 
 fn main(args: Args) -> Result<Int, Error> {
-    let user = fetch_user(1)?;              // no await needed
+    let user = fetch_user(id: 1)?;          // no await needed
     println(user.name);
     return Ok(0);
 }
@@ -296,8 +329,8 @@ let text = fs.read_text('config.toml')?;
 ```
 
 `std.core` is automatically imported into every file. It provides the
-fundamental interfaces (`Eq`, `Display`, `Debug`) and does not need to appear
-in an explicit import statement.
+fundamental interfaces (`Eq`, `Display`, `Debug`) and does not need to appear in
+an explicit import statement.
 
 ---
 
@@ -309,7 +342,7 @@ in an explicit import statement.
 ```aero
 import std.process;
 
-let out = process.run('git', ['status', '--short'])?;
+let out = process.run('git', args: ['status', '--short'])?;
 println(out.stdout);
 ```
 
@@ -319,14 +352,17 @@ A non-zero exit code is returned as an `Error` by default.
 
 ## Command-line arguments
 
-`Args` is passed to `main`. Positional arguments and named flags are both
-supported.
+`Args` is passed to `main` by the runtime. It is defined in `std.args`, which is
+auto-imported. Positional arguments and named flags are both supported.
 
 ```aero
 let path    = args.positional(0).ok_or('usage: tool <path>')?;
 let verbose = args.flag('verbose', default: false);
 let output  = args.flag('output',  default: 'out.txt');
 ```
+
+`flag` is generic: the return type is inferred from the `default` value. A
+`Bool` default returns `Bool`; a `String` default returns `String`.
 
 ---
 
@@ -347,10 +383,37 @@ impl Greet for User {
 }
 ```
 
+### Inherent methods
+
+Methods that belong to a type but do not implement an interface are defined in
+a plain `impl TypeName` block:
+
+```aero
+type Counter = {
+    value: Int,
+}
+
+impl Counter {
+    fn increment(self) -> Counter {
+        return Counter { value: self.value + 1 };
+    }
+
+    fn reset(self) -> Counter {
+        return Counter { value: 0 };
+    }
+}
+
+let c = Counter { value: 0 }.increment().increment();
+println('${c.value}');   // 2
+```
+
+A type may have any number of `impl` blocks — one for inherent methods and one
+per interface implemented.
+
 ### Display and Debug
 
-Two standard interfaces handle string conversion. Both are defined in
-`std.core` and available everywhere without an explicit import.
+Two standard interfaces handle string conversion. Both are defined in `std.core`
+and available everywhere without an explicit import.
 
 - **`Display`** — user-facing representation. Used by string interpolation
   (`${value}`) and `println`. Opt-in; implement when the type has a meaningful
@@ -405,9 +468,9 @@ suffix: `src/foo.aero` is tested by `src/foo_test.aero`. The test file imports
 its sibling module and has access to its exported symbols.
 
 Test functions are marked with `@test`, take no arguments, and return
-`Result<Void, Error>`. A test passes when it returns `Ok(())` and fails when
-it returns `Err`. Assertions return `Result<Void, Error>` and are called with
-`?` so that the first failure propagates out of the test immediately.
+`Result<Void, Error>`. A test passes when it returns `Ok(())` and fails when it
+returns `Err`. Assertions return `Result<Void, Error>` and are called with `?`
+so that the first failure propagates out of the test immediately.
 
 ```aero
 // src/math_test.aero
@@ -416,15 +479,15 @@ import './math';
 
 @test
 fn test_add() -> Result<Void, Error> {
-    testing.assert_eq(add(2, 3), 5)?;
-    testing.assert_eq(add(-1, 1), 0)?;
+    testing.assert_eq(actual: add(2, 3), expected: 5)?;
+    testing.assert_eq(actual: add(-1, 1), expected: 0)?;
     return Ok(());
 }
 
 @test
 fn test_parse_config() -> Result<Void, Error> {
     let cfg = parse_config('testdata/config.toml')?;
-    testing.assert_eq(cfg.host, 'localhost')?;
+    testing.assert_eq(actual: cfg.host, expected: 'localhost')?;
     return Ok(());
 }
 ```
@@ -435,14 +498,14 @@ Assertions live in `std.testing` and are plain functions — not built-in
 statements. They cannot be silently disabled by a compiler flag or build mode.
 Each returns `Result<Void, Error>`; call with `?` to propagate failures.
 
-| Function                                       | Behaviour                          |
-| ---------------------------------------------- | ---------------------------------- |
-| `testing.assert(condition)`                    | Fails if condition is false        |
-| `testing.assert(condition, 'message')`         | Fails with a custom message        |
-| `testing.assert_eq(actual, expected)`          | Fails if values are not equal      |
-| `testing.assert_ne(actual, unexpected)`        | Fails if values are equal          |
-| `testing.assert_ok(result)` → inner value      | Fails if result is Err             |
-| `testing.assert_err(result)`                   | Fails if result is Ok              |
+| Function                                      | Behaviour                     |
+| --------------------------------------------- | ----------------------------- |
+| `testing.assert(condition)`                   | Fails if condition is false   |
+| `testing.assert(condition, message: 'msg')`   | Fails with a custom message   |
+| `testing.assert_eq(actual: a, expected: b)`   | Fails if values are not equal |
+| `testing.assert_ne(actual: a, unexpected: b)` | Fails if values are equal     |
+| `testing.assert_ok(result)` → inner value     | Fails if result is Err        |
+| `testing.assert_err(result)`                  | Fails if result is Ok         |
 
 ---
 

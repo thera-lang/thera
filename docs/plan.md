@@ -25,7 +25,7 @@ CLI tools. This shapes the entire stack:
 ```aero
 // First-class process execution — returns Result<Output, ProcessError>
 fn get_branch() -> Result<String, Error> {
-    let out = run("git", ["rev-parse", "--abbrev-ref", "HEAD"])?;
+    let out = run('git', args: ['rev-parse', '--abbrev-ref', 'HEAD'])?;
     return out.stdout.trim()
 }
 
@@ -67,15 +67,10 @@ type User = {
     email: String,
 }
 
-// Functions have explicit return types
-fn greet(user: User) -> String {
-    "Hello, ${user.name}!"
-}
-
 // let = immutable binding; mut = mutable
 fn double(x: Int) -> Int {
     let result = x * 2;
-    result
+    return result
 }
 ```
 
@@ -84,13 +79,13 @@ fn double(x: Int) -> Int {
 ```aero
 // Result<T, E> is the only error mechanism — no exceptions
 fn parse_id(s: String) -> Result<Int, ParseError> {
-    s.parse<Int>()
+    return s.parse<Int>()
 }
 
 // ? propagates the error to the caller (like Rust's ?)
 fn fetch_user(id: Int) -> Result<User, Error> {
     let resp = http.get("/users/${id}")?;
-    json.decode<User>(resp.body)
+    return json.decode<User>(resp.body)
 }
 
 // match on the result at the boundary
@@ -107,7 +102,7 @@ fn handle(id: Int) {
 ```aero
 // Data pipelines: transform instead of mutate
 fn active_names(users: List<User>) -> List<String> {
-    users
+    return users
         .filter(u => u.active)
         .map(u => u.name.trim())
         .sort()
@@ -116,8 +111,8 @@ fn active_names(users: List<User>) -> List<String> {
 
 ### Concurrency (fiber model)
 
-All I/O looks synchronous. No `async`/`await`, no `Future<T>`. The runtime
-parks the current fiber when a call blocks and resumes it when I/O completes.
+All I/O looks synchronous. No `async`/`await`, no `Future<T>`. The runtime parks
+the current fiber when a call blocks and resumes it when I/O completes.
 
 ```aero
 // fetch_user may block on a network call — the signature doesn't say so.
@@ -266,16 +261,16 @@ Two related ideas for reducing boilerplate in `Result`-returning functions:
 
 **1. Implicit `Ok` wrapping on `return`**
 
-In a function returning `Result<T, Error>`, a bare `return foo` auto-promotes
-to `return Ok(foo)`. Explicit `return Ok(foo)` remains valid. This makes the
-happy path read like a non-Result function.
+In a function returning `Result<T, Error>`, a bare `return foo` auto-promotes to
+`return Ok(foo)`. Explicit `return Ok(foo)` remains valid. This makes the happy
+path read like a non-Result function.
 
 **2. `throw` as sugar for `return Err(...)`**
 
-`throw expr` in a `Result`-returning function desugars to `return Err(expr)`.
-No stack unwinding, no exceptions — purely a shorthand for the error return
-path. The keyword is familiar to developers but takes on entirely new,
-value-based semantics.
+`throw expr` in a `Result`-returning function desugars to `return Err(expr)`. No
+stack unwinding, no exceptions — purely a shorthand for the error return path.
+The keyword is familiar to developers but takes on entirely new, value-based
+semantics.
 
 Combined with `?` for propagation, a full example:
 
@@ -302,16 +297,16 @@ with no exceptions or stack unwinding:
 - `expr catch fallback` — evaluate to `fallback` if `expr` is an error
 - `expr catch |e| { ... }` — handle the error inline
 
-This is an alternative (or complement) to `?` that some find more readable.
-Aero currently uses `?`; `catch` as an inline default handler is worth
-considering as an additional form.
+This is an alternative (or complement) to `?` that some find more readable. Aero
+currently uses `?`; `catch` as an inline default handler is worth considering as
+an additional form.
 
 ### Option types vs. nullable type system
 
 This decision is deferred. The tradeoffs:
 
-**Option types** (`Option<T>` = `Some(value)` | `None`) treat absence as a
-data structure. Best suited to functional/correctness-focused languages (Rust,
+**Option types** (`Option<T>` = `Some(value)` | `None`) treat absence as a data
+structure. Best suited to functional/correctness-focused languages (Rust,
 Haskell, Swift, Scala).
 
 - Pro: can represent nested absence (`Option<Option<T>>`); composes naturally
@@ -320,9 +315,9 @@ Haskell, Swift, Scala).
   allocation overhead unless the compiler optimizes it away (e.g. Rust's null
   pointer optimization).
 
-**Nullable type systems** (`String?` vs `String`) treat absence as a compile-time
-type state with zero runtime cost. Best suited to pragmatic, multi-paradigm
-languages prioritising velocity (Kotlin, TypeScript, C#, Dart).
+**Nullable type systems** (`String?` vs `String`) treat absence as a
+compile-time type state with zero runtime cost. Best suited to pragmatic,
+multi-paradigm languages prioritising velocity (Kotlin, TypeScript, C#, Dart).
 
 - Pro: zero boilerplate; clean ergonomics via `?.`, `??`, and compiler
   smart-casts; no wrapper overhead at runtime.

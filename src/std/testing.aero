@@ -13,7 +13,10 @@
 // so they cannot be silently disabled by a build flag.
 
 // Assert that `condition` is true.
-fn assert(condition: Bool, message: String = 'assertion failed') -> Result<Void, Error> {
+//
+//   testing.assert(x > 0)?;
+//   testing.assert(x > 0, message: 'must be positive')?;
+fn assert(_ condition: Bool, message: String = 'assertion failed') -> Result<Void, Error> {
     if !condition {
         throw message;
     }
@@ -21,6 +24,8 @@ fn assert(condition: Bool, message: String = 'assertion failed') -> Result<Void,
 }
 
 // Assert that `actual` equals `expected`.
+//
+//   testing.assert_eq(actual: result, expected: 5)?;
 fn assert_eq<T: Eq + Debug>(actual: T, expected: T) -> Result<Void, Error> {
     if actual != expected {
         throw 'assert_eq failed\n  actual:   ${actual.debug()}\n  expected: ${expected.debug()}';
@@ -29,6 +34,8 @@ fn assert_eq<T: Eq + Debug>(actual: T, expected: T) -> Result<Void, Error> {
 }
 
 // Assert that `actual` does not equal `unexpected`.
+//
+//   testing.assert_ne(actual: result, unexpected: 0)?;
 fn assert_ne<T: Eq + Debug>(actual: T, unexpected: T) -> Result<Void, Error> {
     if actual == unexpected {
         throw 'assert_ne failed: both values were ${actual.debug()}';
@@ -38,7 +45,9 @@ fn assert_ne<T: Eq + Debug>(actual: T, unexpected: T) -> Result<Void, Error> {
 
 // Assert that `result` is Ok, and return the inner value.
 // Useful for unwrapping in a test without a manual match.
-fn assert_ok<T, E: Debug>(result: Result<T, E>) -> Result<T, Error> {
+//
+//   let value = testing.assert_ok(some_result)?;
+fn assert_ok<T, E: Debug>(_ result: Result<T, E>) -> Result<T, Error> {
     match result {
         Ok(value) => return Ok(value),
         Err(e)    => throw 'assert_ok failed: got Err(${e.debug()})',
@@ -46,7 +55,9 @@ fn assert_ok<T, E: Debug>(result: Result<T, E>) -> Result<T, Error> {
 }
 
 // Assert that `result` is Err.
-fn assert_err<T, E>(result: Result<T, E>) -> Result<Void, Error> {
+//
+//   testing.assert_err(parse_port('99999'))?;
+fn assert_err<T, E>(_ result: Result<T, E>) -> Result<Void, Error> {
     match result {
         Ok(_)  => throw 'assert_err failed: got Ok',
         Err(_) => return Ok(()),

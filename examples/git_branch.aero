@@ -1,12 +1,12 @@
 import std.process;
 
 fn current_branch() -> Result<String, Error> {
-    let out = process.run('git', ['rev-parse', '--abbrev-ref', 'HEAD'])?;
+    let out = process.run('git', args: ['rev-parse', '--abbrev-ref', 'HEAD'])?;
     return Ok(out.stdout.trim());
 }
 
 fn all_branches() -> Result<List<String>, Error> {
-    let out = process.run('git', ['branch', '--format=%(refname:short)'])?;
+    let out = process.run('git', args: ['branch', '--format=%(refname:short)'])?;
     let branches = out.stdout
         .lines()
         .map(line => line.trim())
