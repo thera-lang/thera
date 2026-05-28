@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import '../ast.dart';
+import '../lexer.dart';
+import '../parser.dart';
 import 'environment.dart';
 import 'value.dart';
 
@@ -35,32 +37,23 @@ class Interpreter {
   // native methods: typeName -> methodName -> NativeFnValue
   final _nativeMethods = <String, Map<String, NativeFnValue>>{};
 
+  // base directory for resolving relative imports; set per-execution
+  String? _baseDir;
+
   Interpreter() {
     _registerNativeMethods();
   }
 
-  // ---- public entry point ----
+  // ---- public entry points ----
 
   /// Execute [program] with the given CLI [args].
+  /// [baseDir] is used to resolve relative imports.
   /// Returns the process exit code.
-  int execute(Program program, List<String> args) {
+  int execute(Program program, List<String> args, {String? baseDir}) {
+    _baseDir = baseDir;
     final env = Environment();
     _setupGlobals(env);
-
-    for (final decl in program.decls) {
-      switch (decl) {
-        case FnDecl():
-          env.define(decl.name, FnValue(decl, env));
-        case ImplDecl():
-          _registerImpl(decl, env);
-        case ImportDecl():
-          _handleImport(decl.path, decl.alias, env);
-        case TypeDecl():
-          break; // no runtime action for type declarations
-        case InterfaceDecl():
-          break;
-      }
-    }
+    _loadDecls(program.decls, env);
 
     final mainFn = env.tryLookup('main');
     if (mainFn == null) {
@@ -103,9 +96,55 @@ class Interpreter {
   }
 
   void _handleImport(String path, String? alias, Environment env) {
-    final prefix = alias ?? path.split('.').last;
-    final module = _makeModule(path);
-    if (module != null) env.define(prefix, module);
+    // stdlib modules start with 'std.'
+    if (path.startsWith('std.')) {
+      final prefix = alias ?? path.split('.').last;
+      final module = _makeModule(path);
+      if (module != null) env.define(prefix, module);
+      return;
+    }
+    // relative file import: load <baseDir>/<path>.aero
+    _handleFileImport(path, alias, env);
+  }
+
+  void _handleFileImport(String path, String? alias, Environment env) {
+    final base = _baseDir;
+    if (base == null) throw InterpreterError('relative import "$path" but no base directory set');
+    final filePath = '$base/$path.aero';
+    final String source;
+    try {
+      source = File(filePath).readAsStringSync();
+    } on FileSystemException {
+      throw InterpreterError('cannot find module "$path" (looked for $filePath)');
+    }
+    final lexResult = Lexer(source).tokenize();
+    if (lexResult.hasErrors) {
+      throw InterpreterError('lex errors in $filePath: ${lexResult.errors.first}');
+    }
+    final parseResult = Parser(lexResult.tokens).parse();
+    if (parseResult.hasErrors) {
+      throw InterpreterError('parse errors in $filePath: ${parseResult.errors.first}');
+    }
+    // Execute the imported module's declarations into the current env so that
+    // its functions and impls are directly visible (no prefix for file imports).
+    _loadDecls(parseResult.program.decls, env);
+  }
+
+  void _loadDecls(List<Decl> decls, Environment env) {
+    for (final decl in decls) {
+      switch (decl) {
+        case FnDecl():
+          env.define(decl.name, FnValue(decl, env));
+        case ImplDecl():
+          _registerImpl(decl, env);
+        case ImportDecl():
+          _handleImport(decl.path, decl.alias, env);
+        case TypeDecl():
+          break;
+        case InterfaceDecl():
+          break;
+      }
+    }
   }
 
   Value? _makeModule(String path) => switch (path) {
@@ -285,11 +324,10 @@ class Interpreter {
       }),
       'lines': NativeFnValue('String.lines', (args, named) {
         final s = (args[0] as StringValue).v;
-        // Split on \n; a trailing newline does not produce an extra empty entry.
-        final lines = s.endsWith('\n')
-            ? s.substring(0, s.length - 1).split('\n')
-            : s.split('\n');
-        return ListValue(lines.map((l) => StringValue(l)).toList());
+        if (s.isEmpty) return ListValue([]);
+        // A trailing newline does not produce an extra empty entry.
+        final trimmed = s.endsWith('\n') ? s.substring(0, s.length - 1) : s;
+        return ListValue(trimmed.split('\n').map((l) => StringValue(l)).toList());
       }),
       'split_whitespace': NativeFnValue('String.split_whitespace', (args, named) {
         final s = (args[0] as StringValue).v;
@@ -948,6 +986,69 @@ class Interpreter {
         VoidValue() => 'Void',
         StructValue(:final typeName) => typeName,
       };
+
+  // ---- test runner ----
+
+  /// Run all @test functions in [program].
+  /// [filePath] determines the base directory for relative imports.
+  /// Returns the number of test failures.
+  int runTests(Program program, String filePath, {bool verbose = false}) {
+    _baseDir = File(filePath).parent.path;
+    final env = Environment();
+    _setupGlobals(env);
+
+    // Collect @test functions while loading declarations.
+    final testFns = <FnDecl>[];
+    for (final decl in program.decls) {
+      switch (decl) {
+        case FnDecl():
+          env.define(decl.name, FnValue(decl, env));
+          if (decl.decorators.any((d) => d.name == 'test')) testFns.add(decl);
+        case ImplDecl():
+          _registerImpl(decl, env);
+        case ImportDecl():
+          _handleImport(decl.path, decl.alias, env);
+        case TypeDecl():
+          break;
+        case InterfaceDecl():
+          break;
+      }
+    }
+
+    if (testFns.isEmpty) {
+      if (verbose) stderr.writeln('$filePath: no @test functions found');
+      return 0;
+    }
+
+    var passed = 0;
+    var failed = 0;
+    for (final fn in testFns) {
+      final label = '$filePath::${fn.name}';
+      try {
+        final result = _callFnWithValues(fn, env, null, {});
+        switch (result) {
+          case ResultValue(isOk: false, :final inner):
+            failed++;
+            stdout.writeln('FAIL $label');
+            stdout.writeln('  ${inner.display()}');
+          case _:
+            passed++;
+            if (verbose) stdout.writeln('ok   $label');
+        }
+      } on InterpreterError catch (e) {
+        failed++;
+        stdout.writeln('FAIL $label');
+        stdout.writeln('  $e');
+      }
+    }
+
+    if (verbose) {
+      final total = passed + failed;
+      stdout.writeln('$passed/$total passed');
+    }
+
+    return failed;
+  }
 
   ArgsValue _makeArgsValue(List<String> cliArgs) {
     final positionals = <String>[];

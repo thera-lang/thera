@@ -19,6 +19,8 @@ void main(List<String> args) {
       _runParse(rest);
     case 'run':
       _runFile(rest);
+    case 'test':
+      _runTests(rest);
     default:
       stderr.writeln('aero: unknown command: $command');
       _printUsage();
@@ -32,6 +34,7 @@ void _printUsage() {
   stderr.writeln('commands:');
   stderr.writeln('  parse <file>            lex and parse <file>, print the AST');
   stderr.writeln('  run   <file> [-- args]  run <file>; args after -- are passed to main');
+  stderr.writeln('  test  <file>...         run @test functions in <file>');
 }
 
 Program _loadProgram(String path) {
@@ -68,6 +71,21 @@ void _runParse(List<String> args) {
     exit(1);
   }
   stdout.write(_loadProgram(args[0]).describe());
+}
+
+void _runTests(List<String> args) {
+  if (args.isEmpty) {
+    stderr.writeln('usage: aero test <file>... [--verbose]');
+    exit(1);
+  }
+  final verbose = args.contains('--verbose');
+  final files = args.where((a) => !a.startsWith('--')).toList();
+  var totalFailures = 0;
+  for (final path in files) {
+    final program = _loadProgram(path);
+    totalFailures += Interpreter().runTests(program, path, verbose: verbose);
+  }
+  exit(totalFailures > 0 ? 1 : 0);
 }
 
 void _runFile(List<String> args) {
