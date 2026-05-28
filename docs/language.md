@@ -166,14 +166,20 @@ the function body (avoiding a clash with a potential `default` keyword).
 
 ## Concurrency
 
-Aero targets a **fiber-based (colorless) concurrency model**. All I/O calls look
-synchronous — there are no `async`/`await` keywords and no `Future<T>` return
-types. When a fiber blocks on I/O, the runtime parks it and switches to another;
-the calling code never observes the difference.
+Aero uses a **single-threaded cooperative fiber model**. All fibers run on one
+thread, multiplexed by the runtime scheduler. All I/O calls look synchronous —
+there are no `async`/`await` keywords and no `Future<T>` return types. When a
+fiber blocks on I/O, the runtime parks it and resumes another; the calling code
+never observes the difference.
+
+Because only one fiber runs at a time, there is no shared mutable state between
+concurrent fibers and no need for synchronization primitives (mutexes, semaphores,
+channels). This avoids the deadlock and data-race hazards of a multi-threaded
+model while keeping the programming model simple.
 
 ```aero
 // These two functions look identical at the type level.
-// fetch_user may block on a network call; double does not.
+// fetch_user may park the fiber on a network call; double does not.
 // The caller treats them the same way.
 
 fn double(_ x: Int) -> Int {
@@ -192,13 +198,14 @@ fn main(args: Args) -> Result<Int, Error> {
 }
 ```
 
-Spawning a fiber runs work concurrently. Fibers are lightweight and cheap:
+Spawning a fiber runs work concurrently on the same thread. Results are returned
+via `join()` — the only way to get data out of a fiber:
 
 ```aero
 import std.fiber;
 
-let handle = fiber.spawn(() => fetch_user(42));
-// ... do other work ...
+let handle = fiber.spawn(() => fetch_user(id: 42));
+// ... do other work on this fiber ...
 let user = handle.join()?;
 ```
 
@@ -318,8 +325,8 @@ let doubled = nums.map(n => n * 2).to_list();
 
 ## Imports
 
-Standard library modules are imported by path. Imported names are used as
-qualified identifiers.
+Standard library modules are imported by path. The last path segment becomes the
+local prefix used to reference the module's members:
 
 ```aero
 import std.fs;
@@ -328,9 +335,42 @@ import std.process;
 let text = fs.read_text('config.toml')?;
 ```
 
-`std.core` is automatically imported into every file. It provides the
-fundamental interfaces (`Eq`, `Display`, `Debug`) and does not need to appear in
-an explicit import statement.
+Use `as` to give the import an explicit prefix. This is useful when the default
+segment is ambiguous, conflicts with a local name, or you want a shorter alias:
+
+```aero
+import std.testing as testing;
+import std.fs as fs;
+
+testing.assert_eq(actual: result, expected: 5)?;
+```
+
+`std.core` and `std.args` are automatically imported into every file and do not
+need to appear in an explicit import statement. `std.core` provides the
+fundamental interfaces (`Eq`, `Display`, `Debug`); `std.args` provides `Args`.
+
+---
+
+## Native bindings (FFI)
+
+`native fn` declares a function implemented in native code (e.g. a C library
+linked into the runtime). The declaration provides the Aero-visible signature;
+the implementation is resolved at link time. Native functions have no body.
+
+```aero
+native fn re2_compile(_ pattern: String) -> Result<NativeHandle, String>
+native fn re2_is_match(_ handle: NativeHandle, _ text: String) -> Bool
+```
+
+Native functions are an implementation detail of stdlib modules. User code
+calls the Aero wrappers, not the native bindings directly.
+
+An opaque type wraps a native handle whose internal layout is managed by the
+runtime. Declare it as an empty struct:
+
+```aero
+type NativeHandle = {}   // opaque; not constructed directly in Aero
+```
 
 ---
 
@@ -385,8 +425,8 @@ impl Greet for User {
 
 ### Inherent methods
 
-Methods that belong to a type but do not implement an interface are defined in
-a plain `impl TypeName` block:
+Methods that belong to a type but do not implement an interface are defined in a
+plain `impl TypeName` block:
 
 ```aero
 type Counter = {
@@ -409,6 +449,21 @@ println('${c.value}');   // 2
 
 A type may have any number of `impl` blocks — one for inherent methods and one
 per interface implemented.
+
+### Static methods
+
+Functions in an `impl` block that take no `self` parameter are static methods,
+called on the type name rather than an instance:
+
+```aero
+impl Regex {
+    fn compile(_ pattern: String) -> Result<Regex, Error> { ... }  // static
+    fn is_match(self, _ text: String) -> Bool { ... }              // instance
+}
+
+let re = Regex.compile('[0-9]+')?;   // static call
+re.is_match('abc123');               // instance call
+```
 
 ### Display and Debug
 
@@ -474,7 +529,9 @@ so that the first failure propagates out of the test immediately.
 
 ```aero
 // src/math_test.aero
+
 import std.testing;
+
 import './math';
 
 @test
