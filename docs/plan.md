@@ -207,12 +207,19 @@ host language. Criteria:
 | Rust           | pest, nom, chumsky          | Slow iteration  | Natural             | Right choice for a production compiler        |
 | Go             | participle, pigeon          | Medium          | Natural             | Simple, fast compile                          |
 
-**Recommendation: TypeScript for the POC; Rust for a production compiler.**
+**Decision: Dart for the POC; Rust for a production compiler.**
 
-TypeScript lets you write the parser, AST, type-checker, and interpreter
-quickly, run them with `ts-node` or Bun, and get a working end-to-end pipeline
-in days rather than weeks. The generated-TypeScript backend also closes the
-loop: the Aero compiler is itself a TypeScript program that emits TypeScript.
+Dart was chosen over TypeScript for the POC:
+
+- Team familiarity means faster iteration
+- `dart compile exe` produces a single native binary, directly mirroring
+  Aero's own distribution goal
+- Dart 3's sealed classes and exhaustive switch are a natural fit for
+  AST-heavy compiler code
+- The bootstrap path (Dart → rewrite in Aero) is as clean as any alternative
+
+The toolchain lives in `tool/`; see `docs/phases.md` for the implementation
+plan and milestones.
 
 When the language design stabilises and bootstrap becomes the goal, rewriting
 the compiler in Rust (or in Aero itself) is the natural path.
@@ -238,6 +245,25 @@ the compiler in Rust (or in Aero itself) is the natural path.
 
 ## Open design questions
 
+- **Concurrency: beyond single-threaded fibers** — the current model is
+  single-threaded cooperative fibers: simple, no synchronization needed, but
+  no CPU parallelism. Two directions worth revisiting if parallelism becomes a
+  requirement:
+  - *Immutable-only sharing:* allow multiple threads, but fibers may only share
+    immutable values across thread boundaries. Limitation: an immutable variable
+    reference does not guarantee an immutable object graph, so this is harder to
+    enforce than it appears without deeper type-system support.
+  - *Thread-isolated heaps:* multiple threads each run their own fiber scheduler
+    with a private heap; no shared memory between threads. Threads communicate
+    only by passing serialized/copied values. Removes the need for synchronization
+    primitives while enabling CPU parallelism. Unclear what the right problem
+    domain is for this vs. the simpler single-threaded model; deferred.
+- **Visibility / access control** — how are public vs. private symbols
+  distinguished? Options include: a `pub` keyword on declarations (Rust style),
+  a naming convention (leading `_` = private, Go style), an explicit `export`
+  list at the bottom of a file (ES module style), or a separate interface file.
+  This is needed to hide implementation details such as `native fn` bindings and
+  internal helper types from the public API of a module. Unresolved.
 - **Module / package system** — file-per-module (Go style) or explicit `import`
   declarations?
 - **Generics** — parametric only, or do we need constraints/bounds from day 1?
