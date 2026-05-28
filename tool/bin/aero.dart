@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:aero/src/ast.dart';
+import 'package:aero/src/interpreter/interpreter.dart';
 import 'package:aero/src/lexer.dart';
 import 'package:aero/src/parser.dart';
 
@@ -15,6 +17,8 @@ void main(List<String> args) {
   switch (command) {
     case 'parse':
       _runParse(rest);
+    case 'run':
+      _runFile(rest);
     default:
       stderr.writeln('aero: unknown command: $command');
       _printUsage();
@@ -26,16 +30,11 @@ void _printUsage() {
   stderr.writeln('usage: aero <command> [options]');
   stderr.writeln('');
   stderr.writeln('commands:');
-  stderr.writeln('  parse <file>   lex and parse <file>, print the AST');
+  stderr.writeln('  parse <file>            lex and parse <file>, print the AST');
+  stderr.writeln('  run   <file> [-- args]  run <file>; args after -- are passed to main');
 }
 
-void _runParse(List<String> args) {
-  if (args.isEmpty) {
-    stderr.writeln('usage: aero parse <file>');
-    exit(1);
-  }
-  final path = args[0];
-
+Program _loadProgram(String path) {
   final String source;
   try {
     source = File(path).readAsStringSync();
@@ -60,5 +59,28 @@ void _runParse(List<String> args) {
     exit(1);
   }
 
-  stdout.write(parseResult.program.describe());
+  return parseResult.program;
+}
+
+void _runParse(List<String> args) {
+  if (args.isEmpty) {
+    stderr.writeln('usage: aero parse <file>');
+    exit(1);
+  }
+  stdout.write(_loadProgram(args[0]).describe());
+}
+
+void _runFile(List<String> args) {
+  if (args.isEmpty) {
+    stderr.writeln('usage: aero run <file> [-- program-args]');
+    exit(1);
+  }
+  final path = args[0];
+  // Everything after '--' (or after the filename if no '--') is passed to main.
+  final sep = args.indexOf('--');
+  final programArgs = sep >= 0 ? args.sublist(sep + 1) : args.sublist(1);
+
+  final program = _loadProgram(path);
+  final exitCode = Interpreter().execute(program, programArgs);
+  exit(exitCode);
 }
