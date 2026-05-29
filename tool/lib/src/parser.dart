@@ -46,7 +46,8 @@ class Parser {
   bool get _atEnd => _current.isEof;
 
   Token get _current => _tokens[_pos];
-  Token get _next => _pos + 1 < _tokens.length ? _tokens[_pos + 1] : _tokens.last;
+  Token get _next =>
+      _pos + 1 < _tokens.length ? _tokens[_pos + 1] : _tokens.last;
 
   Token _advance() {
     final t = _tokens[_pos];
@@ -66,7 +67,8 @@ class Parser {
 
   Token _expect(TokenKind kind, String description) {
     if (_check(kind)) return _advance();
-    _fail('expected $description, found ${_current.span.text.isEmpty ? _current.kind.name : '"${_current.span.text}"'}');
+    _fail(
+        'expected $description, found ${_current.span.text.isEmpty ? _current.kind.name : '"${_current.span.text}"'}');
   }
 
   // Records an error and throws to unwind to the nearest try/catch.
@@ -117,15 +119,18 @@ class Parser {
       return _parseFnDecl(decorators, isNative: false);
     }
     if (k == TokenKind.kwType) {
-      if (decorators.isNotEmpty) _fail('decorators are not allowed on type declarations');
+      if (decorators.isNotEmpty)
+        _fail('decorators are not allowed on type declarations');
       return _parseTypeDecl();
     }
     if (k == TokenKind.kwImpl) {
-      if (decorators.isNotEmpty) _fail('decorators are not allowed on impl blocks');
+      if (decorators.isNotEmpty)
+        _fail('decorators are not allowed on impl blocks');
       return _parseImplDecl();
     }
     if (k == TokenKind.kwInterface) {
-      if (decorators.isNotEmpty) _fail('decorators are not allowed on interface declarations');
+      if (decorators.isNotEmpty)
+        _fail('decorators are not allowed on interface declarations');
       return _parseInterfaceDecl();
     }
 
@@ -155,7 +160,8 @@ class Parser {
       path = _advance().value!;
     } else {
       // module.path form: identifier ('.' identifier)*
-      final buf = StringBuffer(_expect(TokenKind.identifier, 'module path').lexeme);
+      final buf =
+          StringBuffer(_expect(TokenKind.identifier, 'module path').lexeme);
       while (_check(TokenKind.dot)) {
         _advance();
         buf.write('.');
@@ -174,7 +180,8 @@ class Parser {
   FnDecl _parseFnDecl(List<Decorator> decorators, {required bool isNative}) {
     if (isNative) _advance(); // 'native'
     final start = _expect(TokenKind.kwFn, 'fn');
-    final name = _expect(TokenKind.identifier, 'function name').lexeme;
+    final nameTok = _expect(TokenKind.identifier, 'function name');
+    final name = nameTok.lexeme;
     final typeParams = _parseTypeParams();
     _expect(TokenKind.lParen, '(');
     final params = _parseParamList();
@@ -194,6 +201,7 @@ class Parser {
       decorators: decorators,
       isNative: isNative,
       name: name,
+      nameSpan: nameTok.span,
       typeParams: typeParams,
       params: params,
       returnType: returnType,
@@ -276,12 +284,13 @@ class Parser {
       defaultValue = _parseExpr();
     }
 
-    return Param(label: label, name: name, type: type, defaultValue: defaultValue);
+    return Param(
+        label: label, name: name, type: type, defaultValue: defaultValue);
   }
 
   TypeDecl _parseTypeDecl() {
     final start = _advance(); // 'type'
-    final name = _expect(TokenKind.identifier, 'type name').lexeme;
+    final nameTok = _expect(TokenKind.identifier, 'type name');
     _expect(TokenKind.eq, '=');
     _expect(TokenKind.lBrace, '{');
     final fields = <(String, TypeRef)>[];
@@ -293,21 +302,25 @@ class Parser {
       if (!_match(TokenKind.comma)) break;
     }
     _expect(TokenKind.rBrace, '}');
-    return TypeDecl(start.span, name: name, fields: fields);
+    return TypeDecl(start.span, name: nameTok.lexeme, nameSpan: nameTok.span, fields: fields);
   }
 
   ImplDecl _parseImplDecl() {
     final start = _advance(); // 'impl'
-    final first = _expect(TokenKind.identifier, 'type or interface name').lexeme;
+    final firstTok = _expect(TokenKind.identifier, 'type or interface name');
     String typeName;
+    SourceSpan nameSpan;
     String? interfaceName;
     if (_match(TokenKind.kwFor)) {
       // impl Interface for Type { ... }
-      interfaceName = first;
-      typeName = _expect(TokenKind.identifier, 'type name').lexeme;
+      interfaceName = firstTok.lexeme;
+      final typeNameTok = _expect(TokenKind.identifier, 'type name');
+      typeName = typeNameTok.lexeme;
+      nameSpan = typeNameTok.span;
     } else {
       // impl Type { ... }
-      typeName = first;
+      typeName = firstTok.lexeme;
+      nameSpan = firstTok.span;
     }
     _expect(TokenKind.lBrace, '{');
     final methods = <FnDecl>[];
@@ -320,12 +333,12 @@ class Parser {
     }
     _expect(TokenKind.rBrace, '}');
     return ImplDecl(start.span,
-        typeName: typeName, interfaceName: interfaceName, methods: methods);
+        typeName: typeName, nameSpan: nameSpan, interfaceName: interfaceName, methods: methods);
   }
 
   InterfaceDecl _parseInterfaceDecl() {
     final start = _advance(); // 'interface'
-    final name = _expect(TokenKind.identifier, 'interface name').lexeme;
+    final nameTok = _expect(TokenKind.identifier, 'interface name');
     _expect(TokenKind.lBrace, '{');
     final methods = <FnDecl>[];
     while (!_check(TokenKind.rBrace) && !_atEnd) {
@@ -333,7 +346,7 @@ class Parser {
       methods.add(_parseFnDecl([], isNative: false));
     }
     _expect(TokenKind.rBrace, '}');
-    return InterfaceDecl(start.span, name: name, methods: methods);
+    return InterfaceDecl(start.span, name: nameTok.lexeme, nameSpan: nameTok.span, methods: methods);
   }
 
   // ---- type references ----
@@ -366,8 +379,8 @@ class Parser {
     while (!_check(TokenKind.rBrace) && !_atEnd) {
       stmts.add(_parseStmt());
     }
-    _expect(TokenKind.rBrace, '}');
-    return Block(start.span, stmts);
+    final end = _expect(TokenKind.rBrace, '}');
+    return Block(start.span, end.span, stmts);
   }
 
   Stmt _parseStmt() {
@@ -422,7 +435,8 @@ class Parser {
     if (_match(TokenKind.kwElse)) {
       if (_check(TokenKind.kwIf)) {
         final inner = _parseIfStmt();
-        else_ = Block(inner.span, [inner]);
+        // Synthetic block: reuse the if's span for both start and end.
+        else_ = Block(inner.span, inner.span, [inner]);
       } else {
         else_ = _parseBlock();
       }
@@ -436,7 +450,8 @@ class Parser {
     _expect(TokenKind.kwIn, 'in');
     final iterable = _parseExprNoBrace();
     final body = _parseBlock();
-    return ForStmt(start.span, pattern: pattern, iterable: iterable, body: body);
+    return ForStmt(start.span,
+        pattern: pattern, iterable: iterable, body: body);
   }
 
   WhileStmt _parseWhileStmt() {
@@ -467,8 +482,10 @@ class Parser {
       }
       return IdentPattern(name);
     }
-    if (_check(TokenKind.kwTrue) || _check(TokenKind.kwFalse) ||
-        _check(TokenKind.intLiteral) || _check(TokenKind.stringLiteral)) {
+    if (_check(TokenKind.kwTrue) ||
+        _check(TokenKind.kwFalse) ||
+        _check(TokenKind.intLiteral) ||
+        _check(TokenKind.stringLiteral)) {
       return LiteralPattern(_parsePrimary());
     }
     _fail('expected a pattern');
@@ -516,8 +533,10 @@ class Parser {
 
   Expr _parseComparison({bool allowStructLiteral = true}) {
     var left = _parseRange(allowStructLiteral: allowStructLiteral);
-    while (_check(TokenKind.lt) || _check(TokenKind.gt) ||
-        _check(TokenKind.ltEq) || _check(TokenKind.gtEq)) {
+    while (_check(TokenKind.lt) ||
+        _check(TokenKind.gt) ||
+        _check(TokenKind.ltEq) ||
+        _check(TokenKind.gtEq)) {
       final op = _advance().span.text;
       final right = _parseRange(allowStructLiteral: allowStructLiteral);
       left = BinaryExpr(left.span, left: left, op: op, right: right);
@@ -539,7 +558,8 @@ class Parser {
     var left = _parseMultiplication(allowStructLiteral: allowStructLiteral);
     while (_check(TokenKind.plus) || _check(TokenKind.minus)) {
       final op = _advance().span.text;
-      final right = _parseMultiplication(allowStructLiteral: allowStructLiteral);
+      final right =
+          _parseMultiplication(allowStructLiteral: allowStructLiteral);
       left = BinaryExpr(left.span, left: left, op: op, right: right);
     }
     return left;
@@ -547,7 +567,8 @@ class Parser {
 
   Expr _parseMultiplication({bool allowStructLiteral = true}) {
     var left = _parseUnary(allowStructLiteral: allowStructLiteral);
-    while (_check(TokenKind.star) || _check(TokenKind.slash) ||
+    while (_check(TokenKind.star) ||
+        _check(TokenKind.slash) ||
         _check(TokenKind.percent)) {
       final op = _advance().span.text;
       final right = _parseUnary(allowStructLiteral: allowStructLiteral);
@@ -582,7 +603,8 @@ class Parser {
         // Expect ( immediately after type args for a generic call.
         if (_check(TokenKind.lParen)) {
           final args = _parseCallArgs();
-          expr = CallExpr(expr.span, callee: expr, typeArgs: typeArgs, args: args);
+          expr =
+              CallExpr(expr.span, callee: expr, typeArgs: typeArgs, args: args);
         } else {
           // Not a call — treat the < as a comparison operator (put it back by
           // not consuming it). Since we already consumed it, insert a synthetic
@@ -611,8 +633,7 @@ class Parser {
       // Labeled arg: ident ':'  expr
       // Unlabeled:   expr
       String? label;
-      if (_check(TokenKind.identifier) &&
-          _next.kind == TokenKind.colon) {
+      if (_check(TokenKind.identifier) && _next.kind == TokenKind.colon) {
         label = _advance().lexeme;
         _advance(); // ':'
       }
@@ -638,7 +659,10 @@ class Parser {
       if (i >= _tokens.length) return false;
       final after = _tokens[i];
       if (after.kind == TokenKind.gt) return true;
-      if (after.kind == TokenKind.comma) { i++; continue; }
+      if (after.kind == TokenKind.comma) {
+        i++;
+        continue;
+      }
       // Handle nested generics like Result<T, E> — look for matching >
       if (after.kind == TokenKind.lt) return false; // too complex for now
       return false;
@@ -708,8 +732,10 @@ class Parser {
       case TokenKind.kwReturn:
         _advance();
         Expr? retVal;
-        if (!_check(TokenKind.semi) && !_check(TokenKind.rBrace) &&
-            !_check(TokenKind.comma) && !_atEnd) {
+        if (!_check(TokenKind.semi) &&
+            !_check(TokenKind.rBrace) &&
+            !_check(TokenKind.comma) &&
+            !_atEnd) {
           retVal = _parseExpr();
         }
         return ReturnExpr(t.span, value: retVal);
@@ -808,7 +834,8 @@ class Parser {
         final interpStart = i;
         var depth = 1;
         while (i < raw.length && depth > 0) {
-          if (raw[i] == '{') depth++;
+          if (raw[i] == '{')
+            depth++;
           else if (raw[i] == '}') depth--;
           i++;
         }

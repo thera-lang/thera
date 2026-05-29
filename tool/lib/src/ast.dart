@@ -25,7 +25,7 @@ sealed class Decl {
 }
 
 class ImportDecl extends Decl {
-  final String path;  // e.g. 'std.fs' or 'wordcount'
+  final String path; // e.g. 'std.fs' or 'wordcount'
   final String? alias;
   ImportDecl(super.span, {required this.path, this.alias});
 
@@ -38,6 +38,7 @@ class FnDecl extends Decl {
   final List<Decorator> decorators;
   final bool isNative;
   final String name;
+  final SourceSpan nameSpan;
   final List<TypeParam> typeParams;
   final List<Param> params;
   final TypeRef? returnType;
@@ -47,6 +48,7 @@ class FnDecl extends Decl {
     required this.decorators,
     required this.isNative,
     required this.name,
+    required this.nameSpan,
     this.typeParams = const [],
     required this.params,
     this.returnType,
@@ -70,8 +72,9 @@ class FnDecl extends Decl {
 
 class TypeDecl extends Decl {
   final String name;
+  final SourceSpan nameSpan;
   final List<(String, TypeRef)> fields;
-  TypeDecl(super.span, {required this.name, required this.fields});
+  TypeDecl(super.span, {required this.name, required this.nameSpan, required this.fields});
 
   @override
   String describe([String indent = '']) {
@@ -82,10 +85,11 @@ class TypeDecl extends Decl {
 
 class ImplDecl extends Decl {
   final String typeName;
+  final SourceSpan nameSpan; // span of typeName
   final String? interfaceName; // null = inherent impl
   final List<FnDecl> methods;
   ImplDecl(super.span,
-      {required this.typeName, this.interfaceName, required this.methods});
+      {required this.typeName, required this.nameSpan, this.interfaceName, required this.methods});
 
   @override
   String describe([String indent = '']) {
@@ -102,8 +106,9 @@ class ImplDecl extends Decl {
 
 class InterfaceDecl extends Decl {
   final String name;
+  final SourceSpan nameSpan;
   final List<FnDecl> methods;
-  InterfaceDecl(super.span, {required this.name, required this.methods});
+  InterfaceDecl(super.span, {required this.name, required this.nameSpan, required this.methods});
 
   @override
   String describe([String indent = '']) {
@@ -122,7 +127,8 @@ class Decorator {
   final List<Expr> args;
   Decorator(this.name, {this.args = const []});
 
-  String describe() => '@$name${args.isEmpty ? '' : '(${args.map((a) => a.describe()).join(', ')})'}';
+  String describe() =>
+      '@$name${args.isEmpty ? '' : '(${args.map((a) => a.describe()).join(', ')})'}';
 }
 
 class TypeParam {
@@ -130,8 +136,7 @@ class TypeParam {
   final List<String> bounds; // e.g. ['Eq', 'Debug']
   const TypeParam(this.name, {this.bounds = const []});
 
-  String describe() =>
-      bounds.isEmpty ? name : '$name: ${bounds.join(' + ')}';
+  String describe() => bounds.isEmpty ? name : '$name: ${bounds.join(' + ')}';
 }
 
 class Param {
@@ -199,7 +204,10 @@ class LetStmt extends Stmt {
   final TypeRef? type;
   final Expr value;
   LetStmt(super.span,
-      {required this.isMut, required this.name, this.type, required this.value});
+      {required this.isMut,
+      required this.name,
+      this.type,
+      required this.value});
 
   @override
   String describe([String indent = '']) {
@@ -232,16 +240,14 @@ class ExprStmt extends Stmt {
   ExprStmt(super.span, this.expr);
 
   @override
-  String describe([String indent = '']) =>
-      '$indent${expr.describe()}\n';
+  String describe([String indent = '']) => '$indent${expr.describe()}\n';
 }
 
 class IfStmt extends Stmt {
   final Expr condition;
   final Block then;
   final Block? else_;
-  IfStmt(super.span,
-      {required this.condition, required this.then, this.else_});
+  IfStmt(super.span, {required this.condition, required this.then, this.else_});
 
   @override
   String describe([String indent = '']) {
@@ -264,8 +270,8 @@ class ForStmt extends Stmt {
 
   @override
   String describe([String indent = '']) {
-    final buf =
-        StringBuffer('${indent}for ${pattern.describe()} in ${iterable.describe()}\n');
+    final buf = StringBuffer(
+        '${indent}for ${pattern.describe()} in ${iterable.describe()}\n');
     buf.write(body.describe('$indent  '));
     return buf.toString();
   }
@@ -285,9 +291,10 @@ class WhileStmt extends Stmt {
 }
 
 class Block {
-  final SourceSpan span;
+  final SourceSpan span;    // the { token
+  final SourceSpan endSpan; // the } token
   final List<Stmt> stmts;
-  Block(this.span, this.stmts);
+  Block(this.span, this.endSpan, this.stmts);
 
   String describe([String indent = '']) {
     final buf = StringBuffer('${indent}Block\n');
@@ -323,8 +330,9 @@ class ConstructorPattern extends Pattern {
   final List<Pattern> args;
   ConstructorPattern(this.name, this.args);
   @override
-  String describe() =>
-      args.isEmpty ? name : '$name(${args.map((a) => a.describe()).join(', ')})';
+  String describe() => args.isEmpty
+      ? name
+      : '$name(${args.map((a) => a.describe()).join(', ')})';
 }
 
 class LiteralPattern extends Pattern {
@@ -371,10 +379,12 @@ class StringExpr extends Expr {
 
   @override
   String describe() {
-    final inner = parts.map((p) => switch (p) {
-          TextPart(:final text) => text,
-          InterpPart(:final expr) => '\${${expr.describe()}}',
-        }).join();
+    final inner = parts
+        .map((p) => switch (p) {
+              TextPart(:final text) => text,
+              InterpPart(:final expr) => '\${${expr.describe()}}',
+            })
+        .join();
     return '"$inner"';
   }
 }
@@ -461,7 +471,8 @@ class BinaryExpr extends Expr {
   final Expr left;
   final String op;
   final Expr right;
-  BinaryExpr(super.span, {required this.left, required this.op, required this.right});
+  BinaryExpr(super.span,
+      {required this.left, required this.op, required this.right});
   @override
   String describe() => '(${left.describe()} $op ${right.describe()})';
 }
@@ -531,8 +542,7 @@ class ReturnExpr extends Expr {
   final Expr? value;
   ReturnExpr(super.span, {this.value});
   @override
-  String describe() =>
-      'return${value != null ? ' ${value!.describe()}' : ''}';
+  String describe() => 'return${value != null ? ' ${value!.describe()}' : ''}';
 }
 
 class ThrowExpr extends Expr {
