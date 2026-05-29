@@ -156,6 +156,10 @@ class TypeChecker {
       case ReturnStmt(:final value):
         if (value != null) _checkExpr(value, scope, returnType: returnType);
 
+      case AssignStmt(:final target, :final value):
+        _checkExpr(target, scope);
+        _checkExpr(value, scope, returnType: returnType);
+
       case ExprStmt(:final expr):
         _checkExpr(expr, scope, returnType: returnType);
 

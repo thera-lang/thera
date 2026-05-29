@@ -393,9 +393,18 @@ class Parser {
     if (k == TokenKind.kwFor) return _parseForStmt();
     if (k == TokenKind.kwWhile) return _parseWhileStmt();
 
-    // Expression statement
+    // Expression statement or assignment (target = value).
+    // We parse the left side as an expression, then check for '='.
     final start = _current.span;
     final expr = _parseExpr();
+    if (_match(TokenKind.eq)) {
+      if (expr is! IdentExpr && expr is! FieldExpr && expr is! IndexExpr) {
+        _fail('invalid assignment target');
+      }
+      final rhs = _parseExpr();
+      _match(TokenKind.semi);
+      return AssignStmt(start, target: expr, value: rhs);
+    }
     _match(TokenKind.semi);
     return ExprStmt(start, expr);
   }

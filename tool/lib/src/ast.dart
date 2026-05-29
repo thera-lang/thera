@@ -244,6 +244,17 @@ class ExprStmt extends Stmt {
   String describe([String indent = '']) => '$indent${expr.describe()}\n';
 }
 
+// x = expr  /  x.field = expr  /  x[i] = expr
+class AssignStmt extends Stmt {
+  final Expr target; // must be IdentExpr, FieldExpr, or IndexExpr
+  final Expr value;
+  AssignStmt(super.span, {required this.target, required this.value});
+
+  @override
+  String describe([String indent = '']) =>
+      '$indent${target.describe()} = ${value.describe()}\n';
+}
+
 class IfStmt extends Stmt {
   final Expr condition;
   final Block then;

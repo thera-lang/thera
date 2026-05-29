@@ -204,6 +204,27 @@ interface Greet {
       final stmts = bodyOf('fn f() { while x { } }');
       expect(stmts.single, isA<WhileStmt>());
     });
+
+    test('variable assignment', () {
+      final stmts = bodyOf('fn f() { let mut x = 0; x = x + 1; }');
+      expect(stmts[1], isA<AssignStmt>());
+      final assign = stmts[1] as AssignStmt;
+      expect((assign.target as IdentExpr).name, 'x');
+      expect(assign.value, isA<BinaryExpr>());
+    });
+
+    test('field assignment', () {
+      final stmts = bodyOf('fn f() { obj.field = 42; }');
+      final assign = stmts.single as AssignStmt;
+      final target = assign.target as FieldExpr;
+      expect(target.field, 'field');
+    });
+
+    test('index assignment', () {
+      final stmts = bodyOf('fn f() { xs[0] = 99; }');
+      final assign = stmts.single as AssignStmt;
+      expect(assign.target, isA<IndexExpr>());
+    });
   });
 
   group('expressions', () {

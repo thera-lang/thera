@@ -560,6 +560,32 @@ class Interpreter {
             value != null ? _evalExpr(value, env) : VoidValue.instance);
       case ThrowStmt(:final value):
         throw _PropagateError(_evalExpr(value, env));
+      case AssignStmt(:final target, :final value):
+        final val = _evalExpr(value, env);
+        switch (target) {
+          case IdentExpr(:final name):
+            if (!env.assign(name, val)) {
+              throw InterpreterError('cannot assign to undefined variable: $name');
+            }
+          case FieldExpr(:final object, :final field):
+            final obj = _evalExpr(object, env);
+            if (obj is! StructValue) {
+              throw InterpreterError(
+                  'cannot assign field on non-struct ${_typeNameOf(obj)}');
+            }
+            obj.fields[field] = val;
+          case IndexExpr(:final object, :final index):
+            final obj = _evalExpr(object, env);
+            final idx = _evalExpr(index, env);
+            if (obj is ListValue && idx is IntValue) {
+              obj.items[idx.v] = val;
+            } else {
+              throw InterpreterError(
+                  'cannot index-assign ${_typeNameOf(obj)} with ${_typeNameOf(idx)}');
+            }
+          default:
+            throw InterpreterError('invalid assignment target');
+        }
       case ExprStmt(:final expr):
         _evalExpr(expr, env);
       case IfStmt(:final condition, :final then, :final else_):
