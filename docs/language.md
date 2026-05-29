@@ -349,6 +349,29 @@ testing.assert_eq(actual: result, expected: 5)?;
 need to appear in an explicit import statement. `std.core` provides the
 fundamental interfaces (`Eq`, `Display`, `Debug`); `std.args` provides `Args`.
 
+### Import resolution
+
+There are two forms of import: **stdlib** (`std.*`) and **relative file**
+(a quoted path).
+
+**Stdlib imports** resolve against the SDK's standard library directory:
+
+```
+<sdk_root>/src/std/<module>.aero
+```
+
+For example, `import std.fs` resolves to `<sdk_root>/src/std/fs.aero`.
+
+**Relative file imports** resolve against the directory of the importing file:
+
+```aero
+import 'wordcount'        // → <same dir>/wordcount.aero
+import 'util/strings'     // → <same dir>/util/strings.aero
+```
+
+The `.aero` extension is always implied and must not be written in the import
+path. Absolute paths and `..` traversals are not supported.
+
 ---
 
 ## Native bindings (FFI)
@@ -616,3 +639,86 @@ Additional flags:
 
 - `aero test <path>` — run tests under a specific file or directory
 - `aero test --filter <pattern>` — run only tests whose name matches
+
+---
+
+## SDK layout
+
+```
+<sdk_root>/
+  bin/
+    aero.sh          ← dev-mode entry point (delegates to tool/)
+    aero             ← compiled binary (distributed SDK only)
+  src/
+    std/
+      core.aero      ← auto-imported: Eq, Display, Debug
+      args.aero      ← auto-imported: Args
+      fs.aero        ← import std.fs
+      process.aero   ← import std.process
+      testing.aero   ← import std.testing
+      fiber.aero     ← import std.fiber
+      regex.aero     ← import std.regex
+      ...
+  tool/              ← Dart toolchain source (dev mode only)
+    bin/
+      aero.dart      ← CLI entry point
+    lib/src/
+      lexer.dart
+      parser.dart
+      ast.dart
+      checker/
+      interpreter/
+      lsp/
+    test/
+  examples/
+  docs/
+```
+
+### SDK root discovery
+
+The `aero` binary locates the SDK root at runtime by resolving one directory
+above its own location (`bin/../`). This works identically in both modes:
+
+| Mode | Binary location | SDK root |
+| ---- | --------------- | -------- |
+| Dev (from repo) | `<repo>/bin/aero.sh` | `<repo>/` |
+| Distributed | `<install>/bin/aero` | `<install>/` |
+
+`bin/aero.sh` is the dev-mode entry point. It sets `SDK_ROOT` to the parent of
+the `bin/` directory and delegates to `dart run tool/bin/aero.dart`. A compiled
+binary (`dart compile exe`) embeds the same root-discovery logic.
+
+The `AERO_SDK` environment variable overrides automatic discovery for cases such
+as running tests against an alternate SDK or wrapping the binary in a script.
+
+### Standard library source files
+
+Each `import std.<module>` statement resolves to:
+
+```
+<sdk_root>/src/std/<module>.aero
+```
+
+Stdlib source files are plain Aero source with `native fn` declarations for
+functions implemented in the runtime. The toolchain parses and type-checks them
+the same way it does user code.
+
+`std.core` and `std.args` are implicitly imported and do not appear in the
+resolved import graph unless explicitly re-imported with `as`.
+
+### Distributed SDK layout
+
+When `aero` is compiled to a native binary (`dart compile exe tool/bin/aero.dart
+-o bin/aero`), the `tool/` directory is no longer needed at runtime. The
+distributed layout is therefore:
+
+```
+<install>/
+  bin/
+    aero             ← single compiled binary
+  src/
+    std/             ← stdlib source files (still needed at runtime)
+```
+
+The `tool/` directory is not included in a distributed SDK.
+`dart pub get` or other Dart tooling is not required by end users.

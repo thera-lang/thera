@@ -18,31 +18,38 @@ implement a parser and interpreter.
 ## Project structure
 
 ```
-tool/
-  pubspec.yaml
+<sdk_root>/
   bin/
-    aero.dart                  ← CLI: aero parse / run / check
-  lib/
-    src/
+    aero.sh                    ← dev entry point (delegates to tool/)
+  src/std/                     ← stdlib source files
+    core.aero, args.aero, fs.aero, ...
+  tool/                        ← Dart toolchain (dev only; not in distributed SDK)
+    pubspec.yaml
+    bin/
+      aero.dart                ← CLI entry point
+    lib/src/
       token.dart               ← Token types and source spans
       lexer.dart               ← Source text → List<Token>
       ast.dart                 ← Sealed AST node hierarchy
       parser.dart              ← Token stream → Program AST
+      source_provider.dart     ← Overlay FS abstraction (for LSP)
       interpreter/             ← Phase 2
         interpreter.dart
         environment.dart
         value.dart
-        builtins.dart
       checker/                 ← Phase 4
         type_checker.dart
-  test/
-    lexer_test.dart
-    parser_test.dart
+      lsp/                     ← LSP server
+        server.dart
+    test/
+      parser_test.dart
+      checker_test.dart
+      lsp_server_test.dart
 ```
 
 ---
 
-## Phase 1 — Lexer + Parser ✅ (current)
+## Phase 1 — Lexer + Parser ✅
 
 **Milestone:** `aero parse examples/hello.aero` prints the AST without errors.
 
@@ -59,7 +66,7 @@ Covers:
 
 ---
 
-## Phase 2 — AST Interpreter
+## Phase 2 — AST Interpreter ✅
 
 **Milestone:** `aero run examples/hello.aero` prints `Hello, world!`.
 
@@ -77,7 +84,7 @@ Covers:
 
 ---
 
-## Phase 3 — Standard library + test runner
+## Phase 3 — Standard library + test runner ✅
 
 **Milestone:** `aero test examples/wordcount_test.aero` runs and passes all tests.
 
@@ -89,7 +96,7 @@ Native bindings to implement:
 
 ---
 
-## Phase 4 — Type checker
+## Phase 4 — Type checker ✅
 
 **Milestone:** `aero check examples/` reports type errors with line and column.
 
