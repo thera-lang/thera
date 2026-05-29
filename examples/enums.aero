@@ -1,0 +1,56 @@
+// Demonstrates ADT-style enums: zero-arg and payload variants, pattern
+// matching, and the built-in .name() method.
+
+enum Direction {
+    North,
+    South,
+    East,
+    West,
+}
+
+enum Shape {
+    Circle(Int),
+    Rect(Int, Int),
+    Point,
+}
+
+fn describe_direction(d: Direction) -> String {
+    return match d {
+        North => 'heading north',
+        South => 'heading south',
+        East  => 'heading east',
+        West  => 'heading west',
+    };
+}
+
+fn area(s: Shape) -> Int {
+    return match s {
+        Circle(r)    => r * r,
+        Rect(w, h)   => w * h,
+        Point        => 0,
+    };
+}
+
+fn main(args: Args) -> Result<Int, Error> {
+    // Zero-arg variants.
+    let d = Direction.North;
+    println(describe_direction(d));
+    println('name: ${d.name()}');
+
+    // Payload variants.
+    let c = Shape.Circle(5);
+    let r = Shape.Rect(4, 6);
+    let p = Shape.Point;
+
+    println('circle area: ${area(c)}');
+    println('rect area:   ${area(r)}');
+    println('point area:  ${area(p)}');
+
+    // Equality.
+    let d2 = Direction.North;
+    if d == d2 {
+        println('North == North');
+    }
+
+    return Ok(0);
+}

@@ -39,6 +39,9 @@ class Interpreter {
   // native methods: typeName -> methodName -> NativeFnValue
   final _nativeMethods = <String, Map<String, NativeFnValue>>{};
 
+  // enum declarations: typeName -> EnumDecl
+  final _enumDecls = <String, EnumDecl>{};
+
   // base directory for resolving relative imports; set per-execution
   String? _baseDir;
 
@@ -229,6 +232,8 @@ class Interpreter {
           break;
         case ConstDecl():
           env.define(decl.name, _evalExpr(decl.value, env));
+        case EnumDecl():
+          _enumDecls[decl.name] = decl;
       }
     }
   }
@@ -763,8 +768,25 @@ class Interpreter {
       IdentExpr(:final name) => _lookupIdent(name, env),
       CallExpr(:final callee, :final typeArgs, :final args) =>
         _evalCall(callee, typeArgs, args, env),
-      FieldExpr(:final object, :final field) =>
-        _evalFieldAccess(_evalExpr(object, env), field),
+      FieldExpr(:final object, :final field) => () {
+          // Enum variant access: EnumName.Variant (zero-arg) or
+          // EnumName.Variant used as constructor value.
+          if (object is IdentExpr) {
+            final ed = _enumDecls[object.name];
+            if (ed != null) {
+              final variant = ed.variants.firstWhere((v) => v.name == field,
+                  orElse: () =>
+                      throw InterpreterError('no variant $field on ${object.name}'));
+              if (variant.fields.isEmpty) {
+                return EnumValue(object.name, field, []);
+              }
+              // Return a constructor so EnumName.Variant can be used as a value.
+              return NativeFnValue('${object.name}.$field',
+                  (args, named) => EnumValue(object.name, field, args));
+            }
+          }
+          return _evalFieldAccess(_evalExpr(object, env), field);
+        }(),
       IndexExpr(:final object, :final index) =>
         _evalIndex(_evalExpr(object, env), _evalExpr(index, env)),
       BinaryExpr(:final left, :final op, :final right) =>
@@ -897,6 +919,18 @@ class Interpreter {
   Value _evalCall(Expr calleeExpr, List<TypeRef> typeArgs,
       List<CallArg> callArgs, Environment env) {
     if (calleeExpr is FieldExpr) {
+      // Enum variant constructor: EnumName.Variant(args)
+      if (calleeExpr.object case IdentExpr(:final name)
+          when _enumDecls.containsKey(name) && env.tryLookup(name) == null) {
+        final ed = _enumDecls[name]!;
+        final variant = ed.variants.firstWhere(
+          (v) => v.name == calleeExpr.field,
+          orElse: () =>
+              throw InterpreterError('no variant ${calleeExpr.field} on $name'),
+        );
+        return EnumValue(name, variant.name, _evalPositional(callArgs, env));
+      }
+
       // Static dispatch: TypeName.method(...) where TypeName is not a local var.
       if (calleeExpr.object case IdentExpr(:final name)
           when _methods.containsKey(name) && env.tryLookup(name) == null) {
@@ -1085,6 +1119,11 @@ class Interpreter {
           !subject.isOk &&
           (args.isEmpty ||
               _matchPattern(args[0], subject.inner, bindings, env)),
+      ConstructorPattern(:final name, :final args) when subject is EnumValue =>
+        subject.variantName == name &&
+            (args.isEmpty ||
+                (args.length == subject.fields.length &&
+                    _matchAll(args, subject.fields, bindings, env))),
       ConstructorPattern(:final name, :final args) => subject is StructValue &&
           subject.typeName == name &&
           args.isEmpty, // TODO: field patterns
@@ -1092,10 +1131,23 @@ class Interpreter {
     };
   }
 
+  bool _matchAll(List<Pattern> patterns, List<Value> values,
+      Map<String, Value> bindings, Environment env) {
+    for (var i = 0; i < patterns.length; i++) {
+      if (!_matchPattern(patterns[i], values[i], bindings, env)) return false;
+    }
+    return true;
+  }
+
   // ---- calling ----
 
   Value _evalMethodCall(Value receiver, String methodName,
       List<CallArg> callArgs, Environment env) {
+    // Built-in enum methods.
+    if (receiver is EnumValue) {
+      if (methodName == 'name') return StringValue(receiver.variantName);
+    }
+
     final typeName = _typeNameOf(receiver);
 
     // Native methods
@@ -1297,6 +1349,7 @@ class Interpreter {
         LambdaValue() => 'Lambda',
         NativeFnValue() => 'NativeFn',
         VoidValue() => 'Void',
+        EnumValue(:final typeName) => typeName,
         StructValue(:final typeName) => typeName,
       };
 
@@ -1327,6 +1380,8 @@ class Interpreter {
           break;
         case ConstDecl():
           env.define(decl.name, _evalExpr(decl.value, env));
+        case EnumDecl():
+          _enumDecls[decl.name] = decl;
       }
     }
 

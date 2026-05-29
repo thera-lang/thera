@@ -200,6 +200,22 @@ class LspServer {
             range: _declRange(decl, source),
             selectionRange: _spanToRange(decl.span),
           ));
+        case EnumDecl():
+          symbols.add(DocumentSymbol(
+            name: decl.name,
+            kind: SymbolKind.Enum,
+            range: _declRange(decl, source),
+            selectionRange: _spanToRange(decl.nameSpan),
+            children: [
+              for (final v in decl.variants)
+                DocumentSymbol(
+                  name: v.name,
+                  kind: SymbolKind.EnumMember,
+                  range: _spanToRange(decl.nameSpan),
+                  selectionRange: _spanToRange(decl.nameSpan),
+                ),
+            ],
+          ));
       }
     }
     return symbols;

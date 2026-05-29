@@ -130,6 +130,28 @@ class ConstDecl extends Decl {
   String describe([String indent = '']) => '${indent}Const $name\n';
 }
 
+class EnumVariant {
+  final String name;
+  final List<TypeRef> fields; // positional payload types; empty = no payload
+  const EnumVariant(this.name, {this.fields = const []});
+}
+
+class EnumDecl extends Decl {
+  final String name;
+  final SourceSpan nameSpan;
+  final List<EnumVariant> variants;
+  EnumDecl(super.span, {required this.name, required this.nameSpan, required this.variants});
+
+  @override
+  String describe([String indent = '']) {
+    final vs = variants.map((v) {
+      if (v.fields.isEmpty) return v.name;
+      return '${v.name}(${v.fields.map((f) => f.describe()).join(', ')})';
+    }).join(', ');
+    return '${indent}Enum $name { $vs }\n';
+  }
+}
+
 // --- Helpers attached to declarations ---
 
 class Decorator {

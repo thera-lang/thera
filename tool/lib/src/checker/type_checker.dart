@@ -41,6 +41,7 @@ class TypeChecker {
   };
 
   final _typeDecls = <String, TypeDecl>{};
+  final _enumDecls = <String, EnumDecl>{};
   final _fnDecls = <String, FnDecl>{};
   final _implMethods = <String, Map<String, FnDecl>>{};
   final _moduleNames = <String>{};
@@ -84,6 +85,8 @@ class TypeChecker {
           break;
         case ConstDecl():
           _constNames.add(decl.name);
+        case EnumDecl():
+          _enumDecls[decl.name] = decl;
       }
     }
   }
@@ -111,6 +114,12 @@ class TypeChecker {
         case ConstDecl(:final type, :final value):
           if (type != null) _checkTypeRef(type, decl.span);
           _checkExpr(value, {});
+        case EnumDecl():
+          for (final v in decl.variants) {
+            for (final f in v.fields) {
+              _checkTypeRef(f, decl.span);
+            }
+          }
       }
     }
   }
@@ -329,6 +338,7 @@ class TypeChecker {
         final errorSpan = span ?? fallback;
         if (!_builtinTypes.contains(name) &&
             !_typeDecls.containsKey(name) &&
+            !_enumDecls.containsKey(name) &&
             !typeParams.contains(name)) {
           _error('unknown type: $name', errorSpan);
         }
@@ -348,7 +358,8 @@ class TypeChecker {
       _fnDecls.containsKey(name) ||
       _moduleNames.contains(name) ||
       _constNames.contains(name) ||
-      _typeDecls.containsKey(name); // static dispatch: TypeName.method()
+      _typeDecls.containsKey(name) || // static dispatch: TypeName.method()
+      _enumDecls.containsKey(name); // enum variant access: EnumName.Variant
 
   TypeRef? _inferType(Expr expr, _Scope scope) => switch (expr) {
         IntLiteral() => NamedType('Int'),

@@ -440,6 +440,37 @@ fn is_lower(_ cp: Int) -> Bool {
     });
   });
 
+  group('enum declarations', () {
+    test('enum type is valid in type references', () {
+      expect(
+        check('''
+enum Direction { North, South }
+fn f(_ d: Direction) -> Direction { return d; }
+'''),
+        isEmpty,
+      );
+    });
+
+    test('enum name is valid in expression position', () {
+      expect(
+        check('''
+enum Direction { North, South }
+fn f() { let d = Direction.North; }
+'''),
+        isEmpty,
+      );
+    });
+
+    test('enum payload type is checked', () {
+      expect(
+        check('''
+enum Shape { Circle(Ghost) }
+'''),
+        contains('unknown type: Ghost'),
+      );
+    });
+  });
+
   group('checker errors in LSP diagnostics', () {
     // Re-uses the LSP integration test infrastructure by directly calling the
     // LspServer diagnostics pipeline (via _publishDiagnostics tested in

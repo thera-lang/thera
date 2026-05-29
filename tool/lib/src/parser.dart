@@ -89,6 +89,7 @@ class Parser {
           k == TokenKind.kwImport ||
           k == TokenKind.kwNative ||
           k == TokenKind.kwConst ||
+          k == TokenKind.kwEnum ||
           k == TokenKind.at) {
         return;
       }
@@ -139,8 +140,13 @@ class Parser {
         _fail('decorators are not allowed on const declarations');
       return _parseConstDecl();
     }
+    if (k == TokenKind.kwEnum) {
+      if (decorators.isNotEmpty)
+        _fail('decorators are not allowed on enum declarations');
+      return _parseEnumDecl();
+    }
 
-    _fail('expected a declaration (fn, type, impl, interface, import, const)');
+    _fail('expected a declaration (fn, type, impl, interface, import, const, enum)');
   }
 
   Decorator _parseDecorator() {
@@ -439,6 +445,29 @@ class Parser {
     return ConstDecl(start.span, name: name, type: type, value: value);
   }
 
+  EnumDecl _parseEnumDecl() {
+    final start = _advance(); // 'enum'
+    final nameTok = _expect(TokenKind.identifier, 'enum name');
+    _expect(TokenKind.lBrace, '{');
+    final variants = <EnumVariant>[];
+    while (!_check(TokenKind.rBrace) && !_atEnd) {
+      final vName = _expect(TokenKind.identifier, 'variant name').lexeme;
+      final fields = <TypeRef>[];
+      if (_match(TokenKind.lParen)) {
+        while (!_check(TokenKind.rParen) && !_atEnd) {
+          fields.add(_parseTypeRef());
+          if (!_match(TokenKind.comma)) break;
+        }
+        _expect(TokenKind.rParen, ')');
+      }
+      variants.add(EnumVariant(vName, fields: fields));
+      if (!_match(TokenKind.comma)) break;
+    }
+    _expect(TokenKind.rBrace, '}');
+    return EnumDecl(start.span,
+        name: nameTok.lexeme, nameSpan: nameTok.span, variants: variants);
+  }
+
   LetStmt _parseLetStmt() {
     final start = _advance(); // 'let'
     final isMut = _match(TokenKind.kwMut);
@@ -519,6 +548,8 @@ class Parser {
         _expect(TokenKind.rParen, ')');
         return ConstructorPattern(name, args);
       }
+      // Uppercase-first = zero-arg constructor (variant/struct); lowercase = binding.
+      if (name[0].toUpperCase() == name[0]) return ConstructorPattern(name, []);
       return IdentPattern(name);
     }
     if (_check(TokenKind.kwTrue) ||

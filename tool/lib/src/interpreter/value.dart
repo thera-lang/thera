@@ -190,6 +190,44 @@ class NativeFnValue extends Value {
   String display() => '<native $name>';
 }
 
+// ADT enum variant value: e.g. TokenKind.Ident("foo") or Direction.North
+class EnumValue extends Value {
+  final String typeName;
+  final String variantName;
+  final List<Value> fields;
+  EnumValue(this.typeName, this.variantName, this.fields);
+
+  @override
+  String display() {
+    if (fields.isEmpty) return variantName;
+    return '$variantName(${fields.map((f) => f.display()).join(', ')})';
+  }
+
+  @override
+  String debug() {
+    if (fields.isEmpty) return '$typeName.$variantName';
+    return '$typeName.$variantName(${fields.map((f) => f.debug()).join(', ')})';
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is EnumValue &&
+      typeName == other.typeName &&
+      variantName == other.variantName &&
+      fields.length == other.fields.length &&
+      _fieldsEqual(other.fields);
+
+  bool _fieldsEqual(List<Value> other) {
+    for (var i = 0; i < fields.length; i++) {
+      if (fields[i] != other[i]) return false;
+    }
+    return true;
+  }
+
+  @override
+  int get hashCode => Object.hash(typeName, variantName, Object.hashAll(fields));
+}
+
 // Range a..b — a lazy sequence
 class RangeValue extends Value {
   final int start;

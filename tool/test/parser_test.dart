@@ -358,6 +358,63 @@ interface Greet {
     });
   });
 
+  group('enum declarations', () {
+    test('zero-arg variants', () {
+      final program = parse('enum Direction { North, South, East, West }');
+      final decl = program.decls.single as EnumDecl;
+      expect(decl.name, 'Direction');
+      expect(decl.variants.map((v) => v.name), ['North', 'South', 'East', 'West']);
+      expect(decl.variants.every((v) => v.fields.isEmpty), isTrue);
+    });
+
+    test('payload variants', () {
+      final program = parse('enum Shape { Circle(Int), Rect(Int, Int), Point }');
+      final decl = program.decls.single as EnumDecl;
+      expect(decl.variants[0].name, 'Circle');
+      expect(decl.variants[0].fields.length, 1);
+      expect(decl.variants[1].name, 'Rect');
+      expect(decl.variants[1].fields.length, 2);
+      expect(decl.variants[2].name, 'Point');
+      expect(decl.variants[2].fields.isEmpty, isTrue);
+    });
+
+    test('nameSpan points at the enum name', () {
+      final program = parse('enum Color { Red, Green, Blue }');
+      final decl = program.decls.single as EnumDecl;
+      expect(decl.nameSpan.text, 'Color');
+    });
+  });
+
+  group('pattern parsing', () {
+    List<Pattern> patternsOf(String source) {
+      final program = parse(source);
+      final fn = program.decls.single as FnDecl;
+      final match = (fn.body!.stmts.single as ReturnStmt).value as MatchExpr;
+      return match.arms.map((a) => a.pattern).toList();
+    }
+
+    test('uppercase identifier is a zero-arg constructor pattern', () {
+      final ps = patternsOf('fn f(x: Int) { return match x { None => 0 }; }');
+      expect(ps.single, isA<ConstructorPattern>());
+      expect((ps.single as ConstructorPattern).name, 'None');
+      expect((ps.single as ConstructorPattern).args, isEmpty);
+    });
+
+    test('lowercase identifier is a binding pattern', () {
+      final ps = patternsOf('fn f(x: Int) { return match x { n => n }; }');
+      expect(ps.single, isA<IdentPattern>());
+      expect((ps.single as IdentPattern).name, 'n');
+    });
+
+    test('constructor with args', () {
+      final ps = patternsOf('fn f(x: Int) { return match x { Some(v) => v, None => 0 }; }');
+      expect(ps[0], isA<ConstructorPattern>());
+      final some = ps[0] as ConstructorPattern;
+      expect(some.name, 'Some');
+      expect((some.args.single as IdentPattern).name, 'v');
+    });
+  });
+
   group('error reporting and recovery', () {
     test('reports an error with a source span', () {
       final result = parseRaw('fn main() -> Int { return }');
