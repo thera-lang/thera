@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:aero/src/ast.dart';
+import 'package:aero/src/checker/type_checker.dart';
 import 'package:aero/src/interpreter/interpreter.dart';
 import 'package:aero/src/lexer.dart';
 import 'package:aero/src/lsp/server.dart';
@@ -11,6 +12,7 @@ void main(List<String> args) async {
   final runner = CommandRunner<void>('aero', 'The Aero language toolchain.')
     ..addCommand(ParseCommand())
     ..addCommand(RunCommand())
+    ..addCommand(CheckCommand())
     ..addCommand(TestCommand())
     ..addCommand(LspCommand());
 
@@ -99,6 +101,117 @@ class RunCommand extends Command<void> {
     final exitCode = Interpreter().execute(program, programArgs, baseDir: File(path).parent.path);
     exit(exitCode);
   }
+}
+
+class CheckCommand extends Command<void> {
+  @override
+  String get name => 'check';
+
+  @override
+  String get description =>
+      'Type-check <file> or all *.aero files in a directory.';
+
+  @override
+  String get invocation => 'aero check <file|dir>...';
+
+  @override
+  void run() {
+    final targets = argResults!.rest;
+    if (targets.isEmpty) usageException('Expected a file or directory.');
+
+    // Collect all .aero paths from the targets (files directly, dirs recursively).
+    final paths = <String>[];
+    for (final target in targets) {
+      final entity = FileSystemEntity.typeSync(target);
+      if (entity == FileSystemEntityType.file) {
+        paths.add(target);
+      } else if (entity == FileSystemEntityType.directory) {
+        paths.addAll(
+          Directory(target)
+              .listSync(recursive: true)
+              .whereType<File>()
+              .where((f) => f.path.endsWith('.aero'))
+              .map((f) => f.path),
+        );
+      } else {
+        stderr.writeln('aero check: not found: $target');
+        exit(1);
+      }
+    }
+
+    var totalErrors = 0;
+    for (final path in paths) {
+      totalErrors += _checkFile(path);
+    }
+    exit(totalErrors > 0 ? 1 : 0);
+  }
+
+  /// Type-check one file; returns the number of errors found.
+  int _checkFile(String path) {
+    // Load the primary program; lex/parse errors are printed and counted.
+    final Program program;
+    try {
+      program = _loadProgramQuiet(path, verbose: true);
+    } on _LoadFailed {
+      return 1;
+    }
+
+    final checker = TypeChecker();
+    final baseDir = File(path).parent.path;
+
+    // Pre-register symbols from imports so cross-file names resolve.
+    for (final decl in program.decls) {
+      if (decl is! ImportDecl) continue;
+      if (decl.path.startsWith('std.')) {
+        checker.addModule(decl.alias ?? decl.path.split('.').last);
+      } else {
+        // Relative file import — load and register its symbols (don't check it).
+        final importPath = '$baseDir/${decl.path}.aero';
+        try {
+          checker.addProgram(_loadProgramQuiet(importPath));
+        } on _LoadFailed {
+          // Import couldn't be parsed; skip (the missing-file error is
+          // only raised at runtime, not at check time).
+        }
+      }
+    }
+
+    final result = checker.check(program);
+    for (final err in result.errors) {
+      stderr.writeln(err.format(path));
+    }
+    return result.errors.length;
+  }
+}
+
+/// Thrown by [_loadProgramQuiet] when lex/parse fails.
+class _LoadFailed implements Exception {}
+
+/// Like [_loadProgram] but throws [_LoadFailed] instead of calling [exit].
+/// When [verbose] is true, lex/parse errors are printed to stderr before throwing.
+Program _loadProgramQuiet(String path, {bool verbose = false}) {
+  final String source;
+  try {
+    source = File(path).readAsStringSync();
+  } on FileSystemException {
+    if (verbose) stderr.writeln('aero: cannot read $path');
+    throw _LoadFailed();
+  }
+  final lexResult = Lexer(source).tokenize();
+  if (lexResult.hasErrors) {
+    if (verbose) {
+      for (final err in lexResult.errors) stderr.writeln('$path:$err');
+    }
+    throw _LoadFailed();
+  }
+  final parseResult = Parser(lexResult.tokens).parse();
+  if (parseResult.hasErrors) {
+    if (verbose) {
+      for (final err in parseResult.errors) stderr.writeln('$path:$err');
+    }
+    throw _LoadFailed();
+  }
+  return parseResult.program;
 }
 
 class LspCommand extends Command<void> {

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:lsp_server/lsp_server.dart';
 
 import '../ast.dart';
+import '../checker/type_checker.dart';
 import '../lexer.dart';
 import '../parser.dart';
 import '../source_provider.dart';
@@ -89,6 +90,20 @@ class LspServer {
       for (final err in parseResult.errors) {
         diagnostics.add(_parseErrorToDiagnostic(err));
       }
+
+      if (!parseResult.hasErrors) {
+        final checker = TypeChecker();
+        // Register stdlib module aliases from imports so names like `fs` resolve.
+        for (final decl in parseResult.program.decls) {
+          if (decl is ImportDecl && decl.path.startsWith('std.')) {
+            checker.addModule(decl.alias ?? decl.path.split('.').last);
+          }
+        }
+        final checkResult = checker.check(parseResult.program);
+        for (final err in checkResult.errors) {
+          diagnostics.add(_checkErrorToDiagnostic(err));
+        }
+      }
     }
 
     connection.sendDiagnostics(
@@ -106,6 +121,15 @@ class LspServer {
   }
 
   Diagnostic _parseErrorToDiagnostic(ParseError err) {
+    return Diagnostic(
+      range: _spanToRange(err.span),
+      severity: DiagnosticSeverity.Error,
+      message: err.message,
+      source: 'aero',
+    );
+  }
+
+  Diagnostic _checkErrorToDiagnostic(CheckError err) {
     return Diagnostic(
       range: _spanToRange(err.span),
       severity: DiagnosticSeverity.Error,

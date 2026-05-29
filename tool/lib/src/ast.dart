@@ -173,7 +173,8 @@ sealed class TypeRef {
 class NamedType extends TypeRef {
   final String name;
   final List<TypeRef> args;
-  NamedType(this.name, {this.args = const []});
+  final SourceSpan? span; // null for synthetically constructed types
+  NamedType(this.name, {this.args = const [], this.span});
 
   @override
   String describe() {

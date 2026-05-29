@@ -358,7 +358,7 @@ class Parser {
       _expect(TokenKind.rParen, ')');
       return const VoidType();
     }
-    final name = _expect(TokenKind.identifier, 'type name').lexeme;
+    final nameTok = _expect(TokenKind.identifier, 'type name');
     final args = <TypeRef>[];
     if (_check(TokenKind.lt)) {
       _advance(); // <
@@ -368,7 +368,7 @@ class Parser {
       }
       _expect(TokenKind.gt, '>');
     }
-    return NamedType(name, args: args);
+    return NamedType(nameTok.lexeme, args: args, span: nameTok.span);
   }
 
   // ---- block and statements ----
