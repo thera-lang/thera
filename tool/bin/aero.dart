@@ -1,40 +1,25 @@
 import 'dart:io';
 
+import 'package:args/command_runner.dart';
 import 'package:aero/src/ast.dart';
 import 'package:aero/src/interpreter/interpreter.dart';
 import 'package:aero/src/lexer.dart';
 import 'package:aero/src/parser.dart';
 
-void main(List<String> args) {
-  if (args.isEmpty) {
-    _printUsage();
-    exit(1);
+void main(List<String> args) async {
+  final runner = CommandRunner<void>('aero', 'The Aero language toolchain.')
+    ..addCommand(ParseCommand())
+    ..addCommand(RunCommand())
+    ..addCommand(TestCommand());
+
+  try {
+    await runner.run(args);
+  } on UsageException catch (e) {
+    stderr.writeln(e.message);
+    stderr.writeln();
+    stderr.writeln(e.usage);
+    exit(64);
   }
-
-  final command = args[0];
-  final rest = args.sublist(1);
-
-  switch (command) {
-    case 'parse':
-      _runParse(rest);
-    case 'run':
-      _runFile(rest);
-    case 'test':
-      _runTests(rest);
-    default:
-      stderr.writeln('aero: unknown command: $command');
-      _printUsage();
-      exit(1);
-  }
-}
-
-void _printUsage() {
-  stderr.writeln('usage: aero <command> [options]');
-  stderr.writeln('');
-  stderr.writeln('commands:');
-  stderr.writeln('  parse <file>            lex and parse <file>, print the AST');
-  stderr.writeln('  run   <file> [-- args]  run <file>; args after -- are passed to main');
-  stderr.writeln('  test  <file>...         run @test functions in <file>');
 }
 
 Program _loadProgram(String path) {
@@ -65,40 +50,81 @@ Program _loadProgram(String path) {
   return parseResult.program;
 }
 
-void _runParse(List<String> args) {
-  if (args.isEmpty) {
-    stderr.writeln('usage: aero parse <file>');
-    exit(1);
+class ParseCommand extends Command<void> {
+  @override
+  String get name => 'parse';
+
+  @override
+  String get description => 'Lex and parse <file>, then print the AST.';
+
+  @override
+  String get invocation => 'aero parse <file>';
+
+  @override
+  void run() {
+    if (argResults!.rest.isEmpty) {
+      usageException('Expected a file argument.');
+    }
+    stdout.write(_loadProgram(argResults!.rest[0]).describe());
   }
-  stdout.write(_loadProgram(args[0]).describe());
 }
 
-void _runTests(List<String> args) {
-  if (args.isEmpty) {
-    stderr.writeln('usage: aero test <file>... [--verbose]');
-    exit(1);
+class RunCommand extends Command<void> {
+  RunCommand() {
+    // All args after '--' flow through argResults.rest after the filename.
   }
-  final verbose = args.contains('--verbose');
-  final files = args.where((a) => !a.startsWith('--')).toList();
-  var totalFailures = 0;
-  for (final path in files) {
+
+  @override
+  String get name => 'run';
+
+  @override
+  String get description => 'Run <file>; arguments after -- are passed to main.';
+
+  @override
+  String get invocation => 'aero run <file> [-- args]';
+
+  @override
+  void run() {
+    final rest = argResults!.rest;
+    if (rest.isEmpty) {
+      usageException('Expected a file argument.');
+    }
+    final path = rest[0];
+    final sep = rest.indexOf('--');
+    final programArgs = sep >= 0 ? rest.sublist(sep + 1) : rest.sublist(1);
+
     final program = _loadProgram(path);
-    totalFailures += Interpreter().runTests(program, path, verbose: verbose);
+    final exitCode = Interpreter().execute(program, programArgs, baseDir: File(path).parent.path);
+    exit(exitCode);
   }
-  exit(totalFailures > 0 ? 1 : 0);
 }
 
-void _runFile(List<String> args) {
-  if (args.isEmpty) {
-    stderr.writeln('usage: aero run <file> [-- program-args]');
-    exit(1);
+class TestCommand extends Command<void> {
+  TestCommand() {
+    argParser.addFlag('verbose', abbr: 'v', help: 'Print passing tests too.');
   }
-  final path = args[0];
-  // Everything after '--' (or after the filename if no '--') is passed to main.
-  final sep = args.indexOf('--');
-  final programArgs = sep >= 0 ? args.sublist(sep + 1) : args.sublist(1);
 
-  final program = _loadProgram(path);
-  final exitCode = Interpreter().execute(program, programArgs);
-  exit(exitCode);
+  @override
+  String get name => 'test';
+
+  @override
+  String get description => 'Run @test functions in one or more files.';
+
+  @override
+  String get invocation => 'aero test <file>...';
+
+  @override
+  void run() {
+    final files = argResults!.rest;
+    if (files.isEmpty) {
+      usageException('Expected at least one file argument.');
+    }
+    final verbose = argResults!.flag('verbose');
+    var totalFailures = 0;
+    for (final path in files) {
+      final program = _loadProgram(path);
+      totalFailures += Interpreter().runTests(program, path, verbose: verbose);
+    }
+    exit(totalFailures > 0 ? 1 : 0);
+  }
 }
