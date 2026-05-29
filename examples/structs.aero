@@ -7,6 +7,14 @@ type Point = {
 }
 
 impl Point {
+    fn origin() -> Point {
+        return Point { x: 0, y: 0 };
+    }
+
+    fn create(x: Int, y: Int) -> Point {
+        return Point { x: x, y: y };
+    }
+
     fn translate(self, dx: Int, dy: Int) -> Point {
         return Point { x: self.x + dx, y: self.y + dy };
     }
@@ -38,10 +46,10 @@ impl Rect {
 }
 
 fn main(args: Args) -> Result<Int, Error> {
-    let origin = Point { x: 0, y: 0 };
+    let origin = Point.origin();
     println('origin: ${origin.display()}');
 
-    let p = Point { x: 3, y: 4 };
+    let p = Point.create(x: 3, y: 4);
     let q = p.translate(1, 2);
     println('p: ${p.display()}');
     println('q: ${q.display()}');

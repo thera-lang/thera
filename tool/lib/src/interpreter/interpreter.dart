@@ -897,6 +897,18 @@ class Interpreter {
   Value _evalCall(Expr calleeExpr, List<TypeRef> typeArgs,
       List<CallArg> callArgs, Environment env) {
     if (calleeExpr is FieldExpr) {
+      // Static dispatch: TypeName.method(...) where TypeName is not a local var.
+      if (calleeExpr.object case IdentExpr(:final name)
+          when _methods.containsKey(name) && env.tryLookup(name) == null) {
+        final entry = _methods[name]?[calleeExpr.field];
+        if (entry != null) {
+          final (decl, closureEnv) = entry;
+          return _callFn(decl, closureEnv, null, callArgs, env);
+        }
+        throw InterpreterError(
+            'no static method "${calleeExpr.field}" on $name');
+      }
+
       final receiver = _evalExpr(calleeExpr.object, env);
 
       // Module-style: struct with a callable in its fields.

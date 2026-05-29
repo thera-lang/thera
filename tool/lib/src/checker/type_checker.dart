@@ -122,7 +122,8 @@ class TypeChecker {
   }
 
   void _checkFn(FnDecl fn, {TypeRef? selfType}) {
-    _checkFnSig(fn);
+    final typeParams = {for (final tp in fn.typeParams) tp.name};
+    _checkFnSig(fn, typeParams: typeParams);
     if (fn.body == null) return;
 
     final scope = <String, TypeRef?>{};
@@ -136,11 +137,13 @@ class TypeChecker {
     _checkBlock(fn.body!, scope, returnType: fn.returnType);
   }
 
-  void _checkFnSig(FnDecl fn) {
+  void _checkFnSig(FnDecl fn, {Set<String> typeParams = const {}}) {
     for (final p in fn.params) {
-      if (p.type != null) _checkTypeRef(p.type!, fn.span);
+      if (p.type != null) _checkTypeRef(p.type!, fn.span, typeParams: typeParams);
     }
-    if (fn.returnType != null) _checkTypeRef(fn.returnType!, fn.span);
+    if (fn.returnType != null) {
+      _checkTypeRef(fn.returnType!, fn.span, typeParams: typeParams);
+    }
   }
 
   // ---- block / statement checking ----
@@ -319,14 +322,19 @@ class TypeChecker {
 
   // ---- type reference checking ----
 
-  void _checkTypeRef(TypeRef typeRef, SourceSpan fallback) {
+  void _checkTypeRef(TypeRef typeRef, SourceSpan fallback,
+      {Set<String> typeParams = const {}}) {
     switch (typeRef) {
       case NamedType(:final name, :final args, :final span):
         final errorSpan = span ?? fallback;
-        if (!_builtinTypes.contains(name) && !_typeDecls.containsKey(name)) {
+        if (!_builtinTypes.contains(name) &&
+            !_typeDecls.containsKey(name) &&
+            !typeParams.contains(name)) {
           _error('unknown type: $name', errorSpan);
         }
-        for (final arg in args) _checkTypeRef(arg, fallback);
+        for (final arg in args) {
+          _checkTypeRef(arg, fallback, typeParams: typeParams);
+        }
       case VoidType():
         break;
     }
@@ -339,7 +347,8 @@ class TypeChecker {
       _builtinValues.contains(name) ||
       _fnDecls.containsKey(name) ||
       _moduleNames.contains(name) ||
-      _constNames.contains(name);
+      _constNames.contains(name) ||
+      _typeDecls.containsKey(name); // static dispatch: TypeName.method()
 
   TypeRef? _inferType(Expr expr, _Scope scope) => switch (expr) {
         IntLiteral() => NamedType('Int'),

@@ -325,7 +325,75 @@ fn f() { let p = Point { x: 1, y: 2 }; }
     });
   });
 
+  group('static dispatch', () {
+    test('TypeName.method() is valid when type is declared', () {
+      expect(
+        check('''
+type Point = { x: Int, y: Int }
+impl Point {
+  fn origin() -> Point { return Point { x: 0, y: 0 }; }
+}
+fn f() { let p = Point.origin(); }
+'''),
+        isEmpty,
+      );
+    });
+
+    test('TypeName in field-access position is not an undefined-name error', () {
+      expect(
+        check('''
+type Counter = { value: Int }
+impl Counter {
+  fn zero() -> Counter { return Counter { value: 0 }; }
+}
+fn f() -> Counter { return Counter.zero(); }
+'''),
+        isEmpty,
+      );
+    });
+  });
+
   // ---- LSP integration: checker errors appear in diagnostics ----
+
+  group('generic type parameters', () {
+    test('type param T is valid in parameter and return types', () {
+      expect(
+        check('''
+fn identity<T>(_ x: T) -> T { return x; }
+'''),
+        isEmpty,
+      );
+    });
+
+    test('multiple type params are each valid', () {
+      expect(
+        check('''
+fn assert_eq<T>(_ actual: T, _ expected: T) -> Result<Void, Error> {
+  return Ok(());
+}
+'''),
+        isEmpty,
+      );
+    });
+
+    test('type param with bounds does not produce unknown-type error', () {
+      expect(
+        check('''
+fn assert_eq<T: Eq + Debug>(_ actual: T, _ expected: T) -> Result<Void, Error> {
+  return Ok(());
+}
+'''),
+        isEmpty,
+      );
+    });
+
+    test('unknown type not shadowed by type params is still an error', () {
+      expect(
+        check('fn f<T>(_ x: Ghost) -> T { return x; }'),
+        contains('unknown type: Ghost'),
+      );
+    });
+  });
 
   group('map literals', () {
     test('empty map is valid', () {
