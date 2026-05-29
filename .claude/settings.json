@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git status *)",
+      "mcp__plugin_flutter-slipstream_packages__library_stub"
+    ]
+  }
+}

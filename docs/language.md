@@ -173,9 +173,9 @@ fiber blocks on I/O, the runtime parks it and resumes another; the calling code
 never observes the difference.
 
 Because only one fiber runs at a time, there is no shared mutable state between
-concurrent fibers and no need for synchronization primitives (mutexes, semaphores,
-channels). This avoids the deadlock and data-race hazards of a multi-threaded
-model while keeping the programming model simple.
+concurrent fibers and no need for synchronization primitives (mutexes,
+semaphores, channels). This avoids the deadlock and data-race hazards of a
+multi-threaded model while keeping the programming model simple.
 
 ```aero
 // These two functions look identical at the type level.
@@ -351,8 +351,8 @@ fundamental interfaces (`Eq`, `Display`, `Debug`); `std.args` provides `Args`.
 
 ### Import resolution
 
-There are two forms of import: **stdlib** (`std.*`) and **relative file**
-(a quoted path).
+There are two forms of import: **stdlib** (`std.*`) and **relative file** (a
+quoted path).
 
 **Stdlib imports** resolve against the SDK's standard library directory:
 
@@ -385,8 +385,8 @@ native fn re2_compile(_ pattern: String) -> Result<NativeHandle, String>
 native fn re2_is_match(_ handle: NativeHandle, _ text: String) -> Bool
 ```
 
-Native functions are an implementation detail of stdlib modules. User code
-calls the Aero wrappers, not the native bindings directly.
+Native functions are an implementation detail of stdlib modules. User code calls
+the Aero wrappers, not the native bindings directly.
 
 An opaque type wraps a native handle whose internal layout is managed by the
 runtime. Declare it as an empty struct:
@@ -679,10 +679,10 @@ Additional flags:
 The `aero` binary locates the SDK root at runtime by resolving one directory
 above its own location (`bin/../`). This works identically in both modes:
 
-| Mode | Binary location | SDK root |
-| ---- | --------------- | -------- |
-| Dev (from repo) | `<repo>/bin/aero.sh` | `<repo>/` |
-| Distributed | `<install>/bin/aero` | `<install>/` |
+| Mode            | Binary location      | SDK root     |
+| --------------- | -------------------- | ------------ |
+| Dev (from repo) | `<repo>/bin/aero.sh` | `<repo>/`    |
+| Distributed     | `<install>/bin/aero` | `<install>/` |
 
 `bin/aero.sh` is the dev-mode entry point. It sets `SDK_ROOT` to the parent of
 the `bin/` directory and delegates to `dart run tool/bin/aero.dart`. A compiled
@@ -708,9 +708,9 @@ resolved import graph unless explicitly re-imported with `as`.
 
 ### Distributed SDK layout
 
-When `aero` is compiled to a native binary (`dart compile exe tool/bin/aero.dart
--o bin/aero`), the `tool/` directory is no longer needed at runtime. The
-distributed layout is therefore:
+When `aero` is compiled to a native binary
+(`dart compile exe tool/bin/aero.dart -o bin/aero`), the `tool/` directory is no
+longer needed at runtime. The distributed layout is therefore:
 
 ```
 <install>/
@@ -719,6 +719,3 @@ distributed layout is therefore:
   src/
     std/             ← stdlib source files (still needed at runtime)
 ```
-
-The `tool/` directory is not included in a distributed SDK.
-`dart pub get` or other Dart tooling is not required by end users.
