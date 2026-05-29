@@ -174,6 +174,9 @@ class LspServer {
   Range _declRange(Decl decl, String source) {
     final endSpan = switch (decl) {
       FnDecl(:final body) when body != null => body.endSpan,
+      // Body-less fn (interface stub / native fn): range ends at the name so
+      // that selectionRange (also the name) is always contained within range.
+      FnDecl(:final nameSpan) => nameSpan,
       ImplDecl() => _findClosingBrace(decl.span, source),
       InterfaceDecl() => _findClosingBrace(decl.span, source),
       TypeDecl() => _findClosingBrace(decl.span, source),

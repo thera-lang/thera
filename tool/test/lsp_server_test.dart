@@ -198,10 +198,67 @@ impl Display for Point {
       expect((sel['end'] as Map)['character'], 3 + 'main'.length);
     });
 
+    test('selectionRange is contained in range for all symbols (core.aero)', () async {
+      // Regression test: bodyless FnDecl (interface stubs) previously produced
+      // a range ending at the `fn` keyword while selectionRange pointed at the
+      // name — violating the LSP invariant "selectionRange must be contained
+      // in fullRange".
+      await initialize();
+      const uri = 'file:///core.aero';
+      await openAndAwaitDiagnostics(uri, '''
+interface Eq {
+  fn eq(self, other: Self) -> Bool;
+}
+
+interface Display {
+  fn display(self) -> String;
+}
+
+interface Debug {
+  fn debug(self) -> String;
+}
+''');
+      final symbols = (await documentSymbol(uri)) as List;
+      expect(symbols, hasLength(3));
+      // Walk every symbol and all of their children checking the containment
+      // invariant that VSCode validates client-side.
+      void checkContainment(Map symbol) {
+        final range = symbol['range'] as Map;
+        final sel = symbol['selectionRange'] as Map;
+        expect(
+          _containsRange(range, sel),
+          isTrue,
+          reason: 'selectionRange must be contained in range for '
+              '"${symbol['name']}": range=$range  selectionRange=$sel',
+        );
+        for (final child in (symbol['children'] as List? ?? [])) {
+          checkContainment(child as Map);
+        }
+      }
+      for (final s in symbols) {
+        checkContainment(s as Map);
+      }
+    });
+
     test('unknown document yields no symbols', () async {
       await initialize();
       final symbols = (await documentSymbol('file:///missing.aero')) as List;
       expect(symbols, isEmpty);
     });
   });
+}
+
+/// Returns true if [outer] (a Range map) fully contains [inner].
+bool _containsRange(Map outer, Map inner) {
+  int line(Map pos) => pos['line'] as int;
+  int char(Map pos) => pos['character'] as int;
+
+  bool posLessEq(Map a, Map b) {
+    if (line(a) < line(b)) return true;
+    if (line(a) > line(b)) return false;
+    return char(a) <= char(b);
+  }
+
+  return posLessEq(outer['start'] as Map, inner['start'] as Map) &&
+      posLessEq(inner['end'] as Map, outer['end'] as Map);
 }
