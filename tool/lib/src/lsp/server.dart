@@ -231,6 +231,7 @@ class LspServer {
       ImplDecl() => _findClosingBrace(decl.span, source),
       InterfaceDecl() => _findClosingBrace(decl.span, source),
       TypeDecl() => _findClosingBrace(decl.span, source),
+      EnumDecl() => _findClosingBrace(decl.span, source),
       _ => decl.span,
     };
     return Range(
