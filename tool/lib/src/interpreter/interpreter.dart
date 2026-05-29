@@ -44,8 +44,16 @@ class Interpreter {
   // resolves file paths to source text; supports overlays for LSP
   final SourceProvider sourceProvider;
 
-  Interpreter({SourceProvider? sourceProvider})
+  // SDK root for locating stdlib .aero source files (may be null in tests)
+  final String? sdkRoot;
+
+  // registry of native function implementations keyed by 'module.function'
+  late final Map<String, Value Function(List<Value>, Map<String, Value>)>
+      _nativeFnImpls;
+
+  Interpreter({SourceProvider? sourceProvider, this.sdkRoot})
       : sourceProvider = sourceProvider ?? SourceProvider() {
+    _nativeFnImpls = _buildNativeFnImpls();
     _registerNativeMethods();
   }
 
@@ -103,13 +111,72 @@ class Interpreter {
   void _handleImport(String path, String? alias, Environment env) {
     // stdlib modules start with 'std.'
     if (path.startsWith('std.')) {
-      final prefix = alias ?? path.split('.').last;
-      final module = _makeModule(path);
+      final moduleName = path.split('.').last;
+      final prefix = alias ?? moduleName;
+      // Prefer loading from the SDK source file; fall back to synthetic.
+      final root = sdkRoot;
+      if (root != null) {
+        final stdlibFile = '$root/src/std/$moduleName.aero';
+        if (File(stdlibFile).existsSync()) {
+          final module = _loadStdlibModule(moduleName, stdlibFile);
+          if (module != null) {
+            env.define(prefix, module);
+            return;
+          }
+        }
+      }
+      final module = _makeSyntheticModule(path);
       if (module != null) env.define(prefix, module);
       return;
     }
     // relative file import: load <baseDir>/<path>.aero
     _handleFileImport(path, alias, env);
+  }
+
+  /// Load a stdlib module from its .aero source file.
+  ///
+  /// For `native fn` declarations the Dart implementation is looked up in
+  /// [_nativeFnImpls]. Regular `fn` declarations become [FnValue]s executed
+  /// by the interpreter. Returns null on any parse or I/O error so the caller
+  /// can fall back to the synthetic module.
+  StructValue? _loadStdlibModule(String moduleName, String filePath) {
+    try {
+      final source = File(filePath).readAsStringSync();
+      final lexResult = Lexer(source).tokenize();
+      if (lexResult.hasErrors) return null;
+      final parseResult = Parser(lexResult.tokens).parse();
+      if (parseResult.hasErrors) return null;
+
+      // The module environment inherits all globals so Aero-coded stdlib
+      // functions can use Ok, Err, println, etc.
+      final moduleEnv = Environment();
+      _setupGlobals(moduleEnv);
+
+      final fields = <String, Value>{};
+
+      for (final decl in parseResult.program.decls) {
+        if (decl is! FnDecl) continue;
+        final Value? fn;
+        if (decl.isNative) {
+          final impl = _nativeFnImpls['$moduleName.${decl.name}'];
+          fn = impl != null
+              ? NativeFnValue('$moduleName.${decl.name}', impl)
+              : null;
+        } else if (decl.body != null) {
+          fn = FnValue(decl, moduleEnv);
+        } else {
+          fn = null;
+        }
+        if (fn != null) {
+          fields[decl.name] = fn;
+          moduleEnv.define(decl.name, fn);
+        }
+      }
+
+      return fields.isEmpty ? null : StructValue('_Module', fields);
+    } catch (_) {
+      return null; // fall through to synthetic module
+    }
   }
 
   void _handleFileImport(String path, String? alias, Environment env) {
@@ -157,12 +224,37 @@ class Interpreter {
     }
   }
 
-  Value? _makeModule(String path) => switch (path) {
+  /// Build the registry used by [_loadStdlibModule] to resolve `native fn`
+  /// declarations in .aero stdlib files to their Dart implementations.
+  Map<String, Value Function(List<Value>, Map<String, Value>)>
+      _buildNativeFnImpls() {
+    // Extract each implementation from the corresponding synthetic module so
+    // there is a single source of truth: the synthetic modules below.
+    Value call(StructValue m, String name, List<Value> a, Map<String, Value> n) =>
+        (m.fields[name] as NativeFnValue).fn(a, n);
+    final fs = _makeFsModule();
+    final path = _makePathModule();
+    final process = _makeProcessModule();
+    final fiber = _makeFiberModule();
+    return {
+      for (final k in fs.fields.keys) 'fs.$k': (a, n) => call(fs, k, a, n),
+      for (final k in path.fields.keys) 'path.$k': (a, n) => call(path, k, a, n),
+      for (final k in process.fields.keys)
+        'process.$k': (a, n) => call(process, k, a, n),
+      for (final k in fiber.fields.keys)
+        'fiber.$k': (a, n) => call(fiber, k, a, n),
+      // std.testing is not here: testing.aero uses regular Aero functions,
+      // not native fn declarations, so no registry entries are needed.
+    };
+  }
+
+  Value? _makeSyntheticModule(String path) => switch (path) {
         'std.fs' => _makeFsModule(),
+        'std.path' => _makePathModule(),
         'std.process' => _makeProcessModule(),
         'std.testing' => _makeTestingModule(),
         'std.fiber' => _makeFiberModule(),
-        _ => null, // user module or unknown; resolved at load time later
+        _ => null,
       };
 
   // ---- global setup ----
@@ -233,6 +325,61 @@ class Interpreter {
         'exists': NativeFnValue('fs.exists', (args, named) {
           final path = (args.first as StringValue).v;
           return BoolValue.of(File(path).existsSync());
+        }),
+        'read_dir': NativeFnValue('fs.read_dir', (args, named) {
+          final path = (args.first as StringValue).v;
+          try {
+            final names = Directory(path)
+                .listSync()
+                .map((e) {
+                  final p = e.path;
+                  return p.substring(p.lastIndexOf('/') + 1);
+                })
+                .toList()
+              ..sort();
+            return ResultValue.ok(
+                ListValue(names.map<Value>((n) => StringValue(n)).toList()));
+          } catch (e) {
+            return ResultValue.err(StringValue(e.toString()));
+          }
+        }),
+      });
+
+  StructValue _makePathModule() => StructValue('_Module', {
+        'join': NativeFnValue('path.join', (args, named) {
+          final base = (args[0] as StringValue).v;
+          final part = (args[1] as StringValue).v;
+          if (part.isEmpty) return StringValue(base);
+          if (base.isEmpty || part.startsWith('/')) return StringValue(part);
+          return StringValue(base.endsWith('/') ? '$base$part' : '$base/$part');
+        }),
+        'dirname': NativeFnValue('path.dirname', (args, named) {
+          final p = (args[0] as StringValue).v;
+          final idx = p.lastIndexOf('/');
+          if (idx < 0) return const StringValue('.');
+          if (idx == 0) return const StringValue('/');
+          return StringValue(p.substring(0, idx));
+        }),
+        'basename': NativeFnValue('path.basename', (args, named) {
+          final p = (args[0] as StringValue).v;
+          return StringValue(p.substring(p.lastIndexOf('/') + 1));
+        }),
+        'stem': NativeFnValue('path.stem', (args, named) {
+          final p = (args[0] as StringValue).v;
+          final name = p.substring(p.lastIndexOf('/') + 1);
+          final dot = name.lastIndexOf('.');
+          return StringValue(dot > 0 ? name.substring(0, dot) : name);
+        }),
+        'extension': NativeFnValue('path.extension', (args, named) {
+          final p = (args[0] as StringValue).v;
+          final name = p.substring(p.lastIndexOf('/') + 1);
+          final dot = name.lastIndexOf('.');
+          return StringValue(dot > 0 ? name.substring(dot) : '');
+        }),
+        'is_absolute': NativeFnValue('path.is_absolute', (args, named) {
+          final p = (args[0] as StringValue).v;
+          return BoolValue.of(
+              p.startsWith('/') || (p.length > 1 && p[1] == ':'));
         }),
       });
 

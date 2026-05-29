@@ -1,0 +1,47 @@
+// std.path — path string manipulation utilities.
+//
+// Import as: import std.path
+// Usage:     path.join('src', 'main.aero')
+//
+// No filesystem operations are performed by any function in this module.
+// All functions operate purely on strings.
+
+// Join two path components, inserting a separator as needed.
+//
+//   path.join('src', 'main.aero')   // 'src/main.aero'
+//   path.join('src/', 'main.aero')  // 'src/main.aero'
+//   path.join('', 'main.aero')      // 'main.aero'
+native fn join(_ base: String, _ part: String) -> String
+
+// Return the directory portion of a path (all components except the last).
+// Returns '.' for paths with no directory component.
+//
+//   path.dirname('src/main.aero')  // 'src'
+//   path.dirname('main.aero')      // '.'
+//   path.dirname('/usr/bin/aero')  // '/usr/bin'
+native fn dirname(_ path: String) -> String
+
+// Return the final component of a path (with extension).
+//
+//   path.basename('src/main.aero')  // 'main.aero'
+//   path.basename('/usr/bin/aero')  // 'aero'
+native fn basename(_ path: String) -> String
+
+// Return the final component of a path without its extension.
+//
+//   path.stem('src/main.aero')  // 'main'
+//   path.stem('Makefile')       // 'Makefile'
+native fn stem(_ path: String) -> String
+
+// Return the extension of the path, including the leading dot.
+// Returns an empty string if the file has no extension.
+//
+//   path.extension('src/main.aero')  // '.aero'
+//   path.extension('Makefile')       // ''
+native fn extension(_ path: String) -> String
+
+// Return true if the path is absolute.
+//
+//   path.is_absolute('/usr/bin')  // true
+//   path.is_absolute('src/main')  // false
+native fn is_absolute(_ path: String) -> Bool

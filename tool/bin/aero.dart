@@ -8,6 +8,30 @@ import 'package:aero/src/lexer.dart';
 import 'package:aero/src/lsp/server.dart';
 import 'package:aero/src/parser.dart';
 
+/// Locate the SDK root by searching upward from the running script.
+///
+/// Resolution order:
+///   1. AERO_SDK environment variable (if set and contains src/std/).
+///   2. Walk up from Platform.script looking for a directory that contains
+///      src/std/ — handles both `dart run tool/bin/aero.dart` (dev) and a
+///      compiled `bin/aero` binary (distributed).
+String? _findSdkRoot() {
+  final envRoot = Platform.environment['AERO_SDK'];
+  if (envRoot != null && Directory('$envRoot/src/std').existsSync()) {
+    return envRoot;
+  }
+  try {
+    var dir = Directory(File(Platform.script.toFilePath()).parent.path);
+    for (var i = 0; i < 4; i++) {
+      if (Directory('${dir.path}/src/std').existsSync()) return dir.path;
+      final parent = dir.parent;
+      if (parent.path == dir.path) break; // filesystem root
+      dir = parent;
+    }
+  } catch (_) {}
+  return null;
+}
+
 void main(List<String> args) async {
   final runner = CommandRunner<void>('aero', 'The Aero language toolchain.')
     ..addCommand(ParseCommand())
@@ -98,7 +122,7 @@ class RunCommand extends Command<void> {
     final programArgs = sep >= 0 ? rest.sublist(sep + 1) : rest.sublist(1);
 
     final program = _loadProgram(path);
-    final exitCode = Interpreter().execute(program, programArgs, baseDir: File(path).parent.path);
+    final exitCode = Interpreter(sdkRoot: _findSdkRoot()).execute(program, programArgs, baseDir: File(path).parent.path);
     exit(exitCode);
   }
 }
@@ -252,7 +276,7 @@ class TestCommand extends Command<void> {
     var totalFailures = 0;
     for (final path in files) {
       final program = _loadProgram(path);
-      totalFailures += Interpreter().runTests(program, path, verbose: verbose);
+      totalFailures += Interpreter(sdkRoot: _findSdkRoot()).runTests(program, path, verbose: verbose);
     }
     exit(totalFailures > 0 ? 1 : 0);
   }
