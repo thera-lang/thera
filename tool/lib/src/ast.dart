@@ -132,8 +132,9 @@ class ConstDecl extends Decl {
 
 class EnumVariant {
   final String name;
+  final SourceSpan span; // span of the variant name
   final List<TypeRef> fields; // positional payload types; empty = no payload
-  const EnumVariant(this.name, {this.fields = const []});
+  const EnumVariant(this.name, {required this.span, this.fields = const []});
 }
 
 class EnumDecl extends Decl {

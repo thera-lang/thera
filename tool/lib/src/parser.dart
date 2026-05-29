@@ -451,7 +451,7 @@ class Parser {
     _expect(TokenKind.lBrace, '{');
     final variants = <EnumVariant>[];
     while (!_check(TokenKind.rBrace) && !_atEnd) {
-      final vName = _expect(TokenKind.identifier, 'variant name').lexeme;
+      final vTok = _expect(TokenKind.identifier, 'variant name');
       final fields = <TypeRef>[];
       if (_match(TokenKind.lParen)) {
         while (!_check(TokenKind.rParen) && !_atEnd) {
@@ -460,7 +460,7 @@ class Parser {
         }
         _expect(TokenKind.rParen, ')');
       }
-      variants.add(EnumVariant(vName, fields: fields));
+      variants.add(EnumVariant(vTok.lexeme, span: vTok.span, fields: fields));
       if (!_match(TokenKind.comma)) break;
     }
     _expect(TokenKind.rBrace, '}');

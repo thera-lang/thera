@@ -211,8 +211,8 @@ class LspServer {
                 DocumentSymbol(
                   name: v.name,
                   kind: SymbolKind.EnumMember,
-                  range: _spanToRange(decl.nameSpan),
-                  selectionRange: _spanToRange(decl.nameSpan),
+                  range: _spanToRange(v.span),
+                  selectionRange: _spanToRange(v.span),
                 ),
             ],
           ));
