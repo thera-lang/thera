@@ -430,6 +430,16 @@ class ListExpr extends Expr {
   String describe() => '[${items.map((e) => e.describe()).join(', ')}]';
 }
 
+class MapExpr extends Expr {
+  final List<(Expr, Expr)> entries; // (key, value) pairs
+  MapExpr(super.span, this.entries);
+  @override
+  String describe() {
+    final es = entries.map((e) => '${e.$1.describe()}: ${e.$2.describe()}').join(', ');
+    return '{$es}';
+  }
+}
+
 class StructExpr extends Expr {
   final String typeName;
   final List<(String, Expr)> fields;

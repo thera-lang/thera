@@ -763,6 +763,10 @@ class Parser {
         return _parseListLiteral();
 
       case TokenKind.lBrace:
+        // Disambiguate map literal `{ expr: expr, ... }` from block `{ stmt... }`.
+        // A map literal starts with a string/int literal key followed by ':'.
+        // An empty `{}` is also a map literal.
+        if (_isMapLiteralStart()) return _parseMapLiteral();
         return BlockExpr(t.span, _parseBlock());
 
       case TokenKind.kwMatch:
@@ -805,6 +809,38 @@ class Parser {
       default:
         _fail('unexpected token: "${t.span.text}"');
     }
+  }
+
+  /// Returns true when the current `{` opens a map literal rather than a block.
+  /// A map literal is `{}` or `{ key: value, ... }` where the key is a
+  /// string or integer literal.
+  bool _isMapLiteralStart() {
+    // _current is '{'; look one and two positions ahead.
+    final peek1 = _pos + 1 < _tokens.length ? _tokens[_pos + 1] : _tokens.last;
+    // Empty braces → empty map.
+    if (peek1.kind == TokenKind.rBrace) return true;
+    // String or int key followed by ':' → map.
+    if (peek1.kind == TokenKind.stringLiteral ||
+        peek1.kind == TokenKind.intLiteral) {
+      final peek2 =
+          _pos + 2 < _tokens.length ? _tokens[_pos + 2] : _tokens.last;
+      return peek2.kind == TokenKind.colon;
+    }
+    return false;
+  }
+
+  Expr _parseMapLiteral() {
+    final start = _advance(); // '{'
+    final entries = <(Expr, Expr)>[];
+    while (!_check(TokenKind.rBrace) && !_atEnd) {
+      final key = _parseExpr();
+      _expect(TokenKind.colon, ':');
+      final value = _parseExpr();
+      entries.add((key, value));
+      if (!_match(TokenKind.comma)) break;
+    }
+    _expect(TokenKind.rBrace, '}');
+    return MapExpr(start.span, entries);
   }
 
   Expr _parseListLiteral() {

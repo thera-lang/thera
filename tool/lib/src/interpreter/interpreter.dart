@@ -614,6 +614,54 @@ class Interpreter {
             ? const OptionValue.none()
             : OptionValue.some(list.items.first);
       }),
+      'last': NativeFnValue('List.last', (args, named) {
+        final list = args[0] as ListValue;
+        return list.items.isEmpty
+            ? const OptionValue.none()
+            : OptionValue.some(list.items.last);
+      }),
+      'is_empty': NativeFnValue('List.is_empty', (args, named) {
+        return BoolValue.of((args[0] as ListValue).items.isEmpty);
+      }),
+      'contains': NativeFnValue('List.contains', (args, named) {
+        final list = args[0] as ListValue;
+        final target = args[1];
+        return BoolValue.of(list.items.any((item) => item == target));
+      }),
+      'join': NativeFnValue('List.join', (args, named) {
+        final list = args[0] as ListValue;
+        final sep = (args[1] as StringValue).v;
+        return StringValue(
+            list.items.map((v) => v.display()).join(sep));
+      }),
+    };
+
+    _nativeMethods['Map'] = {
+      'len': NativeFnValue('Map.len', (args, named) {
+        return IntValue((args[0] as MapValue).entries.length);
+      }),
+      'is_empty': NativeFnValue('Map.is_empty', (args, named) {
+        return BoolValue.of((args[0] as MapValue).entries.isEmpty);
+      }),
+      'has': NativeFnValue('Map.has', (args, named) {
+        return BoolValue.of((args[0] as MapValue).entries.containsKey(args[1]));
+      }),
+      'get': NativeFnValue('Map.get', (args, named) {
+        final v = (args[0] as MapValue).entries[args[1]];
+        return v != null ? OptionValue.some(v) : const OptionValue.none();
+      }),
+      'keys': NativeFnValue('Map.keys', (args, named) {
+        return ListValue((args[0] as MapValue).entries.keys.toList());
+      }),
+      'values': NativeFnValue('Map.values', (args, named) {
+        return ListValue((args[0] as MapValue).entries.values.toList());
+      }),
+      'remove': NativeFnValue('Map.remove', (args, named) {
+        final removed = (args[0] as MapValue).entries.remove(args[1]);
+        return removed != null
+            ? OptionValue.some(removed)
+            : const OptionValue.none();
+      }),
     };
 
     _nativeMethods['Option'] = {
@@ -702,6 +750,13 @@ class Interpreter {
       StringExpr(:final parts) => _evalString(parts, env),
       ListExpr(:final items) =>
         ListValue(items.map((e) => _evalExpr(e, env)).toList()),
+      MapExpr(:final entries) => () {
+          final map = MapValue.empty();
+          for (final (k, v) in entries) {
+            map.entries[_evalExpr(k, env)] = _evalExpr(v, env);
+          }
+          return map;
+        }(),
       StructExpr(typeName: '()', fields: []) => VoidValue.instance,
       StructExpr(:final typeName, :final fields) => StructValue(
           typeName, {for (final f in fields) f.$1: _evalExpr(f.$2, env)}),
@@ -761,6 +816,8 @@ class Interpreter {
             final idx = _evalExpr(index, env);
             if (obj is ListValue && idx is IntValue) {
               obj.items[idx.v] = val;
+            } else if (obj is MapValue) {
+              obj.entries[idx] = val;
             } else {
               throw InterpreterError(
                   'cannot index-assign ${_typeNameOf(obj)} with ${_typeNameOf(idx)}');
@@ -867,8 +924,12 @@ class Interpreter {
   }
 
   Value _evalIndex(Value obj, Value index) {
-    return switch ((obj, index)) {
-      (ListValue(:final items), IntValue(:final v)) => items[v],
+    return switch (obj) {
+      ListValue(:final items) when index is IntValue => items[index.v],
+      MapValue(:final entries) => switch (entries[index]) {
+          final v? => OptionValue.some(v),
+          null => const OptionValue.none(),
+        },
       _ => throw InterpreterError(
           'cannot index ${_typeNameOf(obj)} with ${_typeNameOf(index)}'),
     };
@@ -1216,6 +1277,7 @@ class Interpreter {
         BoolValue() => 'Bool',
         StringValue() => 'String',
         ListValue() => 'List',
+        MapValue() => 'Map',
         OptionValue() => 'Option',
         ResultValue() => 'Result',
         RangeValue() => 'Range',

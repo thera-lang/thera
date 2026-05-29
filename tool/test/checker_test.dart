@@ -327,6 +327,26 @@ fn f() { let p = Point { x: 1, y: 2 }; }
 
   // ---- LSP integration: checker errors appear in diagnostics ----
 
+  group('map literals', () {
+    test('empty map is valid', () {
+      expect(check("fn f() { let m = {}; }"), isEmpty);
+    });
+
+    test('string-keyed map is valid', () {
+      expect(
+        check("fn f() { let m = {'a': 1, 'b': 2}; }"),
+        isEmpty,
+      );
+    });
+
+    test('map value expressions are checked', () {
+      expect(
+        check("fn f() { let m = {'k': ghost()}; }"),
+        contains('undefined name: ghost'),
+      );
+    });
+  });
+
   group('const declarations', () {
     test('top-level const is visible as a name', () {
       expect(

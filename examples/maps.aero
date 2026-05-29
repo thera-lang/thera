@@ -1,0 +1,52 @@
+// Demonstrates map literals, index access, mutation, and map methods.
+
+fn main(args: Args) -> Result<Int, Error> {
+    // Map literal — insertion order is preserved.
+    let keywords = {
+        'fn': 1,
+        'let': 2,
+        'return': 3,
+        'if': 4,
+    };
+
+    println('len: ${keywords.len()}');
+    println('has fn: ${keywords.has('fn')}');
+    println('has else: ${keywords.has('else')}');
+
+    // Index access returns Option<V>.
+    let kind = keywords['fn'];
+    match kind {
+        Some(v) => println('fn -> ${v}'),
+        None => println('fn not found'),
+    }
+
+    let missing = keywords['else'];
+    match missing {
+        Some(v) => println('else -> ${v}'),
+        None => println('else not found'),
+    }
+
+    // get() is the same as index access.
+    let v = keywords.get('return');
+    match v {
+        Some(n) => println('return -> ${n}'),
+        None => println('return not found'),
+    }
+
+    // Mutation.
+    let mut counts = {'a': 0, 'b': 0};
+    counts['a'] = 1;
+    counts['b'] = 2;
+    println('a=${counts.get('a')}, b=${counts.get('b')}');
+
+    // Remove.
+    let removed = counts.remove('a');
+    println('removed a: ${removed}');
+    println('len after remove: ${counts.len()}');
+
+    // Keys and values (insertion order).
+    let keys = keywords.keys();
+    println('keys: ${keys.join(', ')}');
+
+    return Ok(0);
+}

@@ -299,6 +299,38 @@ interface Greet {
     });
   });
 
+  group('map literals', () {
+    Expr exprOf(String exprSource) =>
+        ((parse('fn f() { let v = $exprSource; }').decls.single as FnDecl)
+                .body!
+                .stmts
+                .single as LetStmt)
+            .value;
+
+    test('empty map literal', () {
+      final e = exprOf('{}') as MapExpr;
+      expect(e.entries, isEmpty);
+    });
+
+    test('string-keyed map literal', () {
+      final e = exprOf("{'a': 1, 'b': 2}") as MapExpr;
+      expect(e.entries.length, 2);
+      expect((e.entries[0].$1 as StringExpr).parts.first, isA<TextPart>());
+      expect((e.entries[1].$2 as IntLiteral).value, 2);
+    });
+
+    test('int-keyed map literal', () {
+      final e = exprOf('{1: 10, 2: 20}') as MapExpr;
+      expect(e.entries.length, 2);
+      expect((e.entries[0].$1 as IntLiteral).value, 1);
+    });
+
+    test('struct literal is not confused with map', () {
+      final e = exprOf('Point { x: 1, y: 2 }') as StructExpr;
+      expect(e.typeName, 'Point');
+    });
+  });
+
   group('const declarations', () {
     test('top-level const with type annotation', () {
       final program = parse('const SPACE: Int = 32;');

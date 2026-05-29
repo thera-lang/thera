@@ -232,6 +232,12 @@ class TypeChecker {
       case ListExpr(:final items):
         for (final item in items) _checkExpr(item, scope);
 
+      case MapExpr(:final entries):
+        for (final (k, v) in entries) {
+          _checkExpr(k, scope);
+          _checkExpr(v, scope);
+        }
+
       case StructExpr(:final typeName, :final fields, :final span):
         final typeDecl = _typeDecls[typeName];
         if (typeDecl != null) {

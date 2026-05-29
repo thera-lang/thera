@@ -1,3 +1,5 @@
+import 'dart:collection';
+
 import '../ast.dart';
 import 'environment.dart';
 
@@ -82,6 +84,29 @@ class ListValue extends Value {
           .every((b) => b);
   @override
   int get hashCode => Object.hashAll(items);
+}
+
+class MapValue extends Value {
+  final LinkedHashMap<Value, Value> entries;
+  MapValue(this.entries);
+
+  factory MapValue.empty() => MapValue(LinkedHashMap());
+
+  @override
+  String display() {
+    final es = entries.entries
+        .map((e) => '${e.key.debug()}: ${e.value.display()}')
+        .join(', ');
+    return '{$es}';
+  }
+
+  @override
+  String debug() {
+    final es = entries.entries
+        .map((e) => '${e.key.debug()}: ${e.value.debug()}')
+        .join(', ');
+    return '{$es}';
+  }
 }
 
 class StructValue extends Value {
