@@ -25,4 +25,5 @@ native fn exists(_ path: String) -> Bool
 //   for name in entries {
 //       let full = path.join('src', name);
 //   }
+// TODO: rename to list_dir()
 native fn read_dir(_ path: String) -> Result<List<String>, Error>

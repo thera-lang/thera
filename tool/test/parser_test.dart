@@ -299,6 +299,33 @@ interface Greet {
     });
   });
 
+  group('const declarations', () {
+    test('top-level const with type annotation', () {
+      final program = parse('const SPACE: Int = 32;');
+      final decl = program.decls.single as ConstDecl;
+      expect(decl.name, 'SPACE');
+      expect((decl.type as NamedType).name, 'Int');
+      expect((decl.value as IntLiteral).value, 32);
+    });
+
+    test('top-level const without type annotation', () {
+      final program = parse('const LF = 10;');
+      final decl = program.decls.single as ConstDecl;
+      expect(decl.name, 'LF');
+      expect(decl.type, isNull);
+    });
+
+    test('local const parsed as immutable let', () {
+      final stmts =
+          (parse('fn f() { const X: Int = 42; }').decls.single as FnDecl)
+              .body!
+              .stmts;
+      final let = stmts.single as LetStmt;
+      expect(let.name, 'X');
+      expect(let.isMut, isFalse);
+    });
+  });
+
   group('error reporting and recovery', () {
     test('reports an error with a source span', () {
       final result = parseRaw('fn main() -> Int { return }');

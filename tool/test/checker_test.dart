@@ -327,6 +327,31 @@ fn f() { let p = Point { x: 1, y: 2 }; }
 
   // ---- LSP integration: checker errors appear in diagnostics ----
 
+  group('const declarations', () {
+    test('top-level const is visible as a name', () {
+      expect(
+        check('''
+const SPACE: Int = 32;
+fn f() -> Int { return SPACE; }
+'''),
+        isEmpty,
+      );
+    });
+
+    test('multiple consts referencing each other', () {
+      expect(
+        check('''
+const LOWER_A: Int = 97;
+const LOWER_Z: Int = 122;
+fn is_lower(_ cp: Int) -> Bool {
+  return cp >= LOWER_A && cp <= LOWER_Z;
+}
+'''),
+        isEmpty,
+      );
+    });
+  });
+
   group('checker errors in LSP diagnostics', () {
     // Re-uses the LSP integration test infrastructure by directly calling the
     // LspServer diagnostics pipeline (via _publishDiagnostics tested in

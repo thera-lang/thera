@@ -44,6 +44,7 @@ class TypeChecker {
   final _fnDecls = <String, FnDecl>{};
   final _implMethods = <String, Map<String, FnDecl>>{};
   final _moduleNames = <String>{};
+  final _constNames = <String>{};
   final _errors = <CheckError>[];
 
   // ---- public API ----
@@ -81,6 +82,8 @@ class TypeChecker {
           _moduleNames.add(decl.alias ?? decl.path.split('.').last);
         case InterfaceDecl():
           break;
+        case ConstDecl():
+          _constNames.add(decl.name);
       }
     }
   }
@@ -105,6 +108,9 @@ class TypeChecker {
           }
         case ImportDecl():
           break;
+        case ConstDecl(:final type, :final value):
+          if (type != null) _checkTypeRef(type, decl.span);
+          _checkExpr(value, {});
       }
     }
   }
@@ -326,7 +332,8 @@ class TypeChecker {
       scope.containsKey(name) ||
       _builtinValues.contains(name) ||
       _fnDecls.containsKey(name) ||
-      _moduleNames.contains(name);
+      _moduleNames.contains(name) ||
+      _constNames.contains(name);
 
   TypeRef? _inferType(Expr expr, _Scope scope) => switch (expr) {
         IntLiteral() => NamedType('Int'),

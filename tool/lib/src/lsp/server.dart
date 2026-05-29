@@ -193,6 +193,13 @@ class LspServer {
           ));
         case ImportDecl():
           break;
+        case ConstDecl():
+          symbols.add(DocumentSymbol(
+            name: decl.name,
+            kind: SymbolKind.Constant,
+            range: _declRange(decl, source),
+            selectionRange: _spanToRange(decl.span),
+          ));
       }
     }
     return symbols;

@@ -6,6 +6,7 @@ enum TokenKind {
 
   // Keywords
   kwAs,
+  kwConst,
   kwElse,
   kwFalse,
   kwFn,
@@ -70,6 +71,7 @@ enum TokenKind {
 
 const _keywords = <String, TokenKind>{
   'as': TokenKind.kwAs,
+  'const': TokenKind.kwConst,
   'else': TokenKind.kwElse,
   'false': TokenKind.kwFalse,
   'fn': TokenKind.kwFn,

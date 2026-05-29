@@ -120,6 +120,16 @@ class InterfaceDecl extends Decl {
   }
 }
 
+class ConstDecl extends Decl {
+  final String name;
+  final TypeRef? type;
+  final Expr value;
+  ConstDecl(super.span, {required this.name, this.type, required this.value});
+
+  @override
+  String describe([String indent = '']) => '${indent}Const $name\n';
+}
+
 // --- Helpers attached to declarations ---
 
 class Decorator {

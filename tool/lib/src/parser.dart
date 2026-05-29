@@ -88,6 +88,7 @@ class Parser {
           k == TokenKind.kwInterface ||
           k == TokenKind.kwImport ||
           k == TokenKind.kwNative ||
+          k == TokenKind.kwConst ||
           k == TokenKind.at) {
         return;
       }
@@ -133,8 +134,13 @@ class Parser {
         _fail('decorators are not allowed on interface declarations');
       return _parseInterfaceDecl();
     }
+    if (k == TokenKind.kwConst) {
+      if (decorators.isNotEmpty)
+        _fail('decorators are not allowed on const declarations');
+      return _parseConstDecl();
+    }
 
-    _fail('expected a declaration (fn, type, impl, interface, import)');
+    _fail('expected a declaration (fn, type, impl, interface, import, const)');
   }
 
   Decorator _parseDecorator() {
@@ -387,6 +393,7 @@ class Parser {
     final k = _current.kind;
 
     if (k == TokenKind.kwLet) return _parseLetStmt();
+    if (k == TokenKind.kwConst) return _parseConstAsLet();
     if (k == TokenKind.kwReturn) return _parseReturnStmt();
     if (k == TokenKind.kwThrow) return _parseThrowStmt();
     if (k == TokenKind.kwIf) return _parseIfStmt();
@@ -407,6 +414,29 @@ class Parser {
     }
     _match(TokenKind.semi);
     return ExprStmt(start, expr);
+  }
+
+  /// Parse a local `const NAME [: Type] = expr;` as an immutable [LetStmt].
+  LetStmt _parseConstAsLet() {
+    final start = _advance(); // 'const'
+    final name = _expect(TokenKind.identifier, 'constant name').lexeme;
+    TypeRef? type;
+    if (_match(TokenKind.colon)) type = _parseTypeRef();
+    _expect(TokenKind.eq, '=');
+    final value = _parseExpr();
+    _match(TokenKind.semi);
+    return LetStmt(start.span, isMut: false, name: name, type: type, value: value);
+  }
+
+  ConstDecl _parseConstDecl() {
+    final start = _advance(); // 'const'
+    final name = _expect(TokenKind.identifier, 'constant name').lexeme;
+    TypeRef? type;
+    if (_match(TokenKind.colon)) type = _parseTypeRef();
+    _expect(TokenKind.eq, '=');
+    final value = _parseExpr();
+    _match(TokenKind.semi);
+    return ConstDecl(start.span, name: name, type: type, value: value);
   }
 
   LetStmt _parseLetStmt() {

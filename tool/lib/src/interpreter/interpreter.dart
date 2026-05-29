@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import '../ast.dart';
@@ -155,6 +156,12 @@ class Interpreter {
       final fields = <String, Value>{};
 
       for (final decl in parseResult.program.decls) {
+        if (decl is ConstDecl) {
+          final val = _evalExpr(decl.value, moduleEnv);
+          fields[decl.name] = val;
+          moduleEnv.define(decl.name, val);
+          continue;
+        }
         if (decl is! FnDecl) continue;
         final Value? fn;
         if (decl.isNative) {
@@ -220,6 +227,8 @@ class Interpreter {
           break;
         case InterfaceDecl():
           break;
+        case ConstDecl():
+          env.define(decl.name, _evalExpr(decl.value, env));
       }
     }
   }
@@ -236,6 +245,7 @@ class Interpreter {
     final path = _makePathModule();
     final process = _makeProcessModule();
     final fiber = _makeFiberModule();
+    final string = _makeStringModule();
     return {
       for (final k in fs.fields.keys) 'fs.$k': (a, n) => call(fs, k, a, n),
       for (final k in path.fields.keys) 'path.$k': (a, n) => call(path, k, a, n),
@@ -243,6 +253,8 @@ class Interpreter {
         'process.$k': (a, n) => call(process, k, a, n),
       for (final k in fiber.fields.keys)
         'fiber.$k': (a, n) => call(fiber, k, a, n),
+      for (final k in string.fields.keys)
+        'string.$k': (a, n) => call(string, k, a, n),
       // std.testing is not here: testing.aero uses regular Aero functions,
       // not native fn declarations, so no registry entries are needed.
     };
@@ -254,6 +266,7 @@ class Interpreter {
         'std.process' => _makeProcessModule(),
         'std.testing' => _makeTestingModule(),
         'std.fiber' => _makeFiberModule(),
+        'std.string' => _makeStringModule(),
         _ => null,
       };
 
@@ -302,6 +315,13 @@ class Interpreter {
   }
 
   // ---- stdlib modules ----
+
+  StructValue _makeStringModule() => StructValue('_Module', {
+        'from_chars': NativeFnValue('string.from_chars', (args, named) {
+          final cps = (args[0] as ListValue).items.map((v) => (v as IntValue).v);
+          return StringValue(String.fromCharCodes(cps));
+        }),
+      });
 
   StructValue _makeFsModule() => StructValue('_Module', {
         'read_text': NativeFnValue('fs.read_text', (args, named) {
@@ -471,10 +491,25 @@ class Interpreter {
   void _registerNativeMethods() {
     _nativeMethods['String'] = {
       'len': NativeFnValue('String.len', (args, named) {
-        return IntValue((args[0] as StringValue).v.length);
+        return IntValue((args[0] as StringValue).v.runes.length);
       }),
       'byte_len': NativeFnValue('String.byte_len', (args, named) {
-        return IntValue((args[0] as StringValue).v.length);
+        return IntValue(utf8.encode((args[0] as StringValue).v).length);
+      }),
+      'is_empty': NativeFnValue('String.is_empty', (args, named) {
+        return BoolValue.of((args[0] as StringValue).v.isEmpty);
+      }),
+      'chars': NativeFnValue('String.chars', (args, named) {
+        final runes = (args[0] as StringValue).v.runes;
+        return ListValue(runes.map<Value>((r) => IntValue(r)).toList());
+      }),
+      'slice': NativeFnValue('String.slice', (args, named) {
+        final runes = (args[0] as StringValue).v.runes.toList();
+        final start = (args[1] as IntValue).v;
+        final end = (args[2] as IntValue).v;
+        final clamped = runes.sublist(
+            start.clamp(0, runes.length), end.clamp(0, runes.length));
+        return StringValue(String.fromCharCodes(clamped));
       }),
       'trim': NativeFnValue('String.trim', (args, named) {
         return StringValue((args[0] as StringValue).v.trim());
@@ -1216,6 +1251,8 @@ class Interpreter {
           break;
         case InterfaceDecl():
           break;
+        case ConstDecl():
+          env.define(decl.name, _evalExpr(decl.value, env));
       }
     }
 
