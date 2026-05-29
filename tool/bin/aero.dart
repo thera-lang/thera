@@ -4,13 +4,15 @@ import 'package:args/command_runner.dart';
 import 'package:aero/src/ast.dart';
 import 'package:aero/src/interpreter/interpreter.dart';
 import 'package:aero/src/lexer.dart';
+import 'package:aero/src/lsp/server.dart';
 import 'package:aero/src/parser.dart';
 
 void main(List<String> args) async {
   final runner = CommandRunner<void>('aero', 'The Aero language toolchain.')
     ..addCommand(ParseCommand())
     ..addCommand(RunCommand())
-    ..addCommand(TestCommand());
+    ..addCommand(TestCommand())
+    ..addCommand(LspCommand());
 
   try {
     await runner.run(args);
@@ -97,6 +99,20 @@ class RunCommand extends Command<void> {
     final exitCode = Interpreter().execute(program, programArgs, baseDir: File(path).parent.path);
     exit(exitCode);
   }
+}
+
+class LspCommand extends Command<void> {
+  @override
+  String get name => 'lsp';
+
+  @override
+  String get description => 'Start the Aero LSP server (communicates via stdio).';
+
+  @override
+  String get invocation => 'aero lsp';
+
+  @override
+  Future<void> run() => LspServer().run();
 }
 
 class TestCommand extends Command<void> {

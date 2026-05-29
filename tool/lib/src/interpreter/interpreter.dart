@@ -3,6 +3,7 @@ import 'dart:io';
 import '../ast.dart';
 import '../lexer.dart';
 import '../parser.dart';
+import '../source_provider.dart';
 import 'environment.dart';
 import 'value.dart';
 
@@ -40,7 +41,11 @@ class Interpreter {
   // base directory for resolving relative imports; set per-execution
   String? _baseDir;
 
-  Interpreter() {
+  // resolves file paths to source text; supports overlays for LSP
+  final SourceProvider sourceProvider;
+
+  Interpreter({SourceProvider? sourceProvider})
+      : sourceProvider = sourceProvider ?? SourceProvider() {
     _registerNativeMethods();
   }
 
@@ -109,21 +114,26 @@ class Interpreter {
 
   void _handleFileImport(String path, String? alias, Environment env) {
     final base = _baseDir;
-    if (base == null) throw InterpreterError('relative import "$path" but no base directory set');
+    if (base == null)
+      throw InterpreterError(
+          'relative import "$path" but no base directory set');
     final filePath = '$base/$path.aero';
     final String source;
     try {
-      source = File(filePath).readAsStringSync();
+      source = sourceProvider.read(filePath);
     } on FileSystemException {
-      throw InterpreterError('cannot find module "$path" (looked for $filePath)');
+      throw InterpreterError(
+          'cannot find module "$path" (looked for $filePath)');
     }
     final lexResult = Lexer(source).tokenize();
     if (lexResult.hasErrors) {
-      throw InterpreterError('lex errors in $filePath: ${lexResult.errors.first}');
+      throw InterpreterError(
+          'lex errors in $filePath: ${lexResult.errors.first}');
     }
     final parseResult = Parser(lexResult.tokens).parse();
     if (parseResult.hasErrors) {
-      throw InterpreterError('parse errors in $filePath: ${parseResult.errors.first}');
+      throw InterpreterError(
+          'parse errors in $filePath: ${parseResult.errors.first}');
     }
     // Execute the imported module's declarations into the current env so that
     // its functions and impls are directly visible (no prefix for file imports).
@@ -229,20 +239,20 @@ class Interpreter {
   StructValue _makeProcessModule() => StructValue('_Module', {
         'run': NativeFnValue('process.run', (args, named) {
           final cmd = (args[0] as StringValue).v;
-          final argList = (named['args'] as ListValue?)?.items
+          final argList = (named['args'] as ListValue?)
+                  ?.items
                   .map((v) => (v as StringValue).v)
                   .toList() ??
               [];
           try {
-            final result =
-                Process.runSync(cmd, argList, runInShell: false);
+            final result = Process.runSync(cmd, argList, runInShell: false);
             if (result.exitCode != 0) {
               return ResultValue.err(StructValue('ProcessError', {
                 'stdout': StringValue(result.stdout as String),
                 'stderr': StringValue(result.stderr as String),
                 'exit_code': IntValue(result.exitCode),
-                'message': StringValue(
-                    'process exited with code ${result.exitCode}'),
+                'message':
+                    StringValue('process exited with code ${result.exitCode}'),
               }));
             }
             return ResultValue.ok(StructValue('Output', {
@@ -327,12 +337,18 @@ class Interpreter {
         if (s.isEmpty) return ListValue([]);
         // A trailing newline does not produce an extra empty entry.
         final trimmed = s.endsWith('\n') ? s.substring(0, s.length - 1) : s;
-        return ListValue(trimmed.split('\n').map((l) => StringValue(l)).toList());
-      }),
-      'split_whitespace': NativeFnValue('String.split_whitespace', (args, named) {
-        final s = (args[0] as StringValue).v;
         return ListValue(
-            s.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).map((w) => StringValue(w)).toList());
+            trimmed.split('\n').map((l) => StringValue(l)).toList());
+      }),
+      'split_whitespace':
+          NativeFnValue('String.split_whitespace', (args, named) {
+        final s = (args[0] as StringValue).v;
+        return ListValue(s
+            .trim()
+            .split(RegExp(r'\s+'))
+            .where((w) => w.isNotEmpty)
+            .map((w) => StringValue(w))
+            .toList());
       }),
       'split': NativeFnValue('String.split', (args, named) {
         final s = (args[0] as StringValue).v;
@@ -340,13 +356,16 @@ class Interpreter {
         return ListValue(s.split(sep).map((p) => StringValue(p)).toList());
       }),
       'starts_with': NativeFnValue('String.starts_with', (args, named) {
-        return BoolValue.of((args[0] as StringValue).v.startsWith((args[1] as StringValue).v));
+        return BoolValue.of(
+            (args[0] as StringValue).v.startsWith((args[1] as StringValue).v));
       }),
       'ends_with': NativeFnValue('String.ends_with', (args, named) {
-        return BoolValue.of((args[0] as StringValue).v.endsWith((args[1] as StringValue).v));
+        return BoolValue.of(
+            (args[0] as StringValue).v.endsWith((args[1] as StringValue).v));
       }),
       'contains': NativeFnValue('String.contains', (args, named) {
-        return BoolValue.of((args[0] as StringValue).v.contains((args[1] as StringValue).v));
+        return BoolValue.of(
+            (args[0] as StringValue).v.contains((args[1] as StringValue).v));
       }),
       'to_uppercase': NativeFnValue('String.to_uppercase', (args, named) {
         return StringValue((args[0] as StringValue).v.toUpperCase());
@@ -358,7 +377,8 @@ class Interpreter {
         final s = (args[0] as StringValue).v;
         final n = int.tryParse(s) ?? double.tryParse(s);
         if (n == null) return ResultValue.err(StringValue('parse error: "$s"'));
-        return ResultValue.ok(n is int ? IntValue(n) : FloatValue(n.toDouble()));
+        return ResultValue.ok(
+            n is int ? IntValue(n) : FloatValue(n.toDouble()));
       }),
       'debug': NativeFnValue('String.debug', (args, named) {
         return StringValue((args[0] as StringValue).debug());
@@ -378,7 +398,8 @@ class Interpreter {
       'map': NativeFnValue('List.map', (args, named) {
         final list = args[0] as ListValue;
         final fn = args[1];
-        return ListValue(list.items.map((item) => _callValueDirect(fn, [item])).toList());
+        return ListValue(
+            list.items.map((item) => _callValueDirect(fn, [item])).toList());
       }),
       'filter': NativeFnValue('List.filter', (args, named) {
         final list = args[0] as ListValue;
@@ -407,7 +428,9 @@ class Interpreter {
       }),
       'first': NativeFnValue('List.first', (args, named) {
         final list = args[0] as ListValue;
-        return list.items.isEmpty ? const OptionValue.none() : OptionValue.some(list.items.first);
+        return list.items.isEmpty
+            ? const OptionValue.none()
+            : OptionValue.some(list.items.first);
       }),
     };
 
@@ -447,7 +470,8 @@ class Interpreter {
       'unwrap': NativeFnValue('Result.unwrap', (args, named) {
         final r = args[0] as ResultValue;
         if (r.isOk) return r.inner;
-        throw _PropagateError(StringValue('unwrap called on Err(${r.inner.debug()})'));
+        throw _PropagateError(
+            StringValue('unwrap called on Err(${r.inner.debug()})'));
       }),
     };
 
@@ -469,7 +493,9 @@ class Interpreter {
         final self = args[0] as ArgsValue;
         final index = (args[1] as IntValue).v;
         final val = self.getPositional(index);
-        return val != null ? OptionValue.some(StringValue(val)) : const OptionValue.none();
+        return val != null
+            ? OptionValue.some(StringValue(val))
+            : const OptionValue.none();
       }),
       'has': NativeFnValue('Args.has', (args, named) {
         final self = args[0] as ArgsValue;
@@ -478,7 +504,8 @@ class Interpreter {
       }),
       'positionals': NativeFnValue('Args.positionals', (args, named) {
         final self = args[0] as ArgsValue;
-        return ListValue(self.allPositionals().map((s) => StringValue(s)).toList());
+        return ListValue(
+            self.allPositionals().map((s) => StringValue(s)).toList());
       }),
     };
   }
@@ -495,8 +522,7 @@ class Interpreter {
         ListValue(items.map((e) => _evalExpr(e, env)).toList()),
       StructExpr(typeName: '()', fields: []) => VoidValue.instance,
       StructExpr(:final typeName, :final fields) => StructValue(
-          typeName,
-          {for (final f in fields) f.$1: _evalExpr(f.$2, env)}),
+          typeName, {for (final f in fields) f.$1: _evalExpr(f.$2, env)}),
       IdentExpr(:final name) => _lookupIdent(name, env),
       CallExpr(:final callee, :final typeArgs, :final args) =>
         _evalCall(callee, typeArgs, args, env),
@@ -506,16 +532,14 @@ class Interpreter {
         _evalIndex(_evalExpr(object, env), _evalExpr(index, env)),
       BinaryExpr(:final left, :final op, :final right) =>
         _evalBinary(left, op, right, env),
-      UnaryExpr(:final op, :final operand) =>
-        _evalUnary(op, operand, env),
+      UnaryExpr(:final op, :final operand) => _evalUnary(op, operand, env),
       PropagateExpr(:final inner) => _evalPropagate(_evalExpr(inner, env)),
       RangeExpr(:final start, :final end) => RangeValue(
           (_evalExpr(start, env) as IntValue).v,
           (_evalExpr(end, env) as IntValue).v),
       MatchExpr(:final subject, :final arms) =>
         _evalMatch(_evalExpr(subject, env), arms, env),
-      LambdaExpr(:final params, :final body) =>
-        LambdaValue(params, body, env),
+      LambdaExpr(:final params, :final body) => LambdaValue(params, body, env),
       BlockExpr(:final block) => () {
           final child = Environment.child(env);
           _evalBlock(block, child);
@@ -523,8 +547,7 @@ class Interpreter {
         }(),
       ReturnExpr(:final value) => throw _ReturnSignal(
           value != null ? _evalExpr(value, env) : VoidValue.instance),
-      ThrowExpr(:final value) =>
-        throw _PropagateError(_evalExpr(value, env)),
+      ThrowExpr(:final value) => throw _PropagateError(_evalExpr(value, env)),
     };
   }
 
@@ -561,7 +584,8 @@ class Interpreter {
     }
   }
 
-  void _evalFor(Pattern pattern, Expr iterableExpr, Block body, Environment env) {
+  void _evalFor(
+      Pattern pattern, Expr iterableExpr, Block body, Environment env) {
     final iterable = _evalExpr(iterableExpr, env);
     Iterable<Value> sequence;
     switch (iterable) {
@@ -637,7 +661,8 @@ class Interpreter {
   Value _evalIndex(Value obj, Value index) {
     return switch ((obj, index)) {
       (ListValue(:final items), IntValue(:final v)) => items[v],
-      _ => throw InterpreterError('cannot index ${_typeNameOf(obj)} with ${_typeNameOf(index)}'),
+      _ => throw InterpreterError(
+          'cannot index ${_typeNameOf(obj)} with ${_typeNameOf(index)}'),
     };
   }
 
@@ -659,8 +684,10 @@ class Interpreter {
       '+' => switch ((l, r)) {
           (IntValue(:final v), IntValue(v: final v2)) => IntValue(v + v2),
           (FloatValue(:final v), FloatValue(v: final v2)) => FloatValue(v + v2),
-          (StringValue(:final v), StringValue(v: final v2)) => StringValue(v + v2),
-          _ => throw InterpreterError('cannot add ${_typeNameOf(l)} and ${_typeNameOf(r)}'),
+          (StringValue(:final v), StringValue(v: final v2)) =>
+            StringValue(v + v2),
+          _ => throw InterpreterError(
+              'cannot add ${_typeNameOf(l)} and ${_typeNameOf(r)}'),
         },
       '-' => switch ((l, r)) {
           (IntValue(:final v), IntValue(v: final v2)) => IntValue(v - v2),
@@ -685,14 +712,18 @@ class Interpreter {
       '!=' => BoolValue.of(l != r),
       '<' => switch ((l, r)) {
           (IntValue(:final v), IntValue(v: final v2)) => BoolValue.of(v < v2),
-          (FloatValue(:final v), FloatValue(v: final v2)) => BoolValue.of(v < v2),
-          (StringValue(:final v), StringValue(v: final v2)) => BoolValue.of(v.compareTo(v2) < 0),
+          (FloatValue(:final v), FloatValue(v: final v2)) =>
+            BoolValue.of(v < v2),
+          (StringValue(:final v), StringValue(v: final v2)) =>
+            BoolValue.of(v.compareTo(v2) < 0),
           _ => throw InterpreterError('cannot compare'),
         },
       '>' => switch ((l, r)) {
           (IntValue(:final v), IntValue(v: final v2)) => BoolValue.of(v > v2),
-          (FloatValue(:final v), FloatValue(v: final v2)) => BoolValue.of(v > v2),
-          (StringValue(:final v), StringValue(v: final v2)) => BoolValue.of(v.compareTo(v2) > 0),
+          (FloatValue(:final v), FloatValue(v: final v2)) =>
+            BoolValue.of(v > v2),
+          (StringValue(:final v), StringValue(v: final v2)) =>
+            BoolValue.of(v.compareTo(v2) > 0),
           _ => throw InterpreterError('cannot compare'),
         },
       '<=' => switch ((l, r)) {
@@ -726,7 +757,8 @@ class Interpreter {
       ResultValue(isOk: false, :final inner) => throw _PropagateError(inner),
       OptionValue(inner: final inner?) => inner,
       OptionValue() => throw _PropagateError(StringValue('None')),
-      _ => throw InterpreterError('? applied to non-Result/Option: ${v.display()}'),
+      _ => throw InterpreterError(
+          '? applied to non-Result/Option: ${v.display()}'),
     };
   }
 
@@ -750,8 +782,8 @@ class Interpreter {
 
   // ---- pattern matching ----
 
-  bool _matchPattern(
-      Pattern pat, Value subject, Map<String, Value> bindings, Environment env) {
+  bool _matchPattern(Pattern pat, Value subject, Map<String, Value> bindings,
+      Environment env) {
     return switch (pat) {
       WildcardPattern() => true,
       IdentPattern(:final name) => () {
@@ -760,27 +792,22 @@ class Interpreter {
         }(),
       ConstructorPattern(name: 'None', args: []) =>
         subject is OptionValue && subject.isNone,
-      ConstructorPattern(name: 'Some', :final args) =>
-        subject is OptionValue &&
-            subject.isSome &&
-            (args.isEmpty ||
-                _matchPattern(args[0], subject.inner!, bindings, env)),
-      ConstructorPattern(name: 'Ok', :final args) =>
-        subject is ResultValue &&
-            subject.isOk &&
-            (args.isEmpty ||
-                _matchPattern(args[0], subject.inner, bindings, env)),
-      ConstructorPattern(name: 'Err', :final args) =>
-        subject is ResultValue &&
-            !subject.isOk &&
-            (args.isEmpty ||
-                _matchPattern(args[0], subject.inner, bindings, env)),
-      ConstructorPattern(:final name, :final args) =>
-        subject is StructValue &&
-            subject.typeName == name &&
-            args.isEmpty, // TODO: field patterns
-      LiteralPattern(:final literal) =>
-        _evalExpr(literal, env) == subject,
+      ConstructorPattern(name: 'Some', :final args) => subject is OptionValue &&
+          subject.isSome &&
+          (args.isEmpty ||
+              _matchPattern(args[0], subject.inner!, bindings, env)),
+      ConstructorPattern(name: 'Ok', :final args) => subject is ResultValue &&
+          subject.isOk &&
+          (args.isEmpty ||
+              _matchPattern(args[0], subject.inner, bindings, env)),
+      ConstructorPattern(name: 'Err', :final args) => subject is ResultValue &&
+          !subject.isOk &&
+          (args.isEmpty ||
+              _matchPattern(args[0], subject.inner, bindings, env)),
+      ConstructorPattern(:final name, :final args) => subject is StructValue &&
+          subject.typeName == name &&
+          args.isEmpty, // TODO: field patterns
+      LiteralPattern(:final literal) => _evalExpr(literal, env) == subject,
     };
   }
 
@@ -839,7 +866,9 @@ class Interpreter {
       FnValue(:final decl, :final closure) => () {
           final fnEnv = Environment(closure);
           final nonSelf = decl.params.where((p) => !p.isSelf).toList();
-          for (var i = 0; i < nonSelf.length && i < positionalArgs.length; i++) {
+          for (var i = 0;
+              i < nonSelf.length && i < positionalArgs.length;
+              i++) {
             fnEnv.define(nonSelf[i].name, positionalArgs[i]);
           }
           try {
@@ -893,13 +922,15 @@ class Interpreter {
         final val = namedVals[param.label];
         if (val != null) {
           fnEnv.define(param.name, val);
-        } else if (positionalIdx < positionalVals.length && param.label == param.name) {
+        } else if (positionalIdx < positionalVals.length &&
+            param.label == param.name) {
           // Allow passing a named param positionally if label == name.
           fnEnv.define(param.name, positionalVals[positionalIdx++]);
         } else if (param.defaultValue != null) {
           fnEnv.define(param.name, _evalExpr(param.defaultValue!, closure));
         } else {
-          throw InterpreterError('missing arg "${param.label}" for ${decl.name}');
+          throw InterpreterError(
+              'missing arg "${param.label}" for ${decl.name}');
         }
       }
     }
