@@ -90,12 +90,15 @@ class StructValue extends Value {
   StructValue(this.typeName, this.fields);
   @override
   String display() {
-    final fs = fields.entries.map((e) => '${e.key}: ${e.value.display()}').join(', ');
+    final fs =
+        fields.entries.map((e) => '${e.key}: ${e.value.display()}').join(', ');
     return '$typeName { $fs }';
   }
+
   @override
   String debug() {
-    final fs = fields.entries.map((e) => '${e.key}: ${e.value.debug()}').join(', ');
+    final fs =
+        fields.entries.map((e) => '${e.key}: ${e.value.debug()}').join(', ');
     return '$typeName { $fs }';
   }
 }
@@ -107,7 +110,8 @@ class ResultValue extends Value {
   const ResultValue.ok(this.inner) : isOk = true;
   const ResultValue.err(this.inner) : isOk = false;
   @override
-  String display() => isOk ? 'Ok(${inner.display()})' : 'Err(${inner.display()})';
+  String display() =>
+      isOk ? 'Ok(${inner.display()})' : 'Err(${inner.display()})';
   @override
   String debug() => isOk ? 'Ok(${inner.debug()})' : 'Err(${inner.debug()})';
 }

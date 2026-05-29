@@ -3,6 +3,7 @@ import 'token.dart';
 class LexError {
   final String message;
   final SourceSpan span;
+
   LexError(this.message, this.span);
 
   @override
@@ -12,6 +13,7 @@ class LexError {
 class LexResult {
   final List<Token> tokens;
   final List<LexError> errors;
+
   LexResult(this.tokens, this.errors);
 
   bool get hasErrors => errors.isNotEmpty;
@@ -132,51 +134,60 @@ class Lexer {
         _emit(TokenKind.slash, startOffset, startLine, startCol);
       case '.':
         if (_match('.')) {
-          _emitSpan(TokenKind.dotDot, _spanFrom(startOffset, startLine, startCol));
+          _emitSpan(
+              TokenKind.dotDot, _spanFrom(startOffset, startLine, startCol));
         } else {
           _emit(TokenKind.dot, startOffset, startLine, startCol);
         }
       case '-':
         if (_match('>')) {
-          _emitSpan(TokenKind.arrow, _spanFrom(startOffset, startLine, startCol));
+          _emitSpan(
+              TokenKind.arrow, _spanFrom(startOffset, startLine, startCol));
         } else {
           _emit(TokenKind.minus, startOffset, startLine, startCol);
         }
       case '=':
         if (_match('=')) {
-          _emitSpan(TokenKind.eqEq, _spanFrom(startOffset, startLine, startCol));
+          _emitSpan(
+              TokenKind.eqEq, _spanFrom(startOffset, startLine, startCol));
         } else if (_match('>')) {
-          _emitSpan(TokenKind.fatArrow, _spanFrom(startOffset, startLine, startCol));
+          _emitSpan(
+              TokenKind.fatArrow, _spanFrom(startOffset, startLine, startCol));
         } else {
           _emit(TokenKind.eq, startOffset, startLine, startCol);
         }
       case '!':
         if (_match('=')) {
-          _emitSpan(TokenKind.bangEq, _spanFrom(startOffset, startLine, startCol));
+          _emitSpan(
+              TokenKind.bangEq, _spanFrom(startOffset, startLine, startCol));
         } else {
           _emit(TokenKind.bang, startOffset, startLine, startCol);
         }
       case '<':
         if (_match('=')) {
-          _emitSpan(TokenKind.ltEq, _spanFrom(startOffset, startLine, startCol));
+          _emitSpan(
+              TokenKind.ltEq, _spanFrom(startOffset, startLine, startCol));
         } else {
           _emit(TokenKind.lt, startOffset, startLine, startCol);
         }
       case '>':
         if (_match('=')) {
-          _emitSpan(TokenKind.gtEq, _spanFrom(startOffset, startLine, startCol));
+          _emitSpan(
+              TokenKind.gtEq, _spanFrom(startOffset, startLine, startCol));
         } else {
           _emit(TokenKind.gt, startOffset, startLine, startCol);
         }
       case '&':
         if (_match('&')) {
-          _emitSpan(TokenKind.ampAmp, _spanFrom(startOffset, startLine, startCol));
+          _emitSpan(
+              TokenKind.ampAmp, _spanFrom(startOffset, startLine, startCol));
         } else {
           _error('unexpected character: &', startOffset, startLine, startCol);
         }
       case '|':
         if (_match('|')) {
-          _emitSpan(TokenKind.pipePipe, _spanFrom(startOffset, startLine, startCol));
+          _emitSpan(
+              TokenKind.pipePipe, _spanFrom(startOffset, startLine, startCol));
         } else {
           _error('unexpected character: |', startOffset, startLine, startCol);
         }
@@ -231,7 +242,8 @@ class Lexer {
         int depth = 1;
         while (!_atEnd && depth > 0) {
           final ic = _ch;
-          if (ic == '{') depth++;
+          if (ic == '{')
+            depth++;
           else if (ic == '}') depth--;
           buf.write(ic);
           _advance();
@@ -259,7 +271,8 @@ class Lexer {
       while (!_atEnd && _isDigit(_ch)) _advance();
     }
     final span = _spanFrom(startOffset, startLine, startCol);
-    _tokens.add(Token(isFloat ? TokenKind.floatLiteral : TokenKind.intLiteral, span));
+    _tokens.add(
+        Token(isFloat ? TokenKind.floatLiteral : TokenKind.intLiteral, span));
   }
 
   void _scanIdent(int startOffset, int startLine, int startCol) {

@@ -14,8 +14,7 @@ class Environment {
       tryLookup(name) ?? (throw StateError('undefined: $name'));
 
   /// Like [lookup] but returns null instead of throwing.
-  Value? tryLookup(String name) =>
-      _bindings[name] ?? _parent?.tryLookup(name);
+  Value? tryLookup(String name) => _bindings[name] ?? _parent?.tryLookup(name);
 
   /// Define [name] in this scope.  Shadows any outer binding.
   void define(String name, Value value) {

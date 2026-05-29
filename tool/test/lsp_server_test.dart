@@ -172,14 +172,14 @@ impl Display for Point {
 
       expect(byName.keys, containsAll(['Point', 'Display', 'Display for Point']));
 
-      expect(byName['Point']!['kind'], SymbolKind.Struct.toJson());
+      expect(byName['Point']!['kind'], SymbolKind.Class.toJson());
 
       final iface = byName['Display']!;
       expect(iface['kind'], SymbolKind.Interface.toJson());
       expect((iface['children'] as List).map((c) => c['name']), ['display']);
 
       final impl = byName['Display for Point']!;
-      expect(impl['kind'], SymbolKind.Namespace.toJson());
+      expect(impl['kind'], SymbolKind.Interface.toJson());
       final methods = impl['children'] as List;
       expect(methods.map((c) => c['name']), ['display']);
       expect(methods.first['kind'], SymbolKind.Method.toJson());

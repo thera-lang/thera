@@ -130,7 +130,7 @@ class LspServer {
         case TypeDecl():
           symbols.add(DocumentSymbol(
             name: decl.name,
-            kind: SymbolKind.Struct,
+            kind: SymbolKind.Class,
             range: _declRange(decl, source),
             selectionRange: _spanToRange(decl.nameSpan),
           ));
@@ -140,15 +140,17 @@ class LspServer {
               : decl.typeName;
           symbols.add(DocumentSymbol(
             name: label,
-            kind: SymbolKind.Namespace,
+            kind: SymbolKind.Interface,
             range: _declRange(decl, source),
             selectionRange: _spanToRange(decl.nameSpan),
-            children: decl.methods.map((m) => DocumentSymbol(
-              name: m.name,
-              kind: SymbolKind.Method,
-              range: _declRange(m, source),
-              selectionRange: _spanToRange(m.nameSpan),
-            )).toList(),
+            children: decl.methods
+                .map((m) => DocumentSymbol(
+                      name: m.name,
+                      kind: SymbolKind.Method,
+                      range: _declRange(m, source),
+                      selectionRange: _spanToRange(m.nameSpan),
+                    ))
+                .toList(),
           ));
         case InterfaceDecl():
           symbols.add(DocumentSymbol(
@@ -156,12 +158,14 @@ class LspServer {
             kind: SymbolKind.Interface,
             range: _declRange(decl, source),
             selectionRange: _spanToRange(decl.nameSpan),
-            children: decl.methods.map((m) => DocumentSymbol(
-              name: m.name,
-              kind: SymbolKind.Method,
-              range: _declRange(m, source),
-              selectionRange: _spanToRange(m.nameSpan),
-            )).toList(),
+            children: decl.methods
+                .map((m) => DocumentSymbol(
+                      name: m.name,
+                      kind: SymbolKind.Method,
+                      range: _declRange(m, source),
+                      selectionRange: _spanToRange(m.nameSpan),
+                    ))
+                .toList(),
           ));
         case ImportDecl():
           break;
@@ -195,7 +199,8 @@ class LspServer {
     // Walk forward from start.offset to find the matching closing brace.
     int depth = 0;
     for (int i = start.offset; i < source.length; i++) {
-      if (source[i] == '{') depth++;
+      if (source[i] == '{')
+        depth++;
       else if (source[i] == '}') {
         depth--;
         if (depth == 0) {
@@ -203,10 +208,15 @@ class LspServer {
           int line = start.line;
           int col = start.column;
           for (int j = start.offset; j < i; j++) {
-            if (source[j] == '\n') { line++; col = 1; }
-            else { col++; }
+            if (source[j] == '\n') {
+              line++;
+              col = 1;
+            } else {
+              col++;
+            }
           }
-          return SourceSpan(source: source, offset: i, length: 1, line: line, column: col);
+          return SourceSpan(
+              source: source, offset: i, length: 1, line: line, column: col);
         }
       }
     }
@@ -228,7 +238,8 @@ class LspServer {
   }
 
   Position _spanToEndPosition(SourceSpan span) {
-    return Position(line: span.line - 1, character: span.column - 1 + span.length);
+    return Position(
+        line: span.line - 1, character: span.column - 1 + span.length);
   }
 
   // --- utilities ---
@@ -244,7 +255,11 @@ class LspServer {
   String? _sourceForUri(String uri) {
     final path = _uriToPath(uri);
     if (sourceProvider.hasOverlay(path)) return sourceProvider.read(path);
-    try { return sourceProvider.read(path); } catch (_) { return null; }
+    try {
+      return sourceProvider.read(path);
+    } catch (_) {
+      return null;
+    }
   }
 
   String _uriToPath(String uri) => Uri.parse(uri).toFilePath();
