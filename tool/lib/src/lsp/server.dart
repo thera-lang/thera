@@ -12,9 +12,16 @@ import '../token.dart';
 class LspServer {
   final SourceProvider sourceProvider = SourceProvider();
 
+  /// Run the server over stdin/stdout (production entry point).
   Future<void> run() async {
     final connection = Connection(stdin, stdout);
+    bind(connection);
+    await connection.listen();
+  }
 
+  /// Register all handlers on [connection]. Separated from [run] so that
+  /// tests can drive the server over in-memory streams.
+  void bind(Connection connection) {
     connection.onInitialize((params) async {
       return InitializeResult(
         capabilities: ServerCapabilities(
@@ -31,29 +38,30 @@ class LspServer {
     connection.onNotification('initialized', (_) async {});
 
     connection.onNotification('textDocument/didOpen', (params) async {
-      final uri = params['textDocument']['uri'] as String;
-      final text = params['textDocument']['text'] as String;
+      final doc = params['textDocument'].asMap;
+      final uri = doc['uri'] as String;
+      final text = doc['text'] as String;
       sourceProvider.addOverlay(_uriToPath(uri), text);
       _publishDiagnostics(connection, uri, text);
     });
 
     connection.onNotification('textDocument/didChange', (params) async {
-      final uri = params['textDocument']['uri'] as String;
-      final changes = params['contentChanges'] as List;
+      final uri = params['textDocument'].asMap['uri'] as String;
+      final changes = params['contentChanges'].asList;
       if (changes.isNotEmpty) {
-        final text = changes.last['text'] as String;
+        final text = (changes.last as Map)['text'] as String;
         sourceProvider.addOverlay(_uriToPath(uri), text);
         _publishDiagnostics(connection, uri, text);
       }
     });
 
     connection.onNotification('textDocument/didClose', (params) async {
-      final path = _uriToPath(params['textDocument']['uri'] as String);
+      final path = _uriToPath(params['textDocument'].asMap['uri'] as String);
       sourceProvider.removeOverlay(path);
     });
 
     connection.onRequest('textDocument/documentSymbol', (params) async {
-      final uri = params['textDocument']['uri'] as String;
+      final uri = params['textDocument'].asMap['uri'] as String;
       final text = _sourceForUri(uri);
       if (text == null) return <DocumentSymbol>[];
       final program = _parse(text);
@@ -64,8 +72,6 @@ class LspServer {
     connection.onRequest('shutdown', (_) async => null);
 
     connection.onNotification('exit', (_) async => exit(0));
-
-    await connection.listen();
   }
 
   // --- diagnostics ---
