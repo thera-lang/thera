@@ -186,6 +186,10 @@ is a natural next step:
 
 LLVM or a custom VM would make sense for a v1.0 release, but not during the POC.
 
+> Note: the table above concerns the POC. The eventual production runtime — a
+> tiered VM (bytecode interpreter → Cranelift JIT) — is described under
+> [Future Considerations → Backend options](#backend-options-1).
+
 ---
 
 ## Implementation language
@@ -212,14 +216,14 @@ host language. Criteria:
 Dart was chosen over TypeScript for the POC:
 
 - Team familiarity means faster iteration
-- `dart compile exe` produces a single native binary, directly mirroring
-  Aero's own distribution goal
-- Dart 3's sealed classes and exhaustive switch are a natural fit for
-  AST-heavy compiler code
+- `dart compile exe` produces a single native binary, directly mirroring Aero's
+  own distribution goal
+- Dart 3's sealed classes and exhaustive switch are a natural fit for AST-heavy
+  compiler code
 - The bootstrap path (Dart → rewrite in Aero) is as clean as any alternative
 
-The toolchain lives in `tool/`; see `docs/phases.md` for the implementation
-plan and milestones.
+The toolchain lives in `tool/`; see `docs/phases.md` for the implementation plan
+and milestones.
 
 When the language design stabilises and bootstrap becomes the goal, rewriting
 the compiler in Rust (or in Aero itself) is the natural path.
@@ -246,18 +250,19 @@ the compiler in Rust (or in Aero itself) is the natural path.
 ## Open design questions
 
 - **Concurrency: beyond single-threaded fibers** — the current model is
-  single-threaded cooperative fibers: simple, no synchronization needed, but
-  no CPU parallelism. Two directions worth revisiting if parallelism becomes a
+  single-threaded cooperative fibers: simple, no synchronization needed, but no
+  CPU parallelism. Two directions worth revisiting if parallelism becomes a
   requirement:
-  - *Immutable-only sharing:* allow multiple threads, but fibers may only share
+  - _Immutable-only sharing:_ allow multiple threads, but fibers may only share
     immutable values across thread boundaries. Limitation: an immutable variable
     reference does not guarantee an immutable object graph, so this is harder to
     enforce than it appears without deeper type-system support.
-  - *Thread-isolated heaps:* multiple threads each run their own fiber scheduler
+  - _Thread-isolated heaps:_ multiple threads each run their own fiber scheduler
     with a private heap; no shared memory between threads. Threads communicate
-    only by passing serialized/copied values. Removes the need for synchronization
-    primitives while enabling CPU parallelism. Unclear what the right problem
-    domain is for this vs. the simpler single-threaded model; deferred.
+    only by passing serialized/copied values. Removes the need for
+    synchronization primitives while enabling CPU parallelism. Unclear what the
+    right problem domain is for this vs. the simpler single-threaded model;
+    deferred.
 - **Visibility / access control** — how are public vs. private symbols
   distinguished? Options include: a `pub` keyword on declarations (Rust style),
   a naming convention (leading `_` = private, Go style), an explicit `export`
@@ -358,61 +363,138 @@ this should be revisited.
 
 ### Backend options
 
-For a language requiring near-instantaneous startup times, clean toolchain
-integration, and powerful tiering capabilities, the two frontrunners provide
-distinct architectural advantages:
+This concerns the eventual _production_ runtime — how a real Aero app executes,
+not the POC tree-walking interpreter. Priorities, in order:
 
-#### 1. The WebAssembly (Wasm) Ecosystem
+1. **Fast startup**, measured as _source/IR → running_, not just AOT process
+   launch. A short-lived CLI tool should feel instant.
+2. **Reasonable steady-state performance** — good enough for real work; not a
+   goal to beat C.
+3. **Mature, broad toolchain** — fewer codegen bugs, and support for the chips
+   people actually ship CLI tools to.
+4. **Managed memory** — a GC, without having to invent a world-class one up
+   front.
 
-This route treats Wasm as your primary target format, using an existing runtime
-like Wasmtime as your execution engine.
+#### Direction: a tiered VM (bytecode interpreter → Cranelift JIT)
 
-- **The Pipeline:** Frontend $\rightarrow$ Wasm Bytecode $\rightarrow$ Wasmtime.
-- **Startup Speed:** Exceptional. Wasm runtimes are highly optimized for
-  sub-millisecond initialization.
-- **CLI Capability:** Solved via **WASI (Wasm System Interface)**, which
-  provides capability-based access to the host file system, environment
-  variables, and standard I/O without the sandboxing causing user friction.
-- **FFI Story:** Highly mature using the **Wasm Component Model** and `.wit`
-  files, which auto-generate the type-safe binding glue between the host and
-  your application.
-- **Engineering Lift:** **Lowest.** Your self-hosted frontend only needs to emit
-  standard stack-based bytecode. The runtime handles all architecture-specific
-  JIT/AOT machine code compilation automatically.
+The chosen path is to own the execution pipeline: compile Aero to our own
+bytecode, run it immediately in a fast interpreter, and JIT only the hot code to
+native via Cranelift.
 
-#### 2. Direct Cranelift Integration
+```
+Aero source ──(compile, off the hot path)──► Aero bytecode  (our IR; serializable, compact)
+                                                   │
+                                          ┌────────┴─────────┐
+                                          ▼                  ▼
+                                  Tier 0: bytecode      Tier 1: Cranelift JIT
+                                  interpreter           (hot functions only)
+                                  (instant; runs        (lower bytecode → Cranelift
+                                   run-once code)         IR → native code)
+```
 
-This route bypasses Wasm entirely, treating Cranelift as a low-level, native
-code-generation library directly inside your compiler binaries.
+- **`bin/aero` is the runtime**: bytecode interpreter + Cranelift JIT + GC +
+  stdlib. A compile step (a subcommand, or invoked implicitly for
+  `aero run foo.aero`) produces bytecode. This runtime is a **Rust** component,
+  aligning with the planned production-compiler-in-Rust trajectory.
+- **The interpreter tier earns its place for the CLI domain.** A CLI tool
+  starts, does bounded work, and exits — most code paths run _once_. A
+  JIT-everything design pays compile latency on first call with no steady-state
+  to amortize it against; the interpreter runs that code immediately at zero
+  compile cost, and Cranelift is spent only on genuine hot loops.
+- **Static typing is the key simplifier.** The complexity in V8/SpiderMonkey/
+  PyPy comes from _speculation_: hidden classes, inline caches, type feedback,
+  and deoptimization. Aero's bytecode carries concrete types, so the JIT does
+  straight-line typed lowering with no guards and no deopt — roughly 80% of what
+  makes a tiered VM hard simply does not apply.
 
-- **The Pipeline:** Frontend $\rightarrow$ Cranelift IR $\rightarrow$ Machine
-  Code (JIT/AOT).
-- **Startup Speed:** Very fast. Cranelift is explicitly architected to
-  prioritize blazing-fast compilation speed over deep optimization loops.
-- **CLI Capability:** Absolute. Because Cranelift generates raw native machine
-  code directly on the host, your compiled binaries run natively without any
-  sandbox constraints or capability mappings.
-- **FFI Story:** Standard native FFI. You handle raw system ABI calls (like
-  standard C calling conventions) directly through Cranelift IR register
-  assignments.
-- **Engineering Lift:** **Moderate to High.** Your frontend must map its logic
-  to a register-based, Single Static Assignment (SSA) IR structure, and you are
-  responsible for managing the execution memory and runtime environment
-  yourself.
+#### The bytecode: our own, stack-based
 
----
+- **Stack-based**, for a trivial frontend (no register allocation) and a simple
+  interpreter. The classic choice (JVM, CPython, Wasm).
+- **Stack form does not impede the JIT.** Lowering stack bytecode to Cranelift's
+  SSA IR is a standard transform — reconstruct SSA values by abstractly
+  interpreting the operand stack at compile time. This is exactly how Wasmtime
+  lowers (stack-based) Wasm into Cranelift, so the whole
+  frontend-emits-stack-code → Cranelift-builds-SSA path has a production
+  precedent.
+- **Roll our own rather than reuse Wasm/JVM/CPython bytecode.** Every
+  off-the-shelf option discards Aero's static types in a usable form (Wasm GC's
+  data model is also immature and awkward), forcing an impedance-mismatch
+  re-encoding _and_ losing the type info that keeps the JIT speculation-free. A
+  bytecode that carries Aero's types is both easier to target and easier to
+  lower. A register-based bytecode is a later optimization (fewer dispatches per
+  op), deferred.
+- **The bytecode is the durable artifact**; Cranelift IR is ephemeral, generated
+  from hot bytecode at JIT time and discarded. Shipping pre-compiled bytecode
+  removes parse + type-check from the startup path.
 
-#### The Recommended Hybrid
+#### Garbage collection
 
-If you want the best of both worlds, the dominant industry pattern is to **emit
-Wasm bytecode first**.
+The two-tier stack (interpreter and JIT frames interleaved) is what makes root
+finding interesting.
 
-Because Wasmtime uses Cranelift under the hood as its primary JIT engine,
-targeting Wasm allows you to instantly tap into the sandboxed CLI toolchain,
-mature FFI, and sub-millisecond startup times of the Wasm ecosystem, while
-_inheriting_ Cranelift's fast native machine code generation completely for
-free.
+- **Start with our own precise, non-moving mark-sweep, interpreter-only.** We
+  control the value stack and the typed bytecode says exactly what is a pointer,
+  so precise roots are easy — and it is a satisfying build.
+- **When the Cranelift tier lands**, JIT frames need roots too: either emit
+  Cranelift safepoints/stackmaps (precise, but the stackmap API is fiddly and
+  has historically been in flux), or keep interpreter roots precise and
+  **conservatively scan JIT frames** (a known hybrid, less work). The hybrid
+  forces the GC to stay **non-moving**.
+- **Boehm (bdwgc) is the zero-effort escape hatch** — conservative across both
+  tiers, no stack maps anywhere (the Crystal playbook) — if GC is not where we
+  want to spend effort.
+- **Constraint on the future:** non-moving is plenty for v1, but a
+  moving/generational GC later requires _full_ precision including the JIT, so
+  avoid baking in conservative-everywhere if generational is a someday-goal.
 
-This approach keeps your self-hosted frontend incredibly lightweight, letting
-you focus on language syntax and semantics rather than low-level backend code
-generation.
+#### Options considered and rejected
+
+- **Wasmtime as the runtime.** The Wasm sandbox fights Aero's central use case:
+  subprocess spawning and broad filesystem access are exactly what it restricts,
+  and WASI has no mature subprocess/exec API — so shelling out (see the `git`
+  example above) would require hand-written host shims, eroding the sandbox's
+  value while adding friction. The Component Model `.wit` story is mature for
+  host↔guest _binding composition_, not for calling arbitrary native libraries.
+  And we would be betting memory management on Wasmtime's Wasm GC, its newest
+  and least battle-tested subsystem (GCs also take years to mature in
+  _performance_, not just correctness). Emitting Wasm as a _secondary_ target
+  for browser or plugin sandboxing remains fine later — just not the primary CLI
+  runtime.
+- **LLVM as the JIT.** LLVM is a re-targetable _optimizing_ pipeline; compile
+  latency is high by design — the wrong tool for a fast-startup JIT. (Cranelift
+  exists precisely because Wasmtime needed acceptable code at a fraction of
+  LLVM's compile time.)
+- **Transpiling to another platform** (Go, TypeScript, C). A reasonable analysis
+  — Go in particular maps the fiber model onto goroutines almost for free — but
+  it cedes ownership of the execution pipeline, which is the part of this
+  project worth building.
+
+#### Alternative JIT engines (for the Tier 1 slot)
+
+Cranelift is the mature default (Rust, battle-tested in Wasmtime; targets
+x86-64, aarch64, riscv64, s390x — modern desktop/server, though not 32-bit or
+embedded). Two interesting alternatives, decidable later since the bytecode is
+the stable interface:
+
+- **Copy-and-patch compilation** (CPython 3.13's experimental JIT). Precompile
+  per-opcode "stencils" at build time; at runtime, codegen is essentially
+  `memcpy` + patching immediates — far faster than even Cranelift, with code
+  quality between interpreter and optimizing JIT, and a smaller runtime
+  dependency. Best fit for minimizing source→running latency.
+- **MIR** (Makarov's lightweight JIT IR) — fast compilation, ~70% of `gcc -O2`
+  output at a fraction of the compile time. C-based, lighter than Cranelift,
+  less mature.
+
+#### Staged path
+
+1. **Dart POC tree-walker** (already the plan) — settle semantics.
+2. **Define the bytecode** — the stable IR / distribution format; statically
+   typed, so compact and untagged.
+3. **Rust runtime: bytecode interpreter + precise non-moving mark-sweep GC.**
+   This alone runs real Aero apps with fast startup, and may handle most
+   short-lived CLI work without ever tiering up.
+4. **Add the Cranelift JIT tier** for hot functions (or trial copy-and-patch);
+   decide JIT root strategy here.
+5. **AOT via `cranelift-object`** later — single-binary distribution and
+   self-hosting — optional, not on the startup-critical path.
