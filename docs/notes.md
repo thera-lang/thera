@@ -49,8 +49,8 @@ The "Clearest" Taxonomy: the clearest, most defensible hierarchy to use is:
 ## TODO
 
 - [x] create an 'sdk' subdir; use for artifacts that will make up the sdk
-- rename to 'hawk'?
-- create a cargo build for the 'hawk' cli tool (front-end image + interpreter +
-  Cranelift + GC); in 'tool'?
+- [x] rename to 'hawk'
+- [x] create a cargo build for the 'hawk' cli tool (front-end image +
+      interpreter + Cranelift + GC); in 'runtime'
 - IR design
 - interpreter

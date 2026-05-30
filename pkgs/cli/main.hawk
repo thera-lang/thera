@@ -1,0 +1,40 @@
+fn usage() {
+    println('Usage: hawk <command> [options]');
+    println('');
+    println('Commands:');
+    println('  run    <file>  Run a Hawk program');
+    println('  check  <file>  Type-check a Hawk program');
+    println('  test   <file>  Run tests in a Hawk program');
+    println('  lsp            Start the Hawk language server');
+    println('');
+    println('Options:');
+    println('  -h, --help     Print this help message');
+}
+
+fn main(args: Args) -> Result<Int, Error> {
+    if args.has('help') || args.has('h') {
+        usage();
+        return Ok(0);
+    }
+
+    let command = args.positional(0);
+
+    match command {
+        Some('run')   => println('run: not implemented'),
+        Some('check') => println('check: not implemented'),
+        Some('test')  => println('test: not implemented'),
+        Some('lsp')   => println('lsp: not implemented'),
+        Some(cmd)     => {
+            println('Unknown command: ${cmd}');
+            println('');
+            usage();
+            return Ok(1);
+        },
+        None => {
+            usage();
+            return Ok(1);
+        },
+    }
+
+    return Ok(0);
+}
