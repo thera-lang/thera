@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:aero/src/lsp/server.dart';
+import 'package:hawk/src/lsp/server.dart';
 import 'package:lsp_server/lsp_server.dart';
 import 'package:test/test.dart';
 
@@ -52,7 +52,7 @@ void main() {
     clientConn.sendNotification('textDocument/didOpen', {
       'textDocument': {
         'uri': uri,
-        'languageId': 'aero',
+        'languageId': 'hawk',
         'version': 1,
         'text': text,
       },
@@ -80,7 +80,7 @@ void main() {
     final caps = result['capabilities'] as Map;
     expect(caps['documentSymbolProvider'], isTrue);
     expect(caps['textDocumentSync'], TextDocumentSyncKind.Full.toJson());
-    expect((result['serverInfo'] as Map)['name'], 'aero');
+    expect((result['serverInfo'] as Map)['name'], 'hawk');
   });
 
   // --- diagnostics ---
@@ -89,7 +89,7 @@ void main() {
     test('clean file produces no diagnostics', () async {
       await initialize();
       final diag = await openAndAwaitDiagnostics(
-        'file:///clean.aero',
+        'file:///clean.hawk',
         'fn main() -> Int {\n  return 0;\n}\n',
       );
       expect(diag['diagnostics'], isEmpty);
@@ -99,14 +99,14 @@ void main() {
       await initialize();
       // Missing closing brace / body — a parse error.
       final diag = await openAndAwaitDiagnostics(
-        'file:///broken.aero',
+        'file:///broken.hawk',
         'fn main() -> Int {\n  return\n',
       );
       final items = diag['diagnostics'] as List;
       expect(items, isNotEmpty);
       final first = items.first as Map;
       expect(first['severity'], DiagnosticSeverity.Error.toJson());
-      expect(first['source'], 'aero');
+      expect(first['source'], 'hawk');
       expect(first['range'], isA<Map>());
       expect((first['message'] as String), isNotEmpty);
     });
@@ -114,13 +114,13 @@ void main() {
     test('re-opening with fixed content clears diagnostics', () async {
       await initialize();
       final broken = await openAndAwaitDiagnostics(
-        'file:///fix.aero',
+        'file:///fix.hawk',
         'fn main() -> Int {\n  return\n',
       );
       expect(broken['diagnostics'], isNotEmpty);
 
       final fixed = await openAndAwaitDiagnostics(
-        'file:///fix.aero',
+        'file:///fix.hawk',
         'fn main() -> Int {\n  return 0;\n}\n',
       );
       expect(fixed['diagnostics'], isEmpty);
@@ -132,7 +132,7 @@ void main() {
   group('documentSymbol', () {
     test('top-level functions become Function symbols', () async {
       await initialize();
-      const uri = 'file:///fns.aero';
+      const uri = 'file:///fns.hawk';
       await openAndAwaitDiagnostics(uri, '''
 fn first() -> Int {
   return 1;
@@ -150,7 +150,7 @@ fn second(x: Int) -> Int {
 
     test('type, impl with method children, and interface', () async {
       await initialize();
-      const uri = 'file:///shapes.aero';
+      const uri = 'file:///shapes.hawk';
       await openAndAwaitDiagnostics(uri, '''
 type Point = {
   x: Int,
@@ -187,7 +187,7 @@ impl Display for Point {
 
     test('selectionRange points at the name, not the keyword', () async {
       await initialize();
-      const uri = 'file:///sel.aero';
+      const uri = 'file:///sel.hawk';
       // 'fn ' is 3 chars, so 'main' starts at character 3 on line 0.
       await openAndAwaitDiagnostics(uri, 'fn main() -> Int {\n  return 0;\n}\n');
       final symbols = (await documentSymbol(uri)) as List;
@@ -198,13 +198,13 @@ impl Display for Point {
       expect((sel['end'] as Map)['character'], 3 + 'main'.length);
     });
 
-    test('selectionRange is contained in range for all symbols (core.aero)', () async {
+    test('selectionRange is contained in range for all symbols (core.hawk)', () async {
       // Regression test: bodyless FnDecl (interface stubs) previously produced
       // a range ending at the `fn` keyword while selectionRange pointed at the
       // name — violating the LSP invariant "selectionRange must be contained
       // in fullRange".
       await initialize();
-      const uri = 'file:///core.aero';
+      const uri = 'file:///core.hawk';
       await openAndAwaitDiagnostics(uri, '''
 interface Eq {
   fn eq(self, other: Self) -> Bool;
@@ -242,7 +242,7 @@ interface Debug {
 
     test('unknown document yields no symbols', () async {
       await initialize();
-      final symbols = (await documentSymbol('file:///missing.aero')) as List;
+      final symbols = (await documentSymbol('file:///missing.hawk')) as List;
       expect(symbols, isEmpty);
     });
   });

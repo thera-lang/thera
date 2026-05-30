@@ -1,6 +1,6 @@
-import 'package:aero/src/checker/type_checker.dart';
-import 'package:aero/src/lexer.dart';
-import 'package:aero/src/parser.dart';
+import 'package:hawk/src/checker/type_checker.dart';
+import 'package:hawk/src/lexer.dart';
+import 'package:hawk/src/parser.dart';
 import 'package:test/test.dart';
 
 /// Parse [source] and run the type checker on it. Returns the list of error

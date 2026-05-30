@@ -1,5 +1,5 @@
-name: aero
-description: The Aero language toolchain.
+name: hawk
+description: The Hawk language toolchain.
 version: 0.1.0
 
 environment:

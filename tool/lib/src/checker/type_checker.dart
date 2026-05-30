@@ -20,7 +20,7 @@ class CheckResult {
 
 typedef _Scope = Map<String, TypeRef?>;
 
-/// Type-checks an Aero [Program].
+/// Type-checks a Hawk [Program].
 ///
 /// Call [addProgram] to pre-register symbols from imported files (their
 /// declarations become visible but are not themselves checked). Then call

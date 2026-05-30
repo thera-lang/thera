@@ -1,7 +1,7 @@
-import 'package:aero/src/ast.dart';
-import 'package:aero/src/lexer.dart';
-import 'package:aero/src/parser.dart';
-import 'package:aero/src/token.dart';
+import 'package:hawk/src/ast.dart';
+import 'package:hawk/src/lexer.dart';
+import 'package:hawk/src/parser.dart';
+import 'package:hawk/src/token.dart';
 import 'package:test/test.dart';
 
 /// Lex + parse [source], asserting there were no lex or parse errors.

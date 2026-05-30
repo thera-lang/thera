@@ -1,29 +1,29 @@
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:aero/src/ast.dart';
-import 'package:aero/src/checker/type_checker.dart';
-import 'package:aero/src/interpreter/interpreter.dart';
-import 'package:aero/src/lexer.dart';
-import 'package:aero/src/lsp/server.dart';
-import 'package:aero/src/parser.dart';
+import 'package:hawk/src/ast.dart';
+import 'package:hawk/src/checker/type_checker.dart';
+import 'package:hawk/src/interpreter/interpreter.dart';
+import 'package:hawk/src/lexer.dart';
+import 'package:hawk/src/lsp/server.dart';
+import 'package:hawk/src/parser.dart';
 
 /// Locate the SDK root by searching upward from the running script.
 ///
 /// Resolution order:
-///   1. AERO_SDK environment variable (if set and contains src/std/).
+///   1. HAWK_SDK environment variable (if set and contains sdk/std/).
 ///   2. Walk up from Platform.script looking for a directory that contains
-///      src/std/ — handles both `dart run tool/bin/aero.dart` (dev) and a
-///      compiled `bin/aero` binary (distributed).
+///      sdk/std/ — handles both `dart run tool/bin/hawk.dart` (dev) and a
+///      compiled `bin/hawk` binary (distributed).
 String? _findSdkRoot() {
-  final envRoot = Platform.environment['AERO_SDK'];
-  if (envRoot != null && Directory('$envRoot/src/std').existsSync()) {
+  final envRoot = Platform.environment['HAWK_SDK'];
+  if (envRoot != null && Directory('$envRoot/sdk/std').existsSync()) {
     return envRoot;
   }
   try {
     var dir = Directory(File(Platform.script.toFilePath()).parent.path);
     for (var i = 0; i < 4; i++) {
-      if (Directory('${dir.path}/src/std').existsSync()) return dir.path;
+      if (Directory('${dir.path}/sdk/std').existsSync()) return dir.path;
       final parent = dir.parent;
       if (parent.path == dir.path) break; // filesystem root
       dir = parent;
@@ -33,7 +33,7 @@ String? _findSdkRoot() {
 }
 
 void main(List<String> args) async {
-  final runner = CommandRunner<void>('aero', 'The Aero language toolchain.')
+  final runner = CommandRunner<void>('hawk', 'The Hawk language toolchain.')
     ..addCommand(ParseCommand())
     ..addCommand(RunCommand())
     ..addCommand(CheckCommand())
@@ -55,7 +55,7 @@ Program _loadProgram(String path) {
   try {
     source = File(path).readAsStringSync();
   } on FileSystemException catch (e) {
-    stderr.writeln('aero: $e');
+    stderr.writeln('hawk: $e');
     exit(1);
   }
 
@@ -86,7 +86,7 @@ class ParseCommand extends Command<void> {
   String get description => 'Lex and parse <file>, then print the AST.';
 
   @override
-  String get invocation => 'aero parse <file>';
+  String get invocation => 'hawk parse <file>';
 
   @override
   void run() {
@@ -106,10 +106,11 @@ class RunCommand extends Command<void> {
   String get name => 'run';
 
   @override
-  String get description => 'Run <file>; arguments after -- are passed to main.';
+  String get description =>
+      'Run <file>; arguments after -- are passed to main.';
 
   @override
-  String get invocation => 'aero run <file> [-- args]';
+  String get invocation => 'hawk run <file> [-- args]';
 
   @override
   void run() {
@@ -122,7 +123,8 @@ class RunCommand extends Command<void> {
     final programArgs = sep >= 0 ? rest.sublist(sep + 1) : rest.sublist(1);
 
     final program = _loadProgram(path);
-    final exitCode = Interpreter(sdkRoot: _findSdkRoot()).execute(program, programArgs, baseDir: File(path).parent.path);
+    final exitCode = Interpreter(sdkRoot: _findSdkRoot())
+        .execute(program, programArgs, baseDir: File(path).parent.path);
     exit(exitCode);
   }
 }
@@ -133,17 +135,17 @@ class CheckCommand extends Command<void> {
 
   @override
   String get description =>
-      'Type-check <file> or all *.aero files in a directory.';
+      'Type-check <file> or all *.hawk files in a directory.';
 
   @override
-  String get invocation => 'aero check <file|dir>...';
+  String get invocation => 'hawk check <file|dir>...';
 
   @override
   void run() {
     final targets = argResults!.rest;
     if (targets.isEmpty) usageException('Expected a file or directory.');
 
-    // Collect all .aero paths from the targets (files directly, dirs recursively).
+    // Collect all .hawk paths from the targets (files directly, dirs recursively).
     final paths = <String>[];
     for (final target in targets) {
       final entity = FileSystemEntity.typeSync(target);
@@ -154,11 +156,11 @@ class CheckCommand extends Command<void> {
           Directory(target)
               .listSync(recursive: true)
               .whereType<File>()
-              .where((f) => f.path.endsWith('.aero'))
+              .where((f) => f.path.endsWith('.hawk'))
               .map((f) => f.path),
         );
       } else {
-        stderr.writeln('aero check: not found: $target');
+        stderr.writeln('hawk check: not found: $target');
         exit(1);
       }
     }
@@ -190,7 +192,7 @@ class CheckCommand extends Command<void> {
         checker.addModule(decl.alias ?? decl.path.split('.').last);
       } else {
         // Relative file import — load and register its symbols (don't check it).
-        final importPath = '$baseDir/${decl.path}.aero';
+        final importPath = '$baseDir/${decl.path}.hawk';
         try {
           checker.addProgram(_loadProgramQuiet(importPath));
         } on _LoadFailed {
@@ -218,7 +220,7 @@ Program _loadProgramQuiet(String path, {bool verbose = false}) {
   try {
     source = File(path).readAsStringSync();
   } on FileSystemException {
-    if (verbose) stderr.writeln('aero: cannot read $path');
+    if (verbose) stderr.writeln('hawk: cannot read $path');
     throw _LoadFailed();
   }
   final lexResult = Lexer(source).tokenize();
@@ -243,10 +245,11 @@ class LspCommand extends Command<void> {
   String get name => 'lsp';
 
   @override
-  String get description => 'Start the Aero LSP server (communicates via stdio).';
+  String get description =>
+      'Start the Hawk LSP server (communicates via stdio).';
 
   @override
-  String get invocation => 'aero lsp';
+  String get invocation => 'hawk lsp';
 
   @override
   Future<void> run() => LspServer().run();
@@ -264,7 +267,7 @@ class TestCommand extends Command<void> {
   String get description => 'Run @test functions in one or more files.';
 
   @override
-  String get invocation => 'aero test <file>...';
+  String get invocation => 'hawk test <file>...';
 
   @override
   void run() {
@@ -276,7 +279,8 @@ class TestCommand extends Command<void> {
     var totalFailures = 0;
     for (final path in files) {
       final program = _loadProgram(path);
-      totalFailures += Interpreter(sdkRoot: _findSdkRoot()).runTests(program, path, verbose: verbose);
+      totalFailures += Interpreter(sdkRoot: _findSdkRoot())
+          .runTests(program, path, verbose: verbose);
     }
     exit(totalFailures > 0 ? 1 : 0);
   }

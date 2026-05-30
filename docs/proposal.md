@@ -1,6 +1,6 @@
 # The LLM-Native Programming Language: Architectural Guidelines
 
-_(working name: ‘aero’)_
+_(working name: ‘hawk’)_
 
 As artificial intelligence transitions from localized code autocomplete to
 autonomous agents capable of managing entire repositories, the criteria for an

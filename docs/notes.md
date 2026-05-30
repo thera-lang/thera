@@ -45,3 +45,12 @@ The "Clearest" Taxonomy: the clearest, most defensible hierarchy to use is:
   Artifact).
 - That Package is published to a Registry (like GitHub Packages, npm, or PyPI)
   so others can download it.
+
+## TODO
+
+- [x] create an 'sdk' subdir; use for artifacts that will make up the sdk
+- rename to 'hawk'?
+- create a cargo build for the 'hawk' cli tool (front-end image + interpreter +
+  Cranelift + GC); in 'tool'?
+- IR design
+- interpreter

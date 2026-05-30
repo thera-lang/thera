@@ -3,7 +3,7 @@ import 'dart:collection';
 import '../ast.dart';
 import 'environment.dart';
 
-/// The runtime representation of every Aero value.
+/// The runtime representation of every Hawk value.
 sealed class Value {
   const Value();
 
@@ -162,7 +162,7 @@ class VoidValue extends Value {
   String display() => '()';
 }
 
-// Aero-defined function closure
+// Hawk-defined function closure
 class FnValue extends Value {
   final FnDecl decl;
   final Environment closure;

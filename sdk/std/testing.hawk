@@ -1,4 +1,4 @@
-// std.testing — assertion functions for use in *_test.aero files.
+// std.testing — assertion functions for use in *_test.hawk files.
 //
 // Assertions return Result<Void, Error>. A failure throws an error that
 // propagates out of the test function via ?. Test functions must therefore

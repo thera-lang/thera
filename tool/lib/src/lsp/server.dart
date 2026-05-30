@@ -30,7 +30,7 @@ class LspServer {
           documentSymbolProvider: Either2.t1(true),
         ),
         serverInfo: InitializeResultServerInfo(
-          name: 'aero',
+          name: 'hawk',
           version: '0.1.0',
         ),
       );
@@ -116,7 +116,7 @@ class LspServer {
       range: _spanToRange(err.span),
       severity: DiagnosticSeverity.Error,
       message: err.message,
-      source: 'aero',
+      source: 'hawk',
     );
   }
 
@@ -125,7 +125,7 @@ class LspServer {
       range: _spanToRange(err.span),
       severity: DiagnosticSeverity.Error,
       message: err.message,
-      source: 'aero',
+      source: 'hawk',
     );
   }
 
@@ -134,7 +134,7 @@ class LspServer {
       range: _spanToRange(err.span),
       severity: DiagnosticSeverity.Error,
       message: err.message,
-      source: 'aero',
+      source: 'hawk',
     );
   }
 

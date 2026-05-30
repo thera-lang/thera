@@ -1,9 +1,9 @@
-# aero
+# hawk
 
 A proof-of-concept programming language designed to maximize the productivity of
 LLMs and coding agents.
 
-Modern languages were designed for human expressiveness. Aero explores a
+Modern languages were designed for human expressiveness. Hawk explores a
 different set of tradeoffs — optimized for the way AI agents reason, generate,
 and refactor code.
 

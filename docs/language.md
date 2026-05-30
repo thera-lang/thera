@@ -1,9 +1,9 @@
-# Aero Language Reference
+# Hawk Language Reference
 
 Notes:
 
 - this is an informal working reference — not a formal spec
-- the language codename is 'Aero' (with a close alternative being 'Hawk')
+- the language codename is 'Hawk' (with a close alternative being 'Hawk')
 
 ---
 
@@ -21,7 +21,7 @@ Every program defines a `main` function. `Args` is provided by the runtime. The
 returned `Int` is used as the process exit code. An `Error` result exits with a
 non-zero code and prints the error message to stderr.
 
-```aero
+```hawk
 fn main(args: Args) -> Result<Int, Error> {
     // ...
     return Ok(0);
@@ -34,7 +34,7 @@ fn main(args: Args) -> Result<Int, Error> {
 
 Bindings are immutable by default. Use `mut` to allow reassignment.
 
-```aero
+```hawk
 let x = 42;
 let name = 'alice';
 
@@ -58,7 +58,7 @@ count = count + 1;
 
 String literals use single quotes. Interpolation uses `${}`:
 
-```aero
+```hawk
 let greeting = 'Hello, ${name}!';
 ```
 
@@ -70,7 +70,7 @@ let greeting = 'Hello, ${name}!';
 | `Map<K, V>` | Key-value store                       | `{'a': 1, 'b': 2}`    |
 | `Set<T>`    | Unordered collection of unique values | `Set.from([1, 2, 3])` |
 
-```aero
+```hawk
 let names: List<String>      = ['alice', 'bob'];
 let scores: Map<String, Int> = {'alice': 10, 'bob': 7};
 let tags: Set<String>        = Set.from(['cli', 'tool', 'cli']);  // {'cli', 'tool'}
@@ -94,7 +94,7 @@ let tags: Set<String>        = Set.from(['cli', 'tool', 'cli']);  // {'cli', 'to
 
 Structs are nominal types. Fields are immutable by default.
 
-```aero
+```hawk
 type Point = {
     x: Double,
     y: Double,
@@ -108,7 +108,7 @@ println('${p.x}, ${p.y}');
 
 ## Functions
 
-```aero
+```hawk
 fn add(a: Int, b: Int) -> Int {
     return a + b;
 }
@@ -117,14 +117,14 @@ fn add(a: Int, b: Int) -> Int {
 Functions with no meaningful return value omit the return type annotation; it
 defaults to `Void`. The two forms below are equivalent:
 
-```aero
+```hawk
 fn log(_ msg: String) -> Void { println(msg); }
 fn log(_ msg: String)         { println(msg); }
 ```
 
 Functions are first-class values. Lambdas use `=>`:
 
-```aero
+```hawk
 let double = x => x * 2;
 let names = users.map(u => u.name);
 ```
@@ -134,7 +134,7 @@ let names = users.map(u => u.name);
 Parameters are named at call sites by default. The parameter name in the
 definition becomes the external label:
 
-```aero
+```hawk
 fn greet(name: String, times: Int) { ... }
 
 greet(name: 'alice', times: 3);
@@ -143,7 +143,7 @@ greet(name: 'alice', times: 3);
 Use `_` before the parameter name to suppress the label at the call site. This
 is appropriate when the type or context makes the argument's role obvious:
 
-```aero
+```hawk
 fn println(_ msg: String) { ... }
 
 println('hello');   // no label — reads naturally
@@ -153,7 +153,7 @@ Use `external internal` to give a parameter a different external label from its
 internal identifier. This is useful when the natural label is a keyword or reads
 awkwardly as a variable name inside the function body:
 
-```aero
+```hawk
 fn flag<T>(_ name: String, default value: T) -> T { ... }
 
 args.flag('verbose', default: false);
@@ -166,7 +166,7 @@ the function body (avoiding a clash with a potential `default` keyword).
 
 ## Concurrency
 
-Aero uses a **single-threaded cooperative fiber model**. All fibers run on one
+Hawk uses a **single-threaded cooperative fiber model**. All fibers run on one
 thread, multiplexed by the runtime scheduler. All I/O calls look synchronous —
 there are no `async`/`await` keywords and no `Future<T>` return types. When a
 fiber blocks on I/O, the runtime parks it and resumes another; the calling code
@@ -177,7 +177,7 @@ concurrent fibers and no need for synchronization primitives (mutexes,
 semaphores, channels). This avoids the deadlock and data-race hazards of a
 multi-threaded model while keeping the programming model simple.
 
-```aero
+```hawk
 // These two functions look identical at the type level.
 // fetch_user may park the fiber on a network call; double does not.
 // The caller treats them the same way.
@@ -201,7 +201,7 @@ fn main(args: Args) -> Result<Int, Error> {
 Spawning a fiber runs work concurrently on the same thread. Results are returned
 via `join()` — the only way to get data out of a fiber:
 
-```aero
+```hawk
 import std.fiber;
 
 let handle = fiber.spawn(() => fetch_user(id: 42));
@@ -220,7 +220,7 @@ traditional colored-function approach. The goal is to avoid this.
 
 There are no exceptions. Errors are returned as `Result<T, E>`.
 
-```aero
+```hawk
 fn read_port(args: Args) -> Result<Int, Error> {
     let s = args.positional(0).ok_or('usage: serve <port>')?;
     return s.parse<Int>();
@@ -229,7 +229,7 @@ fn read_port(args: Args) -> Result<Int, Error> {
 
 `?` propagates an `Error` to the caller. `match` handles results at a boundary:
 
-```aero
+```hawk
 match read_port(args) {
     Ok(port) => println('listening on ${port}'),
     Error(e)   => println('error: ${e.message}'),
@@ -242,7 +242,7 @@ match read_port(args) {
 It is a reserved keyword — not an exception mechanism. There is no stack
 unwinding; control simply returns to the caller with an `Err` value.
 
-```aero
+```hawk
 fn parse_port(s: String) -> Result<Int, Error> {
     let n = s.parse<Int>()?;
     if n < 1 || n > 65535 {
@@ -260,7 +260,7 @@ There is no `null`. Absent values are represented explicitly as `Option<T>`,
 which is either `Some(value)` or `None`. A value of type `String` is always a
 string; a value that might be absent has type `Option<String>`.
 
-```aero
+```hawk
 type Config = {
     host:    String,
     port:    Int,
@@ -271,7 +271,7 @@ type Config = {
 Use `match` to unwrap, or `.ok_or()` to convert to a `Result` when absence
 should be treated as an error:
 
-```aero
+```hawk
 match config.log_dir {
     Some(dir) => println('logging to ${dir}'),
     None      => println('logging disabled'),
@@ -285,7 +285,7 @@ let dir = config.log_dir.ok_or('log_dir is required')?;
 
 ## Control flow
 
-```aero
+```hawk
 // if / else
 if x > 0 {
     println('positive');
@@ -308,7 +308,7 @@ for i in 0..10 {
 
 ## Collections
 
-```aero
+```hawk
 let nums: List<Int> = [1, 2, 3];
 let first = nums[0];
 let len   = nums.len();
@@ -316,7 +316,7 @@ let len   = nums.len();
 
 Common pipeline methods (lazy; call `.to_list()` to materialise):
 
-```aero
+```hawk
 let evens = nums.filter(n => n % 2 == 0).to_list();
 let doubled = nums.map(n => n * 2).to_list();
 ```
@@ -328,7 +328,7 @@ let doubled = nums.map(n => n * 2).to_list();
 Standard library modules are imported by path. The last path segment becomes the
 local prefix used to reference the module's members:
 
-```aero
+```hawk
 import std.fs;
 import std.process;
 
@@ -338,7 +338,7 @@ let text = fs.read_text('config.toml')?;
 Use `as` to give the import an explicit prefix. This is useful when the default
 segment is ambiguous, conflicts with a local name, or you want a shorter alias:
 
-```aero
+```hawk
 import std.testing as testing;
 import std.fs as fs;
 
@@ -357,19 +357,19 @@ quoted path).
 **Stdlib imports** resolve against the SDK's standard library directory:
 
 ```
-<sdk_root>/src/std/<module>.aero
+<sdk_root>/sdk/std/<module>.hawk
 ```
 
-For example, `import std.fs` resolves to `<sdk_root>/src/std/fs.aero`.
+For example, `import std.fs` resolves to `<sdk_root>/sdk/std/fs.hawk`.
 
 **Relative file imports** resolve against the directory of the importing file:
 
-```aero
-import 'wordcount'        // → <same dir>/wordcount.aero
-import 'util/strings'     // → <same dir>/util/strings.aero
+```hawk
+import 'wordcount'        // → <same dir>/wordcount.hawk
+import 'util/strings'     // → <same dir>/util/strings.hawk
 ```
 
-The `.aero` extension is always implied and must not be written in the import
+The `.hawk` extension is always implied and must not be written in the import
 path. Absolute paths and `..` traversals are not supported.
 
 ---
@@ -377,22 +377,22 @@ path. Absolute paths and `..` traversals are not supported.
 ## Native bindings (FFI)
 
 `native fn` declares a function implemented in native code (e.g. a C library
-linked into the runtime). The declaration provides the Aero-visible signature;
+linked into the runtime). The declaration provides the Hawk-visible signature;
 the implementation is resolved at link time. Native functions have no body.
 
-```aero
+```hawk
 native fn re2_compile(_ pattern: String) -> Result<NativeHandle, String>
 native fn re2_is_match(_ handle: NativeHandle, _ text: String) -> Bool
 ```
 
 Native functions are an implementation detail of stdlib modules. User code calls
-the Aero wrappers, not the native bindings directly.
+the Hawk wrappers, not the native bindings directly.
 
 An opaque type wraps a native handle whose internal layout is managed by the
 runtime. Declare it as an empty struct:
 
-```aero
-type NativeHandle = {}   // opaque; not constructed directly in Aero
+```hawk
+type NativeHandle = {}   // opaque; not constructed directly in Hawk
 ```
 
 ---
@@ -402,7 +402,7 @@ type NativeHandle = {}   // opaque; not constructed directly in Aero
 `process.run` executes a subprocess and returns `Result<Output, Error>`.
 `Output` has `stdout`, `stderr` (strings), and `exit_code` (Int).
 
-```aero
+```hawk
 import std.process;
 
 let out = process.run('git', args: ['status', '--short'])?;
@@ -418,7 +418,7 @@ A non-zero exit code is returned as an `Error` by default.
 `Args` is passed to `main` by the runtime. It is defined in `std.args`, which is
 auto-imported. Positional arguments and named flags are both supported.
 
-```aero
+```hawk
 let path    = args.positional(0).ok_or('usage: tool <path>')?;
 let verbose = args.flag('verbose', default: false);
 let output  = args.flag('output',  default: 'out.txt');
@@ -434,7 +434,7 @@ let output  = args.flag('output',  default: 'out.txt');
 Interfaces describe capability. Structs implement them explicitly. No
 inheritance — composition is preferred.
 
-```aero
+```hawk
 interface Greet {
     fn greet(self) -> String;
 }
@@ -451,7 +451,7 @@ impl Greet for User {
 Methods that belong to a type but do not implement an interface are defined in a
 plain `impl TypeName` block:
 
-```aero
+```hawk
 type Counter = {
     value: Int,
 }
@@ -478,7 +478,7 @@ per interface implemented.
 Functions in an `impl` block that take no `self` parameter are static methods,
 called on the type name rather than an instance:
 
-```aero
+```hawk
 impl Regex {
     fn compile(_ pattern: String) -> Result<Regex, Error> { ... }  // static
     fn is_match(self, _ text: String) -> Bool { ... }              // instance
@@ -504,7 +504,7 @@ Primitive types (`Int`, `Double`, `Bool`, `String`) implement both
 automatically. Structs get a default `Debug` implementation that prints all
 fields; `Display` must be implemented explicitly.
 
-```aero
+```hawk
 // auto-derived Debug for a struct prints all fields:
 //   Point { x: 1.0, y: 2.0 }
 
@@ -530,7 +530,7 @@ type that does not implement `Display` is a compile error.
 
 Decorators attach metadata to a function. They are evaluated at compile time.
 
-```aero
+```hawk
 @route('GET', '/healthz')
 fn healthz(req: Request) -> Result<Response, Error> {
     return Ok(Response.text('ok'));
@@ -542,7 +542,7 @@ fn healthz(req: Request) -> Result<Response, Error> {
 ## Testing
 
 Test files are co-located with the source file they test, using a `_test`
-suffix: `src/foo.aero` is tested by `src/foo_test.aero`. The test file imports
+suffix: `src/foo.hawk` is tested by `src/foo_test.hawk`. The test file imports
 its sibling module and has access to its exported symbols.
 
 Test functions are marked with `@test`, take no arguments, and return
@@ -550,8 +550,8 @@ Test functions are marked with `@test`, take no arguments, and return
 returns `Err`. Assertions return `Result<Void, Error>` and are called with `?`
 so that the first failure propagates out of the test immediately.
 
-```aero
-// src/math_test.aero
+```hawk
+// src/math_test.hawk
 
 import std.testing;
 
@@ -589,9 +589,9 @@ Each returns `Result<Void, Error>`; call with `?` to propagate failures.
 
 ---
 
-## The `aero` tool
+## The `hawk` tool
 
-The `aero` command-line tool is the primary interface for working with Aero
+The `hawk` command-line tool is the primary interface for working with Hawk
 programs. Its **primary design goal is to be useful to LLMs**; its secondary
 goal is to be useful to humans.
 
@@ -603,42 +603,42 @@ Verbose mode is available when a human wants more detail.
 
 | Command      | Description                    |
 | ------------ | ------------------------------ |
-| `aero run`   | Run a source file              |
-| `aero test`  | Run tests                      |
-| `aero check` | Type-check without running     |
-| `aero fmt`   | Format source files in place   |
-| `aero build` | Compile to a standalone binary |
+| `hawk run`   | Run a source file              |
+| `hawk test`  | Run tests                      |
+| `hawk check` | Type-check without running     |
+| `hawk fmt`   | Format source files in place   |
+| `hawk build` | Compile to a standalone binary |
 
-### `aero test`
+### `hawk test`
 
-Discovers and runs all `*_test.aero` files reachable from the current directory
+Discovers and runs all `*_test.hawk` files reachable from the current directory
 (or a given path).
 
 **Default mode (LLM-optimised):** silent on success; prints only failures. Exit
-code is 0 if all tests pass, non-zero otherwise. An LLM can run `aero test` and
+code is 0 if all tests pass, non-zero otherwise. An LLM can run `hawk test` and
 treat any output as a signal requiring attention.
 
 **Verbose mode (`--verbose`):** prints a summary line (tests run, passed,
 failed) and one line per test executed.
 
 ```
-$ aero test                          # silent — all passed
-$ aero test                          # one failure
-FAIL src/math_test.aero::test_add
+$ hawk test                          # silent — all passed
+$ hawk test                          # one failure
+FAIL src/math_test.hawk::test_add
   assert_eq failed: got 4, expected 5
-  at src/math_test.aero:6
+  at src/math_test.hawk:6
 
-$ aero test --verbose
-src/math_test.aero::test_add         ok
-src/math_test.aero::test_add_neg     ok
-src/util_test.aero::test_trim        ok
+$ hawk test --verbose
+src/math_test.hawk::test_add         ok
+src/math_test.hawk::test_add_neg     ok
+src/util_test.hawk::test_trim        ok
 3 passed, 0 failed
 ```
 
 Additional flags:
 
-- `aero test <path>` — run tests under a specific file or directory
-- `aero test --filter <pattern>` — run only tests whose name matches
+- `hawk test <path>` — run tests under a specific file or directory
+- `hawk test --filter <pattern>` — run only tests whose name matches
 
 ---
 
@@ -647,22 +647,22 @@ Additional flags:
 ```
 <sdk_root>/
   bin/
-    aero.sh          ← dev-mode entry point (delegates to tool/)
-    aero             ← compiled binary (distributed SDK only)
-  src/
+    hawk.sh          ← dev-mode entry point (delegates to tool/)
+    hawk             ← compiled binary (distributed SDK only)
+  sdk/
     std/
-      core.aero      ← auto-imported: Eq, Display, Debug
-      args.aero      ← auto-imported: Args
-      fs.aero        ← import std.fs
-      process.aero   ← import std.process
-      testing.aero   ← import std.testing
-      fiber.aero     ← import std.fiber
-      regex.aero     ← import std.regex
+      core.hawk      ← auto-imported: Eq, Display, Debug
+      args.hawk      ← auto-imported: Args
+      fs.hawk        ← import std.fs
+      process.hawk   ← import std.process
+      testing.hawk   ← import std.testing
+      fiber.hawk     ← import std.fiber
+      regex.hawk     ← import std.regex
       ...
   tool/              ← Dart toolchain source (dev mode only)
     bin/
-      aero.dart      ← CLI entry point
-    lib/src/
+      hawk.dart      ← CLI entry point
+    lib/sdk/
       lexer.dart
       parser.dart
       ast.dart
@@ -676,19 +676,19 @@ Additional flags:
 
 ### SDK root discovery
 
-The `aero` binary locates the SDK root at runtime by resolving one directory
+The `hawk` binary locates the SDK root at runtime by resolving one directory
 above its own location (`bin/../`). This works identically in both modes:
 
 | Mode            | Binary location      | SDK root     |
 | --------------- | -------------------- | ------------ |
-| Dev (from repo) | `<repo>/bin/aero.sh` | `<repo>/`    |
-| Distributed     | `<install>/bin/aero` | `<install>/` |
+| Dev (from repo) | `<repo>/bin/hawk.sh` | `<repo>/`    |
+| Distributed     | `<install>/bin/hawk` | `<install>/` |
 
-`bin/aero.sh` is the dev-mode entry point. It sets `SDK_ROOT` to the parent of
-the `bin/` directory and delegates to `dart run tool/bin/aero.dart`. A compiled
+`bin/hawk.sh` is the dev-mode entry point. It sets `SDK_ROOT` to the parent of
+the `bin/` directory and delegates to `dart run tool/bin/hawk.dart`. A compiled
 binary (`dart compile exe`) embeds the same root-discovery logic.
 
-The `AERO_SDK` environment variable overrides automatic discovery for cases such
+The `HAWK_SDK` environment variable overrides automatic discovery for cases such
 as running tests against an alternate SDK or wrapping the binary in a script.
 
 ### Standard library source files
@@ -696,10 +696,10 @@ as running tests against an alternate SDK or wrapping the binary in a script.
 Each `import std.<module>` statement resolves to:
 
 ```
-<sdk_root>/src/std/<module>.aero
+<sdk_root>/sdk/std/<module>.hawk
 ```
 
-Stdlib source files are plain Aero source with `native fn` declarations for
+Stdlib source files are plain Hawk source with `native fn` declarations for
 functions implemented in the runtime. The toolchain parses and type-checks them
 the same way it does user code.
 
@@ -708,14 +708,13 @@ resolved import graph unless explicitly re-imported with `as`.
 
 ### Distributed SDK layout
 
-When `aero` is compiled to a native binary
-(`dart compile exe tool/bin/aero.dart -o bin/aero`), the `tool/` directory is no
+When `hawk` is compiled to a native binary
+(`dart compile exe tool/bin/hawk.dart -o bin/hawk`), the `tool/` directory is no
 longer needed at runtime. The distributed layout is therefore:
 
 ```
 <install>/
   bin/
-    aero             ← single compiled binary
-  src/
-    std/             ← stdlib source files (still needed at runtime)
+    hawk           ← single compiled binary
+  std/             ← stdlib source files (still needed at runtime)
 ```

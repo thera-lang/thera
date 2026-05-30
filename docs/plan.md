@@ -1,8 +1,8 @@
-# Aero: POC Plan
+# Hawk: POC Plan
 
 ## Target domain: CLI tooling
 
-Aero targets the same space as Python, Go, and Node — scripting, automation, and
+Hawk targets the same space as Python, Go, and Node — scripting, automation, and
 CLI tools. This shapes the entire stack:
 
 - **Standard library must cover the CLI surface first:** filesystem, processes,
@@ -22,7 +22,7 @@ CLI tools. This shapes the entire stack:
 
 ### CLI-specific syntax ideas
 
-```aero
+```hawk
 // First-class process execution — returns Result<Output, ProcessError>
 fn get_branch() -> Result<String, Error> {
     let out = run('git', args: ['rev-parse', '--abbrev-ref', 'HEAD'])?;
@@ -59,7 +59,7 @@ default.
 
 ### Basic types and functions
 
-```aero
+```hawk
 // Nominal struct types; fields immutable by default
 type User = {
     id: Int,
@@ -76,7 +76,7 @@ fn double(x: Int) -> Int {
 
 ### Errors as values
 
-```aero
+```hawk
 // Result<T, E> is the only error mechanism — no exceptions
 fn parse_id(s: String) -> Result<Int, ParseError> {
     return s.parse<Int>()
@@ -99,7 +99,7 @@ fn handle(id: Int) {
 
 ### Immutability and pipelines
 
-```aero
+```hawk
 // Data pipelines: transform instead of mutate
 fn active_names(users: List<User>) -> List<String> {
     return users
@@ -114,7 +114,7 @@ fn active_names(users: List<User>) -> List<String> {
 All I/O looks synchronous. No `async`/`await`, no `Future<T>`. The runtime parks
 the current fiber when a call blocks and resumes it when I/O completes.
 
-```aero
+```hawk
 // fetch_user may block on a network call — the signature doesn't say so.
 // No async annotation, no await at the call site.
 fn load_dashboard(user_id: Int) -> Result<Dashboard, Error> {
@@ -126,7 +126,7 @@ fn load_dashboard(user_id: Int) -> Result<Dashboard, Error> {
 
 ### Inline metadata (decorators)
 
-```aero
+```hawk
 // Architectural intent sits next to the function signature
 @route("GET", "/api/users/{id}")
 async fn get_user(req: Request) -> Result<Response, Error> {
@@ -138,7 +138,7 @@ async fn get_user(req: Request) -> Result<Response, Error> {
 
 ### Composition over inheritance
 
-```aero
+```hawk
 // Interfaces (traits) describe capability; no class hierarchy
 interface Serializable {
     fn to_json(self) -> String;
@@ -174,10 +174,10 @@ step.
 
 **Stage 2 backend: transpile to TypeScript.**
 
-Once the language semantics are settled, generating TypeScript from the Aero AST
+Once the language semantics are settled, generating TypeScript from the Hawk AST
 is a natural next step:
 
-- TypeScript shares nearly all of Aero's intended properties (static types,
+- TypeScript shares nearly all of Hawk's intended properties (static types,
   async/await, no raw pointers).
 - The generated code is readable and auditable.
 - V8's JIT gives real-world performance for free.
@@ -199,14 +199,14 @@ host language. Criteria:
 
 - Fast iteration (good REPL or test cycle)
 - Strong parser ecosystem
-- Comfortable to bootstrap from (i.e., aero eventually reimplements its own
-  tools — the host language should be a style the aero team knows well)
+- Comfortable to bootstrap from (i.e., hawk eventually reimplements its own
+  tools — the host language should be a style the hawk team knows well)
 - Good LSP / tooling support for the implementation itself
 
 | Language       | Parser ecosystem            | Iteration speed | Bootstrap path      | Notes                                         |
 | -------------- | --------------------------- | --------------- | ------------------- | --------------------------------------------- |
-| **TypeScript** | Chevrotain, nearley, peg.js | Fast            | Transpile TS→Aero   | Strong match; many LLMs also know TS well     |
-| **Dart**       | petitparser, built_parser   | Fast            | Transpile Dart→Aero | Good if team already uses Dart; pub ecosystem |
+| **TypeScript** | Chevrotain, nearley, peg.js | Fast            | Transpile TS→Hawk   | Strong match; many LLMs also know TS well     |
+| **Dart**       | petitparser, built_parser   | Fast            | Transpile Dart→Hawk | Good if team already uses Dart; pub ecosystem |
 | Python         | lark, PLY, parsimonious     | Fast            | Awkward             | Best for throw-away prototypes                |
 | Rust           | pest, nom, chumsky          | Slow iteration  | Natural             | Right choice for a production compiler        |
 | Go             | participle, pigeon          | Medium          | Natural             | Simple, fast compile                          |
@@ -216,17 +216,17 @@ host language. Criteria:
 Dart was chosen over TypeScript for the POC:
 
 - Team familiarity means faster iteration
-- `dart compile exe` produces a single native binary, directly mirroring Aero's
+- `dart compile exe` produces a single native binary, directly mirroring Hawk's
   own distribution goal
 - Dart 3's sealed classes and exhaustive switch are a natural fit for AST-heavy
   compiler code
-- The bootstrap path (Dart → rewrite in Aero) is as clean as any alternative
+- The bootstrap path (Dart → rewrite in Hawk) is as clean as any alternative
 
 The toolchain lives in `tool/`; see `docs/phases.md` for the implementation plan
 and milestones.
 
 When the language design stabilises and bootstrap becomes the goal, rewriting
-the compiler in Rust (or in Aero itself) is the natural path.
+the compiler in Rust (or in Hawk itself) is the natural path.
 
 ---
 
@@ -242,7 +242,7 @@ the compiler in Rust (or in Aero itself) is the natural path.
    functions, Result propagation with `?`, basic collections, `match`.
 5. **REPL** — interactive read-eval-print loop for rapid experimentation.
 6. **TypeScript emitter (optional POC stretch)** — emit valid TypeScript from
-   the Aero AST; run it with Bun.
+   the Hawk AST; run it with Bun.
 7. **Formatter** — single opinionated pretty-printer (like `gofmt`).
 
 ---
@@ -305,7 +305,7 @@ semantics.
 
 Combined with `?` for propagation, a full example:
 
-```aero
+```hawk
 fn parse_port(s: String) -> Result<Int, Error> {
     let n = s.parse<Int>()?;               // propagate parse error
     if n < 1 || n > 65535 {
@@ -328,7 +328,7 @@ with no exceptions or stack unwinding:
 - `expr catch fallback` — evaluate to `fallback` if `expr` is an error
 - `expr catch |e| { ... }` — handle the error inline
 
-This is an alternative (or complement) to `?` that some find more readable. Aero
+This is an alternative (or complement) to `?` that some find more readable. Hawk
 currently uses `?`; `catch` as an inline default handler is worth considering as
 an additional form.
 
@@ -356,14 +356,14 @@ multi-paradigm languages prioritising velocity (Kotlin, TypeScript, C#, Dart).
   relies on built-in operators rather than general-purpose library structures.
 
 The current language.md documents `Option<T>` as a placeholder. Once there is
-enough real Aero code to judge which approach creates less friction in practice,
+enough real Hawk code to judge which approach creates less friction in practice,
 this should be revisited.
 
 ## Future Considerations
 
 ### Backend options
 
-This concerns the eventual _production_ runtime — how a real Aero app executes,
+This concerns the eventual _production_ runtime — how a real Hawk app executes,
 not the POC tree-walking interpreter. Priorities, in order:
 
 1. **Fast startup**, measured as _source/IR → running_, not just AOT process
@@ -377,12 +377,12 @@ not the POC tree-walking interpreter. Priorities, in order:
 
 #### Direction: a tiered VM (bytecode interpreter → Cranelift JIT)
 
-The chosen path is to own the execution pipeline: compile Aero to our own
+The chosen path is to own the execution pipeline: compile Hawk to our own
 bytecode, run it immediately in a fast interpreter, and JIT only the hot code to
 native via Cranelift.
 
 ```
-Aero source ──(compile, off the hot path)──► Aero bytecode  (our IR; serializable, compact)
+Hawk source ──(compile, off the hot path)──► Hawk bytecode  (our IR; serializable, compact)
                                                    │
                                           ┌────────┴─────────┐
                                           ▼                  ▼
@@ -392,9 +392,9 @@ Aero source ──(compile, off the hot path)──► Aero bytecode  (our IR; s
                                    run-once code)         IR → native code)
 ```
 
-- **`bin/aero` is the runtime**: bytecode interpreter + Cranelift JIT + GC +
+- **`bin/hawk` is the runtime**: bytecode interpreter + Cranelift JIT + GC +
   stdlib. A compile step (a subcommand, or invoked implicitly for
-  `aero run foo.aero`) produces bytecode. This runtime is a **Rust** component,
+  `hawk run foo.hawk`) produces bytecode. This runtime is a **Rust** component,
   aligning with the planned production-compiler-in-Rust trajectory.
 - **The interpreter tier earns its place for the CLI domain.** A CLI tool
   starts, does bounded work, and exits — most code paths run _once_. A
@@ -403,7 +403,7 @@ Aero source ──(compile, off the hot path)──► Aero bytecode  (our IR; s
   compile cost, and Cranelift is spent only on genuine hot loops.
 - **Static typing is the key simplifier.** The complexity in V8/SpiderMonkey/
   PyPy comes from _speculation_: hidden classes, inline caches, type feedback,
-  and deoptimization. Aero's bytecode carries concrete types, so the JIT does
+  and deoptimization. Hawk's bytecode carries concrete types, so the JIT does
   straight-line typed lowering with no guards and no deopt — roughly 80% of what
   makes a tiered VM hard simply does not apply.
 
@@ -418,10 +418,10 @@ Aero source ──(compile, off the hot path)──► Aero bytecode  (our IR; s
   frontend-emits-stack-code → Cranelift-builds-SSA path has a production
   precedent.
 - **Roll our own rather than reuse Wasm/JVM/CPython bytecode.** Every
-  off-the-shelf option discards Aero's static types in a usable form (Wasm GC's
+  off-the-shelf option discards Hawk's static types in a usable form (Wasm GC's
   data model is also immature and awkward), forcing an impedance-mismatch
   re-encoding _and_ losing the type info that keeps the JIT speculation-free. A
-  bytecode that carries Aero's types is both easier to target and easier to
+  bytecode that carries Hawk's types is both easier to target and easier to
   lower. A register-based bytecode is a later optimization (fewer dispatches per
   op), deferred.
 - **The bytecode is the durable artifact**; Cranelift IR is ephemeral, generated
@@ -450,7 +450,7 @@ finding interesting.
 
 #### Options considered and rejected
 
-- **Wasmtime as the runtime.** The Wasm sandbox fights Aero's central use case:
+- **Wasmtime as the runtime.** The Wasm sandbox fights Hawk's central use case:
   subprocess spawning and broad filesystem access are exactly what it restricts,
   and WASI has no mature subprocess/exec API — so shelling out (see the `git`
   example above) would require hand-written host shims, eroding the sandbox's
@@ -492,7 +492,7 @@ the stable interface:
 2. **Define the bytecode** — the stable IR / distribution format; statically
    typed, so compact and untagged.
 3. **Rust runtime: bytecode interpreter + precise non-moving mark-sweep GC.**
-   This alone runs real Aero apps with fast startup, and may handle most
+   This alone runs real Hawk apps with fast startup, and may handle most
    short-lived CLI work without ever tiering up.
 4. **Add the Cranelift JIT tier** for hot functions (or trial copy-and-patch);
    decide JIT root strategy here.

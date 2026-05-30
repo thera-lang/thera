@@ -57,7 +57,7 @@ const RBRACE: Int = 125;     // }
 const TILDE: Int = 126;      // ~
 const DEL: Int = 127;
 
-// --- Predicates (pure Aero — no native fn required) ---
+// --- Predicates (pure Hawk — no native fn required) ---
 
 fn is_digit(_ cp: Int) -> Bool {
     return cp >= DIGIT_0 && cp <= DIGIT_9;

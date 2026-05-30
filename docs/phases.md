@@ -1,4 +1,4 @@
-# Aero Toolchain: Implementation Phases
+# Hawk Toolchain: Implementation Phases
 
 ## Implementation language: Dart
 
@@ -6,13 +6,13 @@ Dart chosen over TypeScript for these reasons:
 
 - **Familiarity** — faster iteration in a language the team knows well
 - **Single-binary output** — `dart compile exe` produces a self-contained native
-  binary, mirroring Aero's own distribution goal
+  binary, mirroring Hawk's own distribution goal
 - **Sealed classes + exhaustive switch** — Dart 3's pattern matching is a
   natural fit for AST-heavy compiler code
 - **`petitparser`** — available if needed; hand-written recursive descent is
   sufficient for this grammar size
 
-The bootstrap path: Dart → rewrite in Aero once the language is expressive
+The bootstrap path: Dart → rewrite in Hawk once the language is expressive
 enough to implement a parser and interpreter.
 
 ## Project structure
@@ -20,14 +20,14 @@ enough to implement a parser and interpreter.
 ```
 <sdk_root>/
   bin/
-    aero.sh                    ← dev entry point (delegates to tool/)
-  src/std/                     ← stdlib source files
-    core.aero, args.aero, fs.aero, ...
+    hawk.sh                    ← dev entry point (delegates to tool/)
+  sdk/std/                     ← stdlib source files
+    core.hawk, args.hawk, fs.hawk, ...
   tool/                        ← Dart toolchain (dev only; not in distributed SDK)
     pubspec.yaml
     bin/
-      aero.dart                ← CLI entry point
-    lib/src/
+      hawk.dart                ← CLI entry point
+    lib/sdk/
       token.dart               ← Token types and source spans
       lexer.dart               ← Source text → List<Token>
       ast.dart                 ← Sealed AST node hierarchy
@@ -51,11 +51,11 @@ enough to implement a parser and interpreter.
 
 ## Phase 1 — Lexer + Parser ✅
 
-**Milestone:** `aero parse examples/hello.aero` prints the AST without errors.
+**Milestone:** `hawk parse examples/hello.hawk` prints the AST without errors.
 
 Covers:
 
-- All token types present in existing `.aero` files
+- All token types present in existing `.hawk` files
 - String literals with `${}` interpolation — captured verbatim by the lexer,
   split into segments by the parser
 - `native fn` declarations (no body)
@@ -69,7 +69,7 @@ Covers:
 
 ## Phase 2 — AST Interpreter ✅
 
-**Milestone:** `aero run examples/hello.aero` prints `Hello, world!`.
+**Milestone:** `hawk run examples/hello.hawk` prints `Hello, world!`.
 
 Covers:
 
@@ -88,7 +88,7 @@ Covers:
 
 ## Phase 3 — Standard library + test runner ✅
 
-**Milestone:** `aero test examples/wordcount_test.aero` runs and passes all
+**Milestone:** `hawk test examples/wordcount_test.hawk` runs and passes all
 tests.
 
 Native bindings to implement:
@@ -102,7 +102,7 @@ Native bindings to implement:
 
 ## Phase 4 — Type checker ✅
 
-**Milestone:** `aero check examples/` reports type errors with line and column.
+**Milestone:** `hawk check examples/` reports type errors with line and column.
 
 Covers:
 
@@ -115,7 +115,7 @@ Covers:
 
 ## Phase 5 — Self-hosting prerequisite ✅
 
-**Milestone:** `aero run tool_aero/lexer.aero -- examples/hello.aero` produces
+**Milestone:** `hawk run tool_hawk/lexer.hawk -- examples/hello.hawk` produces
 tokens.
 
 Blocked on:
@@ -128,5 +128,5 @@ Blocked on:
 - [x] enum types in the interpreter
 - [x] recursive data structures all working end-to-end
 
-Once these work, start writing the Aero lexer in Aero itself as the first
+Once these work, start writing the Hawk lexer in Hawk itself as the first
 self-hosting test.

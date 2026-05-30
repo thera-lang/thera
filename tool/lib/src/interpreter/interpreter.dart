@@ -48,7 +48,7 @@ class Interpreter {
   // resolves file paths to source text; supports overlays for LSP
   final SourceProvider sourceProvider;
 
-  // SDK root for locating stdlib .aero source files (may be null in tests)
+  // SDK root for locating stdlib .hawk source files (may be null in tests)
   final String? sdkRoot;
 
   // registry of native function implementations keyed by 'module.function'
@@ -120,7 +120,7 @@ class Interpreter {
       // Prefer loading from the SDK source file; fall back to synthetic.
       final root = sdkRoot;
       if (root != null) {
-        final stdlibFile = '$root/src/std/$moduleName.aero';
+        final stdlibFile = '$root/sdk/std/$moduleName.hawk';
         if (File(stdlibFile).existsSync()) {
           final module = _loadStdlibModule(moduleName, stdlibFile);
           if (module != null) {
@@ -133,11 +133,11 @@ class Interpreter {
       if (module != null) env.define(prefix, module);
       return;
     }
-    // relative file import: load <baseDir>/<path>.aero
+    // relative file import: load <baseDir>/<path>.hawk
     _handleFileImport(path, alias, env);
   }
 
-  /// Load a stdlib module from its .aero source file.
+  /// Load a stdlib module from its .hawk source file.
   ///
   /// For `native fn` declarations the Dart implementation is looked up in
   /// [_nativeFnImpls]. Regular `fn` declarations become [FnValue]s executed
@@ -151,7 +151,7 @@ class Interpreter {
       final parseResult = Parser(lexResult.tokens).parse();
       if (parseResult.hasErrors) return null;
 
-      // The module environment inherits all globals so Aero-coded stdlib
+      // The module environment inherits all globals so Hawk-coded stdlib
       // functions can use Ok, Err, println, etc.
       final moduleEnv = Environment();
       _setupGlobals(moduleEnv);
@@ -194,7 +194,7 @@ class Interpreter {
     if (base == null)
       throw InterpreterError(
           'relative import "$path" but no base directory set');
-    final filePath = '$base/$path.aero';
+    final filePath = '$base/$path.hawk';
     final String source;
     try {
       source = sourceProvider.read(filePath);
@@ -239,12 +239,13 @@ class Interpreter {
   }
 
   /// Build the registry used by [_loadStdlibModule] to resolve `native fn`
-  /// declarations in .aero stdlib files to their Dart implementations.
+  /// declarations in .hawk stdlib files to their Dart implementations.
   Map<String, Value Function(List<Value>, Map<String, Value>)>
       _buildNativeFnImpls() {
     // Extract each implementation from the corresponding synthetic module so
     // there is a single source of truth: the synthetic modules below.
-    Value call(StructValue m, String name, List<Value> a, Map<String, Value> n) =>
+    Value call(
+            StructValue m, String name, List<Value> a, Map<String, Value> n) =>
         (m.fields[name] as NativeFnValue).fn(a, n);
     final fs = _makeFsModule();
     final path = _makePathModule();
@@ -253,14 +254,15 @@ class Interpreter {
     final string = _makeStringModule();
     return {
       for (final k in fs.fields.keys) 'fs.$k': (a, n) => call(fs, k, a, n),
-      for (final k in path.fields.keys) 'path.$k': (a, n) => call(path, k, a, n),
+      for (final k in path.fields.keys)
+        'path.$k': (a, n) => call(path, k, a, n),
       for (final k in process.fields.keys)
         'process.$k': (a, n) => call(process, k, a, n),
       for (final k in fiber.fields.keys)
         'fiber.$k': (a, n) => call(fiber, k, a, n),
       for (final k in string.fields.keys)
         'string.$k': (a, n) => call(string, k, a, n),
-      // std.testing is not here: testing.aero uses regular Aero functions,
+      // std.testing is not here: testing.hawk uses regular Hawk functions,
       // not native fn declarations, so no registry entries are needed.
     };
   }
@@ -323,7 +325,8 @@ class Interpreter {
 
   StructValue _makeStringModule() => StructValue('_Module', {
         'from_chars': NativeFnValue('string.from_chars', (args, named) {
-          final cps = (args[0] as ListValue).items.map((v) => (v as IntValue).v);
+          final cps =
+              (args[0] as ListValue).items.map((v) => (v as IntValue).v);
           return StringValue(String.fromCharCodes(cps));
         }),
       });
@@ -354,13 +357,10 @@ class Interpreter {
         'read_dir': NativeFnValue('fs.read_dir', (args, named) {
           final path = (args.first as StringValue).v;
           try {
-            final names = Directory(path)
-                .listSync()
-                .map((e) {
-                  final p = e.path;
-                  return p.substring(p.lastIndexOf('/') + 1);
-                })
-                .toList()
+            final names = Directory(path).listSync().map((e) {
+              final p = e.path;
+              return p.substring(p.lastIndexOf('/') + 1);
+            }).toList()
               ..sort();
             return ResultValue.ok(
                 ListValue(names.map<Value>((n) => StringValue(n)).toList()));
@@ -636,8 +636,7 @@ class Interpreter {
       'join': NativeFnValue('List.join', (args, named) {
         final list = args[0] as ListValue;
         final sep = (args[1] as StringValue).v;
-        return StringValue(
-            list.items.map((v) => v.display()).join(sep));
+        return StringValue(list.items.map((v) => v.display()).join(sep));
       }),
     };
 
@@ -775,8 +774,8 @@ class Interpreter {
             final ed = _enumDecls[object.name];
             if (ed != null) {
               final variant = ed.variants.firstWhere((v) => v.name == field,
-                  orElse: () =>
-                      throw InterpreterError('no variant $field on ${object.name}'));
+                  orElse: () => throw InterpreterError(
+                      'no variant $field on ${object.name}'));
               if (variant.fields.isEmpty) {
                 return EnumValue(object.name, field, []);
               }
@@ -824,7 +823,8 @@ class Interpreter {
         switch (target) {
           case IdentExpr(:final name):
             if (!env.assign(name, val)) {
-              throw InterpreterError('cannot assign to undefined variable: $name');
+              throw InterpreterError(
+                  'cannot assign to undefined variable: $name');
             }
           case FieldExpr(:final object, :final field):
             final obj = _evalExpr(object, env);
