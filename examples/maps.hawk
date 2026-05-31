@@ -1,4 +1,9 @@
 // Demonstrates map literals, index access, mutation, and map methods.
+//
+// NOTE: this shows the *current* interpreter behavior, where map[key] returns
+// Option<V> (identical to .get). The agreed design (docs/language.md) has
+// map[key] return V and trap on a missing key, with .get() returning Option;
+// that will be implemented in the Rust runtime, and this example updated then.
 
 fn main(args: Args) -> Result<Int, Error> {
     // Map literal — insertion order is preserved.
