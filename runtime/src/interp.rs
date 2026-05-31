@@ -1,7 +1,8 @@
 //! The Tier-0 evaluator.
 //!
-//! Increment 1: execute a single linear instruction stream against a locals
-//! array, maintaining an operand stack, until a [`Instr::Return`].
+//! Executes a single function's instruction stream against a locals array,
+//! maintaining an operand stack, until a [`Instr::Return`]. A `pc` (program
+//! counter) indexes the instruction vec; the `jump` family redirects it.
 
 use crate::instr::Instr;
 use crate::value::Value;
@@ -155,6 +156,22 @@ pub fn eval(code: &[Instr], locals: &mut [Value]) -> Result<Value, Trap> {
             }
 
             // --- control ---
+            Instr::Jump(target) => {
+                pc = *target;
+                continue;
+            }
+            Instr::JumpIfTrue(target) => {
+                if pop_bool(&mut stack)? {
+                    pc = *target;
+                    continue;
+                }
+            }
+            Instr::JumpIfFalse(target) => {
+                if !pop_bool(&mut stack)? {
+                    pc = *target;
+                    continue;
+                }
+            }
             Instr::Return => return Ok(stack.pop().unwrap_or(Value::Unit)),
         }
 
@@ -385,6 +402,84 @@ mod tests {
             Instr::Return,
         ];
         assert_eq!(eval(&code, &mut locals), Ok(Value::Int(42)));
+    }
+
+    #[test]
+    fn unconditional_jump_skips_instructions() {
+        // Jump over a ConstInt(999) that would otherwise overwrite the result.
+        let code = [
+            Instr::ConstInt(42),
+            Instr::Jump(4),
+            Instr::ConstInt(999), // skipped
+            Instr::Return,        // skipped
+            Instr::Return,        // target
+        ];
+        assert_eq!(run(&code), Ok(Value::Int(42)));
+    }
+
+    /// `if a < b { 100 } else { 200 }`.
+    fn branch(a: i64, b: i64) -> Result<Value, Trap> {
+        let code = [
+            Instr::ConstInt(a),
+            Instr::ConstInt(b),
+            Instr::LtI64,
+            Instr::JumpIfFalse(6), // false → else branch
+            Instr::ConstInt(100),  // then
+            Instr::Return,
+            Instr::ConstInt(200),  // else (index 6)
+            Instr::Return,
+        ];
+        run(&code)
+    }
+
+    #[test]
+    fn conditional_branch_taken_and_not_taken() {
+        assert_eq!(branch(2, 3), Ok(Value::Int(100))); // 2 < 3 → then
+        assert_eq!(branch(3, 2), Ok(Value::Int(200))); // 3 < 2 → else
+    }
+
+    #[test]
+    fn jump_if_true() {
+        // if true, jump to return 1; else fall through to return 0.
+        let code = [
+            Instr::ConstBool(true),
+            Instr::JumpIfTrue(4),
+            Instr::ConstInt(0),
+            Instr::Return,
+            Instr::ConstInt(1), // target
+            Instr::Return,
+        ];
+        assert_eq!(run(&code), Ok(Value::Int(1)));
+    }
+
+    #[test]
+    fn counted_loop_sums_range() {
+        // sum = 0; i = 0; while i < 5 { sum += i; i += 1 }; return sum  // = 10
+        let code = [
+            Instr::ConstInt(0),
+            Instr::Store(1), // sum = 0
+            Instr::ConstInt(0),
+            Instr::Store(0), // i = 0
+            // loop head (index 4):
+            Instr::Load(0),
+            Instr::ConstInt(5),
+            Instr::LtI64,
+            Instr::JumpIfFalse(17), // exit
+            Instr::Load(1),
+            Instr::Load(0),
+            Instr::AddI64,
+            Instr::Store(1), // sum += i
+            Instr::Load(0),
+            Instr::ConstInt(1),
+            Instr::AddI64,
+            Instr::Store(0), // i += 1
+            Instr::Jump(4),
+            // after loop (index 17):
+            Instr::Load(1),
+            Instr::Return,
+        ];
+        let mut locals = vec![Value::Unit; 2];
+        assert_eq!(eval(&code, &mut locals), Ok(Value::Int(10)));
     }
 
     #[test]

@@ -4,12 +4,20 @@
 //! byte stream (see docs/bytecode.md, "Instruction encoding"). Opcode names
 //! mirror the spec: `add.i64` → [`Instr::AddI64`], etc.
 //!
-//! This is the increment-1 subset: constants, locals, arithmetic, comparison,
-//! conversions, stack manipulation, and `return`. Control flow, calls, enums,
-//! and intrinsics are added in later increments.
+//! Current subset (increments 1–2): constants, locals, arithmetic, comparison,
+//! conversions, stack manipulation, control flow (`jump` family), and `return`.
+//! Calls, enums, and intrinsics are added in later increments.
 
 /// A local-slot index (parameters and locals share one array).
 pub type Slot = u16;
+
+/// A jump target: an **absolute index** into the function's instruction vec.
+///
+/// The spec (docs/bytecode.md) describes jumps as *relative byte offsets*; that
+/// is a property of the serialized form. The in-memory `Instr` vec uses
+/// absolute indices instead — simpler to hand-write and debug — and the future
+/// byte decoder will resolve relative offsets into these at decode time.
+pub type Addr = usize;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Instr {
@@ -70,6 +78,12 @@ pub enum Instr {
     Dup,
 
     // --- control ---
+    /// Unconditionally continue execution at the given instruction.
+    Jump(Addr),
+    /// Pop a `Bool`; jump if it is `true`, otherwise fall through.
+    JumpIfTrue(Addr),
+    /// Pop a `Bool`; jump if it is `false`, otherwise fall through.
+    JumpIfFalse(Addr),
     /// Return the top operand-stack slot (or `Unit` if the stack is empty).
     Return,
 }
