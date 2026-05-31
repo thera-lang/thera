@@ -6,4 +6,5 @@ pub mod disasm;
 pub mod instr;
 pub mod interp;
 pub mod module;
+pub mod serialize;
 pub mod value;

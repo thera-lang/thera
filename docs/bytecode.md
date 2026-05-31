@@ -15,6 +15,8 @@ In order (per the project's stated criteria):
    to lower to Cranelift IR.
 3. **Performance** — fast enough to run real CLI work in the interpreter, and a
    clean path to native code for hot functions.
+4. **Compactness of bytecode** - it is useful - but not critical - that the
+   persistent, encoded form of the bytecode is compact
 
 A few consequences fall out of these directly:
 
@@ -53,7 +55,7 @@ a slot is a reference is **statically known** at every program point from the
 types the frontend tracked, so we never tag values at runtime.
 
 **Heap objects have reference semantics.** A slot that holds a pointer is a
-*shared* reference to a heap object (String, List, Map, Set, struct, enum,
+_shared_ reference to a heap object (String, List, Map, Set, struct, enum,
 closure); copying the slot copies the pointer, not the object. Immutability is
 enforced by the type system (`let` bindings, immutable struct fields), not by
 copying — so two bindings to the same `mut` collection observe each other's
@@ -71,7 +73,7 @@ semantics for implementation simplicity.
 ## The first interpreter (Tier 0): nailed-down decisions
 
 These pin down the draft interpreter so it can be built without guessing. They
-describe the *first cut*, not permanent constraints.
+describe the _first cut_, not permanent constraints.
 
 - **Bytecode representation:** the draft runs an in-memory Rust
   `enum Instruction` (a `Vec<Instruction>` per function), **not** the serialized
@@ -105,9 +107,8 @@ describe the *first cut*, not permanent constraints.
 
 ## Container format (a compiled module)
 
-A module is the durable artifact. Rough shape (encoding TBD — likely a simple
-length-prefixed binary; could start as a Rust enum tree / `bincode` for the
-POC):
+A module is the durable artifact; this is its logical shape (the wire encoding
+is in [Serialized format](#serialized-format) below):
 
 ```
 Module
@@ -133,18 +134,53 @@ Function
 `SlotKind` is just `{ Value, Ref }` for now — enough for the GC to scan. It can
 grow into richer type info later if the JIT wants it.
 
-## Instruction encoding
+## Serialized format
+
+The wire form draws on Wasm (the container) and the JVM `.class` file (the
+constant pool), but borrows neither instruction set nor type model — those carry
+Hawk's types, which is the whole reason for rolling our own. We take the *ideas*,
+not the encodings.
+
+**Two layers.** The *wire form* (on disk / embedded in the `hawk` binary)
+optimizes for compactness; the *executable form* is the in-memory `Module`
+(`Vec<Instr>`) the interpreter already runs. The loader **decodes** the wire
+form into a `Module` in one linear pass — cheap relative to process startup, and
+it keeps absolute-index jump targets working with no fixups. Interpreting the
+wire bytes in place (à la Lua/CPython) would force fixed-width instructions and
+resolved byte offsets; deferred unless startup profiling ever justifies it.
+
+**Trusted input.** Unlike Wasm/JVM, our bytecode is produced by our own
+front-end and bundled into the SDK, so the loader does only lightweight
+integrity checks (magic, version, section lengths) — no verifier. Revisit if we
+ever load third-party bytecode.
+
+**Container** — a header then a sequence of length-prefixed sections, so a
+loader can skip sections it does not understand (forward compatibility, and a
+home for optional debug info):
+
+```
+Header:   magic "HAWK" + format version
+Section:  id (u8) + byte_length (varint) + payload     // unknown ids skipped
+  Types     : struct/enum layouts (TypeDef); EnumNew's field_count moves here
+  Functions : per fn { name, param_count, local_count, max_stack, code }
+  Entry     : index of main
+  Constants : (later) dedup'd strings / f64 / large ints — a compaction step
+  Debug?    : (later) source file + line table — optional, skippable
+```
+
+**Instruction encoding.**
 
 - Opcode = 1 byte.
-- Operands = fixed-width (`u8`/`u16`/`u32`/`i64` as noted per op). Simple to
-  decode; we trade compactness for a dead-simple decoder. LEB128 / immediate
-  packing is a later optimization.
-- Constants that don't fit an immediate (all `f64`, strings, large `i64`) live
-  in the constant pool and are referenced by `u32` index.
+- Operands use **LEB128 varints** (unsigned for indices/lengths, signed for
+  `i64` immediates) — small values cost one byte. `f64` is 8 raw bytes.
+- Multi-byte fixed fields are little-endian.
+- v0 **inlines constants** in the instruction stream (a string literal carries
+  its bytes; `const.f64` carries 8 bytes). A module-global **constant pool**
+  (the JVM idea: dedup + reference by index) is a later compaction step, hence
+  the deferred Constants section above.
 
-This describes the eventual serialized format. The first interpreter skips it
-and runs an in-memory `enum Instruction` instead (see
-[The first interpreter](#the-first-interpreter-tier-0-nailed-down-decisions)).
+The [disassembler](#) is the round-trip oracle: `encode → decode` must produce
+an identical `Module` (compared directly or via disassembly).
 
 ## Instruction set
 
@@ -162,23 +198,23 @@ each is a distinct opcode.
 
 ### Locals
 
-| Op             | Operands    | Stack | Notes                                   |
-| -------------- | ----------- | ----- | --------------------------------------- |
-| `load`         | `slot: u16` | `→ v` | params and locals share the array       |
-| `store`        | `slot: u16` | `v →` | for `mut` bindings / SSA spills          |
-| `load.capture` | `idx: u16`  | `→ v` | read a value captured by the closure     |
+| Op             | Operands    | Stack | Notes                                |
+| -------------- | ----------- | ----- | ------------------------------------ |
+| `load`         | `slot: u16` | `→ v` | params and locals share the array    |
+| `store`        | `slot: u16` | `v →` | for `mut` bindings / SSA spills      |
+| `load.capture` | `idx: u16`  | `→ v` | read a value captured by the closure |
 
 `load`/`store` move 64 bits regardless of type — no suffix needed. The slot's
 ref-ness is recorded in the function's stackmap, not the opcode.
 
-`load.capture` reads from the captured-values array of the *currently executing
-closure* (populated by `closure.new`); it is the only way a closure body
-reaches a captured variable, since `load` addresses only params and locals.
+`load.capture` reads from the captured-values array of the _currently executing
+closure_ (populated by `closure.new`); it is the only way a closure body reaches
+a captured variable, since `load` addresses only params and locals.
 
 > **Captures: two designs, decision deferred.** Either (A) closures stay a
 > runtime concept — `closure.new` builds a `{ func, captures[] }` object and the
 > body reads them with `load.capture` (shown here); or (B) the frontend does
-> *closure conversion*, lowering each lambda to a plain function that takes a
+> _closure conversion_, lowering each lambda to a plain function that takes a
 > synthesized environment struct as a parameter, so captures are ordinary
 > `field.get`s and `load.capture` disappears. (A) is simplest for the
 > interpreter (no frontend pass); (B) is more uniform for the Cranelift tier.
@@ -347,3 +383,6 @@ no type guards — the speculation-free property the plan is built around.
 - **Stackmap representation** — bitmap vs. ranges; per-safepoint vs. per-block.
 - **Globals / module-level state** — whether CLI programs need them at all.
 - **Tail calls** — useful for the eventual self-hosted compiler; not yet.
+- **Container format** - instead of inventing a new container format wholesale,
+  we may look at existing formats; for example, could we use the wasm format?
+  Or, a custom format inspired by it?
