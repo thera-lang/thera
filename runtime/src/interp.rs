@@ -9,6 +9,8 @@
 //! when fibers need to pause and resume frames; for the draft, recursion is the
 //! simplest thing that works.
 
+use std::io::Write;
+
 use crate::instr::Instr;
 use crate::module::Module;
 use crate::value::{Obj, Value};
@@ -30,226 +32,289 @@ fn bug(msg: impl Into<String>) -> Trap {
     Trap::Bug(msg.into())
 }
 
-/// Run `module`'s function at index `func` with `args`, returning its result.
+/// A native (Rust-implemented) function: receives the VM's output sink and the
+/// call arguments, and returns a value.
+pub type NativeFn = fn(out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap>;
+
+// Indices into the default native table (see [`default_natives`]).
+pub const NATIVE_PRINTLN: u32 = 0;
+pub const NATIVE_PRINT: u32 = 1;
+pub const NATIVE_STRINGIFY: u32 = 2;
+pub const NATIVE_STR_CONCAT: u32 = 3;
+
+/// The native functions the runtime ships with, in index order.
+pub fn default_natives() -> Vec<NativeFn> {
+    vec![
+        native_println,
+        native_print,
+        native_stringify,
+        native_str_concat,
+    ]
+}
+
+/// The interpreter's execution context: where output goes and what native
+/// functions are available. Later increments grow this with the heap/GC and the
+/// fiber scheduler.
+pub struct Vm<'a> {
+    out: &'a mut dyn Write,
+    natives: Vec<NativeFn>,
+}
+
+/// Run `module`'s function at index `func` with `args`, writing output to
+/// stdout. Convenience over [`Vm`].
 pub fn run(module: &Module, func: usize, args: &[Value]) -> Result<Value, Trap> {
-    call(module, func, args.to_vec())
+    let mut out = std::io::stdout();
+    Vm::new(&mut out).run(module, func, args)
 }
 
 /// Evaluate a bare instruction stream with no enclosing module (so `call` is
-/// unavailable). A convenience for testing self-contained snippets.
+/// unavailable) and discard output. A convenience for testing snippets.
 pub fn eval(code: &[Instr], locals: &mut [Value]) -> Result<Value, Trap> {
     let module = Module::default();
-    exec(&module, code, locals)
+    let mut sink = std::io::sink();
+    Vm::new(&mut sink).exec(&module, code, locals)
 }
 
-/// Build a frame for `module.functions[func]`, placing `args` in its leading
-/// local slots, and execute it.
-fn call(module: &Module, func: usize, args: Vec<Value>) -> Result<Value, Trap> {
-    let f = module
-        .functions
-        .get(func)
-        .ok_or_else(|| bug(format!("call: no function at index {func}")))?;
-    if args.len() != f.param_count as usize {
-        return Err(bug(format!(
-            "call: function '{}' expects {} args, got {}",
-            f.name,
-            f.param_count,
-            args.len()
-        )));
-    }
-    // args already hold arg0..argN in pushed order, which is exactly
-    // locals[0..param_count]; pad the rest of the frame with Unit.
-    let mut locals = args;
-    locals.resize(f.local_count as usize, Value::Unit);
-    exec(module, &f.code, &mut locals)
-}
-
-/// Execute `code` against `locals`, resolving any `call` in `module`.
-fn exec(module: &Module, code: &[Instr], locals: &mut [Value]) -> Result<Value, Trap> {
-    let mut stack: Vec<Value> = Vec::new();
-    let mut pc = 0usize;
-
-    loop {
-        let instr = code
-            .get(pc)
-            .ok_or_else(|| bug("pc ran off the end of the instruction stream"))?;
-
-        match instr {
-            // --- constants ---
-            Instr::ConstInt(n) => stack.push(Value::Int(*n)),
-            Instr::ConstDouble(x) => stack.push(Value::Double(*x)),
-            Instr::ConstBool(b) => stack.push(Value::Bool(*b)),
-            Instr::ConstUnit => stack.push(Value::Unit),
-
-            // --- locals ---
-            Instr::Load(slot) => {
-                let v = locals
-                    .get(*slot as usize)
-                    .ok_or_else(|| bug(format!("load: slot {slot} out of range")))?
-                    .clone();
-                stack.push(v);
-            }
-            Instr::Store(slot) => {
-                let v = pop(&mut stack)?;
-                *locals
-                    .get_mut(*slot as usize)
-                    .ok_or_else(|| bug(format!("store: slot {slot} out of range")))? = v;
-            }
-
-            // --- integer arithmetic (wrapping) ---
-            Instr::AddI64 => {
-                let (a, b) = pop_two_int(&mut stack)?;
-                stack.push(Value::Int(a.wrapping_add(b)));
-            }
-            Instr::SubI64 => {
-                let (a, b) = pop_two_int(&mut stack)?;
-                stack.push(Value::Int(a.wrapping_sub(b)));
-            }
-            Instr::MulI64 => {
-                let (a, b) = pop_two_int(&mut stack)?;
-                stack.push(Value::Int(a.wrapping_mul(b)));
-            }
-            Instr::DivI64 => {
-                let (a, b) = pop_two_int(&mut stack)?;
-                if b == 0 {
-                    return Err(Trap::DivByZero);
-                }
-                stack.push(Value::Int(a.wrapping_div(b)));
-            }
-            Instr::ModI64 => {
-                let (a, b) = pop_two_int(&mut stack)?;
-                if b == 0 {
-                    return Err(Trap::DivByZero);
-                }
-                stack.push(Value::Int(a.wrapping_rem(b)));
-            }
-            Instr::NegI64 => {
-                let a = pop_int(&mut stack)?;
-                stack.push(Value::Int(a.wrapping_neg()));
-            }
-
-            // --- float arithmetic ---
-            Instr::AddF64 => {
-                let (a, b) = pop_two_double(&mut stack)?;
-                stack.push(Value::Double(a + b));
-            }
-            Instr::SubF64 => {
-                let (a, b) = pop_two_double(&mut stack)?;
-                stack.push(Value::Double(a - b));
-            }
-            Instr::MulF64 => {
-                let (a, b) = pop_two_double(&mut stack)?;
-                stack.push(Value::Double(a * b));
-            }
-            Instr::DivF64 => {
-                let (a, b) = pop_two_double(&mut stack)?;
-                stack.push(Value::Double(a / b));
-            }
-            Instr::NegF64 => {
-                let a = pop_double(&mut stack)?;
-                stack.push(Value::Double(-a));
-            }
-
-            // --- integer comparison ---
-            Instr::EqI64 => cmp_int(&mut stack, |a, b| a == b)?,
-            Instr::NeI64 => cmp_int(&mut stack, |a, b| a != b)?,
-            Instr::LtI64 => cmp_int(&mut stack, |a, b| a < b)?,
-            Instr::LeI64 => cmp_int(&mut stack, |a, b| a <= b)?,
-            Instr::GtI64 => cmp_int(&mut stack, |a, b| a > b)?,
-            Instr::GeI64 => cmp_int(&mut stack, |a, b| a >= b)?,
-
-            // --- float comparison ---
-            Instr::EqF64 => cmp_double(&mut stack, |a, b| a == b)?,
-            Instr::NeF64 => cmp_double(&mut stack, |a, b| a != b)?,
-            Instr::LtF64 => cmp_double(&mut stack, |a, b| a < b)?,
-            Instr::LeF64 => cmp_double(&mut stack, |a, b| a <= b)?,
-            Instr::GtF64 => cmp_double(&mut stack, |a, b| a > b)?,
-            Instr::GeF64 => cmp_double(&mut stack, |a, b| a >= b)?,
-
-            // --- boolean ---
-            Instr::Not => {
-                let b = pop_bool(&mut stack)?;
-                stack.push(Value::Bool(!b));
-            }
-
-            // --- conversions ---
-            Instr::I64ToF64 => {
-                let a = pop_int(&mut stack)?;
-                stack.push(Value::Double(a as f64));
-            }
-            Instr::F64ToI64 => {
-                let a = pop_double(&mut stack)?;
-                stack.push(Value::Int(a as i64));
-            }
-
-            // --- stack manipulation ---
-            Instr::Pop => {
-                pop(&mut stack)?;
-            }
-            Instr::Dup => {
-                let v = stack
-                    .last()
-                    .ok_or_else(|| bug("dup: empty stack"))?
-                    .clone();
-                stack.push(v);
-            }
-
-            // --- calls ---
-            Instr::Call { func, argc } => {
-                let argc = *argc as usize;
-                let base = stack
-                    .len()
-                    .checked_sub(argc)
-                    .ok_or_else(|| bug("call: operand stack underflow"))?;
-                let args = stack.split_off(base);
-                let ret = call(module, *func as usize, args)?;
-                stack.push(ret);
-            }
-
-            // --- enums ---
-            Instr::EnumNew {
-                ty,
-                variant,
-                field_count,
-            } => {
-                let fc = *field_count as usize;
-                let base = stack
-                    .len()
-                    .checked_sub(fc)
-                    .ok_or_else(|| bug("enum.new: operand stack underflow"))?;
-                let fields = stack.split_off(base);
-                stack.push(Value::new_enum(*ty, *variant, fields));
-            }
-            Instr::EnumTag => {
-                let variant = pop_enum_variant(&mut stack)?;
-                stack.push(Value::Int(variant as i64));
-            }
-            Instr::EnumGet(idx) => {
-                let v = pop(&mut stack)?;
-                stack.push(enum_field(&v, *idx as usize)?);
-            }
-
-            // --- control ---
-            Instr::Jump(target) => {
-                pc = *target;
-                continue;
-            }
-            Instr::JumpIfTrue(target) => {
-                if pop_bool(&mut stack)? {
-                    pc = *target;
-                    continue;
-                }
-            }
-            Instr::JumpIfFalse(target) => {
-                if !pop_bool(&mut stack)? {
-                    pc = *target;
-                    continue;
-                }
-            }
-            Instr::Return => return Ok(stack.pop().unwrap_or(Value::Unit)),
+impl<'a> Vm<'a> {
+    /// Create a VM that writes output to `out`, with the default native table.
+    pub fn new(out: &'a mut dyn Write) -> Self {
+        Self {
+            out,
+            natives: default_natives(),
         }
+    }
 
-        pc += 1;
+    /// Run `module`'s function at index `func` with `args`.
+    pub fn run(&mut self, module: &Module, func: usize, args: &[Value]) -> Result<Value, Trap> {
+        self.call(module, func, args.to_vec())
+    }
+
+    /// Build a frame for `module.functions[func]`, placing `args` in its leading
+    /// local slots, and execute it.
+    fn call(&mut self, module: &Module, func: usize, args: Vec<Value>) -> Result<Value, Trap> {
+        let f = module
+            .functions
+            .get(func)
+            .ok_or_else(|| bug(format!("call: no function at index {func}")))?;
+        if args.len() != f.param_count as usize {
+            return Err(bug(format!(
+                "call: function '{}' expects {} args, got {}",
+                f.name,
+                f.param_count,
+                args.len()
+            )));
+        }
+        // args already hold arg0..argN in pushed order, which is exactly
+        // locals[0..param_count]; pad the rest of the frame with Unit.
+        let mut locals = args;
+        locals.resize(f.local_count as usize, Value::Unit);
+        self.exec(module, &f.code, &mut locals)
+    }
+
+    /// Execute `code` against `locals`, resolving any `call` in `module`.
+    fn exec(
+        &mut self,
+        module: &Module,
+        code: &[Instr],
+        locals: &mut [Value],
+    ) -> Result<Value, Trap> {
+        let mut stack: Vec<Value> = Vec::new();
+        let mut pc = 0usize;
+
+        loop {
+            let instr = code
+                .get(pc)
+                .ok_or_else(|| bug("pc ran off the end of the instruction stream"))?;
+
+            match instr {
+                // --- constants ---
+                Instr::ConstInt(n) => stack.push(Value::Int(*n)),
+                Instr::ConstDouble(x) => stack.push(Value::Double(*x)),
+                Instr::ConstBool(b) => stack.push(Value::Bool(*b)),
+                Instr::ConstUnit => stack.push(Value::Unit),
+                Instr::ConstStr(s) => stack.push(Value::new_str(s.clone())),
+
+                // --- locals ---
+                Instr::Load(slot) => {
+                    let v = locals
+                        .get(*slot as usize)
+                        .ok_or_else(|| bug(format!("load: slot {slot} out of range")))?
+                        .clone();
+                    stack.push(v);
+                }
+                Instr::Store(slot) => {
+                    let v = pop(&mut stack)?;
+                    *locals
+                        .get_mut(*slot as usize)
+                        .ok_or_else(|| bug(format!("store: slot {slot} out of range")))? = v;
+                }
+
+                // --- integer arithmetic (wrapping) ---
+                Instr::AddI64 => {
+                    let (a, b) = pop_two_int(&mut stack)?;
+                    stack.push(Value::Int(a.wrapping_add(b)));
+                }
+                Instr::SubI64 => {
+                    let (a, b) = pop_two_int(&mut stack)?;
+                    stack.push(Value::Int(a.wrapping_sub(b)));
+                }
+                Instr::MulI64 => {
+                    let (a, b) = pop_two_int(&mut stack)?;
+                    stack.push(Value::Int(a.wrapping_mul(b)));
+                }
+                Instr::DivI64 => {
+                    let (a, b) = pop_two_int(&mut stack)?;
+                    if b == 0 {
+                        return Err(Trap::DivByZero);
+                    }
+                    stack.push(Value::Int(a.wrapping_div(b)));
+                }
+                Instr::ModI64 => {
+                    let (a, b) = pop_two_int(&mut stack)?;
+                    if b == 0 {
+                        return Err(Trap::DivByZero);
+                    }
+                    stack.push(Value::Int(a.wrapping_rem(b)));
+                }
+                Instr::NegI64 => {
+                    let a = pop_int(&mut stack)?;
+                    stack.push(Value::Int(a.wrapping_neg()));
+                }
+
+                // --- float arithmetic ---
+                Instr::AddF64 => {
+                    let (a, b) = pop_two_double(&mut stack)?;
+                    stack.push(Value::Double(a + b));
+                }
+                Instr::SubF64 => {
+                    let (a, b) = pop_two_double(&mut stack)?;
+                    stack.push(Value::Double(a - b));
+                }
+                Instr::MulF64 => {
+                    let (a, b) = pop_two_double(&mut stack)?;
+                    stack.push(Value::Double(a * b));
+                }
+                Instr::DivF64 => {
+                    let (a, b) = pop_two_double(&mut stack)?;
+                    stack.push(Value::Double(a / b));
+                }
+                Instr::NegF64 => {
+                    let a = pop_double(&mut stack)?;
+                    stack.push(Value::Double(-a));
+                }
+
+                // --- integer comparison ---
+                Instr::EqI64 => cmp_int(&mut stack, |a, b| a == b)?,
+                Instr::NeI64 => cmp_int(&mut stack, |a, b| a != b)?,
+                Instr::LtI64 => cmp_int(&mut stack, |a, b| a < b)?,
+                Instr::LeI64 => cmp_int(&mut stack, |a, b| a <= b)?,
+                Instr::GtI64 => cmp_int(&mut stack, |a, b| a > b)?,
+                Instr::GeI64 => cmp_int(&mut stack, |a, b| a >= b)?,
+
+                // --- float comparison ---
+                Instr::EqF64 => cmp_double(&mut stack, |a, b| a == b)?,
+                Instr::NeF64 => cmp_double(&mut stack, |a, b| a != b)?,
+                Instr::LtF64 => cmp_double(&mut stack, |a, b| a < b)?,
+                Instr::LeF64 => cmp_double(&mut stack, |a, b| a <= b)?,
+                Instr::GtF64 => cmp_double(&mut stack, |a, b| a > b)?,
+                Instr::GeF64 => cmp_double(&mut stack, |a, b| a >= b)?,
+
+                // --- boolean ---
+                Instr::Not => {
+                    let b = pop_bool(&mut stack)?;
+                    stack.push(Value::Bool(!b));
+                }
+
+                // --- conversions ---
+                Instr::I64ToF64 => {
+                    let a = pop_int(&mut stack)?;
+                    stack.push(Value::Double(a as f64));
+                }
+                Instr::F64ToI64 => {
+                    let a = pop_double(&mut stack)?;
+                    stack.push(Value::Int(a as i64));
+                }
+
+                // --- stack manipulation ---
+                Instr::Pop => {
+                    pop(&mut stack)?;
+                }
+                Instr::Dup => {
+                    let v = stack.last().ok_or_else(|| bug("dup: empty stack"))?.clone();
+                    stack.push(v);
+                }
+
+                // --- calls ---
+                Instr::Call { func, argc } => {
+                    let argc = *argc as usize;
+                    let base = stack
+                        .len()
+                        .checked_sub(argc)
+                        .ok_or_else(|| bug("call: operand stack underflow"))?;
+                    let args = stack.split_off(base);
+                    let ret = self.call(module, *func as usize, args)?;
+                    stack.push(ret);
+                }
+                Instr::CallNative { native, argc } => {
+                    let argc = *argc as usize;
+                    let base = stack
+                        .len()
+                        .checked_sub(argc)
+                        .ok_or_else(|| bug("call.native: operand stack underflow"))?;
+                    let args = stack.split_off(base);
+                    let f = *self
+                        .natives
+                        .get(*native as usize)
+                        .ok_or_else(|| bug(format!("call.native: no native at index {native}")))?;
+                    let ret = f(&mut *self.out, &args)?;
+                    stack.push(ret);
+                }
+
+                // --- enums ---
+                Instr::EnumNew {
+                    ty,
+                    variant,
+                    field_count,
+                } => {
+                    let fc = *field_count as usize;
+                    let base = stack
+                        .len()
+                        .checked_sub(fc)
+                        .ok_or_else(|| bug("enum.new: operand stack underflow"))?;
+                    let fields = stack.split_off(base);
+                    stack.push(Value::new_enum(*ty, *variant, fields));
+                }
+                Instr::EnumTag => {
+                    let variant = pop_enum_variant(&mut stack)?;
+                    stack.push(Value::Int(variant as i64));
+                }
+                Instr::EnumGet(idx) => {
+                    let v = pop(&mut stack)?;
+                    stack.push(enum_field(&v, *idx as usize)?);
+                }
+
+                // --- control ---
+                Instr::Jump(target) => {
+                    pc = *target;
+                    continue;
+                }
+                Instr::JumpIfTrue(target) => {
+                    if pop_bool(&mut stack)? {
+                        pc = *target;
+                        continue;
+                    }
+                }
+                Instr::JumpIfFalse(target) => {
+                    if !pop_bool(&mut stack)? {
+                        pc = *target;
+                        continue;
+                    }
+                }
+                Instr::Return => return Ok(stack.pop().unwrap_or(Value::Unit)),
+            }
+
+            pc += 1;
+        }
     }
 }
 
@@ -298,6 +363,7 @@ fn pop_enum_variant(stack: &mut Vec<Value>) -> Result<u16, Trap> {
     match pop(stack)? {
         Value::Ref(rc) => match &*rc.borrow() {
             Obj::Enum(e) => Ok(e.variant),
+            Obj::Str(_) => Err(bug("enum.tag: expected enum, found string")),
         },
         v => Err(bug(format!("expected enum, found {v:?}"))),
     }
@@ -312,9 +378,76 @@ fn enum_field(v: &Value, idx: usize) -> Result<Value, Trap> {
                 .get(idx)
                 .cloned()
                 .ok_or_else(|| bug(format!("enum.get: field {idx} out of range"))),
+            Obj::Str(_) => Err(bug("enum.get: expected enum, found string")),
         },
         v => Err(bug(format!("enum.get: expected enum, found {v:?}"))),
     }
+}
+
+// --- native functions ---
+
+/// Render a value to its `Display` string. Handles primitives and strings;
+/// types whose `Display` needs an interface method are out of the draft scope.
+fn display_string(v: &Value) -> Result<String, Trap> {
+    Ok(match v {
+        Value::Int(n) => n.to_string(),
+        Value::Double(x) => x.to_string(),
+        Value::Bool(b) => b.to_string(),
+        Value::Unit => "()".to_string(),
+        Value::Ref(rc) => match &*rc.borrow() {
+            Obj::Str(s) => s.clone(),
+            Obj::Enum(_) => return Err(bug("display: enum has no built-in Display")),
+        },
+    })
+}
+
+/// Extract the contents of a heap string, or fault.
+fn str_contents(v: &Value) -> Result<String, Trap> {
+    match v {
+        Value::Ref(rc) => match &*rc.borrow() {
+            Obj::Str(s) => Ok(s.clone()),
+            Obj::Enum(_) => Err(bug("expected string, found enum")),
+        },
+        v => Err(bug(format!("expected string, found {v:?}"))),
+    }
+}
+
+fn expect_one<'b>(args: &'b [Value], who: &str) -> Result<&'b Value, Trap> {
+    match args {
+        [v] => Ok(v),
+        _ => Err(bug(format!("{who} expects 1 argument, got {}", args.len()))),
+    }
+}
+
+/// `println(value)` — write the value's Display form followed by a newline.
+fn native_println(out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let s = display_string(expect_one(args, "println")?)?;
+    writeln!(out, "{s}").map_err(|e| bug(format!("println: {e}")))?;
+    Ok(Value::Unit)
+}
+
+/// `print(value)` — like `println` without the trailing newline.
+fn native_print(out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let s = display_string(expect_one(args, "print")?)?;
+    write!(out, "{s}").map_err(|e| bug(format!("print: {e}")))?;
+    Ok(Value::Unit)
+}
+
+/// `stringify(value)` — the value's Display form, as a `String`.
+fn native_stringify(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    Ok(Value::new_str(display_string(expect_one(
+        args,
+        "stringify",
+    )?)?))
+}
+
+/// `str_concat(s0, s1, …)` — concatenate string arguments into one `String`.
+fn native_str_concat(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let mut s = String::new();
+    for a in args {
+        s.push_str(&str_contents(a)?);
+    }
+    Ok(Value::new_str(s))
 }
 
 fn cmp_int(stack: &mut Vec<Value>, f: impl Fn(i64, i64) -> bool) -> Result<(), Trap> {
@@ -531,7 +664,7 @@ mod tests {
             Instr::JumpIfFalse(6), // false → else branch
             Instr::ConstInt(100),  // then
             Instr::Return,
-            Instr::ConstInt(200),  // else (index 6)
+            Instr::ConstInt(200), // else (index 6)
             Instr::Return,
         ];
         run(&code)
@@ -618,7 +751,12 @@ mod tests {
             "double",
             1,
             1,
-            vec![Instr::Load(0), Instr::ConstInt(2), Instr::MulI64, Instr::Return],
+            vec![
+                Instr::Load(0),
+                Instr::ConstInt(2),
+                Instr::MulI64,
+                Instr::Return,
+            ],
         );
         let module = Module::new(vec![main, double]);
         assert_eq!(super::run(&module, 0, &[]), Ok(Value::Int(42)));
@@ -654,7 +792,7 @@ mod tests {
                 Instr::JumpIfFalse(6),
                 Instr::ConstInt(1), // base case
                 Instr::Return,
-                Instr::Load(0),               // index 6
+                Instr::Load(0), // index 6
                 Instr::Load(0),
                 Instr::ConstInt(1),
                 Instr::SubI64,
@@ -664,7 +802,10 @@ mod tests {
             ],
         );
         let module = Module::new(vec![fact]);
-        assert_eq!(super::run(&module, 0, &[Value::Int(5)]), Ok(Value::Int(120)));
+        assert_eq!(
+            super::run(&module, 0, &[Value::Int(5)]),
+            Ok(Value::Int(120))
+        );
         assert_eq!(super::run(&module, 0, &[Value::Int(0)]), Ok(Value::Int(1)));
     }
 
@@ -682,7 +823,7 @@ mod tests {
                 Instr::JumpIfFalse(6),
                 Instr::Load(0), // base case: return n
                 Instr::Return,
-                Instr::Load(0),               // index 6
+                Instr::Load(0), // index 6
                 Instr::ConstInt(1),
                 Instr::SubI64,
                 Instr::Call { func: 0, argc: 1 }, // fib(n - 1)
@@ -695,7 +836,10 @@ mod tests {
             ],
         );
         let module = Module::new(vec![fib]);
-        assert_eq!(super::run(&module, 0, &[Value::Int(10)]), Ok(Value::Int(55)));
+        assert_eq!(
+            super::run(&module, 0, &[Value::Int(10)]),
+            Ok(Value::Int(55))
+        );
     }
 
     #[test]
@@ -903,6 +1047,106 @@ mod tests {
     #[test]
     fn enum_tag_on_non_enum_is_a_bug() {
         let code = [Instr::ConstInt(1), Instr::EnumTag, Instr::Return];
+        assert!(matches!(run(&code), Err(Trap::Bug(_))));
+    }
+
+    // --- increment 5: intrinsics & observable output ---
+
+    /// Run a bare snippet, returning its result and any captured output.
+    fn run_capturing(code: &[Instr]) -> (Result<Value, Trap>, String) {
+        let module = Module::default();
+        let mut buf: Vec<u8> = Vec::new();
+        let result = Vm::new(&mut buf).exec(&module, code, &mut []);
+        (result, String::from_utf8(buf).unwrap())
+    }
+
+    #[test]
+    fn stringify_primitive() {
+        let code = [
+            Instr::ConstInt(42),
+            Instr::CallNative {
+                native: NATIVE_STRINGIFY,
+                argc: 1,
+            },
+            Instr::Return,
+        ];
+        assert_eq!(run(&code), Ok(Value::new_str("42")));
+    }
+
+    #[test]
+    fn str_concat_joins_strings() {
+        let code = [
+            Instr::ConstStr("foo".into()),
+            Instr::ConstStr("bar".into()),
+            Instr::CallNative {
+                native: NATIVE_STR_CONCAT,
+                argc: 2,
+            },
+            Instr::Return,
+        ];
+        assert_eq!(run(&code), Ok(Value::new_str("foobar")));
+    }
+
+    #[test]
+    fn println_writes_to_output() {
+        let code = [
+            Instr::ConstStr("hello".into()),
+            Instr::CallNative {
+                native: NATIVE_PRINTLN,
+                argc: 1,
+            },
+            Instr::Return,
+        ];
+        let (result, output) = run_capturing(&code);
+        assert_eq!(result, Ok(Value::Unit));
+        assert_eq!(output, "hello\n");
+    }
+
+    #[test]
+    fn interpolation_pipeline() {
+        // 'x = ${x}' with x = 7  →  "x = 7\n"
+        let code = [
+            Instr::ConstStr("x = ".into()),
+            Instr::ConstInt(7),
+            Instr::CallNative {
+                native: NATIVE_STRINGIFY,
+                argc: 1,
+            },
+            Instr::CallNative {
+                native: NATIVE_STR_CONCAT,
+                argc: 2,
+            },
+            Instr::CallNative {
+                native: NATIVE_PRINTLN,
+                argc: 1,
+            },
+            Instr::Return,
+        ];
+        let (result, output) = run_capturing(&code);
+        assert_eq!(result, Ok(Value::Unit));
+        assert_eq!(output, "x = 7\n");
+    }
+
+    #[test]
+    fn unknown_native_is_a_bug() {
+        let code = [Instr::CallNative {
+            native: 999,
+            argc: 0,
+        }];
+        assert!(matches!(run(&code), Err(Trap::Bug(_))));
+    }
+
+    #[test]
+    fn str_concat_on_non_string_is_a_bug() {
+        let code = [
+            Instr::ConstInt(1),
+            Instr::ConstInt(2),
+            Instr::CallNative {
+                native: NATIVE_STR_CONCAT,
+                argc: 2,
+            },
+            Instr::Return,
+        ];
         assert!(matches!(run(&code), Err(Trap::Bug(_))));
     }
 }

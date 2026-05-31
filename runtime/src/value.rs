@@ -27,6 +27,11 @@ pub enum Value {
 }
 
 impl Value {
+    /// Construct a heap string.
+    pub fn new_str(s: impl Into<String>) -> Value {
+        Value::Ref(Rc::new(RefCell::new(Obj::Str(s.into()))))
+    }
+
     /// Construct an enum value (e.g. `Result`/`Option`) on the heap.
     pub fn new_enum(ty: u32, variant: u16, fields: Vec<Value>) -> Value {
         Value::Ref(Rc::new(RefCell::new(Obj::Enum(EnumObj {
@@ -37,10 +42,12 @@ impl Value {
     }
 }
 
-/// A heap-allocated object. Only enums exist in this increment; strings,
-/// collections, structs, and closures arrive in later increments.
+/// A heap-allocated object. Strings and enums exist so far; collections,
+/// structs, and closures arrive in later increments.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Obj {
+    /// UTF-8 text.
+    Str(String),
     Enum(EnumObj),
 }
 

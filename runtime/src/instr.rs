@@ -4,10 +4,10 @@
 //! byte stream (see docs/bytecode.md, "Instruction encoding"). Opcode names
 //! mirror the spec: `add.i64` → [`Instr::AddI64`], etc.
 //!
-//! Current subset (increments 1–4): constants, locals, arithmetic, comparison,
-//! conversions, stack manipulation, direct `call`, enums (`enum.new`/`tag`/
-//! `get`), control flow (`jump` family), and `return`. Collections, closures,
-//! interface dispatch, and intrinsics are added in later increments.
+//! Current subset (increments 1–5): constants (incl. strings), locals,
+//! arithmetic, comparison, conversions, stack manipulation, direct `call`,
+//! native `call`, enums (`enum.new`/`tag`/`get`), control flow (`jump` family),
+//! and `return`. Collections, closures, and interface dispatch arrive later.
 
 /// A local-slot index (parameters and locals share one array).
 pub type Slot = u16;
@@ -27,6 +27,9 @@ pub enum Instr {
     ConstDouble(f64),
     ConstBool(bool),
     ConstUnit,
+    /// Push a heap string. The serialized form references a constant-pool
+    /// index; the in-memory form inlines the string (cf. [`Instr::ConstInt`]).
+    ConstStr(String),
 
     // --- locals ---
     /// Push `locals[slot]`.
@@ -82,7 +85,16 @@ pub enum Instr {
     /// Direct call to `module.functions[func]`. Pops `argc` arguments
     /// (pushed left-to-right) into the callee's leading local slots and pushes
     /// the callee's return value.
-    Call { func: u32, argc: u8 },
+    Call {
+        func: u32,
+        argc: u8,
+    },
+    /// Call a native (Rust-implemented) function by index. Pops `argc`
+    /// arguments and pushes the result.
+    CallNative {
+        native: u32,
+        argc: u8,
+    },
 
     // --- enums (tagged unions: Result, Option, user enums) ---
     /// Pop `field_count` values (pushed left-to-right) and push a new enum
@@ -90,7 +102,11 @@ pub enum Instr {
     ///
     /// `field_count` is an operand for now; once the module carries a type
     /// table it comes from the enum's TypeDef (see docs/bytecode.md).
-    EnumNew { ty: u32, variant: u16, field_count: u8 },
+    EnumNew {
+        ty: u32,
+        variant: u16,
+        field_count: u8,
+    },
     /// Pop an enum; push its variant tag as an `Int`.
     EnumTag,
     /// Pop an enum; push its payload field at `idx`.
