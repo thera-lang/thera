@@ -1,4 +1,5 @@
-// std.core — fundamental interfaces automatically imported into every file.
+// std.core — fundamental interfaces and types automatically imported into
+// every file.
 //
 // Nothing in this file needs to be explicitly imported. Types, interfaces,
 // and functions defined here are available as top-level names everywhere.
@@ -23,4 +24,23 @@ interface Display {
 // the default shows all field names and values. Can be overridden.
 interface Debug {
     fn debug(self) -> String;
+}
+
+// The standard error type. `Result<T, Error>` is the conventional fallible
+// signature throughout Hawk, and an Error carries a human-readable message.
+//
+// Constructed today with struct-literal syntax:
+//
+//   return Err(Error { message: 'file not found' });
+//
+// A shorthand call form — Error('file not found') — is planned; see
+// docs/language.md.
+type Error = {
+    message: String,
+}
+
+impl Display for Error {
+    fn display(self) -> String {
+        return self.message;
+    }
 }
