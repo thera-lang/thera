@@ -32,6 +32,11 @@ impl Writer {
         self.buf.extend_from_slice(&v.to_le_bytes());
     }
 
+    /// Append raw bytes with no length prefix (e.g. a magic number).
+    pub fn write_raw(&mut self, data: &[u8]) {
+        self.buf.extend_from_slice(data);
+    }
+
     /// Unsigned LEB128.
     pub fn write_uvarint(&mut self, mut v: u64) {
         loop {
@@ -85,6 +90,12 @@ pub enum DecodeError {
     VarintOverflow,
     /// A string field was not valid UTF-8.
     InvalidUtf8,
+    /// The input did not start with the expected magic bytes.
+    BadMagic,
+    /// The format version is not supported by this runtime.
+    UnsupportedVersion(u32),
+    /// An instruction opcode byte was not recognized.
+    UnknownOpcode(u8),
 }
 
 /// Reads encoded values from a byte slice, tracking the read position.
@@ -116,6 +127,11 @@ impl<'a> Reader<'a> {
             .ok_or(DecodeError::UnexpectedEof)?;
         self.pos = end;
         Ok(slice)
+    }
+
+    /// Read exactly `n` raw bytes (no length prefix).
+    pub fn read_raw(&mut self, n: usize) -> Result<&'a [u8], DecodeError> {
+        self.take(n)
     }
 
     pub fn read_u8(&mut self) -> Result<u8, DecodeError> {

@@ -1,0 +1,442 @@
+//! Encoding and decoding of a [`Module`] to/from the bytecode wire format.
+//!
+//! See docs/bytecode.md, "Serialized format": a `"HAWK"` magic + version header,
+//! then length-prefixed sections (so unknown sections are skippable). v0 emits a
+//! single Functions section and inlines constants in the instruction stream; a
+//! type table, entry section, and a dedup'd constant pool arrive as the in-memory
+//! `Module` grows those and as a later compaction step.
+//!
+//! Input is trusted (our own front-end produces it), so decoding does only
+//! lightweight integrity checks — magic, version, opcode — rather than a full
+//! verifier.
+
+use crate::instr::Instr;
+use crate::module::{Function, Module};
+use crate::serialize::{DecodeError, Reader, Writer};
+
+const MAGIC: &[u8] = b"HAWK";
+const VERSION: u32 = 1;
+
+/// Section ids. Unknown ids are skipped on decode via their byte length.
+mod section {
+    pub const FUNCTIONS: u8 = 1;
+}
+
+/// One-byte opcode tags. Shared by [`encode_instr`] and [`decode_instr`] so the
+/// two can never drift.
+mod op {
+    pub const CONST_INT: u8 = 1;
+    pub const CONST_DOUBLE: u8 = 2;
+    pub const CONST_BOOL: u8 = 3;
+    pub const CONST_UNIT: u8 = 4;
+    pub const CONST_STR: u8 = 5;
+    pub const LOAD: u8 = 6;
+    pub const STORE: u8 = 7;
+    pub const ADD_I64: u8 = 8;
+    pub const SUB_I64: u8 = 9;
+    pub const MUL_I64: u8 = 10;
+    pub const DIV_I64: u8 = 11;
+    pub const MOD_I64: u8 = 12;
+    pub const NEG_I64: u8 = 13;
+    pub const ADD_F64: u8 = 14;
+    pub const SUB_F64: u8 = 15;
+    pub const MUL_F64: u8 = 16;
+    pub const DIV_F64: u8 = 17;
+    pub const NEG_F64: u8 = 18;
+    pub const EQ_I64: u8 = 19;
+    pub const NE_I64: u8 = 20;
+    pub const LT_I64: u8 = 21;
+    pub const LE_I64: u8 = 22;
+    pub const GT_I64: u8 = 23;
+    pub const GE_I64: u8 = 24;
+    pub const EQ_F64: u8 = 25;
+    pub const NE_F64: u8 = 26;
+    pub const LT_F64: u8 = 27;
+    pub const LE_F64: u8 = 28;
+    pub const GT_F64: u8 = 29;
+    pub const GE_F64: u8 = 30;
+    pub const NOT: u8 = 31;
+    pub const I64_TO_F64: u8 = 32;
+    pub const F64_TO_I64: u8 = 33;
+    pub const POP: u8 = 34;
+    pub const DUP: u8 = 35;
+    pub const CALL: u8 = 36;
+    pub const CALL_NATIVE: u8 = 37;
+    pub const ENUM_NEW: u8 = 38;
+    pub const ENUM_TAG: u8 = 39;
+    pub const ENUM_GET: u8 = 40;
+    pub const LIST_NEW: u8 = 41;
+    pub const JUMP: u8 = 42;
+    pub const JUMP_IF_TRUE: u8 = 43;
+    pub const JUMP_IF_FALSE: u8 = 44;
+    pub const RETURN: u8 = 45;
+}
+
+/// Encode a module to the wire format.
+pub fn encode_module(m: &Module) -> Vec<u8> {
+    let mut w = Writer::new();
+    w.write_raw(MAGIC);
+    w.write_u32_le(VERSION);
+
+    // Functions section.
+    let mut body = Writer::new();
+    body.write_uvarint(m.functions.len() as u64);
+    for f in &m.functions {
+        encode_function(&mut body, f);
+    }
+    write_section(&mut w, section::FUNCTIONS, &body.into_bytes());
+
+    w.into_bytes()
+}
+
+/// Decode a module from the wire format.
+pub fn decode_module(bytes: &[u8]) -> Result<Module, DecodeError> {
+    let mut r = Reader::new(bytes);
+    if r.read_raw(MAGIC.len())? != MAGIC {
+        return Err(DecodeError::BadMagic);
+    }
+    let version = r.read_u32_le()?;
+    if version != VERSION {
+        return Err(DecodeError::UnsupportedVersion(version));
+    }
+
+    let mut functions = Vec::new();
+    while !r.is_empty() {
+        let id = r.read_u8()?;
+        let len = r.read_uvarint()? as usize;
+        let payload = r.read_raw(len)?;
+        // FUNCTIONS is the only section v0 understands; any other id is skipped
+        // (its payload was already consumed above — forward compatibility).
+        if id == section::FUNCTIONS {
+            let mut pr = Reader::new(payload);
+            let count = pr.read_uvarint()?;
+            for _ in 0..count {
+                functions.push(decode_function(&mut pr)?);
+            }
+        }
+    }
+
+    Ok(Module::new(functions))
+}
+
+fn write_section(w: &mut Writer, id: u8, payload: &[u8]) {
+    w.write_u8(id);
+    w.write_uvarint(payload.len() as u64);
+    w.write_raw(payload);
+}
+
+fn encode_function(w: &mut Writer, f: &Function) {
+    w.write_str(&f.name);
+    w.write_uvarint(f.param_count as u64);
+    w.write_uvarint(f.local_count as u64);
+    w.write_uvarint(f.code.len() as u64);
+    for instr in &f.code {
+        encode_instr(w, instr);
+    }
+}
+
+fn decode_function(r: &mut Reader) -> Result<Function, DecodeError> {
+    let name = r.read_str()?;
+    let param_count = r.read_uvarint()? as u16;
+    let local_count = r.read_uvarint()? as u16;
+    let code_len = r.read_uvarint()? as usize;
+    let mut code = Vec::with_capacity(code_len);
+    for _ in 0..code_len {
+        code.push(decode_instr(r)?);
+    }
+    Ok(Function::new(name, param_count, local_count, code))
+}
+
+fn encode_instr(w: &mut Writer, instr: &Instr) {
+    match instr {
+        Instr::ConstInt(n) => {
+            w.write_u8(op::CONST_INT);
+            w.write_ivarint(*n);
+        }
+        Instr::ConstDouble(x) => {
+            w.write_u8(op::CONST_DOUBLE);
+            w.write_f64(*x);
+        }
+        Instr::ConstBool(b) => {
+            w.write_u8(op::CONST_BOOL);
+            w.write_u8(u8::from(*b));
+        }
+        Instr::ConstUnit => w.write_u8(op::CONST_UNIT),
+        Instr::ConstStr(s) => {
+            w.write_u8(op::CONST_STR);
+            w.write_str(s);
+        }
+        Instr::Load(slot) => {
+            w.write_u8(op::LOAD);
+            w.write_uvarint(*slot as u64);
+        }
+        Instr::Store(slot) => {
+            w.write_u8(op::STORE);
+            w.write_uvarint(*slot as u64);
+        }
+        Instr::AddI64 => w.write_u8(op::ADD_I64),
+        Instr::SubI64 => w.write_u8(op::SUB_I64),
+        Instr::MulI64 => w.write_u8(op::MUL_I64),
+        Instr::DivI64 => w.write_u8(op::DIV_I64),
+        Instr::ModI64 => w.write_u8(op::MOD_I64),
+        Instr::NegI64 => w.write_u8(op::NEG_I64),
+        Instr::AddF64 => w.write_u8(op::ADD_F64),
+        Instr::SubF64 => w.write_u8(op::SUB_F64),
+        Instr::MulF64 => w.write_u8(op::MUL_F64),
+        Instr::DivF64 => w.write_u8(op::DIV_F64),
+        Instr::NegF64 => w.write_u8(op::NEG_F64),
+        Instr::EqI64 => w.write_u8(op::EQ_I64),
+        Instr::NeI64 => w.write_u8(op::NE_I64),
+        Instr::LtI64 => w.write_u8(op::LT_I64),
+        Instr::LeI64 => w.write_u8(op::LE_I64),
+        Instr::GtI64 => w.write_u8(op::GT_I64),
+        Instr::GeI64 => w.write_u8(op::GE_I64),
+        Instr::EqF64 => w.write_u8(op::EQ_F64),
+        Instr::NeF64 => w.write_u8(op::NE_F64),
+        Instr::LtF64 => w.write_u8(op::LT_F64),
+        Instr::LeF64 => w.write_u8(op::LE_F64),
+        Instr::GtF64 => w.write_u8(op::GT_F64),
+        Instr::GeF64 => w.write_u8(op::GE_F64),
+        Instr::Not => w.write_u8(op::NOT),
+        Instr::I64ToF64 => w.write_u8(op::I64_TO_F64),
+        Instr::F64ToI64 => w.write_u8(op::F64_TO_I64),
+        Instr::Pop => w.write_u8(op::POP),
+        Instr::Dup => w.write_u8(op::DUP),
+        Instr::Call { func, argc } => {
+            w.write_u8(op::CALL);
+            w.write_uvarint(*func as u64);
+            w.write_uvarint(*argc as u64);
+        }
+        Instr::CallNative { native, argc } => {
+            w.write_u8(op::CALL_NATIVE);
+            w.write_uvarint(*native as u64);
+            w.write_uvarint(*argc as u64);
+        }
+        Instr::EnumNew {
+            ty,
+            variant,
+            field_count,
+        } => {
+            w.write_u8(op::ENUM_NEW);
+            w.write_uvarint(*ty as u64);
+            w.write_uvarint(*variant as u64);
+            w.write_uvarint(*field_count as u64);
+        }
+        Instr::EnumTag => w.write_u8(op::ENUM_TAG),
+        Instr::EnumGet(idx) => {
+            w.write_u8(op::ENUM_GET);
+            w.write_uvarint(*idx as u64);
+        }
+        Instr::ListNew { count } => {
+            w.write_u8(op::LIST_NEW);
+            w.write_uvarint(*count as u64);
+        }
+        Instr::Jump(t) => {
+            w.write_u8(op::JUMP);
+            w.write_uvarint(*t as u64);
+        }
+        Instr::JumpIfTrue(t) => {
+            w.write_u8(op::JUMP_IF_TRUE);
+            w.write_uvarint(*t as u64);
+        }
+        Instr::JumpIfFalse(t) => {
+            w.write_u8(op::JUMP_IF_FALSE);
+            w.write_uvarint(*t as u64);
+        }
+        Instr::Return => w.write_u8(op::RETURN),
+    }
+}
+
+fn decode_instr(r: &mut Reader) -> Result<Instr, DecodeError> {
+    let opcode = r.read_u8()?;
+    Ok(match opcode {
+        op::CONST_INT => Instr::ConstInt(r.read_ivarint()?),
+        op::CONST_DOUBLE => Instr::ConstDouble(r.read_f64()?),
+        op::CONST_BOOL => Instr::ConstBool(r.read_u8()? != 0),
+        op::CONST_UNIT => Instr::ConstUnit,
+        op::CONST_STR => Instr::ConstStr(r.read_str()?),
+        op::LOAD => Instr::Load(r.read_uvarint()? as u16),
+        op::STORE => Instr::Store(r.read_uvarint()? as u16),
+        op::ADD_I64 => Instr::AddI64,
+        op::SUB_I64 => Instr::SubI64,
+        op::MUL_I64 => Instr::MulI64,
+        op::DIV_I64 => Instr::DivI64,
+        op::MOD_I64 => Instr::ModI64,
+        op::NEG_I64 => Instr::NegI64,
+        op::ADD_F64 => Instr::AddF64,
+        op::SUB_F64 => Instr::SubF64,
+        op::MUL_F64 => Instr::MulF64,
+        op::DIV_F64 => Instr::DivF64,
+        op::NEG_F64 => Instr::NegF64,
+        op::EQ_I64 => Instr::EqI64,
+        op::NE_I64 => Instr::NeI64,
+        op::LT_I64 => Instr::LtI64,
+        op::LE_I64 => Instr::LeI64,
+        op::GT_I64 => Instr::GtI64,
+        op::GE_I64 => Instr::GeI64,
+        op::EQ_F64 => Instr::EqF64,
+        op::NE_F64 => Instr::NeF64,
+        op::LT_F64 => Instr::LtF64,
+        op::LE_F64 => Instr::LeF64,
+        op::GT_F64 => Instr::GtF64,
+        op::GE_F64 => Instr::GeF64,
+        op::NOT => Instr::Not,
+        op::I64_TO_F64 => Instr::I64ToF64,
+        op::F64_TO_I64 => Instr::F64ToI64,
+        op::POP => Instr::Pop,
+        op::DUP => Instr::Dup,
+        op::CALL => Instr::Call {
+            func: r.read_uvarint()? as u32,
+            argc: r.read_uvarint()? as u8,
+        },
+        op::CALL_NATIVE => Instr::CallNative {
+            native: r.read_uvarint()? as u32,
+            argc: r.read_uvarint()? as u8,
+        },
+        op::ENUM_NEW => Instr::EnumNew {
+            ty: r.read_uvarint()? as u32,
+            variant: r.read_uvarint()? as u16,
+            field_count: r.read_uvarint()? as u8,
+        },
+        op::ENUM_TAG => Instr::EnumTag,
+        op::ENUM_GET => Instr::EnumGet(r.read_uvarint()? as u16),
+        op::LIST_NEW => Instr::ListNew {
+            count: r.read_uvarint()? as u32,
+        },
+        op::JUMP => Instr::Jump(r.read_uvarint()? as usize),
+        op::JUMP_IF_TRUE => Instr::JumpIfTrue(r.read_uvarint()? as usize),
+        op::JUMP_IF_FALSE => Instr::JumpIfFalse(r.read_uvarint()? as usize),
+        op::RETURN => Instr::Return,
+        other => return Err(DecodeError::UnknownOpcode(other)),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::builder::FnBuilder;
+    use crate::disasm::disassemble;
+
+    fn factorial_module() -> Module {
+        let mut b = FnBuilder::new("fact", 1);
+        let recurse = b.label();
+        b.load(0);
+        b.const_int(1);
+        b.le_i64();
+        b.jump_if_false(recurse);
+        b.const_int(1);
+        b.ret();
+        b.bind(recurse);
+        b.load(0);
+        b.load(0);
+        b.const_int(1);
+        b.sub_i64();
+        b.call(0, 1);
+        b.mul_i64();
+        b.ret();
+        Module::new(vec![b.finish()])
+    }
+
+    #[test]
+    fn empty_module_round_trips() {
+        let m = Module::default();
+        assert_eq!(decode_module(&encode_module(&m)), Ok(m));
+    }
+
+    #[test]
+    fn factorial_round_trips() {
+        let m = factorial_module();
+        assert_eq!(decode_module(&encode_module(&m)), Ok(m));
+    }
+
+    #[test]
+    fn disassembly_survives_round_trip() {
+        let m = factorial_module();
+        let decoded = decode_module(&encode_module(&m)).unwrap();
+        assert_eq!(disassemble(&decoded), disassemble(&m));
+    }
+
+    /// One of every instruction variant, to pin every opcode mapping.
+    #[test]
+    fn all_instructions_round_trip() {
+        let code = vec![
+            Instr::ConstInt(-12345),
+            Instr::ConstDouble(3.5),
+            Instr::ConstBool(true),
+            Instr::ConstUnit,
+            Instr::ConstStr("hi".into()),
+            Instr::Load(3),
+            Instr::Store(4),
+            Instr::AddI64,
+            Instr::SubI64,
+            Instr::MulI64,
+            Instr::DivI64,
+            Instr::ModI64,
+            Instr::NegI64,
+            Instr::AddF64,
+            Instr::SubF64,
+            Instr::MulF64,
+            Instr::DivF64,
+            Instr::NegF64,
+            Instr::EqI64,
+            Instr::NeI64,
+            Instr::LtI64,
+            Instr::LeI64,
+            Instr::GtI64,
+            Instr::GeI64,
+            Instr::EqF64,
+            Instr::NeF64,
+            Instr::LtF64,
+            Instr::LeF64,
+            Instr::GtF64,
+            Instr::GeF64,
+            Instr::Not,
+            Instr::I64ToF64,
+            Instr::F64ToI64,
+            Instr::Pop,
+            Instr::Dup,
+            Instr::Call { func: 7, argc: 2 },
+            Instr::CallNative { native: 9, argc: 1 },
+            Instr::EnumNew {
+                ty: 1,
+                variant: 0,
+                field_count: 2,
+            },
+            Instr::EnumTag,
+            Instr::EnumGet(1),
+            Instr::ListNew { count: 3 },
+            Instr::Jump(10),
+            Instr::JumpIfTrue(11),
+            Instr::JumpIfFalse(12),
+            Instr::Return,
+        ];
+        let m = Module::new(vec![Function::new("all", 0, 5, code)]);
+        assert_eq!(decode_module(&encode_module(&m)), Ok(m));
+    }
+
+    #[test]
+    fn rejects_bad_magic() {
+        let bytes = [b'X', b'X', b'X', b'X', 1, 0, 0, 0];
+        assert_eq!(decode_module(&bytes), Err(DecodeError::BadMagic));
+    }
+
+    #[test]
+    fn rejects_unsupported_version() {
+        let mut w = Writer::new();
+        w.write_raw(MAGIC);
+        w.write_u32_le(999);
+        assert_eq!(
+            decode_module(&w.into_bytes()),
+            Err(DecodeError::UnsupportedVersion(999))
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_opcode() {
+        // The last byte of this module is the Return opcode; corrupt it.
+        let m = Module::new(vec![Function::new("f", 0, 0, vec![Instr::Return])]);
+        let mut bytes = encode_module(&m);
+        *bytes.last_mut().unwrap() = 0xFF;
+        assert_eq!(decode_module(&bytes), Err(DecodeError::UnknownOpcode(0xFF)));
+    }
+}

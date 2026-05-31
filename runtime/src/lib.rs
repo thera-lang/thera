@@ -2,6 +2,7 @@
 //! JIT and GC). See docs/bytecode.md for the design.
 
 pub mod builder;
+pub mod codec;
 pub mod disasm;
 pub mod instr;
 pub mod interp;

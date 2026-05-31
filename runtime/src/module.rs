@@ -7,7 +7,7 @@
 use crate::instr::Instr;
 
 /// A single function: its arity, frame size, and instruction stream.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Function {
     pub name: String,
     /// Number of parameters. They occupy local slots `[0, param_count)`.
@@ -34,7 +34,7 @@ impl Function {
 }
 
 /// A collection of functions, indexed by position in [`Module::functions`].
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Module {
     pub functions: Vec<Function>,
 }
