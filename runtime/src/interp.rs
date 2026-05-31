@@ -23,6 +23,10 @@ use crate::value::{Obj, Value};
 pub enum Trap {
     /// Integer or float division/modulo by zero.
     DivByZero,
+    /// List index outside `0..len` (the faulting case of `list[i]`).
+    IndexOutOfBounds { index: i64, len: usize },
+    /// Map indexed with `map[key]` where `key` is absent.
+    MissingKey,
     /// The bytecode was malformed (stack underflow, type mismatch, bad slot).
     /// Valid bytecode from a correct producer never triggers this.
     Bug(String),
@@ -41,6 +45,16 @@ pub const NATIVE_PRINTLN: u32 = 0;
 pub const NATIVE_PRINT: u32 = 1;
 pub const NATIVE_STRINGIFY: u32 = 2;
 pub const NATIVE_STR_CONCAT: u32 = 3;
+pub const NATIVE_LIST_INDEX: u32 = 4;
+pub const NATIVE_LIST_GET: u32 = 5;
+pub const NATIVE_LIST_LEN: u32 = 6;
+pub const NATIVE_LIST_SET: u32 = 7;
+pub const NATIVE_MAP_NEW: u32 = 8;
+pub const NATIVE_MAP_INDEX: u32 = 9;
+pub const NATIVE_MAP_GET: u32 = 10;
+pub const NATIVE_MAP_LEN: u32 = 11;
+pub const NATIVE_MAP_HAS: u32 = 12;
+pub const NATIVE_MAP_SET: u32 = 13;
 
 /// The native functions the runtime ships with, in index order.
 pub fn default_natives() -> Vec<NativeFn> {
@@ -49,6 +63,16 @@ pub fn default_natives() -> Vec<NativeFn> {
         native_print,
         native_stringify,
         native_str_concat,
+        native_list_index,
+        native_list_get,
+        native_list_len,
+        native_list_set,
+        native_map_new,
+        native_map_index,
+        native_map_get,
+        native_map_len,
+        native_map_has,
+        native_map_set,
     ]
 }
 
@@ -293,6 +317,17 @@ impl<'a> Vm<'a> {
                     stack.push(enum_field(&v, *idx as usize)?);
                 }
 
+                // --- collections ---
+                Instr::ListNew { count } => {
+                    let n = *count as usize;
+                    let base = stack
+                        .len()
+                        .checked_sub(n)
+                        .ok_or_else(|| bug("list.new: operand stack underflow"))?;
+                    let items = stack.split_off(base);
+                    stack.push(Value::new_list(items));
+                }
+
                 // --- control ---
                 Instr::Jump(target) => {
                     pc = *target;
@@ -363,7 +398,7 @@ fn pop_enum_variant(stack: &mut Vec<Value>) -> Result<u16, Trap> {
     match pop(stack)? {
         Value::Ref(rc) => match &*rc.borrow() {
             Obj::Enum(e) => Ok(e.variant),
-            Obj::Str(_) => Err(bug("enum.tag: expected enum, found string")),
+            Obj::Str(_) | Obj::List(_) | Obj::Map(_) => Err(bug("enum.tag: expected enum")),
         },
         v => Err(bug(format!("expected enum, found {v:?}"))),
     }
@@ -378,7 +413,7 @@ fn enum_field(v: &Value, idx: usize) -> Result<Value, Trap> {
                 .get(idx)
                 .cloned()
                 .ok_or_else(|| bug(format!("enum.get: field {idx} out of range"))),
-            Obj::Str(_) => Err(bug("enum.get: expected enum, found string")),
+            Obj::Str(_) | Obj::List(_) | Obj::Map(_) => Err(bug("enum.get: expected enum")),
         },
         v => Err(bug(format!("enum.get: expected enum, found {v:?}"))),
     }
@@ -396,7 +431,9 @@ fn display_string(v: &Value) -> Result<String, Trap> {
         Value::Unit => "()".to_string(),
         Value::Ref(rc) => match &*rc.borrow() {
             Obj::Str(s) => s.clone(),
-            Obj::Enum(_) => return Err(bug("display: enum has no built-in Display")),
+            Obj::Enum(_) | Obj::List(_) | Obj::Map(_) => {
+                return Err(bug("display: type has no built-in Display"));
+            }
         },
     })
 }
@@ -406,7 +443,7 @@ fn str_contents(v: &Value) -> Result<String, Trap> {
     match v {
         Value::Ref(rc) => match &*rc.borrow() {
             Obj::Str(s) => Ok(s.clone()),
-            Obj::Enum(_) => Err(bug("expected string, found enum")),
+            Obj::Enum(_) | Obj::List(_) | Obj::Map(_) => Err(bug("expected string")),
         },
         v => Err(bug(format!("expected string, found {v:?}"))),
     }
@@ -448,6 +485,207 @@ fn native_str_concat(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap
         s.push_str(&str_contents(a)?);
     }
     Ok(Value::new_str(s))
+}
+
+// --- collection natives ---
+
+fn args2<'b>(args: &'b [Value], who: &str) -> Result<(&'b Value, &'b Value), Trap> {
+    match args {
+        [a, b] => Ok((a, b)),
+        _ => Err(bug(format!(
+            "{who} expects 2 arguments, got {}",
+            args.len()
+        ))),
+    }
+}
+
+fn args3<'b>(args: &'b [Value], who: &str) -> Result<(&'b Value, &'b Value, &'b Value), Trap> {
+    match args {
+        [a, b, c] => Ok((a, b, c)),
+        _ => Err(bug(format!(
+            "{who} expects 3 arguments, got {}",
+            args.len()
+        ))),
+    }
+}
+
+fn as_int(v: &Value, who: &str) -> Result<i64, Trap> {
+    match v {
+        Value::Int(n) => Ok(*n),
+        _ => Err(bug(format!("{who}: expected Int, found {v:?}"))),
+    }
+}
+
+/// Resolve a (possibly out-of-range) index against `len`, faulting if outside
+/// `0..len`. This is the trap behind `list[i]`.
+fn checked_index(i: i64, len: usize) -> Result<usize, Trap> {
+    if i < 0 || i as u64 >= len as u64 {
+        Err(Trap::IndexOutOfBounds { index: i, len })
+    } else {
+        Ok(i as usize)
+    }
+}
+
+fn with_list<R>(
+    v: &Value,
+    who: &str,
+    f: impl FnOnce(&[Value]) -> Result<R, Trap>,
+) -> Result<R, Trap> {
+    match v {
+        Value::Ref(rc) => match &*rc.borrow() {
+            Obj::List(items) => f(items),
+            _ => Err(bug(format!("{who}: expected list"))),
+        },
+        _ => Err(bug(format!("{who}: expected list"))),
+    }
+}
+
+fn with_list_mut<R>(
+    v: &Value,
+    who: &str,
+    f: impl FnOnce(&mut Vec<Value>) -> Result<R, Trap>,
+) -> Result<R, Trap> {
+    match v {
+        Value::Ref(rc) => match &mut *rc.borrow_mut() {
+            Obj::List(items) => f(items),
+            _ => Err(bug(format!("{who}: expected list"))),
+        },
+        _ => Err(bug(format!("{who}: expected list"))),
+    }
+}
+
+fn with_map<R>(
+    v: &Value,
+    who: &str,
+    f: impl FnOnce(&[(Value, Value)]) -> Result<R, Trap>,
+) -> Result<R, Trap> {
+    match v {
+        Value::Ref(rc) => match &*rc.borrow() {
+            Obj::Map(entries) => f(entries),
+            _ => Err(bug(format!("{who}: expected map"))),
+        },
+        _ => Err(bug(format!("{who}: expected map"))),
+    }
+}
+
+fn with_map_mut<R>(
+    v: &Value,
+    who: &str,
+    f: impl FnOnce(&mut Vec<(Value, Value)>) -> Result<R, Trap>,
+) -> Result<R, Trap> {
+    match v {
+        Value::Ref(rc) => match &mut *rc.borrow_mut() {
+            Obj::Map(entries) => f(entries),
+            _ => Err(bug(format!("{who}: expected map"))),
+        },
+        _ => Err(bug(format!("{who}: expected map"))),
+    }
+}
+
+fn map_find<'b>(entries: &'b [(Value, Value)], key: &Value) -> Option<&'b Value> {
+    entries.iter().find(|(k, _)| k == key).map(|(_, v)| v)
+}
+
+fn map_insert(entries: &mut Vec<(Value, Value)>, key: Value, val: Value) {
+    if let Some(slot) = entries.iter_mut().find(|(k, _)| *k == key) {
+        slot.1 = val;
+    } else {
+        entries.push((key, val));
+    }
+}
+
+/// `list[i]` — element at `i`, faulting if out of range.
+fn native_list_index(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (list, idx) = args2(args, "list index")?;
+    let i = as_int(idx, "list index")?;
+    with_list(list, "list index", |items| {
+        Ok(items[checked_index(i, items.len())?].clone())
+    })
+}
+
+/// `list.get(i)` — `Some(element)` if `i` is in range, else `None`.
+fn native_list_get(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (list, idx) = args2(args, "list.get")?;
+    let i = as_int(idx, "list.get")?;
+    with_list(list, "list.get", |items| {
+        Ok(match checked_index(i, items.len()) {
+            Ok(n) => Value::some(items[n].clone()),
+            Err(_) => Value::none(),
+        })
+    })
+}
+
+/// `list.len()`.
+fn native_list_len(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    with_list(expect_one(args, "list.len")?, "list.len", |items| {
+        Ok(Value::Int(items.len() as i64))
+    })
+}
+
+/// `list[i] = v` — in-place update, faulting if out of range. Returns `Unit`.
+fn native_list_set(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (list, idx, val) = args3(args, "list set")?;
+    let i = as_int(idx, "list set")?;
+    with_list_mut(list, "list set", |items| {
+        let n = checked_index(i, items.len())?;
+        items[n] = val.clone();
+        Ok(Value::Unit)
+    })
+}
+
+/// `{k0: v0, …}` — build a map from alternating key/value arguments.
+fn native_map_new(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    if !args.len().is_multiple_of(2) {
+        return Err(bug("map literal: expected an even number of arguments"));
+    }
+    let mut entries: Vec<(Value, Value)> = Vec::new();
+    for pair in args.chunks_exact(2) {
+        map_insert(&mut entries, pair[0].clone(), pair[1].clone());
+    }
+    Ok(Value::new_map(entries))
+}
+
+/// `map[key]` — value for `key`, faulting if absent.
+fn native_map_index(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (map, key) = args2(args, "map index")?;
+    with_map(map, "map index", |entries| {
+        map_find(entries, key).cloned().ok_or(Trap::MissingKey)
+    })
+}
+
+/// `map.get(key)` — `Some(value)` if present, else `None`.
+fn native_map_get(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (map, key) = args2(args, "map.get")?;
+    with_map(map, "map.get", |entries| {
+        Ok(match map_find(entries, key) {
+            Some(v) => Value::some(v.clone()),
+            None => Value::none(),
+        })
+    })
+}
+
+/// `map.len()`.
+fn native_map_len(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    with_map(expect_one(args, "map.len")?, "map.len", |entries| {
+        Ok(Value::Int(entries.len() as i64))
+    })
+}
+
+/// `map.has(key)`.
+fn native_map_has(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (map, key) = args2(args, "map.has")?;
+    with_map(map, "map.has", |entries| {
+        Ok(Value::Bool(map_find(entries, key).is_some()))
+    })
+}
+
+/// `map[key] = v` — insert or update in place. Returns `Unit`.
+fn native_map_set(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (map, key, val) = args3(args, "map set")?;
+    with_map_mut(map, "map set", |entries| {
+        map_insert(entries, key.clone(), val.clone());
+        Ok(Value::Unit)
+    })
 }
 
 fn cmp_int(stack: &mut Vec<Value>, f: impl Fn(i64, i64) -> bool) -> Result<(), Trap> {
@@ -1137,5 +1375,229 @@ mod tests {
             Instr::Return,
         ];
         assert!(matches!(run(&code), Err(Trap::Bug(_))));
+    }
+
+    // --- increment 6: collections ---
+
+    /// Build and run a parameterless function via the builder.
+    fn run_fn(build: impl FnOnce(&mut FnBuilder)) -> Result<Value, Trap> {
+        let mut b = FnBuilder::new("test", 0);
+        build(&mut b);
+        let module = Module::new(vec![b.finish()]);
+        super::run(&module, 0, &[])
+    }
+
+    /// Emit `[a, b, c, ...]` as a list literal.
+    fn push_int_list(b: &mut FnBuilder, items: &[i64]) {
+        for &n in items {
+            b.const_int(n);
+        }
+        b.list_new(items.len() as u32);
+    }
+
+    #[test]
+    fn list_literal_and_len() {
+        let r = run_fn(|b| {
+            push_int_list(b, &[10, 20, 30]);
+            b.call_native(NATIVE_LIST_LEN, 1);
+            b.ret();
+        });
+        assert_eq!(r, Ok(Value::Int(3)));
+    }
+
+    #[test]
+    fn list_index_reads_element() {
+        let r = run_fn(|b| {
+            push_int_list(b, &[10, 20, 30]);
+            b.const_int(1);
+            b.call_native(NATIVE_LIST_INDEX, 2);
+            b.ret();
+        });
+        assert_eq!(r, Ok(Value::Int(20)));
+    }
+
+    #[test]
+    fn list_index_out_of_bounds_traps() {
+        let r = run_fn(|b| {
+            push_int_list(b, &[10]);
+            b.const_int(5);
+            b.call_native(NATIVE_LIST_INDEX, 2);
+            b.ret();
+        });
+        assert_eq!(r, Err(Trap::IndexOutOfBounds { index: 5, len: 1 }));
+    }
+
+    #[test]
+    fn list_get_returns_option() {
+        // get(1) → Some(20)
+        let some = run_fn(|b| {
+            push_int_list(b, &[10, 20]);
+            b.const_int(1);
+            b.call_native(NATIVE_LIST_GET, 2);
+            b.ret();
+        });
+        assert_eq!(some, Ok(Value::some(Value::Int(20))));
+        // get(9) → None
+        let none = run_fn(|b| {
+            push_int_list(b, &[10, 20]);
+            b.const_int(9);
+            b.call_native(NATIVE_LIST_GET, 2);
+            b.ret();
+        });
+        assert_eq!(none, Ok(Value::none()));
+    }
+
+    #[test]
+    fn list_set_mutates_in_place() {
+        // l = [10, 20]; l[0] = 99; return l[0]
+        let r = run_fn(|b| {
+            push_int_list(b, &[10, 20]);
+            b.store(0);
+            b.load(0);
+            b.const_int(0);
+            b.const_int(99);
+            b.call_native(NATIVE_LIST_SET, 3);
+            b.pop(); // discard the Unit return
+            b.load(0);
+            b.const_int(0);
+            b.call_native(NATIVE_LIST_INDEX, 2);
+            b.ret();
+        });
+        assert_eq!(r, Ok(Value::Int(99)));
+    }
+
+    #[test]
+    fn reference_semantics_aliasing() {
+        // l = [1]; a = l; l[0] = 42; return a[0]  → 42 (shared heap object)
+        let r = run_fn(|b| {
+            push_int_list(b, &[1]);
+            b.store(0); // l
+            b.load(0);
+            b.store(1); // a = l  (copies the reference)
+            b.load(0);
+            b.const_int(0);
+            b.const_int(42);
+            b.call_native(NATIVE_LIST_SET, 3);
+            b.pop();
+            b.load(1); // read via a
+            b.const_int(0);
+            b.call_native(NATIVE_LIST_INDEX, 2);
+            b.ret();
+        });
+        assert_eq!(r, Ok(Value::Int(42)));
+    }
+
+    /// Emit the literal `{'a': 1, 'b': 2}`.
+    fn push_ab_map(b: &mut FnBuilder) {
+        b.const_str("a");
+        b.const_int(1);
+        b.const_str("b");
+        b.const_int(2);
+        b.call_native(NATIVE_MAP_NEW, 4);
+    }
+
+    #[test]
+    fn map_literal_index_and_len() {
+        let len = run_fn(|b| {
+            push_ab_map(b);
+            b.call_native(NATIVE_MAP_LEN, 1);
+            b.ret();
+        });
+        assert_eq!(len, Ok(Value::Int(2)));
+
+        let idx = run_fn(|b| {
+            push_ab_map(b);
+            b.const_str("b");
+            b.call_native(NATIVE_MAP_INDEX, 2);
+            b.ret();
+        });
+        assert_eq!(idx, Ok(Value::Int(2)));
+    }
+
+    #[test]
+    fn map_index_missing_key_traps() {
+        let r = run_fn(|b| {
+            push_ab_map(b);
+            b.const_str("zzz");
+            b.call_native(NATIVE_MAP_INDEX, 2);
+            b.ret();
+        });
+        assert_eq!(r, Err(Trap::MissingKey));
+    }
+
+    #[test]
+    fn map_get_and_has() {
+        let got = run_fn(|b| {
+            push_ab_map(b);
+            b.const_str("a");
+            b.call_native(NATIVE_MAP_GET, 2);
+            b.ret();
+        });
+        assert_eq!(got, Ok(Value::some(Value::Int(1))));
+
+        let missing = run_fn(|b| {
+            push_ab_map(b);
+            b.const_str("x");
+            b.call_native(NATIVE_MAP_GET, 2);
+            b.ret();
+        });
+        assert_eq!(missing, Ok(Value::none()));
+
+        let has = run_fn(|b| {
+            push_ab_map(b);
+            b.const_str("a");
+            b.call_native(NATIVE_MAP_HAS, 2);
+            b.ret();
+        });
+        assert_eq!(has, Ok(Value::Bool(true)));
+    }
+
+    #[test]
+    fn map_set_updates_and_inserts() {
+        // m = {'a':1}; m['a'] = 9 (update); m['c'] = 3 (insert);
+        // return m['a'] + m['c'] + m.len()   → 9 + 3 + 2 = 14
+        let r = run_fn(|b| {
+            b.const_str("a");
+            b.const_int(1);
+            b.call_native(NATIVE_MAP_NEW, 2);
+            b.store(0); // m
+            // m['a'] = 9
+            b.load(0);
+            b.const_str("a");
+            b.const_int(9);
+            b.call_native(NATIVE_MAP_SET, 3);
+            b.pop();
+            // m['c'] = 3
+            b.load(0);
+            b.const_str("c");
+            b.const_int(3);
+            b.call_native(NATIVE_MAP_SET, 3);
+            b.pop();
+            // m['a'] + m['c']
+            b.load(0);
+            b.const_str("a");
+            b.call_native(NATIVE_MAP_INDEX, 2);
+            b.load(0);
+            b.const_str("c");
+            b.call_native(NATIVE_MAP_INDEX, 2);
+            b.add_i64();
+            // + m.len()
+            b.load(0);
+            b.call_native(NATIVE_MAP_LEN, 1);
+            b.add_i64();
+            b.ret();
+        });
+        assert_eq!(r, Ok(Value::Int(14)));
+    }
+
+    #[test]
+    fn list_index_on_non_list_is_a_bug() {
+        let r = run_fn(|b| {
+            b.const_int(1); // not a list
+            b.const_int(0);
+            b.call_native(NATIVE_LIST_INDEX, 2);
+            b.ret();
+        });
+        assert!(matches!(r, Err(Trap::Bug(_))));
     }
 }

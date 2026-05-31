@@ -4,10 +4,11 @@
 //! byte stream (see docs/bytecode.md, "Instruction encoding"). Opcode names
 //! mirror the spec: `add.i64` → [`Instr::AddI64`], etc.
 //!
-//! Current subset (increments 1–5): constants (incl. strings), locals,
+//! Current subset (increments 1–6): constants (incl. strings), locals,
 //! arithmetic, comparison, conversions, stack manipulation, direct `call`,
-//! native `call`, enums (`enum.new`/`tag`/`get`), control flow (`jump` family),
-//! and `return`. Collections, closures, and interface dispatch arrive later.
+//! native `call`, enums (`enum.new`/`tag`/`get`), `list.new`, control flow
+//! (`jump` family), and `return`. Most collection operations are native calls.
+//! Closures and interface dispatch arrive later.
 
 /// A local-slot index (parameters and locals share one array).
 pub type Slot = u16;
@@ -111,6 +112,13 @@ pub enum Instr {
     EnumTag,
     /// Pop an enum; push its payload field at `idx`.
     EnumGet(u16),
+
+    // --- collections ---
+    /// Pop `count` values (pushed left-to-right) and push a new list. Map/Set
+    /// literals and other collection ops are native calls (docs/bytecode.md).
+    ListNew {
+        count: u32,
+    },
 
     // --- control ---
     /// Unconditionally continue execution at the given instruction.

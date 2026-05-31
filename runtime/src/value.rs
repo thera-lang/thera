@@ -32,6 +32,16 @@ impl Value {
         Value::Ref(Rc::new(RefCell::new(Obj::Str(s.into()))))
     }
 
+    /// Construct a heap list.
+    pub fn new_list(items: Vec<Value>) -> Value {
+        Value::Ref(Rc::new(RefCell::new(Obj::List(items))))
+    }
+
+    /// Construct a heap map from insertion-ordered key/value pairs.
+    pub fn new_map(entries: Vec<(Value, Value)>) -> Value {
+        Value::Ref(Rc::new(RefCell::new(Obj::Map(entries))))
+    }
+
     /// Construct an enum value (e.g. `Result`/`Option`) on the heap.
     pub fn new_enum(ty: u32, variant: u16, fields: Vec<Value>) -> Value {
         Value::Ref(Rc::new(RefCell::new(Obj::Enum(EnumObj {
@@ -40,14 +50,26 @@ impl Value {
             fields,
         }))))
     }
+
+    /// `Some(v)` / `None` constructors for the built-in `Option` type.
+    pub fn some(v: Value) -> Value {
+        Value::new_enum(TY_OPTION, TAG_SOME, vec![v])
+    }
+    pub fn none() -> Value {
+        Value::new_enum(TY_OPTION, TAG_NONE, vec![])
+    }
 }
 
-/// A heap-allocated object. Strings and enums exist so far; collections,
-/// structs, and closures arrive in later increments.
+/// A heap-allocated object. Structs and closures arrive in later increments.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Obj {
     /// UTF-8 text.
     Str(String),
+    /// An ordered, growable sequence.
+    List(Vec<Value>),
+    /// A key/value store. Insertion-ordered; lookups are a linear scan keyed by
+    /// structural equality (simple and dependency-free for the draft).
+    Map(Vec<(Value, Value)>),
     Enum(EnumObj),
 }
 
@@ -61,6 +83,11 @@ pub struct EnumObj {
     pub variant: u16,
     pub fields: Vec<Value>,
 }
+
+// Well-known type ids for the built-in enums (no type table yet, so these are
+// fixed conventions shared by the runtime and bytecode producers).
+pub const TY_RESULT: u32 = 0;
+pub const TY_OPTION: u32 = 1;
 
 // Fixed variant tags shared by all bytecode producers (docs/bytecode.md).
 pub const TAG_OK: u16 = 0;

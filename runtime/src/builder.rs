@@ -240,6 +240,11 @@ impl FnBuilder {
         self.emit(Instr::EnumGet(idx))
     }
 
+    // --- collections ---
+    pub fn list_new(&mut self, count: u32) -> &mut Self {
+        self.emit(Instr::ListNew { count })
+    }
+
     // --- control ---
     pub fn jump(&mut self, target: Label) -> &mut Self {
         self.emit_jump(Instr::Jump(0), target)

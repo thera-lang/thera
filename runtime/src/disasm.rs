@@ -105,6 +105,8 @@ fn fmt_instr(instr: &Instr, module: &Module) -> String {
         Instr::EnumTag => "enum.tag".to_string(),
         Instr::EnumGet(idx) => with("enum.get", idx.to_string()),
 
+        Instr::ListNew { count } => with("list.new", count.to_string()),
+
         Instr::Jump(t) => with("jump", format!("-> {t:04}")),
         Instr::JumpIfTrue(t) => with("jump_if_true", format!("-> {t:04}")),
         Instr::JumpIfFalse(t) => with("jump_if_false", format!("-> {t:04}")),
