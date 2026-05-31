@@ -2,20 +2,30 @@
 //! a smoke check; this grows into the real `hawk` CLI later.
 
 use hawk::instr::Instr;
-use hawk::interp::eval;
+use hawk::interp::run;
+use hawk::module::{Function, Module};
 
 fn main() {
-    // (2 + 3) * 4
-    let code = vec![
-        Instr::ConstInt(2),
-        Instr::ConstInt(3),
-        Instr::AddI64,
-        Instr::ConstInt(4),
-        Instr::MulI64,
-        Instr::Return,
-    ];
+    // double(x) = x * 2;  main() = double(21)
+    let main = Function::new(
+        "main",
+        0,
+        0,
+        vec![
+            Instr::ConstInt(21),
+            Instr::Call { func: 1, argc: 1 },
+            Instr::Return,
+        ],
+    );
+    let double = Function::new(
+        "double",
+        1,
+        1,
+        vec![Instr::Load(0), Instr::ConstInt(2), Instr::MulI64, Instr::Return],
+    );
+    let module = Module::new(vec![main, double]);
 
-    match eval(&code, &mut []) {
+    match run(&module, 0, &[]) {
         Ok(v) => println!("{v:?}"),
         Err(t) => eprintln!("trap: {t:?}"),
     }

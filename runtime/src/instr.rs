@@ -4,9 +4,9 @@
 //! byte stream (see docs/bytecode.md, "Instruction encoding"). Opcode names
 //! mirror the spec: `add.i64` → [`Instr::AddI64`], etc.
 //!
-//! Current subset (increments 1–2): constants, locals, arithmetic, comparison,
-//! conversions, stack manipulation, control flow (`jump` family), and `return`.
-//! Calls, enums, and intrinsics are added in later increments.
+//! Current subset (increments 1–3): constants, locals, arithmetic, comparison,
+//! conversions, stack manipulation, control flow (`jump` family), direct
+//! `call`, and `return`. Enums and intrinsics are added in later increments.
 
 /// A local-slot index (parameters and locals share one array).
 pub type Slot = u16;
@@ -76,6 +76,12 @@ pub enum Instr {
     // --- stack manipulation ---
     Pop,
     Dup,
+
+    // --- calls ---
+    /// Direct call to `module.functions[func]`. Pops `argc` arguments
+    /// (pushed left-to-right) into the callee's leading local slots and pushes
+    /// the callee's return value.
+    Call { func: u32, argc: u8 },
 
     // --- control ---
     /// Unconditionally continue execution at the given instruction.

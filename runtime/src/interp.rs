@@ -1,10 +1,16 @@
 //! The Tier-0 evaluator.
 //!
-//! Executes a single function's instruction stream against a locals array,
+//! [`exec`] runs a single function's instruction stream against a locals array,
 //! maintaining an operand stack, until a [`Instr::Return`]. A `pc` (program
 //! counter) indexes the instruction vec; the `jump` family redirects it.
+//!
+//! Calls use native Rust recursion: [`Instr::Call`] resolves the callee in the
+//! [`Module`] and re-enters [`exec`]. An explicit frame stack will replace this
+//! when fibers need to pause and resume frames; for the draft, recursion is the
+//! simplest thing that works.
 
 use crate::instr::Instr;
+use crate::module::Module;
 use crate::value::Value;
 
 /// A runtime fault that aborts execution (see docs/language.md, "Runtime
@@ -24,9 +30,42 @@ fn bug(msg: impl Into<String>) -> Trap {
     Trap::Bug(msg.into())
 }
 
-/// Evaluate `code`, using `locals` for `load`/`store`. Returns the value left
-/// by [`Instr::Return`].
+/// Run `module`'s function at index `func` with `args`, returning its result.
+pub fn run(module: &Module, func: usize, args: &[Value]) -> Result<Value, Trap> {
+    call(module, func, args.to_vec())
+}
+
+/// Evaluate a bare instruction stream with no enclosing module (so `call` is
+/// unavailable). A convenience for testing self-contained snippets.
 pub fn eval(code: &[Instr], locals: &mut [Value]) -> Result<Value, Trap> {
+    let module = Module::default();
+    exec(&module, code, locals)
+}
+
+/// Build a frame for `module.functions[func]`, placing `args` in its leading
+/// local slots, and execute it.
+fn call(module: &Module, func: usize, args: Vec<Value>) -> Result<Value, Trap> {
+    let f = module
+        .functions
+        .get(func)
+        .ok_or_else(|| bug(format!("call: no function at index {func}")))?;
+    if args.len() != f.param_count as usize {
+        return Err(bug(format!(
+            "call: function '{}' expects {} args, got {}",
+            f.name,
+            f.param_count,
+            args.len()
+        )));
+    }
+    // args already hold arg0..argN in pushed order, which is exactly
+    // locals[0..param_count]; pad the rest of the frame with Unit.
+    let mut locals = args;
+    locals.resize(f.local_count as usize, Value::Unit);
+    exec(module, &f.code, &mut locals)
+}
+
+/// Execute `code` against `locals`, resolving any `call` in `module`.
+fn exec(module: &Module, code: &[Instr], locals: &mut [Value]) -> Result<Value, Trap> {
     let mut stack: Vec<Value> = Vec::new();
     let mut pc = 0usize;
 
@@ -155,6 +194,18 @@ pub fn eval(code: &[Instr], locals: &mut [Value]) -> Result<Value, Trap> {
                 stack.push(v);
             }
 
+            // --- calls ---
+            Instr::Call { func, argc } => {
+                let argc = *argc as usize;
+                let base = stack
+                    .len()
+                    .checked_sub(argc)
+                    .ok_or_else(|| bug("call: operand stack underflow"))?;
+                let args = stack.split_off(base);
+                let ret = call(module, *func as usize, args)?;
+                stack.push(ret);
+            }
+
             // --- control ---
             Instr::Jump(target) => {
                 pc = *target;
@@ -234,8 +285,10 @@ fn cmp_double(stack: &mut Vec<Value>, f: impl Fn(f64, f64) -> bool) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::module::{Function, Module};
 
-    /// Evaluate with no locals.
+    /// Evaluate a bare snippet with no locals. (Shadows the module-level `run`
+    /// for the earlier increments' tests; increment-3 tests use `super::run`.)
     fn run(code: &[Instr]) -> Result<Value, Trap> {
         eval(code, &mut [])
     }
@@ -492,5 +545,138 @@ mod tests {
             Instr::Return,
         ];
         assert!(matches!(run(&code), Err(Trap::Bug(_))));
+    }
+
+    // --- increment 3: functions & calls ---
+
+    #[test]
+    fn simple_call() {
+        // double(x) = x * 2;  main() = double(21)
+        let main = Function::new(
+            "main",
+            0,
+            0,
+            vec![
+                Instr::ConstInt(21),
+                Instr::Call { func: 1, argc: 1 },
+                Instr::Return,
+            ],
+        );
+        let double = Function::new(
+            "double",
+            1,
+            1,
+            vec![Instr::Load(0), Instr::ConstInt(2), Instr::MulI64, Instr::Return],
+        );
+        let module = Module::new(vec![main, double]);
+        assert_eq!(super::run(&module, 0, &[]), Ok(Value::Int(42)));
+    }
+
+    #[test]
+    fn argument_order_is_preserved() {
+        // sub(a, b) = a - b;  sub(10, 3) = 7  (args land in locals[0], locals[1])
+        let sub = Function::new(
+            "sub",
+            2,
+            2,
+            vec![Instr::Load(0), Instr::Load(1), Instr::SubI64, Instr::Return],
+        );
+        let module = Module::new(vec![sub]);
+        assert_eq!(
+            super::run(&module, 0, &[Value::Int(10), Value::Int(3)]),
+            Ok(Value::Int(7))
+        );
+    }
+
+    #[test]
+    fn recursive_factorial() {
+        // fact(n) = if n <= 1 { 1 } else { n * fact(n - 1) }
+        let fact = Function::new(
+            "fact",
+            1,
+            1,
+            vec![
+                Instr::Load(0),
+                Instr::ConstInt(1),
+                Instr::LeI64,
+                Instr::JumpIfFalse(6),
+                Instr::ConstInt(1), // base case
+                Instr::Return,
+                Instr::Load(0),               // index 6
+                Instr::Load(0),
+                Instr::ConstInt(1),
+                Instr::SubI64,
+                Instr::Call { func: 0, argc: 1 }, // fact(n - 1)
+                Instr::MulI64,
+                Instr::Return,
+            ],
+        );
+        let module = Module::new(vec![fact]);
+        assert_eq!(super::run(&module, 0, &[Value::Int(5)]), Ok(Value::Int(120)));
+        assert_eq!(super::run(&module, 0, &[Value::Int(0)]), Ok(Value::Int(1)));
+    }
+
+    #[test]
+    fn recursive_fibonacci() {
+        // fib(n) = if n < 2 { n } else { fib(n - 1) + fib(n - 2) }
+        let fib = Function::new(
+            "fib",
+            1,
+            1,
+            vec![
+                Instr::Load(0),
+                Instr::ConstInt(2),
+                Instr::LtI64,
+                Instr::JumpIfFalse(6),
+                Instr::Load(0), // base case: return n
+                Instr::Return,
+                Instr::Load(0),               // index 6
+                Instr::ConstInt(1),
+                Instr::SubI64,
+                Instr::Call { func: 0, argc: 1 }, // fib(n - 1)
+                Instr::Load(0),
+                Instr::ConstInt(2),
+                Instr::SubI64,
+                Instr::Call { func: 0, argc: 1 }, // fib(n - 2)
+                Instr::AddI64,
+                Instr::Return,
+            ],
+        );
+        let module = Module::new(vec![fib]);
+        assert_eq!(super::run(&module, 0, &[Value::Int(10)]), Ok(Value::Int(55)));
+    }
+
+    #[test]
+    fn void_function_returns_unit() {
+        // f() returns nothing; main() = f()
+        let main = Function::new(
+            "main",
+            0,
+            0,
+            vec![Instr::Call { func: 1, argc: 0 }, Instr::Return],
+        );
+        let f = Function::new("f", 0, 0, vec![Instr::Return]);
+        let module = Module::new(vec![main, f]);
+        assert_eq!(super::run(&module, 0, &[]), Ok(Value::Unit));
+    }
+
+    #[test]
+    fn unknown_function_is_a_bug() {
+        let module = Module::default();
+        assert!(matches!(super::run(&module, 0, &[]), Err(Trap::Bug(_))));
+    }
+
+    #[test]
+    fn arity_mismatch_is_a_bug() {
+        // Call passes 0 args to a function expecting 1.
+        let main = Function::new(
+            "main",
+            0,
+            0,
+            vec![Instr::Call { func: 1, argc: 0 }, Instr::Return],
+        );
+        let g = Function::new("g", 1, 1, vec![Instr::Load(0), Instr::Return]);
+        let module = Module::new(vec![main, g]);
+        assert!(matches!(super::run(&module, 0, &[]), Err(Trap::Bug(_))));
     }
 }

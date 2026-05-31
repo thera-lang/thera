@@ -3,4 +3,5 @@
 
 pub mod instr;
 pub mod interp;
+pub mod module;
 pub mod value;
