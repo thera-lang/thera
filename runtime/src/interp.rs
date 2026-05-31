@@ -11,7 +11,7 @@
 
 use crate::instr::Instr;
 use crate::module::Module;
-use crate::value::Value;
+use crate::value::{Obj, Value};
 
 /// A runtime fault that aborts execution (see docs/language.md, "Runtime
 /// faults"). Variants that describe malformed bytecode ([`Trap::Bug`]) indicate
@@ -206,6 +206,29 @@ fn exec(module: &Module, code: &[Instr], locals: &mut [Value]) -> Result<Value, 
                 stack.push(ret);
             }
 
+            // --- enums ---
+            Instr::EnumNew {
+                ty,
+                variant,
+                field_count,
+            } => {
+                let fc = *field_count as usize;
+                let base = stack
+                    .len()
+                    .checked_sub(fc)
+                    .ok_or_else(|| bug("enum.new: operand stack underflow"))?;
+                let fields = stack.split_off(base);
+                stack.push(Value::new_enum(*ty, *variant, fields));
+            }
+            Instr::EnumTag => {
+                let variant = pop_enum_variant(&mut stack)?;
+                stack.push(Value::Int(variant as i64));
+            }
+            Instr::EnumGet(idx) => {
+                let v = pop(&mut stack)?;
+                stack.push(enum_field(&v, *idx as usize)?);
+            }
+
             // --- control ---
             Instr::Jump(target) => {
                 pc = *target;
@@ -270,6 +293,30 @@ fn pop_two_double(stack: &mut Vec<Value>) -> Result<(f64, f64), Trap> {
     Ok((a, b))
 }
 
+/// Pop an enum value and return its variant tag.
+fn pop_enum_variant(stack: &mut Vec<Value>) -> Result<u16, Trap> {
+    match pop(stack)? {
+        Value::Ref(rc) => match &*rc.borrow() {
+            Obj::Enum(e) => Ok(e.variant),
+        },
+        v => Err(bug(format!("expected enum, found {v:?}"))),
+    }
+}
+
+/// Read payload field `idx` of an enum value.
+fn enum_field(v: &Value, idx: usize) -> Result<Value, Trap> {
+    match v {
+        Value::Ref(rc) => match &*rc.borrow() {
+            Obj::Enum(e) => e
+                .fields
+                .get(idx)
+                .cloned()
+                .ok_or_else(|| bug(format!("enum.get: field {idx} out of range"))),
+        },
+        v => Err(bug(format!("enum.get: expected enum, found {v:?}"))),
+    }
+}
+
 fn cmp_int(stack: &mut Vec<Value>, f: impl Fn(i64, i64) -> bool) -> Result<(), Trap> {
     let (a, b) = pop_two_int(stack)?;
     stack.push(Value::Bool(f(a, b)));
@@ -286,6 +333,11 @@ fn cmp_double(stack: &mut Vec<Value>, f: impl Fn(f64, f64) -> bool) -> Result<()
 mod tests {
     use super::*;
     use crate::module::{Function, Module};
+    use crate::value::{TAG_ERR, TAG_NONE, TAG_OK, TAG_SOME};
+
+    // Opaque type ids for the draft (no type table yet).
+    const RESULT: u32 = 0;
+    const OPTION: u32 = 1;
 
     /// Evaluate a bare snippet with no locals. (Shadows the module-level `run`
     /// for the earlier increments' tests; increment-3 tests use `super::run`.)
@@ -678,5 +730,179 @@ mod tests {
         let g = Function::new("g", 1, 1, vec![Instr::Load(0), Instr::Return]);
         let module = Module::new(vec![main, g]);
         assert!(matches!(super::run(&module, 0, &[]), Err(Trap::Bug(_))));
+    }
+
+    // --- increment 4: enums & the heap ---
+
+    #[test]
+    fn enum_tag() {
+        let ok = [
+            Instr::ConstInt(42),
+            Instr::EnumNew {
+                ty: RESULT,
+                variant: TAG_OK,
+                field_count: 1,
+            },
+            Instr::EnumTag,
+            Instr::Return,
+        ];
+        assert_eq!(run(&ok), Ok(Value::Int(0)));
+
+        let none = [
+            Instr::EnumNew {
+                ty: OPTION,
+                variant: TAG_NONE,
+                field_count: 0,
+            },
+            Instr::EnumTag,
+            Instr::Return,
+        ];
+        assert_eq!(run(&none), Ok(Value::Int(1)));
+    }
+
+    #[test]
+    fn enum_get_payload() {
+        let code = [
+            Instr::ConstInt(42),
+            Instr::EnumNew {
+                ty: RESULT,
+                variant: TAG_OK,
+                field_count: 1,
+            },
+            Instr::EnumGet(0),
+            Instr::Return,
+        ];
+        assert_eq!(run(&code), Ok(Value::Int(42)));
+    }
+
+    #[test]
+    fn enum_value_is_constructed() {
+        let code = [
+            Instr::ConstInt(7),
+            Instr::EnumNew {
+                ty: OPTION,
+                variant: TAG_SOME,
+                field_count: 1,
+            },
+            Instr::Return,
+        ];
+        assert_eq!(
+            run(&code),
+            Ok(Value::new_enum(OPTION, TAG_SOME, vec![Value::Int(7)]))
+        );
+    }
+
+    #[test]
+    fn structural_equality() {
+        assert_eq!(
+            Value::new_enum(RESULT, TAG_OK, vec![Value::Int(1)]),
+            Value::new_enum(RESULT, TAG_OK, vec![Value::Int(1)]),
+        );
+        // different variant
+        assert_ne!(
+            Value::new_enum(RESULT, TAG_OK, vec![Value::Int(1)]),
+            Value::new_enum(RESULT, TAG_ERR, vec![Value::Int(1)]),
+        );
+        // different payload
+        assert_ne!(
+            Value::new_enum(RESULT, TAG_OK, vec![Value::Int(1)]),
+            Value::new_enum(RESULT, TAG_OK, vec![Value::Int(2)]),
+        );
+        // different type id (same variant/payload)
+        assert_ne!(
+            Value::new_enum(RESULT, TAG_OK, vec![Value::Int(1)]),
+            Value::new_enum(OPTION, TAG_SOME, vec![Value::Int(1)]),
+        );
+    }
+
+    #[test]
+    fn question_mark_propagation() {
+        // f(r) = { let x = r?; return Ok(x + 10); }
+        let f = Function::new(
+            "f",
+            1,
+            2,
+            vec![
+                Instr::Load(0),
+                Instr::Dup,
+                Instr::EnumTag,
+                Instr::ConstInt(TAG_ERR as i64),
+                Instr::EqI64,
+                Instr::JumpIfFalse(7), // Ok path
+                Instr::Return,         // Err: propagate the Result unchanged
+                Instr::EnumGet(0),     // index 7: unwrap Ok payload
+                Instr::Store(1),       // x
+                Instr::Load(1),
+                Instr::ConstInt(10),
+                Instr::AddI64,
+                Instr::EnumNew {
+                    ty: RESULT,
+                    variant: TAG_OK,
+                    field_count: 1,
+                },
+                Instr::Return,
+            ],
+        );
+        let module = Module::new(vec![f]);
+
+        // Ok(5) → Ok(15)
+        assert_eq!(
+            super::run(
+                &module,
+                0,
+                &[Value::new_enum(RESULT, TAG_OK, vec![Value::Int(5)])]
+            ),
+            Ok(Value::new_enum(RESULT, TAG_OK, vec![Value::Int(15)]))
+        );
+        // Err(99) → Err(99), propagated unchanged
+        assert_eq!(
+            super::run(
+                &module,
+                0,
+                &[Value::new_enum(RESULT, TAG_ERR, vec![Value::Int(99)])]
+            ),
+            Ok(Value::new_enum(RESULT, TAG_ERR, vec![Value::Int(99)]))
+        );
+    }
+
+    #[test]
+    fn match_on_option() {
+        // match opt { Some(n) => n, None => -1 }
+        let f = Function::new(
+            "f",
+            1,
+            1,
+            vec![
+                Instr::Load(0),
+                Instr::EnumTag,
+                Instr::ConstInt(TAG_SOME as i64),
+                Instr::EqI64,
+                Instr::JumpIfFalse(8), // None arm
+                Instr::Load(0),
+                Instr::EnumGet(0), // n
+                Instr::Return,
+                Instr::ConstInt(-1), // index 8: None arm
+                Instr::Return,
+            ],
+        );
+        let module = Module::new(vec![f]);
+        assert_eq!(
+            super::run(
+                &module,
+                0,
+                &[Value::new_enum(OPTION, TAG_SOME, vec![Value::Int(7)])]
+            ),
+            Ok(Value::Int(7))
+        );
+        assert_eq!(
+            super::run(&module, 0, &[Value::new_enum(OPTION, TAG_NONE, vec![])]),
+            Ok(Value::Int(-1))
+        );
+    }
+
+    #[test]
+    fn enum_tag_on_non_enum_is_a_bug() {
+        let code = [Instr::ConstInt(1), Instr::EnumTag, Instr::Return];
+        assert!(matches!(run(&code), Err(Trap::Bug(_))));
     }
 }

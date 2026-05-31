@@ -4,9 +4,10 @@
 //! byte stream (see docs/bytecode.md, "Instruction encoding"). Opcode names
 //! mirror the spec: `add.i64` → [`Instr::AddI64`], etc.
 //!
-//! Current subset (increments 1–3): constants, locals, arithmetic, comparison,
-//! conversions, stack manipulation, control flow (`jump` family), direct
-//! `call`, and `return`. Enums and intrinsics are added in later increments.
+//! Current subset (increments 1–4): constants, locals, arithmetic, comparison,
+//! conversions, stack manipulation, direct `call`, enums (`enum.new`/`tag`/
+//! `get`), control flow (`jump` family), and `return`. Collections, closures,
+//! interface dispatch, and intrinsics are added in later increments.
 
 /// A local-slot index (parameters and locals share one array).
 pub type Slot = u16;
@@ -82,6 +83,18 @@ pub enum Instr {
     /// (pushed left-to-right) into the callee's leading local slots and pushes
     /// the callee's return value.
     Call { func: u32, argc: u8 },
+
+    // --- enums (tagged unions: Result, Option, user enums) ---
+    /// Pop `field_count` values (pushed left-to-right) and push a new enum
+    /// value, tagged `variant` of type `ty`.
+    ///
+    /// `field_count` is an operand for now; once the module carries a type
+    /// table it comes from the enum's TypeDef (see docs/bytecode.md).
+    EnumNew { ty: u32, variant: u16, field_count: u8 },
+    /// Pop an enum; push its variant tag as an `Int`.
+    EnumTag,
+    /// Pop an enum; push its payload field at `idx`.
+    EnumGet(u16),
 
     // --- control ---
     /// Unconditionally continue execution at the given instruction.
