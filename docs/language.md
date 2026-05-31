@@ -42,6 +42,14 @@ mut count = 0;
 count = count + 1;
 ```
 
+`let` vs `mut` controls whether a *binding* can be reassigned — it says nothing
+about the value itself. Heap values (`String`, `List`, `Map`, `Set`, structs,
+enums) are **shared references**: assigning or passing one copies the reference,
+not the object, so two bindings to the same mutable collection observe each
+other's changes. Immutability is enforced by the type system — struct fields are
+immutable by default and `let` prevents rebinding — rather than by copying
+values.
+
 ---
 
 ## Types
@@ -310,8 +318,8 @@ faulting form — e.g. `list.get(i)` returns `Option<T>` instead of trapping.
 Reach for the checked form when absence is a normal, expected case; use indexing
 when a missing element would mean a bug.
 
-> Integer overflow behaviour — trap vs. wrap — is still open; see the bytecode
-> spec's open questions.
+> Integer overflow does **not** trap: `Int` arithmetic wraps around (two's
+> complement). Divide-by-zero is the trapping case above.
 
 ---
 

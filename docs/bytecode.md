@@ -52,6 +52,14 @@ Uniform slot width keeps the interpreter and the stackmap scheme simple. Whether
 a slot is a reference is **statically known** at every program point from the
 types the frontend tracked, so we never tag values at runtime.
 
+**Heap objects have reference semantics.** A slot that holds a pointer is a
+*shared* reference to a heap object (String, List, Map, Set, struct, enum,
+closure); copying the slot copies the pointer, not the object. Immutability is
+enforced by the type system (`let` bindings, immutable struct fields), not by
+copying — so two bindings to the same `mut` collection observe each other's
+mutations. This is the Dart/Python model, chosen over Swift-style value
+semantics for implementation simplicity.
+
 > **Bootstrapping decision:** the _durable_ design is untagged (above) — a
 > tagged `Value` enum defeats the typed-JIT rationale and bloats the format. But
 > the **first** Tier-0 interpreter will deliberately start with a tagged `Value`
@@ -59,6 +67,41 @@ types the frontend tracked, so we never tag values at runtime.
 > exists. We refactor to untagged slots once the ISA stabilizes. The bytecode
 > format itself stays untagged either way — only the interpreter's in-memory
 > value differs.
+
+## The first interpreter (Tier 0): nailed-down decisions
+
+These pin down the draft interpreter so it can be built without guessing. They
+describe the *first cut*, not permanent constraints.
+
+- **Bytecode representation:** the draft runs an in-memory Rust
+  `enum Instruction` (a `Vec<Instruction>` per function), **not** the serialized
+  byte format. This defers all encoding questions (fixed-width vs. LEB128,
+  operand widths) until there is a frontend emitting bytecode.
+- **Tagged `Value` with a `Unit` variant:** `Int(i64)`, `Double(f64)`,
+  `Bool(bool)`, `Unit`, and a `Ref` to a heap object. `Unit` represents
+  `Void`/`()`, so every call yields exactly one stack value and the dispatch
+  loop has no "did this push or not" special-casing.
+- **Heap objects:** shared references (see reference semantics above). The draft
+  may use `Rc<RefCell<…>>`; the eventual GC replaces this with a managed heap.
+- **Calling convention:** the caller pushes args left-to-right; `call` moves the
+  top `argc` slots into the callee's `locals[0..argc]`; the callee's return
+  value is pushed onto the caller's operand stack (a `Void` function pushes
+  `Unit`).
+- **Equality** (`==`, `Eq`) is **structural** for strings, structs, enums, and
+  collections — by content, never by identity.
+- **Integer overflow wraps** (two's complement). Not a trap. Divide-by-zero
+  still traps. `/` and `%` follow Rust i64 semantics (truncate toward zero).
+- **Intrinsics:** `call.native <index>` resolves against a small Rust function
+  table. The draft ships `println`, a primitive-stringify helper (for `${int}`
+  etc.), and `str_concat` (for interpolation) — enough to write observable test
+  programs without a stdlib.
+- **Enum tag numbering is fixed:** `Result` → `Ok = 0`, `Err = 1`; `Option` →
+  `Some = 0`, `None = 1`. Hand-written bytecode, the `?`/`match` lowering, and
+  the future frontend must all agree on this.
+- **Scope of the first draft:** `Int`/`Double`/`Bool`/`Unit`, locals,
+  arithmetic/comparison, control flow, direct `call` + `return`, enums (so
+  `Result`/`Option`/`match`/`?` work), and `println`. **Deferred:** collections,
+  closures, interface dispatch, string methods, GC, fibers, and the JIT.
 
 ## Container format (a compiled module)
 
@@ -99,6 +142,10 @@ grow into richer type info later if the JIT wants it.
 - Constants that don't fit an immediate (all `f64`, strings, large `i64`) live
   in the constant pool and are referenced by `u32` index.
 
+This describes the eventual serialized format. The first interpreter skips it
+and runs an in-memory `enum Instruction` instead (see
+[The first interpreter](#the-first-interpreter-tier-0-nailed-down-decisions)).
+
 ## Instruction set
 
 Typed opcodes use a `.i64` / `.f64` suffix. Suffixes are shown collapsed below;
@@ -115,13 +162,19 @@ each is a distinct opcode.
 
 ### Locals
 
-| Op      | Operands    | Stack | Notes                             |
-| ------- | ----------- | ----- | --------------------------------- |
-| `load`  | `slot: u16` | `→ v` | params and locals share the array |
-| `store` | `slot: u16` | `v →` | for `mut` bindings / SSA spills   |
+| Op             | Operands    | Stack | Notes                                   |
+| -------------- | ----------- | ----- | --------------------------------------- |
+| `load`         | `slot: u16` | `→ v` | params and locals share the array       |
+| `store`        | `slot: u16` | `v →` | for `mut` bindings / SSA spills          |
+| `load.capture` | `idx: u16`  | `→ v` | read a value captured by the closure     |
 
 `load`/`store` move 64 bits regardless of type — no suffix needed. The slot's
 ref-ness is recorded in the function's stackmap, not the opcode.
+
+`load.capture` reads from the captured-values array of the *currently executing
+closure* (populated by `closure.new`); it is the only way a closure body
+reaches a captured variable, since `load` addresses only params and locals.
+(Unused until the draft adds closures, but the ISA needs it to exist.)
 
 ### Arithmetic, comparison, logic
 
@@ -137,6 +190,10 @@ ref-ness is recorded in the function's stackmap, not the opcode.
 `&&` / `||` short-circuit, so the frontend lowers them to branches — there is no
 `and`/`or` opcode. `==` on strings/structs dispatches to `Eq` (a method call),
 not `eq.i64`. Bitwise ops on `Int` are deferred until the language exposes them.
+
+`add.i64`/`sub.i64`/`mul.i64` **wrap** on overflow (two's complement); they do
+not trap. `div.i64`/`mod.i64` trap on a zero divisor and otherwise truncate
+toward zero (Rust i64 semantics).
 
 ### Stack manipulation
 
@@ -195,6 +252,11 @@ These are the GC _allocation safepoints_.
 `Map`/`Set` literals and most collection operations are runtime calls
 (`call.native`), not core opcodes — keeps the ISA small.
 
+**Fixed variant tags.** `Result` and `Option` are ordinary enums with a pinned
+variant ordering that all bytecode producers must use: `Result` → `Ok = 0`,
+`Err = 1`; `Option` → `Some = 0`, `None = 1`. The `?` and `match` lowerings
+below depend on these values.
+
 ## How key language features lower
 
 These desugar in the frontend; the ISA stays minimal.
@@ -229,8 +291,10 @@ an iterator protocol implemented as runtime calls.
 **Closures / lambdas** — `closure.new` captures the needed slots; the call site
 uses `call.indirect`.
 
-**String interpolation** — `${v}` calls the `Display` method (`call.interface`
-or a resolved `call`), then a `str_concat` intrinsic (`call.native`).
+**String interpolation** — for a user type, `${v}` calls the `Display` method
+(`call.interface` or a resolved `call`); for a primitive (`Int`/`Double`/`Bool`,
+whose `Display` is built in), it calls a stringify intrinsic (`call.native`).
+The pieces are then joined with a `str_concat` intrinsic (`call.native`).
 
 ## Garbage collection
 
@@ -268,7 +332,6 @@ no type guards — the speculation-free property the plan is built around.
 - **Encoding details** — fixed-width vs. LEB128; the exact module file layout.
 - **`switch.tag`** jump table for fast `match`.
 - **Constant-pool dedup / interning** policy for strings.
-- **Integer overflow** semantics (wrap vs. trap) for `add.i64` et al.
 - **Fiber yield points** — where the interpreter checks for cooperative
   rescheduling (likely at back-edges and blocking `call.native`s).
 - **Stackmap representation** — bitmap vs. ranges; per-safepoint vs. per-block.
