@@ -465,6 +465,7 @@ fn cmp_double(stack: &mut Vec<Value>, f: impl Fn(f64, f64) -> bool) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::builder::FnBuilder;
     use crate::module::{Function, Module};
     use crate::value::{TAG_ERR, TAG_NONE, TAG_OK, TAG_SOME};
 
@@ -780,28 +781,24 @@ mod tests {
 
     #[test]
     fn recursive_factorial() {
-        // fact(n) = if n <= 1 { 1 } else { n * fact(n - 1) }
-        let fact = Function::new(
-            "fact",
-            1,
-            1,
-            vec![
-                Instr::Load(0),
-                Instr::ConstInt(1),
-                Instr::LeI64,
-                Instr::JumpIfFalse(6),
-                Instr::ConstInt(1), // base case
-                Instr::Return,
-                Instr::Load(0), // index 6
-                Instr::Load(0),
-                Instr::ConstInt(1),
-                Instr::SubI64,
-                Instr::Call { func: 0, argc: 1 }, // fact(n - 1)
-                Instr::MulI64,
-                Instr::Return,
-            ],
-        );
-        let module = Module::new(vec![fact]);
+        // fact(n) = if n <= 1 { 1 } else { n * fact(n - 1) }  (built via FnBuilder)
+        let mut b = FnBuilder::new("fact", 1);
+        let recurse = b.label();
+        b.load(0);
+        b.const_int(1);
+        b.le_i64();
+        b.jump_if_false(recurse);
+        b.const_int(1); // base case
+        b.ret();
+        b.bind(recurse);
+        b.load(0);
+        b.load(0);
+        b.const_int(1);
+        b.sub_i64();
+        b.call(0, 1); // fact(n - 1)
+        b.mul_i64();
+        b.ret();
+        let module = Module::new(vec![b.finish()]);
         assert_eq!(
             super::run(&module, 0, &[Value::Int(5)]),
             Ok(Value::Int(120))
@@ -961,33 +958,25 @@ mod tests {
 
     #[test]
     fn question_mark_propagation() {
-        // f(r) = { let x = r?; return Ok(x + 10); }
-        let f = Function::new(
-            "f",
-            1,
-            2,
-            vec![
-                Instr::Load(0),
-                Instr::Dup,
-                Instr::EnumTag,
-                Instr::ConstInt(TAG_ERR as i64),
-                Instr::EqI64,
-                Instr::JumpIfFalse(7), // Ok path
-                Instr::Return,         // Err: propagate the Result unchanged
-                Instr::EnumGet(0),     // index 7: unwrap Ok payload
-                Instr::Store(1),       // x
-                Instr::Load(1),
-                Instr::ConstInt(10),
-                Instr::AddI64,
-                Instr::EnumNew {
-                    ty: RESULT,
-                    variant: TAG_OK,
-                    field_count: 1,
-                },
-                Instr::Return,
-            ],
-        );
-        let module = Module::new(vec![f]);
+        // f(r) = { let x = r?; return Ok(x + 10); }  (built via FnBuilder)
+        let mut b = FnBuilder::new("f", 1);
+        let ok = b.label();
+        b.load(0);
+        b.dup();
+        b.enum_tag();
+        b.const_int(TAG_ERR as i64);
+        b.eq_i64();
+        b.jump_if_false(ok);
+        b.ret(); // Err: propagate the Result unchanged
+        b.bind(ok);
+        b.enum_get(0); // unwrap Ok payload
+        b.store(1); // x  (bumps local_count to 2)
+        b.load(1);
+        b.const_int(10);
+        b.add_i64();
+        b.enum_new(RESULT, TAG_OK, 1);
+        b.ret();
+        let module = Module::new(vec![b.finish()]);
 
         // Ok(5) → Ok(15)
         assert_eq!(
