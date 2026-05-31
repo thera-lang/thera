@@ -174,7 +174,17 @@ ref-ness is recorded in the function's stackmap, not the opcode.
 `load.capture` reads from the captured-values array of the *currently executing
 closure* (populated by `closure.new`); it is the only way a closure body
 reaches a captured variable, since `load` addresses only params and locals.
-(Unused until the draft adds closures, but the ISA needs it to exist.)
+
+> **Captures: two designs, decision deferred.** Either (A) closures stay a
+> runtime concept — `closure.new` builds a `{ func, captures[] }` object and the
+> body reads them with `load.capture` (shown here); or (B) the frontend does
+> *closure conversion*, lowering each lambda to a plain function that takes a
+> synthesized environment struct as a parameter, so captures are ordinary
+> `field.get`s and `load.capture` disappears. (A) is simplest for the
+> interpreter (no frontend pass); (B) is more uniform for the Cranelift tier.
+> Closures are out of the draft scope, so we keep `load.capture` as the
+> interpreter-era stand-in and decide between A and B — along with the rule for
+> capturing reassignable `mut` bindings — when closures actually land.
 
 ### Arithmetic, comparison, logic
 
