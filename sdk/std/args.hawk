@@ -10,7 +10,7 @@ type Args = {
 impl Args {
     // Return the positional argument at index, or None if not provided.
     //
-    //   let path = args.positional(0).ok_or('usage: tool <path>')?;
+    //   let path = args.positional(0).ok_or(Error('usage: tool <path>'))?;
     fn positional(self, _ index: Int) -> Option<String>
 
     // Return the value of a named flag, or `value` if the flag was not provided.

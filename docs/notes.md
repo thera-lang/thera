@@ -52,5 +52,5 @@ The "Clearest" Taxonomy: the clearest, most defensible hierarchy to use is:
 - [x] rename to 'hawk'
 - [x] create a cargo build for the 'hawk' cli tool (front-end image +
       interpreter + Cranelift + GC); in 'runtime'
-- IR design
-- interpreter
+- [ ] bytecode design
+- [ ] interpreter

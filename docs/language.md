@@ -3,7 +3,7 @@
 Notes:
 
 - this is an informal working reference — not a formal spec
-- the language codename is 'Hawk' (with a close alternative being 'Hawk')
+- the language codename is 'Hawk'
 
 ---
 
@@ -218,11 +218,13 @@ traditional colored-function approach. The goal is to avoid this.
 
 ## Error handling
 
-There are no exceptions. Errors are returned as `Result<T, E>`.
+There are no exceptions. Errors are returned as `Result<T, E>`. The error type
+is `Error`, constructed from a message with `Error('...')` and read back via
+`.message`.
 
 ```hawk
 fn read_port(args: Args) -> Result<Int, Error> {
-    let s = args.positional(0).ok_or('usage: serve <port>')?;
+    let s = args.positional(0).ok_or(Error('usage: serve <port>'))?;
     return s.parse<Int>();
 }
 ```
@@ -232,7 +234,7 @@ fn read_port(args: Args) -> Result<Int, Error> {
 ```hawk
 match read_port(args) {
     Ok(port) => println('listening on ${port}'),
-    Error(e)   => println('error: ${e.message}'),
+    Err(e)   => println('error: ${e.message}'),
 }
 ```
 
@@ -246,7 +248,7 @@ unwinding; control simply returns to the caller with an `Err` value.
 fn parse_port(s: String) -> Result<Int, Error> {
     let n = s.parse<Int>()?;
     if n < 1 || n > 65535 {
-        throw 'port out of range: ${n}';
+        throw Error('port out of range: ${n}');
     }
     return n;   // implicitly Ok(n)
 }
@@ -278,8 +280,38 @@ match config.log_dir {
 }
 
 // treat absence as an error and propagate with ?
-let dir = config.log_dir.ok_or('log_dir is required')?;
+let dir = config.log_dir.ok_or(Error('log_dir is required'))?;
 ```
+
+---
+
+## Runtime faults
+
+`Result` and `Option` model *expected* conditions — a file might be missing, a
+parse might fail — and they appear in the type signature so the caller is forced
+to deal with them. A **runtime fault** is the opposite: an unrecoverable
+programmer error signalling that the code's contract was violated. A fault
+**traps** — it immediately aborts the program with a diagnostic and a non-zero
+exit code.
+
+Faults are not values. They have no type, cannot be returned, cannot be
+propagated with `?`, and cannot be caught — there is no exception mechanism to
+catch them. The only correct response to a fault is to fix the code.
+
+Conditions that trap:
+
+- indexing past the end of a list, or with a missing map key (`list[i]`,
+  `map[key]`) — see [Collections](#collections)
+- integer divide-by-zero
+- exhausting memory or the call stack
+
+Where a recoverable alternative makes sense, the API offers one alongside the
+faulting form — e.g. `list.get(i)` returns `Option<T>` instead of trapping.
+Reach for the checked form when absence is a normal, expected case; use indexing
+when a missing element would mean a bug.
+
+> Integer overflow behaviour — trap vs. wrap — is still open; see the bytecode
+> spec's open questions.
 
 ---
 
@@ -313,6 +345,40 @@ let nums: List<Int> = [1, 2, 3];
 let first = nums[0];
 let len   = nums.len();
 ```
+
+### Indexing vs. `get`
+
+Indexing with `[]` asserts the element is present. `list[i]` and `map[key]`
+return the element directly; if the index is out of range or the key is absent,
+the program **traps** (see [Runtime faults](#runtime-faults)).
+
+```hawk
+let nums = [1, 2, 3];
+let x = nums[0];          // 1
+let y = nums[9];          // traps — index out of range
+
+let scores = {'alice': 10};
+let a = scores['alice'];  // 10
+let b = scores['bob'];    // traps — missing key
+```
+
+`.get()` is the checked alternative: it returns `Option<T>`, so absence is a
+value you handle rather than a fault. Use it whenever a missing element is a
+normal, expected case.
+
+```hawk
+match nums.get(9) {
+    Some(n) => println('got ${n}'),
+    None    => println('out of range'),
+}
+
+let score = scores.get('bob').ok_or(Error('no score for bob'))?;
+```
+
+Both `List` and `Map` follow the same rule: `[]` traps on absence, `.get()`
+returns `Option`.
+
+### Pipelines
 
 Common pipeline methods (lazy; call `.to_list()` to materialise):
 
@@ -354,13 +420,16 @@ fundamental interfaces (`Eq`, `Display`, `Debug`); `std.args` provides `Args`.
 There are two forms of import: **stdlib** (`std.*`) and **relative file** (a
 quoted path).
 
-**Stdlib imports** resolve against the SDK's standard library directory:
+**Stdlib imports** resolve against the SDK's standard library directory. Its
+exact location differs between the in-repo and distributed layouts (see
+[SDK layout](#sdk-layout)):
 
 ```
-<sdk_root>/sdk/std/<module>.hawk
+in-repo:      <repo>/sdk/std/<module>.hawk
+distributed:  <install>/std/<module>.hawk
 ```
 
-For example, `import std.fs` resolves to `<sdk_root>/sdk/std/fs.hawk`.
+For example, `import std.fs` resolves to `fs.hawk` in that directory.
 
 **Relative file imports** resolve against the directory of the importing file:
 
@@ -381,7 +450,7 @@ linked into the runtime). The declaration provides the Hawk-visible signature;
 the implementation is resolved at link time. Native functions have no body.
 
 ```hawk
-native fn re2_compile(_ pattern: String) -> Result<NativeHandle, String>
+native fn re2_compile(_ pattern: String) -> Result<NativeHandle, Error>
 native fn re2_is_match(_ handle: NativeHandle, _ text: String) -> Bool
 ```
 
@@ -419,7 +488,7 @@ A non-zero exit code is returned as an `Error` by default.
 auto-imported. Positional arguments and named flags are both supported.
 
 ```hawk
-let path    = args.positional(0).ok_or('usage: tool <path>')?;
+let path    = args.positional(0).ok_or(Error('usage: tool <path>'))?;
 let verbose = args.flag('verbose', default: false);
 let output  = args.flag('output',  default: 'out.txt');
 ```
@@ -644,77 +713,65 @@ Additional flags:
 
 ## SDK layout
 
+The SDK exists in two forms: the **in-repo** development layout and the
+**distributed** layout produced by the build. They differ mainly in where the
+standard library lives; only a little infrastructure (the test harness, SDK-root
+discovery) needs to know about the difference.
+
+### In-repo layout
+
 ```
-<sdk_root>/
-  bin/
-    hawk.sh          ← dev-mode entry point (delegates to tool/)
-    hawk             ← compiled binary (distributed SDK only)
+<repo>/
+  bin/             ← dev-mode entry point scripts
+  runtime/         ← Rust runtime: bytecode interpreter, GC, Cranelift JIT
+                     (builds the `hawk` binary)
+  pkgs/
+    cli/           ← Hawk front-end + CLI harness (written in Hawk)
   sdk/
     std/
-      core.hawk      ← auto-imported: Eq, Display, Debug
-      args.hawk      ← auto-imported: Args
-      fs.hawk        ← import std.fs
-      process.hawk   ← import std.process
-      testing.hawk   ← import std.testing
-      fiber.hawk     ← import std.fiber
-      regex.hawk     ← import std.regex
+      core.hawk    ← auto-imported: Eq, Display, Debug
+      args.hawk    ← auto-imported: Args
+      fs.hawk      ← import std.fs
+      process.hawk ← import std.process
+      testing.hawk ← import std.testing
+      fiber.hawk   ← import std.fiber
+      regex.hawk   ← import std.regex
       ...
-  tool/              ← Dart toolchain source (dev mode only)
-    bin/
-      hawk.dart      ← CLI entry point
-    lib/sdk/
-      lexer.dart
-      parser.dart
-      ast.dart
-      checker/
-      interpreter/
-      lsp/
-    test/
   examples/
   docs/
+```
+
+### Distributed layout
+
+The build bundles the compiled `hawk` binary with the standard library source.
+The `std/` directory moves to the top level — there is no `sdk/` wrapper:
+
+```
+<install>/
+  bin/
+    hawk           ← compiled runtime binary
+  std/             ← stdlib source files (still needed at runtime)
 ```
 
 ### SDK root discovery
 
 The `hawk` binary locates the SDK root at runtime by resolving one directory
-above its own location (`bin/../`). This works identically in both modes:
+above its own location (`bin/../`). The stdlib directory beneath that root is
+the one place the two layouts diverge:
 
-| Mode            | Binary location      | SDK root     |
-| --------------- | -------------------- | ------------ |
-| Dev (from repo) | `<repo>/bin/hawk.sh` | `<repo>/`    |
-| Distributed     | `<install>/bin/hawk` | `<install>/` |
+| Mode        | Binary / entry point | SDK root     | stdlib dir        |
+| ----------- | -------------------- | ------------ | ----------------- |
+| In-repo     | `<repo>/bin/…`       | `<repo>/`    | `<repo>/sdk/std/` |
+| Distributed | `<install>/bin/hawk` | `<install>/` | `<install>/std/`  |
 
-`bin/hawk.sh` is the dev-mode entry point. It sets `SDK_ROOT` to the parent of
-the `bin/` directory and delegates to `dart run tool/bin/hawk.dart`. A compiled
-binary (`dart compile exe`) embeds the same root-discovery logic.
-
-The `HAWK_SDK` environment variable overrides automatic discovery for cases such
-as running tests against an alternate SDK or wrapping the binary in a script.
+The `HAWK_SDK` environment variable overrides automatic discovery — useful for
+running tests against an alternate SDK or wrapping the binary in a script.
 
 ### Standard library source files
 
-Each `import std.<module>` statement resolves to:
-
-```
-<sdk_root>/sdk/std/<module>.hawk
-```
-
-Stdlib source files are plain Hawk source with `native fn` declarations for
-functions implemented in the runtime. The toolchain parses and type-checks them
+Stdlib modules ship as plain Hawk source with `native fn` declarations for
+functions implemented in the runtime. The front-end parses and type-checks them
 the same way it does user code.
 
 `std.core` and `std.args` are implicitly imported and do not appear in the
 resolved import graph unless explicitly re-imported with `as`.
-
-### Distributed SDK layout
-
-When `hawk` is compiled to a native binary
-(`dart compile exe tool/bin/hawk.dart -o bin/hawk`), the `tool/` directory is no
-longer needed at runtime. The distributed layout is therefore:
-
-```
-<install>/
-  bin/
-    hawk           ← single compiled binary
-  std/             ← stdlib source files (still needed at runtime)
-```

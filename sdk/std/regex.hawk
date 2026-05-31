@@ -23,7 +23,7 @@ type NativeRegex = {}
 // module. See the open design questions in docs/plan.md.
 
 // Compile pattern; returns Err with the RE2 error message on failure.
-native fn re2_compile(_ pattern: String) -> Result<NativeRegex, String>
+native fn re2_compile(_ pattern: String) -> Result<NativeRegex, Error>
 
 // Returns true if the pattern matches anywhere in text.
 native fn re2_is_match(_ handle: NativeRegex, _ text: String) -> Bool
