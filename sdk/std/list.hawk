@@ -1,0 +1,52 @@
+// std.list — the built-in List<T> type.
+//
+// List<T> is an ordered, growable sequence. It is a built-in type: always in
+// scope, never explicitly imported (there is no `import std.list`).
+//
+// This file documents List's method surface. The declarations below are
+// COMMENTED OUT on purpose: List<T> is generic, and the toolchain does not yet
+// support generic `type` / `impl` declarations. Treat this as the
+// source-of-truth sketch until the Rust front-end can express it directly.
+//
+// Indexing:
+//
+//   let x = items[i];     // → T; traps if i is out of range
+//   items[i] = v;         // assignment (the binding must be `mut`)
+//
+// Use .get(i) when absence is a normal, expected case. See "Runtime faults"
+// and "Collections" in docs/language.md.
+
+// type List<T> = {
+//     // Opaque built-in; not constructed via struct literal. Build one with a
+//     // list literal: [a, b, c].
+// }
+//
+// impl List<T> {
+//     // Number of elements.
+//     fn len(self) -> Int
+//
+//     // Element at index, or None if out of range — the checked alternative
+//     // to indexing with [].
+//     fn get(self, _ index: Int) -> Option<T>
+//
+//     // First / last element, or None if the list is empty.
+//     fn first(self) -> Option<T>
+//     fn last(self) -> Option<T>
+//
+//     // The sub-range [start, end) as a new list.
+//     fn slice(self, _ start: Int, _ end: Int) -> List<T>
+//
+//     // Lazy transforms — call .to_list() to materialise (see language.md).
+//     fn map<U>(self, _ f: (T) -> U) -> List<U>
+//     fn filter(self, _ pred: (T) -> Bool) -> List<T>
+//
+//     // Materialise a (possibly lazy) sequence into a concrete list.
+//     fn to_list(self) -> List<T>
+//
+//     // A sorted copy. (Ordering constraint on T is TBD.)
+//     fn sort(self) -> List<T>
+//
+//     // Join a List<String> into one string with `sep` between elements.
+//     // (Only valid when T is String.)
+//     fn join(self, _ sep: String) -> String
+// }
