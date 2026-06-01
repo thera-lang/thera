@@ -103,6 +103,30 @@ fn main() -> Int {
       // && yields `false` on the short-circuit path.
       expect(ops.whereType<ConstBool>().map((i) => i.value), contains(false));
     });
+
+    test('a direct call resolves to the callee function index', () {
+      // helper is declared first (index 0); main calls it.
+      final m = compile(
+          'fn helper() -> Int { return 1; } fn main() -> Int { return helper(); }');
+      final main = m.functions[1];
+      expect(main.code.first, isA<Call>()
+          .having((i) => i.func, 'func', 0)
+          .having((i) => i.argc, 'argc', 0));
+    });
+
+    test('interpolation lowers to stringify + str_concat', () {
+      final ops = compile(
+              "fn f() -> Int { let n = 5; println('n=\${n}'); return 0; }")
+          .functions
+          .single
+          .code;
+      expect(ops, containsAllInOrder([
+        isA<ConstStr>().having((i) => i.value, 'value', 'n='),
+        isA<Load>(),
+        isA<CallNative>().having((i) => i.name, 'name', 'stringify'),
+        isA<CallNative>().having((i) => i.name, 'name', 'str_concat'),
+      ]));
+    });
   });
 
   group('end-to-end (requires the Rust runtime)', () {
@@ -207,6 +231,37 @@ fn main() -> Int {
 }
 '''),
           9);
+    });
+
+    test('recursion (factorial) flows to the exit code', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      expect(
+          runExit('fact', '''
+fn fact(n: Int) -> Int {
+    if n <= 1 { return 1; }
+    return n * fact(n - 1);
+}
+fn main() -> Int {
+    return fact(5);
+}
+'''),
+          120);
+    });
+
+    test('multi-function call + interpolation prints the demo', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      final m = compile('''
+fn double(n: Int) -> Int { return n * 2; }
+fn main() -> Int {
+    println('double(21) = \${double(21)}');
+    return 0;
+}
+''');
+      final tmp = '${Directory.systemTemp.path}/hawk_demo_src.hawkbc';
+      File(tmp).writeAsBytesSync(encodeModule(m));
+      final r = Process.runSync(hawkBin, ['run', tmp]);
+      expect(r.stdout, 'double(21) = 42\n');
+      expect(r.exitCode, 0);
     });
   });
 }

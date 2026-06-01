@@ -46,25 +46,34 @@ const Set<String> _natives = {'println', 'print'};
 /// Compile a whole program to a module.
 Module compileProgram(Program program) {
   // Index every (non-native) function up front, so direct calls can resolve a
-  // callee to its table index regardless of declaration order.
+  // callee to its table index regardless of declaration order. Return types are
+  // recorded too, so a call expression's static type is known for opcode
+  // selection on its result.
   final functionIndex = <String, int>{};
+  final functionReturns = <String, String?>{};
   final fns = <FnDecl>[];
   for (final decl in program.decls) {
     if (decl is FnDecl && !decl.isNative) {
       functionIndex[decl.name] = fns.length;
+      functionReturns[decl.name] = _typeRefName(decl.returnType);
       fns.add(decl);
     }
   }
 
   final functions = [
-    for (final fn in fns) _FnCompiler(functionIndex).compile(fn),
+    for (final fn in fns)
+      _FnCompiler(functionIndex, functionReturns).compile(fn),
   ];
   return Module(functions);
 }
 
+/// The name of a type reference (`Int`, `Double`, …), or null.
+String? _typeRefName(TypeRef? type) => type is NamedType ? type.name : null;
+
 /// Compiles one function: tracks local slots and emits its instruction stream.
 class _FnCompiler {
   final Map<String, int> functionIndex;
+  final Map<String, String?> functionReturns;
   final List<Instr> _code = [];
   final Map<String, int> _slots = {};
   // Static type (by name) of each local, used to pick typed opcodes. Until the
@@ -82,7 +91,7 @@ class _FnCompiler {
   final List<int?> _labels = []; // label id -> bound instruction index
   final List<_Fixup> _fixups = [];
 
-  _FnCompiler(this.functionIndex);
+  _FnCompiler(this.functionIndex, this.functionReturns);
 
   FuncDef compile(FnDecl fn) {
     for (final p in fn.params) {
@@ -390,26 +399,58 @@ class _FnCompiler {
           (_comparison.contains(op) || op == '&&' || op == '||')
               ? 'Bool'
               : _typeOf(left),
+        CallExpr(:final callee) when callee is IdentExpr =>
+          _returnTypeOf(callee.name),
         _ => null,
       };
 
-  /// The name of a type reference (`Int`, `Double`, …), or null.
-  String? _typeName(TypeRef? type) =>
-      type is NamedType ? type.name : null;
+  /// Static result type of calling [name] — a user function's declared return
+  /// type, or a known native's.
+  String? _returnTypeOf(String name) {
+    if (functionReturns.containsKey(name)) return functionReturns[name];
+    return switch (name) {
+      'stringify' || 'str_concat' => 'String',
+      _ => null, // println/print → Unit (no usable value type)
+    };
+  }
 
+  String? _typeName(TypeRef? type) => _typeRefName(type);
+
+  /// String interpolation: each part becomes a string, then the pieces are
+  /// folded together with the binary `str_concat` native. A `${expr}` of a
+  /// primitive is converted via `stringify`; Display dispatch for user types
+  /// arrives with methods/interfaces.
   void _stringExpr(StringExpr expr) {
-    // Interpolation lowering arrives with native string ops; for now only
-    // plain text literals are supported.
-    final buf = StringBuffer();
-    for (final part in expr.parts) {
-      if (part is TextPart) {
-        buf.write(part.text);
-      } else {
-        throw CodegenException(
-            'string interpolation not yet supported', expr.span);
-      }
+    final parts = expr.parts;
+    if (parts.isEmpty) {
+      _emit(const ConstStr(''));
+      return;
     }
-    _emit(ConstStr(buf.toString()));
+    _stringPiece(parts.first, expr.span);
+    for (final part in parts.skip(1)) {
+      _stringPiece(part, expr.span);
+      _emit(const CallNative('str_concat', 2));
+    }
+  }
+
+  void _stringPiece(StringPart part, SourceSpan span) {
+    switch (part) {
+      case TextPart(:final text):
+        _emit(ConstStr(text));
+      case InterpPart(:final expr):
+        _expr(expr);
+        final type = _typeOf(expr);
+        if (type == 'String') {
+          // already a string; nothing to convert
+        } else if (type == 'Int' || type == 'Double' || type == 'Bool') {
+          _emit(const CallNative('stringify', 1));
+        } else {
+          throw CodegenException(
+              'cannot interpolate ${type ?? 'value'} '
+              '(Display dispatch not yet supported)',
+              span);
+        }
+    }
   }
 
   void _callExpr(CallExpr expr) {
@@ -419,10 +460,15 @@ class _FnCompiler {
           'unsupported call target: ${callee.runtimeType}', expr.span);
     }
     final name = callee.name;
+    // Arguments are pushed left-to-right; the bytecode is positional (named
+    // arguments are resolved to positions by the checker).
     for (final arg in expr.args) {
       _expr(arg.value);
     }
-    if (_natives.contains(name)) {
+    final fnIndex = functionIndex[name];
+    if (fnIndex != null) {
+      _emit(Call(fnIndex, expr.args.length));
+    } else if (_natives.contains(name)) {
       _emit(CallNative(name, expr.args.length));
     } else {
       throw CodegenException('unknown function: $name', expr.span);
