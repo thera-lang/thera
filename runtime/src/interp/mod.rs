@@ -40,8 +40,9 @@ mod natives;
 pub use natives::{
     NATIVE_LIST_GET, NATIVE_LIST_INDEX, NATIVE_LIST_LEN, NATIVE_LIST_SET, NATIVE_MAP_GET,
     NATIVE_MAP_HAS, NATIVE_MAP_INDEX, NATIVE_MAP_LEN, NATIVE_MAP_NEW, NATIVE_MAP_SET, NATIVE_PRINT,
-    NATIVE_PRINTLN, NATIVE_STR_CONCAT, NATIVE_STRINGIFY, NativeFn, default_natives, native_index,
-    native_name,
+    NATIVE_PRINTLN, NATIVE_SET_ADD, NATIVE_SET_HAS, NATIVE_SET_LEN, NATIVE_SET_NEW,
+    NATIVE_SET_REMOVE, NATIVE_STR_CONCAT, NATIVE_STRINGIFY, NativeFn, default_natives,
+    native_index, native_name,
 };
 
 /// The interpreter's execution context: where output goes and what native
@@ -390,7 +391,7 @@ fn pop_enum_variant(stack: &mut Vec<Value>) -> Result<u16, Trap> {
     match pop(stack)? {
         Value::Ref(rc) => match &*rc.borrow() {
             Obj::Enum(e) => Ok(e.variant),
-            Obj::Str(_) | Obj::List(_) | Obj::Map(_) | Obj::Struct { .. } => {
+            Obj::Str(_) | Obj::List(_) | Obj::Map(_) | Obj::Set(_) | Obj::Struct { .. } => {
                 Err(bug("enum.tag: expected enum"))
             }
         },
@@ -407,7 +408,7 @@ fn enum_field(v: &Value, idx: usize) -> Result<Value, Trap> {
                 .get(idx)
                 .cloned()
                 .ok_or_else(|| bug(format!("enum.get: field {idx} out of range"))),
-            Obj::Str(_) | Obj::List(_) | Obj::Map(_) | Obj::Struct { .. } => {
+            Obj::Str(_) | Obj::List(_) | Obj::Map(_) | Obj::Set(_) | Obj::Struct { .. } => {
                 Err(bug("enum.get: expected enum"))
             }
         },
@@ -423,7 +424,7 @@ fn struct_field(v: &Value, idx: usize) -> Result<Value, Trap> {
                 .get(idx)
                 .cloned()
                 .ok_or_else(|| bug(format!("field.get: field {idx} out of range"))),
-            Obj::Str(_) | Obj::List(_) | Obj::Map(_) | Obj::Enum(_) => {
+            Obj::Str(_) | Obj::List(_) | Obj::Map(_) | Obj::Set(_) | Obj::Enum(_) => {
                 Err(bug("field.get: expected struct"))
             }
         },
@@ -442,7 +443,7 @@ fn set_struct_field(v: &Value, idx: usize, value: Value) -> Result<(), Trap> {
                 *slot = value;
                 Ok(())
             }
-            Obj::Str(_) | Obj::List(_) | Obj::Map(_) | Obj::Enum(_) => {
+            Obj::Str(_) | Obj::List(_) | Obj::Map(_) | Obj::Set(_) | Obj::Enum(_) => {
                 Err(bug("field.set: expected struct"))
             }
         },
@@ -1440,5 +1441,91 @@ mod tests {
     fn field_get_on_non_struct_is_a_bug() {
         let code = [Instr::ConstInt(1), Instr::FieldGet(0), Instr::Return];
         assert!(matches!(run(&code), Err(Trap::Bug(_))));
+    }
+
+    // --- sets ---
+
+    /// Emit `Set.from([1, 2, 2, 3])` (with a duplicate).
+    fn push_demo_set(b: &mut FnBuilder) {
+        b.const_int(1);
+        b.const_int(2);
+        b.const_int(2);
+        b.const_int(3);
+        b.call_native(NATIVE_SET_NEW, 4);
+    }
+
+    #[test]
+    fn set_dedups_and_reports_len() {
+        let r = run_fn(|b| {
+            push_demo_set(b);
+            b.call_native(NATIVE_SET_LEN, 1);
+            b.ret();
+        });
+        assert_eq!(r, Ok(Value::Int(3))); // {1, 2, 3}
+    }
+
+    #[test]
+    fn set_membership() {
+        let present = run_fn(|b| {
+            push_demo_set(b);
+            b.const_int(2);
+            b.call_native(NATIVE_SET_HAS, 2);
+            b.ret();
+        });
+        assert_eq!(present, Ok(Value::Bool(true)));
+
+        let absent = run_fn(|b| {
+            push_demo_set(b);
+            b.const_int(9);
+            b.call_native(NATIVE_SET_HAS, 2);
+            b.ret();
+        });
+        assert_eq!(absent, Ok(Value::Bool(false)));
+    }
+
+    #[test]
+    fn set_add_and_remove_in_place() {
+        // s = {1,2,3}; s.add(2) (no-op); s.add(4); s.remove(1); return s.len()  → 3
+        let r = run_fn(|b| {
+            push_demo_set(b);
+            b.store(0);
+            b.load(0);
+            b.const_int(2);
+            b.call_native(NATIVE_SET_ADD, 2);
+            b.pop();
+            b.load(0);
+            b.const_int(4);
+            b.call_native(NATIVE_SET_ADD, 2);
+            b.pop();
+            b.load(0);
+            b.const_int(1);
+            b.call_native(NATIVE_SET_REMOVE, 2);
+            b.pop();
+            b.load(0);
+            b.call_native(NATIVE_SET_LEN, 1);
+            b.ret();
+        });
+        assert_eq!(r, Ok(Value::Int(3))); // {2, 3, 4}
+    }
+
+    #[test]
+    fn set_remove_reports_presence() {
+        let r = run_fn(|b| {
+            push_demo_set(b);
+            b.const_int(9); // not present
+            b.call_native(NATIVE_SET_REMOVE, 2);
+            b.ret();
+        });
+        assert_eq!(r, Ok(Value::Bool(false)));
+    }
+
+    #[test]
+    fn set_op_on_non_set_is_a_bug() {
+        let r = run_fn(|b| {
+            b.const_int(1); // not a set
+            b.call_native(NATIVE_SET_LEN, 1);
+            b.ret();
+        });
+        assert!(matches!(r, Err(Trap::Bug(_))));
     }
 }

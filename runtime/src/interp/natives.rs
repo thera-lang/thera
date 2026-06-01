@@ -30,6 +30,11 @@ pub const NATIVE_MAP_GET: u32 = 10;
 pub const NATIVE_MAP_LEN: u32 = 11;
 pub const NATIVE_MAP_HAS: u32 = 12;
 pub const NATIVE_MAP_SET: u32 = 13;
+pub const NATIVE_SET_NEW: u32 = 14;
+pub const NATIVE_SET_LEN: u32 = 15;
+pub const NATIVE_SET_HAS: u32 = 16;
+pub const NATIVE_SET_ADD: u32 = 17;
+pub const NATIVE_SET_REMOVE: u32 = 18;
 
 /// The canonical native table: the name each native is bound by, paired with
 /// its implementation, in index order. Names are the stable identity used by
@@ -49,6 +54,11 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("map_len", native_map_len),
     ("map_has", native_map_has),
     ("map_set", native_map_set),
+    ("set_new", native_set_new),
+    ("set_len", native_set_len),
+    ("set_has", native_set_has),
+    ("set_add", native_set_add),
+    ("set_remove", native_set_remove),
 ];
 
 /// The native functions the runtime ships with, in index order.
@@ -81,7 +91,7 @@ fn display_string(v: &Value) -> Result<String, Trap> {
         Value::Unit => "()".to_string(),
         Value::Ref(rc) => match &*rc.borrow() {
             Obj::Str(s) => s.clone(),
-            Obj::Enum(_) | Obj::List(_) | Obj::Map(_) | Obj::Struct { .. } => {
+            Obj::Enum(_) | Obj::List(_) | Obj::Map(_) | Obj::Set(_) | Obj::Struct { .. } => {
                 return Err(bug("display: type has no built-in Display"));
             }
         },
@@ -93,7 +103,7 @@ fn str_contents(v: &Value) -> Result<String, Trap> {
     match v {
         Value::Ref(rc) => match &*rc.borrow() {
             Obj::Str(s) => Ok(s.clone()),
-            Obj::Enum(_) | Obj::List(_) | Obj::Map(_) | Obj::Struct { .. } => {
+            Obj::Enum(_) | Obj::List(_) | Obj::Map(_) | Obj::Set(_) | Obj::Struct { .. } => {
                 Err(bug("expected string"))
             }
         },
@@ -340,6 +350,93 @@ fn native_map_set(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     })
 }
 
+// --- set natives ---
+
+fn with_set<R>(
+    v: &Value,
+    who: &str,
+    f: impl FnOnce(&[Value]) -> Result<R, Trap>,
+) -> Result<R, Trap> {
+    match v {
+        Value::Ref(rc) => match &*rc.borrow() {
+            Obj::Set(elements) => f(elements),
+            _ => Err(bug(format!("{who}: expected set"))),
+        },
+        _ => Err(bug(format!("{who}: expected set"))),
+    }
+}
+
+fn with_set_mut<R>(
+    v: &Value,
+    who: &str,
+    f: impl FnOnce(&mut Vec<Value>) -> Result<R, Trap>,
+) -> Result<R, Trap> {
+    match v {
+        Value::Ref(rc) => match &mut *rc.borrow_mut() {
+            Obj::Set(elements) => f(elements),
+            _ => Err(bug(format!("{who}: expected set"))),
+        },
+        _ => Err(bug(format!("{who}: expected set"))),
+    }
+}
+
+fn set_contains(elements: &[Value], v: &Value) -> bool {
+    elements.iter().any(|e| e == v)
+}
+
+fn set_insert(elements: &mut Vec<Value>, v: Value) {
+    if !set_contains(elements, &v) {
+        elements.push(v);
+    }
+}
+
+/// `Set.from([...])` — build a set from values, dropping duplicates.
+fn native_set_new(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let mut elements: Vec<Value> = Vec::new();
+    for v in args {
+        set_insert(&mut elements, v.clone());
+    }
+    Ok(Value::new_set(elements))
+}
+
+/// `set.len()`.
+fn native_set_len(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    with_set(expect_one(args, "set.len")?, "set.len", |elements| {
+        Ok(Value::Int(elements.len() as i64))
+    })
+}
+
+/// `set.has(value)`.
+fn native_set_has(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (set, v) = args2(args, "set.has")?;
+    with_set(set, "set.has", |elements| {
+        Ok(Value::Bool(set_contains(elements, v)))
+    })
+}
+
+/// `set.add(value)` — insert in place (no-op if present). Returns `Unit`.
+fn native_set_add(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (set, v) = args2(args, "set.add")?;
+    with_set_mut(set, "set.add", |elements| {
+        set_insert(elements, v.clone());
+        Ok(Value::Unit)
+    })
+}
+
+/// `set.remove(value)` — remove in place; returns whether it was present.
+fn native_set_remove(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (set, v) = args2(args, "set.remove")?;
+    with_set_mut(set, "set.remove", |elements| {
+        match elements.iter().position(|e| e == v) {
+            Some(pos) => {
+                elements.remove(pos);
+                Ok(Value::Bool(true))
+            }
+            None => Ok(Value::Bool(false)),
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -350,6 +447,7 @@ mod tests {
         assert_eq!(native_index("str_concat"), Some(NATIVE_STR_CONCAT));
         assert_eq!(native_index("map_set"), Some(NATIVE_MAP_SET));
         assert_eq!(native_name(NATIVE_STRINGIFY), Some("stringify"));
+        assert_eq!(native_index("set_add"), Some(NATIVE_SET_ADD));
         assert_eq!(native_index("nope"), None);
         assert_eq!(default_natives().len(), NATIVES.len());
     }

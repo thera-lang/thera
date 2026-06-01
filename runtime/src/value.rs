@@ -42,6 +42,11 @@ impl Value {
         Value::Ref(Rc::new(RefCell::new(Obj::Map(entries))))
     }
 
+    /// Construct a heap set from already-deduplicated elements.
+    pub fn new_set(elements: Vec<Value>) -> Value {
+        Value::Ref(Rc::new(RefCell::new(Obj::Set(elements))))
+    }
+
     /// Construct a struct value of the given type on the heap.
     pub fn new_struct(ty: u32, fields: Vec<Value>) -> Value {
         Value::Ref(Rc::new(RefCell::new(Obj::Struct { ty, fields })))
@@ -75,6 +80,9 @@ pub enum Obj {
     /// A key/value store. Insertion-ordered; lookups are a linear scan keyed by
     /// structural equality (simple and dependency-free for the draft).
     Map(Vec<(Value, Value)>),
+    /// A set of unique values. Insertion-ordered; like [`Obj::Map`], membership
+    /// is a linear scan by structural equality.
+    Set(Vec<Value>),
     /// A struct instance: its type id and field values (addressed by index).
     Struct {
         ty: u32,
