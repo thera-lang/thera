@@ -112,12 +112,12 @@ runs that embedded front-end _on our own interpreter_; it parses `foo.hawk`,
 emits a `Module`, and runs it. The front-end is just another Hawk program riding
 the runtime — the self-hosting endgame.
 
-This makes the **native-function table an ABI**: every `native fn` in
-`sdk/std/` maps to a runtime native, and persisted bytecode references them.
-Natives are bound **by name, resolved at load** (Wasm-style imports), not by
-baked index — so bytecode stays robust across runtime versions and a separate
-emitter (the Dart front-end) need not hard-code an index table. The names live
-in the constant pool.
+This makes the **native-function table an ABI**: every `native fn` in `sdk/std/`
+maps to a runtime native, and persisted bytecode references them. Natives are
+bound **by name, resolved at load** (Wasm-style imports), not by baked index —
+so bytecode stays robust across runtime versions and a separate emitter (the
+Dart front-end) need not hard-code an index table. The names live in the
+constant pool.
 
 ## Options considered and rejected
 

@@ -37,8 +37,6 @@ cargo run -- emit-demo /tmp/x.hawkbc   # write a sample module
 cargo run -- run /tmp/x.hawkbc          # load + run it
 ```
 
-In this environment `cargo` is at `~/.cargo/bin/cargo` (not on `PATH`).
-
 The Dart toolchain runs current Hawk: `bin/hawk.sh <run|check> <file.hawk>`.
 
 ## Working conventions

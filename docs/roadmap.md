@@ -27,8 +27,8 @@ interpreter, and LSP for current Hawk. This is how `.hawk` source runs today.
 
 The path to a self-hosting `hawk`:
 
-1. **Interpreter runs `.hawkbc`** — _largely here._ Remaining: a real
-   entry/args convention and a fuller native/stdlib surface.
+1. **Interpreter runs `.hawkbc`** — _largely here._ Remaining: a real entry/args
+   convention and a fuller native/stdlib surface.
 2. **Dart front-end emits `.hawkbc`** — _the linchpin._ Add a bytecode-emitter
    backend to the Dart toolchain (alongside its tree-walker), targeting our
    exact format/opcodes/native-ABI. This runs real Hawk programs on the Rust
@@ -49,7 +49,8 @@ until the Hawk front-end can compile itself.
    exists; the GC is next on the runtime side. This alone runs real Hawk apps
    with fast startup.
 4. **Add the Cranelift JIT tier** for hot functions (or trial copy-and-patch);
-   decide the JIT root strategy here (see GC in [architecture.md](architecture.md)).
+   decide the JIT root strategy here (see GC in
+   [architecture.md](architecture.md)).
 5. **AOT via `cranelift-object`** later — single-binary distribution — optional,
    not on the startup-critical path.
 

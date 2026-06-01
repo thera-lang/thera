@@ -797,10 +797,9 @@ implicit `Ok` on `return` — are documented above as the language's behavior.)
   iteration via `.chars()` (code points) or `.graphemes()` (user-perceived
   characters) so code never slices an emoji in half. `Char` as a distinct type
   is still open (see Types → Open questions above).
-- **Visibility / access control** — `pub` keyword (Rust), leading-`_`
-  convention (Go), an explicit `export` list (ES modules), or interface files?
-  Needed to hide `native fn` bindings and internal helpers from a module's
-  public API.
+- **Visibility / access control** — `pub` keyword (Rust), leading-`_` convention
+  (Go), an explicit `export` list (ES modules), or interface files? Needed to
+  hide `native fn` bindings and internal helpers from a module's public API.
 - **Module / package system** — file-per-module (Go) or explicit `import`
   declarations? And a **package manager** — Go-style URL imports or a central
   registry (npm/PyPI)? Relevant early, since stdlib scope depends on it.
@@ -821,7 +820,8 @@ implicit `Ok` on `return` — are documented above as the language's behavior.)
 - **`Option` vs. a nullable type system** — `Option<T>` (composes with
   `.map`/`.flat_map`, represents nested absence) vs. `String?` with `?.`/`??`
   (zero boilerplate, no wrapper, but can't nest). `language.md` uses `Option<T>`
-  as a placeholder; revisit once there's enough real Hawk code to judge friction.
+  as a placeholder; revisit once there's enough real Hawk code to judge
+  friction.
 - **Concurrency beyond single-threaded fibers** — the model is single-threaded
   cooperative fibers (no synchronization needed, no CPU parallelism). If
   parallelism becomes a requirement: _immutable-only sharing_ across threads
