@@ -205,6 +205,36 @@ fn f() -> Result<Int, Int> { let x = g()?; return x; }
           .code;
       expect(ops, contains(isA<FieldSet>().having((i) => i.index, 'index', 0)));
     });
+
+    test('named arguments are reordered to parameter order', () {
+      final m = compile('''
+type Point = { x: Int, y: Int }
+impl Point { fn make(x: Int, y: Int) -> Point { return Point { x: x, y: y }; } }
+fn main() -> Int { let p = Point.make(y: 2, x: 40); return 0; }
+''');
+      final main = m.functions.firstWhere((f) => f.name == 'main');
+      // Written (y: 2, x: 40), but x is the first parameter → 40 is pushed first.
+      expect(main.code.whereType<ConstInt>().take(2).map((i) => i.value),
+          [40, 2]);
+      expect(main.code, contains(isA<Call>().having((i) => i.argc, 'argc', 2)));
+    });
+
+    test('an instance method call pushes self then args', () {
+      final m = compile('''
+type V = { n: Int }
+impl V { fn bump(self, by: Int) -> Int { return self.n + by; } }
+fn main() -> Int { let v = V { n: 1 }; return v.bump(5); }
+''');
+      final main = m.functions.firstWhere((f) => f.name == 'main');
+      // self (load v) + one arg → argc 2.
+      expect(main.code, contains(isA<Call>().having((i) => i.argc, 'argc', 2)));
+    });
+
+    test('method names are mangled as Type.method', () {
+      final m = compile(
+          'type V = { n: Int } impl V { fn get(self) -> Int { return self.n; } }');
+      expect(m.functions.map((f) => f.name), contains('V.get'));
+    });
   });
 
   group('end-to-end (requires the Rust runtime)', () {
@@ -447,6 +477,64 @@ fn main() -> Int {
 }
 '''),
           35);
+    });
+
+    test('instance method call', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      expect(
+          runExit('method', '''
+type Point = { x: Int, y: Int }
+impl Point {
+    fn sum(self) -> Int { return self.x + self.y; }
+}
+fn main() -> Int {
+    let p = Point { x: 40, y: 2 };
+    return p.sum();
+}
+'''),
+          42);
+    });
+
+    test('static method with named (reordered) arguments', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      expect(
+          runExit('static', '''
+type Point = { x: Int, y: Int }
+impl Point {
+    fn make(x: Int, y: Int) -> Point { return Point { x: x, y: y }; }
+    fn sum(self) -> Int { return self.x + self.y; }
+}
+fn main() -> Int {
+    let p = Point.make(y: 2, x: 40);
+    return p.sum();
+}
+'''),
+          42);
+    });
+
+    test('method call with args, chained on the result', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      expect(
+          runExit('chain', '''
+type Point = { x: Int, y: Int }
+impl Point {
+    fn translate(self, dx: Int, dy: Int) -> Point {
+        return Point { x: self.x + dx, y: self.y + dy };
+    }
+    fn sum(self) -> Int { return self.x + self.y; }
+}
+fn main() -> Int {
+    let p = Point { x: 10, y: 20 };
+    return p.translate(5, 7).sum();
+}
+'''),
+          42);
+    });
+
+    test('the structs.hawk example compiles', () {
+      final m = compile(File('../examples/structs.hawk').readAsStringSync());
+      expect(m.functions, isNotEmpty);
+      expect(m.types.map((t) => t.name), containsAll(['Point', 'Rect']));
     });
   });
 }

@@ -55,39 +55,32 @@ const int _tagNone = 1;
 
 /// Compile a whole program to a module.
 Module compileProgram(Program program) {
-  // Index every (non-native) function up front, so direct calls can resolve a
-  // callee to its table index regardless of declaration order. Return types are
-  // recorded too, so a call expression's static type is known for opcode
-  // selection on its result.
-  final functionIndex = <String, int>{};
-  final functionReturns = <String, String?>{};
-  final fns = <FnDecl>[];
-
-  // Struct declarations populate the module's type table; their index in that
-  // table is the type id used by `struct.new`.
-  final structs = <String, _StructInfo>{};
-  final types = <TypeDef>[];
-
+  // Register everything first (in two phases: declarations, then bodies) so
+  // forward references — calls to later functions, methods, struct types —
+  // all resolve. Functions and impl methods become a flat list of "units"; a
+  // unit's position is the function-table index used by `call`.
+  final scope = _ModuleScope();
   for (final decl in program.decls) {
-    if (decl is FnDecl && !decl.isNative) {
-      functionIndex[decl.name] = fns.length;
-      functionReturns[decl.name] = _typeRefName(decl.returnType);
-      fns.add(decl);
-    } else if (decl is TypeDecl) {
-      final fieldNames = [for (final f in decl.fields) f.$1];
-      final fieldTypes = {
-        for (final f in decl.fields) f.$1: _typeRefName(f.$2),
-      };
-      structs[decl.name] = _StructInfo(types.length, fieldNames, fieldTypes);
-      types.add(TypeDef(decl.name, fieldNames.length));
+    switch (decl) {
+      case FnDecl() when !decl.isNative:
+        scope.addFunction(decl);
+      case TypeDecl():
+        scope.addStruct(decl);
+      case ImplDecl():
+        for (final method in decl.methods) {
+          if (!method.isNative && method.body != null) {
+            scope.addMethod(decl.typeName, method);
+          }
+        }
+      default:
+        break;
     }
   }
 
   final functions = [
-    for (final fn in fns)
-      _FnCompiler(functionIndex, functionReturns, structs).compile(fn),
+    for (var i = 0; i < scope.units.length; i++) _FnCompiler(scope).compile(i),
   ];
-  return Module(functions, types: types);
+  return Module(functions, types: scope.types);
 }
 
 /// The name of a type reference (`Int`, `Double`, …), or null.
@@ -105,11 +98,53 @@ class _StructInfo {
   int fieldIndexOf(String name) => fieldNames.indexOf(name);
 }
 
+/// Module-wide tables shared by every function compiler: the flat list of
+/// compiled units (functions + impl methods), how to resolve a call to a unit
+/// index, and the struct/type layout.
+class _ModuleScope {
+  final List<FnDecl> units = []; // index -> declaration
+  final List<String> unitNames = []; // index -> mangled name (e.g. Point.area)
+  final List<String?> unitSelfTypes = []; // index -> receiver type, if a method
+  final Map<String, int> functionIndex = {}; // bare name -> unit index
+  final Map<String, Map<String, int>> methodTable = {}; // type -> method -> idx
+  final Map<String, _StructInfo> structs = {};
+  final List<TypeDef> types = [];
+
+  void addStruct(TypeDecl decl) {
+    final fieldNames = [for (final f in decl.fields) f.$1];
+    final fieldTypes = {for (final f in decl.fields) f.$1: _typeRefName(f.$2)};
+    structs[decl.name] = _StructInfo(types.length, fieldNames, fieldTypes);
+    types.add(TypeDef(decl.name, fieldNames.length));
+  }
+
+  void addFunction(FnDecl decl) {
+    functionIndex[decl.name] = units.length;
+    _addUnit(decl, decl.name, null);
+  }
+
+  void addMethod(String type, FnDecl method) {
+    final selfType = method.params.any((p) => p.isSelf) ? type : null;
+    methodTable.putIfAbsent(type, () => {})[method.name] = units.length;
+    _addUnit(method, '$type.${method.name}', selfType);
+  }
+
+  void _addUnit(FnDecl decl, String name, String? selfType) {
+    units.add(decl);
+    unitNames.add(name);
+    unitSelfTypes.add(selfType);
+  }
+
+  String? returnTypeOfIndex(int index) => _typeRefName(units[index].returnType);
+}
+
 /// Compiles one function: tracks local slots and emits its instruction stream.
 class _FnCompiler {
-  final Map<String, int> functionIndex;
-  final Map<String, String?> functionReturns;
-  final Map<String, _StructInfo> structs;
+  final _ModuleScope _scope;
+  Map<String, int> get functionIndex => _scope.functionIndex;
+  Map<String, Map<String, int>> get _methods => _scope.methodTable;
+  Map<String, _StructInfo> get structs => _scope.structs;
+  List<FnDecl> get _units => _scope.units;
+
   final List<Instr> _code = [];
   final Map<String, int> _slots = {};
   // Static type (by name) of each local, used to pick typed opcodes. Until the
@@ -130,13 +165,17 @@ class _FnCompiler {
   final List<int?> _labels = []; // label id -> bound instruction index
   final List<_Fixup> _fixups = [];
 
-  _FnCompiler(this.functionIndex, this.functionReturns, this.structs);
+  _FnCompiler(this._scope);
 
-  FuncDef compile(FnDecl fn) {
+  /// Compile the unit at [index] in the module scope.
+  FuncDef compile(int index) {
+    final fn = _units[index];
+    final selfType = _scope.unitSelfTypes[index];
     _returnsResult = _typeRefName(fn.returnType) == 'Result';
     for (final p in fn.params) {
       _declareLocal(p.name);
-      _localTypes[p.name] = _typeName(p.type);
+      // `self` carries the receiver type; other params their declared type.
+      _localTypes[p.name] = p.isSelf ? selfType : _typeName(p.type);
       _paramCount++;
     }
     if (fn.body != null) {
@@ -149,7 +188,7 @@ class _FnCompiler {
       _emit(const Simple(Op.return_));
     }
     _resolveJumps();
-    return FuncDef(fn.name, _paramCount, _localCount, _code);
+    return FuncDef(_scope.unitNames[index], _paramCount, _localCount, _code);
   }
 
   /// Backpatch each placeholder jump with the absolute index of its label.
@@ -590,11 +629,33 @@ class _FnCompiler {
           'Some' => 'Option',
           _ => _returnTypeOf(callee.name),
         },
+        CallExpr(:final callee) when callee is FieldExpr =>
+          _methodReturnType(callee),
         StructExpr(:final typeName) => typeName,
         FieldExpr(:final object, :final field) =>
           structs[_typeOf(object)]?.fieldTypes[field],
         _ => null,
       };
+
+  /// Resolve the declared return type of a method call `recv.method(...)` (or
+  /// `Type.method(...)`), used so chained calls and arithmetic on results pick
+  /// the right opcodes.
+  String? _methodReturnType(FieldExpr callee) {
+    final idx = _resolveMethod(callee.object, callee.field);
+    return idx == null ? null : _scope.returnTypeOfIndex(idx);
+  }
+
+  /// The unit index of method [name] on the receiver expression [receiver], or
+  /// null if it can't be resolved. A bare struct type name (not shadowed by a
+  /// local) selects a static method; otherwise the receiver's static type does.
+  int? _resolveMethod(Expr receiver, String name) {
+    final type = (receiver is IdentExpr &&
+            structs.containsKey(receiver.name) &&
+            !_slots.containsKey(receiver.name))
+        ? receiver.name
+        : _typeOf(receiver);
+    return type == null ? null : _methods[type]?[name];
+  }
 
   /// The (typeId, variantTag) for a `Result`/`Option` constructor, or null if
   /// [name] is not one.
@@ -608,7 +669,8 @@ class _FnCompiler {
   /// Static result type of calling [name] — a user function's declared return
   /// type, or a known native's.
   String? _returnTypeOf(String name) {
-    if (functionReturns.containsKey(name)) return functionReturns[name];
+    final idx = functionIndex[name];
+    if (idx != null) return _scope.returnTypeOfIndex(idx);
     return switch (name) {
       'stringify' || 'str_concat' => 'String',
       _ => null, // println/print → Unit (no usable value type)
@@ -694,6 +756,10 @@ class _FnCompiler {
 
   void _callExpr(CallExpr expr) {
     final callee = expr.callee;
+    if (callee is FieldExpr) {
+      _methodCall(expr, callee);
+      return;
+    }
     if (callee is! IdentExpr) {
       throw CodegenException(
           'unsupported call target: ${callee.runtimeType}', expr.span);
@@ -711,18 +777,81 @@ class _FnCompiler {
       return;
     }
 
-    // Arguments are pushed left-to-right; the bytecode is positional (named
-    // arguments are resolved to positions by the checker).
-    for (final arg in expr.args) {
-      _expr(arg.value);
-    }
     final fnIndex = functionIndex[name];
     if (fnIndex != null) {
-      _emit(Call(fnIndex, expr.args.length));
-    } else if (_natives.contains(name)) {
-      _emit(CallNative(name, expr.args.length));
-    } else {
-      throw CodegenException('unknown function: $name', expr.span);
+      final ordered = _resolveArgs(_units[fnIndex].params, expr.args, expr.span);
+      for (final value in ordered) {
+        _expr(value);
+      }
+      _emit(Call(fnIndex, ordered.length));
+      return;
     }
+    if (_natives.contains(name)) {
+      for (final arg in expr.args) {
+        _expr(arg.value);
+      }
+      _emit(CallNative(name, expr.args.length));
+      return;
+    }
+    throw CodegenException('unknown function: $name', expr.span);
+  }
+
+  /// `recv.method(args)` / `Type.method(args)`. For an instance method the
+  /// receiver is pushed first as `self`; arguments follow in parameter order.
+  void _methodCall(CallExpr expr, FieldExpr callee) {
+    final idx = _resolveMethod(callee.object, callee.field);
+    if (idx == null) {
+      throw CodegenException(
+          'no method "${callee.field}" on '
+          '${_typeOf(callee.object) ?? 'unknown type'}',
+          expr.span);
+    }
+    final decl = _units[idx];
+    final isStatic = _scope.unitSelfTypes[idx] == null;
+    if (!isStatic) {
+      _expr(callee.object); // self → local slot 0 of the callee
+    }
+    final ordered = _resolveArgs(decl.params, expr.args, expr.span);
+    for (final value in ordered) {
+      _expr(value);
+    }
+    _emit(Call(idx, ordered.length + (isStatic ? 0 : 1)));
+  }
+
+  /// Match call arguments to a callee's (non-`self`) parameters, returning the
+  /// value expressions in parameter order — applying named-argument resolution
+  /// and default values, mirroring the interpreter's `_callFn`.
+  List<Expr> _resolveArgs(
+      List<Param> params, List<CallArg> callArgs, SourceSpan span) {
+    final positional = [
+      for (final a in callArgs)
+        if (a.label == null) a.value,
+    ];
+    final named = {
+      for (final a in callArgs)
+        if (a.label != null) a.label!: a.value,
+    };
+
+    final ordered = <Expr>[];
+    var pi = 0;
+    for (final p in params.where((p) => !p.isSelf)) {
+      final Expr? value;
+      if (p.label == null) {
+        // Suppressed external label (`_`): positional only.
+        value = pi < positional.length ? positional[pi++] : p.defaultValue;
+      } else {
+        // Named param: by label, else positionally if label == name.
+        value = named[p.label] ??
+            ((pi < positional.length && p.label == p.name)
+                ? positional[pi++]
+                : p.defaultValue);
+      }
+      if (value == null) {
+        throw CodegenException(
+            'missing argument for parameter `${p.name}`', span);
+      }
+      ordered.add(value);
+    }
+    return ordered;
   }
 }
