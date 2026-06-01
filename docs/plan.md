@@ -498,3 +498,63 @@ the stable interface:
    decide JIT root strategy here.
 5. **AOT via `cranelift-object`** later — single-binary distribution and
    self-hosting — optional, not on the startup-critical path.
+
+#### Execution pipeline
+
+How a single `hawk run foo.hawk` flows through the runtime:
+
+```
+hawk source ──[front-end]──► Module (in-memory bytecode)
+                               │
+                               ▼
+                        Tier-0 interpreter ── per-function execution counter++
+                               │
+                  counter ≥ threshold (hot)
+                               ▼
+                  Cranelift JIT compiles that function ──► native code
+                               │
+                next call dispatches to the compiled version
+```
+
+- **Tier dispatch.** Each function carries a tier state (`Bytecode` vs.
+  `Compiled(ptr)`); the call path checks it and prefers compiled code. Tier-up
+  takes effect on the *next* call — the in-flight invocation finishes in the
+  interpreter (no on-stack replacement to start; OSR is deferred).
+- **Counters at calls *and* loop back-edges.** Call counts miss a hot loop
+  inside one long-running function; a back-edge counter catches those. For
+  run-once CLI code, calls dominate — which is why only genuine hot loops tier
+  up.
+- **The value-representation boundary** is the main latent refactor: the JIT
+  wants the untagged, typed values the format already carries, while the Tier-0
+  interpreter starts with a tagged `Value`. When the JIT lands, interpreted and
+  compiled frames must share a representation, so the JIT tier is what forces
+  the tagged→untagged move (and it is entangled with precise GC roots).
+
+#### Persistence and bootstrap
+
+`bin/hawk` is the Rust runtime (interpreter + JIT + GC) with an **embedded
+`frontend.hawkbc`** (the front-end, compiled to bytecode, `include_bytes!`'d in).
+`hawk run foo.hawk` runs that embedded front-end *on our own interpreter*; it
+parses `foo.hawk`, emits a `Module`, and runs it. The front-end is just another
+Hawk program riding the runtime — the self-hosting endgame.
+
+This means the **native-function table is an ABI**: every `native fn` in
+`sdk/std/` maps to a runtime native, and persisted bytecode references them.
+(Open: reference natives by baked index vs. by name resolved at load — Wasm-style
+imports. Name-based is more robust once a separate tool emits bytecode; decide
+before the Dart emitter hard-codes indices.)
+
+Three long-term arcs get us there:
+
+1. **Interpreter runs `.hawkbc`** — decode → `Module` → run; needs an
+   entry/args convention and a real native/stdlib surface.
+2. **Dart front-end emits `.hawkbc`** — the linchpin. It adds a *bytecode
+   emitter backend* (alongside its tree-walker) targeting our exact
+   format/opcodes/native-ABI. This is what runs real Hawk programs on the Rust
+   runtime *and* the bootstrap compiler that produces the first
+   `frontend.hawkbc`.
+3. **Hawk front-end emits `.hawkbc`** — self-hosting; bootstrapped by arc 2
+   compiling the Hawk-written front-end the first time.
+
+The Dart toolchain must therefore be maintained — parsing current Hawk and
+emitting bytecode — until the Hawk front-end can compile itself.
