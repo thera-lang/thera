@@ -96,6 +96,8 @@ pub enum DecodeError {
     UnsupportedVersion(u32),
     /// An instruction opcode byte was not recognized.
     UnknownOpcode(u8),
+    /// A constant-pool index referenced a slot that does not exist.
+    ConstIndexOutOfRange,
 }
 
 /// Reads encoded values from a byte slice, tracking the read position.

@@ -10,6 +10,8 @@
 //! lightweight integrity checks — magic, version, opcode — rather than a full
 //! verifier.
 
+use std::collections::HashMap;
+
 use crate::instr::Instr;
 use crate::module::{Function, Module};
 use crate::serialize::{DecodeError, Reader, Writer};
@@ -20,6 +22,29 @@ const VERSION: u32 = 1;
 /// Section ids. Unknown ids are skipped on decode via their byte length.
 mod section {
     pub const FUNCTIONS: u8 = 1;
+    pub const CONSTANTS: u8 = 2;
+}
+
+/// Collects and deduplicates string literals during encoding. Strings are
+/// stored once in the Constants section; `const.str` instructions reference
+/// them by index. (Strings only for now — f64 and large ints can join later.)
+#[derive(Default)]
+struct StringPool {
+    strings: Vec<String>,
+    index: HashMap<String, u32>,
+}
+
+impl StringPool {
+    /// Intern `s`, returning its pool index (reusing an existing entry).
+    fn intern(&mut self, s: &str) -> u32 {
+        if let Some(&i) = self.index.get(s) {
+            return i;
+        }
+        let i = self.strings.len() as u32;
+        self.strings.push(s.to_string());
+        self.index.insert(s.to_string(), i);
+        i
+    }
 }
 
 /// One-byte opcode tags. Shared by [`encode_instr`] and [`decode_instr`] so the
@@ -74,18 +99,35 @@ mod op {
 
 /// Encode a module to the wire format.
 pub fn encode_module(m: &Module) -> Vec<u8> {
+    // First pass: intern every string literal into the pool.
+    let mut pool = StringPool::default();
+    for f in &m.functions {
+        for instr in &f.code {
+            if let Instr::ConstStr(s) = instr {
+                pool.intern(s);
+            }
+        }
+    }
+
+    // Constants section: the deduplicated strings.
+    let mut consts = Writer::new();
+    consts.write_uvarint(pool.strings.len() as u64);
+    for s in &pool.strings {
+        consts.write_str(s);
+    }
+
+    // Functions section: bodies reference the pool by index.
+    let mut funcs = Writer::new();
+    funcs.write_uvarint(m.functions.len() as u64);
+    for f in &m.functions {
+        encode_function(&mut funcs, f, &pool);
+    }
+
     let mut w = Writer::new();
     w.write_raw(MAGIC);
     w.write_u32_le(VERSION);
-
-    // Functions section.
-    let mut body = Writer::new();
-    body.write_uvarint(m.functions.len() as u64);
-    for f in &m.functions {
-        encode_function(&mut body, f);
-    }
-    write_section(&mut w, section::FUNCTIONS, &body.into_bytes());
-
+    write_section(&mut w, section::CONSTANTS, &consts.into_bytes());
+    write_section(&mut w, section::FUNCTIONS, &funcs.into_bytes());
     w.into_bytes()
 }
 
@@ -100,23 +142,46 @@ pub fn decode_module(bytes: &[u8]) -> Result<Module, DecodeError> {
         return Err(DecodeError::UnsupportedVersion(version));
     }
 
-    let mut functions = Vec::new();
+    // Collect section payloads first (order-independent; unknown ids ignored).
+    let mut consts_payload: Option<&[u8]> = None;
+    let mut funcs_payload: Option<&[u8]> = None;
     while !r.is_empty() {
         let id = r.read_u8()?;
         let len = r.read_uvarint()? as usize;
         let payload = r.read_raw(len)?;
-        // FUNCTIONS is the only section v0 understands; any other id is skipped
-        // (its payload was already consumed above — forward compatibility).
-        if id == section::FUNCTIONS {
-            let mut pr = Reader::new(payload);
-            let count = pr.read_uvarint()?;
-            for _ in 0..count {
-                functions.push(decode_function(&mut pr)?);
-            }
+        match id {
+            section::CONSTANTS => consts_payload = Some(payload),
+            section::FUNCTIONS => funcs_payload = Some(payload),
+            _ => {} // unknown section: skip (payload already consumed)
+        }
+    }
+
+    // The constant pool must be available before decoding function bodies.
+    let pool = match consts_payload {
+        Some(p) => decode_pool(p)?,
+        None => Vec::new(),
+    };
+
+    let mut functions = Vec::new();
+    if let Some(p) = funcs_payload {
+        let mut pr = Reader::new(p);
+        let count = pr.read_uvarint()?;
+        for _ in 0..count {
+            functions.push(decode_function(&mut pr, &pool)?);
         }
     }
 
     Ok(Module::new(functions))
+}
+
+fn decode_pool(payload: &[u8]) -> Result<Vec<String>, DecodeError> {
+    let mut r = Reader::new(payload);
+    let count = r.read_uvarint()? as usize;
+    let mut strings = Vec::with_capacity(count);
+    for _ in 0..count {
+        strings.push(r.read_str()?);
+    }
+    Ok(strings)
 }
 
 fn write_section(w: &mut Writer, id: u8, payload: &[u8]) {
@@ -125,29 +190,29 @@ fn write_section(w: &mut Writer, id: u8, payload: &[u8]) {
     w.write_raw(payload);
 }
 
-fn encode_function(w: &mut Writer, f: &Function) {
+fn encode_function(w: &mut Writer, f: &Function, pool: &StringPool) {
     w.write_str(&f.name);
     w.write_uvarint(f.param_count as u64);
     w.write_uvarint(f.local_count as u64);
     w.write_uvarint(f.code.len() as u64);
     for instr in &f.code {
-        encode_instr(w, instr);
+        encode_instr(w, instr, pool);
     }
 }
 
-fn decode_function(r: &mut Reader) -> Result<Function, DecodeError> {
+fn decode_function(r: &mut Reader, pool: &[String]) -> Result<Function, DecodeError> {
     let name = r.read_str()?;
     let param_count = r.read_uvarint()? as u16;
     let local_count = r.read_uvarint()? as u16;
     let code_len = r.read_uvarint()? as usize;
     let mut code = Vec::with_capacity(code_len);
     for _ in 0..code_len {
-        code.push(decode_instr(r)?);
+        code.push(decode_instr(r, pool)?);
     }
     Ok(Function::new(name, param_count, local_count, code))
 }
 
-fn encode_instr(w: &mut Writer, instr: &Instr) {
+fn encode_instr(w: &mut Writer, instr: &Instr, pool: &StringPool) {
     match instr {
         Instr::ConstInt(n) => {
             w.write_u8(op::CONST_INT);
@@ -164,7 +229,7 @@ fn encode_instr(w: &mut Writer, instr: &Instr) {
         Instr::ConstUnit => w.write_u8(op::CONST_UNIT),
         Instr::ConstStr(s) => {
             w.write_u8(op::CONST_STR);
-            w.write_str(s);
+            w.write_uvarint(u64::from(pool.index[s]));
         }
         Instr::Load(slot) => {
             w.write_u8(op::LOAD);
@@ -247,14 +312,21 @@ fn encode_instr(w: &mut Writer, instr: &Instr) {
     }
 }
 
-fn decode_instr(r: &mut Reader) -> Result<Instr, DecodeError> {
+fn decode_instr(r: &mut Reader, pool: &[String]) -> Result<Instr, DecodeError> {
     let opcode = r.read_u8()?;
     Ok(match opcode {
         op::CONST_INT => Instr::ConstInt(r.read_ivarint()?),
         op::CONST_DOUBLE => Instr::ConstDouble(r.read_f64()?),
         op::CONST_BOOL => Instr::ConstBool(r.read_u8()? != 0),
         op::CONST_UNIT => Instr::ConstUnit,
-        op::CONST_STR => Instr::ConstStr(r.read_str()?),
+        op::CONST_STR => {
+            let idx = r.read_uvarint()? as usize;
+            let s = pool
+                .get(idx)
+                .ok_or(DecodeError::ConstIndexOutOfRange)?
+                .clone();
+            Instr::ConstStr(s)
+        }
         op::LOAD => Instr::Load(r.read_uvarint()? as u16),
         op::STORE => Instr::Store(r.read_uvarint()? as u16),
         op::ADD_I64 => Instr::AddI64,
@@ -412,6 +484,54 @@ mod tests {
         ];
         let m = Module::new(vec![Function::new("all", 0, 5, code)]);
         assert_eq!(decode_module(&encode_module(&m)), Ok(m));
+    }
+
+    #[test]
+    fn repeated_string_is_pooled_once() {
+        // The same literal used three times is stored once in the pool.
+        let code = vec![
+            Instr::ConstStr("hello".into()),
+            Instr::ConstStr("hello".into()),
+            Instr::ConstStr("hello".into()),
+            Instr::Return,
+        ];
+        let m = Module::new(vec![Function::new("f", 0, 0, code)]);
+        let bytes = encode_module(&m);
+
+        let occurrences = bytes
+            .windows(b"hello".len())
+            .filter(|w| *w == b"hello")
+            .count();
+        assert_eq!(occurrences, 1, "string literal should be stored once");
+        assert_eq!(decode_module(&bytes), Ok(m));
+    }
+
+    #[test]
+    fn rejects_out_of_range_const_index() {
+        // A hand-built module whose `const.str` references an empty pool.
+        let mut consts = Writer::new();
+        consts.write_uvarint(0); // empty pool
+
+        let mut funcs = Writer::new();
+        funcs.write_uvarint(1); // one function
+        funcs.write_str("f");
+        funcs.write_uvarint(0); // params
+        funcs.write_uvarint(0); // locals
+        funcs.write_uvarint(2); // code len
+        funcs.write_u8(super::op::CONST_STR);
+        funcs.write_uvarint(5); // index 5 into an empty pool
+        funcs.write_u8(super::op::RETURN);
+
+        let mut w = Writer::new();
+        w.write_raw(MAGIC);
+        w.write_u32_le(VERSION);
+        write_section(&mut w, super::section::CONSTANTS, &consts.into_bytes());
+        write_section(&mut w, super::section::FUNCTIONS, &funcs.into_bytes());
+
+        assert_eq!(
+            decode_module(&w.into_bytes()),
+            Err(DecodeError::ConstIndexOutOfRange)
+        );
     }
 
     #[test]
