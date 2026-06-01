@@ -55,6 +55,11 @@ class _FnCompiler {
   final Map<String, int> functionIndex;
   final List<Instr> _code = [];
   final Map<String, int> _slots = {};
+  // Static type (by name) of each local, used to pick typed opcodes. Until the
+  // checker annotates the AST, codegen derives these from declarations and a
+  // bottom-up [_typeOf]; this is the seam where checker-provided types will
+  // later plug in.
+  final Map<String, String?> _localTypes = {};
   int _localCount = 0;
   int _paramCount = 0;
 
@@ -63,6 +68,7 @@ class _FnCompiler {
   FuncDef compile(FnDecl fn) {
     for (final p in fn.params) {
       _declareLocal(p.name);
+      _localTypes[p.name] = _typeName(p.type);
       _paramCount++;
     }
     if (fn.body != null) {
@@ -100,6 +106,26 @@ class _FnCompiler {
 
   void _stmt(Stmt stmt) {
     switch (stmt) {
+      case LetStmt(:final name, :final type, :final value):
+        // Evaluate the initializer before declaring the binding, so the
+        // initializer can't see the (not-yet-bound) name.
+        _expr(value);
+        final slot = _declareLocal(name);
+        _localTypes[name] = type != null ? _typeName(type) : _typeOf(value);
+        _emit(Store(slot));
+      case AssignStmt(:final target, :final value):
+        if (target is! IdentExpr) {
+          throw CodegenException(
+              'unsupported assignment target: ${target.runtimeType}',
+              stmt.span);
+        }
+        final slot = _slots[target.name];
+        if (slot == null) {
+          throw CodegenException(
+              'assignment to unknown local: ${target.name}', stmt.span);
+        }
+        _expr(value);
+        _emit(Store(slot));
       case ReturnStmt(:final value):
         if (value != null) {
           _expr(value);
@@ -130,6 +156,16 @@ class _FnCompiler {
         _emit(ConstBool(value));
       case StringExpr():
         _stringExpr(expr);
+      case IdentExpr(:final name):
+        final slot = _slots[name];
+        if (slot == null) {
+          throw CodegenException('not a local variable: $name', expr.span);
+        }
+        _emit(Load(slot));
+      case UnaryExpr():
+        _unaryExpr(expr);
+      case BinaryExpr():
+        _binaryExpr(expr);
       case CallExpr():
         _callExpr(expr);
       default:
@@ -137,6 +173,93 @@ class _FnCompiler {
             'unsupported expression: ${expr.runtimeType}', expr.span);
     }
   }
+
+  void _unaryExpr(UnaryExpr e) {
+    _expr(e.operand);
+    switch (e.op) {
+      case '-':
+        _emit(Simple(_isDouble(e.operand) ? Op.negF64 : Op.negI64));
+      case '!':
+        _emit(const Simple(Op.not));
+      default:
+        throw CodegenException('unsupported unary operator: ${e.op}', e.span);
+    }
+  }
+
+  static const _arithmetic = {'+', '-', '*', '/', '%'};
+  static const _comparison = {'==', '!=', '<', '<=', '>', '>='};
+
+  void _binaryExpr(BinaryExpr e) {
+    if (e.op == '&&' || e.op == '||') {
+      // Short-circuit operators lower to branches (no and/or opcode); deferred
+      // to the control-flow increment.
+      throw CodegenException(
+          'short-circuit `${e.op}` not yet supported', e.span);
+    }
+
+    // Operand type is taken from the left; the checker guarantees both sides
+    // agree. Equality/ordering on non-primitives dispatches to `Eq` — deferred.
+    final operandType = _typeOf(e.left);
+    if (operandType != 'Int' && operandType != 'Double' && operandType != 'Bool') {
+      throw CodegenException(
+          'operator `${e.op}` on ${operandType ?? 'unknown type'} '
+          'not yet supported',
+          e.span);
+    }
+    final isDouble = operandType == 'Double';
+
+    _expr(e.left);
+    _expr(e.right);
+    if (_arithmetic.contains(e.op)) {
+      _emit(Simple(_arithOp(e.op, isDouble, e.span)));
+    } else if (_comparison.contains(e.op)) {
+      _emit(Simple(_cmpOp(e.op, isDouble)));
+    } else {
+      throw CodegenException('unsupported operator: ${e.op}', e.span);
+    }
+  }
+
+  Op _arithOp(String op, bool isDouble, SourceSpan span) => switch (op) {
+        '+' => isDouble ? Op.addF64 : Op.addI64,
+        '-' => isDouble ? Op.subF64 : Op.subI64,
+        '*' => isDouble ? Op.mulF64 : Op.mulI64,
+        '/' => isDouble ? Op.divF64 : Op.divI64,
+        '%' when !isDouble => Op.modI64,
+        '%' => throw CodegenException('`%` is not defined for Double', span),
+        _ => throw CodegenException('unsupported operator: $op', span),
+      };
+
+  Op _cmpOp(String op, bool isDouble) => switch (op) {
+        '==' => isDouble ? Op.eqF64 : Op.eqI64,
+        '!=' => isDouble ? Op.neF64 : Op.neI64,
+        '<' => isDouble ? Op.ltF64 : Op.ltI64,
+        '<=' => isDouble ? Op.leF64 : Op.leI64,
+        '>' => isDouble ? Op.gtF64 : Op.gtI64,
+        '>=' => isDouble ? Op.geF64 : Op.geI64,
+        _ => throw CodegenException('unsupported comparison: $op'),
+      };
+
+  bool _isDouble(Expr e) => _typeOf(e) == 'Double';
+
+  /// Best-effort static type name of an expression, for opcode selection.
+  String? _typeOf(Expr e) => switch (e) {
+        IntLiteral() => 'Int',
+        FloatLiteral() => 'Double',
+        BoolLiteral() => 'Bool',
+        StringExpr() => 'String',
+        IdentExpr(:final name) => _localTypes[name],
+        UnaryExpr(:final op, :final operand) =>
+          op == '!' ? 'Bool' : _typeOf(operand),
+        BinaryExpr(:final op, :final left) =>
+          (_comparison.contains(op) || op == '&&' || op == '||')
+              ? 'Bool'
+              : _typeOf(left),
+        _ => null,
+      };
+
+  /// The name of a type reference (`Int`, `Double`, …), or null.
+  String? _typeName(TypeRef? type) =>
+      type is NamedType ? type.name : null;
 
   void _stringExpr(StringExpr expr) {
     // Interpolation lowering arrives with native string ops; for now only
