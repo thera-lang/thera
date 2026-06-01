@@ -152,6 +152,10 @@ class _FnCompiler {
   // bottom-up [_typeOf]; this is the seam where checker-provided types will
   // later plug in.
   final Map<String, String?> _localTypes = {};
+  // The full type reference of each local (when known), so generic arguments —
+  // e.g. the element type of a `List<Int>` — are available for indexing and
+  // iteration.
+  final Map<String, TypeRef?> _localTypeRefs = {};
   int _localCount = 0;
   int _paramCount = 0;
   // Whether this function returns `Result<...>`, which enables implicit `Ok`
@@ -176,6 +180,7 @@ class _FnCompiler {
       _declareLocal(p.name);
       // `self` carries the receiver type; other params their declared type.
       _localTypes[p.name] = p.isSelf ? selfType : _typeName(p.type);
+      _localTypeRefs[p.name] = p.isSelf ? NamedType(selfType ?? '?') : p.type;
       _paramCount++;
     }
     if (fn.body != null) {
@@ -249,6 +254,7 @@ class _FnCompiler {
         _expr(value);
         final slot = _declareLocal(name);
         _localTypes[name] = type != null ? _typeName(type) : _typeOf(value);
+        _localTypeRefs[name] = type ?? _typeRefOf(value);
         _emit(Store(slot));
       case AssignStmt(:final target, :final value):
         switch (target) {
@@ -266,6 +272,20 @@ class _FnCompiler {
             _expr(object);
             _expr(value);
             _emit(FieldSet(_fieldIndex(info, field, stmt.span)));
+          case IndexExpr(:final object, :final index):
+            // coll[i] = v  →  set native (collection, index, value).
+            final native = switch (_typeOf(object)) {
+              'List' => 'list_set',
+              'Map' => 'map_set',
+              final t => throw CodegenException(
+                  'indexed assignment on ${t ?? 'unknown type'} '
+                  'is not supported',
+                  stmt.span),
+            };
+            _expr(object);
+            _expr(index);
+            _expr(value);
+            _emit(CallNative(native, 3));
           default:
             throw CodegenException(
                 'unsupported assignment target: ${target.runtimeType}',
@@ -332,14 +352,9 @@ class _FnCompiler {
     _emit(const Simple(Op.return_));
   }
 
-  /// `for x in start..end` lowers to a counter loop (end exclusive, evaluated
-  /// once). Only range iteration is supported for now; iterating collections
-  /// arrives with the iterator protocol.
+  /// `for x in <iterable>` — a counter loop over a range, or an index loop over
+  /// a list. Other iterables await a general iterator protocol.
   void _forStmt(Pattern pattern, Expr iterable, Block body) {
-    if (iterable is! RangeExpr) {
-      throw CodegenException(
-          'only range iteration (a..b) is supported', iterable.span);
-    }
     final varName = switch (pattern) {
       IdentPattern(:final name) => name,
       WildcardPattern() => null,
@@ -347,14 +362,26 @@ class _FnCompiler {
           'unsupported for-loop pattern: ${pattern.runtimeType}',
           iterable.span),
     };
+    if (iterable is RangeExpr) {
+      _rangeFor(varName, iterable, body);
+    } else if (_typeOf(iterable) == 'List') {
+      _listFor(varName, iterable, body);
+    } else {
+      throw CodegenException(
+          'cannot iterate ${_typeOf(iterable) ?? 'this value'} '
+          '(only ranges and lists are supported)',
+          iterable.span);
+    }
+  }
 
-    // counter = start
-    _expr(iterable.start);
+  /// `for x in start..end` — counter from start (inclusive) to end (exclusive,
+  /// evaluated once).
+  void _rangeFor(String? varName, RangeExpr range, Block body) {
+    _expr(range.start);
     final counter = varName != null ? _declareLocal(varName) : _freshSlot();
     if (varName != null) _localTypes[varName] = 'Int';
     _emit(Store(counter));
-    // limit = end (evaluated once, into a hidden slot)
-    _expr(iterable.end);
+    _expr(range.end);
     final limit = _freshSlot();
     _emit(Store(limit));
 
@@ -366,11 +393,43 @@ class _FnCompiler {
     _emit(const Simple(Op.ltI64));
     _emitJump(_Jk.ifFalse, end);
     _block(body);
-    // counter += 1
     _emit(Load(counter));
     _emit(const ConstInt(1));
     _emit(const Simple(Op.addI64));
     _emit(Store(counter));
+    _emitJump(_Jk.jump, start);
+    _bind(end);
+  }
+
+  /// `for x in list` — index from 0 to `list.len()`, binding `x = list[i]`.
+  void _listFor(String? varName, Expr listExpr, Block body) {
+    _expr(listExpr);
+    final list = _freshSlot();
+    _emit(Store(list));
+    final i = _freshSlot();
+    _emit(const ConstInt(0));
+    _emit(Store(i));
+
+    final start = _newLabel();
+    final end = _newLabel();
+    _bind(start);
+    _emit(Load(i));
+    _emit(Load(list));
+    _emit(const CallNative('list_len', 1));
+    _emit(const Simple(Op.ltI64));
+    _emitJump(_Jk.ifFalse, end);
+    // x = list[i]
+    final elem = varName != null ? _declareLocal(varName) : _freshSlot();
+    if (varName != null) _localTypes[varName] = _elementTypeName(listExpr);
+    _emit(Load(list));
+    _emit(Load(i));
+    _emit(const CallNative('list_index', 2));
+    _emit(Store(elem));
+    _block(body);
+    _emit(Load(i));
+    _emit(const ConstInt(1));
+    _emit(const Simple(Op.addI64));
+    _emit(Store(i));
     _emitJump(_Jk.jump, start);
     _bind(end);
   }
@@ -403,6 +462,22 @@ class _FnCompiler {
         _binaryExpr(expr);
       case StructExpr():
         _structExpr(expr);
+      case ListExpr(:final items):
+        for (final item in items) {
+          _expr(item);
+        }
+        _emit(ListNew(items.length));
+      case MapExpr(:final entries):
+        for (final (key, value) in entries) {
+          _expr(key);
+          _expr(value);
+        }
+        _emit(CallNative('map_new', entries.length * 2));
+      case IndexExpr(:final object, :final index):
+        final native = _indexNative(object, expr.span);
+        _expr(object);
+        _expr(index);
+        _emit(CallNative(native, 2));
       case FieldExpr(:final object, :final field):
         final info = _structOf(object, expr.span);
         _expr(object);
@@ -632,18 +707,77 @@ class _FnCompiler {
         CallExpr(:final callee) when callee is FieldExpr =>
           _methodReturnType(callee),
         StructExpr(:final typeName) => typeName,
+        ListExpr() => 'List',
+        MapExpr() => 'Map',
+        IndexExpr(:final object) => _elementTypeName(object),
         FieldExpr(:final object, :final field) =>
           structs[_typeOf(object)]?.fieldTypes[field],
         _ => null,
       };
 
+  /// The full type reference of an expression when known, so generic arguments
+  /// survive (e.g. the element type behind a `List<Int>`).
+  TypeRef? _typeRefOf(Expr e) {
+    switch (e) {
+      case IdentExpr(:final name):
+        if (_localTypeRefs.containsKey(name)) return _localTypeRefs[name];
+      case ListExpr(:final items):
+        final element = items.isEmpty ? null : _typeRefOf(items.first);
+        return NamedType('List', args: element == null ? const [] : [element]);
+      case MapExpr(:final entries):
+        if (entries.isEmpty) return NamedType('Map');
+        final key = _typeRefOf(entries.first.$1) ?? NamedType('?');
+        final value = _typeRefOf(entries.first.$2) ?? NamedType('?');
+        return NamedType('Map', args: [key, value]);
+      default:
+        break;
+    }
+    final name = _typeOf(e);
+    return name == null ? null : NamedType(name);
+  }
+
+  /// The element type of indexing [collection] — `T` for a `List<T>`, the value
+  /// type `V` for a `Map<K, V>` — or null when the generic args aren't known.
+  String? _elementTypeName(Expr collection) {
+    final tr = _typeRefOf(collection);
+    if (tr is NamedType) {
+      if (tr.name == 'List' && tr.args.isNotEmpty) {
+        return _typeRefName(tr.args[0]);
+      }
+      if (tr.name == 'Map' && tr.args.length >= 2) {
+        return _typeRefName(tr.args[1]);
+      }
+    }
+    return null;
+  }
+
   /// Resolve the declared return type of a method call `recv.method(...)` (or
   /// `Type.method(...)`), used so chained calls and arithmetic on results pick
   /// the right opcodes.
   String? _methodReturnType(FieldExpr callee) {
+    final coll = _collectionMethod(_typeOf(callee.object), callee.field);
+    if (coll != null) return coll.$2;
     final idx = _resolveMethod(callee.object, callee.field);
     return idx == null ? null : _scope.returnTypeOfIndex(idx);
   }
+
+  /// Built-in collection methods backed by runtime natives: maps
+  /// `(receiverType, method)` to `(nativeName, returnType)`. The receiver is
+  /// passed as the native's first argument.
+  static const _collectionMethods = <String, Map<String, (String, String?)>>{
+    'List': {
+      'len': ('list_len', 'Int'),
+      'get': ('list_get', 'Option'),
+    },
+    'Map': {
+      'len': ('map_len', 'Int'),
+      'get': ('map_get', 'Option'),
+      'has': ('map_has', 'Bool'),
+    },
+  };
+
+  (String, String?)? _collectionMethod(String? type, String method) =>
+      type == null ? null : _collectionMethods[type]?[method];
 
   /// The unit index of method [name] on the receiver expression [receiver], or
   /// null if it can't be resolved. A bare struct type name (not shadowed by a
@@ -754,6 +888,15 @@ class _FnCompiler {
     return idx;
   }
 
+  /// The faulting-index native for `coll[i]` (read), chosen from the
+  /// collection's static type.
+  String _indexNative(Expr object, SourceSpan span) => switch (_typeOf(object)) {
+        'List' => 'list_index',
+        'Map' => 'map_index',
+        final t => throw CodegenException(
+            'indexing on ${t ?? 'unknown type'} is not supported', span),
+      };
+
   void _callExpr(CallExpr expr) {
     final callee = expr.callee;
     if (callee is FieldExpr) {
@@ -799,6 +942,18 @@ class _FnCompiler {
   /// `recv.method(args)` / `Type.method(args)`. For an instance method the
   /// receiver is pushed first as `self`; arguments follow in parameter order.
   void _methodCall(CallExpr expr, FieldExpr callee) {
+    // Built-in collection methods lower to a native with the receiver as the
+    // first argument.
+    final coll = _collectionMethod(_typeOf(callee.object), callee.field);
+    if (coll != null) {
+      _expr(callee.object);
+      for (final arg in expr.args) {
+        _expr(arg.value);
+      }
+      _emit(CallNative(coll.$1, expr.args.length + 1));
+      return;
+    }
+
     final idx = _resolveMethod(callee.object, callee.field);
     if (idx == null) {
       throw CodegenException(

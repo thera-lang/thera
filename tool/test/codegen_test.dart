@@ -235,6 +235,60 @@ fn main() -> Int { let v = V { n: 1 }; return v.bump(5); }
           'type V = { n: Int } impl V { fn get(self) -> Int { return self.n; } }');
       expect(m.functions.map((f) => f.name), contains('V.get'));
     });
+
+    test('list literal lowers to list.new', () {
+      final ops =
+          compile('fn f() -> Int { let xs = [1, 2, 3]; return 0; }')
+              .functions
+              .single
+              .code;
+      expect(ops, containsAllInOrder([
+        isA<ConstInt>().having((i) => i.value, 'v', 1),
+        isA<ConstInt>().having((i) => i.value, 'v', 2),
+        isA<ConstInt>().having((i) => i.value, 'v', 3),
+        isA<ListNew>().having((i) => i.count, 'count', 3),
+      ]));
+    });
+
+    test('map literal lowers to map_new with 2N args', () {
+      final ops =
+          compile('fn f() -> Int { let m = {1: 10, 2: 20}; return 0; }')
+              .functions
+              .single
+              .code;
+      expect(ops, contains(isA<CallNative>()
+          .having((i) => i.name, 'name', 'map_new')
+          .having((i) => i.argc, 'argc', 4)));
+    });
+
+    test('indexing and indexed assignment use the right natives', () {
+      final read = compile(
+              'fn f() -> Int { let xs = [1]; return xs[0]; }')
+          .functions
+          .single
+          .code;
+      expect(read, contains(
+          isA<CallNative>().having((i) => i.name, 'name', 'list_index')));
+
+      final write = compile(
+              'fn f() -> Int { let mut xs = [1]; xs[0] = 9; return 0; }')
+          .functions
+          .single
+          .code;
+      expect(write, contains(
+          isA<CallNative>().having((i) => i.name, 'name', 'list_set')));
+    });
+
+    test('a collection method lowers to a native with the receiver first', () {
+      final ops = compile('fn f() -> Int { let xs = [1, 2]; return xs.len(); }')
+          .functions
+          .single
+          .code;
+      // load xs, list_len(self) → argc 1.
+      expect(ops, contains(isA<CallNative>()
+          .having((i) => i.name, 'name', 'list_len')
+          .having((i) => i.argc, 'argc', 1)));
+    });
   });
 
   group('end-to-end (requires the Rust runtime)', () {
@@ -535,6 +589,78 @@ fn main() -> Int {
       final m = compile(File('../examples/structs.hawk').readAsStringSync());
       expect(m.functions, isNotEmpty);
       expect(m.types.map((t) => t.name), containsAll(['Point', 'Rect']));
+    });
+
+    test('list literal + indexing', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      expect(
+          runExit('list', '''
+fn main() -> Int {
+    let xs = [10, 20, 12];
+    return xs[0] + xs[1] + xs[2];
+}
+'''),
+          42);
+    });
+
+    test('list mutation, len, and for-in iteration', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      expect(
+          runExit('list_iter', '''
+fn main() -> Int {
+    let mut xs = [1, 2, 3];
+    xs[0] = 40;
+    let mut total = 0;
+    for v in xs {
+        total = total + v;
+    }
+    return total;
+}
+'''),
+          45); // 40 + 2 + 3
+    });
+
+    test('map literal, indexed assignment, and indexing', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      expect(
+          runExit('map', '''
+fn main() -> Int {
+    let mut m = {1: 0, 2: 2};
+    m[1] = 40;
+    return m[1] + m[2];
+}
+'''),
+          42);
+    });
+
+    test('map.has and map.len', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      expect(
+          runExit('map_methods', '''
+fn main() -> Int {
+    let m = {7: 99};
+    if m.has(7) {
+        return m.len() + m[7];
+    }
+    return 0;
+}
+'''),
+          100); // 1 + 99
+    });
+
+    test('list.get returns an Option', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      expect(
+          runExit('list_get', '''
+fn main() -> Int {
+    let xs = [5, 6, 7];
+    match xs.get(1) {
+        Some(v) => return v,
+        None => return 0,
+    }
+}
+'''),
+          6);
     });
   });
 }
