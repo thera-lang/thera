@@ -1,6 +1,8 @@
-# The LLM-Native Programming Language: Architectural Guidelines
+# Hawk design guidelines
 
-_(working name: ‘hawk’)_
+**What this is:** the _why_ behind Hawk — the LLM-native design rationale and
+the target domain that shape every other decision. The language surface lives in
+[language.md](language.md); the runtime in [architecture.md](architecture.md).
 
 As artificial intelligence transitions from localized code autocomplete to
 autonomous agents capable of managing entire repositories, the criteria for an
@@ -9,6 +11,23 @@ human expressiveness or mathematical purity often introduce cognitive barriers
 for Large Language Models (LLMs). This document outlines the architectural
 choices, paradigms, and syntax features that maximize an AI agent's ability to
 author, refactor, and maintain code productively and predictably.
+
+## 0. Target domain: CLI tooling
+
+Hawk targets the same space as Python, Go, and Node — scripting, automation, and
+CLI tools. This shapes the whole stack:
+
+- **Standard library covers the CLI surface first:** filesystem, processes,
+  stdin/stdout/stderr, env vars, argument parsing, path manipulation, JSON/YAML,
+  HTTP. These come from the stdlib to avoid hallucinated third-party APIs.
+- **Startup time matters.** A short-lived CLI tool should feel instant; Go's
+  single-binary model is the gold standard. (See the runtime's fast-startup
+  priority in [architecture.md](architecture.md).)
+- **Process spawning is first-class.** Shelling out is the core activity of CLI
+  code; it should be ergonomic and safe (captured stdout/stderr, exit codes as
+  `Result`).
+- **Single-binary distribution.** `go build` won the CLI space by producing one
+  self-contained executable; the production build target should too.
 
 ## 1. The Core Pillars of LLM Productivity
 

@@ -20,7 +20,7 @@ type NativeRegex = {}
 //
 // Open question: the language does not yet have a visibility / access control
 // mechanism. These native bindings and NativeRegex should be private to this
-// module. See the open design questions in docs/plan.md.
+// module. See the open design questions in docs/language.md.
 
 // Compile pattern; returns Err with the RE2 error message on failure.
 native fn re2_compile(_ pattern: String) -> Result<NativeRegex, Error>

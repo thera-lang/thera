@@ -1,9 +1,10 @@
-# Hawk Language Reference
+# Hawk language reference
 
-Notes:
-
-- this is an informal working reference — not a formal spec
-- the language codename is 'Hawk'
+**What this is:** the reference for Hawk's syntax and semantics, the standard
+`hawk` tool, and open language-design questions. An informal working reference,
+not a formal spec. For the _why_ see [guidelines.md](guidelines.md); for how
+programs execute see [bytecode.md](bytecode.md) and
+[architecture.md](architecture.md).
 
 ---
 
@@ -42,7 +43,7 @@ mut count = 0;
 count = count + 1;
 ```
 
-`let` vs `mut` controls whether a *binding* can be reassigned — it says nothing
+`let` vs `mut` controls whether a _binding_ can be reassigned — it says nothing
 about the value itself. Heap values (`String`, `List`, `Map`, `Set`, structs,
 enums) are **shared references**: assigning or passing one copies the reference,
 not the object, so two bindings to the same mutable collection observe each
@@ -295,7 +296,7 @@ let dir = config.log_dir.ok_or(Error('log_dir is required'))?;
 
 ## Runtime faults
 
-`Result` and `Option` model *expected* conditions — a file might be missing, a
+`Result` and `Option` model _expected_ conditions — a file might be missing, a
 parse might fail — and they appear in the type signature so the caller is forced
 to deal with them. A **runtime fault** is the opposite: an unrecoverable
 programmer error signalling that the code's contract was violated. A fault
@@ -783,3 +784,46 @@ the same way it does user code.
 
 `std.core` and `std.args` are implicitly imported and do not appear in the
 resolved import graph unless explicitly re-imported with `as`.
+
+---
+
+## Open design questions
+
+Decisions not yet settled. (Resolved ones — `${}` interpolation, `throw`,
+implicit `Ok` on `return` — are documented above as the language's behavior.)
+
+- **Strings & Unicode.** Strings are stored UTF-8. The plan: make `char` a
+  32-bit Unicode scalar, and forbid integer indexing on strings — force explicit
+  iteration via `.chars()` (code points) or `.graphemes()` (user-perceived
+  characters) so code never slices an emoji in half. `Char` as a distinct type
+  is still open (see Types → Open questions above).
+- **Visibility / access control** — `pub` keyword (Rust), leading-`_`
+  convention (Go), an explicit `export` list (ES modules), or interface files?
+  Needed to hide `native fn` bindings and internal helpers from a module's
+  public API.
+- **Module / package system** — file-per-module (Go) or explicit `import`
+  declarations? And a **package manager** — Go-style URL imports or a central
+  registry (npm/PyPI)? Relevant early, since stdlib scope depends on it.
+- **Generics** — parametric only, or constraints/bounds from day one?
+- **Numeric tower** — single `Int`/`Double`, or sized types (`Int32`, `Int64`)?
+- **Interface dispatch** — static (monomorphisation) or dynamic (vtable)?
+- **Decorator semantics** — compile-time metadata only, or runtime hooks?
+- **Process spawning ergonomics** — method call (`run('git', [...])`) or a
+  shell-string shorthand (`$('git status')`)? The former is safer; the latter is
+  more familiar to shell scripters.
+- **Streams** — how to pipe one process's stdout into another: lazy iterators?
+  an explicit pipe operator?
+- **Script mode** — should `main` be optional for simple one-file scripts, the
+  way Python and Node allow top-level statements?
+- **Inline error handling (`catch`)** — Hawk uses `?` to propagate. A Zig-style
+  `expr catch fallback` / `expr catch |e| { ... }` as an inline default handler
+  is worth considering as an additional form.
+- **`Option` vs. a nullable type system** — `Option<T>` (composes with
+  `.map`/`.flat_map`, represents nested absence) vs. `String?` with `?.`/`??`
+  (zero boilerplate, no wrapper, but can't nest). `language.md` uses `Option<T>`
+  as a placeholder; revisit once there's enough real Hawk code to judge friction.
+- **Concurrency beyond single-threaded fibers** — the model is single-threaded
+  cooperative fibers (no synchronization needed, no CPU parallelism). If
+  parallelism becomes a requirement: _immutable-only sharing_ across threads
+  (hard to enforce without deeper type support) or _thread-isolated heaps_
+  (private heap per scheduler, communicate by copying). Deferred.

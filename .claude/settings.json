@@ -1,6 +1,14 @@
 {
   "permissions": {
     "allow": [
+      "Bash(./bin/hawk.sh *)",
+      "Bash(~/.cargo/bin/cargo clippy *)",
+      "Bash(~/.cargo/bin/cargo test *)",
+      "Bash(cargo clippy *)",
+      "Bash(cargo fmt *)",
+      "Bash(cargo run *)",
+      "Bash(cargo test *)",
+      "Bash(echo *)",
       "Bash(git diff *)",
       "Bash(git log *)",
       "Bash(git status *)",

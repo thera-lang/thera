@@ -1,9 +1,11 @@
-# Hawk Bytecode (rough spec)
+# Hawk bytecode
 
-Status: **draft / iterate as we go.** This describes the first cut of Hawk's
-bytecode — the stable IR that the frontend emits, the interpreter runs, and the
-Cranelift JIT lowers from. See `docs/plan.md` → "The bytecode: our own,
-stack-based" for the motivating rationale.
+**What this is:** the spec for Hawk's bytecode — the stable IR that the
+front-end emits, the interpreter runs, and the Cranelift JIT will lower from —
+plus the serialized `.hawkbc` format. Iterate freely; the Tier-0 interpreter and
+the format already implement much of this (see [roadmap.md](roadmap.md) for
+status). The motivating rationale for a tiered VM and our own bytecode is in
+[architecture.md](architecture.md).
 
 ## Design priorities
 
@@ -138,11 +140,11 @@ grow into richer type info later if the JIT wants it.
 
 The wire form draws on Wasm (the container) and the JVM `.class` file (the
 constant pool), but borrows neither instruction set nor type model — those carry
-Hawk's types, which is the whole reason for rolling our own. We take the *ideas*,
-not the encodings.
+Hawk's types, which is the whole reason for rolling our own. We take the
+_ideas_, not the encodings.
 
-**Two layers.** The *wire form* (on disk / embedded in the `hawk` binary)
-optimizes for compactness; the *executable form* is the in-memory `Module`
+**Two layers.** The _wire form_ (on disk / embedded in the `hawk` binary)
+optimizes for compactness; the _executable form_ is the in-memory `Module`
 (`Vec<Instr>`) the interpreter already runs. The loader **decodes** the wire
 form into a `Module` in one linear pass — cheap relative to process startup, and
 it keeps absolute-index jump targets working with no fixups. Interpreting the
