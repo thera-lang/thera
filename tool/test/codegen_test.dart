@@ -127,6 +127,52 @@ fn main() -> Int {
         isA<CallNative>().having((i) => i.name, 'name', 'str_concat'),
       ]));
     });
+
+    test('Ok constructs a Result enum', () {
+      final ops = compile('fn f() -> Int { let x = Ok(0); return 0; }')
+          .functions
+          .single
+          .code;
+      expect(ops, containsAllInOrder([
+        isA<ConstInt>().having((i) => i.value, 'value', 0),
+        isA<EnumNew>()
+            .having((i) => i.type, 'type', 0)
+            .having((i) => i.variant, 'variant', 0)
+            .having((i) => i.fieldCount, 'fieldCount', 1),
+      ]));
+    });
+
+    test('bare return in a Result fn implicitly wraps in Ok', () {
+      final ops = compile('fn f() -> Result<Int, Int> { return 5; }')
+          .functions
+          .single
+          .code;
+      // const 5, enum.new Result/Ok, return — exactly one wrap.
+      expect(ops.whereType<EnumNew>(), hasLength(1));
+      expect(ops.whereType<EnumNew>().single,
+          isA<EnumNew>().having((i) => i.variant, 'variant', 0));
+    });
+
+    test('explicit Ok is not double-wrapped', () {
+      final ops = compile('fn f() -> Result<Int, Int> { return Ok(5); }')
+          .functions
+          .single
+          .code;
+      expect(ops.whereType<EnumNew>(), hasLength(1));
+    });
+
+    test('? lowers to dup/enum.tag/enum.get', () {
+      final m = compile('''
+fn g() -> Result<Int, Int> { return 0; }
+fn f() -> Result<Int, Int> { let x = g()?; return x; }
+''');
+      final ops = m.functions[1].code; // f
+      expect(ops, containsAllInOrder([
+        isA<Simple>().having((i) => i.op, 'op', Op.dup),
+        isA<Simple>().having((i) => i.op, 'op', Op.enumTag),
+        isA<EnumGet>().having((i) => i.index, 'index', 0),
+      ]));
+    });
   });
 
   group('end-to-end (requires the Rust runtime)', () {
@@ -262,6 +308,72 @@ fn main() -> Int {
       final r = Process.runSync(hawkBin, ['run', tmp]);
       expect(r.stdout, 'double(21) = 42\n');
       expect(r.exitCode, 0);
+    });
+
+    // throw + implicit Ok + match over Result, both branches.
+    const safeDiv = '''
+fn safe_div(a: Int, b: Int) -> Result<Int, Int> {
+    if b == 0 { throw 7; }
+    return a / b;
+}
+fn main() -> Int {
+    match safe_div(DIVIDEND, DIVISOR) {
+        Ok(v) => return v,
+        Err(e) => return e,
+    }
+}
+''';
+
+    test('match takes the Ok branch (implicit-Ok success path)', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      final src = safeDiv.replaceAll('DIVIDEND', '84').replaceAll('DIVISOR', '2');
+      expect(runExit('ok', src), 42);
+    });
+
+    test('match takes the Err branch (throw path)', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      final src = safeDiv.replaceAll('DIVIDEND', '1').replaceAll('DIVISOR', '0');
+      expect(runExit('err', src), 7);
+    });
+
+    test('? propagates through Result and implicit Ok', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      expect(
+          runExit('propagate', '''
+fn half(x: Int) -> Result<Int, Int> {
+    if x % 2 != 0 { throw 9; }
+    return x / 2;
+}
+fn run() -> Result<Int, Int> {
+    let a = half(84)?;
+    return a;
+}
+fn main() -> Int {
+    match run() {
+        Ok(v) => return v,
+        Err(e) => return e,
+    }
+}
+'''),
+          42);
+    });
+
+    test('Option Some/None construction and match', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      expect(
+          runExit('option', '''
+fn first_positive(a: Int) -> Option<Int> {
+    if a > 0 { return Some(a); }
+    return None;
+}
+fn main() -> Int {
+    match first_positive(7) {
+        Some(v) => return v,
+        None => return 0,
+    }
+}
+'''),
+          7);
     });
   });
 }

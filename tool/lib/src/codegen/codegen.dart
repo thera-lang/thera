@@ -43,6 +43,16 @@ class _Fixup {
 /// as the stdlib surface does.
 const Set<String> _natives = {'println', 'print'};
 
+// Well-known enum type ids and variant tags, fixed by convention and shared
+// with the runtime (runtime/src/value.rs). Result and Option are not in the
+// type table — `enum.new` carries its field count inline.
+const int _tyResult = 0;
+const int _tyOption = 1;
+const int _tagOk = 0;
+const int _tagErr = 1;
+const int _tagSome = 0;
+const int _tagNone = 1;
+
 /// Compile a whole program to a module.
 Module compileProgram(Program program) {
   // Index every (non-native) function up front, so direct calls can resolve a
@@ -83,6 +93,9 @@ class _FnCompiler {
   final Map<String, String?> _localTypes = {};
   int _localCount = 0;
   int _paramCount = 0;
+  // Whether this function returns `Result<...>`, which enables implicit `Ok`
+  // wrapping on a bare `return v`.
+  bool _returnsResult = false;
 
   // Jump targets are absolute instruction indices, but a forward jump is
   // emitted before its target is known. We emit a placeholder, record a fixup,
@@ -94,6 +107,7 @@ class _FnCompiler {
   _FnCompiler(this.functionIndex, this.functionReturns);
 
   FuncDef compile(FnDecl fn) {
+    _returnsResult = _typeRefName(fn.returnType) == 'Result';
     for (final p in fn.params) {
       _declareLocal(p.name);
       _localTypes[p.name] = _typeName(p.type);
@@ -213,21 +227,36 @@ class _FnCompiler {
       case ForStmt(:final pattern, :final iterable, :final body):
         _forStmt(pattern, iterable, body);
       case ReturnStmt(:final value):
-        if (value != null) {
-          _expr(value);
-        } else {
-          _emit(const Simple(Op.constUnit));
-        }
-        _emit(const Simple(Op.return_));
+        _emitReturn(value);
+      case ThrowStmt(:final value):
+        _emitThrow(value);
       case ExprStmt(:final expr):
         // The result of an expression statement is discarded; every expression
         // leaves exactly one slot on the stack, so pop it.
         _expr(expr);
         _emit(const Simple(Op.pop));
-      default:
-        throw CodegenException(
-            'unsupported statement: ${stmt.runtimeType}', stmt.span);
     }
+  }
+
+  /// Emit a `return`, applying implicit `Ok` wrapping when the function returns
+  /// `Result` and the value isn't already a `Result` (e.g. a bare `return n`).
+  void _emitReturn(Expr? value) {
+    if (value == null) {
+      _emit(const Simple(Op.constUnit));
+    } else {
+      _expr(value);
+      if (_returnsResult && _typeOf(value) != 'Result') {
+        _emit(const EnumNew(_tyResult, _tagOk, 1));
+      }
+    }
+    _emit(const Simple(Op.return_));
+  }
+
+  /// `throw e` is sugar for `return Err(e)` in a `Result`-returning function.
+  void _emitThrow(Expr value) {
+    _expr(value);
+    _emit(const EnumNew(_tyResult, _tagErr, 1));
+    _emit(const Simple(Op.return_));
   }
 
   /// `for x in start..end` lowers to a counter loop (end exclusive, evaluated
@@ -286,6 +315,10 @@ class _FnCompiler {
       case StringExpr():
         _stringExpr(expr);
       case IdentExpr(:final name):
+        if (name == 'None') {
+          _emit(const EnumNew(_tyOption, _tagNone, 0));
+          break;
+        }
         final slot = _slots[name];
         if (slot == null) {
           throw CodegenException('not a local variable: $name', expr.span);
@@ -297,11 +330,124 @@ class _FnCompiler {
         _binaryExpr(expr);
       case CallExpr():
         _callExpr(expr);
+      case PropagateExpr():
+        _propagateExpr(expr);
+      case MatchExpr():
+        _matchExpr(expr);
+      case ReturnExpr(:final value):
+        _emitReturn(value);
+      case ThrowExpr(:final value):
+        _emitThrow(value);
       default:
         throw CodegenException(
             'unsupported expression: ${expr.runtimeType}', expr.span);
     }
   }
+
+  /// `expr?` — propagate `Err`/`None`. The same lowering serves both `Result`
+  /// and `Option` because the failing variant tag is 1 for each (`Err`/`None`)
+  /// and the payload to unwrap is field 0 (`Ok`/`Some`).
+  void _propagateExpr(PropagateExpr e) {
+    _expr(e.inner); // a Result/Option on the stack
+    _emit(const Simple(Op.dup));
+    _emit(const Simple(Op.enumTag));
+    _emit(const ConstInt(_tagErr)); // == _tagNone
+    _emit(const Simple(Op.eqI64));
+    final ok = _newLabel();
+    _emitJump(_Jk.ifFalse, ok);
+    _emit(const Simple(Op.return_)); // failing: return the value as-is
+    _bind(ok);
+    _emit(const EnumGet(0)); // success: unwrap the payload
+  }
+
+  /// `match` on a `Result`/`Option`: store the subject, then a tag-check chain.
+  /// The final arm is the fall-through (matches always, given exhaustiveness),
+  /// so a value is produced on every path that doesn't return/throw.
+  void _matchExpr(MatchExpr e) {
+    _expr(e.subject);
+    final subject = _freshSlot();
+    _emit(Store(subject));
+    final end = _newLabel();
+
+    for (var i = 0; i < e.arms.length; i++) {
+      final arm = e.arms[i];
+      final pattern = arm.pattern;
+      final isLast = i == e.arms.length - 1;
+      final catchAll = pattern is WildcardPattern || pattern is IdentPattern;
+
+      if (isLast || catchAll) {
+        _bindArm(pattern, subject, e.span);
+        _armBody(arm.body, end, jumpToEnd: false);
+        break; // any later arms are unreachable
+      }
+      if (pattern is! ConstructorPattern) {
+        throw CodegenException(
+            'unsupported match pattern: ${pattern.runtimeType}', e.span);
+      }
+      final next = _newLabel();
+      _emit(Load(subject));
+      _emit(const Simple(Op.enumTag));
+      _emit(ConstInt(_variantTag(pattern.name, e.span)));
+      _emit(const Simple(Op.eqI64));
+      _emitJump(_Jk.ifFalse, next);
+      _bindArm(pattern, subject, e.span);
+      _armBody(arm.body, end, jumpToEnd: true);
+      _bind(next);
+    }
+    _bind(end);
+  }
+
+  /// A match arm body either yields a value (and jumps to the merge point) or
+  /// transfers control out of the function (`return`/`throw`).
+  void _armBody(Expr body, int end, {required bool jumpToEnd}) {
+    switch (body) {
+      case ReturnExpr(:final value):
+        _emitReturn(value);
+      case ThrowExpr(:final value):
+        _emitThrow(value);
+      default:
+        _expr(body);
+        if (jumpToEnd) _emitJump(_Jk.jump, end);
+    }
+  }
+
+  /// Bind the variables a pattern introduces, reading payload fields from the
+  /// subject in [subjectSlot].
+  void _bindArm(Pattern pattern, int subjectSlot, SourceSpan span) {
+    switch (pattern) {
+      case ConstructorPattern(:final args):
+        for (var k = 0; k < args.length; k++) {
+          final arg = args[k];
+          switch (arg) {
+            case IdentPattern(:final name):
+              _emit(Load(subjectSlot));
+              _emit(EnumGet(k));
+              _emit(Store(_declareLocal(name)));
+            case WildcardPattern():
+              break; // payload field ignored
+            default:
+              throw CodegenException(
+                  'unsupported nested pattern: ${arg.runtimeType}', span);
+          }
+        }
+      case IdentPattern(:final name):
+        _slots[name] = subjectSlot; // bind the whole subject
+      case WildcardPattern():
+        break;
+      case LiteralPattern():
+        throw CodegenException(
+            'literal patterns in match not yet supported', span);
+    }
+  }
+
+  /// The fixed variant tag for a `Result`/`Option` constructor name.
+  int _variantTag(String name, SourceSpan span) => switch (name) {
+        'Ok' || 'Some' => 0,
+        'Err' || 'None' => 1,
+        _ => throw CodegenException(
+            'unknown variant `$name` (user-defined enums not yet supported)',
+            span),
+      };
 
   void _unaryExpr(UnaryExpr e) {
     _expr(e.operand);
@@ -392,15 +538,27 @@ class _FnCompiler {
         FloatLiteral() => 'Double',
         BoolLiteral() => 'Bool',
         StringExpr() => 'String',
-        IdentExpr(:final name) => _localTypes[name],
+        IdentExpr(:final name) => name == 'None' ? 'Option' : _localTypes[name],
         UnaryExpr(:final op, :final operand) =>
           op == '!' ? 'Bool' : _typeOf(operand),
         BinaryExpr(:final op, :final left) =>
           (_comparison.contains(op) || op == '&&' || op == '||')
               ? 'Bool'
               : _typeOf(left),
-        CallExpr(:final callee) when callee is IdentExpr =>
-          _returnTypeOf(callee.name),
+        CallExpr(:final callee) when callee is IdentExpr => switch (callee.name) {
+          'Ok' || 'Err' => 'Result',
+          'Some' => 'Option',
+          _ => _returnTypeOf(callee.name),
+        },
+        _ => null,
+      };
+
+  /// The (typeId, variantTag) for a `Result`/`Option` constructor, or null if
+  /// [name] is not one.
+  (int, int)? _enumCtor(String name) => switch (name) {
+        'Ok' => (_tyResult, _tagOk),
+        'Err' => (_tyResult, _tagErr),
+        'Some' => (_tyOption, _tagSome),
         _ => null,
       };
 
@@ -460,6 +618,18 @@ class _FnCompiler {
           'unsupported call target: ${callee.runtimeType}', expr.span);
     }
     final name = callee.name;
+
+    // Result/Option constructors build an enum from their single payload.
+    final ctor = _enumCtor(name);
+    if (ctor != null) {
+      if (expr.args.length != 1) {
+        throw CodegenException('$name expects one argument', expr.span);
+      }
+      _expr(expr.args.single.value);
+      _emit(EnumNew(ctor.$1, ctor.$2, 1));
+      return;
+    }
+
     // Arguments are pushed left-to-right; the bytecode is positional (named
     // arguments are resolved to positions by the checker).
     for (final arg in expr.args) {
