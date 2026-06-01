@@ -40,7 +40,8 @@ mod natives;
 pub use natives::{
     NATIVE_LIST_GET, NATIVE_LIST_INDEX, NATIVE_LIST_LEN, NATIVE_LIST_SET, NATIVE_MAP_GET,
     NATIVE_MAP_HAS, NATIVE_MAP_INDEX, NATIVE_MAP_LEN, NATIVE_MAP_NEW, NATIVE_MAP_SET, NATIVE_PRINT,
-    NATIVE_PRINTLN, NATIVE_STR_CONCAT, NATIVE_STRINGIFY, NativeFn, default_natives,
+    NATIVE_PRINTLN, NATIVE_STR_CONCAT, NATIVE_STRINGIFY, NativeFn, default_natives, native_index,
+    native_name,
 };
 
 /// The interpreter's execution context: where output goes and what native

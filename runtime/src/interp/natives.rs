@@ -13,7 +13,9 @@ use crate::value::{Obj, Value};
 /// A native function: receives the VM's output sink and the call arguments.
 pub type NativeFn = fn(out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap>;
 
-// Indices into the default native table (see [`default_natives`]).
+// Indices into the native table. These must match the order of [`NATIVES`]
+// (guarded by a test). They name the runtime's *in-memory* dispatch index;
+// persisted bytecode references natives by name and resolves to these on load.
 pub const NATIVE_PRINTLN: u32 = 0;
 pub const NATIVE_PRINT: u32 = 1;
 pub const NATIVE_STRINGIFY: u32 = 2;
@@ -29,24 +31,42 @@ pub const NATIVE_MAP_LEN: u32 = 11;
 pub const NATIVE_MAP_HAS: u32 = 12;
 pub const NATIVE_MAP_SET: u32 = 13;
 
+/// The canonical native table: the name each native is bound by, paired with
+/// its implementation, in index order. Names are the stable identity used by
+/// the wire format; the index is a runtime-internal dispatch slot.
+const NATIVES: &[(&str, NativeFn)] = &[
+    ("println", native_println),
+    ("print", native_print),
+    ("stringify", native_stringify),
+    ("str_concat", native_str_concat),
+    ("list_index", native_list_index),
+    ("list_get", native_list_get),
+    ("list_len", native_list_len),
+    ("list_set", native_list_set),
+    ("map_new", native_map_new),
+    ("map_index", native_map_index),
+    ("map_get", native_map_get),
+    ("map_len", native_map_len),
+    ("map_has", native_map_has),
+    ("map_set", native_map_set),
+];
+
 /// The native functions the runtime ships with, in index order.
 pub fn default_natives() -> Vec<NativeFn> {
-    vec![
-        native_println,
-        native_print,
-        native_stringify,
-        native_str_concat,
-        native_list_index,
-        native_list_get,
-        native_list_len,
-        native_list_set,
-        native_map_new,
-        native_map_index,
-        native_map_get,
-        native_map_len,
-        native_map_has,
-        native_map_set,
-    ]
+    NATIVES.iter().map(|&(_, f)| f).collect()
+}
+
+/// Resolve a native's name to its dispatch index (used when loading bytecode).
+pub fn native_index(name: &str) -> Option<u32> {
+    NATIVES
+        .iter()
+        .position(|&(n, _)| n == name)
+        .map(|i| i as u32)
+}
+
+/// The name a native is bound by, for its dispatch index (used when emitting).
+pub fn native_name(index: u32) -> Option<&'static str> {
+    NATIVES.get(index as usize).map(|&(n, _)| n)
 }
 
 // --- text natives ---
@@ -316,4 +336,19 @@ fn native_map_set(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
         map_insert(entries, key.clone(), val.clone());
         Ok(Value::Unit)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn names_and_indices_agree() {
+        assert_eq!(native_index("println"), Some(NATIVE_PRINTLN));
+        assert_eq!(native_index("str_concat"), Some(NATIVE_STR_CONCAT));
+        assert_eq!(native_index("map_set"), Some(NATIVE_MAP_SET));
+        assert_eq!(native_name(NATIVE_STRINGIFY), Some("stringify"));
+        assert_eq!(native_index("nope"), None);
+        assert_eq!(default_natives().len(), NATIVES.len());
+    }
 }

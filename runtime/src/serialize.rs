@@ -98,6 +98,8 @@ pub enum DecodeError {
     UnknownOpcode(u8),
     /// A constant-pool index referenced a slot that does not exist.
     ConstIndexOutOfRange,
+    /// A `call.native` named a native this runtime does not provide.
+    UnknownNative(String),
 }
 
 /// Reads encoded values from a byte slice, tracking the read position.

@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::instr::Instr;
+use crate::interp::{native_index, native_name};
 use crate::module::{Function, Module};
 use crate::serialize::{DecodeError, Reader, Writer};
 
@@ -142,12 +143,21 @@ mod op {
 
 /// Encode a module to the wire format.
 pub fn encode_module(m: &Module) -> Vec<u8> {
-    // First pass: intern every string literal into the pool.
+    // First pass: intern every string the bodies reference — literals and the
+    // names of called natives (natives are bound by name on the wire).
     let mut pool = StringPool::default();
     for f in &m.functions {
         for instr in &f.code {
-            if let Instr::ConstStr(s) = instr {
-                pool.intern(s);
+            match instr {
+                Instr::ConstStr(s) => {
+                    pool.intern(s);
+                }
+                Instr::CallNative { native, .. } => {
+                    if let Some(name) = native_name(*native) {
+                        pool.intern(name);
+                    }
+                }
+                _ => {}
             }
         }
     }
@@ -317,8 +327,9 @@ fn encode_instr(w: &mut Writer, instr: &Instr, pool: &StringPool) {
         }
         Instr::CallNative { native, argc } => {
             w.write_u8(op::CALL_NATIVE);
-            w.write_uvarint(*native as u64);
-            w.write_uvarint(*argc as u64);
+            let name = native_name(*native).expect("CallNative references an unknown native index");
+            w.write_uvarint(u64::from(pool.index[name]));
+            w.write_uvarint(u64::from(*argc));
         }
         Instr::EnumNew {
             ty,
@@ -404,10 +415,16 @@ fn decode_instr(r: &mut Reader, pool: &[String]) -> Result<Instr, DecodeError> {
             func: r.read_uvarint()? as u32,
             argc: r.read_uvarint()? as u8,
         },
-        op::CALL_NATIVE => Instr::CallNative {
-            native: r.read_uvarint()? as u32,
-            argc: r.read_uvarint()? as u8,
-        },
+        op::CALL_NATIVE => {
+            let name_idx = r.read_uvarint()? as usize;
+            let name = pool
+                .get(name_idx)
+                .ok_or(DecodeError::ConstIndexOutOfRange)?;
+            let native =
+                native_index(name).ok_or_else(|| DecodeError::UnknownNative(name.clone()))?;
+            let argc = r.read_uvarint()? as u8;
+            Instr::CallNative { native, argc }
+        }
         op::ENUM_NEW => Instr::EnumNew {
             ty: r.read_uvarint()? as u32,
             variant: r.read_uvarint()? as u16,
@@ -431,6 +448,7 @@ mod tests {
     use super::*;
     use crate::builder::FnBuilder;
     use crate::disasm::disassemble;
+    use crate::interp::NATIVE_PRINTLN;
 
     fn factorial_module() -> Module {
         let mut b = FnBuilder::new("fact", 1);
@@ -574,6 +592,53 @@ mod tests {
         assert_eq!(
             decode_module(&w.into_bytes()),
             Err(DecodeError::ConstIndexOutOfRange)
+        );
+    }
+
+    #[test]
+    fn native_call_is_encoded_by_name() {
+        let code = vec![
+            Instr::ConstStr("hi".into()),
+            Instr::CallNative {
+                native: NATIVE_PRINTLN,
+                argc: 1,
+            },
+            Instr::Return,
+        ];
+        let m = Module::new(vec![Function::new("f", 0, 0, code)]);
+        let bytes = encode_module(&m);
+        // the native name is in the wire form (pooled), not a raw index
+        assert!(bytes.windows(7).any(|w| w == b"println"));
+        assert_eq!(decode_module(&bytes), Ok(m));
+    }
+
+    #[test]
+    fn rejects_unknown_native() {
+        // A hand-built module whose call.native names a native we don't provide.
+        let mut consts = Writer::new();
+        consts.write_uvarint(1);
+        consts.write_str("bogus_native");
+
+        let mut funcs = Writer::new();
+        funcs.write_uvarint(1);
+        funcs.write_str("f");
+        funcs.write_uvarint(0); // params
+        funcs.write_uvarint(0); // locals
+        funcs.write_uvarint(2); // code len
+        funcs.write_u8(super::op::CALL_NATIVE);
+        funcs.write_uvarint(0); // pool index 0 = "bogus_native"
+        funcs.write_uvarint(0); // argc
+        funcs.write_u8(super::op::RETURN);
+
+        let mut w = Writer::new();
+        w.write_raw(MAGIC);
+        w.write_u32_le(VERSION);
+        write_section(&mut w, super::section::CONSTANTS, &consts.into_bytes());
+        write_section(&mut w, super::section::FUNCTIONS, &funcs.into_bytes());
+
+        assert_eq!(
+            decode_module(&w.into_bytes()),
+            Err(DecodeError::UnknownNative("bogus_native".to_string()))
         );
     }
 
