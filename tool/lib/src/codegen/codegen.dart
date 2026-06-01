@@ -26,6 +26,18 @@ class CodegenException implements Exception {
       'CodegenException: $message${span != null ? ' at $span' : ''}';
 }
 
+/// The three conditional/unconditional jump kinds, used by the backpatcher.
+enum _Jk { jump, ifTrue, ifFalse }
+
+/// A placeholder jump awaiting its target: the instruction position to patch,
+/// the label it targets, and which jump opcode to emit.
+class _Fixup {
+  final int pos;
+  final int label;
+  final _Jk kind;
+  const _Fixup(this.pos, this.label, this.kind);
+}
+
 /// Runtime natives callable directly by name. The front-end emits a
 /// `call.native` (resolved to an index by the runtime at load); the set grows
 /// as the stdlib surface does.
@@ -63,6 +75,13 @@ class _FnCompiler {
   int _localCount = 0;
   int _paramCount = 0;
 
+  // Jump targets are absolute instruction indices, but a forward jump is
+  // emitted before its target is known. We emit a placeholder, record a fixup,
+  // and backpatch once all labels are bound — the same scheme as the runtime's
+  // FnBuilder.
+  final List<int?> _labels = []; // label id -> bound instruction index
+  final List<_Fixup> _fixups = [];
+
   _FnCompiler(this.functionIndex);
 
   FuncDef compile(FnDecl fn) {
@@ -80,8 +99,38 @@ class _FnCompiler {
       _emit(const Simple(Op.constUnit));
       _emit(const Simple(Op.return_));
     }
+    _resolveJumps();
     return FuncDef(fn.name, _paramCount, _localCount, _code);
   }
+
+  /// Backpatch each placeholder jump with the absolute index of its label.
+  void _resolveJumps() {
+    for (final f in _fixups) {
+      final target = _labels[f.label]!;
+      _code[f.pos] = switch (f.kind) {
+        _Jk.jump => Jump(target),
+        _Jk.ifTrue => JumpIfTrue(target),
+        _Jk.ifFalse => JumpIfFalse(target),
+      };
+    }
+  }
+
+  int _newLabel() {
+    _labels.add(null);
+    return _labels.length - 1;
+  }
+
+  void _bind(int label) => _labels[label] = _code.length;
+
+  /// Emit a jump to [label]; the concrete target is patched in by
+  /// [_resolveJumps].
+  void _emitJump(_Jk kind, int label) {
+    _fixups.add(_Fixup(_code.length, label, kind));
+    _code.add(const Jump(0)); // placeholder, replaced during resolution
+  }
+
+  /// Allocate an unnamed local slot (loop counters, limits, …).
+  int _freshSlot() => _localCount++;
 
   bool _endsInReturn() {
     final last = _code.last;
@@ -126,6 +175,34 @@ class _FnCompiler {
         }
         _expr(value);
         _emit(Store(slot));
+      case IfStmt(:final condition, :final then, :final else_):
+        _expr(condition);
+        if (else_ == null) {
+          final end = _newLabel();
+          _emitJump(_Jk.ifFalse, end);
+          _block(then);
+          _bind(end);
+        } else {
+          final elseLabel = _newLabel();
+          final end = _newLabel();
+          _emitJump(_Jk.ifFalse, elseLabel);
+          _block(then);
+          _emitJump(_Jk.jump, end);
+          _bind(elseLabel);
+          _block(else_);
+          _bind(end);
+        }
+      case WhileStmt(:final condition, :final body):
+        final start = _newLabel();
+        final end = _newLabel();
+        _bind(start);
+        _expr(condition);
+        _emitJump(_Jk.ifFalse, end);
+        _block(body);
+        _emitJump(_Jk.jump, start);
+        _bind(end);
+      case ForStmt(:final pattern, :final iterable, :final body):
+        _forStmt(pattern, iterable, body);
       case ReturnStmt(:final value):
         if (value != null) {
           _expr(value);
@@ -142,6 +219,49 @@ class _FnCompiler {
         throw CodegenException(
             'unsupported statement: ${stmt.runtimeType}', stmt.span);
     }
+  }
+
+  /// `for x in start..end` lowers to a counter loop (end exclusive, evaluated
+  /// once). Only range iteration is supported for now; iterating collections
+  /// arrives with the iterator protocol.
+  void _forStmt(Pattern pattern, Expr iterable, Block body) {
+    if (iterable is! RangeExpr) {
+      throw CodegenException(
+          'only range iteration (a..b) is supported', iterable.span);
+    }
+    final varName = switch (pattern) {
+      IdentPattern(:final name) => name,
+      WildcardPattern() => null,
+      _ => throw CodegenException(
+          'unsupported for-loop pattern: ${pattern.runtimeType}',
+          iterable.span),
+    };
+
+    // counter = start
+    _expr(iterable.start);
+    final counter = varName != null ? _declareLocal(varName) : _freshSlot();
+    if (varName != null) _localTypes[varName] = 'Int';
+    _emit(Store(counter));
+    // limit = end (evaluated once, into a hidden slot)
+    _expr(iterable.end);
+    final limit = _freshSlot();
+    _emit(Store(limit));
+
+    final start = _newLabel();
+    final end = _newLabel();
+    _bind(start);
+    _emit(Load(counter));
+    _emit(Load(limit));
+    _emit(const Simple(Op.ltI64));
+    _emitJump(_Jk.ifFalse, end);
+    _block(body);
+    // counter += 1
+    _emit(Load(counter));
+    _emit(const ConstInt(1));
+    _emit(const Simple(Op.addI64));
+    _emit(Store(counter));
+    _emitJump(_Jk.jump, start);
+    _bind(end);
   }
 
   // --- Expressions ---
@@ -191,10 +311,8 @@ class _FnCompiler {
 
   void _binaryExpr(BinaryExpr e) {
     if (e.op == '&&' || e.op == '||') {
-      // Short-circuit operators lower to branches (no and/or opcode); deferred
-      // to the control-flow increment.
-      throw CodegenException(
-          'short-circuit `${e.op}` not yet supported', e.span);
+      _logicalExpr(e);
+      return;
     }
 
     // Operand type is taken from the left; the checker guarantees both sides
@@ -217,6 +335,24 @@ class _FnCompiler {
     } else {
       throw CodegenException('unsupported operator: ${e.op}', e.span);
     }
+  }
+
+  /// `&&` / `||` short-circuit, so they lower to branches (there is no and/or
+  /// opcode). Each leaves exactly one bool on the stack.
+  void _logicalExpr(BinaryExpr e) {
+    final isAnd = e.op == '&&';
+    final shortCircuit = _newLabel();
+    final end = _newLabel();
+
+    _expr(e.left);
+    // `&&`: if left is false, skip the right and yield false.
+    // `||`: if left is true, skip the right and yield true.
+    _emitJump(isAnd ? _Jk.ifFalse : _Jk.ifTrue, shortCircuit);
+    _expr(e.right);
+    _emitJump(_Jk.jump, end);
+    _bind(shortCircuit);
+    _emit(ConstBool(!isAnd)); // && → false, || → true
+    _bind(end);
   }
 
   Op _arithOp(String op, bool isDouble, SourceSpan span) => switch (op) {

@@ -86,9 +86,22 @@ fn main() -> Int {
       expect(ops[3], isA<Store>().having((i) => i.slot, 'slot', 0));
     });
 
-    test('short-circuit operators are not yet supported', () {
-      expect(() => compile('fn f() -> Bool { return true && false; }'),
-          throwsA(isA<CodegenException>()));
+    test('if/else lowers to the expected jump structure', () {
+      final m = compile('fn f() -> Int { if true { return 1; } else { return 2; } }');
+      final ops = m.functions.single.code;
+      // 0 const.bool, 1 jump_if_false->else, 2 const 1, 3 return,
+      // 4 jump->end, 5 const 2 (else), 6 return, 7 const.unit, 8 return.
+      expect(ops[1], isA<JumpIfFalse>().having((i) => i.target, 'target', 5));
+      expect(ops[4], isA<Jump>().having((i) => i.target, 'target', 7));
+      expect(ops[5], isA<ConstInt>().having((i) => i.value, 'value', 2));
+    });
+
+    test('short-circuit && lowers to branches', () {
+      final ops =
+          compile('fn f() -> Bool { return true && false; }').functions.single.code;
+      expect(ops.whereType<JumpIfFalse>(), isNotEmpty);
+      // && yields `false` on the short-circuit path.
+      expect(ops.whereType<ConstBool>().map((i) => i.value), contains(false));
     });
   });
 
@@ -131,6 +144,69 @@ fn main() -> Int {
 
       final r = Process.runSync(hawkBin, ['run', tmp]);
       expect(r.exitCode, 42);
+    });
+
+    int runExit(String name, String source) {
+      final m = compile(source);
+      final tmp = '${Directory.systemTemp.path}/hawk_cf_$name.hawkbc';
+      File(tmp).writeAsBytesSync(encodeModule(m));
+      return Process.runSync(hawkBin!, ['run', tmp]).exitCode;
+    }
+
+    test('for-loop sum', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      expect(
+          runExit('for', '''
+fn main() -> Int {
+    let mut sum = 0;
+    for i in 1..5 {
+        sum = sum + i;
+    }
+    return sum;
+}
+'''),
+          10); // 1+2+3+4
+    });
+
+    test('while loop', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      expect(
+          runExit('while', '''
+fn main() -> Int {
+    let mut n = 5;
+    let mut acc = 0;
+    while n > 0 {
+        acc = acc + n;
+        n = n - 1;
+    }
+    return acc;
+}
+'''),
+          15); // 5+4+3+2+1
+    });
+
+    test('if/else picks a branch', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      expect(
+          runExit('if', 'fn main() -> Int { let x = 7; if x > 5 { return 1; } else { return 2; } }'),
+          1);
+    });
+
+    test('&& short-circuits (the right side, which would trap, is skipped)', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      // If `&&` evaluated its RHS, `10 / 0` would trap (non-zero exit). A clean
+      // exit 9 proves the RHS was never reached.
+      expect(
+          runExit('and_sc', '''
+fn main() -> Int {
+    let f = false;
+    if f && (10 / 0 > 0) {
+        return 1;
+    }
+    return 9;
+}
+'''),
+          9);
     });
   });
 }
