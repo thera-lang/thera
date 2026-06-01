@@ -6,6 +6,8 @@ import 'package:hawk/src/bytecode/module.dart';
 import 'package:hawk/src/bytecode/writer.dart';
 import 'package:test/test.dart';
 
+import 'runtime_harness.dart';
+
 void main() {
   group('Writer varints', () {
     test('uvarint matches LEB128', () {
@@ -30,7 +32,7 @@ void main() {
   });
 
   group('cross-toolchain parity (requires the Rust runtime)', () {
-    late final String? hawkBin = _buildRuntime();
+    late final String? hawkBin = buildRuntime();
 
     test('Dart-encoded demo is byte-identical to the runtime emit-demo', () {
       if (hawkBin == null) {
@@ -82,47 +84,4 @@ Module demoModule() {
     Simple(Op.return_),
   ]);
   return Module([main, double]);
-}
-
-/// Locate the repo root, build the Rust runtime, and return the path to the
-/// `hawk` binary — or null if the toolchain isn't available (tests skip).
-String? _buildRuntime() {
-  final runtimeDir = _findRuntimeDir();
-  if (runtimeDir == null) return null;
-
-  final cargo = _findCargo();
-  if (cargo != null) {
-    final build = Process.runSync(cargo, ['build'], workingDirectory: runtimeDir);
-    if (build.exitCode != 0) {
-      // Fall through to an existing binary if one is present.
-    }
-  }
-
-  final bin = '$runtimeDir/target/debug/hawk';
-  return File(bin).existsSync() ? bin : null;
-}
-
-/// Walk up from the current directory looking for `runtime/Cargo.toml`.
-String? _findRuntimeDir() {
-  var dir = Directory.current;
-  for (var i = 0; i < 5; i++) {
-    final candidate = Directory('${dir.path}/runtime');
-    if (File('${candidate.path}/Cargo.toml').existsSync()) return candidate.path;
-    final parent = dir.parent;
-    if (parent.path == dir.path) break;
-    dir = parent;
-  }
-  return null;
-}
-
-/// `cargo` on PATH, or the default rustup install location.
-String? _findCargo() {
-  final home = Platform.environment['HOME'];
-  for (final candidate in ['cargo', if (home != null) '$home/.cargo/bin/cargo']) {
-    try {
-      final r = Process.runSync(candidate, ['--version']);
-      if (r.exitCode == 0) return candidate;
-    } catch (_) {}
-  }
-  return null;
 }

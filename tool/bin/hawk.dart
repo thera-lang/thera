@@ -2,7 +2,10 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:hawk/src/ast.dart';
+import 'package:hawk/src/bytecode/encoder.dart';
 import 'package:hawk/src/checker/type_checker.dart';
+import 'package:hawk/src/bytecode/module.dart';
+import 'package:hawk/src/codegen/codegen.dart';
 import 'package:hawk/src/interpreter/interpreter.dart';
 import 'package:hawk/src/lexer.dart';
 import 'package:hawk/src/lsp/server.dart';
@@ -36,6 +39,7 @@ void main(List<String> args) async {
   final runner = CommandRunner<void>('hawk', 'The Hawk language toolchain.')
     ..addCommand(ParseCommand())
     ..addCommand(RunCommand())
+    ..addCommand(EmitCommand())
     ..addCommand(CheckCommand())
     ..addCommand(TestCommand())
     ..addCommand(LspCommand());
@@ -126,6 +130,37 @@ class RunCommand extends Command<void> {
     final exitCode = Interpreter(sdkRoot: _findSdkRoot())
         .execute(program, programArgs, baseDir: File(path).parent.path);
     exit(exitCode);
+  }
+}
+
+class EmitCommand extends Command<void> {
+  @override
+  String get name => 'emit';
+
+  @override
+  String get description => 'Compile <file> to bytecode, written to <out>.';
+
+  @override
+  String get invocation => 'hawk emit <file> <out.hawkbc>';
+
+  @override
+  void run() {
+    final rest = argResults!.rest;
+    if (rest.length < 2) {
+      usageException('Expected <file> and <out> arguments.');
+    }
+    final path = rest[0];
+    final out = rest[1];
+
+    final program = _loadProgram(path);
+    final Module module;
+    try {
+      module = compileProgram(program);
+    } on CodegenException catch (e) {
+      stderr.writeln('hawk: $path: ${e.message}');
+      exit(1);
+    }
+    File(out).writeAsBytesSync(encodeModule(module));
   }
 }
 
