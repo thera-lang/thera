@@ -4,11 +4,11 @@
 //! byte stream (see docs/bytecode.md, "Instruction encoding"). Opcode names
 //! mirror the spec: `add.i64` → [`Instr::AddI64`], etc.
 //!
-//! Current subset (increments 1–6): constants (incl. strings), locals,
-//! arithmetic, comparison, conversions, stack manipulation, direct `call`,
-//! native `call`, enums (`enum.new`/`tag`/`get`), `list.new`, control flow
-//! (`jump` family), and `return`. Most collection operations are native calls.
-//! Closures and interface dispatch arrive later.
+//! Current subset: constants (incl. strings), locals, arithmetic, comparison,
+//! conversions, stack manipulation, direct `call`, native `call`, enums
+//! (`enum.new`/`tag`/`get`), structs (`struct.new`/`field.get`/`field.set`),
+//! `list.new`, control flow (`jump` family), and `return`. Most collection
+//! operations are native calls. Closures and interface dispatch arrive later.
 
 /// A local-slot index (parameters and locals share one array).
 pub type Slot = u16;
@@ -112,6 +112,18 @@ pub enum Instr {
     EnumTag,
     /// Pop an enum; push its payload field at `idx`.
     EnumGet(u16),
+
+    // --- structs ---
+    /// Pop the fields (pushed left-to-right) and push a new struct of type
+    /// `ty`. The field count comes from `module.types[ty]`.
+    StructNew {
+        ty: u32,
+    },
+    /// Pop a struct; push its field at `idx`.
+    FieldGet(u16),
+    /// Pop a struct and a value (`struct value →`) and store the value into
+    /// field `idx`. For `mut` fields.
+    FieldSet(u16),
 
     // --- collections ---
     /// Pop `count` values (pushed left-to-right) and push a new list. Map/Set

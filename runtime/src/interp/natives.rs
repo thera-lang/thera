@@ -81,7 +81,7 @@ fn display_string(v: &Value) -> Result<String, Trap> {
         Value::Unit => "()".to_string(),
         Value::Ref(rc) => match &*rc.borrow() {
             Obj::Str(s) => s.clone(),
-            Obj::Enum(_) | Obj::List(_) | Obj::Map(_) => {
+            Obj::Enum(_) | Obj::List(_) | Obj::Map(_) | Obj::Struct { .. } => {
                 return Err(bug("display: type has no built-in Display"));
             }
         },
@@ -93,7 +93,9 @@ fn str_contents(v: &Value) -> Result<String, Trap> {
     match v {
         Value::Ref(rc) => match &*rc.borrow() {
             Obj::Str(s) => Ok(s.clone()),
-            Obj::Enum(_) | Obj::List(_) | Obj::Map(_) => Err(bug("expected string")),
+            Obj::Enum(_) | Obj::List(_) | Obj::Map(_) | Obj::Struct { .. } => {
+                Err(bug("expected string"))
+            }
         },
         v => Err(bug(format!("expected string, found {v:?}"))),
     }

@@ -240,6 +240,17 @@ impl FnBuilder {
         self.emit(Instr::EnumGet(idx))
     }
 
+    // --- structs ---
+    pub fn struct_new(&mut self, ty: u32) -> &mut Self {
+        self.emit(Instr::StructNew { ty })
+    }
+    pub fn field_get(&mut self, idx: u16) -> &mut Self {
+        self.emit(Instr::FieldGet(idx))
+    }
+    pub fn field_set(&mut self, idx: u16) -> &mut Self {
+        self.emit(Instr::FieldSet(idx))
+    }
+
     // --- collections ---
     pub fn list_new(&mut self, count: u32) -> &mut Self {
         self.emit(Instr::ListNew { count })

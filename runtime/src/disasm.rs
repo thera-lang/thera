@@ -105,6 +105,16 @@ fn fmt_instr(instr: &Instr, module: &Module) -> String {
         Instr::EnumTag => "enum.tag".to_string(),
         Instr::EnumGet(idx) => with("enum.get", idx.to_string()),
 
+        Instr::StructNew { ty } => {
+            let name = module
+                .types
+                .get(*ty as usize)
+                .map_or("?", |t| t.name.as_str());
+            with("struct.new", format!("ty={ty} {name}"))
+        }
+        Instr::FieldGet(idx) => with("field.get", idx.to_string()),
+        Instr::FieldSet(idx) => with("field.set", idx.to_string()),
+
         Instr::ListNew { count } => with("list.new", count.to_string()),
 
         Instr::Jump(t) => with("jump", format!("-> {t:04}")),

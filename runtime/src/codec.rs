@@ -15,7 +15,7 @@ use std::path::Path;
 
 use crate::instr::Instr;
 use crate::interp::{native_index, native_name};
-use crate::module::{Function, Module};
+use crate::module::{Function, Module, TypeDef};
 use crate::serialize::{DecodeError, Reader, Writer};
 
 /// An error loading a module from disk: either the file could not be read or
@@ -67,6 +67,7 @@ const VERSION: u32 = 1;
 mod section {
     pub const FUNCTIONS: u8 = 1;
     pub const CONSTANTS: u8 = 2;
+    pub const TYPES: u8 = 3;
 }
 
 /// Collects and deduplicates string literals during encoding. Strings are
@@ -139,13 +140,20 @@ mod op {
     pub const JUMP_IF_TRUE: u8 = 43;
     pub const JUMP_IF_FALSE: u8 = 44;
     pub const RETURN: u8 = 45;
+    pub const STRUCT_NEW: u8 = 46;
+    pub const FIELD_GET: u8 = 47;
+    pub const FIELD_SET: u8 = 48;
 }
 
 /// Encode a module to the wire format.
 pub fn encode_module(m: &Module) -> Vec<u8> {
-    // First pass: intern every string the bodies reference — literals and the
-    // names of called natives (natives are bound by name on the wire).
+    // First pass: intern every string the module references — literals, the
+    // names of called natives (natives are bound by name on the wire), and the
+    // names of types.
     let mut pool = StringPool::default();
+    for t in &m.types {
+        pool.intern(&t.name);
+    }
     for f in &m.functions {
         for instr in &f.code {
             match instr {
@@ -169,6 +177,14 @@ pub fn encode_module(m: &Module) -> Vec<u8> {
         consts.write_str(s);
     }
 
+    // Types section: name (pool index) + field count per type.
+    let mut types = Writer::new();
+    types.write_uvarint(m.types.len() as u64);
+    for t in &m.types {
+        types.write_uvarint(u64::from(pool.index[t.name.as_str()]));
+        types.write_uvarint(u64::from(t.field_count));
+    }
+
     // Functions section: bodies reference the pool by index.
     let mut funcs = Writer::new();
     funcs.write_uvarint(m.functions.len() as u64);
@@ -180,6 +196,7 @@ pub fn encode_module(m: &Module) -> Vec<u8> {
     w.write_raw(MAGIC);
     w.write_u32_le(VERSION);
     write_section(&mut w, section::CONSTANTS, &consts.into_bytes());
+    write_section(&mut w, section::TYPES, &types.into_bytes());
     write_section(&mut w, section::FUNCTIONS, &funcs.into_bytes());
     w.into_bytes()
 }
@@ -197,6 +214,7 @@ pub fn decode_module(bytes: &[u8]) -> Result<Module, DecodeError> {
 
     // Collect section payloads first (order-independent; unknown ids ignored).
     let mut consts_payload: Option<&[u8]> = None;
+    let mut types_payload: Option<&[u8]> = None;
     let mut funcs_payload: Option<&[u8]> = None;
     while !r.is_empty() {
         let id = r.read_u8()?;
@@ -204,14 +222,20 @@ pub fn decode_module(bytes: &[u8]) -> Result<Module, DecodeError> {
         let payload = r.read_raw(len)?;
         match id {
             section::CONSTANTS => consts_payload = Some(payload),
+            section::TYPES => types_payload = Some(payload),
             section::FUNCTIONS => funcs_payload = Some(payload),
             _ => {} // unknown section: skip (payload already consumed)
         }
     }
 
-    // The constant pool must be available before decoding function bodies.
+    // The constant pool must be available before decoding types and bodies.
     let pool = match consts_payload {
         Some(p) => decode_pool(p)?,
+        None => Vec::new(),
+    };
+
+    let types = match types_payload {
+        Some(p) => decode_types(p, &pool)?,
         None => Vec::new(),
     };
 
@@ -224,7 +248,23 @@ pub fn decode_module(bytes: &[u8]) -> Result<Module, DecodeError> {
         }
     }
 
-    Ok(Module::new(functions))
+    Ok(Module::with_types(functions, types))
+}
+
+fn decode_types(payload: &[u8], pool: &[String]) -> Result<Vec<TypeDef>, DecodeError> {
+    let mut r = Reader::new(payload);
+    let count = r.read_uvarint()? as usize;
+    let mut types = Vec::with_capacity(count);
+    for _ in 0..count {
+        let name_idx = r.read_uvarint()? as usize;
+        let name = pool
+            .get(name_idx)
+            .ok_or(DecodeError::ConstIndexOutOfRange)?
+            .clone();
+        let field_count = r.read_uvarint()? as u16;
+        types.push(TypeDef::new(name, field_count));
+    }
+    Ok(types)
 }
 
 fn decode_pool(payload: &[u8]) -> Result<Vec<String>, DecodeError> {
@@ -346,6 +386,18 @@ fn encode_instr(w: &mut Writer, instr: &Instr, pool: &StringPool) {
             w.write_u8(op::ENUM_GET);
             w.write_uvarint(*idx as u64);
         }
+        Instr::StructNew { ty } => {
+            w.write_u8(op::STRUCT_NEW);
+            w.write_uvarint(u64::from(*ty));
+        }
+        Instr::FieldGet(idx) => {
+            w.write_u8(op::FIELD_GET);
+            w.write_uvarint(u64::from(*idx));
+        }
+        Instr::FieldSet(idx) => {
+            w.write_u8(op::FIELD_SET);
+            w.write_uvarint(u64::from(*idx));
+        }
         Instr::ListNew { count } => {
             w.write_u8(op::LIST_NEW);
             w.write_uvarint(*count as u64);
@@ -432,6 +484,11 @@ fn decode_instr(r: &mut Reader, pool: &[String]) -> Result<Instr, DecodeError> {
         },
         op::ENUM_TAG => Instr::EnumTag,
         op::ENUM_GET => Instr::EnumGet(r.read_uvarint()? as u16),
+        op::STRUCT_NEW => Instr::StructNew {
+            ty: r.read_uvarint()? as u32,
+        },
+        op::FIELD_GET => Instr::FieldGet(r.read_uvarint()? as u16),
+        op::FIELD_SET => Instr::FieldSet(r.read_uvarint()? as u16),
         op::LIST_NEW => Instr::ListNew {
             count: r.read_uvarint()? as u32,
         },
@@ -537,6 +594,9 @@ mod tests {
             },
             Instr::EnumTag,
             Instr::EnumGet(1),
+            Instr::StructNew { ty: 0 },
+            Instr::FieldGet(1),
+            Instr::FieldSet(2),
             Instr::ListNew { count: 3 },
             Instr::Jump(10),
             Instr::JumpIfTrue(11),
@@ -640,6 +700,18 @@ mod tests {
             decode_module(&w.into_bytes()),
             Err(DecodeError::UnknownNative("bogus_native".to_string()))
         );
+    }
+
+    #[test]
+    fn module_with_types_round_trips() {
+        let mut b = FnBuilder::new("make", 0);
+        b.const_int(1);
+        b.const_int(2);
+        b.struct_new(0);
+        b.field_get(1);
+        b.ret();
+        let m = Module::with_types(vec![b.finish()], vec![TypeDef::new("Point", 2)]);
+        assert_eq!(decode_module(&encode_module(&m)), Ok(m));
     }
 
     #[test]

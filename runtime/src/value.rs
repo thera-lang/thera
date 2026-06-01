@@ -42,6 +42,11 @@ impl Value {
         Value::Ref(Rc::new(RefCell::new(Obj::Map(entries))))
     }
 
+    /// Construct a struct value of the given type on the heap.
+    pub fn new_struct(ty: u32, fields: Vec<Value>) -> Value {
+        Value::Ref(Rc::new(RefCell::new(Obj::Struct { ty, fields })))
+    }
+
     /// Construct an enum value (e.g. `Result`/`Option`) on the heap.
     pub fn new_enum(ty: u32, variant: u16, fields: Vec<Value>) -> Value {
         Value::Ref(Rc::new(RefCell::new(Obj::Enum(EnumObj {
@@ -70,6 +75,11 @@ pub enum Obj {
     /// A key/value store. Insertion-ordered; lookups are a linear scan keyed by
     /// structural equality (simple and dependency-free for the draft).
     Map(Vec<(Value, Value)>),
+    /// A struct instance: its type id and field values (addressed by index).
+    Struct {
+        ty: u32,
+        fields: Vec<Value>,
+    },
     Enum(EnumObj),
 }
 

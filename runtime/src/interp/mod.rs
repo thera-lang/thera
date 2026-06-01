@@ -285,6 +285,30 @@ impl<'a> Vm<'a> {
                     stack.push(enum_field(&v, *idx as usize)?);
                 }
 
+                // --- structs ---
+                Instr::StructNew { ty } => {
+                    let field_count = module
+                        .types
+                        .get(*ty as usize)
+                        .ok_or_else(|| bug(format!("struct.new: no type at index {ty}")))?
+                        .field_count as usize;
+                    let base = stack
+                        .len()
+                        .checked_sub(field_count)
+                        .ok_or_else(|| bug("struct.new: operand stack underflow"))?;
+                    let fields = stack.split_off(base);
+                    stack.push(Value::new_struct(*ty, fields));
+                }
+                Instr::FieldGet(idx) => {
+                    let v = pop(&mut stack)?;
+                    stack.push(struct_field(&v, *idx as usize)?);
+                }
+                Instr::FieldSet(idx) => {
+                    let value = pop(&mut stack)?;
+                    let obj = pop(&mut stack)?;
+                    set_struct_field(&obj, *idx as usize, value)?;
+                }
+
                 // --- collections ---
                 Instr::ListNew { count } => {
                     let n = *count as usize;
@@ -366,7 +390,9 @@ fn pop_enum_variant(stack: &mut Vec<Value>) -> Result<u16, Trap> {
     match pop(stack)? {
         Value::Ref(rc) => match &*rc.borrow() {
             Obj::Enum(e) => Ok(e.variant),
-            Obj::Str(_) | Obj::List(_) | Obj::Map(_) => Err(bug("enum.tag: expected enum")),
+            Obj::Str(_) | Obj::List(_) | Obj::Map(_) | Obj::Struct { .. } => {
+                Err(bug("enum.tag: expected enum"))
+            }
         },
         v => Err(bug(format!("expected enum, found {v:?}"))),
     }
@@ -381,9 +407,46 @@ fn enum_field(v: &Value, idx: usize) -> Result<Value, Trap> {
                 .get(idx)
                 .cloned()
                 .ok_or_else(|| bug(format!("enum.get: field {idx} out of range"))),
-            Obj::Str(_) | Obj::List(_) | Obj::Map(_) => Err(bug("enum.get: expected enum")),
+            Obj::Str(_) | Obj::List(_) | Obj::Map(_) | Obj::Struct { .. } => {
+                Err(bug("enum.get: expected enum"))
+            }
         },
         v => Err(bug(format!("enum.get: expected enum, found {v:?}"))),
+    }
+}
+
+/// Read field `idx` of a struct value.
+fn struct_field(v: &Value, idx: usize) -> Result<Value, Trap> {
+    match v {
+        Value::Ref(rc) => match &*rc.borrow() {
+            Obj::Struct { fields, .. } => fields
+                .get(idx)
+                .cloned()
+                .ok_or_else(|| bug(format!("field.get: field {idx} out of range"))),
+            Obj::Str(_) | Obj::List(_) | Obj::Map(_) | Obj::Enum(_) => {
+                Err(bug("field.get: expected struct"))
+            }
+        },
+        v => Err(bug(format!("field.get: expected struct, found {v:?}"))),
+    }
+}
+
+/// Store `value` into field `idx` of a struct value (in place).
+fn set_struct_field(v: &Value, idx: usize, value: Value) -> Result<(), Trap> {
+    match v {
+        Value::Ref(rc) => match &mut *rc.borrow_mut() {
+            Obj::Struct { fields, .. } => {
+                let slot = fields
+                    .get_mut(idx)
+                    .ok_or_else(|| bug(format!("field.set: field {idx} out of range")))?;
+                *slot = value;
+                Ok(())
+            }
+            Obj::Str(_) | Obj::List(_) | Obj::Map(_) | Obj::Enum(_) => {
+                Err(bug("field.set: expected struct"))
+            }
+        },
+        v => Err(bug(format!("field.set: expected struct, found {v:?}"))),
     }
 }
 
@@ -403,7 +466,7 @@ fn cmp_double(stack: &mut Vec<Value>, f: impl Fn(f64, f64) -> bool) -> Result<()
 mod tests {
     use super::*;
     use crate::builder::FnBuilder;
-    use crate::module::{Function, Module};
+    use crate::module::{Function, Module, TypeDef};
     use crate::value::{TAG_ERR, TAG_NONE, TAG_OK, TAG_SOME};
 
     // Opaque type ids for the draft (no type table yet).
@@ -1298,5 +1361,84 @@ mod tests {
             b.ret();
         });
         assert!(matches!(r, Err(Trap::Bug(_))));
+    }
+
+    // --- structs & the type table ---
+
+    /// Run a parameterless function against a module with the given types.
+    fn run_with_types(
+        types: Vec<TypeDef>,
+        build: impl FnOnce(&mut FnBuilder),
+    ) -> Result<Value, Trap> {
+        let mut b = FnBuilder::new("test", 0);
+        build(&mut b);
+        let module = Module::with_types(vec![b.finish()], types);
+        super::run(&module, 0, &[])
+    }
+
+    #[test]
+    fn struct_construction_and_field_access() {
+        // type Point = { x, y };  Point { 1, 2 }.y  → 2
+        let r = run_with_types(vec![TypeDef::new("Point", 2)], |b| {
+            b.const_int(1);
+            b.const_int(2);
+            b.struct_new(0);
+            b.field_get(1); // y
+            b.ret();
+        });
+        assert_eq!(r, Ok(Value::Int(2)));
+    }
+
+    #[test]
+    fn struct_field_set_and_reference_semantics() {
+        // p = Point{1, 2}; q = p; p.x = 9; return q.x  → 9 (shared heap object)
+        let r = run_with_types(vec![TypeDef::new("Point", 2)], |b| {
+            b.const_int(1);
+            b.const_int(2);
+            b.struct_new(0);
+            b.store(0); // p
+            b.load(0);
+            b.store(1); // q = p
+            b.load(0);
+            b.const_int(9);
+            b.field_set(0); // p.x = 9  (stack: struct value →)
+            b.load(1);
+            b.field_get(0); // q.x
+            b.ret();
+        });
+        assert_eq!(r, Ok(Value::Int(9)));
+    }
+
+    #[test]
+    fn struct_equality_is_structural() {
+        assert_eq!(
+            Value::new_struct(0, vec![Value::Int(1)]),
+            Value::new_struct(0, vec![Value::Int(1)])
+        );
+        assert_ne!(
+            Value::new_struct(0, vec![Value::Int(1)]),
+            Value::new_struct(0, vec![Value::Int(2)])
+        );
+        // different type id, same fields
+        assert_ne!(
+            Value::new_struct(0, vec![Value::Int(1)]),
+            Value::new_struct(1, vec![Value::Int(1)])
+        );
+    }
+
+    #[test]
+    fn struct_new_unknown_type_is_a_bug() {
+        // No types registered, so type index 0 is invalid.
+        let r = run_with_types(vec![], |b| {
+            b.struct_new(0);
+            b.ret();
+        });
+        assert!(matches!(r, Err(Trap::Bug(_))));
+    }
+
+    #[test]
+    fn field_get_on_non_struct_is_a_bug() {
+        let code = [Instr::ConstInt(1), Instr::FieldGet(0), Instr::Return];
+        assert!(matches!(run(&code), Err(Trap::Bug(_))));
     }
 }
