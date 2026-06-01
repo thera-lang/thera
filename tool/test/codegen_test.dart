@@ -173,6 +173,38 @@ fn f() -> Result<Int, Int> { let x = g()?; return x; }
         isA<EnumGet>().having((i) => i.index, 'index', 0),
       ]));
     });
+
+    test('a struct declaration becomes a type-table entry', () {
+      final m = compile(
+          'type Point = { x: Int, y: Int } fn f() -> Int { return 0; }');
+      expect(m.types, hasLength(1));
+      expect(m.types.single.name, 'Point');
+      expect(m.types.single.fieldCount, 2);
+    });
+
+    test('struct literal pushes fields in declaration order, then struct.new', () {
+      // Written y-first, but x is declared first → its value (1) is pushed first.
+      final ops = compile(
+              'type Point = { x: Int, y: Int } '
+              'fn f() -> Int { let p = Point { y: 2, x: 1 }; return p.x; }')
+          .functions
+          .single
+          .code;
+      final ints = ops.whereType<ConstInt>().map((i) => i.value).toList();
+      expect(ints.take(2), [1, 2]);
+      expect(ops, contains(isA<StructNew>().having((i) => i.type, 'type', 0)));
+      expect(ops, contains(isA<FieldGet>().having((i) => i.index, 'index', 0)));
+    });
+
+    test('field assignment lowers to field.set', () {
+      final ops = compile(
+              'type C = { n: Int } '
+              'fn f() -> Int { let mut c = C { n: 1 }; c.n = 5; return c.n; }')
+          .functions
+          .single
+          .code;
+      expect(ops, contains(isA<FieldSet>().having((i) => i.index, 'index', 0)));
+    });
   });
 
   group('end-to-end (requires the Rust runtime)', () {
@@ -374,6 +406,47 @@ fn main() -> Int {
 }
 '''),
           7);
+    });
+
+    test('struct literal + field read', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      expect(
+          runExit('struct', '''
+type Point = { x: Int, y: Int }
+fn main() -> Int {
+    let p = Point { y: 2, x: 40 };
+    return p.x + p.y;
+}
+'''),
+          42);
+    });
+
+    test('mutable field assignment', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      expect(
+          runExit('field_set', '''
+type Counter = { n: Int }
+fn main() -> Int {
+    let mut c = Counter { n: 0 };
+    c.n = 42;
+    return c.n;
+}
+'''),
+          42);
+    });
+
+    test('nested struct field access', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      expect(
+          runExit('nested', '''
+type Point = { x: Int, y: Int }
+type Rect = { top_left: Point, w: Int }
+fn main() -> Int {
+    let r = Rect { top_left: Point { x: 10, y: 20 }, w: 5 };
+    return r.top_left.x + r.top_left.y + r.w;
+}
+'''),
+          35);
     });
   });
 }

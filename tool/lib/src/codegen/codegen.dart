@@ -62,28 +62,54 @@ Module compileProgram(Program program) {
   final functionIndex = <String, int>{};
   final functionReturns = <String, String?>{};
   final fns = <FnDecl>[];
+
+  // Struct declarations populate the module's type table; their index in that
+  // table is the type id used by `struct.new`.
+  final structs = <String, _StructInfo>{};
+  final types = <TypeDef>[];
+
   for (final decl in program.decls) {
     if (decl is FnDecl && !decl.isNative) {
       functionIndex[decl.name] = fns.length;
       functionReturns[decl.name] = _typeRefName(decl.returnType);
       fns.add(decl);
+    } else if (decl is TypeDecl) {
+      final fieldNames = [for (final f in decl.fields) f.$1];
+      final fieldTypes = {
+        for (final f in decl.fields) f.$1: _typeRefName(f.$2),
+      };
+      structs[decl.name] = _StructInfo(types.length, fieldNames, fieldTypes);
+      types.add(TypeDef(decl.name, fieldNames.length));
     }
   }
 
   final functions = [
     for (final fn in fns)
-      _FnCompiler(functionIndex, functionReturns).compile(fn),
+      _FnCompiler(functionIndex, functionReturns, structs).compile(fn),
   ];
-  return Module(functions);
+  return Module(functions, types: types);
 }
 
 /// The name of a type reference (`Int`, `Double`, …), or null.
 String? _typeRefName(TypeRef? type) => type is NamedType ? type.name : null;
 
+/// Layout of a struct type: its index in the module type table, its field
+/// names in declaration order (which fixes the field indices), and each
+/// field's type name.
+class _StructInfo {
+  final int index;
+  final List<String> fieldNames;
+  final Map<String, String?> fieldTypes;
+  _StructInfo(this.index, this.fieldNames, this.fieldTypes);
+
+  int fieldIndexOf(String name) => fieldNames.indexOf(name);
+}
+
 /// Compiles one function: tracks local slots and emits its instruction stream.
 class _FnCompiler {
   final Map<String, int> functionIndex;
   final Map<String, String?> functionReturns;
+  final Map<String, _StructInfo> structs;
   final List<Instr> _code = [];
   final Map<String, int> _slots = {};
   // Static type (by name) of each local, used to pick typed opcodes. Until the
@@ -104,7 +130,7 @@ class _FnCompiler {
   final List<int?> _labels = []; // label id -> bound instruction index
   final List<_Fixup> _fixups = [];
 
-  _FnCompiler(this.functionIndex, this.functionReturns);
+  _FnCompiler(this.functionIndex, this.functionReturns, this.structs);
 
   FuncDef compile(FnDecl fn) {
     _returnsResult = _typeRefName(fn.returnType) == 'Result';
@@ -186,18 +212,26 @@ class _FnCompiler {
         _localTypes[name] = type != null ? _typeName(type) : _typeOf(value);
         _emit(Store(slot));
       case AssignStmt(:final target, :final value):
-        if (target is! IdentExpr) {
-          throw CodegenException(
-              'unsupported assignment target: ${target.runtimeType}',
-              stmt.span);
+        switch (target) {
+          case IdentExpr(:final name):
+            final slot = _slots[name];
+            if (slot == null) {
+              throw CodegenException(
+                  'assignment to unknown local: $name', stmt.span);
+            }
+            _expr(value);
+            _emit(Store(slot));
+          case FieldExpr(:final object, :final field):
+            // field.set pops the value then the receiver: push receiver first.
+            final info = _structOf(object, stmt.span);
+            _expr(object);
+            _expr(value);
+            _emit(FieldSet(_fieldIndex(info, field, stmt.span)));
+          default:
+            throw CodegenException(
+                'unsupported assignment target: ${target.runtimeType}',
+                stmt.span);
         }
-        final slot = _slots[target.name];
-        if (slot == null) {
-          throw CodegenException(
-              'assignment to unknown local: ${target.name}', stmt.span);
-        }
-        _expr(value);
-        _emit(Store(slot));
       case IfStmt(:final condition, :final then, :final else_):
         _expr(condition);
         if (else_ == null) {
@@ -328,6 +362,12 @@ class _FnCompiler {
         _unaryExpr(expr);
       case BinaryExpr():
         _binaryExpr(expr);
+      case StructExpr():
+        _structExpr(expr);
+      case FieldExpr(:final object, :final field):
+        final info = _structOf(object, expr.span);
+        _expr(object);
+        _emit(FieldGet(_fieldIndex(info, field, expr.span)));
       case CallExpr():
         _callExpr(expr);
       case PropagateExpr():
@@ -550,6 +590,9 @@ class _FnCompiler {
           'Some' => 'Option',
           _ => _returnTypeOf(callee.name),
         },
+        StructExpr(:final typeName) => typeName,
+        FieldExpr(:final object, :final field) =>
+          structs[_typeOf(object)]?.fieldTypes[field],
         _ => null,
       };
 
@@ -609,6 +652,44 @@ class _FnCompiler {
               span);
         }
     }
+  }
+
+  /// `T { f: e, ... }` — push field values in declaration order (which fixes
+  /// the field indices the runtime addresses), then allocate the struct.
+  void _structExpr(StructExpr expr) {
+    final info = structs[expr.typeName];
+    if (info == null) {
+      throw CodegenException('unknown struct type: ${expr.typeName}', expr.span);
+    }
+    for (final fieldName in info.fieldNames) {
+      final entry =
+          expr.fields.where((f) => f.$1 == fieldName).firstOrNull;
+      if (entry == null) {
+        throw CodegenException(
+            'missing field `$fieldName` in ${expr.typeName} literal',
+            expr.span);
+      }
+      _expr(entry.$2);
+    }
+    _emit(StructNew(info.index));
+  }
+
+  /// Resolve the struct layout of [object] from its static type.
+  _StructInfo _structOf(Expr object, SourceSpan span) {
+    final typeName = _typeOf(object);
+    final info = typeName == null ? null : structs[typeName];
+    if (info == null) {
+      throw CodegenException(
+          'field access on non-struct value (${typeName ?? 'unknown type'})',
+          span);
+    }
+    return info;
+  }
+
+  int _fieldIndex(_StructInfo info, String field, SourceSpan span) {
+    final idx = info.fieldIndexOf(field);
+    if (idx < 0) throw CodegenException('no such field: $field', span);
+    return idx;
   }
 
   void _callExpr(CallExpr expr) {
