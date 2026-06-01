@@ -43,4 +43,9 @@ impl Module {
     pub fn new(functions: Vec<Function>) -> Self {
         Self { functions }
     }
+
+    /// Index of the function named `name`, if any.
+    pub fn function_index(&self, name: &str) -> Option<usize> {
+        self.functions.iter().position(|f| f.name == name)
+    }
 }

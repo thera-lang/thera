@@ -540,9 +540,10 @@ Hawk program riding the runtime — the self-hosting endgame.
 
 This means the **native-function table is an ABI**: every `native fn` in
 `sdk/std/` maps to a runtime native, and persisted bytecode references them.
-(Open: reference natives by baked index vs. by name resolved at load — Wasm-style
-imports. Name-based is more robust once a separate tool emits bytecode; decide
-before the Dart emitter hard-codes indices.)
+Natives are bound **by name, resolved at load** (Wasm-style imports), not by
+baked index — so bytecode stays robust across runtime versions and a separate
+emitter (the Dart front-end) need not hard-code an index table. The names live
+in the constant pool.
 
 Three long-term arcs get us there:
 

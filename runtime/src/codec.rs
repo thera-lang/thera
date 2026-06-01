@@ -11,10 +11,53 @@
 //! verifier.
 
 use std::collections::HashMap;
+use std::path::Path;
 
 use crate::instr::Instr;
 use crate::module::{Function, Module};
 use crate::serialize::{DecodeError, Reader, Writer};
+
+/// An error loading a module from disk: either the file could not be read or
+/// its contents did not decode.
+#[derive(Debug)]
+pub enum LoadError {
+    Io(std::io::Error),
+    Decode(DecodeError),
+}
+
+impl From<std::io::Error> for LoadError {
+    fn from(e: std::io::Error) -> Self {
+        LoadError::Io(e)
+    }
+}
+
+impl From<DecodeError> for LoadError {
+    fn from(e: DecodeError) -> Self {
+        LoadError::Decode(e)
+    }
+}
+
+impl std::fmt::Display for LoadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LoadError::Io(e) => write!(f, "I/O error: {e}"),
+            LoadError::Decode(e) => write!(f, "decode error: {e:?}"),
+        }
+    }
+}
+
+impl std::error::Error for LoadError {}
+
+/// Write a module to a `.hawkbc` file.
+pub fn write_module_to_file(path: impl AsRef<Path>, m: &Module) -> std::io::Result<()> {
+    std::fs::write(path, encode_module(m))
+}
+
+/// Read and decode a module from a `.hawkbc` file.
+pub fn read_module_from_file(path: impl AsRef<Path>) -> Result<Module, LoadError> {
+    let bytes = std::fs::read(path)?;
+    Ok(decode_module(&bytes)?)
+}
 
 const MAGIC: &[u8] = b"HAWK";
 const VERSION: u32 = 1;
@@ -532,6 +575,16 @@ mod tests {
             decode_module(&w.into_bytes()),
             Err(DecodeError::ConstIndexOutOfRange)
         );
+    }
+
+    #[test]
+    fn file_round_trips() {
+        let m = factorial_module();
+        let path = std::env::temp_dir().join(format!("hawk_codec_{}.hawkbc", std::process::id()));
+        write_module_to_file(&path, &m).unwrap();
+        let loaded = read_module_from_file(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(loaded, m);
     }
 
     #[test]
