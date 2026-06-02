@@ -8,7 +8,7 @@ use hawk::builder::FnBuilder;
 use hawk::codec::{read_module_from_file, write_module_to_file};
 use hawk::interp::{NATIVE_PRINTLN, NATIVE_STR_CONCAT, NATIVE_STRINGIFY, run};
 use hawk::module::Module;
-use hawk::value::Value;
+use hawk::value::{Obj, TAG_OK, TY_RESULT, Value};
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
@@ -42,14 +42,63 @@ fn cmd_run(path: Option<&String>) -> ExitCode {
         return ExitCode::FAILURE;
     };
 
-    match run(&module, entry, &[]) {
-        // main returns an Int exit code (Hawk's convention); other values exit 0.
-        Ok(Value::Int(n)) => ExitCode::from(n as u8),
-        Ok(_) => ExitCode::SUCCESS,
+    // Entry convention: `main` takes 0 or 1 parameter. The 1-parameter form
+    // receives the program arguments (everything after the `.hawkbc` path) as a
+    // `List<String>`. A richer `Args` type is a stdlib concern that wraps this.
+    let argv: Vec<Value> = std::env::args().skip(3).map(Value::new_str).collect();
+    let call_args = match module.functions[entry].param_count {
+        0 => vec![],
+        1 => vec![Value::new_list(argv)],
+        n => {
+            eprintln!("hawk: main takes {n} parameters; only 0 or 1 (args) is supported");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    match run(&module, entry, &call_args) {
+        Ok(v) => exit_code(&v),
         Err(trap) => {
             eprintln!("hawk: trap: {trap:?}");
             ExitCode::FAILURE
         }
+    }
+}
+
+/// Map `main`'s return value to a process exit code. A bare `Int` is the code; a
+/// `Result` is unwrapped per Hawk's convention — `Ok(Int)` is the code, `Ok(_)`
+/// succeeds, and `Err(e)` prints `e` to stderr and fails. Anything else exits 0.
+fn exit_code(v: &Value) -> ExitCode {
+    match v {
+        Value::Int(n) => ExitCode::from(*n as u8),
+        Value::Ref(rc) => match &*rc.borrow() {
+            Obj::Enum(e) if e.ty == TY_RESULT && e.variant == TAG_OK => {
+                match e.fields.first() {
+                    Some(Value::Int(n)) => ExitCode::from(*n as u8),
+                    _ => ExitCode::SUCCESS,
+                }
+            }
+            Obj::Enum(e) if e.ty == TY_RESULT => {
+                eprintln!("error: {}", e.fields.first().map(render).unwrap_or_default());
+                ExitCode::FAILURE
+            }
+            _ => ExitCode::SUCCESS,
+        },
+        _ => ExitCode::SUCCESS,
+    }
+}
+
+/// Render a value for an error message. Primitives and strings render directly;
+/// richer types fall back to a debug form until `Display` dispatch exists.
+fn render(v: &Value) -> String {
+    match v {
+        Value::Int(n) => n.to_string(),
+        Value::Double(x) => x.to_string(),
+        Value::Bool(b) => b.to_string(),
+        Value::Unit => "()".to_string(),
+        Value::Ref(rc) => match &*rc.borrow() {
+            Obj::Str(s) => s.clone(),
+            other => format!("{other:?}"),
+        },
     }
 }
 

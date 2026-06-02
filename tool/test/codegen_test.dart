@@ -662,5 +662,33 @@ fn main() -> Int {
 '''),
           6);
     });
+
+    // --- entry / args convention ---
+
+    test('a Result-returning main unwraps Ok to the exit code', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      expect(
+          runExit('ret_ok', 'fn main() -> Result<Int, Int> { return 42; }'), 42);
+    });
+
+    test('a Result-returning main reports Err and exits 1', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      final m = compile('fn main() -> Result<Int, Int> { throw 7; }');
+      final tmp = '${Directory.systemTemp.path}/hawk_ret_err.hawkbc';
+      File(tmp).writeAsBytesSync(encodeModule(m));
+      final r = Process.runSync(hawkBin, ['run', tmp]);
+      expect(r.exitCode, 1);
+      expect(r.stderr, contains('error: 7'));
+    });
+
+    test('main receives program arguments as a List<String>', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      final m = compile(
+          'fn main(args: List<String>) -> Int { return args.len(); }');
+      final tmp = '${Directory.systemTemp.path}/hawk_argv.hawkbc';
+      File(tmp).writeAsBytesSync(encodeModule(m));
+      final r = Process.runSync(hawkBin, ['run', tmp, 'a', 'b', 'c']);
+      expect(r.exitCode, 3);
+    });
   });
 }

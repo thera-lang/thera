@@ -153,6 +153,16 @@ class EmitCommand extends Command<void> {
     final out = rest[1];
 
     final program = _loadProgram(path);
+
+    // Type-check before lowering: codegen assumes a well-typed program.
+    final result = _typeCheck(path, program);
+    if (result.errors.isNotEmpty) {
+      for (final err in result.errors) {
+        stderr.writeln(err.format(path));
+      }
+      exit(1);
+    }
+
     final Module module;
     try {
       module = compileProgram(program);
@@ -216,33 +226,35 @@ class CheckCommand extends Command<void> {
     } on _LoadFailed {
       return 1;
     }
-
-    final checker = TypeChecker();
-    final baseDir = File(path).parent.path;
-
-    // Pre-register symbols from imports so cross-file names resolve.
-    for (final decl in program.decls) {
-      if (decl is! ImportDecl) continue;
-      if (decl.path.startsWith('std.')) {
-        checker.addModule(decl.alias ?? decl.path.split('.').last);
-      } else {
-        // Relative file import — load and register its symbols (don't check it).
-        final importPath = '$baseDir/${decl.path}.hawk';
-        try {
-          checker.addProgram(_loadProgramQuiet(importPath));
-        } on _LoadFailed {
-          // Import couldn't be parsed; skip (the missing-file error is
-          // only raised at runtime, not at check time).
-        }
-      }
-    }
-
-    final result = checker.check(program);
+    final result = _typeCheck(path, program);
     for (final err in result.errors) {
       stderr.writeln(err.format(path));
     }
     return result.errors.length;
   }
+}
+
+/// Type-check [program] (located at [path]), pre-registering the symbols its
+/// imports bring into scope so cross-file names resolve.
+CheckResult _typeCheck(String path, Program program) {
+  final checker = TypeChecker();
+  final baseDir = File(path).parent.path;
+  for (final decl in program.decls) {
+    if (decl is! ImportDecl) continue;
+    if (decl.path.startsWith('std.')) {
+      checker.addModule(decl.alias ?? decl.path.split('.').last);
+    } else {
+      // Relative file import — load and register its symbols (don't check it).
+      final importPath = '$baseDir/${decl.path}.hawk';
+      try {
+        checker.addProgram(_loadProgramQuiet(importPath));
+      } on _LoadFailed {
+        // Import couldn't be parsed; skip (the missing-file error is only
+        // raised at runtime, not at check time).
+      }
+    }
+  }
+  return checker.check(program);
 }
 
 /// Thrown by [_loadProgramQuiet] when lex/parse fails.
