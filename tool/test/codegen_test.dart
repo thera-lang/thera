@@ -297,6 +297,25 @@ fn main() -> Int { let v = V { n: 1 }; return v.bump(5); }
           isA<CallNative>().having((i) => i.name, 'name', 'list_set')));
     });
 
+    test('map.remove / list.join lower to their natives', () {
+      final rm = compile(
+              'fn f() -> Int { let mut m = {1: 2}; m.remove(1); return 0; }')
+          .functions
+          .single
+          .code;
+      expect(rm, contains(isA<CallNative>()
+          .having((i) => i.name, 'name', 'map_remove')
+          .having((i) => i.argc, 'argc', 2)));
+
+      final jn = compile("fn f() -> String { return [1, 2].join('-'); }")
+          .functions
+          .single
+          .code;
+      expect(jn, contains(isA<CallNative>()
+          .having((i) => i.name, 'name', 'list_join')
+          .having((i) => i.argc, 'argc', 2)));
+    });
+
     test('a collection method lowers to a native with the receiver first', () {
       final ops = compile('fn f() -> Int { let xs = [1, 2]; return xs.len(); }')
           .functions
@@ -805,6 +824,29 @@ fn main() -> Result<Int, Error> {
 ''');
       expect(err['code'], 1);
       expect(err['err'], contains('error:'));
+    });
+
+    test('map.remove mutates; keys()/values()/join work', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+
+      String stdout(String name, String src) {
+        final tmp = '${Directory.systemTemp.path}/hawk_$name.hawkbc';
+        File(tmp).writeAsBytesSync(encodeModule(compile(src)));
+        return Process.runSync(hawkBin, ['run', tmp]).stdout as String;
+      }
+
+      // remove() drops an entry; len() reflects it.
+      expect(
+          runExit('map_remove',
+              'fn main() -> Int { let mut m = {1: 10, 2: 20}; m.remove(1); return m.len(); }'),
+          1);
+      // keys()/values() return lists; join() renders them.
+      expect(
+          stdout('keys', "fn main() -> Int { println({1: 10, 2: 20}.keys().join(',')); return 0; }"),
+          '1,2\n');
+      expect(
+          stdout('join', "fn main() -> Int { println(['a', 'b', 'c'].join('-')); return 0; }"),
+          'a-b-c\n');
     });
 
     test('Display interpolation renders a user type', () {

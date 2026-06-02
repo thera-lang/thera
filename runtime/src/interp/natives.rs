@@ -79,6 +79,11 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("option_is_none", native_option_is_none),
     ("fs_read_text", native_fs_read_text),
     ("fs_write_text", native_fs_write_text),
+    ("map_keys", native_map_keys),
+    ("map_values", native_map_values),
+    ("map_remove", native_map_remove),
+    ("map_is_empty", native_map_is_empty),
+    ("list_join", native_list_join),
 ];
 
 /// The native functions the runtime ships with, in index order.
@@ -270,6 +275,56 @@ fn native_str_split(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap>
     let (s, sep) = args2(args, "str_split")?;
     let (s, sep) = (str_contents(s)?, str_contents(sep)?);
     Ok(string_list(s.split(sep.as_str()).map(str::to_string)))
+}
+
+// --- more collection natives ---
+
+/// `map.keys()` — the keys, in insertion order.
+fn native_map_keys(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    with_map(expect_one(args, "map.keys")?, "map.keys", |entries| {
+        Ok(Value::new_list(
+            entries.iter().map(|(k, _)| k.clone()).collect(),
+        ))
+    })
+}
+
+/// `map.values()` — the values, in insertion order.
+fn native_map_values(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    with_map(expect_one(args, "map.values")?, "map.values", |entries| {
+        Ok(Value::new_list(
+            entries.iter().map(|(_, v)| v.clone()).collect(),
+        ))
+    })
+}
+
+/// `map.remove(key)` — remove and return the value (`Some`), or `None`.
+fn native_map_remove(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (map, key) = args2(args, "map.remove")?;
+    with_map_mut(map, "map.remove", |entries| {
+        match entries.iter().position(|(k, _)| k == key) {
+            Some(pos) => Ok(Value::some(entries.remove(pos).1)),
+            None => Ok(Value::none()),
+        }
+    })
+}
+
+/// `map.is_empty()`.
+fn native_map_is_empty(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    with_map(
+        expect_one(args, "map.is_empty")?,
+        "map.is_empty",
+        |entries| Ok(Value::Bool(entries.is_empty())),
+    )
+}
+
+/// `list.join(sep)` — each element's Display form, joined by `sep`.
+fn native_list_join(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (list, sep) = args2(args, "list.join")?;
+    let sep = str_contents(sep)?;
+    with_list(list, "list.join", |items| {
+        let parts: Result<Vec<String>, Trap> = items.iter().map(display_string).collect();
+        Ok(Value::new_str(parts?.join(&sep)))
+    })
 }
 
 // --- Option natives ---

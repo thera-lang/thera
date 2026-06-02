@@ -816,11 +816,16 @@ class _FnCompiler {
     'List': {
       'len': ('list_len', 'Int'),
       'get': ('list_get', 'Option'),
+      'join': ('list_join', 'String'),
     },
     'Map': {
       'len': ('map_len', 'Int'),
       'get': ('map_get', 'Option'),
       'has': ('map_has', 'Bool'),
+      'keys': ('map_keys', 'List'),
+      'values': ('map_values', 'List'),
+      'remove': ('map_remove', 'Option'),
+      'is_empty': ('map_is_empty', 'Bool'),
     },
     'Option': {
       'ok_or': ('option_ok_or', 'Result'),
