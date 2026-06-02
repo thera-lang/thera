@@ -273,8 +273,7 @@ List<Program> _loadImports(String path, Program program) {
     return '$baseDir/$importPath.hawk';
   }
 
-  void visit(String fromPath, Program prog) {
-    final baseDir = File(fromPath).parent.path;
+  void loadImportsOf(Program prog, String baseDir) {
     for (final decl in prog.decls) {
       if (decl is! ImportDecl) continue;
       final file = resolve(decl.path, baseDir);
@@ -282,14 +281,28 @@ List<Program> _loadImports(String path, Program program) {
       try {
         final imported = _loadProgramQuiet(file);
         modules.add(imported);
-        visit(file, imported); // transitive
+        loadImportsOf(imported, File(file).parent.path); // transitive
       } on _LoadFailed {
         // Missing or unparseable import; skip (the checker reports it).
       }
     }
   }
 
-  visit(path, program);
+  // std.core is auto-imported into every program — load it first so its types
+  // (e.g. Error) and interface impls (Display for Error) are linked.
+  if (sdkRoot != null) {
+    final core = '$sdkRoot/sdk/std/core.hawk';
+    if (seen.add(core)) {
+      try {
+        final prog = _loadProgramQuiet(core);
+        modules.add(prog);
+        loadImportsOf(prog, File(core).parent.path);
+      } on _LoadFailed {
+        // No SDK core available; skip.
+      }
+    }
+  }
+  loadImportsOf(program, File(path).parent.path);
   return modules;
 }
 

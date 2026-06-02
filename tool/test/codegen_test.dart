@@ -131,6 +131,21 @@ fn main() -> Int {
       ]));
     });
 
+    test('interpolating a user type dispatches to its display method', () {
+      final m = compile('''
+type Tag = { n: Int }
+impl Display for Tag { fn display(self) -> String { return 'tag'; } }
+fn f() -> Int { let t = Tag { n: 1 }; println('v=\${t}'); return 0; }
+''');
+      final displayIdx = m.functions.indexWhere((fn) => fn.name == 'Tag.display');
+      final f = m.functions.firstWhere((fn) => fn.name == 'f');
+      // The interpolated piece calls Tag.display, not stringify.
+      expect(f.code,
+          contains(isA<Call>().having((i) => i.func, 'func', displayIdx)));
+      expect(f.code.whereType<CallNative>().map((i) => i.name),
+          isNot(contains('stringify')));
+    });
+
     test('Ok constructs a Result enum', () {
       final ops = compile('fn f() -> Int { let x = Ok(0); return 0; }')
           .functions
@@ -790,6 +805,24 @@ fn main() -> Result<Int, Error> {
 ''');
       expect(err['code'], 1);
       expect(err['err'], contains('error:'));
+    });
+
+    test('Display interpolation renders a user type', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      final m = compile('''
+type Tag = { n: Int }
+impl Display for Tag { fn display(self) -> String { return 'tag'; } }
+fn main() -> Int {
+    let t = Tag { n: 5 };
+    println('value: \${t}');
+    return 0;
+}
+''');
+      final tmp = '${Directory.systemTemp.path}/hawk_display.hawkbc';
+      File(tmp).writeAsBytesSync(encodeModule(m));
+      final r = Process.runSync(hawkBin, ['run', tmp]);
+      expect(r.exitCode, 0, reason: r.stderr.toString());
+      expect(r.stdout, 'value: tag\n');
     });
 
     test('String methods: len, trim, split_whitespace, contains', () {

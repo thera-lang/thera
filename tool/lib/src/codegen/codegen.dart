@@ -908,17 +908,23 @@ class _FnCompiler {
       case TextPart(:final text):
         _emit(ConstStr(text));
       case InterpPart(:final expr):
-        _expr(expr);
         final type = _typeOf(expr);
+        _expr(expr);
         if (type == 'String') {
           // already a string; nothing to convert
         } else if (type == 'Int' || type == 'Double' || type == 'Bool') {
           _emit(const CallNative('stringify', 1));
         } else {
-          throw CodegenException(
-              'cannot interpolate ${type ?? 'value'} '
-              '(Display dispatch not yet supported)',
-              span);
+          // A user type renders via its `display` method (the `Display`
+          // interface). The concrete type is known here, so dispatch directly.
+          final displayIdx = type == null ? null : _methods[type]?['display'];
+          if (displayIdx == null) {
+            throw CodegenException(
+                'cannot interpolate ${type ?? 'value'} — '
+                'it has no Display (`display`) method',
+                span);
+          }
+          _emit(Call(displayIdx, 1));
         }
     }
   }

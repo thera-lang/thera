@@ -53,6 +53,19 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
     expect(r.stderr, contains('need an arg'));
   });
 
+  test('std.core auto-loads: Error constructs and interpolates via Display', () {
+    final r = emitAndRun('core', '''
+fn main() -> Result<Int, Error> {
+    let e = Error { message: 'kaboom' };
+    println('e = \${e}');
+    return Ok(0);
+}
+''', []);
+    if (r == null) return markTestSkipped('Rust runtime unavailable');
+    expect(r.exitCode, 0, reason: r.stderr.toString());
+    expect(r.stdout, 'e = kaboom\n');
+  });
+
   test('wordcount: std.fs + std.args + String methods, end to end', () {
     if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
     final dir = Directory.systemTemp.createTempSync('hawk_wc');
