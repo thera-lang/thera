@@ -22,9 +22,10 @@ Full design docs: start at **[docs/toc.md](docs/toc.md)**.
 The Rust runtime executes bytecode covering `Int`/`Double`/`Bool`/`Unit`,
 control flow, functions + recursion, enums (`Result`/`Option`, `?`/`match`),
 structs + a type table, `List`/`Map`/`Set`, and observable output. Bytecode
-serializes to/from `.hawkbc` (constant pool; natives bound by name). There is
-**no Hawk front-end yet** — the Dart toolchain parses/checks/runs `.hawk` today.
-See [docs/roadmap.md](docs/roadmap.md).
+serializes to/from `.hawkbc` (constant pool; natives bound by name). The Dart
+toolchain parses/checks/runs `.hawk` **and emits `.hawkbc`** (`hawk emit`),
+covering the language core; the Hawk-written front-end is deferred. See
+[docs/roadmap.md](docs/roadmap.md).
 
 ## Commands
 
