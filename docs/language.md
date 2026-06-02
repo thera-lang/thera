@@ -18,16 +18,23 @@ programs execute see [bytecode.md](bytecode.md) and
 
 ## Entry point
 
-Every program defines a `main` function. `Args` is provided by the runtime. The
-returned `Int` is used as the process exit code. An `Error` result exits with a
-non-zero code and prints the error message to stderr.
+Every program defines a `main` function. It receives the program arguments as a
+`List<String>`; the returned `Int` is the process exit code. An `Error` result
+exits non-zero and prints the error message to stderr. For flag/positional
+parsing, import `std.args` and wrap the arguments in `Args`.
 
 ```hawk
-fn main(args: Args) -> Result<Int, Error> {
+import std.args;
+
+fn main(parameters: List<String>) -> Result<Int, Error> {
+    let args = Args(parameters);
     // ...
     return Ok(0);
 }
 ```
+
+`main` may also be written with no parameters (`fn main() -> …`) when it doesn't
+need the arguments.
 
 ---
 
@@ -138,6 +145,11 @@ let double = x => x * 2;
 let names = users.map(u => u.name);
 ```
 
+A lambda may **capture** variables from its enclosing scope, including mutable
+ones — a captured `mut` local is shared, so mutations are visible on both sides.
+(Implementation: the frontend boxes captured `mut` locals and closes over the
+box; see [bytecode.md](bytecode.md).)
+
 ### Named parameters
 
 Parameters are named at call sites by default. The parameter name in the
@@ -200,7 +212,7 @@ fn fetch_user(id: Int) -> Result<User, Error> {
     return json.decode<User>(resp.body);
 }
 
-fn main(args: Args) -> Result<Int, Error> {
+fn main() -> Result<Int, Error> {
     let user = fetch_user(id: 1)?;          // no await needed
     println(user.name);
     return Ok(0);
@@ -420,9 +432,10 @@ import std.fs as fs;
 testing.assert_eq(actual: result, expected: 5)?;
 ```
 
-`std.core` and `std.args` are automatically imported into every file and do not
-need to appear in an explicit import statement. `std.core` provides the
-fundamental interfaces (`Eq`, `Display`, `Debug`); `std.args` provides `Args`.
+`std.core` is automatically imported into every file and does not need an
+explicit import statement; it provides the fundamental interfaces (`Eq`,
+`Display`, `Debug`). `std.args` (the `Args` argument parser) is an ordinary
+package — `import std.args` when you need it.
 
 ### Import resolution
 
@@ -493,13 +506,22 @@ A non-zero exit code is returned as an `Error` by default.
 
 ## Command-line arguments
 
-`Args` is passed to `main` by the runtime. It is defined in `std.args`, which is
-auto-imported. Positional arguments and named flags are both supported.
+The runtime passes `main` its arguments as a `List<String>`. `std.args` provides
+`Args`, which wraps that list and supports positional arguments and named flags.
+Construct it explicitly:
 
 ```hawk
-let path    = args.positional(0).ok_or(Error('usage: tool <path>'))?;
-let verbose = args.flag('verbose', default: false);
-let output  = args.flag('output',  default: 'out.txt');
+import std.args;
+
+fn main(parameters: List<String>) -> Result<Int, Error> {
+    let args = Args(parameters);
+
+    let path    = args.positional(0).ok_or(Error('usage: tool <path>'))?;
+    let verbose = args.flag('verbose', default: false);
+    let output  = args.flag('output',  default: 'out.txt');
+    // ...
+    return Ok(0);
+}
 ```
 
 `flag` is generic: the return type is inferred from the `default` value. A
@@ -739,7 +761,7 @@ discovery) needs to know about the difference.
   sdk/
     std/
       core.hawk    ← auto-imported: Eq, Display, Debug
-      args.hawk    ← auto-imported: Args
+      args.hawk    ← import std.args (Args)
       fs.hawk      ← import std.fs
       process.hawk ← import std.process
       testing.hawk ← import std.testing
@@ -782,8 +804,9 @@ Stdlib modules ship as plain Hawk source with `native fn` declarations for
 functions implemented in the runtime. The front-end parses and type-checks them
 the same way it does user code.
 
-`std.core` and `std.args` are implicitly imported and do not appear in the
-resolved import graph unless explicitly re-imported with `as`.
+`std.core` is implicitly imported and does not appear in the resolved import
+graph unless explicitly re-imported with `as`. Every other `std.*` package
+(including `std.args`) is imported explicitly.
 
 ---
 
@@ -805,7 +828,11 @@ implicit `Ok` on `return` — are documented above as the language's behavior.)
   registry (npm/PyPI)? Relevant early, since stdlib scope depends on it.
 - **Generics** — parametric only, or constraints/bounds from day one?
 - **Numeric tower** — single `Int`/`Double`, or sized types (`Int32`, `Int64`)?
-- **Interface dispatch** — static (monomorphisation) or dynamic (vtable)?
+- ~~**Interface dispatch**~~ — _decided._ The concrete type is known at every
+  call site today, so the frontend resolves statically and emits a direct
+  `call` (covers `Display`/`Eq`). A per-type vtable (`call.interface`) is added
+  only when Hawk gains type-erased interface values; the JIT devirtualizes when
+  it knows the type. See [bytecode.md](bytecode.md).
 - **Decorator semantics** — compile-time metadata only, or runtime hooks?
 - **Process spawning ergonomics** — method call (`run('git', [...])`) or a
   shell-string shorthand (`$('git status')`)? The former is safer; the latter is

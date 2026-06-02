@@ -74,11 +74,14 @@ gaps, by where they live:
 - **Stdlib native surface.** The runtime has ~19 natives; the Dart interpreter
   has `String.*`, `List.map`/`filter`, `Args`, `fs`, `process`, `testing`. This
   is the bulk of the "batteries included" goal and the biggest single blocker.
-- **Interface dispatch (`Display`/`Eq`).** `call.interface` exists in the ISA
-  but isn't implemented; needed for `${user_value}` interpolation and `==` on
-  structs/enums. Needs front-end co-design.
-- **Closures.** `closure.new` / `call.indirect` are designed, not implemented;
-  capture representation is still open. Needed for lambdas (`List.map`).
+- **Interface dispatch (`Display`/`Eq`).** _Design settled_ (see
+  [bytecode.md](bytecode.md)): the frontend resolves statically and emits direct
+  `call`s while the concrete type is known at the site — so `${user_value}`
+  interpolation and `==` on structs need no new runtime mechanism. A vtable
+  (`call.interface`) is added only when type-erased interface values arrive.
+- **Closures.** _Design settled:_ closure conversion + boxing of captured `mut`
+  locals (front-end lowering); the runtime adds only a closure value
+  `{ func, env }` and `call.indirect`. Needed for lambdas (`List.map`).
 - **GC.** Currently `Rc<RefCell>`; a precise non-moving mark-sweep is planned as
   an explicit placeholder, to land _after_ closures/interfaces so it traces the
   value shapes it will actually see.
@@ -97,8 +100,15 @@ gaps, by where they live:
 - Interface/`Display`, closures, block expressions, literal/nested `match`
   patterns, multi-file imports — mostly gated on the runtime equivalents.
 
-**Cross-cutting:** the stdlib native list is duplicated (Rust runtime + Dart
-interpreter); codegen must agree with both.
+**Cross-cutting:** the stdlib natives are listed in both the Rust runtime and
+the Dart interpreter. Acceptable (name-bound calls already fail at load on a
+mismatch); add a test asserting every native name codegen can emit is accepted
+by the runtime, and split the runtime table into per-module files
+(`natives_fs.rs`, `natives_string.rs`, …) as it grows.
+
+**Decided:** the entry/args convention — `main` takes the arguments as a
+`List<String>`; `Args` is an explicit `std.args` import constructed from that
+list (no auto-import).
 
 ## Planned sequence
 

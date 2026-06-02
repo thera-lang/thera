@@ -200,29 +200,28 @@ each is a distinct opcode.
 
 ### Locals
 
-| Op             | Operands    | Stack | Notes                                |
-| -------------- | ----------- | ----- | ------------------------------------ |
-| `load`         | `slot: u16` | `→ v` | params and locals share the array    |
-| `store`        | `slot: u16` | `v →` | for `mut` bindings / SSA spills      |
-| `load.capture` | `idx: u16`  | `→ v` | read a value captured by the closure |
+| Op      | Operands    | Stack | Notes                             |
+| ------- | ----------- | ----- | --------------------------------- |
+| `load`  | `slot: u16` | `→ v` | params and locals share the array |
+| `store` | `slot: u16` | `v →` | for `mut` bindings / SSA spills   |
 
 `load`/`store` move 64 bits regardless of type — no suffix needed. The slot's
 ref-ness is recorded in the function's stackmap, not the opcode.
 
-`load.capture` reads from the captured-values array of the _currently executing
-closure_ (populated by `closure.new`); it is the only way a closure body reaches
-a captured variable, since `load` addresses only params and locals.
-
-> **Captures: two designs, decision deferred.** Either (A) closures stay a
-> runtime concept — `closure.new` builds a `{ func, captures[] }` object and the
-> body reads them with `load.capture` (shown here); or (B) the frontend does
-> _closure conversion_, lowering each lambda to a plain function that takes a
-> synthesized environment struct as a parameter, so captures are ordinary
-> `field.get`s and `load.capture` disappears. (A) is simplest for the
-> interpreter (no frontend pass); (B) is more uniform for the Cranelift tier.
-> Closures are out of the draft scope, so we keep `load.capture` as the
-> interpreter-era stand-in and decide between A and B — along with the rule for
-> capturing reassignable `mut` bindings — when closures actually land.
+> **Captures: resolved — closure conversion + boxing.** The frontend does
+> _closure conversion_: each lambda lowers to a plain function whose hidden
+> first parameter is its **environment** (a synthesized struct of the captured
+> variables), so captures are ordinary `field.get`s — no `load.capture` opcode.
+> A captured `mut` local is **boxed** into a one-field heap cell (just a struct):
+> reads become `cell.value`, writes `cell.value = …`, and the closure captures
+> the _cell_, so the enclosing scope and the closure observe each other's
+> mutations. (Hawk allows capturing mutable locals; we box every captured `mut`
+> local to start, and can later capture immutables by value / only box
+> reassigned locals.) See `closure.new` / `call.indirect` in
+> [Calls](#calls) and [How key features lower](#how-key-language-features-lower).
+> The one genuinely new runtime piece is the closure _value_ (`{ func, env }`)
+> plus `call.indirect`; free-variable analysis, env synthesis, and boxing are all
+> frontend lowering over existing opcodes.
 
 ### Arithmetic, comparison, logic
 
@@ -277,10 +276,14 @@ Arguments are pushed left-to-right; the callee pops `argc` slots. Named
 parameters are resolved to positions by the frontend — the bytecode is purely
 positional. A `Void` return pushes nothing.
 
-> Interface dispatch (static monomorphisation vs. dynamic vtable) is still an
-> open language question. The format supports dynamic dispatch via
-> `call.interface`; if the frontend monomorphises, it just emits `call` instead
-> and `call.interface` goes unused.
+> **Interface dispatch: direct calls now, vtable later.** Hawk knows the
+> concrete type at every method call site today, so the frontend **resolves
+> statically and emits a direct `call`** — including `Display` in `${…}`
+> interpolation and `Eq` for `==`. `call.interface` (per-type vtable) is added
+> only when Hawk gains _type-erased interface values_ (trait objects); at that
+> point the bytecode carries `call.interface` and the JIT **devirtualizes** to a
+> direct/inlined call wherever it can prove the concrete type. So we never need a
+> frontend monomorphisation pass. Until then `call.interface` is reserved/unused.
 
 ### Aggregates & heap allocation
 
@@ -336,12 +339,17 @@ uses `enum.get` to bind payload fields.
 out, body, `add.i64` increment, `jump` back. Iterating collections goes through
 an iterator protocol implemented as runtime calls.
 
-**Closures / lambdas** — `closure.new` captures the needed slots; the call site
-uses `call.indirect`.
+**Closures / lambdas** — the frontend collects the lambda's free variables and
+synthesizes an _environment_ struct; captured `mut` locals are boxed into
+one-field cells (and their reads/writes rewritten to `cell.value`). The lambda
+becomes a plain function taking the env as a hidden first parameter; capture
+reads are `field.get` on it. `closure.new func, env` builds the closure value
+`{ func, env }`, and the call site uses `call.indirect`.
 
-**String interpolation** — for a user type, `${v}` calls the `Display` method
-(`call.interface` or a resolved `call`); for a primitive (`Int`/`Double`/`Bool`,
-whose `Display` is built in), it calls a stringify intrinsic (`call.native`).
+**String interpolation** — for a user type, `${v}` calls the `Display` method as
+a statically resolved direct `call` (the concrete type is known at the site);
+for a primitive (`Int`/`Double`/`Bool`, whose `Display` is built in), it calls a
+stringify intrinsic (`call.native`).
 The pieces are then joined with a `str_concat` intrinsic (`call.native`).
 
 ## Garbage collection
@@ -376,6 +384,12 @@ Because every opcode is typed, each maps to a single Cranelift instruction with
 no type guards — the speculation-free property the plan is built around.
 
 ## Open questions / deferred
+
+Resolved (now documented above as the design): **closure capture** (closure
+conversion + boxing of captured `mut` locals; `closure.new` / `call.indirect`)
+and **interface dispatch** (static resolution → direct `call` now; vtable
+`call.interface` only once type-erased interface values exist, devirtualized by
+the JIT).
 
 - **Encoding details** — fixed-width vs. LEB128; the exact module file layout.
 - **`switch.tag`** jump table for fast `match`.
