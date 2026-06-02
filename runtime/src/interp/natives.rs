@@ -8,7 +8,7 @@
 use std::io::Write;
 
 use super::{Trap, bug};
-use crate::value::{Obj, Value};
+use crate::value::{Obj, TAG_NONE, TAG_SOME, TY_OPTION, Value};
 
 /// A native function: receives the VM's output sink and the call arguments.
 pub type NativeFn = fn(out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap>;
@@ -73,6 +73,12 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("str_lines", native_str_lines),
     ("str_split_whitespace", native_str_split_whitespace),
     ("str_split", native_str_split),
+    ("option_ok_or", native_option_ok_or),
+    ("option_unwrap_or", native_option_unwrap_or),
+    ("option_is_some", native_option_is_some),
+    ("option_is_none", native_option_is_none),
+    ("fs_read_text", native_fs_read_text),
+    ("fs_write_text", native_fs_write_text),
 ];
 
 /// The native functions the runtime ships with, in index order.
@@ -264,6 +270,77 @@ fn native_str_split(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap>
     let (s, sep) = args2(args, "str_split")?;
     let (s, sep) = (str_contents(s)?, str_contents(sep)?);
     Ok(string_list(s.split(sep.as_str()).map(str::to_string)))
+}
+
+// --- Option natives ---
+
+/// Read an `Option`'s variant tag and payload, faulting if `v` isn't an Option.
+fn as_option(v: &Value, who: &str) -> Result<(u16, Vec<Value>), Trap> {
+    match v {
+        Value::Ref(rc) => match &*rc.borrow() {
+            Obj::Enum(e) if e.ty == TY_OPTION => Ok((e.variant, e.fields.clone())),
+            _ => Err(bug(format!("{who}: expected Option"))),
+        },
+        _ => Err(bug(format!("{who}: expected Option"))),
+    }
+}
+
+/// `opt.ok_or(err)` — `Some(v)` → `Ok(v)`, `None` → `Err(err)`.
+fn native_option_ok_or(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (opt, err) = args2(args, "option_ok_or")?;
+    let (variant, fields) = as_option(opt, "ok_or")?;
+    Ok(if variant == TAG_SOME {
+        Value::ok(fields.into_iter().next().unwrap_or(Value::Unit))
+    } else {
+        Value::err(err.clone())
+    })
+}
+
+/// `opt.unwrap_or(default)` — the payload of `Some`, else `default`.
+fn native_option_unwrap_or(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (opt, default) = args2(args, "option_unwrap_or")?;
+    let (variant, fields) = as_option(opt, "unwrap_or")?;
+    Ok(if variant == TAG_SOME {
+        fields.into_iter().next().unwrap_or(Value::Unit)
+    } else {
+        default.clone()
+    })
+}
+
+/// `opt.is_some()`.
+fn native_option_is_some(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (variant, _) = as_option(expect_one(args, "option_is_some")?, "is_some")?;
+    Ok(Value::Bool(variant == TAG_SOME))
+}
+
+/// `opt.is_none()`.
+fn native_option_is_none(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (variant, _) = as_option(expect_one(args, "option_is_none")?, "is_none")?;
+    Ok(Value::Bool(variant == TAG_NONE))
+}
+
+// --- std.fs natives ---
+//
+// Errors are returned as a `String` payload for now; once `std.core`'s `Error`
+// type is linked in, these will build a proper `Error`.
+
+/// `fs.read_text(path)` — read a UTF-8 file, `Ok(contents)` or `Err(message)`.
+fn native_fs_read_text(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let path = str_contents(expect_one(args, "fs_read_text")?)?;
+    Ok(match std::fs::read_to_string(&path) {
+        Ok(s) => Value::ok(Value::new_str(s)),
+        Err(e) => Value::err(Value::new_str(format!("{path}: {e}"))),
+    })
+}
+
+/// `fs.write_text(path, contents)` — write a file, `Ok(())` or `Err(message)`.
+fn native_fs_write_text(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (path, contents) = args2(args, "fs_write_text")?;
+    let (path, contents) = (str_contents(path)?, str_contents(contents)?);
+    Ok(match std::fs::write(&path, contents) {
+        Ok(()) => Value::ok(Value::Unit),
+        Err(e) => Value::err(Value::new_str(format!("{path}: {e}"))),
+    })
 }
 
 // --- collection natives ---
@@ -568,6 +645,19 @@ mod tests {
         assert_eq!(native_index("eq"), Some(NATIVE_EQ));
         assert_eq!(native_index("nope"), None);
         assert_eq!(default_natives().len(), NATIVES.len());
+    }
+
+    #[test]
+    fn option_ok_or_converts() {
+        let sink = &mut std::io::sink();
+        assert_eq!(
+            native_option_ok_or(sink, &[Value::some(Value::Int(5)), Value::Int(0)]),
+            Ok(Value::ok(Value::Int(5))),
+        );
+        assert_eq!(
+            native_option_ok_or(sink, &[Value::none(), Value::new_str("e")]),
+            Ok(Value::err(Value::new_str("e"))),
+        );
     }
 
     #[test]

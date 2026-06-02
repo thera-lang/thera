@@ -72,6 +72,11 @@ Module compileProgram(Program program) {
             scope.addMethod(decl.typeName, method);
           }
         }
+      case ImportDecl() when decl.path.startsWith('std.'):
+        // Record `import std.fs [as f]` so `fs.read_text(...)` resolves to a
+        // module native. (Relative-file imports await module linking.)
+        final base = decl.path.split('.').last;
+        scope.moduleAliases[decl.alias ?? base] = base;
       default:
         break;
     }
@@ -109,6 +114,7 @@ class _ModuleScope {
   final Map<String, Map<String, int>> methodTable = {}; // type -> method -> idx
   final Map<String, _StructInfo> structs = {};
   final List<TypeDef> types = [];
+  final Map<String, String> moduleAliases = {}; // import alias -> module base
 
   void addStruct(TypeDecl decl) {
     final fieldNames = [for (final f in decl.fields) f.$1];
@@ -769,6 +775,8 @@ class _FnCompiler {
   /// `Type.method(...)`), used so chained calls and arithmetic on results pick
   /// the right opcodes.
   String? _methodReturnType(FieldExpr callee) {
+    final mod = _moduleCall(callee.object, callee.field);
+    if (mod != null) return mod.$2;
     final builtin = _builtinMethod(_typeOf(callee.object), callee.field);
     if (builtin != null) return builtin.$2;
     final idx = _resolveMethod(callee.object, callee.field);
@@ -802,10 +810,35 @@ class _FnCompiler {
       'get': ('map_get', 'Option'),
       'has': ('map_has', 'Bool'),
     },
+    'Option': {
+      'ok_or': ('option_ok_or', 'Result'),
+      'unwrap_or': ('option_unwrap_or', null),
+      'is_some': ('option_is_some', 'Bool'),
+      'is_none': ('option_is_none', 'Bool'),
+    },
   };
 
   (String, String?)? _builtinMethod(String? type, String method) =>
       type == null ? null : _builtinMethods[type]?[method];
+
+  /// Functions exposed by imported `std.*` modules, keyed by module base name
+  /// then function: `(nativeName, returnType)`. Called qualified by the import
+  /// alias (`fs.read_text(...)`), with no receiver. (A stopgap until modules are
+  /// linked from their `.hawk` sources.)
+  static const _moduleFns = <String, Map<String, (String, String?)>>{
+    'fs': {
+      'read_text': ('fs_read_text', 'Result'),
+      'write_text': ('fs_write_text', 'Result'),
+    },
+  };
+
+  /// If [object] is an imported module alias (not shadowed by a local) and
+  /// [method] is one of its functions, return `(nativeName, returnType)`.
+  (String, String?)? _moduleCall(Expr object, String method) {
+    if (object is! IdentExpr || _slots.containsKey(object.name)) return null;
+    final base = _scope.moduleAliases[object.name];
+    return base == null ? null : _moduleFns[base]?[method];
+  }
 
   /// The unit index of method [name] on the receiver expression [receiver], or
   /// null if it can't be resolved. A bare struct type name (not shadowed by a
@@ -970,8 +1003,18 @@ class _FnCompiler {
   /// `recv.method(args)` / `Type.method(args)`. For an instance method the
   /// receiver is pushed first as `self`; arguments follow in parameter order.
   void _methodCall(CallExpr expr, FieldExpr callee) {
-    // Built-in methods (String/List/Map) lower to a native with the receiver as
-    // the first argument.
+    // Module-qualified call (`fs.read_text(...)`) → a module native, no receiver.
+    final mod = _moduleCall(callee.object, callee.field);
+    if (mod != null) {
+      for (final arg in expr.args) {
+        _expr(arg.value);
+      }
+      _emit(CallNative(mod.$1, expr.args.length));
+      return;
+    }
+
+    // Built-in methods (String/List/Map/Option) lower to a native with the
+    // receiver as the first argument.
     final builtin = _builtinMethod(_typeOf(callee.object), callee.field);
     if (builtin != null) {
       _expr(callee.object);

@@ -328,6 +328,29 @@ fn main() -> Int { let v = V { n: 1 }; return v.bump(5); }
           .having((i) => i.name, 'name', 'str_len')
           .having((i) => i.argc, 'argc', 1)));
     });
+
+    test('Option.ok_or lowers to option_ok_or (receiver first)', () {
+      final ops = compile(
+              'fn f() -> Int { let xs = [1]; let r = xs.get(0).ok_or(9); return 0; }')
+          .functions
+          .single
+          .code;
+      expect(ops, contains(isA<CallNative>()
+          .having((i) => i.name, 'name', 'option_ok_or')
+          .having((i) => i.argc, 'argc', 2)));
+    });
+
+    test('a module-qualified call lowers to a native with no receiver', () {
+      final ops = compile(
+              "import std.fs; fn f() -> Int { let r = fs.read_text('/x'); return 0; }")
+          .functions
+          .single
+          .code;
+      // just the path argument → argc 1, no receiver pushed.
+      expect(ops, contains(isA<CallNative>()
+          .having((i) => i.name, 'name', 'fs_read_text')
+          .having((i) => i.argc, 'argc', 1)));
+    });
   });
 
   group('end-to-end (requires the Rust runtime)', () {
@@ -714,6 +737,56 @@ fn main() -> Int {
 }
 '''),
           1);
+    });
+
+    test('Option.ok_or converts to Result (Some and None)', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      const tmpl = '''
+fn main() -> Int {
+    let xs = [10, 20];
+    match xs.get(INDEX).ok_or(99) {
+        Ok(v) => return v,
+        Err(e) => return e,
+    }
+}
+''';
+      expect(runExit('okor_some', tmpl.replaceAll('INDEX', '0')), 10);
+      expect(runExit('okor_none', tmpl.replaceAll('INDEX', '5')), 99);
+    });
+
+    test('fs.read_text reads a file (and propagates errors with ?)', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      final dataPath = '${Directory.systemTemp.path}/hawk_fs_data.txt';
+      File(dataPath).writeAsStringSync('hello-from-fs');
+
+      Map<String, dynamic> run(String name, String src) {
+        final tmp = '${Directory.systemTemp.path}/hawk_$name.hawkbc';
+        File(tmp).writeAsBytesSync(encodeModule(compile(src)));
+        final r = Process.runSync(hawkBin, ['run', tmp]);
+        return {'code': r.exitCode, 'out': r.stdout, 'err': r.stderr};
+      }
+
+      final ok = run('fs_ok', '''
+import std.fs;
+fn main() -> Result<Int, Error> {
+    let text = fs.read_text('$dataPath')?;
+    println(text);
+    return Ok(0);
+}
+''');
+      expect(ok['code'], 0);
+      expect(ok['out'], 'hello-from-fs\n');
+
+      final err = run('fs_err', '''
+import std.fs;
+fn main() -> Result<Int, Error> {
+    let text = fs.read_text('/no/such/file/zzz')?;
+    println(text);
+    return Ok(0);
+}
+''');
+      expect(err['code'], 1);
+      expect(err['err'], contains('error:'));
     });
 
     test('String methods: len, trim, split_whitespace, contains', () {

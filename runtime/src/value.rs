@@ -68,6 +68,14 @@ impl Value {
     pub fn none() -> Value {
         Value::new_enum(TY_OPTION, TAG_NONE, vec![])
     }
+
+    /// `Ok(v)` / `Err(e)` constructors for the built-in `Result` type.
+    pub fn ok(v: Value) -> Value {
+        Value::new_enum(TY_RESULT, TAG_OK, vec![v])
+    }
+    pub fn err(e: Value) -> Value {
+        Value::new_enum(TY_RESULT, TAG_ERR, vec![e])
+    }
 }
 
 /// A heap-allocated object. Structs and closures arrive in later increments.
