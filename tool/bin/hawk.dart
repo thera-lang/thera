@@ -153,9 +153,10 @@ class EmitCommand extends Command<void> {
     final out = rest[1];
 
     final program = _loadProgram(path);
+    final imports = _loadImports(path, program);
 
     // Type-check before lowering: codegen assumes a well-typed program.
-    final result = _typeCheck(path, program);
+    final result = _typeCheck(path, program, imports);
     if (result.errors.isNotEmpty) {
       for (final err in result.errors) {
         stderr.writeln(err.format(path));
@@ -165,7 +166,7 @@ class EmitCommand extends Command<void> {
 
     final Module module;
     try {
-      module = compileProgram(program, imports: _loadImports(path, program));
+      module = compileProgram(program, imports: imports);
     } on CodegenException catch (e) {
       stderr.writeln('hawk: $path: ${e.message}');
       exit(1);
@@ -226,7 +227,7 @@ class CheckCommand extends Command<void> {
     } on _LoadFailed {
       return 1;
     }
-    final result = _typeCheck(path, program);
+    final result = _typeCheck(path, program, _loadImports(path, program));
     for (final err in result.errors) {
       stderr.writeln(err.format(path));
     }
@@ -234,25 +235,20 @@ class CheckCommand extends Command<void> {
   }
 }
 
-/// Type-check [program] (located at [path]), pre-registering the symbols its
-/// imports bring into scope so cross-file names resolve.
-CheckResult _typeCheck(String path, Program program) {
+/// Type-check [program] (located at [path]). [imports] is its loaded import
+/// closure (see [_loadImports]); registering those symbols lets cross-module
+/// names — relative functions and std types like `Args` — resolve. `std.*`
+/// aliases are also registered so module-qualified access (`fs.read_text`)
+/// type-checks.
+CheckResult _typeCheck(String path, Program program, List<Program> imports) {
   final checker = TypeChecker();
-  final baseDir = File(path).parent.path;
   for (final decl in program.decls) {
-    if (decl is! ImportDecl) continue;
-    if (decl.path.startsWith('std.')) {
+    if (decl is ImportDecl && decl.path.startsWith('std.')) {
       checker.addModule(decl.alias ?? decl.path.split('.').last);
-    } else {
-      // Relative file import — load and register its symbols (don't check it).
-      final importPath = '$baseDir/${decl.path}.hawk';
-      try {
-        checker.addProgram(_loadProgramQuiet(importPath));
-      } on _LoadFailed {
-        // Import couldn't be parsed; skip (the missing-file error is only
-        // raised at runtime, not at check time).
-      }
     }
+  }
+  for (final imported in imports) {
+    checker.addProgram(imported);
   }
   return checker.check(program);
 }
@@ -263,21 +259,32 @@ CheckResult _typeCheck(String path, Program program) {
 /// skipped (the type-checker already reported them). `std.*` imports are not
 /// loaded here yet — they resolve via the runtime's module natives.
 List<Program> _loadImports(String path, Program program) {
+  final sdkRoot = _findSdkRoot();
   final modules = <Program>[];
   final seen = <String>{};
+
+  // Resolve an import path to a source file: `std.fs` → <sdk>/std/fs.hawk,
+  // `name` → <dir>/name.hawk.
+  String? resolve(String importPath, String baseDir) {
+    if (importPath.startsWith('std.')) {
+      if (sdkRoot == null) return null;
+      return '$sdkRoot/sdk/std/${importPath.substring('std.'.length)}.hawk';
+    }
+    return '$baseDir/$importPath.hawk';
+  }
 
   void visit(String fromPath, Program prog) {
     final baseDir = File(fromPath).parent.path;
     for (final decl in prog.decls) {
-      if (decl is! ImportDecl || decl.path.startsWith('std.')) continue;
-      final importPath = '$baseDir/${decl.path}.hawk';
-      if (!seen.add(importPath)) continue;
+      if (decl is! ImportDecl) continue;
+      final file = resolve(decl.path, baseDir);
+      if (file == null || !seen.add(file)) continue;
       try {
-        final imported = _loadProgramQuiet(importPath);
+        final imported = _loadProgramQuiet(file);
         modules.add(imported);
-        visit(importPath, imported); // transitive
+        visit(file, imported); // transitive
       } on _LoadFailed {
-        // Missing or unparseable import; skip.
+        // Missing or unparseable import; skip (the checker reports it).
       }
     }
   }

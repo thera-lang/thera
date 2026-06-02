@@ -1,34 +1,70 @@
-// std.args — command-line argument parsing.
+// std.args — command-line argument parsing over the raw argument list.
 //
-// Args is passed to main by the runtime and is not constructed directly.
-// std.args is auto-imported into every file; no explicit import is needed.
+// `main` receives its arguments as a `List<String>`; wrap them in `Args` for
+// positional/flag access:
+//
+//   import std.args;
+//
+//   fn main(parameters: List<String>) -> Result<Int, Error> {
+//       let args = Args.new(parameters);
+//       let path = args.positional(0).ok_or(Error('usage: tool <path>'))?;
+//       let verbose = args.flag('--verbose', default: false);
+//       ...
+//   }
 
 type Args = {
-    // Opaque runtime handle — fields are not accessed directly.
+    parameters: List<String>,
 }
 
 impl Args {
-    // Return the positional argument at index, or None if not provided.
-    //
-    //   let path = args.positional(0).ok_or(Error('usage: tool <path>'))?;
-    fn positional(self, _ index: Int) -> Option<String>
+    // Wrap the raw program arguments.
+    fn new(_ parameters: List<String>) -> Args {
+        return Args { parameters: parameters };
+    }
 
-    // Return the value of a named flag, or `value` if the flag was not provided.
-    // The return type is inferred from the default value.
-    //
-    //   let verbose = args.flag('verbose', default: false);
-    //   let output  = args.flag('output',  default: 'out.txt');
-    fn flag<T>(self, _ name: String, default value: T) -> T
+    // The positional argument at `index`, or None if out of range.
+    fn positional(self, _ index: Int) -> Option<String> {
+        if index < self.parameters.len() {
+            return Some(self.parameters[index]);
+        }
+        return None;
+    }
 
-    // Return true if a boolean flag was passed on the command line (e.g. --verbose).
-    // Use flag() with a Bool default when you want an explicit true/false; use
-    // has() when the flag is a simple on/off switch with no value.
-    //
-    //   if args.has('dry-run') { ... }
-    fn has(self, _ name: String) -> Bool
+    // All arguments, in order.
+    fn positionals(self) -> List<String> {
+        return self.parameters;
+    }
 
-    // Return all positional arguments as a list.
-    //
-    //   let paths = args.positionals();
-    fn positionals(self) -> List<String>
+    // True if `name` (e.g. '--verbose') appears in the arguments.
+    fn has(self, _ name: String) -> Bool {
+        for p in self.parameters {
+            if p == name {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // A boolean flag: true if `name` is present, else `value`.
+    fn flag(self, _ name: String, default value: Bool) -> Bool {
+        if self.has(name) {
+            return true;
+        }
+        return value;
+    }
+
+    // The value following a `--name` token, or None.
+    fn option(self, _ name: String) -> Option<String> {
+        let mut i = 0;
+        while i < self.parameters.len() {
+            if self.parameters[i] == name {
+                if i + 1 < self.parameters.len() {
+                    return Some(self.parameters[i + 1]);
+                }
+                return None;
+            }
+            i = i + 1;
+        }
+        return None;
+    }
 }
