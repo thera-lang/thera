@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:hawk/src/ast.dart';
 import 'package:hawk/src/bytecode/encoder.dart';
 import 'package:hawk/src/bytecode/instr.dart';
 import 'package:hawk/src/bytecode/module.dart';
@@ -10,13 +11,15 @@ import 'package:test/test.dart';
 
 import 'runtime_harness.dart';
 
-Module compile(String source) {
+Program parseProgram(String source) {
   final lex = Lexer(source).tokenize();
   expect(lex.hasErrors, isFalse, reason: lex.errors.join('\n'));
   final parsed = Parser(lex.tokens).parse();
   expect(parsed.hasErrors, isFalse, reason: parsed.errors.join('\n'));
-  return compileProgram(parsed.program);
+  return parsed.program;
 }
+
+Module compile(String source) => compileProgram(parseProgram(source));
 
 void main() {
   group('codegen lowering', () {
@@ -857,6 +860,32 @@ fn main() -> Int {
       File(tmp).writeAsBytesSync(encodeModule(m));
       final r = Process.runSync(hawkBin, ['run', tmp, 'a', 'b', 'c']);
       expect(r.exitCode, 3);
+    });
+  });
+
+  group('module linking', () {
+    test('a cross-module function call resolves to the imported function', () {
+      final lib = parseProgram('fn helper() -> Int { return 42; }');
+      final root = parseProgram('fn main() -> Int { return helper(); }');
+      final m = compileProgram(root, imports: [lib]);
+
+      expect(m.functions.map((f) => f.name), containsAll(['helper', 'main']));
+      final helperIdx = m.functions.indexWhere((f) => f.name == 'helper');
+      final main = m.functions.firstWhere((f) => f.name == 'main');
+      expect(main.code,
+          contains(isA<Call>().having((i) => i.func, 'func', helperIdx)));
+    });
+
+    test('a linked program runs end to end', () {
+      late final String? hawkBin = buildRuntime();
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+
+      final lib = parseProgram('fn triple(_ n: Int) -> Int { return n * 3; }');
+      final root = parseProgram('fn main() -> Int { return triple(14); }');
+      final tmp = '${Directory.systemTemp.path}/hawk_linked.hawkbc';
+      File(tmp).writeAsBytesSync(encodeModule(compileProgram(root, imports: [lib])));
+
+      expect(Process.runSync(hawkBin, ['run', tmp]).exitCode, 42);
     });
   });
 }

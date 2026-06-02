@@ -165,7 +165,7 @@ class EmitCommand extends Command<void> {
 
     final Module module;
     try {
-      module = compileProgram(program);
+      module = compileProgram(program, imports: _loadImports(path, program));
     } on CodegenException catch (e) {
       stderr.writeln('hawk: $path: ${e.message}');
       exit(1);
@@ -255,6 +255,35 @@ CheckResult _typeCheck(String path, Program program) {
     }
   }
   return checker.check(program);
+}
+
+/// Resolve and parse the relative-import closure of [program] (located at
+/// [path]) so the emitter can link those modules in. Each `import name;`
+/// resolves to `<dir>/name.hawk`, transitively; unparseable/missing imports are
+/// skipped (the type-checker already reported them). `std.*` imports are not
+/// loaded here yet — they resolve via the runtime's module natives.
+List<Program> _loadImports(String path, Program program) {
+  final modules = <Program>[];
+  final seen = <String>{};
+
+  void visit(String fromPath, Program prog) {
+    final baseDir = File(fromPath).parent.path;
+    for (final decl in prog.decls) {
+      if (decl is! ImportDecl || decl.path.startsWith('std.')) continue;
+      final importPath = '$baseDir/${decl.path}.hawk';
+      if (!seen.add(importPath)) continue;
+      try {
+        final imported = _loadProgramQuiet(importPath);
+        modules.add(imported);
+        visit(importPath, imported); // transitive
+      } on _LoadFailed {
+        // Missing or unparseable import; skip.
+      }
+    }
+  }
+
+  visit(path, program);
+  return modules;
 }
 
 /// Thrown by [_loadProgramQuiet] when lex/parse fails.

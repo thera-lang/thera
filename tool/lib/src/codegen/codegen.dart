@@ -53,13 +53,30 @@ const int _tagErr = 1;
 const int _tagSome = 0;
 const int _tagNone = 1;
 
-/// Compile a whole program to a module.
-Module compileProgram(Program program) {
-  // Register everything first (in two phases: declarations, then bodies) so
-  // forward references — calls to later functions, methods, struct types —
-  // all resolve. Functions and impl methods become a flat list of "units"; a
-  // unit's position is the function-table index used by `call`.
+/// Compile [program] — plus any [imports] it links against — into one module.
+///
+/// All modules' functions, types, and methods are registered into a single
+/// scope (so cross-module calls resolve), then compiled. The caller (the CLI)
+/// resolves and parses the import closure; this keeps codegen free of file I/O
+/// and unit-testable with in-memory modules.
+Module compileProgram(Program program, {List<Program> imports = const []}) {
+  // Register everything first (declarations across every module) so forward and
+  // cross-module references — calls, methods, struct types — all resolve before
+  // any body is compiled. Functions and impl methods become a flat list of
+  // "units"; a unit's position is the function-table index used by `call`.
   final scope = _ModuleScope();
+  for (final module in [...imports, program]) {
+    _registerModule(scope, module);
+  }
+
+  final functions = [
+    for (var i = 0; i < scope.units.length; i++) _FnCompiler(scope).compile(i),
+  ];
+  return Module(functions, types: scope.types);
+}
+
+/// Register one module's declarations into the shared [scope].
+void _registerModule(_ModuleScope scope, Program program) {
   for (final decl in program.decls) {
     switch (decl) {
       case FnDecl() when !decl.isNative:
@@ -74,18 +91,13 @@ Module compileProgram(Program program) {
         }
       case ImportDecl() when decl.path.startsWith('std.'):
         // Record `import std.fs [as f]` so `fs.read_text(...)` resolves to a
-        // module native. (Relative-file imports await module linking.)
+        // module native. (Loading std sources as Hawk arrives in a later step.)
         final base = decl.path.split('.').last;
         scope.moduleAliases[decl.alias ?? base] = base;
       default:
         break;
     }
   }
-
-  final functions = [
-    for (var i = 0; i < scope.units.length; i++) _FnCompiler(scope).compile(i),
-  ];
-  return Module(functions, types: scope.types);
 }
 
 /// The name of a type reference (`Int`, `Double`, …), or null.
