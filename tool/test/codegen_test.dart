@@ -289,6 +289,35 @@ fn main() -> Int { let v = V { n: 1 }; return v.bump(5); }
           .having((i) => i.name, 'name', 'list_len')
           .having((i) => i.argc, 'argc', 1)));
     });
+
+    test('== on strings lowers to the structural eq native', () {
+      final eq = compile("fn f() -> Bool { return 'a' == 'b'; }")
+          .functions
+          .single
+          .code;
+      expect(eq, contains(
+          isA<CallNative>().having((i) => i.name, 'name', 'eq')));
+      expect(eq, isNot(contains(
+          isA<Simple>().having((i) => i.op, 'op', Op.eqI64))));
+
+      // `!=` is `eq` then `not`.
+      final ne = compile("fn f() -> Bool { return 'a' != 'b'; }")
+          .functions
+          .single
+          .code;
+      expect(ne, containsAllInOrder([
+        isA<CallNative>().having((i) => i.name, 'name', 'eq'),
+        isA<Simple>().having((i) => i.op, 'op', Op.not),
+      ]));
+    });
+
+    test('== on Int still uses the typed opcode', () {
+      final ops = compile('fn f() -> Bool { return 1 == 2; }')
+          .functions
+          .single
+          .code;
+      expect(ops, contains(isA<Simple>().having((i) => i.op, 'op', Op.eqI64)));
+    });
   });
 
   group('end-to-end (requires the Rust runtime)', () {
@@ -661,6 +690,38 @@ fn main() -> Int {
 }
 '''),
           6);
+    });
+
+    test('string equality (structural)', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      expect(
+          runExit('streq', '''
+fn main() -> Int {
+    let a = 'hello';
+    let b = 'hello';
+    if a == b { return 1; }
+    return 0;
+}
+'''),
+          1);
+    });
+
+    test('struct equality (structural)', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      expect(
+          runExit('structeq', '''
+type P = { x: Int, y: Int }
+fn main() -> Int {
+    let a = P { x: 1, y: 2 };
+    let b = P { x: 1, y: 2 };
+    let c = P { x: 9, y: 9 };
+    let mut n = 0;
+    if a == b { n = n + 1; }
+    if a != c { n = n + 10; }
+    return n;
+}
+'''),
+          11);
     });
 
     // --- entry / args convention ---

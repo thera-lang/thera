@@ -625,9 +625,23 @@ class _FnCompiler {
     }
 
     // Operand type is taken from the left; the checker guarantees both sides
-    // agree. Equality/ordering on non-primitives dispatches to `Eq` — deferred.
+    // agree.
     final operandType = _typeOf(e.left);
-    if (operandType != 'Int' && operandType != 'Double' && operandType != 'Bool') {
+    final isPrimitive = operandType == 'Int' ||
+        operandType == 'Double' ||
+        operandType == 'Bool';
+
+    // `==`/`!=` on non-primitives (strings, structs, enums, collections) use the
+    // structural `eq` native — the default `Eq`. Primitives use typed opcodes.
+    if ((e.op == '==' || e.op == '!=') && !isPrimitive) {
+      _expr(e.left);
+      _expr(e.right);
+      _emit(const CallNative('eq', 2));
+      if (e.op == '!=') _emit(const Simple(Op.not));
+      return;
+    }
+
+    if (!isPrimitive) {
       throw CodegenException(
           'operator `${e.op}` on ${operandType ?? 'unknown type'} '
           'not yet supported',

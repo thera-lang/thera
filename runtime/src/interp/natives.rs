@@ -35,6 +35,7 @@ pub const NATIVE_SET_LEN: u32 = 15;
 pub const NATIVE_SET_HAS: u32 = 16;
 pub const NATIVE_SET_ADD: u32 = 17;
 pub const NATIVE_SET_REMOVE: u32 = 18;
+pub const NATIVE_EQ: u32 = 19;
 
 /// The canonical native table: the name each native is bound by, paired with
 /// its implementation, in index order. Names are the stable identity used by
@@ -59,6 +60,7 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("set_has", native_set_has),
     ("set_add", native_set_add),
     ("set_remove", native_set_remove),
+    ("eq", native_eq),
 ];
 
 /// The native functions the runtime ships with, in index order.
@@ -147,6 +149,14 @@ fn native_str_concat(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap
         s.push_str(&str_contents(a)?);
     }
     Ok(Value::new_str(s))
+}
+
+/// `a == b` — structural equality, the default `Eq`. Works for every value kind
+/// (`Value`'s `PartialEq` compares heap objects by content, not identity), so it
+/// backs `==`/`!=` on strings, structs, enums, and collections.
+fn native_eq(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (a, b) = args2(args, "eq")?;
+    Ok(Value::Bool(a == b))
 }
 
 // --- collection natives ---
@@ -448,7 +458,22 @@ mod tests {
         assert_eq!(native_index("map_set"), Some(NATIVE_MAP_SET));
         assert_eq!(native_name(NATIVE_STRINGIFY), Some("stringify"));
         assert_eq!(native_index("set_add"), Some(NATIVE_SET_ADD));
+        assert_eq!(native_index("eq"), Some(NATIVE_EQ));
         assert_eq!(native_index("nope"), None);
         assert_eq!(default_natives().len(), NATIVES.len());
+    }
+
+    #[test]
+    fn eq_is_structural() {
+        let yes = |a, b| native_eq(&mut std::io::sink(), &[a, b]) == Ok(Value::Bool(true));
+        // Strings and lists compare by content, not identity.
+        assert!(yes(Value::new_str("hi"), Value::new_str("hi")));
+        assert!(!yes(Value::new_str("hi"), Value::new_str("ho")));
+        assert!(yes(
+            Value::new_list(vec![Value::Int(1), Value::Int(2)]),
+            Value::new_list(vec![Value::Int(1), Value::Int(2)]),
+        ));
+        assert!(yes(Value::Int(7), Value::Int(7)));
+        assert!(!yes(Value::Int(7), Value::new_str("7")));
     }
 }
