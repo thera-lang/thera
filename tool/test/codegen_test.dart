@@ -318,6 +318,16 @@ fn main() -> Int { let v = V { n: 1 }; return v.bump(5); }
           .code;
       expect(ops, contains(isA<Simple>().having((i) => i.op, 'op', Op.eqI64)));
     });
+
+    test('a String method lowers to its native with the receiver first', () {
+      final ops = compile("fn f() -> Int { let s = 'hi'; return s.len(); }")
+          .functions
+          .single
+          .code;
+      expect(ops, contains(isA<CallNative>()
+          .having((i) => i.name, 'name', 'str_len')
+          .having((i) => i.argc, 'argc', 1)));
+    });
   });
 
   group('end-to-end (requires the Rust runtime)', () {
@@ -700,6 +710,30 @@ fn main() -> Int {
     let a = 'hello';
     let b = 'hello';
     if a == b { return 1; }
+    return 0;
+}
+'''),
+          1);
+    });
+
+    test('String methods: len, trim, split_whitespace, contains', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      expect(
+          runExit('strlen', "fn main() -> Int { return 'hello world'.len(); }"),
+          11);
+      expect(
+          runExit('strtrim',
+              "fn main() -> Int { let s = '  hi  '; return s.trim().len(); }"),
+          2);
+      expect(
+          runExit('strsplit',
+              "fn main() -> Int { return 'the quick brown fox'.split_whitespace().len(); }"),
+          4);
+      expect(
+          runExit('strcontains', '''
+fn main() -> Int {
+    let s = 'hello';
+    if s.contains('ell') { return 1; }
     return 0;
 }
 '''),

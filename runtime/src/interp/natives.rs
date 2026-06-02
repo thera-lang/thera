@@ -61,6 +61,18 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("set_add", native_set_add),
     ("set_remove", native_set_remove),
     ("eq", native_eq),
+    ("str_len", native_str_len),
+    ("str_byte_len", native_str_byte_len),
+    ("str_is_empty", native_str_is_empty),
+    ("str_trim", native_str_trim),
+    ("str_contains", native_str_contains),
+    ("str_starts_with", native_str_starts_with),
+    ("str_ends_with", native_str_ends_with),
+    ("str_to_uppercase", native_str_to_uppercase),
+    ("str_to_lowercase", native_str_to_lowercase),
+    ("str_lines", native_str_lines),
+    ("str_split_whitespace", native_str_split_whitespace),
+    ("str_split", native_str_split),
 ];
 
 /// The native functions the runtime ships with, in index order.
@@ -157,6 +169,101 @@ fn native_str_concat(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap
 fn native_eq(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let (a, b) = args2(args, "eq")?;
     Ok(Value::Bool(a == b))
+}
+
+// --- string natives ---
+//
+// These back `String` methods; the frontend dispatches `s.method(...)` to the
+// matching native with the receiver as the first argument. Behaviour mirrors
+// the Dart interpreter's `String` methods so the two toolchains agree.
+
+/// Build a `List<String>` from an iterator of owned strings.
+fn string_list(parts: impl IntoIterator<Item = String>) -> Value {
+    Value::new_list(parts.into_iter().map(Value::new_str).collect())
+}
+
+/// `s.len()` — number of Unicode scalar values (not bytes).
+fn native_str_len(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let s = str_contents(expect_one(args, "str_len")?)?;
+    Ok(Value::Int(s.chars().count() as i64))
+}
+
+/// `s.byte_len()` — length in UTF-8 bytes.
+fn native_str_byte_len(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let s = str_contents(expect_one(args, "str_byte_len")?)?;
+    Ok(Value::Int(s.len() as i64))
+}
+
+/// `s.is_empty()`.
+fn native_str_is_empty(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let s = str_contents(expect_one(args, "str_is_empty")?)?;
+    Ok(Value::Bool(s.is_empty()))
+}
+
+/// `s.trim()` — strip leading/trailing whitespace.
+fn native_str_trim(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let s = str_contents(expect_one(args, "str_trim")?)?;
+    Ok(Value::new_str(s.trim()))
+}
+
+/// `s.contains(sub)`.
+fn native_str_contains(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (s, sub) = args2(args, "str_contains")?;
+    Ok(Value::Bool(
+        str_contents(s)?.contains(str_contents(sub)?.as_str()),
+    ))
+}
+
+/// `s.starts_with(prefix)`.
+fn native_str_starts_with(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (s, p) = args2(args, "str_starts_with")?;
+    Ok(Value::Bool(
+        str_contents(s)?.starts_with(str_contents(p)?.as_str()),
+    ))
+}
+
+/// `s.ends_with(suffix)`.
+fn native_str_ends_with(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (s, p) = args2(args, "str_ends_with")?;
+    Ok(Value::Bool(
+        str_contents(s)?.ends_with(str_contents(p)?.as_str()),
+    ))
+}
+
+/// `s.to_uppercase()`.
+fn native_str_to_uppercase(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let s = str_contents(expect_one(args, "str_to_uppercase")?)?;
+    Ok(Value::new_str(s.to_uppercase()))
+}
+
+/// `s.to_lowercase()`.
+fn native_str_to_lowercase(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let s = str_contents(expect_one(args, "str_to_lowercase")?)?;
+    Ok(Value::new_str(s.to_lowercase()))
+}
+
+/// `s.lines()` — split on `\n`; a single trailing newline yields no extra empty
+/// line.
+fn native_str_lines(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let s = str_contents(expect_one(args, "str_lines")?)?;
+    if s.is_empty() {
+        return Ok(Value::new_list(vec![]));
+    }
+    let trimmed = s.strip_suffix('\n').unwrap_or(&s);
+    Ok(string_list(trimmed.split('\n').map(str::to_string)))
+}
+
+/// `s.split_whitespace()` — runs of Unicode whitespace, no empty entries.
+fn native_str_split_whitespace(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let s = str_contents(expect_one(args, "str_split_whitespace")?)?;
+    Ok(string_list(s.split_whitespace().map(str::to_string)))
+}
+
+/// `s.split(sep)` — split on each occurrence of `sep` (empties kept).
+fn native_str_split(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (s, sep) = args2(args, "str_split")?;
+    let (s, sep) = (str_contents(s)?, str_contents(sep)?);
+    Ok(string_list(s.split(sep.as_str()).map(str::to_string)))
 }
 
 // --- collection natives ---

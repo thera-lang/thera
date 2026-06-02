@@ -769,16 +769,30 @@ class _FnCompiler {
   /// `Type.method(...)`), used so chained calls and arithmetic on results pick
   /// the right opcodes.
   String? _methodReturnType(FieldExpr callee) {
-    final coll = _collectionMethod(_typeOf(callee.object), callee.field);
-    if (coll != null) return coll.$2;
+    final builtin = _builtinMethod(_typeOf(callee.object), callee.field);
+    if (builtin != null) return builtin.$2;
     final idx = _resolveMethod(callee.object, callee.field);
     return idx == null ? null : _scope.returnTypeOfIndex(idx);
   }
 
-  /// Built-in collection methods backed by runtime natives: maps
-  /// `(receiverType, method)` to `(nativeName, returnType)`. The receiver is
-  /// passed as the native's first argument.
-  static const _collectionMethods = <String, Map<String, (String, String?)>>{
+  /// Built-in methods on primitive/collection types, backed by runtime natives:
+  /// maps `(receiverType, method)` to `(nativeName, returnType)`. The receiver
+  /// is passed as the native's first argument.
+  static const _builtinMethods = <String, Map<String, (String, String?)>>{
+    'String': {
+      'len': ('str_len', 'Int'),
+      'byte_len': ('str_byte_len', 'Int'),
+      'is_empty': ('str_is_empty', 'Bool'),
+      'trim': ('str_trim', 'String'),
+      'contains': ('str_contains', 'Bool'),
+      'starts_with': ('str_starts_with', 'Bool'),
+      'ends_with': ('str_ends_with', 'Bool'),
+      'to_uppercase': ('str_to_uppercase', 'String'),
+      'to_lowercase': ('str_to_lowercase', 'String'),
+      'lines': ('str_lines', 'List'),
+      'split_whitespace': ('str_split_whitespace', 'List'),
+      'split': ('str_split', 'List'),
+    },
     'List': {
       'len': ('list_len', 'Int'),
       'get': ('list_get', 'Option'),
@@ -790,8 +804,8 @@ class _FnCompiler {
     },
   };
 
-  (String, String?)? _collectionMethod(String? type, String method) =>
-      type == null ? null : _collectionMethods[type]?[method];
+  (String, String?)? _builtinMethod(String? type, String method) =>
+      type == null ? null : _builtinMethods[type]?[method];
 
   /// The unit index of method [name] on the receiver expression [receiver], or
   /// null if it can't be resolved. A bare struct type name (not shadowed by a
@@ -956,15 +970,15 @@ class _FnCompiler {
   /// `recv.method(args)` / `Type.method(args)`. For an instance method the
   /// receiver is pushed first as `self`; arguments follow in parameter order.
   void _methodCall(CallExpr expr, FieldExpr callee) {
-    // Built-in collection methods lower to a native with the receiver as the
-    // first argument.
-    final coll = _collectionMethod(_typeOf(callee.object), callee.field);
-    if (coll != null) {
+    // Built-in methods (String/List/Map) lower to a native with the receiver as
+    // the first argument.
+    final builtin = _builtinMethod(_typeOf(callee.object), callee.field);
+    if (builtin != null) {
       _expr(callee.object);
       for (final arg in expr.args) {
         _expr(arg.value);
       }
-      _emit(CallNative(coll.$1, expr.args.length + 1));
+      _emit(CallNative(builtin.$1, expr.args.length + 1));
       return;
     }
 
