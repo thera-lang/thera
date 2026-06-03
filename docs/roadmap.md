@@ -103,16 +103,19 @@ gaps, by where they live:
   2. ~~**A semantic `Type`/element model** distinct from syntactic `TypeRef`,
      derived as a separate resolution stage.~~ (done — `element/types.dart`,
      `element/element.dart`, `element/resolver.dart`, `element/inference.dart`)
-  3. **One source of truth for built-in/stdlib method signatures** — still split
-     across the inference pass's `_builtinMethodReturn`, codegen's
-     `_builtinMethods`, and the runtime; ideally described as Hawk signatures in
-     `sdk/std`. (next)
-  - **Retire codegen's `_typeOf` fallback.** It is now only consulted when
-    `resolvedType` is absent/unknown; once inference covers every case it can be
-    deleted, along with `_typeRefOf`.
-  - **Use inferred types for checking, not just codegen** — the checker still
-    does only name/arity/existence checks; the resolved types enable real
-    type-mismatch diagnostics (assignments, args, returns).
+  3. ~~**One source of truth for built-in method signatures.**~~ (done — the
+     native-name table and the generic-aware return-type table now both live in
+     `element/builtins.dart`, consumed by codegen + inference, with a drift
+     guard. Still split from the *runtime* native table, and not yet described
+     as Hawk signatures in `sdk/std` — the longer-term goal.)
+  - ~~**Use inferred types for checking.**~~ (done — the checker runs inference
+    and reports type mismatches: return type (with implicit `Ok` wrap), `let`
+    annotations, non-Bool conditions, and call argument types.)
+  - **Retire codegen's `_typeOf` fallback (in progress).** It is now only
+    consulted when `resolvedType` is absent/unknown; the built-in return-type
+    half is already gone. Remaining: prove inference covers the rest, then
+    delete `_typeOfFallback` and `_typeRefOf`. Larger/delicate — codegen still
+    threads name-strings (`_localTypes`) in many places; do deliberately.
 - Interface/`Display` (vtable form), closures, block expressions, literal/nested
   `match` patterns — mostly gated on the runtime equivalents.
 
