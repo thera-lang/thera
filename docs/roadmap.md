@@ -111,11 +111,10 @@ gaps, by where they live:
   - ~~**Use inferred types for checking.**~~ (done — the checker runs inference
     and reports type mismatches: return type (with implicit `Ok` wrap), `let`
     annotations, non-Bool conditions, and call argument types.)
-  - **Retire codegen's `_typeOf` fallback (in progress).** It is now only
-    consulted when `resolvedType` is absent/unknown; the built-in return-type
-    half is already gone. Remaining: prove inference covers the rest, then
-    delete `_typeOfFallback` and `_typeRefOf`. Larger/delicate — codegen still
-    threads name-strings (`_localTypes`) in many places; do deliberately.
+  - ~~**Retire codegen's `_typeOf` fallback.**~~ (done — `_typeOf` now reads
+    `Expr.resolvedType` directly; the bottom-up `_typeOfFallback`/`_typeRefOf`,
+    the `_localTypes`/`_localTypeRefs` tracking maps, and the
+    `_methodReturnType`/`_returnTypeOf` helpers are deleted.)
 - Interface/`Display` (vtable form), closures, block expressions, literal/nested
   `match` patterns — mostly gated on the runtime equivalents.
 
