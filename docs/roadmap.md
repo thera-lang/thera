@@ -93,12 +93,31 @@ gaps, by where they live:
 - **User-defined enums** (multi-variant, `.name()`) — needs type-table-backed
   variant resolution (ids can overlap struct ids; the runtime distinguishes
   `Struct`/`Enum` in equality).
-- **Checker-annotated types.** `hawk emit` now type-checks before lowering, but
-  codegen still re-derives expression types via its own `_typeOf`. The durable
-  fix is for the checker to annotate the AST so codegen consumes types; deferred
-  until it bites.
-- Interface/`Display`, closures, block expressions, literal/nested `match`
-  patterns, multi-file imports — mostly gated on the runtime equivalents.
+- **A real type-inference system in the checker (major, planned).** Today the
+  checker does name-resolution + arity + type-reference existence, not type
+  _inference_ — it computes no type for most expressions and does no generic
+  substitution. Codegen re-derives types with its own shallow `_typeOf`, which
+  keeps hitting walls (it can't see the `T` behind `Option<T>`/`List<T>`, method
+  return types, match-arm bindings, `?`/`unwrap` results). The fix is to build a
+  synthesizing type checker that annotates every expression with a resolved type
+  (a new mutable `Expr.resolvedType`), which codegen then consumes (retiring
+  `_typeOf`). Big endeavour; tracked. Prerequisites/refactors that make it less
+  work, in order:
+  1. **Generic type/enum declarations** (AST + parser) — only functions carry
+     `typeParams` today; `type Box<T>` / `enum Tree<T>` don't parse. A generic
+     type system must reason over generic decls, including the built-ins
+     (`List<T>`, `Option<T>`, …). Also a standalone feature (user generics).
+  2. **A semantic `Type` model** distinct from syntactic `TypeRef` (resolved
+     primitives, `Struct`/`Enum` with args, `List`/`Map`/`Option`/`Result`,
+     function types, type variables) — the substrate for substitution/inference.
+  3. **One source of truth for built-in/stdlib method signatures** — today split
+     across codegen's `_builtinMethods` and the runtime, invisible to the
+     checker; ideally described as Hawk signatures in `sdk/std` (enabled by #1).
+- **User-defined enums** (multi-variant, `.name()`) — needs type-table-backed
+  variant resolution (ids can overlap struct ids; the runtime distinguishes
+  `Struct`/`Enum` in equality).
+- Interface/`Display` (vtable form), closures, block expressions, literal/nested
+  `match` patterns — mostly gated on the runtime equivalents.
 
 **Cross-cutting:** the stdlib natives are listed in both the Rust runtime and
 the Dart interpreter. Acceptable (name-bound calls already fail at load on a
