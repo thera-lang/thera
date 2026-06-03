@@ -13,6 +13,9 @@ library;
 import '../ast.dart';
 import '../bytecode/instr.dart';
 import '../bytecode/module.dart';
+import '../element/inference.dart';
+import '../element/resolver.dart';
+import '../element/types.dart';
 import '../token.dart';
 
 /// A construct the code generator does not yet handle.
@@ -64,6 +67,14 @@ Module compileProgram(Program program, {List<Program> imports = const []}) {
   // cross-module references — calls, methods, struct types — all resolve before
   // any body is compiled. Functions and impl methods become a flat list of
   // "units"; a unit's position is the function-table index used by `call`.
+  // Resolve the element model and annotate every expression with its semantic
+  // type (Expr.resolvedType), which codegen consumes for opcode selection. This
+  // sees through generics where the bottom-up `_typeOf` fallback cannot.
+  final inferrer = Inferrer(buildLibrary(program, imports: imports));
+  for (final module in [...imports, program]) {
+    inferrer.inferProgram(module);
+  }
+
   final scope = _ModuleScope();
   for (final module in [...imports, program]) {
     _registerModule(scope, module);
@@ -815,8 +826,44 @@ class _FnCompiler {
 
   bool _isDouble(Expr e) => _typeOf(e) == 'Double';
 
+  /// Bridge a resolved semantic [Type] to the legacy type-name string codegen
+  /// uses for opcode selection. Null for unknowns and Unit (treated as "no
+  /// special handling").
+  static String? _nameOfType(Type t) => switch (t) {
+        PrimitiveType(:final primitive) => switch (primitive) {
+            Primitive.int_ => 'Int',
+            Primitive.double_ => 'Double',
+            Primitive.bool_ => 'Bool',
+            Primitive.string => 'String',
+            Primitive.unit => null,
+          },
+        InterfaceType(:final element) => element.name,
+        _ => null,
+      };
+
+  /// Bridge a resolved [Type] to a legacy [TypeRef], preserving generic args.
+  static TypeRef _refOfType(Type t) => switch (t) {
+        InterfaceType(:final element, :final typeArguments) => NamedType(
+            element.name,
+            args: [for (final a in typeArguments) _refOfType(a)]),
+        TypeParameterType(:final name) => NamedType(name),
+        PrimitiveType() => NamedType(_nameOfType(t) ?? '?'),
+        _ => NamedType('?'),
+      };
+
   /// Best-effort static type name of an expression, for opcode selection.
-  String? _typeOf(Expr e) => switch (e) {
+  /// Prefers the inference pass's [Expr.resolvedType] and falls back to a
+  /// bottom-up derivation when that is absent or unknown.
+  String? _typeOf(Expr e) {
+    final resolved = e.resolvedType;
+    if (resolved != null && resolved is! UnknownType) {
+      final name = _nameOfType(resolved);
+      if (name != null) return name;
+    }
+    return _typeOfFallback(e);
+  }
+
+  String? _typeOfFallback(Expr e) => switch (e) {
         IntLiteral() => 'Int',
         FloatLiteral() => 'Double',
         BoolLiteral() => 'Bool',
@@ -851,6 +898,10 @@ class _FnCompiler {
   /// The full type reference of an expression when known, so generic arguments
   /// survive (e.g. the element type behind a `List<Int>`).
   TypeRef? _typeRefOf(Expr e) {
+    final resolved = e.resolvedType;
+    if (resolved != null && resolved is! UnknownType) {
+      return _refOfType(resolved);
+    }
     switch (e) {
       case IdentExpr(:final name):
         if (_localTypeRefs.containsKey(name)) return _localTypeRefs[name];
