@@ -13,7 +13,7 @@ and refactor code.
 - **Errors as values** — linear, visible control flow; no hidden exception paths
 - **Immutability by default** — eliminates multi-hop state tracking
 - **Explicit scope markers** — brace-delimited blocks survive diff-based edits
-- **Data structures and interfaces** - avoid deep class heirarchies
+- **Data structures and interfaces** - avoid deep class hierarchies
 - **Single opinionated formatter** — fewer stylistic decisions, less token waste
 - **Comprehensive standard library** — reduces reliance on unfamiliar
   third-party APIs

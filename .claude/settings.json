@@ -12,6 +12,8 @@
       "Bash(git diff *)",
       "Bash(git log *)",
       "Bash(git status *)",
+      "Bash(ls *)",
+      "Bash(sed *)",
       "mcp__plugin_flutter-slipstream_packages__library_stub"
     ]
   }

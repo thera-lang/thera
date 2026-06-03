@@ -107,9 +107,12 @@ gaps, by where they live:
      `typeParams` today; `type Box<T>` / `enum Tree<T>` don't parse. A generic
      type system must reason over generic decls, including the built-ins
      (`List<T>`, `Option<T>`, …). Also a standalone feature (user generics).
-  2. **A semantic `Type` model** distinct from syntactic `TypeRef` (resolved
-     primitives, `Struct`/`Enum` with args, `List`/`Map`/`Option`/`Result`,
-     function types, type variables) — the substrate for substitution/inference.
+  2. **A semantic `Type`/element model** distinct from syntactic `TypeRef`
+     (resolved primitives, `Struct`/`Enum` with args, `List`/`Map`/`Option`/
+     `Result`, function types, type variables) — the substrate for
+     substitution/inference. Best derived as a separate _resolution stage_ over
+     the AST (an "element model" of resolved declarations/types, à la the Dart
+     analyzer), not woven into the parser.
   3. **One source of truth for built-in/stdlib method signatures** — today split
      across codegen's `_builtinMethods` and the runtime, invisible to the
      checker; ideally described as Hawk signatures in `sdk/std` (enabled by #1).

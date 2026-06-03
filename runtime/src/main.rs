@@ -71,14 +71,15 @@ fn exit_code(v: &Value) -> ExitCode {
     match v {
         Value::Int(n) => ExitCode::from(*n as u8),
         Value::Ref(rc) => match &*rc.borrow() {
-            Obj::Enum(e) if e.ty == TY_RESULT && e.variant == TAG_OK => {
-                match e.fields.first() {
-                    Some(Value::Int(n)) => ExitCode::from(*n as u8),
-                    _ => ExitCode::SUCCESS,
-                }
-            }
+            Obj::Enum(e) if e.ty == TY_RESULT && e.variant == TAG_OK => match e.fields.first() {
+                Some(Value::Int(n)) => ExitCode::from(*n as u8),
+                _ => ExitCode::SUCCESS,
+            },
             Obj::Enum(e) if e.ty == TY_RESULT => {
-                eprintln!("error: {}", e.fields.first().map(render).unwrap_or_default());
+                eprintln!(
+                    "error: {}",
+                    e.fields.first().map(render).unwrap_or_default()
+                );
                 ExitCode::FAILURE
             }
             _ => ExitCode::SUCCESS,
