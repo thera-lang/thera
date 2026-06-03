@@ -90,35 +90,28 @@ gaps, by where they live:
 
 **Front-end (codegen):**
 
-- **User-defined enums** (multi-variant, `.name()`) — needs type-table-backed
-  variant resolution (ids can overlap struct ids; the runtime distinguishes
-  `Struct`/`Enum` in equality).
-- **A real type-inference system in the checker (major, planned).** Today the
-  checker does name-resolution + arity + type-reference existence, not type
-  _inference_ — it computes no type for most expressions and does no generic
-  substitution. Codegen re-derives types with its own shallow `_typeOf`, which
-  keeps hitting walls (it can't see the `T` behind `Option<T>`/`List<T>`, method
-  return types, match-arm bindings, `?`/`unwrap` results). The fix is to build a
-  synthesizing type checker that annotates every expression with a resolved type
-  (a new mutable `Expr.resolvedType`), which codegen then consumes (retiring
-  `_typeOf`). Big endeavour; tracked. Prerequisites/refactors that make it less
-  work, in order:
-  1. **Generic type/enum declarations** (AST + parser) — only functions carry
-     `typeParams` today; `type Box<T>` / `enum Tree<T>` don't parse. A generic
-     type system must reason over generic decls, including the built-ins
-     (`List<T>`, `Option<T>`, …). Also a standalone feature (user generics).
-  2. **A semantic `Type`/element model** distinct from syntactic `TypeRef`
-     (resolved primitives, `Struct`/`Enum` with args, `List`/`Map`/`Option`/
-     `Result`, function types, type variables) — the substrate for
-     substitution/inference. Best derived as a separate _resolution stage_ over
-     the AST (an "element model" of resolved declarations/types, à la the Dart
-     analyzer), not woven into the parser.
-  3. **One source of truth for built-in/stdlib method signatures** — today split
-     across codegen's `_builtinMethods` and the runtime, invisible to the
-     checker; ideally described as Hawk signatures in `sdk/std` (enabled by #1).
-- **User-defined enums** (multi-variant, `.name()`) — needs type-table-backed
-  variant resolution (ids can overlap struct ids; the runtime distinguishes
-  `Struct`/`Enum` in equality).
+- ~~**User-defined enums** (multi-variant, `.name()`).~~ (done — codegen-only;
+  enums erase at runtime)
+- **Type-inference system (core built; see `tool/lib/src/element/`).** A
+  semantic `Type`/element model and a synthesizing inference pass now annotate
+  every expression with a resolved type (`Expr.resolvedType`), which codegen
+  consumes. This sees *through* generics (the `T` behind `Option<T>`/`List<T>`,
+  method return types, match-arm bindings, `?`/`unwrap` results) — the walls the
+  old bottom-up `_typeOf` kept hitting. Prerequisites #1–#2 done; remaining work:
+  1. ~~**Generic type/enum declarations** (AST + parser).~~ (done)
+  2. ~~**A semantic `Type`/element model** distinct from syntactic `TypeRef`,
+     derived as a separate resolution stage.~~ (done — `element/types.dart`,
+     `element/element.dart`, `element/resolver.dart`, `element/inference.dart`)
+  3. **One source of truth for built-in/stdlib method signatures** — still split
+     across the inference pass's `_builtinMethodReturn`, codegen's
+     `_builtinMethods`, and the runtime; ideally described as Hawk signatures in
+     `sdk/std`. (next)
+  - **Retire codegen's `_typeOf` fallback.** It is now only consulted when
+    `resolvedType` is absent/unknown; once inference covers every case it can be
+    deleted, along with `_typeRefOf`.
+  - **Use inferred types for checking, not just codegen** — the checker still
+    does only name/arity/existence checks; the resolved types enable real
+    type-mismatch diagnostics (assignments, args, returns).
 - Interface/`Display` (vtable form), closures, block expressions, literal/nested
   `match` patterns — mostly gated on the runtime equivalents.
 
