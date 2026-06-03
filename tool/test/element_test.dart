@@ -63,8 +63,8 @@ void main() {
     });
 
     test('resolves built-in generic with args', () {
-      final t = resolver.resolve(
-          NamedType('List', args: [NamedType('Int')])) as InterfaceType;
+      final t = resolver.resolve(NamedType('List', args: [NamedType('Int')]))
+          as InterfaceType;
       expect(t.element.name, 'List');
       expect(t.typeArguments, [PrimitiveType.int_]);
     });
@@ -80,8 +80,7 @@ void main() {
 
     test('Self resolves to the provided self type', () {
       final selfType = InterfaceType(BuiltinTypeElement('Box'));
-      expect(resolver.resolve(NamedType('Self'), selfType: selfType),
-          selfType);
+      expect(resolver.resolve(NamedType('Self'), selfType: selfType), selfType);
     });
   });
 

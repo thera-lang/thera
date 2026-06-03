@@ -7,7 +7,8 @@ import 'package:test/test.dart';
 /// messages (without file/line prefix) for easy assertion.
 List<String> check(String source, {List<String> importSources = const []}) {
   final lex = Lexer(source).tokenize();
-  expect(lex.hasErrors, isFalse, reason: 'unexpected lex errors: ${lex.errors}');
+  expect(lex.hasErrors, isFalse,
+      reason: 'unexpected lex errors: ${lex.errors}');
   final parse = Parser(lex.tokens).parse();
   expect(parse.hasErrors, isFalse,
       reason: 'unexpected parse errors: ${parse.errors}');
@@ -21,11 +22,7 @@ List<String> check(String source, {List<String> importSources = const []}) {
     checker.addProgram(importParse.program);
   }
 
-  return checker
-      .check(parse.program)
-      .errors
-      .map((e) => e.message)
-      .toList();
+  return checker.check(parse.program).errors.map((e) => e.message).toList();
 }
 
 void main() {
@@ -339,7 +336,8 @@ fn f() { let p = Point.origin(); }
       );
     });
 
-    test('TypeName in field-access position is not an undefined-name error', () {
+    test('TypeName in field-access position is not an undefined-name error',
+        () {
       expect(
         check('''
 type Counter = { value: Int }
@@ -565,7 +563,8 @@ fn f(_ x: Ghost) {
   haunted();
 }
 ''');
-      expect(errors, containsAll(['unknown type: Ghost', 'undefined name: haunted']));
+      expect(errors,
+          containsAll(['unknown type: Ghost', 'undefined name: haunted']));
     });
   });
 

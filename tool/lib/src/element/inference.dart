@@ -59,8 +59,8 @@ class Inferrer {
       if (p.isSelf) {
         if (selfType != null) scope['self'] = selfType;
       } else {
-        scope[p.name] = _resolver.resolve(p.type,
-            typeParams: tps, selfType: selfType);
+        scope[p.name] =
+            _resolver.resolve(p.type, typeParams: tps, selfType: selfType);
       }
     }
     _inferBlock(fn.body!, scope, typeParams: tps, selfType: selfType);
@@ -80,11 +80,12 @@ class Inferrer {
       {required Set<String> typeParams, Type? selfType}) {
     switch (stmt) {
       case LetStmt(:final name, :final type, :final value):
-        final inferred = _infer(value, scope,
-            typeParams: typeParams, selfType: selfType);
+        final inferred =
+            _infer(value, scope, typeParams: typeParams, selfType: selfType);
         scope[name] = type == null
             ? inferred
-            : _resolver.resolve(type, typeParams: typeParams, selfType: selfType);
+            : _resolver.resolve(type,
+                typeParams: typeParams, selfType: selfType);
       case ReturnStmt(:final value):
         if (value != null) {
           _infer(value, scope, typeParams: typeParams, selfType: selfType);
@@ -107,7 +108,8 @@ class Inferrer {
             _infer(iterable, scope, typeParams: typeParams, selfType: selfType);
         final bodyScope = Map<String, Type>.from(scope);
         _bindForPattern(pattern, iterType, bodyScope);
-        _inferBlock(body, bodyScope, typeParams: typeParams, selfType: selfType);
+        _inferBlock(body, bodyScope,
+            typeParams: typeParams, selfType: selfType);
       case WhileStmt(:final condition, :final body):
         _infer(condition, scope, typeParams: typeParams, selfType: selfType);
         _inferBlock(body, scope, typeParams: typeParams, selfType: selfType);
@@ -116,7 +118,8 @@ class Inferrer {
 
   /// Bind a for-loop pattern. Iterating a `List<T>` or `Range` binds the
   /// element type; a range binds `Int`.
-  void _bindForPattern(Pattern pattern, Type iterType, Map<String, Type> scope) {
+  void _bindForPattern(
+      Pattern pattern, Type iterType, Map<String, Type> scope) {
     final Type element;
     if (iterType is InterfaceType &&
         iterType.element.name == 'List' &&
@@ -133,7 +136,8 @@ class Inferrer {
 
   Type _infer(Expr expr, Map<String, Type> scope,
       {Set<String> typeParams = const {}, Type? selfType}) {
-    final type = _inferExpr(expr, scope, typeParams: typeParams, selfType: selfType);
+    final type =
+        _inferExpr(expr, scope, typeParams: typeParams, selfType: selfType);
     expr.resolvedType = type;
     return type;
   }
@@ -190,8 +194,8 @@ class Inferrer {
 
       case MapExpr(:final entries):
         if (entries.isEmpty) {
-          return InterfaceType(_builtin('Map'),
-              const [UnknownType(), UnknownType()]);
+          return InterfaceType(
+              _builtin('Map'), const [UnknownType(), UnknownType()]);
         }
         final key = sub(entries.first.$1);
         final value = sub(entries.first.$2);
@@ -264,8 +268,7 @@ class Inferrer {
         }
         final ret = _infer(body, lambdaScope,
             typeParams: typeParams, selfType: selfType);
-        return FunctionType(
-            [for (final _ in params) const UnknownType()], ret);
+        return FunctionType([for (final _ in params) const UnknownType()], ret);
 
       case BlockExpr(:final block):
         _inferBlock(block, scope, typeParams: typeParams, selfType: selfType);
@@ -328,9 +331,10 @@ class Inferrer {
       }
 
       // `e.name()` on an enum value -> String.
-      final recvType =
-          _infer(callee.object, scope, typeParams: typeParams, selfType: selfType);
-      if (callee.field == 'name' && recvType is InterfaceType &&
+      final recvType = _infer(callee.object, scope,
+          typeParams: typeParams, selfType: selfType);
+      if (callee.field == 'name' &&
+          recvType is InterfaceType &&
           recvType.element is EnumElement) {
         return PrimitiveType.string;
       }
@@ -359,7 +363,8 @@ class Inferrer {
 
   // --- pattern binding ---
 
-  void _bindMatchPattern(Pattern pattern, Type subject, Map<String, Type> scope) {
+  void _bindMatchPattern(
+      Pattern pattern, Type subject, Map<String, Type> scope) {
     switch (pattern) {
       case IdentPattern(:final name):
         scope[name] = subject;

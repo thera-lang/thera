@@ -22,7 +22,8 @@ String? _findRuntimeDir() {
   var dir = Directory.current;
   for (var i = 0; i < 5; i++) {
     final candidate = Directory('${dir.path}/runtime');
-    if (File('${candidate.path}/Cargo.toml').existsSync()) return candidate.path;
+    if (File('${candidate.path}/Cargo.toml').existsSync())
+      return candidate.path;
     final parent = dir.parent;
     if (parent.path == dir.path) break;
     dir = parent;
@@ -33,7 +34,10 @@ String? _findRuntimeDir() {
 /// `cargo` on PATH, or the default rustup install location.
 String? _findCargo() {
   final home = Platform.environment['HOME'];
-  for (final candidate in ['cargo', if (home != null) '$home/.cargo/bin/cargo']) {
+  for (final candidate in [
+    'cargo',
+    if (home != null) '$home/.cargo/bin/cargo'
+  ]) {
     try {
       final r = Process.runSync(candidate, ['--version']);
       if (r.exitCode == 0) return candidate;

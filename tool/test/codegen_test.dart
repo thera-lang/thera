@@ -36,10 +36,13 @@ fn main() -> Int {
       expect(main.paramCount, 0);
 
       final ops = main.code;
-      expect(ops[0], isA<ConstStr>().having((i) => i.value, 'value', 'hello, world'));
-      expect(ops[1], isA<CallNative>()
-          .having((i) => i.name, 'name', 'println')
-          .having((i) => i.argc, 'argc', 1));
+      expect(ops[0],
+          isA<ConstStr>().having((i) => i.value, 'value', 'hello, world'));
+      expect(
+          ops[1],
+          isA<CallNative>()
+              .having((i) => i.name, 'name', 'println')
+              .having((i) => i.argc, 'argc', 1));
       expect(ops[2], isA<Simple>().having((i) => i.op, 'op', Op.pop));
       expect(ops[3], isA<ConstInt>().having((i) => i.value, 'value', 0));
       expect(ops[4], isA<Simple>().having((i) => i.op, 'op', Op.return_));
@@ -66,18 +69,23 @@ fn main() -> Int {
 
     test('a Double binding selects float opcodes', () {
       final m = compile('fn f() -> Double { let x = 1.5; return x + x; }');
-      expect(m.functions.single.code, contains(isA<Simple>()
-          .having((i) => i.op, 'op', Op.addF64)));
+      expect(m.functions.single.code,
+          contains(isA<Simple>().having((i) => i.op, 'op', Op.addF64)));
     });
 
     test('comparison and unary operators', () {
-      final lt = compile('fn f() -> Bool { return 1 < 2; }').functions.single.code;
+      final lt =
+          compile('fn f() -> Bool { return 1 < 2; }').functions.single.code;
       expect(lt, contains(isA<Simple>().having((i) => i.op, 'op', Op.ltI64)));
 
-      final neg = compile('fn f() -> Int { let x = 5; return -x; }').functions.single.code;
+      final neg = compile('fn f() -> Int { let x = 5; return -x; }')
+          .functions
+          .single
+          .code;
       expect(neg, contains(isA<Simple>().having((i) => i.op, 'op', Op.negI64)));
 
-      final not = compile('fn f() -> Bool { return !true; }').functions.single.code;
+      final not =
+          compile('fn f() -> Bool { return !true; }').functions.single.code;
       expect(not, contains(isA<Simple>().having((i) => i.op, 'op', Op.not)));
     });
 
@@ -90,7 +98,8 @@ fn main() -> Int {
     });
 
     test('if/else lowers to the expected jump structure', () {
-      final m = compile('fn f() -> Int { if true { return 1; } else { return 2; } }');
+      final m =
+          compile('fn f() -> Int { if true { return 1; } else { return 2; } }');
       final ops = m.functions.single.code;
       // 0 const.bool, 1 jump_if_false->else, 2 const 1, 3 return,
       // 4 jump->end, 5 const 2 (else), 6 return, 7 const.unit, 8 return.
@@ -100,8 +109,10 @@ fn main() -> Int {
     });
 
     test('short-circuit && lowers to branches', () {
-      final ops =
-          compile('fn f() -> Bool { return true && false; }').functions.single.code;
+      final ops = compile('fn f() -> Bool { return true && false; }')
+          .functions
+          .single
+          .code;
       expect(ops.whereType<JumpIfFalse>(), isNotEmpty);
       // && yields `false` on the short-circuit path.
       expect(ops.whereType<ConstBool>().map((i) => i.value), contains(false));
@@ -112,23 +123,27 @@ fn main() -> Int {
       final m = compile(
           'fn helper() -> Int { return 1; } fn main() -> Int { return helper(); }');
       final main = m.functions[1];
-      expect(main.code.first, isA<Call>()
-          .having((i) => i.func, 'func', 0)
-          .having((i) => i.argc, 'argc', 0));
+      expect(
+          main.code.first,
+          isA<Call>()
+              .having((i) => i.func, 'func', 0)
+              .having((i) => i.argc, 'argc', 0));
     });
 
     test('interpolation lowers to stringify + str_concat', () {
-      final ops = compile(
-              "fn f() -> Int { let n = 5; println('n=\${n}'); return 0; }")
-          .functions
-          .single
-          .code;
-      expect(ops, containsAllInOrder([
-        isA<ConstStr>().having((i) => i.value, 'value', 'n='),
-        isA<Load>(),
-        isA<CallNative>().having((i) => i.name, 'name', 'stringify'),
-        isA<CallNative>().having((i) => i.name, 'name', 'str_concat'),
-      ]));
+      final ops =
+          compile("fn f() -> Int { let n = 5; println('n=\${n}'); return 0; }")
+              .functions
+              .single
+              .code;
+      expect(
+          ops,
+          containsAllInOrder([
+            isA<ConstStr>().having((i) => i.value, 'value', 'n='),
+            isA<Load>(),
+            isA<CallNative>().having((i) => i.name, 'name', 'stringify'),
+            isA<CallNative>().having((i) => i.name, 'name', 'str_concat'),
+          ]));
     });
 
     test('user enum construction lowers to enum.new', () {
@@ -138,9 +153,11 @@ fn main() -> Int {
           .single
           .code;
       // Green is variant 1, zero fields; ty is a user id (>= 2).
-      expect(ops, contains(isA<EnumNew>()
-          .having((i) => i.variant, 'variant', 1)
-          .having((i) => i.fieldCount, 'fieldCount', 0)));
+      expect(
+          ops,
+          contains(isA<EnumNew>()
+              .having((i) => i.variant, 'variant', 1)
+              .having((i) => i.fieldCount, 'fieldCount', 0)));
       expect(ops.whereType<EnumNew>().first.type, greaterThanOrEqualTo(2));
 
       final payload = compile(
@@ -148,12 +165,14 @@ fn main() -> Int {
           .functions
           .single
           .code;
-      expect(payload, containsAllInOrder([
-        isA<ConstInt>().having((i) => i.value, 'value', 5),
-        isA<EnumNew>()
-            .having((i) => i.variant, 'variant', 1)
-            .having((i) => i.fieldCount, 'fieldCount', 1),
-      ]));
+      expect(
+          payload,
+          containsAllInOrder([
+            isA<ConstInt>().having((i) => i.value, 'value', 5),
+            isA<EnumNew>()
+                .having((i) => i.variant, 'variant', 1)
+                .having((i) => i.fieldCount, 'fieldCount', 1),
+          ]));
     });
 
     test('interpolating a user type dispatches to its display method', () {
@@ -162,7 +181,8 @@ type Tag = { n: Int }
 impl Display for Tag { fn display(self) -> String { return 'tag'; } }
 fn f() -> Int { let t = Tag { n: 1 }; println('v=\${t}'); return 0; }
 ''');
-      final displayIdx = m.functions.indexWhere((fn) => fn.name == 'Tag.display');
+      final displayIdx =
+          m.functions.indexWhere((fn) => fn.name == 'Tag.display');
       final f = m.functions.firstWhere((fn) => fn.name == 'f');
       // The interpolated piece calls Tag.display, not stringify.
       expect(f.code,
@@ -176,13 +196,15 @@ fn f() -> Int { let t = Tag { n: 1 }; println('v=\${t}'); return 0; }
           .functions
           .single
           .code;
-      expect(ops, containsAllInOrder([
-        isA<ConstInt>().having((i) => i.value, 'value', 0),
-        isA<EnumNew>()
-            .having((i) => i.type, 'type', 0)
-            .having((i) => i.variant, 'variant', 0)
-            .having((i) => i.fieldCount, 'fieldCount', 1),
-      ]));
+      expect(
+          ops,
+          containsAllInOrder([
+            isA<ConstInt>().having((i) => i.value, 'value', 0),
+            isA<EnumNew>()
+                .having((i) => i.type, 'type', 0)
+                .having((i) => i.variant, 'variant', 0)
+                .having((i) => i.fieldCount, 'fieldCount', 1),
+          ]));
     });
 
     test('bare return in a Result fn implicitly wraps in Ok', () {
@@ -210,11 +232,13 @@ fn g() -> Result<Int, Int> { return 0; }
 fn f() -> Result<Int, Int> { let x = g()?; return x; }
 ''');
       final ops = m.functions[1].code; // f
-      expect(ops, containsAllInOrder([
-        isA<Simple>().having((i) => i.op, 'op', Op.dup),
-        isA<Simple>().having((i) => i.op, 'op', Op.enumTag),
-        isA<EnumGet>().having((i) => i.index, 'index', 0),
-      ]));
+      expect(
+          ops,
+          containsAllInOrder([
+            isA<Simple>().having((i) => i.op, 'op', Op.dup),
+            isA<Simple>().having((i) => i.op, 'op', Op.enumTag),
+            isA<EnumGet>().having((i) => i.index, 'index', 0),
+          ]));
     });
 
     test('a struct declaration becomes a type-table entry', () {
@@ -225,10 +249,10 @@ fn f() -> Result<Int, Int> { let x = g()?; return x; }
       expect(m.types.single.fieldCount, 2);
     });
 
-    test('struct literal pushes fields in declaration order, then struct.new', () {
+    test('struct literal pushes fields in declaration order, then struct.new',
+        () {
       // Written y-first, but x is declared first → its value (1) is pushed first.
-      final ops = compile(
-              'type Point = { x: Int, y: Int } '
+      final ops = compile('type Point = { x: Int, y: Int } '
               'fn f() -> Int { let p = Point { y: 2, x: 1 }; return p.x; }')
           .functions
           .single
@@ -240,8 +264,7 @@ fn f() -> Result<Int, Int> { let x = g()?; return x; }
     });
 
     test('field assignment lowers to field.set', () {
-      final ops = compile(
-              'type C = { n: Int } '
+      final ops = compile('type C = { n: Int } '
               'fn f() -> Int { let mut c = C { n: 1 }; c.n = 5; return c.n; }')
           .functions
           .single
@@ -257,8 +280,8 @@ fn main() -> Int { let p = Point.make(y: 2, x: 40); return 0; }
 ''');
       final main = m.functions.firstWhere((f) => f.name == 'main');
       // Written (y: 2, x: 40), but x is the first parameter → 40 is pushed first.
-      expect(main.code.whereType<ConstInt>().take(2).map((i) => i.value),
-          [40, 2]);
+      expect(
+          main.code.whereType<ConstInt>().take(2).map((i) => i.value), [40, 2]);
       expect(main.code, contains(isA<Call>().having((i) => i.argc, 'argc', 2)));
     });
 
@@ -280,46 +303,51 @@ fn main() -> Int { let v = V { n: 1 }; return v.bump(5); }
     });
 
     test('list literal lowers to list.new', () {
-      final ops =
-          compile('fn f() -> Int { let xs = [1, 2, 3]; return 0; }')
-              .functions
-              .single
-              .code;
-      expect(ops, containsAllInOrder([
-        isA<ConstInt>().having((i) => i.value, 'v', 1),
-        isA<ConstInt>().having((i) => i.value, 'v', 2),
-        isA<ConstInt>().having((i) => i.value, 'v', 3),
-        isA<ListNew>().having((i) => i.count, 'count', 3),
-      ]));
+      final ops = compile('fn f() -> Int { let xs = [1, 2, 3]; return 0; }')
+          .functions
+          .single
+          .code;
+      expect(
+          ops,
+          containsAllInOrder([
+            isA<ConstInt>().having((i) => i.value, 'v', 1),
+            isA<ConstInt>().having((i) => i.value, 'v', 2),
+            isA<ConstInt>().having((i) => i.value, 'v', 3),
+            isA<ListNew>().having((i) => i.count, 'count', 3),
+          ]));
     });
 
     test('map literal lowers to map_new with 2N args', () {
-      final ops =
-          compile('fn f() -> Int { let m = {1: 10, 2: 20}; return 0; }')
-              .functions
-              .single
-              .code;
-      expect(ops, contains(isA<CallNative>()
-          .having((i) => i.name, 'name', 'map_new')
-          .having((i) => i.argc, 'argc', 4)));
+      final ops = compile('fn f() -> Int { let m = {1: 10, 2: 20}; return 0; }')
+          .functions
+          .single
+          .code;
+      expect(
+          ops,
+          contains(isA<CallNative>()
+              .having((i) => i.name, 'name', 'map_new')
+              .having((i) => i.argc, 'argc', 4)));
     });
 
     test('indexing and indexed assignment use the right natives', () {
-      final read = compile(
-              'fn f() -> Int { let xs = [1]; return xs[0]; }')
+      final read = compile('fn f() -> Int { let xs = [1]; return xs[0]; }')
           .functions
           .single
           .code;
-      expect(read, contains(
-          isA<CallNative>().having((i) => i.name, 'name', 'list_index')));
+      expect(
+          read,
+          contains(
+              isA<CallNative>().having((i) => i.name, 'name', 'list_index')));
 
-      final write = compile(
-              'fn f() -> Int { let mut xs = [1]; xs[0] = 9; return 0; }')
-          .functions
-          .single
-          .code;
-      expect(write, contains(
-          isA<CallNative>().having((i) => i.name, 'name', 'list_set')));
+      final write =
+          compile('fn f() -> Int { let mut xs = [1]; xs[0] = 9; return 0; }')
+              .functions
+              .single
+              .code;
+      expect(
+          write,
+          contains(
+              isA<CallNative>().having((i) => i.name, 'name', 'list_set')));
     });
 
     test('map.remove / list.join lower to their natives', () {
@@ -328,17 +356,21 @@ fn main() -> Int { let v = V { n: 1 }; return v.bump(5); }
           .functions
           .single
           .code;
-      expect(rm, contains(isA<CallNative>()
-          .having((i) => i.name, 'name', 'map_remove')
-          .having((i) => i.argc, 'argc', 2)));
+      expect(
+          rm,
+          contains(isA<CallNative>()
+              .having((i) => i.name, 'name', 'map_remove')
+              .having((i) => i.argc, 'argc', 2)));
 
       final jn = compile("fn f() -> String { return [1, 2].join('-'); }")
           .functions
           .single
           .code;
-      expect(jn, contains(isA<CallNative>()
-          .having((i) => i.name, 'name', 'list_join')
-          .having((i) => i.argc, 'argc', 2)));
+      expect(
+          jn,
+          contains(isA<CallNative>()
+              .having((i) => i.name, 'name', 'list_join')
+              .having((i) => i.argc, 'argc', 2)));
     });
 
     test('a collection method lowers to a native with the receiver first', () {
@@ -347,9 +379,11 @@ fn main() -> Int { let v = V { n: 1 }; return v.bump(5); }
           .single
           .code;
       // load xs, list_len(self) → argc 1.
-      expect(ops, contains(isA<CallNative>()
-          .having((i) => i.name, 'name', 'list_len')
-          .having((i) => i.argc, 'argc', 1)));
+      expect(
+          ops,
+          contains(isA<CallNative>()
+              .having((i) => i.name, 'name', 'list_len')
+              .having((i) => i.argc, 'argc', 1)));
     });
 
     test('== on strings lowers to the structural eq native', () {
@@ -357,27 +391,27 @@ fn main() -> Int { let v = V { n: 1 }; return v.bump(5); }
           .functions
           .single
           .code;
-      expect(eq, contains(
-          isA<CallNative>().having((i) => i.name, 'name', 'eq')));
-      expect(eq, isNot(contains(
-          isA<Simple>().having((i) => i.op, 'op', Op.eqI64))));
+      expect(
+          eq, contains(isA<CallNative>().having((i) => i.name, 'name', 'eq')));
+      expect(eq,
+          isNot(contains(isA<Simple>().having((i) => i.op, 'op', Op.eqI64))));
 
       // `!=` is `eq` then `not`.
       final ne = compile("fn f() -> Bool { return 'a' != 'b'; }")
           .functions
           .single
           .code;
-      expect(ne, containsAllInOrder([
-        isA<CallNative>().having((i) => i.name, 'name', 'eq'),
-        isA<Simple>().having((i) => i.op, 'op', Op.not),
-      ]));
+      expect(
+          ne,
+          containsAllInOrder([
+            isA<CallNative>().having((i) => i.name, 'name', 'eq'),
+            isA<Simple>().having((i) => i.op, 'op', Op.not),
+          ]));
     });
 
     test('== on Int still uses the typed opcode', () {
-      final ops = compile('fn f() -> Bool { return 1 == 2; }')
-          .functions
-          .single
-          .code;
+      final ops =
+          compile('fn f() -> Bool { return 1 == 2; }').functions.single.code;
       expect(ops, contains(isA<Simple>().having((i) => i.op, 'op', Op.eqI64)));
     });
 
@@ -386,9 +420,11 @@ fn main() -> Int { let v = V { n: 1 }; return v.bump(5); }
           .functions
           .single
           .code;
-      expect(ops, contains(isA<CallNative>()
-          .having((i) => i.name, 'name', 'str_len')
-          .having((i) => i.argc, 'argc', 1)));
+      expect(
+          ops,
+          contains(isA<CallNative>()
+              .having((i) => i.name, 'name', 'str_len')
+              .having((i) => i.argc, 'argc', 1)));
     });
 
     test('Option.ok_or lowers to option_ok_or (receiver first)', () {
@@ -397,9 +433,11 @@ fn main() -> Int { let v = V { n: 1 }; return v.bump(5); }
           .functions
           .single
           .code;
-      expect(ops, contains(isA<CallNative>()
-          .having((i) => i.name, 'name', 'option_ok_or')
-          .having((i) => i.argc, 'argc', 2)));
+      expect(
+          ops,
+          contains(isA<CallNative>()
+              .having((i) => i.name, 'name', 'option_ok_or')
+              .having((i) => i.argc, 'argc', 2)));
     });
 
     test('a module-qualified call lowers to a native with no receiver', () {
@@ -409,9 +447,11 @@ fn main() -> Int { let v = V { n: 1 }; return v.bump(5); }
           .single
           .code;
       // just the path argument → argc 1, no receiver pushed.
-      expect(ops, contains(isA<CallNative>()
-          .having((i) => i.name, 'name', 'fs_read_text')
-          .having((i) => i.argc, 'argc', 1)));
+      expect(
+          ops,
+          contains(isA<CallNative>()
+              .having((i) => i.name, 'name', 'fs_read_text')
+              .having((i) => i.argc, 'argc', 1)));
     });
   });
 
@@ -465,8 +505,7 @@ fn main() -> Int {
 
     test('for-loop sum', () {
       if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
-      expect(
-          runExit('for', '''
+      expect(runExit('for', '''
 fn main() -> Int {
     let mut sum = 0;
     for i in 1..5 {
@@ -474,14 +513,12 @@ fn main() -> Int {
     }
     return sum;
 }
-'''),
-          10); // 1+2+3+4
+'''), 10); // 1+2+3+4
     });
 
     test('while loop', () {
       if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
-      expect(
-          runExit('while', '''
+      expect(runExit('while', '''
 fn main() -> Int {
     let mut n = 5;
     let mut acc = 0;
@@ -491,23 +528,23 @@ fn main() -> Int {
     }
     return acc;
 }
-'''),
-          15); // 5+4+3+2+1
+'''), 15); // 5+4+3+2+1
     });
 
     test('if/else picks a branch', () {
       if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
       expect(
-          runExit('if', 'fn main() -> Int { let x = 7; if x > 5 { return 1; } else { return 2; } }'),
+          runExit('if',
+              'fn main() -> Int { let x = 7; if x > 5 { return 1; } else { return 2; } }'),
           1);
     });
 
-    test('&& short-circuits (the right side, which would trap, is skipped)', () {
+    test('&& short-circuits (the right side, which would trap, is skipped)',
+        () {
       if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
       // If `&&` evaluated its RHS, `10 / 0` would trap (non-zero exit). A clean
       // exit 9 proves the RHS was never reached.
-      expect(
-          runExit('and_sc', '''
+      expect(runExit('and_sc', '''
 fn main() -> Int {
     let f = false;
     if f && (10 / 0 > 0) {
@@ -515,14 +552,12 @@ fn main() -> Int {
     }
     return 9;
 }
-'''),
-          9);
+'''), 9);
     });
 
     test('recursion (factorial) flows to the exit code', () {
       if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
-      expect(
-          runExit('fact', '''
+      expect(runExit('fact', '''
 fn fact(n: Int) -> Int {
     if n <= 1 { return 1; }
     return n * fact(n - 1);
@@ -530,8 +565,7 @@ fn fact(n: Int) -> Int {
 fn main() -> Int {
     return fact(5);
 }
-'''),
-          120);
+'''), 120);
     });
 
     test('multi-function call + interpolation prints the demo', () {
@@ -566,20 +600,21 @@ fn main() -> Int {
 
     test('match takes the Ok branch (implicit-Ok success path)', () {
       if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
-      final src = safeDiv.replaceAll('DIVIDEND', '84').replaceAll('DIVISOR', '2');
+      final src =
+          safeDiv.replaceAll('DIVIDEND', '84').replaceAll('DIVISOR', '2');
       expect(runExit('ok', src), 42);
     });
 
     test('match takes the Err branch (throw path)', () {
       if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
-      final src = safeDiv.replaceAll('DIVIDEND', '1').replaceAll('DIVISOR', '0');
+      final src =
+          safeDiv.replaceAll('DIVIDEND', '1').replaceAll('DIVISOR', '0');
       expect(runExit('err', src), 7);
     });
 
     test('? propagates through Result and implicit Ok', () {
       if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
-      expect(
-          runExit('propagate', '''
+      expect(runExit('propagate', '''
 fn half(x: Int) -> Result<Int, Int> {
     if x % 2 != 0 { throw 9; }
     return x / 2;
@@ -594,14 +629,12 @@ fn main() -> Int {
         Err(e) => return e,
     }
 }
-'''),
-          42);
+'''), 42);
     });
 
     test('Option Some/None construction and match', () {
       if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
-      expect(
-          runExit('option', '''
+      expect(runExit('option', '''
 fn first_positive(a: Int) -> Option<Int> {
     if a > 0 { return Some(a); }
     return None;
@@ -612,55 +645,47 @@ fn main() -> Int {
         None => return 0,
     }
 }
-'''),
-          7);
+'''), 7);
     });
 
     test('struct literal + field read', () {
       if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
-      expect(
-          runExit('struct', '''
+      expect(runExit('struct', '''
 type Point = { x: Int, y: Int }
 fn main() -> Int {
     let p = Point { y: 2, x: 40 };
     return p.x + p.y;
 }
-'''),
-          42);
+'''), 42);
     });
 
     test('mutable field assignment', () {
       if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
-      expect(
-          runExit('field_set', '''
+      expect(runExit('field_set', '''
 type Counter = { n: Int }
 fn main() -> Int {
     let mut c = Counter { n: 0 };
     c.n = 42;
     return c.n;
 }
-'''),
-          42);
+'''), 42);
     });
 
     test('nested struct field access', () {
       if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
-      expect(
-          runExit('nested', '''
+      expect(runExit('nested', '''
 type Point = { x: Int, y: Int }
 type Rect = { top_left: Point, w: Int }
 fn main() -> Int {
     let r = Rect { top_left: Point { x: 10, y: 20 }, w: 5 };
     return r.top_left.x + r.top_left.y + r.w;
 }
-'''),
-          35);
+'''), 35);
     });
 
     test('instance method call', () {
       if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
-      expect(
-          runExit('method', '''
+      expect(runExit('method', '''
 type Point = { x: Int, y: Int }
 impl Point {
     fn sum(self) -> Int { return self.x + self.y; }
@@ -669,14 +694,12 @@ fn main() -> Int {
     let p = Point { x: 40, y: 2 };
     return p.sum();
 }
-'''),
-          42);
+'''), 42);
     });
 
     test('static method with named (reordered) arguments', () {
       if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
-      expect(
-          runExit('static', '''
+      expect(runExit('static', '''
 type Point = { x: Int, y: Int }
 impl Point {
     fn make(x: Int, y: Int) -> Point { return Point { x: x, y: y }; }
@@ -686,14 +709,12 @@ fn main() -> Int {
     let p = Point.make(y: 2, x: 40);
     return p.sum();
 }
-'''),
-          42);
+'''), 42);
     });
 
     test('method call with args, chained on the result', () {
       if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
-      expect(
-          runExit('chain', '''
+      expect(runExit('chain', '''
 type Point = { x: Int, y: Int }
 impl Point {
     fn translate(self, dx: Int, dy: Int) -> Point {
@@ -705,14 +726,12 @@ fn main() -> Int {
     let p = Point { x: 10, y: 20 };
     return p.translate(5, 7).sum();
 }
-'''),
-          42);
+'''), 42);
     });
 
     test('user enum: payload match with typed bindings', () {
       if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
-      expect(
-          runExit('enum_match', '''
+      expect(runExit('enum_match', '''
 enum Shape { Circle(Int), Rect(Int, Int), Square }
 fn area(_ s: Shape) -> Int {
     return match s {
@@ -724,14 +743,12 @@ fn area(_ s: Shape) -> Int {
 fn main() -> Int {
     return area(Shape.Circle(6)) + area(Shape.Rect(2, 3));
 }
-'''),
-          42); // 36 + 6
+'''), 42); // 36 + 6
     });
 
     test('user enum: .name() and equality', () {
       if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
-      expect(
-          runExit('enum_name', '''
+      expect(runExit('enum_name', '''
 enum Dir { North, South, East, West }
 fn main() -> Int {
     let d = Dir.South;
@@ -741,8 +758,7 @@ fn main() -> Int {
     if d == Dir.North { n = n + 100; }
     return n;
 }
-'''),
-          11); // name matches + equality matches; North branch skipped
+'''), 11); // name matches + equality matches; North branch skipped
     });
 
     test('the enums.hawk example runs', () {
@@ -764,20 +780,17 @@ fn main() -> Int {
 
     test('list literal + indexing', () {
       if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
-      expect(
-          runExit('list', '''
+      expect(runExit('list', '''
 fn main() -> Int {
     let xs = [10, 20, 12];
     return xs[0] + xs[1] + xs[2];
 }
-'''),
-          42);
+'''), 42);
     });
 
     test('list mutation, len, and for-in iteration', () {
       if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
-      expect(
-          runExit('list_iter', '''
+      expect(runExit('list_iter', '''
 fn main() -> Int {
     let mut xs = [1, 2, 3];
     xs[0] = 40;
@@ -787,27 +800,23 @@ fn main() -> Int {
     }
     return total;
 }
-'''),
-          45); // 40 + 2 + 3
+'''), 45); // 40 + 2 + 3
     });
 
     test('map literal, indexed assignment, and indexing', () {
       if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
-      expect(
-          runExit('map', '''
+      expect(runExit('map', '''
 fn main() -> Int {
     let mut m = {1: 0, 2: 2};
     m[1] = 40;
     return m[1] + m[2];
 }
-'''),
-          42);
+'''), 42);
     });
 
     test('map.has and map.len', () {
       if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
-      expect(
-          runExit('map_methods', '''
+      expect(runExit('map_methods', '''
 fn main() -> Int {
     let m = {7: 99};
     if m.has(7) {
@@ -815,14 +824,12 @@ fn main() -> Int {
     }
     return 0;
 }
-'''),
-          100); // 1 + 99
+'''), 100); // 1 + 99
     });
 
     test('list.get returns an Option', () {
       if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
-      expect(
-          runExit('list_get', '''
+      expect(runExit('list_get', '''
 fn main() -> Int {
     let xs = [5, 6, 7];
     match xs.get(1) {
@@ -830,22 +837,19 @@ fn main() -> Int {
         None => return 0,
     }
 }
-'''),
-          6);
+'''), 6);
     });
 
     test('string equality (structural)', () {
       if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
-      expect(
-          runExit('streq', '''
+      expect(runExit('streq', '''
 fn main() -> Int {
     let a = 'hello';
     let b = 'hello';
     if a == b { return 1; }
     return 0;
 }
-'''),
-          1);
+'''), 1);
     });
 
     test('Option.ok_or converts to Result (Some and None)', () {
@@ -914,10 +918,12 @@ fn main() -> Result<Int, Error> {
           1);
       // keys()/values() return lists; join() renders them.
       expect(
-          stdout('keys', "fn main() -> Int { println({1: 10, 2: 20}.keys().join(',')); return 0; }"),
+          stdout('keys',
+              "fn main() -> Int { println({1: 10, 2: 20}.keys().join(',')); return 0; }"),
           '1,2\n');
       expect(
-          stdout('join', "fn main() -> Int { println(['a', 'b', 'c'].join('-')); return 0; }"),
+          stdout('join',
+              "fn main() -> Int { println(['a', 'b', 'c'].join('-')); return 0; }"),
           'a-b-c\n');
     });
 
@@ -952,21 +958,18 @@ fn main() -> Int {
           runExit('strsplit',
               "fn main() -> Int { return 'the quick brown fox'.split_whitespace().len(); }"),
           4);
-      expect(
-          runExit('strcontains', '''
+      expect(runExit('strcontains', '''
 fn main() -> Int {
     let s = 'hello';
     if s.contains('ell') { return 1; }
     return 0;
 }
-'''),
-          1);
+'''), 1);
     });
 
     test('struct equality (structural)', () {
       if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
-      expect(
-          runExit('structeq', '''
+      expect(runExit('structeq', '''
 type P = { x: Int, y: Int }
 fn main() -> Int {
     let a = P { x: 1, y: 2 };
@@ -977,16 +980,15 @@ fn main() -> Int {
     if a != c { n = n + 10; }
     return n;
 }
-'''),
-          11);
+'''), 11);
     });
 
     // --- entry / args convention ---
 
     test('a Result-returning main unwraps Ok to the exit code', () {
       if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
-      expect(
-          runExit('ret_ok', 'fn main() -> Result<Int, Int> { return 42; }'), 42);
+      expect(runExit('ret_ok', 'fn main() -> Result<Int, Int> { return 42; }'),
+          42);
     });
 
     test('a Result-returning main reports Err and exits 1', () {
@@ -1001,8 +1003,8 @@ fn main() -> Int {
 
     test('main receives program arguments as a List<String>', () {
       if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
-      final m = compile(
-          'fn main(args: List<String>) -> Int { return args.len(); }');
+      final m =
+          compile('fn main(args: List<String>) -> Int { return args.len(); }');
       final tmp = '${Directory.systemTemp.path}/hawk_argv.hawkbc';
       File(tmp).writeAsBytesSync(encodeModule(m));
       final r = Process.runSync(hawkBin, ['run', tmp, 'a', 'b', 'c']);
@@ -1049,7 +1051,8 @@ fn main() -> Int {
       final lib = parseProgram('fn triple(_ n: Int) -> Int { return n * 3; }');
       final root = parseProgram('fn main() -> Int { return triple(14); }');
       final tmp = '${Directory.systemTemp.path}/hawk_linked.hawkbc';
-      File(tmp).writeAsBytesSync(encodeModule(compileProgram(root, imports: [lib])));
+      File(tmp)
+          .writeAsBytesSync(encodeModule(compileProgram(root, imports: [lib])));
 
       expect(Process.runSync(hawkBin, ['run', tmp]).exitCode, 42);
     });

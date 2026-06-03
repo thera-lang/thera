@@ -31,16 +31,31 @@ typedef _Scope = Map<String, TypeRef?>;
 class TypeChecker {
   // Types that are always in scope (no import required).
   static const _builtinTypes = <String>{
-    'Int', 'Bool', 'Double', 'Float', 'String', 'Void',
-    'List', 'Map', 'Set',
-    'Result', 'Option',
-    'Args', 'Error', 'Self',
+    'Int',
+    'Bool',
+    'Double',
+    'Float',
+    'String',
+    'Void',
+    'List',
+    'Map',
+    'Set',
+    'Result',
+    'Option',
+    'Args',
+    'Error',
+    'Self',
   };
 
   // Value-level names that are always in scope.
   static const _builtinValues = <String>{
-    'println', 'print', 'eprintln',
-    'Ok', 'Err', 'Some', 'None',
+    'println',
+    'print',
+    'eprintln',
+    'Ok',
+    'Err',
+    'Some',
+    'None',
   };
 
   final _typeDecls = <String, TypeDecl>{};
@@ -176,7 +191,8 @@ class TypeChecker {
 
   void _checkFnSig(FnDecl fn, {Set<String> typeParams = const {}}) {
     for (final p in fn.params) {
-      if (p.type != null) _checkTypeRef(p.type!, fn.span, typeParams: typeParams);
+      if (p.type != null)
+        _checkTypeRef(p.type!, fn.span, typeParams: typeParams);
     }
     if (fn.returnType != null) {
       _checkTypeRef(fn.returnType!, fn.span, typeParams: typeParams);

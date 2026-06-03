@@ -24,7 +24,8 @@ void main() {
 
     // Capture server -> client diagnostics. Must register before listen().
     diagnostics = StreamController<Map<String, dynamic>>.broadcast();
-    clientConn.onNotification('textDocument/publishDiagnostics', (params) async {
+    clientConn.onNotification('textDocument/publishDiagnostics',
+        (params) async {
       diagnostics.add(Map<String, dynamic>.from(params.value as Map));
     });
 
@@ -170,7 +171,8 @@ impl Display for Point {
       final symbols = (await documentSymbol(uri)) as List;
       final byName = {for (final s in symbols) s['name']: s as Map};
 
-      expect(byName.keys, containsAll(['Point', 'Display', 'Display for Point']));
+      expect(
+          byName.keys, containsAll(['Point', 'Display', 'Display for Point']));
 
       expect(byName['Point']!['kind'], SymbolKind.Class.toJson());
 
@@ -189,7 +191,8 @@ impl Display for Point {
       await initialize();
       const uri = 'file:///sel.hawk';
       // 'fn ' is 3 chars, so 'main' starts at character 3 on line 0.
-      await openAndAwaitDiagnostics(uri, 'fn main() -> Int {\n  return 0;\n}\n');
+      await openAndAwaitDiagnostics(
+          uri, 'fn main() -> Int {\n  return 0;\n}\n');
       final symbols = (await documentSymbol(uri)) as List;
       final main = symbols.single as Map;
       final sel = main['selectionRange'] as Map;
@@ -198,7 +201,8 @@ impl Display for Point {
       expect((sel['end'] as Map)['character'], 3 + 'main'.length);
     });
 
-    test('selectionRange is contained in range for all symbols (core.hawk)', () async {
+    test('selectionRange is contained in range for all symbols (core.hawk)',
+        () async {
       // Regression test: bodyless FnDecl (interface stubs) previously produced
       // a range ending at the `fn` keyword while selectionRange pointed at the
       // name — violating the LSP invariant "selectionRange must be contained
@@ -235,6 +239,7 @@ interface Debug {
           checkContainment(child as Map);
         }
       }
+
       for (final s in symbols) {
         checkContainment(s as Map);
       }

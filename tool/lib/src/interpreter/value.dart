@@ -225,7 +225,8 @@ class EnumValue extends Value {
   }
 
   @override
-  int get hashCode => Object.hash(typeName, variantName, Object.hashAll(fields));
+  int get hashCode =>
+      Object.hash(typeName, variantName, Object.hashAll(fields));
 }
 
 // Range a..b — a lazy sequence

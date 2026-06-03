@@ -146,7 +146,8 @@ class Parser {
       return _parseEnumDecl();
     }
 
-    _fail('expected a declaration (fn, type, impl, interface, import, const, enum)');
+    _fail(
+        'expected a declaration (fn, type, impl, interface, import, const, enum)');
   }
 
   Decorator _parseDecorator() {
@@ -371,7 +372,8 @@ class Parser {
       methods.add(_parseFnDecl([], isNative: false));
     }
     _expect(TokenKind.rBrace, '}');
-    return InterfaceDecl(start.span, name: nameTok.lexeme, nameSpan: nameTok.span, methods: methods);
+    return InterfaceDecl(start.span,
+        name: nameTok.lexeme, nameSpan: nameTok.span, methods: methods);
   }
 
   // ---- type references ----
@@ -444,7 +446,8 @@ class Parser {
     _expect(TokenKind.eq, '=');
     final value = _parseExpr();
     _match(TokenKind.semi);
-    return LetStmt(start.span, isMut: false, name: name, type: type, value: value);
+    return LetStmt(start.span,
+        isMut: false, name: name, type: type, value: value);
   }
 
   ConstDecl _parseConstDecl() {

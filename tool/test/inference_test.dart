@@ -20,8 +20,8 @@ Program inferred(String source, {List<String> imports = const []}) {
   }
 
   final program = parse(source);
-  final lib = buildLibrary(program,
-      imports: [for (final src in imports) parse(src)]);
+  final lib =
+      buildLibrary(program, imports: [for (final src in imports) parse(src)]);
   Inferrer(lib).inferProgram(program);
   return program;
 }
@@ -164,7 +164,8 @@ fn f() { let a = area(3); }
     });
 
     test('string method returns', () {
-      final p = inferred('fn f(s: String) { let n = s.len(); let u = s.trim(); }');
+      final p =
+          inferred('fn f(s: String) { let n = s.len(); let u = s.trim(); }');
       expect(letType(p, 'n'), PrimitiveType.int_);
       expect(letType(p, 'u'), PrimitiveType.string);
     });

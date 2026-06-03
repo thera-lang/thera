@@ -126,8 +126,8 @@ LibraryElement buildLibrary(
         case FnDecl():
           functions[decl.name] = _functionElement(resolver, decl);
         case ConstDecl():
-          consts[decl.name] = ConstElement(
-              decl.name, resolver.resolve(decl.type));
+          consts[decl.name] =
+              ConstElement(decl.name, resolver.resolve(decl.type));
         case ImplDecl():
           _resolveImpl(resolver, typeDefs, decl);
         case InterfaceDecl():
@@ -227,7 +227,8 @@ List<ParameterElement> _params(
       result.add(ParameterElement(
         label: p.label,
         name: p.name,
-        type: resolver.resolve(p.type, typeParams: typeParams, selfType: selfType),
+        type: resolver.resolve(p.type,
+            typeParams: typeParams, selfType: selfType),
         hasDefault: p.defaultValue != null,
       ));
     }

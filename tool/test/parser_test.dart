@@ -32,7 +32,8 @@ void main() {
     test('captures string interpolation verbatim in the token value', () {
       final lex = Lexer("'Hello, \${name}!'").tokenize();
       expect(lex.hasErrors, isFalse);
-      final str = lex.tokens.firstWhere((t) => t.kind == TokenKind.stringLiteral);
+      final str =
+          lex.tokens.firstWhere((t) => t.kind == TokenKind.stringLiteral);
       expect(str.value, 'Hello, \${name}!');
     });
   });
@@ -229,10 +230,10 @@ interface Greet {
 
   group('expressions', () {
     Expr exprOf(String exprSource) {
-      final stmts = (parse('fn f() { let v = $exprSource; }').decls.single
-              as FnDecl)
-          .body!
-          .stmts;
+      final stmts =
+          (parse('fn f() { let v = $exprSource; }').decls.single as FnDecl)
+              .body!
+              .stmts;
       return (stmts.single as LetStmt).value;
     }
 
@@ -289,8 +290,8 @@ interface Greet {
     });
 
     test('match expression with constructor and wildcard patterns', () {
-      final e = exprOf('match opt { Some(x) => x, None => 0, _ => 0 }')
-          as MatchExpr;
+      final e =
+          exprOf('match opt { Some(x) => x, None => 0, _ => 0 }') as MatchExpr;
       expect(e.arms.length, 3);
       final some = e.arms[0].pattern as ConstructorPattern;
       expect(some.name, 'Some');
@@ -363,12 +364,14 @@ interface Greet {
       final program = parse('enum Direction { North, South, East, West }');
       final decl = program.decls.single as EnumDecl;
       expect(decl.name, 'Direction');
-      expect(decl.variants.map((v) => v.name), ['North', 'South', 'East', 'West']);
+      expect(
+          decl.variants.map((v) => v.name), ['North', 'South', 'East', 'West']);
       expect(decl.variants.every((v) => v.fields.isEmpty), isTrue);
     });
 
     test('payload variants', () {
-      final program = parse('enum Shape { Circle(Int), Rect(Int, Int), Point }');
+      final program =
+          parse('enum Shape { Circle(Int), Rect(Int, Int), Point }');
       final decl = program.decls.single as EnumDecl;
       expect(decl.variants[0].name, 'Circle');
       expect(decl.variants[0].fields.length, 1);
@@ -407,7 +410,8 @@ interface Greet {
     });
 
     test('constructor with args', () {
-      final ps = patternsOf('fn f(x: Int) { return match x { Some(v) => v, None => 0 }; }');
+      final ps = patternsOf(
+          'fn f(x: Int) { return match x { Some(v) => v, None => 0 }; }');
       expect(ps[0], isA<ConstructorPattern>());
       final some = ps[0] as ConstructorPattern;
       expect(some.name, 'Some');
@@ -426,7 +430,8 @@ interface Greet {
       }
     });
 
-    test('recovers and parses the second declaration after a bad first one', () {
+    test('recovers and parses the second declaration after a bad first one',
+        () {
       final result = parseRaw('''
 fn broken( {
 fn good() -> Int { return 1; }
@@ -458,10 +463,11 @@ fn good() -> Int { return 1; }
     });
 
     test('a generic impl captures its type parameters', () {
-      final decl = parse('impl Box<T> { fn get(self) -> T { return self.value; } }')
-          .decls
-          .whereType<ImplDecl>()
-          .single;
+      final decl =
+          parse('impl Box<T> { fn get(self) -> T { return self.value; } }')
+              .decls
+              .whereType<ImplDecl>()
+              .single;
       expect(decl.typeParams.map((t) => t.name), ['T']);
       expect(decl.typeName, 'Box');
     });

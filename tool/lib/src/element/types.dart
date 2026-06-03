@@ -102,8 +102,7 @@ class FunctionType extends Type {
       _typeListEq(other.parameterTypes, parameterTypes);
 
   @override
-  int get hashCode =>
-      Object.hash(returnType, Object.hashAll(parameterTypes));
+  int get hashCode => Object.hash(returnType, Object.hashAll(parameterTypes));
 }
 
 /// The type of an expression the resolver could not determine. Acts as both a

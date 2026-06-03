@@ -122,7 +122,8 @@ class InterfaceDecl extends Decl {
   final String name;
   final SourceSpan nameSpan;
   final List<FnDecl> methods;
-  InterfaceDecl(super.span, {required this.name, required this.nameSpan, required this.methods});
+  InterfaceDecl(super.span,
+      {required this.name, required this.nameSpan, required this.methods});
 
   @override
   String describe([String indent = '']) {
@@ -358,7 +359,7 @@ class WhileStmt extends Stmt {
 }
 
 class Block {
-  final SourceSpan span;    // the { token
+  final SourceSpan span; // the { token
   final SourceSpan endSpan; // the } token
   final List<Stmt> stmts;
   Block(this.span, this.endSpan, this.stmts);
@@ -486,7 +487,8 @@ class MapExpr extends Expr {
   MapExpr(super.span, this.entries);
   @override
   String describe() {
-    final es = entries.map((e) => '${e.$1.describe()}: ${e.$2.describe()}').join(', ');
+    final es =
+        entries.map((e) => '${e.$1.describe()}: ${e.$2.describe()}').join(', ');
     return '{$es}';
   }
 }

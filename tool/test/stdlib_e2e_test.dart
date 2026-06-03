@@ -53,7 +53,8 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
     expect(r.stderr, contains('need an arg'));
   });
 
-  test('std.core auto-loads: Error constructs and interpolates via Display', () {
+  test('std.core auto-loads: Error constructs and interpolates via Display',
+      () {
     final r = emitAndRun('core', '''
 fn main() -> Result<Int, Error> {
     let e = Error { message: 'kaboom' };

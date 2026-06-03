@@ -117,14 +117,12 @@ void _registerModule(_ModuleScope scope, Program program) {
 /// The name of a type reference (`Int`, `Double`, …), or null.
 String? _typeRefName(TypeRef? type) => type is NamedType ? type.name : null;
 
-/// Layout of a struct type: its index in the module type table, its field
-/// names in declaration order (which fixes the field indices), and each
-/// field's type name.
+/// Layout of a struct type: its index in the module type table and its field
+/// names in declaration order (which fixes the field indices).
 class _StructInfo {
   final int index;
   final List<String> fieldNames;
-  final Map<String, String?> fieldTypes;
-  _StructInfo(this.index, this.fieldNames, this.fieldTypes);
+  _StructInfo(this.index, this.fieldNames);
 
   int fieldIndexOf(String name) => fieldNames.indexOf(name);
 }
@@ -164,8 +162,7 @@ class _ModuleScope {
 
   void addStruct(TypeDecl decl) {
     final fieldNames = [for (final f in decl.fields) f.$1];
-    final fieldTypes = {for (final f in decl.fields) f.$1: _typeRefName(f.$2)};
-    structs[decl.name] = _StructInfo(types.length, fieldNames, fieldTypes);
+    structs[decl.name] = _StructInfo(types.length, fieldNames);
     types.add(TypeDef(decl.name, fieldNames.length));
   }
 
@@ -189,8 +186,6 @@ class _ModuleScope {
     unitNames.add(name);
     unitSelfTypes.add(selfType);
   }
-
-  String? returnTypeOfIndex(int index) => _typeRefName(units[index].returnType);
 }
 
 /// Compiles one function: tracks local slots and emits its instruction stream.
@@ -214,15 +209,6 @@ class _FnCompiler {
 
   final List<Instr> _code = [];
   final Map<String, int> _slots = {};
-  // Static type (by name) of each local, used to pick typed opcodes. Until the
-  // checker annotates the AST, codegen derives these from declarations and a
-  // bottom-up [_typeOf]; this is the seam where checker-provided types will
-  // later plug in.
-  final Map<String, String?> _localTypes = {};
-  // The full type reference of each local (when known), so generic arguments —
-  // e.g. the element type of a `List<Int>` — are available for indexing and
-  // iteration.
-  final Map<String, TypeRef?> _localTypeRefs = {};
   int _localCount = 0;
   int _paramCount = 0;
   // Whether this function returns `Result<...>`, which enables implicit `Ok`
@@ -241,13 +227,9 @@ class _FnCompiler {
   /// Compile the unit at [index] in the module scope.
   FuncDef compile(int index) {
     final fn = _units[index];
-    final selfType = _scope.unitSelfTypes[index];
     _returnsResult = _typeRefName(fn.returnType) == 'Result';
     for (final p in fn.params) {
       _declareLocal(p.name);
-      // `self` carries the receiver type; other params their declared type.
-      _localTypes[p.name] = p.isSelf ? selfType : _typeName(p.type);
-      _localTypeRefs[p.name] = p.isSelf ? NamedType(selfType ?? '?') : p.type;
       _paramCount++;
     }
     if (fn.body != null) {
@@ -315,13 +297,11 @@ class _FnCompiler {
 
   void _stmt(Stmt stmt) {
     switch (stmt) {
-      case LetStmt(:final name, :final type, :final value):
+      case LetStmt(:final name, :final value):
         // Evaluate the initializer before declaring the binding, so the
         // initializer can't see the (not-yet-bound) name.
         _expr(value);
         final slot = _declareLocal(name);
-        _localTypes[name] = type != null ? _typeName(type) : _typeOf(value);
-        _localTypeRefs[name] = type ?? _typeRefOf(value);
         _emit(Store(slot));
       case AssignStmt(:final target, :final value):
         switch (target) {
@@ -446,7 +426,6 @@ class _FnCompiler {
   void _rangeFor(String? varName, RangeExpr range, Block body) {
     _expr(range.start);
     final counter = varName != null ? _declareLocal(varName) : _freshSlot();
-    if (varName != null) _localTypes[varName] = 'Int';
     _emit(Store(counter));
     _expr(range.end);
     final limit = _freshSlot();
@@ -487,7 +466,6 @@ class _FnCompiler {
     _emitJump(_Jk.ifFalse, end);
     // x = list[i]
     final elem = varName != null ? _declareLocal(varName) : _freshSlot();
-    if (varName != null) _localTypes[varName] = _elementTypeName(listExpr);
     _emit(Load(list));
     _emit(Load(i));
     _emit(const CallNative('list_index', 2));
@@ -610,7 +588,7 @@ class _FnCompiler {
       final catchAll = pattern is WildcardPattern || pattern is IdentPattern;
 
       if (isLast || catchAll) {
-        _bindArm(pattern, subject, subjectType, e.span);
+        _bindArm(pattern, subject, e.span);
         _armBody(arm.body, end, jumpToEnd: false);
         break; // any later arms are unreachable
       }
@@ -624,7 +602,7 @@ class _FnCompiler {
       _emit(ConstInt(_variantTag(subjectType, pattern.name, e.span)));
       _emit(const Simple(Op.eqI64));
       _emitJump(_Jk.ifFalse, next);
-      _bindArm(pattern, subject, subjectType, e.span);
+      _bindArm(pattern, subject, e.span);
       _armBody(arm.body, end, jumpToEnd: true);
       _bind(next);
     }
@@ -646,17 +624,12 @@ class _FnCompiler {
   }
 
   /// Bind the variables a pattern introduces, reading payload fields from the
-  /// subject in [subjectSlot]. [enumType] is the subject's enum type, used to
-  /// give payload bindings their declared types (a user enum's payloads are
-  /// concrete, e.g. `Circle(Int)`; `Result`/`Option` payloads are generic).
-  void _bindArm(
-      Pattern pattern, int subjectSlot, String? enumType, SourceSpan span) {
+  /// subject in [subjectSlot]. Payload bindings' types come from the inference
+  /// pass (`Expr.resolvedType` on their uses), so no type bookkeeping is needed
+  /// here.
+  void _bindArm(Pattern pattern, int subjectSlot, SourceSpan span) {
     switch (pattern) {
-      case ConstructorPattern(:final name, :final args):
-        final fields = _enums[enumType]
-            ?.variants
-            .firstWhere((v) => v.name == name)
-            .fields;
+      case ConstructorPattern(:final args):
         for (var k = 0; k < args.length; k++) {
           final arg = args[k];
           switch (arg) {
@@ -664,11 +637,6 @@ class _FnCompiler {
               _emit(Load(subjectSlot));
               _emit(EnumGet(k));
               _emit(Store(_declareLocal(boundName)));
-              final fieldType = (fields != null && k < fields.length)
-                  ? fields[k]
-                  : null;
-              _localTypes[boundName] = _typeName(fieldType);
-              _localTypeRefs[boundName] = fieldType;
             case WildcardPattern():
               break; // payload field ignored
             default:
@@ -827,9 +795,18 @@ class _FnCompiler {
 
   bool _isDouble(Expr e) => _typeOf(e) == 'Double';
 
-  /// Bridge a resolved semantic [Type] to the legacy type-name string codegen
-  /// uses for opcode selection. Null for unknowns and Unit (treated as "no
-  /// special handling").
+  /// The static type *name* of an expression, for opcode and dispatch selection
+  /// (`Int`/`Double`/`Bool`/`String`, a collection/enum/struct name, …). Read
+  /// straight from the inference pass's [Expr.resolvedType]; null when that is
+  /// absent or unknown.
+  String? _typeOf(Expr e) {
+    final t = e.resolvedType;
+    if (t == null || t is UnknownType) return null;
+    return _nameOfType(t);
+  }
+
+  /// Map a resolved semantic [Type] to the type-name string codegen keys on.
+  /// Null for `Unit` and anything without a usable concrete name.
   static String? _nameOfType(Type t) => switch (t) {
         PrimitiveType(:final primitive) => switch (primitive) {
             Primitive.int_ => 'Int',
@@ -842,113 +819,6 @@ class _FnCompiler {
         _ => null,
       };
 
-  /// Bridge a resolved [Type] to a legacy [TypeRef], preserving generic args.
-  static TypeRef _refOfType(Type t) => switch (t) {
-        InterfaceType(:final element, :final typeArguments) => NamedType(
-            element.name,
-            args: [for (final a in typeArguments) _refOfType(a)]),
-        TypeParameterType(:final name) => NamedType(name),
-        PrimitiveType() => NamedType(_nameOfType(t) ?? '?'),
-        _ => NamedType('?'),
-      };
-
-  /// Best-effort static type name of an expression, for opcode selection.
-  /// Prefers the inference pass's [Expr.resolvedType] and falls back to a
-  /// bottom-up derivation when that is absent or unknown.
-  String? _typeOf(Expr e) {
-    final resolved = e.resolvedType;
-    if (resolved != null && resolved is! UnknownType) {
-      final name = _nameOfType(resolved);
-      if (name != null) return name;
-    }
-    return _typeOfFallback(e);
-  }
-
-  String? _typeOfFallback(Expr e) => switch (e) {
-        IntLiteral() => 'Int',
-        FloatLiteral() => 'Double',
-        BoolLiteral() => 'Bool',
-        StringExpr() => 'String',
-        IdentExpr(:final name) => name == 'None' ? 'Option' : _localTypes[name],
-        UnaryExpr(:final op, :final operand) =>
-          op == '!' ? 'Bool' : _typeOf(operand),
-        BinaryExpr(:final op, :final left) =>
-          (_comparison.contains(op) || op == '&&' || op == '||')
-              ? 'Bool'
-              : _typeOf(left),
-        CallExpr(:final callee) when callee is IdentExpr => switch (callee.name) {
-          'Ok' || 'Err' => 'Result',
-          'Some' => 'Option',
-          _ => _returnTypeOf(callee.name),
-        },
-        CallExpr(:final callee) when callee is FieldExpr =>
-          _enumVariant(callee.object, callee.field) != null
-              ? (callee.object as IdentExpr).name // Enum.Variant(args)
-              : _methodReturnType(callee),
-        StructExpr(:final typeName) => typeName,
-        ListExpr() => 'List',
-        MapExpr() => 'Map',
-        IndexExpr(:final object) => _elementTypeName(object),
-        FieldExpr(:final object, :final field) =>
-          _enumVariant(object, field) != null
-              ? (object as IdentExpr).name // bare Enum.Variant
-              : structs[_typeOf(object)]?.fieldTypes[field],
-        _ => null,
-      };
-
-  /// The full type reference of an expression when known, so generic arguments
-  /// survive (e.g. the element type behind a `List<Int>`).
-  TypeRef? _typeRefOf(Expr e) {
-    final resolved = e.resolvedType;
-    if (resolved != null && resolved is! UnknownType) {
-      return _refOfType(resolved);
-    }
-    switch (e) {
-      case IdentExpr(:final name):
-        if (_localTypeRefs.containsKey(name)) return _localTypeRefs[name];
-      case ListExpr(:final items):
-        final element = items.isEmpty ? null : _typeRefOf(items.first);
-        return NamedType('List', args: element == null ? const [] : [element]);
-      case MapExpr(:final entries):
-        if (entries.isEmpty) return NamedType('Map');
-        final key = _typeRefOf(entries.first.$1) ?? NamedType('?');
-        final value = _typeRefOf(entries.first.$2) ?? NamedType('?');
-        return NamedType('Map', args: [key, value]);
-      default:
-        break;
-    }
-    final name = _typeOf(e);
-    return name == null ? null : NamedType(name);
-  }
-
-  /// The element type of indexing [collection] — `T` for a `List<T>`, the value
-  /// type `V` for a `Map<K, V>` — or null when the generic args aren't known.
-  String? _elementTypeName(Expr collection) {
-    final tr = _typeRefOf(collection);
-    if (tr is NamedType) {
-      if (tr.name == 'List' && tr.args.isNotEmpty) {
-        return _typeRefName(tr.args[0]);
-      }
-      if (tr.name == 'Map' && tr.args.length >= 2) {
-        return _typeRefName(tr.args[1]);
-      }
-    }
-    return null;
-  }
-
-  /// Resolve the declared return type of a method call `recv.method(...)` (or
-  /// `Type.method(...)`), used so chained calls and arithmetic on results pick
-  /// the right opcodes.
-  String? _methodReturnType(FieldExpr callee) {
-    if (callee.field == 'name' && _enums.containsKey(_typeOf(callee.object))) {
-      return 'String'; // e.name()
-    }
-    final mod = _moduleCall(callee.object, callee.field);
-    if (mod != null) return mod.$2;
-    final idx = _resolveMethod(callee.object, callee.field);
-    return idx == null ? null : _scope.returnTypeOfIndex(idx);
-  }
-
   /// The runtime native backing built-in method `[type].[method]` (e.g.
   /// `String.len` -> `str_len`), or null if it isn't a built-in. The receiver
   /// is passed as the native's first argument. Return types come from the
@@ -958,19 +828,20 @@ class _FnCompiler {
       type == null ? null : builtinMethodNatives[type]?[method];
 
   /// Functions exposed by imported `std.*` modules, keyed by module base name
-  /// then function: `(nativeName, returnType)`. Called qualified by the import
-  /// alias (`fs.read_text(...)`), with no receiver. (A stopgap until modules are
-  /// linked from their `.hawk` sources.)
-  static const _moduleFns = <String, Map<String, (String, String?)>>{
+  /// then function -> runtime native. Called qualified by the import alias
+  /// (`fs.read_text(...)`), with no receiver. (A stopgap until modules are
+  /// linked from their `.hawk` sources.) Return types come from inference via
+  /// `Expr.resolvedType`.
+  static const _moduleFns = <String, Map<String, String>>{
     'fs': {
-      'read_text': ('fs_read_text', 'Result'),
-      'write_text': ('fs_write_text', 'Result'),
+      'read_text': 'fs_read_text',
+      'write_text': 'fs_write_text',
     },
   };
 
   /// If [object] is an imported module alias (not shadowed by a local) and
-  /// [method] is one of its functions, return `(nativeName, returnType)`.
-  (String, String?)? _moduleCall(Expr object, String method) {
+  /// [method] is one of its functions, return the backing native name.
+  String? _moduleCall(Expr object, String method) {
     if (object is! IdentExpr || _slots.containsKey(object.name)) return null;
     final base = _scope.moduleAliases[object.name];
     return base == null ? null : _moduleFns[base]?[method];
@@ -996,19 +867,6 @@ class _FnCompiler {
         'Some' => (_tyOption, _tagSome),
         _ => null,
       };
-
-  /// Static result type of calling [name] — a user function's declared return
-  /// type, or a known native's.
-  String? _returnTypeOf(String name) {
-    final idx = functionIndex[name];
-    if (idx != null) return _scope.returnTypeOfIndex(idx);
-    return switch (name) {
-      'stringify' || 'str_concat' => 'String',
-      _ => null, // println/print → Unit (no usable value type)
-    };
-  }
-
-  String? _typeName(TypeRef? type) => _typeRefName(type);
 
   /// String interpolation: each part becomes a string, then the pieces are
   /// folded together with the binary `str_concat` native. A `${expr}` of a
@@ -1058,11 +916,11 @@ class _FnCompiler {
   void _structExpr(StructExpr expr) {
     final info = structs[expr.typeName];
     if (info == null) {
-      throw CodegenException('unknown struct type: ${expr.typeName}', expr.span);
+      throw CodegenException(
+          'unknown struct type: ${expr.typeName}', expr.span);
     }
     for (final fieldName in info.fieldNames) {
-      final entry =
-          expr.fields.where((f) => f.$1 == fieldName).firstOrNull;
+      final entry = expr.fields.where((f) => f.$1 == fieldName).firstOrNull;
       if (entry == null) {
         throw CodegenException(
             'missing field `$fieldName` in ${expr.typeName} literal',
@@ -1093,7 +951,8 @@ class _FnCompiler {
 
   /// The faulting-index native for `coll[i]` (read), chosen from the
   /// collection's static type.
-  String _indexNative(Expr object, SourceSpan span) => switch (_typeOf(object)) {
+  String _indexNative(Expr object, SourceSpan span) =>
+      switch (_typeOf(object)) {
         'List' => 'list_index',
         'Map' => 'map_index',
         final t => throw CodegenException(
@@ -1125,7 +984,8 @@ class _FnCompiler {
 
     final fnIndex = functionIndex[name];
     if (fnIndex != null) {
-      final ordered = _resolveArgs(_units[fnIndex].params, expr.args, expr.span);
+      final ordered =
+          _resolveArgs(_units[fnIndex].params, expr.args, expr.span);
       for (final value in ordered) {
         _expr(value);
       }
@@ -1166,12 +1026,12 @@ class _FnCompiler {
     }
 
     // Module-qualified call (`fs.read_text(...)`) → a module native, no receiver.
-    final mod = _moduleCall(callee.object, callee.field);
-    if (mod != null) {
+    final moduleNative = _moduleCall(callee.object, callee.field);
+    if (moduleNative != null) {
       for (final arg in expr.args) {
         _expr(arg.value);
       }
-      _emit(CallNative(mod.$1, expr.args.length));
+      _emit(CallNative(moduleNative, expr.args.length));
       return;
     }
 
