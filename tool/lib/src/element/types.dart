@@ -121,6 +121,32 @@ class UnknownType extends Type {
   int get hashCode => (UnknownType).hashCode;
 }
 
+/// Whether a value of type [source] may be used where [target] is expected.
+///
+/// Deliberately lenient so the checker never reports a *false* mismatch: an
+/// [UnknownType] (the inferrer couldn't determine a type) or a
+/// [TypeParameterType] (an un-instantiated generic) on either side is always
+/// compatible. Otherwise types must match structurally — same element and
+/// (recursively) assignable type arguments.
+bool isAssignable(Type source, Type target) {
+  if (source is UnknownType || target is UnknownType) return true;
+  if (source is TypeParameterType || target is TypeParameterType) return true;
+  if (source == target) return true;
+  if (source is InterfaceType && target is InterfaceType) {
+    if (source.element != target.element) return false;
+    if (source.typeArguments.length != target.typeArguments.length) {
+      return false;
+    }
+    for (var i = 0; i < source.typeArguments.length; i++) {
+      if (!isAssignable(source.typeArguments[i], target.typeArguments[i])) {
+        return false;
+      }
+    }
+    return true;
+  }
+  return false;
+}
+
 /// Replace [TypeParameterType]s named in [bindings] throughout [type].
 ///
 /// Used to instantiate a generic member: e.g. substituting `{T: Int}` into a

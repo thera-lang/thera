@@ -1,4 +1,7 @@
 import '../ast.dart';
+import '../element/inference.dart';
+import '../element/resolver.dart';
+import '../element/types.dart';
 import '../token.dart';
 
 class CheckError {
@@ -48,11 +51,22 @@ class TypeChecker {
   final _constNames = <String>{};
   final _errors = <CheckError>[];
 
+  // Imported programs (pre-registered via [addProgram]); fed to the element
+  // model so cross-module types/functions resolve during inference.
+  final _importPrograms = <Program>[];
+
+  // The resolved element model + a type resolver, built per [check] run. Used
+  // for type-mismatch diagnostics over the inference-annotated AST.
+  late TypeResolver _resolver;
+
   // ---- public API ----
 
   /// Pre-register symbols from an imported [program]. Its declarations become
   /// visible to [check] but are not themselves checked for errors.
-  void addProgram(Program program) => _collectSymbols(program);
+  void addProgram(Program program) {
+    _importPrograms.add(program);
+    _collectSymbols(program);
+  }
 
   /// Register a stdlib module alias (e.g. 'fs' from `import std.fs`).
   void addModule(String name) => _moduleNames.add(name);
@@ -60,6 +74,13 @@ class TypeChecker {
   CheckResult check(Program program) {
     _errors.clear();
     _collectSymbols(program);
+
+    // Build the resolved element model and annotate every expression with its
+    // inferred type, so the checks below can compare against expected types.
+    final library = buildLibrary(program, imports: _importPrograms);
+    _resolver = TypeResolver(library.typeDefs);
+    Inferrer(library).inferProgram(program);
+
     _checkProgram(program);
     return CheckResult(List.unmodifiable(_errors));
   }
@@ -177,9 +198,16 @@ class TypeChecker {
         if (type != null) _checkTypeRef(type, stmt.span);
         _checkExpr(value, scope, returnType: returnType);
         scope[name] = type ?? _inferType(value, scope);
+        if (type != null) {
+          _expectType(value.resolvedType, _resolver.resolve(type),
+              "binding '$name'", stmt.span);
+        }
 
       case ReturnStmt(:final value):
         if (value != null) _checkExpr(value, scope, returnType: returnType);
+        if (value != null && returnType != null) {
+          _checkReturn(value, returnType, stmt.span);
+        }
 
       case AssignStmt(:final target, :final value):
         _checkExpr(target, scope);
@@ -190,6 +218,7 @@ class TypeChecker {
 
       case IfStmt(:final condition, :final then, :final else_):
         _checkExpr(condition, scope);
+        _checkCondition(condition);
         _checkBlock(then, scope, returnType: returnType);
         if (else_ != null) _checkBlock(else_, scope, returnType: returnType);
 
@@ -201,6 +230,7 @@ class TypeChecker {
 
       case WhileStmt(:final condition, :final body):
         _checkExpr(condition, scope);
+        _checkCondition(condition);
         _checkBlock(body, scope, returnType: returnType);
 
       case ThrowStmt(:final value):
@@ -292,8 +322,11 @@ class TypeChecker {
       case BlockExpr(:final block):
         _checkBlock(block, scope, returnType: returnType);
 
-      case ReturnExpr(:final value):
+      case ReturnExpr(:final value, :final span):
         if (value != null) _checkExpr(value, scope, returnType: returnType);
+        if (value != null && returnType != null) {
+          _checkReturn(value, returnType, span);
+        }
 
       case ThrowExpr(:final value):
         _checkExpr(value, scope, returnType: returnType);
@@ -388,6 +421,45 @@ class TypeChecker {
       case WildcardPattern() || LiteralPattern():
         break;
     }
+  }
+
+  // ---- type-mismatch diagnostics (over inference-annotated expressions) ----
+
+  /// Report when [actual] (an expression's inferred type) is not assignable to
+  /// [expected]. A no-op when [actual] is null/unknown — [isAssignable] is
+  /// deliberately lenient so the checker never reports a *false* mismatch.
+  void _expectType(
+      Type? actual, Type expected, String context, SourceSpan span) {
+    if (actual == null) return;
+    if (!isAssignable(actual, expected)) {
+      _error('$context: expected $expected, found $actual', span);
+    }
+  }
+
+  /// A loop/branch condition must be `Bool`.
+  void _checkCondition(Expr condition) {
+    final t = condition.resolvedType;
+    if (t == null) return;
+    if (!isAssignable(t, PrimitiveType.bool_)) {
+      _error('condition must be Bool, found $t', condition.span);
+    }
+  }
+
+  /// Check `return value;` against the declared return type [returnTypeRef].
+  /// Allows the implicit `Ok` wrap — returning a `T` from a `Result<T, E>`
+  /// function.
+  void _checkReturn(Expr value, TypeRef returnTypeRef, SourceSpan span) {
+    final actual = value.resolvedType;
+    if (actual == null) return;
+    final expected = _resolver.resolve(returnTypeRef);
+    if (isAssignable(actual, expected)) return;
+    if (expected is InterfaceType &&
+        expected.element.name == 'Result' &&
+        expected.typeArguments.isNotEmpty &&
+        isAssignable(actual, expected.typeArguments.first)) {
+      return; // implicit Ok(value)
+    }
+    _error('return type mismatch: expected $expected, found $actual', span);
   }
 
   void _error(String message, SourceSpan span) =>

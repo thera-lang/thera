@@ -471,6 +471,58 @@ enum Shape { Circle(Ghost) }
     });
   });
 
+  group('type mismatches', () {
+    test('return type mismatch is reported', () {
+      expect(check('fn f() -> Int { return true; }'),
+          contains('return type mismatch: expected Int, found Bool'));
+    });
+
+    test('matching return type is not an error', () {
+      expect(check('fn f() -> Int { return 1 + 2; }'), isEmpty);
+    });
+
+    test('implicit Ok wrap: returning T from a Result fn is allowed', () {
+      expect(check('fn f() -> Result<Int, Error> { return 5; }'), isEmpty);
+      expect(check('fn f() -> Result<Int, Error> { return Ok(5); }'), isEmpty);
+    });
+
+    test('let annotation mismatch is reported', () {
+      expect(check("fn f() { let x: Int = 'hi'; }"),
+          contains("binding 'x': expected Int, found String"));
+    });
+
+    test('matching let annotation is not an error', () {
+      expect(check('fn f() { let x: Int = 7; }'), isEmpty);
+    });
+
+    test('non-Bool condition is reported', () {
+      expect(check('fn f() { if 3 { } }'),
+          contains('condition must be Bool, found Int'));
+      expect(check('fn f() { while 1 + 1 { } }'),
+          contains('condition must be Bool, found Int'));
+    });
+
+    test('Bool condition is not an error', () {
+      expect(check('fn f(b: Bool) { if b { } while b { } }'), isEmpty);
+      expect(check('fn f(x: Int) { if x > 0 { } }'), isEmpty);
+    });
+
+    test('unknown types never produce a false mismatch', () {
+      // `ghost()` is undefined (reported separately); its unknown result type
+      // must not also trigger a return/condition mismatch.
+      final errors = check('fn f() -> Int { return ghost(); }');
+      expect(errors, contains('undefined name: ghost'));
+      expect(errors.any((e) => e.contains('mismatch')), isFalse);
+    });
+
+    test('Option/Result element leniency on the error side', () {
+      // None infers Option<?>; Ok(x) infers Result<_, ?> — the unspecified
+      // side must stay assignable.
+      expect(check('fn f() -> Option<Int> { return None; }'), isEmpty);
+      expect(check('fn f() -> Result<Int, Error> { return Ok(1); }'), isEmpty);
+    });
+  });
+
   group('checker errors in LSP diagnostics', () {
     // Re-uses the LSP integration test infrastructure by directly calling the
     // LspServer diagnostics pipeline (via _publishDiagnostics tested in
