@@ -515,6 +515,37 @@ enum Shape { Circle(Ghost) }
       expect(errors.any((e) => e.contains('mismatch')), isFalse);
     });
 
+    test('argument type mismatch is reported', () {
+      expect(
+        check('fn add(a: Int, b: Int) -> Int { return 0; }\n'
+            'fn f() { add(1, true); }'),
+        contains('argument to "add": expected Int, found Bool'),
+      );
+    });
+
+    test('labeled argument type mismatch is reported', () {
+      expect(
+        check("fn greet(name: String) { }\nfn f() { greet(name: 42); }"),
+        contains('argument to "greet": expected String, found Int'),
+      );
+    });
+
+    test('correct argument types are not an error', () {
+      expect(
+        check('fn add(a: Int, b: Int) -> Int { return 0; }\n'
+            'fn f() { add(1, 2); }'),
+        isEmpty,
+      );
+    });
+
+    test('generic function arguments are lenient (no false mismatch)', () {
+      expect(
+        check('fn identity<T>(_ x: T) -> T { return x; }\n'
+            'fn f() { let a = identity(1); let b = identity("hi"); }'),
+        isEmpty,
+      );
+    });
+
     test('Option/Result element leniency on the error side', () {
       // None infers Option<?>; Ok(x) infers Result<_, ?> — the unspecified
       // side must stay assignable.

@@ -366,7 +366,29 @@ class TypeChecker {
         ', got ${args.length}',
         span,
       );
+      return;
     }
+
+    // Check each argument's type against its parameter. A labeled argument maps
+    // to the like-labeled parameter; an unlabeled one to the parameter in that
+    // position. Skip when the parameter is untyped (leniency covers the rest).
+    for (var i = 0; i < args.length; i++) {
+      final arg = args[i];
+      final param = arg.label != null
+          ? _paramByLabel(params, arg.label!)
+          : (i < params.length ? params[i] : null);
+      if (param?.type != null) {
+        _expectType(arg.value.resolvedType, _resolver.resolve(param!.type!),
+            'argument to "${fn.name}"', span);
+      }
+    }
+  }
+
+  Param? _paramByLabel(List<Param> params, String label) {
+    for (final p in params) {
+      if (p.label == label) return p;
+    }
+    return null;
   }
 
   // ---- type reference checking ----
