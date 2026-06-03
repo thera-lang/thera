@@ -951,6 +951,25 @@ fn main() -> Int {
           contains(isA<Call>().having((i) => i.func, 'func', helperIdx)));
     });
 
+    test('a generic struct compiles and runs (generics erased)', () {
+      late final String? hawkBin = buildRuntime();
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+
+      final m = compile('''
+type Box<T> = { value: T }
+impl Box<T> {
+    fn get(self) -> T { return self.value; }
+}
+fn main() -> Int {
+    let b = Box { value: 42 };
+    return b.get();
+}
+''');
+      final tmp = '${Directory.systemTemp.path}/hawk_generic.hawkbc';
+      File(tmp).writeAsBytesSync(encodeModule(m));
+      expect(Process.runSync(hawkBin, ['run', tmp]).exitCode, 42);
+    });
+
     test('a linked program runs end to end', () {
       late final String? hawkBin = buildRuntime();
       if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');

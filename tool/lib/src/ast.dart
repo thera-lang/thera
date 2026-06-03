@@ -73,23 +73,36 @@ class FnDecl extends Decl {
 class TypeDecl extends Decl {
   final String name;
   final SourceSpan nameSpan;
+  final List<TypeParam> typeParams;
   final List<(String, TypeRef)> fields;
-  TypeDecl(super.span, {required this.name, required this.nameSpan, required this.fields});
+  TypeDecl(super.span,
+      {required this.name,
+      required this.nameSpan,
+      this.typeParams = const [],
+      required this.fields});
 
   @override
   String describe([String indent = '']) {
+    final tps = typeParams.isEmpty
+        ? ''
+        : '<${typeParams.map((t) => t.describe()).join(', ')}>';
     final fs = fields.map((f) => '${f.$1}: ${f.$2.describe()}').join(', ');
-    return '${indent}Type $name { $fs }\n';
+    return '${indent}Type $name$tps { $fs }\n';
   }
 }
 
 class ImplDecl extends Decl {
   final String typeName;
   final SourceSpan nameSpan; // span of typeName
+  final List<TypeParam> typeParams; // generic params, e.g. impl Box<T>
   final String? interfaceName; // null = inherent impl
   final List<FnDecl> methods;
   ImplDecl(super.span,
-      {required this.typeName, required this.nameSpan, this.interfaceName, required this.methods});
+      {required this.typeName,
+      required this.nameSpan,
+      this.typeParams = const [],
+      this.interfaceName,
+      required this.methods});
 
   @override
   String describe([String indent = '']) {
@@ -140,16 +153,24 @@ class EnumVariant {
 class EnumDecl extends Decl {
   final String name;
   final SourceSpan nameSpan;
+  final List<TypeParam> typeParams;
   final List<EnumVariant> variants;
-  EnumDecl(super.span, {required this.name, required this.nameSpan, required this.variants});
+  EnumDecl(super.span,
+      {required this.name,
+      required this.nameSpan,
+      this.typeParams = const [],
+      required this.variants});
 
   @override
   String describe([String indent = '']) {
+    final tps = typeParams.isEmpty
+        ? ''
+        : '<${typeParams.map((t) => t.describe()).join(', ')}>';
     final vs = variants.map((v) {
       if (v.fields.isEmpty) return v.name;
       return '${v.name}(${v.fields.map((f) => f.describe()).join(', ')})';
     }).join(', ');
-    return '${indent}Enum $name { $vs }\n';
+    return '${indent}Enum $name$tps { $vs }\n';
   }
 }
 

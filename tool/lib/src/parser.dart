@@ -303,6 +303,7 @@ class Parser {
   TypeDecl _parseTypeDecl() {
     final start = _advance(); // 'type'
     final nameTok = _expect(TokenKind.identifier, 'type name');
+    final typeParams = _parseTypeParams();
     _expect(TokenKind.eq, '=');
     _expect(TokenKind.lBrace, '{');
     final fields = <(String, TypeRef)>[];
@@ -314,25 +315,33 @@ class Parser {
       if (!_match(TokenKind.comma)) break;
     }
     _expect(TokenKind.rBrace, '}');
-    return TypeDecl(start.span, name: nameTok.lexeme, nameSpan: nameTok.span, fields: fields);
+    return TypeDecl(start.span,
+        name: nameTok.lexeme,
+        nameSpan: nameTok.span,
+        typeParams: typeParams,
+        fields: fields);
   }
 
   ImplDecl _parseImplDecl() {
     final start = _advance(); // 'impl'
     final firstTok = _expect(TokenKind.identifier, 'type or interface name');
+    final firstParams = _parseTypeParams(); // <T> after the first name, if any
     String typeName;
     SourceSpan nameSpan;
     String? interfaceName;
+    List<TypeParam> typeParams;
     if (_match(TokenKind.kwFor)) {
-      // impl Interface for Type { ... }
+      // impl Interface for Type<T> { ... }
       interfaceName = firstTok.lexeme;
       final typeNameTok = _expect(TokenKind.identifier, 'type name');
       typeName = typeNameTok.lexeme;
       nameSpan = typeNameTok.span;
+      typeParams = _parseTypeParams();
     } else {
-      // impl Type { ... }
+      // impl Type<T> { ... }
       typeName = firstTok.lexeme;
       nameSpan = firstTok.span;
+      typeParams = firstParams;
     }
     _expect(TokenKind.lBrace, '{');
     final methods = <FnDecl>[];
@@ -345,7 +354,11 @@ class Parser {
     }
     _expect(TokenKind.rBrace, '}');
     return ImplDecl(start.span,
-        typeName: typeName, nameSpan: nameSpan, interfaceName: interfaceName, methods: methods);
+        typeName: typeName,
+        nameSpan: nameSpan,
+        typeParams: typeParams,
+        interfaceName: interfaceName,
+        methods: methods);
   }
 
   InterfaceDecl _parseInterfaceDecl() {
@@ -448,6 +461,7 @@ class Parser {
   EnumDecl _parseEnumDecl() {
     final start = _advance(); // 'enum'
     final nameTok = _expect(TokenKind.identifier, 'enum name');
+    final typeParams = _parseTypeParams();
     _expect(TokenKind.lBrace, '{');
     final variants = <EnumVariant>[];
     while (!_check(TokenKind.rBrace) && !_atEnd) {
@@ -465,7 +479,10 @@ class Parser {
     }
     _expect(TokenKind.rBrace, '}');
     return EnumDecl(start.span,
-        name: nameTok.lexeme, nameSpan: nameTok.span, variants: variants);
+        name: nameTok.lexeme,
+        nameSpan: nameTok.span,
+        typeParams: typeParams,
+        variants: variants);
   }
 
   LetStmt _parseLetStmt() {

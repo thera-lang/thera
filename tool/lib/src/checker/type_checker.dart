@@ -102,8 +102,9 @@ class TypeChecker {
           _checkTypeDecl(decl);
         case ImplDecl():
           final selfType = NamedType(decl.typeName);
+          final typeParams = {for (final tp in decl.typeParams) tp.name};
           for (final m in decl.methods) {
-            _checkFn(m, selfType: selfType);
+            _checkFn(m, selfType: selfType, outerTypeParams: typeParams);
           }
         case InterfaceDecl():
           for (final m in decl.methods) {
@@ -115,9 +116,10 @@ class TypeChecker {
           if (type != null) _checkTypeRef(type, decl.span);
           _checkExpr(value, {});
         case EnumDecl():
+          final typeParams = {for (final tp in decl.typeParams) tp.name};
           for (final v in decl.variants) {
             for (final f in v.fields) {
-              _checkTypeRef(f, decl.span);
+              _checkTypeRef(f, decl.span, typeParams: typeParams);
             }
           }
       }
@@ -125,13 +127,18 @@ class TypeChecker {
   }
 
   void _checkTypeDecl(TypeDecl decl) {
+    final typeParams = {for (final tp in decl.typeParams) tp.name};
     for (final (_, fieldType) in decl.fields) {
-      _checkTypeRef(fieldType, decl.span);
+      _checkTypeRef(fieldType, decl.span, typeParams: typeParams);
     }
   }
 
-  void _checkFn(FnDecl fn, {TypeRef? selfType}) {
-    final typeParams = {for (final tp in fn.typeParams) tp.name};
+  void _checkFn(FnDecl fn,
+      {TypeRef? selfType, Set<String> outerTypeParams = const {}}) {
+    final typeParams = {
+      ...outerTypeParams,
+      for (final tp in fn.typeParams) tp.name,
+    };
     _checkFnSig(fn, typeParams: typeParams);
     if (fn.body == null) return;
 

@@ -437,4 +437,42 @@ fn good() -> Int { return 1; }
       expect(names, contains('good'));
     });
   });
+
+  group('generic declarations', () {
+    test('a generic type declaration captures its type parameters', () {
+      final decl = parse('type Box<T> = { value: T }')
+          .decls
+          .whereType<TypeDecl>()
+          .single;
+      expect(decl.typeParams.map((t) => t.name), ['T']);
+      expect(decl.fields.single.$1, 'value');
+    });
+
+    test('a generic enum declaration captures its type parameters', () {
+      final decl = parse('enum Tree<T> { Leaf, Node(T) }')
+          .decls
+          .whereType<EnumDecl>()
+          .single;
+      expect(decl.typeParams.map((t) => t.name), ['T']);
+      expect(decl.variants.map((v) => v.name), ['Leaf', 'Node']);
+    });
+
+    test('a generic impl captures its type parameters', () {
+      final decl = parse('impl Box<T> { fn get(self) -> T { return self.value; } }')
+          .decls
+          .whereType<ImplDecl>()
+          .single;
+      expect(decl.typeParams.map((t) => t.name), ['T']);
+      expect(decl.typeName, 'Box');
+    });
+
+    test('multiple type parameters with bounds parse', () {
+      final decl = parse('type Pair<K: Eq, V> = { k: K, v: V }')
+          .decls
+          .whereType<TypeDecl>()
+          .single;
+      expect(decl.typeParams.map((t) => t.name), ['K', 'V']);
+      expect(decl.typeParams.first.bounds, ['Eq']);
+    });
+  });
 }

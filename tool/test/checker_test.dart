@@ -485,4 +485,29 @@ fn f(_ x: Ghost) {
       expect(errors, containsAll(['unknown type: Ghost', 'undefined name: haunted']));
     });
   });
+
+  // ---- generic declarations ----
+
+  group('generic declarations', () {
+    test('type parameters are in scope in field types', () {
+      expect(check('type Box<T> = { value: T }'), isEmpty);
+      expect(check('type Pair<K, V> = { k: K, v: V }'), isEmpty);
+    });
+
+    test('type parameters are in scope in enum variants', () {
+      expect(check('enum Tree<T> { Leaf, Node(T) }'), isEmpty);
+    });
+
+    test('impl type parameters are in scope in method signatures', () {
+      expect(
+        check('type Box<T> = { value: T } '
+            'impl Box<T> { fn get(self) -> T { return self.value; } }'),
+        isEmpty,
+      );
+    });
+
+    test('an undeclared type parameter is an unknown type', () {
+      expect(check('type Box = { value: T }'), contains('unknown type: T'));
+    });
+  });
 }
