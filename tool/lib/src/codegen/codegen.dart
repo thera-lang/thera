@@ -13,6 +13,7 @@ library;
 import '../ast.dart';
 import '../bytecode/instr.dart';
 import '../bytecode/module.dart';
+import '../element/builtins.dart';
 import '../element/inference.dart';
 import '../element/resolver.dart';
 import '../element/types.dart';
@@ -944,54 +945,17 @@ class _FnCompiler {
     }
     final mod = _moduleCall(callee.object, callee.field);
     if (mod != null) return mod.$2;
-    final builtin = _builtinMethod(_typeOf(callee.object), callee.field);
-    if (builtin != null) return builtin.$2;
     final idx = _resolveMethod(callee.object, callee.field);
     return idx == null ? null : _scope.returnTypeOfIndex(idx);
   }
 
-  /// Built-in methods on primitive/collection types, backed by runtime natives:
-  /// maps `(receiverType, method)` to `(nativeName, returnType)`. The receiver
-  /// is passed as the native's first argument.
-  static const _builtinMethods = <String, Map<String, (String, String?)>>{
-    'String': {
-      'len': ('str_len', 'Int'),
-      'byte_len': ('str_byte_len', 'Int'),
-      'is_empty': ('str_is_empty', 'Bool'),
-      'trim': ('str_trim', 'String'),
-      'contains': ('str_contains', 'Bool'),
-      'starts_with': ('str_starts_with', 'Bool'),
-      'ends_with': ('str_ends_with', 'Bool'),
-      'to_uppercase': ('str_to_uppercase', 'String'),
-      'to_lowercase': ('str_to_lowercase', 'String'),
-      'lines': ('str_lines', 'List'),
-      'split_whitespace': ('str_split_whitespace', 'List'),
-      'split': ('str_split', 'List'),
-    },
-    'List': {
-      'len': ('list_len', 'Int'),
-      'get': ('list_get', 'Option'),
-      'join': ('list_join', 'String'),
-    },
-    'Map': {
-      'len': ('map_len', 'Int'),
-      'get': ('map_get', 'Option'),
-      'has': ('map_has', 'Bool'),
-      'keys': ('map_keys', 'List'),
-      'values': ('map_values', 'List'),
-      'remove': ('map_remove', 'Option'),
-      'is_empty': ('map_is_empty', 'Bool'),
-    },
-    'Option': {
-      'ok_or': ('option_ok_or', 'Result'),
-      'unwrap_or': ('option_unwrap_or', null),
-      'is_some': ('option_is_some', 'Bool'),
-      'is_none': ('option_is_none', 'Bool'),
-    },
-  };
-
-  (String, String?)? _builtinMethod(String? type, String method) =>
-      type == null ? null : _builtinMethods[type]?[method];
+  /// The runtime native backing built-in method `[type].[method]` (e.g.
+  /// `String.len` -> `str_len`), or null if it isn't a built-in. The receiver
+  /// is passed as the native's first argument. Return types come from the
+  /// inference pass via `Expr.resolvedType`; this table is the shared source of
+  /// the native names (see `element/builtins.dart`).
+  String? _builtinNative(String? type, String method) =>
+      type == null ? null : builtinMethodNatives[type]?[method];
 
   /// Functions exposed by imported `std.*` modules, keyed by module base name
   /// then function: `(nativeName, returnType)`. Called qualified by the import
@@ -1213,13 +1177,13 @@ class _FnCompiler {
 
     // Built-in methods (String/List/Map/Option) lower to a native with the
     // receiver as the first argument.
-    final builtin = _builtinMethod(_typeOf(callee.object), callee.field);
-    if (builtin != null) {
+    final builtinNative = _builtinNative(_typeOf(callee.object), callee.field);
+    if (builtinNative != null) {
       _expr(callee.object);
       for (final arg in expr.args) {
         _expr(arg.value);
       }
-      _emit(CallNative(builtin.$1, expr.args.length + 1));
+      _emit(CallNative(builtinNative, expr.args.length + 1));
       return;
     }
 

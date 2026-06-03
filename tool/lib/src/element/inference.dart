@@ -1,4 +1,5 @@
 import '../ast.dart';
+import 'builtins.dart';
 import 'element.dart';
 import 'resolver.dart';
 import 'types.dart';
@@ -14,7 +15,11 @@ class Inferrer {
   final LibraryElement library;
   final TypeResolver _resolver;
 
-  Inferrer(this.library) : _resolver = TypeResolver(library.typeDefs);
+  final Map<String, Map<String, BuiltinReturn>> _builtinReturns;
+
+  Inferrer(this.library)
+      : _resolver = TypeResolver(library.typeDefs),
+        _builtinReturns = builtinReturns(library.typeDefs);
 
   // --- entry points ---
 
@@ -463,47 +468,20 @@ class Inferrer {
     ]);
   }
 
-  /// Return type of a built-in method on a primitive/collection [recv].
+  /// Return type of a built-in method on a primitive/collection [recv], looked
+  /// up in the shared [builtinReturns] table.
   Type? _builtinMethodReturn(Type recv, String method, List<Type> argTypes) {
-    if (recv == PrimitiveType.string) {
-      return switch (method) {
-        'len' || 'byte_len' => PrimitiveType.int_,
-        'is_empty' || 'contains' || 'starts_with' || 'ends_with' =>
-          PrimitiveType.bool_,
-        'trim' || 'to_uppercase' || 'to_lowercase' => PrimitiveType.string,
-        'lines' || 'split_whitespace' || 'split' => _list(PrimitiveType.string),
-        _ => null,
-      };
-    }
-    if (recv is! InterfaceType) return null;
-    switch (recv.element.name) {
-      case 'List':
-        return switch (method) {
-          'len' => PrimitiveType.int_,
-          'get' => _option(_arg(recv, 0)),
-          'join' => PrimitiveType.string,
-          _ => null,
-        };
-      case 'Map':
-        return switch (method) {
-          'len' => PrimitiveType.int_,
-          'get' || 'remove' => _option(_arg(recv, 1)),
-          'has' => PrimitiveType.bool_,
-          'is_empty' => PrimitiveType.bool_,
-          'keys' => _list(_arg(recv, 0)),
-          'values' => _list(_arg(recv, 1)),
-          _ => null,
-        };
-      case 'Option':
-        return switch (method) {
-          'ok_or' => _result(_arg(recv, 0),
-              argTypes.isEmpty ? const UnknownType() : argTypes.first),
-          'unwrap_or' => _arg(recv, 0),
-          'is_some' || 'is_none' => PrimitiveType.bool_,
-          _ => null,
-        };
-    }
-    return null;
+    final (kind, recvArgs) = switch (recv) {
+      PrimitiveType(primitive: Primitive.string) => ('String', const <Type>[]),
+      InterfaceType(:final element, :final typeArguments) => (
+          element.name,
+          typeArguments
+        ),
+      _ => (null, const <Type>[]),
+    };
+    if (kind == null) return null;
+    final builder = _builtinReturns[kind]?[method];
+    return builder?.call(recvArgs, argTypes);
   }
 
   /// Return type of an imported `std.*` module function, e.g. `fs.read_text`.
