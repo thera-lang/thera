@@ -83,6 +83,8 @@ void _registerModule(_ModuleScope scope, Program program) {
         scope.addFunction(decl);
       case TypeDecl():
         scope.addStruct(decl);
+      case EnumDecl():
+        scope.addEnum(decl);
       case ImplDecl():
         for (final method in decl.methods) {
           if (!method.isNative && method.body != null) {
@@ -115,9 +117,23 @@ class _StructInfo {
   int fieldIndexOf(String name) => fieldNames.indexOf(name);
 }
 
+/// Layout of a user-defined enum: its runtime type id and its variants in
+/// declaration order (which fixes the variant tags). Built-in `Result`/`Option`
+/// use the fixed ids 0/1 and aren't registered here.
+class _EnumInfo {
+  final int ty;
+  final List<EnumVariant> variants;
+  _EnumInfo(this.ty, this.variants);
+
+  /// The tag (variant index) of [name], or -1 if it isn't a variant.
+  int tagOf(String name) => variants.indexWhere((v) => v.name == name);
+  int fieldCountOf(String name) =>
+      variants.firstWhere((v) => v.name == name).fields.length;
+}
+
 /// Module-wide tables shared by every function compiler: the flat list of
 /// compiled units (functions + impl methods), how to resolve a call to a unit
-/// index, and the struct/type layout.
+/// index, and the struct/enum/type layout.
 class _ModuleScope {
   final List<FnDecl> units = []; // index -> declaration
   final List<String> unitNames = []; // index -> mangled name (e.g. Point.area)
@@ -125,14 +141,24 @@ class _ModuleScope {
   final Map<String, int> functionIndex = {}; // bare name -> unit index
   final Map<String, Map<String, int>> methodTable = {}; // type -> method -> idx
   final Map<String, _StructInfo> structs = {};
+  final Map<String, _EnumInfo> enums = {};
   final List<TypeDef> types = [];
   final Map<String, String> moduleAliases = {}; // import alias -> module base
+
+  // Runtime type ids for user enums start after the built-in Result (0) and
+  // Option (1), and must be distinct so structural equality never conflates two
+  // enum types.
+  int _nextEnumTy = 2;
 
   void addStruct(TypeDecl decl) {
     final fieldNames = [for (final f in decl.fields) f.$1];
     final fieldTypes = {for (final f in decl.fields) f.$1: _typeRefName(f.$2)};
     structs[decl.name] = _StructInfo(types.length, fieldNames, fieldTypes);
     types.add(TypeDef(decl.name, fieldNames.length));
+  }
+
+  void addEnum(EnumDecl decl) {
+    enums[decl.name] = _EnumInfo(_nextEnumTy++, decl.variants);
   }
 
   void addFunction(FnDecl decl) {
@@ -161,7 +187,18 @@ class _FnCompiler {
   Map<String, int> get functionIndex => _scope.functionIndex;
   Map<String, Map<String, int>> get _methods => _scope.methodTable;
   Map<String, _StructInfo> get structs => _scope.structs;
+  Map<String, _EnumInfo> get _enums => _scope.enums;
   List<FnDecl> get _units => _scope.units;
+
+  /// If `object.name` is a variant of a user enum (a bare enum type name, not a
+  /// local), return that enum and the variant's tag.
+  (_EnumInfo, int)? _enumVariant(Expr object, String name) {
+    if (object is! IdentExpr || _slots.containsKey(object.name)) return null;
+    final info = _enums[object.name];
+    if (info == null) return null;
+    final tag = info.tagOf(name);
+    return tag < 0 ? null : (info, tag);
+  }
 
   final List<Instr> _code = [];
   final Map<String, int> _slots = {};
@@ -497,9 +534,20 @@ class _FnCompiler {
         _expr(index);
         _emit(CallNative(native, 2));
       case FieldExpr(:final object, :final field):
-        final info = _structOf(object, expr.span);
-        _expr(object);
-        _emit(FieldGet(_fieldIndex(info, field, expr.span)));
+        // A bare `Enum.Variant` is a zero-field enum constructor.
+        final variant = _enumVariant(object, field);
+        if (variant != null) {
+          final (info, tag) = variant;
+          if (info.fieldCountOf(field) != 0) {
+            throw CodegenException(
+                'enum variant `$field` takes arguments', expr.span);
+          }
+          _emit(EnumNew(info.ty, tag, 0));
+        } else {
+          final info = _structOf(object, expr.span);
+          _expr(object);
+          _emit(FieldGet(_fieldIndex(info, field, expr.span)));
+        }
       case CallExpr():
         _callExpr(expr);
       case PropagateExpr():
@@ -532,10 +580,12 @@ class _FnCompiler {
     _emit(const EnumGet(0)); // success: unwrap the payload
   }
 
-  /// `match` on a `Result`/`Option`: store the subject, then a tag-check chain.
-  /// The final arm is the fall-through (matches always, given exhaustiveness),
-  /// so a value is produced on every path that doesn't return/throw.
+  /// `match` on an enum (`Result`/`Option` or a user enum): store the subject,
+  /// then a tag-check chain. The final arm is the fall-through (matches always,
+  /// given exhaustiveness), so a value is produced on every path that doesn't
+  /// return/throw.
   void _matchExpr(MatchExpr e) {
+    final subjectType = _typeOf(e.subject);
     _expr(e.subject);
     final subject = _freshSlot();
     _emit(Store(subject));
@@ -548,7 +598,7 @@ class _FnCompiler {
       final catchAll = pattern is WildcardPattern || pattern is IdentPattern;
 
       if (isLast || catchAll) {
-        _bindArm(pattern, subject, e.span);
+        _bindArm(pattern, subject, subjectType, e.span);
         _armBody(arm.body, end, jumpToEnd: false);
         break; // any later arms are unreachable
       }
@@ -559,10 +609,10 @@ class _FnCompiler {
       final next = _newLabel();
       _emit(Load(subject));
       _emit(const Simple(Op.enumTag));
-      _emit(ConstInt(_variantTag(pattern.name, e.span)));
+      _emit(ConstInt(_variantTag(subjectType, pattern.name, e.span)));
       _emit(const Simple(Op.eqI64));
       _emitJump(_Jk.ifFalse, next);
-      _bindArm(pattern, subject, e.span);
+      _bindArm(pattern, subject, subjectType, e.span);
       _armBody(arm.body, end, jumpToEnd: true);
       _bind(next);
     }
@@ -584,17 +634,29 @@ class _FnCompiler {
   }
 
   /// Bind the variables a pattern introduces, reading payload fields from the
-  /// subject in [subjectSlot].
-  void _bindArm(Pattern pattern, int subjectSlot, SourceSpan span) {
+  /// subject in [subjectSlot]. [enumType] is the subject's enum type, used to
+  /// give payload bindings their declared types (a user enum's payloads are
+  /// concrete, e.g. `Circle(Int)`; `Result`/`Option` payloads are generic).
+  void _bindArm(
+      Pattern pattern, int subjectSlot, String? enumType, SourceSpan span) {
     switch (pattern) {
-      case ConstructorPattern(:final args):
+      case ConstructorPattern(:final name, :final args):
+        final fields = _enums[enumType]
+            ?.variants
+            .firstWhere((v) => v.name == name)
+            .fields;
         for (var k = 0; k < args.length; k++) {
           final arg = args[k];
           switch (arg) {
-            case IdentPattern(:final name):
+            case IdentPattern(name: final boundName):
               _emit(Load(subjectSlot));
               _emit(EnumGet(k));
-              _emit(Store(_declareLocal(name)));
+              _emit(Store(_declareLocal(boundName)));
+              final fieldType = (fields != null && k < fields.length)
+                  ? fields[k]
+                  : null;
+              _localTypes[boundName] = _typeName(fieldType);
+              _localTypeRefs[boundName] = fieldType;
             case WildcardPattern():
               break; // payload field ignored
             default:
@@ -612,14 +674,49 @@ class _FnCompiler {
     }
   }
 
-  /// The fixed variant tag for a `Result`/`Option` constructor name.
-  int _variantTag(String name, SourceSpan span) => switch (name) {
-        'Ok' || 'Some' => 0,
-        'Err' || 'None' => 1,
-        _ => throw CodegenException(
-            'unknown variant `$name` (user-defined enums not yet supported)',
-            span),
-      };
+  /// The variant tag for a constructor [name] within an enum of type
+  /// [enumType] — fixed for `Result`/`Option`, from the registry for user enums.
+  int _variantTag(String? enumType, String name, SourceSpan span) {
+    final info = enumType == null ? null : _enums[enumType];
+    if (info != null) {
+      final tag = info.tagOf(name);
+      if (tag >= 0) return tag;
+    }
+    return switch (name) {
+      'Ok' || 'Some' => 0,
+      'Err' || 'None' => 1,
+      _ => throw CodegenException(
+          'unknown variant `$name`'
+          '${enumType == null ? '' : ' on $enumType'}',
+          span),
+    };
+  }
+
+  /// `e.name()` — the variant name, looked up from the enum tag. Synthesized as
+  /// a tag-check chain (the last variant is the fall-through).
+  void _enumName(Expr receiver, _EnumInfo info) {
+    _expr(receiver);
+    _emit(const Simple(Op.enumTag));
+    final tag = _freshSlot();
+    _emit(Store(tag));
+    final end = _newLabel();
+    for (var i = 0; i < info.variants.length; i++) {
+      final name = info.variants[i].name;
+      if (i == info.variants.length - 1) {
+        _emit(ConstStr(name)); // last variant: fall through
+      } else {
+        final next = _newLabel();
+        _emit(Load(tag));
+        _emit(ConstInt(i));
+        _emit(const Simple(Op.eqI64));
+        _emitJump(_Jk.ifFalse, next);
+        _emit(ConstStr(name));
+        _emitJump(_Jk.jump, end);
+        _bind(next);
+      }
+    }
+    _bind(end);
+  }
 
   void _unaryExpr(UnaryExpr e) {
     _expr(e.operand);
@@ -737,13 +834,17 @@ class _FnCompiler {
           _ => _returnTypeOf(callee.name),
         },
         CallExpr(:final callee) when callee is FieldExpr =>
-          _methodReturnType(callee),
+          _enumVariant(callee.object, callee.field) != null
+              ? (callee.object as IdentExpr).name // Enum.Variant(args)
+              : _methodReturnType(callee),
         StructExpr(:final typeName) => typeName,
         ListExpr() => 'List',
         MapExpr() => 'Map',
         IndexExpr(:final object) => _elementTypeName(object),
         FieldExpr(:final object, :final field) =>
-          structs[_typeOf(object)]?.fieldTypes[field],
+          _enumVariant(object, field) != null
+              ? (object as IdentExpr).name // bare Enum.Variant
+              : structs[_typeOf(object)]?.fieldTypes[field],
         _ => null,
       };
 
@@ -787,6 +888,9 @@ class _FnCompiler {
   /// `Type.method(...)`), used so chained calls and arithmetic on results pick
   /// the right opcodes.
   String? _methodReturnType(FieldExpr callee) {
+    if (callee.field == 'name' && _enums.containsKey(_typeOf(callee.object))) {
+      return 'String'; // e.name()
+    }
     final mod = _moduleCall(callee.object, callee.field);
     if (mod != null) return mod.$2;
     final builtin = _builtinMethod(_typeOf(callee.object), callee.field);
@@ -1026,6 +1130,26 @@ class _FnCompiler {
   /// `recv.method(args)` / `Type.method(args)`. For an instance method the
   /// receiver is pushed first as `self`; arguments follow in parameter order.
   void _methodCall(CallExpr expr, FieldExpr callee) {
+    // Enum payload constructor: `Shape.Circle(5)`.
+    final variant = _enumVariant(callee.object, callee.field);
+    if (variant != null) {
+      final (info, tag) = variant;
+      for (final arg in expr.args) {
+        _expr(arg.value);
+      }
+      _emit(EnumNew(info.ty, tag, expr.args.length));
+      return;
+    }
+
+    // `e.name()` on an enum value → the variant name (synthesized from its tag).
+    if (callee.field == 'name' && expr.args.isEmpty) {
+      final info = _enums[_typeOf(callee.object)];
+      if (info != null) {
+        _enumName(callee.object, info);
+        return;
+      }
+    }
+
     // Module-qualified call (`fs.read_text(...)`) → a module native, no receiver.
     final mod = _moduleCall(callee.object, callee.field);
     if (mod != null) {

@@ -131,6 +131,31 @@ fn main() -> Int {
       ]));
     });
 
+    test('user enum construction lowers to enum.new', () {
+      final ops = compile(
+              'enum Color { Red, Green, Blue } fn f() -> Int { let c = Color.Green; return 0; }')
+          .functions
+          .single
+          .code;
+      // Green is variant 1, zero fields; ty is a user id (>= 2).
+      expect(ops, contains(isA<EnumNew>()
+          .having((i) => i.variant, 'variant', 1)
+          .having((i) => i.fieldCount, 'fieldCount', 0)));
+      expect(ops.whereType<EnumNew>().first.type, greaterThanOrEqualTo(2));
+
+      final payload = compile(
+              'enum Shape { Dot, Circle(Int) } fn f() -> Int { let s = Shape.Circle(5); return 0; }')
+          .functions
+          .single
+          .code;
+      expect(payload, containsAllInOrder([
+        isA<ConstInt>().having((i) => i.value, 'value', 5),
+        isA<EnumNew>()
+            .having((i) => i.variant, 'variant', 1)
+            .having((i) => i.fieldCount, 'fieldCount', 1),
+      ]));
+    });
+
     test('interpolating a user type dispatches to its display method', () {
       final m = compile('''
 type Tag = { n: Int }
@@ -682,6 +707,53 @@ fn main() -> Int {
 }
 '''),
           42);
+    });
+
+    test('user enum: payload match with typed bindings', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      expect(
+          runExit('enum_match', '''
+enum Shape { Circle(Int), Rect(Int, Int), Square }
+fn area(_ s: Shape) -> Int {
+    return match s {
+        Circle(r) => r * r,
+        Rect(w, h) => w * h,
+        Square => 1,
+    };
+}
+fn main() -> Int {
+    return area(Shape.Circle(6)) + area(Shape.Rect(2, 3));
+}
+'''),
+          42); // 36 + 6
+    });
+
+    test('user enum: .name() and equality', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      expect(
+          runExit('enum_name', '''
+enum Dir { North, South, East, West }
+fn main() -> Int {
+    let d = Dir.South;
+    let mut n = 0;
+    if d.name() == 'South' { n = n + 1; }
+    if d == Dir.South { n = n + 10; }
+    if d == Dir.North { n = n + 100; }
+    return n;
+}
+'''),
+          11); // name matches + equality matches; North branch skipped
+    });
+
+    test('the enums.hawk example runs', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      final m = compile(File('../examples/enums.hawk').readAsStringSync());
+      final tmp = '${Directory.systemTemp.path}/hawk_enums_ex.hawkbc';
+      File(tmp).writeAsBytesSync(encodeModule(m));
+      final r = Process.runSync(hawkBin, ['run', tmp]);
+      expect(r.exitCode, 0, reason: r.stderr.toString());
+      expect(r.stdout, contains('circle area: 25'));
+      expect(r.stdout, contains('name: North'));
     });
 
     test('the structs.hawk example compiles', () {
