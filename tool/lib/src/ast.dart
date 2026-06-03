@@ -1,3 +1,4 @@
+import 'element/types.dart';
 import 'token.dart';
 
 // --- Top-level ---
@@ -413,6 +414,12 @@ class LiteralPattern extends Pattern {
 sealed class Expr {
   final SourceSpan span;
   Expr(this.span);
+
+  /// The resolved semantic type of this expression, filled in by the inference
+  /// pass (`element/inference.dart`). Null before inference runs (or when the
+  /// type could not be determined — see [UnknownType] for the latter once a
+  /// pass has annotated the tree).
+  Type? resolvedType;
 
   String describe();
 }

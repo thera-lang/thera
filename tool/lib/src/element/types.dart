@@ -121,6 +121,50 @@ class UnknownType extends Type {
   int get hashCode => (UnknownType).hashCode;
 }
 
+/// Replace [TypeParameterType]s named in [bindings] throughout [type].
+///
+/// Used to instantiate a generic member: e.g. substituting `{T: Int}` into a
+/// field declared `List<T>` yields `List<Int>`.
+Type substitute(Type type, Map<String, Type> bindings) {
+  switch (type) {
+    case TypeParameterType(:final name):
+      return bindings[name] ?? type;
+    case InterfaceType(:final element, :final typeArguments):
+      if (typeArguments.isEmpty) return type;
+      return InterfaceType(
+          element, [for (final a in typeArguments) substitute(a, bindings)]);
+    case FunctionType(:final parameterTypes, :final returnType):
+      return FunctionType(
+        [for (final p in parameterTypes) substitute(p, bindings)],
+        substitute(returnType, bindings),
+      );
+    case PrimitiveType():
+    case UnknownType():
+      return type;
+  }
+}
+
+/// Best-effort unification: when [param] is (or contains) a type parameter,
+/// record what [actual] binds it to in [bindings]. Used to recover generic
+/// type arguments from call/constructor argument types.
+void unify(Type param, Type actual, Map<String, Type> bindings) {
+  switch (param) {
+    case TypeParameterType(:final name):
+      if (actual is! UnknownType) bindings.putIfAbsent(name, () => actual);
+    case InterfaceType(:final typeArguments):
+      if (actual is InterfaceType &&
+          actual.typeArguments.length == typeArguments.length) {
+        for (var i = 0; i < typeArguments.length; i++) {
+          unify(typeArguments[i], actual.typeArguments[i], bindings);
+        }
+      }
+    case PrimitiveType():
+    case FunctionType():
+    case UnknownType():
+      break;
+  }
+}
+
 bool _typeListEq(List<Type> a, List<Type> b) {
   if (a.length != b.length) return false;
   for (var i = 0; i < a.length; i++) {
