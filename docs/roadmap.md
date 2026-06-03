@@ -27,8 +27,8 @@ recursion, locals and typed arithmetic, control flow (`if`/`while`/`for`,
 short-circuit `&&`/`||`), calls and string interpolation, `Result`/`Option`
 (`Ok`/`Err`/`Some`/`None`, `?`, `throw`, implicit `Ok`, `match`), structs (type
 table, literals, field get/set), methods (instance + static) with named-argument
-resolution, and `List`/`Map` literals/indexing/iteration. `hawk emit` type-checks
-before lowering.
+resolution, and `List`/`Map` literals/indexing/iteration. `hawk emit`
+type-checks before lowering.
 
 ## The three bootstrap arcs
 
@@ -95,9 +95,10 @@ gaps, by where they live:
 - **Type-inference system (core built; see `tool/lib/src/element/`).** A
   semantic `Type`/element model and a synthesizing inference pass now annotate
   every expression with a resolved type (`Expr.resolvedType`), which codegen
-  consumes. This sees *through* generics (the `T` behind `Option<T>`/`List<T>`,
+  consumes. This sees _through_ generics (the `T` behind `Option<T>`/`List<T>`,
   method return types, match-arm bindings, `?`/`unwrap` results) — the walls the
-  old bottom-up `_typeOf` kept hitting. Prerequisites #1–#2 done; remaining work:
+  old bottom-up `_typeOf` kept hitting. Prerequisites #1–#2 done; remaining
+  work:
   1. ~~**Generic type/enum declarations** (AST + parser).~~ (done)
   2. ~~**A semantic `Type`/element model** distinct from syntactic `TypeRef`,
      derived as a separate resolution stage.~~ (done — `element/types.dart`,

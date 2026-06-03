@@ -313,6 +313,15 @@ class Inferrer {
       final enumType = _enumVariantType(callee.object, callee.field, argTypes);
       if (enumType != null) return enumType;
 
+      // Static method on a type: `Type.method(...)` (e.g. `Args.new(...)`,
+      // `Point.origin()`). The receiver is a type name, not a value.
+      final obj = callee.object;
+      if (obj is IdentExpr && !scope.containsKey(obj.name)) {
+        final typeDef = library.typeDefs[obj.name];
+        final method = typeDef?.method(callee.field);
+        if (method != null && method.isStatic) return method.returnType;
+      }
+
       // `e.name()` on an enum value -> String.
       final recvType =
           _infer(callee.object, scope, typeParams: typeParams, selfType: selfType);

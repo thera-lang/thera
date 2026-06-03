@@ -178,6 +178,24 @@ fn f() { let c = Shape.Circle(5); let n = c.name(); }
       expect(letType(p, 'n'), PrimitiveType.string);
     });
 
+    test('static method call resolves through the type name', () {
+      // `Type.method(...)` — the receiver is a type, not a value. A chain off
+      // the result must still resolve (regression: `Args.new(...).option(...)`).
+      final p = inferred('''
+type Args = { items: List<String> }
+impl Args {
+  fn new(_ items: List<String>) -> Args { return Args { items: items }; }
+  fn first(self) -> Option<String> { return self.items.get(0); }
+}
+fn f(xs: List<String>) {
+  let a = Args.new(xs);
+  let v = Args.new(xs).first().unwrap_or("none");
+}
+''');
+      expect((letType(p, 'a') as InterfaceType).element.name, 'Args');
+      expect(letType(p, 'v'), PrimitiveType.string);
+    });
+
     test('user method return type with generic receiver', () {
       final p = inferred('''
 type Box<T> = { value: T }

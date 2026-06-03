@@ -31,7 +31,7 @@ fn area(s: Shape) -> Int {
     };
 }
 
-fn main(args: Args) -> Result<Int, Error> {
+fn main() -> Result<Int, Error> {
     // Zero-arg variants.
     let d = Direction.North;
     println(describe_direction(d));

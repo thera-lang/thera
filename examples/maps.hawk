@@ -1,11 +1,11 @@
 // Demonstrates map literals, index access, mutation, and map methods.
 //
-// NOTE: this shows the *current* interpreter behavior, where map[key] returns
-// Option<V> (identical to .get). The agreed design (docs/language.md) has
-// map[key] return V and trap on a missing key, with .get() returning Option;
-// that will be implemented in the Rust runtime, and this example updated then.
+// `map[key]` returns the value directly and traps if the key is absent;
+// `.get(key)` returns `Option<V>` for safe lookup. (List indexing is symmetric:
+// `list[i]` returns the element and traps out of range, `.get(i)` is the
+// Option-returning form.)
 
-fn main(args: Args) -> Result<Int, Error> {
+fn main() -> Result<Int, Error> {
     // Map literal — insertion order is preserved.
     let keywords = {
         'fn': 1,
@@ -18,38 +18,30 @@ fn main(args: Args) -> Result<Int, Error> {
     println('has fn: ${keywords.has('fn')}');
     println('has else: ${keywords.has('else')}');
 
-    // Index access returns Option<V>.
-    let kind = keywords['fn'];
-    match kind {
-        Some(v) => println('fn -> ${v}'),
-        None => println('fn not found'),
-    }
+    // Index access returns the value directly (traps on a missing key).
+    println('fn -> ${keywords['fn']}');
 
-    let missing = keywords['else'];
-    match missing {
+    // .get returns Option<V> for safe, fallible lookup.
+    match keywords.get('else') {
         Some(v) => println('else -> ${v}'),
         None => println('else not found'),
-    }
-
-    // get() is the same as index access.
-    let v = keywords.get('return');
-    match v {
-        Some(n) => println('return -> ${n}'),
-        None => println('return not found'),
     }
 
     // Mutation.
     let mut counts = {'a': 0, 'b': 0};
     counts['a'] = 1;
     counts['b'] = 2;
-    println('a=${counts.get('a')}, b=${counts.get('b')}');
+    println('a=${counts['a']}, b=${counts['b']}');
 
-    // Remove.
+    // Remove returns the old value (Option<V>).
     let removed = counts.remove('a');
-    println('removed a: ${removed}');
+    match removed {
+        Some(n) => println('removed a (was ${n})'),
+        None => println('a was not present'),
+    }
     println('len after remove: ${counts.len()}');
 
-    // Keys and values (insertion order).
+    // Keys, in insertion order.
     let keys = keywords.keys();
     println('keys: ${keys.join(', ')}');
 

@@ -1,9 +1,19 @@
-fn main(args: Args) -> Result<Int, Error> {
-    let name  = args.flag('name',  default: 'world');
-    let count = args.flag('count', default: 1);
+// A small CLI: greets the name given by `--name` (default: world), and shouts
+// when `--loud` is passed. Demonstrates the entry/args convention, std.args
+// (option + flag), Option.unwrap_or, and a String method.
 
-    for _ in 0..count {
-        println('Hello, ${name}!');
+import std.args;
+
+fn main(parameters: List<String>) -> Result<Int, Error> {
+    let args = Args.new(parameters);
+    let name = args.option('--name').unwrap_or('world');
+    let loud = args.flag('--loud', default: false);
+
+    let greeting = 'Hello, ${name}!';
+    if loud {
+        println(greeting.to_uppercase());
+    } else {
+        println(greeting);
     }
 
     return Ok(0);

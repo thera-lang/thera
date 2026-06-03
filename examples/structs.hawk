@@ -45,7 +45,7 @@ impl Rect {
     }
 }
 
-fn main(args: Args) -> Result<Int, Error> {
+fn main() -> Result<Int, Error> {
     let origin = Point.origin();
     println('origin: ${origin.display()}');
 

@@ -27,7 +27,7 @@ parsing, import `std.args` and wrap the arguments in `Args`.
 import std.args;
 
 fn main(parameters: List<String>) -> Result<Int, Error> {
-    let args = Args(parameters);
+    let args = Args.new(parameters);
     // ...
     return Ok(0);
 }
@@ -46,7 +46,7 @@ Bindings are immutable by default. Use `mut` to allow reassignment.
 let x = 42;
 let name = 'alice';
 
-mut count = 0;
+let mut count = 0;
 count = count + 1;
 ```
 
@@ -175,9 +175,9 @@ internal identifier. This is useful when the natural label is a keyword or reads
 awkwardly as a variable name inside the function body:
 
 ```hawk
-fn flag<T>(_ name: String, default value: T) -> T { ... }
+fn flag(_ name: String, default value: Bool) -> Bool { ... }
 
-args.flag('verbose', default: false);
+args.flag('--verbose', default: false);
 ```
 
 Here `default` is the label at the call site; `value` is the name used inside
@@ -517,15 +517,17 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
     let args = Args(parameters);
 
     let path    = args.positional(0).ok_or(Error('usage: tool <path>'))?;
-    let verbose = args.flag('verbose', default: false);
-    let output  = args.flag('output',  default: 'out.txt');
+    let verbose = args.flag('--verbose', default: false);
+    let output  = args.option('--output').unwrap_or('out.txt');
     // ...
     return Ok(0);
 }
 ```
 
-`flag` is generic: the return type is inferred from the `default` value. A
-`Bool` default returns `Bool`; a `String` default returns `String`.
+`flag` tests for a boolean switch — `--verbose` (and, planned, its `--no-verbose`
+negation) — and returns `Bool`. `option` reads a valued option — `--output=path`
+(or `--output path`) — and returns `Option<String>`; pair it with `unwrap_or`
+for a default.
 
 ---
 

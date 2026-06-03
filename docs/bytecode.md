@@ -212,15 +212,16 @@ ref-ness is recorded in the function's stackmap, not the opcode.
 > _closure conversion_: each lambda lowers to a plain function whose hidden
 > first parameter is its **environment** (a synthesized struct of the captured
 > variables), so captures are ordinary `field.get`s — no `load.capture` opcode.
-> A captured `mut` local is **boxed** into a one-field heap cell (just a struct):
-> reads become `cell.value`, writes `cell.value = …`, and the closure captures
-> the _cell_, so the enclosing scope and the closure observe each other's
-> mutations. (Hawk allows capturing mutable locals; we box every captured `mut`
-> local to start, and can later capture immutables by value / only box
-> reassigned locals.) See `closure.new` / `call.indirect` in
-> [Calls](#calls) and [How key features lower](#how-key-language-features-lower).
-> The one genuinely new runtime piece is the closure _value_ (`{ func, env }`)
-> plus `call.indirect`; free-variable analysis, env synthesis, and boxing are all
+> A captured `mut` local is **boxed** into a one-field heap cell (just a
+> struct): reads become `cell.value`, writes `cell.value = …`, and the closure
+> captures the _cell_, so the enclosing scope and the closure observe each
+> other's mutations. (Hawk allows capturing mutable locals; we box every
+> captured `mut` local to start, and can later capture immutables by value /
+> only box reassigned locals.) See `closure.new` / `call.indirect` in
+> [Calls](#calls) and
+> [How key features lower](#how-key-language-features-lower). The one genuinely
+> new runtime piece is the closure _value_ (`{ func, env }`) plus
+> `call.indirect`; free-variable analysis, env synthesis, and boxing are all
 > frontend lowering over existing opcodes.
 
 ### Arithmetic, comparison, logic
@@ -282,8 +283,9 @@ positional. A `Void` return pushes nothing.
 > interpolation and `Eq` for `==`. `call.interface` (per-type vtable) is added
 > only when Hawk gains _type-erased interface values_ (trait objects); at that
 > point the bytecode carries `call.interface` and the JIT **devirtualizes** to a
-> direct/inlined call wherever it can prove the concrete type. So we never need a
-> frontend monomorphisation pass. Until then `call.interface` is reserved/unused.
+> direct/inlined call wherever it can prove the concrete type. So we never need
+> a frontend monomorphisation pass. Until then `call.interface` is
+> reserved/unused.
 
 ### Aggregates & heap allocation
 
@@ -349,8 +351,8 @@ reads are `field.get` on it. `closure.new func, env` builds the closure value
 **String interpolation** — for a user type, `${v}` calls the `Display` method as
 a statically resolved direct `call` (the concrete type is known at the site);
 for a primitive (`Int`/`Double`/`Bool`, whose `Display` is built in), it calls a
-stringify intrinsic (`call.native`).
-The pieces are then joined with a `str_concat` intrinsic (`call.native`).
+stringify intrinsic (`call.native`). The pieces are then joined with a
+`str_concat` intrinsic (`call.native`).
 
 ## Garbage collection
 
