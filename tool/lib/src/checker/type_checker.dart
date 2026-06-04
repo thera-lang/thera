@@ -1,4 +1,5 @@
 import '../ast.dart';
+import '../element/element.dart';
 import '../element/inference.dart';
 import '../element/resolver.dart';
 import '../element/types.dart';
@@ -51,9 +52,11 @@ class TypeChecker {
   // model so cross-module types/functions resolve during inference.
   final _importPrograms = <Program>[];
 
-  // A type resolver over the element model, built per [check] run. Used to
-  // resolve type references and for type-mismatch diagnostics over the
-  // inference-annotated AST.
+  // The resolved element model and a type resolver over it, built per [check]
+  // run. The element model is the single source of top-level symbols (types,
+  // functions, consts, modules); the resolver maps type references to types and
+  // backs the type-mismatch diagnostics over the inference-annotated AST.
+  late LibraryElement _library;
   late TypeResolver _resolver;
 
   // ---- public API ----
@@ -74,9 +77,9 @@ class TypeChecker {
 
     // Build the resolved element model and annotate every expression with its
     // inferred type, so the checks below can compare against expected types.
-    final library = buildLibrary(program, imports: _importPrograms);
-    _resolver = TypeResolver(library.typeDefs);
-    Inferrer(library).inferProgram(program);
+    _library = buildLibrary(program, imports: _importPrograms);
+    _resolver = TypeResolver(_library.typeDefs);
+    Inferrer(_library).inferProgram(program);
 
     _checkProgram(program);
     return CheckResult(List.unmodifiable(_errors));
@@ -248,7 +251,7 @@ class TypeChecker {
           _checkExpr(a.value, scope);
         }
         if (callee is IdentExpr) {
-          final fn = _fnDecls[callee.name];
+          final fn = _library.functions[callee.name];
           if (fn != null) _checkCallArgs(fn, args, span);
         }
 
@@ -283,11 +286,10 @@ class TypeChecker {
         }
 
       case StructExpr(:final typeName, :final fields, :final span):
-        final typeDecl = _typeDecls[typeName];
-        if (typeDecl != null) {
-          final validFields = {for (final f in typeDecl.fields) f.$1};
+        final element = _library.typeDefs[typeName];
+        if (element is StructElement) {
           for (final (fieldName, fieldValue) in fields) {
-            if (!validFields.contains(fieldName)) {
+            if (!element.fields.containsKey(fieldName)) {
               _error('unknown field "$fieldName" on type $typeName', span);
             }
             _checkExpr(fieldValue, scope);
@@ -333,8 +335,8 @@ class TypeChecker {
 
   // ---- call checking ----
 
-  void _checkCallArgs(FnDecl fn, List<CallArg> args, SourceSpan span) {
-    final params = fn.params.where((p) => !p.isSelf).toList();
+  void _checkCallArgs(FunctionElement fn, List<CallArg> args, SourceSpan span) {
+    final params = fn.parameters.where((p) => !p.isSelf).toList();
 
     // Check that every named argument label is a declared parameter label.
     final validLabels = {
@@ -352,7 +354,7 @@ class TypeChecker {
     }
 
     // Check argument count against [required, max] range.
-    final required = params.where((p) => p.defaultValue == null).length;
+    final required = params.where((p) => !p.hasDefault).length;
     final max = params.length;
     if (args.length < required || args.length > max) {
       final range = required == max ? '$required' : '$required–$max';
@@ -366,20 +368,20 @@ class TypeChecker {
 
     // Check each argument's type against its parameter. A labeled argument maps
     // to the like-labeled parameter; an unlabeled one to the parameter in that
-    // position. Skip when the parameter is untyped (leniency covers the rest).
+    // position. The parameter types are already resolved on the element.
     for (var i = 0; i < args.length; i++) {
       final arg = args[i];
       final param = arg.label != null
           ? _paramByLabel(params, arg.label!)
           : (i < params.length ? params[i] : null);
-      if (param?.type != null) {
-        _expectType(arg.value.resolvedType, _resolver.resolve(param!.type!),
+      if (param != null) {
+        _expectType(arg.value.resolvedType, param.type,
             'argument to "${fn.name}"', span);
       }
     }
   }
 
-  Param? _paramByLabel(List<Param> params, String label) {
+  ParameterElement? _paramByLabel(List<ParameterElement> params, String label) {
     for (final p in params) {
       if (p.label == label) return p;
     }
@@ -412,11 +414,12 @@ class TypeChecker {
   bool _isDefinedName(String name, _Scope scope) =>
       scope.containsKey(name) ||
       _builtinValues.contains(name) ||
-      _fnDecls.containsKey(name) ||
-      _moduleNames.contains(name) ||
-      _constNames.contains(name) ||
-      _typeDecls.containsKey(name) || // static dispatch: TypeName.method()
-      _enumDecls.containsKey(name); // enum variant access: EnumName.Variant
+      _library.functions.containsKey(name) ||
+      _library.modules.contains(name) ||
+      _library.consts.containsKey(name) ||
+      // Type names appear as values for static dispatch (`TypeName.method()`)
+      // and enum variant access (`EnumName.Variant`).
+      _library.typeDefs.containsKey(name);
 
   TypeRef? _inferType(Expr expr, _Scope scope) => switch (expr) {
         IntLiteral() => NamedType('Int'),
@@ -424,8 +427,6 @@ class TypeChecker {
         BoolLiteral() => NamedType('Bool'),
         StringExpr() => NamedType('String'),
         IdentExpr(:final name) => scope[name],
-        CallExpr(:final callee) when callee is IdentExpr =>
-          _fnDecls[callee.name]?.returnType,
         _ => null,
       };
 
