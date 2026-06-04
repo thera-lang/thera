@@ -412,8 +412,8 @@ let doubled = nums.map(n => n * 2).to_list();
 
 ## Imports
 
-Standard library modules are imported by path. The last path segment becomes the
-local prefix used to reference the module's members:
+Libraries are imported by path. The last path segment becomes the namespace used
+to reference the library's public members:
 
 ```hawk
 import std.fs;
@@ -432,10 +432,11 @@ import std.fs as fs;
 testing.assert_eq(actual: result, expected: 5)?;
 ```
 
-`std.core` is automatically imported into every file and does not need an
-explicit import statement; it provides the fundamental interfaces (`Eq`,
-`Display`, `Debug`). `std.args` (the `Args` argument parser) is an ordinary
-package — `import std.args` when you need it.
+`std.core` is the **prelude**: automatically imported into every file, with its
+names available **unqualified** (`Ok`/`Err`/`Some`/`None`, `Result`/`Option`/
+`Error`, `Eq`/`Display`/`Debug`, `println`/…). It is the one unqualified import;
+every other library is referenced through its namespace. `std.args` (the `Args`
+argument parser) is an ordinary library — `import std.args` when you need it.
 
 ### Import resolution
 
@@ -462,6 +463,40 @@ import 'util/strings'     // → <same dir>/util/strings.hawk
 
 The `.hawk` extension is always implied and must not be written in the import
 path. Absolute paths and `..` traversals are not supported.
+
+**A path may resolve to a file or to a directory.** For a path `P` (after
+anchoring as above): if `P.hawk` exists it is the library; otherwise, if `P/` is
+a directory, the library is its **barrel** file `P/<last>.hawk` (named after the
+directory). Having both `P.hawk` and a `P/` directory is an error.
+
+```hawk
+import std.fs       // → std/fs.hawk          (single-file library)
+import std.i18n     // → std/i18n/i18n.hawk   (directory library, via its barrel)
+```
+
+A barrel re-exports its directory's files with `pub import`, so a whole
+directory imports as one namespace. See [visibility.md](visibility.md).
+
+---
+
+## Visibility
+
+A top-level declaration (`fn`, `type`, `enum`, `const`, `interface`) is
+**private to its source file** unless marked `pub`. The physical `.hawk` file is
+the privacy boundary; within a file everything is mutually visible, and across
+files only `pub` symbols are — once imported.
+
+```hawk
+pub fn format_date(_ d: Date) -> String { ... }   // public API
+fn pad2(_ n: Int) -> String { ... }                // file-private
+```
+
+A `pub` type exposes its fields; `impl` methods are exposed individually
+(`pub fn`). A file can `pub import` another file to re-export its public symbols
+— the basis of barrels. Sibling `_test.hawk` files get white-box access to their
+target's private symbols. The full model — barrels, the `<dirname>.hawk`
+convention, the test rule, and terminology (a source file vs. a library) — is in
+[visibility.md](visibility.md).
 
 ---
 
@@ -644,8 +679,10 @@ fn healthz(req: Request) -> Result<Response, Error> {
 ## Testing
 
 Test files are co-located with the source file they test, using a `_test`
-suffix: `src/foo.hawk` is tested by `src/foo_test.hawk`. The test file imports
-its sibling module and has access to its exported symbols.
+suffix: `src/foo.hawk` is tested by `src/foo_test.hawk`. The test imports its
+sibling through the normal import process, and — because the names match — that
+import additionally gets **white-box** access to the target's *private* symbols
+(not just its `pub` ones). See [visibility.md](visibility.md#testing-white-box-access).
 
 Test functions are marked with `@test`, take no arguments, and return
 `Result<Void, Error>`. A test passes when it returns `Ok(())` and fails when it
@@ -657,18 +694,18 @@ so that the first failure propagates out of the test immediately.
 
 import std.testing;
 
-import './math';
+import 'math';
 
 @test
 fn test_add() -> Result<Void, Error> {
-    testing.assert_eq(actual: add(2, 3), expected: 5)?;
-    testing.assert_eq(actual: add(-1, 1), expected: 0)?;
+    testing.assert_eq(actual: math.add(2, 3), expected: 5)?;
+    testing.assert_eq(actual: math.add(-1, 1), expected: 0)?;
     return Ok(());
 }
 
 @test
 fn test_parse_config() -> Result<Void, Error> {
-    let cfg = parse_config('testdata/config.toml')?;
+    let cfg = math.parse_config('testdata/config.toml')?;
     testing.assert_eq(actual: cfg.host, expected: 'localhost')?;
     return Ok(());
 }
@@ -822,12 +859,15 @@ implicit `Ok` on `return` — are documented above as the language's behavior.)
   iteration via `.chars()` (code points) or `.graphemes()` (user-perceived
   characters) so code never slices an emoji in half. `Char` as a distinct type
   is still open (see Types → Open questions above).
-- **Visibility / access control** — `pub` keyword (Rust), leading-`_` convention
-  (Go), an explicit `export` list (ES modules), or interface files? Needed to
-  hide `native fn` bindings and internal helpers from a module's public API.
-- **Module / package system** — file-per-module (Go) or explicit `import`
-  declarations? And a **package manager** — Go-style URL imports or a central
-  registry (npm/PyPI)? Relevant early, since stdlib scope depends on it.
+- ~~**Visibility / access control**~~ — _decided._ The source file is the
+  privacy boundary; `pub` exposes a symbol; directories aggregate through a
+  `<dirname>.hawk` barrel; sibling `_test.hawk` files get white-box access. See
+  [visibility.md](visibility.md).
+- ~~**Library / import system**~~ — _decided (mechanism)._ Explicit imports;
+  each binds a namespace (the trailing path segment) accessed qualified, with
+  `std.core` the unqualified prelude. See [visibility.md](visibility.md). Still
+  open: a **package manager** — Go-style URL imports or a central registry
+  (npm/PyPI) — and whether third-party packages exist at all for the POC.
 - **Generics** — parametric only, or constraints/bounds from day one?
 - **Numeric tower** — single `Int`/`Double`, or sized types (`Int32`, `Int64`)?
 - ~~**Interface dispatch**~~ — _decided._ The concrete type is known at every

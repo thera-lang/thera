@@ -140,15 +140,19 @@ gaps, by where they live:
   `_isDefinedName`. It can become a `Set<String>`, retiring `_inferType` and the
   `type` argument of `_bindPattern`. Small and self-contained.
 
-**Language / module system:**
+**Language / libraries & visibility:**
 
-- **Visibility story between files and directories (needs design).** Imports
-  currently link `.hawk` sources into one module and every top-level name is
-  visible; there's no notion of public vs private, nor of a directory as a unit.
-  Before the stdlib and a self-hosted front-end grow, decide: what a module is
-  (file? directory?), default visibility and how to export, and how `std.*`
-  resolves vs. relative imports. This shapes the stdlib layout and the
-  element-model resolver.
+- **Visibility model — designed (see [visibility.md](visibility.md)),
+  implementation pending.** The file is the privacy boundary; `pub` exposes
+  symbols; imports bind a namespace (the trailing path segment) and access is
+  qualified (`std.core` is the unqualified prelude); directories import through a
+  `<dirname>.hawk` barrel that `pub import`s its files; sibling `_test.hawk`
+  files get white-box access. Implementation touches the element-model resolver
+  (namespaces + `pub` filtering + barrel/dir resolution + cycle guard), the
+  checker's name resolution, and codegen's qualified-call lowering; then the
+  `examples/` migrate to qualified imports. Tracked sub-items live in
+  visibility.md (selective import, field-level visibility, impl coherence,
+  terminology sweep).
 
 **Cross-cutting:** the stdlib natives are listed in both the Rust runtime and
 the Dart interpreter. Acceptable (name-bound calls already fail at load on a
