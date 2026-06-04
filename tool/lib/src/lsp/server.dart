@@ -93,12 +93,6 @@ class LspServer {
 
       if (!parseResult.hasErrors) {
         final checker = TypeChecker();
-        // Register stdlib module aliases from imports so names like `fs` resolve.
-        for (final decl in parseResult.program.decls) {
-          if (decl is ImportDecl && decl.path.startsWith('std.')) {
-            checker.addModule(decl.alias ?? decl.path.split('.').last);
-          }
-        }
         final checkResult = checker.check(parseResult.program);
         for (final err in checkResult.errors) {
           diagnostics.add(_checkErrorToDiagnostic(err));

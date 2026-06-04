@@ -26,8 +26,8 @@ typedef _Scope = Map<String, TypeRef?>;
 
 /// Type-checks a Hawk [Program].
 ///
-/// Call [addProgram] to pre-register symbols from imported files (their
-/// declarations become visible but are not themselves checked). Then call
+/// Call [addProgram] to pre-register imported files (their declarations become
+/// visible to the element model but are not themselves checked). Then call
 /// [check] on the primary program.
 class TypeChecker {
   // Value-level names that are always in scope.
@@ -41,15 +41,10 @@ class TypeChecker {
     'None',
   };
 
-  final _typeDecls = <String, TypeDecl>{};
-  final _enumDecls = <String, EnumDecl>{};
-  final _fnDecls = <String, FnDecl>{};
-  final _moduleNames = <String>{};
-  final _constNames = <String>{};
   final _errors = <CheckError>[];
 
   // Imported programs (pre-registered via [addProgram]); fed to the element
-  // model so cross-module types/functions resolve during inference.
+  // model so cross-module types/functions resolve.
   final _importPrograms = <Program>[];
 
   // The resolved element model and a type resolver over it, built per [check]
@@ -61,52 +56,21 @@ class TypeChecker {
 
   // ---- public API ----
 
-  /// Pre-register symbols from an imported [program]. Its declarations become
-  /// visible to [check] but are not themselves checked for errors.
-  void addProgram(Program program) {
-    _importPrograms.add(program);
-    _collectSymbols(program);
-  }
-
-  /// Register a stdlib module alias (e.g. 'fs' from `import std.fs`).
-  void addModule(String name) => _moduleNames.add(name);
+  /// Pre-register an imported [program] so its declarations resolve in [check].
+  void addProgram(Program program) => _importPrograms.add(program);
 
   CheckResult check(Program program) {
     _errors.clear();
-    _collectSymbols(program);
 
-    // Build the resolved element model and annotate every expression with its
-    // inferred type, so the checks below can compare against expected types.
+    // Build the resolved element model (the single source of top-level symbols)
+    // and annotate every expression with its inferred type, so the checks below
+    // can resolve names and compare against expected types.
     _library = buildLibrary(program, imports: _importPrograms);
     _resolver = TypeResolver(_library.typeDefs);
     Inferrer(_library).inferProgram(program);
 
     _checkProgram(program);
     return CheckResult(List.unmodifiable(_errors));
-  }
-
-  // ---- symbol collection ----
-
-  void _collectSymbols(Program program) {
-    for (final decl in program.decls) {
-      switch (decl) {
-        case FnDecl():
-          _fnDecls[decl.name] = decl;
-        case TypeDecl():
-          _typeDecls[decl.name] = decl;
-        case ImplDecl():
-          break; // methods resolve via the element model
-        case ImportDecl():
-          // Register the module alias so `fs.read_text(...)` resolves `fs`.
-          _moduleNames.add(decl.alias ?? decl.path.split('.').last);
-        case InterfaceDecl():
-          break;
-        case ConstDecl():
-          _constNames.add(decl.name);
-        case EnumDecl():
-          _enumDecls[decl.name] = decl;
-      }
-    }
   }
 
   // ---- declaration checking ----
@@ -397,7 +361,8 @@ class TypeChecker {
         // A name is known if the resolver maps it to something concrete — a
         // primitive, a type parameter in scope, or a declared/built-in type
         // (in the element model). `Self` is always allowed inside an impl.
-        final resolved = _resolver.resolve(NamedType(name), typeParams: typeParams);
+        final resolved =
+            _resolver.resolve(NamedType(name), typeParams: typeParams);
         if (name != 'Self' && resolved is UnknownType) {
           _error('unknown type: $name', span ?? fallback);
         }

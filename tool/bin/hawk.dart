@@ -236,17 +236,11 @@ class CheckCommand extends Command<void> {
 }
 
 /// Type-check [program] (located at [path]). [imports] is its loaded import
-/// closure (see [_loadImports]); registering those symbols lets cross-module
-/// names — relative functions and std types like `Args` — resolve. `std.*`
-/// aliases are also registered so module-qualified access (`fs.read_text`)
-/// type-checks.
+/// closure (see [_loadImports]); registering those programs lets cross-module
+/// names — relative functions, std types like `Args`, and module-qualified
+/// access (`fs.read_text`) — resolve via the element model.
 CheckResult _typeCheck(String path, Program program, List<Program> imports) {
   final checker = TypeChecker();
-  for (final decl in program.decls) {
-    if (decl is ImportDecl && decl.path.startsWith('std.')) {
-      checker.addModule(decl.alias ?? decl.path.split('.').last);
-    }
-  }
   for (final imported in imports) {
     checker.addProgram(imported);
   }
