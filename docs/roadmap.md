@@ -106,7 +106,7 @@ gaps, by where they live:
   3. ~~**One source of truth for built-in method signatures.**~~ (done — the
      native-name table and the generic-aware return-type table now both live in
      `element/builtins.dart`, consumed by codegen + inference, with a drift
-     guard. Still split from the *runtime* native table, and not yet described
+     guard. Still split from the _runtime_ native table, and not yet described
      as Hawk signatures in `sdk/std` — the longer-term goal.)
   - ~~**Use inferred types for checking.**~~ (done — the checker runs inference
     and reports type mismatches: return type (with implicit `Ok` wrap), `let`

@@ -29,24 +29,6 @@ typedef _Scope = Map<String, TypeRef?>;
 /// declarations become visible but are not themselves checked). Then call
 /// [check] on the primary program.
 class TypeChecker {
-  // Types that are always in scope (no import required).
-  static const _builtinTypes = <String>{
-    'Int',
-    'Bool',
-    'Double',
-    'Float',
-    'String',
-    'Void',
-    'List',
-    'Map',
-    'Set',
-    'Result',
-    'Option',
-    'Args',
-    'Error',
-    'Self',
-  };
-
   // Value-level names that are always in scope.
   static const _builtinValues = <String>{
     'println',
@@ -61,7 +43,6 @@ class TypeChecker {
   final _typeDecls = <String, TypeDecl>{};
   final _enumDecls = <String, EnumDecl>{};
   final _fnDecls = <String, FnDecl>{};
-  final _implMethods = <String, Map<String, FnDecl>>{};
   final _moduleNames = <String>{};
   final _constNames = <String>{};
   final _errors = <CheckError>[];
@@ -70,8 +51,9 @@ class TypeChecker {
   // model so cross-module types/functions resolve during inference.
   final _importPrograms = <Program>[];
 
-  // The resolved element model + a type resolver, built per [check] run. Used
-  // for type-mismatch diagnostics over the inference-annotated AST.
+  // A type resolver over the element model, built per [check] run. Used to
+  // resolve type references and for type-mismatch diagnostics over the
+  // inference-annotated AST.
   late TypeResolver _resolver;
 
   // ---- public API ----
@@ -110,10 +92,7 @@ class TypeChecker {
         case TypeDecl():
           _typeDecls[decl.name] = decl;
         case ImplDecl():
-          _implMethods.putIfAbsent(decl.typeName, () => {});
-          for (final m in decl.methods) {
-            _implMethods[decl.typeName]![m.name] = m;
-          }
+          break; // methods resolve via the element model
         case ImportDecl():
           // Register the module alias so `fs.read_text(...)` resolves `fs`.
           _moduleNames.add(decl.alias ?? decl.path.split('.').last);
@@ -413,12 +392,12 @@ class TypeChecker {
       {Set<String> typeParams = const {}}) {
     switch (typeRef) {
       case NamedType(:final name, :final args, :final span):
-        final errorSpan = span ?? fallback;
-        if (!_builtinTypes.contains(name) &&
-            !_typeDecls.containsKey(name) &&
-            !_enumDecls.containsKey(name) &&
-            !typeParams.contains(name)) {
-          _error('unknown type: $name', errorSpan);
+        // A name is known if the resolver maps it to something concrete — a
+        // primitive, a type parameter in scope, or a declared/built-in type
+        // (in the element model). `Self` is always allowed inside an impl.
+        final resolved = _resolver.resolve(NamedType(name), typeParams: typeParams);
+        if (name != 'Self' && resolved is UnknownType) {
+          _error('unknown type: $name', span ?? fallback);
         }
         for (final arg in args) {
           _checkTypeRef(arg, fallback, typeParams: typeParams);
