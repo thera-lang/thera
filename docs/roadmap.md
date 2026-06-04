@@ -136,7 +136,7 @@ gaps, by where they live:
   `match` patterns — mostly gated on the runtime equivalents.
 - **Tech debt — collapse the checker's `_Scope`.** The checker still tracks
   locals as `Map<String, TypeRef?>`, but since inference annotates expressions
-  the type *values* are now vestigial — only key-presence drives
+  the type _values_ are now vestigial — only key-presence drives
   `_isDefinedName`. It can become a `Set<String>`, retiring `_inferType` and the
   `type` argument of `_bindPattern`. Small and self-contained.
 
@@ -145,8 +145,8 @@ gaps, by where they live:
 - **Visibility model — designed (see [visibility.md](visibility.md)),
   implementation pending.** The file is the privacy boundary; `pub` exposes
   symbols; imports bind a namespace (the trailing path segment) and access is
-  qualified (`std.core` is the unqualified prelude); directories import through a
-  `<dirname>.hawk` barrel that `pub import`s its files; sibling `_test.hawk`
+  qualified (`std.core` is the unqualified prelude); directories import through
+  a `<dirname>.hawk` barrel that `pub import`s its files; sibling `_test.hawk`
   files get white-box access. Implementation touches the element-model resolver
   (namespaces + `pub` filtering + barrel/dir resolution + cycle guard), the
   checker's name resolution, and codegen's qualified-call lowering; then the

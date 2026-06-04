@@ -559,10 +559,10 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
 }
 ```
 
-`flag` tests for a boolean switch — `--verbose` (and, planned, its `--no-verbose`
-negation) — and returns `Bool`. `option` reads a valued option — `--output=path`
-(or `--output path`) — and returns `Option<String>`; pair it with `unwrap_or`
-for a default.
+`flag` tests for a boolean switch — `--verbose` (and, planned, its
+`--no-verbose` negation) — and returns `Bool`. `option` reads a valued option —
+`--output=path` (or `--output path`) — and returns `Option<String>`; pair it
+with `unwrap_or` for a default.
 
 ---
 
@@ -681,8 +681,9 @@ fn healthz(req: Request) -> Result<Response, Error> {
 Test files are co-located with the source file they test, using a `_test`
 suffix: `src/foo.hawk` is tested by `src/foo_test.hawk`. The test imports its
 sibling through the normal import process, and — because the names match — that
-import additionally gets **white-box** access to the target's *private* symbols
-(not just its `pub` ones). See [visibility.md](visibility.md#testing-white-box-access).
+import additionally gets **white-box** access to the target's _private_ symbols
+(not just its `pub` ones). See
+[visibility.md](visibility.md#testing-white-box-access).
 
 Test functions are marked with `@test`, take no arguments, and return
 `Result<Void, Error>`. A test passes when it returns `Ok(())` and fails when it
@@ -871,10 +872,10 @@ implicit `Ok` on `return` — are documented above as the language's behavior.)
 - **Generics** — parametric only, or constraints/bounds from day one?
 - **Numeric tower** — single `Int`/`Double`, or sized types (`Int32`, `Int64`)?
 - ~~**Interface dispatch**~~ — _decided._ The concrete type is known at every
-  call site today, so the frontend resolves statically and emits a direct
-  `call` (covers `Display`/`Eq`). A per-type vtable (`call.interface`) is added
-  only when Hawk gains type-erased interface values; the JIT devirtualizes when
-  it knows the type. See [bytecode.md](bytecode.md).
+  call site today, so the frontend resolves statically and emits a direct `call`
+  (covers `Display`/`Eq`). A per-type vtable (`call.interface`) is added only
+  when Hawk gains type-erased interface values; the JIT devirtualizes when it
+  knows the type. See [bytecode.md](bytecode.md).
 - **Decorator semantics** — compile-time metadata only, or runtime hooks?
 - **Process spawning ergonomics** — method call (`run('git', [...])`) or a
   shell-string shorthand (`$('git status')`)? The former is safer; the latter is

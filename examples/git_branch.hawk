@@ -1,5 +1,5 @@
 import std.process;
-import std.args;
+import std.cli;
 
 fn current_branch() -> Result<String, Error> {
     let out = process.run('git', args: ['rev-parse', '--abbrev-ref', 'HEAD'])?;
@@ -17,7 +17,7 @@ fn all_branches() -> Result<List<String>, Error> {
 }
 
 fn main(parameters: List<String>) -> Result<Int, Error> {
-    let args = Args.new(parameters);
+    let args = cli.Args.new(parameters);
     let show_all = args.flag('--all', default: false);
 
     if show_all {

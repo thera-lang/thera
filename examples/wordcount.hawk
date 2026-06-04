@@ -1,5 +1,5 @@
 import std.fs;
-import std.args;
+import std.cli;
 
 type Counts = {
     lines: Int,
@@ -16,7 +16,7 @@ fn count(_ text: String) -> Counts {
 }
 
 fn main(parameters: List<String>) -> Result<Int, Error> {
-    let args = Args.new(parameters);
+    let args = cli.Args.new(parameters);
     let path = args.positional(0).ok_or('usage: wordcount <file>')?;
     let text = fs.read_text(path)?;
     let c    = count(text);

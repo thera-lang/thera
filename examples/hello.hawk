@@ -1,11 +1,11 @@
 // A small CLI: greets the name given by `--name` (default: world), and shouts
-// when `--loud` is passed. Demonstrates the entry/args convention, std.args
+// when `--loud` is passed. Demonstrates the entry/args convention, std.cli
 // (option + flag), Option.unwrap_or, and a String method.
 
-import std.args;
+import std.cli;
 
 fn main(parameters: List<String>) -> Result<Int, Error> {
-    let args = Args.new(parameters);
+    let args = cli.Args.new(parameters);
     let name = args.option('--name').unwrap_or('world');
     let loud = args.flag('--loud', default: false);
 

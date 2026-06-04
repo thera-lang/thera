@@ -1,0 +1,4 @@
+// std.cli — command-line tooling. A barrel that re-exports the CLI libraries
+// (argument parsing today; process execution will live here too).
+
+pub import 'args';

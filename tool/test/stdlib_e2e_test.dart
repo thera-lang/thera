@@ -27,9 +27,9 @@ void main() {
 
   test('std.args (written in Hawk) links and parses a positional', () {
     final r = emitAndRun('args', '''
-import std.args;
+import std.cli;
 fn main(parameters: List<String>) -> Result<Int, Error> {
-    let first = Args.new(parameters).positional(0).ok_or('need an arg')?;
+    let first = cli.Args.new(parameters).positional(0).ok_or('need an arg')?;
     println(first);
     return Ok(0);
 }
@@ -41,9 +41,9 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
 
   test('a missing positional propagates as an error (exit 1)', () {
     final r = emitAndRun('args_missing', '''
-import std.args;
+import std.cli;
 fn main(parameters: List<String>) -> Result<Int, Error> {
-    let first = Args.new(parameters).positional(0).ok_or('need an arg')?;
+    let first = cli.Args.new(parameters).positional(0).ok_or('need an arg')?;
     println(first);
     return Ok(0);
 }

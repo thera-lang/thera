@@ -12,18 +12,18 @@
 //       ...
 //   }
 
-type Args = {
+pub type Args = {
     parameters: List<String>,
 }
 
 impl Args {
     // Wrap the raw program arguments.
-    fn new(_ parameters: List<String>) -> Args {
+    pub fn new(_ parameters: List<String>) -> Args {
         return Args { parameters: parameters };
     }
 
     // The positional argument at `index`, or None if out of range.
-    fn positional(self, _ index: Int) -> Option<String> {
+    pub fn positional(self, _ index: Int) -> Option<String> {
         if index < self.parameters.len() {
             return Some(self.parameters[index]);
         }
@@ -31,12 +31,12 @@ impl Args {
     }
 
     // All arguments, in order.
-    fn positionals(self) -> List<String> {
+    pub fn positionals(self) -> List<String> {
         return self.parameters;
     }
 
     // True if `name` (e.g. '--verbose') appears in the arguments.
-    fn has(self, _ name: String) -> Bool {
+    pub fn has(self, _ name: String) -> Bool {
         for p in self.parameters {
             if p == name {
                 return true;
@@ -49,7 +49,7 @@ impl Args {
     //
     // TODO: support negation — `--no-<name>` should yield false — so a flag can
     // be explicitly disabled, not just defaulted.
-    fn flag(self, _ name: String, default value: Bool) -> Bool {
+    pub fn flag(self, _ name: String, default value: Bool) -> Bool {
         if self.has(name) {
             return true;
         }
@@ -60,7 +60,7 @@ impl Args {
     //
     // TODO: also accept the `--name=value` form (today only the space-separated
     // `--name value` form is recognized).
-    fn option(self, _ name: String) -> Option<String> {
+    pub fn option(self, _ name: String) -> Option<String> {
         let mut i = 0;
         while i < self.parameters.len() {
             if self.parameters[i] == name {
