@@ -1,10 +1,34 @@
 import 'package:hawk/src/ast.dart';
 import 'package:hawk/src/element/inference.dart';
+import 'package:hawk/src/element/namespace.dart';
 import 'package:hawk/src/element/resolver.dart';
 import 'package:hawk/src/element/types.dart';
 import 'package:hawk/src/lexer.dart';
 import 'package:hawk/src/parser.dart';
 import 'package:test/test.dart';
+
+Program _parse(String source) {
+  final lex = Lexer(source).tokenize();
+  expect(lex.hasErrors, isFalse, reason: 'lex errors: ${lex.errors}');
+  final p = Parser(lex.tokens).parse();
+  expect(p.hasErrors, isFalse, reason: 'parse errors: ${p.errors}');
+  return p.program;
+}
+
+/// Like [inferred] but with namespaced imports: each entry of [libs] is an
+/// import-path -> library-source, so qualified access (`ns.member`) resolves.
+Program inferredWith(String source, Map<String, String> libs) {
+  final imports = {
+    for (final e in libs.entries) e.key: LibrarySource(_parse(e.value)),
+  };
+  final program = _parse(source);
+  final root = LibrarySource(program, imports: imports);
+  final lib = buildLibrary(program,
+      imports: [for (final s in imports.values) s.program],
+      namespaces: namespacesFor(root));
+  Inferrer(lib).inferProgram(program);
+  return program;
+}
 
 /// Parse [source], run inference, and return a function for querying the
 /// resolved type of the *last* expression matching a predicate. Most tests
@@ -206,6 +230,58 @@ impl Box<T> {
 fn f() { let b = Box { value: "hi" }; let v = b.get(); }
 ''');
       expect(letType(p, 'v'), PrimitiveType.string);
+    });
+  });
+
+  group('qualified (namespaced) access', () {
+    test('ns.fn() resolves the imported function return type', () {
+      final p = inferredWith(
+        "import 'm';\nfn f() { let x = m.answer(); }",
+        {'m': 'pub fn answer() -> Int { return 42; }'},
+      );
+      expect(letType(p, 'x'), PrimitiveType.int_);
+    });
+
+    test('ns.Type.staticMethod() resolves', () {
+      final p = inferredWith(
+        "import 'm';\nfn f() { let b = m.Box.make(); }",
+        {
+          'm': 'pub type Box = { v: Int }\n'
+              'impl Box { fn make() -> Box { return Box { v: 0 }; } }',
+        },
+      );
+      expect((letType(p, 'b') as InterfaceType).element.name, 'Box');
+    });
+
+    test('ns.Enum.Variant() resolves to the enum type', () {
+      final p = inferredWith(
+        "import 'm';\nfn f() { let c = m.Color.Rgb(1); }",
+        {'m': 'pub enum Color { Red, Rgb(Int) }'},
+      );
+      expect((letType(p, 'c') as InterfaceType).element.name, 'Color');
+    });
+
+    test('ns.CONST resolves the const type', () {
+      final p = inferredWith(
+        "import 'm';\nfn f() { let n = m.ANSWER; }",
+        {'m': 'pub const ANSWER: Int = 42;'},
+      );
+      expect(letType(p, 'n'), PrimitiveType.int_);
+    });
+
+    test('a chain off a qualified static call still resolves', () {
+      // m.Args.new(...).first() — exercises ns.Type.method then a chained call.
+      final p = inferredWith(
+        "import 'm';\nfn f(xs: List<String>) { let v = m.Args.new(xs).first(); }",
+        {
+          'm': 'pub type Args = { items: List<String> }\n'
+              'impl Args {\n'
+              '  fn new(_ items: List<String>) -> Args { return Args { items: items }; }\n'
+              '  fn first(self) -> Option<String> { return self.items.get(0); }\n'
+              '}',
+        },
+      );
+      expect(letType(p, 'v').toString(), 'Option<String>');
     });
   });
 }

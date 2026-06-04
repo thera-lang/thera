@@ -230,9 +230,14 @@ class Inferrer {
         return _indexResult(recv);
 
       case FieldExpr(:final object, :final field):
-        // Bare enum variant: `Enum.Variant` (no payload).
-        final asEnum = _enumVariantType(object, field, const []);
+        // Bare enum variant: `(ns.)?Enum.Variant` (no payload).
+        final asEnum = _enumVariantType(object, field, const [], scope);
         if (asEnum != null) return asEnum;
+        // Namespace member: `ns.CONST`.
+        if (object is IdentExpr && _isNamespace(object.name, scope)) {
+          final c = library.consts[field];
+          if (c != null) return c.type;
+        }
         final recv = sub(object);
         return _fieldType(recv, field);
 
@@ -317,17 +322,25 @@ class Inferrer {
     }
 
     if (callee is FieldExpr) {
-      // Enum construction: `Enum.Variant(payload...)`.
-      final enumType = _enumVariantType(callee.object, callee.field, argTypes);
+      final obj = callee.object;
+
+      // Enum construction: `(ns.)?Enum.Variant(payload...)`.
+      final enumType = _enumVariantType(obj, callee.field, argTypes, scope);
       if (enumType != null) return enumType;
 
-      // Static method on a type: `Type.method(...)` (e.g. `Args.new(...)`,
-      // `Point.origin()`). The receiver is a type name, not a value.
-      final obj = callee.object;
-      if (obj is IdentExpr && !scope.containsKey(obj.name)) {
-        final typeDef = library.typeDefs[obj.name];
-        final method = typeDef?.method(callee.field);
+      // Static method on a (possibly namespaced) type: `(ns.)?Type.method(...)`
+      // (e.g. `Args.new(...)`, `Point.origin()`). The receiver is a type, not a
+      // value.
+      final typeDef = _typeDefFor(obj, scope);
+      if (typeDef != null) {
+        final method = typeDef.method(callee.field);
         if (method != null && method.isStatic) return method.returnType;
+      }
+
+      // Namespace function: `ns.fn(...)`.
+      if (obj is IdentExpr && _isNamespace(obj.name, scope)) {
+        final fn = library.functions[callee.field];
+        if (fn != null) return _instantiateReturn(fn, argTypes);
       }
 
       // `e.name()` on an enum value -> String.
@@ -454,12 +467,32 @@ class Inferrer {
     return const UnknownType();
   }
 
-  /// If [object] names a declared enum and [variant] is one of its variants,
-  /// the constructed enum type (with type args recovered from [argTypes]).
-  InterfaceType? _enumVariantType(
-      Expr object, String variant, List<Type> argTypes) {
-    if (object is! IdentExpr) return null;
-    final element = library.typeDefs[object.name];
+  /// Whether [name] refers to an import namespace here (a known namespace not
+  /// shadowed by a local).
+  bool _isNamespace(String name, Map<String, Type> scope) =>
+      !scope.containsKey(name) && library.namespaces.containsKey(name);
+
+  /// Resolve a (possibly namespace-qualified) type reference in expression
+  /// position — `Type` or `ns.Type` — to its element. The type table is flat,
+  /// so a qualified `ns.Type` resolves to the same element as bare `Type`.
+  TypeDefElement? _typeDefFor(Expr object, Map<String, Type> scope) {
+    if (object is IdentExpr && !scope.containsKey(object.name)) {
+      return library.typeDefs[object.name];
+    }
+    if (object is FieldExpr &&
+        object.object is IdentExpr &&
+        _isNamespace((object.object as IdentExpr).name, scope)) {
+      return library.typeDefs[object.field];
+    }
+    return null;
+  }
+
+  /// If [object] names a declared enum (possibly namespace-qualified) and
+  /// [variant] is one of its variants, the constructed enum type (with type
+  /// args recovered from [argTypes]).
+  InterfaceType? _enumVariantType(Expr object, String variant,
+      List<Type> argTypes, Map<String, Type> scope) {
+    final element = _typeDefFor(object, scope);
     if (element is! EnumElement) return null;
     final v = element.variant(variant);
     if (v == null) return null;
