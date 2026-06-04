@@ -88,6 +88,7 @@ class Parser {
           k == TokenKind.kwInterface ||
           k == TokenKind.kwImport ||
           k == TokenKind.kwNative ||
+          k == TokenKind.kwPub ||
           k == TokenKind.kwConst ||
           k == TokenKind.kwEnum ||
           k == TokenKind.at) {
@@ -106,44 +107,51 @@ class Parser {
       decorators.add(_parseDecorator());
     }
 
+    // Optional `pub` visibility modifier (after decorators, before the keyword).
+    final isPub = _match(TokenKind.kwPub);
+
     final k = _current.kind;
 
     if (k == TokenKind.kwImport) {
       if (decorators.isNotEmpty) {
         _fail('decorators are not allowed on import declarations');
       }
-      return _parseImport();
+      return _parseImport(isPub);
     }
     if (k == TokenKind.kwNative) {
-      return _parseFnDecl(decorators, isNative: true);
+      return _parseFnDecl(decorators, isNative: true, isPub: isPub);
     }
     if (k == TokenKind.kwFn) {
-      return _parseFnDecl(decorators, isNative: false);
+      return _parseFnDecl(decorators, isNative: false, isPub: isPub);
     }
     if (k == TokenKind.kwType) {
       if (decorators.isNotEmpty)
         _fail('decorators are not allowed on type declarations');
-      return _parseTypeDecl();
+      return _parseTypeDecl(isPub: isPub);
     }
     if (k == TokenKind.kwImpl) {
       if (decorators.isNotEmpty)
         _fail('decorators are not allowed on impl blocks');
+      if (isPub) {
+        _fail('`pub` is not allowed on impl blocks; '
+            'mark individual methods `pub` instead');
+      }
       return _parseImplDecl();
     }
     if (k == TokenKind.kwInterface) {
       if (decorators.isNotEmpty)
         _fail('decorators are not allowed on interface declarations');
-      return _parseInterfaceDecl();
+      return _parseInterfaceDecl(isPub: isPub);
     }
     if (k == TokenKind.kwConst) {
       if (decorators.isNotEmpty)
         _fail('decorators are not allowed on const declarations');
-      return _parseConstDecl();
+      return _parseConstDecl(isPub: isPub);
     }
     if (k == TokenKind.kwEnum) {
       if (decorators.isNotEmpty)
         _fail('decorators are not allowed on enum declarations');
-      return _parseEnumDecl();
+      return _parseEnumDecl(isPub: isPub);
     }
 
     _fail(
@@ -164,7 +172,7 @@ class Parser {
     return Decorator(name, args: args);
   }
 
-  ImportDecl _parseImport() {
+  ImportDecl _parseImport(bool isPub) {
     final startSpan = _advance().span; // consume 'import'
     // Import path is either a dot-separated module path (std.fs) or a quoted
     // string ('wordcount').
@@ -187,10 +195,11 @@ class Parser {
       alias = _expect(TokenKind.identifier, 'alias name').lexeme;
     }
     _match(TokenKind.semi);
-    return ImportDecl(startSpan, path: path, alias: alias);
+    return ImportDecl(startSpan, path: path, alias: alias, isPub: isPub);
   }
 
-  FnDecl _parseFnDecl(List<Decorator> decorators, {required bool isNative}) {
+  FnDecl _parseFnDecl(List<Decorator> decorators,
+      {required bool isNative, bool isPub = false}) {
     if (isNative) _advance(); // 'native'
     final start = _expect(TokenKind.kwFn, 'fn');
     final nameTok = _expect(TokenKind.identifier, 'function name');
@@ -212,6 +221,7 @@ class Parser {
     return FnDecl(
       start.span,
       decorators: decorators,
+      isPub: isPub,
       isNative: isNative,
       name: name,
       nameSpan: nameTok.span,
@@ -301,7 +311,7 @@ class Parser {
         label: label, name: name, type: type, defaultValue: defaultValue);
   }
 
-  TypeDecl _parseTypeDecl() {
+  TypeDecl _parseTypeDecl({bool isPub = false}) {
     final start = _advance(); // 'type'
     final nameTok = _expect(TokenKind.identifier, 'type name');
     final typeParams = _parseTypeParams();
@@ -317,6 +327,7 @@ class Parser {
     }
     _expect(TokenKind.rBrace, '}');
     return TypeDecl(start.span,
+        isPub: isPub,
         name: nameTok.lexeme,
         nameSpan: nameTok.span,
         typeParams: typeParams,
@@ -349,9 +360,10 @@ class Parser {
     while (!_check(TokenKind.rBrace) && !_atEnd) {
       final decos = <Decorator>[];
       while (_check(TokenKind.at)) decos.add(_parseDecorator());
+      final isPub = _match(TokenKind.kwPub);
       final isNative = _match(TokenKind.kwNative);
       if (!_check(TokenKind.kwFn)) _fail('expected fn in impl block');
-      methods.add(_parseFnDecl(decos, isNative: isNative));
+      methods.add(_parseFnDecl(decos, isNative: isNative, isPub: isPub));
     }
     _expect(TokenKind.rBrace, '}');
     return ImplDecl(start.span,
@@ -362,18 +374,22 @@ class Parser {
         methods: methods);
   }
 
-  InterfaceDecl _parseInterfaceDecl() {
+  InterfaceDecl _parseInterfaceDecl({bool isPub = false}) {
     final start = _advance(); // 'interface'
     final nameTok = _expect(TokenKind.identifier, 'interface name');
     _expect(TokenKind.lBrace, '{');
     final methods = <FnDecl>[];
     while (!_check(TokenKind.rBrace) && !_atEnd) {
+      final mPub = _match(TokenKind.kwPub);
       if (!_check(TokenKind.kwFn)) _fail('expected fn in interface');
-      methods.add(_parseFnDecl([], isNative: false));
+      methods.add(_parseFnDecl([], isNative: false, isPub: mPub));
     }
     _expect(TokenKind.rBrace, '}');
     return InterfaceDecl(start.span,
-        name: nameTok.lexeme, nameSpan: nameTok.span, methods: methods);
+        isPub: isPub,
+        name: nameTok.lexeme,
+        nameSpan: nameTok.span,
+        methods: methods);
   }
 
   // ---- type references ----
@@ -450,7 +466,7 @@ class Parser {
         isMut: false, name: name, type: type, value: value);
   }
 
-  ConstDecl _parseConstDecl() {
+  ConstDecl _parseConstDecl({bool isPub = false}) {
     final start = _advance(); // 'const'
     final name = _expect(TokenKind.identifier, 'constant name').lexeme;
     TypeRef? type;
@@ -458,10 +474,11 @@ class Parser {
     _expect(TokenKind.eq, '=');
     final value = _parseExpr();
     _match(TokenKind.semi);
-    return ConstDecl(start.span, name: name, type: type, value: value);
+    return ConstDecl(start.span,
+        isPub: isPub, name: name, type: type, value: value);
   }
 
-  EnumDecl _parseEnumDecl() {
+  EnumDecl _parseEnumDecl({bool isPub = false}) {
     final start = _advance(); // 'enum'
     final nameTok = _expect(TokenKind.identifier, 'enum name');
     final typeParams = _parseTypeParams();
@@ -482,6 +499,7 @@ class Parser {
     }
     _expect(TokenKind.rBrace, '}');
     return EnumDecl(start.span,
+        isPub: isPub,
         name: nameTok.lexeme,
         nameSpan: nameTok.span,
         typeParams: typeParams,

@@ -2,17 +2,18 @@
 
 **What this is:** how Hawk controls what's visible across files — the privacy
 boundary, the `pub` keyword, barrels for aggregating directories, and the
-white-box rule for tests. For import *syntax* and resolution see the
-[Imports](language.md#imports) section of the language reference; this doc is the
-design rationale and the precise rules.
+white-box rule for tests. For import _syntax_ and resolution see the
+[Imports](language.md#imports) section of the language reference; this doc is
+the design rationale and the precise rules.
 
 ## Model at a glance
 
 - **Boundary:** the physical `.hawk` source file.
 - **Default:** private — a top-level symbol is visible only within its own file.
-- **Exposure:** the `pub` keyword makes a symbol part of its library's public API.
-- **Aggregation:** a file can `pub import` other files, so a single root file can
-  present a whole directory as one clean API surface (a *barrel*).
+- **Exposure:** the `pub` keyword makes a symbol part of its library's public
+  API.
+- **Aggregation:** a file can `pub import` other files, so a single root file
+  can present a whole directory as one clean API surface (a _barrel_).
 - **Testing:** a sibling `foo_test.hawk` gets white-box access to the private
   symbols of `foo.hawk`.
 
@@ -28,10 +29,10 @@ Hawk intentionally has **no "module"** — there is no multi-file unit with shar
 privacy (no `part`/`part-of`-style grouping). The relevant terms are:
 
 - **Source file** — a physical `.hawk` file. It is the unit of privacy.
-- **Library** — an importable API surface: *either* a single source file *or* a
+- **Library** — an importable API surface: _either_ a single source file _or_ a
   directory fronted by its barrel. `import std.fs` imports a one-file library;
   `import std.i18n` imports a directory library through its barrel. In the
-  common single-file case the source file *is* the library, which is why "a file
+  common single-file case the source file _is_ the library, which is why "a file
   is a library" reads naturally.
 - **Barrel** — a library root file that re-exports the other files in its
   directory (see [Barrels](#barrels-and-directory-libraries)).
@@ -53,19 +54,19 @@ fn pad2(_ n: Int) -> String { ... }                // file-private helper
 Within a file, everything sees everything (privacy never applies inside a file).
 Across files, only `pub` symbols are visible — and only once imported.
 
-**Types expose their fields.** Making a `type` (or `enum`) `pub` also exposes its
-fields/variants to importers; there is no per-field `pub` and no "make private"
-mechanism. This keeps declarations quiet (no `pub` on every field) at the cost of
-field-level control, which can be added later if needed. Mutability is a separate
-axis, already governed by Hawk's immutable-by-default fields.
+**Types expose their fields.** Making a `type` (or `enum`) `pub` also exposes
+its fields/variants to importers; there is no per-field `pub` and no "make
+private" mechanism. This keeps declarations quiet (no `pub` on every field) at
+the cost of field-level control, which can be added later if needed. Mutability
+is a separate axis, already governed by Hawk's immutable-by-default fields.
 
 **Methods are exposed individually.** A method in an `impl` block is `pub fn` to
 be callable from other files; an unmarked method is file-private.
 
 **`impl` blocks may live wherever visibility allows.** An `impl Foo` or
 `impl Iface for Foo` can be in any file that can see `Foo` (and the interface).
-Coherence (rejecting two overlapping `impl Display for Foo`) is a future concern;
-see [follow-ups](#tracked-follow-ups).
+Coherence (rejecting two overlapping `impl Display for Foo`) is a future
+concern; see [follow-ups](#tracked-follow-ups).
 
 ## Imports and namespacing
 
@@ -80,8 +81,8 @@ let text = fs.read_text('x.toml')?;     // qualified by the namespace
 let s    = i18n.format_date(today);
 ```
 
-This makes barrels safe (a dozen aggregated files can't collide in the consumer's
-flat scope) and keeps provenance obvious. Three consequences:
+This makes barrels safe (a dozen aggregated files can't collide in the
+consumer's flat scope) and keeps provenance obvious. Three consequences:
 
 - **`std.core` is the prelude.** It is auto-imported and its names are available
   **unqualified** everywhere: `Ok`/`Err`/`Some`/`None`, `Result`/`Option`/
@@ -93,11 +94,11 @@ flat scope) and keeps provenance obvious. Three consequences:
   and stay unqualified.
 - **Method calls qualify on the receiver, not the namespace.** After
   `let a = args.Args.new(parameters)`, calls are `a.positional(0)` — `a` is a
-  value; only the top-level *name* `Args` needed the `args.` namespace.
+  value; only the top-level _name_ `Args` needed the `args.` namespace.
 
 `as` gives an import an explicit prefix when the default segment is ambiguous,
-collides with a local, or you want a shorter name. (`show`/`hide`-style selective
-imports are intentionally **not** included yet — see follow-ups.)
+collides with a local, or you want a shorter name. (`show`/`hide`-style
+selective imports are intentionally **not** included yet — see follow-ups.)
 
 ## Barrels and directory libraries
 
@@ -121,7 +122,7 @@ i18n.format_number(1234);   // defined in numbers.hawk
 ```
 
 - **`pub import` = `import` + re-export.** It binds the namespace for the
-  barrel's own use *and* republishes the target's public symbols as part of this
+  barrel's own use _and_ republishes the target's public symbols as part of this
   library's API, under this library's namespace (the `i18n.*` flattening above).
 - **Plain `import` does not re-export.** A symbol brought in with `import` is
   visible only inside the importing file.
@@ -179,8 +180,8 @@ quoted `'foo/bar'` resolves against the importing file's directory):
    `P.hawk`.
 2. Else if `P/` is a directory, the library is the barrel `P/<last>.hawk` (an
    error if that barrel file is absent).
-3. If both `P.hawk` and `P/` exist, it is an error (ambiguous — they are mutually
-   exclusive by convention).
+3. If both `P.hawk` and `P/` exist, it is an error (ambiguous — they are
+   mutually exclusive by convention).
 
 The import's namespace is `<last>`. Importing a library exposes its public
 surface: its own `pub` symbols plus everything it `pub import`s (flattened).
@@ -190,9 +191,9 @@ guards against re-visiting a file.
 ## No runtime impact
 
 Visibility and qualification are **front-end** concerns: name resolution applies
-them, and they are erased by the time code reaches `.hawkbc` (calls are by index;
-there is no notion of "private" or namespaces in the bytecode). Adding this model
-needs no runtime or bytecode change.
+them, and they are erased by the time code reaches `.hawkbc` (calls are by
+index; there is no notion of "private" or namespaces in the bytecode). Adding
+this model needs no runtime or bytecode change.
 
 ## Tracked follow-ups
 
@@ -208,6 +209,5 @@ needs no runtime or bytecode change.
   "library"/"source file".
 - **Implementation** — the front-end currently flattens all imports into one
   unqualified scope with no privacy; the element-model resolver, the checker's
-  name resolution, and codegen's call lowering need to learn namespaces +
-  `pub`. The `examples/` are migrated to qualified imports as part of that work.
-```
+  name resolution, and codegen's call lowering need to learn namespaces + `pub`.
+  The `examples/` are migrated to qualified imports as part of that work.

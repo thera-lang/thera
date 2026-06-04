@@ -175,6 +175,67 @@ interface Greet {
     });
   });
 
+  group('visibility (pub)', () {
+    test('declarations default to private', () {
+      final program = parse('''
+fn f() { }
+type T = { x: Int }
+enum E { A }
+const C: Int = 1;
+interface I { fn m(self) -> Int; }
+''');
+      expect(program.decls.whereType<FnDecl>().single.isPub, isFalse);
+      expect(program.decls.whereType<TypeDecl>().single.isPub, isFalse);
+      expect(program.decls.whereType<EnumDecl>().single.isPub, isFalse);
+      expect(program.decls.whereType<ConstDecl>().single.isPub, isFalse);
+      expect(program.decls.whereType<InterfaceDecl>().single.isPub, isFalse);
+    });
+
+    test('pub marks each declaration kind public', () {
+      final program = parse('''
+pub fn f() { }
+pub type T = { x: Int }
+pub enum E { A }
+pub const C: Int = 1;
+pub interface I { fn m(self) -> Int; }
+pub native fn n() -> Int
+''');
+      expect(program.decls.whereType<FnDecl>().every((d) => d.isPub), isTrue);
+      expect(program.decls.whereType<TypeDecl>().single.isPub, isTrue);
+      expect(program.decls.whereType<EnumDecl>().single.isPub, isTrue);
+      expect(program.decls.whereType<ConstDecl>().single.isPub, isTrue);
+      expect(program.decls.whereType<InterfaceDecl>().single.isPub, isTrue);
+    });
+
+    test('pub import is a re-export', () {
+      final program = parse("pub import 'dates';\nimport 'numbers';");
+      final imports = program.decls.whereType<ImportDecl>().toList();
+      expect(imports[0].path, 'dates');
+      expect(imports[0].isPub, isTrue);
+      expect(imports[1].path, 'numbers');
+      expect(imports[1].isPub, isFalse);
+    });
+
+    test('pub on impl methods, not the impl block', () {
+      final program = parse('''
+type T = { x: Int }
+impl T {
+  pub fn get(self) -> Int { return self.x; }
+  fn helper(self) -> Int { return 0; }
+}
+''');
+      final methods = program.decls.whereType<ImplDecl>().single.methods;
+      expect(methods.firstWhere((m) => m.name == 'get').isPub, isTrue);
+      expect(methods.firstWhere((m) => m.name == 'helper').isPub, isFalse);
+    });
+
+    test('pub on an impl block is rejected', () {
+      final result = parseRaw('pub impl T { }');
+      expect(result.hasErrors, isTrue);
+      expect(result.errors.map((e) => e.message).join(), contains('impl'));
+    });
+  });
+
   group('statements', () {
     List<Stmt> bodyOf(String source) =>
         (parse(source).decls.single as FnDecl).body!.stmts;

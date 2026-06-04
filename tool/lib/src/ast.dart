@@ -28,15 +28,17 @@ sealed class Decl {
 class ImportDecl extends Decl {
   final String path; // e.g. 'std.fs' or 'wordcount'
   final String? alias;
-  ImportDecl(super.span, {required this.path, this.alias});
+  final bool isPub; // `pub import` re-exports the target's public symbols
+  ImportDecl(super.span, {required this.path, this.alias, this.isPub = false});
 
   @override
   String describe([String indent = '']) =>
-      '${indent}Import($path${alias != null ? ' as $alias' : ''})\n';
+      '$indent${isPub ? 'pub ' : ''}Import($path${alias != null ? ' as $alias' : ''})\n';
 }
 
 class FnDecl extends Decl {
   final List<Decorator> decorators;
+  final bool isPub;
   final bool isNative;
   final String name;
   final SourceSpan nameSpan;
@@ -47,6 +49,7 @@ class FnDecl extends Decl {
   FnDecl(
     super.span, {
     required this.decorators,
+    this.isPub = false,
     required this.isNative,
     required this.name,
     required this.nameSpan,
@@ -62,7 +65,8 @@ class FnDecl extends Decl {
     for (final d in decorators) {
       buf.write('$indent${d.describe()}\n');
     }
-    final kw = isNative ? 'NativeFn' : 'Fn';
+    final pub = isPub ? 'pub ' : '';
+    final kw = '$pub${isNative ? 'NativeFn' : 'Fn'}';
     final ret = returnType != null ? ' -> ${returnType!.describe()}' : '';
     final ps = params.map((p) => p.describe()).join(', ');
     buf.write('$indent$kw $name($ps)$ret\n');
@@ -72,12 +76,14 @@ class FnDecl extends Decl {
 }
 
 class TypeDecl extends Decl {
+  final bool isPub;
   final String name;
   final SourceSpan nameSpan;
   final List<TypeParam> typeParams;
   final List<(String, TypeRef)> fields;
   TypeDecl(super.span,
-      {required this.name,
+      {this.isPub = false,
+      required this.name,
       required this.nameSpan,
       this.typeParams = const [],
       required this.fields});
@@ -88,7 +94,7 @@ class TypeDecl extends Decl {
         ? ''
         : '<${typeParams.map((t) => t.describe()).join(', ')}>';
     final fs = fields.map((f) => '${f.$1}: ${f.$2.describe()}').join(', ');
-    return '${indent}Type $name$tps { $fs }\n';
+    return '$indent${isPub ? 'pub ' : ''}Type $name$tps { $fs }\n';
   }
 }
 
@@ -119,15 +125,19 @@ class ImplDecl extends Decl {
 }
 
 class InterfaceDecl extends Decl {
+  final bool isPub;
   final String name;
   final SourceSpan nameSpan;
   final List<FnDecl> methods;
   InterfaceDecl(super.span,
-      {required this.name, required this.nameSpan, required this.methods});
+      {this.isPub = false,
+      required this.name,
+      required this.nameSpan,
+      required this.methods});
 
   @override
   String describe([String indent = '']) {
-    final buf = StringBuffer('${indent}Interface $name\n');
+    final buf = StringBuffer('$indent${isPub ? 'pub ' : ''}Interface $name\n');
     for (final m in methods) {
       buf.write(m.describe('$indent  '));
     }
@@ -136,13 +146,16 @@ class InterfaceDecl extends Decl {
 }
 
 class ConstDecl extends Decl {
+  final bool isPub;
   final String name;
   final TypeRef? type;
   final Expr value;
-  ConstDecl(super.span, {required this.name, this.type, required this.value});
+  ConstDecl(super.span,
+      {this.isPub = false, required this.name, this.type, required this.value});
 
   @override
-  String describe([String indent = '']) => '${indent}Const $name\n';
+  String describe([String indent = '']) =>
+      '$indent${isPub ? 'pub ' : ''}Const $name\n';
 }
 
 class EnumVariant {
@@ -153,12 +166,14 @@ class EnumVariant {
 }
 
 class EnumDecl extends Decl {
+  final bool isPub;
   final String name;
   final SourceSpan nameSpan;
   final List<TypeParam> typeParams;
   final List<EnumVariant> variants;
   EnumDecl(super.span,
-      {required this.name,
+      {this.isPub = false,
+      required this.name,
       required this.nameSpan,
       this.typeParams = const [],
       required this.variants});
@@ -172,7 +187,7 @@ class EnumDecl extends Decl {
       if (v.fields.isEmpty) return v.name;
       return '${v.name}(${v.fields.map((f) => f.describe()).join(', ')})';
     }).join(', ');
-    return '${indent}Enum $name$tps { $vs }\n';
+    return '$indent${isPub ? 'pub ' : ''}Enum $name$tps { $vs }\n';
   }
 }
 
