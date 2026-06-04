@@ -21,13 +21,13 @@ programs execute see [bytecode.md](bytecode.md) and
 Every program defines a `main` function. It receives the program arguments as a
 `List<String>`; the returned `Int` is the process exit code. An `Error` result
 exits non-zero and prints the error message to stderr. For flag/positional
-parsing, import `std.args` and wrap the arguments in `Args`.
+parsing, import `std.cli` and wrap the arguments in `Args`.
 
 ```hawk
-import std.args;
+import std.cli;
 
 fn main(parameters: List<String>) -> Result<Int, Error> {
-    let args = Args.new(parameters);
+    let args = cli.Args.new(parameters);
     // ...
     return Ok(0);
 }
@@ -435,8 +435,9 @@ testing.assert_eq(actual: result, expected: 5)?;
 `std.core` is the **prelude**: automatically imported into every file, with its
 names available **unqualified** (`Ok`/`Err`/`Some`/`None`, `Result`/`Option`/
 `Error`, `Eq`/`Display`/`Debug`, `println`/…). It is the one unqualified import;
-every other library is referenced through its namespace. `std.args` (the `Args`
-argument parser) is an ordinary library — `import std.args` when you need it.
+every other library is referenced through its namespace. `std.cli` (the `Args`
+argument parser, and the home of process execution) is an ordinary library —
+`import std.cli` when you need it.
 
 ### Import resolution
 
@@ -448,11 +449,12 @@ exact location differs between the in-repo and distributed layouts (see
 [SDK layout](#sdk-layout)):
 
 ```
-in-repo:      <repo>/sdk/std/<module>.hawk
-distributed:  <install>/std/<module>.hawk
+in-repo:      <repo>/sdk/std/<lib>
+distributed:  <install>/std/<lib>
 ```
 
-For example, `import std.fs` resolves to `fs.hawk` in that directory.
+Each library is then resolved as a file or a directory barrel (below): `std.fs`
+resolves to `std/fs/fs.hawk`, `std.cli` to `std/cli/cli.hawk`.
 
 **Relative file imports** resolve against the directory of the importing file:
 
@@ -470,8 +472,8 @@ a directory, the library is its **barrel** file `P/<last>.hawk` (named after the
 directory). Having both `P.hawk` and a `P/` directory is an error.
 
 ```hawk
-import std.fs       // → std/fs.hawk          (single-file library)
-import std.i18n     // → std/i18n/i18n.hawk   (directory library, via its barrel)
+import 'wordcount'  // → wordcount.hawk        (single-file library)
+import std.cli      // → std/cli/cli.hawk      (directory library, via its barrel)
 ```
 
 A barrel re-exports its directory's files with `pub import`, so a whole
@@ -541,15 +543,15 @@ A non-zero exit code is returned as an `Error` by default.
 
 ## Command-line arguments
 
-The runtime passes `main` its arguments as a `List<String>`. `std.args` provides
+The runtime passes `main` its arguments as a `List<String>`. `std.cli` provides
 `Args`, which wraps that list and supports positional arguments and named flags.
 Construct it explicitly:
 
 ```hawk
-import std.args;
+import std.cli;
 
 fn main(parameters: List<String>) -> Result<Int, Error> {
-    let args = Args(parameters);
+    let args = cli.Args.new(parameters);
 
     let path    = args.positional(0).ok_or(Error('usage: tool <path>'))?;
     let verbose = args.flag('--verbose', default: false);
@@ -800,14 +802,12 @@ discovery) needs to know about the difference.
     cli/           ← Hawk front-end + CLI harness (written in Hawk)
   sdk/
     std/
-      core.hawk    ← auto-imported: Eq, Display, Debug
-      args.hawk    ← import std.args (Args)
-      fs.hawk      ← import std.fs
-      process.hawk ← import std.process
-      testing.hawk ← import std.testing
-      fiber.hawk   ← import std.fiber
-      regex.hawk   ← import std.regex
-      ...
+      core/core.hawk       ← auto-imported prelude: Eq, Display, Debug, Error
+      cli/cli.hawk          ← import std.cli (Args; barrel re-exporting args.hawk)
+        cli/args.hawk
+      fs/fs.hawk            ← import std.fs
+      testing/testing.hawk  ← import std.testing
+      ...                   ← (process, fiber, regex, … as they land)
   examples/
   docs/
 ```
@@ -840,13 +840,14 @@ running tests against an alternate SDK or wrapping the binary in a script.
 
 ### Standard library source files
 
-Stdlib modules ship as plain Hawk source with `native fn` declarations for
-functions implemented in the runtime. The front-end parses and type-checks them
-the same way it does user code.
+Stdlib libraries ship as plain Hawk source with `native fn` declarations for
+functions implemented in the runtime, each a directory library
+(`std/<lib>/<lib>.hawk`, e.g. `std/fs/fs.hawk`). The front-end parses and
+type-checks them the same way it does user code.
 
 `std.core` is implicitly imported and does not appear in the resolved import
-graph unless explicitly re-imported with `as`. Every other `std.*` package
-(including `std.args`) is imported explicitly.
+graph unless explicitly re-imported with `as`. Every other `std.*` library
+(including `std.cli`) is imported explicitly.
 
 ---
 

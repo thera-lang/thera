@@ -93,8 +93,8 @@ consumer's flat scope) and keeps provenance obvious. Three consequences:
   `match loc { en => …, fr => … }` the variants resolve from the subject's type
   and stay unqualified.
 - **Method calls qualify on the receiver, not the namespace.** After
-  `let a = args.Args.new(parameters)`, calls are `a.positional(0)` — `a` is a
-  value; only the top-level _name_ `Args` needed the `args.` namespace.
+  `let a = cli.Args.new(parameters)`, calls are `a.positional(0)` — `a` is a
+  value; only the top-level _name_ `Args` needed the `cli.` namespace.
 
 `as` gives an import an explicit prefix when the default segment is ambiguous,
 collides with a local, or you want a shorter name. (`show`/`hide`-style
@@ -202,9 +202,11 @@ this model needs no runtime or bytecode change.
   finer control only if a use case demands it.
 - **`impl` coherence / orphan rules** — reject overlapping impls; the
   element-model resolver must gather a type's impls across all loaded files.
-- **Namespace vs. local shadowing** — `import std.args` binds `args`, which a
-  conventional `let args = …` then shadows. It works (the initializer resolves
-  the namespace first) but reads awkwardly; revisit if it bites.
+- **Namespace vs. local shadowing** — an import like `import std.fs` binds `fs`,
+  which a same-named local (`let fs = …`) then shadows. It works (the
+  initializer resolves the namespace first) but reads awkwardly; the stdlib
+  picks namespace names that avoid the common locals (hence `std.cli`, not the
+  `args`-shadowing `std.args`). Revisit if it bites.
 - **Terminology sweep** — older docs/comments say "module"; migrate them to
   "library"/"source file".
 - **Implementation** — the front-end currently flattens all imports into one

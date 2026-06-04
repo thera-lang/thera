@@ -161,8 +161,8 @@ by the runtime, and split the runtime table into per-module files
 (`natives_fs.rs`, `natives_string.rs`, …) as it grows.
 
 **Decided:** the entry/args convention — `main` takes the arguments as a
-`List<String>`; `Args` is an explicit `std.args` import constructed from that
-list (no auto-import).
+`List<String>`; `Args` is an explicit `std.cli` import (`cli.Args.new(...)`)
+constructed from that list (no auto-import).
 
 ## Planned sequence
 
