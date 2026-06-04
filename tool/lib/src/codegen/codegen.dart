@@ -80,7 +80,7 @@ Module compileProgram(Program program,
     inferrer.inferProgram(module);
   }
 
-  final scope = _ModuleScope();
+  final scope = _ModuleScope(namespaces: namespaces.keys.toSet());
   for (final module in [...imports, program]) {
     _registerModule(scope, module);
   }
@@ -159,6 +159,12 @@ class _ModuleScope {
   final List<TypeDef> types = [];
   final Map<String, String> moduleAliases = {}; // import alias -> module base
 
+  /// Import namespaces in scope for the program being compiled (alias / trailing
+  /// path segment). A qualified `ns.Name` resolves to the flat `Name`.
+  final Set<String> namespaces;
+
+  _ModuleScope({this.namespaces = const {}});
+
   // Runtime type ids for user enums start after the built-in Result (0) and
   // Option (1), and must be distinct so structural equality never conflates two
   // enum types.
@@ -201,11 +207,34 @@ class _FnCompiler {
   Map<String, _EnumInfo> get _enums => _scope.enums;
   List<FnDecl> get _units => _scope.units;
 
-  /// If `object.name` is a variant of a user enum (a bare enum type name, not a
-  /// local), return that enum and the variant's tag.
+  /// Whether [name] is an import namespace here (not shadowed by a local).
+  bool _isNamespace(String name) =>
+      !_slots.containsKey(name) && _scope.namespaces.contains(name);
+
+  /// The bare type name a (possibly namespace-qualified) type expression refers
+  /// to — `Type` or `ns.Type` — when it names a declared struct or enum. The
+  /// type table is flat, so `ns.Type` resolves to the same `Type`.
+  String? _staticTypeName(Expr e) {
+    if (e is IdentExpr &&
+        !_slots.containsKey(e.name) &&
+        (structs.containsKey(e.name) || _enums.containsKey(e.name))) {
+      return e.name;
+    }
+    if (e is FieldExpr &&
+        e.object is IdentExpr &&
+        _isNamespace((e.object as IdentExpr).name) &&
+        (structs.containsKey(e.field) || _enums.containsKey(e.field))) {
+      return e.field;
+    }
+    return null;
+  }
+
+  /// If [object] names a user enum — `Enum` or `ns.Enum`, not a local — and
+  /// [name] is one of its variants, return that enum and the variant's tag.
   (_EnumInfo, int)? _enumVariant(Expr object, String name) {
-    if (object is! IdentExpr || _slots.containsKey(object.name)) return null;
-    final info = _enums[object.name];
+    final typeName = _staticTypeName(object);
+    if (typeName == null) return null;
+    final info = _enums[typeName];
     if (info == null) return null;
     final tag = info.tagOf(name);
     return tag < 0 ? null : (info, tag);
@@ -852,14 +881,10 @@ class _FnCompiler {
   }
 
   /// The unit index of method [name] on the receiver expression [receiver], or
-  /// null if it can't be resolved. A bare struct type name (not shadowed by a
-  /// local) selects a static method; otherwise the receiver's static type does.
+  /// null if it can't be resolved. A type name — `Type` or `ns.Type`, not a
+  /// local — selects a static method; otherwise the receiver's static type does.
   int? _resolveMethod(Expr receiver, String name) {
-    final type = (receiver is IdentExpr &&
-            structs.containsKey(receiver.name) &&
-            !_slots.containsKey(receiver.name))
-        ? receiver.name
-        : _typeOf(receiver);
+    final type = _staticTypeName(receiver) ?? _typeOf(receiver);
     return type == null ? null : _methods[type]?[name];
   }
 
@@ -1049,6 +1074,22 @@ class _FnCompiler {
       }
       _emit(CallNative(builtinNative, expr.args.length + 1));
       return;
+    }
+
+    // Namespace-qualified free function: `ns.fn(...)` → a direct call (the
+    // imported function is a unit in the flat table).
+    if (callee.object is IdentExpr &&
+        _isNamespace((callee.object as IdentExpr).name)) {
+      final fnIdx = functionIndex[callee.field];
+      if (fnIdx != null) {
+        final ordered =
+            _resolveArgs(_units[fnIdx].params, expr.args, expr.span);
+        for (final value in ordered) {
+          _expr(value);
+        }
+        _emit(Call(fnIdx, ordered.length));
+        return;
+      }
     }
 
     final idx = _resolveMethod(callee.object, callee.field);

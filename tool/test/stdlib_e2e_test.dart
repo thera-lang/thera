@@ -84,4 +84,36 @@ fn main() -> Result<Int, Error> {
     expect(r.exitCode, 0, reason: r.stderr.toString());
     expect(r.stdout, '2\tlines\n6\twords\n31\tbytes\n');
   });
+
+  test('qualified namespace access across files runs end to end', () {
+    if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+    final dir = Directory.systemTemp.createTempSync('hawk_ns');
+    File('${dir.path}/geo.hawk').writeAsStringSync('''
+pub fn area(_ w: Int, _ h: Int) -> Int { return w * h; }
+pub type Point = { x: Int, y: Int }
+impl Point {
+  fn origin() -> Point { return Point { x: 0, y: 0 }; }
+}
+pub enum Dir { North, South }
+''');
+    // Exercises ns.fn (geo.area), ns.Type.method (geo.Point.origin), and
+    // ns.Enum.Variant (geo.Dir.North). Returns 42 -> exit code 42.
+    File('${dir.path}/app.hawk').writeAsStringSync('''
+import geo;
+fn main() -> Int {
+    let p = geo.Point.origin();
+    let d = geo.Dir.North;
+    return geo.area(6, 7) + p.x;
+}
+''');
+    final out = '${dir.path}/app.hawkbc';
+    final emit = Process.runSync(
+      Platform.resolvedExecutable,
+      ['run', 'bin/hawk.dart', 'emit', '${dir.path}/app.hawk', out],
+    );
+    expect(emit.exitCode, 0, reason: emit.stderr.toString());
+
+    final r = Process.runSync(hawkBin, ['run', out]);
+    expect(r.exitCode, 42, reason: r.stderr.toString());
+  });
 }
