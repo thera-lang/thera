@@ -257,14 +257,20 @@ List<Program> _loadImports(String path, Program program) {
   final modules = <Program>[];
   final seen = <String>{};
 
-  // Resolve an import path to a source file: `std.fs` → <sdk>/std/fs.hawk,
-  // `name` → <dir>/name.hawk.
+  // Resolve an import path to a source file. `std.*` is anchored at the SDK std
+  // root (dots become directory separators); any other path is relative to the
+  // importing file. The base then resolves to a single-file library or a
+  // directory's barrel — see [resolveLibraryFile].
   String? resolve(String importPath, String baseDir) {
+    final String base;
     if (importPath.startsWith('std.')) {
       if (sdkRoot == null) return null;
-      return '$sdkRoot/sdk/std/${importPath.substring('std.'.length)}.hawk';
+      final rel = importPath.substring('std.'.length).replaceAll('.', '/');
+      base = '$sdkRoot/sdk/std/$rel';
+    } else {
+      base = '$baseDir/$importPath';
     }
-    return '$baseDir/$importPath.hawk';
+    return resolveLibraryFile(base);
   }
 
   void loadImportsOf(Program prog, String baseDir) {
@@ -283,21 +289,40 @@ List<Program> _loadImports(String path, Program program) {
   }
 
   // std.core is auto-imported into every program — load it first so its types
-  // (e.g. Error) and interface impls (Display for Error) are linked.
-  if (sdkRoot != null) {
-    final core = '$sdkRoot/sdk/std/core.hawk';
-    if (seen.add(core)) {
-      try {
-        final prog = _loadProgramQuiet(core);
-        modules.add(prog);
-        loadImportsOf(prog, File(core).parent.path);
-      } on _LoadFailed {
-        // No SDK core available; skip.
-      }
+  // (e.g. Error) and interface impls (Display for Error) are linked. Routed
+  // through `resolve` so it works whether core is a single file or a directory
+  // barrel (sdk/std/core.hawk or sdk/std/core/core.hawk).
+  final core = resolve('std.core', '');
+  if (core != null && seen.add(core)) {
+    try {
+      final prog = _loadProgramQuiet(core);
+      modules.add(prog);
+      loadImportsOf(prog, File(core).parent.path);
+    } on _LoadFailed {
+      // No SDK core available; skip.
     }
   }
   loadImportsOf(program, File(path).parent.path);
   return modules;
+}
+
+/// Resolve a library base path (no extension) to its source file: the
+/// single-file form `<base>.hawk`, or, when `<base>` is a directory, its
+/// **barrel** `<base>/<name>.hawk` (named after the directory). Returns null if
+/// neither exists.
+///
+/// (Per the visibility spec a base that is *both* a file and a directory is an
+/// error; until the resolver moves into the element model this prefers the
+/// file. See docs/visibility.md.)
+String? resolveLibraryFile(String base) {
+  final file = '$base.hawk';
+  if (File(file).existsSync()) return file;
+  if (Directory(base).existsSync()) {
+    final name = base.split('/').last;
+    final barrel = '$base/$name.hawk';
+    if (File(barrel).existsSync()) return barrel;
+  }
+  return null;
 }
 
 /// Thrown by [_loadProgramQuiet] when lex/parse fails.

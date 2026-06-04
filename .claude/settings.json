@@ -2,8 +2,6 @@
   "permissions": {
     "allow": [
       "Bash(./bin/hawk.sh *)",
-      "Bash(~/.cargo/bin/cargo clippy *)",
-      "Bash(~/.cargo/bin/cargo test *)",
       "Bash(cargo clippy *)",
       "Bash(cargo fmt *)",
       "Bash(cargo run *)",
@@ -13,12 +11,14 @@
       "Bash(dart run *)",
       "Bash(dart test *)",
       "Bash(echo *)",
+      "Bash(echo *)",
       "Bash(git diff *)",
       "Bash(git log *)",
       "Bash(git status *)",
       "Bash(grep *)",
       "Bash(ls *)",
       "Bash(sed *)",
+      "Bash(tail *)",
       "mcp__plugin_flutter-slipstream_packages__library_stub"
     ]
   }
