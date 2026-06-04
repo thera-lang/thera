@@ -1,6 +1,7 @@
 import '../ast.dart';
 import '../element/element.dart';
 import '../element/inference.dart';
+import '../element/namespace.dart';
 import '../element/resolver.dart';
 import '../element/types.dart';
 import '../token.dart';
@@ -59,13 +60,15 @@ class TypeChecker {
   /// Pre-register an imported [program] so its declarations resolve in [check].
   void addProgram(Program program) => _importPrograms.add(program);
 
-  CheckResult check(Program program) {
+  CheckResult check(Program program,
+      {Map<String, LibraryNamespace> namespaces = const {}}) {
     _errors.clear();
 
     // Build the resolved element model (the single source of top-level symbols)
     // and annotate every expression with its inferred type, so the checks below
     // can resolve names and compare against expected types.
-    _library = buildLibrary(program, imports: _importPrograms);
+    _library =
+        buildLibrary(program, imports: _importPrograms, namespaces: namespaces);
     _resolver = TypeResolver(_library.typeDefs);
     Inferrer(_library).inferProgram(program);
 

@@ -15,6 +15,7 @@ import '../bytecode/instr.dart';
 import '../bytecode/module.dart';
 import '../element/builtins.dart';
 import '../element/inference.dart';
+import '../element/namespace.dart';
 import '../element/resolver.dart';
 import '../element/types.dart';
 import '../token.dart';
@@ -63,7 +64,9 @@ const int _tagNone = 1;
 /// scope (so cross-module calls resolve), then compiled. The caller (the CLI)
 /// resolves and parses the import closure; this keeps codegen free of file I/O
 /// and unit-testable with in-memory modules.
-Module compileProgram(Program program, {List<Program> imports = const []}) {
+Module compileProgram(Program program,
+    {List<Program> imports = const [],
+    Map<String, LibraryNamespace> namespaces = const {}}) {
   // Register everything first (declarations across every module) so forward and
   // cross-module references — calls, methods, struct types — all resolve before
   // any body is compiled. Functions and impl methods become a flat list of
@@ -71,7 +74,8 @@ Module compileProgram(Program program, {List<Program> imports = const []}) {
   // Resolve the element model and annotate every expression with its semantic
   // type (Expr.resolvedType), which codegen consumes for opcode selection. This
   // sees through generics where the bottom-up `_typeOf` fallback cannot.
-  final inferrer = Inferrer(buildLibrary(program, imports: imports));
+  final inferrer =
+      Inferrer(buildLibrary(program, imports: imports, namespaces: namespaces));
   for (final module in [...imports, program]) {
     inferrer.inferProgram(module);
   }

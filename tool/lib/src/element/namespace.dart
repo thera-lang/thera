@@ -14,8 +14,12 @@ import '../ast.dart';
 /// what gets re-exported.
 class LibrarySource {
   final Program program;
+
+  /// Import path (as written) -> resolved library. Mutable so a loader can fill
+  /// it after construction (caching the node first guards re-export cycles).
   final Map<String, LibrarySource> imports;
-  LibrarySource(this.program, {this.imports = const {}});
+  LibrarySource(this.program, {Map<String, LibrarySource>? imports})
+      : imports = imports ?? {};
 }
 
 /// The public surface a library exposes through its namespace: the set of

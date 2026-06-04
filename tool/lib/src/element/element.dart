@@ -1,3 +1,4 @@
+import 'namespace.dart';
 import 'types.dart';
 
 /// A resolved declaration — a node in the *element model*, which is built as a
@@ -178,10 +179,17 @@ class LibraryElement {
   /// Module aliases brought in by `import std.x` (the value side, e.g. `fs`).
   final Set<String> modules;
 
+  /// Namespace (import alias / trailing path segment) -> the public surface it
+  /// exposes, for the program being compiled. Empty when imports aren't
+  /// structured (e.g. tests/LSP that don't load an import tree), in which case
+  /// name resolution falls back to the flat tables above.
+  final Map<String, LibraryNamespace> namespaces;
+
   LibraryElement({
     required this.typeDefs,
     required this.functions,
     required this.consts,
     required this.modules,
+    this.namespaces = const {},
   });
 }

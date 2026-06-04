@@ -1,5 +1,6 @@
 import 'package:hawk/src/ast.dart';
 import 'package:hawk/src/element/element.dart';
+import 'package:hawk/src/element/namespace.dart';
 import 'package:hawk/src/element/resolver.dart';
 import 'package:hawk/src/element/types.dart';
 import 'package:hawk/src/lexer.dart';
@@ -179,6 +180,21 @@ impl Box<T> {
       expect(lib.typeDefs['List']!.typeParameters, ['T']);
       expect(lib.typeDefs['Map']!.typeParameters, ['K', 'V']);
       expect(lib.typeDefs['Result']!.typeParameters, ['T', 'E']);
+    });
+
+    test('namespaces thread through to the LibraryElement', () {
+      final fs = LibrarySource(
+          Parser(Lexer('pub fn read_text() { }').tokenize().tokens)
+              .parse()
+              .program);
+      final root = LibrarySource(
+          Parser(Lexer('import std.fs;').tokenize().tokens).parse().program,
+          imports: {'std.fs': fs});
+      final lib = buildLibrary(root.program, namespaces: namespacesFor(root));
+      expect(lib.namespaces.keys, contains('fs'));
+      expect(lib.namespaces['fs']!.exposes('read_text'), isTrue);
+      // Default (no namespaces) stays empty — flat-resolution fallback.
+      expect(build('').namespaces, isEmpty);
     });
   });
 }

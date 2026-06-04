@@ -6,6 +6,7 @@ import 'package:hawk/src/bytecode/encoder.dart';
 import 'package:hawk/src/checker/type_checker.dart';
 import 'package:hawk/src/bytecode/module.dart';
 import 'package:hawk/src/codegen/codegen.dart';
+import 'package:hawk/src/element/namespace.dart';
 import 'package:hawk/src/interpreter/interpreter.dart';
 import 'package:hawk/src/lexer.dart';
 import 'package:hawk/src/lsp/server.dart';
@@ -166,7 +167,8 @@ class EmitCommand extends Command<void> {
 
     final Module module;
     try {
-      module = compileProgram(program, imports: imports);
+      module = compileProgram(program,
+          imports: imports.programs, namespaces: imports.namespaces);
     } on CodegenException catch (e) {
       stderr.writeln('hawk: $path: ${e.message}');
       exit(1);
@@ -239,23 +241,31 @@ class CheckCommand extends Command<void> {
 /// closure (see [_loadImports]); registering those programs lets cross-module
 /// names — relative functions, std types like `Args`, and module-qualified
 /// access (`fs.read_text`) — resolve via the element model.
-CheckResult _typeCheck(String path, Program program, List<Program> imports) {
+CheckResult _typeCheck(String path, Program program, LoadedImports imports) {
   final checker = TypeChecker();
-  for (final imported in imports) {
+  for (final imported in imports.programs) {
     checker.addProgram(imported);
   }
-  return checker.check(program);
+  return checker.check(program, namespaces: imports.namespaces);
 }
 
-/// Resolve and parse the relative-import closure of [program] (located at
-/// [path]) so the emitter can link those modules in. Each `import name;`
-/// resolves to `<dir>/name.hawk`, transitively; unparseable/missing imports are
-/// skipped (the type-checker already reported them). `std.*` imports are not
-/// loaded here yet — they resolve via the runtime's module natives.
-List<Program> _loadImports(String path, Program program) {
+/// The loaded import closure of a program: the flat list of imported programs
+/// (the typing/linking substrate) and the namespaces the program's own imports
+/// bind (alias / trailing segment -> public surface).
+typedef LoadedImports = ({
+  List<Program> programs,
+  Map<String, LibraryNamespace> namespaces,
+});
+
+/// Resolve and parse the import closure of [program] (located at [path]) so the
+/// emitter can link those libraries in, and derive the program's import
+/// namespaces. Imports resolve to a single file or a directory barrel (see
+/// [resolveLibraryFile]), transitively; unparseable/missing imports are skipped
+/// (the type-checker already reported them).
+LoadedImports _loadImports(String path, Program program) {
   final sdkRoot = _findSdkRoot();
-  final modules = <Program>[];
-  final seen = <String>{};
+  final order = <Program>[]; // imported programs, deduped, in load order
+  final cache = <String, LibrarySource>{}; // resolved file -> library source
 
   // Resolve an import path to a source file. `std.*` is anchored at the SDK std
   // root (dots become directory separators); any other path is relative to the
@@ -273,37 +283,56 @@ List<Program> _loadImports(String path, Program program) {
     return resolveLibraryFile(base);
   }
 
-  void loadImportsOf(Program prog, String baseDir) {
-    for (final decl in prog.decls) {
-      if (decl is! ImportDecl) continue;
-      final file = resolve(decl.path, baseDir);
-      if (file == null || !seen.add(file)) continue;
-      try {
-        final imported = _loadProgramQuiet(file);
-        modules.add(imported);
-        loadImportsOf(imported, File(file).parent.path); // transitive
-      } on _LoadFailed {
-        // Missing or unparseable import; skip (the checker reports it).
-      }
+  // Resolve [file] to a library source, recursively linking its imports. Cached
+  // (and cached *before* recursing, to terminate cycles); each program is added
+  // to the flat list exactly once.
+  LibrarySource? sourceFor(String file) {
+    final cached = cache[file];
+    if (cached != null) return cached;
+    final Program prog;
+    try {
+      prog = _loadProgramQuiet(file);
+    } on _LoadFailed {
+      return null; // missing/unparseable; the checker reports it
     }
+    final source = LibrarySource(prog);
+    cache[file] = source;
+    _linkImports(prog, File(file).parent.path, resolve, sourceFor, source);
+    order.add(prog);
+    return source;
   }
 
-  // std.core is auto-imported into every program — load it first so its types
-  // (e.g. Error) and interface impls (Display for Error) are linked. Routed
-  // through `resolve` so it works whether core is a single file or a directory
-  // barrel (sdk/std/core.hawk or sdk/std/core/core.hawk).
+  // std.core is auto-imported into every program — load it so its types (e.g.
+  // Error) and impls (Display for Error) link. It is the unqualified prelude,
+  // not a namespace, so it is not added to the root's imports.
   final core = resolve('std.core', '');
-  if (core != null && seen.add(core)) {
-    try {
-      final prog = _loadProgramQuiet(core);
-      modules.add(prog);
-      loadImportsOf(prog, File(core).parent.path);
-    } on _LoadFailed {
-      // No SDK core available; skip.
-    }
+  if (core != null) sourceFor(core);
+
+  // The primary program is already parsed; resolve its imports so its
+  // namespaces can be derived.
+  final root = LibrarySource(program);
+  cache[path] = root;
+  _linkImports(program, File(path).parent.path, resolve, sourceFor, root);
+
+  return (programs: order, namespaces: namespacesFor(root));
+}
+
+/// Resolve each `import` in [prog] and record the child library under the import
+/// path on [into].
+void _linkImports(
+  Program prog,
+  String baseDir,
+  String? Function(String, String) resolve,
+  LibrarySource? Function(String) sourceFor,
+  LibrarySource into,
+) {
+  for (final decl in prog.decls) {
+    if (decl is! ImportDecl) continue;
+    final file = resolve(decl.path, baseDir);
+    if (file == null) continue;
+    final child = sourceFor(file);
+    if (child != null) into.imports[decl.path] = child;
   }
-  loadImportsOf(program, File(path).parent.path);
-  return modules;
 }
 
 /// Resolve a library base path (no extension) to its source file: the

@@ -1,5 +1,6 @@
 import '../ast.dart';
 import 'element.dart';
+import 'namespace.dart';
 import 'types.dart';
 
 /// Resolves syntactic [TypeRef]s to semantic [Type]s against a set of known
@@ -70,6 +71,7 @@ Map<String, TypeDefElement> builtinTypeDefs() => {
 LibraryElement buildLibrary(
   Program program, {
   List<Program> imports = const [],
+  Map<String, LibraryNamespace> namespaces = const {},
 }) {
   final typeDefs = builtinTypeDefs();
   final functions = <String, FunctionElement>{};
@@ -147,6 +149,7 @@ LibraryElement buildLibrary(
     functions: functions,
     consts: consts,
     modules: modules,
+    namespaces: namespaces,
   );
 }
 
