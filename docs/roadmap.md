@@ -5,6 +5,15 @@ design behind this plan see [architecture.md](architecture.md).
 
 ## Current state
 
+**Checkpoint (2026-06).** Foundations are in place: a defined **`.hawkbc`
+bytecode format**, a **bytecode interpreter** (Rust), a **Dart front-end** that
+type-checks and compiles Hawk source to bytecode, and a **small core stdlib**
+(in Hawk + natives). Real CLI programs compile and run end to end (see
+`examples/`). Not yet done: a **GC** (currently `Rc<RefCell>`); a **broader
+stdlib**; and a **module/visibility story** for files and directories. The north
+star is a language + implementation + stdlib complete enough to **write the Hawk
+front-end in Hawk** (arc 3 below).
+
 **Rust runtime (`runtime/`)** — a Tier-0 bytecode interpreter that runs:
 
 - `Int` / `Double` / `Bool` / `Unit`, wrapping integer arithmetic, comparisons,
@@ -29,6 +38,14 @@ short-circuit `&&`/`||`), calls and string interpolation, `Result`/`Option`
 table, literals, field get/set), methods (instance + static) with named-argument
 resolution, and `List`/`Map` literals/indexing/iteration. `hawk emit`
 type-checks before lowering.
+
+The front-end carries a real **type system** (`tool/lib/src/element/`): a
+separate resolution stage builds a semantic `Type`/element model over the AST
+and a synthesizing inference pass annotates every expression with its resolved
+type (seeing _through_ generics — `Option<T>`/`List<T>` elements, method
+returns, match bindings, `?`/`unwrap`). Codegen consumes those types directly,
+and the checker uses them for type-mismatch diagnostics (return type, `let`
+annotations, conditions, call arguments).
 
 ## The three bootstrap arcs
 
@@ -117,6 +134,21 @@ gaps, by where they live:
     `_methodReturnType`/`_returnTypeOf` helpers are deleted.)
 - Interface/`Display` (vtable form), closures, block expressions, literal/nested
   `match` patterns — mostly gated on the runtime equivalents.
+- **Tech debt — collapse the checker's `_Scope`.** The checker still tracks
+  locals as `Map<String, TypeRef?>`, but since inference annotates expressions
+  the type *values* are now vestigial — only key-presence drives
+  `_isDefinedName`. It can become a `Set<String>`, retiring `_inferType` and the
+  `type` argument of `_bindPattern`. Small and self-contained.
+
+**Language / module system:**
+
+- **Visibility story between files and directories (needs design).** Imports
+  currently link `.hawk` sources into one module and every top-level name is
+  visible; there's no notion of public vs private, nor of a directory as a unit.
+  Before the stdlib and a self-hosted front-end grow, decide: what a module is
+  (file? directory?), default visibility and how to export, and how `std.*`
+  resolves vs. relative imports. This shapes the stdlib layout and the
+  element-model resolver.
 
 **Cross-cutting:** the stdlib natives are listed in both the Rust runtime and
 the Dart interpreter. Acceptable (name-bound calls already fail at load on a
