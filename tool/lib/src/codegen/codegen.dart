@@ -312,6 +312,9 @@ class _FnCompiler {
 
   final List<Instr> _code = [];
   final Map<String, int> _slots = {};
+  // Locals declared `mut`. A closure that captures one of these is rejected
+  // until boxing lands (stage 4): capture-by-value can't observe later writes.
+  final Set<String> _mutableLocals = {};
   int _localCount = 0;
   int _paramCount = 0;
   // Whether this function returns `Result<...>`, which enables implicit `Ok`
@@ -400,11 +403,12 @@ class _FnCompiler {
 
   void _stmt(Stmt stmt) {
     switch (stmt) {
-      case LetStmt(:final name, :final value):
+      case LetStmt(:final name, :final value, :final isMut):
         // Evaluate the initializer before declaring the binding, so the
         // initializer can't see the (not-yet-bound) name.
         _expr(value);
         final slot = _declareLocal(name);
+        if (isMut) _mutableLocals.add(name);
         _emit(Store(slot));
       case AssignStmt(:final target, :final value):
         switch (target) {
@@ -659,20 +663,40 @@ class _FnCompiler {
     }
   }
 
-  /// A lambda: lift its body to a synthetic top-level function and push a
-  /// closure value for it. Stage 3a handles only the zero-capture case — a
-  /// lambda that references an enclosing local is lifted the same way, but its
-  /// body then fails to compile (the captured name isn't a local of the lifted
-  /// function); capture support arrives in stage 3b.
+  /// A lambda: lift its body to a synthetic top-level function whose leading
+  /// parameters are its captured variables, push the captured values, and build
+  /// a closure value `{ func, captures }`. Captures are taken by value; a
+  /// captured `mut` local is rejected (boxing arrives in stage 4).
   void _lambdaExpr(LambdaExpr expr) {
-    final lifted = _liftLambda(expr);
+    // Free variables that name an enclosing local are the captures; references
+    // to functions, types, namespaces, etc. resolve the same way in the lifted
+    // unit and need no capture.
+    final captures = [
+      for (final name in _freeVariables(expr))
+        if (_slots.containsKey(name)) name,
+    ];
+    for (final name in captures) {
+      if (_mutableLocals.contains(name)) {
+        throw CodegenException(
+            'capturing the mutable local `$name` in a closure is not yet '
+            'supported',
+            expr.span);
+      }
+    }
+    final lifted = _liftLambda(expr, captures);
     final index = _scope.addLambda(lifted);
-    _emit(ClosureNew(index, 0));
+    // Push the captured values (in capture order), then bundle the closure.
+    for (final name in captures) {
+      _emit(Load(_slots[name]!));
+    }
+    _emit(ClosureNew(index, captures.length));
   }
 
-  /// Build the synthetic [FnDecl] a lambda lowers to: its parameters are the
-  /// lambda's parameters and its body returns the lambda's body expression.
-  FnDecl _liftLambda(LambdaExpr expr) {
+  /// Build the synthetic [FnDecl] a lambda lowers to. Its parameters are the
+  /// captured variables (leading, in capture order) followed by the lambda's
+  /// own parameters; its body returns the lambda's body expression. Capture
+  /// reads in the body resolve to the leading parameter slots by name.
+  FnDecl _liftLambda(LambdaExpr expr, List<String> captures) {
     final body = Block(expr.span, expr.span, [
       ReturnStmt(expr.span, value: expr.body),
     ]);
@@ -682,9 +706,147 @@ class _FnCompiler {
       isNative: false,
       name: '<lambda>',
       nameSpan: expr.span,
-      params: [for (final p in expr.params) Param(name: p, label: p)],
+      params: [
+        for (final c in captures) Param(name: c, label: c),
+        for (final p in expr.params) Param(name: p, label: p),
+      ],
       body: body,
     );
+  }
+
+  /// The free variables of [lambda]: identifiers referenced in its body that it
+  /// does not itself bind. Its own parameters, and any names introduced inside
+  /// the body by nested lambdas, `match` patterns, block `let`s, and `for`
+  /// loops, are bound (not free). Listed in first-reference order so the
+  /// capture layout is deterministic.
+  List<String> _freeVariables(LambdaExpr lambda) {
+    final free = <String>[];
+    final seen = <String>{};
+
+    void ref(String name, Set<String> bound) {
+      if (!bound.contains(name) && seen.add(name)) free.add(name);
+    }
+
+    void patternBindings(Pattern p, Set<String> into) {
+      switch (p) {
+        case IdentPattern(:final name):
+          into.add(name);
+        case ConstructorPattern(:final args):
+          for (final a in args) {
+            patternBindings(a, into);
+          }
+        case WildcardPattern():
+        case LiteralPattern():
+          break;
+      }
+    }
+
+    // `visit`, `stmt`, and `visitBlock` are mutually recursive; Dart local
+    // functions must be declared before use, so they're `late` variables.
+    late final void Function(Expr, Set<String>) visit;
+    late final void Function(Stmt, Set<String>) stmt;
+
+    void visitBlock(Block b, Set<String> bound) {
+      final local = {...bound};
+      for (final s in b.stmts) {
+        stmt(s, local);
+      }
+    }
+
+    visit = (Expr e, Set<String> bound) {
+      switch (e) {
+        case IdentExpr(:final name):
+          ref(name, bound);
+        case IntLiteral():
+        case FloatLiteral():
+        case BoolLiteral():
+          break;
+        case StringExpr(:final parts):
+          for (final p in parts) {
+            if (p is InterpPart) visit(p.expr, bound);
+          }
+        case ListExpr(:final items):
+          for (final i in items) {
+            visit(i, bound);
+          }
+        case MapExpr(:final entries):
+          for (final (k, v) in entries) {
+            visit(k, bound);
+            visit(v, bound);
+          }
+        case StructExpr(:final fields):
+          for (final (_, v) in fields) {
+            visit(v, bound);
+          }
+        case CallExpr(:final callee, :final args):
+          visit(callee, bound);
+          for (final a in args) {
+            visit(a.value, bound);
+          }
+        case FieldExpr(:final object):
+          visit(object, bound);
+        case IndexExpr(:final object, :final index):
+          visit(object, bound);
+          visit(index, bound);
+        case BinaryExpr(:final left, :final right):
+          visit(left, bound);
+          visit(right, bound);
+        case UnaryExpr(:final operand):
+          visit(operand, bound);
+        case PropagateExpr(:final inner):
+          visit(inner, bound);
+        case RangeExpr(:final start, :final end):
+          visit(start, bound);
+          visit(end, bound);
+        case MatchExpr(:final subject, :final arms):
+          visit(subject, bound);
+          for (final arm in arms) {
+            final armBound = {...bound};
+            patternBindings(arm.pattern, armBound);
+            visit(arm.body, armBound);
+          }
+        case LambdaExpr(:final params, :final body):
+          visit(body, {...bound, ...params});
+        case BlockExpr(:final block):
+          visitBlock(block, bound);
+        case ReturnExpr(:final value):
+          if (value != null) visit(value, bound);
+        case ThrowExpr(:final value):
+          visit(value, bound);
+      }
+    };
+
+    stmt = (Stmt s, Set<String> bound) {
+      switch (s) {
+        case LetStmt(:final name, :final value):
+          visit(value, bound);
+          bound.add(name); // visible to later statements in the block
+        case AssignStmt(:final target, :final value):
+          visit(target, bound);
+          visit(value, bound);
+        case ExprStmt(:final expr):
+          visit(expr, bound);
+        case ReturnStmt(:final value):
+          if (value != null) visit(value, bound);
+        case ThrowStmt(:final value):
+          visit(value, bound);
+        case IfStmt(:final condition, :final then, :final else_):
+          visit(condition, bound);
+          visitBlock(then, bound);
+          if (else_ != null) visitBlock(else_, bound);
+        case WhileStmt(:final condition, :final body):
+          visit(condition, bound);
+          visitBlock(body, bound);
+        case ForStmt(:final pattern, :final iterable, :final body):
+          visit(iterable, bound);
+          final loopBound = {...bound};
+          patternBindings(pattern, loopBound);
+          visitBlock(body, loopBound);
+      }
+    };
+
+    visit(lambda.body, {...lambda.params});
+    return free;
   }
 
   /// `expr?` — propagate `Err`/`None`. The same lowering serves both `Result`
