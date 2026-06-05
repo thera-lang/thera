@@ -157,13 +157,12 @@ fn adder(by: Int) -> (Int) -> Int {
 ```
 
 A lambda may **capture** variables from its enclosing scope (including `self`
-inside a method). Captures are taken **by value**: a captured immutable binding
-is copied, and capturing a reference value (a struct/list/`self`) still observes
-mutations to the object it points at. Capturing a `mut` local — where the lambda
-would need to observe later reassignments — is **not yet supported** and is
-rejected at compile time; the planned implementation boxes captured `mut` locals
-and closes over the box (see [bytecode.md](bytecode.md)). See
-`examples/closures.hawk`.
+inside a method). An immutable binding is captured **by value** (capturing a
+reference value — a struct/list/`self` — still observes mutations to the object
+it points at). A captured `mut` local is **shared**: the closure and the
+enclosing scope see each other's reassignments, because the frontend boxes
+captured `mut` locals into a heap cell and closes over the cell (see
+[bytecode.md](bytecode.md)). See `examples/closures.hawk`.
 
 ### Named parameters
 

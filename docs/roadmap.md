@@ -96,16 +96,15 @@ gaps, by where they live:
   `call`s while the concrete type is known at the site — so `${user_value}`
   interpolation and `==` on structs need no new runtime mechanism. A vtable
   (`call.interface`) is added only when type-erased interface values arrive.
-- **Closures.** _Largely implemented._ Closure conversion lifts each lambda to a
+- **Closures.** _Implemented._ Closure conversion lifts each lambda to a
   top-level function whose leading locals are its captured variables; the runtime
   adds a closure value `{ func, captures }`, `closure.new`, and `call.indirect`.
   Lambdas, function-typed parameters (`(Int) -> Int`), capturing enclosing
-  locals (and `self`) by value, and returning closures all work end to end (see
-  `examples/closures.hawk`). _Remaining:_ boxing of captured `mut` locals
-  (currently rejected at compile time), and inferring un-annotated lambda
+  locals (and `self`) by value, capturing `mut` locals by boxed cell (shared
+  writes), and returning closures all work end to end (see
+  `examples/closures.hawk`). _Remaining nit:_ inferring un-annotated lambda
   parameter types (an `n => n <op> m` body with two unknown operands can't pick
-  an opcode today). Still needed before `List.map`-style HOFs are usable from the
-  stdlib.
+  an opcode today). `List.map`-style HOFs in the stdlib are the natural next use.
 - **GC.** Currently `Rc<RefCell>`; a precise non-moving mark-sweep is planned as
   an explicit placeholder, to land _after_ closures/interfaces so it traces the
   value shapes it will actually see.
@@ -141,9 +140,9 @@ gaps, by where they live:
     `_methodReturnType`/`_returnTypeOf` helpers are deleted.)
 - Interface/`Display` (vtable form), block expressions, literal/nested
   `match` patterns — mostly gated on the runtime equivalents. (Closures now
-  lower: lambdas lift to top-level functions, captures by value via
-  `closure.new` / `call.indirect`; remaining gaps are boxing captured `mut`
-  locals and inferring un-annotated lambda parameter types.)
+  lower fully: lambdas lift to top-level functions; captures by value, with
+  captured `mut` locals boxed into cells, via `closure.new` / `call.indirect`.
+  The one remaining gap is inferring un-annotated lambda parameter types.)
 - **Tech debt — collapse the checker's `_Scope`.** The checker still tracks
   locals as `Map<String, TypeRef?>`, but since inference annotates expressions
   the type _values_ are now vestigial — only key-presence drives

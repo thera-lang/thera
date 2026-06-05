@@ -1182,12 +1182,42 @@ fn f() -> Int { let g = n => helper(n) + 42; return g(1); }
       expect(m.functions[closures.single.func].paramCount, 1); // just n
     });
 
-    test('a mutable captured local is rejected', () {
-      expect(
-        () => compile(
-            'fn f() -> Int { let mut c = 0; let g = n => n + c; return g(1); }'),
-        throwsA(isA<CodegenException>()),
-      );
+    test('a captured mutable local is boxed (cell-backed)', () {
+      // The capture is `mut`, so it is stored in a one-field cell: the binding
+      // wraps its value in a struct.new, and reads go through field.get.
+      final m = compile(
+          'fn f() -> Int { let mut c = 0; let g = n => n + c; return g(1); }');
+      final ops = m.functions[0].code; // f
+      // `let mut c = 0` boxes: ConstInt(0), struct.new(cell), store.
+      final sn = ops.whereType<StructNew>().single;
+      expect(ops[ops.indexOf(sn) - 1],
+          isA<ConstInt>().having((i) => i.value, 'init', 0));
+      // The lifted lambda reads its captured cell via field.get.
+      expect(m.functions[1].code.whereType<FieldGet>(), isNotEmpty);
+    });
+
+    test('a mutation through a boxed capture is observed by the closure', () {
+      late final String? hawkBin = buildRuntime();
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      // `base` is captured and then reassigned; the closure sees 100, not 10.
+      final m = compile('''
+fn main() -> Int {
+    let mut base = 10;
+    let get = n => base + n;
+    base = 100;
+    return get(5);
+}
+''');
+      final tmp = '${Directory.systemTemp.path}/hawk_box.hawkbc';
+      File(tmp).writeAsBytesSync(encodeModule(m));
+      expect(Process.runSync(hawkBin, ['run', tmp]).exitCode, 105);
+    });
+
+    test('a non-captured mutable local stays unboxed', () {
+      // No lambda captures `x`, so it is a plain local — no cell allocated.
+      final m =
+          compile('fn f() -> Int { let mut x = 1; x = x + 41; return x; }');
+      expect(m.functions.single.code.whereType<StructNew>(), isEmpty);
     });
 
     test('value capture runs end to end', () {

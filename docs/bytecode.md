@@ -218,15 +218,16 @@ ref-ness is recorded in the function's stackmap, not the opcode.
 > as `captures ++ args`. See [Calls](#calls) and
 > [How key features lower](#how-key-language-features-lower).
 >
-> Captures are taken **by value**; a captured immutable (and `self`, which is a
-> reference, so by-value capture still observes its field mutations) works
-> directly. A captured `mut` local will instead be **boxed** into a one-field
-> heap cell (reads become `cell.value`, writes `cell.value = …`, and the closure
-> captures the _cell_, so the enclosing scope and the closure observe each
-> other's mutations) — _not yet implemented_; capturing a `mut` local is
-> currently rejected at compile time. The one genuinely new runtime piece is the
-> closure value plus `call.indirect`; free-variable analysis and (later) boxing
-> are frontend lowering over existing opcodes.
+> An immutable capture (and `self`, which is a reference, so capture still
+> observes its field mutations) is taken **by value**. A captured `mut` local is
+> **boxed** into a one-field heap cell (an ordinary 1-field struct): the binding
+> wraps its value in the cell, reads become `field.get 0`, writes `field.set 0`,
+> and the closure captures the _cell reference_ — so the enclosing scope and the
+> closure observe each other's writes. Only `mut` locals that are actually
+> captured are boxed; others stay plain. The one genuinely new runtime piece is
+> the closure value plus `call.indirect`; free-variable analysis and boxing are
+> frontend lowering over existing opcodes (`struct.new` / `field.get` /
+> `field.set`).
 
 ### Arithmetic, comparison, logic
 
@@ -352,10 +353,10 @@ Capture reads are ordinary `load`s of the leading slots. At the lambda site the
 captured values are pushed and `closure.new func, captures` bundles them into a
 `{ func, captures }` value; a call through that value uses `call.indirect`,
 which prepends the captures to the call arguments to form the callee's frame.
-Captures are by value (a captured `mut` local is boxed instead — not yet
-implemented; see [Locals](#locals)). `call.indirect` carries no signature
-operand — the callee's arity is checked at the frame boundary like a direct
-`call`.
+An immutable capture is by value; a captured `mut` local is boxed into a
+one-field cell so writes are shared (see [Locals](#locals)). `call.indirect`
+carries no signature operand — the callee's arity is checked at the frame
+boundary like a direct `call`.
 
 **String interpolation** — for a user type, `${v}` calls the `Display` method as
 a statically resolved direct `call` (the concrete type is known at the site);
@@ -397,10 +398,11 @@ no type guards — the speculation-free property the plan is built around.
 ## Open questions / deferred
 
 Resolved: **closure capture** — closure conversion with captures as the lifted
-function's leading locals; `closure.new` / `call.indirect` _implemented_, capture
-by value (boxing of captured `mut` locals still pending). And **interface
-dispatch** (static resolution → direct `call` now; vtable `call.interface` only
-once type-erased interface values exist, devirtualized by the JIT).
+function's leading locals; `closure.new` / `call.indirect` implemented, with
+immutable captures by value and captured `mut` locals boxed into one-field
+cells. And **interface dispatch** (static resolution → direct `call` now; vtable
+`call.interface` only once type-erased interface values exist, devirtualized by
+the JIT).
 
 - **Encoding details** — fixed-width vs. LEB128; the exact module file layout.
 - **`switch.tag`** jump table for fast `match`.
