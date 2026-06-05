@@ -105,7 +105,10 @@ void _registerModule(_ModuleScope scope, Program program) {
         scope.addEnum(decl);
       case ImplDecl():
         for (final method in decl.methods) {
-          if (!method.isNative && method.body != null) {
+          final isStatic = !method.params.any((p) => p.isSelf);
+          if (method.isNative && isStatic) {
+            scope.addNativeStaticMethod(decl.typeName, method);
+          } else if (!method.isNative && method.body != null) {
             scope.addMethod(decl.typeName, method);
           }
         }
@@ -125,6 +128,16 @@ String? _stringLiteral(Expr e) {
     return (e.parts.first as TextPart).text;
   }
   return null;
+}
+
+/// The runtime native symbol a `native fn` binds to: its `@extern('<symbol>')`
+/// decorator argument, or its own name when unannotated.
+String _externSymbol(FnDecl decl) {
+  final extern = decl.decorators.where((d) => d.name == 'extern').firstOrNull;
+  if (extern != null && extern.args.isNotEmpty) {
+    return _stringLiteral(extern.args.first) ?? decl.name;
+  }
+  return decl.name;
 }
 
 /// Layout of a struct type: its index in the module type table and its field
@@ -168,6 +181,11 @@ class _ModuleScope {
   /// `@extern('...')` decorator, or its own name as a fallback).
   final Map<String, String> nativeFns = {};
 
+  /// Static `native fn`s declared in `impl` blocks: type -> method -> runtime
+  /// native symbol (e.g. `String` -> `from_chars` -> `str_from_chars`). Lowered
+  /// as a `call.native` with no receiver.
+  final Map<String, Map<String, String>> nativeStaticMethods = {};
+
   /// Import namespaces in scope for the program being compiled (alias / trailing
   /// path segment). A qualified `ns.Name` resolves to the flat `Name`.
   final Set<String> namespaces;
@@ -194,14 +212,17 @@ class _ModuleScope {
     _addUnit(decl, decl.name, null);
   }
 
-  /// Register a `native fn`: its name binds to the runtime native named by its
-  /// `@extern('<symbol>')` decorator (or its own name when unannotated).
+  /// Register a top-level `native fn`: its name binds to the runtime native
+  /// named by its `@extern('<symbol>')` decorator (or its own name).
   void addNative(FnDecl decl) {
-    final extern = decl.decorators.where((d) => d.name == 'extern').firstOrNull;
-    final symbol = extern != null && extern.args.isNotEmpty
-        ? _stringLiteral(extern.args.first) ?? decl.name
-        : decl.name;
-    nativeFns[decl.name] = symbol;
+    nativeFns[decl.name] = _externSymbol(decl);
+  }
+
+  /// Register a static `native fn` from an `impl` block (no `self`), e.g.
+  /// `impl String { @extern('str_from_chars') native fn from_chars(...) }`.
+  void addNativeStaticMethod(String type, FnDecl method) {
+    nativeStaticMethods.putIfAbsent(type, () => {})[method.name] =
+        _externSymbol(method);
   }
 
   void addMethod(String type, FnDecl method) {
@@ -1119,6 +1140,20 @@ class _FnCompiler {
           _expr(value);
         }
         _emit(Call(fnIdx, ordered.length));
+        return;
+      }
+    }
+
+    // Static native method on a type: `String.from_chars(...)` → a runtime
+    // native, no receiver.
+    final staticType = _staticTypeName(callee.object);
+    if (staticType != null) {
+      final native = _scope.nativeStaticMethods[staticType]?[callee.field];
+      if (native != null) {
+        for (final arg in expr.args) {
+          _expr(arg.value);
+        }
+        _emit(CallNative(native, expr.args.length));
         return;
       }
     }

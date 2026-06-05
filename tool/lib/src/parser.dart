@@ -361,8 +361,8 @@ class Parser {
       final decos = <Decorator>[];
       while (_check(TokenKind.at)) decos.add(_parseDecorator());
       final isPub = _match(TokenKind.kwPub);
-      final isNative = _match(TokenKind.kwNative);
-      if (!_check(TokenKind.kwFn)) _fail('expected fn in impl block');
+      // `native` is consumed by _parseFnDecl, so check (don't match) here.
+      final isNative = _check(TokenKind.kwNative);
       methods.add(_parseFnDecl(decos, isNative: isNative, isPub: isPub));
     }
     _expect(TokenKind.rBrace, '}');

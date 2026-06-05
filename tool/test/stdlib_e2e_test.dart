@@ -97,6 +97,18 @@ fn main() -> Int { return Int.answer() + String.greeting().len(); }
     expect(r.exitCode, 47, reason: r.stderr.toString());
   });
 
+  test('a native static method on a built-in type runs', () {
+    // String.from_chars([104, 105]) == 'hi' -> .len() == 2 -> exit 2.
+    final r = emitAndRun('native_static', '''
+impl String {
+  @extern('str_from_chars') native fn from_chars(_ cps: List<Int>) -> String
+}
+fn main() -> Int { return String.from_chars([104, 105]).len(); }
+''', []);
+    if (r == null) return markTestSkipped('Rust runtime unavailable');
+    expect(r.exitCode, 2, reason: r.stderr.toString());
+  });
+
   test('qualified namespace access across files runs end to end', () {
     if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
     final dir = Directory.systemTemp.createTempSync('hawk_ns');

@@ -471,6 +471,22 @@ fn main() -> Int { let v = V { n: 1 }; return v.bump(5); }
               .having((i) => i.name, 'name', 'fs_read_text')
               .having((i) => i.argc, 'argc', 1)));
     });
+
+    test('a static native method on a built-in lowers to call.native', () {
+      // `impl String { native fn from_chars }` is not a unit; the only function
+      // is `f`, and `String.from_chars(...)` lowers to a receiver-less native.
+      final ops = compile('''
+impl String {
+  @extern('str_from_chars') native fn from_chars(_ cps: List<Int>) -> String
+}
+fn f() -> Int { return String.from_chars([105]).len(); }
+''').functions.single.code;
+      expect(
+          ops,
+          contains(isA<CallNative>()
+              .having((i) => i.name, 'name', 'str_from_chars')
+              .having((i) => i.argc, 'argc', 1)));
+    });
   });
 
   group('end-to-end (requires the Rust runtime)', () {

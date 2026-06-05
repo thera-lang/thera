@@ -73,6 +73,7 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("str_lines", native_str_lines),
     ("str_split_whitespace", native_str_split_whitespace),
     ("str_split", native_str_split),
+    ("str_from_chars", native_str_from_chars),
     ("option_ok_or", native_option_ok_or),
     ("option_unwrap_or", native_option_unwrap_or),
     ("option_is_some", native_option_is_some),
@@ -275,6 +276,26 @@ fn native_str_split(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap>
     let (s, sep) = args2(args, "str_split")?;
     let (s, sep) = (str_contents(s)?, str_contents(sep)?);
     Ok(string_list(s.split(sep.as_str()).map(str::to_string)))
+}
+
+/// `String.from_chars(cps)` — build a string from a list of Unicode code points.
+fn native_str_from_chars(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    with_list(
+        expect_one(args, "str_from_chars")?,
+        "str_from_chars",
+        |items| {
+            let mut s = String::new();
+            for item in items {
+                let cp = as_int(item, "str_from_chars")?;
+                let c = u32::try_from(cp)
+                    .ok()
+                    .and_then(char::from_u32)
+                    .ok_or_else(|| bug(format!("str_from_chars: invalid code point {cp}")))?;
+                s.push(c);
+            }
+            Ok(Value::new_str(s))
+        },
+    )
 }
 
 // --- more collection natives ---
