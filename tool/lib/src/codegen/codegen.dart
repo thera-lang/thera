@@ -236,6 +236,16 @@ class _ModuleScope {
     unitNames.add(name);
     unitSelfTypes.add(selfType);
   }
+
+  /// Register a lifted lambda as a synthetic top-level unit and return its
+  /// function-table index. Compiled by the same per-unit loop as any function
+  /// (the loop re-reads `units.length`, so units added mid-compilation are
+  /// still compiled).
+  int addLambda(FnDecl decl) {
+    final index = units.length;
+    _addUnit(decl, '__lambda_$index', null);
+    return index;
+  }
 }
 
 /// Compiles one function: tracks local slots and emits its instruction stream.
@@ -641,10 +651,40 @@ class _FnCompiler {
         _emitReturn(value);
       case ThrowExpr(:final value):
         _emitThrow(value);
+      case LambdaExpr():
+        _lambdaExpr(expr);
       default:
         throw CodegenException(
             'unsupported expression: ${expr.runtimeType}', expr.span);
     }
+  }
+
+  /// A lambda: lift its body to a synthetic top-level function and push a
+  /// closure value for it. Stage 3a handles only the zero-capture case — a
+  /// lambda that references an enclosing local is lifted the same way, but its
+  /// body then fails to compile (the captured name isn't a local of the lifted
+  /// function); capture support arrives in stage 3b.
+  void _lambdaExpr(LambdaExpr expr) {
+    final lifted = _liftLambda(expr);
+    final index = _scope.addLambda(lifted);
+    _emit(ClosureNew(index, 0));
+  }
+
+  /// Build the synthetic [FnDecl] a lambda lowers to: its parameters are the
+  /// lambda's parameters and its body returns the lambda's body expression.
+  FnDecl _liftLambda(LambdaExpr expr) {
+    final body = Block(expr.span, expr.span, [
+      ReturnStmt(expr.span, value: expr.body),
+    ]);
+    return FnDecl(
+      expr.span,
+      decorators: const [],
+      isNative: false,
+      name: '<lambda>',
+      nameSpan: expr.span,
+      params: [for (final p in expr.params) Param(name: p, label: p)],
+      body: body,
+    );
   }
 
   /// `expr?` — propagate `Err`/`None`. The same lowering serves both `Result`
@@ -813,8 +853,10 @@ class _FnCompiler {
     }
 
     // Operand type is taken from the left; the checker guarantees both sides
-    // agree.
-    final operandType = _typeOf(e.left);
+    // agree. Fall back to the right when the left is unknown — e.g. an
+    // un-annotated lambda parameter used as `n + 1`, where the literal pins the
+    // type the parameter could not.
+    final operandType = _typeOf(e.left) ?? _typeOf(e.right);
     final isPrimitive = operandType == 'Int' ||
         operandType == 'Double' ||
         operandType == 'Bool';
@@ -1039,6 +1081,20 @@ class _FnCompiler {
           'unsupported call target: ${callee.runtimeType}', expr.span);
     }
     final name = callee.name;
+
+    // A call through a function value held in a local — a let-bound lambda or a
+    // function-typed parameter. A local shadows a same-named function, so this
+    // is checked first. Push the closure, then the (positional) arguments, and
+    // dispatch indirectly.
+    final localSlot = _slots[name];
+    if (localSlot != null) {
+      _emit(Load(localSlot));
+      for (final arg in expr.args) {
+        _expr(arg.value);
+      }
+      _emit(CallIndirect(expr.args.length));
+      return;
+    }
 
     // Result/Option constructors build an enum from their single payload.
     final ctor = _enumCtor(name);

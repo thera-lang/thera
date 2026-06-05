@@ -143,6 +143,17 @@ bool isAssignable(Type source, Type target) {
     }
     return true;
   }
+  if (source is FunctionType && target is FunctionType) {
+    if (source.parameterTypes.length != target.parameterTypes.length) {
+      return false;
+    }
+    for (var i = 0; i < source.parameterTypes.length; i++) {
+      if (!isAssignable(source.parameterTypes[i], target.parameterTypes[i])) {
+        return false;
+      }
+    }
+    return isAssignable(source.returnType, target.returnType);
+  }
   return false;
 }
 

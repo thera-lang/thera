@@ -1092,4 +1092,57 @@ fn main() -> Int {
       expect(Process.runSync(hawkBin, ['run', tmp]).exitCode, 42);
     });
   });
+
+  group('closures (zero-capture)', () {
+    test('a lambda lifts to a synthetic unit and pushes a closure', () {
+      final m = compile('fn f() { let g = n => n + 1; }');
+      // Two units: `f` and the lifted lambda. The lambda's body returns n + 1.
+      expect(m.functions, hasLength(2));
+      final lifted = m.functions[1];
+      expect(lifted.paramCount, 1);
+      expect(lifted.code,
+          contains(isA<Simple>().having((i) => i.op, 'op', Op.addI64)));
+
+      // `f` builds the closure for unit #1 with no captures and binds it.
+      final ops = m.functions[0].code;
+      final cn = ops.whereType<ClosureNew>().single;
+      expect(cn.func, 1);
+      expect(cn.captures, 0);
+    });
+
+    test('calling a let-bound lambda lowers to call.indirect', () {
+      final ops = compile('fn f() -> Int { let g = n => n + 1; return g(41); }')
+          .functions[0]
+          .code;
+      // The closure is loaded, the argument pushed, then dispatched indirectly.
+      final idx = ops.indexWhere((i) => i is CallIndirect);
+      expect(idx, greaterThan(0));
+      expect((ops[idx] as CallIndirect).argc, 1);
+      expect(ops[idx - 2], isA<Load>()); // the closure
+      expect(ops[idx - 1], isA<ConstInt>().having((i) => i.value, 'arg', 41));
+    });
+
+    test('calling a function-typed parameter lowers to call.indirect', () {
+      final ops =
+          compile('fn apply(f: (Int) -> Int, x: Int) -> Int { return f(x); }')
+              .functions[0]
+              .code;
+      expect(ops.whereType<CallIndirect>().single.argc, 1);
+    });
+
+    test('a zero-capture closure runs end to end', () {
+      late final String? hawkBin = buildRuntime();
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      final m = compile('''
+fn apply(f: (Int) -> Int, x: Int) -> Int { return f(x); }
+fn main() -> Int {
+    let inc = n => n + 1;
+    return apply(inc, 41);
+}
+''');
+      final tmp = '${Directory.systemTemp.path}/hawk_closure.hawkbc';
+      File(tmp).writeAsBytesSync(encodeModule(m));
+      expect(Process.runSync(hawkBin, ['run', tmp]).exitCode, 42);
+    });
+  });
 }

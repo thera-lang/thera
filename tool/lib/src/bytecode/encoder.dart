@@ -156,6 +156,13 @@ void _encodeInstr(Writer w, Instr instr, _StringPool pool) {
     case ListNew(:final count):
       w.writeU8(Op.listNew.byte);
       w.writeUvarint(count);
+    case ClosureNew(:final func, :final captures):
+      w.writeU8(Op.closureNew.byte);
+      w.writeUvarint(func);
+      w.writeUvarint(captures);
+    case CallIndirect(:final argc):
+      w.writeU8(Op.callIndirect.byte);
+      w.writeUvarint(argc);
     case Jump(:final target):
       w.writeU8(Op.jump.byte);
       w.writeUvarint(target);
