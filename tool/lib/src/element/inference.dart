@@ -352,10 +352,6 @@ class Inferrer {
         return PrimitiveType.string;
       }
 
-      // Module function: `fs.read_text(...)`.
-      final mod = _moduleReturn(callee.object, callee.field);
-      if (mod != null) return mod;
-
       // Built-in method on a primitive/collection receiver.
       final builtin = _builtinMethodReturn(recvType, callee.field, argTypes);
       if (builtin != null) return builtin;
@@ -520,20 +516,6 @@ class Inferrer {
     if (kind == null) return null;
     final builder = _builtinReturns[kind]?[method];
     return builder?.call(recvArgs, argTypes);
-  }
-
-  /// Return type of an imported `std.*` module function, e.g. `fs.read_text`.
-  Type? _moduleReturn(Expr object, String method) {
-    if (object is! IdentExpr || !library.modules.contains(object.name)) {
-      return null;
-    }
-    const fns = {
-      'fs': {'read_text', 'write_text'},
-    };
-    if (fns[object.name]?.contains(method) ?? false) {
-      return _result(PrimitiveType.string, InterfaceType(_builtin('Error')));
-    }
-    return null;
   }
 
   static const _comparison = {'==', '!=', '<', '<=', '>', '>='};

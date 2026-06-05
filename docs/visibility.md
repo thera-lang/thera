@@ -197,6 +197,14 @@ this model needs no runtime or bytecode change.
 
 ## Tracked follow-ups
 
+- **Enforce `pub`/privacy (deferred).** Qualified namespace access resolves
+  today, but privacy is not yet enforced: a cross-file reference to a non-`pub`
+  symbol should be an error, and unqualified resolution should see only the
+  local file plus the `std.core` prelude (dropping the current flat fallback).
+- **`_test.hawk` white-box access (deferred).** Grant a sibling test import
+  visibility of its target's private symbols (see
+  [Testing](#testing-white-box-access)); only meaningful once privacy is
+  enforced.
 - **Selective import** (`show`/`hide`) — deferred until a real need appears.
 - **Field-level visibility** — today a `pub` type exposes all its fields; add
   finer control only if a use case demands it.

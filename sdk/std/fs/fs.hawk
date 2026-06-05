@@ -2,20 +2,26 @@
 //
 // Import as: import std.fs
 // Usage:     fs.read_text('file.txt')?
+//
+// Each `native fn` binds to a runtime native via `@extern('<symbol>')`; the
+// symbols are module-prefixed so they're unique in the runtime's flat table.
 
 // Read the entire contents of a file as UTF-8 text.
 //
 //   let text = fs.read_text('config.toml')?;
+@extern('fs_read_text')
 pub native fn read_text(_ path: String) -> Result<String, Error>
 
 // Write text to a file, creating it if absent or overwriting it if present.
 //
 //   fs.write_text('out.txt', content)?;
+@extern('fs_write_text')
 pub native fn write_text(_ path: String, _ text: String) -> Result<Void, Error>
 
 // Return true if a file or directory exists at path.
 //
 //   if fs.exists('config.toml') { ... }
+@extern('fs_exists')
 pub native fn exists(_ path: String) -> Bool
 
 // Return the entry names of a directory (one level, not recursive).
@@ -26,4 +32,5 @@ pub native fn exists(_ path: String) -> Bool
 //       let full = path.join('src', name);
 //   }
 // TODO: rename to list_dir()
+@extern('fs_read_dir')
 pub native fn read_dir(_ path: String) -> Result<List<String>, Error>

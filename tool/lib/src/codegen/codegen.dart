@@ -95,7 +95,9 @@ Module compileProgram(Program program,
 void _registerModule(_ModuleScope scope, Program program) {
   for (final decl in program.decls) {
     switch (decl) {
-      case FnDecl() when !decl.isNative:
+      case FnDecl() when decl.isNative:
+        scope.addNative(decl);
+      case FnDecl():
         scope.addFunction(decl);
       case TypeDecl():
         scope.addStruct(decl);
@@ -107,11 +109,6 @@ void _registerModule(_ModuleScope scope, Program program) {
             scope.addMethod(decl.typeName, method);
           }
         }
-      case ImportDecl() when decl.path.startsWith('std.'):
-        // Record `import std.fs [as f]` so `fs.read_text(...)` resolves to a
-        // module native. (Loading std sources as Hawk arrives in a later step.)
-        final base = decl.path.split('.').last;
-        scope.moduleAliases[decl.alias ?? base] = base;
       default:
         break;
     }
@@ -120,6 +117,15 @@ void _registerModule(_ModuleScope scope, Program program) {
 
 /// The name of a type reference (`Int`, `Double`, …), or null.
 String? _typeRefName(TypeRef? type) => type is NamedType ? type.name : null;
+
+/// The plain-text value of a non-interpolated string-literal expression, or
+/// null (used to read decorator arguments like `@extern('fs_read_text')`).
+String? _stringLiteral(Expr e) {
+  if (e is StringExpr && e.parts.length == 1 && e.parts.first is TextPart) {
+    return (e.parts.first as TextPart).text;
+  }
+  return null;
+}
 
 /// Layout of a struct type: its index in the module type table and its field
 /// names in declaration order (which fixes the field indices).
@@ -157,7 +163,10 @@ class _ModuleScope {
   final Map<String, _StructInfo> structs = {};
   final Map<String, _EnumInfo> enums = {};
   final List<TypeDef> types = [];
-  final Map<String, String> moduleAliases = {}; // import alias -> module base
+
+  /// `native fn` name -> the runtime native symbol it binds to (from its
+  /// `@extern('...')` decorator, or its own name as a fallback).
+  final Map<String, String> nativeFns = {};
 
   /// Import namespaces in scope for the program being compiled (alias / trailing
   /// path segment). A qualified `ns.Name` resolves to the flat `Name`.
@@ -183,6 +192,16 @@ class _ModuleScope {
   void addFunction(FnDecl decl) {
     functionIndex[decl.name] = units.length;
     _addUnit(decl, decl.name, null);
+  }
+
+  /// Register a `native fn`: its name binds to the runtime native named by its
+  /// `@extern('<symbol>')` decorator (or its own name when unannotated).
+  void addNative(FnDecl decl) {
+    final extern = decl.decorators.where((d) => d.name == 'extern').firstOrNull;
+    final symbol = extern != null && extern.args.isNotEmpty
+        ? _stringLiteral(extern.args.first) ?? decl.name
+        : decl.name;
+    nativeFns[decl.name] = symbol;
   }
 
   void addMethod(String type, FnDecl method) {
@@ -860,26 +879,6 @@ class _FnCompiler {
   String? _builtinNative(String? type, String method) =>
       type == null ? null : builtinMethodNatives[type]?[method];
 
-  /// Functions exposed by imported `std.*` modules, keyed by module base name
-  /// then function -> runtime native. Called qualified by the import alias
-  /// (`fs.read_text(...)`), with no receiver. (A stopgap until modules are
-  /// linked from their `.hawk` sources.) Return types come from inference via
-  /// `Expr.resolvedType`.
-  static const _moduleFns = <String, Map<String, String>>{
-    'fs': {
-      'read_text': 'fs_read_text',
-      'write_text': 'fs_write_text',
-    },
-  };
-
-  /// If [object] is an imported module alias (not shadowed by a local) and
-  /// [method] is one of its functions, return the backing native name.
-  String? _moduleCall(Expr object, String method) {
-    if (object is! IdentExpr || _slots.containsKey(object.name)) return null;
-    final base = _scope.moduleAliases[object.name];
-    return base == null ? null : _moduleFns[base]?[method];
-  }
-
   /// The unit index of method [name] on the receiver expression [receiver], or
   /// null if it can't be resolved. A type name — `Type` or `ns.Type`, not a
   /// local — selects a static method; otherwise the receiver's static type does.
@@ -1021,6 +1020,14 @@ class _FnCompiler {
       _emit(Call(fnIndex, ordered.length));
       return;
     }
+    final nativeFn = _scope.nativeFns[name];
+    if (nativeFn != null) {
+      for (final arg in expr.args) {
+        _expr(arg.value);
+      }
+      _emit(CallNative(nativeFn, expr.args.length));
+      return;
+    }
     if (_natives.contains(name)) {
       for (final arg in expr.args) {
         _expr(arg.value);
@@ -1054,14 +1061,18 @@ class _FnCompiler {
       }
     }
 
-    // Module-qualified call (`fs.read_text(...)`) → a module native, no receiver.
-    final moduleNative = _moduleCall(callee.object, callee.field);
-    if (moduleNative != null) {
-      for (final arg in expr.args) {
-        _expr(arg.value);
+    // Namespace-qualified native function (`fs.read_text(...)`) → a runtime
+    // native, no receiver.
+    if (callee.object is IdentExpr &&
+        _isNamespace((callee.object as IdentExpr).name)) {
+      final native = _scope.nativeFns[callee.field];
+      if (native != null) {
+        for (final arg in expr.args) {
+          _expr(arg.value);
+        }
+        _emit(CallNative(native, expr.args.length));
+        return;
       }
-      _emit(CallNative(moduleNative, expr.args.length));
-      return;
     }
 
     // Built-in methods (String/List/Map/Option) lower to a native with the

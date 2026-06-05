@@ -5,6 +5,7 @@ import 'package:hawk/src/bytecode/encoder.dart';
 import 'package:hawk/src/bytecode/instr.dart';
 import 'package:hawk/src/bytecode/module.dart';
 import 'package:hawk/src/codegen/codegen.dart';
+import 'package:hawk/src/element/namespace.dart';
 import 'package:hawk/src/lexer.dart';
 import 'package:hawk/src/parser.dart';
 import 'package:test/test.dart';
@@ -20,6 +21,24 @@ Program parseProgram(String source) {
 }
 
 Module compile(String source) => compileProgram(parseProgram(source));
+
+/// Compile [source] with namespaced imports: each entry of [libs] is an
+/// import-path -> library source, so qualified access (`ns.member`) resolves.
+Module compileWith(String source, Map<String, String> libs) {
+  final imports = {
+    for (final e in libs.entries) e.key: LibrarySource(parseProgram(e.value)),
+  };
+  final program = parseProgram(source);
+  final root = LibrarySource(program, imports: imports);
+  return compileProgram(program,
+      imports: [for (final s in imports.values) s.program],
+      namespaces: namespacesFor(root));
+}
+
+/// A minimal `std.fs` library (the `read_text` native, bound via `@extern`),
+/// for exercising namespace-qualified native calls.
+const _fsLib = "@extern('fs_read_text')\n"
+    'pub native fn read_text(_ path: String) -> Result<String, Error>';
 
 void main() {
   group('codegen lowering', () {
@@ -440,12 +459,11 @@ fn main() -> Int { let v = V { n: 1 }; return v.bump(5); }
               .having((i) => i.argc, 'argc', 2)));
     });
 
-    test('a module-qualified call lowers to a native with no receiver', () {
-      final ops = compile(
-              "import std.fs; fn f() -> Int { let r = fs.read_text('/x'); return 0; }")
-          .functions
-          .single
-          .code;
+    test('a namespace-qualified native call lowers with no receiver', () {
+      final ops = compileWith(
+        "import std.fs; fn f() -> Int { let r = fs.read_text('/x'); return 0; }",
+        {'std.fs': _fsLib},
+      ).functions.single.code;
       // just the path argument → argc 1, no receiver pushed.
       expect(
           ops,
@@ -874,7 +892,8 @@ fn main() -> Int {
 
       Map<String, dynamic> run(String name, String src) {
         final tmp = '${Directory.systemTemp.path}/hawk_$name.hawkbc';
-        File(tmp).writeAsBytesSync(encodeModule(compile(src)));
+        File(tmp).writeAsBytesSync(
+            encodeModule(compileWith(src, {'std.fs': _fsLib})));
         final r = Process.runSync(hawkBin, ['run', tmp]);
         return {'code': r.exitCode, 'out': r.stdout, 'err': r.stderr};
       }

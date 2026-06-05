@@ -508,13 +508,18 @@ convention, the test rule, and terminology (a source file vs. a library) — is 
 linked into the runtime). The declaration provides the Hawk-visible signature;
 the implementation is resolved at link time. Native functions have no body.
 
+The `@extern('<symbol>')` decorator names the runtime native the function binds
+to (the runtime's native table is a flat namespace, so stdlib symbols are
+module-prefixed to stay unique). Without it, the binding defaults to the
+function's own name.
+
 ```hawk
-native fn re2_compile(_ pattern: String) -> Result<NativeHandle, Error>
-native fn re2_is_match(_ handle: NativeHandle, _ text: String) -> Bool
+@extern('fs_read_text')
+pub native fn read_text(_ path: String) -> Result<String, Error>
 ```
 
-Native functions are an implementation detail of stdlib modules. User code calls
-the Hawk wrappers, not the native bindings directly.
+Native functions are an implementation detail of stdlib libraries. User code
+calls the Hawk wrappers (e.g. `fs.read_text`), not the native bindings directly.
 
 An opaque type wraps a native handle whose internal layout is managed by the
 runtime. Declare it as an empty struct:
