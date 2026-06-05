@@ -807,12 +807,17 @@ discovery) needs to know about the difference.
     cli/           ← Hawk front-end + CLI harness (written in Hawk)
   sdk/
     std/
-      core/core.hawk       ← auto-imported prelude: Eq, Display, Debug, Error
-      cli/cli.hawk          ← import std.cli (Args; barrel re-exporting args.hawk)
+      core/core.hawk        ← auto-imported prelude (barrel; re-exports below)
+        core/interfaces.hawk    Eq, Display, Debug
+        core/error.hawk         Error
+        core/string.hawk        String.* static/native helpers
+        core/list.hawk          List.* helpers
+        core/map.hawk           Map.* helpers
+      cli/cli.hawk          ← import std.cli (barrel re-exporting args.hawk)
         cli/args.hawk
       fs/fs.hawk            ← import std.fs
       testing/testing.hawk  ← import std.testing
-      ...                   ← (process, fiber, regex, … as they land)
+      ...                   ← (process, regex, … as they land)
   examples/
   docs/
 ```

@@ -1,46 +1,11 @@
-// std.core — fundamental interfaces and types automatically imported into
-// every file.
+// std.core — the prelude, automatically imported into every file. Its public
+// symbols are available unqualified everywhere.
 //
-// Nothing in this file needs to be explicitly imported. Types, interfaces,
-// and functions defined here are available as top-level names everywhere.
+// This is a barrel: it only re-exports its sibling files (see
+// docs/visibility.md), it defines no symbols of its own.
 
-// Equality comparison. Implemented automatically for all primitive types
-// and derived automatically for structs whose fields all implement Eq.
-// Powers the == and != operators.
-pub interface Eq {
-    fn eq(self, other: Self) -> Bool;
-}
-
-// User-facing string representation. Used by string interpolation (${})
-// and println. Must be implemented explicitly — there is no default.
-// Attempting to interpolate a type that does not implement Display is a
-// compile error.
-pub interface Display {
-    fn display(self) -> String;
-}
-
-// Developer-facing string representation. Used by assertion failure
-// messages, logging, and diagnostic output. Auto-derived for structs;
-// the default shows all field names and values. Can be overridden.
-pub interface Debug {
-    fn debug(self) -> String;
-}
-
-// The standard error type. `Result<T, Error>` is the conventional fallible
-// signature throughout Hawk, and an Error carries a human-readable message.
-//
-// Constructed today with struct-literal syntax:
-//
-//   return Err(Error { message: 'file not found' });
-//
-// A shorthand call form — Error('file not found') — is planned; see
-// docs/language.md.
-pub type Error = {
-    message: String,
-}
-
-impl Display for Error {
-    pub fn display(self) -> String {
-        return self.message;
-    }
-}
+pub import 'interfaces';   // Eq, Display, Debug
+pub import 'error';        // Error
+pub import 'string';       // String static/native helpers
+pub import 'list';         // List helpers
+pub import 'map';          // Map helpers

@@ -109,6 +109,15 @@ fn main() -> Int { return String.from_chars([104, 105]).len(); }
     expect(r.exitCode, 2, reason: r.stderr.toString());
   });
 
+  test('String.from_chars comes from the auto-loaded core prelude', () {
+    // No inline impl — String.from_chars is provided by std/core/string.hawk.
+    final r = emitAndRun('core_from_chars', '''
+fn main() -> Int { return String.from_chars([72, 105]).len(); }
+''', []);
+    if (r == null) return markTestSkipped('Rust runtime unavailable');
+    expect(r.exitCode, 2, reason: r.stderr.toString());
+  });
+
   test('qualified namespace access across files runs end to end', () {
     if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
     final dir = Directory.systemTemp.createTempSync('hawk_ns');

@@ -1,0 +1,15 @@
+// std.core — String helpers (auto-imported with the prelude).
+//
+// Methods on string *values* (len, trim, split, …) are built in and available
+// on any String directly. This file adds named constructors and helpers as
+// static methods on the `String` type, so they don't crowd the global
+// namespace.
+
+impl String {
+    // Construct a String from a list of Unicode code points (as Int).
+    // The inverse of `s.chars()`:
+    //
+    //   let token = String.from_chars(source.chars().slice(start, end));
+    @extern('str_from_chars')
+    pub native fn from_chars(_ cps: List<Int>) -> String
+}

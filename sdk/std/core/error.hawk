@@ -1,0 +1,20 @@
+// std.core — the standard error type.
+
+// `Result<T, Error>` is the conventional fallible signature throughout Hawk,
+// and an Error carries a human-readable message.
+//
+// Constructed today with struct-literal syntax:
+//
+//   return Err(Error { message: 'file not found' });
+//
+// A shorthand call form — Error('file not found') — is planned; see
+// docs/language.md.
+pub type Error = {
+    message: String,
+}
+
+impl Display for Error {
+    pub fn display(self) -> String {
+        return self.message;
+    }
+}
