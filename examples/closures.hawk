@@ -1,0 +1,34 @@
+// Closures: lambdas that capture their environment, passed and returned as
+// first-class values. Demonstrates lambda literals, capture-by-value,
+// function-typed parameters (`(Int) -> Int`), and returning a closure.
+
+// A higher-order function: applies the given function to a value.
+fn apply(f: (Int) -> Int, _ x: Int) -> Int {
+    return f(x);
+}
+
+// Builds and returns a closure that adds `by` to its argument. `by` is a
+// captured variable — the returned closure carries it.
+fn adder(by: Int) -> (Int) -> Int {
+    return n => n + by;
+}
+
+fn main() -> Result<Int, Error> {
+    // A lambda bound to a local, then called directly.
+    let triple = n => n * 3;
+    println('triple(6)        = ${triple(6)}');
+
+    // Capture by value: the lambda closes over the local `offset`.
+    let offset = 100;
+    let shift = n => n + offset;
+    println('shift(5)         = ${shift(5)}');
+
+    // Pass a closure to a higher-order function.
+    println('apply(triple, 9) = ${apply(triple, 9)}');
+
+    // A function that returns a closure (capturing its parameter).
+    let add10 = adder(10);
+    println('add10(32)        = ${add10(32)}');
+
+    return Ok(0);
+}

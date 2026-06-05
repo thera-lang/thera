@@ -145,10 +145,25 @@ let double = x => x * 2;
 let names = users.map(u => u.name);
 ```
 
-A lambda may **capture** variables from its enclosing scope, including mutable
-ones — a captured `mut` local is shared, so mutations are visible on both sides.
-(Implementation: the frontend boxes captured `mut` locals and closes over the
-box; see [bytecode.md](bytecode.md).)
+A function-typed value is written `(T1, T2) -> R` (the zero-argument form is
+`() -> R`), so lambdas can be passed to and returned from functions:
+
+```hawk
+fn apply(f: (Int) -> Int, _ x: Int) -> Int { return f(x); }
+
+fn adder(by: Int) -> (Int) -> Int {
+    return n => n + by;          // captures `by`; returned as a closure
+}
+```
+
+A lambda may **capture** variables from its enclosing scope (including `self`
+inside a method). Captures are taken **by value**: a captured immutable binding
+is copied, and capturing a reference value (a struct/list/`self`) still observes
+mutations to the object it points at. Capturing a `mut` local — where the lambda
+would need to observe later reassignments — is **not yet supported** and is
+rejected at compile time; the planned implementation boxes captured `mut` locals
+and closes over the box (see [bytecode.md](bytecode.md)). See
+`examples/closures.hawk`.
 
 ### Named parameters
 

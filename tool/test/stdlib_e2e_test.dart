@@ -85,6 +85,26 @@ fn main() -> Result<Int, Error> {
     expect(r.stdout, '2\tlines\n6\twords\n31\tbytes\n');
   });
 
+  test('examples/closures.hawk runs and prints expected output', () {
+    if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+    final dir = Directory.systemTemp.createTempSync('hawk_clo');
+    final out = '${dir.path}/closures.hawkbc';
+    final emit = Process.runSync(
+      Platform.resolvedExecutable,
+      ['run', 'bin/hawk.dart', 'emit', '../examples/closures.hawk', out],
+    );
+    expect(emit.exitCode, 0, reason: emit.stderr.toString());
+
+    final r = Process.runSync(hawkBin, ['run', out]);
+    expect(r.exitCode, 0, reason: r.stderr.toString());
+    expect(
+        r.stdout,
+        'triple(6)        = 18\n'
+        'shift(5)         = 105\n'
+        'apply(triple, 9) = 27\n'
+        'add10(32)        = 42\n');
+  });
+
   test('static methods on built-in types run', () {
     // impl on a primitive: `Int.answer()` + a chained call off a String static
     // method (5 + 42 = 47 -> exit code 47).
