@@ -224,6 +224,14 @@ impl FnBuilder {
     pub fn call_native(&mut self, native: u32, argc: u8) -> &mut Self {
         self.emit(Instr::CallNative { native, argc })
     }
+    pub fn call_indirect(&mut self, argc: u8) -> &mut Self {
+        self.emit(Instr::CallIndirect { argc })
+    }
+
+    // --- closures ---
+    pub fn closure_new(&mut self, func: u32, captures: u8) -> &mut Self {
+        self.emit(Instr::ClosureNew { func, captures })
+    }
 
     // --- enums ---
     pub fn enum_new(&mut self, ty: u32, variant: u16, field_count: u8) -> &mut Self {
