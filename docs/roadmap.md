@@ -140,19 +140,21 @@ gaps, by where they live:
   `_isDefinedName`. It can become a `Set<String>`, retiring `_inferType` and the
   `type` argument of `_bindPattern`. Small and self-contained.
 
-**Language / libraries & visibility:**
+**Language / libraries & visibility:** (see [visibility.md](visibility.md))
 
-- **Visibility model — designed (see [visibility.md](visibility.md)),
-  implementation pending.** The file is the privacy boundary; `pub` exposes
-  symbols; imports bind a namespace (the trailing path segment) and access is
-  qualified (`std.core` is the unqualified prelude); directories import through
-  a `<dirname>.hawk` barrel that `pub import`s its files; sibling `_test.hawk`
-  files get white-box access. Implementation touches the element-model resolver
-  (namespaces + `pub` filtering + barrel/dir resolution + cycle guard), the
-  checker's name resolution, and codegen's qualified-call lowering; then the
-  `examples/` migrate to qualified imports. Tracked sub-items live in
-  visibility.md (selective import, field-level visibility, impl coherence,
-  terminology sweep).
+- **Visibility model — largely implemented.** `pub`/`pub import` parse; imports
+  bind a namespace (trailing segment) and qualified access (`ns.fn`,
+  `ns.Type.method`, `ns.Enum.Variant`) resolves in inference + codegen;
+  `std.core` is the unqualified prelude; directories resolve through a
+  `<dirname>.hawk` barrel. `native fn`s bind to runtime symbols via
+  `@extern('...')`, and built-in types host static methods
+  (`String.from_chars`). The stdlib is reorganized into directory libraries with
+  `core` as a barrel (interfaces/error/string/list/map) and `std.cli` over args;
+  examples use qualified imports.
+- **Remaining (deferred, tracked in visibility.md):** *enforce* `pub`/privacy
+  (cross-file refs to non-`pub` symbols error; drop the flat fallback) and
+  `_test.hawk` white-box access — plus selective import, field-level visibility,
+  impl coherence, and a "module"→"library" terminology sweep.
 
 **Cross-cutting:** the stdlib natives are listed in both the Rust runtime and
 the Dart interpreter. Acceptable (name-bound calls already fail at load on a
