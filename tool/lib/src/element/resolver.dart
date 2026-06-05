@@ -47,10 +47,19 @@ class TypeResolver {
       };
 }
 
-/// The built-in type-definition elements, by name. Primitives are *not* here
-/// (they resolve to [PrimitiveType] directly); these are the named types that
-/// back an [InterfaceType].
+/// The built-in type-definition elements, by name. These back an
+/// [InterfaceType] (the generics) and are the attachment point for `impl`
+/// blocks and static-method lookup. A *value* of a primitive type still
+/// resolves to [PrimitiveType] (see [TypeResolver]); the primitive entries here
+/// exist so `impl String { ... }` attaches and `String.from_chars(...)`
+/// resolves.
 Map<String, TypeDefElement> builtinTypeDefs() => {
+      // Primitives — for impl/static-method attachment only.
+      'String': BuiltinTypeElement('String'),
+      'Int': BuiltinTypeElement('Int'),
+      'Bool': BuiltinTypeElement('Bool'),
+      'Double': BuiltinTypeElement('Double'),
+      // Generic built-ins.
       'List': BuiltinTypeElement('List', typeParameters: ['T']),
       'Set': BuiltinTypeElement('Set', typeParameters: ['T']),
       'Map': BuiltinTypeElement('Map', typeParameters: ['K', 'V']),

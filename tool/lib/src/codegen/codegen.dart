@@ -230,19 +230,39 @@ class _FnCompiler {
   bool _isNamespace(String name) =>
       !_slots.containsKey(name) && _scope.namespaces.contains(name);
 
+  /// Built-in type names that can host static methods (`String.from_chars(...)`,
+  /// `List.of(...)`). The type table is flat, so a static call resolves through
+  /// the method table by this name.
+  static const _builtinTypeNames = {
+    'String',
+    'Int',
+    'Bool',
+    'Double',
+    'Float',
+    'Void',
+    'List',
+    'Map',
+    'Set',
+    'Result',
+    'Option',
+  };
+
+  bool _isTypeName(String name) =>
+      structs.containsKey(name) ||
+      _enums.containsKey(name) ||
+      _builtinTypeNames.contains(name);
+
   /// The bare type name a (possibly namespace-qualified) type expression refers
-  /// to — `Type` or `ns.Type` — when it names a declared struct or enum. The
-  /// type table is flat, so `ns.Type` resolves to the same `Type`.
+  /// to — `Type` or `ns.Type` — when it names a struct, enum, or built-in type.
+  /// The type table is flat, so `ns.Type` resolves to the same `Type`.
   String? _staticTypeName(Expr e) {
-    if (e is IdentExpr &&
-        !_slots.containsKey(e.name) &&
-        (structs.containsKey(e.name) || _enums.containsKey(e.name))) {
+    if (e is IdentExpr && !_slots.containsKey(e.name) && _isTypeName(e.name)) {
       return e.name;
     }
     if (e is FieldExpr &&
         e.object is IdentExpr &&
         _isNamespace((e.object as IdentExpr).name) &&
-        (structs.containsKey(e.field) || _enums.containsKey(e.field))) {
+        _isTypeName(e.field)) {
       return e.field;
     }
     return null;

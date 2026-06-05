@@ -85,6 +85,18 @@ fn main() -> Result<Int, Error> {
     expect(r.stdout, '2\tlines\n6\twords\n31\tbytes\n');
   });
 
+  test('static methods on built-in types run', () {
+    // impl on a primitive: `Int.answer()` + a chained call off a String static
+    // method (5 + 42 = 47 -> exit code 47).
+    final r = emitAndRun('static_builtin', '''
+impl Int { fn answer() -> Int { return 42; } }
+impl String { fn greeting() -> String { return 'hello'; } }
+fn main() -> Int { return Int.answer() + String.greeting().len(); }
+''', []);
+    if (r == null) return markTestSkipped('Rust runtime unavailable');
+    expect(r.exitCode, 47, reason: r.stderr.toString());
+  });
+
   test('qualified namespace access across files runs end to end', () {
     if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
     final dir = Directory.systemTemp.createTempSync('hawk_ns');

@@ -231,6 +231,18 @@ fn f() { let b = Box { value: "hi" }; let v = b.get(); }
 ''');
       expect(letType(p, 'v'), PrimitiveType.string);
     });
+
+    test('static method on a built-in type resolves', () {
+      final p = inferred('''
+impl String { fn greeting() -> String { return 'hi'; } }
+fn f() {
+  let s = String.greeting();
+  let n = String.greeting().len();
+}
+''');
+      expect(letType(p, 's'), PrimitiveType.string);
+      expect(letType(p, 'n'), PrimitiveType.int_);
+    });
   });
 
   group('qualified (namespaced) access', () {
