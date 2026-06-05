@@ -261,6 +261,18 @@ class VoidType extends TypeRef {
   String describe() => '()';
 }
 
+/// A function type, e.g. `(Int, String) -> Bool` or `() -> Int`. The type of a
+/// lambda value or a function-typed parameter.
+class FunctionTypeRef extends TypeRef {
+  final List<TypeRef> params;
+  final TypeRef returnType;
+  FunctionTypeRef(this.params, this.returnType);
+
+  @override
+  String describe() =>
+      '(${params.map((p) => p.describe()).join(', ')}) -> ${returnType.describe()}';
+}
+
 // --- Statements ---
 
 sealed class Stmt {

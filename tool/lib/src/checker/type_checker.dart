@@ -374,6 +374,11 @@ class TypeChecker {
         }
       case VoidType():
         break;
+      case FunctionTypeRef(:final params, :final returnType):
+        for (final p in params) {
+          _checkTypeRef(p, fallback, typeParams: typeParams);
+        }
+        _checkTypeRef(returnType, fallback, typeParams: typeParams);
     }
   }
 

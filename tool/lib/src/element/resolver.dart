@@ -34,6 +34,14 @@ class TypeResolver {
             resolve(a, typeParams: typeParams, selfType: selfType),
         ];
         return InterfaceType(def, resolvedArgs);
+      case FunctionTypeRef(:final params, :final returnType):
+        return FunctionType(
+          [
+            for (final p in params)
+              resolve(p, typeParams: typeParams, selfType: selfType),
+          ],
+          resolve(returnType, typeParams: typeParams, selfType: selfType),
+        );
     }
   }
 

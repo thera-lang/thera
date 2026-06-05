@@ -315,6 +315,9 @@ class Inferrer {
           return _option(
               argTypes.isEmpty ? const UnknownType() : argTypes.first);
         default:
+          // A function-typed local/parameter called directly: `f(x)`.
+          final local = scope[callee.name];
+          if (local is FunctionType) return local.returnType;
           final fn = library.functions[callee.name];
           if (fn != null) return _instantiateReturn(fn, argTypes);
           return const UnknownType();
@@ -366,7 +369,11 @@ class Inferrer {
       return const UnknownType();
     }
 
-    _infer(callee, scope, typeParams: typeParams, selfType: selfType);
+    // Any other callee expression of function type (e.g. an indexed/returned
+    // closure): the call yields its return type.
+    final calleeType =
+        _infer(callee, scope, typeParams: typeParams, selfType: selfType);
+    if (calleeType is FunctionType) return calleeType.returnType;
     return const UnknownType();
   }
 

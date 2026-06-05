@@ -73,6 +73,41 @@ void main() {
     });
   });
 
+  group('function types', () {
+    TypeRef paramType(String source) =>
+        (parse(source).decls.single as FnDecl).params.single.type!;
+
+    test('parses a function-typed parameter', () {
+      final t = paramType('fn apply(f: (Int) -> Int) { }') as FunctionTypeRef;
+      expect((t.params.single as NamedType).name, 'Int');
+      expect((t.returnType as NamedType).name, 'Int');
+    });
+
+    test('parses multiple parameters', () {
+      final t =
+          paramType('fn f(g: (Int, String) -> Bool) { }') as FunctionTypeRef;
+      expect(t.params.map((p) => (p as NamedType).name), ['Int', 'String']);
+      expect((t.returnType as NamedType).name, 'Bool');
+    });
+
+    test('parses a zero-arg function type', () {
+      final t = paramType('fn f(g: () -> Int) { }') as FunctionTypeRef;
+      expect(t.params, isEmpty);
+      expect((t.returnType as NamedType).name, 'Int');
+    });
+
+    test('parses a function type as a return type', () {
+      final fn =
+          parse('fn adder(n: Int) -> (Int) -> Int { }').decls.single as FnDecl;
+      expect(fn.returnType, isA<FunctionTypeRef>());
+    });
+
+    test('bare () is still the void type, not a function type', () {
+      final fn = parse('fn f() -> () { }').decls.single as FnDecl;
+      expect(fn.returnType, isA<VoidType>());
+    });
+  });
+
   group('parameters', () {
     Param onlyParam(String source) =>
         (parse(source).decls.single as FnDecl).params.single;
