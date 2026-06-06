@@ -4,9 +4,10 @@ import 'package:args/command_runner.dart';
 import 'package:hawk/src/ast.dart';
 import 'package:hawk/src/bytecode/encoder.dart';
 import 'package:hawk/src/checker/type_checker.dart';
-import 'package:hawk/src/bytecode/module.dart';
 import 'package:hawk/src/codegen/codegen.dart';
 import 'package:hawk/src/element/namespace.dart';
+// The tree-walking interpreter still backs `hawk test`'s @test runner; `run`
+// now compiles to bytecode and executes on the Rust runtime.
 import 'package:hawk/src/interpreter/interpreter.dart';
 import 'package:hawk/src/lexer.dart';
 import 'package:hawk/src/lsp/server.dart';
@@ -34,6 +35,41 @@ String? _findSdkRoot() {
     }
   } catch (_) {}
   return null;
+}
+
+/// The Rust runtime binary in the development repo, or null if it isn't built.
+/// Assumes a dev checkout: `runtime/target/debug/hawk` under the repo root (the
+/// same directory that holds `sdk/std/`).
+String? _findRuntimeBinary() {
+  final root = _findSdkRoot();
+  if (root == null) return null;
+  final bin = '$root/runtime/target/debug/hawk';
+  return File(bin).existsSync() ? bin : null;
+}
+
+/// Compile the program at [path] to bytecode bytes, type-checking before
+/// lowering (codegen assumes a well-typed program). Prints diagnostics and
+/// exits non-zero on any lex/parse/type/codegen error.
+List<int> _emitBytes(String path) {
+  final program = _loadProgram(path);
+  final imports = _loadImports(path, program);
+
+  final result = _typeCheck(path, program, imports);
+  if (result.errors.isNotEmpty) {
+    for (final err in result.errors) {
+      stderr.writeln(err.format(path));
+    }
+    exit(1);
+  }
+
+  try {
+    final module = compileProgram(program,
+        imports: imports.programs, namespaces: imports.namespaces);
+    return encodeModule(module);
+  } on CodegenException catch (e) {
+    stderr.writeln('hawk: $path: ${e.message}');
+    exit(1);
+  }
 }
 
 void main(List<String> args) async {
@@ -103,22 +139,18 @@ class ParseCommand extends Command<void> {
 }
 
 class RunCommand extends Command<void> {
-  RunCommand() {
-    // All args after '--' flow through argResults.rest after the filename.
-  }
-
   @override
   String get name => 'run';
 
   @override
   String get description =>
-      'Run <file>; arguments after -- are passed to main.';
+      'Compile and run <file>; arguments after -- are passed to main.';
 
   @override
   String get invocation => 'hawk run <file> [-- args]';
 
   @override
-  void run() {
+  Future<void> run() async {
     final rest = argResults!.rest;
     if (rest.isEmpty) {
       usageException('Expected a file argument.');
@@ -127,10 +159,29 @@ class RunCommand extends Command<void> {
     final sep = rest.indexOf('--');
     final programArgs = sep >= 0 ? rest.sublist(sep + 1) : rest.sublist(1);
 
-    final program = _loadProgram(path);
-    final exitCode = Interpreter(sdkRoot: _findSdkRoot())
-        .execute(program, programArgs, baseDir: File(path).parent.path);
-    exit(exitCode);
+    // Compile to a temporary .hawkbc (exits non-zero on any error), then
+    // execute it on the Rust runtime.
+    final bytes = _emitBytes(path);
+    final runtime = _findRuntimeBinary();
+    if (runtime == null) {
+      stderr.writeln('hawk: the Rust runtime was not found at '
+          'runtime/target/debug/hawk. Build it first: run `cargo build` in '
+          'the runtime/ directory.');
+      exit(1);
+    }
+
+    final dir = Directory.systemTemp.createTempSync('hawk_run');
+    File('${dir.path}/out.hawkbc').writeAsBytesSync(bytes);
+    final process = await Process.start(
+      runtime,
+      ['run', '${dir.path}/out.hawkbc', ...programArgs],
+      mode: ProcessStartMode.inheritStdio,
+    );
+    final code = await process.exitCode;
+    try {
+      dir.deleteSync(recursive: true);
+    } catch (_) {}
+    exit(code);
   }
 }
 
@@ -150,30 +201,7 @@ class EmitCommand extends Command<void> {
     if (rest.length < 2) {
       usageException('Expected <file> and <out> arguments.');
     }
-    final path = rest[0];
-    final out = rest[1];
-
-    final program = _loadProgram(path);
-    final imports = _loadImports(path, program);
-
-    // Type-check before lowering: codegen assumes a well-typed program.
-    final result = _typeCheck(path, program, imports);
-    if (result.errors.isNotEmpty) {
-      for (final err in result.errors) {
-        stderr.writeln(err.format(path));
-      }
-      exit(1);
-    }
-
-    final Module module;
-    try {
-      module = compileProgram(program,
-          imports: imports.programs, namespaces: imports.namespaces);
-    } on CodegenException catch (e) {
-      stderr.writeln('hawk: $path: ${e.message}');
-      exit(1);
-    }
-    File(out).writeAsBytesSync(encodeModule(module));
+    File(rest[1]).writeAsBytesSync(_emitBytes(rest[0]));
   }
 }
 

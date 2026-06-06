@@ -11,8 +11,10 @@ Full design docs: start at **[docs/toc.md](docs/toc.md)**.
 - `runtime/` — **the active codebase**: a Rust runtime with a Tier-0 bytecode
   interpreter and the serialized `.hawkbc` format.
 - `sdk/std/` — Hawk standard library sources (`.hawk`, with `native fn` decls).
-- `tool/` — legacy Dart toolchain (lexer/parser/checker/tree-walking
-  interpreter/LSP). Maintained until the Hawk front-end can self-host.
+- `tool/` — legacy Dart toolchain (lexer/parser/checker/codegen/LSP). `hawk run`
+  compiles to `.hawkbc` and executes it on the Rust runtime; the tree-walking
+  interpreter now only backs `hawk test`. Maintained until the Hawk front-end
+  can self-host.
 - `pkgs/cli/` — placeholder for the future Hawk-written front-end + CLI.
 - `examples/` — example `.hawk` programs. `bin/` — dev entry scripts.
 - `docs/` — design docs.
