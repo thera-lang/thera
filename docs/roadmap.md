@@ -91,9 +91,11 @@ gaps, by where they live:
 
 **Runtime (Rust) — blocks running real programs:**
 
-- **Stdlib native surface.** The runtime has ~19 natives; the stdlib still wants
-  the full `String.*`, `List.map`/`filter`, `Args`, `fs`, `process`, and
-  `testing` surface (the retired tree-walking prototype implemented these). This
+- **Stdlib native surface.** The runtime has ~20 natives; the stdlib still wants
+  the full `String.*`, `Args`, `fs`, `process`, and `testing` surface (the
+  retired tree-walking prototype implemented these). `List.map`/`filter` now
+  exist — written in Hawk over a new `list_push` native (see
+  `sdk/std/core/list.hawk`). This
   is the bulk of the "batteries included" goal and the biggest single blocker.
 - **Interface dispatch (`Display`/`Eq`).** _Design settled_ (see
   [bytecode.md](bytecode.md)): the frontend resolves statically and emits direct
@@ -108,7 +110,8 @@ gaps, by where they live:
   writes), and returning closures all work end to end (see
   `examples/closures.hawk`). _Remaining nit:_ inferring un-annotated lambda
   parameter types (an `n => n <op> m` body with two unknown operands can't pick
-  an opcode today). `List.map`-style HOFs in the stdlib are the natural next use.
+  an opcode today). The first payoff has landed: `List.map`/`filter` are written
+  in Hawk and take closures (`sdk/std/core/list.hawk`, `examples/list_hof.hawk`).
 - **GC.** Currently `Rc<RefCell>`; a precise non-moving mark-sweep is planned as
   an explicit placeholder, to land _after_ closures/interfaces so it traces the
   value shapes it will actually see.

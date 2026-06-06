@@ -85,6 +85,7 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("map_remove", native_map_remove),
     ("map_is_empty", native_map_is_empty),
     ("list_join", native_list_join),
+    ("list_push", native_list_push),
 ];
 
 /// The native functions the runtime ships with, in index order.
@@ -569,6 +570,15 @@ fn native_list_set(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> 
     with_list_mut(list, "list set", |items| {
         let n = checked_index(i, items.len())?;
         items[n] = val.clone();
+        Ok(Value::Unit)
+    })
+}
+
+/// `list.push(value)` — append a value to the list, in place. Returns Unit.
+fn native_list_push(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (list, val) = args2(args, "list push")?;
+    with_list_mut(list, "list push", |items| {
+        items.push(val.clone());
         Ok(Value::Unit)
     })
 }

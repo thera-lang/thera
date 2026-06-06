@@ -322,5 +322,18 @@ fn f() {
               'fn f(g: (Int) -> Int) { let h = pick(g); }');
       expect(letType(p, 'h').toString(), '(Int) -> Int');
     });
+
+    test('a generic method binds its own type param from a closure argument',
+        () {
+      // `map<U>` recovers `U` from the lambda's result type: here `n > 0` is
+      // Bool, so `[1, 2].map(...)` is List<Bool>, not List<?>.
+      final p = inferred('''
+impl List<T> {
+  fn map<U>(self, _ f: (T) -> U) -> List<U> { let r = []; return r; }
+}
+fn f() { let bools = [1, 2].map(n => n > 0); }
+''');
+      expect(letType(p, 'bools').toString(), 'List<Bool>');
+    });
   });
 }

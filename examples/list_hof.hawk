@@ -1,0 +1,25 @@
+// Higher-order list methods: `map` and `filter` take a closure and are written
+// in Hawk themselves (sdk/std/core/list.hawk) — the payoff of closures. Both
+// are in the core prelude, so they're available on any list with no import.
+
+fn main() -> Result<Int, Error> {
+    let nums = [1, 2, 3, 4, 5, 6];
+
+    // filter: keep the even numbers.
+    let evens = nums.filter(n => n % 2 == 0);          // [2, 4, 6]
+
+    // map: scale each by 10. The element type flows through `map`, so the
+    // interpolation below knows the elements are Int.
+    let scaled = evens.map(n => n * 10);               // [20, 40, 60]
+
+    for s in scaled {
+        println('${s}');
+    }
+
+    // Capture: filter by a value from the enclosing scope.
+    let threshold = 30;
+    let big = scaled.filter(n => n > threshold);       // [40, 60]
+    println('big: ${big.len()}');
+
+    return Ok(0);
+}

@@ -1244,6 +1244,24 @@ mod tests {
     }
 
     #[test]
+    fn list_push_appends_in_place() {
+        // l = [1, 2]; l.push(3); return l.len()  → 3
+        let push = native_index("list_push").unwrap();
+        let r = run_fn(|b| {
+            push_int_list(b, &[1, 2]);
+            b.store(0);
+            b.load(0);
+            b.const_int(3);
+            b.call_native(push, 2);
+            b.pop(); // discard the Unit return
+            b.load(0);
+            b.call_native(NATIVE_LIST_LEN, 1);
+            b.ret();
+        });
+        assert_eq!(r, Ok(Value::Int(3)));
+    }
+
+    #[test]
     fn list_get_returns_option() {
         // get(1) → Some(20)
         let some = run_fn(|b| {

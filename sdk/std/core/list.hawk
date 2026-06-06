@@ -1,52 +1,40 @@
-// std.list — the built-in List<T> type.
+// std.core — the built-in List<T> type's higher-order methods, written in Hawk.
 //
-// List<T> is an ordered, growable sequence. It is a built-in type: always in
-// scope, never explicitly imported (there is no `import std.list`).
+// List<T> is a built-in, growable sequence: always in scope, never explicitly
+// imported (there is no `import std.list`). It is not constructed via a struct
+// literal — build one with a list literal, `[a, b, c]`.
 //
-// This file documents List's method surface. The declarations below are
-// COMMENTED OUT on purpose: List<T> is generic, and the toolchain does not yet
-// support generic `type` / `impl` declarations. Treat this as the
-// source-of-truth sketch until the Rust front-end can express it directly.
+// Indexing, `.len()`, `.get(i)`, `.push(v)`, and `.join(sep)` are built in
+// (backed by runtime natives). The transforms below are ordinary Hawk methods
+// that take a closure and are compiled like any other code — the payoff of
+// closures (see examples/closures.hawk, docs/bytecode.md).
 //
-// Indexing:
+//   let evens = [1, 2, 3, 4].filter(n => n % 2 == 0);   // [2, 4]
+//   let names = users.map(u => u.name);
 //
-//   let x = items[i];     // → T; traps if i is out of range
-//   items[i] = v;         // assignment (the binding must be `mut`)
-//
-// Use .get(i) when absence is a normal, expected case. See "Runtime faults"
-// and "Collections" in docs/language.md.
+// Still TBD (need language features that don't exist yet): `fold`/`reduce` and
+// other multi-argument combiners are blocked on multi-parameter lambdas (only
+// `x => expr` parses today); `first`/`last`/`slice`/`sort`/`to_list` are
+// straightforward additions once needed.
 
-// type List<T> = {
-//     // Opaque built-in; not constructed via struct literal. Build one with a
-//     // list literal: [a, b, c].
-// }
-//
-// impl List<T> {
-//     // Number of elements.
-//     fn len(self) -> Int
-//
-//     // Element at index, or None if out of range — the checked alternative
-//     // to indexing with [].
-//     fn get(self, _ index: Int) -> Option<T>
-//
-//     // First / last element, or None if the list is empty.
-//     fn first(self) -> Option<T>
-//     fn last(self) -> Option<T>
-//
-//     // The sub-range [start, end) as a new list.
-//     fn slice(self, _ start: Int, _ end: Int) -> List<T>
-//
-//     // Lazy transforms — call .to_list() to materialise (see language.md).
-//     fn map<U>(self, _ f: (T) -> U) -> List<U>
-//     fn filter(self, _ pred: (T) -> Bool) -> List<T>
-//
-//     // Materialise a (possibly lazy) sequence into a concrete list.
-//     fn to_list(self) -> List<T>
-//
-//     // A sorted copy. (Ordering constraint on T is TBD.)
-//     fn sort(self) -> List<T>
-//
-//     // Join a List<String> into one string with `sep` between elements.
-//     // (Only valid when T is String.)
-//     fn join(self, _ sep: String) -> String
-// }
+impl List<T> {
+    // A new list with `f` applied to each element, in order.
+    pub fn map<U>(self, _ f: (T) -> U) -> List<U> {
+        let result = [];
+        for item in self {
+            result.push(f(item));
+        }
+        return result;
+    }
+
+    // A new list of the elements for which `keep` returns true, in order.
+    pub fn filter(self, _ keep: (T) -> Bool) -> List<T> {
+        let result = [];
+        for item in self {
+            if keep(item) {
+                result.push(item);
+            }
+        }
+        return result;
+    }
+}

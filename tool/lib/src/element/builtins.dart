@@ -34,6 +34,7 @@ const Map<String, Map<String, String>> builtinMethodNatives = {
     'len': 'list_len',
     'get': 'list_get',
     'join': 'list_join',
+    'push': 'list_push',
   },
   'Map': {
     'len': 'map_len',
@@ -91,6 +92,7 @@ Map<String, Map<String, BuiltinReturn>> builtinReturns(
       'len': (r, a) => int_,
       'get': (r, a) => option(arg(r, 0)),
       'join': (r, a) => string,
+      'push': (r, a) => PrimitiveType.unit,
     },
     'Map': {
       'len': (r, a) => int_,

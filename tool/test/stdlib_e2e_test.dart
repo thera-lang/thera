@@ -85,6 +85,23 @@ fn main() -> Result<Int, Error> {
     expect(r.stdout, '2\tlines\n6\twords\n31\tbytes\n');
   });
 
+  test('List.map/filter from the core prelude run end to end', () {
+    // filter keeps n > 2 ([3,4,5]); map *10 ([30,40,50]); sum = 120.
+    final r = emitAndRun('list_hof', '''
+fn main() -> Int {
+    let kept = [1, 2, 3, 4, 5].filter(n => n > 2);
+    let doubled = kept.map(n => n * 10);
+    let mut sum = 0;
+    for x in doubled {
+        sum = sum + x;
+    }
+    return sum;
+}
+''', []);
+    if (r == null) return markTestSkipped('Rust runtime unavailable');
+    expect(r.exitCode, 120, reason: r.stderr.toString());
+  });
+
   test('examples/closures.hawk runs and prints expected output', () {
     if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
     final dir = Directory.systemTemp.createTempSync('hawk_clo');
@@ -103,6 +120,21 @@ fn main() -> Result<Int, Error> {
         'shift(5)         = 105\n'
         'apply(triple, 9) = 27\n'
         'add10(32)        = 42\n');
+  });
+
+  test('examples/list_hof.hawk runs and prints expected output', () {
+    if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+    final dir = Directory.systemTemp.createTempSync('hawk_hof');
+    final out = '${dir.path}/list_hof.hawkbc';
+    final emit = Process.runSync(
+      Platform.resolvedExecutable,
+      ['run', 'bin/hawk.dart', 'emit', '../examples/list_hof.hawk', out],
+    );
+    expect(emit.exitCode, 0, reason: emit.stderr.toString());
+
+    final r = Process.runSync(hawkBin, ['run', out]);
+    expect(r.exitCode, 0, reason: r.stderr.toString());
+    expect(r.stdout, '20\n40\n60\nbig: 2\n');
   });
 
   test('static methods on built-in types run', () {

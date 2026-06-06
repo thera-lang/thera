@@ -359,11 +359,19 @@ class Inferrer {
       final builtin = _builtinMethodReturn(recvType, callee.field, argTypes);
       if (builtin != null) return builtin;
 
-      // User method declared in an impl block.
+      // User method declared in an impl block. Bind the receiver's type
+      // parameters (e.g. `T` from `List<T>`) and the method's own type
+      // parameters recovered from the argument types (e.g. `U` in
+      // `map<U>(self, f: (T) -> U)` from the lambda's result type).
       if (recvType is InterfaceType) {
         final method = recvType.element.method(callee.field);
         if (method != null) {
-          return _substituteReceiver(method.returnType, recvType);
+          final bindings = _receiverBindings(recvType);
+          final positional = method.parameters.where((p) => !p.isSelf).toList();
+          for (var i = 0; i < argTypes.length && i < positional.length; i++) {
+            unify(positional[i].type, argTypes[i], bindings);
+          }
+          return substitute(method.returnType, bindings);
         }
       }
       return const UnknownType();

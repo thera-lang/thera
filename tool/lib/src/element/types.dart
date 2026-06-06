@@ -194,8 +194,18 @@ void unify(Type param, Type actual, Map<String, Type> bindings) {
           unify(typeArguments[i], actual.typeArguments[i], bindings);
         }
       }
+    case FunctionType(:final parameterTypes, :final returnType):
+      // Recover type parameters from a function-typed argument — e.g. a lambda
+      // passed to `map<U>(self, f: (T) -> U)` binds `U` from the lambda's
+      // result type.
+      if (actual is FunctionType &&
+          actual.parameterTypes.length == parameterTypes.length) {
+        for (var i = 0; i < parameterTypes.length; i++) {
+          unify(parameterTypes[i], actual.parameterTypes[i], bindings);
+        }
+        unify(returnType, actual.returnType, bindings);
+      }
     case PrimitiveType():
-    case FunctionType():
     case UnknownType():
       break;
   }
