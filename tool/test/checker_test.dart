@@ -367,7 +367,7 @@ fn identity<T>(_ x: T) -> T { return x; }
       expect(
         check('''
 fn assert_eq<T>(_ actual: T, _ expected: T) -> Result<Void, Error> {
-  return Ok(());
+  return Ok(void);
 }
 '''),
         isEmpty,
@@ -378,7 +378,7 @@ fn assert_eq<T>(_ actual: T, _ expected: T) -> Result<Void, Error> {
       expect(
         check('''
 fn assert_eq<T: Eq + Debug>(_ actual: T, _ expected: T) -> Result<Void, Error> {
-  return Ok(());
+  return Ok(void);
 }
 '''),
         isEmpty,

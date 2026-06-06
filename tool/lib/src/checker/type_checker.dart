@@ -295,7 +295,7 @@ class TypeChecker {
       case ThrowExpr(:final value):
         _checkExpr(value, scope, returnType: returnType);
 
-      case IntLiteral() || FloatLiteral() || BoolLiteral():
+      case IntLiteral() || FloatLiteral() || BoolLiteral() || UnitLiteral():
         break;
     }
   }
@@ -372,8 +372,6 @@ class TypeChecker {
         for (final arg in args) {
           _checkTypeRef(arg, fallback, typeParams: typeParams);
         }
-      case VoidType():
-        break;
       case FunctionTypeRef(:final params, :final returnType):
         for (final p in params) {
           _checkTypeRef(p, fallback, typeParams: typeParams);

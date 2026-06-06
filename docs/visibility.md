@@ -156,7 +156,7 @@ import 'math';
 @test
 fn test_add() -> Result<Void, Error> {
     testing.assert_eq(actual: math.add(2, 3), expected: 5)?;
-    return Ok(());
+    return Ok(void);
 }
 ```
 

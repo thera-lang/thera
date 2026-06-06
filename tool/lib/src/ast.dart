@@ -254,13 +254,6 @@ class NamedType extends TypeRef {
   }
 }
 
-class VoidType extends TypeRef {
-  const VoidType();
-
-  @override
-  String describe() => '()';
-}
-
 /// A function type, e.g. `(Int, String) -> Bool` or `() -> Int`. The type of a
 /// lambda value or a function-typed parameter.
 class FunctionTypeRef extends TypeRef {
@@ -471,6 +464,14 @@ class BoolLiteral extends Expr {
   BoolLiteral(super.span, this.value);
   @override
   String describe() => '$value';
+}
+
+/// The unit value (`void`) — the single value of the `Void` type, written e.g.
+/// `Ok(void)` in a `Result<Void, E>` function.
+class UnitLiteral extends Expr {
+  UnitLiteral(super.span);
+  @override
+  String describe() => 'void';
 }
 
 // A string literal with optional interpolation segments.

@@ -45,7 +45,7 @@ One value = one **64-bit slot** on the operand stack and in the locals array.
 | `Int`              | i64                                          | no   |
 | `Double`           | f64 (bit-pattern in the slot)                | no   |
 | `Bool`             | i64, 0 or 1                                  | no   |
-| `Void` / `()`      | _no slot_ — produces and consumes nothing    | —    |
+| `Void`             | _no slot_ — produces and consumes nothing    | —    |
 | `String`           | pointer to heap object                       | yes  |
 | `List`/`Map`/`Set` | pointer to heap object                       | yes  |
 | struct             | pointer to heap object                       | yes  |

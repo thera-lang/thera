@@ -7,7 +7,7 @@ fn test_empty_string() -> Result<Void, Error> {
     testing.assert_eq(actual: count('').lines, expected: 0)?;
     testing.assert_eq(actual: count('').words, expected: 0)?;
     testing.assert_eq(actual: count('').bytes, expected: 0)?;
-    return Ok(());
+    return Ok(void);
 }
 
 @test
@@ -16,7 +16,7 @@ fn test_single_line() -> Result<Void, Error> {
     testing.assert_eq(actual: c.lines, expected: 1)?;
     testing.assert_eq(actual: c.words, expected: 2)?;
     testing.assert_eq(actual: c.bytes, expected: 11)?;
-    return Ok(());
+    return Ok(void);
 }
 
 @test
@@ -24,7 +24,7 @@ fn test_multiple_lines() -> Result<Void, Error> {
     let c = count('one\ntwo\nthree');
     testing.assert_eq(actual: c.lines, expected: 3)?;
     testing.assert_eq(actual: c.words, expected: 3)?;
-    return Ok(());
+    return Ok(void);
 }
 
 @test
@@ -32,17 +32,17 @@ fn test_blank_lines_not_counted_as_words() -> Result<Void, Error> {
     let c = count('hello\n\nworld');
     testing.assert_eq(actual: c.lines, expected: 3)?;
     testing.assert_eq(actual: c.words, expected: 2)?;
-    return Ok(());
+    return Ok(void);
 }
 
 @test
 fn test_leading_and_trailing_whitespace() -> Result<Void, Error> {
     testing.assert_eq(actual: count('  hello world  ').words, expected: 2)?;
-    return Ok(());
+    return Ok(void);
 }
 
 @test
 fn test_trailing_newline() -> Result<Void, Error> {
     testing.assert_eq(actual: count('hello\n').words, expected: count('hello').words)?;
-    return Ok(());
+    return Ok(void);
 }

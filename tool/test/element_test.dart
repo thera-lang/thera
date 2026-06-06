@@ -56,7 +56,7 @@ void main() {
       expect(resolver.resolve(NamedType('Int')), PrimitiveType.int_);
       expect(resolver.resolve(NamedType('String')), PrimitiveType.string);
       expect(resolver.resolve(NamedType('Float')), PrimitiveType.double_);
-      expect(resolver.resolve(const VoidType()), PrimitiveType.unit);
+      expect(resolver.resolve(NamedType('Void')), PrimitiveType.unit);
     });
 
     test('null ref resolves to unknown', () {

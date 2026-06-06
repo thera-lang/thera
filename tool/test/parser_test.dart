@@ -102,9 +102,14 @@ void main() {
       expect(fn.returnType, isA<FunctionTypeRef>());
     });
 
-    test('bare () is still the void type, not a function type', () {
-      final fn = parse('fn f() -> () { }').decls.single as FnDecl;
-      expect(fn.returnType, isA<VoidType>());
+    test('the unit type is named Void', () {
+      final fn = parse('fn f() -> Void { }').decls.single as FnDecl;
+      expect((fn.returnType as NamedType).name, 'Void');
+    });
+
+    test('a bare () is no longer a type', () {
+      // `()` as a type was removed in favour of `Void`; it now needs an arrow.
+      expect(parseRaw('fn f() -> () { }').hasErrors, isTrue);
     });
   });
 
@@ -339,6 +344,21 @@ impl T {
       final right = e.right as BinaryExpr;
       expect(right.op, '*');
       expect((right.left as IntLiteral).value, 2);
+    });
+
+    test('void is the unit value literal', () {
+      expect(exprOf('void'), isA<UnitLiteral>());
+      expect(exprOf('Ok(void)'), isA<CallExpr>());
+    });
+
+    test('() is no longer a value', () {
+      // The unit value is `void`; `()` in expression position is now an error.
+      expect(parseRaw('fn f() { let v = (); }').hasErrors, isTrue);
+    });
+
+    test('(expr) is still grouping', () {
+      final e = exprOf('(1 + 2)') as BinaryExpr;
+      expect(e.op, '+');
     });
 
     test('method call with field access', () {

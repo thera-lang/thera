@@ -181,9 +181,9 @@ files (`natives_fs.rs`, `natives_string.rs`, …) as it grows.
 **`hawk test` runner.** The `@test` runner needs reimplementing on the bytecode
 pipeline (compile with the Dart front-end, execute on the Rust runtime); today
 it is a TBD stub. Likely shape: synthesize an entry that calls each `@test`
-function and reports `Ok`/`Err`. Gated on codegen gaps a `_test.hawk` hits today
-— `Result<Void, Error>` / `return Ok(())` (unit in `Result`), generic bounds
-(`<T: Eq + Debug>`), `Debug` dispatch in `assert_eq`, and `throw <string>`.
+function and reports `Ok`/`Err`. Remaining codegen gaps a `_test.hawk` hits
+(unit-in-`Result` / `Ok(void)` now works): generic bounds (`<T: Eq + Debug>`),
+`Debug` dispatch in `assert_eq`, and `throw <string>`.
 
 **Decided:** the entry/args convention — `main` takes the arguments as a
 `List<String>`; `Args` is an explicit `std.cli` import (`cli.Args.new(...)`)

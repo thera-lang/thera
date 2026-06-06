@@ -96,6 +96,11 @@ void main() {
       expect(letType(p, 'a'), PrimitiveType.bool_);
       expect(letType(p, 'b'), PrimitiveType.int_);
     });
+
+    test('the void literal is the unit type', () {
+      final p = inferred('fn f() { let u = void; }');
+      expect(letType(p, 'u'), PrimitiveType.unit);
+    });
   });
 
   group('constructors', () {

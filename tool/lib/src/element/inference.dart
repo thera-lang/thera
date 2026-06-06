@@ -154,6 +154,8 @@ class Inferrer {
         return PrimitiveType.double_;
       case BoolLiteral():
         return PrimitiveType.bool_;
+      case UnitLiteral():
+        return PrimitiveType.unit;
       case StringExpr(:final parts):
         for (final p in parts) {
           if (p is InterpPart) sub(p.expr);

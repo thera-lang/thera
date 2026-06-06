@@ -85,6 +85,24 @@ fn main() -> Result<Int, Error> {
     expect(r.stdout, '2\tlines\n6\twords\n31\tbytes\n');
   });
 
+  test('a Result<Void, Error> function with Ok(void) runs end to end', () {
+    // Exercises the `void` unit literal through `?` and a Result-returning main.
+    final r = emitAndRun('void_unit', '''
+fn check(_ ok: Bool) -> Result<Void, Error> {
+    if !ok {
+        throw Error { message: 'bad' };
+    }
+    return Ok(void);
+}
+fn main() -> Result<Int, Error> {
+    check(true)?;
+    return Ok(7);
+}
+''', []);
+    if (r == null) return markTestSkipped('Rust runtime unavailable');
+    expect(r.exitCode, 7, reason: r.stderr.toString());
+  });
+
   test('List.map/filter from the core prelude run end to end', () {
     // filter keeps n > 2 ([3,4,5]); map *10 ([30,40,50]); sum = 120.
     final r = emitAndRun('list_hof', '''

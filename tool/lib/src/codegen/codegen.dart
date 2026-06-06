@@ -641,6 +641,8 @@ class _FnCompiler {
         _emit(ConstDouble(value));
       case BoolLiteral(:final value):
         _emit(ConstBool(value));
+      case UnitLiteral():
+        _emit(const Simple(Op.constUnit));
       case StringExpr():
         _stringExpr(expr);
       case IdentExpr(:final name):
@@ -800,6 +802,7 @@ class _FnCompiler {
         case IntLiteral():
         case FloatLiteral():
         case BoolLiteral():
+        case UnitLiteral():
           break;
         case StringExpr(:final parts):
           for (final p in parts) {
@@ -916,6 +919,7 @@ class _FnCompiler {
         case IntLiteral():
         case FloatLiteral():
         case BoolLiteral():
+        case UnitLiteral():
           break;
         case StringExpr(:final parts):
           for (final p in parts) {

@@ -20,8 +20,6 @@ class TypeResolver {
     switch (ref) {
       case null:
         return const UnknownType();
-      case VoidType():
-        return PrimitiveType.unit;
       case NamedType(:final name, :final args):
         final prim = _primitive(name);
         if (prim != null) return prim;

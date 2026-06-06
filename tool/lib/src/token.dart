@@ -27,6 +27,7 @@ enum TokenKind {
   kwThrow,
   kwTrue,
   kwType,
+  kwVoid, // the unit value (the `Void` type's single value)
   kwWhile,
 
   // Identifiers (type names, Ok, Err, Some, None, user names, etc.)
@@ -94,6 +95,7 @@ const _keywords = <String, TokenKind>{
   'throw': TokenKind.kwThrow,
   'true': TokenKind.kwTrue,
   'type': TokenKind.kwType,
+  'void': TokenKind.kwVoid,
   'while': TokenKind.kwWhile,
 };
 

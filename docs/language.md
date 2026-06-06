@@ -64,13 +64,13 @@ values.
 
 ### Primitives
 
-| Type          | Description                                                    | Example         |
-| ------------- | -------------------------------------------------------------- | --------------- |
-| `Int`         | 64-bit signed integer                                          | `42`, `-7`      |
-| `Double`      | 64-bit floating-point                                          | `3.14`          |
-| `Bool`        | Boolean                                                        | `true`, `false` |
-| `String`      | UTF-8 text                                                     | `'hello'`       |
-| `Void` / `()` | Unit type; the two names are interchangeable, following Swift. |                 |
+| Type     | Description                                                  | Example         |
+| -------- | ----------------------------------------------------------- | --------------- |
+| `Int`    | 64-bit signed integer                                       | `42`, `-7`      |
+| `Double` | 64-bit floating-point                                       | `3.14`          |
+| `Bool`   | Boolean                                                     | `true`, `false` |
+| `String` | UTF-8 text                                                  | `'hello'`       |
+| `Void`   | Unit type — one value, written `void` (like `true`/`false`) | `void`          |
 
 String literals use single quotes. Interpolation uses `${}`:
 
@@ -707,9 +707,9 @@ import additionally gets **white-box** access to the target's _private_ symbols
 [visibility.md](visibility.md#testing-white-box-access).
 
 Test functions are marked with `@test`, take no arguments, and return
-`Result<Void, Error>`. A test passes when it returns `Ok(())` and fails when it
-returns `Err`. Assertions return `Result<Void, Error>` and are called with `?`
-so that the first failure propagates out of the test immediately.
+`Result<Void, Error>`. A test passes when it returns `Ok(void)` and fails when
+it returns `Err`. Assertions return `Result<Void, Error>` and are called with
+`?` so that the first failure propagates out of the test immediately.
 
 ```hawk
 // src/math_test.hawk
@@ -722,14 +722,14 @@ import 'math';
 fn test_add() -> Result<Void, Error> {
     testing.assert_eq(actual: math.add(2, 3), expected: 5)?;
     testing.assert_eq(actual: math.add(-1, 1), expected: 0)?;
-    return Ok(());
+    return Ok(void);
 }
 
 @test
 fn test_parse_config() -> Result<Void, Error> {
     let cfg = math.parse_config('testdata/config.toml')?;
     testing.assert_eq(actual: cfg.host, expected: 'localhost')?;
-    return Ok(());
+    return Ok(void);
 }
 ```
 

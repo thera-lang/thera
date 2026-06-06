@@ -395,8 +395,8 @@ class Parser {
   // ---- type references ----
 
   TypeRef _parseTypeRef() {
-    // '(' begins either the void type '()' or a function type
-    // '(T1, ...) -> R' (including the zero-arg '() -> R').
+    // '(' begins a function type '(T1, ...) -> R' (including the zero-arg
+    // '() -> R'). The unit type is named `Void`, not `()`.
     if (_check(TokenKind.lParen)) {
       _advance();
       final params = <TypeRef>[];
@@ -408,8 +408,7 @@ class Parser {
       if (_match(TokenKind.arrow)) {
         return FunctionTypeRef(params, _parseTypeRef());
       }
-      if (params.isEmpty) return const VoidType();
-      _fail('expected "->" in function type');
+      _fail('expected "->" in function type (the unit type is `Void`)');
     }
     final nameTok = _expect(TokenKind.identifier, 'type name');
     final args = <TypeRef>[];
@@ -827,13 +826,14 @@ class Parser {
         _advance();
         return IdentExpr(t.span, 'self');
 
-      case TokenKind.lParen:
+      case TokenKind.kwVoid:
         _advance();
-        // () = unit value
-        if (_check(TokenKind.rParen)) {
-          _advance();
-          return StructExpr(t.span, typeName: '()', fields: []);
-        }
+        return UnitLiteral(t.span);
+
+      case TokenKind.lParen:
+        // A parenthesized (grouped) expression. (The unit value is `void`, not
+        // `()`; lambda parameter lists `(a, b) =>` arrive in a later stage.)
+        _advance();
         final inner = _parseExpr();
         _expect(TokenKind.rParen, ')');
         return inner;

@@ -20,7 +20,7 @@ pub fn assert(_ condition: Bool, message: String = 'assertion failed') -> Result
     if !condition {
         throw message;
     }
-    return Ok(());
+    return Ok(void);
 }
 
 // Assert that `actual` equals `expected`.
@@ -30,7 +30,7 @@ pub fn assert_eq<T: Eq + Debug>(actual: T, expected: T) -> Result<Void, Error> {
     if actual != expected {
         throw 'assert_eq failed\n  actual:   ${actual.debug()}\n  expected: ${expected.debug()}';
     }
-    return Ok(());
+    return Ok(void);
 }
 
 // Assert that `actual` does not equal `unexpected`.
@@ -40,7 +40,7 @@ pub fn assert_ne<T: Eq + Debug>(actual: T, unexpected: T) -> Result<Void, Error>
     if actual == unexpected {
         throw 'assert_ne failed: both values were ${actual.debug()}';
     }
-    return Ok(());
+    return Ok(void);
 }
 
 // Assert that `result` is Ok, and return the inner value.
@@ -60,6 +60,6 @@ pub fn assert_ok<T, E: Debug>(_ result: Result<T, E>) -> Result<T, Error> {
 pub fn assert_err<T, E>(_ result: Result<T, E>) -> Result<Void, Error> {
     match result {
         Ok(_)  => throw 'assert_err failed: got Ok',
-        Err(_) => return Ok(()),
+        Err(_) => return Ok(void),
     }
 }
