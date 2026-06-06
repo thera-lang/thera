@@ -29,9 +29,12 @@ disassembler, and a serialized **`.hawkbc`** format (header + sections, LEB128,
 a string constant pool, natives referenced by name). The `hawk` binary can
 `emit-demo` and `run` a `.hawkbc` file.
 
-**Dart toolchain (`tool/`)** — lexer, parser, type-checker, tree-walking
-interpreter, LSP, **and a bytecode emitter** (`hawk emit <file> <out.hawkbc>`).
-The emitter lowers the whole language _core_ to `.hawkbc`: functions and
+**Dart toolchain (`tool/`)** — lexer, parser, type-checker, LSP, **and a
+bytecode emitter** (`hawk emit <file> <out.hawkbc>`). `hawk run` compiles to
+`.hawkbc` and executes it on the Rust runtime. (The original tree-walking
+interpreter has been retired; `hawk test` is a TBD stub until the `@test` runner
+is reimplemented on the bytecode pipeline.) The emitter lowers the whole
+language _core_ to `.hawkbc`: functions and
 recursion, locals and typed arithmetic, control flow (`if`/`while`/`for`,
 short-circuit `&&`/`||`), calls and string interpolation, `Result`/`Option`
 (`Ok`/`Err`/`Some`/`None`, `?`, `throw`, implicit `Ok`, `match`), structs (type
@@ -88,8 +91,9 @@ gaps, by where they live:
 
 **Runtime (Rust) — blocks running real programs:**
 
-- **Stdlib native surface.** The runtime has ~19 natives; the Dart interpreter
-  has `String.*`, `List.map`/`filter`, `Args`, `fs`, `process`, `testing`. This
+- **Stdlib native surface.** The runtime has ~19 natives; the stdlib still wants
+  the full `String.*`, `List.map`/`filter`, `Args`, `fs`, `process`, and
+  `testing` surface (the retired tree-walking prototype implemented these). This
   is the bulk of the "batteries included" goal and the biggest single blocker.
 - **Interface dispatch (`Display`/`Eq`).** _Design settled_ (see
   [bytecode.md](bytecode.md)): the frontend resolves statically and emits direct
@@ -165,11 +169,18 @@ gaps, by where they live:
   `_test.hawk` white-box access — plus selective import, field-level visibility,
   impl coherence, and a "module"→"library" terminology sweep.
 
-**Cross-cutting:** the stdlib natives are listed in both the Rust runtime and
-the Dart interpreter. Acceptable (name-bound calls already fail at load on a
-mismatch); add a test asserting every native name codegen can emit is accepted
-by the runtime, and split the runtime table into per-module files
-(`natives_fs.rs`, `natives_string.rs`, …) as it grows.
+**Cross-cutting:** the stdlib native names live in two places — the Rust runtime
+table and the front-end's `element/builtins.dart`. Acceptable (name-bound calls
+fail at load on a mismatch); add a test asserting every native name codegen can
+emit is accepted by the runtime, and split the runtime table into per-module
+files (`natives_fs.rs`, `natives_string.rs`, …) as it grows.
+
+**`hawk test` runner.** The `@test` runner needs reimplementing on the bytecode
+pipeline (compile with the Dart front-end, execute on the Rust runtime); today
+it is a TBD stub. Likely shape: synthesize an entry that calls each `@test`
+function and reports `Ok`/`Err`. Gated on codegen gaps a `_test.hawk` hits today
+— `Result<Void, Error>` / `return Ok(())` (unit in `Result`), generic bounds
+(`<T: Eq + Debug>`), `Debug` dispatch in `assert_eq`, and `throw <string>`.
 
 **Decided:** the entry/args convention — `main` takes the arguments as a
 `List<String>`; `Args` is an explicit `std.cli` import (`cli.Args.new(...)`)

@@ -1,0 +1,2 @@
+# Compiled Hawk bytecode (build artifacts; emit/run write these anywhere).
+*.hawkbc

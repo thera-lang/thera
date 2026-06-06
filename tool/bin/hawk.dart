@@ -6,9 +6,6 @@ import 'package:hawk/src/bytecode/encoder.dart';
 import 'package:hawk/src/checker/type_checker.dart';
 import 'package:hawk/src/codegen/codegen.dart';
 import 'package:hawk/src/element/namespace.dart';
-// The tree-walking interpreter still backs `hawk test`'s @test runner; `run`
-// now compiles to bytecode and executes on the Rust runtime.
-import 'package:hawk/src/interpreter/interpreter.dart';
 import 'package:hawk/src/lexer.dart';
 import 'package:hawk/src/lsp/server.dart';
 import 'package:hawk/src/parser.dart';
@@ -428,32 +425,23 @@ class LspCommand extends Command<void> {
 }
 
 class TestCommand extends Command<void> {
-  TestCommand() {
-    argParser.addFlag('verbose', abbr: 'v', help: 'Print passing tests too.');
-  }
-
   @override
   String get name => 'test';
 
   @override
-  String get description => 'Run @test functions in one or more files.';
+  String get description => 'Run @test functions in one or more files (TBD).';
 
   @override
   String get invocation => 'hawk test <file>...';
 
   @override
   void run() {
-    final files = argResults!.rest;
-    if (files.isEmpty) {
-      usageException('Expected at least one file argument.');
-    }
-    final verbose = argResults!.flag('verbose');
-    var totalFailures = 0;
-    for (final path in files) {
-      final program = _loadProgram(path);
-      totalFailures += Interpreter(sdkRoot: _findSdkRoot())
-          .runTests(program, path, verbose: verbose);
-    }
-    exit(totalFailures > 0 ? 1 : 0);
+    // The @test runner has not been reimplemented on the bytecode pipeline
+    // (the legacy tree-walking interpreter, which ran an older dialect, was
+    // retired). Fail fast rather than silently doing nothing.
+    stderr.writeln('hawk test: not yet available. The @test runner needs to be '
+        'reimplemented on the bytecode pipeline (compile with the Dart '
+        'front-end, execute on the Rust runtime); this is TBD.');
+    exit(2);
   }
 }
