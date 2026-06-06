@@ -1092,4 +1092,171 @@ fn main() -> Int {
       expect(Process.runSync(hawkBin, ['run', tmp]).exitCode, 42);
     });
   });
+
+  group('closures (zero-capture)', () {
+    test('a lambda lifts to a synthetic unit and pushes a closure', () {
+      final m = compile('fn f() { let g = n => n + 1; }');
+      // Two units: `f` and the lifted lambda. The lambda's body returns n + 1.
+      expect(m.functions, hasLength(2));
+      final lifted = m.functions[1];
+      expect(lifted.paramCount, 1);
+      expect(lifted.code,
+          contains(isA<Simple>().having((i) => i.op, 'op', Op.addI64)));
+
+      // `f` builds the closure for unit #1 with no captures and binds it.
+      final ops = m.functions[0].code;
+      final cn = ops.whereType<ClosureNew>().single;
+      expect(cn.func, 1);
+      expect(cn.captures, 0);
+    });
+
+    test('calling a let-bound lambda lowers to call.indirect', () {
+      final ops = compile('fn f() -> Int { let g = n => n + 1; return g(41); }')
+          .functions[0]
+          .code;
+      // The closure is loaded, the argument pushed, then dispatched indirectly.
+      final idx = ops.indexWhere((i) => i is CallIndirect);
+      expect(idx, greaterThan(0));
+      expect((ops[idx] as CallIndirect).argc, 1);
+      expect(ops[idx - 2], isA<Load>()); // the closure
+      expect(ops[idx - 1], isA<ConstInt>().having((i) => i.value, 'arg', 41));
+    });
+
+    test('calling a function-typed parameter lowers to call.indirect', () {
+      final ops =
+          compile('fn apply(f: (Int) -> Int, x: Int) -> Int { return f(x); }')
+              .functions[0]
+              .code;
+      expect(ops.whereType<CallIndirect>().single.argc, 1);
+    });
+
+    test('a zero-capture closure runs end to end', () {
+      late final String? hawkBin = buildRuntime();
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      final m = compile('''
+fn apply(f: (Int) -> Int, x: Int) -> Int { return f(x); }
+fn main() -> Int {
+    let inc = n => n + 1;
+    return apply(inc, 41);
+}
+''');
+      final tmp = '${Directory.systemTemp.path}/hawk_closure.hawkbc';
+      File(tmp).writeAsBytesSync(encodeModule(m));
+      expect(Process.runSync(hawkBin, ['run', tmp]).exitCode, 42);
+    });
+  });
+
+  group('closures (capture)', () {
+    test('a captured local becomes a leading param and a closure capture', () {
+      final m = compile('''
+fn f() -> Int {
+  let add = 10;
+  let g = n => n + add;
+  return g(5);
+}
+''');
+      // The lifted lambda's params are the captures (add) followed by the
+      // lambda's own params (n).
+      expect(m.functions[1].paramCount, 2);
+
+      final ops = m.functions[0].code;
+      final cn = ops.whereType<ClosureNew>().single;
+      expect(cn.func, 1);
+      expect(cn.captures, 1);
+      // The captured value is loaded immediately before closure.new.
+      expect(ops[ops.indexOf(cn) - 1], isA<Load>());
+    });
+
+    test('only enclosing locals are captured, not functions or literals', () {
+      // The lambda body references `helper` (a top-level function) and `42` (a
+      // literal) — neither is a capture, so the closure captures nothing and
+      // the lifted lambda takes only its own parameter `n`.
+      final m = compile('''
+fn helper(_ n: Int) -> Int { return n; }
+fn f() -> Int { let g = n => helper(n) + 42; return g(1); }
+''');
+      final closures = [
+        for (final fn in m.functions) ...fn.code.whereType<ClosureNew>(),
+      ];
+      expect(closures.single.captures, 0);
+      expect(m.functions[closures.single.func].paramCount, 1); // just n
+    });
+
+    test('a captured mutable local is boxed (cell-backed)', () {
+      // The capture is `mut`, so it is stored in a one-field cell: the binding
+      // wraps its value in a struct.new, and reads go through field.get.
+      final m = compile(
+          'fn f() -> Int { let mut c = 0; let g = n => n + c; return g(1); }');
+      final ops = m.functions[0].code; // f
+      // `let mut c = 0` boxes: ConstInt(0), struct.new(cell), store.
+      final sn = ops.whereType<StructNew>().single;
+      expect(ops[ops.indexOf(sn) - 1],
+          isA<ConstInt>().having((i) => i.value, 'init', 0));
+      // The lifted lambda reads its captured cell via field.get.
+      expect(m.functions[1].code.whereType<FieldGet>(), isNotEmpty);
+    });
+
+    test('a mutation through a boxed capture is observed by the closure', () {
+      late final String? hawkBin = buildRuntime();
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      // `base` is captured and then reassigned; the closure sees 100, not 10.
+      final m = compile('''
+fn main() -> Int {
+    let mut base = 10;
+    let get = n => base + n;
+    base = 100;
+    return get(5);
+}
+''');
+      final tmp = '${Directory.systemTemp.path}/hawk_box.hawkbc';
+      File(tmp).writeAsBytesSync(encodeModule(m));
+      expect(Process.runSync(hawkBin, ['run', tmp]).exitCode, 105);
+    });
+
+    test('a non-captured mutable local stays unboxed', () {
+      // No lambda captures `x`, so it is a plain local — no cell allocated.
+      final m =
+          compile('fn f() -> Int { let mut x = 1; x = x + 41; return x; }');
+      expect(m.functions.single.code.whereType<StructNew>(), isEmpty);
+    });
+
+    test('value capture runs end to end', () {
+      late final String? hawkBin = buildRuntime();
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      final m = compile('''
+fn apply(f: (Int) -> Int, x: Int) -> Int { return f(x); }
+fn main() -> Int {
+    let add = 10;
+    let g = n => n + add;
+    return apply(g, 5);
+}
+''');
+      final tmp = '${Directory.systemTemp.path}/hawk_capture.hawkbc';
+      File(tmp).writeAsBytesSync(encodeModule(m));
+      expect(Process.runSync(hawkBin, ['run', tmp]).exitCode, 15);
+    });
+
+    test('a lambda inside a method capturing self runs end to end', () {
+      late final String? hawkBin = buildRuntime();
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      // f(self.base = 7) with f = n => n + self.base + bump(100) = 7+7+100.
+      final m = compile('''
+type Box = { base: Int }
+impl Box {
+  fn add_with(self, _ f: (Int) -> Int) -> Int { return f(self.base); }
+  fn run(self) -> Int {
+    let bump = 100;
+    return self.add_with(n => n + self.base + bump);
+  }
+}
+fn main() -> Int {
+    let b = Box { base: 7 };
+    return b.run();
+}
+''');
+      final tmp = '${Directory.systemTemp.path}/hawk_self_capture.hawkbc';
+      File(tmp).writeAsBytesSync(encodeModule(m));
+      expect(Process.runSync(hawkBin, ['run', tmp]).exitCode, 114);
+    });
+  });
 }

@@ -236,6 +236,34 @@ class _ModuleScope {
     unitNames.add(name);
     unitSelfTypes.add(selfType);
   }
+
+  /// Register a lifted lambda as a synthetic top-level unit and return its
+  /// function-table index. Compiled by the same per-unit loop as any function
+  /// (the loop re-reads `units.length`, so units added mid-compilation are
+  /// still compiled). [boxedParams] names the leading (capture) parameters that
+  /// hold a boxed cell rather than a plain value, so the lifted function reads
+  /// and writes them through the cell.
+  int addLambda(FnDecl decl, Set<String> boxedParams) {
+    final index = units.length;
+    _addUnit(decl, '__lambda_$index', null);
+    if (boxedParams.isNotEmpty) this.boxedParams[index] = boxedParams;
+    return index;
+  }
+
+  /// Unit index -> the names of its parameters that hold a boxed cell (a
+  /// captured `mut` local). See [addLambda] and the boxing lowering in
+  /// `_FnCompiler`.
+  final Map<int, Set<String>> boxedParams = {};
+
+  /// The type-table index of the one-field cell struct used to box captured
+  /// `mut` locals, created on first use.
+  int? _cellType;
+  int cellTypeIndex() {
+    if (_cellType case final i?) return i;
+    final i = types.length;
+    types.add(TypeDef('<cell>', 1));
+    return _cellType = i;
+  }
 }
 
 /// Compiles one function: tracks local slots and emits its instruction stream.
@@ -302,6 +330,10 @@ class _FnCompiler {
 
   final List<Instr> _code = [];
   final Map<String, int> _slots = {};
+  // Locals (and capture parameters) whose slot holds a one-field heap cell
+  // rather than a plain value: captured `mut` locals, boxed so the closure and
+  // the enclosing scope share later writes. Reads/writes go through the cell.
+  final Set<String> _boxedLocals = {};
   int _localCount = 0;
   int _paramCount = 0;
   // Whether this function returns `Result<...>`, which enables implicit `Ok`
@@ -321,6 +353,11 @@ class _FnCompiler {
   FuncDef compile(int index) {
     final fn = _units[index];
     _returnsResult = _typeRefName(fn.returnType) == 'Result';
+    // Capture parameters that arrive as boxed cells (a captured `mut` local of
+    // the enclosing function), plus this function's own `mut` locals that some
+    // lambda captures — both are read/written through a cell.
+    _boxedLocals.addAll(_scope.boxedParams[index] ?? const {});
+    if (fn.body != null) _boxedLocals.addAll(_boxedMutLocals(fn.body!));
     for (final p in fn.params) {
       _declareLocal(p.name);
       _paramCount++;
@@ -380,6 +417,17 @@ class _FnCompiler {
 
   void _emit(Instr instr) => _code.add(instr);
 
+  /// Push the value of local [name]. A boxed local (a captured `mut`) holds a
+  /// one-field cell, so its value is the cell's field rather than the slot.
+  void _loadLocalValue(String name, SourceSpan span) {
+    final slot = _slots[name];
+    if (slot == null) {
+      throw CodegenException('not a local variable: $name', span);
+    }
+    _emit(Load(slot));
+    if (_boxedLocals.contains(name)) _emit(const FieldGet(0));
+  }
+
   // --- Statements ---
 
   void _block(Block block) {
@@ -392,8 +440,12 @@ class _FnCompiler {
     switch (stmt) {
       case LetStmt(:final name, :final value):
         // Evaluate the initializer before declaring the binding, so the
-        // initializer can't see the (not-yet-bound) name.
+        // initializer can't see the (not-yet-bound) name. A captured `mut`
+        // local is boxed: wrap the initial value in a one-field cell.
         _expr(value);
+        if (_boxedLocals.contains(name)) {
+          _emit(StructNew(_scope.cellTypeIndex()));
+        }
         final slot = _declareLocal(name);
         _emit(Store(slot));
       case AssignStmt(:final target, :final value):
@@ -404,8 +456,15 @@ class _FnCompiler {
               throw CodegenException(
                   'assignment to unknown local: $name', stmt.span);
             }
-            _expr(value);
-            _emit(Store(slot));
+            if (_boxedLocals.contains(name)) {
+              // Write into the cell, not the slot, so the closure sees it.
+              _emit(Load(slot));
+              _expr(value);
+              _emit(const FieldSet(0));
+            } else {
+              _expr(value);
+              _emit(Store(slot));
+            }
           case FieldExpr(:final object, :final field):
             // field.set pops the value then the receiver: push receiver first.
             final info = _structOf(object, stmt.span);
@@ -589,11 +648,7 @@ class _FnCompiler {
           _emit(const EnumNew(_tyOption, _tagNone, 0));
           break;
         }
-        final slot = _slots[name];
-        if (slot == null) {
-          throw CodegenException('not a local variable: $name', expr.span);
-        }
-        _emit(Load(slot));
+        _loadLocalValue(name, expr.span);
       case UnaryExpr():
         _unaryExpr(expr);
       case BinaryExpr():
@@ -641,10 +696,315 @@ class _FnCompiler {
         _emitReturn(value);
       case ThrowExpr(:final value):
         _emitThrow(value);
+      case LambdaExpr():
+        _lambdaExpr(expr);
       default:
         throw CodegenException(
             'unsupported expression: ${expr.runtimeType}', expr.span);
     }
+  }
+
+  /// A lambda: lift its body to a synthetic top-level function whose leading
+  /// parameters are its captured variables, push the captured values, and build
+  /// a closure value `{ func, captures }`. A captured `mut` local is already a
+  /// boxed cell in this scope; the cell reference is captured (so the closure
+  /// and the enclosing scope share writes) and the lifted parameter is marked
+  /// boxed so the lambda body reads/writes through the cell too.
+  void _lambdaExpr(LambdaExpr expr) {
+    // Free variables that name an enclosing local are the captures; references
+    // to functions, types, namespaces, etc. resolve the same way in the lifted
+    // unit and need no capture.
+    final captures = [
+      for (final name in _freeVariables(expr))
+        if (_slots.containsKey(name)) name,
+    ];
+    final boxedCaptures = {
+      for (final name in captures)
+        if (_boxedLocals.contains(name)) name,
+    };
+    final lifted = _liftLambda(expr, captures);
+    final index = _scope.addLambda(lifted, boxedCaptures);
+    // Push the captured values (in capture order), then bundle the closure. A
+    // boxed capture pushes the cell itself (Load, no field.get) so it's shared.
+    for (final name in captures) {
+      _emit(Load(_slots[name]!));
+    }
+    _emit(ClosureNew(index, captures.length));
+  }
+
+  /// Build the synthetic [FnDecl] a lambda lowers to. Its parameters are the
+  /// captured variables (leading, in capture order) followed by the lambda's
+  /// own parameters; its body returns the lambda's body expression. Capture
+  /// reads in the body resolve to the leading parameter slots by name.
+  FnDecl _liftLambda(LambdaExpr expr, List<String> captures) {
+    final body = Block(expr.span, expr.span, [
+      ReturnStmt(expr.span, value: expr.body),
+    ]);
+    return FnDecl(
+      expr.span,
+      decorators: const [],
+      isNative: false,
+      name: '<lambda>',
+      nameSpan: expr.span,
+      params: [
+        for (final c in captures) Param(name: c, label: c),
+        for (final p in expr.params) Param(name: p, label: p),
+      ],
+      body: body,
+    );
+  }
+
+  /// The free variables of [lambda]: identifiers referenced in its body that it
+  /// does not itself bind. Its own parameters, and any names introduced inside
+  /// the body by nested lambdas, `match` patterns, block `let`s, and `for`
+  /// loops, are bound (not free). Listed in first-reference order so the
+  /// capture layout is deterministic.
+  List<String> _freeVariables(LambdaExpr lambda) {
+    final free = <String>[];
+    final seen = <String>{};
+
+    void ref(String name, Set<String> bound) {
+      if (!bound.contains(name) && seen.add(name)) free.add(name);
+    }
+
+    void patternBindings(Pattern p, Set<String> into) {
+      switch (p) {
+        case IdentPattern(:final name):
+          into.add(name);
+        case ConstructorPattern(:final args):
+          for (final a in args) {
+            patternBindings(a, into);
+          }
+        case WildcardPattern():
+        case LiteralPattern():
+          break;
+      }
+    }
+
+    // `visit`, `stmt`, and `visitBlock` are mutually recursive; Dart local
+    // functions must be declared before use, so they're `late` variables.
+    late final void Function(Expr, Set<String>) visit;
+    late final void Function(Stmt, Set<String>) stmt;
+
+    void visitBlock(Block b, Set<String> bound) {
+      final local = {...bound};
+      for (final s in b.stmts) {
+        stmt(s, local);
+      }
+    }
+
+    visit = (Expr e, Set<String> bound) {
+      switch (e) {
+        case IdentExpr(:final name):
+          ref(name, bound);
+        case IntLiteral():
+        case FloatLiteral():
+        case BoolLiteral():
+          break;
+        case StringExpr(:final parts):
+          for (final p in parts) {
+            if (p is InterpPart) visit(p.expr, bound);
+          }
+        case ListExpr(:final items):
+          for (final i in items) {
+            visit(i, bound);
+          }
+        case MapExpr(:final entries):
+          for (final (k, v) in entries) {
+            visit(k, bound);
+            visit(v, bound);
+          }
+        case StructExpr(:final fields):
+          for (final (_, v) in fields) {
+            visit(v, bound);
+          }
+        case CallExpr(:final callee, :final args):
+          visit(callee, bound);
+          for (final a in args) {
+            visit(a.value, bound);
+          }
+        case FieldExpr(:final object):
+          visit(object, bound);
+        case IndexExpr(:final object, :final index):
+          visit(object, bound);
+          visit(index, bound);
+        case BinaryExpr(:final left, :final right):
+          visit(left, bound);
+          visit(right, bound);
+        case UnaryExpr(:final operand):
+          visit(operand, bound);
+        case PropagateExpr(:final inner):
+          visit(inner, bound);
+        case RangeExpr(:final start, :final end):
+          visit(start, bound);
+          visit(end, bound);
+        case MatchExpr(:final subject, :final arms):
+          visit(subject, bound);
+          for (final arm in arms) {
+            final armBound = {...bound};
+            patternBindings(arm.pattern, armBound);
+            visit(arm.body, armBound);
+          }
+        case LambdaExpr(:final params, :final body):
+          visit(body, {...bound, ...params});
+        case BlockExpr(:final block):
+          visitBlock(block, bound);
+        case ReturnExpr(:final value):
+          if (value != null) visit(value, bound);
+        case ThrowExpr(:final value):
+          visit(value, bound);
+      }
+    };
+
+    stmt = (Stmt s, Set<String> bound) {
+      switch (s) {
+        case LetStmt(:final name, :final value):
+          visit(value, bound);
+          bound.add(name); // visible to later statements in the block
+        case AssignStmt(:final target, :final value):
+          visit(target, bound);
+          visit(value, bound);
+        case ExprStmt(:final expr):
+          visit(expr, bound);
+        case ReturnStmt(:final value):
+          if (value != null) visit(value, bound);
+        case ThrowStmt(:final value):
+          visit(value, bound);
+        case IfStmt(:final condition, :final then, :final else_):
+          visit(condition, bound);
+          visitBlock(then, bound);
+          if (else_ != null) visitBlock(else_, bound);
+        case WhileStmt(:final condition, :final body):
+          visit(condition, bound);
+          visitBlock(body, bound);
+        case ForStmt(:final pattern, :final iterable, :final body):
+          visit(iterable, bound);
+          final loopBound = {...bound};
+          patternBindings(pattern, loopBound);
+          visitBlock(body, loopBound);
+      }
+    };
+
+    visit(lambda.body, {...lambda.params});
+    return free;
+  }
+
+  /// The `mut` locals of the function with body [body] that are captured by a
+  /// lambda, and therefore need boxing. A single walk gathers this function's
+  /// own `mut` declarations (not descending into lambda bodies — those belong
+  /// to the lifted function) and its top-level lambdas; a captured-and-mutable
+  /// local is the intersection. (A lambda's free variables already include
+  /// names referenced by lambdas nested inside it, so the top-level lambdas
+  /// suffice.)
+  Set<String> _boxedMutLocals(Block body) {
+    final muts = <String>{};
+    final lambdas = <LambdaExpr>[];
+
+    late final void Function(Expr) ex;
+    late final void Function(Stmt) st;
+    void blk(Block b) {
+      for (final s in b.stmts) {
+        st(s);
+      }
+    }
+
+    ex = (Expr e) {
+      switch (e) {
+        case LambdaExpr():
+          lambdas.add(e); // a lambda of this function; don't descend into it
+        case IdentExpr():
+        case IntLiteral():
+        case FloatLiteral():
+        case BoolLiteral():
+          break;
+        case StringExpr(:final parts):
+          for (final p in parts) {
+            if (p is InterpPart) ex(p.expr);
+          }
+        case ListExpr(:final items):
+          for (final i in items) {
+            ex(i);
+          }
+        case MapExpr(:final entries):
+          for (final (k, v) in entries) {
+            ex(k);
+            ex(v);
+          }
+        case StructExpr(:final fields):
+          for (final (_, v) in fields) {
+            ex(v);
+          }
+        case CallExpr(:final callee, :final args):
+          ex(callee);
+          for (final a in args) {
+            ex(a.value);
+          }
+        case FieldExpr(:final object):
+          ex(object);
+        case IndexExpr(:final object, :final index):
+          ex(object);
+          ex(index);
+        case BinaryExpr(:final left, :final right):
+          ex(left);
+          ex(right);
+        case UnaryExpr(:final operand):
+          ex(operand);
+        case PropagateExpr(:final inner):
+          ex(inner);
+        case RangeExpr(:final start, :final end):
+          ex(start);
+          ex(end);
+        case MatchExpr(:final subject, :final arms):
+          ex(subject);
+          for (final arm in arms) {
+            ex(arm.body);
+          }
+        case BlockExpr(:final block):
+          blk(block);
+        case ReturnExpr(:final value):
+          if (value != null) ex(value);
+        case ThrowExpr(:final value):
+          ex(value);
+      }
+    };
+
+    st = (Stmt s) {
+      switch (s) {
+        case LetStmt(:final name, :final value, :final isMut):
+          ex(value);
+          if (isMut) muts.add(name);
+        case AssignStmt(:final target, :final value):
+          ex(target);
+          ex(value);
+        case ExprStmt(:final expr):
+          ex(expr);
+        case ReturnStmt(:final value):
+          if (value != null) ex(value);
+        case ThrowStmt(:final value):
+          ex(value);
+        case IfStmt(:final condition, :final then, :final else_):
+          ex(condition);
+          blk(then);
+          if (else_ != null) blk(else_);
+        case WhileStmt(:final condition, :final body):
+          ex(condition);
+          blk(body);
+        case ForStmt(:final iterable, :final body):
+          ex(iterable);
+          blk(body);
+      }
+    };
+
+    blk(body);
+    if (muts.isEmpty || lambdas.isEmpty) return const {};
+    final captured = <String>{};
+    for (final l in lambdas) {
+      captured.addAll(_freeVariables(l));
+    }
+    return {
+      for (final name in muts)
+        if (captured.contains(name)) name,
+    };
   }
 
   /// `expr?` — propagate `Err`/`None`. The same lowering serves both `Result`
@@ -813,8 +1173,10 @@ class _FnCompiler {
     }
 
     // Operand type is taken from the left; the checker guarantees both sides
-    // agree.
-    final operandType = _typeOf(e.left);
+    // agree. Fall back to the right when the left is unknown — e.g. an
+    // un-annotated lambda parameter used as `n + 1`, where the literal pins the
+    // type the parameter could not.
+    final operandType = _typeOf(e.left) ?? _typeOf(e.right);
     final isPrimitive = operandType == 'Int' ||
         operandType == 'Double' ||
         operandType == 'Bool';
@@ -1039,6 +1401,19 @@ class _FnCompiler {
           'unsupported call target: ${callee.runtimeType}', expr.span);
     }
     final name = callee.name;
+
+    // A call through a function value held in a local — a let-bound lambda or a
+    // function-typed parameter. A local shadows a same-named function, so this
+    // is checked first. Push the closure, then the (positional) arguments, and
+    // dispatch indirectly.
+    if (_slots.containsKey(name)) {
+      _loadLocalValue(name, expr.span); // the closure value (unboxed if boxed)
+      for (final arg in expr.args) {
+        _expr(arg.value);
+      }
+      _emit(CallIndirect(expr.args.length));
+      return;
+    }
 
     // Result/Option constructors build an enum from their single payload.
     final ctor = _enumCtor(name);

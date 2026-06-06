@@ -296,4 +296,31 @@ fn f() {
       expect(letType(p, 'v').toString(), 'Option<String>');
     });
   });
+
+  group('function types and closures', () {
+    test('a function-typed parameter resolves', () {
+      final p = inferred(
+          'fn apply(f: (Int) -> Int, x: Int) -> Int { let r = f(x); return r; }');
+      expect(letType(p, 'r'), PrimitiveType.int_);
+    });
+
+    test('a lambda binding infers a function type', () {
+      final p = inferred('fn f() { let g = n => n + 1; }');
+      final g = letType(p, 'g');
+      expect(g, isA<FunctionType>());
+      expect((g as FunctionType).returnType, PrimitiveType.int_);
+    });
+
+    test('calling a let-bound lambda yields its return type', () {
+      final p = inferred('fn f() { let g = n => n + 1; let r = g(5); }');
+      expect(letType(p, 'r'), PrimitiveType.int_);
+    });
+
+    test('a function-typed return annotation resolves', () {
+      final p =
+          inferred('fn pick(f: (Int) -> Int) -> (Int) -> Int { return f; }\n'
+              'fn f(g: (Int) -> Int) { let h = pick(g); }');
+      expect(letType(p, 'h').toString(), '(Int) -> Int');
+    });
+  });
 }

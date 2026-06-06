@@ -56,7 +56,9 @@ enum Op {
   return_(45),
   structNew(46),
   fieldGet(47),
-  fieldSet(48);
+  fieldSet(48),
+  closureNew(49),
+  callIndirect(50);
 
   final int byte;
   const Op(this.byte);
@@ -147,6 +149,21 @@ class FieldSet extends Instr {
 class ListNew extends Instr {
   final int count;
   const ListNew(this.count);
+}
+
+/// Build a closure value `{ func, captures }`: pops `captures` values (the
+/// captured environment) and pushes the closure. See `runtime/src/instr.rs`.
+class ClosureNew extends Instr {
+  final int func; // index into the module's function table (the lifted lambda)
+  final int captures;
+  const ClosureNew(this.func, this.captures);
+}
+
+/// Call a closure/function value: pops `argc` arguments and, beneath them, the
+/// closure value, then dispatches through it.
+class CallIndirect extends Instr {
+  final int argc;
+  const CallIndirect(this.argc);
 }
 
 class Jump extends Instr {

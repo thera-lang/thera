@@ -61,6 +61,12 @@ impl Value {
         }))))
     }
 
+    /// Construct a closure value: the index of the lifted function plus the
+    /// captured environment values (see docs/bytecode.md, "Closures / lambdas").
+    pub fn new_closure(func: u32, captures: Vec<Value>) -> Value {
+        Value::Ref(Rc::new(RefCell::new(Obj::Closure { func, captures })))
+    }
+
     /// `Some(v)` / `None` constructors for the built-in `Option` type.
     pub fn some(v: Value) -> Value {
         Value::new_enum(TY_OPTION, TAG_SOME, vec![v])
@@ -78,7 +84,7 @@ impl Value {
     }
 }
 
-/// A heap-allocated object. Structs and closures arrive in later increments.
+/// A heap-allocated object.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Obj {
     /// UTF-8 text.
@@ -97,6 +103,13 @@ pub enum Obj {
         fields: Vec<Value>,
     },
     Enum(EnumObj),
+    /// A closure: the lifted function's index plus its captured environment.
+    /// `call.indirect` prepends `captures` to the call's arguments to form the
+    /// callee's leading local slots (see docs/bytecode.md).
+    Closure {
+        func: u32,
+        captures: Vec<Value>,
+    },
 }
 
 /// A tagged-union value: the `variant` selected from type `ty`, with its

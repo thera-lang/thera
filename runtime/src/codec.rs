@@ -143,6 +143,8 @@ mod op {
     pub const STRUCT_NEW: u8 = 46;
     pub const FIELD_GET: u8 = 47;
     pub const FIELD_SET: u8 = 48;
+    pub const CLOSURE_NEW: u8 = 49;
+    pub const CALL_INDIRECT: u8 = 50;
 }
 
 /// Encode a module to the wire format.
@@ -402,6 +404,15 @@ fn encode_instr(w: &mut Writer, instr: &Instr, pool: &StringPool) {
             w.write_u8(op::LIST_NEW);
             w.write_uvarint(*count as u64);
         }
+        Instr::ClosureNew { func, captures } => {
+            w.write_u8(op::CLOSURE_NEW);
+            w.write_uvarint(*func as u64);
+            w.write_uvarint(*captures as u64);
+        }
+        Instr::CallIndirect { argc } => {
+            w.write_u8(op::CALL_INDIRECT);
+            w.write_uvarint(*argc as u64);
+        }
         Instr::Jump(t) => {
             w.write_u8(op::JUMP);
             w.write_uvarint(*t as u64);
@@ -491,6 +502,13 @@ fn decode_instr(r: &mut Reader, pool: &[String]) -> Result<Instr, DecodeError> {
         op::FIELD_SET => Instr::FieldSet(r.read_uvarint()? as u16),
         op::LIST_NEW => Instr::ListNew {
             count: r.read_uvarint()? as u32,
+        },
+        op::CLOSURE_NEW => Instr::ClosureNew {
+            func: r.read_uvarint()? as u32,
+            captures: r.read_uvarint()? as u8,
+        },
+        op::CALL_INDIRECT => Instr::CallIndirect {
+            argc: r.read_uvarint()? as u8,
         },
         op::JUMP => Instr::Jump(r.read_uvarint()? as usize),
         op::JUMP_IF_TRUE => Instr::JumpIfTrue(r.read_uvarint()? as usize),
@@ -598,6 +616,11 @@ mod tests {
             Instr::FieldGet(1),
             Instr::FieldSet(2),
             Instr::ListNew { count: 3 },
+            Instr::ClosureNew {
+                func: 4,
+                captures: 2,
+            },
+            Instr::CallIndirect { argc: 1 },
             Instr::Jump(10),
             Instr::JumpIfTrue(11),
             Instr::JumpIfFalse(12),

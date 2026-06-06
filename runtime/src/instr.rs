@@ -5,10 +5,11 @@
 //! mirror the spec: `add.i64` → [`Instr::AddI64`], etc.
 //!
 //! Current subset: constants (incl. strings), locals, arithmetic, comparison,
-//! conversions, stack manipulation, direct `call`, native `call`, enums
-//! (`enum.new`/`tag`/`get`), structs (`struct.new`/`field.get`/`field.set`),
-//! `list.new`, control flow (`jump` family), and `return`. Most collection
-//! operations are native calls. Closures and interface dispatch arrive later.
+//! conversions, stack manipulation, direct `call`, native `call`, indirect
+//! `call.indirect`, enums (`enum.new`/`tag`/`get`), structs
+//! (`struct.new`/`field.get`/`field.set`), `list.new`, `closure.new`, control
+//! flow (`jump` family), and `return`. Most collection operations are native
+//! calls. Interface dispatch arrives later.
 
 /// A local-slot index (parameters and locals share one array).
 pub type Slot = u16;
@@ -96,6 +97,12 @@ pub enum Instr {
         native: u32,
         argc: u8,
     },
+    /// Call a closure/function value. Pops `argc` arguments (pushed
+    /// left-to-right) and, beneath them, the closure value; the callee's frame
+    /// is `[captures..., args...]`. Pushes the return value.
+    CallIndirect {
+        argc: u8,
+    },
 
     // --- enums (tagged unions: Result, Option, user enums) ---
     /// Pop `field_count` values (pushed left-to-right) and push a new enum
@@ -130,6 +137,15 @@ pub enum Instr {
     /// literals and other collection ops are native calls (docs/bytecode.md).
     ListNew {
         count: u32,
+    },
+
+    // --- closures ---
+    /// Pop `captures` values (pushed left-to-right) and push a closure value
+    /// `{ func, captures }`. The captures become the lifted function's leading
+    /// local slots when the closure is later called via `call.indirect`.
+    ClosureNew {
+        func: u32,
+        captures: u8,
     },
 
     // --- control ---

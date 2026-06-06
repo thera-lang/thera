@@ -208,21 +208,26 @@ each is a distinct opcode.
 `load`/`store` move 64 bits regardless of type — no suffix needed. The slot's
 ref-ness is recorded in the function's stackmap, not the opcode.
 
-> **Captures: resolved — closure conversion + boxing.** The frontend does
-> _closure conversion_: each lambda lowers to a plain function whose hidden
-> first parameter is its **environment** (a synthesized struct of the captured
-> variables), so captures are ordinary `field.get`s — no `load.capture` opcode.
-> A captured `mut` local is **boxed** into a one-field heap cell (just a
-> struct): reads become `cell.value`, writes `cell.value = …`, and the closure
-> captures the _cell_, so the enclosing scope and the closure observe each
-> other's mutations. (Hawk allows capturing mutable locals; we box every
-> captured `mut` local to start, and can later capture immutables by value /
-> only box reassigned locals.) See `closure.new` / `call.indirect` in
-> [Calls](#calls) and
-> [How key features lower](#how-key-language-features-lower). The one genuinely
-> new runtime piece is the closure _value_ (`{ func, env }`) plus
-> `call.indirect`; free-variable analysis, env synthesis, and boxing are all
-> frontend lowering over existing opcodes.
+> **Captures: implemented — closure conversion.** The frontend does _closure
+> conversion_: each lambda lowers to a plain top-level function whose **leading
+> parameters are its captured variables**, followed by the lambda's own
+> parameters. Capture reads are then ordinary `load`s of those leading slots —
+> no env struct, no `field.get` indirection, no `load.capture` opcode. The
+> closure _value_ is `{ func, captures }`; `closure.new func, captures` pops the
+> captured values and bundles them, and `call.indirect` builds the callee frame
+> as `captures ++ args`. See [Calls](#calls) and
+> [How key features lower](#how-key-language-features-lower).
+>
+> An immutable capture (and `self`, which is a reference, so capture still
+> observes its field mutations) is taken **by value**. A captured `mut` local is
+> **boxed** into a one-field heap cell (an ordinary 1-field struct): the binding
+> wraps its value in the cell, reads become `field.get 0`, writes `field.set 0`,
+> and the closure captures the _cell reference_ — so the enclosing scope and the
+> closure observe each other's writes. Only `mut` locals that are actually
+> captured are boxed; others stay plain. The one genuinely new runtime piece is
+> the closure value plus `call.indirect`; free-variable analysis and boxing are
+> frontend lowering over existing opcodes (`struct.new` / `field.get` /
+> `field.set`).
 
 ### Arithmetic, comparison, logic
 
@@ -269,7 +274,7 @@ A `switch.tag` (jump table on an enum tag) is an obvious later addition for fast
 | Op               | Operands                          | Stack                     | Notes                           |
 | ---------------- | --------------------------------- | ------------------------- | ------------------------------- |
 | `call`           | `func: u32, argc: u8`             | `argN..arg0 → ret?`       | direct call to a known function |
-| `call.indirect`  | `sig: u32, argc: u8`              | `fnval argN..arg0 → ret?` | call a closure/fn value         |
+| `call.indirect`  | `argc: u8`                        | `fnval argN..arg0 → ret?` | call a closure/fn value         |
 | `call.interface` | `iface: u32, slot: u16, argc: u8` | `recv argN..arg0 → ret?`  | dynamic dispatch via vtable     |
 | `call.native`    | `nat: u32, argc: u8`              | `argN..arg0 → ret?`       | `native fn` / runtime intrinsic |
 
@@ -341,12 +346,17 @@ uses `enum.get` to bind payload fields.
 out, body, `add.i64` increment, `jump` back. Iterating collections goes through
 an iterator protocol implemented as runtime calls.
 
-**Closures / lambdas** — the frontend collects the lambda's free variables and
-synthesizes an _environment_ struct; captured `mut` locals are boxed into
-one-field cells (and their reads/writes rewritten to `cell.value`). The lambda
-becomes a plain function taking the env as a hidden first parameter; capture
-reads are `field.get` on it. `closure.new func, env` builds the closure value
-`{ func, env }`, and the call site uses `call.indirect`.
+**Closures / lambdas** — the frontend collects the lambda's free variables (the
+enclosing locals it references) and lifts it to a plain top-level function whose
+leading parameters are those captures, followed by the lambda's own parameters.
+Capture reads are ordinary `load`s of the leading slots. At the lambda site the
+captured values are pushed and `closure.new func, captures` bundles them into a
+`{ func, captures }` value; a call through that value uses `call.indirect`,
+which prepends the captures to the call arguments to form the callee's frame.
+An immutable capture is by value; a captured `mut` local is boxed into a
+one-field cell so writes are shared (see [Locals](#locals)). `call.indirect`
+carries no signature operand — the callee's arity is checked at the frame
+boundary like a direct `call`.
 
 **String interpolation** — for a user type, `${v}` calls the `Display` method as
 a statically resolved direct `call` (the concrete type is known at the site);
@@ -387,9 +397,10 @@ no type guards — the speculation-free property the plan is built around.
 
 ## Open questions / deferred
 
-Resolved (now documented above as the design): **closure capture** (closure
-conversion + boxing of captured `mut` locals; `closure.new` / `call.indirect`)
-and **interface dispatch** (static resolution → direct `call` now; vtable
+Resolved: **closure capture** — closure conversion with captures as the lifted
+function's leading locals; `closure.new` / `call.indirect` implemented, with
+immutable captures by value and captured `mut` locals boxed into one-field
+cells. And **interface dispatch** (static resolution → direct `call` now; vtable
 `call.interface` only once type-erased interface values exist, devirtualized by
 the JIT).
 

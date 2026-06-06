@@ -395,11 +395,21 @@ class Parser {
   // ---- type references ----
 
   TypeRef _parseTypeRef() {
-    // () = void/unit
+    // '(' begins either the void type '()' or a function type
+    // '(T1, ...) -> R' (including the zero-arg '() -> R').
     if (_check(TokenKind.lParen)) {
       _advance();
+      final params = <TypeRef>[];
+      while (!_check(TokenKind.rParen) && !_atEnd) {
+        params.add(_parseTypeRef());
+        if (!_match(TokenKind.comma)) break;
+      }
       _expect(TokenKind.rParen, ')');
-      return const VoidType();
+      if (_match(TokenKind.arrow)) {
+        return FunctionTypeRef(params, _parseTypeRef());
+      }
+      if (params.isEmpty) return const VoidType();
+      _fail('expected "->" in function type');
     }
     final nameTok = _expect(TokenKind.identifier, 'type name');
     final args = <TypeRef>[];

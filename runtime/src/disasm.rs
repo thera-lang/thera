@@ -93,6 +93,7 @@ fn fmt_instr(instr: &Instr, module: &Module) -> String {
         Instr::CallNative { native, argc } => {
             with("call.native", format!("native#{native}, argc={argc}"))
         }
+        Instr::CallIndirect { argc } => with("call.indirect", format!("argc={argc}")),
 
         Instr::EnumNew {
             ty,
@@ -117,6 +118,17 @@ fn fmt_instr(instr: &Instr, module: &Module) -> String {
 
         Instr::ListNew { count } => with("list.new", count.to_string()),
 
+        Instr::ClosureNew { func, captures } => {
+            let name = module
+                .functions
+                .get(*func as usize)
+                .map_or("?", |f| f.name.as_str());
+            with(
+                "closure.new",
+                format!("fn#{func} {name}, captures={captures}"),
+            )
+        }
+
         Instr::Jump(t) => with("jump", format!("-> {t:04}")),
         Instr::JumpIfTrue(t) => with("jump_if_true", format!("-> {t:04}")),
         Instr::JumpIfFalse(t) => with("jump_if_false", format!("-> {t:04}")),
@@ -128,7 +140,7 @@ fn fmt_instr(instr: &Instr, module: &Module) -> String {
 mod tests {
     use super::*;
     use crate::builder::FnBuilder;
-    use crate::module::Module;
+    use crate::module::{Function, Module};
 
     fn factorial_module() -> Module {
         let mut b = FnBuilder::new("fact", 1);
@@ -176,5 +188,29 @@ mod tests {
         assert_eq!(lines[0], "fn fact  (params=1, locals=1)");
         // header + 13 instructions
         assert_eq!(lines.len(), 14);
+    }
+
+    #[test]
+    fn disassembles_closure_ops() {
+        // A `closure.new` of `adder` plus an indirect call.
+        let adder = Function::new("adder", 2, 2, vec![Instr::Return]);
+        let main = Function::new(
+            "main",
+            0,
+            0,
+            vec![
+                Instr::ConstInt(10),
+                Instr::ClosureNew {
+                    func: 1,
+                    captures: 1,
+                },
+                Instr::ConstInt(5),
+                Instr::CallIndirect { argc: 1 },
+                Instr::Return,
+            ],
+        );
+        let norm = normalized(&disassemble(&Module::new(vec![main, adder])));
+        assert!(norm.contains("closure.new fn#1 adder, captures=1"));
+        assert!(norm.contains("call.indirect argc=1"));
     }
 }

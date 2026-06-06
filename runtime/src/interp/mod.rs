@@ -262,6 +262,22 @@ impl<'a> Vm<'a> {
                     let ret = f(&mut *self.out, &args)?;
                     stack.push(ret);
                 }
+                Instr::CallIndirect { argc } => {
+                    let argc = *argc as usize;
+                    // Beneath the `argc` arguments sits the closure value.
+                    let base = stack
+                        .len()
+                        .checked_sub(argc + 1)
+                        .ok_or_else(|| bug("call.indirect: operand stack underflow"))?;
+                    let mut frame = stack.split_off(base);
+                    let args = frame.split_off(1);
+                    let callee = frame.pop().expect("closure slot present");
+                    let (func, mut locals) = closure_parts(&callee)?;
+                    // The callee frame is captures followed by the arguments.
+                    locals.extend(args);
+                    let ret = self.call(module, func as usize, locals)?;
+                    stack.push(ret);
+                }
 
                 // --- enums ---
                 Instr::EnumNew {
@@ -319,6 +335,17 @@ impl<'a> Vm<'a> {
                         .ok_or_else(|| bug("list.new: operand stack underflow"))?;
                     let items = stack.split_off(base);
                     stack.push(Value::new_list(items));
+                }
+
+                // --- closures ---
+                Instr::ClosureNew { func, captures } => {
+                    let n = *captures as usize;
+                    let base = stack
+                        .len()
+                        .checked_sub(n)
+                        .ok_or_else(|| bug("closure.new: operand stack underflow"))?;
+                    let captured = stack.split_off(base);
+                    stack.push(Value::new_closure(*func, captured));
                 }
 
                 // --- control ---
@@ -391,11 +418,28 @@ fn pop_enum_variant(stack: &mut Vec<Value>) -> Result<u16, Trap> {
     match pop(stack)? {
         Value::Ref(rc) => match &*rc.borrow() {
             Obj::Enum(e) => Ok(e.variant),
-            Obj::Str(_) | Obj::List(_) | Obj::Map(_) | Obj::Set(_) | Obj::Struct { .. } => {
-                Err(bug("enum.tag: expected enum"))
-            }
+            Obj::Str(_)
+            | Obj::List(_)
+            | Obj::Map(_)
+            | Obj::Set(_)
+            | Obj::Struct { .. }
+            | Obj::Closure { .. } => Err(bug("enum.tag: expected enum")),
         },
         v => Err(bug(format!("expected enum, found {v:?}"))),
+    }
+}
+
+/// Unpack a closure value into its function index and a fresh copy of its
+/// captured environment (which becomes the callee's leading local slots).
+fn closure_parts(v: &Value) -> Result<(u32, Vec<Value>), Trap> {
+    match v {
+        Value::Ref(rc) => match &*rc.borrow() {
+            Obj::Closure { func, captures } => Ok((*func, captures.clone())),
+            _ => Err(bug("call.indirect: expected a closure")),
+        },
+        v => Err(bug(format!(
+            "call.indirect: expected a closure, found {v:?}"
+        ))),
     }
 }
 
@@ -408,9 +452,12 @@ fn enum_field(v: &Value, idx: usize) -> Result<Value, Trap> {
                 .get(idx)
                 .cloned()
                 .ok_or_else(|| bug(format!("enum.get: field {idx} out of range"))),
-            Obj::Str(_) | Obj::List(_) | Obj::Map(_) | Obj::Set(_) | Obj::Struct { .. } => {
-                Err(bug("enum.get: expected enum"))
-            }
+            Obj::Str(_)
+            | Obj::List(_)
+            | Obj::Map(_)
+            | Obj::Set(_)
+            | Obj::Struct { .. }
+            | Obj::Closure { .. } => Err(bug("enum.get: expected enum")),
         },
         v => Err(bug(format!("enum.get: expected enum, found {v:?}"))),
     }
@@ -424,9 +471,12 @@ fn struct_field(v: &Value, idx: usize) -> Result<Value, Trap> {
                 .get(idx)
                 .cloned()
                 .ok_or_else(|| bug(format!("field.get: field {idx} out of range"))),
-            Obj::Str(_) | Obj::List(_) | Obj::Map(_) | Obj::Set(_) | Obj::Enum(_) => {
-                Err(bug("field.get: expected struct"))
-            }
+            Obj::Str(_)
+            | Obj::List(_)
+            | Obj::Map(_)
+            | Obj::Set(_)
+            | Obj::Enum(_)
+            | Obj::Closure { .. } => Err(bug("field.get: expected struct")),
         },
         v => Err(bug(format!("field.get: expected struct, found {v:?}"))),
     }
@@ -443,9 +493,12 @@ fn set_struct_field(v: &Value, idx: usize, value: Value) -> Result<(), Trap> {
                 *slot = value;
                 Ok(())
             }
-            Obj::Str(_) | Obj::List(_) | Obj::Map(_) | Obj::Set(_) | Obj::Enum(_) => {
-                Err(bug("field.set: expected struct"))
-            }
+            Obj::Str(_)
+            | Obj::List(_)
+            | Obj::Map(_)
+            | Obj::Set(_)
+            | Obj::Enum(_)
+            | Obj::Closure { .. } => Err(bug("field.set: expected struct")),
         },
         v => Err(bug(format!("field.set: expected struct, found {v:?}"))),
     }
@@ -1524,6 +1577,120 @@ mod tests {
         let r = run_fn(|b| {
             b.const_int(1); // not a set
             b.call_native(NATIVE_SET_LEN, 1);
+            b.ret();
+        });
+        assert!(matches!(r, Err(Trap::Bug(_))));
+    }
+
+    // --- closures ---
+
+    /// `adder(captured, x) = captured + x`: a lifted lambda whose first slot is
+    /// a captured value and whose second is the call argument.
+    fn adder() -> Function {
+        Function::new(
+            "adder",
+            2,
+            2,
+            vec![Instr::Load(0), Instr::Load(1), Instr::AddI64, Instr::Return],
+        )
+    }
+
+    #[test]
+    fn closure_captures_and_calls_indirect() {
+        // main() = { let g = closure(adder, [10]); g(5) }  → 15
+        let main = Function::new(
+            "main",
+            0,
+            0,
+            vec![
+                Instr::ConstInt(10),
+                Instr::ClosureNew {
+                    func: 1,
+                    captures: 1,
+                },
+                Instr::ConstInt(5),
+                Instr::CallIndirect { argc: 1 },
+                Instr::Return,
+            ],
+        );
+        let module = Module::new(vec![main, adder()]);
+        assert_eq!(super::run(&module, 0, &[]), Ok(Value::Int(15)));
+    }
+
+    #[test]
+    fn closure_with_no_captures() {
+        // inc(x) = x + 1, captured as a zero-capture closure and called with 41.
+        let inc = Function::new(
+            "inc",
+            1,
+            1,
+            vec![
+                Instr::Load(0),
+                Instr::ConstInt(1),
+                Instr::AddI64,
+                Instr::Return,
+            ],
+        );
+        let main = Function::new(
+            "main",
+            0,
+            0,
+            vec![
+                Instr::ClosureNew {
+                    func: 1,
+                    captures: 0,
+                },
+                Instr::ConstInt(41),
+                Instr::CallIndirect { argc: 1 },
+                Instr::Return,
+            ],
+        );
+        let module = Module::new(vec![main, inc]);
+        assert_eq!(super::run(&module, 0, &[]), Ok(Value::Int(42)));
+    }
+
+    #[test]
+    fn closure_new_builds_the_expected_value() {
+        let r = run_fn(|b| {
+            b.const_int(7);
+            b.const_int(8);
+            b.closure_new(3, 2);
+            b.ret();
+        });
+        assert_eq!(
+            r,
+            Ok(Value::new_closure(3, vec![Value::Int(7), Value::Int(8)]))
+        );
+    }
+
+    #[test]
+    fn call_indirect_arity_mismatch_is_a_bug() {
+        // The closure captures one value and is called with one argument, but
+        // `adder` only declares two locals — wait, that is correct; instead call
+        // a zero-capture closure of `adder` with one arg (frame of 1 ≠ 2 params).
+        let main = Function::new(
+            "main",
+            0,
+            0,
+            vec![
+                Instr::ClosureNew {
+                    func: 1,
+                    captures: 0,
+                },
+                Instr::ConstInt(5),
+                Instr::CallIndirect { argc: 1 },
+                Instr::Return,
+            ],
+        );
+        let module = Module::new(vec![main, adder()]);
+        assert!(matches!(super::run(&module, 0, &[]), Err(Trap::Bug(_))));
+    }
+
+    #[test]
+    fn call_indirect_on_non_closure_is_a_bug() {
+        let r = run_fn(|b| {
+            b.const_int(1); // not a closure
+            b.call_indirect(0);
             b.ret();
         });
         assert!(matches!(r, Err(Trap::Bug(_))));
