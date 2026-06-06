@@ -328,6 +328,15 @@ fn f() {
       expect(letType(p, 'h').toString(), '(Int) -> Int');
     });
 
+    test('an annotated lambda parameter resolves its type', () {
+      // `(n: Int) => n * n` — both operands are the param, so without the
+      // annotation the body type is unknown; the annotation pins it to Int.
+      final p = inferred('fn f() { let sq = (n: Int) => n * n; }');
+      final t = letType(p, 'sq') as FunctionType;
+      expect(t.parameterTypes.single, PrimitiveType.int_);
+      expect(t.returnType, PrimitiveType.int_);
+    });
+
     test('a generic method binds its own type param from a closure argument',
         () {
       // `map<U>` recovers `U` from the lambda's result type: here `n > 0` is

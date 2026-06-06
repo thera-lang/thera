@@ -270,12 +270,19 @@ class Inferrer {
 
       case LambdaExpr(:final params, :final body):
         final lambdaScope = Map<String, Type>.from(scope);
-        for (final p in params) {
-          lambdaScope[p] = const UnknownType();
+        // A param's type is its annotation when present, else unknown (stage 2
+        // fills the unknowns from an expected type; stage 3 errors otherwise).
+        final paramTypes = [
+          for (final p in params)
+            _resolver.resolve(p.type,
+                typeParams: typeParams, selfType: selfType),
+        ];
+        for (var i = 0; i < params.length; i++) {
+          lambdaScope[params[i].name] = paramTypes[i];
         }
         final ret = _infer(body, lambdaScope,
             typeParams: typeParams, selfType: selfType);
-        return FunctionType([for (final _ in params) const UnknownType()], ret);
+        return FunctionType(paramTypes, ret);
 
       case BlockExpr(:final block):
         _inferBlock(block, scope, typeParams: typeParams, selfType: selfType);

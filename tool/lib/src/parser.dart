@@ -394,6 +394,33 @@ class Parser {
 
   // ---- type references ----
 
+  /// Called just after consuming an opening `(` in expression position. Scans
+  /// to the matching `)` (tracking nesting, so a function-type annotation like
+  /// `(Int) -> Int` inside a parameter is handled) and returns true if it is
+  /// immediately followed by `=>` — i.e. this is a lambda parameter list, not a
+  /// parenthesized expression.
+  bool _parenIsLambdaParams() {
+    var depth = 1;
+    for (var i = _pos; i < _tokens.length; i++) {
+      switch (_tokens[i].kind) {
+        case TokenKind.lParen:
+          depth++;
+        case TokenKind.rParen:
+          depth--;
+          if (depth == 0) {
+            final next =
+                i + 1 < _tokens.length ? _tokens[i + 1].kind : TokenKind.eof;
+            return next == TokenKind.fatArrow;
+          }
+        case TokenKind.eof:
+          return false;
+        default:
+          break;
+      }
+    }
+    return false;
+  }
+
   TypeRef _parseTypeRef() {
     // '(' begins a function type '(T1, ...) -> R' (including the zero-arg
     // '() -> R'). The unit type is named `Void`, not `()`.
@@ -831,9 +858,23 @@ class Parser {
         return UnitLiteral(t.span);
 
       case TokenKind.lParen:
-        // A parenthesized (grouped) expression. (The unit value is `void`, not
-        // `()`; lambda parameter lists `(a, b) =>` arrive in a later stage.)
         _advance();
+        // A `(` here is either a parenthesized (grouped) expression or a lambda
+        // parameter list `(a, b: Int) => …`. Disambiguate by looking ahead: a
+        // lambda is a `(...)` immediately followed by `=>`.
+        if (_parenIsLambdaParams()) {
+          final params = <LambdaParam>[];
+          while (!_check(TokenKind.rParen) && !_atEnd) {
+            final nameTok = _expect(TokenKind.identifier, 'parameter name');
+            TypeRef? type;
+            if (_match(TokenKind.colon)) type = _parseTypeRef();
+            params.add(LambdaParam(nameTok.lexeme, type: type));
+            if (!_match(TokenKind.comma)) break;
+          }
+          _expect(TokenKind.rParen, ')');
+          _expect(TokenKind.fatArrow, '=>');
+          return LambdaExpr(t.span, params: params, body: _parseExpr());
+        }
         final inner = _parseExpr();
         _expect(TokenKind.rParen, ')');
         return inner;
@@ -870,11 +911,11 @@ class Parser {
         _advance();
         final name = t.lexeme;
 
-        // Lambda: ident => expr
+        // Lambda: ident => expr  (bare, single un-annotated parameter)
         if (_check(TokenKind.fatArrow)) {
           _advance();
           final body = _parseExpr();
-          return LambdaExpr(t.span, params: [name], body: body);
+          return LambdaExpr(t.span, params: [LambdaParam(name)], body: body);
         }
 
         // Struct literal: TypeName { field: expr, ... }

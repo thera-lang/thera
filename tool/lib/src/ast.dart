@@ -632,13 +632,27 @@ class MatchArm {
   String describe() => '${pattern.describe()} => ${body.describe()}';
 }
 
+/// A single lambda parameter: a name with an optional type annotation. The type
+/// is null when omitted (`n => …`), filled by inference from context (or a hard
+/// error if neither annotation nor context determines it).
+class LambdaParam {
+  final String name;
+  final TypeRef? type;
+  const LambdaParam(this.name, {this.type});
+
+  String describe() => type == null ? name : '$name: ${type!.describe()}';
+}
+
 class LambdaExpr extends Expr {
-  final List<String> params;
+  final List<LambdaParam> params;
   final Expr body;
   LambdaExpr(super.span, {required this.params, required this.body});
   @override
   String describe() {
-    final ps = params.length == 1 ? params[0] : '(${params.join(', ')})';
+    // The bare single-param form `n => …` only when it has no annotation.
+    final ps = params.length == 1 && params[0].type == null
+        ? params[0].name
+        : '(${params.map((p) => p.describe()).join(', ')})';
     return '$ps => ${body.describe()}';
   }
 }

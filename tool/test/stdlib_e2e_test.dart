@@ -85,6 +85,21 @@ fn main() -> Result<Int, Error> {
     expect(r.stdout, '2\tlines\n6\twords\n31\tbytes\n');
   });
 
+  test('annotated and multi-parameter lambdas run end to end', () {
+    // (n: Int) => n * n is now well-typed via the annotation; a two-param
+    // lambda is passed to a function-typed parameter. 9 + (4+5) = 18.
+    final r = emitAndRun('lambda_annot', '''
+fn apply2(f: (Int, Int) -> Int, _ a: Int, _ b: Int) -> Int { return f(a, b); }
+fn main() -> Int {
+    let sq = (n: Int) => n * n;
+    let add = (a: Int, b: Int) => a + b;
+    return sq(3) + apply2(add, 4, 5);
+}
+''', []);
+    if (r == null) return markTestSkipped('Rust runtime unavailable');
+    expect(r.exitCode, 18, reason: r.stderr.toString());
+  });
+
   test('a Result<Void, Error> function with Ok(void) runs end to end', () {
     // Exercises the `void` unit literal through `?` and a Result-returning main.
     final r = emitAndRun('void_unit', '''

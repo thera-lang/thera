@@ -401,8 +401,26 @@ impl T {
 
     test('lambda', () {
       final e = exprOf('u => u.name') as LambdaExpr;
-      expect(e.params, ['u']);
+      expect(e.params.single.name, 'u');
+      expect(e.params.single.type, isNull);
       expect(e.body, isA<FieldExpr>());
+    });
+
+    test('parenthesized lambda params with optional annotations', () {
+      final e = exprOf('(a, b: Int) => a + b') as LambdaExpr;
+      expect(e.params.map((p) => p.name), ['a', 'b']);
+      expect(e.params[0].type, isNull);
+      expect((e.params[1].type as NamedType).name, 'Int');
+    });
+
+    test('zero-argument lambda', () {
+      final e = exprOf('() => 7') as LambdaExpr;
+      expect(e.params, isEmpty);
+    });
+
+    test('a parenthesized expression is not mistaken for a lambda', () {
+      expect(exprOf('(1 + 2)'), isA<BinaryExpr>());
+      expect(exprOf('(x => x)'), isA<LambdaExpr>()); // grouped lambda
     });
 
     test('match expression with constructor and wildcard patterns', () {

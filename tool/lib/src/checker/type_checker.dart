@@ -278,9 +278,12 @@ class TypeChecker {
           _checkExpr(arm.body, armScope, returnType: returnType);
         }
 
-      case LambdaExpr(:final params, :final body):
+      case LambdaExpr(:final params, :final body, :final span):
         final lambdaScope = _Scope.from(scope);
-        for (final p in params) lambdaScope[p] = null;
+        for (final p in params) {
+          if (p.type != null) _checkTypeRef(p.type!, span);
+          lambdaScope[p.name] = null;
+        }
         _checkExpr(body, lambdaScope);
 
       case BlockExpr(:final block):

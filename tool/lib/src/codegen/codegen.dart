@@ -750,7 +750,7 @@ class _FnCompiler {
       nameSpan: expr.span,
       params: [
         for (final c in captures) Param(name: c, label: c),
-        for (final p in expr.params) Param(name: p, label: p),
+        for (final p in expr.params) Param(name: p.name, label: p.name),
       ],
       body: body,
     );
@@ -849,7 +849,7 @@ class _FnCompiler {
             visit(arm.body, armBound);
           }
         case LambdaExpr(:final params, :final body):
-          visit(body, {...bound, ...params});
+          visit(body, {...bound, for (final p in params) p.name});
         case BlockExpr(:final block):
           visitBlock(block, bound);
         case ReturnExpr(:final value):
@@ -888,7 +888,7 @@ class _FnCompiler {
       }
     };
 
-    visit(lambda.body, {...lambda.params});
+    visit(lambda.body, {for (final p in lambda.params) p.name});
     return free;
   }
 
