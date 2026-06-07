@@ -1,0 +1,41 @@
+// Fixed-point Mandelbrot set generation benchmark.
+// Computes a 100x100 grid with max 100 iterations, repeated 50 times.
+// Exercises basic integer arithmetic, loops, and conditional branches.
+
+// 2026-07-07; debug interpreter:   4.07s
+// 2026-07-07; release interpreter: 1.51s
+
+fn main() -> Result<Int, Error> {
+    let mut pass = 0;
+    let mut total_iter = 0;
+    
+    while pass < 50 {
+        let mut y = 0;
+        while y < 100 {
+            let mut x = 0;
+            while x < 100 {
+                let cr = -2000 + (x * 2500) / 100;
+                let ci = -1000 + (y * 2000) / 100;
+
+                let mut zr = 0;
+                let mut zi = 0;
+                let mut iter = 0;
+
+                while iter < 100 && (zr * zr + zi * zi) < 4000000 {
+                    let temp = (zr * zr - zi * zi) / 1000 + cr;
+                    zi = (2 * zr * zi) / 1000 + ci;
+                    zr = temp;
+                    iter = iter + 1;
+                }
+
+                total_iter = total_iter + iter;
+                x = x + 1;
+            }
+            y = y + 1;
+        }
+        pass = pass + 1;
+    }
+    
+    println('Done! Total iterations computed: ${total_iter}');
+    return Ok(0);
+}

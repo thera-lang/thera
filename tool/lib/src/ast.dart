@@ -18,6 +18,7 @@ abstract interface class NamedNode implements AstNode {
 class Program extends AstNode {
   final List<Decl> decls;
   String? filePath;
+
   Program(this.decls);
 
   @override
@@ -46,6 +47,7 @@ class Program extends AstNode {
 sealed class Decl extends AstNode {
   @override
   final SourceSpan span;
+
   Decl(this.span);
 
   String describe([String indent = '']);
@@ -55,6 +57,7 @@ class ImportDecl extends Decl {
   final String path; // e.g. 'std.fs' or 'wordcount'
   final String? alias;
   final bool isPub; // `pub import` re-exports the target's public symbols
+
   ImportDecl(super.span, {required this.path, this.alias, this.isPub = false});
 
   @override
@@ -468,6 +471,7 @@ class ThrowStmt extends Stmt {
 
 class ExprStmt extends Stmt {
   final Expr expr;
+
   ExprStmt(super.span, this.expr);
 
   @override
@@ -639,6 +643,7 @@ class LiteralPattern extends Pattern {
 sealed class Expr extends AstNode {
   @override
   final SourceSpan span;
+
   Expr(this.span);
 
   /// The resolved semantic type of this expression, filled in by the inference

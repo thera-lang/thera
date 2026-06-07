@@ -4,3 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+
+[profile.dev]
+# This makes the debug interpreter loop closer to the performance of the release
+# interpreter (4x slower instead of 15x).
+opt-level = 1 # Basic optimizations.
