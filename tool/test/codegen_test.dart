@@ -1095,7 +1095,7 @@ fn main() -> Int {
 
   group('closures (zero-capture)', () {
     test('a lambda lifts to a synthetic unit and pushes a closure', () {
-      final m = compile('fn f() { let g = n => n + 1; }');
+      final m = compile('fn f() { let g = (n: Int) => n + 1; }');
       // Two units: `f` and the lifted lambda. The lambda's body returns n + 1.
       expect(m.functions, hasLength(2));
       final lifted = m.functions[1];
@@ -1111,9 +1111,10 @@ fn main() -> Int {
     });
 
     test('calling a let-bound lambda lowers to call.indirect', () {
-      final ops = compile('fn f() -> Int { let g = n => n + 1; return g(41); }')
-          .functions[0]
-          .code;
+      final ops =
+          compile('fn f() -> Int { let g = (n: Int) => n + 1; return g(41); }')
+              .functions[0]
+              .code;
       // The closure is loaded, the argument pushed, then dispatched indirectly.
       final idx = ops.indexWhere((i) => i is CallIndirect);
       expect(idx, greaterThan(0));
@@ -1136,7 +1137,7 @@ fn main() -> Int {
       final m = compile('''
 fn apply(f: (Int) -> Int, x: Int) -> Int { return f(x); }
 fn main() -> Int {
-    let inc = n => n + 1;
+    let inc = (n: Int) => n + 1;
     return apply(inc, 41);
 }
 ''');
@@ -1151,7 +1152,7 @@ fn main() -> Int {
       final m = compile('''
 fn f() -> Int {
   let add = 10;
-  let g = n => n + add;
+  let g = (n: Int) => n + add;
   return g(5);
 }
 ''');
@@ -1186,7 +1187,7 @@ fn f() -> Int { let g = n => helper(n) + 42; return g(1); }
       // The capture is `mut`, so it is stored in a one-field cell: the binding
       // wraps its value in a struct.new, and reads go through field.get.
       final m = compile(
-          'fn f() -> Int { let mut c = 0; let g = n => n + c; return g(1); }');
+          'fn f() -> Int { let mut c = 0; let g = (n: Int) => n + c; return g(1); }');
       final ops = m.functions[0].code; // f
       // `let mut c = 0` boxes: ConstInt(0), struct.new(cell), store.
       final sn = ops.whereType<StructNew>().single;
@@ -1227,7 +1228,7 @@ fn main() -> Int {
 fn apply(f: (Int) -> Int, x: Int) -> Int { return f(x); }
 fn main() -> Int {
     let add = 10;
-    let g = n => n + add;
+    let g = (n: Int) => n + add;
     return apply(g, 5);
 }
 ''');

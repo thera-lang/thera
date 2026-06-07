@@ -278,10 +278,28 @@ class TypeChecker {
           _checkExpr(arm.body, armScope, returnType: returnType);
         }
 
-      case LambdaExpr(:final params, :final body, :final span):
+      case LambdaExpr(
+          :final params,
+          :final body,
+          :final span,
+          :final resolvedParamTypes
+        ):
         final lambdaScope = _Scope.from(scope);
-        for (final p in params) {
-          if (p.type != null) _checkTypeRef(p.type!, span);
+        final resolved = resolvedParamTypes;
+        for (var i = 0; i < params.length; i++) {
+          final p = params[i];
+          if (p.type != null) {
+            _checkTypeRef(p.type!, span);
+          } else if (resolved != null &&
+              i < resolved.length &&
+              resolved[i] is UnknownType) {
+            // No annotation and nothing in the surrounding context determined
+            // the type — we don't guess.
+            _error(
+                "cannot infer the type of lambda parameter '${p.name}'; add a "
+                'type annotation, e.g. (${p.name}: Int) => ...',
+                span);
+          }
           lambdaScope[p.name] = null;
         }
         _checkExpr(body, lambdaScope);

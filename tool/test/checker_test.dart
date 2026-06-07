@@ -111,10 +111,25 @@ impl Eq for Int {
       );
     });
 
-    test('lambda in map call', () {
+    test('lambda in map call is typed from the method signature', () {
+      // No annotation on `x`: its type comes from `map`'s `(T) -> U` signature
+      // with the receiver `List<Int>`.
       expect(
-        check('fn f(xs: List<Int>) { let ys = xs.map(x => x); }'),
+        check('''
+impl List<T> {
+  fn map<U>(self, _ f: (T) -> U) -> List<U> { let r = []; return r; }
+}
+fn f(xs: List<Int>) { let ys = xs.map(x => x); }
+'''),
         isEmpty,
+      );
+    });
+
+    test('an un-annotated lambda with no context is an error', () {
+      // `let g = n => n * n;` — no annotation, no expected type anywhere.
+      expect(
+        check('fn f() { let g = n => n * n; }'),
+        contains(contains('cannot infer the type of lambda parameter')),
       );
     });
 

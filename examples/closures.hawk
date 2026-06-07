@@ -14,13 +14,14 @@ fn adder(by: Int) -> (Int) -> Int {
 }
 
 fn main() -> Result<Int, Error> {
-    // A lambda bound to a local, then called directly.
-    let triple = n => n * 3;
+    // A lambda bound to a local, then called directly. With no surrounding type
+    // to infer from, the parameter is annotated.
+    let triple = (n: Int) => n * 3;
     println('triple(6)        = ${triple(6)}');
 
     // Capture by value: the lambda closes over the local `offset`.
     let offset = 100;
-    let shift = n => n + offset;
+    let shift = (n: Int) => n + offset;
     println('shift(5)         = ${shift(5)}');
 
     // Pass a closure to a higher-order function.

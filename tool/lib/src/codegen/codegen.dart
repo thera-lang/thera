@@ -1177,10 +1177,9 @@ class _FnCompiler {
     }
 
     // Operand type is taken from the left; the checker guarantees both sides
-    // agree. Fall back to the right when the left is unknown — e.g. an
-    // un-annotated lambda parameter used as `n + 1`, where the literal pins the
-    // type the parameter could not.
-    final operandType = _typeOf(e.left) ?? _typeOf(e.right);
+    // agree. Lambda parameters are always typed by now (annotation or context,
+    // else a checker error), so there's no need to guess from the other side.
+    final operandType = _typeOf(e.left);
     final isPrimitive = operandType == 'Int' ||
         operandType == 'Double' ||
         operandType == 'Bool';
