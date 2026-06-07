@@ -7,6 +7,8 @@ is"; read top-down for progressive detail.
   rationale and the target domain (CLI tooling).
 - [language.md](language.md) — the language **reference**: syntax, semantics,
   the standard `hawk` tool, and open design questions.
+- [overview.md](overview.md) — a user facing language overview doc; what Hawk
+  is, the runtime, and the why behind design decisions.
 - [visibility.md](visibility.md) — the **visibility & libraries** design: the
   file privacy boundary, `pub`, barrels for directories, and the test white-box
   rule.
