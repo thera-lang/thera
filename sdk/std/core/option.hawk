@@ -1,0 +1,13 @@
+// std.core — the Option type.
+//
+// `Option<T>` represents an optional value: `Some(T)` when present, `None` when
+// absent. It is one of the two language-blessed enums (the `?` operator and the
+// built-in helper methods know it by name), but it is otherwise an ordinary
+// enum defined here in Hawk.
+//
+// The variant order is significant: it fixes the runtime tags (Some = 0,
+// None = 1) shared with the bytecode runtime — do not reorder.
+pub enum Option<T> {
+    Some(T),
+    None,
+}

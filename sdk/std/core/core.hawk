@@ -6,6 +6,8 @@
 
 pub import 'interfaces';   // Eq, Display, Debug
 pub import 'io';           // println, print
+pub import 'option';       // Option<T>
+pub import 'result';       // Result<T, E>
 pub import 'error';        // Error
 pub import 'string';       // String static/native helpers
 pub import 'list';         // List helpers
