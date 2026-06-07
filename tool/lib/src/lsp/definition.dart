@@ -99,12 +99,7 @@ dynamic _findGlobalDecl(String name, Program program, LoadedImports imports) {
 }
 
 bool _isMatchingDecl(Decl decl, String name) {
-  if (decl is FnDecl && decl.name == name) return true;
-  if (decl is TypeDecl && decl.name == name) return true;
-  if (decl is EnumDecl && decl.name == name) return true;
-  if (decl is InterfaceDecl && decl.name == name) return true;
-  if (decl is ConstDecl && decl.name == name) return true;
-  return false;
+  return decl is NamedNode && (decl as NamedNode).name == name;
 }
 
 dynamic _findMethodDecl(String typeName, String methodName, Program program,

@@ -2,7 +2,6 @@ import 'package:lsp_server/lsp_server.dart';
 
 import '../ast.dart';
 import '../token.dart';
-import 'ast_utils.dart';
 
 List<DocumentSymbol> buildSymbols(Program program, String source) {
   final symbols = <DocumentSymbol>[];
@@ -86,19 +85,7 @@ List<DocumentSymbol> buildSymbols(Program program, String source) {
 }
 
 Range _declRange(Decl decl, String source) {
-  final endSpan = switch (decl) {
-    FnDecl(:final body) when body != null => body.endSpan,
-    FnDecl(:final nameSpan) => nameSpan,
-    ImplDecl() => findClosingBrace(decl.span, source),
-    InterfaceDecl() => findClosingBrace(decl.span, source),
-    TypeDecl() => findClosingBrace(decl.span, source),
-    EnumDecl() => findClosingBrace(decl.span, source),
-    _ => decl.span,
-  };
-  return Range(
-    start: _spanToPosition(decl.span),
-    end: _spanToEndPosition(endSpan),
-  );
+  return _spanToRange(decl.span);
 }
 
 Range _spanToRange(SourceSpan span) {

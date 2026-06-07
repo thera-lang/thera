@@ -391,7 +391,7 @@ class TypeChecker {
         final resolved =
             _resolver.resolve(NamedType(name), typeParams: typeParams);
         if (name != 'Self' && resolved is UnknownType) {
-          _error('unknown type: $name', span ?? fallback);
+          _error('unknown type: $name', span);
         }
         for (final arg in args) {
           _checkTypeRef(arg, fallback, typeParams: typeParams);

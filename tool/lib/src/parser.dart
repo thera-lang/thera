@@ -33,7 +33,7 @@ class Parser {
     while (!_atEnd) {
       try {
         decls.add(_parseDecl());
-      } catch (_) {
+      } on _ParseFail catch (_) {
         // _error() already recorded; sync to next declaration boundary.
         _syncToDecl();
       }
@@ -108,7 +108,17 @@ class Parser {
     }
 
     // Optional `pub` visibility modifier (after decorators, before the keyword).
+    final pubTok = _check(TokenKind.kwPub) ? _current : null;
     final isPub = _match(TokenKind.kwPub);
+
+    final SourceSpan declStartSpan;
+    if (decorators.isNotEmpty) {
+      declStartSpan = decorators.first.span;
+    } else if (pubTok != null) {
+      declStartSpan = pubTok.span;
+    } else {
+      declStartSpan = _current.span;
+    }
 
     final k = _current.kind;
 
@@ -116,18 +126,20 @@ class Parser {
       if (decorators.isNotEmpty) {
         _fail('decorators are not allowed on import declarations');
       }
-      return _parseImport(isPub);
+      return _parseImport(isPub, declStartSpan);
     }
     if (k == TokenKind.kwNative) {
-      return _parseFnDecl(decorators, isNative: true, isPub: isPub);
+      return _parseFnDecl(decorators,
+          isNative: true, isPub: isPub, startSpan: declStartSpan);
     }
     if (k == TokenKind.kwFn) {
-      return _parseFnDecl(decorators, isNative: false, isPub: isPub);
+      return _parseFnDecl(decorators,
+          isNative: false, isPub: isPub, startSpan: declStartSpan);
     }
     if (k == TokenKind.kwType) {
       if (decorators.isNotEmpty)
         _fail('decorators are not allowed on type declarations');
-      return _parseTypeDecl(isPub: isPub);
+      return _parseTypeDecl(isPub: isPub, startSpan: declStartSpan);
     }
     if (k == TokenKind.kwImpl) {
       if (decorators.isNotEmpty)
@@ -136,22 +148,22 @@ class Parser {
         _fail('`pub` is not allowed on impl blocks; '
             'mark individual methods `pub` instead');
       }
-      return _parseImplDecl();
+      return _parseImplDecl(startSpan: declStartSpan);
     }
     if (k == TokenKind.kwInterface) {
       if (decorators.isNotEmpty)
         _fail('decorators are not allowed on interface declarations');
-      return _parseInterfaceDecl(isPub: isPub);
+      return _parseInterfaceDecl(isPub: isPub, startSpan: declStartSpan);
     }
     if (k == TokenKind.kwConst) {
       if (decorators.isNotEmpty)
         _fail('decorators are not allowed on const declarations');
-      return _parseConstDecl(isPub: isPub);
+      return _parseConstDecl(isPub: isPub, startSpan: declStartSpan);
     }
     if (k == TokenKind.kwEnum) {
       if (decorators.isNotEmpty)
         _fail('decorators are not allowed on enum declarations');
-      return _parseEnumDecl(isPub: isPub);
+      return _parseEnumDecl(isPub: isPub, startSpan: declStartSpan);
     }
 
     _fail(
@@ -159,21 +171,25 @@ class Parser {
   }
 
   Decorator _parseDecorator() {
-    _expect(TokenKind.at, '@');
-    final name = _expect(TokenKind.identifier, 'decorator name').lexeme;
+    final startTok = _expect(TokenKind.at, '@');
+    final nameTok = _expect(TokenKind.identifier, 'decorator name');
+    final name = nameTok.lexeme;
     final args = <Expr>[];
+    SourceSpan endSpan = nameTok.span;
     if (_match(TokenKind.lParen)) {
       while (!_check(TokenKind.rParen) && !_atEnd) {
         args.add(_parseExpr());
         if (!_match(TokenKind.comma)) break;
       }
-      _expect(TokenKind.rParen, ')');
+      final rParenTok = _expect(TokenKind.rParen, ')');
+      endSpan = rParenTok.span;
     }
-    return Decorator(name, args: args);
+    return Decorator(SourceSpan.cover(startTok.span, endSpan), name,
+        args: args);
   }
 
-  ImportDecl _parseImport(bool isPub) {
-    final startSpan = _advance().span; // consume 'import'
+  ImportDecl _parseImport(bool isPub, SourceSpan startSpan) {
+    _advance(); // consume 'import'
     // Import path is either a dot-separated module path (std.fs) or a quoted
     // string ('wordcount').
     String path;
@@ -195,13 +211,17 @@ class Parser {
       alias = _expect(TokenKind.identifier, 'alias name').lexeme;
     }
     _match(TokenKind.semi);
-    return ImportDecl(startSpan, path: path, alias: alias, isPub: isPub);
+    final endSpan = _tokens[_pos - 1].span;
+    return ImportDecl(SourceSpan.cover(startSpan, endSpan),
+        path: path, alias: alias, isPub: isPub);
   }
 
   FnDecl _parseFnDecl(List<Decorator> decorators,
-      {required bool isNative, bool isPub = false}) {
+      {required bool isNative,
+      bool isPub = false,
+      required SourceSpan startSpan}) {
     if (isNative) _advance(); // 'native'
-    final start = _expect(TokenKind.kwFn, 'fn');
+    _expect(TokenKind.kwFn, 'fn');
     final nameTok = _expect(TokenKind.identifier, 'function name');
     final name = nameTok.lexeme;
     final typeParams = _parseTypeParams();
@@ -213,13 +233,16 @@ class Parser {
       returnType = _parseTypeRef();
     }
     Block? body;
+    SourceSpan endSpan;
     if (_check(TokenKind.lBrace)) {
       body = _parseBlock();
+      endSpan = body.span;
     } else {
       _match(TokenKind.semi); // optional trailing semicolon on body-less fn
+      endSpan = _tokens[_pos - 1].span;
     }
     return FnDecl(
-      start.span,
+      SourceSpan.cover(startSpan, endSpan),
       decorators: decorators,
       isPub: isPub,
       isNative: isNative,
@@ -237,16 +260,23 @@ class Parser {
     _advance(); // <
     final params = <TypeParam>[];
     while (!_check(TokenKind.gt) && !_atEnd) {
-      final name = _expect(TokenKind.identifier, 'type parameter name').lexeme;
+      final nameTok = _expect(TokenKind.identifier, 'type parameter name');
+      final name = nameTok.lexeme;
       final bounds = <String>[];
+      SourceSpan endSpan = nameTok.span;
       if (_match(TokenKind.colon)) {
-        bounds.add(_expect(TokenKind.identifier, 'bound name').lexeme);
+        final firstBound = _expect(TokenKind.identifier, 'bound name');
+        bounds.add(firstBound.lexeme);
+        endSpan = firstBound.span;
         while (_check(TokenKind.plus)) {
           _advance();
-          bounds.add(_expect(TokenKind.identifier, 'bound name').lexeme);
+          final nextBound = _expect(TokenKind.identifier, 'bound name');
+          bounds.add(nextBound.lexeme);
+          endSpan = nextBound.span;
         }
       }
-      params.add(TypeParam(name, bounds: bounds));
+      params.add(TypeParam(SourceSpan.cover(nameTok.span, endSpan), name,
+          bounds: bounds));
       if (!_match(TokenKind.comma)) break;
     }
     _expect(TokenKind.gt, '>');
@@ -263,10 +293,15 @@ class Parser {
   }
 
   Param _parseParam() {
+    final startTok = _current;
     // self parameter
     if (_check(TokenKind.kwSelf)) {
       final selfTok = _advance();
-      return Param(isSelf: true, name: 'self', nameSpan: selfTok.span);
+      return Param(
+          span: selfTok.span,
+          isSelf: true,
+          name: 'self',
+          nameSpan: selfTok.span);
     }
 
     // Pattern for the external label:
@@ -315,11 +350,17 @@ class Parser {
     }
 
     return Param(
-        label: label, name: name, nameSpan: nameSpan, type: type, defaultValue: defaultValue);
+        span: SourceSpan.cover(
+            startTok.span, defaultValue?.span ?? type?.span ?? nameSpan),
+        label: label,
+        name: name,
+        nameSpan: nameSpan,
+        type: type,
+        defaultValue: defaultValue);
   }
 
-  TypeDecl _parseTypeDecl({bool isPub = false}) {
-    final start = _advance(); // 'type'
+  TypeDecl _parseTypeDecl({bool isPub = false, required SourceSpan startSpan}) {
+    _advance(); // 'type'
     final nameTok = _expect(TokenKind.identifier, 'type name');
     final typeParams = _parseTypeParams();
     _expect(TokenKind.eq, '=');
@@ -332,8 +373,8 @@ class Parser {
       fields.add((fname, ftype));
       if (!_match(TokenKind.comma)) break;
     }
-    _expect(TokenKind.rBrace, '}');
-    return TypeDecl(start.span,
+    final rBraceTok = _expect(TokenKind.rBrace, '}');
+    return TypeDecl(SourceSpan.cover(startSpan, rBraceTok.span),
         isPub: isPub,
         name: nameTok.lexeme,
         nameSpan: nameTok.span,
@@ -341,8 +382,8 @@ class Parser {
         fields: fields);
   }
 
-  ImplDecl _parseImplDecl() {
-    final start = _advance(); // 'impl'
+  ImplDecl _parseImplDecl({required SourceSpan startSpan}) {
+    _advance(); // 'impl'
     final firstTok = _expect(TokenKind.identifier, 'type or interface name');
     final firstParams = _parseTypeParams(); // <T> after the first name, if any
     String typeName;
@@ -365,15 +406,26 @@ class Parser {
     _expect(TokenKind.lBrace, '{');
     final methods = <FnDecl>[];
     while (!_check(TokenKind.rBrace) && !_atEnd) {
+      final methodStartTok = _current;
       final decos = <Decorator>[];
       while (_check(TokenKind.at)) decos.add(_parseDecorator());
+      final pubTok = _check(TokenKind.kwPub) ? _current : null;
       final isPub = _match(TokenKind.kwPub);
       // `native` is consumed by _parseFnDecl, so check (don't match) here.
       final isNative = _check(TokenKind.kwNative);
-      methods.add(_parseFnDecl(decos, isNative: isNative, isPub: isPub));
+      final SourceSpan methodStartSpan;
+      if (decos.isNotEmpty) {
+        methodStartSpan = decos.first.span;
+      } else if (pubTok != null) {
+        methodStartSpan = pubTok.span;
+      } else {
+        methodStartSpan = methodStartTok.span;
+      }
+      methods.add(_parseFnDecl(decos,
+          isNative: isNative, isPub: isPub, startSpan: methodStartSpan));
     }
-    _expect(TokenKind.rBrace, '}');
-    return ImplDecl(start.span,
+    final rBraceTok = _expect(TokenKind.rBrace, '}');
+    return ImplDecl(SourceSpan.cover(startSpan, rBraceTok.span),
         typeName: typeName,
         nameSpan: nameSpan,
         typeParams: typeParams,
@@ -381,18 +433,24 @@ class Parser {
         methods: methods);
   }
 
-  InterfaceDecl _parseInterfaceDecl({bool isPub = false}) {
-    final start = _advance(); // 'interface'
+  InterfaceDecl _parseInterfaceDecl(
+      {bool isPub = false, required SourceSpan startSpan}) {
+    _advance(); // 'interface'
     final nameTok = _expect(TokenKind.identifier, 'interface name');
     _expect(TokenKind.lBrace, '{');
     final methods = <FnDecl>[];
     while (!_check(TokenKind.rBrace) && !_atEnd) {
+      final methodStartTok = _current;
+      final pubTok = _check(TokenKind.kwPub) ? _current : null;
       final mPub = _match(TokenKind.kwPub);
       if (!_check(TokenKind.kwFn)) _fail('expected fn in interface');
-      methods.add(_parseFnDecl([], isNative: false, isPub: mPub));
+      methods.add(_parseFnDecl([],
+          isNative: false,
+          isPub: mPub,
+          startSpan: pubTok?.span ?? methodStartTok.span));
     }
-    _expect(TokenKind.rBrace, '}');
-    return InterfaceDecl(start.span,
+    final rBraceTok = _expect(TokenKind.rBrace, '}');
+    return InterfaceDecl(SourceSpan.cover(startSpan, rBraceTok.span),
         isPub: isPub,
         name: nameTok.lexeme,
         nameSpan: nameTok.span,
@@ -432,6 +490,7 @@ class Parser {
     // '(' begins a function type '(T1, ...) -> R' (including the zero-arg
     // '() -> R'). The unit type is named `Void`, not `()`.
     if (_check(TokenKind.lParen)) {
+      final startTok = _current;
       _advance();
       final params = <TypeRef>[];
       while (!_check(TokenKind.rParen) && !_atEnd) {
@@ -440,21 +499,27 @@ class Parser {
       }
       _expect(TokenKind.rParen, ')');
       if (_match(TokenKind.arrow)) {
-        return FunctionTypeRef(params, _parseTypeRef());
+        final returnType = _parseTypeRef();
+        return FunctionTypeRef(params, returnType,
+            SourceSpan.cover(startTok.span, returnType.span));
       }
       _fail('expected "->" in function type (the unit type is `Void`)');
     }
     final nameTok = _expect(TokenKind.identifier, 'type name');
     final args = <TypeRef>[];
+    Token? gtTok;
     if (_check(TokenKind.lt)) {
       _advance(); // <
       while (!_check(TokenKind.gt) && !_atEnd) {
         args.add(_parseTypeRef());
         if (!_match(TokenKind.comma)) break;
       }
-      _expect(TokenKind.gt, '>');
+      gtTok = _expect(TokenKind.gt, '>');
     }
-    return NamedType(nameTok.lexeme, args: args, span: nameTok.span);
+    final span = gtTok != null
+        ? SourceSpan.cover(nameTok.span, gtTok.span)
+        : nameTok.span;
+    return NamedType(nameTok.lexeme, args: args, span: span);
   }
 
   // ---- block and statements ----
@@ -507,12 +572,14 @@ class Parser {
     _expect(TokenKind.eq, '=');
     final value = _parseExpr();
     _match(TokenKind.semi);
-    return LetStmt(start.span,
+    final endSpan = _tokens[_pos - 1].span;
+    return LetStmt(SourceSpan.cover(start.span, endSpan),
         isMut: false, name: name, nameSpan: nameSpan, type: type, value: value);
   }
 
-  ConstDecl _parseConstDecl({bool isPub = false}) {
-    final start = _advance(); // 'const'
+  ConstDecl _parseConstDecl(
+      {bool isPub = false, required SourceSpan startSpan}) {
+    _advance(); // 'const'
     final nameTok = _expect(TokenKind.identifier, 'constant name');
     final name = nameTok.lexeme;
     final nameSpan = nameTok.span;
@@ -521,12 +588,13 @@ class Parser {
     _expect(TokenKind.eq, '=');
     final value = _parseExpr();
     _match(TokenKind.semi);
-    return ConstDecl(start.span,
+    final endSpan = _tokens[_pos - 1].span;
+    return ConstDecl(SourceSpan.cover(startSpan, endSpan),
         isPub: isPub, name: name, nameSpan: nameSpan, type: type, value: value);
   }
 
-  EnumDecl _parseEnumDecl({bool isPub = false}) {
-    final start = _advance(); // 'enum'
+  EnumDecl _parseEnumDecl({bool isPub = false, required SourceSpan startSpan}) {
+    _advance(); // 'enum'
     final nameTok = _expect(TokenKind.identifier, 'enum name');
     final typeParams = _parseTypeParams();
     _expect(TokenKind.lBrace, '{');
@@ -534,18 +602,23 @@ class Parser {
     while (!_check(TokenKind.rBrace) && !_atEnd) {
       final vTok = _expect(TokenKind.identifier, 'variant name');
       final fields = <TypeRef>[];
+      SourceSpan endSpan = vTok.span;
       if (_match(TokenKind.lParen)) {
         while (!_check(TokenKind.rParen) && !_atEnd) {
           fields.add(_parseTypeRef());
           if (!_match(TokenKind.comma)) break;
         }
-        _expect(TokenKind.rParen, ')');
+        final rParenTok = _expect(TokenKind.rParen, ')');
+        endSpan = rParenTok.span;
       }
-      variants.add(EnumVariant(vTok.lexeme, span: vTok.span, fields: fields));
+      variants.add(EnumVariant(vTok.lexeme,
+          span: SourceSpan.cover(vTok.span, endSpan),
+          nameSpan: vTok.span,
+          fields: fields));
       if (!_match(TokenKind.comma)) break;
     }
-    _expect(TokenKind.rBrace, '}');
-    return EnumDecl(start.span,
+    final rBraceTok = _expect(TokenKind.rBrace, '}');
+    return EnumDecl(SourceSpan.cover(startSpan, rBraceTok.span),
         isPub: isPub,
         name: nameTok.lexeme,
         nameSpan: nameTok.span,
@@ -564,22 +637,23 @@ class Parser {
     _expect(TokenKind.eq, '=');
     final value = _parseExpr();
     _match(TokenKind.semi);
-    return LetStmt(start.span,
+    final endSpan = _tokens[_pos - 1].span;
+    return LetStmt(SourceSpan.cover(start.span, endSpan),
         isMut: isMut, name: name, nameSpan: nameSpan, type: type, value: value);
   }
 
   ReturnStmt _parseReturnStmt() {
-    final start = _current.span;
     final expr = _parseExpr() as ReturnExpr; // primary handles kwReturn
     _match(TokenKind.semi);
-    return ReturnStmt(start, value: expr.value);
+    final endSpan = _tokens[_pos - 1].span;
+    return ReturnStmt(SourceSpan.cover(expr.span, endSpan), value: expr.value);
   }
 
   ThrowStmt _parseThrowStmt() {
-    final start = _current.span;
     final expr = _parseExpr() as ThrowExpr; // primary handles kwThrow
     _match(TokenKind.semi);
-    return ThrowStmt(start, value: expr.value);
+    final endSpan = _tokens[_pos - 1].span;
+    return ThrowStmt(SourceSpan.cover(expr.span, endSpan), value: expr.value);
   }
 
   IfStmt _parseIfStmt() {
@@ -587,16 +661,20 @@ class Parser {
     final condition = _parseExprNoBrace();
     final then = _parseBlock();
     Block? else_;
+    SourceSpan endSpan = then.span;
     if (_match(TokenKind.kwElse)) {
       if (_check(TokenKind.kwIf)) {
         final inner = _parseIfStmt();
         // Synthetic block: reuse the if's span for both start and end.
         else_ = Block(inner.span, inner.span, [inner]);
+        endSpan = inner.span;
       } else {
         else_ = _parseBlock();
+        endSpan = else_.span;
       }
     }
-    return IfStmt(start.span, condition: condition, then: then, else_: else_);
+    return IfStmt(SourceSpan.cover(start.span, endSpan),
+        condition: condition, then: then, else_: else_);
   }
 
   ForStmt _parseForStmt() {
@@ -605,7 +683,7 @@ class Parser {
     _expect(TokenKind.kwIn, 'in');
     final iterable = _parseExprNoBrace();
     final body = _parseBlock();
-    return ForStmt(start.span,
+    return ForStmt(SourceSpan.cover(start.span, body.span),
         pattern: pattern, iterable: iterable, body: body);
   }
 
@@ -613,18 +691,20 @@ class Parser {
     final start = _advance(); // 'while'
     final condition = _parseExprNoBrace();
     final body = _parseBlock();
-    return WhileStmt(start.span, condition: condition, body: body);
+    return WhileStmt(SourceSpan.cover(start.span, body.span),
+        condition: condition, body: body);
   }
 
   // ---- patterns ----
 
   Pattern _parsePattern() {
     if (_check(TokenKind.underscore)) {
-      _advance();
-      return const WildcardPattern();
+      final tok = _advance();
+      return WildcardPattern(tok.span);
     }
     if (_check(TokenKind.identifier)) {
-      final name = _advance().lexeme;
+      final tok = _advance();
+      final name = tok.lexeme;
       if (_check(TokenKind.lParen)) {
         _advance();
         final args = <Pattern>[];
@@ -632,18 +712,21 @@ class Parser {
           args.add(_parsePattern());
           if (!_match(TokenKind.comma)) break;
         }
-        _expect(TokenKind.rParen, ')');
-        return ConstructorPattern(name, args);
+        final rParenTok = _expect(TokenKind.rParen, ')');
+        return ConstructorPattern(
+            SourceSpan.cover(tok.span, rParenTok.span), name, args);
       }
       // Uppercase-first = zero-arg constructor (variant/struct); lowercase = binding.
-      if (name[0].toUpperCase() == name[0]) return ConstructorPattern(name, []);
-      return IdentPattern(name);
+      if (name[0].toUpperCase() == name[0])
+        return ConstructorPattern(tok.span, name, []);
+      return IdentPattern(tok.span, name);
     }
     if (_check(TokenKind.kwTrue) ||
         _check(TokenKind.kwFalse) ||
         _check(TokenKind.intLiteral) ||
         _check(TokenKind.stringLiteral)) {
-      return LiteralPattern(_parsePrimary());
+      final literal = _parsePrimary();
+      return LiteralPattern(literal.span, literal);
     }
     _fail('expected a pattern');
   }
@@ -663,7 +746,8 @@ class Parser {
     while (_check(TokenKind.pipePipe)) {
       final op = _advance().span.text;
       final right = _parseAnd(allowStructLiteral: allowStructLiteral);
-      left = BinaryExpr(left.span, left: left, op: op, right: right);
+      left = BinaryExpr(SourceSpan.cover(left.span, right.span),
+          left: left, op: op, right: right);
     }
     return left;
   }
@@ -673,7 +757,8 @@ class Parser {
     while (_check(TokenKind.ampAmp)) {
       final op = _advance().span.text;
       final right = _parseEquality(allowStructLiteral: allowStructLiteral);
-      left = BinaryExpr(left.span, left: left, op: op, right: right);
+      left = BinaryExpr(SourceSpan.cover(left.span, right.span),
+          left: left, op: op, right: right);
     }
     return left;
   }
@@ -683,7 +768,8 @@ class Parser {
     while (_check(TokenKind.eqEq) || _check(TokenKind.bangEq)) {
       final op = _advance().span.text;
       final right = _parseComparison(allowStructLiteral: allowStructLiteral);
-      left = BinaryExpr(left.span, left: left, op: op, right: right);
+      left = BinaryExpr(SourceSpan.cover(left.span, right.span),
+          left: left, op: op, right: right);
     }
     return left;
   }
@@ -696,7 +782,8 @@ class Parser {
         _check(TokenKind.gtEq)) {
       final op = _advance().span.text;
       final right = _parseRange(allowStructLiteral: allowStructLiteral);
-      left = BinaryExpr(left.span, left: left, op: op, right: right);
+      left = BinaryExpr(SourceSpan.cover(left.span, right.span),
+          left: left, op: op, right: right);
     }
     return left;
   }
@@ -706,7 +793,8 @@ class Parser {
     if (_check(TokenKind.dotDot)) {
       _advance();
       final right = _parseAddition(allowStructLiteral: allowStructLiteral);
-      return RangeExpr(left.span, start: left, end: right);
+      return RangeExpr(SourceSpan.cover(left.span, right.span),
+          start: left, end: right);
     }
     return left;
   }
@@ -717,7 +805,8 @@ class Parser {
       final op = _advance().span.text;
       final right =
           _parseMultiplication(allowStructLiteral: allowStructLiteral);
-      left = BinaryExpr(left.span, left: left, op: op, right: right);
+      left = BinaryExpr(SourceSpan.cover(left.span, right.span),
+          left: left, op: op, right: right);
     }
     return left;
   }
@@ -729,7 +818,8 @@ class Parser {
         _check(TokenKind.percent)) {
       final op = _advance().span.text;
       final right = _parseUnary(allowStructLiteral: allowStructLiteral);
-      left = BinaryExpr(left.span, left: left, op: op, right: right);
+      left = BinaryExpr(SourceSpan.cover(left.span, right.span),
+          left: left, op: op, right: right);
     }
     return left;
   }
@@ -738,7 +828,8 @@ class Parser {
     if (_check(TokenKind.bang) || _check(TokenKind.minus)) {
       final op = _advance();
       final operand = _parseUnary(allowStructLiteral: allowStructLiteral);
-      return UnaryExpr(op.span, op: op.span.text, operand: operand);
+      return UnaryExpr(SourceSpan.cover(op.span, operand.span),
+          op: op.span.text, operand: operand);
     }
     return _parsePostfix(allowStructLiteral: allowStructLiteral);
   }
@@ -749,19 +840,23 @@ class Parser {
       if (_check(TokenKind.dot)) {
         _advance();
         final field = _expect(TokenKind.identifier, 'field or method name');
-        expr = FieldExpr(expr.span, object: expr, field: field.lexeme);
+        expr = FieldExpr(SourceSpan.cover(expr.span, field.span),
+            object: expr, field: field.lexeme);
         // If followed by ( or <, this is a method call (handled below on next
         // iteration, since expr is now a FieldExpr).
       } else if (_check(TokenKind.lParen)) {
         final args = _parseCallArgs();
-        expr = CallExpr(expr.span, callee: expr, args: args);
+        final endSpan = _tokens[_pos - 1].span;
+        expr = CallExpr(SourceSpan.cover(expr.span, endSpan),
+            callee: expr, args: args);
       } else if (_check(TokenKind.lt) && _looksLikeTypeArgList()) {
         final typeArgs = _parseTypeArgList();
         // Expect ( immediately after type args for a generic call.
         if (_check(TokenKind.lParen)) {
           final args = _parseCallArgs();
-          expr =
-              CallExpr(expr.span, callee: expr, typeArgs: typeArgs, args: args);
+          final endSpan = _tokens[_pos - 1].span;
+          expr = CallExpr(SourceSpan.cover(expr.span, endSpan),
+              callee: expr, typeArgs: typeArgs, args: args);
         } else {
           // Not a call — treat the < as a comparison operator (put it back by
           // not consuming it). Since we already consumed it, insert a synthetic
@@ -771,11 +866,12 @@ class Parser {
       } else if (_check(TokenKind.lBracket)) {
         _advance();
         final index = _parseExpr();
-        _expect(TokenKind.rBracket, ']');
-        expr = IndexExpr(expr.span, object: expr, index: index);
+        final rBracketTok = _expect(TokenKind.rBracket, ']');
+        expr = IndexExpr(SourceSpan.cover(expr.span, rBracketTok.span),
+            object: expr, index: index);
       } else if (_check(TokenKind.question)) {
-        _advance();
-        expr = PropagateExpr(expr.span, expr);
+        final qTok = _advance();
+        expr = PropagateExpr(SourceSpan.cover(expr.span, qTok.span), expr);
       } else {
         break;
       }
@@ -790,12 +886,17 @@ class Parser {
       // Labeled arg: ident ':'  expr
       // Unlabeled:   expr
       String? label;
+      SourceSpan? labelSpan;
       if (_check(TokenKind.identifier) && _next.kind == TokenKind.colon) {
-        label = _advance().lexeme;
+        final labelTok = _advance();
+        label = labelTok.lexeme;
+        labelSpan = labelTok.span;
         _advance(); // ':'
       }
       final val = _parseExpr();
-      args.add(CallArg(label: label, value: val));
+      final span =
+          labelSpan != null ? SourceSpan.cover(labelSpan, val.span) : val.span;
+      args.add(CallArg(span, label: label, value: val));
       if (!_match(TokenKind.comma)) break;
     }
     _expect(TokenKind.rParen, ')');
@@ -881,12 +982,17 @@ class Parser {
             final nameTok = _expect(TokenKind.identifier, 'parameter name');
             TypeRef? type;
             if (_match(TokenKind.colon)) type = _parseTypeRef();
-            params.add(LambdaParam(nameTok.lexeme, type: type));
+            final span = type != null
+                ? SourceSpan.cover(nameTok.span, type.span)
+                : nameTok.span;
+            params.add(LambdaParam(span, nameTok.lexeme, type: type));
             if (!_match(TokenKind.comma)) break;
           }
           _expect(TokenKind.rParen, ')');
           _expect(TokenKind.fatArrow, '=>');
-          return LambdaExpr(t.span, params: params, body: _parseExpr());
+          final body = _parseExpr();
+          return LambdaExpr(SourceSpan.cover(t.span, body.span),
+              params: params, body: body);
         }
         final inner = _parseExpr();
         _expect(TokenKind.rParen, ')');
@@ -900,7 +1006,8 @@ class Parser {
         // A map literal starts with a string/int literal key followed by ':'.
         // An empty `{}` is also a map literal.
         if (_isMapLiteralStart()) return _parseMapLiteral();
-        return BlockExpr(t.span, _parseBlock());
+        final block = _parseBlock();
+        return BlockExpr(SourceSpan.cover(t.span, block.span), block);
 
       case TokenKind.kwMatch:
         return _parseMatchExpr();
@@ -914,11 +1021,13 @@ class Parser {
             !_atEnd) {
           retVal = _parseExpr();
         }
-        return ReturnExpr(t.span, value: retVal);
+        return ReturnExpr(SourceSpan.cover(t.span, retVal?.span ?? t.span),
+            value: retVal);
 
       case TokenKind.kwThrow:
         _advance();
-        return ThrowExpr(t.span, _parseExpr());
+        final val = _parseExpr();
+        return ThrowExpr(SourceSpan.cover(t.span, val.span), val);
 
       case TokenKind.identifier:
         _advance();
@@ -928,7 +1037,8 @@ class Parser {
         if (_check(TokenKind.fatArrow)) {
           _advance();
           final body = _parseExpr();
-          return LambdaExpr(t.span, params: [LambdaParam(name)], body: body);
+          return LambdaExpr(SourceSpan.cover(t.span, body.span),
+              params: [LambdaParam(t.span, name)], body: body);
         }
 
         // Struct literal: TypeName { field: expr, ... }
@@ -972,8 +1082,8 @@ class Parser {
       entries.add((key, value));
       if (!_match(TokenKind.comma)) break;
     }
-    _expect(TokenKind.rBrace, '}');
-    return MapExpr(start.span, entries);
+    final rBraceTok = _expect(TokenKind.rBrace, '}');
+    return MapExpr(SourceSpan.cover(start.span, rBraceTok.span), entries);
   }
 
   Expr _parseListLiteral() {
@@ -983,11 +1093,11 @@ class Parser {
       items.add(_parseExpr());
       if (!_match(TokenKind.comma)) break;
     }
-    _expect(TokenKind.rBracket, ']');
-    return ListExpr(start.span, items);
+    final rBracketTok = _expect(TokenKind.rBracket, ']');
+    return ListExpr(SourceSpan.cover(start.span, rBracketTok.span), items);
   }
 
-  Expr _parseStructLiteral(String typeName, SourceSpan span) {
+  Expr _parseStructLiteral(String typeName, SourceSpan startSpan) {
     _advance(); // {
     final fields = <(String, Expr)>[];
     while (!_check(TokenKind.rBrace) && !_atEnd) {
@@ -997,8 +1107,9 @@ class Parser {
       fields.add((fname, fval));
       if (!_match(TokenKind.comma)) break;
     }
-    _expect(TokenKind.rBrace, '}');
-    return StructExpr(span, typeName: typeName, fields: fields);
+    final rBraceTok = _expect(TokenKind.rBrace, '}');
+    return StructExpr(SourceSpan.cover(startSpan, rBraceTok.span),
+        typeName: typeName, fields: fields);
   }
 
   Expr _parseMatchExpr() {
@@ -1012,15 +1123,20 @@ class Parser {
       // Arm body: either a block { ... } or an expression.
       final Expr body;
       if (_check(TokenKind.lBrace)) {
-        body = BlockExpr(_current.span, _parseBlock());
+        final blockStartTok = _current;
+        final block = _parseBlock();
+        body =
+            BlockExpr(SourceSpan.cover(blockStartTok.span, block.span), block);
       } else {
         body = _parseExpr();
       }
       _match(TokenKind.comma);
-      arms.add(MatchArm(pattern: pattern, body: body));
+      arms.add(MatchArm(SourceSpan.cover(pattern.span, body.span),
+          pattern: pattern, body: body));
     }
-    _expect(TokenKind.rBrace, '}');
-    return MatchExpr(start.span, subject: subject, arms: arms);
+    final rBraceTok = _expect(TokenKind.rBrace, '}');
+    return MatchExpr(SourceSpan.cover(start.span, rBraceTok.span),
+        subject: subject, arms: arms);
   }
 
   // ---- string interpolation splitting ----
@@ -1035,7 +1151,7 @@ class Parser {
     while (i < raw.length) {
       if (raw[i] == r'$' && i + 1 < raw.length && raw[i + 1] == '{') {
         if (buf.isNotEmpty) {
-          parts.add(TextPart(buf.toString()));
+          parts.add(TextPart(parentSpan, buf.toString()));
           buf.clear();
         }
         i += 2; // skip ${
@@ -1056,17 +1172,17 @@ class Parser {
           // Re-parse as expression — treat the source as a statement-expression.
           final p2 = Parser(lexResult.tokens);
           final expr = p2._parseExpr();
-          parts.add(InterpPart(expr));
+          parts.add(InterpPart(parentSpan, expr));
         } else if (parseResult.program.decls.isEmpty) {
           // Empty interpolation — emit empty text
-          parts.add(TextPart(''));
+          parts.add(TextPart(parentSpan, ''));
         } else {
           // Best effort: use what we parsed
           final decl = parseResult.program.decls.first;
           if (decl is FnDecl) {
-            parts.add(TextPart(exprSource));
+            parts.add(TextPart(parentSpan, exprSource));
           } else {
-            parts.add(TextPart(exprSource));
+            parts.add(TextPart(parentSpan, exprSource));
           }
         }
       } else {
@@ -1074,7 +1190,7 @@ class Parser {
         i++;
       }
     }
-    if (buf.isNotEmpty) parts.add(TextPart(buf.toString()));
+    if (buf.isNotEmpty) parts.add(TextPart(parentSpan, buf.toString()));
     return parts;
   }
 }

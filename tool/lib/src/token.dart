@@ -116,6 +116,20 @@ class SourceSpan {
     required this.column,
   });
 
+  factory SourceSpan.cover(SourceSpan start, SourceSpan end) {
+    if (start.source.isEmpty) return end;
+    if (end.source.isEmpty) return start;
+    assert(identical(start.source, end.source) || start.source == end.source);
+    final length = end.offset + end.length - start.offset;
+    return SourceSpan(
+      source: start.source,
+      offset: start.offset,
+      length: length,
+      line: start.line,
+      column: start.column,
+    );
+  }
+
   String get text => source.substring(offset, offset + length);
 
   @override

@@ -124,13 +124,15 @@ impl Eq for Int {
     test('lambda in map call is typed from the method signature', () {
       // No annotation on `x`: its type comes from `map`'s `(T) -> U` signature
       // with the receiver `List<Int>`.
-      expect(
-        check('''
+      final errors = check('''
 impl List<T> {
   fn map<U>(self, _ f: (T) -> U) -> List<U> { let r = []; return r; }
 }
 fn f(xs: List<Int>) { let ys = xs.map(x => x); }
-'''),
+''');
+      print('=== ERRORS IN TEST: $errors');
+      expect(
+        errors,
         isEmpty,
       );
     });

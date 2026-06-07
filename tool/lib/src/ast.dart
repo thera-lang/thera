@@ -1,12 +1,36 @@
 import 'element/types.dart';
 import 'token.dart';
 
+// --- Base AST Node Classes ---
+
+abstract class AstNode {
+  SourceSpan get span;
+  Iterable<AstNode> get childNodes;
+}
+
+abstract interface class NamedNode implements AstNode {
+  String get name;
+  SourceSpan get nameSpan;
+}
+
 // --- Top-level ---
 
-class Program {
+class Program extends AstNode {
   final List<Decl> decls;
   String? filePath;
   Program(this.decls);
+
+  @override
+  SourceSpan get span {
+    if (decls.isEmpty) {
+      return const SourceSpan(
+          source: '', offset: 0, length: 0, line: 1, column: 1);
+    }
+    return SourceSpan.cover(decls.first.span, decls.last.span);
+  }
+
+  @override
+  Iterable<AstNode> get childNodes => decls;
 
   String describe([String indent = '']) {
     final buf = StringBuffer('Program\n');
@@ -19,7 +43,8 @@ class Program {
 
 // --- Declarations ---
 
-sealed class Decl {
+sealed class Decl extends AstNode {
+  @override
   final SourceSpan span;
   Decl(this.span);
 
@@ -33,15 +58,20 @@ class ImportDecl extends Decl {
   ImportDecl(super.span, {required this.path, this.alias, this.isPub = false});
 
   @override
+  Iterable<AstNode> get childNodes => const [];
+
+  @override
   String describe([String indent = '']) =>
       '$indent${isPub ? 'pub ' : ''}Import($path${alias != null ? ' as $alias' : ''})\n';
 }
 
-class FnDecl extends Decl {
+class FnDecl extends Decl implements NamedNode {
   final List<Decorator> decorators;
   final bool isPub;
   final bool isNative;
+  @override
   final String name;
+  @override
   final SourceSpan nameSpan;
   final List<TypeParam> typeParams;
   final List<Param> params;
@@ -61,6 +91,15 @@ class FnDecl extends Decl {
   });
 
   @override
+  Iterable<AstNode> get childNodes => [
+        ...decorators,
+        ...typeParams,
+        ...params,
+        if (returnType != null) returnType!,
+        if (body != null) body!,
+      ];
+
+  @override
   String describe([String indent = '']) {
     final buf = StringBuffer();
     for (final d in decorators) {
@@ -76,9 +115,11 @@ class FnDecl extends Decl {
   }
 }
 
-class TypeDecl extends Decl {
+class TypeDecl extends Decl implements NamedNode {
   final bool isPub;
+  @override
   final String name;
+  @override
   final SourceSpan nameSpan;
   final List<TypeParam> typeParams;
   final List<(String, TypeRef)> fields;
@@ -90,6 +131,12 @@ class TypeDecl extends Decl {
       required this.fields});
 
   @override
+  Iterable<AstNode> get childNodes => [
+        ...typeParams,
+        for (final f in fields) f.$2,
+      ];
+
+  @override
   String describe([String indent = '']) {
     final tps = typeParams.isEmpty
         ? ''
@@ -99,8 +146,9 @@ class TypeDecl extends Decl {
   }
 }
 
-class ImplDecl extends Decl {
+class ImplDecl extends Decl implements NamedNode {
   final String typeName;
+  @override
   final SourceSpan nameSpan; // span of typeName
   final List<TypeParam> typeParams; // generic params, e.g. impl Box<T>
   final String? interfaceName; // null = inherent impl
@@ -111,6 +159,15 @@ class ImplDecl extends Decl {
       this.typeParams = const [],
       this.interfaceName,
       required this.methods});
+
+  @override
+  String get name => typeName;
+
+  @override
+  Iterable<AstNode> get childNodes => [
+        ...typeParams,
+        ...methods,
+      ];
 
   @override
   String describe([String indent = '']) {
@@ -125,9 +182,11 @@ class ImplDecl extends Decl {
   }
 }
 
-class InterfaceDecl extends Decl {
+class InterfaceDecl extends Decl implements NamedNode {
   final bool isPub;
+  @override
   final String name;
+  @override
   final SourceSpan nameSpan;
   final List<FnDecl> methods;
   InterfaceDecl(super.span,
@@ -135,6 +194,9 @@ class InterfaceDecl extends Decl {
       required this.name,
       required this.nameSpan,
       required this.methods});
+
+  @override
+  Iterable<AstNode> get childNodes => methods;
 
   @override
   String describe([String indent = '']) {
@@ -146,30 +208,53 @@ class InterfaceDecl extends Decl {
   }
 }
 
-class ConstDecl extends Decl {
+class ConstDecl extends Decl implements NamedNode {
   final bool isPub;
+  @override
   final String name;
+  @override
   final SourceSpan nameSpan;
   final TypeRef? type;
   final Expr value;
   ConstDecl(super.span,
-      {this.isPub = false, required this.name, required this.nameSpan, this.type, required this.value});
+      {this.isPub = false,
+      required this.name,
+      required this.nameSpan,
+      this.type,
+      required this.value});
+
+  @override
+  Iterable<AstNode> get childNodes => [
+        if (type != null) type!,
+        value,
+      ];
 
   @override
   String describe([String indent = '']) =>
       '$indent${isPub ? 'pub ' : ''}Const $name\n';
 }
 
-class EnumVariant {
+class EnumVariant extends AstNode implements NamedNode {
+  @override
   final String name;
-  final SourceSpan span; // span of the variant name
+  @override
+  final SourceSpan span;
+  @override
+  final SourceSpan nameSpan;
   final List<TypeRef> fields; // positional payload types; empty = no payload
-  const EnumVariant(this.name, {required this.span, this.fields = const []});
+  EnumVariant(this.name,
+      {required this.span, SourceSpan? nameSpan, this.fields = const []})
+      : this.nameSpan = nameSpan ?? span;
+
+  @override
+  Iterable<AstNode> get childNodes => fields;
 }
 
-class EnumDecl extends Decl {
+class EnumDecl extends Decl implements NamedNode {
   final bool isPub;
+  @override
   final String name;
+  @override
   final SourceSpan nameSpan;
   final List<TypeParam> typeParams;
   final List<EnumVariant> variants;
@@ -179,6 +264,12 @@ class EnumDecl extends Decl {
       required this.nameSpan,
       this.typeParams = const [],
       required this.variants});
+
+  @override
+  Iterable<AstNode> get childNodes => [
+        ...typeParams,
+        ...variants,
+      ];
 
   @override
   String describe([String indent = '']) {
@@ -195,40 +286,64 @@ class EnumDecl extends Decl {
 
 // --- Helpers attached to declarations ---
 
-class Decorator {
+class Decorator extends AstNode {
+  @override
+  final SourceSpan span;
   final String name;
   final List<Expr> args;
-  Decorator(this.name, {this.args = const []});
+  Decorator(this.span, this.name, {this.args = const []});
+
+  @override
+  Iterable<AstNode> get childNodes => args;
 
   String describe() =>
       '@$name${args.isEmpty ? '' : '(${args.map((a) => a.describe()).join(', ')})'}';
 }
 
-class TypeParam {
+class TypeParam extends AstNode {
+  @override
+  final SourceSpan span;
   final String name;
   final List<String> bounds; // e.g. ['Eq', 'Debug']
-  const TypeParam(this.name, {this.bounds = const []});
+  TypeParam(this.span, this.name, {this.bounds = const []});
+
+  @override
+  Iterable<AstNode> get childNodes => const [];
 
   String describe() => bounds.isEmpty ? name : '$name: ${bounds.join(' + ')}';
 }
 
-class Param {
+class Param extends AstNode implements NamedNode {
   // External label: null means suppressed (_); equal to name means no separate
   // external label was given (default: label == name).
   final String? label;
   final bool isSelf; // true if this is the `self` parameter
+  @override
   final String name;
+  @override
   final SourceSpan nameSpan;
   final TypeRef? type;
   final Expr? defaultValue;
-  const Param({
+  @override
+  final SourceSpan span;
+
+  Param({
+    SourceSpan? span,
     this.label,
     this.isSelf = false,
     required this.name,
     required this.nameSpan,
     this.type,
     this.defaultValue,
-  });
+  }) : this.span = span ??
+            SourceSpan.cover(
+                nameSpan, defaultValue?.span ?? type?.span ?? nameSpan);
+
+  @override
+  Iterable<AstNode> get childNodes => [
+        if (type != null) type!,
+        if (defaultValue != null) defaultValue!,
+      ];
 
   String describe() {
     if (isSelf) return 'self';
@@ -240,16 +355,23 @@ class Param {
 
 // --- Type references ---
 
-sealed class TypeRef {
-  const TypeRef();
+sealed class TypeRef extends AstNode {
+  @override
+  final SourceSpan span;
+  TypeRef(this.span);
   String describe();
 }
 
 class NamedType extends TypeRef {
   final String name;
   final List<TypeRef> args;
-  final SourceSpan? span; // null for synthetically constructed types
-  NamedType(this.name, {this.args = const [], this.span});
+  NamedType(this.name, {this.args = const [], SourceSpan? span})
+      : super(span ??
+            const SourceSpan(
+                source: '', offset: 0, length: 0, line: 1, column: 1));
+
+  @override
+  Iterable<AstNode> get childNodes => args;
 
   @override
   String describe() {
@@ -263,7 +385,16 @@ class NamedType extends TypeRef {
 class FunctionTypeRef extends TypeRef {
   final List<TypeRef> params;
   final TypeRef returnType;
-  FunctionTypeRef(this.params, this.returnType);
+  FunctionTypeRef(this.params, this.returnType, [SourceSpan? span])
+      : super(span ??
+            const SourceSpan(
+                source: '', offset: 0, length: 0, line: 1, column: 1));
+
+  @override
+  Iterable<AstNode> get childNodes => [
+        ...params,
+        returnType,
+      ];
 
   @override
   String describe() =>
@@ -272,16 +403,19 @@ class FunctionTypeRef extends TypeRef {
 
 // --- Statements ---
 
-sealed class Stmt {
+sealed class Stmt extends AstNode {
+  @override
   final SourceSpan span;
   Stmt(this.span);
 
   String describe([String indent = '']);
 }
 
-class LetStmt extends Stmt {
+class LetStmt extends Stmt implements NamedNode {
   final bool isMut;
+  @override
   final String name;
+  @override
   final SourceSpan nameSpan;
   final TypeRef? type;
   final Expr value;
@@ -291,6 +425,12 @@ class LetStmt extends Stmt {
       required this.nameSpan,
       this.type,
       required this.value});
+
+  @override
+  Iterable<AstNode> get childNodes => [
+        if (type != null) type!,
+        value,
+      ];
 
   @override
   String describe([String indent = '']) {
@@ -305,6 +445,11 @@ class ReturnStmt extends Stmt {
   ReturnStmt(super.span, {this.value});
 
   @override
+  Iterable<AstNode> get childNodes => [
+        if (value != null) value!,
+      ];
+
+  @override
   String describe([String indent = '']) =>
       '${indent}return${value != null ? ' ${value!.describe()}' : ''}\n';
 }
@@ -314,6 +459,9 @@ class ThrowStmt extends Stmt {
   ThrowStmt(super.span, {required this.value});
 
   @override
+  Iterable<AstNode> get childNodes => [value];
+
+  @override
   String describe([String indent = '']) =>
       '${indent}throw ${value.describe()}\n';
 }
@@ -321,6 +469,9 @@ class ThrowStmt extends Stmt {
 class ExprStmt extends Stmt {
   final Expr expr;
   ExprStmt(super.span, this.expr);
+
+  @override
+  Iterable<AstNode> get childNodes => [expr];
 
   @override
   String describe([String indent = '']) => '$indent${expr.describe()}\n';
@@ -333,6 +484,9 @@ class AssignStmt extends Stmt {
   AssignStmt(super.span, {required this.target, required this.value});
 
   @override
+  Iterable<AstNode> get childNodes => [target, value];
+
+  @override
   String describe([String indent = '']) =>
       '$indent${target.describe()} = ${value.describe()}\n';
 }
@@ -342,6 +496,13 @@ class IfStmt extends Stmt {
   final Block then;
   final Block? else_;
   IfStmt(super.span, {required this.condition, required this.then, this.else_});
+
+  @override
+  Iterable<AstNode> get childNodes => [
+        condition,
+        then,
+        if (else_ != null) else_!,
+      ];
 
   @override
   String describe([String indent = '']) {
@@ -363,6 +524,13 @@ class ForStmt extends Stmt {
       {required this.pattern, required this.iterable, required this.body});
 
   @override
+  Iterable<AstNode> get childNodes => [
+        pattern,
+        iterable,
+        body,
+      ];
+
+  @override
   String describe([String indent = '']) {
     final buf = StringBuffer(
         '${indent}for ${pattern.describe()} in ${iterable.describe()}\n');
@@ -377,6 +545,12 @@ class WhileStmt extends Stmt {
   WhileStmt(super.span, {required this.condition, required this.body});
 
   @override
+  Iterable<AstNode> get childNodes => [
+        condition,
+        body,
+      ];
+
+  @override
   String describe([String indent = '']) {
     final buf = StringBuffer('${indent}while ${condition.describe()}\n');
     buf.write(body.describe('$indent  '));
@@ -384,11 +558,17 @@ class WhileStmt extends Stmt {
   }
 }
 
-class Block {
-  final SourceSpan span; // the { token
-  final SourceSpan endSpan; // the } token
+class Block extends AstNode {
+  final SourceSpan startSpan;
+  final SourceSpan endSpan;
   final List<Stmt> stmts;
-  Block(this.span, this.endSpan, this.stmts);
+  Block(this.startSpan, this.endSpan, this.stmts);
+
+  @override
+  SourceSpan get span => SourceSpan.cover(startSpan, endSpan);
+
+  @override
+  Iterable<AstNode> get childNodes => stmts;
 
   String describe([String indent = '']) {
     final buf = StringBuffer('${indent}Block\n');
@@ -401,20 +581,30 @@ class Block {
 
 // --- Patterns ---
 
-sealed class Pattern {
-  const Pattern();
+sealed class Pattern extends AstNode {
+  @override
+  final SourceSpan span;
+  Pattern(this.span);
   String describe();
 }
 
 class WildcardPattern extends Pattern {
-  const WildcardPattern();
+  WildcardPattern(super.span);
+
+  @override
+  Iterable<AstNode> get childNodes => const [];
+
   @override
   String describe() => '_';
 }
 
 class IdentPattern extends Pattern {
   final String name;
-  IdentPattern(this.name);
+  IdentPattern(super.span, this.name);
+
+  @override
+  Iterable<AstNode> get childNodes => const [];
+
   @override
   String describe() => name;
 }
@@ -422,7 +612,11 @@ class IdentPattern extends Pattern {
 class ConstructorPattern extends Pattern {
   final String name;
   final List<Pattern> args;
-  ConstructorPattern(this.name, this.args);
+  ConstructorPattern(super.span, this.name, this.args);
+
+  @override
+  Iterable<AstNode> get childNodes => args;
+
   @override
   String describe() => args.isEmpty
       ? name
@@ -431,14 +625,19 @@ class ConstructorPattern extends Pattern {
 
 class LiteralPattern extends Pattern {
   final Expr literal;
-  LiteralPattern(this.literal);
+  LiteralPattern(super.span, this.literal);
+
+  @override
+  Iterable<AstNode> get childNodes => [literal];
+
   @override
   String describe() => literal.describe();
 }
 
 // --- Expressions ---
 
-sealed class Expr {
+sealed class Expr extends AstNode {
+  @override
   final SourceSpan span;
   Expr(this.span);
 
@@ -454,6 +653,10 @@ sealed class Expr {
 class IntLiteral extends Expr {
   final int value;
   IntLiteral(super.span, this.value);
+
+  @override
+  Iterable<AstNode> get childNodes => const [];
+
   @override
   String describe() => '$value';
 }
@@ -461,6 +664,10 @@ class IntLiteral extends Expr {
 class FloatLiteral extends Expr {
   final double value;
   FloatLiteral(super.span, this.value);
+
+  @override
+  Iterable<AstNode> get childNodes => const [];
+
   @override
   String describe() => '$value';
 }
@@ -468,6 +675,10 @@ class FloatLiteral extends Expr {
 class BoolLiteral extends Expr {
   final bool value;
   BoolLiteral(super.span, this.value);
+
+  @override
+  Iterable<AstNode> get childNodes => const [];
+
   @override
   String describe() => '$value';
 }
@@ -476,6 +687,10 @@ class BoolLiteral extends Expr {
 /// `Ok(void)` in a `Result<Void, E>` function.
 class UnitLiteral extends Expr {
   UnitLiteral(super.span);
+
+  @override
+  Iterable<AstNode> get childNodes => const [];
+
   @override
   String describe() => 'void';
 }
@@ -484,6 +699,9 @@ class UnitLiteral extends Expr {
 class StringExpr extends Expr {
   final List<StringPart> parts;
   StringExpr(super.span, this.parts);
+
+  @override
+  Iterable<AstNode> get childNodes => parts;
 
   @override
   String describe() {
@@ -497,21 +715,35 @@ class StringExpr extends Expr {
   }
 }
 
-sealed class StringPart {}
+sealed class StringPart extends AstNode {}
 
 class TextPart extends StringPart {
   final String text;
-  TextPart(this.text);
+  @override
+  final SourceSpan span;
+  TextPart(this.span, this.text);
+
+  @override
+  Iterable<AstNode> get childNodes => const [];
 }
 
 class InterpPart extends StringPart {
   final Expr expr;
-  InterpPart(this.expr);
+  @override
+  final SourceSpan span;
+  InterpPart(this.span, this.expr);
+
+  @override
+  Iterable<AstNode> get childNodes => [expr];
 }
 
 class ListExpr extends Expr {
   final List<Expr> items;
   ListExpr(super.span, this.items);
+
+  @override
+  Iterable<AstNode> get childNodes => items;
+
   @override
   String describe() => '[${items.map((e) => e.describe()).join(', ')}]';
 }
@@ -519,6 +751,12 @@ class ListExpr extends Expr {
 class MapExpr extends Expr {
   final List<(Expr, Expr)> entries; // (key, value) pairs
   MapExpr(super.span, this.entries);
+
+  @override
+  Iterable<AstNode> get childNodes => [
+        for (final entry in entries) ...[entry.$1, entry.$2],
+      ];
+
   @override
   String describe() {
     final es =
@@ -531,6 +769,10 @@ class StructExpr extends Expr {
   final String typeName;
   final List<(String, Expr)> fields;
   StructExpr(super.span, {required this.typeName, required this.fields});
+
+  @override
+  Iterable<AstNode> get childNodes => fields.map((f) => f.$2);
+
   @override
   String describe() {
     final fs = fields.map((f) => '${f.$1}: ${f.$2.describe()}').join(', ');
@@ -541,6 +783,10 @@ class StructExpr extends Expr {
 class IdentExpr extends Expr {
   final String name;
   IdentExpr(super.span, this.name);
+
+  @override
+  Iterable<AstNode> get childNodes => const [];
+
   @override
   String describe() => name;
 }
@@ -551,6 +797,14 @@ class CallExpr extends Expr {
   final List<CallArg> args;
   CallExpr(super.span,
       {required this.callee, this.typeArgs = const [], required this.args});
+
+  @override
+  Iterable<AstNode> get childNodes => [
+        callee,
+        ...typeArgs,
+        ...args,
+      ];
+
   @override
   String describe() {
     final ta = typeArgs.isEmpty
@@ -561,10 +815,15 @@ class CallExpr extends Expr {
   }
 }
 
-class CallArg {
+class CallArg extends AstNode {
+  @override
+  final SourceSpan span;
   final String? label;
   final Expr value;
-  const CallArg({this.label, required this.value});
+  CallArg(this.span, {this.label, required this.value});
+
+  @override
+  Iterable<AstNode> get childNodes => [value];
 
   String describe() =>
       label != null ? '$label: ${value.describe()}' : value.describe();
@@ -574,6 +833,10 @@ class FieldExpr extends Expr {
   final Expr object;
   final String field;
   FieldExpr(super.span, {required this.object, required this.field});
+
+  @override
+  Iterable<AstNode> get childNodes => [object];
+
   @override
   String describe() => '${object.describe()}.$field';
 }
@@ -582,6 +845,10 @@ class IndexExpr extends Expr {
   final Expr object;
   final Expr index;
   IndexExpr(super.span, {required this.object, required this.index});
+
+  @override
+  Iterable<AstNode> get childNodes => [object, index];
+
   @override
   String describe() => '${object.describe()}[${index.describe()}]';
 }
@@ -592,6 +859,10 @@ class BinaryExpr extends Expr {
   final Expr right;
   BinaryExpr(super.span,
       {required this.left, required this.op, required this.right});
+
+  @override
+  Iterable<AstNode> get childNodes => [left, right];
+
   @override
   String describe() => '(${left.describe()} $op ${right.describe()})';
 }
@@ -600,6 +871,10 @@ class UnaryExpr extends Expr {
   final String op;
   final Expr operand;
   UnaryExpr(super.span, {required this.op, required this.operand});
+
+  @override
+  Iterable<AstNode> get childNodes => [operand];
+
   @override
   String describe() => '($op${operand.describe()})';
 }
@@ -607,6 +882,10 @@ class UnaryExpr extends Expr {
 class PropagateExpr extends Expr {
   final Expr inner;
   PropagateExpr(super.span, this.inner);
+
+  @override
+  Iterable<AstNode> get childNodes => [inner];
+
   @override
   String describe() => '${inner.describe()}?';
 }
@@ -615,6 +894,10 @@ class RangeExpr extends Expr {
   final Expr start;
   final Expr end;
   RangeExpr(super.span, {required this.start, required this.end});
+
+  @override
+  Iterable<AstNode> get childNodes => [start, end];
+
   @override
   String describe() => '${start.describe()}..${end.describe()}';
 }
@@ -623,6 +906,13 @@ class MatchExpr extends Expr {
   final Expr subject;
   final List<MatchArm> arms;
   MatchExpr(super.span, {required this.subject, required this.arms});
+
+  @override
+  Iterable<AstNode> get childNodes => [
+        subject,
+        ...arms,
+      ];
+
   @override
   String describe() {
     final as_ = arms.map((a) => a.describe()).join(', ');
@@ -630,10 +920,15 @@ class MatchExpr extends Expr {
   }
 }
 
-class MatchArm {
+class MatchArm extends AstNode {
+  @override
+  final SourceSpan span;
   final Pattern pattern;
   final Expr body;
-  const MatchArm({required this.pattern, required this.body});
+  MatchArm(this.span, {required this.pattern, required this.body});
+
+  @override
+  Iterable<AstNode> get childNodes => [pattern, body];
 
   String describe() => '${pattern.describe()} => ${body.describe()}';
 }
@@ -641,10 +936,17 @@ class MatchArm {
 /// A single lambda parameter: a name with an optional type annotation. The type
 /// is null when omitted (`n => …`), filled by inference from context (or a hard
 /// error if neither annotation nor context determines it).
-class LambdaParam {
+class LambdaParam extends AstNode {
+  @override
+  final SourceSpan span;
   final String name;
   final TypeRef? type;
-  const LambdaParam(this.name, {this.type});
+  LambdaParam(this.span, this.name, {this.type});
+
+  @override
+  Iterable<AstNode> get childNodes => [
+        if (type != null) type!,
+      ];
 
   String describe() => type == null ? name : '$name: ${type!.describe()}';
 }
@@ -660,6 +962,13 @@ class LambdaExpr extends Expr {
   List<Type>? resolvedParamTypes;
 
   LambdaExpr(super.span, {required this.params, required this.body});
+
+  @override
+  Iterable<AstNode> get childNodes => [
+        ...params,
+        body,
+      ];
+
   @override
   String describe() {
     // The bare single-param form `n => …` only when it has no annotation.
@@ -673,6 +982,10 @@ class LambdaExpr extends Expr {
 class BlockExpr extends Expr {
   final Block block;
   BlockExpr(super.span, this.block);
+
+  @override
+  Iterable<AstNode> get childNodes => [block];
+
   @override
   String describe() => 'block{...}';
 }
@@ -681,6 +994,12 @@ class BlockExpr extends Expr {
 class ReturnExpr extends Expr {
   final Expr? value;
   ReturnExpr(super.span, {this.value});
+
+  @override
+  Iterable<AstNode> get childNodes => [
+        if (value != null) value!,
+      ];
+
   @override
   String describe() => 'return${value != null ? ' ${value!.describe()}' : ''}';
 }
@@ -688,6 +1007,10 @@ class ReturnExpr extends Expr {
 class ThrowExpr extends Expr {
   final Expr value;
   ThrowExpr(super.span, this.value);
+
+  @override
+  Iterable<AstNode> get childNodes => [value];
+
   @override
   String describe() => 'throw ${value.describe()}';
 }

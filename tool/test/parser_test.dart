@@ -74,8 +74,13 @@ void main() {
   });
 
   group('function types', () {
-    TypeRef paramType(String source) =>
-        (parse(source).decls.single as FnDecl).params.single.type!;
+    TypeRef paramType(String source) {
+      final prog = parse(source);
+      print('=== DECLS: ${prog.decls}');
+      final fn = prog.decls.single as FnDecl;
+      print('=== PARAMS: ${fn.params}');
+      return fn.params.single.type!;
+    }
 
     test('parses a function-typed parameter', () {
       final t = paramType('fn apply(f: (Int) -> Int) { }') as FunctionTypeRef;
