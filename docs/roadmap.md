@@ -188,6 +188,17 @@ function and reports `Ok`/`Err`. Remaining codegen gaps a `_test.hawk` hits
 (unit-in-`Result` / `Ok(void)` now works): generic bounds (`<T: Eq + Debug>`),
 `Debug` dispatch in `assert_eq`, and `throw <string>`.
 
+**Incremental front-end / LSP performance.** The front-end is whole-program and
+stateless per request: each `hawk check`, and each LSP edit, re-reads, re-parses,
+and re-checks the entire import closure (including the whole `std.core` prelude)
+from scratch (see `src/loader.dart`). Fine at today's scale, but the LSP re-does
+this on every keystroke, so it won't hold up as the stdlib and user programs
+grow. Longer term the analysis needs to be incremental: cache parsed/resolved
+libraries and invalidate by file, reuse the element model across requests, and
+re-check only what changed. (The CLI/LSP now share `loader.dart`, but each still
+builds its own `TypeChecker`/element model per call — the unit to make
+reusable.)
+
 **Decided:** the entry/args convention — `main` takes the arguments as a
 `List<String>`; `Args` is an explicit `std.cli` import (`cli.Args.new(...)`)
 constructed from that list (no auto-import).
