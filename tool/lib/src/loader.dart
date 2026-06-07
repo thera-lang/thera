@@ -75,6 +75,7 @@ Program? parseFileOrNull(String path) {
   if (lexResult.hasErrors) return null;
   final parseResult = Parser(lexResult.tokens).parse();
   if (parseResult.hasErrors) return null;
+  parseResult.program.filePath = path;
   return parseResult.program;
 }
 

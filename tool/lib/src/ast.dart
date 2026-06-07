@@ -5,6 +5,7 @@ import 'token.dart';
 
 class Program {
   final List<Decl> decls;
+  String? filePath;
   Program(this.decls);
 
   String describe([String indent = '']) {
@@ -148,10 +149,11 @@ class InterfaceDecl extends Decl {
 class ConstDecl extends Decl {
   final bool isPub;
   final String name;
+  final SourceSpan nameSpan;
   final TypeRef? type;
   final Expr value;
   ConstDecl(super.span,
-      {this.isPub = false, required this.name, this.type, required this.value});
+      {this.isPub = false, required this.name, required this.nameSpan, this.type, required this.value});
 
   @override
   String describe([String indent = '']) =>
@@ -216,12 +218,14 @@ class Param {
   final String? label;
   final bool isSelf; // true if this is the `self` parameter
   final String name;
+  final SourceSpan nameSpan;
   final TypeRef? type;
   final Expr? defaultValue;
   const Param({
     this.label,
     this.isSelf = false,
     required this.name,
+    required this.nameSpan,
     this.type,
     this.defaultValue,
   });
@@ -278,11 +282,13 @@ sealed class Stmt {
 class LetStmt extends Stmt {
   final bool isMut;
   final String name;
+  final SourceSpan nameSpan;
   final TypeRef? type;
   final Expr value;
   LetStmt(super.span,
       {required this.isMut,
       required this.name,
+      required this.nameSpan,
       this.type,
       required this.value});
 

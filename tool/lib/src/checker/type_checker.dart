@@ -55,6 +55,9 @@ class TypeChecker {
   late LibraryElement _library;
   late TypeResolver _resolver;
 
+  LibraryElement get library => _library;
+  TypeResolver get resolver => _resolver;
+
   // ---- public API ----
 
   /// Pre-register an imported [program] so its declarations resolve in [check].

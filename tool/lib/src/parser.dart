@@ -265,8 +265,8 @@ class Parser {
   Param _parseParam() {
     // self parameter
     if (_check(TokenKind.kwSelf)) {
-      _advance();
-      return const Param(isSelf: true, name: 'self');
+      final selfTok = _advance();
+      return Param(isSelf: true, name: 'self', nameSpan: selfTok.span);
     }
 
     // Pattern for the external label:
@@ -277,21 +277,28 @@ class Parser {
 
     String? label;
     String name;
+    SourceSpan nameSpan;
 
     if (_check(TokenKind.underscore)) {
       _advance(); // _
       label = null; // suppressed
-      name = _expect(TokenKind.identifier, 'parameter name').lexeme;
+      final nameTok = _expect(TokenKind.identifier, 'parameter name');
+      name = nameTok.lexeme;
+      nameSpan = nameTok.span;
     } else if (_check(TokenKind.identifier)) {
-      final first = _advance().lexeme;
+      final firstTok = _advance();
+      final first = firstTok.lexeme;
       if (_check(TokenKind.identifier)) {
         // external internal form: e.g. 'default value'
         label = first;
-        name = _advance().lexeme;
+        final nameTok = _advance();
+        name = nameTok.lexeme;
+        nameSpan = nameTok.span;
       } else {
         // single identifier: label == name
         label = first;
         name = first;
+        nameSpan = firstTok.span;
       }
     } else {
       _fail('expected parameter name or _');
@@ -308,7 +315,7 @@ class Parser {
     }
 
     return Param(
-        label: label, name: name, type: type, defaultValue: defaultValue);
+        label: label, name: name, nameSpan: nameSpan, type: type, defaultValue: defaultValue);
   }
 
   TypeDecl _parseTypeDecl({bool isPub = false}) {
@@ -492,26 +499,30 @@ class Parser {
   /// Parse a local `const NAME [: Type] = expr;` as an immutable [LetStmt].
   LetStmt _parseConstAsLet() {
     final start = _advance(); // 'const'
-    final name = _expect(TokenKind.identifier, 'constant name').lexeme;
+    final nameTok = _expect(TokenKind.identifier, 'constant name');
+    final name = nameTok.lexeme;
+    final nameSpan = nameTok.span;
     TypeRef? type;
     if (_match(TokenKind.colon)) type = _parseTypeRef();
     _expect(TokenKind.eq, '=');
     final value = _parseExpr();
     _match(TokenKind.semi);
     return LetStmt(start.span,
-        isMut: false, name: name, type: type, value: value);
+        isMut: false, name: name, nameSpan: nameSpan, type: type, value: value);
   }
 
   ConstDecl _parseConstDecl({bool isPub = false}) {
     final start = _advance(); // 'const'
-    final name = _expect(TokenKind.identifier, 'constant name').lexeme;
+    final nameTok = _expect(TokenKind.identifier, 'constant name');
+    final name = nameTok.lexeme;
+    final nameSpan = nameTok.span;
     TypeRef? type;
     if (_match(TokenKind.colon)) type = _parseTypeRef();
     _expect(TokenKind.eq, '=');
     final value = _parseExpr();
     _match(TokenKind.semi);
     return ConstDecl(start.span,
-        isPub: isPub, name: name, type: type, value: value);
+        isPub: isPub, name: name, nameSpan: nameSpan, type: type, value: value);
   }
 
   EnumDecl _parseEnumDecl({bool isPub = false}) {
@@ -545,14 +556,16 @@ class Parser {
   LetStmt _parseLetStmt() {
     final start = _advance(); // 'let'
     final isMut = _match(TokenKind.kwMut);
-    final name = _expect(TokenKind.identifier, 'variable name').lexeme;
+    final nameTok = _expect(TokenKind.identifier, 'variable name');
+    final name = nameTok.lexeme;
+    final nameSpan = nameTok.span;
     TypeRef? type;
     if (_match(TokenKind.colon)) type = _parseTypeRef();
     _expect(TokenKind.eq, '=');
     final value = _parseExpr();
     _match(TokenKind.semi);
     return LetStmt(start.span,
-        isMut: isMut, name: name, type: type, value: value);
+        isMut: isMut, name: name, nameSpan: nameSpan, type: type, value: value);
   }
 
   ReturnStmt _parseReturnStmt() {

@@ -749,8 +749,8 @@ class _FnCompiler {
       name: '<lambda>',
       nameSpan: expr.span,
       params: [
-        for (final c in captures) Param(name: c, label: c),
-        for (final p in expr.params) Param(name: p.name, label: p.name),
+        for (final c in captures) Param(name: c, label: c, nameSpan: expr.span),
+        for (final p in expr.params) Param(name: p.name, label: p.name, nameSpan: expr.span),
       ],
       body: body,
     );

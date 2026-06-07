@@ -251,6 +251,91 @@ interface Debug {
       expect(symbols, isEmpty);
     });
   });
+
+  // --- hover ---
+
+  group('hover', () {
+    test('hover over local variable shows its type', () async {
+      await initialize();
+      const uri = 'file:///hover_local.hawk';
+      await openAndAwaitDiagnostics(uri, '''
+fn main() -> Int {
+  let n = 5;
+  return n;
+}
+''');
+      final result = await clientConn.sendRequest('textDocument/hover', {
+        'textDocument': {'uri': uri},
+        'position': {'line': 2, 'character': 9},
+      });
+      expect(result, isNotNull);
+      final contents = result['contents'] as Map;
+      expect(contents['value'], contains('Int'));
+    });
+
+    test('hover over function name shows signature', () async {
+      await initialize();
+      const uri = 'file:///hover_fn.hawk';
+      await openAndAwaitDiagnostics(uri, '''
+fn greet(name: String) -> Void {}
+''');
+      final result = await clientConn.sendRequest('textDocument/hover', {
+        'textDocument': {'uri': uri},
+        'position': {'line': 0, 'character': 3},
+      });
+      expect(result, isNotNull);
+      final contents = result['contents'] as Map;
+      expect(contents['value'], contains('fn greet(name: String) -> Void'));
+    });
+  });
+
+  // --- definition ---
+
+  group('definition', () {
+    test('go to local variable definition', () async {
+      await initialize();
+      const uri = 'file:///def_local.hawk';
+      await openAndAwaitDiagnostics(uri, '''
+fn main() -> Int {
+  let n = 5;
+  return n;
+}
+''');
+      final result = await clientConn.sendRequest('textDocument/definition', {
+        'textDocument': {'uri': uri},
+        'position': {'line': 2, 'character': 9},
+      });
+      expect(result, isNotNull);
+      final loc = result as Map;
+      expect(loc['uri'], uri);
+      final range = loc['range'] as Map;
+      expect((range['start'] as Map)['line'], 1); // let n = 5 is on line 1
+      expect((range['start'] as Map)['character'], 6); // 'n' is at character 6
+    });
+
+    test('go to global type definition', () async {
+      await initialize();
+      const uri = 'file:///def_type.hawk';
+      await openAndAwaitDiagnostics(uri, '''
+type User = {
+  id: Int,
+}
+fn main(u: User) -> Int {
+  return 0;
+}
+''');
+      final result = await clientConn.sendRequest('textDocument/definition', {
+        'textDocument': {'uri': uri},
+        'position': {'line': 3, 'character': 11}, // User in main(u: User)
+      });
+      expect(result, isNotNull);
+      final loc = result as Map;
+      expect(loc['uri'], uri);
+      final range = loc['range'] as Map;
+      expect((range['start'] as Map)['line'], 0); // type User is on line 0
+      expect((range['start'] as Map)['character'], 5); // 'User' is at character 5
+    });
+  });
 }
 
 /// Returns true if [outer] (a Range map) fully contains [inner].
