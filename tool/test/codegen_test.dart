@@ -20,7 +20,18 @@ Program parseProgram(String source) {
   return parsed.program;
 }
 
-Module compile(String source) => compileProgram(parseProgram(source));
+/// A stand-in for the `std.core` prelude's I/O declarations (sdk/std/core/
+/// io.hawk). The real toolchain always links the prelude, so `println`/`print`
+/// resolve from there; these in-memory tests link this stub instead of reading
+/// the SDK off disk. They are `native fn`s, so they register as runtime natives
+/// without adding any function-table entries — module/function assertions are
+/// unaffected.
+const _ioPrelude =
+    "@extern('println') native fn println<T>(_ value: T) -> Void\n"
+    "@extern('print') native fn print<T>(_ value: T) -> Void";
+
+Module compile(String source) =>
+    compileProgram(parseProgram(source), imports: [parseProgram(_ioPrelude)]);
 
 /// Compile [source] with namespaced imports: each entry of [libs] is an
 /// import-path -> library source, so qualified access (`ns.member`) resolves.
@@ -31,7 +42,10 @@ Module compileWith(String source, Map<String, String> libs) {
   final program = parseProgram(source);
   final root = LibrarySource(program, imports: imports);
   return compileProgram(program,
-      imports: [for (final s in imports.values) s.program],
+      imports: [
+        parseProgram(_ioPrelude),
+        for (final s in imports.values) s.program
+      ],
       namespaces: namespacesFor(root));
 }
 

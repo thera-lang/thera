@@ -43,11 +43,6 @@ class _Fixup {
   const _Fixup(this.pos, this.label, this.kind);
 }
 
-/// Runtime natives callable directly by name. The front-end emits a
-/// `call.native` (resolved to an index by the runtime at load); the set grows
-/// as the stdlib surface does.
-const Set<String> _natives = {'println', 'print'};
-
 // Well-known enum type ids and variant tags, fixed by convention and shared
 // with the runtime (runtime/src/value.rs). Result and Option are not in the
 // type table — `enum.new` carries its field count inline.
@@ -750,7 +745,8 @@ class _FnCompiler {
       nameSpan: expr.span,
       params: [
         for (final c in captures) Param(name: c, label: c, nameSpan: expr.span),
-        for (final p in expr.params) Param(name: p.name, label: p.name, nameSpan: expr.span),
+        for (final p in expr.params)
+          Param(name: p.name, label: p.name, nameSpan: expr.span),
       ],
       body: body,
     );
@@ -1445,13 +1441,6 @@ class _FnCompiler {
         _expr(arg.value);
       }
       _emit(CallNative(nativeFn, expr.args.length));
-      return;
-    }
-    if (_natives.contains(name)) {
-      for (final arg in expr.args) {
-        _expr(arg.value);
-      }
-      _emit(CallNative(name, expr.args.length));
       return;
     }
     throw CodegenException('unknown function: $name', expr.span);

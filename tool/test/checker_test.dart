@@ -3,6 +3,16 @@ import 'package:hawk/src/lexer.dart';
 import 'package:hawk/src/parser.dart';
 import 'package:test/test.dart';
 
+/// A stand-in for the `std.core` prelude's I/O declarations (sdk/std/core/
+/// io.hawk). The real toolchain always links the prelude, so `println`/`print`
+/// resolve from there; these hermetic unit tests link this stub instead of
+/// reading the SDK off disk. Native fns add no function-table entries, so this
+/// doesn't perturb codegen-style assertions.
+const _ioPrelude = '''
+@extern('println') native fn println<T>(_ value: T) -> Void
+@extern('print') native fn print<T>(_ value: T) -> Void
+''';
+
 /// Parse [source] and run the type checker on it. Returns the list of error
 /// messages (without file/line prefix) for easy assertion.
 List<String> check(String source, {List<String> importSources = const []}) {
@@ -15,8 +25,8 @@ List<String> check(String source, {List<String> importSources = const []}) {
 
   final checker = TypeChecker();
 
-  // Pre-register any provided import programs.
-  for (final src in importSources) {
+  // Link the prelude I/O stub, then any provided import programs.
+  for (final src in [_ioPrelude, ...importSources]) {
     final importLex = Lexer(src).tokenize();
     final importParse = Parser(importLex.tokens).parse();
     checker.addProgram(importParse.program);
@@ -216,7 +226,7 @@ fn f(_ p: Point) -> Point { return p; }
       final errors = check('''
 fn f() {
   println('hi');
-  eprintln('err');
+  print('no newline');
   let a = Ok(1);
   let b = Err('bad');
   let c = Some(42);

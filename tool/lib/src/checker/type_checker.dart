@@ -31,11 +31,11 @@ typedef _Scope = Map<String, TypeRef?>;
 /// visible to the element model but are not themselves checked). Then call
 /// [check] on the primary program.
 class TypeChecker {
-  // Value-level names that are always in scope.
+  // Value-level names that are always in scope: the constructors of the
+  // built-in Result/Option enums (special-cased in inference and codegen).
+  // `println`/`print` are no longer here — they are ordinary `native fn`s in
+  // the auto-imported `std.core` prelude (sdk/std/core/io.hawk).
   static const _builtinValues = <String>{
-    'println',
-    'print',
-    'eprintln',
     'Ok',
     'Err',
     'Some',
