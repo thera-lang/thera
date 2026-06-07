@@ -188,6 +188,18 @@ function and reports `Ok`/`Err`. Remaining codegen gaps a `_test.hawk` hits
 (unit-in-`Result` / `Ok(void)` now works): generic bounds (`<T: Eq + Debug>`),
 `Debug` dispatch in `assert_eq`, and `throw <string>`.
 
+**`Display` for primitives + type-param bound enforcement.** Type-param bounds
+(`<T: Display>`, `<T: Eq + Debug>`) currently parse but are enforced nowhere —
+no satisfies/implements check exists in the checker or inference. So
+`println<T: Display>(...)` (sdk/std/core/io.hawk) accepts `Int`/`String` even
+though only `Error` has an `impl Display`; primitives render via the runtime's
+`display_string`/`stringify` natives, not the interface. Before bounds can be
+enforced, the built-in/primitive types (`Int`, `Double`, `Bool`, `String`,
+`List`, …) need `Display` (and likely `Eq`/`Debug`) impls in `std.core` —
+otherwise enforcing the bound would break every `println(anInt)`. Pairs with
+interface dispatch (above) and the `hawk test` runner's `Debug`-in-`assert_eq`
+gap.
+
 **Incremental front-end / LSP performance.** The front-end is whole-program and
 stateless per request: each `hawk check`, and each LSP edit, re-reads, re-parses,
 and re-checks the entire import closure (including the whole `std.core` prelude)
