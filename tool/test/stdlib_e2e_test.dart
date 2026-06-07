@@ -85,6 +85,27 @@ fn main() -> Result<Int, Error> {
     expect(r.stdout, '2\tlines\n6\twords\n31\tbytes\n');
   });
 
+  test('un-annotated lambdas typed from context run end to end', () {
+    // None of these lambdas is annotated; each `n` is typed from context (the
+    // map signature, the function parameter, the return type, the let
+    // annotation). `n * n` would be untypable from its body alone.
+    final r = emitAndRun('lambda_ctx', '''
+fn apply(f: (Int) -> Int, _ x: Int) -> Int { return f(x); }
+fn adder(by: Int) -> (Int) -> Int { return n => n + by; }
+fn main() -> Int {
+    let squares = [2, 3, 4].map(n => n * n);   // [4, 9, 16]
+    let mut total = 0;
+    for s in squares { total = total + s; }    // 29
+    let viaApply = apply(n => n * 3, 5);        // 15
+    let add10 = adder(10);                      // closure from a return
+    let viaLet: (Int) -> Int = n => n * n;
+    return total + viaApply + add10(2) + viaLet(6);  // 29+15+12+36 = 92
+}
+''', []);
+    if (r == null) return markTestSkipped('Rust runtime unavailable');
+    expect(r.exitCode, 92, reason: r.stderr.toString());
+  });
+
   test('annotated and multi-parameter lambdas run end to end', () {
     // (n: Int) => n * n is now well-typed via the annotation; a two-param
     // lambda is passed to a function-typed parameter. 9 + (4+5) = 18.

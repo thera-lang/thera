@@ -63,32 +63,39 @@ class Inferrer {
             _resolver.resolve(p.type, typeParams: tps, selfType: selfType);
       }
     }
-    _inferBlock(fn.body!, scope, typeParams: tps, selfType: selfType);
+    final ret =
+        _resolver.resolve(fn.returnType, typeParams: tps, selfType: selfType);
+    _inferBlock(fn.body!, scope,
+        typeParams: tps, selfType: selfType, returnType: ret);
   }
 
   // --- statements ---
 
   void _inferBlock(Block block, Map<String, Type> outer,
-      {required Set<String> typeParams, Type? selfType}) {
+      {required Set<String> typeParams, Type? selfType, Type? returnType}) {
     final scope = Map<String, Type>.from(outer);
     for (final stmt in block.stmts) {
-      _inferStmt(stmt, scope, typeParams: typeParams, selfType: selfType);
+      _inferStmt(stmt, scope,
+          typeParams: typeParams, selfType: selfType, returnType: returnType);
     }
   }
 
   void _inferStmt(Stmt stmt, Map<String, Type> scope,
-      {required Set<String> typeParams, Type? selfType}) {
+      {required Set<String> typeParams, Type? selfType, Type? returnType}) {
     switch (stmt) {
       case LetStmt(:final name, :final type, :final value):
-        final inferred =
-            _infer(value, scope, typeParams: typeParams, selfType: selfType);
-        scope[name] = type == null
-            ? inferred
+        // A type annotation on the binding is the expected type for its value.
+        final annotated = type == null
+            ? null
             : _resolver.resolve(type,
                 typeParams: typeParams, selfType: selfType);
+        final inferred = _infer(value, scope,
+            typeParams: typeParams, selfType: selfType, expected: annotated);
+        scope[name] = annotated ?? inferred;
       case ReturnStmt(:final value):
         if (value != null) {
-          _infer(value, scope, typeParams: typeParams, selfType: selfType);
+          _infer(value, scope,
+              typeParams: typeParams, selfType: selfType, expected: returnType);
         }
       case ThrowStmt(:final value):
         _infer(value, scope, typeParams: typeParams, selfType: selfType);
@@ -99,9 +106,13 @@ class Inferrer {
         _infer(expr, scope, typeParams: typeParams, selfType: selfType);
       case IfStmt(:final condition, :final then, :final else_):
         _infer(condition, scope, typeParams: typeParams, selfType: selfType);
-        _inferBlock(then, scope, typeParams: typeParams, selfType: selfType);
+        _inferBlock(then, scope,
+            typeParams: typeParams, selfType: selfType, returnType: returnType);
         if (else_ != null) {
-          _inferBlock(else_, scope, typeParams: typeParams, selfType: selfType);
+          _inferBlock(else_, scope,
+              typeParams: typeParams,
+              selfType: selfType,
+              returnType: returnType);
         }
       case ForStmt(:final pattern, :final iterable, :final body):
         final iterType =
@@ -109,10 +120,11 @@ class Inferrer {
         final bodyScope = Map<String, Type>.from(scope);
         _bindForPattern(pattern, iterType, bodyScope);
         _inferBlock(body, bodyScope,
-            typeParams: typeParams, selfType: selfType);
+            typeParams: typeParams, selfType: selfType, returnType: returnType);
       case WhileStmt(:final condition, :final body):
         _infer(condition, scope, typeParams: typeParams, selfType: selfType);
-        _inferBlock(body, scope, typeParams: typeParams, selfType: selfType);
+        _inferBlock(body, scope,
+            typeParams: typeParams, selfType: selfType, returnType: returnType);
     }
   }
 
@@ -134,16 +146,19 @@ class Inferrer {
 
   // --- expressions ---
 
+  /// Infer [expr]'s type and annotate it. [expected] is the type the context
+  /// wants here, when known (bidirectional inference) — used to type an
+  /// un-annotated lambda's parameters from the surrounding signature.
   Type _infer(Expr expr, Map<String, Type> scope,
-      {Set<String> typeParams = const {}, Type? selfType}) {
-    final type =
-        _inferExpr(expr, scope, typeParams: typeParams, selfType: selfType);
+      {Set<String> typeParams = const {}, Type? selfType, Type? expected}) {
+    final type = _inferExpr(expr, scope,
+        typeParams: typeParams, selfType: selfType, expected: expected);
     expr.resolvedType = type;
     return type;
   }
 
   Type _inferExpr(Expr expr, Map<String, Type> scope,
-      {required Set<String> typeParams, Type? selfType}) {
+      {required Set<String> typeParams, Type? selfType, Type? expected}) {
     Type sub(Expr e) =>
         _infer(e, scope, typeParams: typeParams, selfType: selfType);
 
@@ -212,8 +227,10 @@ class Inferrer {
         final bindings = <String, Type>{};
         if (element is StructElement) {
           for (final (fieldName, value) in fields) {
-            final valueType = sub(value);
             final declared = element.fields[fieldName];
+            // The field's declared type is the expected type for its value.
+            final valueType = _infer(value, scope,
+                typeParams: typeParams, selfType: selfType, expected: declared);
             if (declared != null) unify(declared, valueType, bindings);
           }
           return InterfaceType(element, [
@@ -270,18 +287,28 @@ class Inferrer {
 
       case LambdaExpr(:final params, :final body):
         final lambdaScope = Map<String, Type>.from(scope);
-        // A param's type is its annotation when present, else unknown (stage 2
-        // fills the unknowns from an expected type; stage 3 errors otherwise).
+        // A param's type is its annotation when present, else the corresponding
+        // parameter of the expected function type (bidirectional inference),
+        // else unknown (stage 3 errors on a remaining unknown).
+        final expectedFn = expected is FunctionType ? expected : null;
         final paramTypes = [
-          for (final p in params)
-            _resolver.resolve(p.type,
-                typeParams: typeParams, selfType: selfType),
+          for (var i = 0; i < params.length; i++)
+            params[i].type != null
+                ? _resolver.resolve(params[i].type,
+                    typeParams: typeParams, selfType: selfType)
+                : (expectedFn != null && i < expectedFn.parameterTypes.length
+                    ? expectedFn.parameterTypes[i]
+                    : const UnknownType()),
         ];
         for (var i = 0; i < params.length; i++) {
           lambdaScope[params[i].name] = paramTypes[i];
         }
+        // Record the resolved parameter types for the checker (stage 3).
+        expr.resolvedParamTypes = paramTypes;
         final ret = _infer(body, lambdaScope,
-            typeParams: typeParams, selfType: selfType);
+            typeParams: typeParams,
+            selfType: selfType,
+            expected: expectedFn?.returnType);
         return FunctionType(paramTypes, ret);
 
       case BlockExpr(:final block):
@@ -306,9 +333,20 @@ class Inferrer {
     required Set<String> typeParams,
     Type? selfType,
   }) {
+    // Bidirectional: when the callee's parameter types are known, infer each
+    // argument against the matching one, so an un-annotated lambda argument
+    // (`xs.map(n => …)`, `apply(n => …, x)`) takes its parameter types from the
+    // callee's signature.
+    final expectedParams =
+        _calleeParamTypes(callee, scope, typeParams, selfType);
     final argTypes = [
-      for (final a in args)
-        _infer(a.value, scope, typeParams: typeParams, selfType: selfType),
+      for (var i = 0; i < args.length; i++)
+        _infer(args[i].value, scope,
+            typeParams: typeParams,
+            selfType: selfType,
+            expected: expectedParams != null && i < expectedParams.length
+                ? expectedParams[i]
+                : null),
     ];
 
     if (callee is IdentExpr) {
@@ -392,6 +430,46 @@ class Inferrer {
         _infer(callee, scope, typeParams: typeParams, selfType: selfType);
     if (calleeType is FunctionType) return calleeType.returnType;
     return const UnknownType();
+  }
+
+  /// The callee's parameter types (excluding `self`), instantiated with the
+  /// receiver's type arguments where applicable — or null when the callee can't
+  /// be resolved cheaply here. Used to push expected types into call arguments
+  /// (so an un-annotated lambda argument is typed from the signature).
+  List<Type>? _calleeParamTypes(Expr callee, Map<String, Type> scope,
+      Set<String> typeParams, Type? selfType) {
+    List<Type> positional(List<ParameterElement> params) =>
+        [for (final p in params.where((p) => !p.isSelf)) p.type];
+
+    if (callee is IdentExpr) {
+      final fn = library.functions[callee.name];
+      if (fn != null) return positional(fn.parameters);
+      final local = scope[callee.name];
+      if (local is FunctionType) return local.parameterTypes;
+      return null;
+    }
+    if (callee is FieldExpr) {
+      final obj = callee.object;
+      // Namespace-qualified free function: `ns.fn(...)`.
+      if (obj is IdentExpr && _isNamespace(obj.name, scope)) {
+        final fn = library.functions[callee.field];
+        if (fn != null) return positional(fn.parameters);
+      }
+      // User method on the receiver's type, instantiated with its type args.
+      final recv =
+          _infer(obj, scope, typeParams: typeParams, selfType: selfType);
+      if (recv is InterfaceType) {
+        final method = recv.element.method(callee.field);
+        if (method != null) {
+          final bindings = _receiverBindings(recv);
+          return [
+            for (final p in method.parameters.where((p) => !p.isSelf))
+              substitute(p.type, bindings),
+          ];
+        }
+      }
+    }
+    return null;
   }
 
   // --- pattern binding ---

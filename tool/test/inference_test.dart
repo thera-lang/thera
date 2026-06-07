@@ -328,6 +328,25 @@ fn f() {
       expect(letType(p, 'h').toString(), '(Int) -> Int');
     });
 
+    test('a lambda parameter is typed from the call context (no annotation)',
+        () {
+      // Without context `n * n` is unknown (both operands are the param); the
+      // method signature `(T) -> U` with the receiver `List<Int>` types `n`, so
+      // the result is List<Int>, not List<?>.
+      final p = inferred('''
+impl List<T> {
+  fn map<U>(self, _ f: (T) -> U) -> List<U> { let r = []; return r; }
+}
+fn f() { let xs = [1, 2].map(n => n * n); }
+''');
+      expect(letType(p, 'xs').toString(), 'List<Int>');
+    });
+
+    test('a lambda is typed from a let annotation (no param annotation)', () {
+      final p = inferred('fn f() { let g: (Int) -> Int = n => n * n; }');
+      expect(letType(p, 'g').toString(), '(Int) -> Int');
+    });
+
     test('an annotated lambda parameter resolves its type', () {
       // `(n: Int) => n * n` — both operands are the param, so without the
       // annotation the body type is unknown; the annotation pins it to Int.

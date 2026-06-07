@@ -646,6 +646,13 @@ class LambdaParam {
 class LambdaExpr extends Expr {
   final List<LambdaParam> params;
   final Expr body;
+
+  /// The resolved type of each parameter, filled by the inference pass (from the
+  /// annotation or the expected/contextual type). Null before inference; an
+  /// element is [UnknownType] when neither annotation nor context determined it
+  /// (the checker reports that as an error).
+  List<Type>? resolvedParamTypes;
+
   LambdaExpr(super.span, {required this.params, required this.body});
   @override
   String describe() {
