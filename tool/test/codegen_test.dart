@@ -208,6 +208,28 @@ fn main() -> Int {
           ]));
     });
 
+    test('Result/Option enum decls land on the reserved type ids 0/1', () {
+      // When std.core defines Result/Option as ordinary enums, codegen must pin
+      // them to the reserved runtime ids (Result = 0, Option = 1) the runtime
+      // and the `?`/exit-code conventions depend on — not assign fresh ids.
+      // A user enum keeps getting an id >= 2.
+      final ops = compile('''
+enum Option<T> { Some(T), None }
+enum Result<T, E> { Ok(T), Err(E) }
+enum Color { Red, Green }
+fn f() -> Int {
+  let a = Result.Ok(1);
+  let b = Option.Some(2);
+  let c = Color.Green;
+  return 0;
+}
+''').functions.single.code;
+      final news = ops.whereType<EnumNew>().toList();
+      expect(news[0].type, 0, reason: 'Result.Ok -> reserved id 0');
+      expect(news[1].type, 1, reason: 'Option.Some -> reserved id 1');
+      expect(news[2].type, greaterThanOrEqualTo(2), reason: 'user enum');
+    });
+
     test('interpolating a user type dispatches to its display method', () {
       final m = compile('''
 type Tag = { n: Int }

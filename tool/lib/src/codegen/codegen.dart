@@ -192,6 +192,11 @@ class _ModuleScope {
   // enum types.
   int _nextEnumTy = 2;
 
+  // The two language-blessed enums occupy reserved type ids shared with the
+  // runtime (see runtime/src/value.rs). When std.core defines them as ordinary
+  // enums they must still land on those ids, not be assigned fresh ones.
+  static const _reservedEnumTys = {'Result': _tyResult, 'Option': _tyOption};
+
   void addStruct(TypeDecl decl) {
     final fieldNames = [for (final f in decl.fields) f.$1];
     structs[decl.name] = _StructInfo(types.length, fieldNames);
@@ -199,7 +204,8 @@ class _ModuleScope {
   }
 
   void addEnum(EnumDecl decl) {
-    enums[decl.name] = _EnumInfo(_nextEnumTy++, decl.variants);
+    final ty = _reservedEnumTys[decl.name] ?? _nextEnumTy++;
+    enums[decl.name] = _EnumInfo(ty, decl.variants);
   }
 
   void addFunction(FnDecl decl) {
