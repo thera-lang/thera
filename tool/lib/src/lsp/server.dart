@@ -5,7 +5,9 @@ import 'package:lsp_server/lsp_server.dart';
 
 import '../ast.dart';
 import '../checker/type_checker.dart';
+import '../element/namespace.dart';
 import '../lexer.dart';
+import '../loader.dart';
 import '../parser.dart';
 import '../source_provider.dart';
 import '../token.dart';
@@ -92,8 +94,18 @@ class LspServer {
       }
 
       if (!parseResult.hasErrors) {
+        // Link the import closure (including the auto-imported `std.core`
+        // prelude) the same way the CLI does, so cross-file symbols and the
+        // prelude methods on built-in types (e.g. List.map/filter/fold) resolve
+        // and lambda arguments to them are typed from context. Without this the
+        // checker would, for example, flag `nums.map(n => …)` as un-inferrable.
+        final imports = _importsFor(uri, parseResult.program);
         final checker = TypeChecker();
-        final checkResult = checker.check(parseResult.program);
+        for (final imported in imports.programs) {
+          checker.addProgram(imported);
+        }
+        final checkResult =
+            checker.check(parseResult.program, namespaces: imports.namespaces);
         for (final err in checkResult.errors) {
           diagnostics.add(_checkErrorToDiagnostic(err));
         }
@@ -104,6 +116,25 @@ class LspServer {
       PublishDiagnosticsParams(uri: Uri.parse(uri), diagnostics: diagnostics),
     );
   }
+
+  /// The import closure for the document at [uri] (a `file://` URI). Imports are
+  /// resolved from disk relative to the file's path; the in-memory [program] is
+  /// used for the primary file. Returns an empty closure for a non-file or
+  /// unresolvable URI (the prelude/imports simply won't link).
+  LoadedImports _importsFor(String uri, Program program) {
+    final String path;
+    try {
+      final parsed = Uri.parse(uri);
+      if (parsed.scheme != 'file') return _noImports;
+      path = parsed.toFilePath();
+    } catch (_) {
+      return _noImports;
+    }
+    return loadImports(path, program);
+  }
+
+  static const LoadedImports _noImports =
+      (programs: <Program>[], namespaces: <String, LibraryNamespace>{});
 
   Diagnostic _lexErrorToDiagnostic(LexError err) {
     return Diagnostic(

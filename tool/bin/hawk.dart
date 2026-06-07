@@ -5,40 +5,16 @@ import 'package:hawk/src/ast.dart';
 import 'package:hawk/src/bytecode/encoder.dart';
 import 'package:hawk/src/checker/type_checker.dart';
 import 'package:hawk/src/codegen/codegen.dart';
-import 'package:hawk/src/element/namespace.dart';
 import 'package:hawk/src/lexer.dart';
+import 'package:hawk/src/loader.dart';
 import 'package:hawk/src/lsp/server.dart';
 import 'package:hawk/src/parser.dart';
-
-/// Locate the SDK root by searching upward from the running script.
-///
-/// Resolution order:
-///   1. HAWK_SDK environment variable (if set and contains sdk/std/).
-///   2. Walk up from Platform.script looking for a directory that contains
-///      sdk/std/ — handles both `dart run tool/bin/hawk.dart` (dev) and a
-///      compiled `bin/hawk` binary (distributed).
-String? _findSdkRoot() {
-  final envRoot = Platform.environment['HAWK_SDK'];
-  if (envRoot != null && Directory('$envRoot/sdk/std').existsSync()) {
-    return envRoot;
-  }
-  try {
-    var dir = Directory(File(Platform.script.toFilePath()).parent.path);
-    for (var i = 0; i < 4; i++) {
-      if (Directory('${dir.path}/sdk/std').existsSync()) return dir.path;
-      final parent = dir.parent;
-      if (parent.path == dir.path) break; // filesystem root
-      dir = parent;
-    }
-  } catch (_) {}
-  return null;
-}
 
 /// The Rust runtime binary in the development repo, or null if it isn't built.
 /// Assumes a dev checkout: `runtime/target/debug/hawk` under the repo root (the
 /// same directory that holds `sdk/std/`).
 String? _findRuntimeBinary() {
-  final root = _findSdkRoot();
+  final root = findSdkRoot();
   if (root == null) return null;
   final bin = '$root/runtime/target/debug/hawk';
   return File(bin).existsSync() ? bin : null;
@@ -49,7 +25,7 @@ String? _findRuntimeBinary() {
 /// exits non-zero on any lex/parse/type/codegen error.
 List<int> _emitBytes(String path) {
   final program = _loadProgram(path);
-  final imports = _loadImports(path, program);
+  final imports = loadImports(path, program);
 
   final result = _typeCheck(path, program, imports);
   if (result.errors.isNotEmpty) {
@@ -254,7 +230,7 @@ class CheckCommand extends Command<void> {
     } on _LoadFailed {
       return 1;
     }
-    final result = _typeCheck(path, program, _loadImports(path, program));
+    final result = _typeCheck(path, program, loadImports(path, program));
     for (final err in result.errors) {
       stderr.writeln(err.format(path));
     }
@@ -263,7 +239,7 @@ class CheckCommand extends Command<void> {
 }
 
 /// Type-check [program] (located at [path]). [imports] is its loaded import
-/// closure (see [_loadImports]); registering those programs lets cross-module
+/// closure (see [loadImports]); registering those programs lets cross-module
 /// names — relative functions, std types like `Args`, and module-qualified
 /// access (`fs.read_text`) — resolve via the element model.
 CheckResult _typeCheck(String path, Program program, LoadedImports imports) {
@@ -274,110 +250,8 @@ CheckResult _typeCheck(String path, Program program, LoadedImports imports) {
   return checker.check(program, namespaces: imports.namespaces);
 }
 
-/// The loaded import closure of a program: the flat list of imported programs
-/// (the typing/linking substrate) and the namespaces the program's own imports
-/// bind (alias / trailing segment -> public surface).
-typedef LoadedImports = ({
-  List<Program> programs,
-  Map<String, LibraryNamespace> namespaces,
-});
-
-/// Resolve and parse the import closure of [program] (located at [path]) so the
-/// emitter can link those libraries in, and derive the program's import
-/// namespaces. Imports resolve to a single file or a directory barrel (see
-/// [resolveLibraryFile]), transitively; unparseable/missing imports are skipped
-/// (the type-checker already reported them).
-LoadedImports _loadImports(String path, Program program) {
-  final sdkRoot = _findSdkRoot();
-  final order = <Program>[]; // imported programs, deduped, in load order
-  final cache = <String, LibrarySource>{}; // resolved file -> library source
-
-  // Resolve an import path to a source file. `std.*` is anchored at the SDK std
-  // root (dots become directory separators); any other path is relative to the
-  // importing file. The base then resolves to a single-file library or a
-  // directory's barrel — see [resolveLibraryFile].
-  String? resolve(String importPath, String baseDir) {
-    final String base;
-    if (importPath.startsWith('std.')) {
-      if (sdkRoot == null) return null;
-      final rel = importPath.substring('std.'.length).replaceAll('.', '/');
-      base = '$sdkRoot/sdk/std/$rel';
-    } else {
-      base = '$baseDir/$importPath';
-    }
-    return resolveLibraryFile(base);
-  }
-
-  // Resolve [file] to a library source, recursively linking its imports. Cached
-  // (and cached *before* recursing, to terminate cycles); each program is added
-  // to the flat list exactly once.
-  LibrarySource? sourceFor(String file) {
-    final cached = cache[file];
-    if (cached != null) return cached;
-    final Program prog;
-    try {
-      prog = _loadProgramQuiet(file);
-    } on _LoadFailed {
-      return null; // missing/unparseable; the checker reports it
-    }
-    final source = LibrarySource(prog);
-    cache[file] = source;
-    _linkImports(prog, File(file).parent.path, resolve, sourceFor, source);
-    order.add(prog);
-    return source;
-  }
-
-  // std.core is auto-imported into every program — load it so its types (e.g.
-  // Error) and impls (Display for Error) link. It is the unqualified prelude,
-  // not a namespace, so it is not added to the root's imports.
-  final core = resolve('std.core', '');
-  if (core != null) sourceFor(core);
-
-  // The primary program is already parsed; resolve its imports so its
-  // namespaces can be derived.
-  final root = LibrarySource(program);
-  cache[path] = root;
-  _linkImports(program, File(path).parent.path, resolve, sourceFor, root);
-
-  return (programs: order, namespaces: namespacesFor(root));
-}
-
-/// Resolve each `import` in [prog] and record the child library under the import
-/// path on [into].
-void _linkImports(
-  Program prog,
-  String baseDir,
-  String? Function(String, String) resolve,
-  LibrarySource? Function(String) sourceFor,
-  LibrarySource into,
-) {
-  for (final decl in prog.decls) {
-    if (decl is! ImportDecl) continue;
-    final file = resolve(decl.path, baseDir);
-    if (file == null) continue;
-    final child = sourceFor(file);
-    if (child != null) into.imports[decl.path] = child;
-  }
-}
-
-/// Resolve a library base path (no extension) to its source file: the
-/// single-file form `<base>.hawk`, or, when `<base>` is a directory, its
-/// **barrel** `<base>/<name>.hawk` (named after the directory). Returns null if
-/// neither exists.
-///
-/// (Per the visibility spec a base that is *both* a file and a directory is an
-/// error; until the resolver moves into the element model this prefers the
-/// file. See docs/visibility.md.)
-String? resolveLibraryFile(String base) {
-  final file = '$base.hawk';
-  if (File(file).existsSync()) return file;
-  if (Directory(base).existsSync()) {
-    final name = base.split('/').last;
-    final barrel = '$base/$name.hawk';
-    if (File(barrel).existsSync()) return barrel;
-  }
-  return null;
-}
+// The import-closure loader (`loadImports`, `LoadedImports`, `findSdkRoot`,
+// `resolveLibraryFile`) lives in `src/loader.dart` so the LSP shares it.
 
 /// Thrown by [_loadProgramQuiet] when lex/parse fails.
 class _LoadFailed implements Exception {}
