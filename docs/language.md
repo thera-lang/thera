@@ -141,8 +141,8 @@ fn log(_ msg: String)         { println(msg); }
 Functions are first-class values. Lambdas use `=>`:
 
 ```hawk
-let double = x => x * 2;
-let names = users.map(u => u.name);
+let names = users.map(u => u.name);             // single parameter
+let sum = nums.fold(0, (acc, n) => acc + n);    // parenthesized, multiple
 ```
 
 A function-typed value is written `(T1, T2) -> R` (the zero-argument form is
@@ -154,6 +154,18 @@ fn apply(f: (Int) -> Int, _ x: Int) -> Int { return f(x); }
 fn adder(by: Int) -> (Int) -> Int {
     return n => n + by;          // captures `by`; returned as a closure
 }
+```
+
+**Parameter types.** A lambda parameter's type comes from its annotation, or —
+when omitted — from the surrounding context: the parameter type of the function
+or method it's passed to, a `let` binding's declared type, or the enclosing
+function's return type. The bare single-parameter form `n => …` is shorthand for
+`(n) => …`. When neither an annotation nor the context determines a parameter's
+type, that's an error (the compiler does not guess) — add an annotation:
+
+```hawk
+nums.map(n => n * 10);            // n: Int — from map's (T) -> U signature
+let double = (x: Int) => x * 2;   // no context here, so x is annotated
 ```
 
 A lambda may **capture** variables from its enclosing scope (including `self`

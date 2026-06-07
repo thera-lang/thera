@@ -12,10 +12,8 @@
 //   let evens = [1, 2, 3, 4].filter(n => n % 2 == 0);   // [2, 4]
 //   let names = users.map(u => u.name);
 //
-// Still TBD (need language features that don't exist yet): `fold`/`reduce` and
-// other multi-argument combiners are blocked on multi-parameter lambdas (only
-// `x => expr` parses today); `first`/`last`/`slice`/`sort`/`to_list` are
-// straightforward additions once needed.
+// Still TBD (straightforward additions once needed): `first`/`last`/`slice`/
+// `sort`/`to_list`.
 
 impl List<T> {
     // A new list with `f` applied to each element, in order.
@@ -36,5 +34,17 @@ impl List<T> {
             }
         }
         return result;
+    }
+
+    // Reduce the list to a single value: start from `initial` and fold each
+    // element in with `combine`, left to right.
+    //
+    //   let sum = nums.fold(0, (acc, n) => acc + n);
+    pub fn fold<A>(self, _ initial: A, _ combine: (A, T) -> A) -> A {
+        let mut acc = initial;
+        for item in self {
+            acc = combine(acc, item);
+        }
+        return acc;
     }
 }

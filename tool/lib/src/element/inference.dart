@@ -338,7 +338,7 @@ class Inferrer {
     // (`xs.map(n => …)`, `apply(n => …, x)`) takes its parameter types from the
     // callee's signature.
     final expectedParams =
-        _calleeParamTypes(callee, scope, typeParams, selfType);
+        _expectedArgTypes(callee, args, scope, typeParams, selfType);
     final argTypes = [
       for (var i = 0; i < args.length; i++)
         _infer(args[i].value, scope,
@@ -432,44 +432,56 @@ class Inferrer {
     return const UnknownType();
   }
 
-  /// The callee's parameter types (excluding `self`), instantiated with the
-  /// receiver's type arguments where applicable — or null when the callee can't
-  /// be resolved cheaply here. Used to push expected types into call arguments
-  /// (so an un-annotated lambda argument is typed from the signature).
-  List<Type>? _calleeParamTypes(Expr callee, Map<String, Type> scope,
-      Set<String> typeParams, Type? selfType) {
-    List<Type> positional(List<ParameterElement> params) =>
-        [for (final p in params.where((p) => !p.isSelf)) p.type];
+  /// The expected type of each call argument (the callee's parameter types,
+  /// excluding `self`), or null when the callee can't be resolved cheaply here.
+  /// Pushed into the arguments so an un-annotated lambda argument is typed from
+  /// the signature.
+  ///
+  /// Type parameters are instantiated from the receiver and from the non-lambda
+  /// arguments (inferred first), so a later lambda argument sees them bound —
+  /// e.g. `fold`'s accumulator type comes from its `initial` argument.
+  List<Type>? _expectedArgTypes(Expr callee, List<CallArg> args,
+      Map<String, Type> scope, Set<String> typeParams, Type? selfType) {
+    List<ParameterElement>? params;
+    final bindings = <String, Type>{};
 
     if (callee is IdentExpr) {
       final fn = library.functions[callee.name];
-      if (fn != null) return positional(fn.parameters);
-      final local = scope[callee.name];
-      if (local is FunctionType) return local.parameterTypes;
-      return null;
-    }
-    if (callee is FieldExpr) {
+      if (fn != null) {
+        params = fn.parameters;
+      } else {
+        final local = scope[callee.name];
+        return local is FunctionType ? local.parameterTypes : null;
+      }
+    } else if (callee is FieldExpr) {
       final obj = callee.object;
       // Namespace-qualified free function: `ns.fn(...)`.
       if (obj is IdentExpr && _isNamespace(obj.name, scope)) {
-        final fn = library.functions[callee.field];
-        if (fn != null) return positional(fn.parameters);
+        params = library.functions[callee.field]?.parameters;
       }
       // User method on the receiver's type, instantiated with its type args.
-      final recv =
-          _infer(obj, scope, typeParams: typeParams, selfType: selfType);
-      if (recv is InterfaceType) {
-        final method = recv.element.method(callee.field);
-        if (method != null) {
-          final bindings = _receiverBindings(recv);
-          return [
-            for (final p in method.parameters.where((p) => !p.isSelf))
-              substitute(p.type, bindings),
-          ];
+      if (params == null) {
+        final recv =
+            _infer(obj, scope, typeParams: typeParams, selfType: selfType);
+        if (recv is InterfaceType) {
+          params = recv.element.method(callee.field)?.parameters;
+          if (params != null) bindings.addAll(_receiverBindings(recv));
         }
       }
     }
-    return null;
+    if (params == null) return null;
+
+    final positional = params.where((p) => !p.isSelf).toList();
+    // Bind type parameters from the non-lambda arguments (inferred first), so a
+    // lambda argument's expected type is fully instantiated.
+    for (var i = 0; i < args.length && i < positional.length; i++) {
+      if (args[i].value is! LambdaExpr) {
+        final at = _infer(args[i].value, scope,
+            typeParams: typeParams, selfType: selfType);
+        unify(positional[i].type, at, bindings);
+      }
+    }
+    return [for (final p in positional) substitute(p.type, bindings)];
   }
 
   // --- pattern binding ---

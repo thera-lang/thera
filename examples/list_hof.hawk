@@ -1,6 +1,8 @@
-// Higher-order list methods: `map` and `filter` take a closure and are written
-// in Hawk themselves (sdk/std/core/list.hawk) — the payoff of closures. Both
-// are in the core prelude, so they're available on any list with no import.
+// Higher-order list methods: `map`, `filter`, and `fold` take a closure and are
+// written in Hawk themselves (sdk/std/core/list.hawk) — the payoff of closures.
+// All are in the core prelude, available on any list with no import. None of the
+// closures below is annotated: each parameter's type comes from the method
+// signature (see docs/language.md, "Lambdas").
 
 fn main() -> Result<Int, Error> {
     let nums = [1, 2, 3, 4, 5, 6];
@@ -20,6 +22,11 @@ fn main() -> Result<Int, Error> {
     let threshold = 30;
     let big = scaled.filter(n => n > threshold);       // [40, 60]
     println('big: ${big.len()}');
+
+    // fold: reduce to a single value. `acc` and `n` are typed from fold's
+    // signature — `acc` from the `0` seed, `n` from the list's element type.
+    let total = nums.fold(0, (acc, n) => acc + n);     // 21
+    println('total: ${total}');
 
     return Ok(0);
 }

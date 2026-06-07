@@ -93,8 +93,8 @@ gaps, by where they live:
 
 - **Stdlib native surface.** The runtime has ~20 natives; the stdlib still wants
   the full `String.*`, `Args`, `fs`, `process`, and `testing` surface (the
-  retired tree-walking prototype implemented these). `List.map`/`filter` now
-  exist — written in Hawk over a new `list_push` native (see
+  retired tree-walking prototype implemented these). `List.map`/`filter`/`fold`
+  now exist — written in Hawk over a new `list_push` native (see
   `sdk/std/core/list.hawk`). This
   is the bulk of the "batteries included" goal and the biggest single blocker.
 - **Interface dispatch (`Display`/`Eq`).** _Design settled_ (see
@@ -108,10 +108,12 @@ gaps, by where they live:
   Lambdas, function-typed parameters (`(Int) -> Int`), capturing enclosing
   locals (and `self`) by value, capturing `mut` locals by boxed cell (shared
   writes), and returning closures all work end to end (see
-  `examples/closures.hawk`). _Remaining nit:_ inferring un-annotated lambda
-  parameter types (an `n => n <op> m` body with two unknown operands can't pick
-  an opcode today). The first payoff has landed: `List.map`/`filter` are written
-  in Hawk and take closures (`sdk/std/core/list.hawk`, `examples/list_hof.hawk`).
+  `examples/closures.hawk`). Lambda parameters take their type from an
+  annotation (`(n: Int) => …`) or, un-annotated, from context (the callee
+  signature, a `let` annotation, or the function return type), with a hard error
+  when neither applies — no guessing. The payoff has landed: `List.map`/`filter`/
+  `fold` are written in Hawk and take closures (`sdk/std/core/list.hawk`,
+  `examples/list_hof.hawk`).
 - **GC.** Currently `Rc<RefCell>`; a precise non-moving mark-sweep is planned as
   an explicit placeholder, to land _after_ closures/interfaces so it traces the
   value shapes it will actually see.
@@ -149,7 +151,8 @@ gaps, by where they live:
   `match` patterns — mostly gated on the runtime equivalents. (Closures now
   lower fully: lambdas lift to top-level functions; captures by value, with
   captured `mut` locals boxed into cells, via `closure.new` / `call.indirect`.
-  The one remaining gap is inferring un-annotated lambda parameter types.)
+  Lambda parameter types are resolved by annotation or bidirectional
+  inference, with a hard error otherwise.)
 - **Tech debt — collapse the checker's `_Scope`.** The checker still tracks
   locals as `Map<String, TypeRef?>`, but since inference annotates expressions
   the type _values_ are now vestigial — only key-presence drives

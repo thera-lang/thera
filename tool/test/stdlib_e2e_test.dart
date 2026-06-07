@@ -85,6 +85,18 @@ fn main() -> Result<Int, Error> {
     expect(r.stdout, '2\tlines\n6\twords\n31\tbytes\n');
   });
 
+  test('List.fold with an un-annotated 2-arg lambda runs end to end', () {
+    // `(acc, n) => acc + n` is un-annotated: `acc` is typed from the `0` seed
+    // and `n` from the element type. Sum of 1..5 = 15.
+    final r = emitAndRun('fold', '''
+fn main() -> Int {
+    return [1, 2, 3, 4, 5].fold(0, (acc, n) => acc + n);
+}
+''', []);
+    if (r == null) return markTestSkipped('Rust runtime unavailable');
+    expect(r.exitCode, 15, reason: r.stderr.toString());
+  });
+
   test('un-annotated lambdas typed from context run end to end', () {
     // None of these lambdas is annotated; each `n` is typed from context (the
     // map signature, the function parameter, the return type, the let
@@ -188,7 +200,7 @@ fn main() -> Int {
 
     final r = Process.runSync(hawkBin, ['run', out]);
     expect(r.exitCode, 0, reason: r.stderr.toString());
-    expect(r.stdout, '20\n40\n60\nbig: 2\n');
+    expect(r.stdout, '20\n40\n60\nbig: 2\ntotal: 21\n');
   });
 
   test('static methods on built-in types run', () {

@@ -347,6 +347,18 @@ fn f() { let xs = [1, 2].map(n => n * n); }
       expect(letType(p, 'g').toString(), '(Int) -> Int');
     });
 
+    test('a method type parameter is bound from an earlier argument', () {
+      // `fold<A>`'s accumulator type `A` comes from `initial`; the lambda's
+      // `acc` is then typed `Int`, and `n * n` (otherwise unknown) resolves.
+      final p = inferred('''
+impl List<T> {
+  fn fold<A>(self, _ initial: A, _ combine: (A, T) -> A) -> A { return initial; }
+}
+fn f() { let r = [1, 2].fold(0, (acc, n) => acc + n * n); }
+''');
+      expect(letType(p, 'r'), PrimitiveType.int_);
+    });
+
     test('an annotated lambda parameter resolves its type', () {
       // `(n: Int) => n * n` — both operands are the param, so without the
       // annotation the body type is unknown; the annotation pins it to Int.
