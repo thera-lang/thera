@@ -45,5 +45,5 @@ fn main() -> Result<Int, Error> {
     let keys = keywords.keys();
     println('keys: ${keys.join(', ')}');
 
-    return Ok(0);
+    return Result.Ok(0);
 }

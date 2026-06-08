@@ -3,14 +3,15 @@ import 'package:hawk/src/lexer.dart';
 import 'package:hawk/src/parser.dart';
 import 'package:test/test.dart';
 
-/// A stand-in for the `std.core` prelude's I/O declarations (sdk/std/core/
-/// io.hawk). The real toolchain always links the prelude, so `println`/`print`
-/// resolve from there; these hermetic unit tests link this stub instead of
-/// reading the SDK off disk. Native fns add no function-table entries, so this
-/// doesn't perturb codegen-style assertions.
-const _ioPrelude = '''
+/// A stand-in for the parts of the `std.core` prelude these hermetic tests
+/// depend on: the I/O natives (sdk/std/core/io.hawk) and the Result/Option enums
+/// (result.hawk/option.hawk). The real toolchain always links the prelude; these
+/// tests link this stub instead of reading the SDK off disk.
+const _corePrelude = '''
 @extern('println') native fn println<T>(_ value: T) -> Void
 @extern('print') native fn print<T>(_ value: T) -> Void
+enum Option<T> { Some(T), None }
+enum Result<T, E> { Ok(T), Err(E) }
 ''';
 
 /// Parse [source] and run the type checker on it. Returns the list of error
@@ -25,8 +26,8 @@ List<String> check(String source, {List<String> importSources = const []}) {
 
   final checker = TypeChecker();
 
-  // Link the prelude I/O stub, then any provided import programs.
-  for (final src in [_ioPrelude, ...importSources]) {
+  // Link the core prelude stub, then any provided import programs.
+  for (final src in [_corePrelude, ...importSources]) {
     final importLex = Lexer(src).tokenize();
     final importParse = Parser(importLex.tokens).parse();
     checker.addProgram(importParse.program);
@@ -48,7 +49,7 @@ void main() {
         check('''
 fn main(args: Args) -> Result<Int, Error> {
   println('Hello!');
-  return Ok(0);
+  return Result.Ok(0);
 }
 '''),
         isEmpty,
@@ -157,7 +158,7 @@ fn count(_ text: String) -> Counts {
           '''
 fn main(args: Args) -> Result<Int, Error> {
   let c = count('hello');
-  return Ok(0);
+  return Result.Ok(0);
 }
 ''',
           importSources: [importSrc],
@@ -168,7 +169,8 @@ fn main(args: Args) -> Result<Int, Error> {
 
     test('generics in return type', () {
       expect(
-        check('fn wrap(_ x: Int) -> Result<Int, Error> { return Ok(x); }'),
+        check(
+            'fn wrap(_ x: Int) -> Result<Int, Error> { return Result.Ok(x); }'),
         isEmpty,
       );
     });
@@ -229,10 +231,10 @@ fn f(_ p: Point) -> Point { return p; }
 fn f() {
   println('hi');
   print('no newline');
-  let a = Ok(1);
-  let b = Err('bad');
-  let c = Some(42);
-  let d = None;
+  let a = Result.Ok(1);
+  let b = Result.Err('bad');
+  let c = Option.Some(42);
+  let d = Option.None;
 }
 ''');
       expect(errors, isEmpty);
@@ -394,7 +396,7 @@ fn identity<T>(_ x: T) -> T { return x; }
       expect(
         check('''
 fn assert_eq<T>(_ actual: T, _ expected: T) -> Result<Void, Error> {
-  return Ok(void);
+  return Result.Ok(void);
 }
 '''),
         isEmpty,
@@ -405,7 +407,7 @@ fn assert_eq<T>(_ actual: T, _ expected: T) -> Result<Void, Error> {
       expect(
         check('''
 fn assert_eq<T: Eq + Debug>(_ actual: T, _ expected: T) -> Result<Void, Error> {
-  return Ok(void);
+  return Result.Ok(void);
 }
 '''),
         isEmpty,
@@ -508,7 +510,8 @@ enum Shape { Circle(Ghost) }
 
     test('implicit Ok wrap: returning T from a Result fn is allowed', () {
       expect(check('fn f() -> Result<Int, Error> { return 5; }'), isEmpty);
-      expect(check('fn f() -> Result<Int, Error> { return Ok(5); }'), isEmpty);
+      expect(check('fn f() -> Result<Int, Error> { return Result.Ok(5); }'),
+          isEmpty);
     });
 
     test('let annotation mismatch is reported', () {
@@ -574,8 +577,9 @@ enum Shape { Circle(Ghost) }
     test('Option/Result element leniency on the error side', () {
       // None infers Option<?>; Ok(x) infers Result<_, ?> — the unspecified
       // side must stay assignable.
-      expect(check('fn f() -> Option<Int> { return None; }'), isEmpty);
-      expect(check('fn f() -> Result<Int, Error> { return Ok(1); }'), isEmpty);
+      expect(check('fn f() -> Option<Int> { return Option.None; }'), isEmpty);
+      expect(check('fn f() -> Result<Int, Error> { return Result.Ok(1); }'),
+          isEmpty);
     });
   });
 

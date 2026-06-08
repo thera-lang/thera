@@ -7,6 +7,12 @@ import 'package:hawk/src/lexer.dart';
 import 'package:hawk/src/parser.dart';
 import 'package:test/test.dart';
 
+/// Stand-in for the Result/Option enums the real `std.core` prelude provides;
+/// linked into every [inferred] program so qualified construction
+/// (`Result.Ok`, `Option.Some`/`None`) resolves to the real enum variants.
+const _coreEnums = 'enum Option<T> { Some(T), None }\n'
+    'enum Result<T, E> { Ok(T), Err(E) }';
+
 Program _parse(String source) {
   final lex = Lexer(source).tokenize();
   expect(lex.hasErrors, isFalse, reason: 'lex errors: ${lex.errors}');
@@ -44,8 +50,8 @@ Program inferred(String source, {List<String> imports = const []}) {
   }
 
   final program = parse(source);
-  final lib =
-      buildLibrary(program, imports: [for (final src in imports) parse(src)]);
+  final lib = buildLibrary(program,
+      imports: [parse(_coreEnums), for (final src in imports) parse(src)]);
   Inferrer(lib).inferProgram(program);
   return program;
 }
@@ -107,9 +113,9 @@ void main() {
     test('Some / Ok / None carry element types', () {
       final p = inferred('''
 fn f() {
-  let s = Some(5);
-  let o = Ok(true);
-  let n = None;
+  let s = Option.Some(5);
+  let o = Result.Ok(true);
+  let n = Option.None;
 }
 ''');
       expect(letType(p, 's').toString(), 'Option<Int>');
@@ -122,14 +128,14 @@ fn f() {
 
   group('through generics (the payoff)', () {
     test('Option.unwrap_or sees the element type', () {
-      final p = inferred('fn f() { let x = Some(5).unwrap_or(0); }');
+      final p = inferred('fn f() { let x = Option.Some(5).unwrap_or(0); }');
       expect(letType(p, 'x'), PrimitiveType.int_);
     });
 
     test('? on a Result yields the ok type', () {
       final p = inferred('''
-fn g() -> Result<Int, Error> { return Ok(1); }
-fn f() -> Result<Int, Error> { let x = g()?; return Ok(x); }
+fn g() -> Result<Int, Error> { return Result.Ok(1); }
+fn f() -> Result<Int, Error> { let x = g()?; return Result.Ok(x); }
 ''');
       expect(letType(p, 'x'), PrimitiveType.int_);
     });

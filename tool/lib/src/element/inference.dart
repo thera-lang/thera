@@ -178,7 +178,6 @@ class Inferrer {
         return PrimitiveType.string;
 
       case IdentExpr(:final name):
-        if (name == 'None') return _option(const UnknownType());
         final local = scope[name];
         if (local != null) return local;
         final c = library.consts[name];
@@ -350,25 +349,12 @@ class Inferrer {
     ];
 
     if (callee is IdentExpr) {
-      switch (callee.name) {
-        case 'Ok':
-          return _result(
-              argTypes.isEmpty ? const UnknownType() : argTypes.first,
-              const UnknownType());
-        case 'Err':
-          return _result(const UnknownType(),
-              argTypes.isEmpty ? const UnknownType() : argTypes.first);
-        case 'Some':
-          return _option(
-              argTypes.isEmpty ? const UnknownType() : argTypes.first);
-        default:
-          // A function-typed local/parameter called directly: `f(x)`.
-          final local = scope[callee.name];
-          if (local is FunctionType) return local.returnType;
-          final fn = library.functions[callee.name];
-          if (fn != null) return _instantiateReturn(fn, argTypes);
-          return const UnknownType();
-      }
+      // A function-typed local/parameter called directly: `f(x)`.
+      final local = scope[callee.name];
+      if (local is FunctionType) return local.returnType;
+      final fn = library.functions[callee.name];
+      if (fn != null) return _instantiateReturn(fn, argTypes);
+      return const UnknownType();
     }
 
     if (callee is FieldExpr) {
@@ -504,17 +490,10 @@ class Inferrer {
   }
 
   /// The payload field types of variant [name] for a value of type [subject].
+  /// Result/Option are ordinary enums here, handled by the generic path.
   List<Type> _variantFieldTypes(Type subject, String name) {
     if (subject is! InterfaceType) return const [];
     final element = subject.element;
-    if (element.name == 'Option') {
-      return name == 'Some' ? [_arg(subject, 0)] : const [];
-    }
-    if (element.name == 'Result') {
-      if (name == 'Ok') return [_arg(subject, 0)];
-      if (name == 'Err') return [_arg(subject, 1)];
-      return const [];
-    }
     if (element is EnumElement) {
       final variant = element.variant(name);
       if (variant == null) return const [];
@@ -527,9 +506,6 @@ class Inferrer {
   // --- type helpers ---
 
   TypeDefElement _builtin(String name) => library.typeDefs[name]!;
-  InterfaceType _option(Type t) => InterfaceType(_builtin('Option'), [t]);
-  InterfaceType _result(Type t, Type e) =>
-      InterfaceType(_builtin('Result'), [t, e]);
   InterfaceType _list(Type t) => InterfaceType(_builtin('List'), [t]);
 
   Type _arg(InterfaceType t, int i) =>

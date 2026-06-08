@@ -31,5 +31,5 @@ fn main() -> Result<Int, Error> {
     let add10 = adder(10);
     println('add10(32)        = ${add10(32)}');
 
-    return Ok(0);
+    return Result.Ok(0);
 }

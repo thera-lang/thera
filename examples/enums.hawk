@@ -52,5 +52,5 @@ fn main() -> Result<Int, Error> {
         println('North == North');
     }
 
-    return Ok(0);
+    return Result.Ok(0);
 }

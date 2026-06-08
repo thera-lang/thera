@@ -63,7 +63,7 @@ impl Regex {
     //   let re = Regex.compile('[a-z]+')?;
     fn compile(_ pattern: String) -> Result<Regex, Error> {
         let handle = re2_compile(pattern)?;
-        return Ok(Regex { handle: handle, pattern: pattern });
+        return Result.Ok(Regex { handle: handle, pattern: pattern });
     }
 
     // Return true if the pattern matches anywhere in text.
@@ -81,8 +81,8 @@ impl Regex {
     //   }
     fn find(self, _ text: String) -> Option<Match> {
         match re2_find(self.handle, text) {
-            None       => return None,
-            Some(span) => return Some(Match {
+            None       => return Option.None,
+            Some(span) => return Option.Some(Match {
                 text:  re2_substring(text, span[0], span[1]),
                 start: span[0],
                 end:   span[1],
@@ -111,8 +111,8 @@ impl Regex {
     //   }
     fn captures(self, _ text: String) -> Option<Captures> {
         match re2_captures(self.handle, text) {
-            None         => return None,
-            Some(groups) => return Some(Captures { groups: groups }),
+            None         => return Option.None,
+            Some(groups) => return Option.Some(Captures { groups: groups }),
         }
     }
 
@@ -160,7 +160,7 @@ impl Captures {
     //   let year = caps.group(1);
     fn group(self, _ index: Int) -> Option<String> {
         if index >= self.groups.len() {
-            return None;
+            return Option.None;
         }
         return self.groups[index];
     }

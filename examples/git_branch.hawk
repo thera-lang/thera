@@ -3,7 +3,7 @@ import std.cli;
 
 fn current_branch() -> Result<String, Error> {
     let out = process.run('git', args: ['rev-parse', '--abbrev-ref', 'HEAD'])?;
-    return Ok(out.stdout.trim());
+    return Result.Ok(out.stdout.trim());
 }
 
 fn all_branches() -> Result<List<String>, Error> {
@@ -13,7 +13,7 @@ fn all_branches() -> Result<List<String>, Error> {
         .map(line => line.trim())
         .filter(line => line.len() > 0)
         .to_list();
-    return Ok(branches);
+    return Result.Ok(branches);
 }
 
 fn main(parameters: List<String>) -> Result<Int, Error> {
@@ -30,5 +30,5 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
         println(branch);
     }
 
-    return Ok(0);
+    return Result.Ok(0);
 }

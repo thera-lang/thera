@@ -50,8 +50,6 @@ const int _tyResult = 0;
 const int _tyOption = 1;
 const int _tagOk = 0;
 const int _tagErr = 1;
-const int _tagSome = 0;
-const int _tagNone = 1;
 
 /// Compile [program] — plus any [imports] it links against — into one module.
 ///
@@ -647,10 +645,6 @@ class _FnCompiler {
       case StringExpr():
         _stringExpr(expr);
       case IdentExpr(:final name):
-        if (name == 'None') {
-          _emit(const EnumNew(_tyOption, _tagNone, 0));
-          break;
-        }
         _loadLocalValue(name, expr.span);
       case UnaryExpr():
         _unaryExpr(expr);
@@ -1020,7 +1014,7 @@ class _FnCompiler {
     _expr(e.inner); // a Result/Option on the stack
     _emit(const Simple(Op.dup));
     _emit(const Simple(Op.enumTag));
-    _emit(const ConstInt(_tagErr)); // == _tagNone
+    _emit(const ConstInt(_tagErr)); // the failing tag is 1 for Err and None
     _emit(const Simple(Op.eqI64));
     final ok = _newLabel();
     _emitJump(_Jk.ifFalse, ok);
@@ -1113,22 +1107,15 @@ class _FnCompiler {
     }
   }
 
-  /// The variant tag for a constructor [name] within an enum of type
-  /// [enumType] — fixed for `Result`/`Option`, from the registry for user enums.
+  /// The variant tag for a constructor [name] within an enum of type [enumType],
+  /// from the enum registry. Result/Option are ordinary enums and resolve here
+  /// too (pinned to ids 0/1 by [_ModuleScope.addEnum]).
   int _variantTag(String? enumType, String name, SourceSpan span) {
-    final info = enumType == null ? null : _enums[enumType];
-    if (info != null) {
-      final tag = info.tagOf(name);
-      if (tag >= 0) return tag;
-    }
-    return switch (name) {
-      'Ok' || 'Some' => 0,
-      'Err' || 'None' => 1,
-      _ => throw CodegenException(
-          'unknown variant `$name`'
-          '${enumType == null ? '' : ' on $enumType'}',
-          span),
-    };
+    final tag = enumType == null ? -1 : (_enums[enumType]?.tagOf(name) ?? -1);
+    if (tag >= 0) return tag;
+    throw CodegenException(
+        'unknown variant `$name`${enumType == null ? '' : ' on $enumType'}',
+        span);
   }
 
   /// `e.name()` — the variant name, looked up from the enum tag. Synthesized as
@@ -1295,15 +1282,6 @@ class _FnCompiler {
     return type == null ? null : _methods[type]?[name];
   }
 
-  /// The (typeId, variantTag) for a `Result`/`Option` constructor, or null if
-  /// [name] is not one.
-  (int, int)? _enumCtor(String name) => switch (name) {
-        'Ok' => (_tyResult, _tagOk),
-        'Err' => (_tyResult, _tagErr),
-        'Some' => (_tyOption, _tagSome),
-        _ => null,
-      };
-
   /// String interpolation: each part becomes a string, then the pieces are
   /// folded together with the binary `str_concat` native. A `${expr}` of a
   /// primitive is converted via `stringify`; Display dispatch for user types
@@ -1417,17 +1395,6 @@ class _FnCompiler {
         _expr(arg.value);
       }
       _emit(CallIndirect(expr.args.length));
-      return;
-    }
-
-    // Result/Option constructors build an enum from their single payload.
-    final ctor = _enumCtor(name);
-    if (ctor != null) {
-      if (expr.args.length != 1) {
-        throw CodegenException('$name expects one argument', expr.span);
-      }
-      _expr(expr.args.single.value);
-      _emit(EnumNew(ctor.$1, ctor.$2, 1));
       return;
     }
 

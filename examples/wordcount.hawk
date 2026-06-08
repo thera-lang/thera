@@ -25,5 +25,5 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
     println('${c.words}\twords');
     println('${c.bytes}\tbytes');
 
-    return Ok(0);
+    return Result.Ok(0);
 }

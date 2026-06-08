@@ -62,5 +62,5 @@ fn main() -> Result<Int, Error> {
     println('rect: ${r.display()}');
     println('area: ${r.area()}');
 
-    return Ok(0);
+    return Result.Ok(0);
 }

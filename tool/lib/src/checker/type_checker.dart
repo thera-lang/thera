@@ -31,17 +31,6 @@ typedef _Scope = Map<String, TypeRef?>;
 /// visible to the element model but are not themselves checked). Then call
 /// [check] on the primary program.
 class TypeChecker {
-  // Value-level names that are always in scope: the constructors of the
-  // built-in Result/Option enums (special-cased in inference and codegen).
-  // `println`/`print` are no longer here — they are ordinary `native fn`s in
-  // the auto-imported `std.core` prelude (sdk/std/core/io.hawk).
-  static const _builtinValues = <String>{
-    'Ok',
-    'Err',
-    'Some',
-    'None',
-  };
-
   final _errors = <CheckError>[];
 
   // Imported programs (pre-registered via [addProgram]); fed to the element
@@ -408,7 +397,6 @@ class TypeChecker {
 
   bool _isDefinedName(String name, _Scope scope) =>
       scope.containsKey(name) ||
-      _builtinValues.contains(name) ||
       _library.functions.containsKey(name) ||
       _library.modules.contains(name) ||
       _library.consts.containsKey(name) ||

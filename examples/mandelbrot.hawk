@@ -37,5 +37,5 @@ fn main() -> Result<Int, Error> {
     }
     
     println('Done! Total iterations computed: ${total_iter}');
-    return Ok(0);
+    return Result.Ok(0);
 }

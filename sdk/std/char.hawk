@@ -96,9 +96,9 @@ fn is_ident_continue(_ cp: Int) -> Bool {
 // Return the numeric value of an ASCII decimal digit, or None if not a digit.
 fn digit_value(_ cp: Int) -> Option<Int> {
     if is_digit(cp) {
-        return Some(cp - DIGIT_0);
+        return Option.Some(cp - DIGIT_0);
     }
-    return None;
+    return Option.None;
 }
 
 // Return the lowercase equivalent of an uppercase ASCII letter; other code

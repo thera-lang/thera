@@ -31,7 +31,7 @@ import std.cli;
 fn main(parameters: List<String>) -> Result<Int, Error> {
     let first = cli.Args.new(parameters).positional(0).ok_or('need an arg')?;
     println(first);
-    return Ok(0);
+    return Result.Ok(0);
 }
 ''', ['alpha', 'beta']);
     if (r == null) return markTestSkipped('Rust runtime unavailable');
@@ -45,7 +45,7 @@ import std.cli;
 fn main(parameters: List<String>) -> Result<Int, Error> {
     let first = cli.Args.new(parameters).positional(0).ok_or('need an arg')?;
     println(first);
-    return Ok(0);
+    return Result.Ok(0);
 }
 ''', []);
     if (r == null) return markTestSkipped('Rust runtime unavailable');
@@ -59,7 +59,7 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
 fn main() -> Result<Int, Error> {
     let e = Error { message: 'kaboom' };
     println('e = \${e}');
-    return Ok(0);
+    return Result.Ok(0);
 }
 ''', []);
     if (r == null) return markTestSkipped('Rust runtime unavailable');
@@ -140,11 +140,11 @@ fn check(_ ok: Bool) -> Result<Void, Error> {
     if !ok {
         throw Error { message: 'bad' };
     }
-    return Ok(void);
+    return Result.Ok(void);
 }
 fn main() -> Result<Int, Error> {
     check(true)?;
-    return Ok(7);
+    return Result.Ok(7);
 }
 ''', []);
     if (r == null) return markTestSkipped('Rust runtime unavailable');

@@ -20,18 +20,21 @@ Program parseProgram(String source) {
   return parsed.program;
 }
 
-/// A stand-in for the `std.core` prelude's I/O declarations (sdk/std/core/
-/// io.hawk). The real toolchain always links the prelude, so `println`/`print`
-/// resolve from there; these in-memory tests link this stub instead of reading
-/// the SDK off disk. They are `native fn`s, so they register as runtime natives
-/// without adding any function-table entries — module/function assertions are
-/// unaffected.
-const _ioPrelude =
+/// A stand-in for the parts of the `std.core` prelude these in-memory tests
+/// depend on: the I/O natives (sdk/std/core/io.hawk) and the Result/Option
+/// enums (result.hawk/option.hawk). The real toolchain always links the prelude;
+/// these tests link this stub instead of reading the SDK off disk. The native
+/// fns register as runtime natives and the enums occupy the reserved type ids
+/// 0/1 — neither adds function-table or type-table entries, so module/function
+/// assertions are unaffected.
+const _corePrelude =
     "@extern('println') native fn println<T>(_ value: T) -> Void\n"
-    "@extern('print') native fn print<T>(_ value: T) -> Void";
+    "@extern('print') native fn print<T>(_ value: T) -> Void\n"
+    "enum Option<T> { Some(T), None }\n"
+    "enum Result<T, E> { Ok(T), Err(E) }";
 
 Module compile(String source) =>
-    compileProgram(parseProgram(source), imports: [parseProgram(_ioPrelude)]);
+    compileProgram(parseProgram(source), imports: [parseProgram(_corePrelude)]);
 
 /// Compile [source] with namespaced imports: each entry of [libs] is an
 /// import-path -> library source, so qualified access (`ns.member`) resolves.
@@ -43,7 +46,7 @@ Module compileWith(String source, Map<String, String> libs) {
   final root = LibrarySource(program, imports: imports);
   return compileProgram(program,
       imports: [
-        parseProgram(_ioPrelude),
+        parseProgram(_corePrelude),
         for (final s in imports.values) s.program
       ],
       namespaces: namespacesFor(root));
@@ -213,9 +216,8 @@ fn main() -> Int {
       // them to the reserved runtime ids (Result = 0, Option = 1) the runtime
       // and the `?`/exit-code conventions depend on — not assign fresh ids.
       // A user enum keeps getting an id >= 2.
+      // Result/Option come from the linked core stub; Color is a user enum.
       final ops = compile('''
-enum Option<T> { Some(T), None }
-enum Result<T, E> { Ok(T), Err(E) }
 enum Color { Red, Green }
 fn f() -> Int {
   let a = Result.Ok(1);
@@ -246,8 +248,8 @@ fn f() -> Int { let t = Tag { n: 1 }; println('v=\${t}'); return 0; }
           isNot(contains('stringify')));
     });
 
-    test('Ok constructs a Result enum', () {
-      final ops = compile('fn f() -> Int { let x = Ok(0); return 0; }')
+    test('Result.Ok constructs a Result enum', () {
+      final ops = compile('fn f() -> Int { let x = Result.Ok(0); return 0; }')
           .functions
           .single
           .code;
@@ -274,7 +276,7 @@ fn f() -> Int { let t = Tag { n: 1 }; println('v=\${t}'); return 0; }
     });
 
     test('explicit Ok is not double-wrapped', () {
-      final ops = compile('fn f() -> Result<Int, Int> { return Ok(5); }')
+      final ops = compile('fn f() -> Result<Int, Int> { return Result.Ok(5); }')
           .functions
           .single
           .code;
@@ -706,8 +708,8 @@ fn main() -> Int {
       if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
       expect(runExit('option', '''
 fn first_positive(a: Int) -> Option<Int> {
-    if a > 0 { return Some(a); }
-    return None;
+    if a > 0 { return Option.Some(a); }
+    return Option.None;
 }
 fn main() -> Int {
     match first_positive(7) {
@@ -955,7 +957,7 @@ import std.fs;
 fn main() -> Result<Int, Error> {
     let text = fs.read_text('$dataPath')?;
     println(text);
-    return Ok(0);
+    return Result.Ok(0);
 }
 ''');
       expect(ok['code'], 0);
@@ -966,7 +968,7 @@ import std.fs;
 fn main() -> Result<Int, Error> {
     let text = fs.read_text('/no/such/file/zzz')?;
     println(text);
-    return Ok(0);
+    return Result.Ok(0);
 }
 ''');
       expect(err['code'], 1);

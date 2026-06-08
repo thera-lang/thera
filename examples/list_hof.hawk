@@ -28,5 +28,5 @@ fn main() -> Result<Int, Error> {
     let total = nums.fold(0, (acc, n) => acc + n);     // 21
     println('total: ${total}');
 
-    return Ok(0);
+    return Result.Ok(0);
 }
