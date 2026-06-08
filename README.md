@@ -19,4 +19,13 @@ and refactor code.
   third-party APIs
 
 See [docs/guidelines.md](docs/guidelines.md) for the full architectural
-rationale.
+rationale, [docs/toc.md](docs/toc.md) for the design docs, and
+[docs/roadmap.md](docs/roadmap.md) for current status.
+
+## Status
+
+A proof of concept under active development. A Rust bytecode interpreter runs
+`.hawkbc`; a Dart front-end type-checks and compiles Hawk source to it; and a
+core stdlib is written in Hawk (plus natives). Real CLI programs compile and run
+end to end (see [examples/](examples/)). The goal is a language, runtime, and
+stdlib complete enough to host the Hawk front-end in Hawk.

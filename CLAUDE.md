@@ -23,12 +23,19 @@ Full design docs: start at **[docs/toc.md](docs/toc.md)**.
 ## Current state
 
 The Rust runtime executes bytecode covering `Int`/`Double`/`Bool`/`Unit`,
-control flow, functions + recursion, enums (`Result`/`Option`, `?`/`match`),
-structs + a type table, `List`/`Map`/`Set`, and observable output. Bytecode
-serializes to/from `.hawkbc` (constant pool; natives bound by name). The Dart
-toolchain parses/checks/runs `.hawk` **and emits `.hawkbc`** (`hawk emit`),
-covering the language core; the Hawk-written front-end is deferred. See
-[docs/roadmap.md](docs/roadmap.md).
+control flow, functions + recursion, closures, enums, structs + a type table,
+`List`/`Map`/`Set`, and observable output. Bytecode serializes to/from `.hawkbc`
+(constant pool; natives bound by name). The Dart toolchain parses/checks/runs
+`.hawk` **and emits `.hawkbc`** (`hawk emit`), covering the language core; the
+Hawk-written front-end is deferred.
+
+Notable front-end facts (easy to get wrong): `Result`/`Option` are ordinary
+`std.core` enums — construct them **qualified** (`Result.Ok(x)`, `Option.None`);
+match patterns stay bare. Built-in methods on `String`/`List`/`Map`/`Option` and
+on primitives are `native fn`s in `sdk/std/core/` (no hardcoded method table).
+Interfaces (`Eq`/`Display`) are checked contracts and dispatch on concrete types;
+dynamic dispatch + generic bounds are deferred (the generics arc). See
+[docs/roadmap.md](docs/roadmap.md) and [docs/interfaces.md](docs/interfaces.md).
 
 ## Commands
 
