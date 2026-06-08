@@ -745,6 +745,16 @@ fn main() -> Int { return [10, 20, 30].at(1).unwrap_or(0); }
 '''), 20);
     });
 
+    test('a Hawk-bodied method on a primitive runs end to end', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      // `impl Int` with a real body: `self` is the primitive, so arithmetic on
+      // it lowers to int opcodes. 21.double() == 42.
+      expect(runExit('prim_method', '''
+impl Int { fn double(self) -> Int { return self + self; } }
+fn main() -> Int { let n = 21; return n.double(); }
+'''), 42);
+    });
+
     test('&& short-circuits (the right side, which would trap, is skipped)',
         () {
       if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');

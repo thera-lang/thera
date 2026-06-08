@@ -21,7 +21,7 @@ class TypeResolver {
       case null:
         return const UnknownType();
       case NamedType(:final name, :final args):
-        final prim = _primitive(name);
+        final prim = primitiveType(name);
         if (prim != null) return prim;
         if (name == 'Self') return selfType ?? const UnknownType();
         if (typeParams.contains(name)) return TypeParameterType(name);
@@ -43,7 +43,11 @@ class TypeResolver {
     }
   }
 
-  static Type? _primitive(String name) => switch (name) {
+  /// The [PrimitiveType] a type name denotes, or null if it isn't a primitive.
+  /// Public so the element/inference passes can give `self` in an `impl Int`
+  /// (etc.) the same primitive type the value has, rather than wrapping it as an
+  /// interface type.
+  static Type? primitiveType(String name) => switch (name) {
         'Int' => PrimitiveType.int_,
         'Bool' => PrimitiveType.bool_,
         'Double' || 'Float' => PrimitiveType.double_,
@@ -176,9 +180,13 @@ void _resolveImpl(
   final owner = typeDefs[decl.typeName];
   if (owner == null) return; // unknown target type; checker reports it
   final implParams = {for (final tp in decl.typeParams) tp.name};
-  final selfType = InterfaceType(owner, [
-    for (final tp in decl.typeParams) TypeParameterType(tp.name),
-  ]);
+  // For an `impl Int`/`String`/… the receiver's type is the primitive itself,
+  // not an interface type wrapping its element — so `self` and `Self` match the
+  // value (and the checker, which resolves `self` via the type name).
+  final selfType = TypeResolver.primitiveType(decl.typeName) ??
+      InterfaceType(owner, [
+        for (final tp in decl.typeParams) TypeParameterType(tp.name),
+      ]);
   for (final m in decl.methods) {
     owner.methods.add(_methodElement(resolver, owner, m,
         selfType: selfType, outerTypeParams: implParams));

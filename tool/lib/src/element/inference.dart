@@ -27,9 +27,11 @@ class Inferrer {
           final owner = library.typeDefs[decl.typeName];
           final selfType = owner == null
               ? null
-              : InterfaceType(owner, [
-                  for (final tp in decl.typeParams) TypeParameterType(tp.name),
-                ]);
+              : TypeResolver.primitiveType(decl.typeName) ??
+                  InterfaceType(owner, [
+                    for (final tp in decl.typeParams)
+                      TypeParameterType(tp.name),
+                  ]);
           final implParams = {for (final tp in decl.typeParams) tp.name};
           for (final m in decl.methods) {
             _inferFn(m, selfType: selfType, outerTypeParams: implParams);

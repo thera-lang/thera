@@ -122,6 +122,22 @@ impl Eq for Int {
       );
     });
 
+    test('a Hawk-bodied method on a primitive type checks', () {
+      // Regression: `self` in `impl Int` was typed as an interface type wrapping
+      // the Int element, while the return type resolved to the primitive — so
+      // `return self + self` reported "expected Int, found Int". `self` must be
+      // the primitive type, matching the value (and Self).
+      expect(
+        check('''
+impl Int {
+  fn double(self) -> Int { return self + self; }
+  fn is_even(self) -> Bool { return self % 2 == 0; }
+}
+'''),
+        isEmpty,
+      );
+    });
+
     test('lambda in map call is typed from the method signature', () {
       // No annotation on `x`: its type comes from `map`'s `(T) -> U` signature
       // with the receiver `List<Int>`.
