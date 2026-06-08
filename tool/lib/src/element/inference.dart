@@ -1,5 +1,4 @@
 import '../ast.dart';
-import 'builtins.dart';
 import 'element.dart';
 import 'resolver.dart';
 import 'types.dart';
@@ -15,11 +14,7 @@ class Inferrer {
   final LibraryElement library;
   final TypeResolver _resolver;
 
-  final Map<String, Map<String, BuiltinReturn>> _builtinReturns;
-
-  Inferrer(this.library)
-      : _resolver = TypeResolver(library.typeDefs),
-        _builtinReturns = builtinReturns(library.typeDefs);
+  Inferrer(this.library) : _resolver = TypeResolver(library.typeDefs);
 
   // --- entry points ---
 
@@ -388,18 +383,19 @@ class Inferrer {
         return PrimitiveType.string;
       }
 
-      // Built-in method on a primitive/collection receiver.
-      final builtin = _builtinMethodReturn(recvType, callee.field, argTypes);
-      if (builtin != null) return builtin;
-
-      // User method declared in an impl block. Bind the receiver's type
+      // Method declared in an impl block — on a struct/enum/collection
+      // (`InterfaceType`) or a primitive (`String`/`Int`/…) alike: resolution
+      // looks through to the receiver's element. Bind the receiver's type
       // parameters (e.g. `T` from `List<T>`) and the method's own type
       // parameters recovered from the argument types (e.g. `U` in
       // `map<U>(self, f: (T) -> U)` from the lambda's result type).
-      if (recvType is InterfaceType) {
-        final method = recvType.element.method(callee.field);
+      final element = typeDefFor(recvType);
+      if (element != null) {
+        final method = element.method(callee.field);
         if (method != null) {
-          final bindings = _receiverBindings(recvType);
+          final bindings = recvType is InterfaceType
+              ? _receiverBindings(recvType)
+              : <String, Type>{};
           final positional = method.parameters.where((p) => !p.isSelf).toList();
           for (var i = 0; i < argTypes.length && i < positional.length; i++) {
             unify(positional[i].type, argTypes[i], bindings);
@@ -592,21 +588,26 @@ class Inferrer {
     ]);
   }
 
-  /// Return type of a built-in method on a primitive/collection [recv], looked
-  /// up in the shared [builtinReturns] table.
-  Type? _builtinMethodReturn(Type recv, String method, List<Type> argTypes) {
-    final (kind, recvArgs) = switch (recv) {
-      PrimitiveType(primitive: Primitive.string) => ('String', const <Type>[]),
-      InterfaceType(:final element, :final typeArguments) => (
-          element.name,
-          typeArguments
-        ),
-      _ => (null, const <Type>[]),
-    };
-    if (kind == null) return null;
-    final builder = _builtinReturns[kind]?[method];
-    return builder?.call(recvArgs, argTypes);
-  }
+  /// The [TypeDefElement] a member/method call resolves against — for both
+  /// `InterfaceType` receivers (structs, enums, `List`/`Map`/…) and primitive
+  /// receivers, which look through to their built-in element (`typeDefs['Int']`
+  /// etc.). This is the bridge that lets primitives host methods uniformly; the
+  /// `PrimitiveType`/`InterfaceType` split stays only as the value-vs-heap
+  /// representation the backend cares about.
+  TypeDefElement? typeDefFor(Type type) => switch (type) {
+        InterfaceType(:final element) => element,
+        PrimitiveType(:final primitive) =>
+          library.typeDefs[_primitiveTypeName(primitive)],
+        _ => null,
+      };
+
+  static String? _primitiveTypeName(Primitive p) => switch (p) {
+        Primitive.int_ => 'Int',
+        Primitive.double_ => 'Double',
+        Primitive.bool_ => 'Bool',
+        Primitive.string => 'String',
+        Primitive.unit => null,
+      };
 
   static const _comparison = {'==', '!=', '<', '<=', '>', '>='};
 }

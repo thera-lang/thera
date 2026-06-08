@@ -1,11 +1,57 @@
-// std.core — String helpers (auto-imported with the prelude).
+// std.core — the built-in String type's methods (auto-imported with the
+// prelude).
 //
-// Methods on string *values* (len, trim, split, …) are built in and available
-// on any String directly. This file adds named constructors and helpers as
-// static methods on the `String` type, so they don't crowd the global
-// namespace.
+// Methods on string *values* (len, trim, split, …) are declared here as
+// `native fn`s backed by runtime natives, plus named constructors as static
+// methods. A String value is a primitive, but methods resolve through its
+// element like any other type (see docs/roadmap.md, "primitives").
 
 impl String {
+    // Number of Unicode code points.
+    @extern('str_len')
+    pub native fn len(self) -> Int
+
+    // Number of UTF-8 bytes.
+    @extern('str_byte_len')
+    pub native fn byte_len(self) -> Int
+
+    // True if the string is empty.
+    @extern('str_is_empty')
+    pub native fn is_empty(self) -> Bool
+
+    // A copy with leading and trailing whitespace removed.
+    @extern('str_trim')
+    pub native fn trim(self) -> String
+
+    // Substring / prefix / suffix tests.
+    @extern('str_contains')
+    pub native fn contains(self, _ needle: String) -> Bool
+
+    @extern('str_starts_with')
+    pub native fn starts_with(self, _ prefix: String) -> Bool
+
+    @extern('str_ends_with')
+    pub native fn ends_with(self, _ suffix: String) -> Bool
+
+    // Case conversion.
+    @extern('str_to_uppercase')
+    pub native fn to_uppercase(self) -> String
+
+    @extern('str_to_lowercase')
+    pub native fn to_lowercase(self) -> String
+
+    // Split into lines (on '\n', dropping a trailing empty line).
+    @extern('str_lines')
+    pub native fn lines(self) -> List<String>
+
+    // Split on runs of whitespace, dropping empty pieces.
+    @extern('str_split_whitespace')
+    pub native fn split_whitespace(self) -> List<String>
+
+    // Split on each occurrence of `sep`.
+    @extern('str_split')
+    pub native fn split(self, _ sep: String) -> List<String>
+
     // Construct a String from a list of Unicode code points (as Int).
     // The inverse of `s.chars()`:
     //

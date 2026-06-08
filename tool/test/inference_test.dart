@@ -14,6 +14,20 @@ import 'package:test/test.dart';
 const _corePrelude = '''
 enum Option<T> { Some(T), None }
 enum Result<T, E> { Ok(T), Err(E) }
+impl String {
+  @extern('str_len')              native fn len(self) -> Int
+  @extern('str_byte_len')         native fn byte_len(self) -> Int
+  @extern('str_is_empty')         native fn is_empty(self) -> Bool
+  @extern('str_trim')             native fn trim(self) -> String
+  @extern('str_contains')         native fn contains(self, _ needle: String) -> Bool
+  @extern('str_starts_with')      native fn starts_with(self, _ prefix: String) -> Bool
+  @extern('str_ends_with')        native fn ends_with(self, _ suffix: String) -> Bool
+  @extern('str_to_uppercase')     native fn to_uppercase(self) -> String
+  @extern('str_to_lowercase')     native fn to_lowercase(self) -> String
+  @extern('str_lines')            native fn lines(self) -> List<String>
+  @extern('str_split_whitespace') native fn split_whitespace(self) -> List<String>
+  @extern('str_split')            native fn split(self, _ sep: String) -> List<String>
+}
 impl List<T> {
   @extern('list_len')  native fn len(self) -> Int
   @extern('list_get')  native fn get(self, _ i: Int) -> Option<T>
@@ -226,6 +240,17 @@ fn f() { let a = area(3); }
           inferred('fn f(s: String) { let n = s.len(); let u = s.trim(); }');
       expect(letType(p, 'n'), PrimitiveType.int_);
       expect(letType(p, 'u'), PrimitiveType.string);
+    });
+
+    test('a user method on a primitive resolves through its element', () {
+      // The bridge: a method declared in `impl Int` resolves on an Int *value*
+      // (a PrimitiveType receiver), not just String's built-in ones. Uses a
+      // native method so no `self`-typing is involved (see roadmap stage 2b).
+      final p = inferred('''
+impl Int { @extern('int_abs') native fn abs(self) -> Int }
+fn f(n: Int) { let a = n.abs(); }
+''');
+      expect(letType(p, 'a'), PrimitiveType.int_);
     });
 
     test('enum construction and .name()', () {

@@ -135,11 +135,12 @@ gaps, by where they live:
   2. ~~**A semantic `Type`/element model** distinct from syntactic `TypeRef`,
      derived as a separate resolution stage.~~ (done — `element/types.dart`,
      `element/element.dart`, `element/resolver.dart`, `element/inference.dart`)
-  3. ~~**One source of truth for built-in method signatures.**~~ (done — the
-     native-name table and the generic-aware return-type table now both live in
-     `element/builtins.dart`, consumed by codegen + inference, with a drift
-     guard. Still split from the _runtime_ native table, and not yet described
-     as Hawk signatures in `sdk/std` — the longer-term goal.)
+  3. ~~**One source of truth for built-in method signatures.**~~ (done, and
+     since superseded: the `element/builtins.dart` native-name + return-type
+     tables are gone. The built-in methods on `String`/`List`/`Map`/`Option` are
+     now ordinary `native fn`s declared in `sdk/std/core/` and resolved through
+     the element model — primitives included, via a receiver→element bridge in
+     inference. Only operators and literal syntax remain backend-special.)
   - ~~**Use inferred types for checking.**~~ (done — the checker runs inference
     and reports type mismatches: return type (with implicit `Ok` wrap), `let`
     annotations, non-Bool conditions, and call argument types.)
@@ -175,11 +176,12 @@ gaps, by where they live:
   `_test.hawk` white-box access — plus selective import, field-level visibility,
   impl coherence, and a "module"→"library" terminology sweep.
 
-**Cross-cutting:** the stdlib native names live in two places — the Rust runtime
-table and the front-end's `element/builtins.dart`. Acceptable (name-bound calls
-fail at load on a mismatch); add a test asserting every native name codegen can
-emit is accepted by the runtime, and split the runtime table into per-module
-files (`natives_fs.rs`, `natives_string.rs`, …) as it grows.
+**Cross-cutting:** stdlib native names are now written once, as `@extern('...')`
+on the `native fn` declarations in `sdk/std` (the `element/builtins.dart` mirror
+is gone); the Rust runtime table is the other half. Name-bound calls fail at load
+on a mismatch — acceptable, but add a test asserting every `@extern` name the
+front-end can emit is accepted by the runtime, and split the runtime table into
+per-module files (`natives_fs.rs`, `natives_string.rs`, …) as it grows.
 
 **`hawk test` runner.** The `@test` runner needs reimplementing on the bytecode
 pipeline (compile with the Dart front-end, execute on the Rust runtime); today

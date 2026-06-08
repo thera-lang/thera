@@ -32,6 +32,20 @@ const _corePrelude = '''
 @extern('print') native fn print<T>(_ value: T) -> Void
 enum Option<T> { Some(T), None }
 enum Result<T, E> { Ok(T), Err(E) }
+impl String {
+  @extern('str_len')              native fn len(self) -> Int
+  @extern('str_byte_len')         native fn byte_len(self) -> Int
+  @extern('str_is_empty')         native fn is_empty(self) -> Bool
+  @extern('str_trim')             native fn trim(self) -> String
+  @extern('str_contains')         native fn contains(self, _ needle: String) -> Bool
+  @extern('str_starts_with')      native fn starts_with(self, _ prefix: String) -> Bool
+  @extern('str_ends_with')        native fn ends_with(self, _ suffix: String) -> Bool
+  @extern('str_to_uppercase')     native fn to_uppercase(self) -> String
+  @extern('str_to_lowercase')     native fn to_lowercase(self) -> String
+  @extern('str_lines')            native fn lines(self) -> List<String>
+  @extern('str_split_whitespace') native fn split_whitespace(self) -> List<String>
+  @extern('str_split')            native fn split(self, _ sep: String) -> List<String>
+}
 impl List<T> {
   @extern('list_len')  native fn len(self) -> Int
   @extern('list_get')  native fn get(self, _ i: Int) -> Option<T>

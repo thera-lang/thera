@@ -13,7 +13,6 @@ library;
 import '../ast.dart';
 import '../bytecode/instr.dart';
 import '../bytecode/module.dart';
-import '../element/builtins.dart';
 import '../element/inference.dart';
 import '../element/namespace.dart';
 import '../element/resolver.dart';
@@ -1280,14 +1279,6 @@ class _FnCompiler {
         _ => null,
       };
 
-  /// The runtime native backing built-in method `[type].[method]` (e.g.
-  /// `String.len` -> `str_len`), or null if it isn't a built-in. The receiver
-  /// is passed as the native's first argument. Return types come from the
-  /// inference pass via `Expr.resolvedType`; this table is the shared source of
-  /// the native names (see `element/builtins.dart`).
-  String? _builtinNative(String? type, String method) =>
-      type == null ? null : builtinMethodNatives[type]?[method];
-
   /// The unit index of method [name] on the receiver expression [receiver], or
   /// null if it can't be resolved. A type name — `Type` or `ns.Type`, not a
   /// local — selects a static method; otherwise the receiver's static type does.
@@ -1470,20 +1461,10 @@ class _FnCompiler {
       }
     }
 
-    // Built-in methods (String/List/Map/Option) lower to a native with the
-    // receiver as the first argument.
-    final builtinNative = _builtinNative(_typeOf(callee.object), callee.field);
-    if (builtinNative != null) {
-      _expr(callee.object);
-      for (final arg in expr.args) {
-        _expr(arg.value);
-      }
-      _emit(CallNative(builtinNative, expr.args.length + 1));
-      return;
-    }
-
-    // Instance `native fn` declared in an `impl` block (`@extern`): like a
-    // built-in method, the receiver is pushed as the native's first argument.
+    // Instance `native fn` declared in an `impl` block (`@extern`): the receiver
+    // is pushed as the native's first argument. This is how the built-in methods
+    // on String/List/Map/Option are backed — they are ordinary `native fn`s in
+    // std.core, not a hardcoded table.
     final instanceNative =
         _scope.nativeInstanceMethods[_typeOf(callee.object)]?[callee.field];
     if (instanceNative != null) {
