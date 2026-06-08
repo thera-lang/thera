@@ -96,6 +96,9 @@ void _registerModule(_ModuleScope scope, Program program) {
       case EnumDecl():
         scope.addEnum(decl);
       case ImplDecl():
+        if (decl.interfaceName != null) {
+          scope.addInterfaceImpl(decl.typeName, decl.interfaceName!);
+        }
         for (final method in decl.methods) {
           final isStatic = !method.params.any((p) => p.isSelf);
           if (method.isNative && isStatic) {
@@ -185,6 +188,11 @@ class _ModuleScope {
   /// `call.native` with the receiver pushed as the first argument.
   final Map<String, Map<String, String>> nativeInstanceMethods = {};
 
+  /// Interfaces explicitly implemented by a type, from `impl Interface for Type`
+  /// blocks (e.g. `Tag` -> {`Display`}). Lets `==`/`${}` dispatch to a type's
+  /// own `Eq`/`Display` method instead of the structural default.
+  final Map<String, Set<String>> interfaceImpls = {};
+
   /// Import namespaces in scope for the program being compiled (alias / trailing
   /// path segment). A qualified `ns.Name` resolves to the flat `Name`.
   final Set<String> namespaces;
@@ -237,6 +245,11 @@ class _ModuleScope {
         _externSymbol(method);
   }
 
+  /// Record an `impl Interface for Type` conformance.
+  void addInterfaceImpl(String type, String interfaceName) {
+    interfaceImpls.putIfAbsent(type, () => {}).add(interfaceName);
+  }
+
   void addMethod(String type, FnDecl method) {
     final selfType = method.params.any((p) => p.isSelf) ? type : null;
     methodTable.putIfAbsent(type, () => {})[method.name] = units.length;
@@ -283,6 +296,17 @@ class _FnCompiler {
   final _ModuleScope _scope;
   Map<String, int> get functionIndex => _scope.functionIndex;
   Map<String, Map<String, int>> get _methods => _scope.methodTable;
+
+  /// Whether [type] explicitly implements [interfaceName] (an `impl Interface
+  /// for Type` block), and the unit index of [type]'s `[interfaceName]` method.
+  int? _interfaceMethod(String? type, String interfaceName, String method) {
+    if (type == null) return null;
+    if (!(_scope.interfaceImpls[type]?.contains(interfaceName) ?? false)) {
+      return null;
+    }
+    return _methods[type]?[method];
+  }
+
   Map<String, _StructInfo> get structs => _scope.structs;
   Map<String, _EnumInfo> get _enums => _scope.enums;
   List<FnDecl> get _units => _scope.units;
@@ -1186,14 +1210,25 @@ class _FnCompiler {
         operandType == 'Double' ||
         operandType == 'Bool';
 
-    // `==`/`!=` on non-primitives (strings, structs, enums, collections) use the
-    // structural `eq` native — the default `Eq`. Primitives use typed opcodes.
-    if ((e.op == '==' || e.op == '!=') && !isPrimitive) {
-      _expr(e.left);
-      _expr(e.right);
-      _emit(const CallNative('eq', 2));
-      if (e.op == '!=') _emit(const Simple(Op.not));
-      return;
+    // `==`/`!=`: dispatch to an explicit `impl Eq` when the operand type has
+    // one; otherwise the structural `eq` native (the derived default for
+    // non-primitives) or a typed opcode (primitives).
+    if (e.op == '==' || e.op == '!=') {
+      final eqIdx = _interfaceMethod(operandType, 'Eq', 'eq');
+      if (eqIdx != null) {
+        _expr(e.left); // self
+        _expr(e.right); // other
+        _emit(Call(eqIdx, 2));
+        if (e.op == '!=') _emit(const Simple(Op.not));
+        return;
+      }
+      if (!isPrimitive) {
+        _expr(e.left);
+        _expr(e.right);
+        _emit(const CallNative('eq', 2));
+        if (e.op == '!=') _emit(const Simple(Op.not));
+        return;
+      }
     }
 
     if (!isPrimitive) {
@@ -1316,13 +1351,13 @@ class _FnCompiler {
         } else if (type == 'Int' || type == 'Double' || type == 'Bool') {
           _emit(const CallNative('stringify', 1));
         } else {
-          // A user type renders via its `display` method (the `Display`
-          // interface). The concrete type is known here, so dispatch directly.
-          final displayIdx = type == null ? null : _methods[type]?['display'];
+          // A user type renders via its `Display` impl. The concrete type is
+          // known here, so dispatch directly.
+          final displayIdx = _interfaceMethod(type, 'Display', 'display');
           if (displayIdx == null) {
             throw CodegenException(
                 'cannot interpolate ${type ?? 'value'} — '
-                'it has no Display (`display`) method',
+                'it does not implement Display',
                 span);
           }
           _emit(Call(displayIdx, 1));

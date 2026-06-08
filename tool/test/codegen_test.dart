@@ -348,6 +348,19 @@ fn f() -> Int { let t = Tag { n: 1 }; println('v=\${t}'); return 0; }
           isNot(contains('stringify')));
     });
 
+    test('interpolating a type that does not implement Display is rejected',
+        () {
+      // A `display` method alone is not enough — it must be `impl Display for T`.
+      expect(
+        () => compile('''
+type Tag = { n: Int }
+impl Tag { fn display(self) -> String { return 'tag'; } }
+fn f() -> Int { let t = Tag { n: 1 }; println('v=\${t}'); return 0; }
+'''),
+        throwsA(isA<CodegenException>()),
+      );
+    });
+
     test('Result.Ok constructs a Result enum', () {
       final ops = compile('fn f() -> Int { let x = Result.Ok(0); return 0; }')
           .functions
@@ -566,6 +579,21 @@ fn main() -> Int { let v = V { n: 1 }; return v.bump(5); }
           ]));
     });
 
+    test('== on a type with an explicit Eq impl dispatches to its eq method',
+        () {
+      final m = compile('''
+type CI = { s: String }
+impl Eq for CI { fn eq(self, _ other: Self) -> Bool { return true; } }
+fn f(a: CI, b: CI) -> Bool { return a == b; }
+''');
+      final eqIdx = m.functions.indexWhere((fn) => fn.name == 'CI.eq');
+      final f = m.functions.firstWhere((fn) => fn.name == 'f').code;
+      // Calls CI.eq directly, not the structural `eq` native.
+      expect(f, contains(isA<Call>().having((i) => i.func, 'func', eqIdx)));
+      expect(
+          f.whereType<CallNative>().map((i) => i.name), isNot(contains('eq')));
+    });
+
     test('== on Int still uses the typed opcode', () {
       final ops =
           compile('fn f() -> Bool { return 1 == 2; }').functions.single.code;
@@ -752,6 +780,26 @@ fn main() -> Int { return [10, 20, 30].at(1).unwrap_or(0); }
       expect(runExit('prim_method', '''
 impl Int { fn double(self) -> Int { return self + self; } }
 fn main() -> Int { let n = 21; return n.double(); }
+'''), 42);
+    });
+
+    test('an explicit Eq impl overrides structural equality', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      // Case-insensitive Eq: "Hello" == "HELLO" is true, where structural
+      // equality of the structs would be false. Exit 42 proves the impl ran.
+      expect(runExit('custom_eq', '''
+type CI = { s: String }
+impl Eq for CI {
+  fn eq(self, _ other: Self) -> Bool {
+    return self.s.to_lowercase() == other.s.to_lowercase();
+  }
+}
+fn main() -> Int {
+  let a = CI { s: "Hello" };
+  let b = CI { s: "HELLO" };
+  if a == b { return 42; }
+  return 0;
+}
 '''), 42);
     });
 
