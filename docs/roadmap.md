@@ -215,6 +215,18 @@ reusable.)
 `List<String>`; `Args` is an explicit `std.cli` import (`cli.Args.new(...)`)
 constructed from that list (no auto-import).
 
+**Decided / done:** `Result`/`Option` are ordinary enums defined in `std.core`
+(`core/result.hawk`, `core/option.hawk`), not compiler built-ins. Their
+constructors are no longer special-cased in the checker/inference/codegen;
+construction is qualified like any enum (`Result.Ok(x)`, `Option.None`). What
+stays language-blessed (irreducible — the language references these types by
+name): the `?` operator, implicit `Ok`-wrapping on `return` and `throw -> Err`,
+the reserved runtime type ids 0/1 (so `main`'s exit code and `Option`'s native
+methods can recognize them), and the pinned variant tags. Re-introducing
+unqualified variant construction (a general "variants of an in-scope enum are
+callable unqualified" rule, or sugar) is deferred until there's feedback that
+the qualified form is onerous.
+
 ## Planned sequence
 
 1. ~~Consolidation: entry/args convention + `Result`-return unwrapping in the

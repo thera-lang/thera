@@ -185,7 +185,7 @@ class _ModuleScope {
 
   _ModuleScope({this.namespaces = const {}});
 
-  // Runtime type ids for user enums start after the built-in Result (0) and
+  // Runtime type ids for user enums start after the reserved Result (0) and
   // Option (1), and must be distinct so structural equality never conflates two
   // enum types.
   int _nextEnumTy = 2;

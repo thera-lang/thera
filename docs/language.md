@@ -29,7 +29,7 @@ import std.cli;
 fn main(parameters: List<String>) -> Result<Int, Error> {
     let args = cli.Args.new(parameters);
     // ...
-    return Ok(0);
+    return Result.Ok(0);
 }
 ```
 
@@ -241,7 +241,7 @@ fn fetch_user(id: Int) -> Result<User, Error> {
 fn main() -> Result<Int, Error> {
     let user = fetch_user(id: 1)?;          // no await needed
     println(user.name);
-    return Ok(0);
+    return Result.Ok(0);
 }
 ```
 
@@ -276,7 +276,13 @@ fn read_port(args: Args) -> Result<Int, Error> {
 }
 ```
 
-`?` propagates an `Error` to the caller. `match` handles results at a boundary:
+`Result<T, E>` is an ordinary enum defined in the prelude (`std.core`), with
+variants `Ok(T)` and `Err(E)`. It is constructed like any enum — qualified:
+`Result.Ok(value)`, `Result.Err(e)`. The `?` operator and the implicit-`Ok`
+wrapping below know it by name, but it is otherwise not special.
+
+`?` propagates an `Error` to the caller. `match` handles results at a boundary
+(match patterns stay unqualified):
 
 ```hawk
 match read_port(args) {
@@ -287,7 +293,8 @@ match read_port(args) {
 
 ### `throw`
 
-`throw expr` is sugar for `return Err(expr)` in a `Result`-returning function.
+`throw expr` is sugar for `return Result.Err(expr)` in a `Result`-returning
+function.
 It is a reserved keyword — not an exception mechanism. There is no stack
 unwinding; control simply returns to the caller with an `Err` value.
 
@@ -297,7 +304,7 @@ fn parse_port(s: String) -> Result<Int, Error> {
     if n < 1 || n > 65535 {
         throw Error('port out of range: ${n}');
     }
-    return n;   // implicitly Ok(n)
+    return n;   // implicitly Result.Ok(n)
 }
 ```
 
@@ -308,6 +315,9 @@ fn parse_port(s: String) -> Result<Int, Error> {
 There is no `null`. Absent values are represented explicitly as `Option<T>`,
 which is either `Some(value)` or `None`. A value of type `String` is always a
 string; a value that might be absent has type `Option<String>`.
+
+Like `Result`, `Option` is an ordinary prelude enum, constructed qualified:
+`Option.Some(value)`, `Option.None`.
 
 ```hawk
 type Config = {
@@ -459,9 +469,10 @@ testing.assert_eq(actual: result, expected: 5)?;
 ```
 
 `std.core` is the **prelude**: automatically imported into every file, with its
-names available **unqualified** (`Ok`/`Err`/`Some`/`None`, `Result`/`Option`/
-`Error`, `Eq`/`Display`/`Debug`, `println`/…). It is the one unqualified import;
-every other library is referenced through its namespace. `std.cli` (the `Args`
+names available **unqualified** (`Result`/`Option`/`Error`, `Eq`/`Display`/
+`Debug`, `println`/…). `Result`/`Option` are ordinary prelude enums, so their
+variants are constructed qualified (`Result.Ok`, `Option.None`). It is the one
+unqualified import; every other library is referenced through its namespace. `std.cli` (the `Args`
 argument parser, and the home of process execution) is an ordinary library —
 `import std.cli` when you need it.
 
@@ -588,7 +599,7 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
     let verbose = args.flag('--verbose', default: false);
     let output  = args.option('--output').unwrap_or('out.txt');
     // ...
-    return Ok(0);
+    return Result.Ok(0);
 }
 ```
 
@@ -703,7 +714,7 @@ Decorators attach metadata to a function. They are evaluated at compile time.
 ```hawk
 @route('GET', '/healthz')
 fn healthz(req: Request) -> Result<Response, Error> {
-    return Ok(Response.text('ok'));
+    return Result.Ok(Response.text('ok'));
 }
 ```
 
@@ -719,8 +730,9 @@ import additionally gets **white-box** access to the target's _private_ symbols
 [visibility.md](visibility.md#testing-white-box-access).
 
 Test functions are marked with `@test`, take no arguments, and return
-`Result<Void, Error>`. A test passes when it returns `Ok(void)` and fails when
-it returns `Err`. Assertions return `Result<Void, Error>` and are called with
+`Result<Void, Error>`. A test passes when it returns `Result.Ok(void)` and fails
+when it returns `Err`. Assertions return `Result<Void, Error>` and are called
+with
 `?` so that the first failure propagates out of the test immediately.
 
 ```hawk
@@ -734,14 +746,14 @@ import 'math';
 fn test_add() -> Result<Void, Error> {
     testing.assert_eq(actual: math.add(2, 3), expected: 5)?;
     testing.assert_eq(actual: math.add(-1, 1), expected: 0)?;
-    return Ok(void);
+    return Result.Ok(void);
 }
 
 @test
 fn test_parse_config() -> Result<Void, Error> {
     let cfg = math.parse_config('testdata/config.toml')?;
     testing.assert_eq(actual: cfg.host, expected: 'localhost')?;
-    return Ok(void);
+    return Result.Ok(void);
 }
 ```
 

@@ -310,10 +310,13 @@ These are the GC _allocation safepoints_.
 `Map`/`Set` literals and most collection operations are runtime calls
 (`call.native`), not core opcodes — keeps the ISA small.
 
-**Fixed variant tags.** `Result` and `Option` are ordinary enums with a pinned
-variant ordering that all bytecode producers must use: `Result` → `Ok = 0`,
-`Err = 1`; `Option` → `Some = 0`, `None = 1`. The `?` and `match` lowerings
-below depend on these values.
+**Fixed variant tags.** `Result` and `Option` are ordinary enums (defined in
+`std.core`), but with a pinned variant ordering that all bytecode producers must
+use: `Result` → `Ok = 0`, `Err = 1`; `Option` → `Some = 0`, `None = 1`. They
+also occupy **reserved type ids** — `Result = 0`, `Option = 1` (user enums start
+at 2) — so the runtime can recognize them: a `Result`-returning `main` maps `Ok`
+to the exit code, and `Option`'s native methods key on its type id. The `?` and
+`match` lowerings below depend on the tag values.
 
 ## How key language features lower
 

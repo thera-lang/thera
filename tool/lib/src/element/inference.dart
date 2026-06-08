@@ -8,9 +8,9 @@ import 'types.dart';
 /// resolved semantic [Type] (`Expr.resolvedType`), using the element model.
 ///
 /// Unlike the legacy bottom-up `_typeOf` in codegen, this sees *through*
-/// generics: `Some(5).unwrap_or(0)` infers `Int`, list indexing infers the
-/// element type, and `match opt { Some(x) => ... }` binds `x` to the option's
-/// element type.
+/// generics: `Option.Some(5).unwrap_or(0)` infers `Int`, list indexing infers
+/// the element type, and `match opt { Some(x) => ... }` binds `x` to the
+/// option's element type.
 class Inferrer {
   final LibraryElement library;
   final TypeResolver _resolver;

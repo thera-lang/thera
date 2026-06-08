@@ -85,9 +85,11 @@ This makes barrels safe (a dozen aggregated files can't collide in the
 consumer's flat scope) and keeps provenance obvious. Three consequences:
 
 - **`std.core` is the prelude.** It is auto-imported and its names are available
-  **unqualified** everywhere: `Ok`/`Err`/`Some`/`None`, `Result`/`Option`/
-  `Error`, `Display`/`Eq`/`Debug`, `println`/`print`. It is the one
-  unqualified import; everything else is qualified.
+  **unqualified** everywhere: `Result`/`Option`/`Error`, `Display`/`Eq`/`Debug`,
+  `println`/`print`. It is the one unqualified import; everything else is
+  qualified. (`Result`/`Option` are ordinary enums defined in the prelude, so —
+  like any enum — their *variants* are constructed qualified: `Result.Ok(x)`,
+  `Option.None`. Match patterns stay bare; see below.)
 - **Construction and type references are qualified; match patterns are not.**
   You write `i18n.Locale` as a type and `i18n.Locale.en` to construct, but in
   `match loc { en => …, fr => … }` the variants resolve from the subject's type
