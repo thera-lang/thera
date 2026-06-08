@@ -639,4 +639,74 @@ fn f(_ x: Ghost) {
       expect(check('type Box = { value: T }'), contains('unknown type: T'));
     });
   });
+
+  // ---- interface conformance ----
+
+  group('interface conformance', () {
+    const display = 'interface Display { fn display(self) -> String; }';
+
+    test('a complete, matching impl conforms', () {
+      expect(
+        check('$display\n'
+            'type Tag = { n: Int }\n'
+            'impl Display for Tag { fn display(self) -> String { return "t"; } }'),
+        isEmpty,
+      );
+    });
+
+    test('a missing interface method is reported', () {
+      expect(
+        check('$display\ntype Tag = { n: Int }\nimpl Display for Tag { }'),
+        contains("missing method 'display' required by interface 'Display'"),
+      );
+    });
+
+    test('a mismatched parameter type is reported', () {
+      final errors = check('''
+interface Greet { fn hello(self, _ n: Int) -> String; }
+type Tag = { n: Int }
+impl Greet for Tag { fn hello(self, _ n: Bool) -> String { return "h"; } }
+''');
+      expect(
+        errors.any((e) =>
+            e.contains("method 'hello'") && e.contains("interface 'Greet'")),
+        isTrue,
+        reason: errors.toString(),
+      );
+    });
+
+    test('a mismatched return type is reported', () {
+      final errors = check('''
+interface Greet { fn hello(self) -> String; }
+type Tag = { n: Int }
+impl Greet for Tag { fn hello(self) -> Int { return 0; } }
+''');
+      expect(errors.any((e) => e.contains("method 'hello'")), isTrue,
+          reason: errors.toString());
+    });
+
+    test('impl for an unknown interface is reported', () {
+      expect(
+        check('type Tag = { n: Int }\nimpl Nope for Tag { }'),
+        contains('unknown interface: Nope'),
+      );
+    });
+
+    test('impl for a non-interface is reported', () {
+      expect(
+        check('type Foo = { n: Int }\ntype Tag = { n: Int }\n'
+            'impl Foo for Tag { }'),
+        contains("'Foo' is not an interface"),
+      );
+    });
+
+    test('conformance works for a primitive (Self = the primitive)', () {
+      expect(
+        check('interface Eq { fn eq(self, _ other: Self) -> Bool; }\n'
+            'impl Eq for Int { fn eq(self, _ other: Self) -> Bool '
+            '{ return self == other; } }'),
+        isEmpty,
+      );
+    });
+  });
 }

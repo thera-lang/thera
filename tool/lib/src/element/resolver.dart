@@ -179,6 +179,11 @@ void _resolveImpl(
 ) {
   final owner = typeDefs[decl.typeName];
   if (owner == null) return; // unknown target type; checker reports it
+  // Record `impl Interface for Type` conformance (the checker validates it).
+  if (decl.interfaceName != null &&
+      !owner.interfaces.contains(decl.interfaceName)) {
+    owner.interfaces.add(decl.interfaceName!);
+  }
   final implParams = {for (final tp in decl.typeParams) tp.name};
   // For an `impl Int`/`String`/… the receiver's type is the primitive itself,
   // not an interface type wrapping its element — so `self` and `Self` match the

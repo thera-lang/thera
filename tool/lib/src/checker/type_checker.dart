@@ -83,6 +83,7 @@ class TypeChecker {
           for (final m in decl.methods) {
             _checkFn(m, selfType: selfType, outerTypeParams: typeParams);
           }
+          if (decl.interfaceName != null) _checkConformance(decl);
         case InterfaceDecl():
           for (final m in decl.methods) {
             _checkFnSig(m);
@@ -109,6 +110,88 @@ class TypeChecker {
       _checkTypeRef(fieldType, decl.span, typeParams: typeParams);
     }
   }
+
+  /// Validate an `impl Interface for Type` block: the named interface must
+  /// exist, and the block must provide every interface method with a matching
+  /// signature (with `Self` standing for the implementing type).
+  void _checkConformance(ImplDecl decl) {
+    final ifaceName = decl.interfaceName!;
+    final ifaceDef = _library.typeDefs[ifaceName];
+    if (ifaceDef == null) {
+      _error('unknown interface: $ifaceName', decl.nameSpan);
+      return;
+    }
+    if (ifaceDef is! InterfaceElement) {
+      _error("'$ifaceName' is not an interface", decl.nameSpan);
+      return;
+    }
+    final owner = _library.typeDefs[decl.typeName];
+    if (owner == null) return; // unknown target type — reported elsewhere
+
+    // What `Self` denotes in the interface's signatures: the implementing type.
+    final implType = TypeResolver.primitiveType(decl.typeName) ??
+        InterfaceType(owner, [
+          for (final tp in decl.typeParams) TypeParameterType(tp.name),
+        ]);
+    final selfType = InterfaceType(ifaceDef);
+
+    final provided = {for (final m in decl.methods) m.name};
+    for (final im in ifaceDef.methods) {
+      if (!provided.contains(im.name)) {
+        _error("missing method '${im.name}' required by interface '$ifaceName'",
+            decl.nameSpan);
+        continue;
+      }
+      final om = owner.method(im.name);
+      if (om == null) continue; // resolved elsewhere; body checked already
+      if (!_signaturesMatch(im, om, selfType, implType)) {
+        _error(
+            "method '${im.name}' does not match its declaration in interface "
+            "'$ifaceName'",
+            decl.nameSpan);
+      }
+    }
+  }
+
+  /// Whether impl method [om] matches interface method [im], treating `Self`
+  /// (which resolves to [selfType] inside the interface) as [implType].
+  bool _signaturesMatch(
+      MethodElement im, MethodElement om, Type selfType, Type implType) {
+    if (im.isStatic != om.isStatic) return false;
+    final iParams = im.parameters.where((p) => !p.isSelf).toList();
+    final oParams = om.parameters.where((p) => !p.isSelf).toList();
+    if (iParams.length != oParams.length) return false;
+    for (var i = 0; i < iParams.length; i++) {
+      if (!_typeMatches(
+          _selfToImpl(iParams[i].type, selfType, implType), oParams[i].type)) {
+        return false;
+      }
+    }
+    return _typeMatches(
+        _selfToImpl(im.returnType, selfType, implType), om.returnType);
+  }
+
+  /// Substitute `Self` (== [selfType]) with [implType] throughout [t].
+  Type _selfToImpl(Type t, Type selfType, Type implType) {
+    if (t == selfType) return implType;
+    if (t is InterfaceType) {
+      return InterfaceType(t.element, [
+        for (final a in t.typeArguments) _selfToImpl(a, selfType, implType),
+      ]);
+    }
+    if (t is FunctionType) {
+      return FunctionType(
+        [for (final p in t.parameterTypes) _selfToImpl(p, selfType, implType)],
+        _selfToImpl(t.returnType, selfType, implType),
+      );
+    }
+    return t;
+  }
+
+  /// Lenient type equality for conformance: an unknown matches anything (a
+  /// separate diagnostic already explains the unresolved type).
+  bool _typeMatches(Type a, Type b) =>
+      a is UnknownType || b is UnknownType || a == b;
 
   void _checkFn(FnDecl fn,
       {TypeRef? selfType, Set<String> outerTypeParams = const {}}) {

@@ -21,12 +21,20 @@ sealed class TypeDefElement extends Element {
   /// resolution; empty for built-ins.
   List<MethodElement> get methods;
 
+  /// Names of interfaces this type implements, from `impl Interface for Type`
+  /// blocks. Filled during resolution; the checker validates each conformance.
+  final List<String> interfaces = [];
+
   MethodElement? method(String name) {
     for (final m in methods) {
       if (m.name == name) return m;
     }
     return null;
   }
+
+  /// Whether this type declares it implements [interfaceName].
+  bool implementsInterface(String interfaceName) =>
+      interfaces.contains(interfaceName);
 }
 
 class StructElement extends TypeDefElement {

@@ -140,6 +140,20 @@ impl Point {
       expect(xOf.returnType, PrimitiveType.int_);
     });
 
+    test('`impl Interface for Type` records conformance on the type', () {
+      final lib = build('''
+interface Display { fn display(self) -> String; }
+type Tag = { n: Int }
+impl Display for Tag { fn display(self) -> String { return "t"; } }
+''');
+      final tag = lib.typeDefs['Tag'] as StructElement;
+      expect(tag.implementsInterface('Display'), isTrue);
+      expect(tag.implementsInterface('Eq'), isFalse);
+      // An inherent impl records no conformance.
+      final lib2 = build('type Tag = { n: Int } impl Tag { }');
+      expect((lib2.typeDefs['Tag'] as StructElement).interfaces, isEmpty);
+    });
+
     test('generic impl resolves self type with type arguments', () {
       final lib = build('''
 type Box<T> = { value: T }
