@@ -11,3 +11,20 @@ pub enum Option<T> {
     Some(T),
     None,
 }
+
+impl Option<T> {
+    // Convert to a Result, using `err` for the None case.
+    @extern('option_ok_or')
+    pub native fn ok_or<E>(self, _ err: E) -> Result<T, E>
+
+    // The contained value if Some, else `fallback`.
+    @extern('option_unwrap_or')
+    pub native fn unwrap_or(self, _ fallback: T) -> T
+
+    // Discriminators.
+    @extern('option_is_some')
+    pub native fn is_some(self) -> Bool
+
+    @extern('option_is_none')
+    pub native fn is_none(self) -> Bool
+}

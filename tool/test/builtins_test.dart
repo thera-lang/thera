@@ -25,18 +25,15 @@ void main() {
       });
     });
 
-    test('return computations are generic-aware', () {
-      // List<Int>.get -> Option<Int>
-      final get = returns['List']!['get']!([PrimitiveType.int_], const []);
-      expect(get.toString(), 'Option<Int>');
-      // Map<String, Int>.values -> List<Int>
-      final values = returns['Map']!['values']!(
-          [PrimitiveType.string, PrimitiveType.int_], const []);
-      expect(values.toString(), 'List<Int>');
-      // Option<Int>.unwrap_or(...) -> Int
-      final unwrap =
-          returns['Option']!['unwrap_or']!([PrimitiveType.int_], const []);
-      expect(unwrap, PrimitiveType.int_);
+    test('return computations build the right types', () {
+      // Only String remains here; the generic collection/enum methods moved to
+      // Hawk `native fn`s (see sdk/std/core/{list,map,option}.hawk).
+      final string = returns['String']!;
+      expect(string['len']!(const [], const []), PrimitiveType.int_);
+      expect(string['trim']!(const [], const []), PrimitiveType.string);
+      // String.split_whitespace -> List<String>
+      expect(string['split_whitespace']!(const [], const []).toString(),
+          'List<String>');
     });
   });
 }

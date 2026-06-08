@@ -7,11 +7,34 @@ import 'package:hawk/src/lexer.dart';
 import 'package:hawk/src/parser.dart';
 import 'package:test/test.dart';
 
-/// Stand-in for the Result/Option enums the real `std.core` prelude provides;
-/// linked into every [inferred] program so qualified construction
-/// (`Result.Ok`, `Option.Some`/`None`) resolves to the real enum variants.
-const _coreEnums = 'enum Option<T> { Some(T), None }\n'
-    'enum Result<T, E> { Ok(T), Err(E) }';
+/// Stand-in for the parts of the real `std.core` prelude these inference tests
+/// rely on: the Result/Option enums (so qualified construction resolves) and the
+/// native instance methods on List/Map/Option (so `.get`/`.unwrap_or`/etc. carry
+/// their declared return types). Linked into every [inferred] program.
+const _corePrelude = '''
+enum Option<T> { Some(T), None }
+enum Result<T, E> { Ok(T), Err(E) }
+impl List<T> {
+  @extern('list_len')  native fn len(self) -> Int
+  @extern('list_get')  native fn get(self, _ i: Int) -> Option<T>
+  @extern('list_join') native fn join(self, _ sep: String) -> String
+  @extern('list_push') native fn push(self, _ item: T) -> Void
+}
+impl Map<K, V> {
+  @extern('map_len')      native fn len(self) -> Int
+  @extern('map_is_empty') native fn is_empty(self) -> Bool
+  @extern('map_has')      native fn has(self, _ key: K) -> Bool
+  @extern('map_get')      native fn get(self, _ key: K) -> Option<V>
+  @extern('map_remove')   native fn remove(self, _ key: K) -> Option<V>
+  @extern('map_keys')     native fn keys(self) -> List<K>
+  @extern('map_values')   native fn values(self) -> List<V>
+}
+impl Option<T> {
+  @extern('option_ok_or')     native fn ok_or<E>(self, _ err: E) -> Result<T, E>
+  @extern('option_unwrap_or') native fn unwrap_or(self, _ fallback: T) -> T
+  @extern('option_is_some')   native fn is_some(self) -> Bool
+  @extern('option_is_none')   native fn is_none(self) -> Bool
+}''';
 
 Program _parse(String source) {
   final lex = Lexer(source).tokenize();
@@ -51,7 +74,7 @@ Program inferred(String source, {List<String> imports = const []}) {
 
   final program = parse(source);
   final lib = buildLibrary(program,
-      imports: [parse(_coreEnums), for (final src in imports) parse(src)]);
+      imports: [parse(_corePrelude), for (final src in imports) parse(src)]);
   Inferrer(lib).inferProgram(program);
   return program;
 }

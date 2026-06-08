@@ -27,11 +27,32 @@ Program parseProgram(String source) {
 /// fns register as runtime natives and the enums occupy the reserved type ids
 /// 0/1 — neither adds function-table or type-table entries, so module/function
 /// assertions are unaffected.
-const _corePrelude =
-    "@extern('println') native fn println<T>(_ value: T) -> Void\n"
-    "@extern('print') native fn print<T>(_ value: T) -> Void\n"
-    "enum Option<T> { Some(T), None }\n"
-    "enum Result<T, E> { Ok(T), Err(E) }";
+const _corePrelude = '''
+@extern('println') native fn println<T>(_ value: T) -> Void
+@extern('print') native fn print<T>(_ value: T) -> Void
+enum Option<T> { Some(T), None }
+enum Result<T, E> { Ok(T), Err(E) }
+impl List<T> {
+  @extern('list_len')  native fn len(self) -> Int
+  @extern('list_get')  native fn get(self, _ i: Int) -> Option<T>
+  @extern('list_join') native fn join(self, _ sep: String) -> String
+  @extern('list_push') native fn push(self, _ item: T) -> Void
+}
+impl Map<K, V> {
+  @extern('map_len')      native fn len(self) -> Int
+  @extern('map_is_empty') native fn is_empty(self) -> Bool
+  @extern('map_has')      native fn has(self, _ key: K) -> Bool
+  @extern('map_get')      native fn get(self, _ key: K) -> Option<V>
+  @extern('map_remove')   native fn remove(self, _ key: K) -> Option<V>
+  @extern('map_keys')     native fn keys(self) -> List<K>
+  @extern('map_values')   native fn values(self) -> List<V>
+}
+impl Option<T> {
+  @extern('option_ok_or')     native fn ok_or<E>(self, _ err: E) -> Result<T, E>
+  @extern('option_unwrap_or') native fn unwrap_or(self, _ fallback: T) -> T
+  @extern('option_is_some')   native fn is_some(self) -> Bool
+  @extern('option_is_none')   native fn is_none(self) -> Bool
+}''';
 
 Module compile(String source) =>
     compileProgram(parseProgram(source), imports: [parseProgram(_corePrelude)]);

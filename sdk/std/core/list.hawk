@@ -4,10 +4,11 @@
 // imported (there is no `import std.list`). It is not constructed via a struct
 // literal — build one with a list literal, `[a, b, c]`.
 //
-// Indexing, `.len()`, `.get(i)`, `.push(v)`, and `.join(sep)` are built in
-// (backed by runtime natives). The transforms below are ordinary Hawk methods
-// that take a closure and are compiled like any other code — the payoff of
-// closures (see examples/closures.hawk, docs/bytecode.md).
+// `.len()`, `.get(i)`, `.push(v)`, and `.join(sep)` are declared below as
+// `native fn`s backed by runtime natives; indexing (`xs[i]`) is built-in syntax.
+// The transforms further down are ordinary Hawk methods that take a closure and
+// are compiled like any other code — the payoff of closures (see
+// examples/closures.hawk, docs/bytecode.md).
 //
 //   let evens = [1, 2, 3, 4].filter(n => n % 2 == 0);   // [2, 4]
 //   let names = users.map(u => u.name);
@@ -16,6 +17,23 @@
 // `sort`/`to_list`.
 
 impl List<T> {
+    // Number of elements.
+    @extern('list_len')
+    pub native fn len(self) -> Int
+
+    // The element at `i`, or None if out of range — the checked alternative to
+    // indexing with `[]`.
+    @extern('list_get')
+    pub native fn get(self, _ i: Int) -> Option<T>
+
+    // Join the elements (rendered via Display) with `sep` between them.
+    @extern('list_join')
+    pub native fn join(self, _ sep: String) -> String
+
+    // Append `item` to the end, in place.
+    @extern('list_push')
+    pub native fn push(self, _ item: T) -> Void
+
     // A new list with `f` applied to each element, in order.
     pub fn map<U>(self, _ f: (T) -> U) -> List<U> {
         let result = [];

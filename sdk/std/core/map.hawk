@@ -1,44 +1,46 @@
-// std.map — the built-in Map<K, V> type.
+// std.core — the built-in Map<K, V> type.
 //
 // Map<K, V> is an ordered key-value store (insertion order is preserved). It is
 // a built-in type: always in scope, never explicitly imported (there is no
-// `import std.map`).
-//
-// As with std.list, the declarations below are COMMENTED OUT because the
-// toolchain does not yet support generic `type` / `impl` declarations. Treat
-// this as the source-of-truth sketch until the Rust front-end can express it.
+// `import std.map`). Build one with a map literal: `{k1: v1, k2: v2}`.
 //
 // Indexing:
 //
 //   let v = scores[key];   // → V; traps if key is absent
 //   scores[key] = v;       // insert / update (the binding must be `mut`)
 //
-// Use .get(key) when a missing key is a normal, expected case. See "Runtime
+// Use `.get(key)` when a missing key is a normal, expected case. See "Runtime
 // faults" and "Collections" in docs/language.md.
 //
-// NOTE: the current interpreter returns Option<V> from scores[key] (identical
-// to .get) — see examples/maps.hawk. The trapping semantics documented above
-// are the agreed design, to be implemented in the Rust runtime.
+// NOTE: the runtime currently returns Option<V> from `scores[key]` (identical to
+// `.get`). The trapping semantics documented above are the agreed design, still
+// to be implemented in the Rust runtime.
 
-// type Map<K, V> = {
-//     // Opaque built-in; build one with a map literal: {k1: v1, k2: v2}.
-// }
-//
-// impl Map<K, V> {
-//     // Number of entries.
-//     fn len(self) -> Int
-//
-//     // True if `key` is present.
-//     fn has(self, _ key: K) -> Bool
-//
-//     // Value for `key`, or None if absent — the checked alternative to
-//     // indexing with [].
-//     fn get(self, _ key: K) -> Option<V>
-//
-//     // Remove `key`, returning its previous value if it was present.
-//     fn remove(self, _ key: K) -> Option<V>
-//
-//     // Keys / values, in insertion order.
-//     fn keys(self) -> List<K>
-//     fn values(self) -> List<V>
-// }
+impl Map<K, V> {
+    // Number of entries.
+    @extern('map_len')
+    pub native fn len(self) -> Int
+
+    // True if there are no entries.
+    @extern('map_is_empty')
+    pub native fn is_empty(self) -> Bool
+
+    // True if `key` is present.
+    @extern('map_has')
+    pub native fn has(self, _ key: K) -> Bool
+
+    // Value for `key`, or None if absent — the checked alternative to indexing.
+    @extern('map_get')
+    pub native fn get(self, _ key: K) -> Option<V>
+
+    // Remove `key`, returning its previous value if it was present.
+    @extern('map_remove')
+    pub native fn remove(self, _ key: K) -> Option<V>
+
+    // Keys / values, in insertion order.
+    @extern('map_keys')
+    pub native fn keys(self) -> List<K>
+
+    @extern('map_values')
+    pub native fn values(self) -> List<V>
+}
