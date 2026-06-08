@@ -117,9 +117,9 @@ String _describeConstDecl(ConstDecl decl) {
 }
 
 Range _spanToRange(SourceSpan span) {
+  final (endLine, endColumn) = span.endLineColumn;
   return Range(
     start: Position(line: span.line - 1, character: span.column - 1),
-    end:
-        Position(line: span.line - 1, character: span.column - 1 + span.length),
+    end: Position(line: endLine - 1, character: endColumn - 1),
   );
 }

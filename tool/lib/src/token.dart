@@ -132,6 +132,24 @@ class SourceSpan {
 
   String get text => source.substring(offset, offset + length);
 
+  /// The 1-based (line, column) of the position just past this span, computed
+  /// by scanning [source]. Correct for multi-line spans — unlike
+  /// `column + length`, which assumes the span stays on its start line.
+  (int line, int column) get endLineColumn {
+    var l = line;
+    var c = column;
+    final end = offset + length;
+    for (var i = offset; i < end && i < source.length; i++) {
+      if (source.codeUnitAt(i) == 0x0a) {
+        l++;
+        c = 1;
+      } else {
+        c++;
+      }
+    }
+    return (l, c);
+  }
+
   @override
   String toString() => '$line:$column';
 }

@@ -226,22 +226,30 @@ interface Debug {
       expect(symbols, hasLength(3));
       // Walk every symbol and all of their children checking the containment
       // invariant that VSCode validates client-side.
-      void checkContainment(Map symbol) {
-        final range = symbol['range'] as Map;
-        final sel = symbol['selectionRange'] as Map;
-        expect(
-          _containsRange(range, sel),
-          isTrue,
-          reason: 'selectionRange must be contained in range for '
-              '"${symbol['name']}": range=$range  selectionRange=$sel',
-        );
-        for (final child in (symbol['children'] as List? ?? [])) {
-          checkContainment(child as Map);
-        }
-      }
-
       for (final s in symbols) {
-        checkContainment(s as Map);
+        _checkContainmentDeep(s as Map);
+      }
+    });
+
+    test('selectionRange contained in range when the name is on a later line',
+        () async {
+      // Regression: a symbol's range is the whole (multi-line) declaration span.
+      // _spanToEndPosition collapsed it onto the start line (start.column +
+      // length), so a method whose name sits on a line *after* its span start —
+      // e.g. an @extern decorator above `pub native fn`, as in std.core's
+      // string.hawk — had its selectionRange fall outside the range.
+      await initialize();
+      const uri = 'file:///deco.hawk';
+      await openAndAwaitDiagnostics(uri, '''
+impl String {
+    @extern('str_from_chars')
+    pub native fn from_chars(_ cps: List<Int>) -> String
+}
+''');
+      final symbols = (await documentSymbol(uri)) as List;
+      expect(symbols, hasLength(1));
+      for (final s in symbols) {
+        _checkContainmentDeep(s as Map);
       }
     });
 
@@ -333,12 +341,27 @@ fn main(u: User) -> Int {
       expect(loc['uri'], uri);
       final range = loc['range'] as Map;
       expect((range['start'] as Map)['line'], 0); // type User is on line 0
-      expect((range['start'] as Map)['character'], 5); // 'User' is at character 5
+      expect(
+          (range['start'] as Map)['character'], 5); // 'User' is at character 5
     });
   });
 }
 
 /// Returns true if [outer] (a Range map) fully contains [inner].
+/// Assert the LSP invariant — selectionRange contained in range — for [symbol]
+/// and, recursively, all of its children.
+void _checkContainmentDeep(Map symbol) {
+  expect(
+    _containsRange(symbol['range'] as Map, symbol['selectionRange'] as Map),
+    isTrue,
+    reason: 'selectionRange must be contained in range for "${symbol['name']}":'
+        ' range=${symbol['range']}  selectionRange=${symbol['selectionRange']}',
+  );
+  for (final child in (symbol['children'] as List? ?? const [])) {
+    _checkContainmentDeep(child as Map);
+  }
+}
+
 bool _containsRange(Map outer, Map inner) {
   int line(Map pos) => pos['line'] as int;
   int char(Map pos) => pos['character'] as int;

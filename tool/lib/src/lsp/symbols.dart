@@ -100,6 +100,6 @@ Position _spanToPosition(SourceSpan span) {
 }
 
 Position _spanToEndPosition(SourceSpan span) {
-  return Position(
-      line: span.line - 1, character: span.column - 1 + span.length);
+  final (line, column) = span.endLineColumn;
+  return Position(line: line - 1, character: column - 1);
 }
