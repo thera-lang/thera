@@ -7,7 +7,7 @@
 
 use std::io::Write;
 
-use super::{Trap, bug};
+use super::{Trap, bug, struct_field};
 use crate::value::{Obj, TAG_NONE, TAG_SOME, TY_OPTION, Value};
 
 /// A native function: receives the VM's output sink and the call arguments.
@@ -86,6 +86,13 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("map_is_empty", native_map_is_empty),
     ("list_join", native_list_join),
     ("list_push", native_list_push),
+    ("process_run", native_process_run),
+    ("process_start", native_process_start),
+    ("process_wait", native_process_wait),
+    ("process_kill", native_process_kill),
+    ("process_stdin_write", native_process_stdin_write),
+    ("process_stdout_read", native_process_stdout_read),
+    ("process_stderr_read", native_process_stderr_read),
 ];
 
 /// The native functions the runtime ships with, in index order.
@@ -723,6 +730,363 @@ fn native_set_remove(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap
             None => Ok(Value::Bool(false)),
         }
     })
+}
+
+// --- process natives ---
+
+use std::collections::HashMap;
+use std::io::Read;
+use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::{Mutex, OnceLock};
+
+static NEXT_PROCESS_ID: AtomicI64 = AtomicI64::new(1);
+
+struct RunningProcess {
+    child: Child,
+    stdin: Option<std::process::ChildStdin>,
+    stdout: Option<std::process::ChildStdout>,
+    stderr: Option<std::process::ChildStderr>,
+}
+
+fn process_registry() -> &'static Mutex<HashMap<i64, RunningProcess>> {
+    static REGISTRY: OnceLock<Mutex<HashMap<i64, RunningProcess>>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn make_error(msg: impl Into<String>) -> Value {
+    Value::err(Value::new_struct(0, vec![Value::new_str(msg)]))
+}
+
+fn get_process_id(process_val: &Value) -> Result<i64, Trap> {
+    let id_val = struct_field(process_val, 0)?;
+    match id_val {
+        Value::Int(id) => Ok(id),
+        _ => Err(bug("expected process id to be an Int")),
+    }
+}
+
+fn expect_string_list(v: &Value, who: &str) -> Result<Vec<String>, Trap> {
+    with_list(v, who, |items| {
+        let mut list = Vec::new();
+        for item in items {
+            list.push(str_contents(item)?);
+        }
+        Ok(list)
+    })
+}
+
+fn expect_option_string(v: &Value, who: &str) -> Result<Option<String>, Trap> {
+    let (variant, fields) = as_option(v, who)?;
+    if variant == TAG_SOME {
+        let first = fields
+            .first()
+            .ok_or_else(|| bug(format!("{who}: missing Some field")))?;
+        Ok(Some(str_contents(first)?))
+    } else {
+        Ok(None)
+    }
+}
+
+fn expect_option_map(v: &Value, who: &str) -> Result<Option<HashMap<String, String>>, Trap> {
+    let (variant, fields) = as_option(v, who)?;
+    if variant == TAG_SOME {
+        let first = fields
+            .first()
+            .ok_or_else(|| bug(format!("{who}: missing Some field")))?;
+        with_map(first, who, |entries| {
+            let mut map = HashMap::new();
+            for (k, val) in entries {
+                map.insert(str_contents(k)?, str_contents(val)?);
+            }
+            Ok(Some(map))
+        })
+    } else {
+        Ok(None)
+    }
+}
+
+/// `process_run(command, args, working_dir, env)`
+fn native_process_run(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    if args.is_empty() || args.len() > 4 {
+        return Err(bug(format!(
+            "process_run expects between 1 and 4 arguments, got {}",
+            args.len()
+        )));
+    }
+    let cmd_name = str_contents(&args[0])?;
+    let cmd_args = if args.len() >= 2 {
+        expect_string_list(&args[1], "process_run: args")?
+    } else {
+        Vec::new()
+    };
+    let working_dir = if args.len() >= 3 {
+        expect_option_string(&args[2], "process_run: working_dir")?
+    } else {
+        None
+    };
+    let env = if args.len() >= 4 {
+        expect_option_map(&args[3], "process_run: env")?
+    } else {
+        None
+    };
+
+    let mut command = Command::new(&cmd_name);
+    command.args(&cmd_args);
+    if let Some(dir) = working_dir {
+        command.current_dir(dir);
+    }
+    if let Some(env_map) = env {
+        command.envs(env_map);
+    }
+    command.stdout(Stdio::piped());
+    command.stderr(Stdio::piped());
+
+    match command.output() {
+        Ok(output) => {
+            let exit_code = output.status.code().unwrap_or(-1) as i64;
+            let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+            let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+
+            let res = Value::new_struct(
+                0,
+                vec![
+                    Value::Int(exit_code),
+                    Value::new_str(stdout),
+                    Value::new_str(stderr),
+                ],
+            );
+            Ok(Value::ok(res))
+        }
+        Err(e) => Ok(make_error(format!(
+            "Failed to run command '{}': {}",
+            cmd_name, e
+        ))),
+    }
+}
+
+/// `process_start(command, args, working_dir, env)`
+fn native_process_start(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    if args.is_empty() || args.len() > 4 {
+        return Err(bug(format!(
+            "process_start expects between 1 and 4 arguments, got {}",
+            args.len()
+        )));
+    }
+    let cmd_name = str_contents(&args[0])?;
+    let cmd_args = if args.len() >= 2 {
+        expect_string_list(&args[1], "process_start: args")?
+    } else {
+        Vec::new()
+    };
+    let working_dir = if args.len() >= 3 {
+        expect_option_string(&args[2], "process_start: working_dir")?
+    } else {
+        None
+    };
+    let env = if args.len() >= 4 {
+        expect_option_map(&args[3], "process_start: env")?
+    } else {
+        None
+    };
+
+    let mut command = Command::new(&cmd_name);
+    command.args(&cmd_args);
+    if let Some(dir) = working_dir {
+        command.current_dir(dir);
+    }
+    if let Some(env_map) = env {
+        command.envs(env_map);
+    }
+    command.stdin(Stdio::piped());
+    command.stdout(Stdio::piped());
+    command.stderr(Stdio::piped());
+
+    match command.spawn() {
+        Ok(mut child) => {
+            let id = NEXT_PROCESS_ID.fetch_add(1, Ordering::SeqCst);
+
+            let stdin = child.stdin.take();
+            let stdout = child.stdout.take();
+            let stderr = child.stderr.take();
+
+            let running = RunningProcess {
+                child,
+                stdin,
+                stdout,
+                stderr,
+            };
+
+            process_registry().lock().unwrap().insert(id, running);
+
+            let proc = Value::new_struct(0, vec![Value::Int(id)]);
+            Ok(Value::ok(proc))
+        }
+        Err(e) => Ok(make_error(format!(
+            "Failed to start command '{}': {}",
+            cmd_name, e
+        ))),
+    }
+}
+
+/// `process_wait(self)`
+fn native_process_wait(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let process_val = expect_one(args, "process_wait")?;
+    let id = get_process_id(process_val)?;
+
+    let mut registry = process_registry().lock().unwrap();
+    let mut running = match registry.remove(&id) {
+        Some(r) => r,
+        None => {
+            return Ok(make_error(format!(
+                "Process with ID {id} not found (it may have already been waited on)"
+            )));
+        }
+    };
+    drop(registry);
+
+    match running.child.wait() {
+        Ok(status) => {
+            let exit_code = status.code().unwrap_or(-1) as i64;
+            Ok(Value::ok(Value::Int(exit_code)))
+        }
+        Err(e) => Ok(make_error(format!(
+            "Failed to wait for process {id}: {}",
+            e
+        ))),
+    }
+}
+
+/// `process_kill(self)`
+fn native_process_kill(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let process_val = expect_one(args, "process_kill")?;
+    let id = get_process_id(process_val)?;
+
+    let mut registry = process_registry().lock().unwrap();
+    let mut running = match registry.remove(&id) {
+        Some(r) => r,
+        None => {
+            return Ok(make_error(format!("Process with ID {id} not found")));
+        }
+    };
+    drop(registry);
+
+    match running.child.kill() {
+        Ok(()) => {
+            let _ = running.child.wait();
+            Ok(Value::ok(Value::Unit))
+        }
+        Err(e) => Ok(make_error(format!("Failed to kill process {id}: {}", e))),
+    }
+}
+
+/// `process_stdin_write(self, data)`
+fn native_process_stdin_write(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (process_val, data_val) = args2(args, "process_stdin_write")?;
+    let id = get_process_id(process_val)?;
+    let data = str_contents(data_val)?;
+
+    let mut registry = process_registry().lock().unwrap();
+    let running = match registry.get_mut(&id) {
+        Some(r) => r,
+        None => {
+            return Ok(make_error(format!("Process with ID {id} not found")));
+        }
+    };
+
+    let stdin = match &mut running.stdin {
+        Some(s) => s,
+        None => {
+            return Ok(make_error(format!(
+                "Process with ID {id} standard input is not available"
+            )));
+        }
+    };
+
+    match stdin.write_all(data.as_bytes()) {
+        Ok(()) => {
+            let _ = stdin.flush();
+            Ok(Value::ok(Value::Unit))
+        }
+        Err(e) => Ok(make_error(format!(
+            "Failed to write to stdin of process {id}: {}",
+            e
+        ))),
+    }
+}
+
+/// `process_stdout_read(self)`
+fn native_process_stdout_read(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let process_val = expect_one(args, "process_stdout_read")?;
+    let id = get_process_id(process_val)?;
+
+    let mut registry = process_registry().lock().unwrap();
+    let running = match registry.get_mut(&id) {
+        Some(r) => r,
+        None => {
+            return Ok(make_error(format!("Process with ID {id} not found")));
+        }
+    };
+
+    let stdout = match &mut running.stdout {
+        Some(s) => s,
+        None => {
+            return Ok(Value::ok(Value::new_str("")));
+        }
+    };
+
+    let mut buf = [0u8; 4096];
+    match stdout.read(&mut buf) {
+        Ok(0) => {
+            running.stdout = None;
+            Ok(Value::ok(Value::new_str("")))
+        }
+        Ok(n) => {
+            let s = String::from_utf8_lossy(&buf[..n]).into_owned();
+            Ok(Value::ok(Value::new_str(s)))
+        }
+        Err(e) => Ok(make_error(format!(
+            "Failed to read stdout of process {id}: {}",
+            e
+        ))),
+    }
+}
+
+/// `process_stderr_read(self)`
+fn native_process_stderr_read(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let process_val = expect_one(args, "process_stderr_read")?;
+    let id = get_process_id(process_val)?;
+
+    let mut registry = process_registry().lock().unwrap();
+    let running = match registry.get_mut(&id) {
+        Some(r) => r,
+        None => {
+            return Ok(make_error(format!("Process with ID {id} not found")));
+        }
+    };
+
+    let stderr = match &mut running.stderr {
+        Some(s) => s,
+        None => {
+            return Ok(Value::ok(Value::new_str("")));
+        }
+    };
+
+    let mut buf = [0u8; 4096];
+    match stderr.read(&mut buf) {
+        Ok(0) => {
+            running.stderr = None;
+            Ok(Value::ok(Value::new_str("")))
+        }
+        Ok(n) => {
+            let s = String::from_utf8_lossy(&buf[..n]).into_owned();
+            Ok(Value::ok(Value::new_str(s)))
+        }
+        Err(e) => Ok(make_error(format!(
+            "Failed to read stderr of process {id}: {}",
+            e
+        ))),
+    }
 }
 
 #[cfg(test)]

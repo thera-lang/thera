@@ -57,6 +57,71 @@ Module compileWith(String source, Map<String, String> libs) {
 const _fsLib = "@extern('fs_read_text')\n"
     'pub native fn read_text(_ path: String) -> Result<String, Error>';
 
+const _processLib = '''
+pub type ProcessResult = {
+    exit_code: Int,
+    stdout: String,
+    stderr: String,
+}
+
+pub type Process = {
+    id: Int,
+}
+
+@extern('process_wait')
+native fn _wait(_ proc: Process) -> Result<Int, Error>
+
+@extern('process_kill')
+native fn _kill(_ proc: Process) -> Result<Void, Error>
+
+@extern('process_stdin_write')
+native fn _stdin_write(_ proc: Process, _ data: String) -> Result<Void, Error>
+
+@extern('process_stdout_read')
+native fn _stdout_read(_ proc: Process) -> Result<String, Error>
+
+@extern('process_stderr_read')
+native fn _stderr_read(_ proc: Process) -> Result<String, Error>
+
+impl Process {
+    pub fn wait(self) -> Result<Int, Error> {
+        return _wait(self);
+    }
+
+    pub fn kill(self) -> Result<Void, Error> {
+        return _kill(self);
+    }
+
+    pub fn stdin_write(self, _ data: String) -> Result<Void, Error> {
+        return _stdin_write(self, data);
+    }
+
+    pub fn stdout_read(self) -> Result<String, Error> {
+        return _stdout_read(self);
+    }
+
+    pub fn stderr_read(self) -> Result<String, Error> {
+        return _stderr_read(self);
+    }
+}
+
+@extern('process_run')
+pub native fn run(
+    _ command: String,
+    args: List<String> = [],
+    working_dir: Option<String>,
+    env: Option<Map<String, String>>,
+) -> Result<ProcessResult, Error>
+
+@extern('process_start')
+pub native fn start(
+    _ command: String,
+    args: List<String> = [],
+    working_dir: Option<String>,
+    env: Option<Map<String, String>>,
+) -> Result<Process, Error>
+''';
+
 void main() {
   group('codegen lowering', () {
     test('println + return lowers to the expected stream', () {
@@ -973,6 +1038,48 @@ fn main() -> Result<Int, Error> {
 ''');
       expect(err['code'], 1);
       expect(err['err'], contains('error:'));
+    });
+
+    test('process.run and process.start work end to end', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+
+      Map<String, dynamic> run(String name, String src) {
+        final tmp = '${Directory.systemTemp.path}/hawk_proc_$name.hawkbc';
+        File(tmp).writeAsBytesSync(
+            encodeModule(compileWith(src, {
+              'std.fs': _fsLib,
+              'std.process': _processLib,
+            })));
+        final r = Process.runSync(hawkBin, ['run', tmp]);
+        return {'code': r.exitCode, 'out': r.stdout, 'err': r.stderr};
+      }
+
+      // 1. Test process.run with echo
+      final rRun = run('echo', '''
+import std.process;
+fn main() -> Result<Int, Error> {
+    let res = process.run('echo', args: ['hello', 'world'])?;
+    println(res.stdout.trim());
+    return Result.Ok(res.exit_code);
+}
+''');
+      expect(rRun['code'], 0);
+      expect(rRun['out'], 'hello world\n');
+
+      // 2. Test process.start with cat and stdin
+      final rStart = run('cat', '''
+import std.process;
+fn main() -> Result<Int, Error> {
+    let p = process.start('cat')?;
+    p.stdin_write('hello from cat\\n')?;
+    let out = p.stdout_read()?;
+    println(out.trim());
+    p.kill()?;
+    return Result.Ok(0);
+}
+''');
+      expect(rStart['code'], 0);
+      expect(rStart['out'], 'hello from cat\n');
     });
 
     test('map.remove mutates; keys()/values()/join work', () {

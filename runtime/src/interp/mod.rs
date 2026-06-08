@@ -464,7 +464,7 @@ fn enum_field(v: &Value, idx: usize) -> Result<Value, Trap> {
 }
 
 /// Read field `idx` of a struct value.
-fn struct_field(v: &Value, idx: usize) -> Result<Value, Trap> {
+pub(super) fn struct_field(v: &Value, idx: usize) -> Result<Value, Trap> {
     match v {
         Value::Ref(rc) => match &*rc.borrow() {
             Obj::Struct { fields, .. } => fields

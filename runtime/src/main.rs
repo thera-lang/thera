@@ -98,6 +98,7 @@ fn render(v: &Value) -> String {
         Value::Unit => "()".to_string(),
         Value::Ref(rc) => match &*rc.borrow() {
             Obj::Str(s) => s.clone(),
+            Obj::Struct { fields, .. } if fields.len() == 1 => render(&fields[0]),
             other => format!("{other:?}"),
         },
     }

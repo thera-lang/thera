@@ -1,0 +1,105 @@
+// std.process — process spawning and execution control.
+//
+// Import as: import std.process
+//
+// Running a command synchronously:
+//
+//   let result = process.run('git', args: ['status', '--short'])?;
+//   println(result.stdout);
+//
+// Spawning an asynchronous child process:
+//
+//   let child = process.start('sleep', args: ['5'])?;
+//   let exit_code = child.wait()?;
+
+// The result of a synchronous process execution.
+pub type ProcessResult = {
+    exit_code: Int,
+    stdout: String,
+    stderr: String,
+}
+
+// Represents a running asynchronous child process.
+pub type Process = {
+    id: Int,
+}
+
+@extern('process_wait')
+native fn _wait(_ proc: Process) -> Result<Int, Error>
+
+@extern('process_kill')
+native fn _kill(_ proc: Process) -> Result<Void, Error>
+
+@extern('process_stdin_write')
+native fn _stdin_write(_ proc: Process, _ data: String) -> Result<Void, Error>
+
+@extern('process_stdout_read')
+native fn _stdout_read(_ proc: Process) -> Result<String, Error>
+
+@extern('process_stderr_read')
+native fn _stderr_read(_ proc: Process) -> Result<String, Error>
+
+impl Process {
+    // Wait for the process to complete, returning its exit code.
+    pub fn wait(self) -> Result<Int, Error> {
+        return _wait(self);
+    }
+
+    // Terminate the process (typically sending a SIGKILL or equivalent).
+    pub fn kill(self) -> Result<Void, Error> {
+        return _kill(self);
+    }
+
+    // Write a string to the process's standard input.
+    pub fn stdin_write(self, _ data: String) -> Result<Void, Error> {
+        return _stdin_write(self, data);
+    }
+
+    // Read available output from the process's stdout.
+    //
+    // TODO: Currently returns a String representing the block of currently
+    // available output. When Hawk supports a streaming I/O API (e.g. Reader/Writer
+    // interfaces), this should be migrated to return an `io.Reader` or similar.
+    // An empty string `""` indicates EOF (the stream has closed).
+    pub fn stdout_read(self) -> Result<String, Error> {
+        return _stdout_read(self);
+    }
+
+    // Read available output from the process's stderr.
+    //
+    // TODO: Currently returns a String representing the block of currently
+    // available output. When Hawk supports a streaming I/O API (e.g. Reader/Writer
+    // interfaces), this should be migrated to return an `io.Reader` or similar.
+    // An empty string `""` indicates EOF (the stream has closed).
+    pub fn stderr_read(self) -> Result<String, Error> {
+        return _stderr_read(self);
+    }
+}
+
+// Run a command synchronously, blocking until it completes.
+//
+//   `command`: the executable to run (e.g. 'git', 'python3').
+//   `args`: arguments passed to the command.
+//   `working_dir`: optional directory path to run the process in.
+//   `env`: optional environment variables mapping to supply.
+@extern('process_run')
+pub native fn run(
+    _ command: String,
+    args: List<String> = [],
+    working_dir: Option<String>,
+    env: Option<Map<String, String>>,
+) -> Result<ProcessResult, Error>
+
+// Start a command asynchronously, returning a Process handle immediately.
+//
+//   `command`: the executable to start (e.g. 'git', 'python3').
+//   `args`: arguments passed to the command.
+//   `working_dir`: optional directory path to run the process in.
+//   `env`: optional environment variables mapping to supply.
+@extern('process_start')
+pub native fn start(
+    _ command: String,
+    args: List<String> = [],
+    working_dir: Option<String>,
+    env: Option<Map<String, String>>,
+) -> Result<Process, Error>
