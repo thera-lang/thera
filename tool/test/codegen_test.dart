@@ -590,6 +590,28 @@ fn f() -> Int { return String.from_chars([105]).len(); }
               .having((i) => i.name, 'name', 'str_from_chars')
               .having((i) => i.argc, 'argc', 1)));
     });
+
+    test('an instance native method lowers to call.native, receiver first', () {
+      // A user `@extern` instance method (takes `self`) lowers like a built-in
+      // method: receiver pushed first, then args. `mylen` is a fresh name (not
+      // in the built-in table) so it exercises the nativeInstanceMethods path.
+      final ops = compile('''
+impl List<T> {
+  @extern('list_len') native fn mylen(self) -> Int
+}
+fn f() -> Int { let xs = [1, 2, 3]; return xs.mylen(); }
+''').functions.single.code;
+      expect(
+          ops,
+          containsAllInOrder([
+            isA<ListNew>(),
+            isA<Store>(),
+            isA<Load>(), // receiver
+            isA<CallNative>()
+                .having((i) => i.name, 'name', 'list_len')
+                .having((i) => i.argc, 'argc', 1), // self only
+          ]));
+    });
   });
 
   group('end-to-end (requires the Rust runtime)', () {
@@ -674,6 +696,18 @@ fn main() -> Int {
           runExit('if',
               'fn main() -> Int { let x = 7; if x > 5 { return 1; } else { return 2; } }'),
           1);
+    });
+
+    test('an instance native method runs end to end (receiver + arg)', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      // `at` is a user @extern instance method bound to the existing list_get
+      // native: receiver + index. `[10,20,30].at(1)` → Some(20) → 20.
+      expect(runExit('instance_native', '''
+impl List<T> {
+  @extern('list_get') native fn at(self, _ i: Int) -> Option<T>
+}
+fn main() -> Int { return [10, 20, 30].at(1).unwrap_or(0); }
+'''), 20);
     });
 
     test('&& short-circuits (the right side, which would trap, is skipped)',
@@ -1045,11 +1079,10 @@ fn main() -> Result<Int, Error> {
 
       Map<String, dynamic> run(String name, String src) {
         final tmp = '${Directory.systemTemp.path}/hawk_proc_$name.hawkbc';
-        File(tmp).writeAsBytesSync(
-            encodeModule(compileWith(src, {
-              'std.fs': _fsLib,
-              'std.process': _processLib,
-            })));
+        File(tmp).writeAsBytesSync(encodeModule(compileWith(src, {
+          'std.fs': _fsLib,
+          'std.process': _processLib,
+        })));
         final r = Process.runSync(hawkBin, ['run', tmp]);
         return {'code': r.exitCode, 'out': r.stdout, 'err': r.stderr};
       }

@@ -101,7 +101,9 @@ void _registerModule(_ModuleScope scope, Program program) {
           final isStatic = !method.params.any((p) => p.isSelf);
           if (method.isNative && isStatic) {
             scope.addNativeStaticMethod(decl.typeName, method);
-          } else if (!method.isNative && method.body != null) {
+          } else if (method.isNative) {
+            scope.addNativeInstanceMethod(decl.typeName, method);
+          } else if (method.body != null) {
             scope.addMethod(decl.typeName, method);
           }
         }
@@ -179,6 +181,11 @@ class _ModuleScope {
   /// as a `call.native` with no receiver.
   final Map<String, Map<String, String>> nativeStaticMethods = {};
 
+  /// Instance `native fn`s declared in `impl` blocks: type -> method -> runtime
+  /// native symbol (e.g. `List` -> `len` -> `list_len`). Lowered as a
+  /// `call.native` with the receiver pushed as the first argument.
+  final Map<String, Map<String, String>> nativeInstanceMethods = {};
+
   /// Import namespaces in scope for the program being compiled (alias / trailing
   /// path segment). A qualified `ns.Name` resolves to the flat `Name`.
   final Set<String> namespaces;
@@ -221,6 +228,13 @@ class _ModuleScope {
   /// `impl String { @extern('str_from_chars') native fn from_chars(...) }`.
   void addNativeStaticMethod(String type, FnDecl method) {
     nativeStaticMethods.putIfAbsent(type, () => {})[method.name] =
+        _externSymbol(method);
+  }
+
+  /// Register an instance `native fn` from an `impl` block (takes `self`), e.g.
+  /// `impl List<T> { @extern('list_len') native fn len(self) -> Int }`.
+  void addNativeInstanceMethod(String type, FnDecl method) {
+    nativeInstanceMethods.putIfAbsent(type, () => {})[method.name] =
         _externSymbol(method);
   }
 
@@ -1465,6 +1479,19 @@ class _FnCompiler {
         _expr(arg.value);
       }
       _emit(CallNative(builtinNative, expr.args.length + 1));
+      return;
+    }
+
+    // Instance `native fn` declared in an `impl` block (`@extern`): like a
+    // built-in method, the receiver is pushed as the native's first argument.
+    final instanceNative =
+        _scope.nativeInstanceMethods[_typeOf(callee.object)]?[callee.field];
+    if (instanceNative != null) {
+      _expr(callee.object);
+      for (final arg in expr.args) {
+        _expr(arg.value);
+      }
+      _emit(CallNative(instanceNative, expr.args.length + 1));
       return;
     }
 
