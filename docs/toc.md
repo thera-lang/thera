@@ -12,6 +12,9 @@ is"; read top-down for progressive detail.
 - [visibility.md](visibility.md) — the **visibility & libraries** design: the
   file privacy boundary, `pub`, barrels for directories, and the test white-box
   rule.
+- [interfaces.md](interfaces.md) — the **interfaces & dispatch** design:
+  conformance, `Eq`/`Display`/`Debug`, static-vs-dynamic dispatch, and the
+  staged plan.
 - [bytecode.md](bytecode.md) — the bytecode **spec**: value model, instruction
   set, the Tier-0 interpreter, and the serialized `.hawkbc` format.
 - [architecture.md](architecture.md) — the runtime **architecture**: the tiered
