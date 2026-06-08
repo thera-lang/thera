@@ -348,6 +348,38 @@ fn f() -> Int { let t = Tag { n: 1 }; println('v=\${t}'); return 0; }
           isNot(contains('stringify')));
     });
 
+    test('println of a Display type renders via its display method', () {
+      final m = compile('''
+type Tag = { n: Int }
+impl Display for Tag { fn display(self) -> String { return 'tag'; } }
+fn f() -> Int { let t = Tag { n: 1 }; println(t); return 0; }
+''');
+      final displayIdx =
+          m.functions.indexWhere((fn) => fn.name == 'Tag.display');
+      final f = m.functions.firstWhere((fn) => fn.name == 'f').code;
+      // Renders via Tag.display, then prints the resulting String.
+      expect(
+          f,
+          containsAllInOrder([
+            isA<Call>().having((i) => i.func, 'func', displayIdx),
+            isA<CallNative>().having((i) => i.name, 'name', 'println'),
+          ]));
+    });
+
+    test('println of a primitive passes the value straight to the native', () {
+      final f = compile('fn f() -> Int { println(42); return 0; }')
+          .functions
+          .single
+          .code;
+      // No display Call — 42 goes directly to println, which renders it.
+      expect(
+          f,
+          containsAllInOrder([
+            isA<ConstInt>().having((i) => i.value, 'value', 42),
+            isA<CallNative>().having((i) => i.name, 'name', 'println'),
+          ]));
+    });
+
     test('interpolating a type that does not implement Display is rejected',
         () {
       // A `display` method alone is not enough — it must be `impl Display for T`.
@@ -781,6 +813,21 @@ fn main() -> Int { return [10, 20, 30].at(1).unwrap_or(0); }
 impl Int { fn double(self) -> Int { return self + self; } }
 fn main() -> Int { let n = 21; return n.double(); }
 '''), 42);
+    });
+
+    test('println renders a user type via its Display impl', () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      final m = compile('''
+type Point = { x: Int, y: Int }
+impl Display for Point {
+  fn display(self) -> String { return "(\${self.x}, \${self.y})"; }
+}
+fn main() -> Int { println(Point { x: 3, y: 4 }); return 0; }
+''');
+      final tmp = '${Directory.systemTemp.path}/hawk_println_display.hawkbc';
+      File(tmp).writeAsBytesSync(encodeModule(m));
+      final r = Process.runSync(hawkBin, ['run', tmp]);
+      expect(r.stdout, '(3, 4)\n');
     });
 
     test('an explicit Eq impl overrides structural equality', () {

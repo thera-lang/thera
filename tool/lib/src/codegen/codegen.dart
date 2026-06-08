@@ -1339,6 +1339,16 @@ class _FnCompiler {
     }
   }
 
+  /// Push the argument of `println`/`print`, rendered to a String via its
+  /// `Display` impl when it has one (the native can't call a Hawk `display`).
+  /// Without a Display impl the value is passed as-is — the native renders
+  /// primitives/String, matching the prior behavior.
+  void _renderForPrint(Expr value) {
+    _expr(value);
+    final displayIdx = _interfaceMethod(_typeOf(value), 'Display', 'display');
+    if (displayIdx != null) _emit(Call(displayIdx, 1));
+  }
+
   void _stringPiece(StringPart part, SourceSpan span) {
     switch (part) {
       case TextPart(:final text):
@@ -1450,6 +1460,16 @@ class _FnCompiler {
     }
     final nativeFn = _scope.nativeFns[name];
     if (nativeFn != null) {
+      // `println`/`print` render their argument via `Display`. A native can't
+      // call back into a Hawk `display` method, so for a user type the
+      // front-end renders it here (the concrete type is known) and hands the
+      // resulting String to the native. Primitives/String render in the native.
+      if ((nativeFn == 'println' || nativeFn == 'print') &&
+          expr.args.length == 1) {
+        _renderForPrint(expr.args.single.value);
+        _emit(CallNative(nativeFn, 1));
+        return;
+      }
       for (final arg in expr.args) {
         _expr(arg.value);
       }
