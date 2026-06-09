@@ -258,8 +258,8 @@ pub fn with_extension(_ path: String, _ ext: String) -> String;
 ```
 
 Deferred: `normalize` (collapse `./` `../`), `relative`, and a variadic `join`.
-A `SEPARATOR` constant waits on top-level `const` support in codegen (§
-Sequencing); `'/'` is inlined for now.
+(A `SEPARATOR` constant is now expressible — top-level `const` compiles, §
+Sequencing — but `'/'` stays inlined in `path.hawk` for now.)
 
 ### `std.env` — environment & process info _(new)_
 
@@ -583,11 +583,10 @@ dependency graph, so future work lands in the right order:
    module-private; today the language can't enforce it. Tighten when visibility
    lands.
 
-8. **Top-level `const` in codegen.** `const`/`pub const` parse and check, but the
-   code generator does not emit them — referencing a module-level constant fails
-   ("not a local variable"). This blocks `std.char`'s constants, `std.math`'s
-   `PI`/`E`, and `std.path`'s `SEPARATOR`. A self-contained codegen fix
-   (materialize constants, or inline their literal initializers at use sites).
+8. **Top-level `const` in codegen — done.** `const`/`pub const` now compile: a
+   reference (bare or namespace-qualified `ns.NAME`) inlines its initializer
+   expression at the use site (codegen has no global storage). This unblocks
+   `std.char`'s constants, `std.math`'s `PI`/`E`, and a `std.path` `SEPARATOR`.
 
 ## Status summary
 

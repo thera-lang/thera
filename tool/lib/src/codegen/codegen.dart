@@ -95,6 +95,8 @@ void _registerModule(_ModuleScope scope, Program program) {
         scope.addStruct(decl);
       case EnumDecl():
         scope.addEnum(decl);
+      case ConstDecl():
+        scope.addConst(decl);
       case ImplDecl():
         if (decl.interfaceName != null) {
           scope.addInterfaceImpl(decl.typeName, decl.interfaceName!);
@@ -174,6 +176,12 @@ class _ModuleScope {
   final Map<String, _EnumInfo> enums = {};
   final List<TypeDef> types = [];
 
+  /// Top-level `const` initializers, by bare name (across every module — the
+  /// type table is flat, so a qualified `ns.NAME` resolves to the same `NAME`).
+  /// Codegen has no global storage, so a const reference inlines its
+  /// initializer expression at the use site (see `_FnCompiler._emitConst`).
+  final Map<String, Expr> consts = {};
+
   /// `native fn` name -> the runtime native symbol it binds to (from its
   /// `@extern('...')` decorator, or its own name as a fallback).
   final Map<String, String> nativeFns = {};
@@ -208,6 +216,8 @@ class _ModuleScope {
   // runtime (see runtime/src/value.rs). When std.core defines them as ordinary
   // enums they must still land on those ids, not be assigned fresh ones.
   static const _reservedEnumTys = {'Result': _tyResult, 'Option': _tyOption};
+
+  void addConst(ConstDecl decl) => consts[decl.name] = decl.value;
 
   void addStruct(TypeDecl decl) {
     final fieldNames = [for (final f in decl.fields) f.$1];
@@ -366,6 +376,9 @@ class _FnCompiler {
 
   final List<Instr> _code = [];
   final Map<String, int> _slots = {};
+  // Const names currently being inlined, to catch a cyclic definition
+  // (`const A = B; const B = A;`) instead of recursing forever.
+  final Set<String> _constsInProgress = {};
   // Locals (and capture parameters) whose slot holds a one-field heap cell
   // rather than a plain value: captured `mut` locals, boxed so the closure and
   // the enclosing scope share later writes. Reads/writes go through the cell.
@@ -458,10 +471,26 @@ class _FnCompiler {
   void _loadLocalValue(String name, SourceSpan span) {
     final slot = _slots[name];
     if (slot == null) {
+      // Not a local — a reference to a top-level `const`? Inline its
+      // initializer (codegen has no global storage).
+      if (_scope.consts.containsKey(name)) {
+        _emitConst(name, span);
+        return;
+      }
       throw CodegenException('not a local variable: $name', span);
     }
     _emit(Load(slot));
     if (_boxedLocals.contains(name)) _emit(const FieldGet(0));
+  }
+
+  /// Inline a top-level constant by compiling its initializer expression at the
+  /// use site. Guards against a cyclic definition.
+  void _emitConst(String name, SourceSpan span) {
+    if (!_constsInProgress.add(name)) {
+      throw CodegenException('cyclic constant: $name', span);
+    }
+    _expr(_scope.consts[name]!);
+    _constsInProgress.remove(name);
   }
 
   // --- Statements ---
@@ -706,6 +735,13 @@ class _FnCompiler {
         _expr(index);
         _emit(CallNative(native, 2));
       case FieldExpr(:final object, :final field):
+        // A namespace-qualified constant: `ns.NAME` → inline its initializer.
+        if (object is IdentExpr &&
+            _isNamespace(object.name) &&
+            _scope.consts.containsKey(field)) {
+          _emitConst(field, expr.span);
+          return;
+        }
         // A bare `Enum.Variant` is a zero-field enum constructor.
         final variant = _enumVariant(object, field);
         if (variant != null) {

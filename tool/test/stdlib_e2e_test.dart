@@ -53,6 +53,21 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
     expect(r.stderr, contains('need an arg'));
   });
 
+  test('top-level consts (bare + qualified) run end to end', () {
+    final r = emitAndRun('consts', '''
+const LIMIT: Int = 40;
+const GREETING: String = 'hi';
+fn main() -> Int {
+    println(GREETING);
+    println('over \${LIMIT}');
+    return LIMIT + 2;
+}
+''', []);
+    if (r == null) return markTestSkipped('Rust runtime unavailable');
+    expect(r.exitCode, 42, reason: r.stderr.toString());
+    expect(r.stdout, 'hi\nover 40\n');
+  });
+
   test('std.path (pure Hawk) computes path pieces end to end', () {
     final r = emitAndRun('path', '''
 import std.path;

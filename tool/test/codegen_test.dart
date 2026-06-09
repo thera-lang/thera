@@ -1578,4 +1578,43 @@ fn main() -> Int {
       expect(Process.runSync(hawkBin, ['run', tmp]).exitCode, 114);
     });
   });
+
+  group('top-level const', () {
+    test('a bare const reference inlines its initializer', () {
+      // The const adds no function-table unit, so `f` is still the single
+      // function; referencing `N` emits its literal initializer in place.
+      final ops = compile('const N: Int = 42; fn f() -> Int { return N; }')
+          .functions
+          .single
+          .code;
+      expect(ops[0], isA<ConstInt>().having((i) => i.value, 'value', 42));
+      expect(ops[1], isA<Simple>().having((i) => i.op, 'op', Op.return_));
+    });
+
+    test('a const referencing another const inlines transitively', () {
+      final ops = compile(
+              'const A: Int = 2; const B: Int = A; fn f() -> Int { return B; }')
+          .functions
+          .single
+          .code;
+      expect(ops[0], isA<ConstInt>().having((i) => i.value, 'value', 2));
+    });
+
+    test('a namespace-qualified const inlines its initializer', () {
+      final ops = compileWith(
+        "import 'conf';\nfn f() -> Int { return conf.MAX + 1; }",
+        {'conf': 'pub const MAX: Int = 100;'},
+      ).functions.single.code;
+      expect(
+          ops, contains(isA<ConstInt>().having((i) => i.value, 'value', 100)));
+    });
+
+    test('a cyclic const is rejected at codegen', () {
+      expect(
+        () => compile(
+            'const A: Int = B; const B: Int = A; fn f() -> Int { return A; }'),
+        throwsA(isA<CodegenException>()),
+      );
+    });
+  });
 }
