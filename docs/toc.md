@@ -15,6 +15,8 @@ is"; read top-down for progressive detail.
 - [interfaces.md](interfaces.md) — the **interfaces & dispatch** design:
   conformance, `Eq`/`Display`/`Debug`, static-vs-dynamic dispatch, and the
   staged plan.
+- [stdlib.md](stdlib.md) — the **standard library** design: principles, the
+  prelude/core/ecosystem tiers, and the module-by-module catalog.
 - [bytecode.md](bytecode.md) — the bytecode **spec**: value model, instruction
   set, the Tier-0 interpreter, and the serialized `.hawkbc` format.
 - [architecture.md](architecture.md) — the runtime **architecture**: the tiered
