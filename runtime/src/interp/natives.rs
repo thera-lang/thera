@@ -73,6 +73,8 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("str_lines", native_str_lines),
     ("str_split_whitespace", native_str_split_whitespace),
     ("str_split", native_str_split),
+    ("str_chars", native_str_chars),
+    ("str_bytes", native_str_bytes),
     ("str_from_chars", native_str_from_chars),
     ("option_ok_or", native_option_ok_or),
     ("option_unwrap_or", native_option_unwrap_or),
@@ -210,6 +212,11 @@ fn string_list(parts: impl IntoIterator<Item = String>) -> Value {
     Value::new_list(parts.into_iter().map(Value::new_str).collect())
 }
 
+/// Build a `List<Int>` from an iterator of `i64`s.
+fn int_list(items: impl IntoIterator<Item = i64>) -> Value {
+    Value::new_list(items.into_iter().map(Value::Int).collect())
+}
+
 /// `s.len()` — number of Unicode scalar values (not bytes).
 fn native_str_len(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let s = str_contents(expect_one(args, "str_len")?)?;
@@ -292,6 +299,19 @@ fn native_str_split(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap>
     let (s, sep) = args2(args, "str_split")?;
     let (s, sep) = (str_contents(s)?, str_contents(sep)?);
     Ok(string_list(s.split(sep.as_str()).map(str::to_string)))
+}
+
+/// `s.chars()` — the Unicode scalar values (code points) as a `List<Int>`. The
+/// inverse of `String.from_chars`.
+fn native_str_chars(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let s = str_contents(expect_one(args, "str_chars")?)?;
+    Ok(int_list(s.chars().map(|c| c as i64)))
+}
+
+/// `s.bytes()` — the raw UTF-8 bytes (each 0..=255) as a `List<Int>`.
+fn native_str_bytes(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let s = str_contents(expect_one(args, "str_bytes")?)?;
+    Ok(int_list(s.bytes().map(i64::from)))
 }
 
 /// `String.from_chars(cps)` — build a string from a list of Unicode code points.

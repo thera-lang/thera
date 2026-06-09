@@ -3,7 +3,8 @@
 // Import as: import std.char
 // Usage:     char.is_digit(cp)   char.SPACE   char.LF
 //
-// Code points are Unicode scalar values held as `Int`. The constants below name
+// Code points are Unicode scalar values held as `Int` (get them from a string
+// with `s.chars()`). The constants below name
 // the ASCII range so it never has to be rewritten from memory (their main
 // value); the predicates and case conversions classify/transform the ASCII
 // range only (U+0000..U+007F) and pass any other code point through unchanged.

@@ -53,6 +53,27 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
     expect(r.stderr, contains('need an arg'));
   });
 
+  test('String.chars()/bytes() and the from_chars round-trip run end to end',
+      () {
+    final r = emitAndRun('chars', '''
+import std.char;
+fn main() -> Int {
+    let s = 'AbÉ';
+    println('chars=\${s.chars().len()}');   // 3 code points
+    println('bytes=\${s.bytes().len()}');   // 4 UTF-8 bytes (É is 2)
+    println(String.from_chars('hi'.chars()));   // hi (round-trip)
+    let mut digits = 0;
+    for cp in '4 cats, 12 dogs'.chars() {
+        if char.is_digit(cp) { digits = digits + 1; }
+    }
+    return digits;   // 3
+}
+''', []);
+    if (r == null) return markTestSkipped('Rust runtime unavailable');
+    expect(r.exitCode, 3, reason: r.stderr.toString());
+    expect(r.stdout, 'chars=3\nbytes=4\nhi\n');
+  });
+
   test('std.char constants and predicates run end to end', () {
     final r = emitAndRun('char', '''
 import std.char;

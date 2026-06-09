@@ -52,10 +52,22 @@ impl String {
     @extern('str_split')
     pub native fn split(self, _ sep: String) -> List<String>
 
-    // Construct a String from a list of Unicode code points (as Int).
-    // The inverse of `s.chars()`:
+    // The Unicode scalar values (code points) of the string, as Int. The
+    // inverse of `String.from_chars`:
     //
-    //   let token = String.from_chars(source.chars().slice(start, end));
+    //   let cps = source.chars();
+    //   let same = String.from_chars(cps);
+    @extern('str_chars')
+    pub native fn chars(self) -> List<Int>
+
+    // The raw UTF-8 bytes of the string, each in 0..=255, as Int — for hashing,
+    // transport, or byte-level work. (Will return the `Bytes` type once it
+    // lands; see docs/stdlib.md.)
+    @extern('str_bytes')
+    pub native fn bytes(self) -> List<Int>
+
+    // Construct a String from a list of Unicode code points (as Int).
+    // The inverse of `s.chars()`.
     @extern('str_from_chars')
     pub native fn from_chars(_ cps: List<Int>) -> String
 }

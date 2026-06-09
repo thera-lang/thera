@@ -79,9 +79,11 @@ enough to reduce hallucination.
 
 8. **Text is UTF-8; bytes are `Bytes`.** `String` is validated UTF-8; raw binary
    is the `Bytes` type (§ Core types). Conversions are explicit
-   (`String.from_utf8(bytes) -> Result<String, Error>`, `s.to_bytes()`). String
-   offsets follow the existing convention: code-point counts for `len`, UTF-8
-   byte offsets where byte positions are needed (matching `std.regex`).
+   (`String.from_utf8(bytes) -> Result<String, Error>`, `s.bytes()`). Today
+   `s.chars()` (code points) and `s.bytes()` (raw UTF-8, each 0..=255) both
+   return `List<Int>`; `bytes()` upgrades to return `Bytes` once that type lands.
+   String offsets follow the existing convention: code-point counts for `len`,
+   UTF-8 byte offsets where byte positions are needed (matching `std.regex`).
 
 ## The tiers
 
