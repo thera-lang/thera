@@ -58,7 +58,8 @@ enum Op {
   fieldGet(47),
   fieldSet(48),
   closureNew(49),
-  callIndirect(50);
+  callIndirect(50),
+  callVirtual(51);
 
   final int byte;
   const Op(this.byte);
@@ -164,6 +165,16 @@ class ClosureNew extends Instr {
 class CallIndirect extends Instr {
   final int argc;
   const CallIndirect(this.argc);
+}
+
+/// Dynamic dispatch: call the implementation of [selector] for the receiver's
+/// concrete type. Pops `argc` arguments (the first is the receiver); the
+/// receiver's runtime type id selects the target via the module's dispatch
+/// table. See `runtime/src/instr.rs` (`CallVirtual`).
+class CallVirtual extends Instr {
+  final String selector;
+  final int argc;
+  const CallVirtual(this.selector, this.argc);
 }
 
 class Jump extends Instr {

@@ -80,7 +80,7 @@ Module compileProgram(Program program,
   final functions = [
     for (var i = 0; i < scope.units.length; i++) _FnCompiler(scope).compile(i),
   ];
-  return Module(functions, types: scope.types);
+  return Module(functions, types: scope.types, dispatch: scope.buildDispatch());
 }
 
 /// Register one module's declarations into the shared [scope].
@@ -97,6 +97,8 @@ void _registerModule(_ModuleScope scope, Program program) {
         scope.addEnum(decl);
       case ConstDecl():
         scope.addConst(decl);
+      case InterfaceDecl():
+        scope.addInterface(decl.name);
       case ImplDecl():
         if (decl.interfaceName != null) {
           scope.addInterfaceImpl(decl.typeName, decl.interfaceName!);
@@ -109,6 +111,11 @@ void _registerModule(_ModuleScope scope, Program program) {
             scope.addNativeInstanceMethod(decl.typeName, method);
           } else if (method.body != null) {
             scope.addMethod(decl.typeName, method);
+          }
+          // Each non-native interface-method impl gets a dispatch-table row so
+          // `call.virtual` can reach it from an interface-typed receiver.
+          if (decl.interfaceName != null && !isStatic && !method.isNative) {
+            scope.addDispatch(decl.typeName, method.name);
           }
         }
       default:
@@ -200,6 +207,35 @@ class _ModuleScope {
   /// blocks (e.g. `Tag` -> {`Display`}). Lets `==`/`${}` dispatch to a type's
   /// own `Eq`/`Display` method instead of the structural default.
   final Map<String, Set<String>> interfaceImpls = {};
+
+  /// Names of declared interfaces (`interface Display { … }`). A method call on
+  /// a value of one of these types dispatches dynamically via `call.virtual`.
+  final Set<String> interfaces = {};
+
+  /// Pending dynamic-dispatch rows as `(typeName, selector)`, recorded from
+  /// `impl Interface for Type` blocks. Resolved to `(typeId, selector, func)`
+  /// once every type and method is registered — see [buildDispatch].
+  final List<(String, String)> _pendingDispatch = [];
+
+  void addInterface(String name) => interfaces.add(name);
+
+  void addDispatch(String type, String selector) =>
+      _pendingDispatch.add((type, selector));
+
+  /// Resolve the pending dispatch rows into the module's dispatch table: map
+  /// each `(type, selector)` to the type's runtime id and the implementing
+  /// unit. Skips any whose method or type id can't be resolved.
+  List<DispatchEntry> buildDispatch() {
+    final entries = <DispatchEntry>[];
+    for (final (type, selector) in _pendingDispatch) {
+      final func = methodTable[type]?[selector];
+      final typeId = structs[type]?.index ?? enums[type]?.ty;
+      if (func != null && typeId != null) {
+        entries.add(DispatchEntry(typeId, selector, func));
+      }
+    }
+    return entries;
+  }
 
   /// Import namespaces in scope for the program being compiled (alias / trailing
   /// path segment). A qualified `ns.Name` resolves to the flat `Name`.
@@ -1595,6 +1631,19 @@ class _FnCompiler {
         _emit(CallNative(native, expr.args.length));
         return;
       }
+    }
+
+    // An interface-typed receiver (`x: Display`): the concrete type isn't known
+    // at the call site, so dispatch dynamically on the receiver's runtime type
+    // id. The receiver is pushed first (self), then the arguments.
+    final recvTypeName = _typeOf(callee.object);
+    if (recvTypeName != null && _scope.interfaces.contains(recvTypeName)) {
+      _expr(callee.object);
+      for (final arg in expr.args) {
+        _expr(arg.value);
+      }
+      _emit(CallVirtual(callee.field, expr.args.length + 1));
+      return;
     }
 
     final idx = _resolveMethod(callee.object, callee.field);

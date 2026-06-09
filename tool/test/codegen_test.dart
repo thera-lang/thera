@@ -1618,6 +1618,43 @@ fn main() -> Int {
     });
   });
 
+  group('interface dispatch', () {
+    test('an interface-typed receiver dispatches via call.virtual', () {
+      final m = compile('''
+interface Display { fn display(self) -> String; }
+type Dog = { name: String }
+impl Display for Dog { fn display(self) -> String { return self.name; } }
+fn describe(_ x: Display) -> String { return x.display(); }
+''');
+      // `describe` lowers `x.display()` to a virtual call (the concrete type is
+      // not known there), not a direct Call.
+      final describe = m.functions.firstWhere((f) => f.name == 'describe');
+      expect(
+        describe.code,
+        contains(isA<CallVirtual>()
+            .having((i) => i.selector, 'selector', 'display')),
+      );
+      // The module carries a dispatch row for Dog's `display`.
+      expect(
+        m.dispatch,
+        contains(isA<DispatchEntry>()
+            .having((e) => e.selector, 'selector', 'display')),
+      );
+    });
+
+    test('a concrete receiver still dispatches as a direct Call', () {
+      // Same method name, but the receiver's concrete type is known.
+      final m = compile('''
+type Dog = { name: String }
+impl Dog { fn display(self) -> String { return self.name; } }
+fn run(_ d: Dog) -> String { return d.display(); }
+''');
+      final run = m.functions.firstWhere((f) => f.name == 'run');
+      expect(run.code, contains(isA<Call>()));
+      expect(run.code, isNot(contains(isA<CallVirtual>())));
+    });
+  });
+
   group('function-valued field', () {
     test('is callable with method syntax (field-get + call-indirect)', () {
       // `b.f(7)` where `f` is a closure-typed field (no method `f`): fetch the

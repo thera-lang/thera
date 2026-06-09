@@ -23,9 +23,22 @@ class FuncDef {
   const FuncDef(this.name, this.paramCount, this.localCount, this.code);
 }
 
-/// A compiled module: its functions and type table.
+/// One row of the dynamic-dispatch table: the implementation of interface
+/// method [selector] for the concrete type id [type] is `functions[func]`.
+/// `call.virtual <selector>` looks the target up by the receiver's type id.
+/// Mirrors the runtime's `DispatchEntry` (`runtime/src/module.rs`).
+class DispatchEntry {
+  final int type; // runtime type id (a `types` index for structs/enums)
+  final String selector;
+  final int func;
+  const DispatchEntry(this.type, this.selector, this.func);
+}
+
+/// A compiled module: its functions, type table, and virtual-dispatch table.
 class Module {
   final List<FuncDef> functions;
   final List<TypeDef> types;
-  const Module(this.functions, {this.types = const []});
+  final List<DispatchEntry> dispatch;
+  const Module(this.functions,
+      {this.types = const [], this.dispatch = const []});
 }

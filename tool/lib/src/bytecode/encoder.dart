@@ -23,6 +23,7 @@ class _Section {
   static const int functions = 1;
   static const int constants = 2;
   static const int types = 3;
+  static const int dispatch = 4;
 }
 
 /// Collects and deduplicates strings during encoding, preserving first-seen
@@ -53,10 +54,15 @@ Uint8List encodeModule(Module m) {
     for (final instr in f.code) {
       if (instr is ConstStr) {
         pool.intern(instr.value);
+      } else if (instr is CallVirtual) {
+        pool.intern(instr.selector);
       } else if (instr is CallNative) {
         pool.intern(instr.name);
       }
     }
+  }
+  for (final e in m.dispatch) {
+    pool.intern(e.selector);
   }
 
   // Constants section: the deduplicated strings.
@@ -81,12 +87,24 @@ Uint8List encodeModule(Module m) {
     _encodeFunction(funcs, f, pool);
   }
 
+  // Dispatch section: (type id, selector pool index, function index) per row.
+  final dispatch = Writer();
+  dispatch.writeUvarint(m.dispatch.length);
+  for (final e in m.dispatch) {
+    dispatch.writeUvarint(e.type);
+    dispatch.writeUvarint(pool.indexOf(e.selector));
+    dispatch.writeUvarint(e.func);
+  }
+
   final w = Writer();
   w.writeRaw(_magic);
   w.writeU32Le(_version);
   _writeSection(w, _Section.constants, consts.toBytes());
   _writeSection(w, _Section.types, types.toBytes());
   _writeSection(w, _Section.functions, funcs.toBytes());
+  if (m.dispatch.isNotEmpty) {
+    _writeSection(w, _Section.dispatch, dispatch.toBytes());
+  }
   return w.toBytes();
 }
 
@@ -162,6 +180,10 @@ void _encodeInstr(Writer w, Instr instr, _StringPool pool) {
       w.writeUvarint(captures);
     case CallIndirect(:final argc):
       w.writeU8(Op.callIndirect.byte);
+      w.writeUvarint(argc);
+    case CallVirtual(:final selector, :final argc):
+      w.writeU8(Op.callVirtual.byte);
+      w.writeUvarint(pool.indexOf(selector));
       w.writeUvarint(argc);
     case Jump(:final target):
       w.writeU8(Op.jump.byte);

@@ -131,6 +131,14 @@ bool isAssignable(Type source, Type target) {
   if (source is UnknownType || target is UnknownType) return true;
   if (source is TypeParameterType || target is TypeParameterType) return true;
   if (source == target) return true;
+  // A concrete type is assignable to an interface it implements (interface-typed
+  // values; dynamic dispatch — see docs/interfaces.md).
+  if (target is InterfaceType &&
+      target.element is InterfaceElement &&
+      source is InterfaceType &&
+      source.element.implementsInterface(target.element.name)) {
+    return true;
+  }
   if (source is InterfaceType && target is InterfaceType) {
     if (source.element != target.element) return false;
     if (source.typeArguments.length != target.typeArguments.length) {

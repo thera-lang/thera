@@ -53,6 +53,27 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
     expect(r.stderr, contains('need an arg'));
   });
 
+  test('an interface-typed parameter dispatches dynamically (call.virtual)',
+      () {
+    // `Display` is the std.core interface; `describe` takes it as a value, so
+    // the concrete type is known only at runtime and dispatched via the vtable.
+    final r = emitAndRun('dispatch', '''
+type Dog = { name: String }
+impl Display for Dog { fn display(self) -> String { return 'Dog(\${self.name})'; } }
+type Cat = {}
+impl Display for Cat { fn display(self) -> String { return 'a cat'; } }
+fn describe(_ x: Display) -> String { return x.display(); }
+fn main() -> Int {
+    println(describe(Dog { name: 'Rex' }));
+    println(describe(Cat {}));
+    return 0;
+}
+''', []);
+    if (r == null) return markTestSkipped('Rust runtime unavailable');
+    expect(r.exitCode, 0, reason: r.stderr.toString());
+    expect(r.stdout, 'Dog(Rex)\na cat\n');
+  });
+
   test('a function-valued struct field is callable as c.field(args)', () {
     // The capability-as-struct-of-closures pattern: inject a fake by
     // constructing the struct with a different closure.

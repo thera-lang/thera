@@ -141,10 +141,13 @@ end-to-end change lands first.
    hand-built bytecode: `describe(x)` dispatches `x.display()` to the right impl
    by type id. Name-keyed (`selector`) in the Tier-0 draft; the durable
    slot-based `call.interface iface, slot` (see bytecode.md) comes later.
-2. **Stage B — interface-typed parameters + dispatch.** Front-end allows an
-   interface name as a *parameter* type; `isAssignable` accepts a conforming
-   concrete type; codegen builds the vtable and emits `call.virtual`. **This is
-   the small, practical end change** (below).
+2. **Stage B — interface-typed parameters + dispatch. DONE.** An interface name
+   resolves as a value type (it already did — `InterfaceType` over an
+   `InterfaceElement`); `isAssignable(concrete, interface)` accepts a conforming
+   type; codegen tracks interface names, builds the dispatch table from recorded
+   `impl Interface for Type` methods (`buildDispatch`), and emits `call.virtual`
+   for an interface-typed receiver. The Dart bytecode layer learned the
+   `call.virtual` op + DISPATCH section. The end change (below) runs end to end.
 3. **Stage C — more positions.** Interface-typed fields, returns, and
    `List<Display>` (heterogeneous collections) — same dispatch, more places an
    interface type is allowed.
