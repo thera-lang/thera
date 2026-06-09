@@ -227,6 +227,12 @@ impl FnBuilder {
     pub fn call_indirect(&mut self, argc: u8) -> &mut Self {
         self.emit(Instr::CallIndirect { argc })
     }
+    pub fn call_virtual(&mut self, selector: impl Into<String>, argc: u8) -> &mut Self {
+        self.emit(Instr::CallVirtual {
+            selector: selector.into(),
+            argc,
+        })
+    }
 
     // --- closures ---
     pub fn closure_new(&mut self, func: u32, captures: u8) -> &mut Self {

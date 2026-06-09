@@ -278,6 +278,27 @@ impl<'a> Vm<'a> {
                     let ret = self.call(module, func as usize, locals)?;
                     stack.push(ret);
                 }
+                Instr::CallVirtual { selector, argc } => {
+                    let argc = *argc as usize;
+                    let base = stack
+                        .len()
+                        .checked_sub(argc)
+                        .ok_or_else(|| bug("call.virtual: operand stack underflow"))?;
+                    let args = stack.split_off(base);
+                    // The receiver is the first argument; its concrete type id
+                    // selects the implementation.
+                    let recv = args
+                        .first()
+                        .ok_or_else(|| bug("call.virtual: missing receiver"))?;
+                    let ty = receiver_type_id(recv)?;
+                    let func = module.dispatch_target(ty, selector).ok_or_else(|| {
+                        bug(format!(
+                            "call.virtual: no impl of '{selector}' for type id {ty}"
+                        ))
+                    })?;
+                    let ret = self.call(module, func as usize, args)?;
+                    stack.push(ret);
+                }
 
                 // --- enums ---
                 Instr::EnumNew {
@@ -440,6 +461,23 @@ fn closure_parts(v: &Value) -> Result<(u32, Vec<Value>), Trap> {
         v => Err(bug(format!(
             "call.indirect: expected a closure, found {v:?}"
         ))),
+    }
+}
+
+/// The concrete type id of a `call.virtual` receiver — a struct's or enum's
+/// `ty` (an index into `Module::types`). Primitive receivers don't yet have
+/// dispatch type ids (an interface impl on a primitive, e.g. `Display` for
+/// `Int`, arrives with a later stage); reaching one is a bug for now.
+fn receiver_type_id(v: &Value) -> Result<u32, Trap> {
+    match v {
+        Value::Ref(rc) => match &*rc.borrow() {
+            Obj::Struct { ty, .. } => Ok(*ty),
+            Obj::Enum(e) => Ok(e.ty),
+            Obj::Str(_) | Obj::List(_) | Obj::Map(_) | Obj::Set(_) | Obj::Closure { .. } => {
+                Err(bug("call.virtual: receiver type has no dispatch id"))
+            }
+        },
+        _ => Err(bug("call.virtual: receiver is a primitive (not yet supported)")),
     }
 }
 
@@ -1712,5 +1750,77 @@ mod tests {
             b.ret();
         });
         assert!(matches!(r, Err(Trap::Bug(_))));
+    }
+
+    // --- dynamic dispatch (call.virtual) ---
+
+    /// A module with two struct types, a `display` impl for each, and a
+    /// `describe(x)` that dispatches `x.display()` virtually.
+    fn dispatch_module() -> Module {
+        use crate::module::DispatchEntry;
+        // Dog (ty 0) and Cat (ty 1); their displays return distinct strings.
+        let dog_display = Function::new(
+            "Dog.display",
+            1,
+            1,
+            vec![Instr::ConstStr("woof".into()), Instr::Return],
+        );
+        let cat_display = Function::new(
+            "Cat.display",
+            1,
+            1,
+            vec![Instr::ConstStr("meow".into()), Instr::Return],
+        );
+        // describe(x) = x.display()   (the concrete type isn't known here)
+        let describe = Function::new(
+            "describe",
+            1,
+            1,
+            vec![
+                Instr::Load(0),
+                Instr::CallVirtual {
+                    selector: "display".into(),
+                    argc: 1,
+                },
+                Instr::Return,
+            ],
+        );
+        let mut m = Module::with_types(
+            vec![dog_display, cat_display, describe],
+            vec![TypeDef::new("Dog", 0), TypeDef::new("Cat", 0)],
+        );
+        m.dispatch = vec![
+            DispatchEntry::new(0, "display", 0),
+            DispatchEntry::new(1, "display", 1),
+        ];
+        m
+    }
+
+    #[test]
+    fn call_virtual_dispatches_on_receiver_type() {
+        let m = dispatch_module();
+        // describe is function index 2.
+        let dog = Value::new_struct(0, vec![]);
+        let cat = Value::new_struct(1, vec![]);
+        assert_eq!(super::run(&m, 2, &[dog]), Ok(Value::new_str("woof")));
+        assert_eq!(super::run(&m, 2, &[cat]), Ok(Value::new_str("meow")));
+    }
+
+    #[test]
+    fn call_virtual_without_an_impl_is_a_bug() {
+        let mut m = dispatch_module();
+        m.dispatch.clear(); // no rows → nothing to dispatch to
+        let dog = Value::new_struct(0, vec![]);
+        assert!(matches!(super::run(&m, 2, &[dog]), Err(Trap::Bug(_))));
+    }
+
+    #[test]
+    fn call_virtual_on_a_primitive_is_a_bug() {
+        // A primitive receiver has no dispatch type id yet (a later stage).
+        let m = dispatch_module();
+        assert!(matches!(
+            super::run(&m, 2, &[Value::Int(5)]),
+            Err(Trap::Bug(_))
+        ));
     }
 }

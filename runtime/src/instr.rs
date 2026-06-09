@@ -8,8 +8,8 @@
 //! conversions, stack manipulation, direct `call`, native `call`, indirect
 //! `call.indirect`, enums (`enum.new`/`tag`/`get`), structs
 //! (`struct.new`/`field.get`/`field.set`), `list.new`, `closure.new`, control
-//! flow (`jump` family), and `return`. Most collection operations are native
-//! calls. Interface dispatch arrives later.
+//! flow (`jump` family), `return`, and dynamic dispatch (`call.virtual`). Most
+//! collection operations are native calls.
 
 /// A local-slot index (parameters and locals share one array).
 pub type Slot = u16;
@@ -101,6 +101,16 @@ pub enum Instr {
     /// left-to-right) and, beneath them, the closure value; the callee's frame
     /// is `[captures..., args...]`. Pushes the return value.
     CallIndirect {
+        argc: u8,
+    },
+    /// Dynamic dispatch: call the implementation of `selector` for the
+    /// receiver's concrete type. Pops `argc` arguments (pushed left-to-right);
+    /// the first is the receiver, whose type id selects the target function via
+    /// the module's dispatch table (see [`crate::module::DispatchEntry`]).
+    /// Pushes the return value. The serialized form references `selector` by
+    /// constant-pool index; the in-memory form inlines it (cf. [`Instr::ConstStr`]).
+    CallVirtual {
+        selector: String,
         argc: u8,
     },
 

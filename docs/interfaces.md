@@ -134,8 +134,13 @@ end-to-end change lands first.
 
 ### Staging
 
-1. **Stage A — runtime vtable + `call.virtual`.** No front-end changes; verify
-   with hand-built bytecode that a virtual call dispatches on type id.
+1. **Stage A — runtime vtable + `call.virtual`. DONE.** A module dispatch table
+   (`DispatchEntry { ty, selector, func }`), a `call.virtual <selector> <argc>`
+   opcode that reads the receiver's type id and calls the matching impl, and a
+   backward-compatible `.hawkbc` DISPATCH section (absent → empty). Verified with
+   hand-built bytecode: `describe(x)` dispatches `x.display()` to the right impl
+   by type id. Name-keyed (`selector`) in the Tier-0 draft; the durable
+   slot-based `call.interface iface, slot` (see bytecode.md) comes later.
 2. **Stage B — interface-typed parameters + dispatch.** Front-end allows an
    interface name as a *parameter* type; `isAssignable` accepts a conforming
    concrete type; codegen builds the vtable and emits `call.virtual`. **This is

@@ -51,11 +51,36 @@ impl TypeDef {
     }
 }
 
+/// One row of the dynamic-dispatch table: the implementation of interface
+/// method `selector` for the concrete type `ty` (a `Module::types` index for
+/// structs/enums) is `Module::functions[func]`. `call.virtual <selector>` reads
+/// the receiver's type id and looks the target up here. See docs/interfaces.md
+/// ("Dynamic dispatch").
+#[derive(Clone, Debug, PartialEq)]
+pub struct DispatchEntry {
+    pub ty: u32,
+    pub selector: String,
+    pub func: u32,
+}
+
+impl DispatchEntry {
+    pub fn new(ty: u32, selector: impl Into<String>, func: u32) -> Self {
+        Self {
+            ty,
+            selector: selector.into(),
+            func,
+        }
+    }
+}
+
 /// A collection of functions and type definitions, each indexed by position.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Module {
     pub functions: Vec<Function>,
     pub types: Vec<TypeDef>,
+    /// The virtual-dispatch table consulted by `call.virtual` (empty until the
+    /// front-end emits interface dispatch).
+    pub dispatch: Vec<DispatchEntry>,
 }
 
 impl Module {
@@ -64,15 +89,29 @@ impl Module {
         Self {
             functions,
             types: Vec::new(),
+            dispatch: Vec::new(),
         }
     }
 
     pub fn with_types(functions: Vec<Function>, types: Vec<TypeDef>) -> Self {
-        Self { functions, types }
+        Self {
+            functions,
+            types,
+            dispatch: Vec::new(),
+        }
     }
 
     /// Index of the function named `name`, if any.
     pub fn function_index(&self, name: &str) -> Option<usize> {
         self.functions.iter().position(|f| f.name == name)
+    }
+
+    /// The function implementing `selector` for type id `ty`, if any — the
+    /// `call.virtual` lookup.
+    pub fn dispatch_target(&self, ty: u32, selector: &str) -> Option<u32> {
+        self.dispatch
+            .iter()
+            .find(|e| e.ty == ty && e.selector == selector)
+            .map(|e| e.func)
     }
 }

@@ -276,6 +276,7 @@ A `switch.tag` (jump table on an enum tag) is an obvious later addition for fast
 | `call`           | `func: u32, argc: u8`             | `argN..arg0 → ret?`       | direct call to a known function |
 | `call.indirect`  | `argc: u8`                        | `fnval argN..arg0 → ret?` | call a closure/fn value         |
 | `call.interface` | `iface: u32, slot: u16, argc: u8` | `recv argN..arg0 → ret?`  | dynamic dispatch via vtable     |
+| `call.virtual`   | `selector: u32, argc: u8`         | `recv argN..arg0 → ret?`  | draft dynamic dispatch (below)  |
 | `call.native`    | `nat: u32, argc: u8`              | `argN..arg0 → ret?`       | `native fn` / runtime intrinsic |
 
 Arguments are pushed left-to-right; the callee pops `argc` slots. Named
@@ -291,6 +292,16 @@ positional. A `Void` return pushes nothing.
 > direct/inlined call wherever it can prove the concrete type. So we never need
 > a frontend monomorphisation pass. Until then `call.interface` is
 > reserved/unused.
+>
+> **Draft realization — `call.virtual`.** The Tier-0 interpreter implements
+> dynamic dispatch as `call.virtual <selector> <argc>`: the receiver is the first
+> of the `argc` args, and its concrete type id (a struct/enum `ty`) selects the
+> impl from a module **dispatch table** (`(type_id, selector) → func`, a
+> backward-compatible `.hawkbc` section). It is **name-keyed** (selector =
+> method-name string) rather than `iface`/`slot`-indexed — simpler for the draft;
+> the slot-based `call.interface` is the durable form. Primitive receivers have
+> no dispatch type id yet (an interface impl on a primitive is a later stage).
+> See docs/interfaces.md ("Dynamic dispatch — the next arc, staged").
 
 ### Aggregates & heap allocation
 

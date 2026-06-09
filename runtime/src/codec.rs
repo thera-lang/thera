@@ -15,7 +15,7 @@ use std::path::Path;
 
 use crate::instr::Instr;
 use crate::interp::{native_index, native_name};
-use crate::module::{Function, Module, TypeDef};
+use crate::module::{DispatchEntry, Function, Module, TypeDef};
 use crate::serialize::{DecodeError, Reader, Writer};
 
 /// An error loading a module from disk: either the file could not be read or
@@ -68,6 +68,7 @@ mod section {
     pub const FUNCTIONS: u8 = 1;
     pub const CONSTANTS: u8 = 2;
     pub const TYPES: u8 = 3;
+    pub const DISPATCH: u8 = 4;
 }
 
 /// Collects and deduplicates string literals during encoding. Strings are
@@ -145,6 +146,7 @@ mod op {
     pub const FIELD_SET: u8 = 48;
     pub const CLOSURE_NEW: u8 = 49;
     pub const CALL_INDIRECT: u8 = 50;
+    pub const CALL_VIRTUAL: u8 = 51;
 }
 
 /// Encode a module to the wire format.
@@ -162,6 +164,9 @@ pub fn encode_module(m: &Module) -> Vec<u8> {
                 Instr::ConstStr(s) => {
                     pool.intern(s);
                 }
+                Instr::CallVirtual { selector, .. } => {
+                    pool.intern(selector);
+                }
                 Instr::CallNative { native, .. } => {
                     if let Some(name) = native_name(*native) {
                         pool.intern(name);
@@ -170,6 +175,9 @@ pub fn encode_module(m: &Module) -> Vec<u8> {
                 _ => {}
             }
         }
+    }
+    for e in &m.dispatch {
+        pool.intern(&e.selector);
     }
 
     // Constants section: the deduplicated strings.
@@ -194,12 +202,24 @@ pub fn encode_module(m: &Module) -> Vec<u8> {
         encode_function(&mut funcs, f, &pool);
     }
 
+    // Dispatch section: (type id, selector pool index, function index) per row.
+    let mut dispatch = Writer::new();
+    dispatch.write_uvarint(m.dispatch.len() as u64);
+    for e in &m.dispatch {
+        dispatch.write_uvarint(u64::from(e.ty));
+        dispatch.write_uvarint(u64::from(pool.index[e.selector.as_str()]));
+        dispatch.write_uvarint(u64::from(e.func));
+    }
+
     let mut w = Writer::new();
     w.write_raw(MAGIC);
     w.write_u32_le(VERSION);
     write_section(&mut w, section::CONSTANTS, &consts.into_bytes());
     write_section(&mut w, section::TYPES, &types.into_bytes());
     write_section(&mut w, section::FUNCTIONS, &funcs.into_bytes());
+    if !m.dispatch.is_empty() {
+        write_section(&mut w, section::DISPATCH, &dispatch.into_bytes());
+    }
     w.into_bytes()
 }
 
@@ -218,6 +238,7 @@ pub fn decode_module(bytes: &[u8]) -> Result<Module, DecodeError> {
     let mut consts_payload: Option<&[u8]> = None;
     let mut types_payload: Option<&[u8]> = None;
     let mut funcs_payload: Option<&[u8]> = None;
+    let mut dispatch_payload: Option<&[u8]> = None;
     while !r.is_empty() {
         let id = r.read_u8()?;
         let len = r.read_uvarint()? as usize;
@@ -226,6 +247,7 @@ pub fn decode_module(bytes: &[u8]) -> Result<Module, DecodeError> {
             section::CONSTANTS => consts_payload = Some(payload),
             section::TYPES => types_payload = Some(payload),
             section::FUNCTIONS => funcs_payload = Some(payload),
+            section::DISPATCH => dispatch_payload = Some(payload),
             _ => {} // unknown section: skip (payload already consumed)
         }
     }
@@ -250,7 +272,28 @@ pub fn decode_module(bytes: &[u8]) -> Result<Module, DecodeError> {
         }
     }
 
-    Ok(Module::with_types(functions, types))
+    let mut module = Module::with_types(functions, types);
+    if let Some(p) = dispatch_payload {
+        module.dispatch = decode_dispatch(p, &pool)?;
+    }
+    Ok(module)
+}
+
+fn decode_dispatch(payload: &[u8], pool: &[String]) -> Result<Vec<DispatchEntry>, DecodeError> {
+    let mut r = Reader::new(payload);
+    let count = r.read_uvarint()? as usize;
+    let mut dispatch = Vec::with_capacity(count);
+    for _ in 0..count {
+        let ty = r.read_uvarint()? as u32;
+        let sel_idx = r.read_uvarint()? as usize;
+        let selector = pool
+            .get(sel_idx)
+            .ok_or(DecodeError::ConstIndexOutOfRange)?
+            .clone();
+        let func = r.read_uvarint()? as u32;
+        dispatch.push(DispatchEntry::new(ty, selector, func));
+    }
+    Ok(dispatch)
 }
 
 fn decode_types(payload: &[u8], pool: &[String]) -> Result<Vec<TypeDef>, DecodeError> {
@@ -413,6 +456,11 @@ fn encode_instr(w: &mut Writer, instr: &Instr, pool: &StringPool) {
             w.write_u8(op::CALL_INDIRECT);
             w.write_uvarint(*argc as u64);
         }
+        Instr::CallVirtual { selector, argc } => {
+            w.write_u8(op::CALL_VIRTUAL);
+            w.write_uvarint(u64::from(pool.index[selector.as_str()]));
+            w.write_uvarint(*argc as u64);
+        }
         Instr::Jump(t) => {
             w.write_u8(op::JUMP);
             w.write_uvarint(*t as u64);
@@ -510,6 +558,15 @@ fn decode_instr(r: &mut Reader, pool: &[String]) -> Result<Instr, DecodeError> {
         op::CALL_INDIRECT => Instr::CallIndirect {
             argc: r.read_uvarint()? as u8,
         },
+        op::CALL_VIRTUAL => {
+            let idx = r.read_uvarint()? as usize;
+            let selector = pool
+                .get(idx)
+                .ok_or(DecodeError::ConstIndexOutOfRange)?
+                .clone();
+            let argc = r.read_uvarint()? as u8;
+            Instr::CallVirtual { selector, argc }
+        }
         op::JUMP => Instr::Jump(r.read_uvarint()? as usize),
         op::JUMP_IF_TRUE => Instr::JumpIfTrue(r.read_uvarint()? as usize),
         op::JUMP_IF_FALSE => Instr::JumpIfFalse(r.read_uvarint()? as usize),
@@ -621,6 +678,10 @@ mod tests {
                 captures: 2,
             },
             Instr::CallIndirect { argc: 1 },
+            Instr::CallVirtual {
+                selector: "display".into(),
+                argc: 1,
+            },
             Instr::Jump(10),
             Instr::JumpIfTrue(11),
             Instr::JumpIfFalse(12),
@@ -734,6 +795,26 @@ mod tests {
         b.field_get(1);
         b.ret();
         let m = Module::with_types(vec![b.finish()], vec![TypeDef::new("Point", 2)]);
+        assert_eq!(decode_module(&encode_module(&m)), Ok(m));
+    }
+
+    #[test]
+    fn module_with_dispatch_table_round_trips() {
+        let describe = Function::new(
+            "describe",
+            1,
+            1,
+            vec![
+                Instr::Load(0),
+                Instr::CallVirtual {
+                    selector: "display".into(),
+                    argc: 1,
+                },
+                Instr::Return,
+            ],
+        );
+        let mut m = Module::with_types(vec![describe], vec![TypeDef::new("Dog", 0)]);
+        m.dispatch = vec![DispatchEntry::new(0, "display", 0)];
         assert_eq!(decode_module(&encode_module(&m)), Ok(m));
     }
 

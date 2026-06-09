@@ -94,6 +94,9 @@ fn fmt_instr(instr: &Instr, module: &Module) -> String {
             with("call.native", format!("native#{native}, argc={argc}"))
         }
         Instr::CallIndirect { argc } => with("call.indirect", format!("argc={argc}")),
+        Instr::CallVirtual { selector, argc } => {
+            with("call.virtual", format!("{selector}, argc={argc}"))
+        }
 
         Instr::EnumNew {
             ty,
