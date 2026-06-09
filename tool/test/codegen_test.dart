@@ -1642,6 +1642,22 @@ fn describe(_ x: Display) -> String { return x.display(); }
       );
     });
 
+    test('a method on a bounded type parameter dispatches via call.virtual',
+        () {
+      // `x: T` is erased, so `x.display()` dispatches through `T`'s `Display`
+      // bound at runtime.
+      final m = compile('''
+interface Display { fn display(self) -> String; }
+fn label<T: Display>(_ x: T) -> String { return x.display(); }
+''');
+      final label = m.functions.firstWhere((f) => f.name == 'label');
+      expect(
+        label.code,
+        contains(isA<CallVirtual>()
+            .having((i) => i.selector, 'selector', 'display')),
+      );
+    });
+
     test('a method not on the interface is rejected', () {
       // `bark` is a Dog method but not part of Display, so it can't be called
       // through a Display-typed value.

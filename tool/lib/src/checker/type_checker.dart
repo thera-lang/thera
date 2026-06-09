@@ -442,6 +442,56 @@ class TypeChecker {
             'argument to "${fn.name}"', span);
       }
     }
+
+    _checkBounds(fn, params, args, span);
+  }
+
+  /// Enforce generic bounds at a call site: infer each type parameter's binding
+  /// from the arguments, then check the bound type argument satisfies every
+  /// declared interface bound (`fn f<T: Display>(x: T)` rejects `f(5)`).
+  void _checkBounds(FunctionElement fn, List<ParameterElement> params,
+      List<CallArg> args, SourceSpan span) {
+    if (fn.typeParameterBounds.isEmpty) return;
+    final bindings = <String, Type>{};
+    for (var i = 0; i < args.length; i++) {
+      final param = args[i].label != null
+          ? _paramByLabel(params, args[i].label!)
+          : (i < params.length ? params[i] : null);
+      final actual = args[i].value.resolvedType;
+      if (param != null && actual != null) unify(param.type, actual, bindings);
+    }
+    fn.typeParameterBounds.forEach((tp, bounds) {
+      final arg = bindings[tp];
+      if (arg == null) return; // unconstrained here — nothing to check
+      for (final bound in bounds) {
+        if (!_satisfiesBound(arg, bound)) {
+          _error(
+            'type argument `$arg` for `$tp` does not implement `$bound` '
+            '(required by "${fn.name}")',
+            span,
+          );
+        }
+      }
+    });
+  }
+
+  /// Whether [t] satisfies an interface [bound]:
+  /// - the built-in interfaces (`Eq`/`Display`/`Debug`) hold for every primitive
+  ///   (they have built-in implementations — that's how `println(5)` works);
+  /// - `Eq`/`Debug` additionally hold for any struct/enum (auto-derived);
+  /// - any other interface requires an explicit `impl`.
+  /// Lenient for unresolved types so it never reports a false mismatch.
+  ///
+  /// Note: a primitive satisfying `Display` is a *type-level* fact; dynamically
+  /// dispatching an interface method on a primitive value isn't supported yet
+  /// (see docs/interfaces.md, Stage E), so `f<T: Display>(5)` type-checks but
+  /// would trap at runtime until then.
+  static const _builtinInterfaces = {'Eq', 'Display', 'Debug'};
+  bool _satisfiesBound(Type t, String bound) {
+    if (t is UnknownType || t is TypeParameterType) return true;
+    if (t is PrimitiveType) return _builtinInterfaces.contains(bound);
+    if (bound == 'Eq' || bound == 'Debug') return true; // structural derive
+    return t is InterfaceType && t.element.implementsInterface(bound);
   }
 
   ParameterElement? _paramByLabel(List<ParameterElement> params, String label) {

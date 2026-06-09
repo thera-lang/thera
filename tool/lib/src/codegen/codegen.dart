@@ -414,6 +414,9 @@ class _FnCompiler {
 
   final List<Instr> _code = [];
   final Map<String, int> _slots = {};
+  // This unit's generic parameters -> their bounds (e.g. `T` -> [`Display`]). A
+  // method call on a value typed `T` dispatches through the interface bound.
+  final Map<String, List<String>> _typeParamBounds = {};
   // Const names currently being inlined, to catch a cyclic definition
   // (`const A = B; const B = A;`) instead of recursing forever.
   final Set<String> _constsInProgress = {};
@@ -440,6 +443,11 @@ class _FnCompiler {
   FuncDef compile(int index) {
     final fn = _units[index];
     _returnsResult = _typeRefName(fn.returnType) == 'Result';
+    // This unit's generic parameters and their bounds, so a method call on a
+    // value of type `T` (erased) can dispatch through `T`'s interface bound.
+    for (final tp in fn.typeParams) {
+      _typeParamBounds[tp.name] = tp.bounds;
+    }
     // Capture parameters that arrive as boxed cells (a captured `mut` local of
     // the enclosing function), plus this function's own `mut` locals that some
     // lambda captures — both are read/written through a cell.
@@ -1385,8 +1393,23 @@ class _FnCompiler {
             Primitive.unit => null,
           },
         InterfaceType(:final element) => element.name,
+        TypeParameterType(:final name) => name,
         _ => null,
       };
+
+  /// The interface(s) a method call on a receiver of type-name [name] dispatches
+  /// through: [name] itself when it's an interface, or the interface bounds of a
+  /// generic parameter named [name]. Null for a concrete receiver (static call).
+  List<String>? _dispatchInterfaces(String? name) {
+    if (name == null) return null;
+    if (_scope.interfaceMethods.containsKey(name)) return [name];
+    final bounds = _typeParamBounds[name];
+    if (bounds != null) {
+      final ifaces = bounds.where(_scope.interfaceMethods.containsKey).toList();
+      if (ifaces.isNotEmpty) return ifaces;
+    }
+    return null;
+  }
 
   /// The unit index of method [name] on the receiver expression [receiver], or
   /// null if it can't be resolved. A type name — `Type` or `ns.Type`, not a
@@ -1635,18 +1658,19 @@ class _FnCompiler {
       }
     }
 
-    // An interface-typed receiver (`x: Display`): the concrete type isn't known
-    // at the call site, so dispatch dynamically on the receiver's runtime type
-    // id. The receiver is pushed first (self), then the arguments. Only the
-    // interface's own methods are callable through it.
+    // Dynamic dispatch: the receiver is interface-typed (`x: Display`) or a
+    // generic parameter bound by an interface (`x: T` where `T: Display`). The
+    // concrete type isn't known here, so dispatch on the runtime type id. The
+    // receiver is pushed first (self), then the arguments. Only the interface's
+    // own methods are callable through it.
     final recvTypeName = _typeOf(callee.object);
-    final ifaceMethods =
-        recvTypeName == null ? null : _scope.interfaceMethods[recvTypeName];
-    if (ifaceMethods != null) {
-      if (!ifaceMethods.contains(callee.field)) {
+    final dispatchIfaces = _dispatchInterfaces(recvTypeName);
+    if (dispatchIfaces != null) {
+      final declares = dispatchIfaces
+          .any((i) => _scope.interfaceMethods[i]!.contains(callee.field));
+      if (!declares) {
         throw CodegenException(
-            'no method "${callee.field}" on interface $recvTypeName',
-            expr.span);
+            'no method "${callee.field}" on $recvTypeName', expr.span);
       }
       _expr(callee.object);
       for (final arg in expr.args) {

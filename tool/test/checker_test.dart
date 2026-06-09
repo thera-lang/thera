@@ -709,4 +709,43 @@ impl Greet for Tag { fn hello(self) -> Int { return 0; } }
       );
     });
   });
+
+  group('generic bounds', () {
+    const display = '''
+interface Display { fn display(self) -> String; }
+type Dog = { name: String }
+impl Display for Dog { fn display(self) -> String { return self.name; } }
+type Plain = { n: Int }
+fn label<T: Display>(_ x: T) -> String { return x.display(); }
+''';
+
+    test('a conforming type argument is accepted', () {
+      expect(
+          check(
+              '$display\nfn m() -> String { return label(Dog { name: "x" }); }'),
+          isEmpty);
+    });
+
+    test('a non-conforming struct argument is rejected', () {
+      expect(
+        check('$display\nfn m() -> String { return label(Plain { n: 1 }); }'),
+        contains(contains('does not implement `Display`')),
+      );
+    });
+
+    test('a primitive satisfies the built-in Display bound', () {
+      // Primitives carry built-in Display (how println(5) works); the bound
+      // holds at the type level even though dispatch on primitives is later.
+      expect(check('$display\nfn m() -> String { return label(5); }'), isEmpty);
+    });
+
+    test('Eq is satisfied structurally (no explicit impl needed)', () {
+      expect(
+        check('type P = { n: Int }\n'
+            'fn same<T: Eq>(_ a: T, _ b: T) -> Bool { return a == b; }\n'
+            'fn m() -> Bool { return same(P { n: 1 }, P { n: 2 }); }'),
+        isEmpty,
+      );
+    });
+  });
 }

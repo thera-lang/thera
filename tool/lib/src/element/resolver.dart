@@ -203,6 +203,7 @@ FunctionElement _functionElement(TypeResolver resolver, FnDecl fn) {
   return FunctionElement(
     fn.name,
     typeParameters: [for (final tp in fn.typeParams) tp.name],
+    typeParameterBounds: {for (final tp in fn.typeParams) tp.name: tp.bounds},
     parameters: _params(resolver, fn, tps, null),
     returnType: _returnType(resolver, fn.returnType, tps, null),
   );
@@ -222,6 +223,7 @@ MethodElement _methodElement(
     owner: owner,
     isStatic: isStatic,
     typeParameters: [for (final tp in fn.typeParams) tp.name],
+    typeParameterBounds: {for (final tp in fn.typeParams) tp.name: tp.bounds},
     parameters: _params(resolver, fn, tps, selfType),
     returnType: _returnType(resolver, fn.returnType, tps, selfType),
   );

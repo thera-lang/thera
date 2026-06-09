@@ -14,6 +14,11 @@ class Inferrer {
   final LibraryElement library;
   final TypeResolver _resolver;
 
+  /// The generic parameters of the function currently being inferred, mapped to
+  /// their bounds (e.g. `T` -> [`Display`]). Lets a method call on a value of
+  /// type `T` resolve against `T`'s interface bound. Set per [_inferFn].
+  Map<String, List<String>> _typeParamBounds = const {};
+
   Inferrer(this.library) : _resolver = TypeResolver(library.typeDefs);
 
   // --- entry points ---
@@ -51,6 +56,7 @@ class Inferrer {
       {required Type? selfType, required Set<String> outerTypeParams}) {
     if (fn.body == null) return;
     final tps = {...outerTypeParams, for (final tp in fn.typeParams) tp.name};
+    _typeParamBounds = {for (final tp in fn.typeParams) tp.name: tp.bounds};
     final scope = <String, Type>{};
     for (final p in fn.params) {
       if (p.isSelf) {
@@ -411,6 +417,16 @@ class Inferrer {
       // The call yields the field's return type.
       final fieldType = _fieldType(recvType, callee.field);
       if (fieldType is FunctionType) return fieldType.returnType;
+
+      // A method on a generic parameter bound by an interface (`x: T` where
+      // `T: Display`): resolve against the bound's methods (dynamic dispatch).
+      if (recvType is TypeParameterType) {
+        for (final bound
+            in _typeParamBounds[recvType.name] ?? const <String>[]) {
+          final method = library.typeDefs[bound]?.method(callee.field);
+          if (method != null) return method.returnType;
+        }
+      }
 
       return const UnknownType();
     }

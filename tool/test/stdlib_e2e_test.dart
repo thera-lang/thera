@@ -74,6 +74,24 @@ fn main() -> Int {
     expect(r.stdout, 'Dog(Rex)\na cat\n');
   });
 
+  test('a generic function bound by Display dispatches dynamically', () {
+    final r = emitAndRun('generic_dispatch', '''
+type Dog = { name: String }
+impl Display for Dog { fn display(self) -> String { return 'Dog(\${self.name})'; } }
+type Cat = {}
+impl Display for Cat { fn display(self) -> String { return 'a cat'; } }
+fn label<T: Display>(_ x: T) -> String { return 'val: \${x.display()}'; }
+fn main() -> Int {
+    println(label(Dog { name: 'Rex' }));   // erased T, dispatched at runtime
+    println(label(Cat {}));
+    return 0;
+}
+''', []);
+    if (r == null) return markTestSkipped('Rust runtime unavailable');
+    expect(r.exitCode, 0, reason: r.stderr.toString());
+    expect(r.stdout, 'val: Dog(Rex)\nval: a cat\n');
+  });
+
   test('interface types dispatch in field, return, and List positions', () {
     final r = emitAndRun('dispatch_positions', '''
 type Dog = { name: String }

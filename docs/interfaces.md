@@ -155,9 +155,15 @@ end-to-end change lands first.
    types into those positions. The added work was soundness: a method **not**
    declared on the interface is rejected at compile time (was a runtime trap),
    and a non-conforming value is rejected where an interface is expected.
-4. **Stage D — generics + bounds.** `<T: Display>` bound checking at call sites +
-   erased-generic dispatch via `call.virtual`. Subsumes type-param bound
-   enforcement.
+4. **Stage D — generics + bounds. DONE.** A method on an erased `T: Display`
+   dispatches via `call.virtual` (codegen reads the unit's type-param bounds;
+   inference resolves the method against the bound). Bounds are **enforced at
+   call sites**: the type argument must satisfy each bound, else a compile error
+   (`f<T: Display>(5)` is the one loose case — primitives satisfy the built-in
+   `Eq`/`Display`/`Debug` at the type level, so it type-checks but can't dispatch
+   until Stage E; `f<T: Display>(plain_struct)` is rejected). `Eq`/`Debug` are
+   satisfied structurally (no explicit `impl` needed); other interfaces require
+   one. Subsumes the old type-param-bound-enforcement gap.
 5. **Stage E — `Debug` auto-derive.** A structural `debug` reachable under
    dynamic dispatch unblocks generic `assert_eq`/`assert_ne`, a prerequisite for
    the `@test` runner actually running tests.

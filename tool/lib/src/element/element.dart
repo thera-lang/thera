@@ -137,12 +137,17 @@ class FunctionElement extends Element {
   @override
   final String name;
   final List<String> typeParameters;
+
+  /// Each generic parameter's interface bounds, e.g. `{T: [Display]}` for
+  /// `fn f<T: Display>(...)`. Used to enforce bounds at call sites.
+  final Map<String, List<String>> typeParameterBounds;
   final List<ParameterElement> parameters;
   final Type returnType;
 
   FunctionElement(
     this.name, {
     this.typeParameters = const [],
+    this.typeParameterBounds = const {},
     required this.parameters,
     required this.returnType,
   });
@@ -165,6 +170,7 @@ class MethodElement extends FunctionElement {
     required this.owner,
     required this.isStatic,
     super.typeParameters,
+    super.typeParameterBounds,
     required super.parameters,
     required super.returnType,
   });
