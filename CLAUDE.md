@@ -14,10 +14,10 @@ Full design docs: start at **[docs/toc.md](docs/toc.md)**.
   Each library lives in its own named subdir (`sdk/std/path/path.hawk`), with
   Hawk tests beside it as `<name>_test.hawk`.
 - `tool/` — legacy Dart toolchain (lexer/parser/checker/codegen/LSP). `hawk run`
-  compiles to `.hawkbc` and executes it on the Rust runtime. The tree-walking
-  interpreter has been retired; `hawk test` is a TBD stub until the `@test`
-  runner is reimplemented on the bytecode pipeline. Maintained until the Hawk
-  front-end can self-host.
+  compiles to `.hawkbc` and executes it on the Rust runtime; `hawk test` runs
+  the `@test` functions in `*_test.hawk` files (synthesizes a driver `main`,
+  runs it via the runtime's `run --entry`). The tree-walking interpreter has
+  been retired. Maintained until the Hawk front-end can self-host.
 - `pkgs/cli/` — placeholder for the future Hawk-written front-end + CLI.
 - `examples/` — example `.hawk` programs. `bin/` — dev entry scripts.
 - `docs/` — design docs.

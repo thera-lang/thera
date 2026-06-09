@@ -23,8 +23,13 @@ String? _findRuntimeBinary() {
 /// Compile the program at [path] to bytecode bytes, type-checking before
 /// lowering (codegen assumes a well-typed program). Prints diagnostics and
 /// exits non-zero on any lex/parse/type/codegen error.
-List<int> _emitBytes(String path) {
-  final program = _loadProgram(path);
+List<int> _emitBytes(String path) => _compileProgram(path, _loadProgram(path));
+
+/// Compile an already-parsed [program] (located at [path], used to resolve its
+/// relative imports) to bytecode bytes. Type-checks before lowering; prints
+/// diagnostics and exits non-zero on any type/codegen error. Separated from
+/// [_emitBytes] so `hawk test` can compile a synthesized driver program.
+List<int> _compileProgram(String path, Program program) {
   final imports = loadImports(path, program);
 
   final result = _typeCheck(path, program, imports);
@@ -303,19 +308,181 @@ class TestCommand extends Command<void> {
   String get name => 'test';
 
   @override
-  String get description => 'Run @test functions in one or more files (TBD).';
+  String get description =>
+      'Run @test functions in *_test.hawk files (or a directory of them).';
 
   @override
-  String get invocation => 'hawk test <file>...';
+  String get invocation => 'hawk test <file|dir>...';
 
   @override
-  void run() {
-    // The @test runner has not been reimplemented on the bytecode pipeline
-    // (the legacy tree-walking interpreter, which ran an older dialect, was
-    // retired). Fail fast rather than silently doing nothing.
-    stderr.writeln('hawk test: not yet available. The @test runner needs to be '
-        'reimplemented on the bytecode pipeline (compile with the Dart '
-        'front-end, execute on the Rust runtime); this is TBD.');
-    exit(2);
+  Future<void> run() async {
+    final targets = argResults!.rest;
+    if (targets.isEmpty) usageException('Expected a file or directory.');
+
+    final runtime = _findRuntimeBinary();
+    if (runtime == null) {
+      stderr.writeln('hawk: the Rust runtime was not found at '
+          'runtime/target/debug/hawk. Build it first: run `cargo build` in '
+          'the runtime/ directory.');
+      exit(1);
+    }
+
+    final files = _collectTestFiles(targets);
+    if (files.isEmpty) {
+      stderr.writeln('hawk test: no *_test.hawk files found.');
+      exit(1);
+    }
+
+    var totalTests = 0;
+    var failedFiles = 0;
+    final tmp = Directory.systemTemp.createTempSync('hawk_test');
+    for (final path in files) {
+      final count = await _runTestFile(path, runtime, tmp);
+      if (count == null) {
+        failedFiles++; // compile/load error (already reported)
+      } else {
+        totalTests += count.total;
+        if (count.failures > 0) failedFiles++;
+      }
+    }
+    try {
+      tmp.deleteSync(recursive: true);
+    } catch (_) {}
+
+    stdout.writeln();
+    stdout.writeln(failedFiles == 0
+        ? 'All tests passed ($totalTests in ${files.length} file'
+            '${files.length == 1 ? '' : 's'}).'
+        : '$failedFiles of ${files.length} file'
+            '${files.length == 1 ? '' : 's'} had failures.');
+    exit(failedFiles == 0 ? 0 : 1);
   }
+
+  /// Collect `*_test.hawk` paths from [targets] (files used directly, dirs
+  /// searched recursively), de-duplicated and sorted for stable output.
+  List<String> _collectTestFiles(List<String> targets) {
+    final paths = <String>{};
+    for (final target in targets) {
+      switch (FileSystemEntity.typeSync(target)) {
+        case FileSystemEntityType.file:
+          paths.add(target);
+        case FileSystemEntityType.directory:
+          paths.addAll(Directory(target)
+              .listSync(recursive: true)
+              .whereType<File>()
+              .map((f) => f.path)
+              .where((p) => p.endsWith('_test.hawk')));
+        default:
+          stderr.writeln('hawk test: not found: $target');
+          exit(1);
+      }
+    }
+    final sorted = paths.toList()..sort();
+    return sorted;
+  }
+
+  /// Compile [path]'s `@test` functions with a synthesized driver and run them
+  /// on the [runtime]. Per-test results stream to stdout. Returns the test
+  /// counts, or null if the file failed to load/compile.
+  Future<({int total, int failures})?> _runTestFile(
+      String path, String runtime, Directory tmp) async {
+    final String source;
+    try {
+      source = File(path).readAsStringSync();
+    } on FileSystemException {
+      stderr.writeln('hawk test: cannot read $path');
+      return null;
+    }
+
+    // Parse once to discover the @test functions.
+    final Program program;
+    try {
+      program = _parseOrThrow(source, path);
+    } on _LoadFailed {
+      return null;
+    }
+    final tests = [
+      for (final decl in program.decls)
+        if (decl is FnDecl && decl.decorators.any((d) => d.name == 'test'))
+          decl.name,
+    ];
+
+    stdout.writeln(path);
+    if (tests.isEmpty) {
+      stdout.writeln('  (no @test functions)');
+      return (total: 0, failures: 0);
+    }
+
+    // Re-parse the source plus a synthesized driver `main` that runs each test.
+    final Program combined;
+    try {
+      combined = _parseOrThrow('$source\n${_testDriver(tests)}', path);
+    } on _LoadFailed {
+      return null;
+    }
+    final bytes = _compileProgram(path, combined);
+    final out = File('${tmp.path}/test.hawkbc')..writeAsBytesSync(bytes);
+
+    // A unique entry name so the driver never collides with a tested module's
+    // own `main` (executables under test keep theirs; it's just dead code here).
+    final process = await Process.start(
+      runtime,
+      ['run', '--entry', '__hawk_test_main', out.path],
+      mode: ProcessStartMode.inheritStdio,
+    );
+    final exitCode = await process.exitCode;
+    // `main` returns the failure count; a non-zero, non-count exit (e.g. a
+    // runtime trap) still counts as a failure for this file.
+    final failures =
+        exitCode == 0 ? 0 : (exitCode <= tests.length ? exitCode : 1);
+    return (total: tests.length, failures: failures);
+  }
+
+  /// The synthesized driver: a `main` that runs each `@test` function, prints a
+  /// per-test `ok`/`FAIL` line (with the error on failure), and returns the
+  /// number of failures (which becomes the process exit code).
+  String _testDriver(List<String> tests) {
+    final b = StringBuffer();
+    b.writeln('fn __hawk_pass(_ name: String) -> Int {');
+    b.writeln("    println('  ok    \${name}');");
+    b.writeln('    return 0;');
+    b.writeln('}');
+    b.writeln('fn __hawk_fail(_ name: String, _ e: Error) -> Int {');
+    b.writeln("    println('  FAIL  \${name}');");
+    b.writeln("    println('          \${e}');");
+    b.writeln('    return 1;');
+    b.writeln('}');
+    b.writeln('fn __hawk_test_main() -> Int {');
+    b.writeln('    let mut __hawk_failures = 0;');
+    for (final t in tests) {
+      b.writeln('    let __hawk_r_$t = match $t() {');
+      b.writeln("        Ok(_) => __hawk_pass('$t'),");
+      b.writeln("        Err(e) => __hawk_fail('$t', e),");
+      b.writeln('    };');
+      b.writeln('    __hawk_failures = __hawk_failures + __hawk_r_$t;');
+    }
+    b.writeln('    return __hawk_failures;');
+    b.writeln('}');
+    return b.toString();
+  }
+}
+
+/// Lex and parse [source] (labeled [path] for diagnostics), printing lex/parse
+/// errors and throwing [_LoadFailed] on failure.
+Program _parseOrThrow(String source, String path) {
+  final lexResult = Lexer(source).tokenize();
+  if (lexResult.hasErrors) {
+    for (final err in lexResult.errors) {
+      stderr.writeln('$path:$err');
+    }
+    throw _LoadFailed();
+  }
+  final parseResult = Parser(lexResult.tokens).parse();
+  if (parseResult.hasErrors) {
+    for (final err in parseResult.errors) {
+      stderr.writeln('$path:$err');
+    }
+    throw _LoadFailed();
+  }
+  return parseResult.program;
 }

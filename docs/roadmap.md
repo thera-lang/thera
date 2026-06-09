@@ -13,9 +13,10 @@ implemented **visibility/library** model, and **interface dispatch — static on
 concrete types and dynamic (`call.virtual`) for interface-typed values and
 bounded generics, with bounds enforced at call sites** (see
 [interfaces.md](interfaces.md)) — all work; real CLI programs compile and run end
-to end (see `examples/`). Not yet done: a **GC** (currently `Rc<RefCell>`); a
-**broader stdlib**; *enforced* visibility; the **`hawk test` runner**; and
-**generic operators** (`<T: Add>`). The north star is a language +
+to end (see `examples/`), and `hawk test` runs the `@test` functions in
+`*_test.hawk` files. Not yet done: a **GC** (currently `Rc<RefCell>`); a
+**broader stdlib**; *enforced* visibility; and **generic operators**
+(`<T: Add>`). The north star is a language +
 implementation + stdlib complete enough to **write the Hawk front-end in Hawk**
 (arc 3 below).
 
@@ -36,9 +37,9 @@ a string constant pool, natives referenced by name). The `hawk` binary can
 
 **Dart toolchain (`tool/`)** — lexer, parser, type-checker, LSP, **and a
 bytecode emitter** (`hawk emit <file> <out.hawkbc>`). `hawk run` compiles to
-`.hawkbc` and executes it on the Rust runtime. (The original tree-walking
-interpreter has been retired; `hawk test` is a TBD stub until the `@test` runner
-is reimplemented on the bytecode pipeline.) The emitter lowers the whole
+`.hawkbc` and executes it on the Rust runtime; `hawk test` runs the `@test`
+functions in `*_test.hawk` files. (The original tree-walking interpreter has
+been retired.) The emitter lowers the whole
 language _core_ to `.hawkbc`: functions and
 recursion, locals and typed arithmetic, control flow (`if`/`while`/`for`,
 short-circuit `&&`/`||`), calls and string interpolation, `Result`/`Option` as
@@ -196,14 +197,20 @@ on a mismatch — acceptable, but add a test asserting every `@extern` name the
 front-end can emit is accepted by the runtime, and split the runtime table into
 per-module files (`natives_fs.rs`, `natives_string.rs`, …) as it grows.
 
-**`hawk test` runner.** The `@test` runner needs reimplementing on the bytecode
-pipeline (compile with the Dart front-end, execute on the Rust runtime); today
-it is a TBD stub. **Its language blockers are gone**: `_test.hawk` files emit
-and `testing.assert_eq<T: Eq + Debug>` runs end to end — generic `!=`
-dispatches via `call.virtual`, failure messages render via the structural
-`debug`, and `throw <string>` works. What remains is the runner itself: discover
-`*_test.hawk` files, synthesize an entry that calls each `@test` function, and
-report `Ok`/`Err` with source locations.
+**`hawk test` runner — implemented.** `hawk test <file|dir>...` collects
+`*_test.hawk` files, and for each: parses it to find `@test` functions,
+synthesizes a driver (`__hawk_test_main`) that runs each test and prints an
+`ok`/`FAIL` line (failures rendered via the assertion's `Error` message),
+compiles the test file + driver, and runs it on the runtime via
+`run --entry __hawk_test_main` (a unique entry so it never collides with a
+tested module's own `main`). The exit code is the failure count; an overall
+summary follows. `std.testing` now throws `Error { message }` (not a bare
+string) so a caught `Err(e)` renders soundly via `Display`.
+
+Remaining polish (not blockers): per-test **source locations** on failure (the
+runner reports the test name, not the failing assertion's line — needs spans
+plumbed through `throw`); a richer structural `debug` (struct field / enum
+variant names); and a machine-readable output mode.
 
 **Type-param bound enforcement — done (the generics arc landed).** Bounds
 (`<T: Display>`, `<T: Eq + Debug>`) are enforced at call sites: the inferred
@@ -252,7 +259,8 @@ the qualified form is onerous.
 4. **Generics arc** — _done_: dynamic dispatch (type-id `call.virtual`),
    interface-typed values, type-param bound enforcement, and the structural
    `eq`/`debug` fallbacks. Generic operators (`<T: Add>`) remain.
-5. **`hawk test` runner** — now unblocked; reimplement on the bytecode pipeline.
+5. **`hawk test` runner** — _done_: runs `@test` functions in `*_test.hawk`
+   files, with per-test pass/fail reporting.
 6. **Walk toward arc 3** — stdlib-in-Hawk, then the Hawk front-end.
 
 ## Staged path (runtime, longer view)

@@ -74,6 +74,53 @@ fn main() -> Int {
     expect(r.stdout, 'Dog(Rex)\na cat\n');
   });
 
+  test('hawk test runs @test functions and reports pass/fail', () {
+    if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+    final dir = Directory.systemTemp.createTempSync('hawk_runner');
+    File('${dir.path}/demo_test.hawk').writeAsStringSync('''
+import std.testing;
+@test
+fn test_pass() -> Result<Void, Error> {
+    testing.assert_eq(actual: 2 + 2, expected: 4)?;
+    return Result.Ok(void);
+}
+@test
+fn test_fail() -> Result<Void, Error> {
+    testing.assert_eq(actual: 2 + 2, expected: 5)?;
+    return Result.Ok(void);
+}
+''');
+    final r = Process.runSync(
+      Platform.resolvedExecutable,
+      ['run', 'bin/hawk.dart', 'test', dir.path],
+    );
+    expect(r.exitCode, 1, reason: r.stderr.toString()); // one test failed
+    expect(r.stdout, contains('ok    test_pass'));
+    expect(r.stdout, contains('FAIL  test_fail'));
+    expect(r.stdout, contains('assert_eq failed')); // the rendered message
+    expect(r.stdout, contains('had failures'));
+  });
+
+  test('hawk test on an all-passing file exits 0', () {
+    if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+    final dir = Directory.systemTemp.createTempSync('hawk_runner_ok');
+    File('${dir.path}/ok_test.hawk').writeAsStringSync('''
+import std.testing;
+@test
+fn test_ok() -> Result<Void, Error> {
+    testing.assert(1 < 2)?;
+    return Result.Ok(void);
+}
+''');
+    final r = Process.runSync(
+      Platform.resolvedExecutable,
+      ['run', 'bin/hawk.dart', 'test', dir.path],
+    );
+    expect(r.exitCode, 0, reason: r.stderr.toString());
+    expect(r.stdout, contains('ok    test_ok'));
+    expect(r.stdout, contains('All tests passed'));
+  });
+
   test('testing.assert_eq runs: generic Eq/Debug under dynamic dispatch', () {
     // The @test-runner blocker: assert_eq<T: Eq + Debug> compares via virtual
     // eq and renders the failure message via the structural debug fallback.

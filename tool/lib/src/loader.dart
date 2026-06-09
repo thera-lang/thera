@@ -134,7 +134,18 @@ LoadedImports loadImports(String path, Program program) {
   cache[path] = root;
   _linkImports(program, File(path).parent.path, resolve, sourceFor, root);
 
-  return (programs: order, namespaces: namespacesFor(root));
+  // Namespaces are the union across every linked module, not just the root's.
+  // An imported module's body can itself use a namespace-qualified call into
+  // *its* imports (e.g. a tested module's `cli.Args.new`), and codegen lowers
+  // every module against one flat table — so it needs all the namespace names,
+  // not only the entry program's. The root's bindings win on a name collision.
+  final namespaces = {...namespacesFor(root)};
+  for (final src in cache.values) {
+    namespacesFor(src).forEach((name, surface) {
+      namespaces.putIfAbsent(name, () => surface);
+    });
+  }
+  return (programs: order, namespaces: namespaces);
 }
 
 /// Resolve each `import` in [prog] and record the child library under the import

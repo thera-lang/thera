@@ -13,7 +13,7 @@ use hawk::value::{Obj, TAG_OK, TY_RESULT, Value};
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(String::as_str) {
-        Some("run") => cmd_run(args.get(2)),
+        Some("run") => cmd_run(&args[2.min(args.len())..]),
         Some("emit-demo") => cmd_emit_demo(args.get(2)),
         _ => {
             eprintln!("usage: hawk <run|emit-demo> <file.hawkbc>");
@@ -22,10 +22,24 @@ fn main() -> ExitCode {
     }
 }
 
-/// Load a `.hawkbc` file and run its `main` function.
-fn cmd_run(path: Option<&String>) -> ExitCode {
-    let Some(path) = path else {
-        eprintln!("usage: hawk run <file.hawkbc>");
+/// Load a `.hawkbc` file and run its entry function. `args` is everything after
+/// `run`: an optional `--entry NAME` (default `main`) selects the entry — used
+/// by `hawk test`, whose synthesized driver avoids colliding with a tested
+/// module's own `main` — then the `.hawkbc` path, then the program arguments.
+fn cmd_run(args: &[String]) -> ExitCode {
+    let (entry_name, rest) = match args.split_first() {
+        Some((flag, tail)) if flag == "--entry" => match tail.split_first() {
+            Some((name, tail)) => (name.as_str(), tail),
+            None => {
+                eprintln!("usage: hawk run [--entry NAME] <file.hawkbc> [args]");
+                return ExitCode::from(2);
+            }
+        },
+        _ => ("main", args),
+    };
+
+    let Some(path) = rest.first() else {
+        eprintln!("usage: hawk run [--entry NAME] <file.hawkbc> [args]");
         return ExitCode::from(2);
     };
 
@@ -37,15 +51,15 @@ fn cmd_run(path: Option<&String>) -> ExitCode {
         }
     };
 
-    let Some(entry) = module.function_index("main") else {
-        eprintln!("hawk: {path} has no 'main' function");
+    let Some(entry) = module.function_index(entry_name) else {
+        eprintln!("hawk: {path} has no '{entry_name}' function");
         return ExitCode::FAILURE;
     };
 
-    // Entry convention: `main` takes 0 or 1 parameter. The 1-parameter form
+    // Entry convention: the entry takes 0 or 1 parameter. The 1-parameter form
     // receives the program arguments (everything after the `.hawkbc` path) as a
     // `List<String>`. A richer `Args` type is a stdlib concern that wraps this.
-    let argv: Vec<Value> = std::env::args().skip(3).map(Value::new_str).collect();
+    let argv: Vec<Value> = rest[1..].iter().cloned().map(Value::new_str).collect();
     let call_args = match module.functions[entry].param_count {
         0 => vec![],
         1 => vec![Value::new_list(argv)],
