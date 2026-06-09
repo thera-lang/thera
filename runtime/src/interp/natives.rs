@@ -76,6 +76,20 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("str_chars", native_str_chars),
     ("str_bytes", native_str_bytes),
     ("str_from_chars", native_str_from_chars),
+    ("int_to_double", native_int_to_double),
+    ("double_to_int", native_double_to_int),
+    ("math_sqrt", native_math_sqrt),
+    ("math_pow", native_math_pow),
+    ("math_floor", native_math_floor),
+    ("math_ceil", native_math_ceil),
+    ("math_round", native_math_round),
+    ("math_trunc", native_math_trunc),
+    ("math_exp", native_math_exp),
+    ("math_ln", native_math_ln),
+    ("math_log10", native_math_log10),
+    ("math_sin", native_math_sin),
+    ("math_cos", native_math_cos),
+    ("math_tan", native_math_tan),
     ("option_ok_or", native_option_ok_or),
     ("option_unwrap_or", native_option_unwrap_or),
     ("option_is_some", native_option_is_some),
@@ -482,6 +496,75 @@ fn as_int(v: &Value, who: &str) -> Result<i64, Trap> {
         Value::Int(n) => Ok(*n),
         _ => Err(bug(format!("{who}: expected Int, found {v:?}"))),
     }
+}
+
+fn as_double(v: &Value, who: &str) -> Result<f64, Trap> {
+    match v {
+        Value::Double(x) => Ok(*x),
+        _ => Err(bug(format!("{who}: expected Double, found {v:?}"))),
+    }
+}
+
+// --- numeric natives ---
+
+/// `n.to_double()` — widen an Int to a Double.
+fn native_int_to_double(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let n = as_int(expect_one(args, "int_to_double")?, "int_to_double")?;
+    Ok(Value::Double(n as f64))
+}
+
+/// `x.to_int()` — truncate a Double toward zero to an Int.
+fn native_double_to_int(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let x = as_double(expect_one(args, "double_to_int")?, "double_to_int")?;
+    Ok(Value::Int(x as i64))
+}
+
+/// Apply a unary `f64 -> f64` function to a single Double argument.
+fn math_unary(args: &[Value], who: &str, f: impl Fn(f64) -> f64) -> Result<Value, Trap> {
+    let x = as_double(expect_one(args, who)?, who)?;
+    Ok(Value::Double(f(x)))
+}
+
+fn native_math_sqrt(_o: &mut dyn Write, a: &[Value]) -> Result<Value, Trap> {
+    math_unary(a, "math_sqrt", f64::sqrt)
+}
+fn native_math_floor(_o: &mut dyn Write, a: &[Value]) -> Result<Value, Trap> {
+    math_unary(a, "math_floor", f64::floor)
+}
+fn native_math_ceil(_o: &mut dyn Write, a: &[Value]) -> Result<Value, Trap> {
+    math_unary(a, "math_ceil", f64::ceil)
+}
+fn native_math_round(_o: &mut dyn Write, a: &[Value]) -> Result<Value, Trap> {
+    math_unary(a, "math_round", f64::round)
+}
+fn native_math_trunc(_o: &mut dyn Write, a: &[Value]) -> Result<Value, Trap> {
+    math_unary(a, "math_trunc", f64::trunc)
+}
+fn native_math_exp(_o: &mut dyn Write, a: &[Value]) -> Result<Value, Trap> {
+    math_unary(a, "math_exp", f64::exp)
+}
+fn native_math_ln(_o: &mut dyn Write, a: &[Value]) -> Result<Value, Trap> {
+    math_unary(a, "math_ln", f64::ln)
+}
+fn native_math_log10(_o: &mut dyn Write, a: &[Value]) -> Result<Value, Trap> {
+    math_unary(a, "math_log10", f64::log10)
+}
+fn native_math_sin(_o: &mut dyn Write, a: &[Value]) -> Result<Value, Trap> {
+    math_unary(a, "math_sin", f64::sin)
+}
+fn native_math_cos(_o: &mut dyn Write, a: &[Value]) -> Result<Value, Trap> {
+    math_unary(a, "math_cos", f64::cos)
+}
+fn native_math_tan(_o: &mut dyn Write, a: &[Value]) -> Result<Value, Trap> {
+    math_unary(a, "math_tan", f64::tan)
+}
+
+/// `math.pow(base, exp)` — `base` raised to `exp` (both Double).
+fn native_math_pow(_o: &mut dyn Write, a: &[Value]) -> Result<Value, Trap> {
+    let (base, exp) = args2(a, "math_pow")?;
+    Ok(Value::Double(
+        as_double(base, "math_pow")?.powf(as_double(exp, "math_pow")?),
+    ))
 }
 
 /// Resolve a (possibly out-of-range) index against `len`, faulting if outside

@@ -9,6 +9,8 @@ pub import 'io';           // println, print
 pub import 'option';       // Option<T>
 pub import 'result';       // Result<T, E>
 pub import 'error';        // Error
+pub import 'int';          // Int methods (abs, min, max, clamp, to_double)
+pub import 'double';       // Double methods (abs, min, max, clamp, to_int)
 pub import 'string';       // String static/native helpers
 pub import 'list';         // List helpers
 pub import 'map';          // Map helpers

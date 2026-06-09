@@ -53,6 +53,24 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
     expect(r.stderr, contains('need an arg'));
   });
 
+  test('std.math + Int/Double methods run end to end', () {
+    final r = emitAndRun('math', '''
+import std.math;
+fn main() -> Int {
+    println('abs=\${(-5).abs()}');            // 5 (Int, type-preserving)
+    println('max=\${3.max(9)}');              // 9
+    println('clamp=\${7.clamp(0, 5)}');       // 5
+    println('floor=\${math.floor(3.7)}');     // 3 (Double)
+    println('pow=\${math.pow(2.0, 10.0)}');   // 1024
+    // Int -> math -> Int bridge: integer square root of 144.
+    return math.sqrt(144.0.to_int().to_double()).to_int();   // 12
+}
+''', []);
+    if (r == null) return markTestSkipped('Rust runtime unavailable');
+    expect(r.exitCode, 12, reason: r.stderr.toString());
+    expect(r.stdout, 'abs=5\nmax=9\nclamp=5\nfloor=3\npow=1024\n');
+  });
+
   test('String.chars()/bytes() and the from_chars round-trip run end to end',
       () {
     final r = emitAndRun('chars', '''

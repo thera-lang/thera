@@ -1,0 +1,48 @@
+// std.core — the built-in Int type's methods (auto-imported with the prelude).
+//
+// Magnitude and ordering operations live as methods on the numeric types rather
+// than as free functions, so they stay type-preserving — an Int operation
+// returns an Int — without needing function overloading. `Double` mirrors these
+// (double.hawk); the inherently-Double functions (sqrt, sin, …) live in
+// std.math, which an Int reaches via `n.to_double()`.
+
+impl Int {
+    // The absolute value.
+    pub fn abs(self) -> Int {
+        if self < 0 {
+            return -self;
+        }
+        return self;
+    }
+
+    // The smaller of `self` and `other`.
+    pub fn min(self, _ other: Int) -> Int {
+        if self < other {
+            return self;
+        }
+        return other;
+    }
+
+    // The larger of `self` and `other`.
+    pub fn max(self, _ other: Int) -> Int {
+        if self > other {
+            return self;
+        }
+        return other;
+    }
+
+    // Constrain to the inclusive range [low, high]. Assumes low <= high.
+    pub fn clamp(self, _ low: Int, _ high: Int) -> Int {
+        if self < low {
+            return low;
+        }
+        if self > high {
+            return high;
+        }
+        return self;
+    }
+
+    // Widen to a Double.
+    @extern('int_to_double')
+    pub native fn to_double(self) -> Double
+}

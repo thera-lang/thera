@@ -355,22 +355,37 @@ Notes: no mutexes/atomics — single-threaded means no data races
 ([language.md](language.md) §Concurrency). `select` over channels is a candidate
 addition.
 
-### `std.math` — numeric functions _(new)_
+### `std.math` — numeric functions _(implemented)_
+
+Hawk has no function overloading and no implicit `Int`→`Double` coercion, so the
+surface splits by a single rule: **type-preserving ops that also apply to `Int`
+are methods on the numeric types; inherently-`Double` ops are `std.math`
+functions.**
+
+Methods (core prelude, on **both** `Int` and `Double`, returning their own
+type):
 
 ```
-pub const PI: Double; pub const E: Double;
-pub fn abs(_ x: Double) -> Double;        // + Int overloads as the language allows
-pub fn min(_ a: Double, _ b: Double) -> Double;
-pub fn max(_ a: Double, _ b: Double) -> Double;
-pub fn clamp(_ x: Double, low: Double, high: Double) -> Double;
+n.abs()   a.min(b)   a.max(b)   x.clamp(low, high)
+n.to_double()   x.to_int()   // truncates toward zero
+```
+
+`std.math` (Double; `import std.math`):
+
+```
+pub const PI: Double; pub const E: Double; pub const TAU: Double;
+pub fn sqrt(_ x: Double) -> Double;   pub fn pow(_ base: Double, _ exp: Double) -> Double;
 pub fn floor(_ x: Double) -> Double;  pub fn ceil(_ x: Double) -> Double;
-pub fn round(_ x: Double) -> Double;  pub fn sqrt(_ x: Double) -> Double;
-pub fn pow(_ base: Double, _ exp: Double) -> Double;
-// sin/cos/tan/log/exp; conversions live as Int/Double methods (e.g. n.to_double()).
+pub fn round(_ x: Double) -> Double;  pub fn trunc(_ x: Double) -> Double;
+pub fn exp(_ x: Double) -> Double;    pub fn ln(_ x: Double) -> Double;  pub fn log10(_ x: Double) -> Double;
+pub fn sin(_ x: Double) -> Double;    pub fn cos(_ x: Double) -> Double; pub fn tan(_ x: Double) -> Double;
 ```
 
-Notes: numeric parsing (`String → Int/Double`) lives as `String` methods in the
-prelude (`s.to_int() -> Option<Int>`), not here.
+Notes: feed an `Int` to a `std.math` function via `n.to_double()`; rounding
+returns `Double` (chain `.to_int()` for an `Int`). Deferred: `INFINITY`/`NAN`
+(no literal form, and no load-time init — would need natives), inverse trig /
+`atan2` / `hypot`, and numeric parsing (`String → Int/Double`, a future `String`
+method, not here).
 
 ### `std.random` — randomness _(new)_
 
@@ -626,7 +641,7 @@ dependency graph, so future work lands in the right order:
 | std.process  | partial | reconcile pipes → `Reader`/`Writer`; `ProcessError` |
 | std.time     | new     | runtime native                                      |
 | std.fiber    | new     | runtime scheduler                                   |
-| std.math     | new     |                                                     |
+| std.math     | done    | Double fns + constants; abs/min/max/clamp + to_double/to_int are Int/Double methods |
 | std.random   | new     | runtime entropy                                     |
 | std.json     | new     | structural now; typed decode later                  |
 | std.encoding | new     |                                                     |

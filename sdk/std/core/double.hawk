@@ -1,0 +1,47 @@
+// std.core — the built-in Double type's methods (auto-imported with the
+// prelude).
+//
+// Mirrors the magnitude/ordering methods on Int (int.hawk) so they're
+// type-preserving on either numeric type. The inherently-Double functions
+// (sqrt, floor, sin, …) live in std.math, not here.
+
+impl Double {
+    // The absolute value.
+    pub fn abs(self) -> Double {
+        if self < 0.0 {
+            return -self;
+        }
+        return self;
+    }
+
+    // The smaller of `self` and `other`.
+    pub fn min(self, _ other: Double) -> Double {
+        if self < other {
+            return self;
+        }
+        return other;
+    }
+
+    // The larger of `self` and `other`.
+    pub fn max(self, _ other: Double) -> Double {
+        if self > other {
+            return self;
+        }
+        return other;
+    }
+
+    // Constrain to the inclusive range [low, high]. Assumes low <= high.
+    pub fn clamp(self, _ low: Double, _ high: Double) -> Double {
+        if self < low {
+            return low;
+        }
+        if self > high {
+            return high;
+        }
+        return self;
+    }
+
+    // Truncate toward zero to an Int (drops any fractional part).
+    @extern('double_to_int')
+    pub native fn to_int(self) -> Int
+}

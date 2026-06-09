@@ -1,0 +1,72 @@
+// Tests for std.math and the Int/Double numeric methods.
+//
+// Written ahead of the `@test` runner (see docs/roadmap.md); they type-check
+// today (`hawk check`). The math functions are reached white-box (sibling
+// import); the abs/min/max/clamp methods come from the auto-imported core
+// prelude. Inexact (transcendental) results are checked within a tolerance.
+
+import std.testing;
+
+import 'math';
+
+// Within `eps` of each other (floats rarely compare exactly equal).
+fn close(_ a: Double, _ b: Double) -> Bool {
+    return (a - b).abs() < 0.000001;
+}
+
+@test
+fn test_int_methods() -> Result<Void, Error> {
+    testing.assert_eq(actual: (-5).abs(), expected: 5)?;
+    testing.assert_eq(actual: 5.abs(), expected: 5)?;
+    testing.assert_eq(actual: 3.min(9), expected: 3)?;
+    testing.assert_eq(actual: 3.max(9), expected: 9)?;
+    testing.assert_eq(actual: 7.clamp(0, 5), expected: 5)?;
+    testing.assert_eq(actual: (-7).clamp(0, 5), expected: 0)?;
+    testing.assert_eq(actual: 3.clamp(0, 5), expected: 3)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_double_methods() -> Result<Void, Error> {
+    testing.assert_eq(actual: (-2.5).abs(), expected: 2.5)?;
+    testing.assert_eq(actual: 1.5.min(2.5), expected: 1.5)?;
+    testing.assert_eq(actual: 1.5.max(2.5), expected: 2.5)?;
+    testing.assert_eq(actual: 9.0.clamp(0.0, 5.0), expected: 5.0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_conversions() -> Result<Void, Error> {
+    testing.assert_eq(actual: 3.to_double(), expected: 3.0)?;
+    testing.assert_eq(actual: 3.7.to_int(), expected: 3)?;       // truncates
+    testing.assert_eq(actual: (-3.7).to_int(), expected: -3)?;   // toward zero
+    return Result.Ok(void);
+}
+
+@test
+fn test_rounding() -> Result<Void, Error> {
+    testing.assert_eq(actual: floor(3.7), expected: 3.0)?;
+    testing.assert_eq(actual: ceil(3.2), expected: 4.0)?;
+    testing.assert_eq(actual: round(2.5), expected: 3.0)?;        // halves away from zero
+    testing.assert_eq(actual: trunc(3.9), expected: 3.0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_pow_and_sqrt() -> Result<Void, Error> {
+    testing.assert_eq(actual: pow(2.0, 10.0), expected: 1024.0)?;
+    testing.assert(close(sqrt(144.0), 12.0))?;
+    testing.assert(close(sqrt(2.0) * sqrt(2.0), 2.0))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_constants_and_trig() -> Result<Void, Error> {
+    testing.assert(PI > 3.14159 && PI < 3.14160)?;
+    testing.assert(close(TAU, 2.0 * PI))?;
+    testing.assert(close(sin(0.0), 0.0))?;
+    testing.assert(close(cos(0.0), 1.0))?;
+    testing.assert(close(ln(E), 1.0))?;
+    testing.assert(close(log10(1000.0), 3.0))?;
+    return Result.Ok(void);
+}
