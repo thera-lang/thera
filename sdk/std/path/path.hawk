@@ -6,7 +6,12 @@
 // No filesystem operations are performed by any function in this module — every
 // function operates purely on strings. The whole module is implemented in Hawk
 // on top of the built-in String/List methods (no runtime natives), so it serves
-// as a worked example of stdlib-in-Hawk. Paths use '/' as the separator.
+// as a worked example of stdlib-in-Hawk.
+//
+// Paths are slash-based (POSIX-style, like Go's `path` package): '/' is always
+// the separator. OS-aware handling (Windows '\' and drive letters) is a future
+// task — and a platform separator can't be a `const` (those are compile-time
+// inlined), so it will need native backing when std.path becomes OS-aware.
 
 // Split a path into its components on '/'. A leading '/' is preserved as a
 // leading empty component (the root marker); interior and trailing empty

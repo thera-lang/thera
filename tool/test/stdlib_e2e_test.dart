@@ -53,6 +53,22 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
     expect(r.stderr, contains('need an arg'));
   });
 
+  test('std.char constants and predicates run end to end', () {
+    final r = emitAndRun('char', '''
+import std.char;
+fn main() -> Int {
+    println('SPACE=\${char.SPACE}');
+    if char.is_digit(char.DIGIT_0 + 5) { println('digit'); }
+    if char.is_hex_digit(char.LOWER_A) { println('hex'); }
+    if !char.is_hex_digit(char.LOWER_Z) { println('not-hex'); }
+    return char.to_upper(char.LOWER_A);   // 'A' == 65
+}
+''', []);
+    if (r == null) return markTestSkipped('Rust runtime unavailable');
+    expect(r.exitCode, 65, reason: r.stderr.toString());
+    expect(r.stdout, 'SPACE=32\ndigit\nhex\nnot-hex\n');
+  });
+
   test('top-level consts (bare + qualified) run end to end', () {
     final r = emitAndRun('consts', '''
 const LIMIT: Int = 40;

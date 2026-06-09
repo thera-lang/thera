@@ -257,9 +257,11 @@ pub fn with_extension(_ path: String, _ ext: String) -> String;
 // + dirname / basename / stem / extension / is_absolute
 ```
 
-Deferred: `normalize` (collapse `./` `../`), `relative`, and a variadic `join`.
-(A `SEPARATOR` constant is now expressible — top-level `const` compiles, §
-Sequencing — but `'/'` stays inlined in `path.hawk` for now.)
+Slash-based (POSIX-style, like Go's `path`): `'/'` is always the separator. OS
+-aware handling — Windows `\`, drive letters, and a platform separator (which
+can't be a compile-time `const`; it needs native backing) — is a deliberate
+future task. Also deferred: `normalize` (collapse `./` `../`), `relative`, and a
+variadic `join`.
 
 ### `std.env` — environment & process info _(new)_
 
@@ -512,6 +514,25 @@ pub enum Color { Red, Green, Yellow, Blue, Default /* … */ }
 
 Notes: color helpers should no-op when `!is_tty()` so piped output stays clean.
 
+### `std.char` — ASCII code points _(implemented, pure Hawk)_
+
+Purpose: name the ASCII range so it never has to be rewritten from memory (the
+constants are the point — they're copied by hand in languages that lack them),
+plus a handful of ASCII-only predicates and case conversions over code points
+(`Int`).
+
+```
+pub const SPACE: Int;  pub const LF: Int;  pub const DIGIT_0: Int;  // … the ASCII set
+pub fn is_digit(_ cp: Int) -> Bool;       // + is_hex_digit/is_alpha/is_alphanumeric
+pub fn is_whitespace(_ cp: Int) -> Bool;  // + is_upper/is_lower
+pub fn digit_value(_ cp: Int) -> Option<Int>;
+pub fn to_lower(_ cp: Int) -> Int;        // + to_upper; non-letters pass through
+```
+
+Notes: ASCII only (U+0000..U+007F). Full Unicode classification and locale-aware
+case folding belong to a Unicode/ICU package, not core. Identifier predicates
+(`is_ident_start`/`continue`) were removed as too source-parser-specific.
+
 ### `std.regex` — regular expressions _(exists)_
 
 RE2-backed; `Regex.compile` / `is_match` / `find` / `captures` / `replace`.
@@ -586,7 +607,10 @@ dependency graph, so future work lands in the right order:
 8. **Top-level `const` in codegen — done.** `const`/`pub const` now compile: a
    reference (bare or namespace-qualified `ns.NAME`) inlines its initializer
    expression at the use site (codegen has no global storage). This unblocks
-   `std.char`'s constants, `std.math`'s `PI`/`E`, and a `std.path` `SEPARATOR`.
+   `std.char`'s constants and `std.math`'s `PI`/`E`. (Note: a *platform* value
+   like a path separator is **not** a fit for `const` — it's compile-time
+   inlined — so std.path stays slash-based and a native-backed separator waits
+   for OS-aware paths. There is no load-time static-initializer mechanism yet.)
 
 ## Status summary
 
@@ -609,5 +633,6 @@ dependency graph, so future work lands in the right order:
 | std.log      | new     |                                                     |
 | std.cli      | partial | expand `Args` → declarative `Command`               |
 | std.term     | new     |                                                     |
+| std.char     | done    | pure Hawk; `pub` API + ASCII scope; `is_hex_digit` added, ident predicates removed |
 | std.regex    | exists  | make `pub`; privatize natives later                 |
 | std.testing  | exists  | gated on generics arc for `<T: Eq + Debug>`         |

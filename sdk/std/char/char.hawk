@@ -1,100 +1,110 @@
-// std.char — Unicode code point constants and predicates.
+// std.char — ASCII code point constants and predicates.
 //
 // Import as: import std.char
 // Usage:     char.is_digit(cp)   char.SPACE   char.LF
 //
-// All values are Unicode scalar values (code points) as Int.
-// Obtain code points from a string with s.chars().
+// Code points are Unicode scalar values held as `Int`. The constants below name
+// the ASCII range so it never has to be rewritten from memory (their main
+// value); the predicates and case conversions classify/transform the ASCII
+// range only (U+0000..U+007F) and pass any other code point through unchanged.
+//
+// Full Unicode classification and locale-aware, multi-code-point case folding
+// belong to a dedicated Unicode/ICU package, not the core stdlib.
 
 // --- ASCII control characters ---
 
-const NUL: Int = 0;
-const TAB: Int = 9;
-const LF: Int = 10;
-const CR: Int = 13;
-const ESC: Int = 27;
+pub const NUL: Int = 0;
+pub const TAB: Int = 9;
+pub const LF: Int = 10;
+pub const CR: Int = 13;
+pub const ESC: Int = 27;
 
 // --- ASCII printable characters ---
 
-const SPACE: Int = 32;
-const BANG: Int = 33;        // !
-const DQUOTE: Int = 34;      // "
-const HASH: Int = 35;        // #
-const DOLLAR: Int = 36;      // $
-const PERCENT: Int = 37;     // %
-const AMP: Int = 38;         // &
-const SQUOTE: Int = 39;      // '
-const LPAREN: Int = 40;      // (
-const RPAREN: Int = 41;      // )
-const STAR: Int = 42;        // *
-const PLUS: Int = 43;        // +
-const COMMA: Int = 44;       // ,
-const MINUS: Int = 45;       // -
-const DOT: Int = 46;         // .
-const SLASH: Int = 47;       // /
-const DIGIT_0: Int = 48;     // 0
-const DIGIT_9: Int = 57;     // 9
-const COLON: Int = 58;       // :
-const SEMI: Int = 59;        // ;
-const LT: Int = 60;          // <
-const EQ: Int = 61;          // =
-const GT: Int = 62;          // >
-const QUESTION: Int = 63;    // ?
-const AT: Int = 64;          // @
-const UPPER_A: Int = 65;     // A
-const UPPER_Z: Int = 90;     // Z
-const LBRACKET: Int = 91;    // [
-const BACKSLASH: Int = 92;   // \
-const RBRACKET: Int = 93;    // ]
-const CARET: Int = 94;       // ^
-const UNDERSCORE: Int = 95;  // _
-const BACKTICK: Int = 96;    // `
-const LOWER_A: Int = 97;     // a
-const LOWER_Z: Int = 122;    // z
-const LBRACE: Int = 123;     // {
-const PIPE: Int = 124;       // |
-const RBRACE: Int = 125;     // }
-const TILDE: Int = 126;      // ~
-const DEL: Int = 127;
+pub const SPACE: Int = 32;
+pub const BANG: Int = 33;        // !
+pub const DQUOTE: Int = 34;      // "
+pub const HASH: Int = 35;        // #
+pub const DOLLAR: Int = 36;      // $
+pub const PERCENT: Int = 37;     // %
+pub const AMP: Int = 38;         // &
+pub const SQUOTE: Int = 39;      // '
+pub const LPAREN: Int = 40;      // (
+pub const RPAREN: Int = 41;      // )
+pub const STAR: Int = 42;        // *
+pub const PLUS: Int = 43;        // +
+pub const COMMA: Int = 44;       // ,
+pub const MINUS: Int = 45;       // -
+pub const DOT: Int = 46;         // .
+pub const SLASH: Int = 47;       // /
+pub const DIGIT_0: Int = 48;     // 0
+pub const DIGIT_9: Int = 57;     // 9
+pub const COLON: Int = 58;       // :
+pub const SEMI: Int = 59;        // ;
+pub const LT: Int = 60;          // <
+pub const EQ: Int = 61;          // =
+pub const GT: Int = 62;          // >
+pub const QUESTION: Int = 63;    // ?
+pub const AT: Int = 64;          // @
+pub const UPPER_A: Int = 65;     // A
+pub const UPPER_Z: Int = 90;     // Z
+pub const LBRACKET: Int = 91;    // [
+pub const BACKSLASH: Int = 92;   // \
+pub const RBRACKET: Int = 93;    // ]
+pub const CARET: Int = 94;       // ^
+pub const UNDERSCORE: Int = 95;  // _
+pub const BACKTICK: Int = 96;    // `
+pub const LOWER_A: Int = 97;     // a
+pub const LOWER_Z: Int = 122;    // z
+pub const LBRACE: Int = 123;     // {
+pub const PIPE: Int = 124;       // |
+pub const RBRACE: Int = 125;     // }
+pub const TILDE: Int = 126;      // ~
+pub const DEL: Int = 127;
 
-// --- Predicates (pure Hawk — no native fn required) ---
+// --- Predicates (ASCII only; pure Hawk — no native fn required) ---
 
-fn is_digit(_ cp: Int) -> Bool {
+// True for an ASCII decimal digit, 0-9.
+pub fn is_digit(_ cp: Int) -> Bool {
     return cp >= DIGIT_0 && cp <= DIGIT_9;
 }
 
-fn is_upper(_ cp: Int) -> Bool {
+// True for an ASCII hexadecimal digit: 0-9, a-f, or A-F.
+pub fn is_hex_digit(_ cp: Int) -> Bool {
+    if is_digit(cp) {
+        return true;
+    }
+    let lower = to_lower(cp);
+    return lower >= LOWER_A && lower <= LOWER_A + 5; // a..f
+}
+
+// True for an ASCII uppercase letter, A-Z.
+pub fn is_upper(_ cp: Int) -> Bool {
     return cp >= UPPER_A && cp <= UPPER_Z;
 }
 
-fn is_lower(_ cp: Int) -> Bool {
+// True for an ASCII lowercase letter, a-z.
+pub fn is_lower(_ cp: Int) -> Bool {
     return cp >= LOWER_A && cp <= LOWER_Z;
 }
 
-fn is_alpha(_ cp: Int) -> Bool {
+// True for an ASCII letter, A-Z or a-z.
+pub fn is_alpha(_ cp: Int) -> Bool {
     return is_upper(cp) || is_lower(cp);
 }
 
-fn is_alphanumeric(_ cp: Int) -> Bool {
+// True for an ASCII letter or digit.
+pub fn is_alphanumeric(_ cp: Int) -> Bool {
     return is_alpha(cp) || is_digit(cp);
 }
 
-fn is_whitespace(_ cp: Int) -> Bool {
+// True for ASCII whitespace: space, tab, newline, or carriage return.
+pub fn is_whitespace(_ cp: Int) -> Bool {
     return cp == SPACE || cp == TAB || cp == LF || cp == CR;
 }
 
-// Returns true for valid identifier-start characters (letter or underscore).
-fn is_ident_start(_ cp: Int) -> Bool {
-    return is_alpha(cp) || cp == UNDERSCORE;
-}
-
-// Returns true for valid identifier-continuation characters.
-fn is_ident_continue(_ cp: Int) -> Bool {
-    return is_alphanumeric(cp) || cp == UNDERSCORE;
-}
-
 // Return the numeric value of an ASCII decimal digit, or None if not a digit.
-fn digit_value(_ cp: Int) -> Option<Int> {
+pub fn digit_value(_ cp: Int) -> Option<Int> {
     if is_digit(cp) {
         return Option.Some(cp - DIGIT_0);
     }
@@ -103,7 +113,7 @@ fn digit_value(_ cp: Int) -> Option<Int> {
 
 // Return the lowercase equivalent of an uppercase ASCII letter; other code
 // points are returned unchanged.
-fn to_lower(_ cp: Int) -> Int {
+pub fn to_lower(_ cp: Int) -> Int {
     if is_upper(cp) {
         return cp + 32;
     }
@@ -112,7 +122,7 @@ fn to_lower(_ cp: Int) -> Int {
 
 // Return the uppercase equivalent of a lowercase ASCII letter; other code
 // points are returned unchanged.
-fn to_upper(_ cp: Int) -> Int {
+pub fn to_upper(_ cp: Int) -> Int {
     if is_lower(cp) {
         return cp - 32;
     }
