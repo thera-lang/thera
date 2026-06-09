@@ -238,19 +238,24 @@ pub enum FsError {
 Notes: `read_dir` → `list_dir` (the existing TODO). Per-domain `FsError`
 replaces the current `Result<_, Error>`.
 
-### `std.path` — pure path manipulation _(partial → expand)_
+### `std.path` — pure path manipulation _(implemented, pure Hawk)_
 
-Purpose: string-only path operations, no filesystem access (the existing
-contract). Has `join`/`dirname`/`basename`/`stem`/`extension`/`is_absolute`.
+Purpose: string-only path operations, no filesystem access. **Implemented
+entirely in Hawk** on top of the `String`/`List` methods (no runtime natives) —
+the worked example of stdlib-in-Hawk. Provides
+`join`/`dirname`/`basename`/`stem`/`extension`/`is_absolute` plus `components`
+and `with_extension`.
 
 ```
-pub fn join(_ parts: List<String>) -> String;     // variadic-ish; keep the 2-arg form too
-pub fn normalize(_ path: String) -> String;        // collapse ./ ../
-pub fn relative(from base: String, to target: String) -> String;
+pub fn join(_ base: String, _ part: String) -> String;  // absolute `part` wins
 pub fn components(_ path: String) -> List<String>;
 pub fn with_extension(_ path: String, _ ext: String) -> String;
-pub const SEPARATOR: String;
+// + dirname / basename / stem / extension / is_absolute
 ```
+
+Deferred: `normalize` (collapse `./` `../`), `relative`, and a variadic `join`.
+A `SEPARATOR` constant waits on top-level `const` support in codegen (§
+Sequencing); `'/'` is inlined for now.
 
 ### `std.env` — environment & process info _(new)_
 
@@ -574,6 +579,12 @@ dependency graph, so future work lands in the right order:
    module-private; today the language can't enforce it. Tighten when visibility
    lands.
 
+8. **Top-level `const` in codegen.** `const`/`pub const` parse and check, but the
+   code generator does not emit them — referencing a module-level constant fails
+   ("not a local variable"). This blocks `std.char`'s constants, `std.math`'s
+   `PI`/`E`, and `std.path`'s `SEPARATOR`. A self-contained codegen fix
+   (materialize constants, or inline their literal initializers at use sites).
+
 ## Status summary
 
 | Module       | Status  | Notes                                               |
@@ -581,7 +592,7 @@ dependency graph, so future work lands in the right order:
 | prelude/core | exists  | add `Set` file, `Ord`, `String.to_int`/`to_double`  |
 | std.io       | new     | foundation; gated on `Bytes` + generics arc         |
 | std.fs       | partial | expand; `read_dir`→`list_dir`; `FsError`            |
-| std.path     | partial | expand (normalize/relative/components)              |
+| std.path     | done    | pure Hawk; `components`/`with_extension` added; normalize/relative deferred |
 | std.env      | new     |                                                     |
 | std.process  | partial | reconcile pipes → `Reader`/`Writer`; `ProcessError` |
 | std.time     | new     | runtime native                                      |

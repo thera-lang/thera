@@ -53,6 +53,61 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
     expect(r.stderr, contains('need an arg'));
   });
 
+  test('std.path (pure Hawk) computes path pieces end to end', () {
+    final r = emitAndRun('path', '''
+import std.path;
+fn main() -> Result<Int, Error> {
+    println(path.join('src', 'main.hawk'));        // src/main.hawk
+    println(path.join('src/', 'main.hawk'));       // src/main.hawk
+    println(path.join('', 'main.hawk'));           // main.hawk
+    println(path.dirname('src/main.hawk'));        // src
+    println(path.dirname('main.hawk'));            // .
+    println(path.dirname('/usr/bin/hawk'));        // /usr/bin
+    println(path.dirname('/file'));                // /
+    println(path.basename('/usr/bin/hawk'));       // hawk
+    println(path.stem('archive.tar.gz'));          // archive.tar
+    println(path.extension('src/main.hawk'));      // .hawk
+    println(path.extension('Makefile'));           // (empty)
+    println(path.extension('.bashrc'));            // (empty)
+    println(path.with_extension('src/main.hawk', 'md'));  // src/main.md
+    println(path.components('/usr/bin').join(','));        // ,usr,bin
+    return Result.Ok(0);
+}
+''', []);
+    if (r == null) return markTestSkipped('Rust runtime unavailable');
+    expect(r.exitCode, 0, reason: r.stderr.toString());
+    expect(
+        r.stdout,
+        'src/main.hawk\n'
+        'src/main.hawk\n'
+        'main.hawk\n'
+        'src\n'
+        '.\n'
+        '/usr/bin\n'
+        '/\n'
+        'hawk\n'
+        'archive.tar\n'
+        '.hawk\n'
+        '\n'
+        '\n'
+        'src/main.md\n'
+        ',usr,bin\n');
+  });
+
+  test('std.path.is_absolute distinguishes absolute vs relative', () {
+    final r = emitAndRun('path_abs', '''
+import std.path;
+fn main() -> Int {
+    let mut n = 0;
+    if path.is_absolute('/usr/bin') { n = n + 1; }
+    if path.is_absolute('src/main') { n = n + 10; }   // false: not added
+    return n;
+}
+''', []);
+    if (r == null) return markTestSkipped('Rust runtime unavailable');
+    expect(r.exitCode, 1, reason: r.stderr.toString());
+  });
+
   test('std.core auto-loads: Error constructs and interpolates via Display',
       () {
     final r = emitAndRun('core', '''
