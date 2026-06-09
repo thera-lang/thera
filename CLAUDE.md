@@ -11,6 +11,8 @@ Full design docs: start at **[docs/toc.md](docs/toc.md)**.
 - `runtime/` — **the active codebase**: a Rust runtime with a Tier-0 bytecode
   interpreter and the serialized `.hawkbc` format.
 - `sdk/std/` — Hawk standard library sources (`.hawk`, with `native fn` decls).
+  Each library lives in its own named subdir (`sdk/std/path/path.hawk`), with
+  Hawk tests beside it as `<name>_test.hawk`.
 - `tool/` — legacy Dart toolchain (lexer/parser/checker/codegen/LSP). `hawk run`
   compiles to `.hawkbc` and executes it on the Rust runtime. The tree-walking
   interpreter has been retired; `hawk test` is a TBD stub until the `@test`

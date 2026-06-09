@@ -40,6 +40,10 @@ enough to reduce hallucination.
    return `Option`. Convenience whole-value readers are `read_text` /
    `read_bytes`; their streaming counterparts are `open`.
 
+   **Layout:** every library lives in its own named subdirectory —
+   `sdk/std/<name>/<name>.hawk` (even single-file libs, ready to grow into a
+   barrel) — with Hawk tests beside it as `<name>_test.hawk`.
+
 3. **I/O is `Reader`/`Writer` underneath, whole-value on top.** Streaming is one
    protocol — the `Reader` / `Writer` / `Closer` interfaces in `std.io` (§ Core
    types). Files, process pipes, sockets, and in-memory buffers all implement
