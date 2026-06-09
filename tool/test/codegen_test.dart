@@ -1617,4 +1617,17 @@ fn main() -> Int {
       );
     });
   });
+
+  group('function-valued field', () {
+    test('is callable with method syntax (field-get + call-indirect)', () {
+      // `b.f(7)` where `f` is a closure-typed field (no method `f`): fetch the
+      // field, then dispatch indirectly rather than as a direct method Call.
+      final ops = compile('''
+type Box = { f: (Int) -> Int }
+fn run(_ b: Box) -> Int { return b.f(7); }
+''').functions.single.code;
+      expect(ops, contains(isA<FieldGet>()));
+      expect(ops, contains(isA<CallIndirect>()));
+    });
+  });
 }

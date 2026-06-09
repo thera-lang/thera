@@ -53,6 +53,24 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
     expect(r.stderr, contains('need an arg'));
   });
 
+  test('a function-valued struct field is callable as c.field(args)', () {
+    // The capability-as-struct-of-closures pattern: inject a fake by
+    // constructing the struct with a different closure.
+    final r = emitAndRun('cap_field', '''
+type Clock = { now: () -> Int }
+fn expired(_ c: Clock, _ deadline: Int) -> Bool { return c.now() > deadline; }
+fn main() -> Int {
+    let fake = Clock { now: () => 42 };
+    println('now=\${fake.now()}');             // 42
+    println('expired=\${expired(fake, 10)}');  // true (42 > 10)
+    return fake.now();                          // 42
+}
+''', []);
+    if (r == null) return markTestSkipped('Rust runtime unavailable');
+    expect(r.exitCode, 42, reason: r.stderr.toString());
+    expect(r.stdout, 'now=42\nexpired=true\n');
+  });
+
   test('String.to_int/to_double parse end to end', () {
     final r = emitAndRun('parse', '''
 fn main() -> Int {

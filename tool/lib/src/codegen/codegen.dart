@@ -1599,6 +1599,20 @@ class _FnCompiler {
 
     final idx = _resolveMethod(callee.object, callee.field);
     if (idx == null) {
+      // A function-valued field invoked like a method: `c.now()` where `now` is
+      // a struct field holding a closure (and no method of that name exists).
+      // Push the field's value, then the arguments, and dispatch indirectly.
+      final objType = _typeOf(callee.object);
+      final structInfo = objType == null ? null : structs[objType];
+      if (structInfo != null && structInfo.fieldIndexOf(callee.field) >= 0) {
+        _expr(callee.object);
+        _emit(FieldGet(structInfo.fieldIndexOf(callee.field)));
+        for (final arg in expr.args) {
+          _expr(arg.value);
+        }
+        _emit(CallIndirect(expr.args.length));
+        return;
+      }
       throw CodegenException(
           'no method "${callee.field}" on '
           '${_typeOf(callee.object) ?? 'unknown type'}',

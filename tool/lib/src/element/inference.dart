@@ -405,6 +405,13 @@ class Inferrer {
           return substitute(method.returnType, bindings);
         }
       }
+
+      // A function-valued field invoked like a method: `c.now()` where `now` is
+      // a struct field of function type (and no method of that name exists).
+      // The call yields the field's return type.
+      final fieldType = _fieldType(recvType, callee.field);
+      if (fieldType is FunctionType) return fieldType.returnType;
+
       return const UnknownType();
     }
 
@@ -450,6 +457,11 @@ class Inferrer {
         if (recv is InterfaceType) {
           params = recv.element.method(callee.field)?.parameters;
           if (params != null) bindings.addAll(_receiverBindings(recv));
+        }
+        // A function-valued field (`c.run(x)`): the field's parameter types.
+        if (params == null) {
+          final fieldType = _fieldType(recv, callee.field);
+          if (fieldType is FunctionType) return fieldType.parameterTypes;
         }
       }
     }
