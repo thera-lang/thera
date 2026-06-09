@@ -90,6 +90,13 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("math_sin", native_math_sin),
     ("math_cos", native_math_cos),
     ("math_tan", native_math_tan),
+    ("math_asin", native_math_asin),
+    ("math_acos", native_math_acos),
+    ("math_atan", native_math_atan),
+    ("math_atan2", native_math_atan2),
+    ("math_hypot", native_math_hypot),
+    ("str_to_int", native_str_to_int),
+    ("str_to_double", native_str_to_double),
     ("option_ok_or", native_option_ok_or),
     ("option_unwrap_or", native_option_unwrap_or),
     ("option_is_some", native_option_is_some),
@@ -559,12 +566,56 @@ fn native_math_tan(_o: &mut dyn Write, a: &[Value]) -> Result<Value, Trap> {
     math_unary(a, "math_tan", f64::tan)
 }
 
+fn native_math_asin(_o: &mut dyn Write, a: &[Value]) -> Result<Value, Trap> {
+    math_unary(a, "math_asin", f64::asin)
+}
+fn native_math_acos(_o: &mut dyn Write, a: &[Value]) -> Result<Value, Trap> {
+    math_unary(a, "math_acos", f64::acos)
+}
+fn native_math_atan(_o: &mut dyn Write, a: &[Value]) -> Result<Value, Trap> {
+    math_unary(a, "math_atan", f64::atan)
+}
+
 /// `math.pow(base, exp)` — `base` raised to `exp` (both Double).
 fn native_math_pow(_o: &mut dyn Write, a: &[Value]) -> Result<Value, Trap> {
     let (base, exp) = args2(a, "math_pow")?;
     Ok(Value::Double(
         as_double(base, "math_pow")?.powf(as_double(exp, "math_pow")?),
     ))
+}
+
+/// `math.atan2(y, x)` — the angle of the point (x, y) from the positive x-axis.
+fn native_math_atan2(_o: &mut dyn Write, a: &[Value]) -> Result<Value, Trap> {
+    let (y, x) = args2(a, "math_atan2")?;
+    Ok(Value::Double(
+        as_double(y, "math_atan2")?.atan2(as_double(x, "math_atan2")?),
+    ))
+}
+
+/// `math.hypot(x, y)` — `sqrt(x*x + y*y)` without overflow/underflow.
+fn native_math_hypot(_o: &mut dyn Write, a: &[Value]) -> Result<Value, Trap> {
+    let (x, y) = args2(a, "math_hypot")?;
+    Ok(Value::Double(
+        as_double(x, "math_hypot")?.hypot(as_double(y, "math_hypot")?),
+    ))
+}
+
+/// `s.to_int()` — parse the whole string as a base-10 Int, or None.
+fn native_str_to_int(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let s = str_contents(expect_one(args, "str_to_int")?)?;
+    Ok(match s.parse::<i64>() {
+        Ok(n) => Value::some(Value::Int(n)),
+        Err(_) => Value::none(),
+    })
+}
+
+/// `s.to_double()` — parse the whole string as a Double, or None.
+fn native_str_to_double(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let s = str_contents(expect_one(args, "str_to_double")?)?;
+    Ok(match s.parse::<f64>() {
+        Ok(x) => Value::some(Value::Double(x)),
+        Err(_) => Value::none(),
+    })
 }
 
 /// Resolve a (possibly out-of-range) index against `len`, faulting if outside

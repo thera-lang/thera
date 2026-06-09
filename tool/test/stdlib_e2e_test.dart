@@ -53,6 +53,20 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
     expect(r.stderr, contains('need an arg'));
   });
 
+  test('String.to_int/to_double parse end to end', () {
+    final r = emitAndRun('parse', '''
+fn main() -> Int {
+    println('42=\${'42'.to_int().unwrap_or(-1)}');        // 42
+    println('bad=\${'oops'.to_int().unwrap_or(-1)}');     // -1
+    println('pi=\${'3.14'.to_double().unwrap_or(0.0)}');  // 3.14
+    return '  7  '.trim().to_int().unwrap_or(0);          // 7
+}
+''', []);
+    if (r == null) return markTestSkipped('Rust runtime unavailable');
+    expect(r.exitCode, 7, reason: r.stderr.toString());
+    expect(r.stdout, '42=42\nbad=-1\npi=3.14\n');
+  });
+
   test('std.math + Int/Double methods run end to end', () {
     final r = emitAndRun('math', '''
 import std.math;

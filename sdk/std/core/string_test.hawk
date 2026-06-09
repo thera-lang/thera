@@ -1,0 +1,39 @@
+// Tests for the built-in String methods.
+//
+// Written ahead of the `@test` runner (see docs/roadmap.md); they type-check
+// today (`hawk check`). String's methods are in the auto-imported core prelude,
+// so they're used unqualified — no sibling import needed.
+
+import std.testing;
+
+@test
+fn test_to_int() -> Result<Void, Error> {
+    testing.assert_eq(actual: '42'.to_int(), expected: Option.Some(42))?;
+    testing.assert_eq(actual: '-7'.to_int(), expected: Option.Some(-7))?;
+    testing.assert_eq(actual: 'oops'.to_int(), expected: Option.None)?;
+    testing.assert_eq(actual: ''.to_int(), expected: Option.None)?;
+    // The whole string must be the number — no surrounding space, not a Double.
+    testing.assert_eq(actual: '42 '.to_int(), expected: Option.None)?;
+    testing.assert_eq(actual: '4.5'.to_int(), expected: Option.None)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_to_double() -> Result<Void, Error> {
+    testing.assert_eq(actual: '3.5'.to_double(), expected: Option.Some(3.5))?;
+    testing.assert_eq(actual: '10'.to_double(), expected: Option.Some(10.0))?;
+    testing.assert_eq(actual: 'x'.to_double(), expected: Option.None)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_chars_and_bytes() -> Result<Void, Error> {
+    testing.assert_eq(actual: 'abc'.chars().len(), expected: 3)?;
+    testing.assert_eq(actual: 'abc'.bytes().len(), expected: 3)?;
+    // 'É' is one code point but two UTF-8 bytes.
+    testing.assert_eq(actual: 'É'.chars().len(), expected: 1)?;
+    testing.assert_eq(actual: 'É'.bytes().len(), expected: 2)?;
+    // chars() round-trips through from_chars.
+    testing.assert_eq(actual: String.from_chars('hi'.chars()), expected: 'hi')?;
+    return Result.Ok(void);
+}

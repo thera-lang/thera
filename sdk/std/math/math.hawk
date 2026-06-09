@@ -67,3 +67,22 @@ pub native fn cos(_ x: Double) -> Double
 
 @extern('math_tan')
 pub native fn tan(_ x: Double) -> Double
+
+// Inverse trigonometry (results in radians).
+@extern('math_asin')
+pub native fn asin(_ x: Double) -> Double
+
+@extern('math_acos')
+pub native fn acos(_ x: Double) -> Double
+
+@extern('math_atan')
+pub native fn atan(_ x: Double) -> Double
+
+// The angle (radians) from the positive x-axis to the point (x, y). Unlike
+// `atan(y / x)`, it gets the quadrant right and handles x == 0.
+@extern('math_atan2')
+pub native fn atan2(_ y: Double, _ x: Double) -> Double
+
+// The length of the hypotenuse sqrt(x*x + y*y), avoiding overflow/underflow.
+@extern('math_hypot')
+pub native fn hypot(_ x: Double, _ y: Double) -> Double

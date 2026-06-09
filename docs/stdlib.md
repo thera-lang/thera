@@ -379,13 +379,15 @@ pub fn floor(_ x: Double) -> Double;  pub fn ceil(_ x: Double) -> Double;
 pub fn round(_ x: Double) -> Double;  pub fn trunc(_ x: Double) -> Double;
 pub fn exp(_ x: Double) -> Double;    pub fn ln(_ x: Double) -> Double;  pub fn log10(_ x: Double) -> Double;
 pub fn sin(_ x: Double) -> Double;    pub fn cos(_ x: Double) -> Double; pub fn tan(_ x: Double) -> Double;
+pub fn asin(_ x: Double) -> Double;   pub fn acos(_ x: Double) -> Double; pub fn atan(_ x: Double) -> Double;
+pub fn atan2(_ y: Double, _ x: Double) -> Double;   pub fn hypot(_ x: Double, _ y: Double) -> Double;
 ```
 
 Notes: feed an `Int` to a `std.math` function via `n.to_double()`; rounding
-returns `Double` (chain `.to_int()` for an `Int`). Deferred: `INFINITY`/`NAN`
-(no literal form, and no load-time init — would need natives), inverse trig /
-`atan2` / `hypot`, and numeric parsing (`String → Int/Double`, a future `String`
-method, not here).
+returns `Double` (chain `.to_int()` for an `Int`). Numeric parsing is on
+`String` (prelude): `s.to_int() -> Option<Int>`, `s.to_double() -> Option<Double>`
+(strict — the whole string must be the number). Deferred: `INFINITY`/`NAN` (no
+literal form, and no load-time init — would need natives).
 
 ### `std.random` — randomness _(new)_
 
@@ -633,7 +635,7 @@ dependency graph, so future work lands in the right order:
 
 | Module       | Status  | Notes                                               |
 | ------------ | ------- | --------------------------------------------------- |
-| prelude/core | exists  | add `Set` file, `Ord`, `String.to_int`/`to_double`  |
+| prelude/core | exists  | Int/Double + String parsing (`to_int`/`to_double`) added; still want `Set` file, `Ord` |
 | std.io       | new     | foundation; gated on `Bytes` + generics arc         |
 | std.fs       | partial | expand; `read_dir`→`list_dir`; `FsError`            |
 | std.path     | done    | pure Hawk; `components`/`with_extension` added; normalize/relative deferred |

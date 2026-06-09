@@ -70,3 +70,13 @@ fn test_constants_and_trig() -> Result<Void, Error> {
     testing.assert(close(log10(1000.0), 3.0))?;
     return Result.Ok(void);
 }
+
+@test
+fn test_inverse_trig() -> Result<Void, Error> {
+    testing.assert(close(asin(1.0), PI / 2.0))?;
+    testing.assert(close(acos(1.0), 0.0))?;
+    testing.assert(close(atan(0.0), 0.0))?;
+    testing.assert(close(atan2(1.0, 1.0), PI / 4.0))?;
+    testing.assert(close(hypot(3.0, 4.0), 5.0))?;
+    return Result.Ok(void);
+}

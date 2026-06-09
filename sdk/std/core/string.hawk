@@ -66,6 +66,21 @@ impl String {
     @extern('str_bytes')
     pub native fn bytes(self) -> List<Int>
 
+    // Parse the whole string as a base-10 Int, or None if it isn't one. The
+    // entire string must be the number (no surrounding whitespace) — call
+    // `s.trim()` first if needed.
+    //
+    //   '42'.to_int()    // Some(42)
+    //   'x'.to_int()     // None
+    @extern('str_to_int')
+    pub native fn to_int(self) -> Option<Int>
+
+    // Parse the whole string as a Double, or None if it isn't one.
+    //
+    //   '3.14'.to_double()   // Some(3.14)
+    @extern('str_to_double')
+    pub native fn to_double(self) -> Option<Double>
+
     // Construct a String from a list of Unicode code points (as Int).
     // The inverse of `s.chars()`.
     @extern('str_from_chars')
