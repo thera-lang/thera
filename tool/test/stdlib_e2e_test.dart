@@ -74,6 +74,28 @@ fn main() -> Int {
     expect(r.stdout, 'Dog(Rex)\na cat\n');
   });
 
+  test('interface types dispatch in field, return, and List positions', () {
+    final r = emitAndRun('dispatch_positions', '''
+type Dog = { name: String }
+impl Display for Dog { fn display(self) -> String { return 'Dog(\${self.name})'; } }
+type Cat = {}
+impl Display for Cat { fn display(self) -> String { return 'a cat'; } }
+type Box = { item: Display }
+fn pick() -> Display { return Cat {}; }
+fn main() -> Int {
+    let b = Box { item: Dog { name: 'Rex' } };
+    println(b.item.display());              // field-typed Display
+    println(pick().display());              // return-typed Display
+    let xs: List<Display> = [Dog { name: 'Fido' }, Cat {}];
+    for x in xs { println(x.display()); }   // List<Display> element
+    return 0;
+}
+''', []);
+    if (r == null) return markTestSkipped('Rust runtime unavailable');
+    expect(r.exitCode, 0, reason: r.stderr.toString());
+    expect(r.stdout, 'Dog(Rex)\na cat\nDog(Fido)\na cat\n');
+  });
+
   test('a function-valued struct field is callable as c.field(args)', () {
     // The capability-as-struct-of-closures pattern: inject a fake by
     // constructing the struct with a different closure.

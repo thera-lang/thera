@@ -148,9 +148,13 @@ end-to-end change lands first.
    `impl Interface for Type` methods (`buildDispatch`), and emits `call.virtual`
    for an interface-typed receiver. The Dart bytecode layer learned the
    `call.virtual` op + DISPATCH section. The end change (below) runs end to end.
-3. **Stage C — more positions.** Interface-typed fields, returns, and
-   `List<Display>` (heterogeneous collections) — same dispatch, more places an
-   interface type is allowed.
+3. **Stage C — more positions. DONE.** Interface-typed fields, returns, and
+   `List<Display>` (heterogeneous collections, incl. a `for` loop over them) all
+   dispatch — they fell out of Stage B's machinery, since dispatch keys off the
+   receiver's static type and the resolver/inference already propagate interface
+   types into those positions. The added work was soundness: a method **not**
+   declared on the interface is rejected at compile time (was a runtime trap),
+   and a non-conforming value is rejected where an interface is expected.
 4. **Stage D — generics + bounds.** `<T: Display>` bound checking at call sites +
    erased-generic dispatch via `call.virtual`. Subsumes type-param bound
    enforcement.

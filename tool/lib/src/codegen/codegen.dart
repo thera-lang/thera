@@ -98,7 +98,7 @@ void _registerModule(_ModuleScope scope, Program program) {
       case ConstDecl():
         scope.addConst(decl);
       case InterfaceDecl():
-        scope.addInterface(decl.name);
+        scope.addInterface(decl);
       case ImplDecl():
         if (decl.interfaceName != null) {
           scope.addInterfaceImpl(decl.typeName, decl.interfaceName!);
@@ -208,16 +208,18 @@ class _ModuleScope {
   /// own `Eq`/`Display` method instead of the structural default.
   final Map<String, Set<String>> interfaceImpls = {};
 
-  /// Names of declared interfaces (`interface Display { … }`). A method call on
-  /// a value of one of these types dispatches dynamically via `call.virtual`.
-  final Set<String> interfaces = {};
+  /// Declared interfaces (`interface Display { … }`) -> their method names. A
+  /// method call on a value of one of these types dispatches dynamically via
+  /// `call.virtual`; a call to a name not in the set is rejected.
+  final Map<String, Set<String>> interfaceMethods = {};
 
   /// Pending dynamic-dispatch rows as `(typeName, selector)`, recorded from
   /// `impl Interface for Type` blocks. Resolved to `(typeId, selector, func)`
   /// once every type and method is registered — see [buildDispatch].
   final List<(String, String)> _pendingDispatch = [];
 
-  void addInterface(String name) => interfaces.add(name);
+  void addInterface(InterfaceDecl decl) =>
+      interfaceMethods[decl.name] = {for (final m in decl.methods) m.name};
 
   void addDispatch(String type, String selector) =>
       _pendingDispatch.add((type, selector));
@@ -1635,9 +1637,17 @@ class _FnCompiler {
 
     // An interface-typed receiver (`x: Display`): the concrete type isn't known
     // at the call site, so dispatch dynamically on the receiver's runtime type
-    // id. The receiver is pushed first (self), then the arguments.
+    // id. The receiver is pushed first (self), then the arguments. Only the
+    // interface's own methods are callable through it.
     final recvTypeName = _typeOf(callee.object);
-    if (recvTypeName != null && _scope.interfaces.contains(recvTypeName)) {
+    final ifaceMethods =
+        recvTypeName == null ? null : _scope.interfaceMethods[recvTypeName];
+    if (ifaceMethods != null) {
+      if (!ifaceMethods.contains(callee.field)) {
+        throw CodegenException(
+            'no method "${callee.field}" on interface $recvTypeName',
+            expr.span);
+      }
       _expr(callee.object);
       for (final arg in expr.args) {
         _expr(arg.value);

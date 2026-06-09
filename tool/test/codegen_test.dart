@@ -1642,6 +1642,21 @@ fn describe(_ x: Display) -> String { return x.display(); }
       );
     });
 
+    test('a method not on the interface is rejected', () {
+      // `bark` is a Dog method but not part of Display, so it can't be called
+      // through a Display-typed value.
+      expect(
+        () => compile('''
+interface Display { fn display(self) -> String; }
+type Dog = { name: String }
+impl Display for Dog { fn display(self) -> String { return self.name; } }
+impl Dog { fn bark(self) -> String { return 'woof'; } }
+fn f(_ x: Display) -> String { return x.bark(); }
+'''),
+        throwsA(isA<CodegenException>()),
+      );
+    });
+
     test('a concrete receiver still dispatches as a direct Call', () {
       // Same method name, but the receiver's concrete type is known.
       final m = compile('''
