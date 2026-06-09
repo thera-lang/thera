@@ -295,13 +295,17 @@ positional. A `Void` return pushes nothing.
 >
 > **Draft realization — `call.virtual`.** The Tier-0 interpreter implements
 > dynamic dispatch as `call.virtual <selector> <argc>`: the receiver is the first
-> of the `argc` args, and its concrete type id (a struct/enum `ty`) selects the
-> impl from a module **dispatch table** (`(type_id, selector) → func`, a
-> backward-compatible `.hawkbc` section). It is **name-keyed** (selector =
-> method-name string) rather than `iface`/`slot`-indexed — simpler for the draft;
-> the slot-based `call.interface` is the durable form. Primitive receivers have
-> no dispatch type id yet (an interface impl on a primitive is a later stage).
-> See docs/interfaces.md ("Dynamic dispatch — the next arc, staged").
+> of the `argc` args, and its concrete type id selects the impl from a module
+> **dispatch table** (`(type_id, selector) → func`, a backward-compatible
+> `.hawkbc` section). It is **name-keyed** (selector = method-name string) rather
+> than `iface`/`slot`-indexed — simpler for the draft; the slot-based
+> `call.interface` is the durable form. Struct ids index the type table and enum
+> ids are namespaced with a high bit (`ENUM_DISPATCH_BASE`) since the two spaces
+> overlap numerically. A **miss** (no row, or a receiver with no dispatch id —
+> primitives, strings, collections) falls back to the built-in interfaces'
+> structural forms: native `display` (primitives/String), the recursive
+> structural `debug` (the `Debug` auto-derive), and structural `eq`. See
+> docs/interfaces.md ("Dynamic dispatch — the arc, staged").
 
 ### Aggregates & heap allocation
 

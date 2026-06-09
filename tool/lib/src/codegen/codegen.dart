@@ -225,13 +225,17 @@ class _ModuleScope {
       _pendingDispatch.add((type, selector));
 
   /// Resolve the pending dispatch rows into the module's dispatch table: map
-  /// each `(type, selector)` to the type's runtime id and the implementing
-  /// unit. Skips any whose method or type id can't be resolved.
+  /// each `(type, selector)` to the type's runtime dispatch id (an enum's id is
+  /// offset by [enumDispatchBase] — the struct and enum id spaces overlap
+  /// numerically) and the implementing unit. Skips any whose method or type id
+  /// can't be resolved.
   List<DispatchEntry> buildDispatch() {
     final entries = <DispatchEntry>[];
     for (final (type, selector) in _pendingDispatch) {
       final func = methodTable[type]?[selector];
-      final typeId = structs[type]?.index ?? enums[type]?.ty;
+      final enumTy = enums[type]?.ty;
+      final typeId = structs[type]?.index ??
+          (enumTy == null ? null : enumDispatchBase | enumTy);
       if (func != null && typeId != null) {
         entries.add(DispatchEntry(typeId, selector, func));
       }
@@ -1296,6 +1300,16 @@ class _FnCompiler {
     // one; otherwise the structural `eq` native (the derived default for
     // non-primitives) or a typed opcode (primitives).
     if (e.op == '==' || e.op == '!=') {
+      // An Eq-typed value or an `Eq`-bounded type parameter: the concrete type
+      // isn't known here, so dispatch dynamically — an explicit `impl Eq` wins
+      // at runtime; the structural fallback covers the rest.
+      if (_dispatchesVia(operandType, 'eq')) {
+        _expr(e.left); // self
+        _expr(e.right); // other
+        _emit(const CallVirtual('eq', 2));
+        if (e.op == '!=') _emit(const Simple(Op.not));
+        return;
+      }
       final eqIdx = _interfaceMethod(operandType, 'Eq', 'eq');
       if (eqIdx != null) {
         _expr(e.left); // self
@@ -1411,6 +1425,15 @@ class _FnCompiler {
     return null;
   }
 
+  /// Whether a value whose static type-name is [type] dispatches [method]
+  /// dynamically — i.e. the type is an interface (or a type parameter bounded
+  /// by one) that declares [method]. Such a call lowers to `call.virtual`.
+  bool _dispatchesVia(String? type, String method) {
+    final ifaces = _dispatchInterfaces(type);
+    if (ifaces == null) return false;
+    return ifaces.any((i) => _scope.interfaceMethods[i]!.contains(method));
+  }
+
   /// The unit index of method [name] on the receiver expression [receiver], or
   /// null if it can't be resolved. A type name — `Type` or `ns.Type`, not a
   /// local — selects a static method; otherwise the receiver's static type does.
@@ -1437,13 +1460,20 @@ class _FnCompiler {
   }
 
   /// Push the argument of `println`/`print`, rendered to a String via its
-  /// `Display` impl when it has one (the native can't call a Hawk `display`).
-  /// Without a Display impl the value is passed as-is — the native renders
+  /// `Display` impl when it has one (the native can't call a Hawk `display`):
+  /// a direct call for a known concrete type, `call.virtual` for an
+  /// interface-typed value or a `Display`-bounded type parameter. Without a
+  /// Display impl the value is passed as-is — the native renders
   /// primitives/String, matching the prior behavior.
   void _renderForPrint(Expr value) {
     _expr(value);
-    final displayIdx = _interfaceMethod(_typeOf(value), 'Display', 'display');
-    if (displayIdx != null) _emit(Call(displayIdx, 1));
+    final type = _typeOf(value);
+    final displayIdx = _interfaceMethod(type, 'Display', 'display');
+    if (displayIdx != null) {
+      _emit(Call(displayIdx, 1));
+    } else if (_dispatchesVia(type, 'display')) {
+      _emit(const CallVirtual('display', 1));
+    }
   }
 
   void _stringPiece(StringPart part, SourceSpan span) {
@@ -1457,6 +1487,10 @@ class _FnCompiler {
           // already a string; nothing to convert
         } else if (type == 'Int' || type == 'Double' || type == 'Bool') {
           _emit(const CallNative('stringify', 1));
+        } else if (_dispatchesVia(type, 'display')) {
+          // An interface-typed value or a `Display`-bounded type parameter:
+          // the concrete type isn't known here, so dispatch dynamically.
+          _emit(const CallVirtual('display', 1));
         } else {
           // A user type renders via its `Display` impl. The concrete type is
           // known here, so dispatch directly.

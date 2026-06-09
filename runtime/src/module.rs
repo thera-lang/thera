@@ -51,11 +51,18 @@ impl TypeDef {
     }
 }
 
+/// Struct and enum type ids occupy separate numeric spaces (struct ids index
+/// `Module::types`; enum ids are the reserved Result/Option 0/1 plus sequential
+/// user ids), so enum ids are offset by this bit in the dispatch table to keep
+/// the `(ty, selector)` key unambiguous. The front-end emitter applies the same
+/// offset (`enumDispatchBase` in the Dart bytecode layer).
+pub const ENUM_DISPATCH_BASE: u32 = 1 << 31;
+
 /// One row of the dynamic-dispatch table: the implementation of interface
-/// method `selector` for the concrete type `ty` (a `Module::types` index for
-/// structs/enums) is `Module::functions[func]`. `call.virtual <selector>` reads
-/// the receiver's type id and looks the target up here. See docs/interfaces.md
-/// ("Dynamic dispatch").
+/// method `selector` for the concrete type `ty` (a `Module::types` index for a
+/// struct; `ENUM_DISPATCH_BASE | ty` for an enum) is `Module::functions[func]`.
+/// `call.virtual <selector>` reads the receiver's type id and looks the target
+/// up here. See docs/interfaces.md ("Dynamic dispatch").
 #[derive(Clone, Debug, PartialEq)]
 pub struct DispatchEntry {
     pub ty: u32,

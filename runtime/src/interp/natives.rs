@@ -140,7 +140,9 @@ pub fn native_name(index: u32) -> Option<&'static str> {
 
 /// Render a value to its `Display` string. Handles primitives and strings;
 /// types whose `Display` needs an interface method are out of the draft scope.
-fn display_string(v: &Value) -> Result<String, Trap> {
+/// (Also the `call.virtual 'display'` fallback for receivers with no impl row —
+/// the built-in `Display` of primitives/String.)
+pub(super) fn display_string(v: &Value) -> Result<String, Trap> {
     Ok(match v {
         Value::Int(n) => n.to_string(),
         Value::Double(x) => x.to_string(),

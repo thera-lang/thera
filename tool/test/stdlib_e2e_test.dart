@@ -74,6 +74,68 @@ fn main() -> Int {
     expect(r.stdout, 'Dog(Rex)\na cat\n');
   });
 
+  test('testing.assert_eq runs: generic Eq/Debug under dynamic dispatch', () {
+    // The @test-runner blocker: assert_eq<T: Eq + Debug> compares via virtual
+    // eq and renders the failure message via the structural debug fallback.
+    final r = emitAndRun('assert_eq', '''
+import std.testing;
+type Point = { x: Int, y: Int }
+fn main() -> Result<Int, Error> {
+    testing.assert_eq(actual: 2 + 2, expected: 4)?;
+    testing.assert_eq(actual: Point { x: 1, y: 2 }, expected: Point { x: 1, y: 2 })?;
+    testing.assert_eq(actual: Option.Some(7), expected: Option.Some(7))?;
+    println('all passed');
+    testing.assert_eq(actual: Point { x: 1, y: 2 }, expected: Point { x: 1, y: 3 })?;
+    return Result.Ok(0);
+}
+''', []);
+    if (r == null) return markTestSkipped('Rust runtime unavailable');
+    expect(r.stdout, 'all passed\n');
+    expect(r.exitCode, 1); // the deliberate failure propagates
+    expect(r.stderr, contains('assert_eq failed'));
+    expect(r.stderr, contains('Point { 1, 2 }')); // structural debug rendering
+    expect(r.stderr, contains('Point { 1, 3 }'));
+  });
+
+  test('primitives dispatch through the built-in Display/Eq fallbacks', () {
+    final r = emitAndRun('prim_dispatch', '''
+type Dog = { name: String }
+impl Display for Dog { fn display(self) -> String { return 'Dog(\${self.name})'; } }
+fn show<T: Display>(_ x: T) -> Void { println(x); }
+fn same<T: Eq>(_ a: T, _ b: T) -> Bool { return a == b; }
+fn main() -> Int {
+    show(5);                       // Int: built-in Display fallback
+    show('hi');                    // String likewise
+    show(Dog { name: 'Fido' });    // struct: its impl row
+    let mut n = 0;
+    if same(1, 1) { n = n + 1; }
+    if same([1, 2], [1, 2]) { n = n + 2; }
+    return n;   // 3
+}
+''', []);
+    if (r == null) return markTestSkipped('Rust runtime unavailable');
+    expect(r.exitCode, 3, reason: r.stderr.toString());
+    expect(r.stdout, '5\nhi\nDog(Fido)\n');
+  });
+
+  test('an explicit impl Eq overrides structural equality under erasure', () {
+    final r = emitAndRun('eq_override', '''
+type CaseFold = { s: String }
+impl Eq for CaseFold {
+    fn eq(self, other: Self) -> Bool {
+        return self.s.to_lowercase() == other.s.to_lowercase();
+    }
+}
+fn same<T: Eq>(_ a: T, _ b: T) -> Bool { return a == b; }
+fn main() -> Int {
+    if same(CaseFold { s: 'Hawk' }, CaseFold { s: 'HAWK' }) { return 1; }
+    return 0;
+}
+''', []);
+    if (r == null) return markTestSkipped('Rust runtime unavailable');
+    expect(r.exitCode, 1, reason: r.stderr.toString());
+  });
+
   test('a generic function bound by Display dispatches dynamically', () {
     final r = emitAndRun('generic_dispatch', '''
 type Dog = { name: String }

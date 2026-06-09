@@ -35,9 +35,12 @@ Notable front-end facts (easy to get wrong): `Result`/`Option` are ordinary
 `std.core` enums — construct them **qualified** (`Result.Ok(x)`, `Option.None`);
 match patterns stay bare. Built-in methods on `String`/`List`/`Map`/`Option` and
 on primitives are `native fn`s in `sdk/std/core/` (no hardcoded method table).
-Interfaces (`Eq`/`Display`) are checked contracts and dispatch on concrete types;
-dynamic dispatch + generic bounds are deferred (the generics arc). See
-[docs/roadmap.md](docs/roadmap.md) and [docs/interfaces.md](docs/interfaces.md).
+Interfaces (`Eq`/`Display`/`Debug`) are checked contracts with **dynamic
+dispatch**: interface-typed values (`fn show(x: Display)`, `List<Display>`) and
+bounded generics (`<T: Eq + Debug>`, enforced at call sites) dispatch via
+`call.virtual`, with built-in fallbacks for primitives and the structural
+`eq`/`debug` derives. See [docs/roadmap.md](docs/roadmap.md) and
+[docs/interfaces.md](docs/interfaces.md).
 
 ## Commands
 

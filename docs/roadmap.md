@@ -9,13 +9,15 @@ design behind this plan see [architecture.md](architecture.md).
 bytecode format**, a **bytecode interpreter** (Rust), a **Dart front-end** that
 type-checks and compiles Hawk source to bytecode, and a **growing core stdlib**
 (in Hawk + natives). **Closures**, generics-aware **inference**, a largely
-implemented **visibility/library** model, and interface (`Eq`/`Display`)
-**dispatch on concrete types** all work; real CLI programs compile and run end to
-end (see `examples/`). Not yet done: a **GC** (currently `Rc<RefCell>`); a
-**broader stdlib**; *enforced* visibility; and **dynamic dispatch + generic
-bounds** (the generics arc — see [interfaces.md](interfaces.md)). The north star
-is a language + implementation + stdlib complete enough to **write the Hawk
-front-end in Hawk** (arc 3 below).
+implemented **visibility/library** model, and **interface dispatch — static on
+concrete types and dynamic (`call.virtual`) for interface-typed values and
+bounded generics, with bounds enforced at call sites** (see
+[interfaces.md](interfaces.md)) — all work; real CLI programs compile and run end
+to end (see `examples/`). Not yet done: a **GC** (currently `Rc<RefCell>`); a
+**broader stdlib**; *enforced* visibility; the **`hawk test` runner**; and
+**generic operators** (`<T: Add>`). The north star is a language +
+implementation + stdlib complete enough to **write the Hawk front-end in Hawk**
+(arc 3 below).
 
 **Rust runtime (`runtime/`)** — a Tier-0 bytecode interpreter that runs:
 
@@ -102,14 +104,15 @@ gaps, by where they live:
   written in Hawk over closures. Remaining: broader coverage (`first`/`last`/
   `slice`/`sort`, more `String`/`Map`) and the `@test` runner's surface — still
   the bulk of the "batteries included" goal.
-- **Interface dispatch (`Display`/`Eq`) — concrete-type dispatch done; see
+- **Interface dispatch (`Display`/`Eq`/`Debug`) — static *and* dynamic; see
   [interfaces.md](interfaces.md).** Conformance is recorded and checked
   (`impl Interface for Type` must provide every method, signatures matching with
-  `Self`); `==`/`!=` dispatch to an explicit `impl Eq` (else the structural
-  default), and `${…}` / `println(user_value)` render via `Display`. All static —
-  the concrete type is known at the call site, so no runtime mechanism. Deferred
-  to the generics arc: a type-id-keyed `call.virtual` for type-erased interface
-  values and generics.
+  `Self`). A known concrete type dispatches statically (a direct `call`);
+  interface-typed values (`fn show(x: Display)`, fields, returns,
+  `List<Display>`) and bounded generics (`<T: Eq + Debug>`, bounds enforced at
+  call sites) dispatch via the type-id-keyed `call.virtual` + module dispatch
+  table, with built-in fallbacks (primitives' `Display`/`Eq`/`Debug`, structural
+  `eq`/`debug` derives) when no impl row matches.
 - **Closures.** _Implemented._ Closure conversion lifts each lambda to a
   top-level function whose leading locals are its captured variables; the runtime
   adds a closure value `{ func, captures }`, `closure.new`, and `call.indirect`.
@@ -157,9 +160,10 @@ gaps, by where they live:
     the `_localTypes`/`_localTypeRefs` tracking maps, and the
     `_methodReturnType`/`_returnTypeOf` helpers are deleted.)
 - Block expressions and literal/nested `match` patterns remain. Interface
-  `Eq`/`Display` now dispatch on concrete types (done — see
-  [interfaces.md](interfaces.md)); the vtable form is deferred to the generics
-  arc. (Closures lower fully: lambdas lift to top-level functions; captures by
+  dispatch is done — static on concrete types, dynamic (`call.virtual` + vtable)
+  for interface-typed values and bounded generics (see
+  [interfaces.md](interfaces.md)). (Closures lower fully: lambdas lift to
+  top-level functions; captures by
   value, with captured `mut` locals boxed into cells, via `closure.new` /
   `call.indirect`. Lambda parameter types are resolved by annotation or
   bidirectional inference, with a hard error otherwise.)
@@ -194,22 +198,21 @@ per-module files (`natives_fs.rs`, `natives_string.rs`, …) as it grows.
 
 **`hawk test` runner.** The `@test` runner needs reimplementing on the bytecode
 pipeline (compile with the Dart front-end, execute on the Rust runtime); today
-it is a TBD stub. Likely shape: synthesize an entry that calls each `@test`
-function and reports `Ok`/`Err`. Remaining codegen gaps a `_test.hawk` hits
-(unit-in-`Result` / `Ok(void)` now works): generic bounds (`<T: Eq + Debug>`),
-`Debug` dispatch in `assert_eq`, and `throw <string>`.
+it is a TBD stub. **Its language blockers are gone**: `_test.hawk` files emit
+and `testing.assert_eq<T: Eq + Debug>` runs end to end — generic `!=`
+dispatches via `call.virtual`, failure messages render via the structural
+`debug`, and `throw <string>` works. What remains is the runner itself: discover
+`*_test.hawk` files, synthesize an entry that calls each `@test` function, and
+report `Ok`/`Err` with source locations.
 
-**Type-param bound enforcement (the generics arc).** Type-param bounds
-(`<T: Display>`, `<T: Eq + Debug>`) currently parse but are enforced nowhere — no
-satisfies/implements check exists in the checker or inference, so
-`println<T: Display>(...)` (sdk/std/core/io.hawk) accepts anything. Enforcement
-belongs to the generics arc: an erased `T` needs *dynamic* dispatch to call an
-interface method, so bounds, dynamic dispatch, and generic operators (`<T: Add>`)
-move together. Concrete-type `Eq`/`Display` dispatch already works (see
-[interfaces.md](interfaces.md)); primitives render via the runtime's
-`display_string`/`stringify` natives (their built-in `Display`), so no formal
-`impl Display for Int` is needed for that. Pairs with the `hawk test` runner's
-`Debug`-in-`assert_eq` gap (also generic).
+**Type-param bound enforcement — done (the generics arc landed).** Bounds
+(`<T: Display>`, `<T: Eq + Debug>`) are enforced at call sites: the inferred
+type argument must satisfy every bound (primitives carry the built-in
+`Eq`/`Display`/`Debug`; `Eq`/`Debug` derive structurally for structs/enums;
+other interfaces need an explicit `impl`). Inside a generic body, a method call
+on the erased `T` dispatches via `call.virtual` (see
+[interfaces.md](interfaces.md)). Still open from this area: **generic
+operators** (`<T: Add>`, operators-as-traits).
 
 **Incremental front-end / LSP performance.** The front-end is whole-program and
 stateless per request: each `hawk check`, and each LSP edit, re-reads, re-parses,
@@ -246,9 +249,11 @@ the qualified form is onerous.
    real CLI programs. _Closures and concrete-type interface (`Eq`/`Display`)
    dispatch are done; the stdlib keeps growing._
 3. **Placeholder GC** — simple non-moving mark-sweep, planned for replacement.
-4. **Generics arc** — dynamic dispatch (type-id `call.virtual`), interface-typed
-   values, type-param bound enforcement, generic operators.
-5. **Walk toward arc 3** — stdlib-in-Hawk, then the Hawk front-end.
+4. **Generics arc** — _done_: dynamic dispatch (type-id `call.virtual`),
+   interface-typed values, type-param bound enforcement, and the structural
+   `eq`/`debug` fallbacks. Generic operators (`<T: Add>`) remain.
+5. **`hawk test` runner** — now unblocked; reimplement on the bytecode pipeline.
+6. **Walk toward arc 3** — stdlib-in-Hawk, then the Hawk front-end.
 
 ## Staged path (runtime, longer view)
 

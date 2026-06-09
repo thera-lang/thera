@@ -482,10 +482,10 @@ class TypeChecker {
   /// - any other interface requires an explicit `impl`.
   /// Lenient for unresolved types so it never reports a false mismatch.
   ///
-  /// Note: a primitive satisfying `Display` is a *type-level* fact; dynamically
-  /// dispatching an interface method on a primitive value isn't supported yet
-  /// (see docs/interfaces.md, Stage E), so `f<T: Display>(5)` type-checks but
-  /// would trap at runtime until then.
+  /// At runtime, a `call.virtual` on a receiver with no impl row falls back to
+  /// the built-in structural forms (primitives' Display/Eq/Debug, structs' and
+  /// enums' derived eq/debug) — so these type-level facts are backed by real
+  /// dispatch (see docs/interfaces.md, Stage E).
   static const _builtinInterfaces = {'Eq', 'Display', 'Debug'};
   bool _satisfiesBound(Type t, String bound) {
     if (t is UnknownType || t is TypeParameterType) return true;

@@ -1658,6 +1658,54 @@ fn label<T: Display>(_ x: T) -> String { return x.display(); }
       );
     });
 
+    test('== on an Eq-bounded type parameter dispatches via call.virtual', () {
+      // The concrete type is erased, so an explicit `impl Eq` must win at
+      // runtime — the structural fallback covers types without one.
+      final m = compile('''
+interface Eq { fn eq(self, other: Self) -> Bool; }
+fn same<T: Eq>(_ a: T, _ b: T) -> Bool { return a != b; }
+''');
+      final same = m.functions.firstWhere((f) => f.name == 'same');
+      expect(
+        same.code,
+        contains(
+            isA<CallVirtual>().having((i) => i.selector, 'selector', 'eq')),
+      );
+      // != is eq + not.
+      expect(
+          same.code, contains(isA<Simple>().having((i) => i.op, 'op', Op.not)));
+    });
+
+    test('interpolating an interface-typed value dispatches display', () {
+      final m = compile('''
+interface Display { fn display(self) -> String; }
+fn show(_ x: Display) -> String { return 'v: \${x}'; }
+''');
+      final show = m.functions.firstWhere((f) => f.name == 'show');
+      expect(
+        show.code,
+        contains(isA<CallVirtual>()
+            .having((i) => i.selector, 'selector', 'display')),
+      );
+    });
+
+    test('an enum impl gets a namespaced dispatch id', () {
+      // Enum ids overlap struct ids numerically, so the dispatch table offsets
+      // them by enumDispatchBase.
+      final m = compile('''
+interface Display { fn display(self) -> String; }
+enum Light { Red, Green }
+impl Display for Light { fn display(self) -> String { return 'light'; } }
+''');
+      expect(
+        m.dispatch,
+        contains(isA<DispatchEntry>()
+            .having(
+                (e) => e.type & enumDispatchBase, 'enum bit', enumDispatchBase)
+            .having((e) => e.selector, 'selector', 'display')),
+      );
+    });
+
     test('a method not on the interface is rejected', () {
       // `bark` is a Dog method but not part of Display, so it can't be called
       // through a Display-typed value.

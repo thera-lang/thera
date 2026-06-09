@@ -23,8 +23,16 @@ class FuncDef {
   const FuncDef(this.name, this.paramCount, this.localCount, this.code);
 }
 
+/// Struct and enum type ids occupy separate numeric spaces (struct ids index
+/// the type table; enum ids are the reserved Result/Option 0/1 plus sequential
+/// user ids), so enum ids carry this offset in the dispatch table to keep the
+/// `(type, selector)` key unambiguous. Mirrors the runtime's
+/// `ENUM_DISPATCH_BASE` (`runtime/src/module.rs`).
+const int enumDispatchBase = 1 << 31;
+
 /// One row of the dynamic-dispatch table: the implementation of interface
-/// method [selector] for the concrete type id [type] is `functions[func]`.
+/// method [selector] for the concrete type id [type] (a type-table index for a
+/// struct; `enumDispatchBase | ty` for an enum) is `functions[func]`.
 /// `call.virtual <selector>` looks the target up by the receiver's type id.
 /// Mirrors the runtime's `DispatchEntry` (`runtime/src/module.rs`).
 class DispatchEntry {

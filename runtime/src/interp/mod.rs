@@ -12,8 +12,8 @@
 use std::io::Write;
 
 use crate::instr::Instr;
-use crate::module::Module;
-use crate::value::{Obj, Value};
+use crate::module::{ENUM_DISPATCH_BASE, Module};
+use crate::value::{Obj, TAG_OK, TAG_SOME, TY_OPTION, TY_RESULT, Value};
 
 /// A runtime fault that aborts execution (see docs/language.md, "Runtime
 /// faults"). Variants that describe malformed bytecode ([`Trap::Bug`]) indicate
@@ -286,17 +286,18 @@ impl<'a> Vm<'a> {
                         .ok_or_else(|| bug("call.virtual: operand stack underflow"))?;
                     let args = stack.split_off(base);
                     // The receiver is the first argument; its concrete type id
-                    // selects the implementation.
+                    // selects the implementation. A miss (no row, or a receiver
+                    // with no dispatch id — primitives, strings, collections)
+                    // falls back to the built-in interfaces' structural forms.
                     let recv = args
                         .first()
                         .ok_or_else(|| bug("call.virtual: missing receiver"))?;
-                    let ty = receiver_type_id(recv)?;
-                    let func = module.dispatch_target(ty, selector).ok_or_else(|| {
-                        bug(format!(
-                            "call.virtual: no impl of '{selector}' for type id {ty}"
-                        ))
-                    })?;
-                    let ret = self.call(module, func as usize, args)?;
+                    let target =
+                        dispatch_type_id(recv).and_then(|ty| module.dispatch_target(ty, selector));
+                    let ret = match target {
+                        Some(func) => self.call(module, func as usize, args)?,
+                        None => self.virtual_fallback(module, selector, &args)?,
+                    };
                     stack.push(ret);
                 }
 
@@ -392,6 +393,113 @@ impl<'a> Vm<'a> {
             pc += 1;
         }
     }
+
+    /// A `call.virtual` with no dispatch row: the built-in interfaces'
+    /// structural implementations. This is what makes the auto-derives real —
+    /// primitives (and strings/collections) carry built-in `Display`/`Eq`/
+    /// `Debug`, and structs/enums without an explicit impl get structural
+    /// `eq`/`debug` (an explicit impl, when present, won via the table).
+    fn virtual_fallback(
+        &mut self,
+        module: &Module,
+        selector: &str,
+        args: &[Value],
+    ) -> Result<Value, Trap> {
+        let recv = args.first().expect("call.virtual receiver present");
+        match selector {
+            "display" => Ok(Value::new_str(natives::display_string(recv)?)),
+            "debug" => {
+                let s = self.debug_value(module, recv)?;
+                Ok(Value::new_str(s))
+            }
+            "eq" => match args {
+                [a, b] => Ok(Value::Bool(a == b)),
+                _ => Err(bug("call.virtual eq: expected 2 args")),
+            },
+            _ => Err(bug(format!(
+                "call.virtual: no impl of '{selector}' for the receiver's type"
+            ))),
+        }
+    }
+
+    /// The structural `Debug` rendering of [v] — the auto-derived `debug`.
+    /// Strings are quoted; collections recurse; a struct renders as
+    /// `Name { field, ... }` (positionally — field names aren't in the type
+    /// table); an enum as `Variant(field, ...)` with the reserved Result/Option
+    /// variants named (other enums' variant names aren't in the runtime yet).
+    /// A nested value with an explicit `impl Debug` renders through it.
+    fn debug_value(&mut self, module: &Module, v: &Value) -> Result<String, Trap> {
+        // An explicit `impl Debug` overrides the structural rendering.
+        if let Some(ty) = dispatch_type_id(v)
+            && let Some(func) = module.dispatch_target(ty, "debug")
+        {
+            let ret = self.call(module, func as usize, vec![v.clone()])?;
+            return match &ret {
+                Value::Ref(rc) => match &*rc.borrow() {
+                    Obj::Str(s) => Ok(s.clone()),
+                    _ => Err(bug("debug impl did not return a String")),
+                },
+                _ => Err(bug("debug impl did not return a String")),
+            };
+        }
+        Ok(match v {
+            Value::Int(n) => n.to_string(),
+            Value::Double(x) => x.to_string(),
+            Value::Bool(b) => b.to_string(),
+            Value::Unit => "()".to_string(),
+            Value::Ref(rc) => match &*rc.borrow() {
+                Obj::Str(s) => format!("'{}'", s.replace('\\', r"\\").replace('\'', r"\'")),
+                Obj::List(items) => format!("[{}]", self.debug_list(module, items)?),
+                Obj::Set(items) => format!("{{{}}}", self.debug_list(module, items)?),
+                Obj::Map(entries) => {
+                    let mut parts = Vec::with_capacity(entries.len());
+                    for (k, val) in entries {
+                        parts.push(format!(
+                            "{}: {}",
+                            self.debug_value(module, k)?,
+                            self.debug_value(module, val)?
+                        ));
+                    }
+                    format!("{{{}}}", parts.join(", "))
+                }
+                Obj::Struct { ty, fields } => {
+                    let name = module
+                        .types
+                        .get(*ty as usize)
+                        .map_or("<struct>", |t| t.name.as_str());
+                    if fields.is_empty() {
+                        format!("{name} {{}}")
+                    } else {
+                        format!("{name} {{ {} }}", self.debug_list(module, fields)?)
+                    }
+                }
+                Obj::Enum(e) => {
+                    let variant = match (e.ty, e.variant) {
+                        (TY_RESULT, TAG_OK) => "Ok".to_string(),
+                        (TY_RESULT, _) => "Err".to_string(),
+                        (TY_OPTION, TAG_SOME) => "Some".to_string(),
+                        (TY_OPTION, _) => "None".to_string(),
+                        (_, tag) => format!("variant{tag}"),
+                    };
+                    if e.fields.is_empty() {
+                        variant
+                    } else {
+                        format!("{variant}({})", self.debug_list(module, &e.fields)?)
+                    }
+                }
+                Obj::Closure { .. } => "<fn>".to_string(),
+            },
+        })
+    }
+
+    /// Comma-joined [debug_value]s of [items].
+    fn debug_list(&mut self, module: &Module, items: &[Value]) -> Result<String, Trap> {
+        let mut parts = Vec::with_capacity(items.len());
+        for item in items {
+            parts.push(self.debug_value(module, item)?);
+        }
+        Ok(parts.join(", "))
+    }
 }
 
 // --- operand-stack helpers ---
@@ -464,20 +572,19 @@ fn closure_parts(v: &Value) -> Result<(u32, Vec<Value>), Trap> {
     }
 }
 
-/// The concrete type id of a `call.virtual` receiver — a struct's or enum's
-/// `ty` (an index into `Module::types`). Primitive receivers don't yet have
-/// dispatch type ids (an interface impl on a primitive, e.g. `Display` for
-/// `Int`, arrives with a later stage); reaching one is a bug for now.
-fn receiver_type_id(v: &Value) -> Result<u32, Trap> {
+/// The dispatch-table type id of a `call.virtual` receiver — a struct's `ty`
+/// (an index into `Module::types`), or an enum's `ty` offset by
+/// [`ENUM_DISPATCH_BASE`] (the two id spaces overlap numerically). None for
+/// receivers that can't carry an impl row (primitives, strings, collections,
+/// closures) — those dispatch through the built-in fallback.
+fn dispatch_type_id(v: &Value) -> Option<u32> {
     match v {
         Value::Ref(rc) => match &*rc.borrow() {
-            Obj::Struct { ty, .. } => Ok(*ty),
-            Obj::Enum(e) => Ok(e.ty),
-            Obj::Str(_) | Obj::List(_) | Obj::Map(_) | Obj::Set(_) | Obj::Closure { .. } => {
-                Err(bug("call.virtual: receiver type has no dispatch id"))
-            }
+            Obj::Struct { ty, .. } => Some(*ty),
+            Obj::Enum(e) => Some(ENUM_DISPATCH_BASE | e.ty),
+            Obj::Str(_) | Obj::List(_) | Obj::Map(_) | Obj::Set(_) | Obj::Closure { .. } => None,
         },
-        _ => Err(bug("call.virtual: receiver is a primitive (not yet supported)")),
+        _ => None,
     }
 }
 
@@ -1807,7 +1914,10 @@ mod tests {
     }
 
     #[test]
-    fn call_virtual_without_an_impl_is_a_bug() {
+    fn call_virtual_display_without_an_impl_is_a_bug_for_structs() {
+        // The display fallback covers primitives/String only; a struct that
+        // reaches it without an impl row is malformed bytecode (the front-end
+        // requires an explicit `impl Display`).
         let mut m = dispatch_module();
         m.dispatch.clear(); // no rows → nothing to dispatch to
         let dog = Value::new_struct(0, vec![]);
@@ -1815,12 +1925,158 @@ mod tests {
     }
 
     #[test]
-    fn call_virtual_on_a_primitive_is_a_bug() {
-        // A primitive receiver has no dispatch type id yet (a later stage).
+    fn call_virtual_display_on_a_primitive_uses_the_builtin_fallback() {
+        // Primitives carry built-in Display: no impl row, rendered natively.
         let m = dispatch_module();
-        assert!(matches!(
-            super::run(&m, 2, &[Value::Int(5)]),
-            Err(Trap::Bug(_))
+        assert_eq!(super::run(&m, 2, &[Value::Int(5)]), Ok(Value::new_str("5")));
+    }
+
+    #[test]
+    fn struct_and_enum_dispatch_ids_do_not_collide() {
+        // A struct with type-table index 0 and an enum with ty 0 (Result's
+        // reserved id) both impl 'display'; each receiver must reach its own.
+        use crate::module::{DispatchEntry, ENUM_DISPATCH_BASE};
+        let struct_display = Function::new(
+            "S.display",
+            1,
+            1,
+            vec![Instr::ConstStr("struct".into()), Instr::Return],
+        );
+        let enum_display = Function::new(
+            "E.display",
+            1,
+            1,
+            vec![Instr::ConstStr("enum".into()), Instr::Return],
+        );
+        let describe = Function::new(
+            "describe",
+            1,
+            1,
+            vec![
+                Instr::Load(0),
+                Instr::CallVirtual {
+                    selector: "display".into(),
+                    argc: 1,
+                },
+                Instr::Return,
+            ],
+        );
+        let mut m = Module::with_types(
+            vec![struct_display, enum_display, describe],
+            vec![TypeDef::new("S", 0)],
+        );
+        m.dispatch = vec![
+            DispatchEntry::new(0, "display", 0),
+            DispatchEntry::new(ENUM_DISPATCH_BASE, "display", 1),
+        ];
+        let s = Value::new_struct(0, vec![]);
+        let e = Value::new_enum(0, 0, vec![]);
+        assert_eq!(super::run(&m, 2, &[s]), Ok(Value::new_str("struct")));
+        assert_eq!(super::run(&m, 2, &[e]), Ok(Value::new_str("enum")));
+    }
+
+    // --- the structural debug / eq fallbacks ---
+
+    /// `dbg(x) = x.debug()` over a module with one struct type `Dog` (2 fields)
+    /// — no explicit `impl Debug`, so the structural fallback renders.
+    fn debug_module() -> Module {
+        let dbg = Function::new(
+            "dbg",
+            1,
+            1,
+            vec![
+                Instr::Load(0),
+                Instr::CallVirtual {
+                    selector: "debug".into(),
+                    argc: 1,
+                },
+                Instr::Return,
+            ],
+        );
+        Module::with_types(vec![dbg], vec![TypeDef::new("Dog", 2)])
+    }
+
+    #[test]
+    fn structural_debug_renders_primitives_and_strings() {
+        let m = debug_module();
+        assert_eq!(super::run(&m, 0, &[Value::Int(5)]), Ok(Value::new_str("5")));
+        assert_eq!(
+            super::run(&m, 0, &[Value::Bool(true)]),
+            Ok(Value::new_str("true"))
+        );
+        // Strings are quoted (debug, not display).
+        assert_eq!(
+            super::run(&m, 0, &[Value::new_str("hi")]),
+            Ok(Value::new_str("'hi'"))
+        );
+    }
+
+    #[test]
+    fn structural_debug_recurses_into_collections_and_structs() {
+        let m = debug_module();
+        let list = Value::new_list(vec![Value::Int(1), Value::new_str("a")]);
+        assert_eq!(super::run(&m, 0, &[list]), Ok(Value::new_str("[1, 'a']")));
+        // A struct renders by name with positional fields.
+        let dog = Value::new_struct(0, vec![Value::new_str("Rex"), Value::Int(3)]);
+        assert_eq!(
+            super::run(&m, 0, &[dog]),
+            Ok(Value::new_str("Dog { 'Rex', 3 }"))
+        );
+        // The reserved Result/Option enums render their variant names.
+        assert_eq!(
+            super::run(&m, 0, &[Value::some(Value::Int(7))]),
+            Ok(Value::new_str("Some(7)"))
+        );
+        assert_eq!(
+            super::run(&m, 0, &[Value::none()]),
+            Ok(Value::new_str("None"))
+        );
+    }
+
+    #[test]
+    fn an_explicit_debug_impl_overrides_the_structural_rendering() {
+        use crate::module::DispatchEntry;
+        let mut m = debug_module();
+        m.functions.push(Function::new(
+            "Dog.debug",
+            1,
+            1,
+            vec![Instr::ConstStr("custom".into()), Instr::Return],
         ));
+        m.dispatch = vec![DispatchEntry::new(0, "debug", 1)];
+        let dog = Value::new_struct(0, vec![Value::new_str("Rex"), Value::Int(3)]);
+        // Direct receiver and nested (inside a list) both use the impl.
+        assert_eq!(
+            super::run(&m, 0, &[dog.clone()]),
+            Ok(Value::new_str("custom"))
+        );
+        assert_eq!(
+            super::run(&m, 0, &[Value::new_list(vec![dog])]),
+            Ok(Value::new_str("[custom]"))
+        );
+    }
+
+    #[test]
+    fn call_virtual_eq_falls_back_to_structural_equality() {
+        let eq = Function::new(
+            "eq2",
+            2,
+            2,
+            vec![
+                Instr::Load(0),
+                Instr::Load(1),
+                Instr::CallVirtual {
+                    selector: "eq".into(),
+                    argc: 2,
+                },
+                Instr::Return,
+            ],
+        );
+        let m = Module::with_types(vec![eq], vec![TypeDef::new("P", 1)]);
+        let a = Value::new_struct(0, vec![Value::Int(1)]);
+        let b = Value::new_struct(0, vec![Value::Int(1)]);
+        let c = Value::new_struct(0, vec![Value::Int(2)]);
+        assert_eq!(super::run(&m, 0, &[a.clone(), b]), Ok(Value::Bool(true)));
+        assert_eq!(super::run(&m, 0, &[a, c]), Ok(Value::Bool(false)));
     }
 }

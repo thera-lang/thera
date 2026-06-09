@@ -80,24 +80,23 @@ Codegen records conformance (`scope.interfaceImpls`) and dispatches accordingly:
   (the native can't upcall); primitives/String pass through to the native, which
   is their built-in `Display`. So no explicit `impl Display for Int` is needed.
 
-**Deferred:**
-- **`Debug` auto-derivation** — no structural `debug` yet. Its only use
-  (`assert_eq`/`assert_ne` in `std.core/testing`) is generic (`<T: Eq + Debug>`),
-  so it needs dynamic dispatch anyway; pick it up with the generics arc (or as a
-  structural `debug` native if a concrete need appears first).
-- **The generics arc (separate):** dynamic dispatch (`call.virtual` + runtime
-  type-id table), interface-typed values (`fn show(x: Display)`, `List<Display>`),
-  generic bound enforcement (`<T: Display>` — see `docs/roadmap.md`), and generic
-  operators (`<T: Add>`, operators-as-traits).
+**Still deferred:**
+- **Generic operators** (`<T: Add>`, operators-as-traits) — arithmetic on erased
+  type parameters.
+- **Named arguments through a virtual call** — interface-receiver calls resolve
+  arguments positionally only.
+- **Richer auto-derived `debug` output** — struct field names and user-enum
+  variant names aren't in the runtime's type table yet, so the structural debug
+  renders them positionally (`Point { 1, 2 }`, `variant1(5)`).
 
-## Dynamic dispatch — the next arc, staged
+## Dynamic dispatch — the arc, staged (complete)
 
-Scoping for adding dynamic dispatch and interface-typed values. The end goal:
-`fn show(x: Display)` and `<T: Display>` work, dispatching to the right `display`
-at runtime. The mechanism is the type-id-keyed `call.virtual` already sketched
-above. The work splits into a runtime layer, a front-end type-system layer, and
-bound enforcement — each independently testable, ordered so a small, real
-end-to-end change lands first.
+The staged plan for dynamic dispatch and interface-typed values, now landed:
+`fn show(x: Display)` and `<T: Display>` work, dispatching to the right
+`display` at runtime via the type-id-keyed `call.virtual` sketched above. The
+work split into a runtime layer, a front-end type-system layer, and bound
+enforcement — each independently testable, ordered so a small, real end-to-end
+change landed first.
 
 ### What it entails (the layers)
 
@@ -159,14 +158,35 @@ end-to-end change lands first.
    dispatches via `call.virtual` (codegen reads the unit's type-param bounds;
    inference resolves the method against the bound). Bounds are **enforced at
    call sites**: the type argument must satisfy each bound, else a compile error
-   (`f<T: Display>(5)` is the one loose case — primitives satisfy the built-in
-   `Eq`/`Display`/`Debug` at the type level, so it type-checks but can't dispatch
-   until Stage E; `f<T: Display>(plain_struct)` is rejected). `Eq`/`Debug` are
+   (primitives satisfy the built-in `Eq`/`Display`/`Debug` — and as of Stage E
+   they dispatch too; `f<T: Display>(plain_struct)` is rejected). `Eq`/`Debug` are
    satisfied structurally (no explicit `impl` needed); other interfaces require
    one. Subsumes the old type-param-bound-enforcement gap.
-5. **Stage E — `Debug` auto-derive.** A structural `debug` reachable under
-   dynamic dispatch unblocks generic `assert_eq`/`assert_ne`, a prerequisite for
-   the `@test` runner actually running tests.
+5. **Stage E — built-in fallbacks: `Debug` auto-derive + primitives. DONE.**
+   A `call.virtual` whose receiver has no impl row falls back to the built-in
+   interfaces' structural forms in the runtime:
+   - **`display`** — primitives/String render natively (so `show<T: Display>(5)`
+     and `'${x}'` on an interface-typed value work; a struct reaching the
+     fallback without an impl is still a trap, and the checker prevents it);
+   - **`debug`** — the structural auto-derive, recursive over collections:
+     strings quoted (`'Rex'`), lists/maps/sets bracketed, a struct as
+     `Name { field, ... }` (positional — field names aren't in the type table),
+     an enum as `Variant(field)` with Result/Option's variants named (other
+     enums' variant names aren't in the runtime yet). A nested value with an
+     explicit `impl Debug` renders through it;
+   - **`eq`** — structural equality, so `==` on an erased `T: Eq` lowers to
+     `call.virtual 'eq'` and an explicit `impl Eq` override wins at runtime
+     (previously erasure silently bypassed overrides).
+   Codegen also renders interface-typed / `Display`-bounded values in `${…}`
+   and `println` via `call.virtual 'display'`. Plus a latent-bug fix: struct and
+   enum type ids overlap numerically, so enum dispatch ids are namespaced with
+   a high bit (`ENUM_DISPATCH_BASE`) on both sides of the wire.
+
+   **This unblocks the `@test` runner:** `testing.assert_eq<T: Eq + Debug>` now
+   compiles and runs — generic `!=` dispatches, and failure messages render via
+   the structural `debug` (e.g. `actual: Point { 1, 2 }`). The remaining runner
+   work is the runner itself (discover `@test` fns, invoke, report), not the
+   language.
 
 ### The small, practical end change (Stage B deliverable)
 
