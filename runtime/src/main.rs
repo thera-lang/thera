@@ -6,6 +6,7 @@ use std::process::ExitCode;
 
 use hawk::builder::FnBuilder;
 use hawk::codec::{read_module_from_file, write_module_to_file};
+use hawk::heap;
 use hawk::interp::{NATIVE_PRINTLN, NATIVE_STR_CONCAT, NATIVE_STRINGIFY, run};
 use hawk::module::Module;
 use hawk::value::{Obj, TAG_OK, TY_RESULT, Value};
@@ -86,7 +87,7 @@ fn cmd_run(args: &[String]) -> ExitCode {
 fn exit_code(v: &Value) -> ExitCode {
     match v {
         Value::Int(n) => ExitCode::from(*n as u8),
-        Value::Ref(rc) => match &*rc.borrow() {
+        Value::Ref(h) => match heap::clone_obj(*h) {
             Obj::Enum(e) if e.ty == TY_RESULT && e.variant == TAG_OK => match e.fields.first() {
                 Some(Value::Int(n)) => ExitCode::from(*n as u8),
                 _ => ExitCode::SUCCESS,
@@ -112,8 +113,8 @@ fn render(v: &Value) -> String {
         Value::Double(x) => x.to_string(),
         Value::Bool(b) => b.to_string(),
         Value::Unit => "()".to_string(),
-        Value::Ref(rc) => match &*rc.borrow() {
-            Obj::Str(s) => s.clone(),
+        Value::Ref(h) => match heap::clone_obj(*h) {
+            Obj::Str(s) => s,
             Obj::Struct { fields, .. } if fields.len() == 1 => render(&fields[0]),
             other => format!("{other:?}"),
         },

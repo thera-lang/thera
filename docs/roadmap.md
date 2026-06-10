@@ -14,7 +14,8 @@ concrete types and dynamic (`call.virtual`) for interface-typed values and
 bounded generics, with bounds enforced at call sites** (see
 [interfaces.md](interfaces.md)) — all work; real CLI programs compile and run end
 to end (see `examples/`), and `hawk test` runs the `@test` functions in
-`*_test.hawk` files. Not yet done: a **GC** (currently `Rc<RefCell>`); a
+`*_test.hawk` files. Not yet done: a **GC** (heap objects now live in a
+never-freed arena — collection is the remaining piece); a
 **broader stdlib**; *enforced* visibility; **generic operators**
 (`<T: Add>`); **bitwise operators** (`& | ^ << >>`); and **index (`[]`)
 operator overloading**. The north star is a language +
@@ -127,13 +128,14 @@ gaps, by where they live:
   when neither applies — no guessing. The payoff has landed: `List.map`/`filter`/
   `fold` are written in Hawk and take closures (`sdk/std/core/list.hawk`,
   `examples/list_hof.hawk`).
-- **GC.** Currently `Rc<RefCell>`; a precise non-moving mark-sweep is planned
-  (after closures/interfaces, so it traces the value shapes it will actually
-  see). Decomposed into free-standing steps: **(1) explicit call-frame stack —
-  _done_** (`Vm::run_loop` over a `Vec<Frame>`; precise roots are now enumerable
-  and deep recursion no longer overflows the host stack); (2) move heap objects
-  off `Rc<RefCell>` into a runtime-owned heap that doesn't yet collect; (3) add
-  mark + sweep + the frame-stack root walk — or adopt a proven precise Rust GC
+- **GC.** A precise non-moving mark-sweep, decomposed into free-standing steps:
+  **(1) explicit call-frame stack — _done_** (`Vm::run_loop` over a `Vec<Frame>`;
+  precise roots are now enumerable, deep recursion no longer overflows the host
+  stack); **(2) move heap objects off `Rc<RefCell>` into a runtime-owned heap —
+  _done_** (`runtime/src/heap.rs`: `Value::Ref` is now a handle into a
+  thread-local, never-freed arena; `Value` is `Copy`; `Obj::child_values` is the
+  trace primitive; leaks, but trivially correct); (3) add collection — mark +
+  sweep + the frame-stack root walk — or adopt a proven precise Rust GC
   (`gc-arena`, the `piccolo` VM's collector; **not** Boehm). See
   [architecture.md](architecture.md).
 - Cranelift JIT, untagged value representation, `f64`/large-int constant-pool

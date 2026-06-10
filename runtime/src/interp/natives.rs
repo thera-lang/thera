@@ -8,6 +8,7 @@
 use std::io::Write;
 
 use super::{Trap, bug, struct_field};
+use crate::heap;
 use crate::value::{Obj, TAG_SOME, TY_OPTION, Value};
 
 /// A native function: receives the VM's output sink and the call arguments.
@@ -154,24 +155,22 @@ pub(super) fn display_string(v: &Value) -> Result<String, Trap> {
         Value::Double(x) => x.to_string(),
         Value::Bool(b) => b.to_string(),
         Value::Unit => "()".to_string(),
-        Value::Ref(rc) => match &*rc.borrow() {
-            Obj::Str(s) => s.clone(),
+        Value::Ref(h) => heap::with_obj(*h, |obj| match obj {
+            Obj::Str(s) => Ok(s.clone()),
             Obj::Enum(_)
             | Obj::List(_)
             | Obj::Map(_)
             | Obj::Set(_)
             | Obj::Struct { .. }
-            | Obj::Closure { .. } => {
-                return Err(bug("display: type has no built-in Display"));
-            }
-        },
+            | Obj::Closure { .. } => Err(bug("display: type has no built-in Display")),
+        })?,
     })
 }
 
 /// Extract the contents of a heap string, or fault.
 fn str_contents(v: &Value) -> Result<String, Trap> {
     match v {
-        Value::Ref(rc) => match &*rc.borrow() {
+        Value::Ref(h) => heap::with_obj(*h, |obj| match obj {
             Obj::Str(s) => Ok(s.clone()),
             Obj::Enum(_)
             | Obj::List(_)
@@ -179,7 +178,7 @@ fn str_contents(v: &Value) -> Result<String, Trap> {
             | Obj::Set(_)
             | Obj::Struct { .. }
             | Obj::Closure { .. } => Err(bug("expected string")),
-        },
+        }),
         v => Err(bug(format!("expected string, found {v:?}"))),
     }
 }
@@ -362,18 +361,14 @@ fn native_str_from_chars(_out: &mut dyn Write, args: &[Value]) -> Result<Value, 
 /// `map.keys()` — the keys, in insertion order.
 fn native_map_keys(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     with_map(expect_one(args, "map.keys")?, "map.keys", |entries| {
-        Ok(Value::new_list(
-            entries.iter().map(|(k, _)| k.clone()).collect(),
-        ))
+        Ok(Value::new_list(entries.iter().map(|(k, _)| *k).collect()))
     })
 }
 
 /// `map.values()` — the values, in insertion order.
 fn native_map_values(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     with_map(expect_one(args, "map.values")?, "map.values", |entries| {
-        Ok(Value::new_list(
-            entries.iter().map(|(_, v)| v.clone()).collect(),
-        ))
+        Ok(Value::new_list(entries.iter().map(|(_, v)| *v).collect()))
     })
 }
 
@@ -403,10 +398,10 @@ fn native_list_join(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap>
 /// Read an `Option`'s variant tag and payload, faulting if `v` isn't an Option.
 fn as_option(v: &Value, who: &str) -> Result<(u16, Vec<Value>), Trap> {
     match v {
-        Value::Ref(rc) => match &*rc.borrow() {
+        Value::Ref(h) => heap::with_obj(*h, |obj| match obj {
             Obj::Enum(e) if e.ty == TY_OPTION => Ok((e.variant, e.fields.clone())),
             _ => Err(bug(format!("{who}: expected Option"))),
-        },
+        }),
         _ => Err(bug(format!("{who}: expected Option"))),
     }
 }
@@ -754,30 +749,34 @@ fn checked_index(i: i64, len: usize) -> Result<usize, Trap> {
     }
 }
 
+// Reads clone the collection out (cheap — `Value` is `Copy`) so `f` may compare
+// elements (`==` re-enters the heap) without holding a heap borrow.
 fn with_list<R>(
     v: &Value,
     who: &str,
     f: impl FnOnce(&[Value]) -> Result<R, Trap>,
 ) -> Result<R, Trap> {
     match v {
-        Value::Ref(rc) => match &*rc.borrow() {
-            Obj::List(items) => f(items),
+        Value::Ref(h) => match heap::clone_obj(*h) {
+            Obj::List(items) => f(&items),
             _ => Err(bug(format!("{who}: expected list"))),
         },
         _ => Err(bug(format!("{who}: expected list"))),
     }
 }
 
+// List mutators only store (already-allocated) handles, never compare, so they
+// can mutate in place without re-entering the heap.
 fn with_list_mut<R>(
     v: &Value,
     who: &str,
     f: impl FnOnce(&mut Vec<Value>) -> Result<R, Trap>,
 ) -> Result<R, Trap> {
     match v {
-        Value::Ref(rc) => match &mut *rc.borrow_mut() {
+        Value::Ref(h) => heap::with_obj_mut(*h, |obj| match obj {
             Obj::List(items) => f(items),
             _ => Err(bug(format!("{who}: expected list"))),
-        },
+        }),
         _ => Err(bug(format!("{who}: expected list"))),
     }
 }
@@ -788,24 +787,35 @@ fn with_map<R>(
     f: impl FnOnce(&[(Value, Value)]) -> Result<R, Trap>,
 ) -> Result<R, Trap> {
     match v {
-        Value::Ref(rc) => match &*rc.borrow() {
-            Obj::Map(entries) => f(entries),
+        Value::Ref(h) => match heap::clone_obj(*h) {
+            Obj::Map(entries) => f(&entries),
             _ => Err(bug(format!("{who}: expected map"))),
         },
         _ => Err(bug(format!("{who}: expected map"))),
     }
 }
 
+// Map mutators compare keys (`==` re-enters the heap), so they operate on a
+// clone and write it back — no heap borrow is held while `f` runs.
 fn with_map_mut<R>(
     v: &Value,
     who: &str,
     f: impl FnOnce(&mut Vec<(Value, Value)>) -> Result<R, Trap>,
 ) -> Result<R, Trap> {
     match v {
-        Value::Ref(rc) => match &mut *rc.borrow_mut() {
-            Obj::Map(entries) => f(entries),
-            _ => Err(bug(format!("{who}: expected map"))),
-        },
+        Value::Ref(h) => {
+            let mut entries = match heap::clone_obj(*h) {
+                Obj::Map(entries) => entries,
+                _ => return Err(bug(format!("{who}: expected map"))),
+            };
+            let r = f(&mut entries)?;
+            heap::with_obj_mut(*h, |obj| {
+                if let Obj::Map(e) = obj {
+                    *e = entries;
+                }
+            });
+            Ok(r)
+        }
         _ => Err(bug(format!("{who}: expected map"))),
     }
 }
@@ -827,7 +837,7 @@ fn native_list_index(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap
     let (list, idx) = args2(args, "list index")?;
     let i = as_int(idx, "list index")?;
     with_list(list, "list index", |items| {
-        Ok(items[checked_index(i, items.len())?].clone())
+        Ok(items[checked_index(i, items.len())?])
     })
 }
 
@@ -837,7 +847,7 @@ fn native_list_get(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> 
     let i = as_int(idx, "list.get")?;
     with_list(list, "list.get", |items| {
         Ok(match checked_index(i, items.len()) {
-            Ok(n) => Value::some(items[n].clone()),
+            Ok(n) => Value::some(items[n]),
             Err(_) => Value::none(),
         })
     })
@@ -856,7 +866,7 @@ fn native_list_set(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> 
     let i = as_int(idx, "list set")?;
     with_list_mut(list, "list set", |items| {
         let n = checked_index(i, items.len())?;
-        items[n] = val.clone();
+        items[n] = *val;
         Ok(Value::Unit)
     })
 }
@@ -865,7 +875,7 @@ fn native_list_set(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> 
 fn native_list_push(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let (list, val) = args2(args, "list push")?;
     with_list_mut(list, "list push", |items| {
-        items.push(val.clone());
+        items.push(*val);
         Ok(Value::Unit)
     })
 }
@@ -877,7 +887,7 @@ fn native_map_new(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     }
     let mut entries: Vec<(Value, Value)> = Vec::new();
     for pair in args.chunks_exact(2) {
-        map_insert(&mut entries, pair[0].clone(), pair[1].clone());
+        map_insert(&mut entries, pair[0], pair[1]);
     }
     Ok(Value::new_map(entries))
 }
@@ -895,7 +905,7 @@ fn native_map_get(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let (map, key) = args2(args, "map.get")?;
     with_map(map, "map.get", |entries| {
         Ok(match map_find(entries, key) {
-            Some(v) => Value::some(v.clone()),
+            Some(v) => Value::some(*v),
             None => Value::none(),
         })
     })
@@ -920,7 +930,7 @@ fn native_map_has(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
 fn native_map_set(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let (map, key, val) = args3(args, "map set")?;
     with_map_mut(map, "map set", |entries| {
-        map_insert(entries, key.clone(), val.clone());
+        map_insert(entries, *key, *val);
         Ok(Value::Unit)
     })
 }
@@ -933,24 +943,35 @@ fn with_set<R>(
     f: impl FnOnce(&[Value]) -> Result<R, Trap>,
 ) -> Result<R, Trap> {
     match v {
-        Value::Ref(rc) => match &*rc.borrow() {
-            Obj::Set(elements) => f(elements),
+        Value::Ref(h) => match heap::clone_obj(*h) {
+            Obj::Set(elements) => f(&elements),
             _ => Err(bug(format!("{who}: expected set"))),
         },
         _ => Err(bug(format!("{who}: expected set"))),
     }
 }
 
+// Set mutators compare elements (`==` re-enters the heap), so — like the map
+// mutators — they operate on a clone and write it back.
 fn with_set_mut<R>(
     v: &Value,
     who: &str,
     f: impl FnOnce(&mut Vec<Value>) -> Result<R, Trap>,
 ) -> Result<R, Trap> {
     match v {
-        Value::Ref(rc) => match &mut *rc.borrow_mut() {
-            Obj::Set(elements) => f(elements),
-            _ => Err(bug(format!("{who}: expected set"))),
-        },
+        Value::Ref(h) => {
+            let mut elements = match heap::clone_obj(*h) {
+                Obj::Set(elements) => elements,
+                _ => return Err(bug(format!("{who}: expected set"))),
+            };
+            let r = f(&mut elements)?;
+            heap::with_obj_mut(*h, |obj| {
+                if let Obj::Set(e) = obj {
+                    *e = elements;
+                }
+            });
+            Ok(r)
+        }
         _ => Err(bug(format!("{who}: expected set"))),
     }
 }
@@ -969,7 +990,7 @@ fn set_insert(elements: &mut Vec<Value>, v: Value) {
 fn native_set_new(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let mut elements: Vec<Value> = Vec::new();
     for v in args {
-        set_insert(&mut elements, v.clone());
+        set_insert(&mut elements, *v);
     }
     Ok(Value::new_set(elements))
 }
@@ -993,7 +1014,7 @@ fn native_set_has(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
 fn native_set_add(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let (set, v) = args2(args, "set.add")?;
     with_set_mut(set, "set.add", |elements| {
-        set_insert(elements, v.clone());
+        set_insert(elements, *v);
         Ok(Value::Unit)
     })
 }

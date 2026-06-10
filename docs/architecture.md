@@ -96,10 +96,17 @@ finding interesting.
   heap rather than the host stack.
 - **Precise, non-moving mark-sweep, interpreter-only.** With frames enumerable
   and the typed bytecode saying exactly what is a pointer, precise roots are
-  straightforward. Sequenced as: (a) move heap objects off `Rc<RefCell>` into a
-  runtime-owned heap that doesn't yet collect — absorbs the broad
-  construction/borrow churn while staying trivially correct — then (b) add mark +
-  sweep + the frame-stack root walk.
+  straightforward. Sequenced as: **(a) move heap objects off `Rc<RefCell>` into a
+  runtime-owned heap that doesn't yet collect — _done_** (`heap.rs`: an interim,
+  never-freed arena; `Value::Ref` is a handle, `Value` is `Copy`, and
+  `Obj::child_values` is the trace primitive) — then (b) add mark + sweep + the
+  frame-stack root walk. The arena currently lives behind a **thread-local** so
+  the value constructors and `==` need no explicit heap parameter; access is
+  closure-scoped and comparisons/recursion **clone the object out** first (cheap
+  with `Copy` handles) to avoid re-entering the heap while it is borrowed. A
+  hand-rolled collector would thread the heap explicitly at step (b); `gc-arena`
+  would replace it — either way the off-`Rc` handle representation is the durable
+  part.
 - **A proven precise Rust GC is a live alternative to hand-rolling** (b): e.g.
   **`gc-arena`** (the GC behind the `piccolo` Lua VM) — precise mark-sweep, no
   stack maps, rooting via a branded-arena/`Collect` model that leverages our

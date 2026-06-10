@@ -4,6 +4,7 @@
 pub mod builder;
 pub mod codec;
 pub mod disasm;
+pub mod heap;
 pub mod instr;
 pub mod interp;
 pub mod module;

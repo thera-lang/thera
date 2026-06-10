@@ -13,6 +13,7 @@
 
 use std::io::Write;
 
+use crate::heap;
 use crate::instr::Instr;
 use crate::module::{ENUM_DISPATCH_BASE, Function, Module};
 use crate::value::{Obj, TAG_OK, TAG_SOME, TY_OPTION, TY_RESULT, Value};
@@ -183,10 +184,9 @@ impl<'a> Vm<'a> {
 
                 // --- locals ---
                 Instr::Load(slot) => {
-                    let v = locals
+                    let v = *locals
                         .get(*slot as usize)
-                        .ok_or_else(|| bug(format!("load: slot {slot} out of range")))?
-                        .clone();
+                        .ok_or_else(|| bug(format!("load: slot {slot} out of range")))?;
                     stack.push(v);
                 }
                 Instr::Store(slot) => {
@@ -287,7 +287,7 @@ impl<'a> Vm<'a> {
                     pop(stack)?;
                 }
                 Instr::Dup => {
-                    let v = stack.last().ok_or_else(|| bug("dup: empty stack"))?.clone();
+                    let v = *stack.last().ok_or_else(|| bug("dup: empty stack"))?;
                     stack.push(v);
                 }
 
@@ -419,13 +419,11 @@ impl<'a> Vm<'a> {
                 Instr::ListGet => {
                     let idx = pop_int(stack)?;
                     let list = pop(stack)?;
-                    let elem = match &list {
-                        Value::Ref(rc) => match &*rc.borrow() {
-                            Obj::List(items) => {
-                                items[checked_list_index(idx, items.len())?].clone()
-                            }
-                            _ => return Err(bug("list.get: expected a list")),
-                        },
+                    let elem = match list {
+                        Value::Ref(h) => heap::with_obj(h, |obj| match obj {
+                            Obj::List(items) => Ok(items[checked_list_index(idx, items.len())?]),
+                            _ => Err(bug("list.get: expected a list")),
+                        })?,
                         _ => return Err(bug("list.get: expected a list")),
                     };
                     stack.push(elem);
@@ -434,14 +432,15 @@ impl<'a> Vm<'a> {
                     let value = pop(stack)?;
                     let idx = pop_int(stack)?;
                     let list = pop(stack)?;
-                    match &list {
-                        Value::Ref(rc) => match &mut *rc.borrow_mut() {
+                    match list {
+                        Value::Ref(h) => heap::with_obj_mut(h, |obj| match obj {
                             Obj::List(items) => {
                                 let i = checked_list_index(idx, items.len())?;
                                 items[i] = value;
+                                Ok(())
                             }
-                            _ => return Err(bug("list.set: expected a list")),
-                        },
+                            _ => Err(bug("list.set: expected a list")),
+                        })?,
                         _ => return Err(bug("list.set: expected a list")),
                     }
                 }
@@ -526,12 +525,12 @@ impl<'a> Vm<'a> {
         if let Some(ty) = dispatch_type_id(v)
             && let Some(func) = module.dispatch_target(ty, "debug")
         {
-            let ret = self.call(module, func as usize, vec![v.clone()])?;
-            return match &ret {
-                Value::Ref(rc) => match &*rc.borrow() {
+            let ret = self.call(module, func as usize, vec![*v])?;
+            return match ret {
+                Value::Ref(h) => heap::with_obj(h, |obj| match obj {
                     Obj::Str(s) => Ok(s.clone()),
                     _ => Err(bug("debug impl did not return a String")),
-                },
+                }),
                 _ => Err(bug("debug impl did not return a String")),
             };
         }
@@ -540,13 +539,15 @@ impl<'a> Vm<'a> {
             Value::Double(x) => x.to_string(),
             Value::Bool(b) => b.to_string(),
             Value::Unit => "()".to_string(),
-            Value::Ref(rc) => match &*rc.borrow() {
+            // Clone the object out so the recursion into nested handles below
+            // doesn't hold a heap borrow.
+            Value::Ref(h) => match heap::clone_obj(*h) {
                 Obj::Str(s) => format!("'{}'", s.replace('\\', r"\\").replace('\'', r"\'")),
-                Obj::List(items) => format!("[{}]", self.debug_list(module, items)?),
-                Obj::Set(items) => format!("{{{}}}", self.debug_list(module, items)?),
+                Obj::List(items) => format!("[{}]", self.debug_list(module, &items)?),
+                Obj::Set(items) => format!("{{{}}}", self.debug_list(module, &items)?),
                 Obj::Map(entries) => {
                     let mut parts = Vec::with_capacity(entries.len());
-                    for (k, val) in entries {
+                    for (k, val) in &entries {
                         parts.push(format!(
                             "{}: {}",
                             self.debug_value(module, k)?,
@@ -558,12 +559,12 @@ impl<'a> Vm<'a> {
                 Obj::Struct { ty, fields } => {
                     let name = module
                         .types
-                        .get(*ty as usize)
+                        .get(ty as usize)
                         .map_or("<struct>", |t| t.name.as_str());
                     if fields.is_empty() {
                         format!("{name} {{}}")
                     } else {
-                        format!("{name} {{ {} }}", self.debug_list(module, fields)?)
+                        format!("{name} {{ {} }}", self.debug_list(module, &fields)?)
                     }
                 }
                 Obj::Enum(e) => {
@@ -648,7 +649,7 @@ fn pop_two_double(stack: &mut Vec<Value>) -> Result<(f64, f64), Trap> {
 /// Pop an enum value and return its variant tag.
 fn pop_enum_variant(stack: &mut Vec<Value>) -> Result<u16, Trap> {
     match pop(stack)? {
-        Value::Ref(rc) => match &*rc.borrow() {
+        Value::Ref(h) => heap::with_obj(h, |obj| match obj {
             Obj::Enum(e) => Ok(e.variant),
             Obj::Str(_)
             | Obj::List(_)
@@ -656,7 +657,7 @@ fn pop_enum_variant(stack: &mut Vec<Value>) -> Result<u16, Trap> {
             | Obj::Set(_)
             | Obj::Struct { .. }
             | Obj::Closure { .. } => Err(bug("enum.tag: expected enum")),
-        },
+        }),
         v => Err(bug(format!("expected enum, found {v:?}"))),
     }
 }
@@ -665,10 +666,10 @@ fn pop_enum_variant(stack: &mut Vec<Value>) -> Result<u16, Trap> {
 /// captured environment (which becomes the callee's leading local slots).
 fn closure_parts(v: &Value) -> Result<(u32, Vec<Value>), Trap> {
     match v {
-        Value::Ref(rc) => match &*rc.borrow() {
+        Value::Ref(h) => heap::with_obj(*h, |obj| match obj {
             Obj::Closure { func, captures } => Ok((*func, captures.clone())),
             _ => Err(bug("call.indirect: expected a closure")),
-        },
+        }),
         v => Err(bug(format!(
             "call.indirect: expected a closure, found {v:?}"
         ))),
@@ -682,11 +683,11 @@ fn closure_parts(v: &Value) -> Result<(u32, Vec<Value>), Trap> {
 /// closures) — those dispatch through the built-in fallback.
 fn dispatch_type_id(v: &Value) -> Option<u32> {
     match v {
-        Value::Ref(rc) => match &*rc.borrow() {
+        Value::Ref(h) => heap::with_obj(*h, |obj| match obj {
             Obj::Struct { ty, .. } => Some(*ty),
             Obj::Enum(e) => Some(ENUM_DISPATCH_BASE | e.ty),
             Obj::Str(_) | Obj::List(_) | Obj::Map(_) | Obj::Set(_) | Obj::Closure { .. } => None,
-        },
+        }),
         _ => None,
     }
 }
@@ -694,11 +695,11 @@ fn dispatch_type_id(v: &Value) -> Option<u32> {
 /// Read payload field `idx` of an enum value.
 fn enum_field(v: &Value, idx: usize) -> Result<Value, Trap> {
     match v {
-        Value::Ref(rc) => match &*rc.borrow() {
+        Value::Ref(h) => heap::with_obj(*h, |obj| match obj {
             Obj::Enum(e) => e
                 .fields
                 .get(idx)
-                .cloned()
+                .copied()
                 .ok_or_else(|| bug(format!("enum.get: field {idx} out of range"))),
             Obj::Str(_)
             | Obj::List(_)
@@ -706,7 +707,7 @@ fn enum_field(v: &Value, idx: usize) -> Result<Value, Trap> {
             | Obj::Set(_)
             | Obj::Struct { .. }
             | Obj::Closure { .. } => Err(bug("enum.get: expected enum")),
-        },
+        }),
         v => Err(bug(format!("enum.get: expected enum, found {v:?}"))),
     }
 }
@@ -714,10 +715,10 @@ fn enum_field(v: &Value, idx: usize) -> Result<Value, Trap> {
 /// Read field `idx` of a struct value.
 pub(super) fn struct_field(v: &Value, idx: usize) -> Result<Value, Trap> {
     match v {
-        Value::Ref(rc) => match &*rc.borrow() {
+        Value::Ref(h) => heap::with_obj(*h, |obj| match obj {
             Obj::Struct { fields, .. } => fields
                 .get(idx)
-                .cloned()
+                .copied()
                 .ok_or_else(|| bug(format!("field.get: field {idx} out of range"))),
             Obj::Str(_)
             | Obj::List(_)
@@ -725,7 +726,7 @@ pub(super) fn struct_field(v: &Value, idx: usize) -> Result<Value, Trap> {
             | Obj::Set(_)
             | Obj::Enum(_)
             | Obj::Closure { .. } => Err(bug("field.get: expected struct")),
-        },
+        }),
         v => Err(bug(format!("field.get: expected struct, found {v:?}"))),
     }
 }
@@ -733,7 +734,7 @@ pub(super) fn struct_field(v: &Value, idx: usize) -> Result<Value, Trap> {
 /// Store `value` into field `idx` of a struct value (in place).
 fn set_struct_field(v: &Value, idx: usize, value: Value) -> Result<(), Trap> {
     match v {
-        Value::Ref(rc) => match &mut *rc.borrow_mut() {
+        Value::Ref(h) => heap::with_obj_mut(*h, |obj| match obj {
             Obj::Struct { fields, .. } => {
                 let slot = fields
                     .get_mut(idx)
@@ -747,7 +748,7 @@ fn set_struct_field(v: &Value, idx: usize, value: Value) -> Result<(), Trap> {
             | Obj::Set(_)
             | Obj::Enum(_)
             | Obj::Closure { .. } => Err(bug("field.set: expected struct")),
-        },
+        }),
         v => Err(bug(format!("field.set: expected struct, found {v:?}"))),
     }
 }

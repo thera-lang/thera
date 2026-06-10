@@ -4,17 +4,18 @@
 //! `Value` — simpler to build and debug than the untagged 64-bit slots of the
 //! durable format.
 //!
-//! Heap-backed values are shared references with reference semantics (see the
-//! value model in docs/bytecode.md): [`Value::Ref`] is an `Rc<RefCell<Obj>>`,
-//! so copying a value copies the pointer, not the object. `RefCell` is uniform
-//! across all heap objects to support the mutable collections that arrive in a
-//! later increment, even though enums themselves are immutable.
+//! Heap-backed values are **handles** into a runtime-owned heap (see
+//! [`crate::heap`]): [`Value::Ref`] is an index, so a `Value` is `Copy` and
+//! carries reference semantics (copying a value copies the handle, not the
+//! object). The heap is an interim, never-freed arena — the placeholder a
+//! precise mark-sweep collector replaces (see docs/architecture.md). Structural
+//! equality and field mutation go through the heap.
 
-use std::cell::RefCell;
-use std::rc::Rc;
+use crate::heap;
 
-/// A value on the operand stack or in a local slot.
-#[derive(Clone, Debug, PartialEq)]
+/// A value on the operand stack or in a local slot. `Copy`: heap objects are
+/// referenced by a small handle, not an owning pointer.
+#[derive(Clone, Copy, Debug)]
 pub enum Value {
     Int(i64),
     Double(f64),
@@ -22,49 +23,58 @@ pub enum Value {
     /// The unit value (`Void` / `()`). A `Void` function returns this, so every
     /// call yields exactly one stack value.
     Unit,
-    /// A shared reference to a heap object.
-    Ref(Rc<RefCell<Obj>>),
+    /// A handle to a heap object (an index into [`crate::heap`]).
+    Ref(u32),
+}
+
+/// Structural equality — the default `Eq`. For heap references it compares the
+/// pointed-to objects by content (recursing through the heap), matching the
+/// reference semantics the old `Rc<RefCell<Obj>>` representation gave for free.
+impl PartialEq for Value {
+    fn eq(&self, other: &Value) -> bool {
+        heap::values_eq(*self, *other)
+    }
 }
 
 impl Value {
     /// Construct a heap string.
     pub fn new_str(s: impl Into<String>) -> Value {
-        Value::Ref(Rc::new(RefCell::new(Obj::Str(s.into()))))
+        heap::alloc(Obj::Str(s.into()))
     }
 
     /// Construct a heap list.
     pub fn new_list(items: Vec<Value>) -> Value {
-        Value::Ref(Rc::new(RefCell::new(Obj::List(items))))
+        heap::alloc(Obj::List(items))
     }
 
     /// Construct a heap map from insertion-ordered key/value pairs.
     pub fn new_map(entries: Vec<(Value, Value)>) -> Value {
-        Value::Ref(Rc::new(RefCell::new(Obj::Map(entries))))
+        heap::alloc(Obj::Map(entries))
     }
 
     /// Construct a heap set from already-deduplicated elements.
     pub fn new_set(elements: Vec<Value>) -> Value {
-        Value::Ref(Rc::new(RefCell::new(Obj::Set(elements))))
+        heap::alloc(Obj::Set(elements))
     }
 
     /// Construct a struct value of the given type on the heap.
     pub fn new_struct(ty: u32, fields: Vec<Value>) -> Value {
-        Value::Ref(Rc::new(RefCell::new(Obj::Struct { ty, fields })))
+        heap::alloc(Obj::Struct { ty, fields })
     }
 
     /// Construct an enum value (e.g. `Result`/`Option`) on the heap.
     pub fn new_enum(ty: u32, variant: u16, fields: Vec<Value>) -> Value {
-        Value::Ref(Rc::new(RefCell::new(Obj::Enum(EnumObj {
+        heap::alloc(Obj::Enum(EnumObj {
             ty,
             variant,
             fields,
-        }))))
+        }))
     }
 
     /// Construct a closure value: the index of the lifted function plus the
     /// captured environment values (see docs/bytecode.md, "Closures / lambdas").
     pub fn new_closure(func: u32, captures: Vec<Value>) -> Value {
-        Value::Ref(Rc::new(RefCell::new(Obj::Closure { func, captures })))
+        heap::alloc(Obj::Closure { func, captures })
     }
 
     /// `Some(v)` / `None` constructors for the built-in `Option` type.
@@ -84,7 +94,8 @@ impl Value {
     }
 }
 
-/// A heap-allocated object.
+/// A heap-allocated object. Stored in [`crate::heap`]; addressed by a
+/// [`Value::Ref`] handle.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Obj {
     /// UTF-8 text.
@@ -110,6 +121,22 @@ pub enum Obj {
         func: u32,
         captures: Vec<Value>,
     },
+}
+
+impl Obj {
+    /// The heap handles this object holds — the trace primitive a mark-sweep
+    /// collector follows from a marked object to its children. (Primitives in
+    /// `List`/`Map`/`Set`/fields are `Value::Int`/etc. and carry no handle.)
+    pub fn child_values(&self) -> Vec<Value> {
+        match self {
+            Obj::Str(_) => vec![],
+            Obj::List(items) | Obj::Set(items) => items.clone(),
+            Obj::Map(entries) => entries.iter().flat_map(|(k, v)| [*k, *v]).collect(),
+            Obj::Struct { fields, .. } => fields.clone(),
+            Obj::Enum(e) => e.fields.clone(),
+            Obj::Closure { captures, .. } => captures.clone(),
+        }
+    }
 }
 
 /// A tagged-union value: the `variant` selected from type `ty`, with its
