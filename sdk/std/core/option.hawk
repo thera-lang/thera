@@ -14,17 +14,33 @@ pub enum Option<T> {
 
 impl Option<T> {
     // Convert to a Result, using `err` for the None case.
-    @extern('option_ok_or')
-    pub native fn ok_or<E>(self, _ err: E) -> Result<T, E>
+    pub fn ok_or<E>(self, _ err: E) -> Result<T, E> {
+        return match self {
+            Some(v) => Result.Ok(v),
+            None => Result.Err(err),
+        };
+    }
 
     // The contained value if Some, else `fallback`.
-    @extern('option_unwrap_or')
-    pub native fn unwrap_or(self, _ fallback: T) -> T
+    pub fn unwrap_or(self, _ fallback: T) -> T {
+        return match self {
+            Some(v) => v,
+            None => fallback,
+        };
+    }
 
     // Discriminators.
-    @extern('option_is_some')
-    pub native fn is_some(self) -> Bool
+    pub fn is_some(self) -> Bool {
+        return match self {
+            Some(_) => true,
+            None => false,
+        };
+    }
 
-    @extern('option_is_none')
-    pub native fn is_none(self) -> Bool
+    pub fn is_none(self) -> Bool {
+        return match self {
+            Some(_) => false,
+            None => true,
+        };
+    }
 }

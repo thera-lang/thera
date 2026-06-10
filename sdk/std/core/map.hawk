@@ -22,8 +22,9 @@ impl Map<K, V> {
     pub native fn len(self) -> Int
 
     // True if there are no entries.
-    @extern('map_is_empty')
-    pub native fn is_empty(self) -> Bool
+    pub fn is_empty(self) -> Bool {
+        return self.len() == 0;
+    }
 
     // True if `key` is present.
     @extern('map_has')

@@ -8,7 +8,7 @@
 use std::io::Write;
 
 use super::{Trap, bug, struct_field};
-use crate::value::{Obj, TAG_NONE, TAG_SOME, TY_OPTION, Value};
+use crate::value::{Obj, TAG_SOME, TY_OPTION, Value};
 
 /// A native function: receives the VM's output sink and the call arguments.
 pub type NativeFn = fn(out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap>;
@@ -63,7 +63,6 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("eq", native_eq),
     ("str_len", native_str_len),
     ("str_byte_len", native_str_byte_len),
-    ("str_is_empty", native_str_is_empty),
     ("str_trim", native_str_trim),
     ("str_contains", native_str_contains),
     ("str_starts_with", native_str_starts_with),
@@ -97,10 +96,6 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("math_hypot", native_math_hypot),
     ("str_to_int", native_str_to_int),
     ("str_to_double", native_str_to_double),
-    ("option_ok_or", native_option_ok_or),
-    ("option_unwrap_or", native_option_unwrap_or),
-    ("option_is_some", native_option_is_some),
-    ("option_is_none", native_option_is_none),
     ("fs_read_text", native_fs_read_text),
     ("fs_write_text", native_fs_write_text),
     ("time_now_millis", native_time_now_millis),
@@ -118,7 +113,6 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("map_keys", native_map_keys),
     ("map_values", native_map_values),
     ("map_remove", native_map_remove),
-    ("map_is_empty", native_map_is_empty),
     ("list_join", native_list_join),
     ("list_push", native_list_push),
     ("process_run", native_process_run),
@@ -264,12 +258,6 @@ fn native_str_byte_len(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Tr
     Ok(Value::Int(s.len() as i64))
 }
 
-/// `s.is_empty()`.
-fn native_str_is_empty(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
-    let s = str_contents(expect_one(args, "str_is_empty")?)?;
-    Ok(Value::Bool(s.is_empty()))
-}
-
 /// `s.trim()` — strip leading/trailing whitespace.
 fn native_str_trim(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let s = str_contents(expect_one(args, "str_trim")?)?;
@@ -400,15 +388,6 @@ fn native_map_remove(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap
     })
 }
 
-/// `map.is_empty()`.
-fn native_map_is_empty(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
-    with_map(
-        expect_one(args, "map.is_empty")?,
-        "map.is_empty",
-        |entries| Ok(Value::Bool(entries.is_empty())),
-    )
-}
-
 /// `list.join(sep)` — each element's Display form, joined by `sep`.
 fn native_list_join(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let (list, sep) = args2(args, "list.join")?;
@@ -430,40 +409,6 @@ fn as_option(v: &Value, who: &str) -> Result<(u16, Vec<Value>), Trap> {
         },
         _ => Err(bug(format!("{who}: expected Option"))),
     }
-}
-
-/// `opt.ok_or(err)` — `Some(v)` → `Ok(v)`, `None` → `Err(err)`.
-fn native_option_ok_or(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
-    let (opt, err) = args2(args, "option_ok_or")?;
-    let (variant, fields) = as_option(opt, "ok_or")?;
-    Ok(if variant == TAG_SOME {
-        Value::ok(fields.into_iter().next().unwrap_or(Value::Unit))
-    } else {
-        Value::err(err.clone())
-    })
-}
-
-/// `opt.unwrap_or(default)` — the payload of `Some`, else `default`.
-fn native_option_unwrap_or(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
-    let (opt, default) = args2(args, "option_unwrap_or")?;
-    let (variant, fields) = as_option(opt, "unwrap_or")?;
-    Ok(if variant == TAG_SOME {
-        fields.into_iter().next().unwrap_or(Value::Unit)
-    } else {
-        default.clone()
-    })
-}
-
-/// `opt.is_some()`.
-fn native_option_is_some(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
-    let (variant, _) = as_option(expect_one(args, "option_is_some")?, "is_some")?;
-    Ok(Value::Bool(variant == TAG_SOME))
-}
-
-/// `opt.is_none()`.
-fn native_option_is_none(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
-    let (variant, _) = as_option(expect_one(args, "option_is_none")?, "is_none")?;
-    Ok(Value::Bool(variant == TAG_NONE))
 }
 
 // --- std.fs natives ---
@@ -1465,19 +1410,6 @@ mod tests {
             Ok(Value::Double(x)) => assert!((0.0..1.0).contains(&x), "{x} not in [0,1)"),
             other => panic!("expected a Double in [0,1), got {other:?}"),
         }
-    }
-
-    #[test]
-    fn option_ok_or_converts() {
-        let sink = &mut std::io::sink();
-        assert_eq!(
-            native_option_ok_or(sink, &[Value::some(Value::Int(5)), Value::Int(0)]),
-            Ok(Value::ok(Value::Int(5))),
-        );
-        assert_eq!(
-            native_option_ok_or(sink, &[Value::none(), Value::new_str("e")]),
-            Ok(Value::err(Value::new_str("e"))),
-        );
     }
 
     #[test]

@@ -16,8 +16,9 @@ impl String {
     pub native fn byte_len(self) -> Int
 
     // True if the string is empty.
-    @extern('str_is_empty')
-    pub native fn is_empty(self) -> Bool
+    pub fn is_empty(self) -> Bool {
+        return self.len() == 0;
+    }
 
     // A copy with leading and trailing whitespace removed.
     @extern('str_trim')

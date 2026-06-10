@@ -35,7 +35,6 @@ enum Result<T, E> { Ok(T), Err(E) }
 impl String {
   @extern('str_len')              native fn len(self) -> Int
   @extern('str_byte_len')         native fn byte_len(self) -> Int
-  @extern('str_is_empty')         native fn is_empty(self) -> Bool
   @extern('str_trim')             native fn trim(self) -> String
   @extern('str_contains')         native fn contains(self, _ needle: String) -> Bool
   @extern('str_starts_with')      native fn starts_with(self, _ prefix: String) -> Bool
@@ -54,18 +53,11 @@ impl List<T> {
 }
 impl Map<K, V> {
   @extern('map_len')      native fn len(self) -> Int
-  @extern('map_is_empty') native fn is_empty(self) -> Bool
   @extern('map_has')      native fn has(self, _ key: K) -> Bool
   @extern('map_get')      native fn get(self, _ key: K) -> Option<V>
   @extern('map_remove')   native fn remove(self, _ key: K) -> Option<V>
   @extern('map_keys')     native fn keys(self) -> List<K>
   @extern('map_values')   native fn values(self) -> List<V>
-}
-impl Option<T> {
-  @extern('option_ok_or')     native fn ok_or<E>(self, _ err: E) -> Result<T, E>
-  @extern('option_unwrap_or') native fn unwrap_or(self, _ fallback: T) -> T
-  @extern('option_is_some')   native fn is_some(self) -> Bool
-  @extern('option_is_none')   native fn is_none(self) -> Bool
 }''';
 
 Module compile(String source) =>
@@ -644,16 +636,16 @@ fn f(a: CI, b: CI) -> Bool { return a == b; }
               .having((i) => i.argc, 'argc', 1)));
     });
 
-    test('Option.ok_or lowers to option_ok_or (receiver first)', () {
+    test('an instance native method with an argument lowers receiver-first', () {
       final ops = compile(
-              'fn f() -> Int { let xs = [1]; let r = xs.get(0).ok_or(9); return 0; }')
+              "fn f() -> Bool { let s = 'hello'; return s.contains('ell'); }")
           .functions
           .single
           .code;
       expect(
           ops,
           contains(isA<CallNative>()
-              .having((i) => i.name, 'name', 'option_ok_or')
+              .having((i) => i.name, 'name', 'str_contains')
               .having((i) => i.argc, 'argc', 2)));
     });
 
@@ -801,7 +793,7 @@ fn main() -> Int {
 impl List<T> {
   @extern('list_get') native fn at(self, _ i: Int) -> Option<T>
 }
-fn main() -> Int { return [10, 20, 30].at(1).unwrap_or(0); }
+fn main() -> Int { return match [10, 20, 30].at(1) { Some(v) => v, None => 0 }; }
 '''), 20);
     });
 
@@ -1161,21 +1153,6 @@ fn main() -> Int {
     return 0;
 }
 '''), 1);
-    });
-
-    test('Option.ok_or converts to Result (Some and None)', () {
-      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
-      const tmpl = '''
-fn main() -> Int {
-    let xs = [10, 20];
-    match xs.get(INDEX).ok_or(99) {
-        Ok(v) => return v,
-        Err(e) => return e,
-    }
-}
-''';
-      expect(runExit('okor_some', tmpl.replaceAll('INDEX', '0')), 10);
-      expect(runExit('okor_none', tmpl.replaceAll('INDEX', '5')), 99);
     });
 
     test('fs.read_text reads a file (and propagates errors with ?)', () {

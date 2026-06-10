@@ -1,0 +1,43 @@
+// Tests for Option's helper methods (implemented in Hawk over `match`).
+
+import std.testing;
+
+@test
+fn test_is_some_and_is_none() -> Result<Void, Error> {
+    let some = Option.Some(42);
+    let none: Option<Int> = Option.None;
+    testing.assert(some.is_some())?;
+    testing.assert(!some.is_none())?;
+    testing.assert(none.is_none())?;
+    testing.assert(!none.is_some())?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_unwrap_or() -> Result<Void, Error> {
+    let some = Option.Some(7);
+    let none: Option<Int> = Option.None;
+    testing.assert_eq(actual: some.unwrap_or(0), expected: 7)?;
+    testing.assert_eq(actual: none.unwrap_or(-1), expected: -1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_ok_or_some_becomes_ok() -> Result<Void, Error> {
+    let some = Option.Some(10);
+    match some.ok_or('missing') {
+        Ok(v) => testing.assert_eq(actual: v, expected: 10)?,
+        Err(_) => throw Error { message: 'Some should convert to Ok' },
+    }
+    return Result.Ok(void);
+}
+
+@test
+fn test_ok_or_none_becomes_err() -> Result<Void, Error> {
+    let none: Option<Int> = Option.None;
+    match none.ok_or('missing') {
+        Ok(_) => throw Error { message: 'None should convert to Err' },
+        Err(e) => testing.assert_eq(actual: e, expected: 'missing')?,
+    }
+    return Result.Ok(void);
+}
