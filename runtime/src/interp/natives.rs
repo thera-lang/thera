@@ -107,6 +107,14 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("random_mix", native_random_mix),
     ("random_to_unit", native_random_to_unit),
     ("random_seed_entropy", native_random_seed_entropy),
+    ("env_get", native_env_get),
+    ("env_set", native_env_set),
+    ("env_vars", native_env_vars),
+    ("env_args", native_env_args),
+    ("env_current_dir", native_env_current_dir),
+    ("env_set_current_dir", native_env_set_current_dir),
+    ("env_os", native_env_os),
+    ("env_exit", native_env_exit),
     ("map_keys", native_map_keys),
     ("map_values", native_map_values),
     ("map_remove", native_map_remove),
@@ -552,6 +560,101 @@ fn native_random_seed_entropy(_out: &mut dyn Write, args: &[Value]) -> Result<Va
     let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let seed = splitmix64_mix(nanos.wrapping_add(n.wrapping_mul(0x9E3779B97F4A7C15)));
     Ok(Value::Int(seed as i64))
+}
+
+// --- env natives ---
+//
+// The ambient environment: variables, program arguments, working directory, and
+// platform. These are the real process effects behind `std.env`'s free
+// functions; the `Env` capability dispatches to them (or, in tests, to a fake).
+
+/// The program arguments (everything after the `.hawkbc` path), stashed by the
+/// `run` entry point so `env.args()` can return them without re-deriving the
+/// runtime's own argv prefix.
+static PROGRAM_ARGS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+
+/// Record the program arguments for `env.args()`. Called once, before the entry
+/// function runs.
+pub fn set_program_args(args: Vec<String>) {
+    let _ = PROGRAM_ARGS.set(args);
+}
+
+fn expect_no_args(args: &[Value], who: &str) -> Result<(), Trap> {
+    if args.is_empty() {
+        Ok(())
+    } else {
+        Err(bug(format!(
+            "{who} expects 0 arguments, got {}",
+            args.len()
+        )))
+    }
+}
+
+/// `env.get(name)` — the value of an environment variable, or None if unset.
+fn native_env_get(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let name = str_contents(expect_one(args, "env_get")?)?;
+    Ok(match std::env::var(&name) {
+        Ok(v) => Value::some(Value::new_str(v)),
+        Err(_) => Value::none(),
+    })
+}
+
+/// `env.set(name, value)` — set an environment variable for this process.
+fn native_env_set(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (name, value) = args2(args, "env_set")?;
+    let (name, value) = (str_contents(name)?, str_contents(value)?);
+    // Safety: the runtime is single-threaded; no other thread reads the
+    // environment concurrently (the basis for `set_var` being unsafe in 2024).
+    unsafe { std::env::set_var(name, value) };
+    Ok(Value::Unit)
+}
+
+/// `env.vars()` — all environment variables as a `Map<String, String>`.
+fn native_env_vars(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    expect_no_args(args, "env_vars")?;
+    let entries = std::env::vars()
+        .map(|(k, v)| (Value::new_str(k), Value::new_str(v)))
+        .collect();
+    Ok(Value::new_map(entries))
+}
+
+/// `env.args()` — the program arguments as a `List<String>`.
+fn native_env_args(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    expect_no_args(args, "env_args")?;
+    let argv = PROGRAM_ARGS.get().cloned().unwrap_or_default();
+    Ok(Value::new_list(
+        argv.into_iter().map(Value::new_str).collect(),
+    ))
+}
+
+/// `env.current_dir()` — the process working directory, or an error.
+fn native_env_current_dir(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    expect_no_args(args, "env_current_dir")?;
+    Ok(match std::env::current_dir() {
+        Ok(p) => Value::ok(Value::new_str(p.to_string_lossy().into_owned())),
+        Err(e) => Value::err(Value::new_str(e.to_string())),
+    })
+}
+
+/// `env.set_current_dir(path)` — change the process working directory.
+fn native_env_set_current_dir(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let path = str_contents(expect_one(args, "env_set_current_dir")?)?;
+    Ok(match std::env::set_current_dir(&path) {
+        Ok(()) => Value::ok(Value::Unit),
+        Err(e) => Value::err(Value::new_str(format!("{path}: {e}"))),
+    })
+}
+
+/// `env.os()` — the platform: 'macos' | 'linux' | 'windows' | ...
+fn native_env_os(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    expect_no_args(args, "env_os")?;
+    Ok(Value::new_str(std::env::consts::OS))
+}
+
+/// `env.exit(code)` — terminate the process with an exit code (does not return).
+fn native_env_exit(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let code = as_int(expect_one(args, "env_exit")?, "env_exit")?;
+    std::process::exit(code as i32)
 }
 
 // --- collection natives ---

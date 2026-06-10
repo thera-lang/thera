@@ -42,7 +42,7 @@ pub use natives::{
     NATIVE_MAP_GET, NATIVE_MAP_HAS, NATIVE_MAP_INDEX, NATIVE_MAP_LEN, NATIVE_MAP_NEW,
     NATIVE_MAP_SET, NATIVE_PRINT, NATIVE_PRINTLN, NATIVE_SET_ADD, NATIVE_SET_HAS, NATIVE_SET_LEN,
     NATIVE_SET_NEW, NATIVE_SET_REMOVE, NATIVE_STR_CONCAT, NATIVE_STRINGIFY, NativeFn,
-    default_natives, native_index, native_name,
+    default_natives, native_index, native_name, set_program_args,
 };
 
 /// The interpreter's execution context: where output goes and what native

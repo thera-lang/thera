@@ -1,0 +1,86 @@
+// Tests for std.env — the ambient environment and the `Env` capability.
+
+import std.env;
+import std.testing;
+
+// A slice of logic that reads the environment through a capability. Real code
+// passes `env.system_env()`; tests pass `testing.fixed_env`.
+fn read_port(_ e: env.Env, _ fallback: Int) -> Int {
+    match e.get('PORT') {
+        Some(v) => return v.to_int().unwrap_or(fallback),
+        None    => return fallback,
+    }
+}
+
+@test
+fn test_os_is_nonempty() -> Result<Void, Error> {
+    testing.assert(env.os().len() > 0, message: 'os() should name a platform')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_get_missing_is_none() -> Result<Void, Error> {
+    testing.assert(env.get('HAWK_DEFINITELY_UNSET_XYZ').is_none())?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_set_then_get() -> Result<Void, Error> {
+    env.set('HAWK_ENV_TEST', 'hello');
+    testing.assert_eq(actual: env.get('HAWK_ENV_TEST').unwrap_or('?'), expected: 'hello')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_vars_reflects_set() -> Result<Void, Error> {
+    env.set('HAWK_ENV_VARS', 'present');
+    let all = env.vars();
+    testing.assert(all.has('HAWK_ENV_VARS'), message: 'vars() should include a set variable')?;
+    testing.assert_eq(actual: all.get('HAWK_ENV_VARS').unwrap_or('?'), expected: 'present')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_current_dir_is_ok() -> Result<Void, Error> {
+    let dir = testing.assert_ok(env.current_dir())?;
+    testing.assert(dir.len() > 0, message: 'current_dir should be non-empty')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_capability_real_dispatches() -> Result<Void, Error> {
+    // The real capability reads the live environment.
+    env.set('HAWK_CAP_TEST', '4321');
+    testing.assert_eq(actual: read_port_named(env.system_env()), expected: '4321')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_fixed_env_injects_values() -> Result<Void, Error> {
+    let e = testing.fixed_env({ 'PORT': '8080', 'HOST': 'local' }, ['serve', '--fast']);
+    testing.assert_eq(actual: read_port(e, 0), expected: 8080)?;
+    testing.assert_eq(actual: e.get('HOST').unwrap_or('?'), expected: 'local')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_fixed_env_missing_is_none() -> Result<Void, Error> {
+    let e = testing.fixed_env({ 'PORT': '8080' }, []);
+    testing.assert(e.get('ABSENT').is_none())?;
+    // Logic falls back when the variable is absent.
+    testing.assert_eq(actual: read_port(testing.fixed_env({}, []), 3000), expected: 3000)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_fixed_env_args() -> Result<Void, Error> {
+    let e = testing.fixed_env({}, ['build', '--release', 'target']);
+    testing.assert_eq(actual: e.args().len(), expected: 3)?;
+    testing.assert_eq(actual: e.args()[1], expected: '--release')?;
+    return Result.Ok(void);
+}
+
+// Helper: read the capability's HAWK_CAP_TEST value (exercises real dispatch).
+fn read_port_named(_ e: env.Env) -> String {
+    return e.get('HAWK_CAP_TEST').unwrap_or('missing');
+}

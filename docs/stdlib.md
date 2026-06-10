@@ -272,7 +272,7 @@ can't be a compile-time `const`; it needs native backing) — is a deliberate
 future task. Also deferred: `normalize` (collapse `./` `../`), `relative`, and a
 variadic `join`.
 
-### `std.env` — environment & process info _(new)_
+### `std.env` — environment & process info _(implemented)_
 
 Purpose: environment variables, args, working directory, exit. (Spawning is
 `std.process`.)
@@ -284,9 +284,24 @@ pub fn vars() -> Map<String, String>;
 pub fn args() -> List<String>;          // program arguments (also passed to main)
 pub fn current_dir() -> Result<String, Error>;
 pub fn set_current_dir(_ path: String) -> Result<Void, Error>;
-pub fn exit(_ code: Int) -> Never;      // see language.md if a Never type lands
-pub const OS: String;                   // 'macos' | 'linux' | 'windows'
+pub fn exit(_ code: Int) -> Void;       // does not return; typed Never once that lands
+pub fn os() -> String;                  // 'macos' | 'linux' | 'windows' | ...
+
+// The environment as an opt-in capability (see testability.md). The free
+// functions are the ambient form of `system_env().get(...)` / `.args()`; tests
+// pass `testing.fixed_env`.
+pub interface Env {
+    fn get(self, _ name: String) -> Option<String>;
+    fn args(self) -> List<String>;
+}
+pub fn system_env() -> Env;
 ```
+
+Note: `OS` is a function (`os()`), not a `const` — it is a runtime/platform
+value, and Hawk has no load-time init to materialize a `const` from one (see
+[roadmap.md](roadmap.md)). `exit` is typed `Void` until a `Never` type lands.
+`Env` is the second instance of the ambient-capability pattern after
+`time.Clock` (see [testability.md](testability.md)).
 
 ### `std.process` — subprocess spawning _(partial → reconcile with std.io)_
 
@@ -659,7 +674,7 @@ dependency graph, so future work lands in the right order:
 | std.io       | new     | foundation; gated on `Bytes` + generics arc         |
 | std.fs       | partial | expand; `read_dir`→`list_dir`; `FsError`            |
 | std.path     | done    | pure Hawk; `components`/`with_extension` added; normalize/relative deferred |
-| std.env      | new     |                                                     |
+| std.env      | done    | vars/args/cwd/os/exit + `Env` capability + `testing.fixed_env`; `OS`→`os()` |
 | std.process  | partial | reconcile pipes → `Reader`/`Writer`; `ProcessError` |
 | std.time     | partial | `now_millis()` + `Clock` capability (prototype); `DateTime`/`Duration`/`monotonic` still new |
 | std.fiber    | new     | runtime scheduler                                   |

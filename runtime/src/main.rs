@@ -59,6 +59,8 @@ fn cmd_run(args: &[String]) -> ExitCode {
     // Entry convention: the entry takes 0 or 1 parameter. The 1-parameter form
     // receives the program arguments (everything after the `.hawkbc` path) as a
     // `List<String>`. A richer `Args` type is a stdlib concern that wraps this.
+    // The same arguments back `env.args()`.
+    hawk::interp::set_program_args(rest[1..].to_vec());
     let argv: Vec<Value> = rest[1..].iter().cloned().map(Value::new_str).collect();
     let call_args = match module.functions[entry].param_count {
         0 => vec![],

@@ -176,11 +176,12 @@ done):
 - **`time.Clock`** — done (the prototype above). Next: a real `DateTime`/
   `Instant`/`Duration` surface (see [stdlib.md](stdlib.md) `std.time`), and an
   advanceable test clock in `std.testing`.
+- **`env.Env`** — done. An `Env` capability (`get` + `args`) over the `std.env`
+  free functions, with `system_env()` and a map-backed `testing.fixed_env`. The
+  second instance of the pattern; confirms it generalizes past `Clock`.
 - **`fs.FileSystem`** — interface over the `std.fs` operations, `system_fs()`,
   and a `MemoryFileSystem` shipped in `std.fs`. The highest-value instance: it
   retires the "everyone reimplements an in-memory FS" problem.
-- **`env.Env`** — interface over `env.get`/`vars`/`current_dir`, `system_env()`,
-  and a map-backed fake (likely `std.testing`).
 
 In every case the ambient free functions stay as the default; the interface is
 the opt-in seam; the free function remains the system implementation.
