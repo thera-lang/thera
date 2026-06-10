@@ -1,18 +1,20 @@
 //! The Tier-0 evaluator.
 //!
-//! [`exec`] runs a single function's instruction stream against a locals array,
-//! maintaining an operand stack, until a [`Instr::Return`]. A `pc` (program
-//! counter) indexes the instruction vec; the `jump` family redirects it.
+//! [`Vm::run_loop`] drives an **explicit call-frame stack**: each [`Frame`] owns
+//! its operand stack, locals, and program counter, and one loop dispatches the
+//! instruction stream until the frame stack empties. A `pc` (program counter)
+//! indexes the running frame's instruction vec; the `jump` family redirects it.
 //!
-//! Calls use native Rust recursion: [`Instr::Call`] resolves the callee in the
-//! [`Module`] and re-enters [`exec`]. An explicit frame stack will replace this
-//! when fibers need to pause and resume frames; for the draft, recursion is the
-//! simplest thing that works.
+//! `Instr::Call` pushes a new frame and `Instr::Return` pops one — calls do
+//! **not** recurse through the Rust stack, so deep Hawk recursion is bounded by
+//! the heap (the frame `Vec`), not the host stack. Keeping every active frame in
+//! one `Vec` is also what lets a precise GC enumerate the roots, and it is the
+//! structure fibers will pause/resume.
 
 use std::io::Write;
 
 use crate::instr::Instr;
-use crate::module::{ENUM_DISPATCH_BASE, Module};
+use crate::module::{ENUM_DISPATCH_BASE, Function, Module};
 use crate::value::{Obj, TAG_OK, TAG_SOME, TY_OPTION, TY_RESULT, Value};
 
 /// A runtime fault that aborts execution (see docs/language.md, "Runtime
@@ -53,6 +55,30 @@ pub struct Vm<'a> {
     natives: Vec<NativeFn>,
 }
 
+/// One activation record on the interpreter's explicit call-frame stack: the
+/// running function, its program counter, its locals, and its operand stack.
+/// Holding frames in an explicit `Vec` (rather than the Rust call stack) is what
+/// lets a precise GC enumerate every active frame's values as roots.
+struct Frame {
+    func: usize,
+    pc: usize,
+    locals: Vec<Value>,
+    stack: Vec<Value>,
+}
+
+/// What to do to the frame stack after dispatching one instruction. The
+/// control-flow arms compute their effect while the running frame is borrowed,
+/// then [`Vm::run_loop`] applies it once that borrow is released — so an arm
+/// never restructures `frames` while it is holding a borrow into it.
+enum Action {
+    /// Stay in the current frame.
+    Next,
+    /// A call: push a new top frame.
+    PushFrame(Frame),
+    /// A return: pop the current frame, delivering `value` to its caller.
+    Return(Value),
+}
+
 /// Run `module`'s function at index `func` with `args`, writing output to
 /// stdout. Convenience over [`Vm`].
 pub fn run(module: &Module, func: usize, args: &[Value]) -> Result<Value, Trap> {
@@ -60,12 +86,14 @@ pub fn run(module: &Module, func: usize, args: &[Value]) -> Result<Value, Trap> 
     Vm::new(&mut out).run(module, func, args)
 }
 
-/// Evaluate a bare instruction stream with no enclosing module (so `call` is
-/// unavailable) and discard output. A convenience for testing snippets.
-pub fn eval(code: &[Instr], locals: &mut [Value]) -> Result<Value, Trap> {
-    let module = Module::default();
+/// Evaluate a bare instruction stream in a synthetic single-function module
+/// (so `call` is unavailable) and discard output. `locals` seeds the frame's
+/// leading slots. A convenience for testing snippets.
+pub fn eval(code: &[Instr], locals: &[Value]) -> Result<Value, Trap> {
+    let n = locals.len() as u16;
+    let module = Module::new(vec![Function::new("<eval>", n, n, code.to_vec())]);
     let mut sink = std::io::sink();
-    Vm::new(&mut sink).exec(&module, code, locals)
+    Vm::new(&mut sink).call(&module, 0, locals.to_vec())
 }
 
 impl<'a> Vm<'a> {
@@ -82,43 +110,69 @@ impl<'a> Vm<'a> {
         self.call(module, func, args.to_vec())
     }
 
-    /// Build a frame for `module.functions[func]`, placing `args` in its leading
-    /// local slots, and execute it.
-    fn call(&mut self, module: &Module, func: usize, args: Vec<Value>) -> Result<Value, Trap> {
+    /// Build the call frame for `module.functions[func]`, placing `locals`
+    /// (the arguments) in the leading slots and padding the rest with `Unit`.
+    fn make_frame(
+        &self,
+        module: &Module,
+        func: usize,
+        mut locals: Vec<Value>,
+    ) -> Result<Frame, Trap> {
         let f = module
             .functions
             .get(func)
             .ok_or_else(|| bug(format!("call: no function at index {func}")))?;
-        if args.len() != f.param_count as usize {
+        if locals.len() != f.param_count as usize {
             return Err(bug(format!(
                 "call: function '{}' expects {} args, got {}",
                 f.name,
                 f.param_count,
-                args.len()
+                locals.len()
             )));
         }
-        // args already hold arg0..argN in pushed order, which is exactly
-        // locals[0..param_count]; pad the rest of the frame with Unit.
-        let mut locals = args;
         locals.resize(f.local_count as usize, Value::Unit);
-        self.exec(module, &f.code, &mut locals)
+        Ok(Frame {
+            func,
+            pc: 0,
+            locals,
+            stack: Vec::new(),
+        })
     }
 
-    /// Execute `code` against `locals`, resolving any `call` in `module`.
-    fn exec(
-        &mut self,
-        module: &Module,
-        code: &[Instr],
-        locals: &mut [Value],
-    ) -> Result<Value, Trap> {
-        let mut stack: Vec<Value> = Vec::new();
-        let mut pc = 0usize;
+    /// Build a frame for `func` and run it to completion.
+    fn call(&mut self, module: &Module, func: usize, args: Vec<Value>) -> Result<Value, Trap> {
+        let frame = self.make_frame(module, func, args)?;
+        self.run_loop(module, frame)
+    }
+
+    /// The interpreter loop over an **explicit call-frame stack**. Each [`Frame`]
+    /// owns its operand stack and locals, so every active frame's values stay
+    /// reachable from `frames` (the precise-GC root set) and calls no longer
+    /// recurse through the Rust stack — `Instr::Call`/`Return` push and pop
+    /// frames here.
+    fn run_loop(&mut self, module: &Module, initial: Frame) -> Result<Value, Trap> {
+        let mut frames: Vec<Frame> = vec![initial];
 
         loop {
+            let top = frames.len() - 1;
+            let func = frames[top].func;
+            let pc = frames[top].pc;
+            let code = &module.functions[func].code;
             let instr = code
                 .get(pc)
                 .ok_or_else(|| bug("pc ran off the end of the instruction stream"))?;
+            // Borrow the running frame's parts for dispatch. `module` (holding
+            // `instr`) and `frames` are distinct objects, so these borrows
+            // coexist; structural changes are deferred to `action`.
+            let Frame {
+                stack,
+                locals,
+                pc: frame_pc,
+                ..
+            } = &mut frames[top];
+            *frame_pc = pc + 1; // advance; jumps overwrite below
 
+            let mut action = Action::Next;
             match instr {
                 // --- constants ---
                 Instr::ConstInt(n) => stack.push(Value::Int(*n)),
@@ -136,7 +190,7 @@ impl<'a> Vm<'a> {
                     stack.push(v);
                 }
                 Instr::Store(slot) => {
-                    let v = pop(&mut stack)?;
+                    let v = pop(stack)?;
                     *locals
                         .get_mut(*slot as usize)
                         .ok_or_else(|| bug(format!("store: slot {slot} out of range")))? = v;
@@ -144,93 +198,93 @@ impl<'a> Vm<'a> {
 
                 // --- integer arithmetic (wrapping) ---
                 Instr::AddI64 => {
-                    let (a, b) = pop_two_int(&mut stack)?;
+                    let (a, b) = pop_two_int(stack)?;
                     stack.push(Value::Int(a.wrapping_add(b)));
                 }
                 Instr::SubI64 => {
-                    let (a, b) = pop_two_int(&mut stack)?;
+                    let (a, b) = pop_two_int(stack)?;
                     stack.push(Value::Int(a.wrapping_sub(b)));
                 }
                 Instr::MulI64 => {
-                    let (a, b) = pop_two_int(&mut stack)?;
+                    let (a, b) = pop_two_int(stack)?;
                     stack.push(Value::Int(a.wrapping_mul(b)));
                 }
                 Instr::DivI64 => {
-                    let (a, b) = pop_two_int(&mut stack)?;
+                    let (a, b) = pop_two_int(stack)?;
                     if b == 0 {
                         return Err(Trap::DivByZero);
                     }
                     stack.push(Value::Int(a.wrapping_div(b)));
                 }
                 Instr::ModI64 => {
-                    let (a, b) = pop_two_int(&mut stack)?;
+                    let (a, b) = pop_two_int(stack)?;
                     if b == 0 {
                         return Err(Trap::DivByZero);
                     }
                     stack.push(Value::Int(a.wrapping_rem(b)));
                 }
                 Instr::NegI64 => {
-                    let a = pop_int(&mut stack)?;
+                    let a = pop_int(stack)?;
                     stack.push(Value::Int(a.wrapping_neg()));
                 }
 
                 // --- float arithmetic ---
                 Instr::AddF64 => {
-                    let (a, b) = pop_two_double(&mut stack)?;
+                    let (a, b) = pop_two_double(stack)?;
                     stack.push(Value::Double(a + b));
                 }
                 Instr::SubF64 => {
-                    let (a, b) = pop_two_double(&mut stack)?;
+                    let (a, b) = pop_two_double(stack)?;
                     stack.push(Value::Double(a - b));
                 }
                 Instr::MulF64 => {
-                    let (a, b) = pop_two_double(&mut stack)?;
+                    let (a, b) = pop_two_double(stack)?;
                     stack.push(Value::Double(a * b));
                 }
                 Instr::DivF64 => {
-                    let (a, b) = pop_two_double(&mut stack)?;
+                    let (a, b) = pop_two_double(stack)?;
                     stack.push(Value::Double(a / b));
                 }
                 Instr::NegF64 => {
-                    let a = pop_double(&mut stack)?;
+                    let a = pop_double(stack)?;
                     stack.push(Value::Double(-a));
                 }
 
                 // --- integer comparison ---
-                Instr::EqI64 => cmp_int(&mut stack, |a, b| a == b)?,
-                Instr::NeI64 => cmp_int(&mut stack, |a, b| a != b)?,
-                Instr::LtI64 => cmp_int(&mut stack, |a, b| a < b)?,
-                Instr::LeI64 => cmp_int(&mut stack, |a, b| a <= b)?,
-                Instr::GtI64 => cmp_int(&mut stack, |a, b| a > b)?,
-                Instr::GeI64 => cmp_int(&mut stack, |a, b| a >= b)?,
+                Instr::EqI64 => cmp_int(stack, |a, b| a == b)?,
+                Instr::NeI64 => cmp_int(stack, |a, b| a != b)?,
+                Instr::LtI64 => cmp_int(stack, |a, b| a < b)?,
+                Instr::LeI64 => cmp_int(stack, |a, b| a <= b)?,
+                Instr::GtI64 => cmp_int(stack, |a, b| a > b)?,
+                Instr::GeI64 => cmp_int(stack, |a, b| a >= b)?,
 
                 // --- float comparison ---
-                Instr::EqF64 => cmp_double(&mut stack, |a, b| a == b)?,
-                Instr::NeF64 => cmp_double(&mut stack, |a, b| a != b)?,
-                Instr::LtF64 => cmp_double(&mut stack, |a, b| a < b)?,
-                Instr::LeF64 => cmp_double(&mut stack, |a, b| a <= b)?,
-                Instr::GtF64 => cmp_double(&mut stack, |a, b| a > b)?,
-                Instr::GeF64 => cmp_double(&mut stack, |a, b| a >= b)?,
+                Instr::EqF64 => cmp_double(stack, |a, b| a == b)?,
+                Instr::NeF64 => cmp_double(stack, |a, b| a != b)?,
+                Instr::LtF64 => cmp_double(stack, |a, b| a < b)?,
+                Instr::LeF64 => cmp_double(stack, |a, b| a <= b)?,
+                Instr::GtF64 => cmp_double(stack, |a, b| a > b)?,
+                Instr::GeF64 => cmp_double(stack, |a, b| a >= b)?,
 
                 // --- boolean ---
                 Instr::Not => {
-                    let b = pop_bool(&mut stack)?;
+                    let b = pop_bool(stack)?;
                     stack.push(Value::Bool(!b));
                 }
 
                 // --- conversions ---
                 Instr::I64ToF64 => {
-                    let a = pop_int(&mut stack)?;
+                    let a = pop_int(stack)?;
                     stack.push(Value::Double(a as f64));
                 }
                 Instr::F64ToI64 => {
-                    let a = pop_double(&mut stack)?;
+                    let a = pop_double(stack)?;
                     stack.push(Value::Int(a as i64));
                 }
 
                 // --- stack manipulation ---
                 Instr::Pop => {
-                    pop(&mut stack)?;
+                    pop(stack)?;
                 }
                 Instr::Dup => {
                     let v = stack.last().ok_or_else(|| bug("dup: empty stack"))?.clone();
@@ -245,8 +299,7 @@ impl<'a> Vm<'a> {
                         .checked_sub(argc)
                         .ok_or_else(|| bug("call: operand stack underflow"))?;
                     let args = stack.split_off(base);
-                    let ret = self.call(module, *func as usize, args)?;
-                    stack.push(ret);
+                    action = Action::PushFrame(self.make_frame(module, *func as usize, args)?);
                 }
                 Instr::CallNative { native, argc } => {
                     let argc = *argc as usize;
@@ -269,14 +322,14 @@ impl<'a> Vm<'a> {
                         .len()
                         .checked_sub(argc + 1)
                         .ok_or_else(|| bug("call.indirect: operand stack underflow"))?;
-                    let mut frame = stack.split_off(base);
-                    let args = frame.split_off(1);
-                    let callee = frame.pop().expect("closure slot present");
-                    let (func, mut locals) = closure_parts(&callee)?;
+                    let mut slot = stack.split_off(base);
+                    let args = slot.split_off(1);
+                    let callee = slot.pop().expect("closure slot present");
+                    let (func, mut callee_locals) = closure_parts(&callee)?;
                     // The callee frame is captures followed by the arguments.
-                    locals.extend(args);
-                    let ret = self.call(module, func as usize, locals)?;
-                    stack.push(ret);
+                    callee_locals.extend(args);
+                    action =
+                        Action::PushFrame(self.make_frame(module, func as usize, callee_locals)?);
                 }
                 Instr::CallVirtual { selector, argc } => {
                     let argc = *argc as usize;
@@ -294,11 +347,16 @@ impl<'a> Vm<'a> {
                         .ok_or_else(|| bug("call.virtual: missing receiver"))?;
                     let target =
                         dispatch_type_id(recv).and_then(|ty| module.dispatch_target(ty, selector));
-                    let ret = match target {
-                        Some(func) => self.call(module, func as usize, args)?,
-                        None => self.virtual_fallback(module, selector, &args)?,
-                    };
-                    stack.push(ret);
+                    match target {
+                        Some(func) => {
+                            action =
+                                Action::PushFrame(self.make_frame(module, func as usize, args)?);
+                        }
+                        None => {
+                            let ret = self.virtual_fallback(module, selector, &args)?;
+                            stack.push(ret);
+                        }
+                    }
                 }
 
                 // --- enums ---
@@ -316,11 +374,11 @@ impl<'a> Vm<'a> {
                     stack.push(Value::new_enum(*ty, *variant, fields));
                 }
                 Instr::EnumTag => {
-                    let variant = pop_enum_variant(&mut stack)?;
+                    let variant = pop_enum_variant(stack)?;
                     stack.push(Value::Int(variant as i64));
                 }
                 Instr::EnumGet(idx) => {
-                    let v = pop(&mut stack)?;
+                    let v = pop(stack)?;
                     stack.push(enum_field(&v, *idx as usize)?);
                 }
 
@@ -339,12 +397,12 @@ impl<'a> Vm<'a> {
                     stack.push(Value::new_struct(*ty, fields));
                 }
                 Instr::FieldGet(idx) => {
-                    let v = pop(&mut stack)?;
+                    let v = pop(stack)?;
                     stack.push(struct_field(&v, *idx as usize)?);
                 }
                 Instr::FieldSet(idx) => {
-                    let value = pop(&mut stack)?;
-                    let obj = pop(&mut stack)?;
+                    let value = pop(stack)?;
+                    let obj = pop(stack)?;
                     set_struct_field(&obj, *idx as usize, value)?;
                 }
 
@@ -359,8 +417,8 @@ impl<'a> Vm<'a> {
                     stack.push(Value::new_list(items));
                 }
                 Instr::ListGet => {
-                    let idx = pop_int(&mut stack)?;
-                    let list = pop(&mut stack)?;
+                    let idx = pop_int(stack)?;
+                    let list = pop(stack)?;
                     let elem = match &list {
                         Value::Ref(rc) => match &*rc.borrow() {
                             Obj::List(items) => {
@@ -373,9 +431,9 @@ impl<'a> Vm<'a> {
                     stack.push(elem);
                 }
                 Instr::ListSet => {
-                    let value = pop(&mut stack)?;
-                    let idx = pop_int(&mut stack)?;
-                    let list = pop(&mut stack)?;
+                    let value = pop(stack)?;
+                    let idx = pop_int(stack)?;
+                    let list = pop(stack)?;
                     match &list {
                         Value::Ref(rc) => match &mut *rc.borrow_mut() {
                             Obj::List(items) => {
@@ -400,26 +458,32 @@ impl<'a> Vm<'a> {
                 }
 
                 // --- control ---
-                Instr::Jump(target) => {
-                    pc = *target;
-                    continue;
-                }
+                Instr::Jump(target) => *frame_pc = *target,
                 Instr::JumpIfTrue(target) => {
-                    if pop_bool(&mut stack)? {
-                        pc = *target;
-                        continue;
+                    if pop_bool(stack)? {
+                        *frame_pc = *target;
                     }
                 }
                 Instr::JumpIfFalse(target) => {
-                    if !pop_bool(&mut stack)? {
-                        pc = *target;
-                        continue;
+                    if !pop_bool(stack)? {
+                        *frame_pc = *target;
                     }
                 }
-                Instr::Return => return Ok(stack.pop().unwrap_or(Value::Unit)),
+                Instr::Return => action = Action::Return(stack.pop().unwrap_or(Value::Unit)),
             }
 
-            pc += 1;
+            // The running frame's borrow ends here; apply the structural effect.
+            match action {
+                Action::Next => {}
+                Action::PushFrame(frame) => frames.push(frame),
+                Action::Return(value) => {
+                    frames.pop();
+                    match frames.last_mut() {
+                        Some(caller) => caller.stack.push(value),
+                        None => return Ok(value),
+                    }
+                }
+            }
         }
     }
 
@@ -714,7 +778,7 @@ mod tests {
     /// Evaluate a bare snippet with no locals. (Shadows the module-level `run`
     /// for the earlier increments' tests; increment-3 tests use `super::run`.)
     fn run(code: &[Instr]) -> Result<Value, Trap> {
-        eval(code, &mut [])
+        eval(code, &[])
     }
 
     #[test]
@@ -871,14 +935,14 @@ mod tests {
 
     #[test]
     fn locals_store_and_load() {
-        let mut locals = vec![Value::Unit];
+        let locals = vec![Value::Unit];
         let code = [
             Instr::ConstInt(42),
             Instr::Store(0),
             Instr::Load(0),
             Instr::Return,
         ];
-        assert_eq!(eval(&code, &mut locals), Ok(Value::Int(42)));
+        assert_eq!(eval(&code, &locals), Ok(Value::Int(42)));
     }
 
     #[test]
@@ -955,8 +1019,8 @@ mod tests {
             Instr::Load(1),
             Instr::Return,
         ];
-        let mut locals = vec![Value::Unit; 2];
-        assert_eq!(eval(&code, &mut locals), Ok(Value::Int(10)));
+        let locals = vec![Value::Unit; 2];
+        assert_eq!(eval(&code, &locals), Ok(Value::Int(10)));
     }
 
     #[test]
@@ -999,6 +1063,38 @@ mod tests {
         );
         let module = Module::new(vec![main, double]);
         assert_eq!(super::run(&module, 0, &[]), Ok(Value::Int(42)));
+    }
+
+    #[test]
+    fn deep_recursion_does_not_overflow_the_host_stack() {
+        // countdown(n) = if n == 0 { 0 } else { countdown(n - 1) }
+        // Not tail-call optimized, so all N frames are live at peak depth. With
+        // the explicit frame stack that depth is bounded by the heap, not the
+        // Rust call stack — a depth that would blow the host stack runs fine.
+        let countdown = Function::new(
+            "countdown",
+            1,
+            1,
+            vec![
+                Instr::Load(0),                   // 0: n
+                Instr::ConstInt(0),               // 1
+                Instr::EqI64,                     // 2: n == 0
+                Instr::JumpIfFalse(6),            // 3: nonzero → recurse at 6
+                Instr::ConstInt(0),               // 4
+                Instr::Return,                    // 5: base case → 0
+                Instr::Load(0),                   // 6: n
+                Instr::ConstInt(1),               // 7
+                Instr::SubI64,                    // 8: n - 1
+                Instr::Call { func: 0, argc: 1 }, // 9: countdown(n - 1)
+                Instr::Return,                    // 10
+            ],
+        );
+        let module = Module::new(vec![countdown]);
+        // 250k frames deep — well past what the native stack could hold.
+        assert_eq!(
+            super::run(&module, 0, &[Value::Int(250_000)]),
+            Ok(Value::Int(0)),
+        );
     }
 
     #[test]
@@ -1281,9 +1377,9 @@ mod tests {
 
     /// Run a bare snippet, returning its result and any captured output.
     fn run_capturing(code: &[Instr]) -> (Result<Value, Trap>, String) {
-        let module = Module::default();
+        let module = Module::new(vec![Function::new("<eval>", 0, 0, code.to_vec())]);
         let mut buf: Vec<u8> = Vec::new();
-        let result = Vm::new(&mut buf).exec(&module, code, &mut []);
+        let result = Vm::new(&mut buf).call(&module, 0, vec![]);
         (result, String::from_utf8(buf).unwrap())
     }
 

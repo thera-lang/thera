@@ -127,9 +127,15 @@ gaps, by where they live:
   when neither applies — no guessing. The payoff has landed: `List.map`/`filter`/
   `fold` are written in Hawk and take closures (`sdk/std/core/list.hawk`,
   `examples/list_hof.hawk`).
-- **GC.** Currently `Rc<RefCell>`; a precise non-moving mark-sweep is planned as
-  an explicit placeholder, to land _after_ closures/interfaces so it traces the
-  value shapes it will actually see.
+- **GC.** Currently `Rc<RefCell>`; a precise non-moving mark-sweep is planned
+  (after closures/interfaces, so it traces the value shapes it will actually
+  see). Decomposed into free-standing steps: **(1) explicit call-frame stack —
+  _done_** (`Vm::run_loop` over a `Vec<Frame>`; precise roots are now enumerable
+  and deep recursion no longer overflows the host stack); (2) move heap objects
+  off `Rc<RefCell>` into a runtime-owned heap that doesn't yet collect; (3) add
+  mark + sweep + the frame-stack root walk — or adopt a proven precise Rust GC
+  (`gc-arena`, the `piccolo` VM's collector; **not** Boehm). See
+  [architecture.md](architecture.md).
 - Cranelift JIT, untagged value representation, `f64`/large-int constant-pool
   entries — performance/compaction, not correctness-blocking.
 

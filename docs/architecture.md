@@ -89,9 +89,24 @@ hawk source ──[front-end]──► Module (in-memory bytecode)
 The two-tier stack (interpreter and JIT frames interleaved) is what makes root
 finding interesting.
 
-- **Start with our own precise, non-moving mark-sweep, interpreter-only.** We
-  control the value stack and the typed bytecode says exactly what is a pointer,
-  so precise roots are easy.
+- **The interpreter now uses an explicit call-frame stack** (`Vm::run_loop`, a
+  `Vec<Frame>` where each frame owns its operand stack + locals), not Rust
+  recursion. That was the precise-roots prerequisite: every active frame's
+  values are enumerable from one place, and deep Hawk recursion is bounded by the
+  heap rather than the host stack.
+- **Precise, non-moving mark-sweep, interpreter-only.** With frames enumerable
+  and the typed bytecode saying exactly what is a pointer, precise roots are
+  straightforward. Sequenced as: (a) move heap objects off `Rc<RefCell>` into a
+  runtime-owned heap that doesn't yet collect — absorbs the broad
+  construction/borrow churn while staying trivially correct — then (b) add mark +
+  sweep + the frame-stack root walk.
+- **A proven precise Rust GC is a live alternative to hand-rolling** (b): e.g.
+  **`gc-arena`** (the GC behind the `piccolo` Lua VM) — precise mark-sweep, no
+  stack maps, rooting via a branded-arena/`Collect` model that leverages our
+  pointer knowledge. Its programming model is invasive (a `'gc` lifetime), but it
+  pairs with exactly the explicit-heap + explicit-loop structure above, so the
+  two refactors keep both the hand-rolled and `gc-arena` doors open. (Not Boehm —
+  conservative scanning can't use what we know about pointers.)
 - **When the Cranelift tier lands**, JIT frames need roots too: either emit
   Cranelift safepoints/stackmaps (precise, but the API is fiddly and has been in
   flux), or keep interpreter roots precise and **conservatively scan JIT
