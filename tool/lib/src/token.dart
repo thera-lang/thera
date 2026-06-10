@@ -101,6 +101,11 @@ const _keywords = <String, TokenKind>{
 
 TokenKind? keywordKind(String text) => _keywords[text];
 
+/// Every reserved keyword spelling — the lexer's source of truth. Used by the
+/// grammar-doc drift test (`test/grammar_doc_test.dart`) so docs/grammar.md
+/// can't omit a keyword the language actually reserves.
+Set<String> get keywordSpellings => _keywords.keys.toSet();
+
 class SourceSpan {
   final String source;
   final int offset;

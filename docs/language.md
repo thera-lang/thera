@@ -2,9 +2,10 @@
 
 **What this is:** the reference for Hawk's syntax and semantics, the standard
 `hawk` tool, and open language-design questions. An informal working reference,
-not a formal spec. For the _why_ see [guidelines.md](guidelines.md); for how
-programs execute see [bytecode.md](bytecode.md) and
-[architecture.md](architecture.md).
+not a formal spec. The concrete syntax — keyword set, operator precedence, and
+every production in EBNF — is in [grammar.md](grammar.md). For the _why_ see
+[guidelines.md](guidelines.md); for how programs execute see
+[bytecode.md](bytecode.md) and [architecture.md](architecture.md).
 
 ---
 
