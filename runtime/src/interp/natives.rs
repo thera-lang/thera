@@ -104,6 +104,9 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("fs_read_text", native_fs_read_text),
     ("fs_write_text", native_fs_write_text),
     ("time_now_millis", native_time_now_millis),
+    ("random_mix", native_random_mix),
+    ("random_to_unit", native_random_to_unit),
+    ("random_seed_entropy", native_random_seed_entropy),
     ("map_keys", native_map_keys),
     ("map_values", native_map_values),
     ("map_remove", native_map_remove),
@@ -495,6 +498,60 @@ fn native_time_now_millis(_out: &mut dyn Write, args: &[Value]) -> Result<Value,
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0);
     Ok(Value::Int(millis))
+}
+
+// --- random natives ---
+//
+// std.random is a SplitMix64 generator whose entire state is a visible `Int`
+// field in Hawk (no hidden runtime state). The state advances in Hawk by a
+// wrapping add of the golden-ratio constant; these natives do only the parts
+// that need bit operations, which Hawk does not have yet: mixing a state value
+// into a uniform output, mapping bits to a unit Double, and seeding from
+// entropy. Hand-rolled (SplitMix64 is a few lines) to keep the runtime
+// dependency-free; a crate could replace it behind the same three natives.
+
+/// SplitMix64 finalizing mix: scramble a state value into a uniformly
+/// distributed 64-bit output.
+fn splitmix64_mix(mut z: u64) -> u64 {
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
+    z ^ (z >> 31)
+}
+
+/// `random_mix(state)` — the SplitMix64 output for a state value. The bit
+/// pattern is reinterpreted between Hawk's `Int` (i64) and the u64 the mixer
+/// uses.
+fn native_random_mix(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let state = as_int(expect_one(args, "random_mix")?, "random_mix")? as u64;
+    Ok(Value::Int(splitmix64_mix(state) as i64))
+}
+
+/// `random_to_unit(bits)` — map a uniform 64-bit pattern to a Double in [0, 1)
+/// using its top 53 bits (the f64 mantissa width).
+fn native_random_to_unit(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let bits = as_int(expect_one(args, "random_to_unit")?, "random_to_unit")? as u64;
+    let unit = (bits >> 11) as f64 / (1u64 << 53) as f64;
+    Ok(Value::Double(unit))
+}
+
+/// `random_seed_entropy()` — a non-deterministic seed from the system clock,
+/// mixed with a per-call counter so near-simultaneous calls diverge. For
+/// `random.from_entropy`; not cryptographically secure.
+fn native_random_seed_entropy(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    if !args.is_empty() {
+        return Err(bug(format!(
+            "random_seed_entropy expects 0 arguments, got {}",
+            args.len()
+        )));
+    }
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0);
+    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let seed = splitmix64_mix(nanos.wrapping_add(n.wrapping_mul(0x9E3779B97F4A7C15)));
+    Ok(Value::Int(seed as i64))
 }
 
 // --- collection natives ---
@@ -1278,6 +1335,33 @@ mod tests {
         assert_eq!(native_index("eq"), Some(NATIVE_EQ));
         assert_eq!(native_index("nope"), None);
         assert_eq!(default_natives().len(), NATIVES.len());
+    }
+
+    #[test]
+    fn splitmix64_is_deterministic_and_distributed() {
+        // The reference SplitMix64 output for seed 0 advanced by the gamma
+        // constant once: state 0x9E3779B97F4A7C15 mixes to this value. Locks
+        // the algorithm constants so a behaviour change is caught here.
+        let state = 0x9E3779B97F4A7C15u64;
+        assert_eq!(splitmix64_mix(state), 0xE220A8397B1DCDAF);
+        // Distinct states give distinct outputs; the mixer is not the identity.
+        assert_ne!(splitmix64_mix(1), splitmix64_mix(2));
+        assert_ne!(splitmix64_mix(1), 1);
+    }
+
+    #[test]
+    fn random_to_unit_is_in_range() {
+        let sink = &mut std::io::sink();
+        // All-zero bits -> 0.0; all-one bits -> just under 1.0.
+        assert_eq!(
+            native_random_to_unit(sink, &[Value::Int(0)]),
+            Ok(Value::Double(0.0)),
+        );
+        let max = native_random_to_unit(sink, &[Value::Int(-1)]); // 0xFFFF...FFFF
+        match max {
+            Ok(Value::Double(x)) => assert!((0.0..1.0).contains(&x), "{x} not in [0,1)"),
+            other => panic!("expected a Double in [0,1), got {other:?}"),
+        }
     }
 
     #[test]

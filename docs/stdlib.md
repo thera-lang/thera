@@ -402,10 +402,10 @@ returns `Double` (chain `.to_int()` for an `Int`). Numeric parsing is on
 (strict — the whole string must be the number). Deferred: `INFINITY`/`NAN` (no
 literal form, and no load-time init — would need natives).
 
-### `std.random` — randomness _(new)_
+### `std.random` — randomness _(implemented)_
 
 ```
-pub type Rng = { /* seedable, explicit state */ }
+pub type Rng = { state: Int }   // seedable, state is a visible value
 pub fn seeded(_ seed: Int) -> Rng;
 pub fn from_entropy() -> Rng;
 impl Rng {
@@ -417,7 +417,14 @@ impl Rng {
 }
 ```
 
-Notes: an `Rng` value, not a global, per principle 7 (no hidden state).
+Notes: an `Rng` value, not a global, per principle 7 (no hidden state) — the
+whole state is a visible `Int` field, so `seeded(n)` is fully reproducible.
+Algorithm: **SplitMix64**. The state advances in Hawk (a wrapping add of the
+golden-ratio constant); the bit-mixing is a Rust native (`random_mix`) because
+Hawk has no bitwise operators yet (see [roadmap.md](roadmap.md)). The mixer is
+hand-rolled std-only Rust to keep the runtime dependency-free; a crate could
+replace it behind the same natives. Not cryptographically secure. A higher-
+quality / pure-Hawk generator waits on the bitwise-operators arc.
 
 ### `std.json` — JSON _(new; the flagship data format)_
 
@@ -657,7 +664,7 @@ dependency graph, so future work lands in the right order:
 | std.time     | partial | `now_millis()` + `Clock` capability (prototype); `DateTime`/`Duration`/`monotonic` still new |
 | std.fiber    | new     | runtime scheduler                                   |
 | std.math     | done    | Double fns + constants; abs/min/max/clamp + to_double/to_int are Int/Double methods |
-| std.random   | new     | runtime entropy                                     |
+| std.random   | done    | SplitMix64; state is a visible Int; mix via native (bitops gap) |
 | std.json     | new     | structural now; typed decode later                  |
 | std.encoding | new     |                                                     |
 | std.hash     | new     | runtime native                                      |

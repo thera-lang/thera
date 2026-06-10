@@ -15,8 +15,8 @@ bounded generics, with bounds enforced at call sites** (see
 [interfaces.md](interfaces.md)) — all work; real CLI programs compile and run end
 to end (see `examples/`), and `hawk test` runs the `@test` functions in
 `*_test.hawk` files. Not yet done: a **GC** (currently `Rc<RefCell>`); a
-**broader stdlib**; *enforced* visibility; and **generic operators**
-(`<T: Add>`). The north star is a language +
+**broader stdlib**; *enforced* visibility; **generic operators**
+(`<T: Add>`); and **bitwise operators** (`& | ^ << >>`). The north star is a language +
 implementation + stdlib complete enough to **write the Hawk front-end in Hawk**
 (arc 3 below).
 
@@ -220,6 +220,18 @@ other interfaces need an explicit `impl`). Inside a generic body, a method call
 on the erased `T` dispatches via `call.virtual` (see
 [interfaces.md](interfaces.md)). Still open from this area: **generic
 operators** (`<T: Add>`, operators-as-traits).
+
+**Bitwise operators — not yet in the language.** Hawk has no `& | ^ << >>` (nor
+an unsigned integer type), so bit-twiddling code can't be written in Hawk today.
+This blocks implementing hashing/encoding and a modern PRNG in Hawk: `std.random`
+ships a SplitMix64 generator whose **state lives as a visible `Int` in Hawk** but
+whose mixing step is a Rust native (`random_mix`), precisely because the mix
+needs shifts and xor; `std.hash` and `std.encoding` (base64/hex) will hit the
+same wall. Adding the operators is a self-contained arc — lexer tokens, parser
+precedence, checker (Int-only), codegen, and runtime opcodes (the runtime already
+does wrapping i64 arithmetic) — that would let these libraries move from natives
+into Hawk and dogfood the emitter further. An unsigned type (or defined
+wrapping/logical-shift semantics on the signed `Int`) is part of the design.
 
 **Incremental front-end / LSP performance.** The front-end is whole-program and
 stateless per request: each `hawk check`, and each LSP edit, re-reads, re-parses,

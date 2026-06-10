@@ -1,0 +1,120 @@
+// Tests for std.random — the SplitMix64 Rng.
+
+import std.random;
+import std.testing;
+
+@test
+fn test_seeded_is_reproducible() -> Result<Void, Error> {
+    // Identical seeds yield identical sequences.
+    let a = random.seeded(12345);
+    let b = random.seeded(12345);
+    let mut i = 0;
+    while i < 20 {
+        testing.assert_eq(actual: a.int(0, 1000000), expected: b.int(0, 1000000))?;
+        i = i + 1;
+    }
+    return Result.Ok(void);
+}
+
+@test
+fn test_distinct_seeds_diverge() -> Result<Void, Error> {
+    let a = random.seeded(1);
+    let b = random.seeded(2);
+    testing.assert_ne(actual: a.int(0, 1000000), unexpected: b.int(0, 1000000))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_int_is_in_range() -> Result<Void, Error> {
+    let rng = random.seeded(7);
+    let mut i = 0;
+    while i < 300 {
+        let v = rng.int(10, 20);
+        testing.assert(v >= 10, message: 'below low: ${v}')?;
+        testing.assert(v < 20, message: 'at/above high: ${v}')?;
+        i = i + 1;
+    }
+    return Result.Ok(void);
+}
+
+@test
+fn test_empty_range_returns_low() -> Result<Void, Error> {
+    let rng = random.seeded(4);
+    testing.assert_eq(actual: rng.int(5, 5), expected: 5)?;
+    testing.assert_eq(actual: rng.int(9, 2), expected: 9)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_double_in_unit() -> Result<Void, Error> {
+    let rng = random.seeded(8);
+    let mut i = 0;
+    while i < 300 {
+        let d = rng.double();
+        testing.assert(d >= 0.0, message: 'below 0: ${d}')?;
+        testing.assert(d < 1.0, message: 'reached 1: ${d}')?;
+        i = i + 1;
+    }
+    return Result.Ok(void);
+}
+
+@test
+fn test_bool_varies() -> Result<Void, Error> {
+    // Over many draws both outcomes appear (not stuck on one value).
+    let rng = random.seeded(2);
+    let mut trues = 0;
+    let mut i = 0;
+    while i < 100 {
+        if rng.bool() {
+            trues = trues + 1;
+        }
+        i = i + 1;
+    }
+    testing.assert(trues > 20, message: 'too few trues: ${trues}')?;
+    testing.assert(trues < 80, message: 'too many trues: ${trues}')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_choice_nonempty_is_some() -> Result<Void, Error> {
+    let rng = random.seeded(3);
+    let pick = rng.choice([10, 20, 30]);
+    testing.assert(pick.is_some(), message: 'choice should return Some')?;
+    let v = pick.unwrap_or(0);
+    testing.assert(v == 10 || v == 20 || v == 30, message: 'not from the list: ${v}')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_choice_empty_is_none() -> Result<Void, Error> {
+    let rng = random.seeded(1);
+    let empty = [1].filter((x) => false);
+    testing.assert(rng.choice(empty).is_none(), message: 'empty list should give None')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_shuffle_preserves_elements() -> Result<Void, Error> {
+    let rng = random.seeded(99);
+    let original = [1, 2, 3, 4, 5, 6, 7, 8];
+    let shuffled = rng.shuffle(original);
+    testing.assert_eq(actual: shuffled.len(), expected: original.len())?;
+    // A permutation has the same sum; and the input is left untouched.
+    let original_sum = original.fold(0, (a, x) => a + x);
+    let shuffled_sum = shuffled.fold(0, (a, x) => a + x);
+    testing.assert_eq(actual: shuffled_sum, expected: original_sum)?;
+    testing.assert_eq(actual: original_sum, expected: 36)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_shuffle_is_reproducible() -> Result<Void, Error> {
+    let a = random.seeded(5).shuffle([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    let b = random.seeded(5).shuffle([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    let mut i = 0;
+    while i < a.len() {
+        testing.assert_eq(actual: a[i], expected: b[i])?;
+        i = i + 1;
+    }
+    return Result.Ok(void);
+}

@@ -1,0 +1,106 @@
+// std.random — pseudo-random number generation.
+//
+// Import as: import std.random
+//
+// `Rng` is a seedable generator whose entire state is a plain value you hold
+// and pass — there is no hidden global RNG, per the stdlib's no-hidden-state
+// principle (see docs/stdlib.md §7 and docs/testability.md). Seed it explicitly
+// with `seeded` for reproducible runs (tests, simulations), or with
+// `from_entropy` for an unpredictable sequence. Not cryptographically secure.
+//
+// Algorithm: SplitMix64. The state advances here — a wrapping add of the
+// golden-ratio constant — and the runtime supplies the bit-mixing that turns a
+// state into a uniform draw (Hawk has no bitwise operators yet).
+
+// The golden-ratio increment (0x9E3779B97F4A7C15) that advances the state on
+// each draw. Written as its signed 64-bit value; addition wraps.
+const GAMMA: Int = -7046029254386353131;
+
+// SplitMix64 mix of a state value into a uniform 64-bit pattern.
+@extern('random_mix')
+native fn mix(_ state: Int) -> Int
+
+// Map a uniform 64-bit pattern to a Double in [0, 1).
+@extern('random_to_unit')
+native fn to_unit(_ bits: Int) -> Double
+
+// A fresh system-entropy seed, for `from_entropy`.
+@extern('random_seed_entropy')
+native fn seed_entropy() -> Int
+
+// A seedable pseudo-random generator. Hold one and draw from it; each draw
+// advances its state in place.
+pub type Rng = {
+    state: Int,
+}
+
+// A generator seeded deterministically: the same seed always yields the same
+// sequence. Use for reproducible tests and simulations.
+//
+//   let rng = random.seeded(42);
+pub fn seeded(_ seed: Int) -> Rng {
+    return Rng { state: seed };
+}
+
+// A generator seeded from system entropy: each call yields an unpredictable
+// sequence. Use when you want different results every run.
+//
+//   let rng = random.from_entropy();
+pub fn from_entropy() -> Rng {
+    return Rng { state: seed_entropy() };
+}
+
+impl Rng {
+    // Advance the state and return the next raw draw (full Int range).
+    fn next(self) -> Int {
+        self.state = self.state + GAMMA;
+        return mix(self.state);
+    }
+
+    // A uniform Double in [0, 1).
+    pub fn double(self) -> Double {
+        return to_unit(self.next());
+    }
+
+    // A uniform Int in [low, high). Returns `low` when the range is empty.
+    //
+    //   let dice = rng.int(1, 7);   // 1..=6
+    pub fn int(self, low: Int, high: Int) -> Int {
+        if high <= low {
+            return low;
+        }
+        let span = high - low;
+        return low + (self.double() * span.to_double()).to_int();
+    }
+
+    // A uniform Bool.
+    pub fn bool(self) -> Bool {
+        return self.double() < 0.5;
+    }
+
+    // A uniformly chosen element, or None if the list is empty.
+    //
+    //   let pick = rng.choice(['rock', 'paper', 'scissors']);
+    pub fn choice<T>(self, _ items: List<T>) -> Option<T> {
+        let n = items.len();
+        if n == 0 {
+            return Option.None;
+        }
+        return items.get(self.int(0, n));
+    }
+
+    // A new list with the elements of `items` in a uniformly random order
+    // (Fisher-Yates). The input list is not modified.
+    pub fn shuffle<T>(self, _ items: List<T>) -> List<T> {
+        let result = items.map((x) => x);
+        let mut i = result.len() - 1;
+        while i > 0 {
+            let j = self.int(0, i + 1);
+            let tmp = result[i];
+            result[i] = result[j];
+            result[j] = tmp;
+            i = i - 1;
+        }
+        return result;
+    }
+}
