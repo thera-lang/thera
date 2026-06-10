@@ -15,6 +15,7 @@
       "Bash(echo *)",
       "Bash(git diff *)",
       "Bash(git log *)",
+      "Bash(git stash *)",
       "Bash(git status *)",
       "Bash(grep *)",
       "Bash(ls *)",

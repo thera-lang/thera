@@ -10,6 +10,8 @@ List<DocumentSymbol> buildSymbols(Program program, String source) {
       case FnDecl():
         symbols.add(DocumentSymbol(
           name: decl.name,
+          // TODO: Look into using the function's signature as the detail string.
+          detail: decl.isPub ? 'pub' : null,
           kind: SymbolKind.Function,
           range: _declRange(decl, source),
           selectionRange: _spanToRange(decl.nameSpan),
@@ -17,6 +19,7 @@ List<DocumentSymbol> buildSymbols(Program program, String source) {
       case TypeDecl():
         symbols.add(DocumentSymbol(
           name: decl.name,
+          detail: decl.isPub ? 'pub' : null,
           kind: SymbolKind.Class,
           range: _declRange(decl, source),
           selectionRange: _spanToRange(decl.nameSpan),
@@ -33,6 +36,8 @@ List<DocumentSymbol> buildSymbols(Program program, String source) {
           children: decl.methods
               .map((m) => DocumentSymbol(
                     name: m.name,
+                    // TODO: Look into using the function's signature as the detail string.
+                    detail: m.isPub ? 'pub' : null,
                     kind: SymbolKind.Method,
                     range: _declRange(m, source),
                     selectionRange: _spanToRange(m.nameSpan),
@@ -42,12 +47,15 @@ List<DocumentSymbol> buildSymbols(Program program, String source) {
       case InterfaceDecl():
         symbols.add(DocumentSymbol(
           name: decl.name,
+          detail: decl.isPub ? 'pub' : null,
           kind: SymbolKind.Interface,
           range: _declRange(decl, source),
           selectionRange: _spanToRange(decl.nameSpan),
           children: decl.methods
               .map((m) => DocumentSymbol(
                     name: m.name,
+                    // TODO: Look into using the function's signature as the detail string.
+                    detail: m.isPub ? 'pub' : null,
                     kind: SymbolKind.Method,
                     range: _declRange(m, source),
                     selectionRange: _spanToRange(m.nameSpan),
@@ -59,6 +67,7 @@ List<DocumentSymbol> buildSymbols(Program program, String source) {
       case ConstDecl():
         symbols.add(DocumentSymbol(
           name: decl.name,
+          detail: decl.isPub ? 'pub' : null,
           kind: SymbolKind.Constant,
           range: _declRange(decl, source),
           selectionRange: _spanToRange(decl.span),
@@ -66,6 +75,7 @@ List<DocumentSymbol> buildSymbols(Program program, String source) {
       case EnumDecl():
         symbols.add(DocumentSymbol(
           name: decl.name,
+          detail: decl.isPub ? 'pub' : null,
           kind: SymbolKind.Enum,
           range: _declRange(decl, source),
           selectionRange: _spanToRange(decl.nameSpan),
