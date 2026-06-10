@@ -16,7 +16,8 @@ bounded generics, with bounds enforced at call sites** (see
 to end (see `examples/`), and `hawk test` runs the `@test` functions in
 `*_test.hawk` files. Not yet done: a **GC** (currently `Rc<RefCell>`); a
 **broader stdlib**; *enforced* visibility; **generic operators**
-(`<T: Add>`); and **bitwise operators** (`& | ^ << >>`). The north star is a language +
+(`<T: Add>`); **bitwise operators** (`& | ^ << >>`); and **index (`[]`)
+operator overloading**. The north star is a language +
 implementation + stdlib complete enough to **write the Hawk front-end in Hawk**
 (arc 3 below).
 
@@ -232,6 +233,25 @@ precedence, checker (Int-only), codegen, and runtime opcodes (the runtime alread
 does wrapping i64 arithmetic) — that would let these libraries move from natives
 into Hawk and dogfood the emitter further. An unsigned type (or defined
 wrapping/logical-shift semantics on the signed `Int`) is part of the design.
+
+**Index operator (`[]`) overloading — not yet.** `a[i]` (read) and `a[i] = v`
+(write) are hardcoded in codegen to the built-in `List`/`Map` natives by static
+type; any other receiver is a compile error
+(`tool/lib/src/codegen/codegen.dart`, `_indexNative` + the index-assign switch).
+Allowing user types to be indexed is a **small–medium, self-contained** change —
+no parser or runtime work (both forms already parse; a user index op is just a
+method call that reuses the existing static/`call.virtual` dispatch). It desugars
+to a method call: inference resolves `a[i]`'s type from the receiver's index
+method (`_indexResult` in `element/inference.dart`), and codegen's two `throw`
+branches become method-call lowerings. List/Map keep their native fast path.
+
+Design leaning: a **single `Indexable<K, V>` interface** (one `get`-style method
+plus a `set`-style method) rather than separate `Index` / `IndexSet` — accept
+that some implementors (read-only containers) won't meaningfully support the
+write half, in exchange for one interface to teach and check. Unblocks
+user-defined containers (grids, sparse vectors, ordered maps) on its own; it is
+also a prerequisite for a Hawk `Map`, though that additionally needs map-literal
+lowering and a native↔Hawk-map bridge (see the `std` migration notes).
 
 **Incremental front-end / LSP performance.** The front-end is whole-program and
 stateless per request: each `hawk check`, and each LSP edit, re-reads, re-parses,
