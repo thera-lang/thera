@@ -670,7 +670,7 @@ dependency graph, so future work lands in the right order:
 
 | Module       | Status  | Notes                                               |
 | ------------ | ------- | --------------------------------------------------- |
-| prelude/core | exists  | Int/Double + String parsing (`to_int`/`to_double`) added; still want `Set` file, `Ord` |
+| prelude/core | exists  | Int/Double + String parsing; `Set<T>` implemented in Hawk over `Map`; Option methods + `is_empty` are Hawk now; still want `Ord` |
 | std.io       | new     | foundation; gated on `Bytes` + generics arc         |
 | std.fs       | partial | expand; `read_dir`→`list_dir`; `FsError`            |
 | std.path     | done    | pure Hawk; `components`/`with_extension` added; normalize/relative deferred |
