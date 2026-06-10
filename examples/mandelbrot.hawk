@@ -4,6 +4,7 @@
 
 // 2026-07-07; debug interpreter:   4.07s
 // 2026-07-07; release interpreter: 1.51s
+// 2026-07-10; debug interpreter:   4.04s
 
 fn main() -> Result<Int, Error> {
     let mut pass = 0;
@@ -25,17 +26,18 @@ fn main() -> Result<Int, Error> {
                     let temp = (zr * zr - zi * zi) / 1000 + cr;
                     zi = (2 * zr * zi) / 1000 + ci;
                     zr = temp;
-                    iter = iter + 1;
+                    iter += 1;
                 }
 
-                total_iter = total_iter + iter;
-                x = x + 1;
+                total_iter += iter;
+                x += 1;
             }
-            y = y + 1;
+            y += 1;
         }
-        pass = pass + 1;
+        pass += 1;
     }
     
     println('Done! Total iterations computed: ${total_iter}');
+
     return Result.Ok(0);
 }

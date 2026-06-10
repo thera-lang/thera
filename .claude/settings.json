@@ -2,11 +2,14 @@
   "permissions": {
     "allow": [
       "Bash(./bin/hawk.sh *)",
+      "Bash(bash bin/hawk.sh *)",
       "Bash(cargo build *)",
       "Bash(cargo clippy *)",
       "Bash(cargo fmt *)",
       "Bash(cargo run *)",
       "Bash(cargo test *)",
+      "Bash(cat *)",
+      "Bash(cat)",
       "Bash(dart analyze *)",
       "Bash(dart format *)",
       "Bash(dart run *)",
@@ -19,6 +22,7 @@
       "Bash(git status *)",
       "Bash(grep *)",
       "Bash(ls *)",
+      "Bash(rm -f /tmp/*.hawk)",
       "Bash(runtime/target/debug/hawk *)",
       "Bash(sed *)",
       "Bash(tail *)",
