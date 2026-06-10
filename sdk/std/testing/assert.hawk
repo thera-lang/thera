@@ -1,0 +1,66 @@
+// std.testing assertions — for use in *_test.hawk files.
+//
+// Assertions return Result<Void, Error>. A failure throws an `Error` (carrying
+// the failure message) that propagates out of the test function via ?. Test
+// functions must therefore return Result<Void, Error> and call each assertion
+// with ?. `hawk test` catches that `Err(Error)` and renders the message.
+//
+// Eq, Display, and Debug are defined in std.core, which is auto-imported.
+//
+// Open question: how does a test failure plumb through a stack trace so the
+// runner can report the source location of the failing assertion?
+//
+// All assertion functions are plain functions — not built-in statements —
+// so they cannot be silently disabled by a build flag.
+
+// Assert that `condition` is true.
+//
+//   testing.assert(x > 0)?;
+//   testing.assert(x > 0, message: 'must be positive')?;
+pub fn assert(_ condition: Bool, message: String = 'assertion failed') -> Result<Void, Error> {
+    if !condition {
+        throw Error { message: message };
+    }
+    return Result.Ok(void);
+}
+
+// Assert that `actual` equals `expected`.
+//
+//   testing.assert_eq(actual: result, expected: 5)?;
+pub fn assert_eq<T: Eq + Debug>(actual: T, expected: T) -> Result<Void, Error> {
+    if actual != expected {
+        throw Error { message: 'assert_eq failed\n  actual:   ${actual.debug()}\n  expected: ${expected.debug()}' };
+    }
+    return Result.Ok(void);
+}
+
+// Assert that `actual` does not equal `unexpected`.
+//
+//   testing.assert_ne(actual: result, unexpected: 0)?;
+pub fn assert_ne<T: Eq + Debug>(actual: T, unexpected: T) -> Result<Void, Error> {
+    if actual == unexpected {
+        throw Error { message: 'assert_ne failed: both values were ${actual.debug()}' };
+    }
+    return Result.Ok(void);
+}
+
+// Assert that `result` is Ok, and return the inner value.
+// Useful for unwrapping in a test without a manual match.
+//
+//   let value = testing.assert_ok(some_result)?;
+pub fn assert_ok<T, E: Debug>(_ result: Result<T, E>) -> Result<T, Error> {
+    match result {
+        Ok(value) => return Result.Ok(value),
+        Err(e)    => throw Error { message: 'assert_ok failed: got Err(${e.debug()})' },
+    }
+}
+
+// Assert that `result` is Err.
+//
+//   testing.assert_err(parse_port('99999'))?;
+pub fn assert_err<T, E>(_ result: Result<T, E>) -> Result<Void, Error> {
+    match result {
+        Ok(_)  => throw Error { message: 'assert_err failed: got Ok' },
+        Err(_) => return Result.Ok(void),
+    }
+}
