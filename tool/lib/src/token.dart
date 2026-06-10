@@ -57,6 +57,11 @@ enum TokenKind {
   star, //     *
   slash, //    /
   percent, //  %
+  plusEq, //   +=
+  minusEq, //  -=
+  starEq, //   *=
+  slashEq, //  /=
+  percentEq, // %=
   eq, //       =
   eqEq, //     ==
   bangEq, //   !=

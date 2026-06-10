@@ -567,20 +567,57 @@ class Parser {
     if (k == TokenKind.kwFor) return _parseForStmt();
     if (k == TokenKind.kwWhile) return _parseWhileStmt();
 
-    // Expression statement or assignment (target = value).
-    // We parse the left side as an expression, then check for '='.
+    // Expression statement or assignment (target = value, or target op= value).
+    // We parse the left side as an expression, then check for an assignment op.
     final start = _current.span;
     final expr = _parseExpr();
-    if (_match(TokenKind.eq)) {
+    final compoundOp = _compoundAssignOp(_current.kind);
+    if (_check(TokenKind.eq) || compoundOp != null) {
       if (expr is! IdentExpr && expr is! FieldExpr && expr is! IndexExpr) {
         _fail('invalid assignment target');
       }
+      _advance(); // consume '=' or the compound operator
       final rhs = _parseExpr();
       _match(TokenKind.semi);
-      return AssignStmt(start, target: expr, value: rhs);
+      // `target op= rhs` desugars to `target = target op rhs`. The target is a
+      // simple lvalue (identifier/field/index), so reusing it as the operand's
+      // left side is sound.
+      final value = compoundOp == null
+          ? rhs
+          : BinaryExpr(SourceSpan.cover(expr.span, rhs.span),
+              left: expr, op: compoundOp, right: rhs);
+      return AssignStmt(start, target: expr, value: value);
     }
     _match(TokenKind.semi);
     return ExprStmt(start, expr);
+  }
+
+  /// The arithmetic operator a compound-assignment token applies, or null if
+  /// [k] is not a compound-assignment operator.
+  String? _compoundAssignOp(TokenKind k) => switch (k) {
+        TokenKind.plusEq => '+',
+        TokenKind.minusEq => '-',
+        TokenKind.starEq => '*',
+        TokenKind.slashEq => '/',
+        TokenKind.percentEq => '%',
+        _ => null,
+      };
+
+  /// Parse an integer literal lexeme, decimal or `0x`/`0X` hex. Hex is parsed as
+  /// an unsigned 64-bit pattern wrapped to Hawk's signed `Int` (so e.g.
+  /// `0x9E3779B97F4A7C15` is a valid negative constant), matching the runtime's
+  /// two's-complement wrapping arithmetic.
+  int _parseIntLiteral(String text, SourceSpan span) {
+    try {
+      if (text.length > 2 &&
+          text[0] == '0' &&
+          (text[1] == 'x' || text[1] == 'X')) {
+        return BigInt.parse(text.substring(2), radix: 16).toSigned(64).toInt();
+      }
+      return int.parse(text);
+    } on FormatException {
+      _fail('invalid integer literal: "$text"', span);
+    }
   }
 
   /// Parse a local `const NAME [: Type] = expr;` as an immutable [LetStmt].
@@ -966,7 +1003,7 @@ class Parser {
     switch (t.kind) {
       case TokenKind.intLiteral:
         _advance();
-        return IntLiteral(t.span, int.parse(t.span.text));
+        return IntLiteral(t.span, _parseIntLiteral(t.span.text, t.span));
 
       case TokenKind.floatLiteral:
         _advance();

@@ -12,9 +12,9 @@
 // golden-ratio constant — and the runtime supplies the bit-mixing that turns a
 // state into a uniform draw (Hawk has no bitwise operators yet).
 
-// The golden-ratio increment (0x9E3779B97F4A7C15) that advances the state on
-// each draw. Written as its signed 64-bit value; addition wraps.
-const GAMMA: Int = -7046029254386353131;
+// The golden-ratio increment that advances the state on each draw. Exceeds the
+// signed range, so it reads as a negative Int; addition wraps.
+const GAMMA: Int = 0x9E3779B97F4A7C15;
 
 // SplitMix64 mix of a state value into a uniform 64-bit pattern.
 @extern('random_mix')
@@ -53,7 +53,7 @@ pub fn from_entropy() -> Rng {
 impl Rng {
     // Advance the state and return the next raw draw (full Int range).
     fn next(self) -> Int {
-        self.state = self.state + GAMMA;
+        self.state += GAMMA;
         return mix(self.state);
     }
 

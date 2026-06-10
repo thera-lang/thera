@@ -125,13 +125,33 @@ class Lexer {
       case '@':
         _emit(TokenKind.at, startOffset, startLine, startCol);
       case '+':
-        _emit(TokenKind.plus, startOffset, startLine, startCol);
+        if (_match('=')) {
+          _emitSpan(
+              TokenKind.plusEq, _spanFrom(startOffset, startLine, startCol));
+        } else {
+          _emit(TokenKind.plus, startOffset, startLine, startCol);
+        }
       case '*':
-        _emit(TokenKind.star, startOffset, startLine, startCol);
+        if (_match('=')) {
+          _emitSpan(
+              TokenKind.starEq, _spanFrom(startOffset, startLine, startCol));
+        } else {
+          _emit(TokenKind.star, startOffset, startLine, startCol);
+        }
       case '%':
-        _emit(TokenKind.percent, startOffset, startLine, startCol);
+        if (_match('=')) {
+          _emitSpan(
+              TokenKind.percentEq, _spanFrom(startOffset, startLine, startCol));
+        } else {
+          _emit(TokenKind.percent, startOffset, startLine, startCol);
+        }
       case '/':
-        _emit(TokenKind.slash, startOffset, startLine, startCol);
+        if (_match('=')) {
+          _emitSpan(
+              TokenKind.slashEq, _spanFrom(startOffset, startLine, startCol));
+        } else {
+          _emit(TokenKind.slash, startOffset, startLine, startCol);
+        }
       case '.':
         if (_match('.')) {
           _emitSpan(
@@ -143,6 +163,9 @@ class Lexer {
         if (_match('>')) {
           _emitSpan(
               TokenKind.arrow, _spanFrom(startOffset, startLine, startCol));
+        } else if (_match('=')) {
+          _emitSpan(
+              TokenKind.minusEq, _spanFrom(startOffset, startLine, startCol));
         } else {
           _emit(TokenKind.minus, startOffset, startLine, startCol);
         }
@@ -263,6 +286,23 @@ class Lexer {
   }
 
   void _scanNumber(int startOffset, int startLine, int startCol) {
+    // Hex integer literal: `0x` / `0X` followed by hex digits. The first digit
+    // (`0`) is already consumed; check the source for it.
+    if (_source[startOffset] == '0' && (_ch == 'x' || _ch == 'X')) {
+      _advance(); // x / X
+      var sawDigit = false;
+      while (!_atEnd && _isHexDigit(_ch)) {
+        _advance();
+        sawDigit = true;
+      }
+      final span = _spanFrom(startOffset, startLine, startCol);
+      if (!sawDigit) {
+        _error('hex literal needs at least one digit after 0x', startOffset,
+            startLine, startCol);
+      }
+      _tokens.add(Token(TokenKind.intLiteral, span));
+      return;
+    }
     while (!_atEnd && _isDigit(_ch)) _advance();
     var isFloat = false;
     if (!_atEnd && _ch == '.' && _isDigit(_peek)) {
@@ -302,6 +342,13 @@ class Lexer {
   static bool _isDigit(String c) {
     final code = c.codeUnitAt(0);
     return code >= 48 && code <= 57;
+  }
+
+  static bool _isHexDigit(String c) {
+    final code = c.codeUnitAt(0);
+    return (code >= 48 && code <= 57) || // 0-9
+        (code >= 65 && code <= 70) || // A-F
+        (code >= 97 && code <= 102); // a-f
   }
 
   static bool _isAlpha(String c) {

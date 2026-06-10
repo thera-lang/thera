@@ -106,6 +106,59 @@ void main() {
     });
   });
 
+  group('integer literals', () {
+    IntLiteral intLit(String literal) {
+      final prog = parse('fn f() -> Int { return $literal; }');
+      final fn = prog.decls.single as FnDecl;
+      final ret = fn.body!.stmts.single as ReturnStmt;
+      return ret.value as IntLiteral;
+    }
+
+    test('parses a decimal literal', () => expect(intLit('42').value, 42));
+    test('parses a lowercase hex literal',
+        () => expect(intLit('0xff').value, 255));
+    test('parses an uppercase hex literal',
+        () => expect(intLit('0XFF').value, 255));
+    test('hex wraps past the signed range into a negative Int', () {
+      // 0x9E3779B97F4A7C15 is the SplitMix64 gamma; exceeds 2^63.
+      expect(intLit('0x9E3779B97F4A7C15').value, -7046029254386353131);
+      expect(intLit('0xFFFFFFFFFFFFFFFF').value, -1);
+    });
+    test('rejects 0x with no digits', () {
+      expect(parseRaw('fn f() -> Int { return 0x; }').hasErrors, isTrue);
+    });
+  });
+
+  group('compound assignment', () {
+    AssignStmt assign(String stmt) {
+      final prog = parse('fn f() { $stmt }');
+      final fn = prog.decls.single as FnDecl;
+      return fn.body!.stmts.single as AssignStmt;
+    }
+
+    test('plain = keeps the rhs as the value', () {
+      expect(assign('x = 1;').value, isA<IntLiteral>());
+    });
+
+    test('+= desugars to `target + rhs`', () {
+      final v = assign('x += 2;').value as BinaryExpr;
+      expect(v.op, '+');
+      expect((v.left as IdentExpr).name, 'x');
+      expect((v.right as IntLiteral).value, 2);
+    });
+
+    test('every compound operator desugars to its arithmetic op', () {
+      for (final (src, op) in const [
+        ('x -= 1;', '-'),
+        ('x *= 1;', '*'),
+        ('x /= 1;', '/'),
+        ('x %= 1;', '%'),
+      ]) {
+        expect((assign(src).value as BinaryExpr).op, op, reason: src);
+      }
+    });
+  });
+
   group('function types', () {
     TypeRef paramType(String source) {
       final prog = parse(source);

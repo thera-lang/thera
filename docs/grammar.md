@@ -69,7 +69,7 @@ pattern).
 ### Literals
 
 ```
-INT    = DIGIT+
+INT    = DIGIT+ | ('0x' | '0X') HEXDIGIT+
 FLOAT  = DIGIT+ '.' DIGIT+
 BOOL   = 'true' | 'false'
 UNIT   = 'void'                       // the single value of type Void
@@ -79,10 +79,11 @@ escape  = '\' ('n' | 't' | 'r' | '\' | "'" | '"' | '$')
 interpolation = '${' expr '}'
 ```
 
-Notes: integers are decimal digits only — **no** hex/binary/octal, digit
-separators (`_`), exponents, or sign (a leading `-` is the unary operator).
-Floats require digits on both sides of the `.` (`1.0`, not `1.` or `.5`), with
-no exponent. Strings use `'` or `"` (single quotes by convention); the only
+Notes: integers are decimal or **hexadecimal** (`0x` / `0X` prefix); a hex
+literal is read as an unsigned 64-bit pattern wrapped into the signed `Int`, so
+`0x9E3779B97F4A7C15` is a (negative) constant. No binary/octal, digit separators
+(`_`), exponents, or sign (a leading `-` is the unary operator). Floats require
+digits on both sides of the `.` (`1.0`, not `1.` or `.5`), with no exponent. Strings use `'` or `"` (single quotes by convention); the only
 escapes are the seven above (no `\u…`); `${ … }` embeds an arbitrary expression.
 
 ### Operators & punctuation
@@ -90,7 +91,11 @@ escapes are the seven above (no `\u…`); `${ … }` embeds an arbitrary express
 ```
 {  }  (  )  [  ]  ,  ;  :  .  ..  ->  =>  ?  @  _
 +  -  *  /  %  =  ==  !=  <  >  <=  >=  &&  ||  !
++=  -=  *=  /=  %=
 ```
+
+(`DIGIT` is `0`–`9`; `HEXDIGIT` is `0`–`9` / `a`–`f` / `A`–`F`; `ALPHA` is a
+Latin letter.)
 
 That is the complete operator set. See [Not yet in the
 grammar](#not-yet-in-the-grammar) for the families that are absent (bitwise,
@@ -179,8 +184,10 @@ ifStmt    = 'if' exprNB block ( 'else' ( ifStmt | block ) )?
 forStmt   = 'for' pattern 'in' exprNB block
 whileStmt = 'while' exprNB block
 
-assignOrExpr = expr ( '=' expr )? ';'?
-            // an assignment target must be an identifier, field access, or index
+assignOrExpr = expr ( assignOp expr )? ';'?
+assignOp     = '=' | '+=' | '-=' | '*=' | '/=' | '%='
+            // an assignment target must be an identifier, field access, or
+            // index; `t op= e` desugars to `t = t op e`
 ```
 
 `exprNB` is `expr` parsed with **struct literals suppressed**, so that
@@ -287,17 +294,17 @@ checklist; items that are planned link to [roadmap.md](roadmap.md).
   precedence tier). The reason `std.random`'s mixing and the future `std.hash` /
   `std.encoding` need Rust natives. Tracked on the roadmap as a self-contained
   arc (also wants an unsigned integer type or defined logical-shift semantics).
-- **Compound assignment:** `+=` `-=` `*=` `/=` `%=` (and any bitwise forms).
-  Only plain `=` exists; write `x = x + 1`.
-- **Increment / decrement:** `++` `--`.
+- **Increment / decrement:** `++` `--`. (Compound assignment `+= -= *= /= %=`
+  *is* supported — desugared to `t = t op e`.)
 - **Cast operator:** `expr as Type` — `as` is import-only.
 - **Inclusive range** `..=`, and the ternary `cond ? a : b` (`?` is postfix
   error-propagation only).
 
 **Literals**
 
-- Integer bases & separators: `0x…`, `0b…`, `0o…`, `1_000`; integer/float
-  **exponents** (`1e9`); float shorthands `1.` and `.5`.
+- Integer bases & separators: `0b…`, `0o…` (binary/octal), digit separators
+  (`1_000`); integer/float **exponents** (`1e9`); float shorthands `1.` and
+  `.5`. (Hex `0x…` *is* supported.)
 - String: `\u{…}` / `\0` escapes, raw or triple-quoted strings.
 - Tuple literals/types `(a, b)` — `(…)` is grouping or lambda params only.
 
