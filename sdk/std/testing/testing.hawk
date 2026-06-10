@@ -7,6 +7,13 @@
 //
 // Eq, Display, and Debug are defined in std.core, which is auto-imported.
 //
+// This module also hosts test doubles for ambient capabilities that are almost
+// purely a test affordance — currently `fixed_clock`, a deterministic
+// `time.Clock`. (Doubles that are also useful in production, like an in-memory
+// filesystem, live beside their real library instead.)
+
+import std.time;
+//
 // Open question: how does a test failure plumb through a stack trace so the
 // runner can report the source location of the failing assertion?
 //
@@ -63,4 +70,24 @@ pub fn assert_err<T, E>(_ result: Result<T, E>) -> Result<Void, Error> {
         Ok(_)  => throw Error { message: 'assert_err failed: got Ok' },
         Err(_) => return Result.Ok(void),
     }
+}
+
+// A `time.Clock` frozen at a fixed instant, for deterministic tests of code
+// that takes a clock capability. Pass it where the code under test expects a
+// `Clock`; it always reports `millis`.
+//
+//   let clock = testing.fixed_clock(1000);
+//   testing.assert_eq(actual: stamp(clock), expected: 'at=1000')?;
+type FixedClock = {
+    millis: Int,
+}
+
+impl Clock for FixedClock {
+    fn now_millis(self) -> Int {
+        return self.millis;
+    }
+}
+
+pub fn fixed_clock(_ millis: Int) -> Clock {
+    return FixedClock { millis: millis };
 }

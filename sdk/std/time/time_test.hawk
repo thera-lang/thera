@@ -1,0 +1,40 @@
+// Tests for std.time — the ambient clock and the `Clock` capability.
+
+import std.time;
+import std.testing;
+
+// A slice of logic that depends on the current time. Real code passes the
+// ambient `time.system_clock()`; tests pass a deterministic `fixed_clock`.
+fn deadline_passed(_ clock: Clock, _ deadline_millis: Int) -> Bool {
+    return clock.now_millis() >= deadline_millis;
+}
+
+@test
+fn test_now_millis_is_live() -> Result<Void, Error> {
+    // The ambient effect reads a real, positive wall-clock time.
+    testing.assert(time.now_millis() > 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_system_clock_dispatches_to_native() -> Result<Void, Error> {
+    let clock = time.system_clock();
+    testing.assert(clock.now_millis() > 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_fixed_clock_is_deterministic() -> Result<Void, Error> {
+    let clock = testing.fixed_clock(1000);
+    testing.assert_eq(actual: clock.now_millis(), expected: 1000)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_logic_under_a_fixed_clock() -> Result<Void, Error> {
+    // The capability lets us test time-dependent logic with no real waiting.
+    let clock = testing.fixed_clock(500);
+    testing.assert(deadline_passed(clock, 400))?;
+    testing.assert(!deadline_passed(clock, 600))?;
+    return Result.Ok(void);
+}

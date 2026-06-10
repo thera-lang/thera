@@ -1,0 +1,51 @@
+// std.time — wall-clock time and the `Clock` capability.
+//
+// Import as: import std.time
+//
+// Two layers, by design (see docs/testability.md):
+//
+//   - `time.now_millis()` is the ambient default — it always reads the real
+//     system clock and has no override hook. Reach for it in the imperative
+//     shell (main, scripts, the top of a request) where reading the real time
+//     is exactly what you want.
+//
+//   - `time.Clock` is a capability *value* you pass explicitly, for the slice
+//     of logic that needs "what time is it?" threaded through it and that you
+//     want to test deterministically. `time.now_millis()` is the ambient
+//     convenience form of `time.system_clock().now_millis()` — same effect.
+//
+// Most code should take neither: a function that formats a timestamp should
+// take the `Int`/`DateTime`, not a clock. The capability is for the
+// orchestrating middle layer. For a deterministic clock in tests, see
+// `testing.fixed_clock`.
+
+// The single ambient time effect: Unix time in milliseconds, from the system
+// wall clock.
+//
+//   let started = time.now_millis();
+@extern('time_now_millis')
+pub native fn now_millis() -> Int
+
+// A source of the current time. Hold one and pass it to logic you want to test
+// across time; tests substitute a fixed or advanceable clock.
+pub interface Clock {
+    fn now_millis(self) -> Int
+}
+
+// The real system clock — `now_millis()` as a `Clock` value.
+type SystemClock = {}
+
+impl Clock for SystemClock {
+    fn now_millis(self) -> Int {
+        return now_millis();
+    }
+}
+
+// A `Clock` backed by the real system wall clock. Use in the shell to obtain a
+// capability to pass into testable logic.
+//
+//   let clock = time.system_clock();
+//   run(clock);
+pub fn system_clock() -> Clock {
+    return SystemClock {};
+}

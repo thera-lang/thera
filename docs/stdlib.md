@@ -71,11 +71,18 @@ enough to reduce hallucination.
    (building a string, a byte buffer), a `*Builder` type makes the mutable scope
    explicit and local (`StringBuilder`, `BytesBuilder`).
 
-7. **No hidden global state; effects are explicit.** Sources of nondeterminism
-   are values you hold, not ambient globals: `random.Rng` is seedable and
-   passed; the wall clock (`time.now`) and monotonic clock are explicit calls.
-   This keeps the functional core pure and quarantines effects to the shell
-   ([guidelines.md](guidelines.md) §4).
+7. **No hidden global state; effects are explicit, and ambient effects have a
+   capability seam.** Sources of nondeterminism are never swappable globals.
+   Each ambient capability is exposed in two layers: an **ambient free function**
+   that always performs the real effect with no override hook (`time.now_millis`,
+   `fs.read_text` — for the imperative shell) and an **opt-in capability
+   interface** you hold and pass (`time.Clock`, `fs.FileSystem` — for testable
+   logic), where the free function *is* the system implementation. Some
+   capabilities make the value-you-hold form the default instead (`random.Rng`
+   has no ambient form, since reproducibility is the common case). This keeps the
+   functional core pure, quarantines effects to the shell
+   ([guidelines.md](guidelines.md) §4), and makes the test seam explicit rather
+   than a global override. Full design: [testability.md](testability.md).
 
 8. **Text is UTF-8; bytes are `Bytes`.** `String` is validated UTF-8; raw binary
    is the `Bytes` type (§ Core types). Conversions are explicit
@@ -312,9 +319,15 @@ pub type Instant = { /* monotonic, for measuring elapsed */ }
 pub type DateTime = { /* wall clock, UTC-based */ }
 pub type Duration = { /* signed span */ }
 
+pub fn now_millis() -> Int;          // ambient wall clock, Unix millis (implemented)
 pub fn now() -> DateTime;            // wall clock
 pub fn monotonic() -> Instant;       // for elapsed measurement
 pub fn sleep(_ d: Duration) -> Void; // parks the fiber
+
+// The clock as an opt-in capability (see testability.md). `now*()` is the
+// ambient form of `system_clock().now*()`; tests pass `testing.fixed_clock`.
+pub interface Clock { fn now_millis(self) -> Int; }   // implemented (prototype)
+pub fn system_clock() -> Clock;                        // implemented
 
 impl Duration {
     pub fn seconds(_ n: Int) -> Duration;   // also millis/minutes/hours
@@ -641,7 +654,7 @@ dependency graph, so future work lands in the right order:
 | std.path     | done    | pure Hawk; `components`/`with_extension` added; normalize/relative deferred |
 | std.env      | new     |                                                     |
 | std.process  | partial | reconcile pipes → `Reader`/`Writer`; `ProcessError` |
-| std.time     | new     | runtime native                                      |
+| std.time     | partial | `now_millis()` + `Clock` capability (prototype); `DateTime`/`Duration`/`monotonic` still new |
 | std.fiber    | new     | runtime scheduler                                   |
 | std.math     | done    | Double fns + constants; abs/min/max/clamp + to_double/to_int are Int/Double methods |
 | std.random   | new     | runtime entropy                                     |

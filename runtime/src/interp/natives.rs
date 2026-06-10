@@ -103,6 +103,7 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("option_is_none", native_option_is_none),
     ("fs_read_text", native_fs_read_text),
     ("fs_write_text", native_fs_write_text),
+    ("time_now_millis", native_time_now_millis),
     ("map_keys", native_map_keys),
     ("map_values", native_map_values),
     ("map_remove", native_map_remove),
@@ -476,6 +477,24 @@ fn native_fs_write_text(_out: &mut dyn Write, args: &[Value]) -> Result<Value, T
         Ok(()) => Value::ok(Value::Unit),
         Err(e) => Value::err(Value::new_str(format!("{path}: {e}"))),
     })
+}
+
+// --- time natives ---
+
+/// `time.now_millis()` — Unix time in milliseconds (the system wall clock).
+/// The single ambient time effect; the `Clock` capability builds on it.
+fn native_time_now_millis(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    if !args.is_empty() {
+        return Err(bug(format!(
+            "time_now_millis expects 0 arguments, got {}",
+            args.len()
+        )));
+    }
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    Ok(Value::Int(millis))
 }
 
 // --- collection natives ---

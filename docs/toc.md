@@ -17,6 +17,9 @@ is"; read top-down for progressive detail.
   staged plan.
 - [stdlib.md](stdlib.md) — the **standard library** design: principles, the
   prelude/core/ecosystem tiers, and the module-by-module catalog.
+- [testability.md](testability.md) — the **ambient-capability** design: ambient
+  free function + opt-in capability interface (`Clock`/`FileSystem`), where test
+  doubles live, and why there's no global override.
 - [bytecode.md](bytecode.md) — the bytecode **spec**: value model, instruction
   set, the Tier-0 interpreter, and the serialized `.hawkbc` format.
 - [architecture.md](architecture.md) — the runtime **architecture**: the tiered
