@@ -382,9 +382,21 @@ class Parser {
         fields: fields);
   }
 
+  /// Parse a possibly-qualified type/interface name, e.g. `Clock` or
+  /// `time.Clock`, returning the token for the base name. The namespace is
+  /// dropped: lookup is by base name against the flat type table (mirrors the
+  /// value-side `ns.member` syntax; the qualifier is for the author's sake).
+  Token _parseQualifiedTypeName(String role) {
+    var tok = _expect(TokenKind.identifier, role);
+    if (_match(TokenKind.dot)) {
+      tok = _expect(TokenKind.identifier, '$role after "${tok.lexeme}."');
+    }
+    return tok;
+  }
+
   ImplDecl _parseImplDecl({required SourceSpan startSpan}) {
     _advance(); // 'impl'
-    final firstTok = _expect(TokenKind.identifier, 'type or interface name');
+    final firstTok = _parseQualifiedTypeName('type or interface name');
     final firstParams = _parseTypeParams(); // <T> after the first name, if any
     String typeName;
     SourceSpan nameSpan;
@@ -393,7 +405,7 @@ class Parser {
     if (_match(TokenKind.kwFor)) {
       // impl Interface for Type<T> { ... }
       interfaceName = firstTok.lexeme;
-      final typeNameTok = _expect(TokenKind.identifier, 'type name');
+      final typeNameTok = _parseQualifiedTypeName('type name');
       typeName = typeNameTok.lexeme;
       nameSpan = typeNameTok.span;
       typeParams = _parseTypeParams();
@@ -505,7 +517,16 @@ class Parser {
       }
       _fail('expected "->" in function type (the unit type is `Void`)');
     }
-    final nameTok = _expect(TokenKind.identifier, 'type name');
+    final firstTok = _expect(TokenKind.identifier, 'type name');
+    // A qualified type reference: `time.Clock`. The first identifier is the
+    // import namespace; the type name follows the dot. Mirrors the value-side
+    // `ns.member` syntax. Single-level only (namespaces don't nest).
+    String? namespace;
+    var nameTok = firstTok;
+    if (_match(TokenKind.dot)) {
+      namespace = firstTok.lexeme;
+      nameTok = _expect(TokenKind.identifier, 'type name after "$namespace."');
+    }
     final args = <TypeRef>[];
     Token? gtTok;
     if (_check(TokenKind.lt)) {
@@ -517,9 +538,10 @@ class Parser {
       gtTok = _expect(TokenKind.gt, '>');
     }
     final span = gtTok != null
-        ? SourceSpan.cover(nameTok.span, gtTok.span)
-        : nameTok.span;
-    return NamedType(nameTok.lexeme, args: args, span: span);
+        ? SourceSpan.cover(firstTok.span, gtTok.span)
+        : SourceSpan.cover(firstTok.span, nameTok.span);
+    return NamedType(nameTok.lexeme,
+        args: args, namespace: namespace, span: span);
   }
 
   // ---- block and statements ----

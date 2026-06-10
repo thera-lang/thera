@@ -73,12 +73,43 @@ void main() {
     });
   });
 
+  group('qualified type references', () {
+    test('parses a namespaced type in a parameter annotation', () {
+      final prog = parse('fn run(c: time.Clock) { }');
+      final fn = prog.decls.single as FnDecl;
+      final t = fn.params.single.type! as NamedType;
+      expect(t.namespace, 'time');
+      expect(t.name, 'Clock');
+      expect(t.describe(), 'time.Clock');
+    });
+
+    test('parses a namespaced return type with type arguments', () {
+      final prog = parse('fn pool() -> col.List<Int> { }');
+      final fn = prog.decls.single as FnDecl;
+      final t = fn.returnType! as NamedType;
+      expect(t.namespace, 'col');
+      expect(t.name, 'List');
+      expect((t.args.single as NamedType).name, 'Int');
+    });
+
+    test('a bare type has no namespace', () {
+      final prog = parse('fn run(c: Clock) { }');
+      final fn = prog.decls.single as FnDecl;
+      expect((fn.params.single.type! as NamedType).namespace, isNull);
+    });
+
+    test('parses an impl of a namespaced interface', () {
+      final prog = parse('impl time.Clock for FixedClock { }');
+      final impl = prog.decls.single as ImplDecl;
+      expect(impl.interfaceName, 'Clock');
+      expect(impl.typeName, 'FixedClock');
+    });
+  });
+
   group('function types', () {
     TypeRef paramType(String source) {
       final prog = parse(source);
-      print('=== DECLS: ${prog.decls}');
       final fn = prog.decls.single as FnDecl;
-      print('=== PARAMS: ${fn.params}');
       return fn.params.single.type!;
     }
 

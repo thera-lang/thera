@@ -368,7 +368,15 @@ sealed class TypeRef extends AstNode {
 class NamedType extends TypeRef {
   final String name;
   final List<TypeRef> args;
-  NamedType(this.name, {this.args = const [], SourceSpan? span})
+
+  /// The import namespace a qualified type reference was written with, e.g.
+  /// `time` in `time.Clock`, or null for a bare `Clock`. Resolution is by
+  /// [name] against the flat type table (imported types share one namespace),
+  /// so the qualifier is carried for diagnostics and to mirror the value-side
+  /// `ns.member` syntax; it does not change which type is resolved.
+  final String? namespace;
+
+  NamedType(this.name, {this.args = const [], this.namespace, SourceSpan? span})
       : super(span ??
             const SourceSpan(
                 source: '', offset: 0, length: 0, line: 1, column: 1));
@@ -378,8 +386,9 @@ class NamedType extends TypeRef {
 
   @override
   String describe() {
-    if (args.isEmpty) return name;
-    return '$name<${args.map((a) => a.describe()).join(', ')}>';
+    final qualified = namespace == null ? name : '$namespace.$name';
+    if (args.isEmpty) return qualified;
+    return '$qualified<${args.map((a) => a.describe()).join(', ')}>';
   }
 }
 

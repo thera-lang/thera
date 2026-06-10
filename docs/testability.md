@@ -159,14 +159,14 @@ the [interfaces arc](interfaces.md): the `Clock` parameter dispatches through
 boundaries (the `FixedClock` impl in `std.testing` conforms to the `Clock`
 interface declared in `std.time`).
 
-## Known rough edge surfaced by the prototype
+## Qualified type references
 
-Imported **functions** are referenced qualified (`time.now_millis()`), but an
-imported **type/interface** is referenced **unqualified** (`Clock`, not
-`time.Clock`) — qualified type names in annotation position don't parse yet
-(`fn run(c: time.Clock)` is a parse error; `fn run(c: Clock)` works). This is a
-small front-end gap to close so type references match the value-side namespacing;
-until then, capability types resolve by their bare name across imports.
+Type and interface names can be written **qualified**, matching the value-side
+`ns.member` syntax: `fn run(c: time.Clock)`, `impl time.Clock for FixedClock`,
+`fn pool() -> col.List<Int>`. The bare form (`Clock`) still works — imported
+types share one flat namespace, so the qualifier is resolved by its base name
+and carried for the author's sake (it is *not* yet validated against the
+import's actual exports; that waits on a per-namespace type table).
 
 ## Rollout
 
