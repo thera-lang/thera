@@ -358,6 +358,35 @@ impl<'a> Vm<'a> {
                     let items = stack.split_off(base);
                     stack.push(Value::new_list(items));
                 }
+                Instr::ListGet => {
+                    let idx = pop_int(&mut stack)?;
+                    let list = pop(&mut stack)?;
+                    let elem = match &list {
+                        Value::Ref(rc) => match &*rc.borrow() {
+                            Obj::List(items) => {
+                                items[checked_list_index(idx, items.len())?].clone()
+                            }
+                            _ => return Err(bug("list.get: expected a list")),
+                        },
+                        _ => return Err(bug("list.get: expected a list")),
+                    };
+                    stack.push(elem);
+                }
+                Instr::ListSet => {
+                    let value = pop(&mut stack)?;
+                    let idx = pop_int(&mut stack)?;
+                    let list = pop(&mut stack)?;
+                    match &list {
+                        Value::Ref(rc) => match &mut *rc.borrow_mut() {
+                            Obj::List(items) => {
+                                let i = checked_list_index(idx, items.len())?;
+                                items[i] = value;
+                            }
+                            _ => return Err(bug("list.set: expected a list")),
+                        },
+                        _ => return Err(bug("list.set: expected a list")),
+                    }
+                }
 
                 // --- closures ---
                 Instr::ClosureNew { func, captures } => {
@@ -512,6 +541,16 @@ fn pop_int(stack: &mut Vec<Value>) -> Result<i64, Trap> {
     match pop(stack)? {
         Value::Int(n) => Ok(n),
         v => Err(bug(format!("expected Int, found {v:?}"))),
+    }
+}
+
+/// Resolve a (possibly out-of-range) list index, trapping if outside `0..len`.
+/// The bounds check behind the `list.get` / `list.set` opcodes.
+fn checked_list_index(i: i64, len: usize) -> Result<usize, Trap> {
+    if i < 0 || i as u64 >= len as u64 {
+        Err(Trap::IndexOutOfBounds { index: i, len })
+    } else {
+        Ok(i as usize)
     }
 }
 
@@ -1371,7 +1410,7 @@ mod tests {
         let r = run_fn(|b| {
             push_int_list(b, &[10, 20, 30]);
             b.const_int(1);
-            b.call_native(NATIVE_LIST_INDEX, 2);
+            b.list_get();
             b.ret();
         });
         assert_eq!(r, Ok(Value::Int(20)));
@@ -1382,7 +1421,7 @@ mod tests {
         let r = run_fn(|b| {
             push_int_list(b, &[10]);
             b.const_int(5);
-            b.call_native(NATIVE_LIST_INDEX, 2);
+            b.list_get();
             b.ret();
         });
         assert_eq!(r, Err(Trap::IndexOutOfBounds { index: 5, len: 1 }));
@@ -1435,11 +1474,10 @@ mod tests {
             b.load(0);
             b.const_int(0);
             b.const_int(99);
-            b.call_native(NATIVE_LIST_SET, 3);
-            b.pop(); // discard the Unit return
+            b.list_set();
             b.load(0);
             b.const_int(0);
-            b.call_native(NATIVE_LIST_INDEX, 2);
+            b.list_get();
             b.ret();
         });
         assert_eq!(r, Ok(Value::Int(99)));
@@ -1456,11 +1494,10 @@ mod tests {
             b.load(0);
             b.const_int(0);
             b.const_int(42);
-            b.call_native(NATIVE_LIST_SET, 3);
-            b.pop();
+            b.list_set();
             b.load(1); // read via a
             b.const_int(0);
-            b.call_native(NATIVE_LIST_INDEX, 2);
+            b.list_get();
             b.ret();
         });
         assert_eq!(r, Ok(Value::Int(42)));
@@ -1574,7 +1611,7 @@ mod tests {
         let r = run_fn(|b| {
             b.const_int(1); // not a list
             b.const_int(0);
-            b.call_native(NATIVE_LIST_INDEX, 2);
+            b.list_get();
             b.ret();
         });
         assert!(matches!(r, Err(Trap::Bug(_))));

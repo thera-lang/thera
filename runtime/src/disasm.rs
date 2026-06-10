@@ -120,6 +120,8 @@ fn fmt_instr(instr: &Instr, module: &Module) -> String {
         Instr::FieldSet(idx) => with("field.set", idx.to_string()),
 
         Instr::ListNew { count } => with("list.new", count.to_string()),
+        Instr::ListGet => "list.get".to_string(),
+        Instr::ListSet => "list.set".to_string(),
 
         Instr::ClosureNew { func, captures } => {
             let name = module

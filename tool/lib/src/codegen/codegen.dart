@@ -587,19 +587,24 @@ class _FnCompiler {
             _expr(value);
             _emit(FieldSet(_fieldIndex(info, field, stmt.span)));
           case IndexExpr(:final object, :final index):
-            // coll[i] = v  →  set native (collection, index, value).
-            final native = switch (_typeOf(object)) {
-              'List' => 'list_set',
-              'Map' => 'map_set',
-              final t => throw CodegenException(
-                  'indexed assignment on ${t ?? 'unknown type'} '
-                  'is not supported',
-                  stmt.span),
-            };
+            // coll[i] = v  →  store (collection, index, value). `List` uses the
+            // dedicated `list.set` opcode (stack-neutral, like field.set); `Map`
+            // is a keyed insert via native, whose Unit result is discarded.
             _expr(object);
             _expr(index);
             _expr(value);
-            _emit(CallNative(native, 3));
+            switch (_typeOf(object)) {
+              case 'List':
+                _emit(const Simple(Op.listSet));
+              case 'Map':
+                _emit(const CallNative('map_set', 3));
+                _emit(const Simple(Op.pop));
+              default:
+                throw CodegenException(
+                    'indexed assignment on ${_typeOf(object) ?? 'unknown type'} '
+                    'is not supported',
+                    stmt.span);
+            }
           default:
             throw CodegenException(
                 'unsupported assignment target: ${target.runtimeType}',
@@ -735,7 +740,7 @@ class _FnCompiler {
     final elem = varName != null ? _declareLocal(varName) : _freshSlot();
     _emit(Load(list));
     _emit(Load(i));
-    _emit(const CallNative('list_index', 2));
+    _emit(const Simple(Op.listGet));
     _emit(Store(elem));
     _block(body);
     _emit(Load(i));
@@ -780,10 +785,9 @@ class _FnCompiler {
         }
         _emit(CallNative('map_new', entries.length * 2));
       case IndexExpr(:final object, :final index):
-        final native = _indexNative(object, expr.span);
         _expr(object);
         _expr(index);
-        _emit(CallNative(native, 2));
+        _emitIndexGet(object, expr.span);
       case FieldExpr(:final object, :final field):
         // A namespace-qualified constant: `ns.NAME` → inline its initializer.
         if (object is IdentExpr &&
@@ -1544,15 +1548,22 @@ class _FnCompiler {
     return idx;
   }
 
-  /// The faulting-index native for `coll[i]` (read), chosen from the
-  /// collection's static type.
-  String _indexNative(Expr object, SourceSpan span) =>
-      switch (_typeOf(object)) {
-        'List' => 'list_index',
-        'Map' => 'map_index',
-        final t => throw CodegenException(
-            'indexing on ${t ?? 'unknown type'} is not supported', span),
-      };
+  /// Emit the faulting `coll[i]` read for a collection already on the stack
+  /// (collection then index), chosen from the collection's static type. `List`
+  /// uses the dedicated `list.get` opcode (a primitive the JIT can lower
+  /// inline); `Map` is a keyed lookup, so it stays a native call.
+  void _emitIndexGet(Expr object, SourceSpan span) {
+    switch (_typeOf(object)) {
+      case 'List':
+        _emit(const Simple(Op.listGet));
+      case 'Map':
+        _emit(const CallNative('map_index', 2));
+      default:
+        throw CodegenException(
+            'indexing on ${_typeOf(object) ?? 'unknown type'} is not supported',
+            span);
+    }
+  }
 
   void _callExpr(CallExpr expr) {
     final callee = expr.callee;

@@ -320,10 +320,15 @@ These are the GC _allocation safepoints_.
 | `enum.tag`    | —                         | `ref → i64`            | variant index, for `match`/`?` |
 | `enum.get`    | `idx: u16`                | `ref → v`              | extract a payload field        |
 | `list.new`    | `count: u32`              | `vN..v0 → ref`         | list literal `[a, b, c]`       |
+| `list.get`    | —                         | `ref idx → v`          | `list[i]` read; traps if OOB   |
+| `list.set`    | —                         | `ref idx v →`          | `list[i] = v`; traps if OOB    |
 | `closure.new` | `func: u32, captures: u8` | `capN..cap0 → ref`     | binds captured slots           |
 
-`Map`/`Set` literals and most collection operations are runtime calls
-(`call.native`), not core opcodes — keeps the ISA small.
+`list.get`/`list.set` are the faulting list-element load/store — primitives
+(like `field.get`/`field.set`) so the JIT can lower them inline and elide bounds
+checks in counted loops. `Map`/`Set` literals, `Map` indexing (a keyed lookup),
+and most other collection operations are runtime calls (`call.native`), not core
+opcodes — keeps the ISA small.
 
 **Fixed variant tags.** `Result` and `Option` are ordinary enums (defined in
 `std.core`), but with a pinned variant ordering that all bytecode producers must

@@ -147,6 +147,8 @@ mod op {
     pub const CLOSURE_NEW: u8 = 49;
     pub const CALL_INDIRECT: u8 = 50;
     pub const CALL_VIRTUAL: u8 = 51;
+    pub const LIST_GET: u8 = 52;
+    pub const LIST_SET: u8 = 53;
 }
 
 /// Encode a module to the wire format.
@@ -447,6 +449,8 @@ fn encode_instr(w: &mut Writer, instr: &Instr, pool: &StringPool) {
             w.write_u8(op::LIST_NEW);
             w.write_uvarint(*count as u64);
         }
+        Instr::ListGet => w.write_u8(op::LIST_GET),
+        Instr::ListSet => w.write_u8(op::LIST_SET),
         Instr::ClosureNew { func, captures } => {
             w.write_u8(op::CLOSURE_NEW);
             w.write_uvarint(*func as u64);
@@ -551,6 +555,8 @@ fn decode_instr(r: &mut Reader, pool: &[String]) -> Result<Instr, DecodeError> {
         op::LIST_NEW => Instr::ListNew {
             count: r.read_uvarint()? as u32,
         },
+        op::LIST_GET => Instr::ListGet,
+        op::LIST_SET => Instr::ListSet,
         op::CLOSURE_NEW => Instr::ClosureNew {
             func: r.read_uvarint()? as u32,
             captures: r.read_uvarint()? as u8,

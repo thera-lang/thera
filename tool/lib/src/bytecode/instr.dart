@@ -59,7 +59,9 @@ enum Op {
   fieldSet(48),
   closureNew(49),
   callIndirect(50),
-  callVirtual(51);
+  callVirtual(51),
+  listGet(52),
+  listSet(53);
 
   final int byte;
   const Op(this.byte);

@@ -269,6 +269,12 @@ impl FnBuilder {
     pub fn list_new(&mut self, count: u32) -> &mut Self {
         self.emit(Instr::ListNew { count })
     }
+    pub fn list_get(&mut self) -> &mut Self {
+        self.emit(Instr::ListGet)
+    }
+    pub fn list_set(&mut self) -> &mut Self {
+        self.emit(Instr::ListSet)
+    }
 
     // --- control ---
     pub fn jump(&mut self, target: Label) -> &mut Self {

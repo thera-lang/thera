@@ -144,10 +144,19 @@ pub enum Instr {
 
     // --- collections ---
     /// Pop `count` values (pushed left-to-right) and push a new list. Map/Set
-    /// literals and other collection ops are native calls (docs/bytecode.md).
+    /// literals and keyed lookups are native calls (docs/bytecode.md).
     ListNew {
         count: u32,
     },
+    /// Pop an index (`Int`) and a list (`list index →`); push the element at
+    /// `index`, trapping if out of range. The faulting `list[i]` read — a
+    /// primitive (cf. `FieldGet`) so the JIT can lower it inline. Map indexing
+    /// stays a native (a keyed lookup, not an O(1) slot load).
+    ListGet,
+    /// Pop a value, an index (`Int`), and a list (`list index value →`); store
+    /// the value at `index`, trapping if out of range. Pushes nothing (like
+    /// `FieldSet`). The `list[i] = v` write.
+    ListSet,
 
     // --- closures ---
     /// Pop `captures` values (pushed left-to-right) and push a closure value

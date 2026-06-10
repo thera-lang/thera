@@ -523,25 +523,23 @@ fn main() -> Int { let v = V { n: 1 }; return v.bump(5); }
               .having((i) => i.argc, 'argc', 4)));
     });
 
-    test('indexing and indexed assignment use the right natives', () {
+    test('list indexing and indexed assignment use the list.get/set opcodes', () {
+      // `list[i]` (read) and `list[i] = v` (write) are primitive opcodes, not
+      // native calls (cf. field.get/set) — so the JIT can lower them inline.
       final read = compile('fn f() -> Int { let xs = [1]; return xs[0]; }')
           .functions
           .single
           .code;
-      expect(
-          read,
-          contains(
-              isA<CallNative>().having((i) => i.name, 'name', 'list_index')));
+      expect(read,
+          contains(isA<Simple>().having((i) => i.op, 'op', Op.listGet)));
 
       final write =
           compile('fn f() -> Int { let mut xs = [1]; xs[0] = 9; return 0; }')
               .functions
               .single
               .code;
-      expect(
-          write,
-          contains(
-              isA<CallNative>().having((i) => i.name, 'name', 'list_set')));
+      expect(write,
+          contains(isA<Simple>().having((i) => i.op, 'op', Op.listSet)));
     });
 
     test('map.remove / list.join lower to their natives', () {
