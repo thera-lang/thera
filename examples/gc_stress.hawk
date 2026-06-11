@@ -1,0 +1,47 @@
+// A deliberate allocation workload — a forcing function for the garbage
+// collector. It repeatedly shuffles a sentence's words into a fresh permutation
+// string and throws it away, keeping only the most recent one live, until it
+// has churned roughly BUDGET_MB megabytes of strings and lists.
+//
+// Almost everything allocated here is immediately garbage: each iteration
+// produces a new shuffled `List<String>` and a new joined `String`, and the
+// next iteration drops them. The live set stays tiny (one phrase). Run it and
+// watch the process's resident memory:
+//
+//   bin/hawk.sh run examples/gc_stress.hawk
+//
+// Under today's no-collect heap, memory climbs steadily (the heap only ever
+// grows). Once a mark-sweep collector lands, the same workload should churn with
+// a flat, tiny live set — this example is how we'll see that.
+//
+// As a baseline: with BUDGET_MB = 16 this currently peaks at ~500 MB resident —
+// the ~16 MB of logical churn amplified ~30x, since every shuffled list, joined
+// string, and intermediate is retained forever. That whole gap is collectible.
+
+import std.random;
+
+// Estimated bytes of garbage to produce before stopping. Bump it to stress
+// harder (the user suggested 4–16 MB).
+const BUDGET_MB: Int = 16;
+
+fn main() -> Int {
+    let words = 'the quick brown fox jumps over the lazy dog and the sleepy cat'.split_whitespace();
+    let rng = random.seeded(1);
+    let budget = BUDGET_MB * 1024 * 1024;
+
+    let mut allocated = 0; // rough bytes of strings + lists produced so far
+    let mut count = 0; // permutations generated (nearly all garbage)
+    let mut last = ''; // the only value we keep live across iterations
+
+    while allocated < budget {
+        let phrase = rng.shuffle(words).join(' ');
+        // Charge the joined string plus the shuffled list of word handles.
+        allocated += phrase.byte_len() + words.len() * 16 + 32;
+        count += 1;
+        last = phrase;
+    }
+
+    println('churned ${count} permutations (~${allocated / 1024 / 1024} MB allocated)');
+    println('live set: 1 phrase — ${last}');
+    return 0;
+}
