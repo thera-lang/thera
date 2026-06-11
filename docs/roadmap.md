@@ -212,8 +212,9 @@ synthesizes a driver (`__hawk_test_main`) that runs each test and prints an
 compiles the test file + driver, and runs it on the runtime via
 `run --entry __hawk_test_main` (a unique entry so it never collides with a
 tested module's own `main`). The exit code is the failure count; an overall
-summary follows. `std.testing` now throws `Error { message }` (not a bare
-string) so a caught `Err(e)` renders soundly via `Display`.
+summary follows. `std.testing` throws a `Message` (the concrete `Error`); the
+driver renders a caught `Err(e)` via `e.message()` (an interface-typed `Error`
+isn't itself `Display` until interface inheritance lands).
 
 Remaining polish (not blockers): per-test **source locations** on failure (the
 runner reports the test name, not the failing assertion's line — needs spans

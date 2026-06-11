@@ -1,0 +1,58 @@
+// Tests for the std.core Error interface and the Message error.
+
+import std.testing;
+
+// A function that returns the interface-typed Error from a concrete Message —
+// the pattern domain code uses at boundaries.
+fn as_error(_ s: String) -> Error {
+    return Message { text: s };
+}
+
+// Read an Error through the interface (dynamic dispatch to the concrete type).
+fn describe(_ e: Error) -> String {
+    return e.message();
+}
+
+@test
+fn test_message_reports_its_text() -> Result<Void, Error> {
+    let e = Message { text: 'boom' };
+    testing.assert_eq(actual: e.message(), expected: 'boom')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_concrete_message_is_display() -> Result<Void, Error> {
+    // A concrete Message interpolates via its Display impl.
+    let e = Message { text: 'kaboom' };
+    testing.assert_eq(actual: 'e = ${e}', expected: 'e = kaboom')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_message_satisfies_error_interface() -> Result<Void, Error> {
+    // A concrete value flows where the Error interface is expected, and
+    // message() dispatches back to the concrete impl.
+    testing.assert_eq(actual: describe(as_error('nope')), expected: 'nope')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_error_propagates_through_question_mark() -> Result<Void, Error> {
+    // `?` on a Result<_, Error> carries the concrete error through unchanged.
+    let r = bubble();
+    let got = match r {
+        Ok(_) => 'ok',
+        Err(e) => e.message(),
+    };
+    testing.assert_eq(actual: got, expected: 'deep')?;
+    return Result.Ok(void);
+}
+
+fn deep() -> Result<Int, Error> {
+    return Result.Err(Message { text: 'deep' });
+}
+
+fn bubble() -> Result<Int, Error> {
+    let n = deep()?;
+    return Result.Ok(n + 1);
+}

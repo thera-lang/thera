@@ -82,13 +82,32 @@ pub type Command = {
     subcommands: List<Command>,
 }
 
-// What `parse` can reject. (Will gain `implements Error` once the Error
-// interface migration lands; today it is a plain enum callers `match` on.)
+// What `parse` can reject. Implements the common `Error` interface, so a
+// `CliError` can be returned as `Result<_, Error>` at a boundary while callers
+// who want the cause still `match` on it.
 pub enum CliError {
     UnknownFlag(String),        // an undeclared --flag / -x
     MissingValue(String),       // an option given with no value
     UnexpectedValue(String),    // a value attached to a flag (--verbose=x)
     UnknownSubcommand(String),  // a bare token where a subcommand was expected
+}
+
+impl Error for CliError {
+    pub fn message(self) -> String {
+        return match self {
+            UnknownFlag(name) => 'unknown flag: ${name}',
+            MissingValue(name) => 'missing value for option: ${name}',
+            UnexpectedValue(name) => 'unexpected value for flag: ${name}',
+            UnknownSubcommand(name) => 'unknown subcommand: ${name}',
+        };
+    }
+}
+
+// A concrete `CliError` renders as its message under interpolation / println.
+impl Display for CliError {
+    pub fn display(self) -> String {
+        return self.message();
+    }
 }
 
 // The result of a successful parse: resolved flag values, option values,

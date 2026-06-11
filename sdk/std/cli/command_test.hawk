@@ -107,12 +107,33 @@ fn test_subcommands() -> Result<Void, Error> {
     testing.assert_eq(actual: m.subcommand(), expected: Option.Some('commit'))?;
 
     // The subcommand's own matches carry its parsed flags.
-    let sub = testing.assert_ok(m.matches().ok_or(Error { message: 'no submatches' }))?;
+    let sub = testing.assert_ok(m.matches().ok_or(Message { text: 'no submatches' }))?;
     testing.assert_eq(actual: sub.flag('amend'), expected: true)?;
 
     // An unknown subcommand is rejected.
     testing.assert_err(cmd.parse(['rebase']))?;
     return Result.Ok(void);
+}
+
+@test
+fn test_clierror_implements_error() -> Result<Void, Error> {
+    // message() formats each variant...
+    testing.assert_eq(
+        actual: CliError.UnknownFlag('bogus').message(),
+        expected: 'unknown flag: bogus',
+    )?;
+    // ...and a CliError flows where the Error interface is expected.
+    let m = match boundary() {
+        Ok(_) => 'ok',
+        Err(e) => e.message(),
+    };
+    testing.assert_eq(actual: m, expected: 'missing value for option: out')?;
+    return Result.Ok(void);
+}
+
+// Returns the common Error interface, constructed from a concrete CliError.
+fn boundary() -> Result<Int, Error> {
+    return Result.Err(CliError.MissingValue('out'));
 }
 
 @test

@@ -27,7 +27,7 @@ fn test_ok_or_some_becomes_ok() -> Result<Void, Error> {
     let some = Option.Some(10);
     match some.ok_or('missing') {
         Ok(v) => testing.assert_eq(actual: v, expected: 10)?,
-        Err(_) => throw Error { message: 'Some should convert to Ok' },
+        Err(_) => throw Message { text: 'Some should convert to Ok' },
     }
     return Result.Ok(void);
 }
@@ -36,7 +36,7 @@ fn test_ok_or_some_becomes_ok() -> Result<Void, Error> {
 fn test_ok_or_none_becomes_err() -> Result<Void, Error> {
     let none: Option<Int> = Option.None;
     match none.ok_or('missing') {
-        Ok(_) => throw Error { message: 'None should convert to Err' },
+        Ok(_) => throw Message { text: 'None should convert to Err' },
         Err(e) => testing.assert_eq(actual: e, expected: 'missing')?,
     }
     return Result.Ok(void);

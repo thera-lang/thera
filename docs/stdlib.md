@@ -158,13 +158,12 @@ pub interface Closer {
 Chunk-returning `read` (rather than read-into-a-mutable-buffer) keeps the
 protocol immutability-friendly. A blocking read is fine: it parks the fiber.
 
-### `Error` — the common error interface _(migration from a struct)_
+### `Error` — the common error interface _(implemented)_
 
 ```
 pub interface Error {
     fn message(self) -> String;     // human-readable summary
 }
-// Every Error is Display via its message (the interpolation/println form).
 ```
 
 A general-purpose error for the simple case, and the conventional `throw`
@@ -172,16 +171,24 @@ target:
 
 ```
 pub type Message = { text: String }       // implements Error + Display
-// throw 'oops'  desugars to  throw Message { text: 'oops' }
+// (a `throw 'oops'` shorthand that builds a Message is still planned)
 ```
 
-> **Migration.** Today `std.core/error.hawk` defines `Error` as a _struct_
-> `{ message: String }`, and `throw '...'` / the implicit `Ok`-wrap build it.
-> This design makes `Error` an _interface_ and renames the concrete struct
-> (`Message`). It is a real change touching `throw`, `?`, and `std.testing`, and
-> — because returning an interface-typed `E` needs dynamic dispatch — it is
-> gated on the **generics arc** (§ Sequencing). Until then, modules return their
-> **concrete** domain enum (e.g. `Result<String, FsError>`).
+`Error` is now an interface (`std.core/error.hawk`); domain modules define their
+own error enums and `impl Error` for them, so a value `match`-able on its cause
+still passes where `Result<_, Error>` is expected (`std.cli`'s `CliError` is the
+first example, and `?` propagates it into an `Error`-returning caller). The
+concrete `Message` is the simple-case error and the `throw`/`Ok`-wrap target.
+
+> **Two limits until interface inheritance lands.** A value typed as the `Error`
+> _interface_ is not itself `Display` or `Debug` (an interface can't yet extend
+> another), so render it via `e.message()` rather than `'${e}'`, and prefer
+> concrete error types with `assert_ok` (whose `E: Debug` bound an interface
+> can't satisfy). Concrete errors (`Message`, `CliError`) `impl Display`, so they
+> interpolate directly. A second limit is cosmetic: an uncaught domain-enum error
+> that bubbles all the way to `main` renders structurally (the runtime's
+> top-level fallback has no `Display` dispatch yet) — handle errors in-program
+> and print `e.message()` for clean output.
 
 ### `Duration` / `Instant` / `DateTime` — see `std.time`.
 
@@ -637,9 +644,10 @@ dependency graph, so future work lands in the right order:
    - `io.copy(dst: Writer, src: Reader)` and any function taking a `Reader`/
      `Writer` parameter — these are interface-typed.
    - The common `Error` **interface** as a return type (`Result<T, Error>` where
-     `Error` is the interface). Until then, modules return their **concrete**
-     domain enum (`FsError`, `HttpError`, …), which works with today's
-     concrete-only dispatch.
+     `Error` is the interface) — **done**: `Error` is now an interface, concrete
+     errors `impl Error`, and `?` propagates a concrete error into an
+     `Error`-returning caller (see § `Error`). Interface-typed errors aren't yet
+     `Display`/`Debug` (needs interface inheritance).
    - Generic bound enforcement (`<T: Display>`, `<T: Eq + Debug>`) used by
      `std.testing` and generic combinators.
 
@@ -653,9 +661,12 @@ dependency graph, so future work lands in the right order:
    an interface with `next() -> Option<T>`) — also gated on interface-typed
    values (#1) for the generic forms.
 
-4. **`Error` interface migration.** Convert `std.core/error.hawk`'s `Error`
-   struct to the `Error` interface + a `Message` struct, and rewire `throw` /
-   `?` / implicit-`Ok` and `std.testing`. Gated on #1 (interface-typed `E`).
+4. **`Error` interface migration — done.** `std.core/error.hawk`'s `Error` is
+   now an interface with a `Message` struct; `throw`/`?`/implicit-`Ok` needed no
+   change (they pass the value through, and interface-typed `E` subsumption was
+   already handled), and `std.testing` constructs `Message`. Remaining: `Error`
+   extending `Display`/`Debug` (interface inheritance) so interface-typed errors
+   interpolate and work with `assert_ok` directly.
 
 5. **Reflection / `derive` (later).** Typed `json.decode<T>` / `encode<T>`
    (struct ↔ JSON) and `Debug` auto-derivation want compile-time reflection or a
@@ -684,7 +695,7 @@ dependency graph, so future work lands in the right order:
 
 | Module       | Status  | Notes                                                                                                                            |
 | ------------ | ------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| prelude/core | exists  | Int/Double + String parsing; `Set<T>` implemented in Hawk over `Map`; Option methods + `is_empty` are Hawk now; still want `Ord` |
+| prelude/core | exists  | Int/Double + String parsing; `Set<T>` in Hawk over `Map`; Option methods are Hawk; `Error` is now an interface + `Message`; still want `Ord` |
 | std.io       | new     | foundation; gated on `Bytes` + generics arc                                                                                      |
 | std.fs       | partial | expand; `read_dir`→`list_dir`; `FsError`                                                                                         |
 | std.path     | done    | pure Hawk; `components`/`with_extension` added; normalize/relative deferred                                                      |

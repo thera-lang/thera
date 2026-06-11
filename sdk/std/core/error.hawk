@@ -1,20 +1,37 @@
-// std.core — the standard error type.
+// std.core — the standard error interface and a general-purpose error.
 
-// `Result<T, Error>` is the conventional fallible signature throughout Hawk,
-// and an Error carries a human-readable message.
-//
-// Constructed today with struct-literal syntax:
-//
-//   return Err(Error { message: 'file not found' });
-//
-// A shorthand call form — Error('file not found') — is planned; see
-// docs/language.md.
-pub type Error = {
-    message: String,
+// `Error` is an interface: any value that can describe itself with a
+// human-readable `message()` is an error. `Result<T, Error>` is the
+// conventional fallible signature throughout Hawk, and the common currency at
+// boundaries — domain modules define their own error enums (`CliError`, …) and
+// `impl Error` for them, so callers can `match` on the cause yet still pass the
+// value where an `Error` is expected.
+pub interface Error {
+    fn message(self) -> String;
 }
 
-impl Display for Error {
+// The general-purpose error for the simple case: a plain message. Construct it
+// directly:
+//
+//   return Result.Err(Message { text: 'file not found' });
+//
+// (A `throw '...'` shorthand that builds a `Message` is planned; see
+// docs/language.md.)
+pub type Message = {
+    text: String,
+}
+
+impl Error for Message {
+    pub fn message(self) -> String {
+        return self.text;
+    }
+}
+
+// A concrete error renders as its text under interpolation / `println`. (A value
+// typed as the `Error` interface is not itself `Display` yet — print it via
+// `e.message()` — until interface inheritance lets `Error` extend `Display`.)
+impl Display for Message {
     pub fn display(self) -> String {
-        return self.message;
+        return self.text;
     }
 }

@@ -449,7 +449,9 @@ class TestCommand extends Command<void> {
     b.writeln('}');
     b.writeln('fn __hawk_fail(_ name: String, _ e: Error) -> Int {');
     b.writeln("    println('  FAIL  \${name}');");
-    b.writeln("    println('          \${e}');");
+    // `e` is typed as the `Error` interface, which is not itself `Display`;
+    // render it through its `message()`.
+    b.writeln("    println('          \${e.message()}');");
     b.writeln('    return 1;');
     b.writeln('}');
     b.writeln('fn __hawk_test_main() -> Int {');

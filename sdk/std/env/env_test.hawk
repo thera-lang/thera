@@ -42,7 +42,12 @@ fn test_vars_reflects_set() -> Result<Void, Error> {
 
 @test
 fn test_current_dir_is_ok() -> Result<Void, Error> {
-    let dir = testing.assert_ok(env.current_dir())?;
+    // `current_dir` returns `Result<_, Error>`; the `Error` interface isn't
+    // `Debug`, so unwrap with a match rather than `assert_ok` (which needs it).
+    let dir = match env.current_dir() {
+        Ok(d) => d,
+        Err(_) => '',
+    };
     testing.assert(dir.len() > 0, message: 'current_dir should be non-empty')?;
     return Result.Ok(void);
 }

@@ -266,9 +266,11 @@ traditional colored-function approach. The goal is to avoid this.
 
 ## Error handling
 
-There are no exceptions. Errors are returned as `Result<T, E>`. The error type
-is `Error`, constructed from a message with `Error('...')` and read back via
-`.message`.
+There are no exceptions. Errors are returned as `Result<T, E>`. `Error` is an
+interface (`fn message(self) -> String`); the simple-case concrete error is
+`Message { text }`, and domain modules `impl Error` for their own enums. The
+`Error('...')` / `throw '...'` shorthands shown below are still planned sugar
+for `Message { text: '...' }`; today construct it explicitly.
 
 ```hawk
 fn read_port(args: Args) -> Result<Int, Error> {

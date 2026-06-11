@@ -1,9 +1,9 @@
 // std.testing assertions — for use in *_test.hawk files.
 //
-// Assertions return Result<Void, Error>. A failure throws an `Error` (carrying
-// the failure message) that propagates out of the test function via ?. Test
+// Assertions return Result<Void, Error>. A failure throws a `Message` (the
+// general-purpose `Error`) that propagates out of the test function via ?. Test
 // functions must therefore return Result<Void, Error> and call each assertion
-// with ?. `hawk test` catches that `Err(Error)` and renders the message.
+// with ?. `hawk test` catches that `Err` and renders the message.
 //
 // Eq, Display, and Debug are defined in std.core, which is auto-imported.
 //
@@ -19,7 +19,7 @@
 //   testing.assert(x > 0, message: 'must be positive')?;
 pub fn assert(_ condition: Bool, message: String = 'assertion failed') -> Result<Void, Error> {
     if !condition {
-        throw Error { message: message };
+        throw Message { text: message };
     }
     return Result.Ok(void);
 }
@@ -29,7 +29,7 @@ pub fn assert(_ condition: Bool, message: String = 'assertion failed') -> Result
 //   testing.assert_eq(actual: result, expected: 5)?;
 pub fn assert_eq<T: Eq + Debug>(actual: T, expected: T) -> Result<Void, Error> {
     if actual != expected {
-        throw Error { message: 'assert_eq failed\n  actual:   ${actual.debug()}\n  expected: ${expected.debug()}' };
+        throw Message { text: 'assert_eq failed\n  actual:   ${actual.debug()}\n  expected: ${expected.debug()}' };
     }
     return Result.Ok(void);
 }
@@ -39,7 +39,7 @@ pub fn assert_eq<T: Eq + Debug>(actual: T, expected: T) -> Result<Void, Error> {
 //   testing.assert_ne(actual: result, unexpected: 0)?;
 pub fn assert_ne<T: Eq + Debug>(actual: T, unexpected: T) -> Result<Void, Error> {
     if actual == unexpected {
-        throw Error { message: 'assert_ne failed: both values were ${actual.debug()}' };
+        throw Message { text: 'assert_ne failed: both values were ${actual.debug()}' };
     }
     return Result.Ok(void);
 }
@@ -51,7 +51,7 @@ pub fn assert_ne<T: Eq + Debug>(actual: T, unexpected: T) -> Result<Void, Error>
 pub fn assert_ok<T, E: Debug>(_ result: Result<T, E>) -> Result<T, Error> {
     match result {
         Ok(value) => return Result.Ok(value),
-        Err(e)    => throw Error { message: 'assert_ok failed: got Err(${e.debug()})' },
+        Err(e)    => throw Message { text: 'assert_ok failed: got Err(${e.debug()})' },
     }
 }
 
@@ -60,7 +60,7 @@ pub fn assert_ok<T, E: Debug>(_ result: Result<T, E>) -> Result<T, Error> {
 //   testing.assert_err(parse_port('99999'))?;
 pub fn assert_err<T, E>(_ result: Result<T, E>) -> Result<Void, Error> {
     match result {
-        Ok(_)  => throw Error { message: 'assert_err failed: got Ok' },
+        Ok(_)  => throw Message { text: 'assert_err failed: got Ok' },
         Err(_) => return Result.Ok(void),
     }
 }
