@@ -129,7 +129,7 @@ finding interesting.
   allocating path. A collection retargets the threshold to **2× the surviving
   bytes — or 4× when it reclaimed less than a quarter of the heap** (a
   memory-hungry program is re-marked less often rather than thrashed for little
-  gain), floored at 1 MiB. `live_bytes` is summed *during the mark walk*, so
+  gain), floored at 1 MiB. `live_bytes` is summed _during the mark walk_, so
   `heap_bytes` is read once per live object as part of a traversal already
   underway — never a separate pass, never for garbage — and the mark bitmap is
   reused across collections.
@@ -164,12 +164,10 @@ byte-budgeted trigger, the cheap allocation-driven safepoint, and the adaptive
 anti-thrash threshold above are in; likely further improvements, roughly in
 priority order:
 
-- **Poll at fewer sites.** The safepoint check is now two `Cell` reads at the
-  `run_loop` top, evaluated every instruction. Cheaper still: only check at
-  **back-edges and calls** (the points where the heap can have grown enough to
-  matter), so straight-line non-allocating runs touch it zero times. The cost is
-  a larger possible overshoot between checks — bounded, since one instruction
-  allocates a bounded amount.
+- **Poll at fewer sites.** _Implemented._ The interpreter polls for GC only at
+  allocation sites, calls, and backward jumps, rather than before every
+  instruction. This avoids polling overhead on straight-line non-allocating
+  code.
 - **A heap ceiling / soft limit.** The threshold only grows; a cap (and a
   soft-limit the runtime backs toward under memory pressure) would bound peak
   footprint rather than just collection frequency. Pairs with surfacing slab
