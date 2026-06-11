@@ -89,11 +89,20 @@ hawk source ──[front-end]──► Module (in-memory bytecode)
 The two-tier stack (interpreter and JIT frames interleaved) is what makes root
 finding interesting.
 
-- **The interpreter now uses an explicit call-frame stack** (`Vm::run_loop`, a
-  `Vec<Frame>` where each frame owns its operand stack + locals), not Rust
-  recursion. That was the precise-roots prerequisite: every active frame's
-  values are enumerable from one place, and deep Hawk recursion is bounded by the
-  heap rather than the host stack.
+- **The interpreter uses an explicit call-frame stack** (`Vm::run_loop` over
+  `self.frames`, a `Vec<Frame>` where each frame owns its operand stack +
+  locals), not Rust recursion. That is the precise-roots prerequisite: every
+  active frame's values are enumerable from one place, and deep Hawk recursion is
+  bounded by the heap rather than the host stack. The stack lives on the `Vm` and
+  is **shared across re-entrant interpreter calls** (e.g. structural `debug`
+  invoking a user impl runs a nested `run_loop` that pushes onto the same
+  stack) — so the collector sees *all* frames, with no roots hiding in nested
+  Rust calls.
+- **Collect at a safepoint between bytecode instructions** (the `run_loop` top),
+  not inside `heap::alloc`. Then mid-instruction temporaries held only in Rust
+  locals (the elements popped for `list.new` before the allocation; a native's
+  scratch values) are never exposed to a collection, so the unrooted-temporary
+  hazard does not arise — and natives run atomically with respect to the GC.
 - **Precise, non-moving mark-sweep, interpreter-only.** With frames enumerable
   and the typed bytecode saying exactly what is a pointer, precise roots are
   straightforward. Sequenced as: **(a) move heap objects off `Rc<RefCell>` into a

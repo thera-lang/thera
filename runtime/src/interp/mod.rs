@@ -54,12 +54,15 @@ pub use natives::{
 pub struct Vm<'a> {
     out: &'a mut dyn Write,
     natives: Vec<NativeFn>,
+    /// The explicit call-frame stack, shared across (re-entrant) interpreter
+    /// calls so a precise GC can enumerate *every* active frame's values as
+    /// roots from one place. A nested `run_loop` (e.g. structural `debug`
+    /// invoking a user impl) pushes onto and pops back from this same stack.
+    frames: Vec<Frame>,
 }
 
-/// One activation record on the interpreter's explicit call-frame stack: the
-/// running function, its program counter, its locals, and its operand stack.
-/// Holding frames in an explicit `Vec` (rather than the Rust call stack) is what
-/// lets a precise GC enumerate every active frame's values as roots.
+/// One activation record on the call-frame stack: the running function, its
+/// program counter, its locals, and its operand stack.
 struct Frame {
     func: usize,
     pc: usize,
@@ -78,6 +81,10 @@ enum Action {
     PushFrame(Frame),
     /// A return: pop the current frame, delivering `value` to its caller.
     Return(Value),
+    /// A `call.virtual` with no dispatch row: run the built-in fallback (which
+    /// may re-enter the interpreter) once the running frame's borrow is
+    /// released, then push its result onto the caller's stack.
+    CallFallback { selector: String, args: Vec<Value> },
 }
 
 /// Run `module`'s function at index `func` with `args`, writing output to
@@ -103,6 +110,7 @@ impl<'a> Vm<'a> {
         Self {
             out,
             natives: default_natives(),
+            frames: Vec::new(),
         }
     }
 
@@ -113,12 +121,9 @@ impl<'a> Vm<'a> {
 
     /// Build the call frame for `module.functions[func]`, placing `locals`
     /// (the arguments) in the leading slots and padding the rest with `Unit`.
-    fn make_frame(
-        &self,
-        module: &Module,
-        func: usize,
-        mut locals: Vec<Value>,
-    ) -> Result<Frame, Trap> {
+    /// Takes no `self` — so an arm can build a frame while `self.frames` is
+    /// borrowed.
+    fn make_frame(module: &Module, func: usize, mut locals: Vec<Value>) -> Result<Frame, Trap> {
         let f = module
             .functions
             .get(func)
@@ -142,35 +147,39 @@ impl<'a> Vm<'a> {
 
     /// Build a frame for `func` and run it to completion.
     fn call(&mut self, module: &Module, func: usize, args: Vec<Value>) -> Result<Value, Trap> {
-        let frame = self.make_frame(module, func, args)?;
+        let frame = Self::make_frame(module, func, args)?;
         self.run_loop(module, frame)
     }
 
-    /// The interpreter loop over an **explicit call-frame stack**. Each [`Frame`]
-    /// owns its operand stack and locals, so every active frame's values stay
-    /// reachable from `frames` (the precise-GC root set) and calls no longer
-    /// recurse through the Rust stack — `Instr::Call`/`Return` push and pop
-    /// frames here.
+    /// The interpreter loop over the **explicit call-frame stack** (`self.frames`,
+    /// shared across re-entrant calls). Each [`Frame`] owns its operand stack and
+    /// locals, so every active frame's values stay reachable as precise-GC roots,
+    /// and calls no longer recurse through the Rust stack — `Instr::Call`/`Return`
+    /// push and pop frames here. Runs until the `initial` frame returns (the
+    /// stack drops back to the depth it was pushed at), so a nested invocation
+    /// resumes its caller's loop.
     fn run_loop(&mut self, module: &Module, initial: Frame) -> Result<Value, Trap> {
-        let mut frames: Vec<Frame> = vec![initial];
+        let base_depth = self.frames.len();
+        self.frames.push(initial);
 
         loop {
-            let top = frames.len() - 1;
-            let func = frames[top].func;
-            let pc = frames[top].pc;
+            let top = self.frames.len() - 1;
+            let func = self.frames[top].func;
+            let pc = self.frames[top].pc;
             let code = &module.functions[func].code;
             let instr = code
                 .get(pc)
                 .ok_or_else(|| bug("pc ran off the end of the instruction stream"))?;
             // Borrow the running frame's parts for dispatch. `module` (holding
-            // `instr`) and `frames` are distinct objects, so these borrows
-            // coexist; structural changes are deferred to `action`.
+            // `instr`) and the distinct fields of `self` (`frames`, `out`,
+            // `natives`) borrow independently; structural changes to `frames`
+            // are deferred to `action`.
             let Frame {
                 stack,
                 locals,
                 pc: frame_pc,
                 ..
-            } = &mut frames[top];
+            } = &mut self.frames[top];
             *frame_pc = pc + 1; // advance; jumps overwrite below
 
             let mut action = Action::Next;
@@ -299,7 +308,7 @@ impl<'a> Vm<'a> {
                         .checked_sub(argc)
                         .ok_or_else(|| bug("call: operand stack underflow"))?;
                     let args = stack.split_off(base);
-                    action = Action::PushFrame(self.make_frame(module, *func as usize, args)?);
+                    action = Action::PushFrame(Self::make_frame(module, *func as usize, args)?);
                 }
                 Instr::CallNative { native, argc } => {
                     let argc = *argc as usize;
@@ -329,7 +338,7 @@ impl<'a> Vm<'a> {
                     // The callee frame is captures followed by the arguments.
                     callee_locals.extend(args);
                     action =
-                        Action::PushFrame(self.make_frame(module, func as usize, callee_locals)?);
+                        Action::PushFrame(Self::make_frame(module, func as usize, callee_locals)?);
                 }
                 Instr::CallVirtual { selector, argc } => {
                     let argc = *argc as usize;
@@ -347,16 +356,17 @@ impl<'a> Vm<'a> {
                         .ok_or_else(|| bug("call.virtual: missing receiver"))?;
                     let target =
                         dispatch_type_id(recv).and_then(|ty| module.dispatch_target(ty, selector));
-                    match target {
+                    action = match target {
                         Some(func) => {
-                            action =
-                                Action::PushFrame(self.make_frame(module, func as usize, args)?);
+                            Action::PushFrame(Self::make_frame(module, func as usize, args)?)
                         }
-                        None => {
-                            let ret = self.virtual_fallback(module, selector, &args)?;
-                            stack.push(ret);
-                        }
-                    }
+                        // The fallback may re-enter the interpreter (a nested
+                        // `debug`), so it runs after the frame borrow is released.
+                        None => Action::CallFallback {
+                            selector: selector.clone(),
+                            args,
+                        },
+                    };
                 }
 
                 // --- enums ---
@@ -471,16 +481,30 @@ impl<'a> Vm<'a> {
                 Instr::Return => action = Action::Return(stack.pop().unwrap_or(Value::Unit)),
             }
 
-            // The running frame's borrow ends here; apply the structural effect.
+            // The running frame's borrow ends here; apply the structural effect
+            // (and run any fallback, which may re-enter the loop).
             match action {
                 Action::Next => {}
-                Action::PushFrame(frame) => frames.push(frame),
+                Action::PushFrame(frame) => self.frames.push(frame),
                 Action::Return(value) => {
-                    frames.pop();
-                    match frames.last_mut() {
-                        Some(caller) => caller.stack.push(value),
-                        None => return Ok(value),
+                    self.frames.pop();
+                    if self.frames.len() == base_depth {
+                        // The frame this `run_loop` was entered for has returned.
+                        return Ok(value);
                     }
+                    self.frames
+                        .last_mut()
+                        .expect("caller frame present")
+                        .stack
+                        .push(value);
+                }
+                Action::CallFallback { selector, args } => {
+                    let ret = self.virtual_fallback(module, &selector, &args)?;
+                    self.frames
+                        .last_mut()
+                        .expect("caller frame present")
+                        .stack
+                        .push(ret);
                 }
             }
         }
