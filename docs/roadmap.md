@@ -14,9 +14,8 @@ concrete types and dynamic (`call.virtual`) for interface-typed values and
 bounded generics, with bounds enforced at call sites** (see
 [interfaces.md](interfaces.md)) — all work; real CLI programs compile and run end
 to end (see `examples/`), and `hawk test` runs the `@test` functions in
-`*_test.hawk` files. Not yet done: a **GC** (heap objects now live in a
-never-freed arena — collection is the remaining piece); a
-**broader stdlib**; *enforced* visibility; **generic operators**
+`*_test.hawk` files, all on a runtime with a **precise mark-sweep GC**. Not yet
+done: a **broader stdlib**; *enforced* visibility; **generic operators**
 (`<T: Add>`); **bitwise operators** (`& | ^ << >>`); and **index (`[]`)
 operator overloading**. The north star is a language +
 implementation + stdlib complete enough to **write the Hawk front-end in Hawk**
@@ -128,15 +127,17 @@ gaps, by where they live:
   when neither applies — no guessing. The payoff has landed: `List.map`/`filter`/
   `fold` are written in Hawk and take closures (`sdk/std/core/list.hawk`,
   `examples/list_hof.hawk`).
-- **GC.** A precise non-moving mark-sweep, decomposed into free-standing steps:
-  **(1) explicit call-frame stack — _done_** (`Vm::run_loop` over a `Vec<Frame>`;
-  precise roots are now enumerable, deep recursion no longer overflows the host
-  stack); **(2) move heap objects off `Rc<RefCell>` into a runtime-owned heap —
-  _done_** (`runtime/src/heap.rs`: `Value::Ref` is now a handle into a
-  thread-local, never-freed arena; `Value` is `Copy`; `Obj::child_values` is the
-  trace primitive; leaks, but trivially correct); (3) add collection — mark +
-  sweep + the frame-stack root walk — or adopt a proven precise Rust GC
-  (`gc-arena`, the `piccolo` VM's collector; **not** Boehm). See
+- **GC — _done_.** A precise non-moving mark-sweep, built in free-standing steps:
+  **(1) explicit call-frame stack** (`Vm::run_loop` over a `Vec<Frame>`; precise
+  roots enumerable, deep recursion no longer overflows the host stack); **(2) move
+  heap objects off `Rc<RefCell>` into a runtime-owned `u32`-handle heap**
+  (`Value` is `Copy`; `Obj::child_values` is the trace primitive); **(3) collect**
+  — mark + sweep over a free-listed slab, traced from the frame-stack roots at a
+  safepoint between instructions (`runtime/src/heap.rs`). `gc-arena` (the
+  `piccolo` VM's collector) was spiked and set aside — its viral `'gc` lifetime
+  would have meant rewriting the interpreter and discarding the handle heap; the
+  hand-rolled collector fit the existing structure. `examples/gc_stress.hawk`
+  validates it (~16 MB of churn holds flat at ~2.4 MB resident). See
   [architecture.md](architecture.md).
 - Cranelift JIT, untagged value representation, `f64`/large-int constant-pool
   entries — performance/compaction, not correctness-blocking.
@@ -295,7 +296,7 @@ the qualified form is onerous.
 2. **Stdlib + interface dispatch + closures** — turns "compiles" into "runs" for
    real CLI programs. _Closures and concrete-type interface (`Eq`/`Display`)
    dispatch are done; the stdlib keeps growing._
-3. **Placeholder GC** — simple non-moving mark-sweep, planned for replacement.
+3. **GC** — _done_: a precise non-moving mark-sweep over a free-listed slab.
 4. **Generics arc** — _done_: dynamic dispatch (type-id `call.virtual`),
    interface-typed values, type-param bound enforcement, and the structural
    `eq`/`debug` fallbacks. Generic operators (`<T: Add>`) remain.
@@ -308,8 +309,8 @@ the qualified form is onerous.
 1. ~~Dart POC tree-walker — settle semantics.~~ (done)
 2. ~~Define the bytecode — the stable IR / distribution format.~~ (format and
    interpreter exist, see [bytecode.md](bytecode.md))
-3. **Interpreter + precise non-moving mark-sweep GC.** Interpreter exists; GC is
-   the placeholder above. This alone runs real Hawk apps with fast startup.
+3. **Interpreter + precise non-moving mark-sweep GC** — _done_. This alone runs
+   real Hawk apps with fast startup.
 4. **Add the Cranelift JIT tier** for hot functions (or trial copy-and-patch);
    decide the JIT root strategy here (see GC in
    [architecture.md](architecture.md)).

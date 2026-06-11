@@ -103,26 +103,36 @@ finding interesting.
   locals (the elements popped for `list.new` before the allocation; a native's
   scratch values) are never exposed to a collection, so the unrooted-temporary
   hazard does not arise — and natives run atomically with respect to the GC.
-- **Precise, non-moving mark-sweep, interpreter-only.** With frames enumerable
-  and the typed bytecode saying exactly what is a pointer, precise roots are
-  straightforward. Sequenced as: **(a) move heap objects off `Rc<RefCell>` into a
-  runtime-owned heap that doesn't yet collect — _done_** (`heap.rs`: an interim,
-  never-freed arena; `Value::Ref` is a handle, `Value` is `Copy`, and
-  `Obj::child_values` is the trace primitive) — then (b) add mark + sweep + the
-  frame-stack root walk. The arena currently lives behind a **thread-local** so
-  the value constructors and `==` need no explicit heap parameter; access is
-  closure-scoped and comparisons/recursion **clone the object out** first (cheap
-  with `Copy` handles) to avoid re-entering the heap while it is borrowed. A
-  hand-rolled collector would thread the heap explicitly at step (b); `gc-arena`
-  would replace it — either way the off-`Rc` handle representation is the durable
-  part.
-- **A proven precise Rust GC is a live alternative to hand-rolling** (b): e.g.
-  **`gc-arena`** (the GC behind the `piccolo` Lua VM) — precise mark-sweep, no
-  stack maps, rooting via a branded-arena/`Collect` model that leverages our
-  pointer knowledge. Its programming model is invasive (a `'gc` lifetime), but it
-  pairs with exactly the explicit-heap + explicit-loop structure above, so the
-  two refactors keep both the hand-rolled and `gc-arena` doors open. (Not Boehm —
-  conservative scanning can't use what we know about pointers.)
+- **Precise, non-moving mark-sweep, interpreter-only — _done_** (`heap.rs`). With
+  frames enumerable and the typed bytecode saying exactly what is a pointer,
+  precise roots are straightforward. Sequenced as: **(a) move heap objects off
+  `Rc<RefCell>` into a runtime-owned heap** (`Value::Ref` is a `u32` handle,
+  `Value` is `Copy`, and `Obj::child_values` is the trace primitive), then **(b)
+  add mark + sweep + the frame-stack root walk** — both now landed. The heap is a
+  slab of slots; a swept slot becomes a hole on a free list that the next `alloc`
+  reuses, so **handles are stable across a collection** (nothing moves).
+  `maybe_collect` traces from the frame-stack roots, frees the unmarked slots,
+  and grows the next-collection threshold to twice the survivors. The arena lives
+  behind a **thread-local** so the value constructors and `==` need no explicit
+  heap parameter; access is closure-scoped and comparisons/recursion **clone the
+  object out** first (cheap with `Copy` handles) to avoid re-entering the heap
+  while it is borrowed. The one re-entrant path — the structural `debug`/`display`
+  fallback, which calls back into the interpreter while its values sit in Rust
+  locals — pauses collection for its duration (atomic w.r.t. the GC, like a
+  native). Validated by `examples/gc_stress.hawk`: ~16 MB of churn that leaked to
+  ~500 MB under the no-collect heap now holds flat at ~2.4 MB resident.
+- **`gc-arena` was evaluated and set aside** for now. It (the GC behind the
+  `piccolo` Lua VM) is a proven precise mark-sweep with no stack maps, but its
+  generative `'gc` lifetime is viral: it would thread through `Value`, `Obj`, the
+  `Vm`, every frame, and all ~114 native signatures, require write barriers on
+  the mutable object shapes, move the entire VM state *into* the arena root
+  (collection only happens *between* `mutate` calls), and restructure `run_loop`
+  into a fuel-stepped driver — and it discards the `u32`-handle heap above. A
+  spike confirmed it collects correctly but at that cost; the hand-rolled
+  mark-sweep slots into the existing heap with near-zero ripple, so it won. If a
+  moving/generational GC is ever wanted, `gc-arena` (or a bespoke collector)
+  remains reachable from this same explicit-heap + explicit-loop structure. (Not
+  Boehm — conservative scanning can't use what we know about pointers.)
 - **When the Cranelift tier lands**, JIT frames need roots too: either emit
   Cranelift safepoints/stackmaps (precise, but the API is fiddly and has been in
   flux), or keep interpreter roots precise and **conservatively scan JIT

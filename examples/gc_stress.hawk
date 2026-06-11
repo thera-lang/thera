@@ -10,13 +10,17 @@
 //
 //   bin/hawk.sh run examples/gc_stress.hawk
 //
-// Under today's no-collect heap, memory climbs steadily (the heap only ever
-// grows). Once a mark-sweep collector lands, the same workload should churn with
-// a flat, tiny live set — this example is how we'll see that.
+// The runtime now has a precise mark-sweep collector, so this churn runs with a
+// flat, tiny live set: the heap fills to its collection threshold, sweeps the
+// garbage, and repeats. Measure the *runtime's* resident memory in isolation
+// (hawk.sh also runs the Dart front-end, which dwarfs it):
 //
-// As a baseline: with BUDGET_MB = 16 this currently peaks at ~500 MB resident —
-// the ~16 MB of logical churn amplified ~30x, since every shuffled list, joined
-// string, and intermediate is retained forever. That whole gap is collectible.
+//   dart run tool/bin/hawk.dart emit examples/gc_stress.hawk /tmp/gc.hawkbc
+//   /usr/bin/time -l runtime/target/release/hawk run /tmp/gc.hawkbc
+//
+// With BUDGET_MB = 16 this peaks at ~2.4 MB resident — versus the ~500 MB the
+// earlier no-collect heap leaked (~16 MB of logical churn amplified ~30x, all
+// retained). That whole gap is what the collector now reclaims.
 
 import std.random;
 

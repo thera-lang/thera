@@ -87,6 +87,24 @@ enum Action {
     CallFallback { selector: String, args: Vec<Value> },
 }
 
+/// An RAII guard that suspends garbage collection for its lifetime (see
+/// [`heap::pause_gc`]). Pausing nests; the guard resumes on drop, so it is safe
+/// across `?` and early returns.
+struct GcPause;
+
+impl GcPause {
+    fn new() -> Self {
+        heap::pause_gc();
+        GcPause
+    }
+}
+
+impl Drop for GcPause {
+    fn drop(&mut self) {
+        heap::resume_gc();
+    }
+}
+
 /// Run `module`'s function at index `func` with `args`, writing output to
 /// stdout. Convenience over [`Vm`].
 pub fn run(module: &Module, func: usize, args: &[Value]) -> Result<Value, Trap> {
@@ -163,6 +181,15 @@ impl<'a> Vm<'a> {
         self.frames.push(initial);
 
         loop {
+            // GC safepoint. Between instructions the live set is exactly the
+            // values reachable from the frame stack — every frame's locals and
+            // operand stack — so they are the collector's complete root set.
+            heap::maybe_collect(
+                self.frames
+                    .iter()
+                    .flat_map(|f| f.locals.iter().chain(f.stack.iter()).copied()),
+            );
+
             let top = self.frames.len() - 1;
             let func = self.frames[top].func;
             let pc = self.frames[top].pc;
@@ -521,6 +548,12 @@ impl<'a> Vm<'a> {
         selector: &str,
         args: &[Value],
     ) -> Result<Value, Trap> {
+        // The structural `debug` path re-enters the interpreter (a nested
+        // `run_loop`) while the values it is traversing — `args`, and the
+        // objects cloned out during rendering — sit in Rust locals, not in a
+        // rooted frame. Pause collection so a nested safepoint can't sweep them;
+        // the fallback is bounded Rust work, atomic with respect to the GC.
+        let _gc = GcPause::new();
         let recv = args.first().expect("call.virtual receiver present");
         match selector {
             "display" => Ok(Value::new_str(natives::display_string(recv)?)),
