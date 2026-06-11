@@ -294,11 +294,11 @@ positional. A `Void` return pushes nothing.
 > reserved/unused.
 >
 > **Draft realization — `call.virtual`.** The Tier-0 interpreter implements
-> dynamic dispatch as `call.virtual <selector> <argc>`: the receiver is the first
-> of the `argc` args, and its concrete type id selects the impl from a module
-> **dispatch table** (`(type_id, selector) → func`, a backward-compatible
-> `.hawkbc` section). It is **name-keyed** (selector = method-name string) rather
-> than `iface`/`slot`-indexed — simpler for the draft; the slot-based
+> dynamic dispatch as `call.virtual <selector> <argc>`: the receiver is the
+> first of the `argc` args, and its concrete type id selects the impl from a
+> module **dispatch table** (`(type_id, selector) → func`, a backward-compatible
+> `.hawkbc` section). It is **name-keyed** (selector = method-name string)
+> rather than `iface`/`slot`-indexed — simpler for the draft; the slot-based
 > `call.interface` is the durable form. Struct ids index the type table and enum
 > ids are namespaced with a high bit (`ENUM_DISPATCH_BASE`) since the two spaces
 > overlap numerically. A **miss** (no row, or a receiver with no dispatch id —
@@ -375,11 +375,11 @@ leading parameters are those captures, followed by the lambda's own parameters.
 Capture reads are ordinary `load`s of the leading slots. At the lambda site the
 captured values are pushed and `closure.new func, captures` bundles them into a
 `{ func, captures }` value; a call through that value uses `call.indirect`,
-which prepends the captures to the call arguments to form the callee's frame.
-An immutable capture is by value; a captured `mut` local is boxed into a
-one-field cell so writes are shared (see [Locals](#locals)). `call.indirect`
-carries no signature operand — the callee's arity is checked at the frame
-boundary like a direct `call`.
+which prepends the captures to the call arguments to form the callee's frame. An
+immutable capture is by value; a captured `mut` local is boxed into a one-field
+cell so writes are shared (see [Locals](#locals)). `call.indirect` carries no
+signature operand — the callee's arity is checked at the frame boundary like a
+direct `call`.
 
 **String interpolation** — for a user type, `${v}` calls the `Display` method as
 a statically resolved direct `call` (the concrete type is known at the site);

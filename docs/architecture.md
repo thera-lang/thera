@@ -92,41 +92,42 @@ finding interesting.
 - **The interpreter uses an explicit call-frame stack** (`Vm::run_loop` over
   `self.frames`, a `Vec<Frame>` where each frame owns its operand stack +
   locals), not Rust recursion. That is the precise-roots prerequisite: every
-  active frame's values are enumerable from one place, and deep Hawk recursion is
-  bounded by the heap rather than the host stack. The stack lives on the `Vm` and
-  is **shared across re-entrant interpreter calls** (e.g. structural `debug`
-  invoking a user impl runs a nested `run_loop` that pushes onto the same
-  stack) — so the collector sees *all* frames, with no roots hiding in nested
-  Rust calls.
+  active frame's values are enumerable from one place, and deep Hawk recursion
+  is bounded by the heap rather than the host stack. The stack lives on the `Vm`
+  and is **shared across re-entrant interpreter calls** (e.g. structural `debug`
+  invoking a user impl runs a nested `run_loop` that pushes onto the same stack)
+  — so the collector sees _all_ frames, with no roots hiding in nested Rust
+  calls.
 - **Collect at a safepoint between bytecode instructions** (the `run_loop` top),
   not inside `heap::alloc`. Then mid-instruction temporaries held only in Rust
   locals (the elements popped for `list.new` before the allocation; a native's
   scratch values) are never exposed to a collection, so the unrooted-temporary
   hazard does not arise — and natives run atomically with respect to the GC.
-- **Precise, non-moving mark-sweep, interpreter-only — _done_** (`heap.rs`). With
-  frames enumerable and the typed bytecode saying exactly what is a pointer,
-  precise roots are straightforward. Sequenced as: **(a) move heap objects off
-  `Rc<RefCell>` into a runtime-owned heap** (`Value::Ref` is a `u32` handle,
-  `Value` is `Copy`, and `Obj::child_values` is the trace primitive), then **(b)
-  add mark + sweep + the frame-stack root walk** — both now landed. The heap is a
-  slab of slots; a swept slot becomes a hole on a free list that the next `alloc`
-  reuses, so **handles are stable across a collection** (nothing moves).
-  `maybe_collect` traces from the frame-stack roots, frees the unmarked slots,
-  and grows the next-collection threshold to twice the survivors. The arena lives
-  behind a **thread-local** so the value constructors and `==` need no explicit
-  heap parameter; access is closure-scoped and comparisons/recursion **clone the
-  object out** first (cheap with `Copy` handles) to avoid re-entering the heap
-  while it is borrowed. The one re-entrant path — the structural `debug`/`display`
-  fallback, which calls back into the interpreter while its values sit in Rust
-  locals — pauses collection for its duration (atomic w.r.t. the GC, like a
-  native). Validated by `examples/gc_stress.hawk`: ~16 MB of churn that leaked to
-  ~500 MB under the no-collect heap now holds flat at ~2.4 MB resident.
+- **Precise, non-moving mark-sweep, interpreter-only — _done_** (`heap.rs`).
+  With frames enumerable and the typed bytecode saying exactly what is a
+  pointer, precise roots are straightforward. Sequenced as: **(a) move heap
+  objects off `Rc<RefCell>` into a runtime-owned heap** (`Value::Ref` is a `u32`
+  handle, `Value` is `Copy`, and `Obj::child_values` is the trace primitive),
+  then **(b) add mark + sweep + the frame-stack root walk** — both now landed.
+  The heap is a slab of slots; a swept slot becomes a hole on a free list that
+  the next `alloc` reuses, so **handles are stable across a collection**
+  (nothing moves). `maybe_collect` traces from the frame-stack roots, frees the
+  unmarked slots, and grows the next-collection threshold to twice the
+  survivors. The arena lives behind a **thread-local** so the value constructors
+  and `==` need no explicit heap parameter; access is closure-scoped and
+  comparisons/recursion **clone the object out** first (cheap with `Copy`
+  handles) to avoid re-entering the heap while it is borrowed. The one
+  re-entrant path — the structural `debug`/`display` fallback, which calls back
+  into the interpreter while its values sit in Rust locals — pauses collection
+  for its duration (atomic w.r.t. the GC, like a native). Validated by
+  `examples/gc_stress.hawk`: ~16 MB of churn that leaked to ~500 MB under the
+  no-collect heap now holds flat at ~2.4 MB resident.
 - **`gc-arena` was evaluated and set aside** for now. It (the GC behind the
   `piccolo` Lua VM) is a proven precise mark-sweep with no stack maps, but its
-  generative `'gc` lifetime is viral: it would thread through `Value`, `Obj`, the
-  `Vm`, every frame, and all ~114 native signatures, require write barriers on
-  the mutable object shapes, move the entire VM state *into* the arena root
-  (collection only happens *between* `mutate` calls), and restructure `run_loop`
+  generative `'gc` lifetime is viral: it would thread through `Value`, `Obj`,
+  the `Vm`, every frame, and all ~114 native signatures, require write barriers
+  on the mutable object shapes, move the entire VM state _into_ the arena root
+  (collection only happens _between_ `mutate` calls), and restructure `run_loop`
   into a fuel-stepped driver — and it discards the `u32`-handle heap above. A
   spike confirmed it collects correctly but at that cost; the hand-rolled
   mark-sweep slots into the existing heap with near-zero ripple, so it won. If a
@@ -150,7 +151,7 @@ finding interesting.
 The v1 collector is deliberately simple (stop-the-world, count-triggered,
 non-moving). Likely improvements, roughly in priority order:
 
-- **Poll the safepoint less often.** `maybe_collect` currently runs at *every*
+- **Poll the safepoint less often.** `maybe_collect` currently runs at _every_
   instruction — one thread-local borrow plus an occupancy compare. It is cheap,
   but only allocation can make a collection due, so the check only needs to
   happen where the heap can have grown since the last one: at **back-edges and
@@ -158,32 +159,32 @@ non-moving). Likely improvements, roughly in priority order:
   straight-line non-allocating code pays nothing. The cost is a larger possible
   overshoot between checks — bounded, because a single instruction allocates a
   bounded amount.
-- **Trigger on bytes, not object count.** The threshold counts live *objects*, so
-  a 10-byte string and a 10 MB one weigh the same. Tracking bytes allocated (and
-  bytes live after a sweep) gives a memory-proportional trigger and a real heap
-  target — with optional floor/ceiling bounds and a soft-limit the runtime backs
-  toward under pressure. `alloc` would maintain an allocation-debt counter the
-  safepoint reads, which also subsumes the previous point (poll = "is debt over
-  budget?").
+- **Trigger on bytes, not object count.** The threshold counts live _objects_,
+  so a 10-byte string and a 10 MB one weigh the same. Tracking bytes allocated
+  (and bytes live after a sweep) gives a memory-proportional trigger and a real
+  heap target — with optional floor/ceiling bounds and a soft-limit the runtime
+  backs toward under pressure. `alloc` would maintain an allocation-debt counter
+  the safepoint reads, which also subsumes the previous point (poll = "is debt
+  over budget?").
 - **Generational collection.** The `gc_stress` workload is the textbook case —
   nearly everything dies young. A young/old split with a minor collection over
   just the young set would cut work dramatically on allocation-heavy code. It
   needs a write barrier (to catch old→young pointers; `field.set`/`list.set` are
   the only mutators) and, once the JIT lands, full precision there too.
-- **Incremental marking** (tri-color) to bound pause times once heaps are large —
-  the explicit worklist in `collect` is already the shape this builds on.
+- **Incremental marking** (tri-color) to bound pause times once heaps are large
+  — the explicit worklist in `collect` is already the shape this builds on.
 - **Tighter slab layout.** A slot is `Option<Obj>`, sized to the largest `Obj`
   variant; size-segregating pools or boxing the big payloads would shrink the
   slab and improve locality. (Still non-moving — handles stay stable.)
 - **Diagnostics.** A `HAWK_GC_STATS`-style knob (collections, bytes reclaimed,
-  pause time) — `object_count` is the seed. **Weak references / finalizers** stay
-  unbuilt until a Hawk object owns a native resource; the hook would live in the
-  sweep loop.
+  pause time) — `object_count` is the seed. **Weak references / finalizers**
+  stay unbuilt until a Hawk object owns a native resource; the hook would live
+  in the sweep loop.
 
-A **moving/compacting** collector is the one direction the stable-handle contract
-and the planned conservative-JIT-frame scan both rule out — revisit only if
-fragmentation or generational promotion later justifies full precision across
-both tiers.
+A **moving/compacting** collector is the one direction the stable-handle
+contract and the planned conservative-JIT-frame scan both rule out — revisit
+only if fragmentation or generational promotion later justifies full precision
+across both tiers.
 
 ## Persistence and the native ABI
 

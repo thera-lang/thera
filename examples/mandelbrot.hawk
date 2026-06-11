@@ -4,7 +4,7 @@
 
 // 2026-07-07; debug interpreter:   4.07s
 // 2026-07-07; release interpreter: 1.51s
-// 2026-07-10; debug interpreter:   4.04s
+// 2026-07-10; debug interpreter:   5.75s
 
 fn main() -> Result<Int, Error> {
     let mut pass = 0;

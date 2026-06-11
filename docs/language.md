@@ -65,7 +65,7 @@ values.
 
 ### Primitives
 
-| Type     | Description                                                  | Example         |
+| Type     | Description                                                 | Example         |
 | -------- | ----------------------------------------------------------- | --------------- |
 | `Int`    | 64-bit signed integer                                       | `42`, `-7`      |
 | `Double` | 64-bit floating-point                                       | `3.14`          |
@@ -295,9 +295,8 @@ match read_port(args) {
 ### `throw`
 
 `throw expr` is sugar for `return Result.Err(expr)` in a `Result`-returning
-function.
-It is a reserved keyword — not an exception mechanism. There is no stack
-unwinding; control simply returns to the caller with an `Err` value.
+function. It is a reserved keyword — not an exception mechanism. There is no
+stack unwinding; control simply returns to the caller with an `Err` value.
 
 ```hawk
 fn parse_port(s: String) -> Result<Int, Error> {
@@ -473,9 +472,9 @@ testing.assert_eq(actual: result, expected: 5)?;
 names available **unqualified** (`Result`/`Option`/`Error`, `Eq`/`Display`/
 `Debug`, `println`/…). `Result`/`Option` are ordinary prelude enums, so their
 variants are constructed qualified (`Result.Ok`, `Option.None`). It is the one
-unqualified import; every other library is referenced through its namespace. `std.cli` (the `Args`
-argument parser, and the home of process execution) is an ordinary library —
-`import std.cli` when you need it.
+unqualified import; every other library is referenced through its namespace.
+`std.cli` (the `Args` argument parser, and the home of process execution) is an
+ordinary library — `import std.cli` when you need it.
 
 ### Import resolution
 
@@ -733,8 +732,7 @@ import additionally gets **white-box** access to the target's _private_ symbols
 Test functions are marked with `@test`, take no arguments, and return
 `Result<Void, Error>`. A test passes when it returns `Result.Ok(void)` and fails
 when it returns `Err`. Assertions return `Result<Void, Error>` and are called
-with
-`?` so that the first failure propagates out of the test immediately.
+with `?` so that the first failure propagates out of the test immediately.
 
 ```hawk
 // src/math_test.hawk

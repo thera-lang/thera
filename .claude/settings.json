@@ -26,7 +26,9 @@
       "Bash(runtime/target/debug/hawk *)",
       "Bash(sed *)",
       "Bash(tail *)",
-      "mcp__plugin_flutter-slipstream_packages__library_stub"
+      "mcp__plugin_flutter-slipstream_packages__library_stub",
+      "WebFetch(domain:docs.rs)",
+      "WebFetch(domain:crates.io)"
     ]
   }
 }

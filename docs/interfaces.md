@@ -64,23 +64,26 @@ meaningful default).
 
 ## Staged plan
 
-**Stage I — Conformance tracking + checking (front-end only, no runtime). DONE.**
-`impl Interface for Type` is recorded on the type element (`interfaces` /
-`implementsInterface`); the checker (`_checkConformance`) validates the impl
+**Stage I — Conformance tracking + checking (front-end only, no runtime).
+DONE.** `impl Interface for Type` is recorded on the type element (`interfaces`
+/ `implementsInterface`); the checker (`_checkConformance`) validates the impl
 satisfies the interface — every method present, signatures matching with `Self`
 substituted for the implementing type.
 
 **Stage II — `Eq`/`Display` dispatched through impls on concrete types. DONE.**
 Codegen records conformance (`scope.interfaceImpls`) and dispatches accordingly:
+
 - `==`/`!=` calls a type's own `eq` when it has an explicit `impl Eq`; otherwise
   the structural `eq` native (the auto-derived default for non-primitives) or a
-  typed opcode (primitives). So `Eq` is structural-by-default, explicit-override.
+  typed opcode (primitives). So `Eq` is structural-by-default,
+  explicit-override.
 - `${…}` dispatches to a type's `display` only when it implements `Display`.
 - `println`/`print` of a `Display` type render via `display` at the call site
   (the native can't upcall); primitives/String pass through to the native, which
   is their built-in `Display`. So no explicit `impl Display for Int` is needed.
 
 **Still deferred:**
+
 - **Generic operators** (`<T: Add>`, operators-as-traits) — arithmetic on erased
   type parameters.
 - **Named arguments through a virtual call** — interface-receiver calls resolve
@@ -101,16 +104,16 @@ change landed first.
 ### What it entails (the layers)
 
 - **A. Runtime — a vtable and one new opcode.** Every value already carries its
-  concrete type id (`Obj::Struct{ty}` / `Obj::Enum{ty}`; primitives are tags). Add
-  (1) a module **dispatch table** `(type_id, selector) → fn_index`, serialized in
-  `.hawkbc`; (2) an opcode `call.virtual <selector> <argc>` that reads the
-  receiver's type id (the first of the `argc` args), looks up the impl, and calls
-  it like `Call`. Selector = a constant-pool method-name string (or an interned
-  id). Testable in isolation with hand-built bytecode.
+  concrete type id (`Obj::Struct{ty}` / `Obj::Enum{ty}`; primitives are tags).
+  Add (1) a module **dispatch table** `(type_id, selector) → fn_index`,
+  serialized in `.hawkbc`; (2) an opcode `call.virtual <selector> <argc>` that
+  reads the receiver's type id (the first of the `argc` args), looks up the
+  impl, and calls it like `Call`. Selector = a constant-pool method-name string
+  (or an interned id). Testable in isolation with hand-built bytecode.
 - **B. Codegen — build the table, emit the op.** From the recorded
   `interfaceImpls` (type → interface → method units), emit one vtable row per
-  `impl Interface for Type` method: `(Type's type_id, method_name) → unit`. When a
-  call's **receiver has interface static type** (not a concrete type), emit
+  `impl Interface for Type` method: `(Type's type_id, method_name) → unit`. When
+  a call's **receiver has interface static type** (not a concrete type), emit
   `call.virtual name` instead of a direct `Call`.
 - **C. Front-end — interface types as values.** Today an interface name appears
   only as an impl target or a (parsed, unenforced) bound. To allow `x: Display`:
@@ -121,24 +124,26 @@ change landed first.
   types drive inference). This type-system change is the subtle part — bound its
   scope by starting with **function parameters only**.
 - **D. Bound enforcement (the type-param half).** `fn dump<T: Display>(x: T)`:
-  check at the call site that the type argument implements the bound (this is the
-  deferred [type-param bound check](roadmap.md)); inside the body, a call on the
-  erased `T` lowers to `call.virtual` (same mechanism as C). Reuses A/B entirely.
+  check at the call site that the type argument implements the bound (this is
+  the deferred [type-param bound check](roadmap.md)); inside the body, a call on
+  the erased `T` lowers to `call.virtual` (same mechanism as C). Reuses A/B
+  entirely.
 - **E. Primitives under dynamic dispatch (cross-cutting decision).** Primitives'
-  `Display` is currently produced by the `stringify`/`display` native at the call
-  site, not a Hawk `display` method — so they have no vtable row. To make
-  `show(5)` work, either register native-backed vtable entries for primitive type
-  ids, or have `call.virtual` fall back to the native for primitive receivers.
-  Not needed for the first slice (user types only); decide when it's hit.
+  `Display` is currently produced by the `stringify`/`display` native at the
+  call site, not a Hawk `display` method — so they have no vtable row. To make
+  `show(5)` work, either register native-backed vtable entries for primitive
+  type ids, or have `call.virtual` fall back to the native for primitive
+  receivers. Not needed for the first slice (user types only); decide when it's
+  hit.
 
 ### Staging
 
 1. **Stage A — runtime vtable + `call.virtual`. DONE.** A module dispatch table
    (`DispatchEntry { ty, selector, func }`), a `call.virtual <selector> <argc>`
    opcode that reads the receiver's type id and calls the matching impl, and a
-   backward-compatible `.hawkbc` DISPATCH section (absent → empty). Verified with
-   hand-built bytecode: `describe(x)` dispatches `x.display()` to the right impl
-   by type id. Name-keyed (`selector`) in the Tier-0 draft; the durable
+   backward-compatible `.hawkbc` DISPATCH section (absent → empty). Verified
+   with hand-built bytecode: `describe(x)` dispatches `x.display()` to the right
+   impl by type id. Name-keyed (`selector`) in the Tier-0 draft; the durable
    slot-based `call.interface iface, slot` (see bytecode.md) comes later.
 2. **Stage B — interface-typed parameters + dispatch. DONE.** An interface name
    resolves as a value type (it already did — `InterfaceType` over an
@@ -159,11 +164,11 @@ change landed first.
    inference resolves the method against the bound). Bounds are **enforced at
    call sites**: the type argument must satisfy each bound, else a compile error
    (primitives satisfy the built-in `Eq`/`Display`/`Debug` — and as of Stage E
-   they dispatch too; `f<T: Display>(plain_struct)` is rejected). `Eq`/`Debug` are
-   satisfied structurally (no explicit `impl` needed); other interfaces require
-   one. Subsumes the old type-param-bound-enforcement gap.
-5. **Stage E — built-in fallbacks: `Debug` auto-derive + primitives. DONE.**
-   A `call.virtual` whose receiver has no impl row falls back to the built-in
+   they dispatch too; `f<T: Display>(plain_struct)` is rejected). `Eq`/`Debug`
+   are satisfied structurally (no explicit `impl` needed); other interfaces
+   require one. Subsumes the old type-param-bound-enforcement gap.
+5. **Stage E — built-in fallbacks: `Debug` auto-derive + primitives. DONE.** A
+   `call.virtual` whose receiver has no impl row falls back to the built-in
    interfaces' structural forms in the runtime:
    - **`display`** — primitives/String render natively (so `show<T: Display>(5)`
      and `'${x}'` on an interface-typed value work; a struct reaching the
@@ -176,11 +181,11 @@ change landed first.
      explicit `impl Debug` renders through it;
    - **`eq`** — structural equality, so `==` on an erased `T: Eq` lowers to
      `call.virtual 'eq'` and an explicit `impl Eq` override wins at runtime
-     (previously erasure silently bypassed overrides).
-   Codegen also renders interface-typed / `Display`-bounded values in `${…}`
-   and `println` via `call.virtual 'display'`. Plus a latent-bug fix: struct and
-   enum type ids overlap numerically, so enum dispatch ids are namespaced with
-   a high bit (`ENUM_DISPATCH_BASE`) on both sides of the wire.
+     (previously erasure silently bypassed overrides). Codegen also renders
+     interface-typed / `Display`-bounded values in `${…}` and `println` via
+     `call.virtual 'display'`. Plus a latent-bug fix: struct and enum type ids
+     overlap numerically, so enum dispatch ids are namespaced with a high bit
+     (`ENUM_DISPATCH_BASE`) on both sides of the wire.
 
    **This unblocks the `@test` runner:** `testing.assert_eq<T: Eq + Debug>` now
    compiles and runs — generic `!=` dispatches, and failure messages render via
@@ -210,5 +215,5 @@ fn main() -> Int {
 
 That single slice exercises A (vtable + op), B (interface param, assignability,
 emit), and nothing else — no generics, no collections, no primitives. It's the
-minimal proof that dynamic dispatch works, and it's a genuinely useful capability
-(`Display`-typed parameters) on its own.
+minimal proof that dynamic dispatch works, and it's a genuinely useful
+capability (`Display`-typed parameters) on its own.

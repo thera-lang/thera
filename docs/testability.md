@@ -4,7 +4,7 @@
 ambient, nondeterministic state — the wall clock, the filesystem, the
 environment, randomness — without global overrides or a parallel "test"
 universe. It resolves a question principle 7 of [stdlib.md](stdlib.md) left
-open: do we ship a top-level `now()` *or* a `Clock` interface? The answer is
+open: do we ship a top-level `now()` _or_ a `Clock` interface? The answer is
 **both, in layers** — and the same shape applies to every ambient capability.
 
 ## The problem
@@ -19,7 +19,7 @@ have a failure mode Hawk wants to avoid:
    the canonical design smell. **Rejected.**
 
 2. **Capability everywhere** (all code calls a `Clock` object instead of the
-   system clock). Testable, but it taxes *every* function with ceremony and
+   system clock). Testable, but it taxes _every_ function with ceremony and
    forces the whole program to route around the natural stdlib call. The
    over-correction.
 
@@ -36,13 +36,13 @@ them together:
 
 - **Ambient free function** — `time.now_millis()`, `fs.read_text(path)`. Always
   performs the real effect. **No override hook.** This is not a smell precisely
-  *because* it can't be swapped: it's an honest, clearly-named effect you keep in
-  the imperative shell (`main`, scripts, the top of a request handler).
+  _because_ it can't be swapped: it's an honest, clearly-named effect you keep
+  in the imperative shell (`main`, scripts, the top of a request handler).
 
-- **Capability interface** — `time.Clock`, `fs.FileSystem`. A *value you hold and
-  pass explicitly*, for the slice of logic that needs the effect threaded through
-  it and that you want to test deterministically. `system_clock()` / `system_fs()`
-  return the real one; a test substitutes a fake.
+- **Capability interface** — `time.Clock`, `fs.FileSystem`. A _value you hold
+  and pass explicitly_, for the slice of logic that needs the effect threaded
+  through it and that you want to test deterministically. `system_clock()` /
+  `system_fs()` return the real one; a test substitutes a fake.
 
 Crucially, the test seam is a **different, explicit path** (pass a capability),
 never an override of the free function. There is no hidden global and nothing is
@@ -54,32 +54,32 @@ The deepest layer of [the functional core](guidelines.md#L92) reads no ambient
 state at all. A function that formats a log line should **take a `DateTime`**,
 not take a `Clock` and read it; a parser should **take the `String`**, not a
 `FileSystem` and a path. The seam there is "pass the data in." The capability
-interface is for the *orchestrating middle layer* — the code that's still worth
+interface is for the _orchestrating middle layer_ — the code that's still worth
 unit-testing but genuinely needs to ask "what time is it?" / "what's on disk?".
 
 So on any given call you aren't choosing between two competing APIs. You're
 choosing **where in the program the effect lives**:
 
-| Layer | Time | What it takes |
-| --- | --- | --- |
-| Imperative shell | `time.now_millis()` | nothing — reads the real clock |
-| Testable orchestration | `fn run(clock: Clock)` | a `Clock` capability, threaded |
-| Functional core | `fn format(at: DateTime)` | plain data — no clock at all |
+| Layer                  | Time                      | What it takes                  |
+| ---------------------- | ------------------------- | ------------------------------ |
+| Imperative shell       | `time.now_millis()`       | nothing — reads the real clock |
+| Testable orchestration | `fn run(clock: Clock)`    | a `Clock` capability, threaded |
+| Functional core        | `fn format(at: DateTime)` | plain data — no clock at all   |
 
 ## The asymmetry is principled
 
-Different capabilities make a *different layer* the default, and that's
+Different capabilities make a _different layer_ the default, and that's
 deliberate — the default form matches what the common case actually wants, while
 the alternative is always a value you pass (never a global you override):
 
-| Capability | Default form | Why |
-| --- | --- | --- |
-| **Random** | `Rng` value you hold (no ambient form) | reproducibility is almost always wanted → the seedable value *is* the common case |
-| **Time** | ambient `now_millis()` | ~95% of reads are "stamp this / measure elapsed" where the real clock is exactly right; `Clock` is opt-in |
-| **Filesystem** | ambient `fs.read_text` | same — the real FS is the common case; `FileSystem` is opt-in |
-| **Env** | ambient `env.get` | reads of the real environment dominate; an `Env` capability is opt-in |
+| Capability     | Default form                           | Why                                                                                                       |
+| -------------- | -------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| **Random**     | `Rng` value you hold (no ambient form) | reproducibility is almost always wanted → the seedable value _is_ the common case                         |
+| **Time**       | ambient `now_millis()`                 | ~95% of reads are "stamp this / measure elapsed" where the real clock is exactly right; `Clock` is opt-in |
+| **Filesystem** | ambient `fs.read_text`                 | same — the real FS is the common case; `FileSystem` is opt-in                                             |
+| **Env**        | ambient `env.get`                      | reads of the real environment dominate; an `Env` capability is opt-in                                     |
 
-`random` has *no* ambient form on purpose: an unseeded global RNG would be the
+`random` has _no_ ambient form on purpose: an unseeded global RNG would be the
 one case where the convenient default is the untestable, irreproducible one.
 
 ## Where the test doubles live
@@ -97,7 +97,7 @@ Split by usefulness:
   on the rest of the stdlib.
 
 The capability **interface** always lives with its real library (`time.Clock`,
-`fs.FileSystem`); only the fake's *location* varies.
+`fs.FileSystem`); only the fake's _location_ varies.
 
 ## No capability bundle in the stdlib
 
@@ -165,7 +165,7 @@ Type and interface names can be written **qualified**, matching the value-side
 `ns.member` syntax: `fn run(c: time.Clock)`, `impl time.Clock for FixedClock`,
 `fn pool() -> col.List<Int>`. The bare form (`Clock`) still works — imported
 types share one flat namespace, so the qualifier is resolved by its base name
-and carried for the author's sake (it is *not* yet validated against the
+and carried for the author's sake (it is _not_ yet validated against the
 import's actual exports; that waits on a per-namespace type table).
 
 ## Rollout

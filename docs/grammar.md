@@ -18,16 +18,16 @@ is deliberately or incidentally absent (e.g. bitwise operators) — see also
 
 EBNF, W3C-style:
 
-| Form        | Meaning                                  |
-| ----------- | ---------------------------------------- |
-| `x y`       | sequence                                 |
-| `x \| y`    | alternation                              |
-| `x?`        | optional (zero or one)                   |
-| `x*`        | zero or more                             |
-| `x+`        | one or more                              |
-| `( … )`     | grouping                                 |
-| `'fn'`      | a literal terminal (keyword/punctuation) |
-| `IDENT`     | a token class (see [Lexical](#lexical-grammar)) |
+| Form     | Meaning                                         |
+| -------- | ----------------------------------------------- |
+| `x y`    | sequence                                        |
+| `x \| y` | alternation                                     |
+| `x?`     | optional (zero or one)                          |
+| `x*`     | zero or more                                    |
+| `x+`     | one or more                                     |
+| `( … )`  | grouping                                        |
+| `'fn'`   | a literal terminal (keyword/punctuation)        |
+| `IDENT`  | a token class (see [Lexical](#lexical-grammar)) |
 
 `lowercase` names are nonterminals; `UPPERCASE` names are token classes.
 
@@ -83,8 +83,9 @@ Notes: integers are decimal or **hexadecimal** (`0x` / `0X` prefix); a hex
 literal is read as an unsigned 64-bit pattern wrapped into the signed `Int`, so
 `0x9E3779B97F4A7C15` is a (negative) constant. No binary/octal, digit separators
 (`_`), exponents, or sign (a leading `-` is the unary operator). Floats require
-digits on both sides of the `.` (`1.0`, not `1.` or `.5`), with no exponent. Strings use `'` or `"` (single quotes by convention); the only
-escapes are the seven above (no `\u…`); `${ … }` embeds an arbitrary expression.
+digits on both sides of the `.` (`1.0`, not `1.` or `.5`), with no exponent.
+Strings use `'` or `"` (single quotes by convention); the only escapes are the
+seven above (no `\u…`); `${ … }` embeds an arbitrary expression.
 
 ### Operators & punctuation
 
@@ -97,9 +98,9 @@ escapes are the seven above (no `\u…`); `${ … }` embeds an arbitrary express
 (`DIGIT` is `0`–`9`; `HEXDIGIT` is `0`–`9` / `a`–`f` / `A`–`F`; `ALPHA` is a
 Latin letter.)
 
-That is the complete operator set. See [Not yet in the
-grammar](#not-yet-in-the-grammar) for the families that are absent (bitwise,
-shift, compound assignment, …).
+That is the complete operator set. See
+[Not yet in the grammar](#not-yet-in-the-grammar) for the families that are
+absent (bitwise, shift, compound assignment, …).
 
 ## Syntactic grammar
 
@@ -260,24 +261,24 @@ matchExpr = 'match' exprNB '{' arm* '}'
 arm       = pattern '=>' ( block | expr ) ','?
 ```
 
-A method call is `postfix` chaining: `recv '.' method` forms a field access,
-and a following `'(' … ')'` makes it a call. A map literal and a block both
-start with `{`; the parser commits to a **map** when it sees `{}` or a
-string/int key followed by `:`, otherwise a **block expression**.
+A method call is `postfix` chaining: `recv '.' method` forms a field access, and
+a following `'(' … ')'` makes it a call. A map literal and a block both start
+with `{`; the parser commits to a **map** when it sees `{}` or a string/int key
+followed by `:`, otherwise a **block expression**.
 
 ## Operator precedence (summary)
 
-| Level | Operators              | Assoc          | Notes                       |
-| ----- | ---------------------- | -------------- | --------------------------- |
-| 1     | `\|\|`                 | left           | logical or                  |
-| 2     | `&&`                   | left           | logical and                 |
-| 3     | `==` `!=`              | left           | equality                    |
-| 4     | `<` `>` `<=` `>=`      | left           | comparison                  |
-| 5     | `..`                   | non-assoc      | range (one only)            |
-| 6     | `+` `-`                | left           | additive                    |
-| 7     | `*` `/` `%`            | left           | multiplicative              |
-| 8     | `!` `-` (prefix)       | right          | unary                       |
-| 9     | `.` `()` `[]` `?`      | left (postfix) | field/call/index/propagate  |
+| Level | Operators         | Assoc          | Notes                      |
+| ----- | ----------------- | -------------- | -------------------------- |
+| 1     | `\|\|`            | left           | logical or                 |
+| 2     | `&&`              | left           | logical and                |
+| 3     | `==` `!=`         | left           | equality                   |
+| 4     | `<` `>` `<=` `>=` | left           | comparison                 |
+| 5     | `..`              | non-assoc      | range (one only)           |
+| 6     | `+` `-`           | left           | additive                   |
+| 7     | `*` `/` `%`       | left           | multiplicative             |
+| 8     | `!` `-` (prefix)  | right          | unary                      |
+| 9     | `.` `()` `[]` `?` | left (postfix) | field/call/index/propagate |
 
 The gap between levels 4 and 6 — where bitwise-or, bitwise-xor, bitwise-and, and
 the shift operators would sit in a C-family language — is **empty**. That
@@ -295,7 +296,7 @@ checklist; items that are planned link to [roadmap.md](roadmap.md).
   `std.encoding` need Rust natives. Tracked on the roadmap as a self-contained
   arc (also wants an unsigned integer type or defined logical-shift semantics).
 - **Increment / decrement:** `++` `--`. (Compound assignment `+= -= *= /= %=`
-  *is* supported — desugared to `t = t op e`.)
+  _is_ supported — desugared to `t = t op e`.)
 - **Cast operator:** `expr as Type` — `as` is import-only.
 - **Inclusive range** `..=`, and the ternary `cond ? a : b` (`?` is postfix
   error-propagation only).
@@ -304,7 +305,7 @@ checklist; items that are planned link to [roadmap.md](roadmap.md).
 
 - Integer bases & separators: `0b…`, `0o…` (binary/octal), digit separators
   (`1_000`); integer/float **exponents** (`1e9`); float shorthands `1.` and
-  `.5`. (Hex `0x…` *is* supported.)
+  `.5`. (Hex `0x…` _is_ supported.)
 - String: `\u{…}` / `\0` escapes, raw or triple-quoted strings.
 - Tuple literals/types `(a, b)` — `(…)` is grouping or lambda params only.
 
@@ -312,8 +313,8 @@ checklist; items that are planned link to [roadmap.md](roadmap.md).
 
 - `break` / `continue` (and labeled loops); a `loop { }` form.
 - Standalone `if` / `match` as statements bind as expressions; there is no
-  separate statement form, which is fine, but note there are no block-less
-  `if` bodies (the body is always a `block`).
+  separate statement form, which is fine, but note there are no block-less `if`
+  bodies (the body is always a `block`).
 
 **Patterns**
 
@@ -326,4 +327,7 @@ checklist; items that are planned link to [roadmap.md](roadmap.md).
   (`_looksLikeTypeArgList`) that bails on **nested** generics in call position,
   e.g. `f<Result<T, E>>(…)`. Annotated positions (`let`, params) handle nesting
   fine; only the `name<…>(…)` call form is limited.
+
+```
+
 ```

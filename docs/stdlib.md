@@ -73,24 +73,26 @@ enough to reduce hallucination.
 
 7. **No hidden global state; effects are explicit, and ambient effects have a
    capability seam.** Sources of nondeterminism are never swappable globals.
-   Each ambient capability is exposed in two layers: an **ambient free function**
-   that always performs the real effect with no override hook (`time.now_millis`,
-   `fs.read_text` — for the imperative shell) and an **opt-in capability
-   interface** you hold and pass (`time.Clock`, `fs.FileSystem` — for testable
-   logic), where the free function *is* the system implementation. Some
-   capabilities make the value-you-hold form the default instead (`random.Rng`
-   has no ambient form, since reproducibility is the common case). This keeps the
-   functional core pure, quarantines effects to the shell
-   ([guidelines.md](guidelines.md) §4), and makes the test seam explicit rather
-   than a global override. Full design: [testability.md](testability.md).
+   Each ambient capability is exposed in two layers: an **ambient free
+   function** that always performs the real effect with no override hook
+   (`time.now_millis`, `fs.read_text` — for the imperative shell) and an
+   **opt-in capability interface** you hold and pass (`time.Clock`,
+   `fs.FileSystem` — for testable logic), where the free function _is_ the
+   system implementation. Some capabilities make the value-you-hold form the
+   default instead (`random.Rng` has no ambient form, since reproducibility is
+   the common case). This keeps the functional core pure, quarantines effects to
+   the shell ([guidelines.md](guidelines.md) §4), and makes the test seam
+   explicit rather than a global override. Full design:
+   [testability.md](testability.md).
 
 8. **Text is UTF-8; bytes are `Bytes`.** `String` is validated UTF-8; raw binary
    is the `Bytes` type (§ Core types). Conversions are explicit
    (`String.from_utf8(bytes) -> Result<String, Error>`, `s.bytes()`). Today
    `s.chars()` (code points) and `s.bytes()` (raw UTF-8, each 0..=255) both
-   return `List<Int>`; `bytes()` upgrades to return `Bytes` once that type lands.
-   String offsets follow the existing convention: code-point counts for `len`,
-   UTF-8 byte offsets where byte positions are needed (matching `std.regex`).
+   return `List<Int>`; `bytes()` upgrades to return `Bytes` once that type
+   lands. String offsets follow the existing convention: code-point counts for
+   `len`, UTF-8 byte offsets where byte positions are needed (matching
+   `std.regex`).
 
 ## The tiers
 
@@ -413,9 +415,10 @@ pub fn atan2(_ y: Double, _ x: Double) -> Double;   pub fn hypot(_ x: Double, _ 
 
 Notes: feed an `Int` to a `std.math` function via `n.to_double()`; rounding
 returns `Double` (chain `.to_int()` for an `Int`). Numeric parsing is on
-`String` (prelude): `s.to_int() -> Option<Int>`, `s.to_double() -> Option<Double>`
-(strict — the whole string must be the number). Deferred: `INFINITY`/`NAN` (no
-literal form, and no load-time init — would need natives).
+`String` (prelude): `s.to_int() -> Option<Int>`,
+`s.to_double() -> Option<Double>` (strict — the whole string must be the
+number). Deferred: `INFINITY`/`NAN` (no literal form, and no load-time init —
+would need natives).
 
 ### `std.random` — randomness _(implemented)_
 
@@ -661,32 +664,32 @@ dependency graph, so future work lands in the right order:
 8. **Top-level `const` in codegen — done.** `const`/`pub const` now compile: a
    reference (bare or namespace-qualified `ns.NAME`) inlines its initializer
    expression at the use site (codegen has no global storage). This unblocks
-   `std.char`'s constants and `std.math`'s `PI`/`E`. (Note: a *platform* value
+   `std.char`'s constants and `std.math`'s `PI`/`E`. (Note: a _platform_ value
    like a path separator is **not** a fit for `const` — it's compile-time
    inlined — so std.path stays slash-based and a native-backed separator waits
    for OS-aware paths. There is no load-time static-initializer mechanism yet.)
 
 ## Status summary
 
-| Module       | Status  | Notes                                               |
-| ------------ | ------- | --------------------------------------------------- |
+| Module       | Status  | Notes                                                                                                                            |
+| ------------ | ------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | prelude/core | exists  | Int/Double + String parsing; `Set<T>` implemented in Hawk over `Map`; Option methods + `is_empty` are Hawk now; still want `Ord` |
-| std.io       | new     | foundation; gated on `Bytes` + generics arc         |
-| std.fs       | partial | expand; `read_dir`→`list_dir`; `FsError`            |
-| std.path     | done    | pure Hawk; `components`/`with_extension` added; normalize/relative deferred |
-| std.env      | done    | vars/args/cwd/os/exit + `Env` capability + `testing.fixed_env`; `OS`→`os()` |
-| std.process  | partial | reconcile pipes → `Reader`/`Writer`; `ProcessError` |
-| std.time     | partial | `now_millis()` + `Clock` capability (prototype); `DateTime`/`Duration`/`monotonic` still new |
-| std.fiber    | new     | runtime scheduler                                   |
-| std.math     | done    | Double fns + constants; abs/min/max/clamp + to_double/to_int are Int/Double methods |
-| std.random   | done    | SplitMix64; state is a visible Int; mix via native (bitops gap) |
-| std.json     | new     | structural now; typed decode later                  |
-| std.encoding | new     |                                                     |
-| std.hash     | new     | runtime native                                      |
-| std.http     | new     | client only; runtime sockets + TLS                  |
-| std.log      | new     |                                                     |
-| std.cli      | partial | expand `Args` → declarative `Command`               |
-| std.term     | new     |                                                     |
-| std.char     | done    | pure Hawk; `pub` API + ASCII scope; `is_hex_digit` added, ident predicates removed |
-| std.regex    | exists  | make `pub`; privatize natives later                 |
-| std.testing  | exists  | gated on generics arc for `<T: Eq + Debug>`         |
+| std.io       | new     | foundation; gated on `Bytes` + generics arc                                                                                      |
+| std.fs       | partial | expand; `read_dir`→`list_dir`; `FsError`                                                                                         |
+| std.path     | done    | pure Hawk; `components`/`with_extension` added; normalize/relative deferred                                                      |
+| std.env      | done    | vars/args/cwd/os/exit + `Env` capability + `testing.fixed_env`; `OS`→`os()`                                                      |
+| std.process  | partial | reconcile pipes → `Reader`/`Writer`; `ProcessError`                                                                              |
+| std.time     | partial | `now_millis()` + `Clock` capability (prototype); `DateTime`/`Duration`/`monotonic` still new                                     |
+| std.fiber    | new     | runtime scheduler                                                                                                                |
+| std.math     | done    | Double fns + constants; abs/min/max/clamp + to_double/to_int are Int/Double methods                                              |
+| std.random   | done    | SplitMix64; state is a visible Int; mix via native (bitops gap)                                                                  |
+| std.json     | new     | structural now; typed decode later                                                                                               |
+| std.encoding | new     |                                                                                                                                  |
+| std.hash     | new     | runtime native                                                                                                                   |
+| std.http     | new     | client only; runtime sockets + TLS                                                                                               |
+| std.log      | new     |                                                                                                                                  |
+| std.cli      | partial | expand `Args` → declarative `Command`                                                                                            |
+| std.term     | new     |                                                                                                                                  |
+| std.char     | done    | pure Hawk; `pub` API + ASCII scope; `is_hex_digit` added, ident predicates removed                                               |
+| std.regex    | exists  | make `pub`; privatize natives later                                                                                              |
+| std.testing  | exists  | gated on generics arc for `<T: Eq + Debug>`                                                                                      |
