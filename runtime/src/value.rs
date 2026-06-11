@@ -137,6 +137,23 @@ impl Obj {
             Obj::Closure { captures, .. } => captures.clone(),
         }
     }
+
+    /// An estimate of the bytes this object occupies: the in-slab slot (one
+    /// `Obj`) plus its heap-allocated payload (a string's buffer, a collection's
+    /// backing store). Approximate — capacity, not length — which is what the
+    /// GC's byte-budget heuristic wants. Used to size the collection threshold.
+    pub fn heap_bytes(&self) -> usize {
+        use std::mem::size_of;
+        let payload = match self {
+            Obj::Str(s) => s.capacity(),
+            Obj::List(items) | Obj::Set(items) => items.capacity() * size_of::<Value>(),
+            Obj::Map(entries) => entries.capacity() * size_of::<(Value, Value)>(),
+            Obj::Struct { fields, .. } => fields.capacity() * size_of::<Value>(),
+            Obj::Enum(e) => e.fields.capacity() * size_of::<Value>(),
+            Obj::Closure { captures, .. } => captures.capacity() * size_of::<Value>(),
+        };
+        size_of::<Obj>() + payload
+    }
 }
 
 /// A tagged-union value: the `variant` selected from type `ty`, with its

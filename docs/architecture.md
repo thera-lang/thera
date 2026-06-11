@@ -111,17 +111,28 @@ finding interesting.
   then **(b) add mark + sweep + the frame-stack root walk** — both now landed.
   The heap is a slab of slots; a swept slot becomes a hole on a free list that
   the next `alloc` reuses, so **handles are stable across a collection**
-  (nothing moves). `maybe_collect` traces from the frame-stack roots, frees the
-  unmarked slots, and grows the next-collection threshold to twice the
-  survivors. The arena lives behind a **thread-local** so the value constructors
-  and `==` need no explicit heap parameter; access is closure-scoped and
-  comparisons/recursion **clone the object out** first (cheap with `Copy`
-  handles) to avoid re-entering the heap while it is borrowed. The one
-  re-entrant path — the structural `debug`/`display` fallback, which calls back
-  into the interpreter while its values sit in Rust locals — pauses collection
-  for its duration (atomic w.r.t. the GC, like a native). Validated by
-  `examples/gc_stress.hawk`: ~16 MB of churn that leaked to ~500 MB under the
-  no-collect heap now holds flat at ~2.4 MB resident.
+  (nothing moves). `maybe_collect` traces from the frame-stack roots and frees
+  the unmarked slots. The arena lives behind a **thread-local** so the value
+  constructors and `==` need no explicit heap parameter; access is
+  closure-scoped and comparisons/recursion **clone the object out** first (cheap
+  with `Copy` handles) to avoid re-entering the heap while it is borrowed. The
+  one re-entrant path — the structural `debug`/`display` fallback, which calls
+  back into the interpreter while its values sit in Rust locals — pauses
+  collection for its duration (atomic w.r.t. the GC, like a native). Validated
+  by `examples/gc_stress.hawk`: ~16 MB of churn that leaked to ~500 MB under the
+  no-collect heap now holds flat at a few MB resident.
+- **The collection heuristic is byte-budgeted and allocation-driven.** `alloc`
+  tracks a running byte estimate (`Obj::heap_bytes` — slot + payload capacity)
+  and, on crossing the threshold, sets a `GC_PENDING` flag; the per-instruction
+  safepoint is then two `Cell` reads (`pending && !paused`), so non-allocating
+  instructions pay almost nothing and the threshold math lives only on the
+  allocating path. A collection retargets the threshold to **2× the surviving
+  bytes — or 4× when it reclaimed less than a quarter of the heap** (a
+  memory-hungry program is re-marked less often rather than thrashed for little
+  gain), floored at 1 MiB. `live_bytes` is summed *during the mark walk*, so
+  `heap_bytes` is read once per live object as part of a traversal already
+  underway — never a separate pass, never for garbage — and the mark bitmap is
+  reused across collections.
 - **`gc-arena` was evaluated and set aside** for now. It (the GC behind the
   `piccolo` Lua VM) is a proven precise mark-sweep with no stack maps, but its
   generative `'gc` lifetime is viral: it would thread through `Value`, `Obj`,
@@ -148,24 +159,21 @@ finding interesting.
 
 ### Where the collector goes next
 
-The v1 collector is deliberately simple (stop-the-world, count-triggered,
-non-moving). Likely improvements, roughly in priority order:
+The v1 collector is deliberately simple (stop-the-world, non-moving). The
+byte-budgeted trigger, the cheap allocation-driven safepoint, and the adaptive
+anti-thrash threshold above are in; likely further improvements, roughly in
+priority order:
 
-- **Poll the safepoint less often.** `maybe_collect` currently runs at _every_
-  instruction — one thread-local borrow plus an occupancy compare. It is cheap,
-  but only allocation can make a collection due, so the check only needs to
-  happen where the heap can have grown since the last one: at **back-edges and
-  calls** (and, conservatively, the allocating opcodes). Move the poll there and
-  straight-line non-allocating code pays nothing. The cost is a larger possible
-  overshoot between checks — bounded, because a single instruction allocates a
-  bounded amount.
-- **Trigger on bytes, not object count.** The threshold counts live _objects_,
-  so a 10-byte string and a 10 MB one weigh the same. Tracking bytes allocated
-  (and bytes live after a sweep) gives a memory-proportional trigger and a real
-  heap target — with optional floor/ceiling bounds and a soft-limit the runtime
-  backs toward under pressure. `alloc` would maintain an allocation-debt counter
-  the safepoint reads, which also subsumes the previous point (poll = "is debt
-  over budget?").
+- **Poll at fewer sites.** The safepoint check is now two `Cell` reads at the
+  `run_loop` top, evaluated every instruction. Cheaper still: only check at
+  **back-edges and calls** (the points where the heap can have grown enough to
+  matter), so straight-line non-allocating runs touch it zero times. The cost is
+  a larger possible overshoot between checks — bounded, since one instruction
+  allocates a bounded amount.
+- **A heap ceiling / soft limit.** The threshold only grows; a cap (and a
+  soft-limit the runtime backs toward under memory pressure) would bound peak
+  footprint rather than just collection frequency. Pairs with surfacing slab
+  growth failure as a `Trap::OutOfMemory` instead of a process abort.
 - **Generational collection.** The `gc_stress` workload is the textbook case —
   nearly everything dies young. A young/old split with a minor collection over
   just the young set would cut work dramatically on allocation-heavy code. It

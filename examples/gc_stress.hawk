@@ -18,9 +18,10 @@
 //   dart run tool/bin/hawk.dart emit examples/gc_stress.hawk /tmp/gc.hawkbc
 //   /usr/bin/time -l runtime/target/release/hawk run /tmp/gc.hawkbc
 //
-// With BUDGET_MB = 16 this peaks at ~2.4 MB resident — versus the ~500 MB the
-// earlier no-collect heap leaked (~16 MB of logical churn amplified ~30x, all
-// retained). That whole gap is what the collector now reclaims.
+// With BUDGET_MB = 16 this peaks at a few MB resident (bounded by the GC's byte
+// budget, not the workload) — versus the ~500 MB the earlier no-collect heap
+// leaked (~16 MB of logical churn amplified ~30x, all retained). That whole gap
+// is what the collector now reclaims.
 
 import std.random;
 

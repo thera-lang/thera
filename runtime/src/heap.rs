@@ -14,6 +14,17 @@
 //! temporaries held only in Rust locals are never exposed (the safepoint sits
 //! between instructions), so they can't be collected out from under us.
 //!
+//! **When to collect.** [`alloc`] keeps a running byte estimate and, when it
+//! crosses the threshold, sets a cheap `GC_PENDING` flag; the per-instruction
+//! safepoint is then just two `Cell` reads (`pending? && !paused?`), so
+//! non-allocating instructions pay almost nothing. A collection retargets the
+//! threshold to a multiple of the surviving bytes — normally 2×, but **4× when a
+//! collection reclaimed less than a quarter of the heap** (the program is
+//! memory-hungry; re-marking a large live set to free a sliver is thrashing).
+//! `live_bytes` is summed *during the mark walk*, so [`Obj::heap_bytes`] is
+//! touched once per live object as part of a traversal we already do — never in
+//! a separate pass, never for garbage.
+//!
 //! The heap is a thread-local so the value constructors and `==` stay free of an
 //! explicit heap parameter (the runtime is single-threaded; each thread — e.g. a
 //! test thread — gets its own heap). Access is closure-scoped: a reader must not
@@ -21,14 +32,13 @@
 //! (`values_eq`, and the collection mutators) **clone the object out first** and
 //! operate on the copy — cheap, since `Value` is `Copy`.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 use crate::value::{Obj, Value};
 
-/// Collect once the live-object count reaches at least this many (and then grow
-/// the threshold to twice the survivors). A floor keeps small programs from
-/// collecting on every other allocation.
-const MIN_GC_THRESHOLD: usize = 1024;
+/// Collection floor: never set the next-collection threshold below this many
+/// bytes, so small programs (and tests) don't collect constantly.
+const MIN_GC_BYTES: usize = 1 << 20; // 1 MiB
 
 /// The slab: object slots plus the bookkeeping a mark-sweep needs.
 struct Heap {
@@ -36,13 +46,14 @@ struct Heap {
     slots: Vec<Option<Obj>>,
     /// Indices of free holes, reused before growing `slots`.
     free: Vec<u32>,
-    /// Collect when the live count reaches this; recomputed after each sweep.
-    next_gc: usize,
-    /// Re-entrancy guard: while non-zero, [`maybe_collect`] is a no-op. The
-    /// interpreter raises this around the built-in `debug`/`display` fallback,
-    /// whose re-entrant interpreter call would otherwise hit a safepoint while
-    /// values it is mid-traversal sit only in Rust locals (not yet rooted).
-    gc_paused: usize,
+    /// Estimated bytes occupied (live + not-yet-collected). [`alloc`] adds to it;
+    /// a collection resets it to the surviving bytes.
+    heap_bytes: usize,
+    /// Collect once `heap_bytes` reaches this; recomputed after each sweep.
+    next_gc_bytes: usize,
+    /// The mark bitmap, kept across collections so its allocation is reused
+    /// (resized + cleared per collection rather than freshly allocated).
+    marked: Vec<bool>,
 }
 
 impl Heap {
@@ -57,18 +68,33 @@ thread_local! {
         RefCell::new(Heap {
             slots: Vec::new(),
             free: Vec::new(),
-            next_gc: MIN_GC_THRESHOLD,
-            gc_paused: 0,
+            heap_bytes: 0,
+            next_gc_bytes: MIN_GC_BYTES,
+            marked: Vec::new(),
         })
     };
+
+    /// Set by [`alloc`] when `heap_bytes` crosses the threshold; read (and
+    /// cleared) at the interpreter safepoint. A plain `Cell` so the
+    /// per-instruction check needs no `RefCell` borrow.
+    static GC_PENDING: Cell<bool> = const { Cell::new(false) };
+
+    /// Nonzero while collection is suspended (the re-entrant `debug`/`display`
+    /// fallback). A `Cell`, like `GC_PENDING`, for a borrow-free safepoint check.
+    static GC_PAUSED: Cell<usize> = const { Cell::new(0) };
 }
 
 /// Allocate `obj` and return a handle to it, reusing a free hole when one is
 /// available. Allocation never collects — that is the safepoint's job
-/// ([`maybe_collect`]) — so a handle handed back here is always live.
+/// ([`maybe_collect`]) — so a handle handed back here is always live. It does
+/// account the new bytes and arm `GC_PENDING` once the heap crosses threshold.
 pub fn alloc(obj: Obj) -> Value {
     HEAP.with(|h| {
         let mut heap = h.borrow_mut();
+        heap.heap_bytes += obj.heap_bytes();
+        if heap.heap_bytes >= heap.next_gc_bytes {
+            GC_PENDING.set(true);
+        }
         let handle = match heap.free.pop() {
             Some(i) => {
                 heap.slots[i as usize] = Some(obj);
@@ -150,43 +176,49 @@ fn clone_at(heap: &Heap, handle: u32) -> Obj {
 /// GC, the way a native is (its in-flight values live in Rust locals, not in a
 /// rooted frame). Calls nest; resume what you pause.
 pub fn pause_gc() {
-    HEAP.with(|h| h.borrow_mut().gc_paused += 1);
+    GC_PAUSED.set(GC_PAUSED.get() + 1);
 }
 
 pub fn resume_gc() {
-    HEAP.with(|h| h.borrow_mut().gc_paused -= 1);
+    GC_PAUSED.set(GC_PAUSED.get() - 1);
 }
 
-/// The interpreter safepoint: collect if the heap has grown past its threshold
-/// (and collection isn't paused), tracing from `roots`. Called at the top of
-/// `run_loop`, where `roots` — every active frame's locals and operand stack —
-/// is the complete live set. A no-op on the common path (a cheap occupancy
-/// check), so it is fine to call once per instruction.
+/// The interpreter safepoint: collect if [`alloc`] has flagged the heap past its
+/// threshold and collection isn't paused, tracing from `roots`. Called at the
+/// top of `run_loop`, where `roots` — every active frame's locals and operand
+/// stack — is the complete live set. The common-path check is two `Cell` reads
+/// (no heap borrow, `roots` left unconsumed), so it is cheap per instruction.
 pub fn maybe_collect(roots: impl Iterator<Item = Value>) {
-    let due = HEAP.with(|h| {
-        let heap = h.borrow();
-        heap.gc_paused == 0 && heap.live() >= heap.next_gc
-    });
-    if due {
+    if GC_PENDING.get() && GC_PAUSED.get() == 0 {
         collect(roots);
     }
 }
 
 /// A precise, non-moving mark-sweep over `roots`. Marks everything reachable
-/// from a root via [`Obj::child_values`], frees the unmarked slots onto the free
-/// list, and resets the next-collection threshold to twice the survivors.
+/// from a root via [`Obj::child_values`] (summing the live bytes as it goes),
+/// frees the unmarked slots onto the free list, and retargets the
+/// next-collection threshold — 2× the survivors, or 4× when this collection
+/// reclaimed less than a quarter of the heap (anti-thrash).
 pub fn collect(roots: impl Iterator<Item = Value>) {
     HEAP.with(|h| {
         let mut heap = h.borrow_mut();
-        let mut marked = vec![false; heap.slots.len()];
+
+        // Reuse the mark bitmap's allocation across collections.
+        let mut marked = std::mem::take(&mut heap.marked);
+        marked.clear();
+        marked.resize(heap.slots.len(), false);
         let mut worklist: Vec<u32> = Vec::new();
 
-        // Mark roots, then transitively everything they reach.
+        // Mark roots, then transitively everything they reach, totalling the
+        // live bytes during the same walk (so `heap_bytes` is read once per live
+        // object — never for garbage, never in a separate pass).
         for v in roots {
             mark(&mut marked, &mut worklist, v);
         }
+        let mut live_bytes = 0usize;
         while let Some(handle) = worklist.pop() {
             if let Some(obj) = &heap.slots[handle as usize] {
+                live_bytes += obj.heap_bytes();
                 for child in obj.child_values() {
                     mark(&mut marked, &mut worklist, child);
                 }
@@ -203,8 +235,28 @@ pub fn collect(roots: impl Iterator<Item = Value>) {
             }
         }
 
-        heap.next_gc = (heap.live() * 2).max(MIN_GC_THRESHOLD);
+        // Retarget the threshold from the surviving bytes (anti-thrash growth).
+        heap.next_gc_bytes = next_threshold(heap.heap_bytes, live_bytes, MIN_GC_BYTES);
+        heap.heap_bytes = live_bytes;
+
+        heap.marked = marked; // restore for reuse next time
+        GC_PENDING.set(false);
     });
+}
+
+/// The next-collection threshold given the bytes occupied before this sweep
+/// (`heap_bytes`) and the bytes that survived it (`live_bytes`). Normally 2× the
+/// survivors, but **4× when the collection reclaimed less than a quarter of the
+/// heap** — a memory-hungry program should be re-marked less often rather than
+/// thrashed for little gain — and never below `floor`.
+fn next_threshold(heap_bytes: usize, live_bytes: usize, floor: usize) -> usize {
+    let reclaimed = heap_bytes.saturating_sub(live_bytes);
+    let grow = if heap_bytes > 0 && reclaimed * 4 < heap_bytes {
+        4
+    } else {
+        2
+    };
+    (live_bytes * grow).max(floor)
 }
 
 /// Mark `v`'s handle (if it is one) grey: record it and enqueue it for tracing.
@@ -227,6 +279,11 @@ pub fn object_count() -> usize {
 mod tests {
     use super::*;
     use crate::value::Value;
+
+    /// Force the next allocation to arm a collection (test convenience).
+    fn lower_threshold_to_zero() {
+        HEAP.with(|h| h.borrow_mut().next_gc_bytes = 0);
+    }
 
     #[test]
     fn alloc_grows_and_handles_are_distinct() {
@@ -311,13 +368,45 @@ mod tests {
     }
 
     #[test]
+    fn alloc_arms_collection_at_the_byte_threshold() {
+        // With a zero threshold the next allocation arms `GC_PENDING`, and the
+        // safepoint then sweeps the (unrooted) garbage.
+        lower_threshold_to_zero();
+        let _garbage = Value::new_str("dead");
+        assert!(
+            GC_PENDING.get(),
+            "alloc past threshold should arm collection"
+        );
+        maybe_collect(std::iter::empty());
+        assert_eq!(object_count(), 0);
+        assert!(!GC_PENDING.get(), "collection clears the pending flag");
+    }
+
+    #[test]
+    fn threshold_growth_is_adaptive() {
+        // Floor of 0 to isolate the multiplier from the clamp.
+        // Reclaimed a sliver (100 of 1000, < 25%) → 4× the survivors.
+        assert_eq!(next_threshold(1000, 900, 0), 3600);
+        // Reclaimed most (600 of 1000, ≥ 25%) → 2× the survivors.
+        assert_eq!(next_threshold(1000, 400, 0), 800);
+        // Boundary: exactly 25% reclaimed is not "less than", so 2×.
+        assert_eq!(next_threshold(1000, 750, 0), 1500);
+        // The floor wins when the live set is tiny.
+        assert_eq!(next_threshold(1000, 10, 1024), 1024);
+        // A first collection of an empty heap stays at the floor.
+        assert_eq!(next_threshold(0, 0, 1024), 1024);
+    }
+
+    #[test]
     fn paused_collection_is_a_noop() {
         let kept = Value::new_str("keep");
         let _ = Value::new_str("drop");
+        GC_PENDING.set(true); // pretend a collection is due
         pause_gc();
         maybe_collect(std::iter::empty()); // would sweep everything, but paused
         resume_gc();
         // Nothing was collected while paused.
         assert!(values_eq(kept, Value::new_str("keep")));
+        GC_PENDING.set(false); // tidy up for any later work on this thread
     }
 }
