@@ -1,0 +1,127 @@
+// Tests for std.cli's declarative Command parser.
+
+import std.testing;
+
+import 'command';
+
+// A representative command reused across the parsing tests.
+fn sample() -> Command {
+    return Command.new('tool')
+        .about('frobs the widgets')
+        .flag('verbose', abbr: 'v', help: 'noisy output')
+        .flag('color', abbr: 'c', negatable: true, default: true)
+        .option('out', abbr: 'o', help: 'output path')
+        .positional('input', help: 'the input file');
+}
+
+@test
+fn test_flag_long_and_short() -> Result<Void, Error> {
+    let m1 = testing.assert_ok(sample().parse(['--verbose']))?;
+    testing.assert_eq(actual: m1.flag('verbose'), expected: true)?;
+
+    let m2 = testing.assert_ok(sample().parse(['-v']))?;
+    testing.assert_eq(actual: m2.flag('verbose'), expected: true)?;
+
+    // Absent flag is false by default.
+    let m3 = testing.assert_ok(sample().parse([]))?;
+    testing.assert_eq(actual: m3.flag('verbose'), expected: false)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_flag_default_and_negation() -> Result<Void, Error> {
+    // `color` defaults to true...
+    let m1 = testing.assert_ok(sample().parse([]))?;
+    testing.assert_eq(actual: m1.flag('color'), expected: true)?;
+
+    // ...and `--no-color` turns it off.
+    let m2 = testing.assert_ok(sample().parse(['--no-color']))?;
+    testing.assert_eq(actual: m2.flag('color'), expected: false)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_option_forms() -> Result<Void, Error> {
+    // Space-separated.
+    let m1 = testing.assert_ok(sample().parse(['--out', 'result.txt']))?;
+    testing.assert_eq(actual: m1.option('out'), expected: Option.Some('result.txt'))?;
+
+    // Joined with '='.
+    let m2 = testing.assert_ok(sample().parse(['--out=result.txt']))?;
+    testing.assert_eq(actual: m2.option('out'), expected: Option.Some('result.txt'))?;
+
+    // By abbreviation, both forms.
+    let m3 = testing.assert_ok(sample().parse(['-o', 'a.txt']))?;
+    testing.assert_eq(actual: m3.option('out'), expected: Option.Some('a.txt'))?;
+    let m4 = testing.assert_ok(sample().parse(['-o=b.txt']))?;
+    testing.assert_eq(actual: m4.option('out'), expected: Option.Some('b.txt'))?;
+
+    // A value containing '=' survives the split.
+    let m5 = testing.assert_ok(sample().parse(['--out=k=v']))?;
+    testing.assert_eq(actual: m5.option('out'), expected: Option.Some('k=v'))?;
+
+    // Absent option is None.
+    let m6 = testing.assert_ok(sample().parse([]))?;
+    testing.assert_eq(actual: m6.option('out'), expected: Option.None)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_positionals() -> Result<Void, Error> {
+    let m = testing.assert_ok(sample().parse(['--verbose', 'a.in', 'b.in']))?;
+    testing.assert_eq(actual: m.positional(0), expected: Option.Some('a.in'))?;
+    testing.assert_eq(actual: m.positional(1), expected: Option.Some('b.in'))?;
+    testing.assert_eq(actual: m.positional(2), expected: Option.None)?;
+    testing.assert_eq(actual: m.positionals().len(), expected: 2)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_errors() -> Result<Void, Error> {
+    // Undeclared flag.
+    testing.assert_err(sample().parse(['--bogus']))?;
+    // Option with no value.
+    testing.assert_err(sample().parse(['--out']))?;
+    // A value attached to a flag.
+    testing.assert_err(sample().parse(['--verbose=loud']))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_auto_help_flag() -> Result<Void, Error> {
+    // `--help` / `-h` are always available without being declared.
+    let m1 = testing.assert_ok(sample().parse(['--help']))?;
+    testing.assert_eq(actual: m1.flag('help'), expected: true)?;
+    let m2 = testing.assert_ok(sample().parse(['-h']))?;
+    testing.assert_eq(actual: m2.flag('help'), expected: true)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_subcommands() -> Result<Void, Error> {
+    let cmd = Command.new('git')
+        .subcommand(Command.new('commit').flag('amend', abbr: 'a'))
+        .subcommand(Command.new('push'));
+
+    let m = testing.assert_ok(cmd.parse(['commit', '--amend']))?;
+    testing.assert_eq(actual: m.subcommand(), expected: Option.Some('commit'))?;
+
+    // The subcommand's own matches carry its parsed flags.
+    let sub = testing.assert_ok(m.matches().ok_or(Error { message: 'no submatches' }))?;
+    testing.assert_eq(actual: sub.flag('amend'), expected: true)?;
+
+    // An unknown subcommand is rejected.
+    testing.assert_err(cmd.parse(['rebase']))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_help_text() -> Result<Void, Error> {
+    let text = sample().help();
+    testing.assert(text.contains('frobs the widgets'), message: 'about line')?;
+    testing.assert(text.contains('Usage: tool'), message: 'usage line')?;
+    testing.assert(text.contains('--verbose, -v'), message: 'flag with abbr')?;
+    testing.assert(text.contains('--out, -o <value>'), message: 'option with value')?;
+    testing.assert(text.contains('--help, -h'), message: 'auto help flag')?;
+    return Result.Ok(void);
+}

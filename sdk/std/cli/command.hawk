@@ -1,0 +1,493 @@
+// std.cli — declarative command-line parsing: typed flags, options,
+// positionals, subcommands, and a generated `--help`.
+//
+// Import as: import std.cli
+//
+// Declare a command with a fluent builder, then parse the program arguments
+// (the `List<String>` `main` receives, or `env.args()`). Names are declared
+// **bare** — `flag('verbose')`, not `flag('--verbose')`; the parser owns the
+// dash conventions and accepts:
+//
+//   --name             a long flag            (foo --verbose)
+//   -n                 its abbreviation       (foo -v)
+//   --name value       a long option + value  (foo --out result.txt)
+//   --name=value       the joined form        (foo --out=result.txt)
+//   -n value / -n=value  an option by abbr
+//   --no-name          a negated flag         (foo --no-color)   [if negatable]
+//
+// A `--help` / `-h` flag is registered automatically. Parsing never exits on
+// its own — you decide when to show help:
+//
+//   import std.cli;
+//
+//   fn main(argv: List<String>) -> Result<Int, cli.CliError> {
+//       let cmd = cli.Command.new('greet')
+//           .about('greet someone by name')
+//           .flag('loud', abbr: 'l', help: 'shout the greeting')
+//           .option('name', abbr: 'n', help: 'who to greet');
+//
+//       let m = cmd.parse(argv)?;
+//       if m.flag('help') {
+//           println(cmd.help());
+//           return Result.Ok(0);
+//       }
+//
+//       let who = m.option('name').unwrap_or('world');
+//       let greeting = 'Hello, ${who}!';
+//       if m.flag('loud') {
+//           println(greeting.to_uppercase());
+//       } else {
+//           println(greeting);
+//       }
+//       return Result.Ok(0);
+//   }
+//
+// For raw, undeclared access to the argument list, see `std.cli/args` (the
+// low-level escape hatch); `Command` is the declarative layer on the same idea.
+
+// --- declarations ---
+
+// A boolean flag. `fallback` is the value reported when the flag is absent
+// (the `default:` builder argument); a `negatable` flag also accepts
+// `--no-<name>`, which reports false.
+pub type Flag = {
+    name: String,
+    help: String,
+    abbr: String,
+    negatable: Bool,
+    fallback: Bool,
+}
+
+// A `--name value` option (carries a string value).
+pub type Opt = {
+    name: String,
+    help: String,
+    abbr: String,
+}
+
+// A positional argument (named for `--help`; read back by index).
+pub type Positional = {
+    name: String,
+    help: String,
+}
+
+// A command: its declared flags/options/positionals and any subcommands. Build
+// one with the fluent `Command.new(...).flag(...).option(...)` builder.
+pub type Command = {
+    name: String,
+    about_text: String,
+    flags: List<Flag>,
+    options: List<Opt>,
+    positionals: List<Positional>,
+    subcommands: List<Command>,
+}
+
+// What `parse` can reject. (Will gain `implements Error` once the Error
+// interface migration lands; today it is a plain enum callers `match` on.)
+pub enum CliError {
+    UnknownFlag(String),        // an undeclared --flag / -x
+    MissingValue(String),       // an option given with no value
+    UnexpectedValue(String),    // a value attached to a flag (--verbose=x)
+    UnknownSubcommand(String),  // a bare token where a subcommand was expected
+}
+
+// The result of a successful parse: resolved flag values, option values,
+// positionals, and (if one was selected) the chosen subcommand and its own
+// `Matches`.
+pub type Matches = {
+    flag_values: Map<String, Bool>,
+    option_values: Map<String, String>,
+    positional_values: List<String>,
+    sub_name: Option<String>,
+    sub: Option<Matches>,
+}
+
+impl Command {
+    // A new command named `name`, with a `--help` / `-h` flag already declared.
+    pub fn new(_ name: String) -> Command {
+        let c = Command {
+            name: name,
+            about_text: '',
+            flags: [],
+            options: [],
+            positionals: [],
+            subcommands: [],
+        };
+        c.flags.push(Flag {
+            name: 'help',
+            help: 'show this help',
+            abbr: 'h',
+            negatable: false,
+            fallback: false,
+        });
+        return c;
+    }
+
+    // A one-line description, shown in `help()`.
+    pub fn about(self, _ text: String) -> Command {
+        self.about_text = text;
+        return self;
+    }
+
+    // Declare a boolean flag (present → true). `abbr` is a single-character
+    // short form (`-a`); `negatable` also accepts `--no-<name>`; `default` is
+    // the value when the flag is absent.
+    pub fn flag(
+        self,
+        _ name: String,
+        help: String = '',
+        abbr: String = '',
+        negatable: Bool = false,
+        default: Bool = false,
+    ) -> Command {
+        self.flags.push(Flag {
+            name: name,
+            help: help,
+            abbr: abbr,
+            negatable: negatable,
+            fallback: default,
+        });
+        return self;
+    }
+
+    // Declare a `--name value` option.
+    pub fn option(self, _ name: String, help: String = '', abbr: String = '') -> Command {
+        self.options.push(Opt { name: name, help: help, abbr: abbr });
+        return self;
+    }
+
+    // Declare a positional argument (named only for `--help`).
+    pub fn positional(self, _ name: String, help: String = '') -> Command {
+        self.positionals.push(Positional { name: name, help: help });
+        return self;
+    }
+
+    // Attach a subcommand. When the command has subcommands, the first bare
+    // token selects one and the remaining arguments are parsed under it.
+    pub fn subcommand(self, _ cmd: Command) -> Command {
+        self.subcommands.push(cmd);
+        return self;
+    }
+
+    // Parse `args` against this command's declarations.
+    pub fn parse(self, _ args: List<String>) -> Result<Matches, CliError> {
+        let m = Matches {
+            flag_values: {},
+            option_values: {},
+            positional_values: [],
+            sub_name: Option.None,
+            sub: Option.None,
+        };
+        // Seed every declared flag with its default; tokens override below.
+        for f in self.flags {
+            m.flag_values[f.name] = f.fallback;
+        }
+
+        let mut i = 0;
+        while i < args.len() {
+            let t = args[i];
+            let mut step = 1;
+
+            if t.starts_with('--') {
+                let body = drop_first(t, 2);
+                let parts = body.split('=');
+                let name = parts[0];
+                let mut has_value = false;
+                let mut value = '';
+                if parts.len() > 1 {
+                    has_value = true;
+                    value = sublist(parts, 1).join('=');
+                }
+
+                // --no-<name> for a negatable flag.
+                let mut handled = false;
+                if name.starts_with('no-') {
+                    let neg = drop_first(name, 3);
+                    let ni = flag_index(self.flags, neg);
+                    if ni >= 0 {
+                        if self.flags[ni].negatable {
+                            m.flag_values[neg] = false;
+                            handled = true;
+                        }
+                    }
+                }
+
+                if !handled {
+                    let fi = flag_index(self.flags, name);
+                    let oi = opt_index(self.options, name);
+                    if fi >= 0 {
+                        if has_value {
+                            return Result.Err(CliError.UnexpectedValue(name));
+                        }
+                        m.flag_values[name] = true;
+                    } else if oi >= 0 {
+                        if has_value {
+                            m.option_values[name] = value;
+                        } else if i + 1 < args.len() {
+                            m.option_values[name] = args[i + 1];
+                            step = 2;
+                        } else {
+                            return Result.Err(CliError.MissingValue(name));
+                        }
+                    } else {
+                        return Result.Err(CliError.UnknownFlag(name));
+                    }
+                }
+            } else if t.starts_with('-') && t.len() > 1 {
+                let body = drop_first(t, 1);
+                let parts = body.split('=');
+                let abbr = parts[0];
+                let mut has_value = false;
+                let mut value = '';
+                if parts.len() > 1 {
+                    has_value = true;
+                    value = sublist(parts, 1).join('=');
+                }
+
+                let fi = flag_abbr_index(self.flags, abbr);
+                let oi = opt_abbr_index(self.options, abbr);
+                if fi >= 0 {
+                    if has_value {
+                        return Result.Err(CliError.UnexpectedValue(abbr));
+                    }
+                    m.flag_values[self.flags[fi].name] = true;
+                } else if oi >= 0 {
+                    let oname = self.options[oi].name;
+                    if has_value {
+                        m.option_values[oname] = value;
+                    } else if i + 1 < args.len() {
+                        m.option_values[oname] = args[i + 1];
+                        step = 2;
+                    } else {
+                        return Result.Err(CliError.MissingValue(oname));
+                    }
+                } else {
+                    return Result.Err(CliError.UnknownFlag(abbr));
+                }
+            } else if self.subcommands.len() > 0 {
+                let ci = cmd_index(self.subcommands, t);
+                if ci >= 0 {
+                    let rest = sublist(args, i + 1);
+                    let sm = self.subcommands[ci].parse(rest)?;
+                    m.sub_name = Option.Some(t);
+                    m.sub = Option.Some(sm);
+                    i = args.len(); // consume the remainder
+                    step = 0;
+                } else {
+                    return Result.Err(CliError.UnknownSubcommand(t));
+                }
+            } else {
+                m.positional_values.push(t);
+            }
+
+            i = i + step;
+        }
+
+        return Result.Ok(m);
+    }
+
+    // Generate usage text: a header, a usage line, and a section per group.
+    pub fn help(self) -> String {
+        let mut lines: List<String> = [];
+        if self.about_text == '' {
+            lines.push(self.name);
+        } else {
+            lines.push('${self.name} - ${self.about_text}');
+        }
+        lines.push('');
+
+        let mut usage = 'Usage: ${self.name}';
+        if self.flags.len() > 0 || self.options.len() > 0 {
+            usage = '${usage} [options]';
+        }
+        for p in self.positionals {
+            usage = '${usage} <${p.name}>';
+        }
+        if self.subcommands.len() > 0 {
+            usage = '${usage} <command>';
+        }
+        lines.push(usage);
+
+        if self.flags.len() > 0 {
+            lines.push('');
+            lines.push('Flags:');
+            for f in self.flags {
+                let mut head = '  --${f.name}';
+                if f.abbr != '' {
+                    head = '${head}, -${f.abbr}';
+                }
+                if f.negatable {
+                    head = '${head} (negatable)';
+                }
+                lines.push(describe(head, f.help));
+            }
+        }
+
+        if self.options.len() > 0 {
+            lines.push('');
+            lines.push('Options:');
+            for o in self.options {
+                let mut head = '  --${o.name}';
+                if o.abbr != '' {
+                    head = '${head}, -${o.abbr}';
+                }
+                head = '${head} <value>';
+                lines.push(describe(head, o.help));
+            }
+        }
+
+        if self.positionals.len() > 0 {
+            lines.push('');
+            lines.push('Arguments:');
+            for p in self.positionals {
+                lines.push(describe('  ${p.name}', p.help));
+            }
+        }
+
+        if self.subcommands.len() > 0 {
+            lines.push('');
+            lines.push('Commands:');
+            for c in self.subcommands {
+                lines.push(describe('  ${c.name}', c.about_text));
+            }
+        }
+
+        return lines.join('\n');
+    }
+}
+
+impl Matches {
+    // Whether `name` resolved to true (positive form present, or its default;
+    // a negated `--no-name` and absence both yield the false/default value).
+    pub fn flag(self, _ name: String) -> Bool {
+        return match self.flag_values.get(name) {
+            Some(v) => v,
+            None => false,
+        };
+    }
+
+    // The value given for option `name`, if any.
+    pub fn option(self, _ name: String) -> Option<String> {
+        return self.option_values.get(name);
+    }
+
+    // The positional at `index`, if present.
+    pub fn positional(self, _ index: Int) -> Option<String> {
+        return self.positional_values.get(index);
+    }
+
+    // All positionals, in order.
+    pub fn positionals(self) -> List<String> {
+        return self.positional_values;
+    }
+
+    // The selected subcommand's name, if one matched.
+    pub fn subcommand(self) -> Option<String> {
+        return self.sub_name;
+    }
+
+    // The selected subcommand's own parsed `Matches`, if one matched.
+    pub fn matches(self) -> Option<Matches> {
+        return self.sub;
+    }
+}
+
+// --- internal helpers ---
+
+// Drop the first `n` code points of `s` (used to strip `--` / `-` / `no-`).
+fn drop_first(_ s: String, _ n: Int) -> String {
+    let cps = s.chars();
+    let mut out: List<Int> = [];
+    let mut i = 0;
+    while i < cps.len() {
+        if i >= n {
+            out.push(cps[i]);
+        }
+        i = i + 1;
+    }
+    return String.from_chars(out);
+}
+
+// The sublist of `xs` from `start` to the end.
+fn sublist(_ xs: List<String>, _ start: Int) -> List<String> {
+    let mut out: List<String> = [];
+    let mut i = 0;
+    while i < xs.len() {
+        if i >= start {
+            out.push(xs[i]);
+        }
+        i = i + 1;
+    }
+    return out;
+}
+
+// `head`, plus `help` padded onto the same line when non-empty.
+fn describe(_ head: String, _ help: String) -> String {
+    if help == '' {
+        return head;
+    }
+    return '${head}    ${help}';
+}
+
+// Index of the flag/option/subcommand named `name`, or -1.
+fn flag_index(_ flags: List<Flag>, _ name: String) -> Int {
+    let mut i = 0;
+    while i < flags.len() {
+        if flags[i].name == name {
+            return i;
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
+fn opt_index(_ opts: List<Opt>, _ name: String) -> Int {
+    let mut i = 0;
+    while i < opts.len() {
+        if opts[i].name == name {
+            return i;
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
+fn cmd_index(_ cmds: List<Command>, _ name: String) -> Int {
+    let mut i = 0;
+    while i < cmds.len() {
+        if cmds[i].name == name {
+            return i;
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
+// Index of the flag/option with abbreviation `abbr` (never the empty abbr).
+fn flag_abbr_index(_ flags: List<Flag>, _ abbr: String) -> Int {
+    if abbr == '' {
+        return -1;
+    }
+    let mut i = 0;
+    while i < flags.len() {
+        if flags[i].abbr == abbr {
+            return i;
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
+fn opt_abbr_index(_ opts: List<Opt>, _ abbr: String) -> Int {
+    if abbr == '' {
+        return -1;
+    }
+    let mut i = 0;
+    while i < opts.len() {
+        if opts[i].abbr == abbr {
+            return i;
+        }
+        i = i + 1;
+    }
+    return -1;
+}

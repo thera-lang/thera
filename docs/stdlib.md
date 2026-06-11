@@ -531,34 +531,45 @@ pub fn set_output(_ w: Writer) -> Void;    // default: stderr
 Notes: simple, structured-friendly, writes to stderr by default (stdout stays
 clean for program output — a CLI convention).
 
-### `std.cli` — argument parsing _(partial → expand; flagship for the domain)_
+### `std.cli` — argument parsing _(implemented, pure Hawk)_
 
-Purpose: declarative CLI parsing with subcommands, typed options, and generated
-`--help`. Supersedes the thin `std.cli/args` (`Args`) with a richer builder
-while keeping `Args` for raw access.
+Purpose: declarative CLI parsing with subcommands, typed options, and a
+generated `--help`. The richer `Command` builder sits alongside the thin
+`std.cli/args` (`Args`), which stays for raw access. **Implemented entirely in
+Hawk** (`sdk/std/cli/command.hawk`).
 
 ```
-pub type Command = { /* name, options, subcommands */ }
+pub type Command = { name, about, flags, options, positionals, subcommands }
 impl Command {
-    pub fn new(_ name: String) -> Command;
-    pub fn flag(self, _ name: String, help: String = '') -> Command;       // Bool
-    pub fn option(self, _ name: String, help: String = '') -> Command;     // String
-    pub fn positional(self, _ name: String, help: String = '') -> Command;
+    pub fn new(_ name: String) -> Command;                  // auto-registers --help/-h
+    pub fn about(self, _ text: String) -> Command;
+    pub fn flag(self, _ name: String, help = '', abbr = '',
+                negatable = false, default = false) -> Command;   // Bool
+    pub fn option(self, _ name: String, help = '', abbr = '') -> Command;  // String
+    pub fn positional(self, _ name: String, help = '') -> Command;
     pub fn subcommand(self, _ cmd: Command) -> Command;
     pub fn parse(self, _ args: List<String>) -> Result<Matches, CliError>;
+    pub fn help(self) -> String;                            // generated usage text
 }
 pub type Matches = { /* typed accessors */ }
 impl Matches {
-    pub fn flag(self, _ name: String) -> Bool;
+    pub fn flag(self, _ name: String) -> Bool;              // resolves negation + default
     pub fn option(self, _ name: String) -> Option<String>;
     pub fn positional(self, _ index: Int) -> Option<String>;
+    pub fn positionals(self) -> List<String>;
+    pub fn subcommand(self) -> Option<String>;              // selected subcommand
+    pub fn matches(self) -> Option<Matches>;                // its parsed Matches
 }
+pub enum CliError { UnknownFlag(String), MissingValue(String),
+                    UnexpectedValue(String), UnknownSubcommand(String) }
 ```
 
-Notes: rich, declarative arg parsing is one of the highest-value pieces for the
-CLI domain — it both removes boilerplate and gives `--help` for free. The
-existing `Args` (raw positional/flag access) stays as the low-level escape
-hatch.
+Names are declared **bare** (`flag('verbose')`); the parser accepts the long
+form (`--verbose`), abbreviations (`-v`), `--name value` / `--name=value` for
+options, and `--no-name` for `negatable` flags. `--help`/`-h` is auto-registered
+but never auto-intercepted — the caller decides when to print `help()`. Deferred
+to v2: short-flag clustering (`-rf`). The `Error` interface migration will let
+`CliError` `implement Error`; today it is a concrete enum callers `match` on.
 
 ### `std.term` — terminal _(new)_
 
@@ -688,7 +699,7 @@ dependency graph, so future work lands in the right order:
 | std.hash     | new     | runtime native                                                                                                                   |
 | std.http     | new     | client only; runtime sockets + TLS                                                                                               |
 | std.log      | new     |                                                                                                                                  |
-| std.cli      | partial | expand `Args` → declarative `Command`                                                                                            |
+| std.cli      | done    | pure Hawk; declarative `Command`/`Matches`/`CliError` + `--help`, abbrs, negation; `Args` stays the raw escape hatch              |
 | std.term     | new     |                                                                                                                                  |
 | std.char     | done    | pure Hawk; `pub` API + ASCII scope; `is_hex_digit` added, ident predicates removed                                               |
 | std.regex    | exists  | make `pub`; privatize natives later                                                                                              |
