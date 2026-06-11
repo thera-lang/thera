@@ -145,6 +145,46 @@ finding interesting.
   moving/generational GC later requires _full_ precision including the JIT, so
   avoid baking in conservative-everywhere if generational is a someday-goal.
 
+### Where the collector goes next
+
+The v1 collector is deliberately simple (stop-the-world, count-triggered,
+non-moving). Likely improvements, roughly in priority order:
+
+- **Poll the safepoint less often.** `maybe_collect` currently runs at *every*
+  instruction — one thread-local borrow plus an occupancy compare. It is cheap,
+  but only allocation can make a collection due, so the check only needs to
+  happen where the heap can have grown since the last one: at **back-edges and
+  calls** (and, conservatively, the allocating opcodes). Move the poll there and
+  straight-line non-allocating code pays nothing. The cost is a larger possible
+  overshoot between checks — bounded, because a single instruction allocates a
+  bounded amount.
+- **Trigger on bytes, not object count.** The threshold counts live *objects*, so
+  a 10-byte string and a 10 MB one weigh the same. Tracking bytes allocated (and
+  bytes live after a sweep) gives a memory-proportional trigger and a real heap
+  target — with optional floor/ceiling bounds and a soft-limit the runtime backs
+  toward under pressure. `alloc` would maintain an allocation-debt counter the
+  safepoint reads, which also subsumes the previous point (poll = "is debt over
+  budget?").
+- **Generational collection.** The `gc_stress` workload is the textbook case —
+  nearly everything dies young. A young/old split with a minor collection over
+  just the young set would cut work dramatically on allocation-heavy code. It
+  needs a write barrier (to catch old→young pointers; `field.set`/`list.set` are
+  the only mutators) and, once the JIT lands, full precision there too.
+- **Incremental marking** (tri-color) to bound pause times once heaps are large —
+  the explicit worklist in `collect` is already the shape this builds on.
+- **Tighter slab layout.** A slot is `Option<Obj>`, sized to the largest `Obj`
+  variant; size-segregating pools or boxing the big payloads would shrink the
+  slab and improve locality. (Still non-moving — handles stay stable.)
+- **Diagnostics.** A `HAWK_GC_STATS`-style knob (collections, bytes reclaimed,
+  pause time) — `object_count` is the seed. **Weak references / finalizers** stay
+  unbuilt until a Hawk object owns a native resource; the hook would live in the
+  sweep loop.
+
+A **moving/compacting** collector is the one direction the stable-handle contract
+and the planned conservative-JIT-frame scan both rule out — revisit only if
+fragmentation or generational promotion later justifies full precision across
+both tiers.
+
 ## Persistence and the native ABI
 
 `bin/hawk` is the Rust runtime with an **embedded `frontend.hawkbc`** (the
