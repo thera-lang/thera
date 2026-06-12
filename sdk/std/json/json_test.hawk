@@ -1,0 +1,127 @@
+// Tests for std.json.
+
+import std.testing;
+
+import 'json';
+
+@test
+fn test_parse_primitives() -> Result<Void, Error> {
+    testing.assert_eq(actual: parse('null')?, expected: Json.Null)?;
+    testing.assert_eq(actual: parse('true')?, expected: Json.Bool(true))?;
+    testing.assert_eq(actual: parse('false')?, expected: Json.Bool(false))?;
+    testing.assert_eq(actual: parse('42')?, expected: Json.Int(42))?;
+    testing.assert_eq(actual: parse('-7')?, expected: Json.Int(-7))?;
+    testing.assert_eq(actual: parse('3.5')?, expected: Json.Double(3.5))?;
+    testing.assert_eq(actual: parse('1e3')?, expected: Json.Double(1000.0))?;
+    testing.assert_eq(actual: parse('"hi"')?, expected: Json.Str('hi'))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_number_int_vs_double() -> Result<Void, Error> {
+    // No '.'/'e' → Int; otherwise Double.
+    testing.assert_eq(actual: parse('10')?.as_int(), expected: Option.Some(10))?;
+    testing.assert_eq(actual: parse('10.0')?.as_int(), expected: Option.Some(10))?; // integral double
+    testing.assert_eq(actual: parse('10.5')?.as_int(), expected: Option.None)?;
+    testing.assert_eq(actual: parse('10')?.as_double(), expected: Option.Some(10.0))?; // int widened
+    return Result.Ok(void);
+}
+
+@test
+fn test_parse_and_navigate() -> Result<Void, Error> {
+    let root = parse('{ "user": { "name": "ada", "age": 36 }, "tags": ["x", "y"] }')?;
+
+    testing.assert_eq(
+        actual: root.get('user').get('name').as_string(),
+        expected: Option.Some('ada'),
+    )?;
+    testing.assert_eq(actual: root.get('user').get('age').as_int(), expected: Option.Some(36))?;
+    testing.assert_eq(actual: root.at(0).is_null(), expected: true)?; // not an array
+    testing.assert_eq(actual: root.get('tags').at(1).as_string(), expected: Option.Some('y'))?;
+    // Missing keys / wrong shapes navigate to Null, not a crash.
+    testing.assert_eq(actual: root.get('nope').get('deep').is_null(), expected: true)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_escapes_round_trip() -> Result<Void, Error> {
+    let s = parse('"a\\tb\\n\\"q\\"\\u0041"')?;
+    testing.assert_eq(actual: s.as_string(), expected: Option.Some('a\tb\n"q"A'))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_surrogate_pair() -> Result<Void, Error> {
+    // 😀 is U+1F600 (😀).
+    let s = parse('"\\uD83D\\uDE00"')?;
+    let grin = String.from_chars([128512]); // U+1F600
+    testing.assert_eq(actual: s.as_string(), expected: Option.Some(grin))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_stringify_compact() -> Result<Void, Error> {
+    let doc = obj({
+        'a': int(1),
+        'b': arr([int(2), int(3)]),
+        'c': bool(true),
+    });
+    testing.assert_eq(actual: stringify(doc), expected: '{"a":1,"b":[2,3],"c":true}')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_stringify_escapes_strings() -> Result<Void, Error> {
+    testing.assert_eq(actual: stringify(str('a"b\\c')), expected: '"a\\"b\\\\c"')?;
+    testing.assert_eq(actual: stringify(str('line\n')), expected: '"line\\n"')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_round_trips() -> Result<Void, Error> {
+    let original = '{"name":"build","retries":3,"ratio":0.5,"tags":["a","b"],"ok":true,"x":null}';
+    let value = parse(original)?;
+    // Re-serialize compact and re-parse: structurally identical.
+    testing.assert_eq(actual: parse(stringify(value))?, expected: value)?;
+    // And the compact form matches byte-for-byte (key order preserved).
+    testing.assert_eq(actual: stringify(value), expected: original)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_empty_containers() -> Result<Void, Error> {
+    testing.assert_eq(actual: stringify(parse('[]')?), expected: '[]')?;
+    testing.assert_eq(actual: stringify(parse('{}')?), expected: '{}')?;
+    testing.assert_eq(actual: stringify(parse('  [ ]  ')?), expected: '[]')?; // whitespace
+    return Result.Ok(void);
+}
+
+@test
+fn test_pretty_printing() -> Result<Void, Error> {
+    let doc = obj({ 'a': int(1), 'b': arr([int(2)]) });
+    let expected = '{\n  "a": 1,\n  "b": [\n    2\n  ]\n}';
+    testing.assert_eq(actual: stringify(doc, pretty: true), expected: expected)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_syntax_errors() -> Result<Void, Error> {
+    testing.assert_err(parse('{ "a": }'))?;       // value expected
+    testing.assert_err(parse('[1, 2'))?;           // unterminated array
+    testing.assert_err(parse('{ a: 1 }'))?;        // unquoted key
+    testing.assert_err(parse('nul'))?;             // bad literal
+    testing.assert_err(parse('1 2'))?;             // trailing content
+    testing.assert_err(parse('"unterminated'))?;   // unterminated string
+    return Result.Ok(void);
+}
+
+@test
+fn test_error_implements_error() -> Result<Void, Error> {
+    // JsonError carries a message (and a position) through the Error interface.
+    let m = match parse('@') {
+        Ok(_) => 'ok',
+        Err(e) => e.message(),
+    };
+    testing.assert(m.contains('line 1'), message: 'error should report a position')?;
+    return Result.Ok(void);
+}

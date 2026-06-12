@@ -1,0 +1,641 @@
+// std.json — parse and serialize JSON.
+//
+// Import as: import std.json
+//
+// The structural `Json` value models any JSON document; `parse` reads text into
+// one and `stringify` writes it back. A typed `decode<T>`/`encode<T>` (struct ↔
+// JSON) awaits the reflection arc — until then, `Json` plus the lowercase
+// constructors (`json.obj`, `json.int`, …) are how you build values.
+//
+//   // Decode + navigate:
+//   let root = json.parse(text)?;
+//   let name = root.get('user').get('name').as_string().unwrap_or('?');
+//
+//   // Encode (each leaf wrapped — Hawk has no heterogeneous literal):
+//   let doc = json.obj({
+//       'name': json.str('build'),
+//       'tags': json.arr([json.str('a'), json.str('b')]),
+//       'count': json.int(3),
+//   });
+//   let text = json.stringify(doc, pretty: true);
+//
+// Implementation: a hand-written scanner + recursive-descent parser, pure Hawk.
+
+import std.char;
+
+// The structural JSON value. `Int` and `Double` are split (rather than a single
+// number) so integers round-trip exactly and construct cleanly as `json.int(n)`.
+pub enum Json {
+    Null,
+    Bool(Bool),
+    Int(Int),
+    Double(Double),
+    Str(String),
+    Array(List<Json>),
+    Object(Map<String, Json>),    // insertion-ordered → stringify is stable
+}
+
+// What `parse` can reject. A domain error: implements the common `Error`.
+pub enum JsonError {
+    Syntax(String),    // a message including the offending line/column
+}
+
+impl Error for JsonError {
+    pub fn message(self) -> String {
+        return match self {
+            Syntax(msg) => msg,
+        };
+    }
+}
+
+impl Display for JsonError {
+    pub fn display(self) -> String {
+        return self.message();
+    }
+}
+
+// --- constructors (the lowercase building API) ---
+
+pub fn null() -> Json {
+    return Json.Null;
+}
+
+pub fn bool(_ b: Bool) -> Json {
+    return Json.Bool(b);
+}
+
+pub fn int(_ n: Int) -> Json {
+    return Json.Int(n);
+}
+
+pub fn double(_ x: Double) -> Json {
+    return Json.Double(x);
+}
+
+pub fn str(_ s: String) -> Json {
+    return Json.Str(s);
+}
+
+pub fn arr(_ items: List<Json>) -> Json {
+    return Json.Array(items);
+}
+
+pub fn obj(_ fields: Map<String, Json>) -> Json {
+    return Json.Object(fields);
+}
+
+// --- accessors ---
+
+impl Json {
+    // An object field by key (Null if not an object or the key is absent). Null
+    // -on-miss keeps navigation chainable: `j.get('a').get('b').as_int()`.
+    pub fn get(self, _ key: String) -> Json {
+        return match self {
+            Object(m) => match m.get(key) {
+                Some(v) => v,
+                None => Json.Null,
+            },
+            _ => Json.Null,
+        };
+    }
+
+    // An array element by index (Null if not an array or out of range).
+    pub fn at(self, _ index: Int) -> Json {
+        return match self {
+            Array(items) => match items.get(index) {
+                Some(v) => v,
+                None => Json.Null,
+            },
+            _ => Json.Null,
+        };
+    }
+
+    pub fn as_bool(self) -> Option<Bool> {
+        return match self {
+            Bool(b) => Option.Some(b),
+            _ => Option.None,
+        };
+    }
+
+    // The number as an Int — for an `Int`, or a `Double` with no fractional part.
+    pub fn as_int(self) -> Option<Int> {
+        return match self {
+            Int(n) => Option.Some(n),
+            Double(x) => int_if_integral(x),
+            _ => Option.None,
+        };
+    }
+
+    // The number as a Double — for a `Double`, or an `Int` widened.
+    pub fn as_double(self) -> Option<Double> {
+        return match self {
+            Double(x) => Option.Some(x),
+            Int(n) => Option.Some(n.to_double()),
+            _ => Option.None,
+        };
+    }
+
+    pub fn as_string(self) -> Option<String> {
+        return match self {
+            Str(s) => Option.Some(s),
+            _ => Option.None,
+        };
+    }
+
+    pub fn as_array(self) -> Option<List<Json>> {
+        return match self {
+            Array(items) => Option.Some(items),
+            _ => Option.None,
+        };
+    }
+
+    pub fn as_object(self) -> Option<Map<String, Json>> {
+        return match self {
+            Object(m) => Option.Some(m),
+            _ => Option.None,
+        };
+    }
+
+    pub fn is_null(self) -> Bool {
+        return match self {
+            Null => true,
+            _ => false,
+        };
+    }
+}
+
+fn int_if_integral(_ x: Double) -> Option<Int> {
+    let n = x.to_int(); // truncates toward zero
+    if n.to_double() == x {
+        return Option.Some(n);
+    }
+    return Option.None;
+}
+
+// --- parsing ---
+
+// A cursor over the input's code points.
+type Scanner = {
+    chars: List<Int>,
+    pos: Int,
+    len: Int,
+}
+
+pub fn parse(_ text: String) -> Result<Json, JsonError> {
+    let cps = text.chars();
+    let s = Scanner { chars: cps, pos: 0, len: cps.len() };
+    let value = s.parse_value()?;
+    s.skip_ws();
+    if s.pos < s.len {
+        return Result.Err(s.syntax('trailing characters after JSON value'));
+    }
+    return Result.Ok(value);
+}
+
+impl Scanner {
+    // The current code point, or -1 at end of input.
+    fn peek(self) -> Int {
+        if self.pos >= self.len {
+            return -1;
+        }
+        return self.chars[self.pos];
+    }
+
+    fn skip_ws(self) -> Void {
+        let mut going = true;
+        while going {
+            if char.is_whitespace(self.peek()) {
+                self.pos = self.pos + 1;
+            } else {
+                going = false;
+            }
+        }
+        return void;
+    }
+
+    fn syntax(self, _ msg: String) -> JsonError {
+        return JsonError.Syntax('${msg} at ${self.position()}');
+    }
+
+    // A human-readable line/column for the current position.
+    fn position(self) -> String {
+        let mut line = 1;
+        let mut col = 1;
+        let mut i = 0;
+        while i < self.pos {
+            if self.chars[i] == char.LF {
+                line = line + 1;
+                col = 1;
+            } else {
+                col = col + 1;
+            }
+            i = i + 1;
+        }
+        return 'line ${line} col ${col}';
+    }
+
+    // True (and consumes) if the upcoming code points spell `lit`.
+    fn match_literal(self, _ lit: String) -> Bool {
+        let want = lit.chars();
+        let mut i = 0;
+        while i < want.len() {
+            if self.pos + i >= self.len {
+                return false;
+            }
+            if self.chars[self.pos + i] != want[i] {
+                return false;
+            }
+            i = i + 1;
+        }
+        self.pos = self.pos + want.len();
+        return true;
+    }
+
+    fn parse_value(self) -> Result<Json, JsonError> {
+        self.skip_ws();
+        let c = self.peek();
+        if c == char.LBRACE {
+            return self.parse_object();
+        }
+        if c == char.LBRACKET {
+            return self.parse_array();
+        }
+        if c == char.DQUOTE {
+            let s = self.parse_string()?;
+            return Result.Ok(Json.Str(s));
+        }
+        if c == char.MINUS || char.is_digit(c) {
+            return self.parse_number();
+        }
+        if self.match_literal('true') {
+            return Result.Ok(Json.Bool(true));
+        }
+        if self.match_literal('false') {
+            return Result.Ok(Json.Bool(false));
+        }
+        if self.match_literal('null') {
+            return Result.Ok(Json.Null);
+        }
+        if c == -1 {
+            return Result.Err(self.syntax('unexpected end of input'));
+        }
+        return Result.Err(self.syntax('unexpected character'));
+    }
+
+    fn parse_array(self) -> Result<Json, JsonError> {
+        self.pos = self.pos + 1; // consume '['
+        let mut items: List<Json> = [];
+        self.skip_ws();
+        if self.peek() == char.RBRACKET {
+            self.pos = self.pos + 1;
+            return Result.Ok(Json.Array(items));
+        }
+        let mut going = true;
+        while going {
+            let value = self.parse_value()?;
+            items.push(value);
+            self.skip_ws();
+            let c = self.peek();
+            if c == char.COMMA {
+                self.pos = self.pos + 1;
+            } else if c == char.RBRACKET {
+                self.pos = self.pos + 1;
+                going = false;
+            } else {
+                return Result.Err(self.syntax('expected , or ] in array'));
+            }
+        }
+        return Result.Ok(Json.Array(items));
+    }
+
+    fn parse_object(self) -> Result<Json, JsonError> {
+        self.pos = self.pos + 1; // consume '{'
+        let mut fields: Map<String, Json> = {};
+        self.skip_ws();
+        if self.peek() == char.RBRACE {
+            self.pos = self.pos + 1;
+            return Result.Ok(Json.Object(fields));
+        }
+        let mut going = true;
+        while going {
+            self.skip_ws();
+            if self.peek() != char.DQUOTE {
+                return Result.Err(self.syntax('expected a string key'));
+            }
+            let key = self.parse_string()?;
+            self.skip_ws();
+            if self.peek() != char.COLON {
+                return Result.Err(self.syntax('expected : after key'));
+            }
+            self.pos = self.pos + 1; // consume ':'
+            let value = self.parse_value()?;
+            fields[key] = value;
+            self.skip_ws();
+            let c = self.peek();
+            if c == char.COMMA {
+                self.pos = self.pos + 1;
+            } else if c == char.RBRACE {
+                self.pos = self.pos + 1;
+                going = false;
+            } else {
+                return Result.Err(self.syntax('expected , or } in object'));
+            }
+        }
+        return Result.Ok(Json.Object(fields));
+    }
+
+    // The current char is the opening quote.
+    fn parse_string(self) -> Result<String, JsonError> {
+        self.pos = self.pos + 1; // consume opening '"'
+        let mut out: List<Int> = [];
+        let mut going = true;
+        while going {
+            if self.pos >= self.len {
+                return Result.Err(self.syntax('unterminated string'));
+            }
+            let c = self.chars[self.pos];
+            self.pos = self.pos + 1;
+            if c == char.DQUOTE {
+                going = false;
+            } else if c == char.BACKSLASH {
+                self.parse_escape(out)?; // decodes into `out`
+            } else {
+                out.push(c);
+            }
+        }
+        return Result.Ok(String.from_chars(out));
+    }
+
+    // Decode one escape sequence (the '\' is already consumed) into `out`.
+    fn parse_escape(self, _ out: List<Int>) -> Result<Void, JsonError> {
+        if self.pos >= self.len {
+            return Result.Err(self.syntax('unterminated escape'));
+        }
+        let e = self.chars[self.pos];
+        self.pos = self.pos + 1;
+        if e == char.DQUOTE {
+            out.push(char.DQUOTE);
+        } else if e == char.BACKSLASH {
+            out.push(char.BACKSLASH);
+        } else if e == char.SLASH {
+            out.push(char.SLASH);
+        } else if e == 98 {
+            out.push(8); // \b
+        } else if e == 102 {
+            out.push(12); // \f
+        } else if e == 110 {
+            out.push(char.LF); // \n
+        } else if e == 114 {
+            out.push(char.CR); // \r
+        } else if e == 116 {
+            out.push(char.TAB); // \t
+        } else if e == 117 {
+            let cp = self.parse_unicode_escape()?;
+            out.push(cp);
+        } else {
+            return Result.Err(self.syntax('invalid escape'));
+        }
+        return Result.Ok(void);
+    }
+
+    // A `\uXXXX` (the `\u` already consumed), combining a surrogate pair into a
+    // single astral code point when one follows.
+    fn parse_unicode_escape(self) -> Result<Int, JsonError> {
+        let hi = self.parse_hex4()?;
+        // A high surrogate (U+D800..U+DBFF) must pair with a low surrogate.
+        if hi >= 55296 && hi <= 56319 {
+            if self.pos + 1 < self.len
+                && self.chars[self.pos] == char.BACKSLASH
+                && self.chars[self.pos + 1] == 117
+            {
+                self.pos = self.pos + 2; // consume '\u'
+                let lo = self.parse_hex4()?;
+                if lo >= 56320 && lo <= 57343 {
+                    return Result.Ok(65536 + (hi - 55296) * 1024 + (lo - 56320));
+                }
+                return Result.Err(self.syntax('invalid low surrogate'));
+            }
+            return Result.Err(self.syntax('expected a low surrogate'));
+        }
+        return Result.Ok(hi);
+    }
+
+    fn parse_hex4(self) -> Result<Int, JsonError> {
+        let mut value = 0;
+        let mut i = 0;
+        while i < 4 {
+            if self.pos >= self.len {
+                return Result.Err(self.syntax('truncated \\u escape'));
+            }
+            let d = hex_value(self.chars[self.pos]);
+            if d < 0 {
+                return Result.Err(self.syntax('invalid hex digit'));
+            }
+            value = value * 16 + d;
+            self.pos = self.pos + 1;
+            i = i + 1;
+        }
+        return Result.Ok(value);
+    }
+
+    fn parse_number(self) -> Result<Json, JsonError> {
+        let start = self.pos;
+        let mut is_double = false;
+        let mut going = true;
+        while going {
+            let c = self.peek();
+            if char.is_digit(c) || c == char.MINUS || c == char.PLUS {
+                self.pos = self.pos + 1;
+            } else if c == char.DOT || c == 101 || c == 69 {
+                is_double = true; // '.' 'e' 'E'
+                self.pos = self.pos + 1;
+            } else {
+                going = false;
+            }
+        }
+        let token = String.from_chars(slice(self.chars, start, self.pos));
+        if is_double {
+            return match token.to_double() {
+                Some(x) => Result.Ok(Json.Double(x)),
+                None => Result.Err(self.syntax('invalid number')),
+            };
+        }
+        // An integer, unless it overflows i64 — then fall back to Double.
+        return match token.to_int() {
+            Some(n) => Result.Ok(Json.Int(n)),
+            None => match token.to_double() {
+                Some(x) => Result.Ok(Json.Double(x)),
+                None => Result.Err(self.syntax('invalid number')),
+            },
+        };
+    }
+}
+
+// The hex value of an ASCII hex digit, or -1.
+fn hex_value(_ c: Int) -> Int {
+    if char.is_digit(c) {
+        return c - char.DIGIT_0;
+    }
+    let lower = char.to_lower(c);
+    if lower >= 97 && lower <= 102 {
+        return lower - 97 + 10; // a..f
+    }
+    return -1;
+}
+
+fn slice(_ xs: List<Int>, _ start: Int, _ end: Int) -> List<Int> {
+    let mut out: List<Int> = [];
+    let mut i = start;
+    while i < end {
+        out.push(xs[i]);
+        i = i + 1;
+    }
+    return out;
+}
+
+// --- serializing ---
+
+pub fn stringify(_ value: Json, pretty: Bool = false) -> String {
+    let mut parts: List<String> = [];
+    write_value(value, pretty, 0, parts);
+    return parts.join('');
+}
+
+fn write_value(_ v: Json, _ pretty: Bool, _ indent: Int, _ out: List<String>) -> Void {
+    return match v {
+        Null => out.push('null'),
+        Bool(b) => out.push('${b}'),
+        Int(n) => out.push('${n}'),
+        Double(x) => out.push('${x}'),
+        Str(s) => out.push(quote(s)),
+        Array(items) => write_array(items, pretty, indent, out),
+        Object(fields) => write_object(fields, pretty, indent, out),
+    };
+}
+
+fn write_array(_ items: List<Json>, _ pretty: Bool, _ indent: Int, _ out: List<String>) -> Void {
+    if items.len() == 0 {
+        out.push('[]');
+        return void;
+    }
+    out.push('[');
+    let mut i = 0;
+    while i < items.len() {
+        if pretty {
+            out.push('\n');
+            out.push(indent_str(indent + 1));
+        }
+        write_value(items[i], pretty, indent + 1, out);
+        if i + 1 < items.len() {
+            out.push(',');
+        }
+        i = i + 1;
+    }
+    if pretty {
+        out.push('\n');
+        out.push(indent_str(indent));
+    }
+    out.push(']');
+    return void;
+}
+
+fn write_object(_ fields: Map<String, Json>, _ pretty: Bool, _ indent: Int, _ out: List<String>) -> Void {
+    let keys = fields.keys();
+    if keys.len() == 0 {
+        out.push('{}');
+        return void;
+    }
+    out.push('{');
+    let mut i = 0;
+    while i < keys.len() {
+        if pretty {
+            out.push('\n');
+            out.push(indent_str(indent + 1));
+        }
+        out.push(quote(keys[i]));
+        if pretty {
+            out.push(': ');
+        } else {
+            out.push(':');
+        }
+        let value = match fields.get(keys[i]) {
+            Some(jv) => jv,
+            None => Json.Null,
+        };
+        write_value(value, pretty, indent + 1, out);
+        if i + 1 < keys.len() {
+            out.push(',');
+        }
+        i = i + 1;
+    }
+    if pretty {
+        out.push('\n');
+        out.push(indent_str(indent));
+    }
+    out.push('}');
+    return void;
+}
+
+// A JSON string literal: `s` escaped and double-quoted.
+fn quote(_ s: String) -> String {
+    let cps = s.chars();
+    let mut out: List<Int> = [];
+    out.push(char.DQUOTE);
+    let mut i = 0;
+    while i < cps.len() {
+        let c = cps[i];
+        if c == char.DQUOTE {
+            out.push(char.BACKSLASH);
+            out.push(char.DQUOTE);
+        } else if c == char.BACKSLASH {
+            out.push(char.BACKSLASH);
+            out.push(char.BACKSLASH);
+        } else if c == 8 {
+            out.push(char.BACKSLASH);
+            out.push(98); // \b
+        } else if c == 12 {
+            out.push(char.BACKSLASH);
+            out.push(102); // \f
+        } else if c == char.LF {
+            out.push(char.BACKSLASH);
+            out.push(110); // \n
+        } else if c == char.CR {
+            out.push(char.BACKSLASH);
+            out.push(114); // \r
+        } else if c == char.TAB {
+            out.push(char.BACKSLASH);
+            out.push(116); // \t
+        } else if c < 32 {
+            // Other control characters as \u00XX.
+            out.push(char.BACKSLASH);
+            out.push(117); // u
+            out.push(char.DIGIT_0);
+            out.push(char.DIGIT_0);
+            out.push(hex_char(c / 16));
+            out.push(hex_char(c % 16));
+        } else {
+            out.push(c);
+        }
+        i = i + 1;
+    }
+    out.push(char.DQUOTE);
+    return String.from_chars(out);
+}
+
+// The ASCII code of the hex digit for 0..15.
+fn hex_char(_ n: Int) -> Int {
+    if n < 10 {
+        return char.DIGIT_0 + n;
+    }
+    return 97 + n - 10; // a..f
+}
+
+fn indent_str(_ level: Int) -> String {
+    let mut out: List<Int> = [];
+    let mut i = 0;
+    while i < level * 2 {
+        out.push(char.SPACE);
+        i = i + 1;
+    }
+    return String.from_chars(out);
+}

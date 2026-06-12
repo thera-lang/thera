@@ -451,31 +451,63 @@ hand-rolled std-only Rust to keep the runtime dependency-free; a crate could
 replace it behind the same natives. Not cryptographically secure. A higher-
 quality / pure-Hawk generator waits on the bitwise-operators arc.
 
-### `std.json` — JSON _(new; the flagship data format)_
+### `std.json` — JSON _(implemented, pure Hawk; the flagship data format)_
 
-Purpose: parse and serialize JSON. A structural `Json` value now; typed
-encode/decode once reflection/derive exists.
+Purpose: parse and serialize JSON. A structural `Json` value, with a
+hand-written scanner + recursive-descent parser in pure Hawk
+(`sdk/std/json/json.hawk`) — the worked stand-in for self-hosting the front-end.
 
 ```
 pub enum Json {
-    Null, Bool(Bool), Number(Double), Str(String),
-    Array(List<Json>), Object(Map<String, Json>),
+    Null, Bool(Bool), Int(Int), Double(Double), Str(String),
+    Array(List<Json>), Object(Map<String, Json>),    // Object is insertion-ordered
 }
+
+// Lowercase constructors (the building API):
+pub fn null() / bool(b) / int(n) / double(x) / str(s) / arr(items) / obj(fields) -> Json;
+
 pub fn parse(_ text: String) -> Result<Json, JsonError>;
 pub fn stringify(_ value: Json, pretty: Bool = false) -> String;
 
 impl Json {
-    pub fn get(self, _ key: String) -> Option<Json>;   // Object lookup
-    pub fn at(self, _ index: Int) -> Option<Json>;      // Array index
-    pub fn as_string(self) -> Option<String>;           // + as_int/as_double/as_bool
+    pub fn get(self, _ key: String) -> Json;       // Object field, else Null (chainable)
+    pub fn at(self, _ index: Int) -> Json;          // Array element, else Null
+    pub fn as_bool / as_int / as_double / as_string (self) -> Option<...>;
+    pub fn as_array(self) -> Option<List<Json>>;    // + as_object
+    pub fn is_null(self) -> Bool;
 }
-pub enum JsonError { Syntax(String), Type(String) }     // implements Error
+pub enum JsonError { Syntax(String) }                // implements Error + Display
 ```
 
-Notes: typed `decode<T>` / `encode<T>` (struct ↔ JSON) needs compile-time
-reflection or a `derive`-like mechanism — **deferred** (§ Sequencing); the
-structural `Json` enum is the near-term answer. **YAML/TOML/CSV are ecosystem**;
-this is where an agent looks first and finds the pointer.
+`Int`/`Double` are split (not a single `Number`) so integers round-trip exactly
+and construct cleanly (`json.int(42)`); the parser picks the variant by syntax (a
+`.`/`e`/`E` → `Double`), and `as_int`/`as_double` cross-tolerate. `get`/`at`
+return `Json` (Null on miss) rather than `Option`, so navigation chains —
+`root.get('user').get('name').as_string()` — which matters because Hawk's
+`Option` has no `and_then` yet. Strings handle the full escape set including
+`\uXXXX` with surrogate-pair combining. `JsonError` is `Syntax`-only for v1 (parse
+is the only fallible op; a `Type`/`Missing` variant returns with typed `decode`).
+
+**Encoding ergonomics — three layers.** Building a heterogeneous value needs
+`Json` (Hawk has no heterogeneous map/list literal — a raw `{ 'a': 1, 'b': true }`
+is a `Map`, not a `Json`, and won't pass to `stringify`). The layers:
+
+1. **Constructors (today):** `json.obj({ 'two': json.int(123), 'three': json.double(1.2) })`
+   — container literals stay; only the leaves wrap.
+2. **Auto-boxing (proposed — §Sequencing):** an expected-type-directed coercion
+   that extends the existing implicit `Ok`-wrap to `Json`: where a `Json` is
+   expected, a literal/primitive boxes into its variant (`Int`→`Json.Int`, a list
+   literal→`Json.Array` recursively, a `String`-keyed map literal→`Json.Object`),
+   so `let doc: Json = { 'two': 123, 'three': 1.2 }` just works. Encode-only;
+   scoped to the blessed `Json` type. The most LLM-friendly for ad-hoc inline JSON.
+3. **Reflection `encode<T>`/`decode<T>` (research-later — §Sequencing):** typed
+   struct ↔ JSON with no manual wrapping, and the only path to typed **decoding**.
+
+These three coexist: a named type → reflection; an ad-hoc inline blob →
+auto-boxing; the constructors are the explicit fallback under both.
+
+**YAML/TOML/CSV are ecosystem** — this is where an agent looks first and finds
+the pointer.
 
 ### `std.encoding` — base64 / hex / url _(new)_
 
@@ -668,10 +700,35 @@ dependency graph, so future work lands in the right order:
    extending `Display`/`Debug` (interface inheritance) so interface-typed errors
    interpolate and work with `assert_ok` directly.
 
-5. **Reflection / `derive` (later).** Typed `json.decode<T>` / `encode<T>`
-   (struct ↔ JSON) and `Debug` auto-derivation want compile-time reflection or a
-   `derive` mechanism. Until then: the structural `Json` enum and explicit
-   `display`/`debug`.
+5. **JSON encoding ergonomics.** Two independent improvements over the
+   constructors (`json.obj`/`json.int`/…) that ship today, for the two distinct
+   use cases — building ad-hoc inline JSON, and serializing typed data:
+
+   - **Auto-boxing into `Json` (proposed; smaller).** Extend the existing
+     expected-type-directed boxing — the implicit `Ok`-wrap (`return n` →
+     `Ok(n)`) — to the blessed `Json` type. **Rule:** when the expected type is
+     exactly `Json`, an expression whose type is `Int`/`Double`/`String`/`Bool`
+     boxes into the matching variant; a **list literal** elaborates each element
+     against `Json` and boxes to `Json.Array`; a **`String`-keyed map literal**
+     boxes its values to `Json.Object`. So `let doc: Json = { 'two': 123, 'tags':
+     ['a', 'b'], 'ok': true }` works. Scoped to literals/primitives in `Json`
+     context (not arbitrary coercion), and **encode-only**. It introduces Hawk's
+     first implicit *primitive* boxing — softened by the `Ok`-wrap precedent (same
+     mechanism, another blessed type) and by being lossless. Highest
+     ergonomic-return-per-effort; the most LLM-friendly for inline JSON.
+   - **Compile-time reflection `encode<T>`/`decode<T>` (research-later; bigger).**
+     Typed struct ↔ JSON with no manual wrapping, and the only path to typed
+     **decoding** (the harder, more valuable half) plus `Debug`/`Eq` derive. Done
+     as *compile-time, monomorphized* reflection (serde/Zig-comptime style) it
+     carries no runtime metadata, so it stays AOT/tree-shake-friendly — but it
+     entangles with the generics strategy (monomorphization vs today's dynamic
+     dispatch), so it's a deliberate arc to research, not a quick add. Open design
+     questions: enum→JSON representation, field renaming, `Option` fields, and
+     decode-error variants (`Type`/`Missing` on `JsonError`).
+
+   The two coexist (named type → reflection; ad-hoc blob → auto-boxing); the
+   constructors are the explicit fallback under both. Preferred over macros/codegen
+   (a last resort) — compile-time reflection is the principled substitute.
 
 6. **Runtime natives.** New runtime support is needed for `std.time` (clocks),
    `std.random` (entropy), `std.http` (sockets + TLS), `std.hash`, and
@@ -705,7 +762,7 @@ dependency graph, so future work lands in the right order:
 | std.fiber    | new     | runtime scheduler                                                                                                                |
 | std.math     | done    | Double fns + constants; abs/min/max/clamp + to_double/to_int are Int/Double methods                                              |
 | std.random   | done    | SplitMix64; state is a visible Int; mix via native (bitops gap)                                                                  |
-| std.json     | new     | structural now; typed decode later                                                                                               |
+| std.json     | done    | pure Hawk; structural `Json` + constructors, parse/stringify, navigation; Int/Double split; auto-boxing + typed decode later        |
 | std.encoding | new     |                                                                                                                                  |
 | std.hash     | new     | runtime native                                                                                                                   |
 | std.http     | new     | client only; runtime sockets + TLS                                                                                               |
