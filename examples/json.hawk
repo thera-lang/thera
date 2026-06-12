@@ -5,7 +5,17 @@ import std.json;
 
 fn main() -> Result<Int, Error> {
     // A configuration blob, as it might arrive from a file or an HTTP response.
-    let source = '{ "service": "hawk", "port": 8080, "debug": false, "tags": ["build", "test"], "limits": { "cpu": 2, "mem_mb": 512 } }';
+    // A single-quoted string can span lines; JSON ignores the incidental
+    // whitespace.
+    let source = '
+        {
+            "service": "hawk",
+            "port": 8080,
+            "debug": false,
+            "tags": ["build", "test"],
+            "limits": { "cpu": 2, "mem_mb": 512 }
+        }
+    ';
 
     let config = json.parse(source)?;
 
