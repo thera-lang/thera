@@ -39,6 +39,25 @@ fn test_chars_and_bytes() -> Result<Void, Error> {
 }
 
 @test
+fn test_from_chars_is_total() -> Result<Void, Error> {
+    // A non-scalar code point (a lone surrogate) becomes U+FFFD, not a crash.
+    let s = String.from_chars([72, 55296, 105]); // H, D800, i
+    testing.assert_eq(actual: s.chars().len(), expected: 3)?;
+    // The middle char is the replacement character, U+FFFD (65533).
+    testing.assert_eq(actual: s, expected: String.from_chars([72, 65533, 105]))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_try_from_chars() -> Result<Void, Error> {
+    testing.assert_eq(actual: String.try_from_chars([72, 105]), expected: Option.Some('Hi'))?;
+    testing.assert_eq(actual: String.try_from_chars([55296]), expected: Option.None)?;   // lone surrogate
+    testing.assert_eq(actual: String.try_from_chars([-1]), expected: Option.None)?;      // negative
+    testing.assert_eq(actual: String.try_from_chars([1114112]), expected: Option.None)?; // > U+10FFFF
+    return Result.Ok(void);
+}
+
+@test
 fn test_concat_operator() -> Result<Void, Error> {
     testing.assert_eq(actual: 'foo' + 'bar', expected: 'foobar')?;
     // Left-associative, chains.

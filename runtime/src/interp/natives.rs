@@ -76,6 +76,7 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("str_chars", native_str_chars),
     ("str_bytes", native_str_bytes),
     ("str_from_chars", native_str_from_chars),
+    ("str_try_from_chars", native_str_try_from_chars),
     ("int_to_double", native_int_to_double),
     ("double_to_int", native_double_to_int),
     ("math_sqrt", native_math_sqrt),
@@ -358,6 +359,8 @@ fn native_str_bytes(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap>
 }
 
 /// `String.from_chars(cps)` — build a string from a list of Unicode code points.
+/// Total: a non-scalar code point (a surrogate, out of range, or negative)
+/// becomes U+FFFD rather than trapping. Use `try_from_chars` to detect them.
 fn native_str_from_chars(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     with_list(
         expect_one(args, "str_from_chars")?,
@@ -369,10 +372,31 @@ fn native_str_from_chars(_out: &mut dyn Write, args: &[Value]) -> Result<Value, 
                 let c = u32::try_from(cp)
                     .ok()
                     .and_then(char::from_u32)
-                    .ok_or_else(|| bug(format!("str_from_chars: invalid code point {cp}")))?;
+                    .unwrap_or('\u{FFFD}');
                 s.push(c);
             }
             Ok(Value::new_str(s))
+        },
+    )
+}
+
+/// `String.try_from_chars(cps)` — like `from_chars`, but returns `None` if any
+/// element is not a valid Unicode scalar value, so a caller can reject bad input
+/// instead of getting U+FFFD substitutions.
+fn native_str_try_from_chars(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    with_list(
+        expect_one(args, "str_try_from_chars")?,
+        "str_try_from_chars",
+        |items| {
+            let mut s = String::new();
+            for item in items {
+                let cp = as_int(item, "str_try_from_chars")?;
+                match u32::try_from(cp).ok().and_then(char::from_u32) {
+                    Some(c) => s.push(c),
+                    None => return Ok(Value::none()),
+                }
+            }
+            Ok(Value::some(Value::new_str(s)))
         },
     )
 }

@@ -81,8 +81,19 @@ impl String {
     @extern('str_to_double')
     pub native fn to_double(self) -> Option<Double>
 
-    // Construct a String from a list of Unicode code points (as Int).
-    // The inverse of `s.chars()`.
+    // Construct a String from a list of Unicode code points (as Int). The
+    // inverse of `s.chars()`. This is total: a value that is not a valid Unicode
+    // scalar (a surrogate, out of range, or negative) becomes U+FFFD (�). Use
+    // `try_from_chars` to reject such input instead.
     @extern('str_from_chars')
     pub native fn from_chars(_ cps: List<Int>) -> String
+
+    // Like `from_chars`, but returns None if any element is not a valid Unicode
+    // scalar value — for callers that must reject malformed input rather than
+    // substitute the replacement character.
+    //
+    //   String.try_from_chars([72, 105])    // Some('Hi')
+    //   String.try_from_chars([0xD800])     // None (a lone surrogate)
+    @extern('str_try_from_chars')
+    pub native fn try_from_chars(_ cps: List<Int>) -> Option<String>
 }
