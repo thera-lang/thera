@@ -49,6 +49,7 @@ const int _tyResult = 0;
 const int _tyOption = 1;
 const int _tagOk = 0;
 const int _tagErr = 1;
+const int _tagNone = 1; // Option.None (Some = 0); see sdk/std/core/option.hawk
 
 /// Compile [program] — plus any [imports] it links against — into one module.
 ///
@@ -687,12 +688,53 @@ class _FnCompiler {
       _rangeFor(varName, iterable, body);
     } else if (_typeOf(iterable) == 'List') {
       _listFor(varName, iterable, body);
+    } else if (_isIterator(iterable)) {
+      _iteratorFor(varName, iterable, body);
     } else {
       throw CodegenException(
           'cannot iterate ${_typeOf(iterable) ?? 'this value'} '
-          '(only ranges and lists are supported)',
+          '(only ranges, lists, and Iterators are supported)',
           iterable.span);
     }
+  }
+
+  /// Whether [e]'s static type is an `Iterator` — the interface itself, or a
+  /// concrete type that implements it (so `for x in it` can drive it).
+  bool _isIterator(Expr e) {
+    final name = _typeOf(e);
+    if (name == null) return false;
+    if (name == 'Iterator') return true;
+    return _scope.interfaceImpls[name]?.contains('Iterator') ?? false;
+  }
+
+  /// `for x in it` over any `Iterator` — pull `it.next()` until it yields
+  /// `None`, binding `x` to each `Some` payload. `next` is dispatched virtually,
+  /// so this works for an interface-typed iterator and a concrete one alike.
+  void _iteratorFor(String? varName, Expr iterExpr, Block body) {
+    _expr(iterExpr);
+    final it = _freshSlot();
+    _emit(Store(it));
+
+    final start = _newLabel();
+    final end = _newLabel();
+    _bind(start);
+    _emit(Load(it));
+    _emit(const CallVirtual('next', 1)); // Option<T> on the stack
+    final opt = _freshSlot();
+    _emit(Store(opt));
+    _emit(Load(opt));
+    _emit(const Simple(Op.enumTag));
+    _emit(const ConstInt(_tagNone));
+    _emit(const Simple(Op.eqI64));
+    _emitJump(_Jk.ifTrue, end); // None: the sequence is exhausted
+    // Some(x): bind the loop variable to the payload.
+    final elem = varName != null ? _declareLocal(varName) : _freshSlot();
+    _emit(Load(opt));
+    _emit(const EnumGet(0));
+    _emit(Store(elem));
+    _block(body);
+    _emitJump(_Jk.jump, start);
+    _bind(end);
   }
 
   /// `for x in start..end` — counter from start (inclusive) to end (exclusive,
@@ -818,6 +860,12 @@ class _FnCompiler {
         _propagateExpr(expr);
       case MatchExpr():
         _matchExpr(expr);
+      case BlockExpr(:final block):
+        // A block in expression position (e.g. a block-bodied match arm).
+        // Hawk has no tail expressions — every statement is terminated — so a
+        // block yields Unit; its statements run for their effects.
+        _block(block);
+        _emit(const Simple(Op.constUnit));
       case ReturnExpr(:final value):
         _emitReturn(value);
       case ThrowExpr(:final value):

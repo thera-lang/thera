@@ -141,8 +141,9 @@ class Inferrer {
         iterType.typeArguments.isNotEmpty) {
       element = iterType.typeArguments.first;
     } else {
-      // Ranges (the only other iterable today) yield Int.
-      element = PrimitiveType.int_;
+      // An `Iterator<T>` value (or a type implementing it) yields `T`;
+      // otherwise this is a range, which yields Int.
+      element = _iteratorElement(iterType) ?? PrimitiveType.int_;
     }
     if (pattern is IdentPattern) scope[pattern.name] = element;
   }
@@ -550,6 +551,27 @@ class Inferrer {
 
   Type _substituteReceiver(Type type, InterfaceType recv) =>
       substitute(type, _receiverBindings(recv));
+
+  /// The element type of an iterable that is (or conforms to) `Iterator<T>`:
+  /// the payload of its `next()` method's `Option` return, with the receiver's
+  /// type arguments applied (so `Iterator<Int>` and `ListIter<Int>` both yield
+  /// `Int`). Null if [t] is not an iterator.
+  Type? _iteratorElement(Type t) {
+    if (t is! InterfaceType) return null;
+    if (t.element.name != 'Iterator' &&
+        !t.element.interfaces.contains('Iterator')) {
+      return null;
+    }
+    final next = t.element.method('next');
+    if (next == null) return null;
+    final ret = substitute(next.returnType, _receiverBindings(t));
+    if (ret is InterfaceType &&
+        ret.element.name == 'Option' &&
+        ret.typeArguments.isNotEmpty) {
+      return ret.typeArguments.first;
+    }
+    return null;
+  }
 
   Type _instantiateReturn(FunctionElement fn, List<Type> argTypes) {
     final positional = fn.parameters.where((p) => !p.isSelf).toList();

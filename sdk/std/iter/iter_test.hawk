@@ -1,0 +1,108 @@
+// Tests for std.iter — the Iterator<T> protocol, its sources, and consumers.
+
+import std.testing;
+
+import 'iter';
+
+@test
+fn test_range_next_then_exhausts() -> Result<Void, Error> {
+    let it = iter.range(0, 3);
+    testing.assert_eq(actual: it.next(), expected: Option.Some(0))?;
+    testing.assert_eq(actual: it.next(), expected: Option.Some(1))?;
+    testing.assert_eq(actual: it.next(), expected: Option.Some(2))?;
+    testing.assert_eq(actual: it.next(), expected: Option.None)?;
+    // Stays exhausted.
+    testing.assert_eq(actual: it.next(), expected: Option.None)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_range_empty() -> Result<Void, Error> {
+    testing.assert_eq(actual: iter.count(iter.range(5, 5)), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_collect_range() -> Result<Void, Error> {
+    testing.assert_eq(actual: iter.collect(iter.range(1, 4)), expected: [1, 2, 3])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_collect_from_list_roundtrips() -> Result<Void, Error> {
+    let xs = ['a', 'b', 'c'];
+    testing.assert_eq(actual: iter.collect(iter.from_list(xs)), expected: xs)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_from_list_empty() -> Result<Void, Error> {
+    let empty = [];
+    testing.assert_eq(actual: iter.count(iter.from_list(empty)), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_count_drains() -> Result<Void, Error> {
+    testing.assert_eq(actual: iter.count(iter.range(0, 10)), expected: 10)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_for_loop_over_range() -> Result<Void, Error> {
+    let mut sum = 0;
+    for n in iter.range(1, 5) { // 1 + 2 + 3 + 4
+        sum = sum + n;
+    }
+    testing.assert_eq(actual: sum, expected: 10)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_for_loop_over_list_iter() -> Result<Void, Error> {
+    let out = [];
+    for s in iter.from_list(['a', 'b', 'c']) {
+        out.push(s);
+    }
+    testing.assert_eq(actual: out, expected: ['a', 'b', 'c'])?;
+    return Result.Ok(void);
+}
+
+// A user-defined iterator, looped over by its *concrete* type (not the
+// Iterator interface) — exercises the concrete-conformer dispatch path.
+type Doubler = {
+    next_val: Int,
+    limit: Int,
+}
+
+impl Iterator<Int> for Doubler {
+    pub fn next(self) -> Option<Int> {
+        if self.next_val >= self.limit {
+            return Option.None;
+        }
+        let v = self.next_val;
+        self.next_val = self.next_val * 2;
+        return Option.Some(v);
+    }
+}
+
+@test
+fn test_for_loop_over_concrete_iterator() -> Result<Void, Error> {
+    let d = Doubler { next_val: 1, limit: 20 }; // 1, 2, 4, 8, 16
+    let out = [];
+    for v in d {
+        out.push(v);
+    }
+    testing.assert_eq(actual: out, expected: [1, 2, 4, 8, 16])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_for_loop_empty_iterator() -> Result<Void, Error> {
+    let mut ran = false;
+    for _ in iter.range(3, 3) {
+        ran = true;
+    }
+    testing.assert_eq(actual: ran, expected: false)?;
+    return Result.Ok(void);
+}

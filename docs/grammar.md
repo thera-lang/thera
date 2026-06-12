@@ -143,11 +143,11 @@ field       = IDENT ':' type
 enumDecl    = 'enum' IDENT typeParams? '{' variant (',' variant)* ','? '}'
 variant     = IDENT ( '(' type (',' type)* ')' )?       // positional payload
 
-interfaceDecl = 'interface' IDENT '{' methodSig* '}'
+interfaceDecl = 'interface' IDENT typeParams? '{' methodSig* '}'
 methodSig   = 'pub'? 'fn' IDENT typeParams? '(' paramList? ')' ('->' type)? ';'?
 
-implDecl    = 'impl' qualName typeParams?
-              ( 'for' qualName typeParams? )?
+implDecl    = 'impl' qualName typeParams?       // typeParams = interface type args
+              ( 'for' qualName typeParams? )?    //   in `impl Iface<Int> for T`
               '{' method* '}'
 method      = decorator* 'pub'? 'native'? fnDecl_tail   // a fn, possibly native
 qualName    = IDENT ('.' IDENT)?                          // e.g. Clock | time.Clock

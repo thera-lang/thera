@@ -1,0 +1,87 @@
+// std.iter — lazy iteration: sources that produce an `Iterator<T>` and eager
+// consumers that drain one.
+//
+// Import as: import std.iter
+//
+// The `Iterator<T>` protocol itself lives in the prelude (std.core) so that
+// `for x in it` works without an import. This module provides ways to build
+// iterators and to consume them.
+//
+//   for x in iter.range(0, 3) { println(x); }       // 0, 1, 2
+//   let xs = iter.collect(iter.from_list([1, 2, 3])); // [1, 2, 3]
+//
+// (Adapters like `map`/`filter`/`take` are planned follow-ups; see
+// docs/stdlib.md.)
+
+// --- sources ---
+
+// An iterator over the half-open integer range `[start, end)`.
+type RangeIter = {
+    current: Int,
+    end: Int,
+}
+
+impl Iterator<Int> for RangeIter {
+    pub fn next(self) -> Option<Int> {
+        if self.current >= self.end {
+            return Option.None;
+        }
+        let value = self.current;
+        self.current = self.current + 1;
+        return Option.Some(value);
+    }
+}
+
+// The integers from `start` (inclusive) up to `end` (exclusive), in order.
+pub fn range(_ start: Int, _ end: Int) -> Iterator<Int> {
+    return RangeIter { current: start, end: end };
+}
+
+// An iterator over the elements of a list, in order.
+type ListIter<T> = {
+    items: List<T>,
+    pos: Int,
+}
+
+impl Iterator<T> for ListIter<T> {
+    pub fn next(self) -> Option<T> {
+        // `get` returns None past the end; advancing `pos` regardless is
+        // harmless once exhausted (it just keeps returning None).
+        let item = self.items.get(self.pos);
+        self.pos = self.pos + 1;
+        return item;
+    }
+}
+
+// An iterator yielding each element of `items`, in order.
+pub fn from_list<T>(_ items: List<T>) -> Iterator<T> {
+    return ListIter { items: items, pos: 0 };
+}
+
+// --- consumers ---
+
+// Drain `it` to exhaustion, gathering its elements into a list (in order).
+pub fn collect<T>(_ it: Iterator<T>) -> List<T> {
+    let out = [];
+    let mut going = true;
+    while going {
+        match it.next() {
+            None    => { going = false; },
+            Some(v) => { out.push(v); },
+        }
+    }
+    return out;
+}
+
+// The number of elements `it` yields, draining it in the process.
+pub fn count<T>(_ it: Iterator<T>) -> Int {
+    let mut n = 0;
+    let mut going = true;
+    while going {
+        match it.next() {
+            None    => { going = false; },
+            Some(_) => { n = n + 1; },
+        }
+    }
+    return n;
+}

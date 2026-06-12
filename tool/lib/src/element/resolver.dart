@@ -115,7 +115,8 @@ LibraryElement buildLibrary(
           typeDefs[decl.name] = EnumElement(decl.name,
               typeParameters: [for (final tp in decl.typeParams) tp.name]);
         case InterfaceDecl():
-          typeDefs[decl.name] = InterfaceElement(decl.name);
+          typeDefs[decl.name] = InterfaceElement(decl.name,
+              typeParameters: [for (final tp in decl.typeParams) tp.name]);
         case ImportDecl():
           modules.add(decl.alias ?? decl.path.split('.').last);
         case FnDecl():
@@ -157,9 +158,12 @@ LibraryElement buildLibrary(
           _resolveImpl(resolver, typeDefs, decl);
         case InterfaceDecl():
           final element = typeDefs[decl.name] as InterfaceElement;
+          final tps = {for (final tp in decl.typeParams) tp.name};
+          final selfType = InterfaceType(element,
+              [for (final tp in decl.typeParams) TypeParameterType(tp.name)]);
           for (final m in decl.methods) {
             element.methods.add(_methodElement(resolver, element, m,
-                selfType: InterfaceType(element)));
+                selfType: selfType, outerTypeParams: tps));
           }
         case ImportDecl():
           break;

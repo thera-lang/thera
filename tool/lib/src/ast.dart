@@ -155,12 +155,15 @@ class ImplDecl extends Decl implements NamedNode {
   final SourceSpan nameSpan; // span of typeName
   final List<TypeParam> typeParams; // generic params, e.g. impl Box<T>
   final String? interfaceName; // null = inherent impl
+  final List<TypeRef> interfaceArgs; // the interface's type args, e.g. <Int> in
+  // `impl Iterator<Int> for RangeIter`; empty for a non-generic interface.
   final List<FnDecl> methods;
   ImplDecl(super.span,
       {required this.typeName,
       required this.nameSpan,
       this.typeParams = const [],
       this.interfaceName,
+      this.interfaceArgs = const [],
       required this.methods});
 
   @override
@@ -191,19 +194,26 @@ class InterfaceDecl extends Decl implements NamedNode {
   final String name;
   @override
   final SourceSpan nameSpan;
+  final List<TypeParam>
+      typeParams; // generic params, e.g. interface Iterator<T>
   final List<FnDecl> methods;
   InterfaceDecl(super.span,
       {this.isPub = false,
       required this.name,
       required this.nameSpan,
+      this.typeParams = const [],
       required this.methods});
 
   @override
-  Iterable<AstNode> get childNodes => methods;
+  Iterable<AstNode> get childNodes => [...typeParams, ...methods];
 
   @override
   String describe([String indent = '']) {
-    final buf = StringBuffer('$indent${isPub ? 'pub ' : ''}Interface $name\n');
+    final tps = typeParams.isEmpty
+        ? ''
+        : '<${typeParams.map((t) => t.name).join(', ')}>';
+    final buf =
+        StringBuffer('$indent${isPub ? 'pub ' : ''}Interface $name$tps\n');
     for (final m in methods) {
       buf.write(m.describe('$indent  '));
     }

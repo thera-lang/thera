@@ -1,0 +1,17 @@
+// std.core — the lazy `Iterator` protocol.
+//
+// `Iterator<T>` is Hawk's pull-based sequence protocol: `next()` yields the next
+// element as `Some(v)`, or `None` once the sequence is exhausted. It is part of
+// the prelude (always in scope) because the language drives it directly: a
+// `for x in it` loop iterates any `Iterator`. Sources (`range`, `from_list`) and
+// the eager `collect` live in `std.iter`.
+//
+//   for x in iter.range(0, 3) { println(x); }   // 0, 1, 2
+//
+// Iterators are stateful: `next` advances an internal cursor, so an iterator is
+// consumed as it is read. (`map`/`filter`/`take` adapters are planned; see
+// docs/stdlib.md.)
+pub interface Iterator<T> {
+    // The next element, or `None` at end of sequence. Advances the iterator.
+    fn next(self) -> Option<T>;
+}

@@ -231,8 +231,9 @@ pub type StringWriter = { /* wraps a BytesBuilder */ }
 impl StringWriter { fn new(); fn into_string() -> Result<String, Error>; fn into_bytes() -> Bytes; }
 ```
 
-Deferred follow-ups: `io.lines(src) -> Iterator<String>` and `BufReader` (need
-the lazy `Iterator<T>` type, § Sequencing); streaming files (`fs.open` → a
+Deferred follow-ups: `io.lines(src) -> Iterator<String>` and `BufReader` (the
+lazy `Iterator<T>` type now exists in `std.iter`, but these also want the
+`map`/`filter` adapters, § Sequencing); streaming files (`fs.open` → a
 `File: Reader + Writer + Seek + Closer`); the typed binary `BytesReader`
 (`read_u8`/`read_u16_le`/…) pairing with `BytesBuilder`.
 
@@ -703,10 +704,19 @@ dependency graph, so future work lands in the right order:
    streams, and `StringWriter`. Deferred: `lines`/`Iterator`, streaming files,
    the typed binary `BytesReader`.
 
-3. **Lazy `Iterator<T>`.** `fs.walk`, `io.lines`, and the `std.regex`
-   `.to_list()` calls assume a lazy sequence type. Define `Iterator<T>` (likely
-   an interface with `next() -> Option<T>`) — also gated on interface-typed
-   values (#1) for the generic forms.
+3. **Lazy `Iterator<T>` — done (v1).** `Iterator<T>` is a **generic interface**
+   in the prelude (Hawk's first), `pub interface Iterator<T> { fn next(self) ->
+   Option<T>; }` — pull-based, `self`-mutating cursor. `std.iter` ships the
+   `range`/`from_list` sources and the eager `collect`/`count` consumers, and a
+   `for x in it` loop drives any iterator (the for-loop lowers to `next()`/match
+   over `Option`, dispatched virtually so concrete and interface-typed iterators
+   work alike). Landing it added the generic-interface machinery end to end
+   (parser type params on `interface`/`impl Iface<Args> for T`, conformance
+   substitution, and receiver-arg inference reused from the collection types) and
+   filled a codegen gap: block-bodied match arms (`Some(v) => { … }`) now compile
+   (a block in expression position yields `Unit`, since Hawk has no tail
+   expressions). Deferred: `map`/`filter`/`take`/`enumerate` adapters and a
+   fluent `Iter<T>` wrapper; these unblock `fs.walk`, `io.lines`, and `BufReader`.
 
 4. **`Error` interface migration — done.** `std.core/error.hawk`'s `Error` is
    now an interface with a `Message` struct; `throw`/`?`/implicit-`Ok` needed no
@@ -767,8 +777,9 @@ dependency graph, so future work lands in the right order:
 
 | Module       | Status  | Notes                                                                                                                            |
 | ------------ | ------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| prelude/core | exists  | Int/Double + String parsing; `Bytes`/`BytesBuilder`; `Set<T>` in Hawk over `Map`; `Error` is an interface + `Message`; still want `Ord` |
+| prelude/core | exists  | Int/Double + String parsing; `Bytes`/`BytesBuilder`; `Set<T>` in Hawk over `Map`; `Error` is an interface + `Message`; `Iterator<T>` protocol; still want `Ord` |
 | std.io       | done    | v1: `Reader`/`Writer`/`Closer` + `IoError`, `read_all`/`copy`, stdin/stdout/stderr, `StringWriter`; `lines`/`Iterator` + streaming files deferred |
+| std.iter     | done    | v1: `Iterator<T>` (prelude) + `range`/`from_list` sources + `collect`/`count`; `for x in it` drives any iterator; adapters (`map`/`filter`/`take`) deferred |
 | std.fs       | partial | expand; `read_dir`→`list_dir`; `FsError`                                                                                         |
 | std.path     | done    | pure Hawk; `components`/`with_extension` added; normalize/relative deferred                                                      |
 | std.env      | done    | vars/args/cwd/os/exit + `Env` capability + `testing.fixed_env`; `OS`→`os()`                                                      |

@@ -402,9 +402,16 @@ class Parser {
     SourceSpan nameSpan;
     String? interfaceName;
     List<TypeParam> typeParams;
+    var interfaceArgs = const <TypeRef>[];
     if (_match(TokenKind.kwFor)) {
-      // impl Interface for Type<T> { ... }
+      // impl Interface<Args> for Type<T> { ... }. The `<Args>` (parsed above as
+      // `firstParams`) are the interface's type arguments. They are simple type
+      // names here (`Int`, or the impl's own `T`) — nested args aren't yet
+      // supported on an interface in impl position.
       interfaceName = firstTok.lexeme;
+      interfaceArgs = [
+        for (final tp in firstParams) NamedType(tp.name, span: tp.span),
+      ];
       final typeNameTok = _parseQualifiedTypeName('type name');
       typeName = typeNameTok.lexeme;
       nameSpan = typeNameTok.span;
@@ -442,6 +449,7 @@ class Parser {
         nameSpan: nameSpan,
         typeParams: typeParams,
         interfaceName: interfaceName,
+        interfaceArgs: interfaceArgs,
         methods: methods);
   }
 
@@ -449,6 +457,7 @@ class Parser {
       {bool isPub = false, required SourceSpan startSpan}) {
     _advance(); // 'interface'
     final nameTok = _expect(TokenKind.identifier, 'interface name');
+    final typeParams = _parseTypeParams(); // <T> after the name, if any
     _expect(TokenKind.lBrace, '{');
     final methods = <FnDecl>[];
     while (!_check(TokenKind.rBrace) && !_atEnd) {
@@ -466,6 +475,7 @@ class Parser {
         isPub: isPub,
         name: nameTok.lexeme,
         nameSpan: nameTok.span,
+        typeParams: typeParams,
         methods: methods);
   }
 

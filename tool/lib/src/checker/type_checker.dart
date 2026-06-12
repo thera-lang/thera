@@ -135,6 +135,26 @@ class TypeChecker {
         ]);
     final selfType = InterfaceType(ifaceDef);
 
+    // Bind the interface's type parameters to the args supplied at the impl
+    // (`impl Iterator<Int> for …` → {T: Int}), so a method like
+    // `next(self) -> Option<T>` is compared as `Option<Int>`. The args resolve
+    // in the impl's own type-param scope, so `impl Iterator<T> for ListIter<T>`
+    // binds the interface's `T` to the impl's `T`.
+    final ifaceParams = ifaceDef.typeParameters;
+    if (decl.interfaceArgs.length != ifaceParams.length) {
+      _error(
+          "interface '$ifaceName' takes ${ifaceParams.length} type "
+          "argument(s), but ${decl.interfaceArgs.length} were given",
+          decl.nameSpan);
+      return;
+    }
+    final implTps = {for (final tp in decl.typeParams) tp.name};
+    final ifaceBindings = <String, Type>{
+      for (var i = 0; i < ifaceParams.length; i++)
+        ifaceParams[i]: _resolver.resolve(decl.interfaceArgs[i],
+            typeParams: implTps, selfType: implType),
+    };
+
     final provided = {for (final m in decl.methods) m.name};
     for (final im in ifaceDef.methods) {
       if (!provided.contains(im.name)) {
@@ -144,7 +164,7 @@ class TypeChecker {
       }
       final om = owner.method(im.name);
       if (om == null) continue; // resolved elsewhere; body checked already
-      if (!_signaturesMatch(im, om, selfType, implType)) {
+      if (!_signaturesMatch(im, om, selfType, implType, ifaceBindings)) {
         _error(
             "method '${im.name}' does not match its declaration in interface "
             "'$ifaceName'",
@@ -155,20 +175,21 @@ class TypeChecker {
 
   /// Whether impl method [om] matches interface method [im], treating `Self`
   /// (which resolves to [selfType] inside the interface) as [implType].
-  bool _signaturesMatch(
-      MethodElement im, MethodElement om, Type selfType, Type implType) {
+  bool _signaturesMatch(MethodElement im, MethodElement om, Type selfType,
+      Type implType, Map<String, Type> ifaceBindings) {
     if (im.isStatic != om.isStatic) return false;
     final iParams = im.parameters.where((p) => !p.isSelf).toList();
     final oParams = om.parameters.where((p) => !p.isSelf).toList();
     if (iParams.length != oParams.length) return false;
+    // Apply the interface's type-arg bindings, then `Self` -> implementing type.
+    Type expect(Type t) =>
+        _selfToImpl(substitute(t, ifaceBindings), selfType, implType);
     for (var i = 0; i < iParams.length; i++) {
-      if (!_typeMatches(
-          _selfToImpl(iParams[i].type, selfType, implType), oParams[i].type)) {
+      if (!_typeMatches(expect(iParams[i].type), oParams[i].type)) {
         return false;
       }
     }
-    return _typeMatches(
-        _selfToImpl(im.returnType, selfType, implType), om.returnType);
+    return _typeMatches(expect(im.returnType), om.returnType);
   }
 
   /// Substitute `Self` (== [selfType]) with [implType] throughout [t].
