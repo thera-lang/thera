@@ -372,6 +372,8 @@ class _FnCompiler {
   /// the method table by this name.
   static const _builtinTypeNames = {
     'String',
+    'Bytes',
+    'BytesBuilder',
     'Int',
     'Bool',
     'Double',

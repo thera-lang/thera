@@ -1,0 +1,85 @@
+// Tests for the built-in Bytes and BytesBuilder types.
+
+import std.testing;
+
+// Bytes/BytesBuilder are in the auto-imported prelude — used unqualified.
+
+@test
+fn test_string_round_trip() -> Result<Void, Error> {
+    let b = 'hÉllo'.bytes();
+    testing.assert_eq(actual: b.len(), expected: 6)?; // 'É' is two UTF-8 bytes
+    let s = testing.assert_ok(b.to_string())?;
+    testing.assert_eq(actual: s, expected: 'hÉllo')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_get_and_to_list() -> Result<Void, Error> {
+    let b = 'ABC'.bytes();
+    testing.assert_eq(actual: b.get(0), expected: Option.Some(65))?;
+    testing.assert_eq(actual: b.get(2), expected: Option.Some(67))?;
+    testing.assert_eq(actual: b.get(3), expected: Option.None)?; // past the end
+    testing.assert_eq(actual: b.get(-1), expected: Option.None)?; // negative
+    testing.assert_eq(actual: b.to_list(), expected: [65, 66, 67])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_slice_clamps() -> Result<Void, Error> {
+    let b = 'ABCDE'.bytes();
+    testing.assert_eq(actual: b.slice(1, 3).to_list(), expected: [66, 67])?;
+    testing.assert_eq(actual: b.slice(0, 0).len(), expected: 0)?;
+    // Out-of-range bounds clamp rather than fault.
+    testing.assert_eq(actual: b.slice(3, 99).to_list(), expected: [68, 69])?;
+    testing.assert_eq(actual: b.slice(99, 1).len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_concat_and_empty() -> Result<Void, Error> {
+    let joined = 'AB'.bytes().concat('CD'.bytes());
+    testing.assert_eq(actual: joined.to_list(), expected: [65, 66, 67, 68])?;
+    testing.assert_eq(actual: Bytes.empty().len(), expected: 0)?;
+    testing.assert_eq(actual: Bytes.empty().concat('x'.bytes()).to_list(), expected: [120])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_from_list() -> Result<Void, Error> {
+    let ok = testing.assert_ok(Bytes.from_list([104, 105]))?;
+    let s = testing.assert_ok(ok.to_string())?;
+    testing.assert_eq(actual: s, expected: 'hi')?;
+    // A value outside 0..=255 is rejected.
+    testing.assert_err(Bytes.from_list([256]))?;
+    testing.assert_err(Bytes.from_list([-1]))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_invalid_utf8_to_string() -> Result<Void, Error> {
+    // 0xFF is not valid UTF-8 on its own.
+    let bad = testing.assert_ok(Bytes.from_list([255]))?;
+    testing.assert_err(bad.to_string())?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_builder() -> Result<Void, Error> {
+    let bb = BytesBuilder.new();
+    bb.write_str('AB');
+    bb.write_u8(67); // 'C'
+    bb.write_bytes('DE'.bytes());
+    testing.assert_eq(actual: bb.len(), expected: 5)?;
+    let out = testing.assert_ok(bb.finish().to_string())?;
+    testing.assert_eq(actual: out, expected: 'ABCDE')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_builder_write_u8_masks() -> Result<Void, Error> {
+    let bb = BytesBuilder.new();
+    bb.write_u8(321); // 321 % 256 = 65 = 'A'
+    bb.write_u8(-1); //  wraps to 255
+    testing.assert_eq(actual: bb.finish().to_list(), expected: [65, 255])?;
+    return Result.Ok(void);
+}

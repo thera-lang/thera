@@ -42,6 +42,16 @@ impl Value {
         heap::alloc(Obj::Str(s.into()))
     }
 
+    /// Construct an immutable byte buffer.
+    pub fn new_bytes(bytes: Vec<u8>) -> Value {
+        heap::alloc(Obj::Bytes(bytes))
+    }
+
+    /// Construct an empty mutable byte accumulator.
+    pub fn new_bytes_builder() -> Value {
+        heap::alloc(Obj::BytesBuilder(Vec::new()))
+    }
+
     /// Construct a heap list.
     pub fn new_list(items: Vec<Value>) -> Value {
         heap::alloc(Obj::List(items))
@@ -100,6 +110,11 @@ impl Value {
 pub enum Obj {
     /// UTF-8 text.
     Str(String),
+    /// An immutable byte buffer (the `Bytes` core type).
+    Bytes(Vec<u8>),
+    /// A mutable byte accumulator (`BytesBuilder`), frozen into [`Obj::Bytes`]
+    /// by `finish`.
+    BytesBuilder(Vec<u8>),
     /// An ordered, growable sequence.
     List(Vec<Value>),
     /// A key/value store. Insertion-ordered; lookups are a linear scan keyed by
@@ -129,7 +144,7 @@ impl Obj {
     /// `List`/`Map`/`Set`/fields are `Value::Int`/etc. and carry no handle.)
     pub fn child_values(&self) -> Vec<Value> {
         match self {
-            Obj::Str(_) => vec![],
+            Obj::Str(_) | Obj::Bytes(_) | Obj::BytesBuilder(_) => vec![],
             Obj::List(items) | Obj::Set(items) => items.clone(),
             Obj::Map(entries) => entries.iter().flat_map(|(k, v)| [*k, *v]).collect(),
             Obj::Struct { fields, .. } => fields.clone(),
@@ -146,6 +161,7 @@ impl Obj {
         use std::mem::size_of;
         let payload = match self {
             Obj::Str(s) => s.capacity(),
+            Obj::Bytes(b) | Obj::BytesBuilder(b) => b.capacity(),
             Obj::List(items) | Obj::Set(items) => items.capacity() * size_of::<Value>(),
             Obj::Map(entries) => entries.capacity() * size_of::<(Value, Value)>(),
             Obj::Struct { fields, .. } => fields.capacity() * size_of::<Value>(),

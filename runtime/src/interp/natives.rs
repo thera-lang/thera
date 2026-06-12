@@ -123,6 +123,20 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("process_stdin_write", native_process_stdin_write),
     ("process_stdout_read", native_process_stdout_read),
     ("process_stderr_read", native_process_stderr_read),
+    ("bytes_len", native_bytes_len),
+    ("bytes_get", native_bytes_get),
+    ("bytes_slice", native_bytes_slice),
+    ("bytes_concat", native_bytes_concat),
+    ("bytes_to_string", native_bytes_to_string),
+    ("bytes_to_list", native_bytes_to_list),
+    ("bytes_empty", native_bytes_empty),
+    ("bytes_from_list", native_bytes_from_list),
+    ("bytesbuilder_new", native_bytesbuilder_new),
+    ("bytesbuilder_write_u8", native_bytesbuilder_write_u8),
+    ("bytesbuilder_write_bytes", native_bytesbuilder_write_bytes),
+    ("bytesbuilder_write_str", native_bytesbuilder_write_str),
+    ("bytesbuilder_len", native_bytesbuilder_len),
+    ("bytesbuilder_finish", native_bytesbuilder_finish),
 ];
 
 /// The native functions the runtime ships with, in index order.
@@ -157,7 +171,9 @@ pub(super) fn display_string(v: &Value) -> Result<String, Trap> {
         Value::Unit => "()".to_string(),
         Value::Ref(h) => heap::with_obj(*h, |obj| match obj {
             Obj::Str(s) => Ok(s.clone()),
-            Obj::Enum(_)
+            Obj::Bytes(_)
+            | Obj::BytesBuilder(_)
+            | Obj::Enum(_)
             | Obj::List(_)
             | Obj::Map(_)
             | Obj::Set(_)
@@ -172,7 +188,9 @@ fn str_contents(v: &Value) -> Result<String, Trap> {
     match v {
         Value::Ref(h) => heap::with_obj(*h, |obj| match obj {
             Obj::Str(s) => Ok(s.clone()),
-            Obj::Enum(_)
+            Obj::Bytes(_)
+            | Obj::BytesBuilder(_)
+            | Obj::Enum(_)
             | Obj::List(_)
             | Obj::Map(_)
             | Obj::Set(_)
@@ -330,10 +348,10 @@ fn native_str_chars(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap>
     Ok(int_list(s.chars().map(|c| c as i64)))
 }
 
-/// `s.bytes()` — the raw UTF-8 bytes (each 0..=255) as a `List<Int>`.
+/// `s.bytes()` — the string's UTF-8 encoding as a `Bytes` buffer.
 fn native_str_bytes(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let s = str_contents(expect_one(args, "str_bytes")?)?;
-    Ok(int_list(s.bytes().map(i64::from)))
+    Ok(Value::new_bytes(s.into_bytes()))
 }
 
 /// `String.from_chars(cps)` — build a string from a list of Unicode code points.
@@ -354,6 +372,179 @@ fn native_str_from_chars(_out: &mut dyn Write, args: &[Value]) -> Result<Value, 
             Ok(Value::new_str(s))
         },
     )
+}
+
+// --- bytes natives ---
+
+/// Read a `Bytes` value's slice through `f` (no allocation inside; faults on a
+/// non-`Bytes`).
+fn with_bytes<R>(v: &Value, who: &str, f: impl FnOnce(&[u8]) -> R) -> Result<R, Trap> {
+    match v {
+        Value::Ref(h) => heap::with_obj(*h, |obj| match obj {
+            Obj::Bytes(b) => Ok(f(b)),
+            _ => Err(bug(format!("{who}: expected Bytes"))),
+        }),
+        v => Err(bug(format!("{who}: expected Bytes, found {v:?}"))),
+    }
+}
+
+/// A clone of a `Bytes` value's buffer, with the heap borrow released — so the
+/// caller can allocate a result freely.
+fn bytes_contents(v: &Value, who: &str) -> Result<Vec<u8>, Trap> {
+    with_bytes(v, who, <[u8]>::to_vec)
+}
+
+/// `bytes.len()` — the number of bytes.
+fn native_bytes_len(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    with_bytes(expect_one(args, "bytes_len")?, "bytes_len", |b| {
+        Value::Int(b.len() as i64)
+    })
+}
+
+/// `bytes.get(i)` — the byte (0..=255) at `i`, or None if out of range.
+fn native_bytes_get(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (bv, iv) = args2(args, "bytes_get")?;
+    let i = as_int(iv, "bytes_get")?;
+    let byte = with_bytes(bv, "bytes_get", |b| {
+        usize::try_from(i).ok().and_then(|i| b.get(i)).copied()
+    })?;
+    Ok(match byte {
+        Some(x) => Value::some(Value::Int(i64::from(x))),
+        None => Value::none(),
+    })
+}
+
+/// `bytes.slice(start, end)` — the sub-buffer `[start, end)`, clamped to range.
+fn native_bytes_slice(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (bv, sv, ev) = args3(args, "bytes_slice")?;
+    let start = as_int(sv, "bytes_slice")?;
+    let end = as_int(ev, "bytes_slice")?;
+    let b = bytes_contents(bv, "bytes_slice")?;
+    let len = b.len() as i64;
+    let s = start.clamp(0, len) as usize;
+    let e = (end.clamp(0, len) as usize).max(s);
+    Ok(Value::new_bytes(b[s..e].to_vec()))
+}
+
+/// `a.concat(b)` — the two buffers joined.
+fn native_bytes_concat(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (av, bv) = args2(args, "bytes_concat")?;
+    let mut a = bytes_contents(av, "bytes_concat")?;
+    let b = bytes_contents(bv, "bytes_concat")?;
+    a.extend_from_slice(&b);
+    Ok(Value::new_bytes(a))
+}
+
+/// `bytes.to_string()` — decode as UTF-8: `Ok(String)` or `Err(message)`.
+fn native_bytes_to_string(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let b = bytes_contents(expect_one(args, "bytes_to_string")?, "bytes_to_string")?;
+    Ok(match String::from_utf8(b) {
+        Ok(s) => Value::ok(Value::new_str(s)),
+        Err(_) => Value::err(Value::new_str("bytes are not valid UTF-8")),
+    })
+}
+
+/// `bytes.to_list()` — the byte values (each 0..=255) as a `List<Int>`.
+fn native_bytes_to_list(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let b = bytes_contents(expect_one(args, "bytes_to_list")?, "bytes_to_list")?;
+    Ok(int_list(b.into_iter().map(i64::from)))
+}
+
+/// `Bytes.empty()` — an empty buffer.
+fn native_bytes_empty(_out: &mut dyn Write, _args: &[Value]) -> Result<Value, Trap> {
+    Ok(Value::new_bytes(Vec::new()))
+}
+
+/// `Bytes.from_list(values)` — build from byte values: `Ok(Bytes)`, or
+/// `Err(message)` if a value is outside 0..=255.
+fn native_bytes_from_list(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let built: Result<Vec<u8>, String> = with_list(
+        expect_one(args, "bytes_from_list")?,
+        "bytes_from_list",
+        |items| {
+            let mut out = Vec::with_capacity(items.len());
+            for item in items {
+                let n = as_int(item, "bytes_from_list")?;
+                if !(0..=255).contains(&n) {
+                    return Ok(Err(format!("byte value out of range (0..=255): {n}")));
+                }
+                out.push(n as u8);
+            }
+            Ok(Ok(out))
+        },
+    )?;
+    Ok(match built {
+        Ok(bytes) => Value::ok(Value::new_bytes(bytes)),
+        Err(msg) => Value::err(Value::new_str(msg)),
+    })
+}
+
+// --- bytes-builder natives ---
+
+/// Mutate a `BytesBuilder`'s buffer through `f` (faults on a non-builder).
+fn with_builder_mut<R>(v: &Value, who: &str, f: impl FnOnce(&mut Vec<u8>) -> R) -> Result<R, Trap> {
+    match v {
+        Value::Ref(h) => heap::with_obj_mut(*h, |obj| match obj {
+            Obj::BytesBuilder(buf) => Ok(f(buf)),
+            _ => Err(bug(format!("{who}: expected BytesBuilder"))),
+        }),
+        v => Err(bug(format!("{who}: expected BytesBuilder, found {v:?}"))),
+    }
+}
+
+/// `BytesBuilder.new()` — a fresh, empty accumulator.
+fn native_bytesbuilder_new(_out: &mut dyn Write, _args: &[Value]) -> Result<Value, Trap> {
+    Ok(Value::new_bytes_builder())
+}
+
+/// `builder.write_u8(byte)` — append the low 8 bits of `byte`.
+fn native_bytesbuilder_write_u8(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (bv, nv) = args2(args, "bytesbuilder_write_u8")?;
+    let n = as_int(nv, "bytesbuilder_write_u8")?;
+    with_builder_mut(bv, "bytesbuilder_write_u8", |buf| {
+        buf.push(n.rem_euclid(256) as u8);
+    })?;
+    Ok(Value::Unit)
+}
+
+/// `builder.write_bytes(data)` — append a `Bytes`.
+fn native_bytesbuilder_write_bytes(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (bv, dv) = args2(args, "bytesbuilder_write_bytes")?;
+    let data = bytes_contents(dv, "bytesbuilder_write_bytes")?;
+    with_builder_mut(bv, "bytesbuilder_write_bytes", |buf| {
+        buf.extend_from_slice(&data)
+    })?;
+    Ok(Value::Unit)
+}
+
+/// `builder.write_str(s)` — append a string's UTF-8.
+fn native_bytesbuilder_write_str(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (bv, sv) = args2(args, "bytesbuilder_write_str")?;
+    let s = str_contents(sv)?;
+    with_builder_mut(bv, "bytesbuilder_write_str", |buf| {
+        buf.extend_from_slice(s.as_bytes())
+    })?;
+    Ok(Value::Unit)
+}
+
+/// `builder.len()` — the number of bytes accumulated so far.
+fn native_bytesbuilder_len(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    with_builder_mut(
+        expect_one(args, "bytesbuilder_len")?,
+        "bytesbuilder_len",
+        |buf| Value::Int(buf.len() as i64),
+    )
+}
+
+/// `builder.finish()` — freeze the accumulated bytes into a `Bytes` (a copy;
+/// the builder is left intact).
+fn native_bytesbuilder_finish(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let bytes = with_builder_mut(
+        expect_one(args, "bytesbuilder_finish")?,
+        "bytesbuilder_finish",
+        |buf| buf.clone(),
+    )?;
+    Ok(Value::new_bytes(bytes))
 }
 
 // --- more collection natives ---

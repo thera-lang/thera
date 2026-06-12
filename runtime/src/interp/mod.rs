@@ -593,6 +593,8 @@ impl<'a> Vm<'a> {
             // doesn't hold a heap borrow.
             Value::Ref(h) => match heap::clone_obj(*h) {
                 Obj::Str(s) => format!("'{}'", s.replace('\\', r"\\").replace('\'', r"\'")),
+                Obj::Bytes(b) => format!("Bytes[{}]", hex_join(&b)),
+                Obj::BytesBuilder(b) => format!("BytesBuilder[{}]", hex_join(&b)),
                 Obj::List(items) => format!("[{}]", self.debug_list(module, &items)?),
                 Obj::Set(items) => format!("{{{}}}", self.debug_list(module, &items)?),
                 Obj::Map(entries) => {
@@ -702,6 +704,16 @@ fn pop_two_double(stack: &mut Vec<Value>) -> Result<(f64, f64), Trap> {
     Ok((a, b))
 }
 
+/// Space-separated two-digit hex of `bytes` — the debug rendering of a byte
+/// buffer (`Bytes`/`BytesBuilder`).
+fn hex_join(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// Pop an enum value and return its variant tag.
 #[inline(always)]
 fn pop_enum_variant(stack: &mut Vec<Value>) -> Result<u16, Trap> {
@@ -709,6 +721,8 @@ fn pop_enum_variant(stack: &mut Vec<Value>) -> Result<u16, Trap> {
         Value::Ref(h) => heap::with_obj(h, |obj| match obj {
             Obj::Enum(e) => Ok(e.variant),
             Obj::Str(_)
+            | Obj::Bytes(_)
+            | Obj::BytesBuilder(_)
             | Obj::List(_)
             | Obj::Map(_)
             | Obj::Set(_)
@@ -743,7 +757,13 @@ fn dispatch_type_id(v: &Value) -> Option<u32> {
         Value::Ref(h) => heap::with_obj(*h, |obj| match obj {
             Obj::Struct { ty, .. } => Some(*ty),
             Obj::Enum(e) => Some(ENUM_DISPATCH_BASE | e.ty),
-            Obj::Str(_) | Obj::List(_) | Obj::Map(_) | Obj::Set(_) | Obj::Closure { .. } => None,
+            Obj::Str(_)
+            | Obj::Bytes(_)
+            | Obj::BytesBuilder(_)
+            | Obj::List(_)
+            | Obj::Map(_)
+            | Obj::Set(_)
+            | Obj::Closure { .. } => None,
         }),
         _ => None,
     }
@@ -759,6 +779,8 @@ fn enum_field(v: &Value, idx: usize) -> Result<Value, Trap> {
                 .copied()
                 .ok_or_else(|| bug(format!("enum.get: field {idx} out of range"))),
             Obj::Str(_)
+            | Obj::Bytes(_)
+            | Obj::BytesBuilder(_)
             | Obj::List(_)
             | Obj::Map(_)
             | Obj::Set(_)
@@ -778,6 +800,8 @@ pub(super) fn struct_field(v: &Value, idx: usize) -> Result<Value, Trap> {
                 .copied()
                 .ok_or_else(|| bug(format!("field.get: field {idx} out of range"))),
             Obj::Str(_)
+            | Obj::Bytes(_)
+            | Obj::BytesBuilder(_)
             | Obj::List(_)
             | Obj::Map(_)
             | Obj::Set(_)
@@ -800,6 +824,8 @@ fn set_struct_field(v: &Value, idx: usize, value: Value) -> Result<(), Trap> {
                 Ok(())
             }
             Obj::Str(_)
+            | Obj::Bytes(_)
+            | Obj::BytesBuilder(_)
             | Obj::List(_)
             | Obj::Map(_)
             | Obj::Set(_)

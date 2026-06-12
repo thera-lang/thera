@@ -75,6 +75,10 @@ Map<String, TypeDefElement> builtinTypeDefs() => {
       'Map': BuiltinTypeElement('Map', typeParameters: ['K', 'V']),
       'Result': BuiltinTypeElement('Result', typeParameters: ['T', 'E']),
       'Option': BuiltinTypeElement('Option', typeParameters: ['T']),
+      // Runtime-backed opaque types; their methods are `native fn`s in
+      // std.core/bytes.hawk (like String's).
+      'Bytes': BuiltinTypeElement('Bytes'),
+      'BytesBuilder': BuiltinTypeElement('BytesBuilder'),
       // Opaque built-ins; real declarations (std.core's Error, std.args's Args)
       // shadow these when linked in.
       'Error': BuiltinTypeElement('Error'),

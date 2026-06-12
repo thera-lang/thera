@@ -1,0 +1,70 @@
+// std.core — the built-in `Bytes` and `BytesBuilder` types (auto-imported with
+// the prelude).
+//
+// `Bytes` is an immutable buffer of raw bytes (each 0..=255); it is what binary
+// I/O (`std.io`, `fs`, `hash`, `encoding`) reads and writes, and what
+// `String.bytes()` returns. `BytesBuilder` accumulates bytes and freezes into a
+// `Bytes` with `finish()`.
+//
+// Both are runtime-backed opaque types; their methods are `native fn`s, like
+// String's.
+
+impl Bytes {
+    // The number of bytes.
+    @extern('bytes_len')
+    pub native fn len(self) -> Int
+
+    // The byte (0..=255) at `i`, or None if out of range.
+    @extern('bytes_get')
+    pub native fn get(self, _ i: Int) -> Option<Int>
+
+    // The sub-buffer `[start, end)`, clamped to the valid range.
+    @extern('bytes_slice')
+    pub native fn slice(self, _ start: Int, _ end: Int) -> Bytes
+
+    // This buffer followed by `other`.
+    @extern('bytes_concat')
+    pub native fn concat(self, _ other: Bytes) -> Bytes
+
+    // Decode as UTF-8 text. Errs if the bytes are not valid UTF-8.
+    @extern('bytes_to_string')
+    pub native fn to_string(self) -> Result<String, Error>
+
+    // The byte values (each 0..=255) as a list.
+    @extern('bytes_to_list')
+    pub native fn to_list(self) -> List<Int>
+
+    // An empty buffer.
+    @extern('bytes_empty')
+    pub native fn empty() -> Bytes
+
+    // Build from byte values; errs if any value is outside 0..=255.
+    @extern('bytes_from_list')
+    pub native fn from_list(_ values: List<Int>) -> Result<Bytes, Error>
+}
+
+impl BytesBuilder {
+    // A fresh, empty accumulator.
+    @extern('bytesbuilder_new')
+    pub native fn new() -> BytesBuilder
+
+    // Append a single byte (the low 8 bits of `byte`).
+    @extern('bytesbuilder_write_u8')
+    pub native fn write_u8(self, _ byte: Int) -> Void
+
+    // Append a `Bytes`.
+    @extern('bytesbuilder_write_bytes')
+    pub native fn write_bytes(self, _ data: Bytes) -> Void
+
+    // Append a string's UTF-8 encoding.
+    @extern('bytesbuilder_write_str')
+    pub native fn write_str(self, _ s: String) -> Void
+
+    // The number of bytes accumulated so far.
+    @extern('bytesbuilder_len')
+    pub native fn len(self) -> Int
+
+    // Freeze the accumulated bytes into a `Bytes` (the builder stays usable).
+    @extern('bytesbuilder_finish')
+    pub native fn finish(self) -> Bytes
+}

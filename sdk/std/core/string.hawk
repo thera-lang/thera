@@ -61,11 +61,10 @@ impl String {
     @extern('str_chars')
     pub native fn chars(self) -> List<Int>
 
-    // The raw UTF-8 bytes of the string, each in 0..=255, as Int — for hashing,
-    // transport, or byte-level work. (Will return the `Bytes` type once it
-    // lands; see docs/stdlib.md.)
+    // The string's UTF-8 encoding as a `Bytes` buffer — for hashing, transport,
+    // or byte-level work. Use `s.bytes().to_list()` for the raw byte values.
     @extern('str_bytes')
-    pub native fn bytes(self) -> List<Int>
+    pub native fn bytes(self) -> Bytes
 
     // Parse the whole string as a base-10 Int, or None if it isn't one. The
     // entire string must be the number (no surrounding whitespace) — call

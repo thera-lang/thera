@@ -12,6 +12,7 @@ pub import 'error';        // Error
 pub import 'int';          // Int methods (abs, min, max, clamp, to_double)
 pub import 'double';       // Double methods (abs, min, max, clamp, to_int)
 pub import 'string';       // String static/native helpers
+pub import 'bytes';        // Bytes + BytesBuilder
 pub import 'list';         // List helpers
 pub import 'map';          // Map helpers
 pub import 'set';          // Set<T> (over Map)
