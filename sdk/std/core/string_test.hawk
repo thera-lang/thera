@@ -49,6 +49,16 @@ fn test_from_chars_is_total() -> Result<Void, Error> {
 }
 
 @test
+fn test_numeric_escapes() -> Result<Void, Error> {
+    // \xNN (a byte) and \u{...} (a Unicode scalar) decode to code points.
+    testing.assert_eq(actual: '\x41', expected: 'A')?;
+    testing.assert_eq(actual: '\u{48}\u{69}', expected: 'Hi')?;
+    testing.assert_eq(actual: '\u{1F600}'.chars(), expected: [128512])?; // 😀
+    testing.assert_eq(actual: '\u{FFFD}'.chars(), expected: [65533])?;   // replacement char
+    return Result.Ok(void);
+}
+
+@test
 fn test_try_from_chars() -> Result<Void, Error> {
     testing.assert_eq(actual: String.try_from_chars([72, 105]), expected: Option.Some('Hi'))?;
     testing.assert_eq(actual: String.try_from_chars([55296]), expected: Option.None)?;   // lone surrogate

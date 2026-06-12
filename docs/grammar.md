@@ -76,6 +76,8 @@ UNIT   = 'void'                       // the single value of type Void
 STRING = "'" strChar* "'" | '"' strChar* '"'
 strChar = escape | interpolation | (any char except the delimiter)
 escape  = '\' ('n' | 't' | 'r' | '\' | "'" | '"' | '$')
+        | '\x' hex hex                    // a byte, U+0000..U+00FF
+        | '\u{' hex (1..6 times) '}'       // a Unicode scalar value
 interpolation = '${' expr '}'
 ```
 
@@ -84,8 +86,10 @@ literal is read as an unsigned 64-bit pattern wrapped into the signed `Int`, so
 `0x9E3779B97F4A7C15` is a (negative) constant. No binary/octal, digit separators
 (`_`), exponents, or sign (a leading `-` is the unary operator). Floats require
 digits on both sides of the `.` (`1.0`, not `1.` or `.5`), with no exponent.
-Strings use `'` or `"` (single quotes by convention); the only escapes are the
-seven above (no `\u…`); `${ … }` embeds an arbitrary expression.
+Strings use `'` or `"` (single quotes by convention). Escapes are the seven
+simple ones plus `\xNN` (a byte) and `\u{…}` (1–6 hex digits naming a Unicode
+scalar value); an unrecognized escape is an **error** (no silent pass-through).
+`${ … }` embeds an arbitrary expression.
 
 ### Operators & punctuation
 

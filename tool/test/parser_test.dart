@@ -51,6 +51,38 @@ void main() {
       expect(lex.errors.map((e) => e.message).join(),
           contains("unknown escape sequence: '\\d'"));
     });
+
+    String litValue(String src) {
+      final lex = Lexer(src).tokenize();
+      expect(lex.hasErrors, isFalse,
+          reason: 'unexpected lex errors: ${lex.errors}');
+      return lex.tokens
+          .firstWhere((t) => t.kind == TokenKind.stringLiteral)
+          .value!;
+    }
+
+    test(r'\xNN and \u{...} escapes decode to code points', () {
+      expect(litValue(r"'\x41'"), 'A'); // 0x41
+      expect(litValue(r"'\x20'"), ' '); // 0x20 space
+      expect(litValue(r"'\u{48}\u{69}'"), 'Hi');
+      expect(litValue(r"'\u{1F600}'"), '\u{1F600}'); // astral (grinning face)
+      expect(litValue(r"'\u{fffd}'"), '�'); // lowercase hex ok
+    });
+
+    test(r'malformed \x / \u{...} escapes are errors', () {
+      for (final bad in [
+        r"'\x4'", // too few hex digits
+        r"'\xZZ'", // not hex
+        r"'\u41'", // missing braces
+        r"'\u{}'", // empty
+        r"'\u{D800}'", // surrogate, not a scalar value
+        r"'\u{110000}'", // beyond U+10FFFF
+        r"'\u{1234567}'", // too many digits
+      ]) {
+        expect(Lexer(bad).tokenize().hasErrors, isTrue,
+            reason: 'expected error for $bad');
+      }
+    });
   });
 
   group('function declarations', () {

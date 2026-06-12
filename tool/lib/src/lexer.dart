@@ -237,31 +237,9 @@ class Lexer {
         final escOffset = _pos;
         final escLine = _line;
         final escCol = _col;
-        _advance();
+        _advance(); // consume the backslash
         if (_atEnd) break;
-        switch (_ch) {
-          case 'n':
-            buf.write('\n');
-          case 't':
-            buf.write('\t');
-          case 'r':
-            buf.write('\r');
-          case '\\':
-            buf.write('\\');
-          case "'":
-            buf.write("'");
-          case '"':
-            buf.write('"');
-          case r'$':
-            buf.write(r'$');
-          default:
-            // An unrecognized escape is an error, not a silent pass-through —
-            // a typo like `\d` shouldn't quietly become a literal backslash-d.
-            _error("unknown escape sequence: '\\$_ch'", escOffset, escLine,
-                escCol);
-            buf.write(_ch); // keep scanning; the error fails the parse
-        }
-        _advance();
+        _scanStringEscape(buf, escOffset, escLine, escCol);
       } else if (_ch == r'$' && _peek == '{') {
         // Capture ${...} verbatim so the parser can split interpolations.
         // Track brace depth, but skip over nested string literals so a '}'
@@ -314,6 +292,97 @@ class Lexer {
     }
     final span = _spanFrom(startOffset, startLine, startCol);
     _tokens.add(Token(TokenKind.stringLiteral, span, buf.toString()));
+  }
+
+  /// Decode one escape sequence into [buf]. The backslash is already consumed;
+  /// `_ch` is the escape character. The position of the backslash ([o]/[l]/[c])
+  /// is used for diagnostics. Consumes everything the escape spans.
+  void _scanStringEscape(StringBuffer buf, int o, int l, int c) {
+    final e = _ch;
+    _advance(); // consume the escape character
+    switch (e) {
+      case 'n':
+        buf.write('\n');
+      case 't':
+        buf.write('\t');
+      case 'r':
+        buf.write('\r');
+      case '\\':
+        buf.write('\\');
+      case "'":
+        buf.write("'");
+      case '"':
+        buf.write('"');
+      case r'$':
+        buf.write(r'$');
+      case 'x':
+        _scanHexEscape(buf, o, l, c);
+      case 'u':
+        _scanUnicodeEscape(buf, o, l, c);
+      default:
+        // An unrecognized escape is an error, not a silent pass-through — a
+        // typo like `\d` shouldn't quietly become a literal backslash-d.
+        _error("unknown escape sequence: '\\$e'", o, l, c);
+        buf.write(e); // keep scanning; the error fails the parse
+    }
+  }
+
+  /// `\xNN` — exactly two hex digits, a code point in 0x00..0xFF (always a
+  /// valid scalar). `_ch` is the first hex digit.
+  void _scanHexEscape(StringBuffer buf, int o, int l, int c) {
+    var value = 0;
+    for (var i = 0; i < 2; i++) {
+      if (_atEnd || !_isHexDigit(_ch)) {
+        _error(r"'\x' needs exactly two hex digits", o, l, c);
+        return;
+      }
+      value = value * 16 + _hexDigit(_ch);
+      _advance();
+    }
+    buf.writeCharCode(value);
+  }
+
+  /// `\u{...}` — 1..6 hex digits in braces, naming a Unicode scalar value.
+  /// `_ch` is the opening brace.
+  void _scanUnicodeEscape(StringBuffer buf, int o, int l, int c) {
+    if (_ch != '{') {
+      _error(r"'\u' must be followed by '{...}'", o, l, c);
+      return;
+    }
+    _advance(); // consume '{'
+    var value = 0;
+    var digits = 0;
+    while (!_atEnd && _ch != '}') {
+      if (!_isHexDigit(_ch)) {
+        _error(r"invalid hex digit in '\u{...}'", o, l, c);
+        return;
+      }
+      value = value * 16 + _hexDigit(_ch);
+      digits++;
+      if (digits > 6) {
+        _error(r"too many hex digits in '\u{...}' (max 6)", o, l, c);
+        return;
+      }
+      _advance();
+    }
+    if (_atEnd || digits == 0) {
+      _error(r"empty or unterminated '\u{...}' escape", o, l, c);
+      return;
+    }
+    _advance(); // consume '}'
+    // Reject surrogates and out-of-range values — not Unicode scalar values.
+    if (value > 0x10FFFF || (value >= 0xD800 && value <= 0xDFFF)) {
+      _error(r"invalid Unicode scalar value in '\u{...}'", o, l, c);
+      return;
+    }
+    buf.writeCharCode(value);
+  }
+
+  static int _hexDigit(String c) {
+    final code = c.codeUnitAt(0);
+    if (code >= 48 && code <= 57) return code - 48; // 0-9
+    if (code >= 65 && code <= 70) return code - 65 + 10; // A-F
+    return code - 97 + 10; // a-f
   }
 
   void _scanNumber(int startOffset, int startLine, int startCol) {
