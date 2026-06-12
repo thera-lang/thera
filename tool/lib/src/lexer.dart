@@ -258,6 +258,9 @@ class Lexer {
         _advance();
       } else if (_ch == r'$' && _peek == '{') {
         // Capture ${...} verbatim so the parser can split interpolations.
+        // Track brace depth, but skip over nested string literals so a '}'
+        // inside an interpolated string (e.g. `${ m['}'] }`) doesn't close the
+        // interpolation early.
         buf.write(r'$');
         _advance(); // $
         buf.write('{');
@@ -265,11 +268,33 @@ class Lexer {
         int depth = 1;
         while (!_atEnd && depth > 0) {
           final ic = _ch;
-          if (ic == '{')
-            depth++;
-          else if (ic == '}') depth--;
-          buf.write(ic);
-          _advance();
+          if (ic == "'" || ic == '"') {
+            // Copy a nested string literal verbatim, honoring backslash escapes
+            // so an escaped quote doesn't end it prematurely.
+            buf.write(ic);
+            _advance();
+            while (!_atEnd && _ch != ic) {
+              if (_ch == '\\') {
+                buf.write(_ch);
+                _advance();
+                if (_atEnd) break;
+              }
+              buf.write(_ch);
+              _advance();
+            }
+            if (!_atEnd) {
+              buf.write(_ch); // closing quote
+              _advance();
+            }
+          } else {
+            if (ic == '{') {
+              depth++;
+            } else if (ic == '}') {
+              depth--;
+            }
+            buf.write(ic);
+            _advance();
+          }
         }
       } else {
         buf.write(_ch);

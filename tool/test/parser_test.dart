@@ -488,6 +488,16 @@ impl T {
       expect((interp.expr as IdentExpr).name, 'name');
     });
 
+    test('interpolation with a brace inside a nested string literal', () {
+      // The '}' inside the nested string must not close the interpolation
+      // early — the splitter skips string literals when counting braces.
+      final e = exprOf("'a\${ ['}'].len() }b'") as StringExpr;
+      expect(e.parts.whereType<InterpPart>().length, 1);
+      final texts = e.parts.whereType<TextPart>().map((t) => t.text).toList();
+      expect(texts, ['a', 'b']); // 'b' proves the right '}' was matched
+      expect(e.parts.whereType<InterpPart>().single.expr, isA<CallExpr>());
+    });
+
     test('lambda', () {
       final e = exprOf('u => u.name') as LambdaExpr;
       expect(e.params.single.name, 'u');

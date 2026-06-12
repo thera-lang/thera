@@ -1235,10 +1235,24 @@ class Parser {
         final interpStart = i;
         var depth = 1;
         while (i < raw.length && depth > 0) {
-          if (raw[i] == '{')
-            depth++;
-          else if (raw[i] == '}') depth--;
-          i++;
+          final c = raw[i];
+          if (c == "'" || c == '"') {
+            // Skip a nested string literal (honoring backslash escapes) so its
+            // braces and quotes don't affect the interpolation's brace depth.
+            i++;
+            while (i < raw.length && raw[i] != c) {
+              if (raw[i] == '\\') i++; // skip the escaped character
+              i++;
+            }
+            i++; // past the closing quote
+          } else {
+            if (c == '{') {
+              depth++;
+            } else if (c == '}') {
+              depth--;
+            }
+            i++;
+          }
         }
         // raw[interpStart .. i-1] is the expression source (closing } excluded).
         final exprSource = raw.substring(interpStart, i - 1);
