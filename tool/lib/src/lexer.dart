@@ -234,6 +234,9 @@ class Lexer {
     final buf = StringBuffer();
     while (!_atEnd && _ch != quote) {
       if (_ch == '\\') {
+        final escOffset = _pos;
+        final escLine = _line;
+        final escCol = _col;
         _advance();
         if (_atEnd) break;
         switch (_ch) {
@@ -252,8 +255,11 @@ class Lexer {
           case r'$':
             buf.write(r'$');
           default:
-            buf.write('\\');
-            buf.write(_ch);
+            // An unrecognized escape is an error, not a silent pass-through —
+            // a typo like `\d` shouldn't quietly become a literal backslash-d.
+            _error("unknown escape sequence: '\\$_ch'", escOffset, escLine,
+                escCol);
+            buf.write(_ch); // keep scanning; the error fails the parse
         }
         _advance();
       } else if (_ch == r'$' && _peek == '{') {

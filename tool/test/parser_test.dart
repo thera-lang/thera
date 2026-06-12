@@ -36,6 +36,21 @@ void main() {
           lex.tokens.firstWhere((t) => t.kind == TokenKind.stringLiteral);
       expect(str.value, 'Hello, \${name}!');
     });
+
+    test('known escapes decode in a string literal', () {
+      final lex = Lexer(r"'a\nb\t\\\'\$'").tokenize();
+      expect(lex.hasErrors, isFalse);
+      final str =
+          lex.tokens.firstWhere((t) => t.kind == TokenKind.stringLiteral);
+      expect(str.value, "a\nb\t\\'\$");
+    });
+
+    test('an unknown escape sequence is an error, not a pass-through', () {
+      final lex = Lexer(r"'oops \d'").tokenize();
+      expect(lex.hasErrors, isTrue);
+      expect(lex.errors.map((e) => e.message).join(),
+          contains("unknown escape sequence: '\\d'"));
+    });
   });
 
   group('function declarations', () {
