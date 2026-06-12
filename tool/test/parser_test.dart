@@ -704,4 +704,23 @@ fn good() -> Int { return 1; }
       expect(decl.typeParams.first.bounds, ['Eq']);
     });
   });
+
+  group('statement terminators', () {
+    test('adjacent string literals are an error (no silent concatenation)', () {
+      expect(parseRaw("fn f() { let s = 'a' 'b'; }").hasErrors, isTrue);
+    });
+
+    test('a missing semicolon between statements is an error', () {
+      expect(
+          parseRaw('fn f() -> Int { let x = 1 return x; }').hasErrors, isTrue);
+    });
+
+    test('a bare match statement needs no trailing semicolon', () {
+      // Block-terminated (ends in `}`), like if/while/for.
+      expect(
+          parseRaw('fn f(x: Int) { match x { _ => println(x), } return; }')
+              .hasErrors,
+          isFalse);
+    });
+  });
 }

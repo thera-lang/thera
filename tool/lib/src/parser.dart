@@ -578,7 +578,7 @@ class Parser {
       }
       _advance(); // consume '=' or the compound operator
       final rhs = _parseExpr();
-      _match(TokenKind.semi);
+      _expect(TokenKind.semi, "';'");
       // `target op= rhs` desugars to `target = target op rhs`. The target is a
       // simple lvalue (identifier/field/index), so reusing it as the operand's
       // left side is sound.
@@ -588,7 +588,15 @@ class Parser {
               left: expr, op: compoundOp, right: rhs);
       return AssignStmt(start, target: expr, value: value);
     }
-    _match(TokenKind.semi);
+    // A block-terminated expression statement (a bare `match`, ending in `}`)
+    // needs no trailing ';', like `if`/`while`/`for`. Everything else requires
+    // one — so a missing ';' (e.g. two adjacent string literals) is an error,
+    // not a silently-dropped second statement.
+    if (expr is MatchExpr) {
+      _match(TokenKind.semi);
+    } else {
+      _expect(TokenKind.semi, "';'");
+    }
     return ExprStmt(start, expr);
   }
 
@@ -630,7 +638,7 @@ class Parser {
     if (_match(TokenKind.colon)) type = _parseTypeRef();
     _expect(TokenKind.eq, '=');
     final value = _parseExpr();
-    _match(TokenKind.semi);
+    _expect(TokenKind.semi, "';'");
     final endSpan = _tokens[_pos - 1].span;
     return LetStmt(SourceSpan.cover(start.span, endSpan),
         isMut: false, name: name, nameSpan: nameSpan, type: type, value: value);
@@ -695,7 +703,7 @@ class Parser {
     if (_match(TokenKind.colon)) type = _parseTypeRef();
     _expect(TokenKind.eq, '=');
     final value = _parseExpr();
-    _match(TokenKind.semi);
+    _expect(TokenKind.semi, "';'");
     final endSpan = _tokens[_pos - 1].span;
     return LetStmt(SourceSpan.cover(start.span, endSpan),
         isMut: isMut, name: name, nameSpan: nameSpan, type: type, value: value);
@@ -703,14 +711,14 @@ class Parser {
 
   ReturnStmt _parseReturnStmt() {
     final expr = _parseExpr() as ReturnExpr; // primary handles kwReturn
-    _match(TokenKind.semi);
+    _expect(TokenKind.semi, "';'");
     final endSpan = _tokens[_pos - 1].span;
     return ReturnStmt(SourceSpan.cover(expr.span, endSpan), value: expr.value);
   }
 
   ThrowStmt _parseThrowStmt() {
     final expr = _parseExpr() as ThrowExpr; // primary handles kwThrow
-    _match(TokenKind.semi);
+    _expect(TokenKind.semi, "';'");
     final endSpan = _tokens[_pos - 1].span;
     return ThrowStmt(SourceSpan.cover(expr.span, endSpan), value: expr.value);
   }

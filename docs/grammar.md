@@ -177,14 +177,17 @@ block     = '{' statement* '}'
 statement = letStmt | constStmt | returnStmt | throwStmt
           | ifStmt | forStmt | whileStmt | assignOrExpr
 
-letStmt   = 'let' 'mut'? IDENT (':' type)? '=' expr ';'?
-constStmt = 'const' IDENT (':' type)? '=' expr ';'?       // a local immutable binding
-returnStmt= 'return' expr? ';'?
-throwStmt = 'throw' expr ';'?
+letStmt   = 'let' 'mut'? IDENT (':' type)? '=' expr ';'
+constStmt = 'const' IDENT (':' type)? '=' expr ';'       // a local immutable binding
+returnStmt= 'return' expr? ';'
+throwStmt = 'throw' expr ';'
 ifStmt    = 'if' exprNB block ( 'else' ( ifStmt | block ) )?
 forStmt   = 'for' pattern 'in' exprNB block
 whileStmt = 'while' exprNB block
 
+// The ';' is required, EXCEPT after a block-terminated expression statement
+// (a bare `match`, ending in '}'), which — like if/for/while — needs none. A
+// missing ';' is a parse error (so two adjacent literals do not silently merge).
 assignOrExpr = expr ( assignOp expr )? ';'?
 assignOp     = '=' | '+=' | '-=' | '*=' | '/=' | '%='
             // an assignment target must be an identifier, field access, or

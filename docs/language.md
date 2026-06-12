@@ -73,10 +73,12 @@ values.
 | `String` | UTF-8 text                                                  | `'hello'`       |
 | `Void`   | Unit type — one value, written `void` (like `true`/`false`) | `void`          |
 
-String literals use single quotes. Interpolation uses `${}`:
+String literals use single quotes, and may span multiple lines. Interpolation
+uses `${}`, and `+` concatenates two strings:
 
 ```hawk
 let greeting = 'Hello, ${name}!';
+let path = dir + '/' + name + '.hawk';
 ```
 
 ### Collections

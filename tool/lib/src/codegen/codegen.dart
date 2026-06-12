@@ -1331,6 +1331,16 @@ class _FnCompiler {
       }
     }
 
+    // String concatenation: `a + b` builds a new String via the `str_concat`
+    // native (the one interpolation already uses). Other operators on String
+    // fall through to the error below.
+    if (e.op == '+' && operandType == 'String') {
+      _expr(e.left);
+      _expr(e.right);
+      _emit(const CallNative('str_concat', 2));
+      return;
+    }
+
     if (!isPrimitive) {
       throw CodegenException(
           'operator `${e.op}` on ${operandType ?? 'unknown type'} '

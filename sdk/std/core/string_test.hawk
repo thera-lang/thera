@@ -37,3 +37,15 @@ fn test_chars_and_bytes() -> Result<Void, Error> {
     testing.assert_eq(actual: String.from_chars('hi'.chars()), expected: 'hi')?;
     return Result.Ok(void);
 }
+
+@test
+fn test_concat_operator() -> Result<Void, Error> {
+    testing.assert_eq(actual: 'foo' + 'bar', expected: 'foobar')?;
+    // Left-associative, chains.
+    testing.assert_eq(actual: 'a' + 'b' + 'c', expected: 'abc')?;
+    // Composes with variables and interpolation.
+    let name = 'main';
+    testing.assert_eq(actual: name + '.hawk', expected: 'main.hawk')?;
+    testing.assert_eq(actual: '' + name, expected: 'main')?;
+    return Result.Ok(void);
+}
