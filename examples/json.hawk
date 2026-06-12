@@ -1,0 +1,33 @@
+// Parse a JSON document, read typed values out of it, then build and
+// pretty-print a derived document — the std.json round trip.
+
+import std.json;
+
+fn main() -> Result<Int, Error> {
+    // A configuration blob, as it might arrive from a file or an HTTP response.
+    let source = '{ "service": "hawk", "port": 8080, "debug": false, "tags": ["build", "test"], "limits": { "cpu": 2, "mem_mb": 512 } }';
+
+    let config = json.parse(source)?;
+
+    // Read values by navigating the tree. `get` returns Json (Null on a miss),
+    // so the path chains; the `as_*` accessors do the typed extraction.
+    let service = config.get('service').as_string().unwrap_or('?');
+    let port = config.get('port').as_int().unwrap_or(0);
+    let mem = config.get('limits').get('mem_mb').as_int().unwrap_or(0);
+    let tags = config.get('tags').as_array().unwrap_or([]);
+
+    println('${service}: port ${port}, ${mem} MB, ${tags.len()} tags');
+
+    // Build a derived document with the lowercase constructors. Hawk has no
+    // heterogeneous literal, so each leaf is wrapped in its Json variant.
+    let summary = json.obj({
+        'service': json.str(service),
+        'endpoint': json.str('http://localhost:${port}'),
+        'tag_count': json.int(tags.len()),
+        'healthy': json.bool(true),
+    });
+
+    println('');
+    println(json.stringify(summary, pretty: true));
+    return Result.Ok(0);
+}
