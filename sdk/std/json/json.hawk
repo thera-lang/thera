@@ -434,6 +434,11 @@ impl Scanner {
             }
             return Result.Err(self.syntax('expected a low surrogate'));
         }
+        // A low surrogate (U+DC00..U+DFFF) with no preceding high surrogate is
+        // not a scalar value: reject it rather than emit an invalid code point.
+        if hi >= 56320 && hi <= 57343 {
+            return Result.Err(self.syntax('unexpected low surrogate'));
+        }
         return Result.Ok(hi);
     }
 

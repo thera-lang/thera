@@ -60,6 +60,34 @@ fn test_surrogate_pair() -> Result<Void, Error> {
 }
 
 @test
+fn test_lone_surrogates_rejected() -> Result<Void, Error> {
+    // A lone surrogate is not a scalar value; reject it (don't crash on an
+    // invalid code point), rather than emit U+FFFD.
+    testing.assert_err(parse('"\\uDEAD"'))?;       // lone low surrogate
+    testing.assert_err(parse('"\\uD800"'))?;       // lone high surrogate (no low)
+    testing.assert_err(parse('"\\uD800x"'))?;      // high surrogate, no low follows
+    return Result.Ok(void);
+}
+
+@test
+fn test_strict_number_grammar() -> Result<Void, Error> {
+    testing.assert_err(parse('[013]'))?;           // leading zero
+    testing.assert_err(parse('[1.]'))?;            // bare decimal point
+    testing.assert_err(parse('[1e]'))?;            // bare exponent
+    testing.assert_err(parse('[01]'))?;            // leading zero
+    let ok = parse('[0, 1e00, 2e+00, -0.5, 1.234E+34]')?;  // all valid
+    testing.assert_eq(actual: ok.as_array().is_some(), expected: true)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_control_chars_in_strings_rejected() -> Result<Void, Error> {
+    testing.assert_err(parse('["raw\ttab"]'))?;    // U+0009 unescaped
+    testing.assert_err(parse('["raw\nnewline"]'))?; // U+000A unescaped
+    return Result.Ok(void);
+}
+
+@test
 fn test_stringify_compact() -> Result<Void, Error> {
     let doc = obj({
         'a': int(1),
