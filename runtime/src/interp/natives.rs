@@ -137,6 +137,9 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("bytesbuilder_write_str", native_bytesbuilder_write_str),
     ("bytesbuilder_len", native_bytesbuilder_len),
     ("bytesbuilder_finish", native_bytesbuilder_finish),
+    ("io_stdin_read", native_io_stdin_read),
+    ("io_stdout_write", native_io_stdout_write),
+    ("io_stderr_write", native_io_stderr_write),
 ];
 
 /// The native functions the runtime ships with, in index order.
@@ -545,6 +548,42 @@ fn native_bytesbuilder_finish(_out: &mut dyn Write, args: &[Value]) -> Result<Va
         |buf| buf.clone(),
     )?;
     Ok(Value::new_bytes(bytes))
+}
+
+// --- io natives (standard streams) ---
+
+/// `io.stdin().read(max)` — read up to `max` bytes from stdin. An empty result
+/// means end-of-stream. `Err(message)` on an I/O error.
+fn native_io_stdin_read(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    use std::io::Read;
+    let max = as_int(expect_one(args, "io_stdin_read")?, "io_stdin_read")?;
+    let mut buf = vec![0u8; max.max(0) as usize];
+    Ok(match std::io::stdin().read(&mut buf) {
+        Ok(n) => {
+            buf.truncate(n);
+            Value::ok(Value::new_bytes(buf))
+        }
+        Err(e) => Value::err(Value::new_str(format!("stdin: {e}"))),
+    })
+}
+
+/// `io.stdout().write(data)` — write all of `data` to the program's output.
+/// Returns the number of bytes written, or `Err(message)`.
+fn native_io_stdout_write(out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let data = bytes_contents(expect_one(args, "io_stdout_write")?, "io_stdout_write")?;
+    Ok(match out.write_all(&data) {
+        Ok(()) => Value::ok(Value::Int(data.len() as i64)),
+        Err(e) => Value::err(Value::new_str(format!("stdout: {e}"))),
+    })
+}
+
+/// `io.stderr().write(data)` — write all of `data` to stderr.
+fn native_io_stderr_write(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let data = bytes_contents(expect_one(args, "io_stderr_write")?, "io_stderr_write")?;
+    Ok(match std::io::stderr().write_all(&data) {
+        Ok(()) => Value::ok(Value::Int(data.len() as i64)),
+        Err(e) => Value::err(Value::new_str(format!("stderr: {e}"))),
+    })
 }
 
 // --- more collection natives ---

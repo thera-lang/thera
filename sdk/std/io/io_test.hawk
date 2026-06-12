@@ -1,0 +1,71 @@
+// Tests for std.io. The standard streams need real file descriptors, so these
+// exercise the protocol against an in-memory Reader and StringWriter.
+
+import std.testing;
+
+import 'io';
+
+// A Reader over an in-memory buffer that hands out at most `chunk` bytes per
+// read — so the combinators' read-until-EOF loops are exercised across chunks.
+type MemReader = {
+    data: Bytes,
+    pos: Int,
+    chunk: Int,
+}
+
+impl Reader for MemReader {
+    pub fn read(self, max: Int) -> Result<Bytes, Error> {
+        let remaining = self.data.len() - self.pos;
+        if remaining == 0 {
+            return Result.Ok(Bytes.empty()); // EOF
+        }
+        let n = max.min(remaining).min(self.chunk);
+        let out = self.data.slice(self.pos, self.pos + n);
+        self.pos = self.pos + n;
+        return Result.Ok(out);
+    }
+}
+
+fn mem_reader(_ text: String, _ chunk: Int) -> MemReader {
+    return MemReader { data: text.bytes(), pos: 0, chunk: chunk };
+}
+
+@test
+fn test_read_all_assembles_chunks() -> Result<Void, Error> {
+    let all = read_all(mem_reader('hello world', 2))?; // 2 bytes per read
+    testing.assert_eq(actual: all.to_string()?, expected: 'hello world')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_read_all_empty() -> Result<Void, Error> {
+    let all = read_all(mem_reader('', 4))?;
+    testing.assert_eq(actual: all.len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_copy_into_string_writer() -> Result<Void, Error> {
+    let w = StringWriter.new();
+    let n = copy(to: w, from: mem_reader('abcdef', 3))?;
+    testing.assert_eq(actual: n, expected: 6)?;
+    testing.assert_eq(actual: w.into_string()?, expected: 'abcdef')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_string_writer_accumulates() -> Result<Void, Error> {
+    let w = StringWriter.new();
+    let a = w.write('foo'.bytes())?;
+    let b = w.write('bar'.bytes())?;
+    testing.assert_eq(actual: a + b, expected: 6)?;
+    testing.assert_eq(actual: w.into_string()?, expected: 'foobar')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_io_error_message() -> Result<Void, Error> {
+    testing.assert_eq(actual: IoError.Eof.message(), expected: 'unexpected end of stream')?;
+    testing.assert_eq(actual: IoError.Other('disk full').message(), expected: 'disk full')?;
+    return Result.Ok(void);
+}

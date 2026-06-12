@@ -113,26 +113,34 @@ called out under `std.json`).
 The shared vocabulary the modules are built from. These live in `std.core`
 (prelude) or `std.io`.
 
-### `Bytes` — immutable byte buffer _(new, prelude or std.io)_
+### `Bytes` — immutable byte buffer _(implemented, prelude)_
+
+Runtime-backed opaque types in the prelude (`std.core/bytes.hawk`); `String.bytes()`
+returns `Bytes` (use `.to_list()` for the raw byte values).
 
 ```
 pub type Bytes = { /* opaque, runtime-backed */ }
 
 impl Bytes {
     pub fn len(self) -> Int;
-    pub fn get(self, _ i: Int) -> Option<Int>;        // 0..255
-    pub fn slice(self, _ start: Int, _ end: Int) -> Bytes;
-    pub fn to_string(self) -> Result<String, Error>;  // validates UTF-8
+    pub fn get(self, _ i: Int) -> Option<Int>;        // 0..=255
+    pub fn slice(self, _ start: Int, _ end: Int) -> Bytes;   // clamps to range
     pub fn concat(self, _ other: Bytes) -> Bytes;
+    pub fn to_string(self) -> Result<String, Error>;  // validates UTF-8
+    pub fn to_list(self) -> List<Int>;
+    pub fn empty() -> Bytes;                           // static
+    pub fn from_list(_ values: List<Int>) -> Result<Bytes, Error>;  // static; 0..=255
 }
 
-// Accumulate bytes, then freeze:
+// Accumulate bytes, then freeze (the binary-writer vocabulary; write_u8 masks
+// to the low 8 bits). The typed write_u16_le/be… family is a planned follow-up.
 pub type BytesBuilder = { /* mutable */ }
 impl BytesBuilder {
     pub fn new() -> BytesBuilder;
-    pub fn push(self, _ byte: Int) -> Void;
-    pub fn append(self, _ data: Bytes) -> Void;
-    pub fn append_str(self, _ s: String) -> Void;
+    pub fn write_u8(self, _ byte: Int) -> Void;
+    pub fn write_bytes(self, _ data: Bytes) -> Void;
+    pub fn write_str(self, _ s: String) -> Void;
+    pub fn len(self) -> Int;
     pub fn finish(self) -> Bytes;
 }
 ```
@@ -197,30 +205,36 @@ concrete `Message` is the simple-case error and the `throw`/`Ok`-wrap target.
 Each entry: **purpose**, **key types**, **representative API** (illustrative,
 not exhaustive), and **status** (`exists` / `partial` / `new`).
 
-### `std.io` — streaming I/O foundation _(new)_
+### `std.io` — streaming I/O foundation _(v1 implemented, pure Hawk)_
 
 Purpose: the `Reader`/`Writer`/`Closer` interfaces, the standard streams, and
-the generic combinators every other I/O module builds on.
+the generic combinators every other I/O module builds on. Everything streams as
+`Bytes`. Implemented in pure Hawk over the interface-dispatch arc (the
+combinators take interface-typed parameters); three small stream natives back
+stdin/stdout/stderr.
 
 ```
+pub interface Reader { fn read(self, max: Int) -> Result<Bytes, Error>; }   // empty = EOF
+pub interface Writer { fn write(self, _ data: Bytes) -> Result<Int, Error>; }
+pub interface Closer { fn close(self) -> Result<Void, Error>; }
+pub enum IoError { Eof, Other(String) }                       // implements Error
+
 // Standard streams (stdin: Reader, stdout/stderr: Writer).
-pub fn stdin() -> Reader;
-pub fn stdout() -> Writer;
-pub fn stderr() -> Writer;
+pub fn stdin() -> Reader;  pub fn stdout() -> Writer;  pub fn stderr() -> Writer;
 
 // Combinators over any Reader/Writer.
 pub fn read_all(_ src: Reader) -> Result<Bytes, Error>;
 pub fn copy(to dst: Writer, from src: Reader) -> Result<Int, Error>;
 
-// Text-oriented helpers.
-pub fn lines(_ src: Reader) -> Iterator<String>;   // lazy; see Sequencing
-pub type BufReader = { /* buffered, line-aware */ }
-pub type StringWriter = { /* in-memory Writer -> String */ }
+// In-memory Writer that captures output (and the test double for any Writer).
+pub type StringWriter = { /* wraps a BytesBuilder */ }
+impl StringWriter { fn new(); fn into_string() -> Result<String, Error>; fn into_bytes() -> Bytes; }
 ```
 
-Notes: the generic combinators take **interface-typed** parameters → gated on
-the generics arc. `Iterator<T>` (lazy sequence) is part of this design; see
-Sequencing.
+Deferred follow-ups: `io.lines(src) -> Iterator<String>` and `BufReader` (need
+the lazy `Iterator<T>` type, § Sequencing); streaming files (`fs.open` → a
+`File: Reader + Writer + Seek + Closer`); the typed binary `BytesReader`
+(`read_u8`/`read_u16_le`/…) pairing with `BytesBuilder`.
 
 ### `std.fs` — filesystem _(partial → expand)_
 
@@ -683,10 +697,11 @@ dependency graph, so future work lands in the right order:
    - Generic bound enforcement (`<T: Display>`, `<T: Eq + Debug>`) used by
      `std.testing` and generic combinators.
 
-2. **`Bytes` core type + `Reader`/`Writer` interfaces.** The foundation of
-   `std.io`; everything binary (fs/process/http/hash/encoding) needs `Bytes`.
-   `Bytes` itself is runtime-backed and can land before the generics arc; the
-   _generic_ combinators over `Reader`/`Writer` wait for #1.
+2. **`Bytes` core type + `Reader`/`Writer` interfaces — done (v1).** `Bytes` +
+   `BytesBuilder` are runtime-backed prelude types, and `std.io` ships the
+   `Reader`/`Writer`/`Closer` interfaces, `read_all`/`copy`, the standard
+   streams, and `StringWriter`. Deferred: `lines`/`Iterator`, streaming files,
+   the typed binary `BytesReader`.
 
 3. **Lazy `Iterator<T>`.** `fs.walk`, `io.lines`, and the `std.regex`
    `.to_list()` calls assume a lazy sequence type. Define `Iterator<T>` (likely
@@ -752,8 +767,8 @@ dependency graph, so future work lands in the right order:
 
 | Module       | Status  | Notes                                                                                                                            |
 | ------------ | ------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| prelude/core | exists  | Int/Double + String parsing; `Set<T>` in Hawk over `Map`; Option methods are Hawk; `Error` is now an interface + `Message`; still want `Ord` |
-| std.io       | new     | foundation; gated on `Bytes` + generics arc                                                                                      |
+| prelude/core | exists  | Int/Double + String parsing; `Bytes`/`BytesBuilder`; `Set<T>` in Hawk over `Map`; `Error` is an interface + `Message`; still want `Ord` |
+| std.io       | done    | v1: `Reader`/`Writer`/`Closer` + `IoError`, `read_all`/`copy`, stdin/stdout/stderr, `StringWriter`; `lines`/`Iterator` + streaming files deferred |
 | std.fs       | partial | expand; `read_dir`→`list_dir`; `FsError`                                                                                         |
 | std.path     | done    | pure Hawk; `components`/`with_extension` added; normalize/relative deferred                                                      |
 | std.env      | done    | vars/args/cwd/os/exit + `Env` capability + `testing.fixed_env`; `OS`→`os()`                                                      |
