@@ -213,6 +213,19 @@ impl Scanner {
         return void;
     }
 
+    // Advance past a run of ASCII digits.
+    fn skip_digits(self) -> Void {
+        let mut going = true;
+        while going {
+            if char.is_digit(self.peek()) {
+                self.pos = self.pos + 1;
+            } else {
+                going = false;
+            }
+        }
+        return void;
+    }
+
     fn syntax(self, _ msg: String) -> JsonError {
         return JsonError.Syntax('${msg} at ${self.position()}');
     }
@@ -359,6 +372,10 @@ impl Scanner {
                 going = false;
             } else if c == char.BACKSLASH {
                 self.parse_escape(out)?; // decodes into `out`
+            } else if c < char.SPACE {
+                // Control characters (U+0000–U+001F) must be escaped, so a raw
+                // tab or newline inside a string is a syntax error (RFC 8259).
+                return Result.Err(self.syntax('unescaped control character in string'));
             } else {
                 out.push(c);
             }
@@ -438,21 +455,52 @@ impl Scanner {
         return Result.Ok(value);
     }
 
+    // number = '-'? int frac? exp?  (RFC 8259); leading zeros are rejected, as
+    // are a bare '.'/'e' without the digits the grammar requires.
     fn parse_number(self) -> Result<Json, JsonError> {
         let start = self.pos;
         let mut is_double = false;
-        let mut going = true;
-        while going {
-            let c = self.peek();
-            if char.is_digit(c) || c == char.MINUS || c == char.PLUS {
-                self.pos = self.pos + 1;
-            } else if c == char.DOT || c == 101 || c == 69 {
-                is_double = true; // '.' 'e' 'E'
-                self.pos = self.pos + 1;
-            } else {
-                going = false;
-            }
+
+        // Optional minus sign.
+        if self.peek() == char.MINUS {
+            self.pos = self.pos + 1;
         }
+
+        // Integer part: a lone '0', or a non-zero digit followed by more digits.
+        if self.peek() == char.DIGIT_0 {
+            self.pos = self.pos + 1;
+            if char.is_digit(self.peek()) {
+                return Result.Err(self.syntax('number cannot have a leading zero'));
+            }
+        } else if char.is_digit(self.peek()) {
+            self.skip_digits();
+        } else {
+            return Result.Err(self.syntax('invalid number'));
+        }
+
+        // Fractional part: '.' then at least one digit.
+        if self.peek() == char.DOT {
+            is_double = true;
+            self.pos = self.pos + 1;
+            if !char.is_digit(self.peek()) {
+                return Result.Err(self.syntax('expected a digit after the decimal point'));
+            }
+            self.skip_digits();
+        }
+
+        // Exponent part: 'e'/'E', an optional sign, then at least one digit.
+        if self.peek() == 101 || self.peek() == 69 { // 'e' 'E'
+            is_double = true;
+            self.pos = self.pos + 1;
+            if self.peek() == char.PLUS || self.peek() == char.MINUS {
+                self.pos = self.pos + 1;
+            }
+            if !char.is_digit(self.peek()) {
+                return Result.Err(self.syntax('expected a digit in the exponent'));
+            }
+            self.skip_digits();
+        }
+
         let token = String.from_chars(slice(self.chars, start, self.pos));
         if is_double {
             return match token.to_double() {
