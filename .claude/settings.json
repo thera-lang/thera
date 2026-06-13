@@ -3,6 +3,9 @@
     "allow": [
       "Bash(./bin/hawk.sh *)",
       "Bash(bash bin/hawk.sh *)",
+      "Bash(bin/hawk.sh check *)",
+      "Bash(bin/hawk.sh run *)",
+      "Bash(bin/hawk.sh test *)",
       "Bash(cargo build *)",
       "Bash(cargo clippy *)",
       "Bash(cargo fmt *)",
@@ -27,8 +30,8 @@
       "Bash(sed *)",
       "Bash(tail *)",
       "mcp__plugin_flutter-slipstream_packages__library_stub",
-      "WebFetch(domain:docs.rs)",
-      "WebFetch(domain:crates.io)"
+      "WebFetch(domain:crates.io)",
+      "WebFetch(domain:docs.rs)"
     ]
   }
 }
