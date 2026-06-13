@@ -36,5 +36,8 @@ is"; read top-down for progressive detail.
 - [tailexpr.md](tailexpr.md) — **tail expressions** spec & sizing: making a
   block's last expression its value (and `if`/`match` value-position), the #1
   gap from the self-hosting spike.
+- [frontend_in_hawk.md](frontend_in_hawk.md) — the **Hawk-in-Hawk front-end
+  architecture**: the incremental/LSP target, the first batch-compiler port and
+  its Dart→Hawk representational mapping, and the de-risking Dart refactors.
 
 (A concise orientation for agents lives in the repo-root `CLAUDE.md`.)

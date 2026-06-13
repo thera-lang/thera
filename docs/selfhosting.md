@@ -193,3 +193,9 @@ expressions (#1)** — it shapes every function and is felt on nearly every matc
 That ranks ahead of interface inheritance for the self-hosting arc. The slice
 itself can grow (the `let`-binding stretch, better error positions) but has
 already served its purpose: it turned "what might Hawk lack?" into a ranked list.
+
+The validated shapes here (recursive AST enums, a mutable cursor struct,
+`match` + `?`, structural `Eq`/`Debug` for AST diffing) are the foundation the
+full-port architecture builds on — see [frontend_in_hawk.md](frontend_in_hawk.md),
+which turns these findings into the batch-port plan, the Dart→Hawk mapping, and
+the gating language work.

@@ -72,7 +72,9 @@ The path to a self-hosting `hawk`:
 3. **Hawk front-end emits `.hawkbc`** — self-hosting; bootstrapped by arc 2
    compiling the Hawk-written front-end the first time. _Deliberately deferred_
    until the Dart front-end + Rust runtime are stable and complete enough to run
-   real programs (see Strategy).
+   real programs (see Strategy). The architecture — the incremental/LSP target,
+   the first batch-compiler port, and the de-risking Dart refactors — is in
+   [frontend_in_hawk.md](frontend_in_hawk.md).
 
 The Dart toolchain is maintained — parsing current Hawk and emitting bytecode —
 until the Hawk front-end can compile itself.
