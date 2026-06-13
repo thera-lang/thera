@@ -13,8 +13,7 @@
 //   let evens = [1, 2, 3, 4].filter(n => n % 2 == 0);   // [2, 4]
 //   let names = users.map(u => u.name);
 //
-// Still TBD (straightforward additions once needed): `first`/`last`/`slice`/
-// `sort`/`to_list`.
+// Still TBD (straightforward additions once needed): `first`/`last`/`sort`.
 
 impl List<T> {
     // Number of elements.
@@ -64,5 +63,22 @@ impl List<T> {
             acc = combine(acc, item);
         }
         return acc;
+    }
+
+    // A new list of the elements in the half-open range `[start, end)`. Indices
+    // are clamped to the list's bounds, so out-of-range or reversed ranges yield
+    // a shorter or empty list rather than an error.
+    //
+    //   [10, 20, 30, 40].slice(1, 3)   // [20, 30]
+    pub fn slice(self, _ start: Int, _ end: Int) -> List<T> {
+        let lo = start.clamp(0, self.len());
+        let hi = end.clamp(0, self.len());
+        let result = [];
+        let mut i = lo;
+        while i < hi {
+            result.push(self[i]);
+            i = i + 1;
+        }
+        return result;
     }
 }

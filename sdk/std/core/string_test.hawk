@@ -49,6 +49,19 @@ fn test_from_chars_is_total() -> Result<Void, Error> {
 }
 
 @test
+fn test_slice() -> Result<Void, Error> {
+    testing.assert_eq(actual: 'hello'.slice(1, 4), expected: 'ell')?;
+    testing.assert_eq(actual: 'hello'.slice(0, 5), expected: 'hello')?;
+    testing.assert_eq(actual: 'hello'.slice(0, 99), expected: 'hello')?;   // clamps high
+    testing.assert_eq(actual: 'hello'.slice(-3, 2), expected: 'he')?;      // clamps low
+    testing.assert_eq(actual: 'hello'.slice(3, 1), expected: '')?;         // reversed -> empty
+    testing.assert_eq(actual: 'hello'.slice(2, 2), expected: '')?;         // empty range
+    // Code-point indices, not bytes: 'É' is one code point.
+    testing.assert_eq(actual: 'Éa'.slice(1, 2), expected: 'a')?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_numeric_escapes() -> Result<Void, Error> {
     // \xNN (a byte) and \u{...} (a Unicode scalar) decode to code points.
     testing.assert_eq(actual: '\x41', expected: 'A')?;

@@ -90,7 +90,7 @@ fn scan_number(_ cs: List<Int>, _ start: Int, _ tokens: List<Token>) -> Result<I
             i = i + 1;
         }
     }
-    let text = String.from_chars(slice(cs, start, i));
+    let text = String.from_chars(cs.slice(start, i));
     match text.to_double() {
         Some(n) => {
             tokens.push(Token.Number(n));
@@ -100,15 +100,4 @@ fn scan_number(_ cs: List<Int>, _ start: Int, _ tokens: List<Token>) -> Result<I
             return Result.Err(LexError.Unexpected('invalid number: ${text}'));
         },
     }
-}
-
-// The sublist of code points in [start, end).
-fn slice(_ cs: List<Int>, _ start: Int, _ end: Int) -> List<Int> {
-    let out: List<Int> = [];
-    let mut i = start;
-    while i < end {
-        out.push(cs[i]);
-        i = i + 1;
-    }
-    return out;
 }

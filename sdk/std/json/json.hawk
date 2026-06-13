@@ -506,7 +506,7 @@ impl Scanner {
             self.skip_digits();
         }
 
-        let token = String.from_chars(slice(self.chars, start, self.pos));
+        let token = String.from_chars(self.chars.slice(start, self.pos));
         if is_double {
             return match token.to_double() {
                 Some(x) => Result.Ok(Json.Double(x)),
@@ -534,16 +534,6 @@ fn hex_value(_ c: Int) -> Int {
         return lower - 97 + 10; // a..f
     }
     return -1;
-}
-
-fn slice(_ xs: List<Int>, _ start: Int, _ end: Int) -> List<Int> {
-    let mut out: List<Int> = [];
-    let mut i = start;
-    while i < end {
-        out.push(xs[i]);
-        i = i + 1;
-    }
-    return out;
 }
 
 // --- serializing ---

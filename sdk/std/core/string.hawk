@@ -20,6 +20,15 @@ impl String {
         return self.len() == 0;
     }
 
+    // The substring of the code points in the half-open range `[start, end)`,
+    // by code-point index (not byte offset). Indices are clamped to the string's
+    // length, so out-of-range or reversed ranges yield a shorter or empty string.
+    //
+    //   'hello'.slice(1, 4)   // 'ell'
+    pub fn slice(self, _ start: Int, _ end: Int) -> String {
+        return String.from_chars(self.chars().slice(start, end));
+    }
+
     // A copy with leading and trailing whitespace removed.
     @extern('str_trim')
     pub native fn trim(self) -> String

@@ -208,20 +208,20 @@ impl Command {
             let mut step = 1;
 
             if t.starts_with('--') {
-                let body = drop_first(t, 2);
+                let body = t.slice(2, t.len());
                 let parts = body.split('=');
                 let name = parts[0];
                 let mut has_value = false;
                 let mut value = '';
                 if parts.len() > 1 {
                     has_value = true;
-                    value = sublist(parts, 1).join('=');
+                    value = parts.slice(1, parts.len()).join('=');
                 }
 
                 // --no-<name> for a negatable flag.
                 let mut handled = false;
                 if name.starts_with('no-') {
-                    let neg = drop_first(name, 3);
+                    let neg = name.slice(3, name.len());
                     let ni = flag_index(self.flags, neg);
                     if ni >= 0 {
                         if self.flags[ni].negatable {
@@ -253,14 +253,14 @@ impl Command {
                     }
                 }
             } else if t.starts_with('-') && t.len() > 1 {
-                let body = drop_first(t, 1);
+                let body = t.slice(1, t.len());
                 let parts = body.split('=');
                 let abbr = parts[0];
                 let mut has_value = false;
                 let mut value = '';
                 if parts.len() > 1 {
                     has_value = true;
-                    value = sublist(parts, 1).join('=');
+                    value = parts.slice(1, parts.len()).join('=');
                 }
 
                 let fi = flag_abbr_index(self.flags, abbr);
@@ -286,7 +286,7 @@ impl Command {
             } else if self.subcommands.len() > 0 {
                 let ci = cmd_index(self.subcommands, t);
                 if ci >= 0 {
-                    let rest = sublist(args, i + 1);
+                    let rest = args.slice(i + 1, args.len());
                     let sm = self.subcommands[ci].parse(rest)?;
                     m.sub_name = Option.Some(t);
                     m.sub = Option.Some(sm);
@@ -412,33 +412,6 @@ impl Matches {
 }
 
 // --- internal helpers ---
-
-// Drop the first `n` code points of `s` (used to strip `--` / `-` / `no-`).
-fn drop_first(_ s: String, _ n: Int) -> String {
-    let cps = s.chars();
-    let mut out: List<Int> = [];
-    let mut i = 0;
-    while i < cps.len() {
-        if i >= n {
-            out.push(cps[i]);
-        }
-        i = i + 1;
-    }
-    return String.from_chars(out);
-}
-
-// The sublist of `xs` from `start` to the end.
-fn sublist(_ xs: List<String>, _ start: Int) -> List<String> {
-    let mut out: List<String> = [];
-    let mut i = 0;
-    while i < xs.len() {
-        if i >= start {
-            out.push(xs[i]);
-        }
-        i = i + 1;
-    }
-    return out;
-}
 
 // `head`, plus `help` padded onto the same line when non-empty.
 fn describe(_ head: String, _ help: String) -> String {
