@@ -38,3 +38,86 @@ fn test_logic_under_a_fixed_clock() -> Result<Void, Error> {
     testing.assert(!deadline_passed(clock, 600))?;
     return Result.Ok(void);
 }
+
+@test
+fn test_duration_constructors_and_accessors() -> Result<Void, Error> {
+    testing.assert_eq(actual: time.Duration.seconds(2).as_millis(), expected: 2000)?;
+    testing.assert_eq(actual: time.Duration.millis(1500).as_seconds(), expected: 1)?;
+    testing.assert_eq(actual: time.Duration.minutes(1).as_seconds(), expected: 60)?;
+    testing.assert_eq(actual: time.Duration.hours(1).as_millis(), expected: 3600000)?;
+    testing.assert_eq(actual: time.Duration.nanos(1000000).as_millis(), expected: 1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_duration_arithmetic() -> Result<Void, Error> {
+    let a = time.Duration.seconds(5);
+    let b = time.Duration.seconds(3);
+    testing.assert_eq(actual: a.plus(b).as_seconds(), expected: 8)?;
+    testing.assert_eq(actual: a.minus(b).as_seconds(), expected: 2)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_monotonic_does_not_go_backwards() -> Result<Void, Error> {
+    let start = time.monotonic();
+    time.sleep(time.Duration.millis(5));
+    let elapsed = start.elapsed();
+    testing.assert(elapsed.as_nanos() >= 0)?;
+    testing.assert(elapsed.as_millis() >= 4)?; // slept ~5ms
+    return Result.Ok(void);
+}
+
+@test
+fn test_datetime_unix_accessors() -> Result<Void, Error> {
+    let dt = time.DateTime.from_unix_seconds(1700000000);
+    testing.assert_eq(actual: dt.unix_seconds(), expected: 1700000000)?;
+    testing.assert_eq(actual: dt.unix_millis(), expected: 1700000000000)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_format_rfc3339_known_instants() -> Result<Void, Error> {
+    testing.assert_eq(
+        actual: time.DateTime.from_unix_seconds(0).format_rfc3339(),
+        expected: '1970-01-01T00:00:00Z')?;
+    testing.assert_eq(
+        actual: time.DateTime.from_unix_seconds(1700000000).format_rfc3339(),
+        expected: '2023-11-14T22:13:20Z')?;
+    // Millisecond fraction is rendered when non-zero.
+    testing.assert_eq(
+        actual: time.DateTime.from_unix_millis(500).format_rfc3339(),
+        expected: '1970-01-01T00:00:00.500Z')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_parse_rfc3339_roundtrip() -> Result<Void, Error> {
+    let dt = time.DateTime.parse_rfc3339('2023-11-14T22:13:20Z')?;
+    testing.assert_eq(actual: dt.unix_seconds(), expected: 1700000000)?;
+    testing.assert_eq(actual: dt.format_rfc3339(), expected: '2023-11-14T22:13:20Z')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_parse_rfc3339_offset_and_fraction() -> Result<Void, Error> {
+    // +01:00 is one hour ahead, so the same instant as 22:13:20Z.
+    let off = time.DateTime.parse_rfc3339('2023-11-14T23:13:20+01:00')?;
+    testing.assert_eq(actual: off.unix_seconds(), expected: 1700000000)?;
+    // A negative offset.
+    let neg = time.DateTime.parse_rfc3339('2023-11-14T21:13:20-01:00')?;
+    testing.assert_eq(actual: neg.unix_seconds(), expected: 1700000000)?;
+    // Fractional seconds.
+    let frac = time.DateTime.parse_rfc3339('1970-01-01T00:00:00.250Z')?;
+    testing.assert_eq(actual: frac.unix_millis(), expected: 250)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_parse_rfc3339_rejects_malformed() -> Result<Void, Error> {
+    testing.assert_err(time.DateTime.parse_rfc3339('not a date'))?;
+    testing.assert_err(time.DateTime.parse_rfc3339('2023-13-01T00:00:00Z'))?; // month 13
+    testing.assert_err(time.DateTime.parse_rfc3339('2023-11-14T22:13:20'))?;  // no zone
+    testing.assert_err(time.DateTime.parse_rfc3339('2023-11-14 22:13:20Z'))?; // space, no 'T'
+    return Result.Ok(void);
+}

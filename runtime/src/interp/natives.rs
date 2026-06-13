@@ -113,6 +113,8 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("fs_copy", native_fs_copy),
     ("fs_temp_dir", native_fs_temp_dir),
     ("time_now_millis", native_time_now_millis),
+    ("time_monotonic_nanos", native_time_monotonic_nanos),
+    ("time_sleep_millis", native_time_sleep_millis),
     ("random_mix", native_random_mix),
     ("random_to_unit", native_random_to_unit),
     ("random_seed_entropy", native_random_seed_entropy),
@@ -875,6 +877,31 @@ fn native_time_now_millis(_out: &mut dyn Write, args: &[Value]) -> Result<Value,
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0);
     Ok(Value::Int(millis))
+}
+
+/// `time.monotonic()` — nanoseconds from a fixed process-start baseline. The
+/// value is meaningless in absolute terms; only differences matter (it never
+/// goes backwards, unlike the wall clock).
+fn native_time_monotonic_nanos(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    if !args.is_empty() {
+        return Err(bug(format!(
+            "time_monotonic_nanos expects 0 arguments, got {}",
+            args.len()
+        )));
+    }
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    let start = START.get_or_init(std::time::Instant::now);
+    Ok(Value::Int(start.elapsed().as_nanos() as i64))
+}
+
+/// `time.sleep(d)` — block the current thread for `millis` milliseconds. (Parks
+/// the fiber once cooperative fibers land; today it blocks the thread.)
+fn native_time_sleep_millis(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let millis = as_int(expect_one(args, "time_sleep_millis")?, "time_sleep_millis")?;
+    if millis > 0 {
+        std::thread::sleep(std::time::Duration::from_millis(millis as u64));
+    }
+    Ok(Value::Unit)
 }
 
 // --- random natives ---

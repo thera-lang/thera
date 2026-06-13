@@ -19,6 +19,8 @@
 // orchestrating middle layer. For a deterministic clock in tests, see
 // `testing.fixed_clock`.
 
+import std.char;
+
 // The single ambient time effect: Unix time in milliseconds, from the system
 // wall clock.
 //
@@ -48,4 +50,344 @@ impl Clock for SystemClock {
 //   run(clock);
 pub fn system_clock() -> Clock {
     return SystemClock {};
+}
+
+// --- monotonic clock & sleeping ---
+
+@extern('time_monotonic_nanos')
+native fn _monotonic_nanos() -> Int
+
+@extern('time_sleep_millis')
+native fn _sleep_millis(_ millis: Int) -> Void
+
+// --- Duration: a signed span, stored as nanoseconds ---
+
+pub type Duration = {
+    nanos: Int,
+}
+
+impl Duration {
+    pub fn nanos(_ n: Int) -> Duration {
+        return Duration { nanos: n };
+    }
+
+    pub fn millis(_ n: Int) -> Duration {
+        return Duration { nanos: n * 1000000 };
+    }
+
+    pub fn seconds(_ n: Int) -> Duration {
+        return Duration { nanos: n * 1000000000 };
+    }
+
+    pub fn minutes(_ n: Int) -> Duration {
+        return Duration { nanos: n * 60000000000 };
+    }
+
+    pub fn hours(_ n: Int) -> Duration {
+        return Duration { nanos: n * 3600000000000 };
+    }
+
+    pub fn as_nanos(self) -> Int {
+        return self.nanos;
+    }
+
+    // Whole milliseconds (truncated toward zero).
+    pub fn as_millis(self) -> Int {
+        return self.nanos / 1000000;
+    }
+
+    // Whole seconds (truncated toward zero).
+    pub fn as_seconds(self) -> Int {
+        return self.nanos / 1000000000;
+    }
+
+    pub fn plus(self, _ other: Duration) -> Duration {
+        return Duration { nanos: self.nanos + other.nanos };
+    }
+
+    pub fn minus(self, _ other: Duration) -> Duration {
+        return Duration { nanos: self.nanos - other.nanos };
+    }
+}
+
+// --- Instant: a monotonic point in time, for measuring elapsed spans ---
+
+pub type Instant = {
+    nanos: Int,   // monotonic, relative to an arbitrary process baseline
+}
+
+// The current monotonic instant. Only differences are meaningful.
+pub fn monotonic() -> Instant {
+    return Instant { nanos: _monotonic_nanos() };
+}
+
+impl Instant {
+    // The duration that has elapsed since this instant was taken.
+    pub fn elapsed(self) -> Duration {
+        return Duration { nanos: _monotonic_nanos() - self.nanos };
+    }
+
+    // The duration from `earlier` to this instant.
+    pub fn duration_since(self, _ earlier: Instant) -> Duration {
+        return Duration { nanos: self.nanos - earlier.nanos };
+    }
+}
+
+// Block for `d` (whole milliseconds; sub-millisecond spans don't sleep). Blocks
+// the thread today; parks the fiber once cooperative fibers land.
+pub fn sleep(_ d: Duration) -> Void {
+    _sleep_millis(d.as_millis());
+    return void;
+}
+
+// --- DateTime: a wall-clock instant, UTC, stored as Unix milliseconds ---
+
+pub type DateTime = {
+    millis: Int,   // Unix epoch milliseconds, UTC
+}
+
+// The current wall-clock time (UTC).
+pub fn now() -> DateTime {
+    return DateTime { millis: now_millis() };
+}
+
+impl DateTime {
+    pub fn from_unix_millis(_ millis: Int) -> DateTime {
+        return DateTime { millis: millis };
+    }
+
+    pub fn from_unix_seconds(_ secs: Int) -> DateTime {
+        return DateTime { millis: secs * 1000 };
+    }
+
+    pub fn unix_millis(self) -> Int {
+        return self.millis;
+    }
+
+    // Whole Unix seconds (floored, so it stays correct before 1970).
+    pub fn unix_seconds(self) -> Int {
+        return floor_div(self.millis, 1000);
+    }
+
+    // Render as RFC 3339 / ISO 8601 in UTC, e.g. '2023-11-14T22:13:20Z'. A
+    // non-zero millisecond part is included as '.sss'.
+    pub fn format_rfc3339(self) -> String {
+        let total_secs = floor_div(self.millis, 1000);
+        let ms = self.millis - total_secs * 1000;        // [0, 999]
+        let days = floor_div(total_secs, 86400);
+        let sod = total_secs - days * 86400;             // [0, 86399]
+        let hour = sod / 3600;
+        let minute = (sod % 3600) / 60;
+        let second = sod % 60;
+        let date = civil_from_days(days);                // [year, month, day]
+        let stamp = pad4(date[0]) + '-' + pad2(date[1]) + '-' + pad2(date[2])
+            + 'T' + pad2(hour) + ':' + pad2(minute) + ':' + pad2(second);
+        if ms == 0 {
+            return stamp + 'Z';
+        }
+        return stamp + '.' + pad3(ms) + 'Z';
+    }
+
+    // Parse an RFC 3339 timestamp: 'YYYY-MM-DDTHH:MM:SS', an optional '.fff'
+    // fraction, and a zone that is 'Z' or '±HH:MM'. Returns the instant in UTC.
+    pub fn parse_rfc3339(_ s: String) -> Result<DateTime, Error> {
+        let cs = s.chars();
+        if cs.len() < 20 {
+            return parse_fail('timestamp too short');
+        }
+        let year = read_digits(cs, 0, 4)?;
+        expect_code(cs, 4, char.MINUS)?;
+        let month = read_digits(cs, 5, 2)?;
+        expect_code(cs, 7, char.MINUS)?;
+        let day = read_digits(cs, 8, 2)?;
+        expect_code(cs, 10, 84)?; // 'T'
+        let hour = read_digits(cs, 11, 2)?;
+        expect_code(cs, 13, char.COLON)?;
+        let minute = read_digits(cs, 14, 2)?;
+        expect_code(cs, 16, char.COLON)?;
+        let second = read_digits(cs, 17, 2)?;
+        check_range(month, 1, 12, 'month')?;
+        check_range(day, 1, 31, 'day')?;
+        check_range(hour, 0, 23, 'hour')?;
+        check_range(minute, 0, 59, 'minute')?;
+        check_range(second, 0, 60, 'second')?; // 60 allows a leap second
+
+        // Optional '.fff' fractional seconds (only the first 3 digits are kept).
+        let mut i = 19;
+        let mut frac_ms = 0;
+        if i < cs.len() && cs[i] == char.DOT {
+            i = i + 1;
+            let mut place = 100;
+            let mut seen = false;
+            let mut going = true;
+            while going {
+                if i < cs.len() && char.is_digit(cs[i]) {
+                    if place >= 1 {
+                        frac_ms = frac_ms + (cs[i] - char.DIGIT_0) * place;
+                        place = place / 10;
+                    }
+                    seen = true;
+                    i = i + 1;
+                } else {
+                    going = false;
+                }
+            }
+            if !seen {
+                return parse_fail('fractional seconds need at least one digit');
+            }
+        }
+
+        // Zone: 'Z', or '±HH:MM'.
+        if i >= cs.len() {
+            return parse_fail('missing time zone');
+        }
+        let z = cs[i];
+        let mut offset_minutes = 0;
+        if z == 90 { // 'Z'
+            i = i + 1;
+        } else if z == char.PLUS || z == char.MINUS {
+            let oh = read_digits(cs, i + 1, 2)?;
+            expect_code(cs, i + 3, char.COLON)?;
+            let om = read_digits(cs, i + 4, 2)?;
+            offset_minutes = oh * 60 + om;
+            if z == char.MINUS {
+                offset_minutes = -offset_minutes;
+            }
+            i = i + 6;
+        } else {
+            return parse_fail('invalid time zone');
+        }
+        if i != cs.len() {
+            return parse_fail('trailing characters after timestamp');
+        }
+
+        let days = days_from_civil(year, month, day);
+        let local_secs = days * 86400 + hour * 3600 + minute * 60 + second;
+        let utc_secs = local_secs - offset_minutes * 60;
+        return Result.Ok(DateTime { millis: utc_secs * 1000 + frac_ms });
+    }
+}
+
+// --- internal helpers ---
+
+fn parse_fail(_ why: String) -> Result<DateTime, Error> {
+    return Result.Err(Message { text: 'invalid RFC 3339 timestamp: ${why}' });
+}
+
+fn check_range(_ value: Int, _ low: Int, _ high: Int, _ what: String) -> Result<Void, Error> {
+    if value < low || value > high {
+        return Result.Err(Message { text: '${what} out of range: ${value}' });
+    }
+    return Result.Ok(void);
+}
+
+// Read exactly `count` decimal digits at `start`, as a non-negative Int.
+fn read_digits(_ cs: List<Int>, _ start: Int, _ count: Int) -> Result<Int, Error> {
+    if start + count > cs.len() {
+        return Result.Err(Message { text: 'unexpected end of timestamp' });
+    }
+    let mut value = 0;
+    let mut i = start;
+    let end = start + count;
+    while i < end {
+        let c = cs[i];
+        if !char.is_digit(c) {
+            return Result.Err(Message { text: 'expected a digit in timestamp' });
+        }
+        value = value * 10 + (c - char.DIGIT_0);
+        i = i + 1;
+    }
+    return Result.Ok(value);
+}
+
+fn expect_code(_ cs: List<Int>, _ i: Int, _ code: Int) -> Result<Void, Error> {
+    if i >= cs.len() || cs[i] != code {
+        return Result.Err(Message { text: 'malformed timestamp' });
+    }
+    return Result.Ok(void);
+}
+
+// Floor division for a positive divisor (rounds toward negative infinity), so
+// pre-1970 instants split into seconds/days correctly.
+fn floor_div(_ a: Int, _ b: Int) -> Int {
+    let q = a / b;
+    if a % b != 0 && a < 0 {
+        return q - 1;
+    }
+    return q;
+}
+
+// Days since 1970-01-01 for a civil (proleptic Gregorian) date. Algorithm from
+// Howard Hinnant's chrono date paper (truncating integer division).
+fn days_from_civil(_ y0: Int, _ m: Int, _ d: Int) -> Int {
+    let mut y = y0;
+    if m <= 2 {
+        y = y0 - 1;
+    }
+    let mut era = y / 400;
+    if y < 0 {
+        era = (y - 399) / 400;
+    }
+    let yoe = y - era * 400;                       // [0, 399]
+    let mut mq = m - 3;
+    if m <= 2 {
+        mq = m + 9;
+    }
+    let doy = (153 * mq + 2) / 5 + d - 1;          // [0, 365]
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy; // [0, 146096]
+    return era * 146097 + doe - 719468;
+}
+
+// The inverse: [year, month, day] for a count of days since 1970-01-01.
+fn civil_from_days(_ days: Int) -> List<Int> {
+    let z = days + 719468;
+    let mut era = z / 146097;
+    if z < 0 {
+        era = (z - 146096) / 146097;
+    }
+    let doe = z - era * 146097;                    // [0, 146096]
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365; // [0, 399]
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);  // [0, 365]
+    let mp = (5 * doy + 2) / 153;                  // [0, 11]
+    let d = doy - (153 * mp + 2) / 5 + 1;          // [1, 31]
+    let mut m = mp + 3;
+    if mp >= 10 {
+        m = mp - 9;
+    }
+    let mut year = y;
+    if m <= 2 {
+        year = y + 1;
+    }
+    return [year, m, d];
+}
+
+fn pad2(_ n: Int) -> String {
+    if n < 10 {
+        return '0${n}';
+    }
+    return '${n}';
+}
+
+fn pad3(_ n: Int) -> String {
+    if n < 10 {
+        return '00${n}';
+    }
+    if n < 100 {
+        return '0${n}';
+    }
+    return '${n}';
+}
+
+fn pad4(_ n: Int) -> String {
+    if n < 10 {
+        return '000${n}';
+    }
+    if n < 100 {
+        return '00${n}';
+    }
+    if n < 1000 {
+        return '0${n}';
+    }
+    return '${n}';
 }

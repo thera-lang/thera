@@ -375,39 +375,52 @@ classified: a missing executable is `NotFound` (matchable), everything else is
 `Io`. Errors come back from the natives kind-tagged and a private helper maps
 them — the same pattern as `std.fs`.
 
-### `std.time` — clocks, durations, dates _(new)_
+### `std.time` — clocks, durations, dates _(implemented)_
 
-Purpose: wall-clock and monotonic time, durations, and formatting/parsing.
+Purpose: wall-clock and monotonic time, durations, and RFC 3339 formatting and
+parsing. `Duration`/`Instant` carry nanoseconds (so `elapsed()` keeps
+sub-millisecond precision); `DateTime` is Unix milliseconds, UTC. The civil-date
+math and the RFC 3339 format/parse are pure Hawk; only the monotonic clock and
+`sleep` need a native.
 
 ```
-pub type Instant = { /* monotonic, for measuring elapsed */ }
-pub type DateTime = { /* wall clock, UTC-based */ }
-pub type Duration = { /* signed span */ }
+pub type Duration = { /* nanoseconds */ }
+pub type Instant  = { /* monotonic nanos, relative to a process baseline */ }
+pub type DateTime = { /* Unix milliseconds, UTC */ }
 
-pub fn now_millis() -> Int;          // ambient wall clock, Unix millis (implemented)
-pub fn now() -> DateTime;            // wall clock
+pub fn now_millis() -> Int;          // ambient wall clock, Unix millis
+pub fn now() -> DateTime;            // wall clock (UTC)
 pub fn monotonic() -> Instant;       // for elapsed measurement
-pub fn sleep(_ d: Duration) -> Void; // parks the fiber
+pub fn sleep(_ d: Duration) -> Void; // blocks the thread (parks the fiber once fibers land)
 
 // The clock as an opt-in capability (see testability.md). `now*()` is the
 // ambient form of `system_clock().now*()`; tests pass `testing.fixed_clock`.
-pub interface Clock { fn now_millis(self) -> Int; }   // implemented (prototype)
-pub fn system_clock() -> Clock;                        // implemented
+pub interface Clock { fn now_millis(self) -> Int; }
+pub fn system_clock() -> Clock;
 
 impl Duration {
-    pub fn seconds(_ n: Int) -> Duration;   // also millis/minutes/hours
-    pub fn as_millis(self) -> Int;
+    pub fn nanos / millis / seconds / minutes / hours (_ n: Int) -> Duration;   // constructors
+    pub fn as_nanos / as_millis / as_seconds (self) -> Int;
+    pub fn plus(self, _ other: Duration) -> Duration;   // + minus
 }
-impl Instant { pub fn elapsed(self) -> Duration; }
+impl Instant {
+    pub fn elapsed(self) -> Duration;
+    pub fn duration_since(self, _ earlier: Instant) -> Duration;
+}
 impl DateTime {
-    pub fn format_rfc3339(self) -> String;
-    pub fn parse_rfc3339(_ s: String) -> Result<DateTime, Error>;
-    pub fn unix_seconds(self) -> Int;
+    pub fn from_unix_millis / from_unix_seconds (_ n: Int) -> DateTime;
+    pub fn unix_millis / unix_seconds (self) -> Int;
+    pub fn format_rfc3339(self) -> String;                          // UTC, '...Z'
+    pub fn parse_rfc3339(_ s: String) -> Result<DateTime, Error>;   // accepts Z and ±HH:MM
 }
 ```
 
 Notes: time-zone database and locale-aware formatting are ecosystem; core ships
 UTC + RFC 3339 + Unix time, which covers logging/timestamps/CLI needs.
+`format_rfc3339` emits a `.sss` fraction only when the millisecond part is
+non-zero; `parse_rfc3339` accepts a `Z` or `±HH:MM` zone and an optional
+fractional part (keeping millisecond precision), normalizing to UTC. `sleep`
+blocks the thread until cooperative fibers arrive.
 
 ### `std.fiber` — cooperative concurrency _(new; referenced in language.md)_
 
@@ -849,7 +862,7 @@ dependency graph, so future work lands in the right order:
 | std.path     | done    | pure Hawk; `components`/`with_extension` added; normalize/relative deferred                                                      |
 | std.env      | done    | vars/args/cwd/os/exit + `Env` capability + `testing.fixed_env`; `OS`→`os()`                                                      |
 | std.process  | done    | `run`/`start`; pipes are `std.io` `Reader`/`Writer` (+ `close_stdin`); classified `ProcessError`                                  |
-| std.time     | partial | `now_millis()` + `Clock` capability (prototype); `DateTime`/`Duration`/`monotonic` still new                                     |
+| std.time     | done    | wall + monotonic clocks, `Duration`/`Instant` (nanos), `DateTime` (Unix ms UTC) + RFC 3339 format/parse, `sleep`; `Clock` capability + `testing.fixed_clock` |
 | std.fiber    | new     | runtime scheduler                                                                                                                |
 | std.math     | done    | Double fns + constants; abs/min/max/clamp + to_double/to_int are Int/Double methods                                              |
 | std.random   | done    | SplitMix64; state is a visible Int; mix via native (bitops gap)                                                                  |
