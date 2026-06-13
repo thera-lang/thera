@@ -11,8 +11,7 @@ fn all_branches() -> Result<List<String>, Error> {
     let branches = out.stdout
         .lines()
         .map(line => line.trim())
-        .filter(line => line.len() > 0)
-        .to_list();
+        .filter(line => line.len() > 0);
     return Result.Ok(branches);
 }
 
