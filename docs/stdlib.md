@@ -86,13 +86,12 @@ enough to reduce hallucination.
    [testability.md](testability.md).
 
 8. **Text is UTF-8; bytes are `Bytes`.** `String` is validated UTF-8; raw binary
-   is the `Bytes` type (§ Core types). Conversions are explicit
-   (`String.from_utf8(bytes) -> Result<String, Error>`, `s.bytes()`). Today
-   `s.chars()` (code points) and `s.bytes()` (raw UTF-8, each 0..=255) both
-   return `List<Int>`; `bytes()` upgrades to return `Bytes` once that type
-   lands. String offsets follow the existing convention: code-point counts for
-   `len`, UTF-8 byte offsets where byte positions are needed (matching
-   `std.regex`).
+   is the `Bytes` type (§ Core types). Conversions are explicit:
+   `s.chars()` returns code points (`List<Int>`) and `s.bytes()` returns the
+   UTF-8 encoding as `Bytes` (`.to_list()` for the raw 0..=255 byte values);
+   `Bytes.to_string()` validates UTF-8. String offsets follow the existing
+   convention: code-point counts for `len`, UTF-8 byte offsets where byte
+   positions are needed.
 
 ## The tiers
 
@@ -655,11 +654,51 @@ Notes: ASCII only (U+0000..U+007F). Full Unicode classification and locale-aware
 case folding belong to a Unicode/ICU package, not core. Identifier predicates
 (`is_ident_start`/`continue`) were removed as too source-parser-specific.
 
-### `std.regex` — regular expressions _(exists)_
+### `std.regex` — regular expressions _(removed → rebuild)_
 
-RE2-backed; `Regex.compile` / `is_match` / `find` / `captures` / `replace`.
-Already designed; keep. (Should be made `pub` and its natives made
-module-private once visibility enforcement lands.)
+> **Status: removed.** An early version existed in pure Hawk over `re2_*`
+> natives, but those natives did not survive the Rust-runtime migration (they
+> were bound by bare name and now exist nowhere), so the module was
+> non-functional and has been deleted. The design below is the target for a
+> rebuild. **The blocker is the engine:** the runtime is deliberately
+> dependency-free, so backing this needs either a hand-rolled engine in Rust or
+> a deliberate decision to take the `regex` crate (RE2-derived) as the runtime's
+> first dependency — a policy call to make when this is picked back up.
+
+Purpose: compile a pattern once, then match / find / capture / replace against
+Unicode text. RE2 syntax (linear-time, no backtracking / lookaround) — see
+<https://github.com/google/re2/wiki/Syntax>. Offsets in `Match` are **UTF-8 byte
+positions** (matching the string-offset convention in principle 8).
+
+```
+pub type Regex = { /* opaque compiled pattern */ }
+impl Regex {
+    pub fn compile(_ pattern: String) -> Result<Regex, RegexError>;  // invalid pattern -> Err
+    pub fn is_match(self, _ text: String) -> Bool;
+    pub fn find(self, _ text: String) -> Option<Match>;              // first match
+    pub fn find_all(self, _ text: String) -> List<Match>;           // all, non-overlapping
+    pub fn captures(self, _ text: String) -> Option<Captures>;       // first match + groups
+    pub fn replace(self, _ text: String, with replacement: String) -> String;     // first
+    pub fn replace_all(self, _ text: String, with replacement: String) -> String; // all
+}
+
+pub type Match = { text: String, start: Int, end: Int }   // start inclusive, end exclusive (bytes)
+
+pub type Captures = { /* groups: List<Option<String>> */ }
+impl Captures {
+    pub fn text(self) -> Option<String>;          // group 0 (the whole match)
+    pub fn group(self, _ index: Int) -> Option<String>;  // None if absent / didn't participate
+}
+
+pub enum RegexError { Syntax(String) }   // implements Error + Display (mirrors JsonError)
+```
+
+Notes for the rebuild: group 0 is the full match, `1..` the numbered subgroups; a
+group that did not participate in the match is `None`. `$1` / `${name}` expand
+capture references in replacements. The `re2_*` native bindings and the compiled
+handle stay module-private (once visibility enforcement lands). The original
+`compile` returned `Result<_, Error>` with the raw native message; the rebuild
+should wrap it in a proper `RegexError.Syntax` (principle 4), as `std.json` does.
 
 ### `std.testing` — assertions _(exists)_
 
@@ -760,10 +799,9 @@ dependency graph, so future work lands in the right order:
    `std.fiber` (the scheduler). These are independent of the front-end arcs and
    can proceed in parallel.
 
-7. **Visibility enforcement** ([visibility.md](visibility.md)). Several modules
-   (`std.regex`, `std.process`) have native bindings that should be
-   module-private; today the language can't enforce it. Tighten when visibility
-   lands.
+7. **Visibility enforcement** ([visibility.md](visibility.md)). Some modules
+   (e.g. `std.process`) have native bindings that should be module-private;
+   today the language can't enforce it. Tighten when visibility lands.
 
 8. **Top-level `const` in codegen — done.** `const`/`pub const` now compile: a
    reference (bare or namespace-qualified `ns.NAME`) inlines its initializer
@@ -796,5 +834,5 @@ dependency graph, so future work lands in the right order:
 | std.cli      | done    | pure Hawk; declarative `Command`/`Matches`/`CliError` + `--help`, abbrs, negation; `Args` stays the raw escape hatch              |
 | std.term     | new     |                                                                                                                                  |
 | std.char     | done    | pure Hawk; `pub` API + ASCII scope; `is_hex_digit` added, ident predicates removed                                               |
-| std.regex    | exists  | make `pub`; privatize natives later                                                                                              |
+| std.regex    | removed | was pure Hawk over `re2_*` natives that didn't survive the runtime migration; deleted as non-functional — design captured above for a rebuild (needs a runtime engine: hand-rolled or the `regex` crate) |
 | std.testing  | exists  | gated on generics arc for `<T: Eq + Debug>`                                                                                      |
