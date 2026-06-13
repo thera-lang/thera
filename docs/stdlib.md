@@ -740,11 +740,17 @@ handle stay module-private (once visibility enforcement lands). The original
 `compile` returned `Result<_, Error>` with the raw native message; the rebuild
 should wrap it in a proper `RegexError.Syntax` (principle 4), as `std.json` does.
 
-### `std.testing` — assertions _(exists)_
+### `std.testing` — assertions _(implemented)_
 
-`assert` / `assert_eq` / `assert_ne` / `assert_ok` / `assert_err`. Keep. Tightly
-coupled to `Eq`/`Debug` (so `assert_eq`'s `<T: Eq + Debug>` is gated on the
-generics arc and `Debug` auto-derivation — § Sequencing).
+`assert` / `assert_eq` / `assert_ne` / `assert_ok` / `assert_err`, plus the
+`fixed_clock` / `fixed_env` test doubles. The equality assertions are generic
+over `<T: Eq + Debug>` (the generics arc), rendering mismatches via the
+structural `debug`. Self-tested in `testing_test.hawk`.
+
+One limitation worth noting: because the interface-typed `Error` isn't `Debug`
+yet (no interface inheritance), `assert_ok`/`assert_err`'s `E: Debug` bound means
+they can't inspect a `Result<_, Error>` — match it directly, or use a concrete
+error type. This resolves once `Error` extends `Debug`.
 
 ## What is intentionally _not_ in core
 
@@ -875,4 +881,4 @@ dependency graph, so future work lands in the right order:
 | std.term     | new     |                                                                                                                                  |
 | std.char     | done    | pure Hawk; `pub` API + ASCII scope; `is_hex_digit` added, ident predicates removed                                               |
 | std.regex    | removed | was pure Hawk over `re2_*` natives that didn't survive the runtime migration; deleted as non-functional — design captured above for a rebuild (needs a runtime engine: hand-rolled or the `regex` crate) |
-| std.testing  | exists  | gated on generics arc for `<T: Eq + Debug>`                                                                                      |
+| std.testing  | done    | `assert`/`assert_eq`/`assert_ne`/`assert_ok`/`assert_err` + `fixed_clock`/`fixed_env` doubles; self-tested                       |
