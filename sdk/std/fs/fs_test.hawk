@@ -1,0 +1,134 @@
+// Tests for std.fs. These touch the real filesystem under a unique workspace
+// directory inside the system temp dir, cleaning up as they go.
+
+import std.testing;
+import std.path;
+
+import 'fs';
+
+// A fresh, empty workspace directory under the system temp dir. Pre-cleans any
+// leftovers from an earlier run.
+fn workspace(_ name: String) -> Result<String, Error> {
+    let dir = path.join(fs.temp_dir(), name);
+    match fs.remove_dir_all(dir) {
+        Ok(_) => {},
+        Err(_) => {}, // didn't exist — fine
+    }
+    fs.create_dir_all(dir)?;
+    return Result.Ok(dir);
+}
+
+fn is_not_found(_ e: FsError) -> Bool {
+    return match e {
+        NotFound(_) => true,
+        _ => false,
+    };
+}
+
+@test
+fn test_write_then_read_text() -> Result<Void, Error> {
+    let dir = workspace('hawk_fs_text')?;
+    let file = path.join(dir, 'hello.txt');
+    fs.write_text(file, 'hello, fs')?;
+    testing.assert_eq(actual: fs.read_text(file)?, expected: 'hello, fs')?;
+    fs.remove_dir_all(dir)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_write_then_read_bytes() -> Result<Void, Error> {
+    let dir = workspace('hawk_fs_bytes')?;
+    let file = path.join(dir, 'data.bin');
+    let data = Bytes.from_list([0, 1, 2, 255])?;
+    fs.write_bytes(file, data)?;
+    testing.assert_eq(actual: fs.read_bytes(file)?.to_list(), expected: [0, 1, 2, 255])?;
+    fs.remove_dir_all(dir)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_exists() -> Result<Void, Error> {
+    let dir = workspace('hawk_fs_exists')?;
+    let file = path.join(dir, 'f.txt');
+    testing.assert_eq(actual: fs.exists(file), expected: false)?;
+    fs.write_text(file, 'x')?;
+    testing.assert_eq(actual: fs.exists(file), expected: true)?;
+    fs.remove_dir_all(dir)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_read_missing_is_not_found() -> Result<Void, Error> {
+    let missing = path.join(fs.temp_dir(), 'hawk_fs_definitely_absent_42');
+    let classified = match fs.read_text(missing) {
+        Ok(_) => false,
+        Err(e) => is_not_found(e),
+    };
+    testing.assert(classified, message: 'expected a NotFound FsError')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_list_dir() -> Result<Void, Error> {
+    let dir = workspace('hawk_fs_list')?;
+    fs.write_text(path.join(dir, 'a.txt'), '1')?;
+    fs.write_text(path.join(dir, 'b.txt'), '2')?;
+    let names = fs.list_dir(dir)?;
+    testing.assert_eq(actual: names.len(), expected: 2)?;
+    let joined = names.join(',');
+    testing.assert(joined.contains('a.txt'), message: 'a.txt listed')?;
+    testing.assert(joined.contains('b.txt'), message: 'b.txt listed')?;
+    fs.remove_dir_all(dir)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_metadata_file() -> Result<Void, Error> {
+    let dir = workspace('hawk_fs_meta')?;
+    let file = path.join(dir, 'sized.txt');
+    fs.write_text(file, 'hello')?; // 5 bytes
+    let md = fs.metadata(file)?;
+    testing.assert_eq(actual: md.size, expected: 5)?;
+    testing.assert_eq(actual: md.kind, expected: FileKind.File)?;
+    let dir_md = fs.metadata(dir)?;
+    testing.assert_eq(actual: dir_md.kind, expected: FileKind.Dir)?;
+    fs.remove_dir_all(dir)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_create_and_remove_dir() -> Result<Void, Error> {
+    let dir = workspace('hawk_fs_mkdir')?;
+    let nested = path.join(path.join(dir, 'a'), 'b');
+    fs.create_dir_all(nested)?;
+    testing.assert_eq(actual: fs.exists(nested), expected: true)?;
+    fs.remove_dir_all(dir)?;
+    testing.assert_eq(actual: fs.exists(dir), expected: false)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_rename() -> Result<Void, Error> {
+    let dir = workspace('hawk_fs_rename')?;
+    let a = path.join(dir, 'a.txt');
+    let b = path.join(dir, 'b.txt');
+    fs.write_text(a, 'move me')?;
+    fs.rename(from: a, to: b)?;
+    testing.assert_eq(actual: fs.exists(a), expected: false)?;
+    testing.assert_eq(actual: fs.read_text(b)?, expected: 'move me')?;
+    fs.remove_dir_all(dir)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_copy() -> Result<Void, Error> {
+    let dir = workspace('hawk_fs_copy')?;
+    let a = path.join(dir, 'a.txt');
+    let b = path.join(dir, 'b.txt');
+    fs.write_text(a, 'duplicate')?;
+    fs.copy(from: a, to: b)?;
+    testing.assert_eq(actual: fs.read_text(a)?, expected: 'duplicate')?;
+    testing.assert_eq(actual: fs.read_text(b)?, expected: 'duplicate')?;
+    fs.remove_dir_all(dir)?;
+    return Result.Ok(void);
+}

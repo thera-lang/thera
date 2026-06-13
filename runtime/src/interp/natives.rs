@@ -100,6 +100,18 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("str_to_double", native_str_to_double),
     ("fs_read_text", native_fs_read_text),
     ("fs_write_text", native_fs_write_text),
+    ("fs_read_bytes", native_fs_read_bytes),
+    ("fs_write_bytes", native_fs_write_bytes),
+    ("fs_exists", native_fs_exists),
+    ("fs_list_dir", native_fs_list_dir),
+    ("fs_metadata", native_fs_metadata),
+    ("fs_create_dir", native_fs_create_dir),
+    ("fs_create_dir_all", native_fs_create_dir_all),
+    ("fs_remove", native_fs_remove),
+    ("fs_remove_dir_all", native_fs_remove_dir_all),
+    ("fs_rename", native_fs_rename),
+    ("fs_copy", native_fs_copy),
+    ("fs_temp_dir", native_fs_temp_dir),
     ("time_now_millis", native_time_now_millis),
     ("random_mix", native_random_mix),
     ("random_to_unit", native_random_to_unit),
@@ -666,22 +678,184 @@ fn as_option(v: &Value, who: &str) -> Result<(u16, Vec<Value>), Trap> {
 // type is linked in, these will build a proper `Error`.
 
 /// `fs.read_text(path)` — read a UTF-8 file, `Ok(contents)` or `Err(message)`.
+/// Build an `Err` value for a filesystem error. The String payload is
+/// `"<kind>\u{1}<path>: <message>"`; the Hawk side splits on U+0001 and maps the
+/// kind to the matching `FsError` variant (so callers can `match` on the cause).
+fn fs_err(path: &str, e: &std::io::Error) -> Value {
+    use std::io::ErrorKind;
+    let kind = match e.kind() {
+        ErrorKind::NotFound => "not_found",
+        ErrorKind::PermissionDenied => "permission_denied",
+        ErrorKind::AlreadyExists => "already_exists",
+        ErrorKind::NotADirectory => "not_a_directory",
+        ErrorKind::IsADirectory => "is_a_directory",
+        _ => "other",
+    };
+    Value::err(Value::new_str(format!("{kind}\u{1}{path}: {e}")))
+}
+
 fn native_fs_read_text(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let path = str_contents(expect_one(args, "fs_read_text")?)?;
     Ok(match std::fs::read_to_string(&path) {
         Ok(s) => Value::ok(Value::new_str(s)),
-        Err(e) => Value::err(Value::new_str(format!("{path}: {e}"))),
+        Err(e) => fs_err(&path, &e),
     })
 }
 
-/// `fs.write_text(path, contents)` — write a file, `Ok(())` or `Err(message)`.
+/// `fs.write_text(path, contents)` — write a file, `Ok(())` or a classified Err.
 fn native_fs_write_text(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let (path, contents) = args2(args, "fs_write_text")?;
     let (path, contents) = (str_contents(path)?, str_contents(contents)?);
     Ok(match std::fs::write(&path, contents) {
         Ok(()) => Value::ok(Value::Unit),
-        Err(e) => Value::err(Value::new_str(format!("{path}: {e}"))),
+        Err(e) => fs_err(&path, &e),
     })
+}
+
+/// `fs.read_bytes(path)` — the whole file as `Bytes`.
+fn native_fs_read_bytes(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let path = str_contents(expect_one(args, "fs_read_bytes")?)?;
+    Ok(match std::fs::read(&path) {
+        Ok(b) => Value::ok(Value::new_bytes(b)),
+        Err(e) => fs_err(&path, &e),
+    })
+}
+
+/// `fs.write_bytes(path, data)` — write raw bytes.
+fn native_fs_write_bytes(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (path, data) = args2(args, "fs_write_bytes")?;
+    let path = str_contents(path)?;
+    let data = bytes_contents(data, "fs_write_bytes")?;
+    Ok(match std::fs::write(&path, &data) {
+        Ok(()) => Value::ok(Value::Unit),
+        Err(e) => fs_err(&path, &e),
+    })
+}
+
+/// `fs.exists(path)` — whether the path exists (infallible; false on any error).
+fn native_fs_exists(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let path = str_contents(expect_one(args, "fs_exists")?)?;
+    Ok(Value::Bool(std::path::Path::new(&path).exists()))
+}
+
+/// `fs.list_dir(path)` — entry basenames (not full paths), in OS order.
+fn native_fs_list_dir(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let path = str_contents(expect_one(args, "fs_list_dir")?)?;
+    match std::fs::read_dir(&path) {
+        Ok(entries) => {
+            let mut names = Vec::new();
+            for entry in entries {
+                match entry {
+                    Ok(e) => {
+                        names.push(Value::new_str(e.file_name().to_string_lossy().into_owned()))
+                    }
+                    Err(e) => return Ok(fs_err(&path, &e)),
+                }
+            }
+            Ok(Value::ok(Value::new_list(names)))
+        }
+        Err(e) => Ok(fs_err(&path, &e)),
+    }
+}
+
+/// `fs.metadata(path)` — follows symlinks; returns `[kind, size, modified_millis]`
+/// where kind is 0=file, 1=dir, 2=symlink, 3=other. The Hawk side builds a
+/// `Metadata`. `modified_millis` is 0 when the platform can't report it.
+fn native_fs_metadata(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let path = str_contents(expect_one(args, "fs_metadata")?)?;
+    Ok(match std::fs::metadata(&path) {
+        Ok(m) => {
+            let kind = if m.is_dir() {
+                1
+            } else if m.is_file() {
+                0
+            } else {
+                3
+            };
+            let size = m.len() as i64;
+            let modified = m
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0);
+            Value::ok(Value::new_list(vec![
+                Value::Int(kind),
+                Value::Int(size),
+                Value::Int(modified),
+            ]))
+        }
+        Err(e) => fs_err(&path, &e),
+    })
+}
+
+/// `fs.create_dir(path)` — create a single directory (parent must exist).
+fn native_fs_create_dir(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let path = str_contents(expect_one(args, "fs_create_dir")?)?;
+    Ok(match std::fs::create_dir(&path) {
+        Ok(()) => Value::ok(Value::Unit),
+        Err(e) => fs_err(&path, &e),
+    })
+}
+
+/// `fs.create_dir_all(path)` — create a directory and any missing parents.
+fn native_fs_create_dir_all(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let path = str_contents(expect_one(args, "fs_create_dir_all")?)?;
+    Ok(match std::fs::create_dir_all(&path) {
+        Ok(()) => Value::ok(Value::Unit),
+        Err(e) => fs_err(&path, &e),
+    })
+}
+
+/// `fs.remove(path)` — remove a file or an empty directory.
+fn native_fs_remove(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let path = str_contents(expect_one(args, "fs_remove")?)?;
+    let p = std::path::Path::new(&path);
+    let res = if p.is_dir() {
+        std::fs::remove_dir(&path)
+    } else {
+        std::fs::remove_file(&path)
+    };
+    Ok(match res {
+        Ok(()) => Value::ok(Value::Unit),
+        Err(e) => fs_err(&path, &e),
+    })
+}
+
+/// `fs.remove_dir_all(path)` — remove a directory and all its contents.
+fn native_fs_remove_dir_all(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let path = str_contents(expect_one(args, "fs_remove_dir_all")?)?;
+    Ok(match std::fs::remove_dir_all(&path) {
+        Ok(()) => Value::ok(Value::Unit),
+        Err(e) => fs_err(&path, &e),
+    })
+}
+
+/// `fs.rename(src, dst)` — rename/move a file or directory.
+fn native_fs_rename(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (src, dst) = args2(args, "fs_rename")?;
+    let (src, dst) = (str_contents(src)?, str_contents(dst)?);
+    Ok(match std::fs::rename(&src, &dst) {
+        Ok(()) => Value::ok(Value::Unit),
+        Err(e) => fs_err(&src, &e),
+    })
+}
+
+/// `fs.copy(src, dst)` — copy a file's contents and permissions.
+fn native_fs_copy(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (src, dst) = args2(args, "fs_copy")?;
+    let (src, dst) = (str_contents(src)?, str_contents(dst)?);
+    Ok(match std::fs::copy(&src, &dst) {
+        Ok(_) => Value::ok(Value::Unit),
+        Err(e) => fs_err(&src, &e),
+    })
+}
+
+/// `fs.temp_dir()` — the system temporary directory path.
+fn native_fs_temp_dir(_out: &mut dyn Write, _args: &[Value]) -> Result<Value, Trap> {
+    Ok(Value::new_str(
+        std::env::temp_dir().to_string_lossy().into_owned(),
+    ))
 }
 
 // --- time natives ---

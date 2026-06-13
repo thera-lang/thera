@@ -1,36 +1,242 @@
-// std.fs — filesystem operations.
+// std.fs — filesystem access: whole-value reads/writes, directory listing, and
+// metadata. Streaming files (`open`/`create` → a `File: Reader+Writer+Seek+
+// Closer`), recursive `walk`, and `temp_file` are a planned v2 (see
+// docs/stdlib.md).
 //
 // Import as: import std.fs
-// Usage:     fs.read_text('file.txt')?
 //
-// Each `native fn` binds to a runtime native via `@extern('<symbol>')`; the
-// symbols are module-prefixed so they're unique in the runtime's flat table.
+//   let text = fs.read_text('config.json')?;
+//   for name in fs.list_dir('.')? { ... }
+//
+// Paths are plain `String`s (compose with `std.path`); directory entries are
+// basenames. Every fallible call returns `Result<_, FsError>`, a per-domain
+// error you can `match` on (and which implements the common `Error`).
 
-// Read the entire contents of a file as UTF-8 text.
-//
-//   let text = fs.read_text('config.toml')?;
+// --- errors ---
+
+pub enum FsError {
+    NotFound(String),
+    PermissionDenied(String),
+    AlreadyExists(String),
+    NotADirectory(String),
+    IsADirectory(String),
+    Other(String),
+}
+
+impl Error for FsError {
+    pub fn message(self) -> String {
+        return match self {
+            NotFound(m) => m,
+            PermissionDenied(m) => m,
+            AlreadyExists(m) => m,
+            NotADirectory(m) => m,
+            IsADirectory(m) => m,
+            Other(m) => m,
+        };
+    }
+}
+
+impl Display for FsError {
+    pub fn display(self) -> String {
+        return self.message();
+    }
+}
+
+// The native error payload is "<kind>\u{1}<message>"; map the kind tag to the
+// matching variant so callers can `match` on the cause.
+fn to_fs_error(_ raw: String) -> FsError {
+    let parts = raw.split('\u{1}');
+    let kind = parts.get(0).unwrap_or('other');
+    let msg = parts.get(1).unwrap_or(raw);
+    if kind == 'not_found' {
+        return FsError.NotFound(msg);
+    }
+    if kind == 'permission_denied' {
+        return FsError.PermissionDenied(msg);
+    }
+    if kind == 'already_exists' {
+        return FsError.AlreadyExists(msg);
+    }
+    if kind == 'not_a_directory' {
+        return FsError.NotADirectory(msg);
+    }
+    if kind == 'is_a_directory' {
+        return FsError.IsADirectory(msg);
+    }
+    return FsError.Other(msg);
+}
+
+// --- file kind & metadata ---
+
+pub enum FileKind { File, Dir, Symlink, Other }
+
+pub type Metadata = {
+    size: Int,             // size in bytes
+    kind: FileKind,
+    modified_millis: Int,  // last-modified time, Unix milliseconds (0 if unknown)
+}
+
+fn file_kind(_ code: Int) -> FileKind {
+    if code == 1 {
+        return FileKind.Dir;
+    }
+    if code == 2 {
+        return FileKind.Symlink;
+    }
+    if code == 0 {
+        return FileKind.File;
+    }
+    return FileKind.Other;
+}
+
+// --- native bindings (private; errors come back kind-tagged) ---
+
 @extern('fs_read_text')
-pub native fn read_text(_ path: String) -> Result<String, Error>
+native fn _read_text(_ path: String) -> Result<String, String>
 
-// Write text to a file, creating it if absent or overwriting it if present.
-//
-//   fs.write_text('out.txt', content)?;
 @extern('fs_write_text')
-pub native fn write_text(_ path: String, _ text: String) -> Result<Void, Error>
+native fn _write_text(_ path: String, _ text: String) -> Result<Void, String>
 
-// Return true if a file or directory exists at path.
-//
-//   if fs.exists('config.toml') { ... }
+@extern('fs_read_bytes')
+native fn _read_bytes(_ path: String) -> Result<Bytes, String>
+
+@extern('fs_write_bytes')
+native fn _write_bytes(_ path: String, _ data: Bytes) -> Result<Void, String>
+
+@extern('fs_list_dir')
+native fn _list_dir(_ path: String) -> Result<List<String>, String>
+
+@extern('fs_metadata')
+native fn _metadata(_ path: String) -> Result<List<Int>, String>
+
+@extern('fs_create_dir')
+native fn _create_dir(_ path: String) -> Result<Void, String>
+
+@extern('fs_create_dir_all')
+native fn _create_dir_all(_ path: String) -> Result<Void, String>
+
+@extern('fs_remove')
+native fn _remove(_ path: String) -> Result<Void, String>
+
+@extern('fs_remove_dir_all')
+native fn _remove_dir_all(_ path: String) -> Result<Void, String>
+
+@extern('fs_rename')
+native fn _rename(_ src: String, _ dst: String) -> Result<Void, String>
+
+@extern('fs_copy')
+native fn _copy(_ src: String, _ dst: String) -> Result<Void, String>
+
+// These two never fail.
 @extern('fs_exists')
 pub native fn exists(_ path: String) -> Bool
 
-// Return the entry names of a directory (one level, not recursive).
-// Returns names only, not full paths. Use path.join to build full paths.
-//
-//   let entries = fs.read_dir('src')?;
-//   for name in entries {
-//       let full = path.join('src', name);
-//   }
-// TODO: rename to list_dir()
-@extern('fs_read_dir')
-pub native fn read_dir(_ path: String) -> Result<List<String>, Error>
+@extern('fs_temp_dir')
+pub native fn temp_dir() -> String
+
+// --- whole-value reads & writes ---
+
+// Read an entire file as a UTF-8 string.
+pub fn read_text(_ path: String) -> Result<String, FsError> {
+    return match _read_text(path) {
+        Ok(s) => Result.Ok(s),
+        Err(e) => Result.Err(to_fs_error(e)),
+    };
+}
+
+// Write `text` to a file, creating it or replacing its contents.
+pub fn write_text(_ path: String, _ text: String) -> Result<Void, FsError> {
+    return match _write_text(path, text) {
+        Ok(_) => Result.Ok(void),
+        Err(e) => Result.Err(to_fs_error(e)),
+    };
+}
+
+// Read an entire file as raw bytes.
+pub fn read_bytes(_ path: String) -> Result<Bytes, FsError> {
+    return match _read_bytes(path) {
+        Ok(b) => Result.Ok(b),
+        Err(e) => Result.Err(to_fs_error(e)),
+    };
+}
+
+// Write raw bytes to a file, creating it or replacing its contents.
+pub fn write_bytes(_ path: String, _ data: Bytes) -> Result<Void, FsError> {
+    return match _write_bytes(path, data) {
+        Ok(_) => Result.Ok(void),
+        Err(e) => Result.Err(to_fs_error(e)),
+    };
+}
+
+// --- metadata & directories ---
+
+// Metadata for the file or directory at `path` (follows symlinks).
+pub fn metadata(_ path: String) -> Result<Metadata, FsError> {
+    return match _metadata(path) {
+        Ok(fields) => Result.Ok(Metadata {
+            kind: file_kind(fields[0]),
+            size: fields[1],
+            modified_millis: fields[2],
+        }),
+        Err(e) => Result.Err(to_fs_error(e)),
+    };
+}
+
+// The entry basenames within a directory (not full paths, in no guaranteed
+// order). Join with `path.join(dir, name)` to descend.
+pub fn list_dir(_ path: String) -> Result<List<String>, FsError> {
+    return match _list_dir(path) {
+        Ok(names) => Result.Ok(names),
+        Err(e) => Result.Err(to_fs_error(e)),
+    };
+}
+
+// Create a single directory; the parent must already exist.
+pub fn create_dir(_ path: String) -> Result<Void, FsError> {
+    return match _create_dir(path) {
+        Ok(_) => Result.Ok(void),
+        Err(e) => Result.Err(to_fs_error(e)),
+    };
+}
+
+// Create a directory and any missing parents (like `mkdir -p`).
+pub fn create_dir_all(_ path: String) -> Result<Void, FsError> {
+    return match _create_dir_all(path) {
+        Ok(_) => Result.Ok(void),
+        Err(e) => Result.Err(to_fs_error(e)),
+    };
+}
+
+// --- mutations ---
+
+// Remove a file or an empty directory. Use `remove_dir_all` for a non-empty one.
+pub fn remove(_ path: String) -> Result<Void, FsError> {
+    return match _remove(path) {
+        Ok(_) => Result.Ok(void),
+        Err(e) => Result.Err(to_fs_error(e)),
+    };
+}
+
+// Remove a directory and everything inside it, recursively.
+pub fn remove_dir_all(_ path: String) -> Result<Void, FsError> {
+    return match _remove_dir_all(path) {
+        Ok(_) => Result.Ok(void),
+        Err(e) => Result.Err(to_fs_error(e)),
+    };
+}
+
+// Rename (move) a file or directory.
+pub fn rename(from src: String, to dst: String) -> Result<Void, FsError> {
+    return match _rename(src, dst) {
+        Ok(_) => Result.Ok(void),
+        Err(e) => Result.Err(to_fs_error(e)),
+    };
+}
+
+// Copy a file's contents to a new path.
+pub fn copy(from src: String, to dst: String) -> Result<Void, FsError> {
+    return match _copy(src, dst) {
+        Ok(_) => Result.Ok(void),
+        Err(e) => Result.Err(to_fs_error(e)),
+    };
+}

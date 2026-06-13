@@ -236,43 +236,55 @@ lazy `Iterator<T>` type now exists in `std.iter`, but these also want the
 `File: Reader + Writer + Seek + Closer`); the typed binary `BytesReader`
 (`read_u8`/`read_u16_le`/…) pairing with `BytesBuilder`.
 
-### `std.fs` — filesystem _(partial → expand)_
+### `std.fs` — filesystem _(v1 implemented; streaming deferred)_
 
-Purpose: files and directories. Whole-value reads for the common case; `open`
-for streaming.
+Purpose: files and directories. Whole-value reads for the common case; streaming
+`open` is a planned v2. Paths are plain `String`s (compose with `std.path`);
+directory entries are basenames (join with `path.join(dir, name)` to descend).
+Every fallible call returns a per-domain `FsError` you can `match` on.
 
 ```
-// Whole-value (conveniences).
-pub fn read_text(_ path: String) -> Result<String, FsError>;     // exists
-pub fn write_text(_ path: String, _ text: String) -> Result<Void, FsError>; // exists
+// Whole-value (conveniences) — implemented.
+pub fn read_text(_ path: String) -> Result<String, FsError>;
+pub fn write_text(_ path: String, _ text: String) -> Result<Void, FsError>;
 pub fn read_bytes(_ path: String) -> Result<Bytes, FsError>;
 pub fn write_bytes(_ path: String, _ data: Bytes) -> Result<Void, FsError>;
 
-// Streaming.
-pub fn open(_ path: String) -> Result<File, FsError>;            // File: Reader+Writer+Seek+Closer
-pub fn create(_ path: String) -> Result<File, FsError>;
-
-// Metadata & directories.
-pub fn exists(_ path: String) -> Bool;                          // exists
-pub fn metadata(_ path: String) -> Result<Metadata, FsError>;   // size, kind, modified
-pub fn list_dir(_ path: String) -> Result<List<String>, FsError>; // rename of read_dir
-pub fn walk(_ path: String) -> Iterator<String>;                // recursive
-pub fn create_dir(_ path: String) -> Result<Void, FsError>;
-pub fn create_dir_all(_ path: String) -> Result<Void, FsError>;
-pub fn remove(_ path: String) -> Result<Void, FsError>;
+// Existence, metadata & directories — implemented.
+pub fn exists(_ path: String) -> Bool;
+pub fn metadata(_ path: String) -> Result<Metadata, FsError>;   // follows symlinks
+pub fn list_dir(_ path: String) -> Result<List<String>, FsError>; // entry basenames
+pub fn create_dir(_ path: String) -> Result<Void, FsError>;       // parent must exist
+pub fn create_dir_all(_ path: String) -> Result<Void, FsError>;   // mkdir -p
+pub fn remove(_ path: String) -> Result<Void, FsError>;           // file or empty dir
+pub fn remove_dir_all(_ path: String) -> Result<Void, FsError>;   // recursive
 pub fn rename(from src: String, to dst: String) -> Result<Void, FsError>;
-pub fn copy(from src: String, to dst: String) -> Result<Void, FsError>;
+pub fn copy(from src: String, to dst: String) -> Result<Void, FsError>;   // file copy
 pub fn temp_dir() -> String;
-pub fn temp_file(prefix: String = 'tmp') -> Result<File, FsError>;
 
-pub enum FsError {
+pub enum FileKind { File, Dir, Symlink, Other }
+pub type Metadata = { size: Int, kind: FileKind, modified_millis: Int }  // Unix mtime ms
+
+pub enum FsError {                          // implements Error + Display
     NotFound(String), PermissionDenied(String), AlreadyExists(String),
     NotADirectory(String), IsADirectory(String), Other(String),
-}  // implements Error
+}
+
+// Streaming & recursion — deferred to v2.
+pub fn open(_ path: String) -> Result<File, FsError>;   // File: Reader+Writer+Seek+Closer
+pub fn create(_ path: String) -> Result<File, FsError>;
+pub fn walk(_ path: String) -> Iterator<String>;        // recursive
+pub fn temp_file(prefix: String = 'tmp') -> Result<File, FsError>;
 ```
 
-Notes: `read_dir` → `list_dir` (the existing TODO). Per-domain `FsError`
-replaces the current `Result<_, Error>`.
+Notes: `FsError` is classified from the OS error kind — the natives tag each
+error with its kind and a private helper maps it to the variant, so callers get
+`NotFound`/`PermissionDenied`/etc., not just `Other`. `metadata` follows
+symlinks (so `kind` reports the target; `FileKind.Symlink` awaits a future
+`symlink_metadata`). `modified_millis` is Unix milliseconds, `0` when the
+platform can't report it (it becomes a `DateTime` once `std.time` grows one).
+The v2 streaming layer needs a `Seek` interface added to `std.io` plus
+file-handle natives; `walk` is then a thin `Iterator` over `list_dir`.
 
 ### `std.path` — pure path manipulation _(implemented, pure Hawk)_
 
@@ -818,7 +830,7 @@ dependency graph, so future work lands in the right order:
 | prelude/core | exists  | Int/Double + String parsing; `Bytes`/`BytesBuilder`; `Set<T>` in Hawk over `Map`; `Error` is an interface + `Message`; `Iterator<T>` protocol; still want `Ord` |
 | std.io       | done    | v1: `Reader`/`Writer`/`Closer` + `IoError`, `read_all`/`copy`, stdin/stdout/stderr, `StringWriter`; `lines`/`Iterator` + streaming files deferred |
 | std.iter     | done    | v1: `Iterator<T>` (prelude) + `range`/`from_list` sources + `collect`/`count`; `for x in it` drives any iterator; adapters (`map`/`filter`/`take`) deferred |
-| std.fs       | partial | expand; `read_dir`→`list_dir`; `FsError`                                                                                         |
+| std.fs       | done    | v1: read/write text+bytes, exists, metadata, list_dir, create_dir(_all), remove(_dir_all), rename, copy, temp_dir; classified `FsError`; streaming `File`/`open`/`walk`/`temp_file` deferred to v2 |
 | std.path     | done    | pure Hawk; `components`/`with_extension` added; normalize/relative deferred                                                      |
 | std.env      | done    | vars/args/cwd/os/exit + `Env` capability + `testing.fixed_env`; `OS`→`os()`                                                      |
 | std.process  | partial | reconcile pipes → `Reader`/`Writer`; `ProcessError`                                                                              |
