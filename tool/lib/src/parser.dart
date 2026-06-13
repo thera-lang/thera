@@ -458,6 +458,18 @@ class Parser {
     _advance(); // 'interface'
     final nameTok = _expect(TokenKind.identifier, 'interface name');
     final typeParams = _parseTypeParams(); // <T> after the name, if any
+    // Optional super-interfaces: `interface Error: Display + Debug { … }`. The
+    // `+`-joined form mirrors a generic bound (`<T: Eq + Debug>`).
+    final superInterfaces = <String>[];
+    if (_match(TokenKind.colon)) {
+      superInterfaces
+          .add(_expect(TokenKind.identifier, 'super-interface').lexeme);
+      while (_check(TokenKind.plus)) {
+        _advance();
+        superInterfaces
+            .add(_expect(TokenKind.identifier, 'super-interface').lexeme);
+      }
+    }
     _expect(TokenKind.lBrace, '{');
     final methods = <FnDecl>[];
     while (!_check(TokenKind.rBrace) && !_atEnd) {
@@ -476,6 +488,7 @@ class Parser {
         name: nameTok.lexeme,
         nameSpan: nameTok.span,
         typeParams: typeParams,
+        superInterfaces: superInterfaces,
         methods: methods);
   }
 

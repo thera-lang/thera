@@ -2,9 +2,10 @@
 // as a Result, so we exercise it by inspecting that Result directly (rather than
 // with `?`, which would propagate a failure out of the test).
 //
-// Note: the assertions return `Result<_, Error>`, and the interface-typed
-// `Error` isn't `Debug` yet, so `assert_ok`/`assert_err` can't inspect them
-// (their `E: Debug` bound). A small `is_ok` helper matches the Result instead.
+// A small `is_ok` helper matches the Result instead of unwrapping it — readable
+// for the success/failure meta-checks below. (`assert_ok`/`assert_err` now also
+// accept a `Result<_, Error>`: since `Error` extends `Debug`, the interface-typed
+// error satisfies their `E: Debug` bound — see test_assert_ok_on_interface_error.)
 
 import std.testing;
 
@@ -82,5 +83,19 @@ fn test_assert_ok_unwraps_value_and_rejects_err() -> Result<Void, Error> {
 fn test_assert_err() -> Result<Void, Error> {
     testing.assert(is_ok(testing.assert_err(make_err())))?;
     testing.assert(!is_ok(testing.assert_err(make_ok())))?;
+    return Result.Ok(void);
+}
+
+// Regression: interface inheritance (`Error: Debug`) lets `assert_ok`/`assert_err`
+// inspect a `Result<_, Error>` — the interface-typed error now satisfies their
+// `E: Debug` bound, which was impossible before. Both an assertion's own result
+// and a domain Result fit.
+@test
+fn test_assert_ok_on_interface_error() -> Result<Void, Error> {
+    // The result of an assertion is `Result<Void, Error>` — feed it to assert_ok.
+    testing.assert_ok(testing.assert(true))?;
+    // And an Err-typed `Error` value flows through assert_err.
+    let failed: Result<Int, Error> = Result.Err(Message { text: 'boom' });
+    testing.assert_err(failed)?;
     return Result.Ok(void);
 }

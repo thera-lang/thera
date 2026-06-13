@@ -6,7 +6,14 @@
 // boundaries — domain modules define their own error enums (`CliError`, …) and
 // `impl Error` for them, so callers can `match` on the cause yet still pass the
 // value where an `Error` is expected.
-pub interface Error {
+//
+// `Error` extends `Display` and `Debug` (interface inheritance): every error
+// type also renders for users (`'${e}'`, `println(e)`) and for diagnostics
+// (`assert_ok`/`assert_err`, whose `E: Debug` bound an `Error`-typed value now
+// satisfies). `Debug` is auto-derived structurally; `Display` is provided by an
+// explicit `impl Display` on each error type (typically delegating to
+// `message()`).
+pub interface Error: Display + Debug {
     fn message(self) -> String;
 }
 
@@ -27,9 +34,8 @@ impl Error for Message {
     }
 }
 
-// A concrete error renders as its text under interpolation / `println`. (A value
-// typed as the `Error` interface is not itself `Display` yet — print it via
-// `e.message()` — until interface inheritance lets `Error` extend `Display`.)
+// Renders as its text under interpolation / `println`. Because `Error` extends
+// `Display`, an `Error`-typed value interpolates directly too (`'${e}'`).
 impl Display for Message {
     pub fn display(self) -> String {
         return self.text;

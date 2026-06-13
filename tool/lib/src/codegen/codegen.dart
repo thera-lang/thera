@@ -77,6 +77,7 @@ Module compileProgram(Program program,
   for (final module in [...imports, program]) {
     _registerModule(scope, module);
   }
+  scope.flattenInterfaces();
 
   final functions = [
     for (var i = 0; i < scope.units.length; i++) _FnCompiler(scope).compile(i),
@@ -219,8 +220,37 @@ class _ModuleScope {
   /// once every type and method is registered — see [buildDispatch].
   final List<(String, String)> _pendingDispatch = [];
 
-  void addInterface(InterfaceDecl decl) =>
-      interfaceMethods[decl.name] = {for (final m in decl.methods) m.name};
+  /// Direct super-interfaces per interface (`Error` -> [`Display`, `Debug`]),
+  /// used to fold inherited methods into the dispatchable set — see
+  /// [flattenInterfaces].
+  final Map<String, List<String>> _interfaceSupers = {};
+
+  void addInterface(InterfaceDecl decl) {
+    interfaceMethods[decl.name] = {for (final m in decl.methods) m.name};
+    if (decl.superInterfaces.isNotEmpty) {
+      _interfaceSupers[decl.name] = decl.superInterfaces;
+    }
+  }
+
+  /// Fold each interface's super-interface methods into its dispatchable method
+  /// set, so a `call.virtual` on a sub-interface-typed receiver is eligible for
+  /// an inherited method (`e.display()` on an `Error`-typed value). Transitive;
+  /// tolerates a cycle (reported by the checker). Run once after every interface
+  /// is registered.
+  void flattenInterfaces() {
+    for (final name in interfaceMethods.keys) {
+      final methods = interfaceMethods[name]!;
+      final seen = <String>{name};
+      final queue = [...?_interfaceSupers[name]];
+      while (queue.isNotEmpty) {
+        final s = queue.removeAt(0);
+        if (!seen.add(s)) continue;
+        final superMethods = interfaceMethods[s];
+        if (superMethods != null) methods.addAll(superMethods);
+        queue.addAll(_interfaceSupers[s] ?? const []);
+      }
+    }
+  }
 
   void addDispatch(String type, String selector) =>
       _pendingDispatch.add((type, selector));

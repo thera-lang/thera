@@ -85,9 +85,7 @@ class TypeChecker {
           }
           if (decl.interfaceName != null) _checkConformance(decl);
         case InterfaceDecl():
-          for (final m in decl.methods) {
-            _checkFnSig(m);
-          }
+          _checkInterfaceDecl(decl);
         case ImportDecl():
           break;
         case ConstDecl(:final type, :final value):
@@ -114,6 +112,43 @@ class TypeChecker {
   /// Validate an `impl Interface for Type` block: the named interface must
   /// exist, and the block must provide every interface method with a matching
   /// signature (with `Self` standing for the implementing type).
+  /// Validate an `interface Sub: Super + … { … }` declaration: each method
+  /// signature is well-formed, every super names an interface, and the
+  /// inheritance relation has no cycle.
+  void _checkInterfaceDecl(InterfaceDecl decl) {
+    for (final m in decl.methods) {
+      _checkFnSig(m);
+    }
+    for (final superName in decl.superInterfaces) {
+      final superDef = _library.typeDefs[superName];
+      if (superDef == null) {
+        _error('unknown super-interface: $superName', decl.nameSpan);
+      } else if (superDef is! InterfaceElement) {
+        _error("'$superName' is not an interface", decl.nameSpan);
+      }
+    }
+    if (decl.superInterfaces.contains(decl.name) || _extendsCycle(decl.name)) {
+      _error("interface '${decl.name}' extends itself (inheritance cycle)",
+          decl.nameSpan);
+    }
+  }
+
+  /// Whether interface [name] participates in a mutual/longer inheritance cycle
+  /// — reachable as a super of one of its own (transitive) supers. Uses the
+  /// resolver-computed closures (`superInterfaces`); a direct self-reference is
+  /// handled by the caller (the closure excludes the type's own name).
+  bool _extendsCycle(String name) {
+    final start = _library.typeDefs[name];
+    if (start is! InterfaceElement) return false;
+    for (final s in start.superInterfaces) {
+      final sd = _library.typeDefs[s];
+      if (sd is InterfaceElement && sd.superInterfaces.contains(name)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   void _checkConformance(ImplDecl decl) {
     final ifaceName = decl.interfaceName!;
     final ifaceDef = _library.typeDefs[ifaceName];
@@ -156,7 +191,11 @@ class TypeChecker {
     };
 
     final provided = {for (final m in decl.methods) m.name};
+    // Only the interface's *own* methods are required in this impl; inherited
+    // super-interface methods are satisfied by implementing the super (checked
+    // below), not re-declared here.
     for (final im in ifaceDef.methods) {
+      if (!ifaceDef.ownMethods.contains(im.name)) continue;
       if (!provided.contains(im.name)) {
         _error("missing method '${im.name}' required by interface '$ifaceName'",
             decl.nameSpan);
@@ -168,6 +207,18 @@ class TypeChecker {
         _error(
             "method '${im.name}' does not match its declaration in interface "
             "'$ifaceName'",
+            decl.nameSpan);
+      }
+    }
+
+    // Inherited obligation: implementing a sub-interface requires implementing
+    // each super-interface too (`impl Error for T` ⇒ T must be Display + Debug).
+    // `Eq`/`Debug` are satisfied structurally; others need an explicit impl.
+    for (final superName in ifaceDef.superInterfaces) {
+      if (!_satisfiesBound(implType, superName)) {
+        _error(
+            "'${decl.typeName}' implements '$ifaceName', which extends "
+            "'$superName', but does not implement '$superName'",
             decl.nameSpan);
       }
     }
@@ -511,6 +562,13 @@ class TypeChecker {
   bool _satisfiesBound(Type t, String bound) {
     if (t is UnknownType || t is TypeParameterType) return true;
     if (t is PrimitiveType) return _builtinInterfaces.contains(bound);
+    // An interface-typed value satisfies a bound it *is* or transitively extends
+    // (`Error` extends `Debug`). Dispatch reaches the concrete type's impl at
+    // runtime, and conformance guarantees that impl exists.
+    if (t is InterfaceType && t.element is InterfaceElement) {
+      final iface = t.element as InterfaceElement;
+      return iface.name == bound || iface.superInterfaces.contains(bound);
+    }
     if (bound == 'Eq' || bound == 'Debug') return true; // structural derive
     return t is InterfaceType && t.element.implementsInterface(bound);
   }

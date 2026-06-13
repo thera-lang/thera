@@ -139,6 +139,18 @@ bool isAssignable(Type source, Type target) {
       source.element.implementsInterface(target.element.name)) {
     return true;
   }
+  // A sub-interface value is assignable where one of its super-interfaces is
+  // expected (`Error` extends `Display`/`Debug` — see docs/interfaces.md). The
+  // element's `superInterfaces` holds the transitive closure.
+  if (target is InterfaceType &&
+      target.element is InterfaceElement &&
+      source is InterfaceType &&
+      source.element is InterfaceElement &&
+      (source.element as InterfaceElement)
+          .superInterfaces
+          .contains(target.element.name)) {
+    return true;
+  }
   if (source is InterfaceType && target is InterfaceType) {
     if (source.element != target.element) return false;
     if (source.typeArguments.length != target.typeArguments.length) {

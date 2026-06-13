@@ -748,4 +748,74 @@ fn label<T: Display>(_ x: T) -> String { return x.display(); }
       );
     });
   });
+
+  group('interface inheritance', () {
+    const base = '''
+interface Display { fn display(self) -> String; }
+interface Named: Display { fn id(self) -> Int; }
+''';
+
+    test('implementing a sub-interface and its super is accepted', () {
+      expect(
+        check('${base}type W = { label: String, n: Int }\n'
+            'impl Display for W { fn display(self) -> String { return self.label; } }\n'
+            'impl Named for W { fn id(self) -> Int { return self.n; } }'),
+        isEmpty,
+      );
+    });
+
+    test('implementing a sub-interface without its super is rejected', () {
+      expect(
+        check('${base}type W = { n: Int }\n'
+            'impl Named for W { fn id(self) -> Int { return self.n; } }'),
+        contains(contains("extends 'Display'")),
+      );
+    });
+
+    test('a sub-interface value is assignable where the super is expected', () {
+      // `show` takes the super (`Display`); a `Named`-typed value flows in.
+      expect(
+        check('${base}fn show(_ d: Display) -> String { return d.display(); }\n'
+            'fn use(_ n: Named) -> String { return show(n); }'),
+        isEmpty,
+      );
+    });
+
+    test('an inherited method resolves on a sub-interface value', () {
+      // `display` is declared on the super; calling it on a `Named` value works.
+      expect(
+        check('${base}fn use(_ n: Named) -> String { return n.display(); }'),
+        isEmpty,
+      );
+    });
+
+    test('an unknown super-interface is reported', () {
+      expect(
+        check('interface Foo: Nope { fn f(self) -> Int; }'),
+        contains('unknown super-interface: Nope'),
+      );
+    });
+
+    test('a non-interface super is reported', () {
+      expect(
+        check('type T = { n: Int }\ninterface Foo: T { fn f(self) -> Int; }'),
+        contains("'T' is not an interface"),
+      );
+    });
+
+    test('a self-referential interface is reported as a cycle', () {
+      expect(
+        check('interface Foo: Foo { fn f(self) -> Int; }'),
+        contains(contains('inheritance cycle')),
+      );
+    });
+
+    test('a mutual inheritance cycle is reported', () {
+      expect(
+        check('interface A: B { fn a(self) -> Int; }\n'
+            'interface B: A { fn b(self) -> Int; }'),
+        contains(contains('inheritance cycle')),
+      );
+    });
+  });
 }

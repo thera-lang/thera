@@ -74,6 +74,26 @@ fn main() -> Int {
     expect(r.stdout, 'Dog(Rex)\na cat\n');
   });
 
+  test('a sub-interface dispatches inherited super-interface methods', () {
+    // `Named` extends `Display`. A `Named`-typed value exposes the inherited
+    // `display()` (and interpolates via it) plus its own `id()`; both dispatch
+    // to Widget's concrete impls at runtime.
+    final r = emitAndRun('inherit', '''
+interface Named: Display { fn id(self) -> Int; }
+type Widget = { label: String, n: Int }
+impl Display for Widget { fn display(self) -> String { return self.label; } }
+impl Named for Widget { fn id(self) -> Int { return self.n; } }
+fn show(_ x: Named) -> String { return '\${x} #\${x.id()}'; }
+fn main() -> Int {
+    println(show(Widget { label: 'ok', n: 7 }));
+    return 0;
+}
+''', []);
+    if (r == null) return markTestSkipped('Rust runtime unavailable');
+    expect(r.exitCode, 0, reason: r.stderr.toString());
+    expect(r.stdout, 'ok #7\n');
+  });
+
   test('hawk test runs @test functions and reports pass/fail', () {
     if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
     final dir = Directory.systemTemp.createTempSync('hawk_runner');

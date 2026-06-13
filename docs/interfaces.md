@@ -51,6 +51,53 @@ in `sdk/std/core/interfaces.hawk`. `==`/`!=` keep lowering to the structural
 `impl Eq for T` overrides** the derived behavior. `Display` stays explicit (no
 meaningful default).
 
+## Interface inheritance
+
+An interface may **extend** one or more others, declaring that any conforming
+type must also satisfy those super-interfaces:
+
+```hawk
+pub interface Error: Display + Debug {
+    fn message(self) -> String;
+}
+```
+
+This reads "an `Error` is a `Display` and a `Debug` that additionally has
+`message()`." It buys two things:
+
+1. **A wider conformance obligation.** `impl Error for FsError` is only valid
+   when `FsError` also satisfies `Display` and `Debug` — the checker requires the
+   supers (transitively), reusing the same `_satisfiesBound` logic as generic
+   bounds (`Debug` is satisfied by the structural auto-derive for free; `Display`
+   needs an explicit `impl Display`, since it has no derive). So the supers are
+   **separate impls**, not re-declarations — matching Rust's `trait Error:
+   Display` model and our existing `Message` (which already carries both `impl
+   Error` and `impl Display`).
+2. **A wider interface type.** A value typed as the `Error` *interface* now
+   exposes the super-interfaces' methods too: `e.display()`, `e.debug()`, and
+   `'${e}'`/`println(e)` all resolve, and an `Error`-typed value is **assignable
+   where a `Display` or `Debug` is expected** (and satisfies a `T: Debug` bound,
+   so `assert_ok`/`assert_err` accept interface-typed errors). Before this, an
+   interface couldn't extend another, so bare `Error` values had to be rendered
+   via `e.message()`.
+
+**Syntax.** After the interface name (and any type params), an optional
+`: Super1 + Super2 + …` clause names the super-interfaces — the same `+`-joined
+form as a generic bound (`<T: Eq + Debug>`). Supers must resolve to interfaces;
+the relation is acyclic (a cycle is a compile error).
+
+**No runtime change.** Dispatch already keys on `(concrete type_id, selector)`,
+and the concrete type carries its own `Display`/`Debug` rows from its separate
+impls. Calling `e.display()` on an `Error`-typed `e` lowers to the existing
+`call.virtual 'display'`; at runtime the receiver's concrete type (e.g.
+`Message`) resolves it. Inheritance is therefore **front-end only** — the
+super-interfaces' method names are flattened into the sub-interface's method set
+(so lookup and `call.virtual` eligibility see them), and the conformance,
+assignability, and bound-satisfaction checks walk the super relation
+transitively. No default/inherited *method bodies* — only the obligation and the
+widened method set; a super method still dispatches to the concrete type's own
+impl.
+
 ## How the built-ins are wired
 
 - **`Display`** powers `${…}` interpolation and `println`. Interpolation already

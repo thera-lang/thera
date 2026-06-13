@@ -158,10 +158,12 @@ LibraryElement buildLibrary(
           _resolveImpl(resolver, typeDefs, decl);
         case InterfaceDecl():
           final element = typeDefs[decl.name] as InterfaceElement;
+          element.superInterfaces.addAll(decl.superInterfaces);
           final tps = {for (final tp in decl.typeParams) tp.name};
           final selfType = InterfaceType(element,
               [for (final tp in decl.typeParams) TypeParameterType(tp.name)]);
           for (final m in decl.methods) {
+            element.ownMethods.add(m.name);
             element.methods.add(_methodElement(resolver, element, m,
                 selfType: selfType, outerTypeParams: tps));
           }
@@ -169,6 +171,33 @@ LibraryElement buildLibrary(
           break;
       }
     }
+  }
+
+  // ---- pass 3: flatten the inherited interface closure ----
+  // A sub-interface exposes its super-interfaces' methods too (so lookup and
+  // `call.virtual` eligibility see them, e.g. `e.display()` on an `Error`-typed
+  // value), and an `Error`-typed value is assignable where a super is expected.
+  // Walk supers transitively, rewriting `superInterfaces` to the full closure
+  // and copying inherited methods the sub doesn't already declare (the sub's own
+  // method wins). The relation is acyclic; the `seen` guard tolerates a cycle,
+  // which the checker reports.
+  for (final def in typeDefs.values) {
+    if (def is! InterfaceElement) continue;
+    final closure = <String>{};
+    final queue = [...def.superInterfaces];
+    while (queue.isNotEmpty) {
+      final superName = queue.removeAt(0);
+      if (superName == def.name || !closure.add(superName)) continue;
+      final superDef = typeDefs[superName];
+      if (superDef is! InterfaceElement) continue; // bad super; checker reports
+      queue.addAll(superDef.superInterfaces);
+      for (final m in superDef.methods) {
+        if (def.method(m.name) == null) def.methods.add(m);
+      }
+    }
+    def.superInterfaces
+      ..clear()
+      ..addAll(closure);
   }
 
   return LibraryElement(

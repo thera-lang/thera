@@ -196,12 +196,15 @@ class InterfaceDecl extends Decl implements NamedNode {
   final SourceSpan nameSpan;
   final List<TypeParam>
       typeParams; // generic params, e.g. interface Iterator<T>
+  final List<String>
+      superInterfaces; // extended interfaces, e.g. Display + Debug
   final List<FnDecl> methods;
   InterfaceDecl(super.span,
       {this.isPub = false,
       required this.name,
       required this.nameSpan,
       this.typeParams = const [],
+      this.superInterfaces = const [],
       required this.methods});
 
   @override
@@ -212,8 +215,10 @@ class InterfaceDecl extends Decl implements NamedNode {
     final tps = typeParams.isEmpty
         ? ''
         : '<${typeParams.map((t) => t.name).join(', ')}>';
+    final sup =
+        superInterfaces.isEmpty ? '' : ': ${superInterfaces.join(' + ')}';
     final buf =
-        StringBuffer('$indent${isPub ? 'pub ' : ''}Interface $name$tps\n');
+        StringBuffer('$indent${isPub ? 'pub ' : ''}Interface $name$tps$sup\n');
     for (final m in methods) {
       buf.write(m.describe('$indent  '));
     }

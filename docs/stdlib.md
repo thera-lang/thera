@@ -187,15 +187,15 @@ still passes where `Result<_, Error>` is expected (`std.cli`'s `CliError` is the
 first example, and `?` propagates it into an `Error`-returning caller). The
 concrete `Message` is the simple-case error and the `throw`/`Ok`-wrap target.
 
-> **Two limits until interface inheritance lands.** A value typed as the `Error`
-> _interface_ is not itself `Display` or `Debug` (an interface can't yet extend
-> another), so render it via `e.message()` rather than `'${e}'`, and prefer
-> concrete error types with `assert_ok` (whose `E: Debug` bound an interface
-> can't satisfy). Concrete errors (`Message`, `CliError`) `impl Display`, so they
-> interpolate directly. A second limit is cosmetic: an uncaught domain-enum error
-> that bubbles all the way to `main` renders structurally (the runtime's
-> top-level fallback has no `Display` dispatch yet) — handle errors in-program
-> and print `e.message()` for clean output.
+> **`Error` extends `Display + Debug` (interface inheritance).** A value typed as
+> the `Error` _interface_ is itself `Display` and `Debug`: interpolate it
+> directly (`'${e}'`), and `assert_ok`/`assert_err` accept a `Result<_, Error>`
+> (their `E: Debug` bound is satisfied). Each error type provides an explicit
+> `impl Display` (`Debug` is the structural auto-derive). One cosmetic limit
+> remains: an uncaught domain-enum error that bubbles all the way to `main`
+> renders structurally (the runtime's top-level fallback has no `Display`
+> dispatch yet) — handle errors in-program and print `e.message()` for clean
+> output.
 
 ### `Duration` / `Instant` / `DateTime` — see `std.time`.
 
@@ -780,12 +780,10 @@ should wrap it in a proper `RegexError.Syntax` (principle 4), as `std.json` does
 `assert` / `assert_eq` / `assert_ne` / `assert_ok` / `assert_err`, plus the
 `fixed_clock` / `fixed_env` test doubles. The equality assertions are generic
 over `<T: Eq + Debug>` (the generics arc), rendering mismatches via the
-structural `debug`. Self-tested in `testing_test.hawk`.
-
-One limitation worth noting: because the interface-typed `Error` isn't `Debug`
-yet (no interface inheritance), `assert_ok`/`assert_err`'s `E: Debug` bound means
-they can't inspect a `Result<_, Error>` — match it directly, or use a concrete
-error type. This resolves once `Error` extends `Debug`.
+structural `debug`. Self-tested in `testing_test.hawk`. Because `Error` extends
+`Debug` (interface inheritance), `assert_ok`/`assert_err` inspect a
+`Result<_, Error>` directly — the interface-typed error satisfies their `E: Debug`
+bound.
 
 ## What is intentionally _not_ in core
 
@@ -813,8 +811,9 @@ dependency graph, so future work lands in the right order:
    - The common `Error` **interface** as a return type (`Result<T, Error>` where
      `Error` is the interface) — **done**: `Error` is now an interface, concrete
      errors `impl Error`, and `?` propagates a concrete error into an
-     `Error`-returning caller (see § `Error`). Interface-typed errors aren't yet
-     `Display`/`Debug` (needs interface inheritance).
+     `Error`-returning caller (see § `Error`). `Error` extends `Display + Debug`
+     (interface inheritance), so interface-typed errors interpolate (`'${e}'`)
+     and work with `assert_ok`/`assert_err`.
    - Generic bound enforcement (`<T: Display>`, `<T: Eq + Debug>`) used by
      `std.testing` and generic combinators.
 
@@ -841,9 +840,11 @@ dependency graph, so future work lands in the right order:
 4. **`Error` interface migration — done.** `std.core/error.hawk`'s `Error` is
    now an interface with a `Message` struct; `throw`/`?`/implicit-`Ok` needed no
    change (they pass the value through, and interface-typed `E` subsumption was
-   already handled), and `std.testing` constructs `Message`. Remaining: `Error`
-   extending `Display`/`Debug` (interface inheritance) so interface-typed errors
-   interpolate and work with `assert_ok` directly.
+   already handled), and `std.testing` constructs `Message`. `Error` extends
+   `Display + Debug` (interface inheritance), so interface-typed errors
+   interpolate (`'${e}'`) and work with `assert_ok`/`assert_err` directly; each
+   error type provides an explicit `impl Display` (every one already did), and
+   `Debug` is the structural auto-derive.
 
 5. **JSON encoding ergonomics.** Two independent improvements over the
    constructors (`json.obj`/`json.int`/…) that ship today, for the two distinct

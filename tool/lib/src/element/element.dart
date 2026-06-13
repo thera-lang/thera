@@ -94,6 +94,16 @@ class InterfaceElement extends TypeDefElement {
   @override
   final List<MethodElement> methods = [];
 
+  /// Names of interfaces this one extends (`interface Error: Display + Debug`).
+  /// Filled during resolution; the relation is acyclic (checked there).
+  final List<String> superInterfaces = [];
+
+  /// Method names declared *directly* on this interface (not inherited). After
+  /// resolution [methods] also carries the super-interfaces' methods (flattened
+  /// for lookup/dispatch); conformance requires only these own methods, since
+  /// the inherited ones are satisfied by implementing the super separately.
+  final Set<String> ownMethods = {};
+
   InterfaceElement(this.name, {this.typeParameters = const []});
 
   @override

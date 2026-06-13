@@ -147,7 +147,8 @@ field       = IDENT ':' type
 enumDecl    = 'enum' IDENT typeParams? '{' variant (',' variant)* ','? '}'
 variant     = IDENT ( '(' type (',' type)* ')' )?       // positional payload
 
-interfaceDecl = 'interface' IDENT typeParams? '{' methodSig* '}'
+interfaceDecl = 'interface' IDENT typeParams? superInterfaces? '{' methodSig* '}'
+superInterfaces = ':' IDENT ('+' IDENT)*    // extended interfaces, e.g. `: Display + Debug`
 methodSig   = 'pub'? 'fn' IDENT typeParams? '(' paramList? ')' ('->' type)? ';'?
 
 implDecl    = 'impl' qualName typeParams?       // typeParams = interface type args
