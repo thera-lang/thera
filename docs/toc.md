@@ -33,5 +33,8 @@ is"; read top-down for progressive detail.
 - [selfhosting.md](selfhosting.md) — the **self-hosting spike**: a scoped
   calculator front-end slice to port to Hawk, to surface the real language gaps
   before committing to arc 3.
+- [tailexpr.md](tailexpr.md) — **tail expressions** spec & sizing: making a
+  block's last expression its value (and `if`/`match` value-position), the #1
+  gap from the self-hosting spike.
 
 (A concise orientation for agents lives in the repo-root `CLAUDE.md`.)
