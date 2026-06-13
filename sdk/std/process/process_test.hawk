@@ -1,0 +1,81 @@
+// Tests for std.process. These spawn small, ubiquitous Unix programs
+// (echo / sh / cat), so they assume a POSIX environment.
+
+import std.testing;
+import std.io;
+
+import 'process';
+
+fn is_not_found(_ e: ProcessError) -> Bool {
+    return match e {
+        NotFound(_) => true,
+        _ => false,
+    };
+}
+
+@test
+fn test_run_captures_stdout() -> Result<Void, Error> {
+    let r = process.run('echo', args: ['hello world'])?;
+    testing.assert_eq(actual: r.exit_code, expected: 0)?;
+    testing.assert_eq(actual: r.stdout.trim(), expected: 'hello world')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_run_reports_exit_code() -> Result<Void, Error> {
+    let r = process.run('sh', args: ['-c', 'exit 7'])?;
+    testing.assert_eq(actual: r.exit_code, expected: 7)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_run_captures_stderr() -> Result<Void, Error> {
+    let r = process.run('sh', args: ['-c', 'echo oops 1>&2'])?;
+    testing.assert_eq(actual: r.stderr.trim(), expected: 'oops')?;
+    testing.assert_eq(actual: r.stdout, expected: '')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_run_missing_command_is_not_found() -> Result<Void, Error> {
+    let classified = match process.run('hawk_no_such_program_42') {
+        Ok(_) => false,
+        Err(e) => is_not_found(e),
+    };
+    testing.assert(classified, message: 'expected a NotFound ProcessError')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_env_is_passed() -> Result<Void, Error> {
+    let env = {};
+    env['HAWK_GREETING'] = 'hi-there';
+    let r = process.run('sh', args: ['-c', 'printf %s "$HAWK_GREETING"'],
+                        env: Option.Some(env))?;
+    testing.assert_eq(actual: r.stdout, expected: 'hi-there')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_stream_through_cat() -> Result<Void, Error> {
+    // Write to stdin, close it (so cat sees EOF), then drain stdout as a Reader.
+    let child = process.start('cat')?;
+    child.stdin().write('line one\nline two\n'.bytes())?;
+    child.close_stdin()?;
+    let out = io.read_all(child.stdout())?;
+    testing.assert_eq(actual: out.to_string()?, expected: 'line one\nline two\n')?;
+    testing.assert_eq(actual: child.wait()?, expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_io_copy_from_child() -> Result<Void, Error> {
+    // A child's stdout is a Reader, so io.copy drains it into any Writer.
+    let child = process.start('echo', args: ['captured'])?;
+    child.close_stdin()?;
+    let sink = io.StringWriter.new();
+    io.copy(to: sink, from: child.stdout())?;
+    testing.assert_eq(actual: sink.into_string()?.trim(), expected: 'captured')?;
+    testing.assert_eq(actual: child.wait()?, expected: 0)?;
+    return Result.Ok(void);
+}

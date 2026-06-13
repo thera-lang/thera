@@ -102,13 +102,13 @@ native fn _wait(_ proc: Process) -> Result<Int, Error>
 native fn _kill(_ proc: Process) -> Result<Void, Error>
 
 @extern('process_stdin_write')
-native fn _stdin_write(_ proc: Process, _ data: String) -> Result<Void, Error>
+native fn _stdin_write(_ id: Int, _ data: Bytes) -> Result<Int, Error>
+
+@extern('process_stdin_close')
+native fn _stdin_close(_ id: Int) -> Result<Void, Error>
 
 @extern('process_stdout_read')
-native fn _stdout_read(_ proc: Process) -> Result<String, Error>
-
-@extern('process_stderr_read')
-native fn _stderr_read(_ proc: Process) -> Result<String, Error>
+native fn _stdout_read(_ id: Int, _ max: Int) -> Result<Bytes, Error>
 
 impl Process {
     pub fn wait(self) -> Result<Int, Error> {
@@ -119,16 +119,16 @@ impl Process {
         return _kill(self);
     }
 
-    pub fn stdin_write(self, _ data: String) -> Result<Void, Error> {
-        return _stdin_write(self, data);
+    pub fn write_stdin(self, _ data: Bytes) -> Result<Int, Error> {
+        return _stdin_write(self.id, data);
     }
 
-    pub fn stdout_read(self) -> Result<String, Error> {
-        return _stdout_read(self);
+    pub fn close_stdin(self) -> Result<Void, Error> {
+        return _stdin_close(self.id);
     }
 
-    pub fn stderr_read(self) -> Result<String, Error> {
-        return _stderr_read(self);
+    pub fn read_stdout(self, _ max: Int) -> Result<Bytes, Error> {
+        return _stdout_read(self.id, max);
     }
 }
 
@@ -523,23 +523,24 @@ fn main() -> Int { let v = V { n: 1 }; return v.bump(5); }
               .having((i) => i.argc, 'argc', 4)));
     });
 
-    test('list indexing and indexed assignment use the list.get/set opcodes', () {
+    test('list indexing and indexed assignment use the list.get/set opcodes',
+        () {
       // `list[i]` (read) and `list[i] = v` (write) are primitive opcodes, not
       // native calls (cf. field.get/set) — so the JIT can lower them inline.
       final read = compile('fn f() -> Int { let xs = [1]; return xs[0]; }')
           .functions
           .single
           .code;
-      expect(read,
-          contains(isA<Simple>().having((i) => i.op, 'op', Op.listGet)));
+      expect(
+          read, contains(isA<Simple>().having((i) => i.op, 'op', Op.listGet)));
 
       final write =
           compile('fn f() -> Int { let mut xs = [1]; xs[0] = 9; return 0; }')
               .functions
               .single
               .code;
-      expect(write,
-          contains(isA<Simple>().having((i) => i.op, 'op', Op.listSet)));
+      expect(
+          write, contains(isA<Simple>().having((i) => i.op, 'op', Op.listSet)));
     });
 
     test('map.remove / list.join lower to their natives', () {
@@ -634,7 +635,8 @@ fn f(a: CI, b: CI) -> Bool { return a == b; }
               .having((i) => i.argc, 'argc', 1)));
     });
 
-    test('an instance native method with an argument lowers receiver-first', () {
+    test('an instance native method with an argument lowers receiver-first',
+        () {
       final ops = compile(
               "fn f() -> Bool { let s = 'hello'; return s.contains('ell'); }")
           .functions
@@ -1214,20 +1216,16 @@ fn main() -> Result<Int, Error> {
       expect(rRun['code'], 0);
       expect(rRun['out'], 'hello world\n');
 
-      // 2. Test process.start with cat and stdin
-      final rStart = run('cat', '''
+      // 2. Test process.start + wait wiring (Bytes-based pipe streaming is
+      // covered against the real prelude in sdk/std/process/process_test.hawk).
+      final rStart = run('start', '''
 import std.process;
 fn main() -> Result<Int, Error> {
-    let p = process.start('cat')?;
-    p.stdin_write('hello from cat\\n')?;
-    let out = p.stdout_read()?;
-    println(out.trim());
-    p.kill()?;
-    return Result.Ok(0);
+    let p = process.start('sh', args: ['-c', 'exit 0'])?;
+    return Result.Ok(p.wait()?);
 }
 ''');
       expect(rStart['code'], 0);
-      expect(rStart['out'], 'hello from cat\n');
     });
 
     test('map.remove mutates; keys()/values()/join work', () {

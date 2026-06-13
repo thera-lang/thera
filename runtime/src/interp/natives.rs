@@ -134,6 +134,7 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("process_wait", native_process_wait),
     ("process_kill", native_process_kill),
     ("process_stdin_write", native_process_stdin_write),
+    ("process_stdin_close", native_process_stdin_close),
     ("process_stdout_read", native_process_stdout_read),
     ("process_stderr_read", native_process_stderr_read),
     ("bytes_len", native_bytes_len),
@@ -1483,8 +1484,20 @@ fn process_registry() -> &'static Mutex<HashMap<i64, RunningProcess>> {
     REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn make_error(msg: impl Into<String>) -> Value {
-    Value::err(Value::new_struct(0, vec![Value::new_str(msg)]))
+// Process errors come back kind-tagged ("<kind>\u{1}<message>"); the Hawk side
+// maps the kind to a `ProcessError` variant. `io` covers everything that isn't a
+// missing executable.
+fn proc_err_io(msg: impl Into<String>) -> Value {
+    Value::err(Value::new_str(format!("io\u{1}{}", msg.into())))
+}
+
+fn proc_err(e: &std::io::Error, msg: String) -> Value {
+    let kind = if e.kind() == std::io::ErrorKind::NotFound {
+        "not_found"
+    } else {
+        "io"
+    };
+    Value::err(Value::new_str(format!("{kind}\u{1}{msg}")))
 }
 
 fn get_process_id(process_val: &Value) -> Result<i64, Trap> {
@@ -1587,10 +1600,7 @@ fn native_process_run(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Tra
             );
             Ok(Value::ok(res))
         }
-        Err(e) => Ok(make_error(format!(
-            "Failed to run command '{}': {}",
-            cmd_name, e
-        ))),
+        Err(e) => Ok(proc_err(&e, format!("failed to run '{cmd_name}': {e}"))),
     }
 }
 
@@ -1651,10 +1661,7 @@ fn native_process_start(_out: &mut dyn Write, args: &[Value]) -> Result<Value, T
             let proc = Value::new_struct(0, vec![Value::Int(id)]);
             Ok(Value::ok(proc))
         }
-        Err(e) => Ok(make_error(format!(
-            "Failed to start command '{}': {}",
-            cmd_name, e
-        ))),
+        Err(e) => Ok(proc_err(&e, format!("failed to start '{cmd_name}': {e}"))),
     }
 }
 
@@ -1667,8 +1674,8 @@ fn native_process_wait(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Tr
     let mut running = match registry.remove(&id) {
         Some(r) => r,
         None => {
-            return Ok(make_error(format!(
-                "Process with ID {id} not found (it may have already been waited on)"
+            return Ok(proc_err_io(format!(
+                "process {id} not found (it may have already been waited on)"
             )));
         }
     };
@@ -1679,10 +1686,10 @@ fn native_process_wait(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Tr
             let exit_code = status.code().unwrap_or(-1) as i64;
             Ok(Value::ok(Value::Int(exit_code)))
         }
-        Err(e) => Ok(make_error(format!(
-            "Failed to wait for process {id}: {}",
-            e
-        ))),
+        Err(e) => Ok(proc_err(
+            &e,
+            format!("failed to wait for process {id}: {e}"),
+        )),
     }
 }
 
@@ -1695,7 +1702,7 @@ fn native_process_kill(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Tr
     let mut running = match registry.remove(&id) {
         Some(r) => r,
         None => {
-            return Ok(make_error(format!("Process with ID {id} not found")));
+            return Ok(proc_err_io(format!("process {id} not found")));
         }
     };
     drop(registry);
@@ -1705,116 +1712,94 @@ fn native_process_kill(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Tr
             let _ = running.child.wait();
             Ok(Value::ok(Value::Unit))
         }
-        Err(e) => Ok(make_error(format!("Failed to kill process {id}: {}", e))),
+        Err(e) => Ok(proc_err(&e, format!("failed to kill process {id}: {e}"))),
     }
 }
 
-/// `process_stdin_write(self, data)`
+/// `process_stdin_write(id, data)` — write all of `data` (Bytes) to the child's
+/// stdin, returning the byte count. Backs `Process.stdin(): Writer`.
 fn native_process_stdin_write(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
-    let (process_val, data_val) = args2(args, "process_stdin_write")?;
-    let id = get_process_id(process_val)?;
-    let data = str_contents(data_val)?;
+    let (id_val, data_val) = args2(args, "process_stdin_write")?;
+    let id = as_int(id_val, "process_stdin_write")?;
+    let data = bytes_contents(data_val, "process_stdin_write")?;
 
     let mut registry = process_registry().lock().unwrap();
     let running = match registry.get_mut(&id) {
         Some(r) => r,
-        None => {
-            return Ok(make_error(format!("Process with ID {id} not found")));
-        }
+        None => return Ok(proc_err_io(format!("process {id} not found"))),
     };
-
     let stdin = match &mut running.stdin {
         Some(s) => s,
-        None => {
-            return Ok(make_error(format!(
-                "Process with ID {id} standard input is not available"
-            )));
-        }
+        None => return Ok(proc_err_io(format!("process {id} stdin is not available"))),
     };
+    match stdin.write_all(&data).and_then(|()| stdin.flush()) {
+        Ok(()) => Ok(Value::ok(Value::Int(data.len() as i64))),
+        Err(e) => Ok(proc_err(
+            &e,
+            format!("failed to write to process {id} stdin: {e}"),
+        )),
+    }
+}
 
-    match stdin.write_all(data.as_bytes()) {
-        Ok(()) => {
-            let _ = stdin.flush();
+/// `process_stdin_close(id)` — drop the child's stdin so it sees EOF (the
+/// write-then-read pattern needs this, or the child blocks waiting for input).
+fn native_process_stdin_close(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let id = as_int(
+        expect_one(args, "process_stdin_close")?,
+        "process_stdin_close",
+    )?;
+    let mut registry = process_registry().lock().unwrap();
+    match registry.get_mut(&id) {
+        Some(running) => {
+            running.stdin = None; // dropping the ChildStdin closes the pipe
             Ok(Value::ok(Value::Unit))
         }
-        Err(e) => Ok(make_error(format!(
-            "Failed to write to stdin of process {id}: {}",
-            e
-        ))),
+        None => Ok(proc_err_io(format!("process {id} not found"))),
     }
 }
 
-/// `process_stdout_read(self)`
+/// Read up to `max` bytes from a child pipe; an empty result is EOF (and the
+/// pipe is then dropped). Shared by stdout/stderr (both `impl Read`).
+fn read_pipe<R: Read>(stream: &mut Option<R>, max: usize, id: i64) -> Value {
+    let s = match stream {
+        Some(s) => s,
+        None => return Value::ok(Value::new_bytes(Vec::new())), // already at EOF
+    };
+    let mut buf = vec![0u8; max.clamp(1, 1 << 20)];
+    match s.read(&mut buf) {
+        Ok(0) => {
+            *stream = None;
+            Value::ok(Value::new_bytes(Vec::new()))
+        }
+        Ok(n) => {
+            buf.truncate(n);
+            Value::ok(Value::new_bytes(buf))
+        }
+        Err(e) => proc_err(&e, format!("failed to read from process {id}: {e}")),
+    }
+}
+
+/// `process_stdout_read(id, max)` — backs `Process.stdout(): Reader`.
 fn native_process_stdout_read(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
-    let process_val = expect_one(args, "process_stdout_read")?;
-    let id = get_process_id(process_val)?;
-
+    let (id_val, max_val) = args2(args, "process_stdout_read")?;
+    let id = as_int(id_val, "process_stdout_read")?;
+    let max = as_int(max_val, "process_stdout_read")?.max(0) as usize;
     let mut registry = process_registry().lock().unwrap();
-    let running = match registry.get_mut(&id) {
-        Some(r) => r,
-        None => {
-            return Ok(make_error(format!("Process with ID {id} not found")));
-        }
-    };
-
-    let stdout = match &mut running.stdout {
-        Some(s) => s,
-        None => {
-            return Ok(Value::ok(Value::new_str("")));
-        }
-    };
-
-    let mut buf = [0u8; 4096];
-    match stdout.read(&mut buf) {
-        Ok(0) => {
-            running.stdout = None;
-            Ok(Value::ok(Value::new_str("")))
-        }
-        Ok(n) => {
-            let s = String::from_utf8_lossy(&buf[..n]).into_owned();
-            Ok(Value::ok(Value::new_str(s)))
-        }
-        Err(e) => Ok(make_error(format!(
-            "Failed to read stdout of process {id}: {}",
-            e
-        ))),
+    match registry.get_mut(&id) {
+        Some(running) => Ok(read_pipe(&mut running.stdout, max, id)),
+        None => Ok(proc_err_io(format!("process {id} not found"))),
     }
 }
 
-/// `process_stderr_read(self)`
+/// `process_stderr_read(id, max)` — backs `Process.stderr(): Reader`.
 fn native_process_stderr_read(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
-    let process_val = expect_one(args, "process_stderr_read")?;
-    let id = get_process_id(process_val)?;
-
+    let (id_val, max_val) = args2(args, "process_stderr_read")?;
+    let id = as_int(id_val, "process_stderr_read")?;
+    let max = as_int(max_val, "process_stderr_read")?.max(0) as usize;
     let mut registry = process_registry().lock().unwrap();
-    let running = match registry.get_mut(&id) {
-        Some(r) => r,
-        None => {
-            return Ok(make_error(format!("Process with ID {id} not found")));
-        }
-    };
-
-    let stderr = match &mut running.stderr {
-        Some(s) => s,
-        None => {
-            return Ok(Value::ok(Value::new_str("")));
-        }
-    };
-
-    let mut buf = [0u8; 4096];
-    match stderr.read(&mut buf) {
-        Ok(0) => {
-            running.stderr = None;
-            Ok(Value::ok(Value::new_str("")))
-        }
-        Ok(n) => {
-            let s = String::from_utf8_lossy(&buf[..n]).into_owned();
-            Ok(Value::ok(Value::new_str(s)))
-        }
-        Err(e) => Ok(make_error(format!(
-            "Failed to read stderr of process {id}: {}",
-            e
-        ))),
+    match registry.get_mut(&id) {
+        Some(running) => Ok(read_pipe(&mut running.stderr, max, id)),
+        None => Ok(proc_err_io(format!("process {id} not found"))),
     }
 }
 

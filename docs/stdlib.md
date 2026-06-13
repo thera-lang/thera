@@ -338,27 +338,42 @@ value, and Hawk has no load-time init to materialize a `const` from one (see
 `Env` is the second instance of the ambient-capability pattern after
 `time.Clock` (see [testability.md](testability.md)).
 
-### `std.process` — subprocess spawning _(partial → reconcile with std.io)_
+### `std.process` — subprocess spawning _(implemented)_
 
-Purpose: run and stream child processes. Already has
-`run`/`start`/`ProcessResult`/ `Process`. Reconcile the streaming TODOs: pipes
-become `Reader`/`Writer`.
+Purpose: run and stream child processes. `run` captures output to completion;
+`start` spawns and exposes the pipes through the `std.io` `Reader`/`Writer`
+protocol, so `io.read_all`/`io.copy` work against a child's streams.
 
 ```
 pub fn run(_ command: String, args: List<String> = [],
-           working_dir: Option<String>, env: Option<Map<String, String>>)
-    -> Result<ProcessResult, ProcessError>;   // captured stdout/stderr/exit_code (exists)
+           working_dir: Option<String> = Option.None,
+           env: Option<Map<String, String>> = Option.None)
+    -> Result<ProcessResult, ProcessError>;   // captured stdout/stderr/exit_code
 
-pub fn start(...) -> Result<Process, ProcessError>;  // exists
+pub fn start(...) -> Result<Process, ProcessError>;       // same args; pipes are piped
+
+pub type ProcessResult = { exit_code: Int, stdout: String, stderr: String }
+pub type Process = { id: Int }
 
 impl Process {
-    pub fn stdin(self) -> Writer;     // was stdin_write
-    pub fn stdout(self) -> Reader;    // was stdout_read (resolves the TODO)
-    pub fn stderr(self) -> Reader;
-    pub fn wait(self) -> Result<Int, ProcessError>;  // exists
-    pub fn kill(self) -> Result<Void, ProcessError>; // exists
+    pub fn stdin(self) -> Writer;     // child stdin, as a Writer
+    pub fn stdout(self) -> Reader;    // child stdout, as a Reader
+    pub fn stderr(self) -> Reader;    // child stderr, as a Reader
+    pub fn close_stdin(self) -> Result<Void, ProcessError>;  // signal EOF to a filter
+    pub fn wait(self) -> Result<Int, ProcessError>;
+    pub fn kill(self) -> Result<Void, ProcessError>;
 }
+
+pub enum ProcessError { NotFound(String), Io(String) }   // implements Error + Display
 ```
+
+Notes: pipes stream `Bytes` (the `Reader`/`Writer` currency), so writing text is
+`child.stdin().write(s.bytes())`. `close_stdin()` is the explicit EOF signal a
+write-then-read filter (`cat`, `grep`, `sort`) needs — without it `read_all`
+deadlocks waiting on a child that's waiting on more input. `ProcessError` is
+classified: a missing executable is `NotFound` (matchable), everything else is
+`Io`. Errors come back from the natives kind-tagged and a private helper maps
+them — the same pattern as `std.fs`.
 
 ### `std.time` — clocks, durations, dates _(new)_
 
@@ -833,7 +848,7 @@ dependency graph, so future work lands in the right order:
 | std.fs       | done    | v1: read/write text+bytes, exists, metadata, list_dir, create_dir(_all), remove(_dir_all), rename, copy, temp_dir; classified `FsError`; streaming `File`/`open`/`walk`/`temp_file` deferred to v2 |
 | std.path     | done    | pure Hawk; `components`/`with_extension` added; normalize/relative deferred                                                      |
 | std.env      | done    | vars/args/cwd/os/exit + `Env` capability + `testing.fixed_env`; `OS`→`os()`                                                      |
-| std.process  | partial | reconcile pipes → `Reader`/`Writer`; `ProcessError`                                                                              |
+| std.process  | done    | `run`/`start`; pipes are `std.io` `Reader`/`Writer` (+ `close_stdin`); classified `ProcessError`                                  |
 | std.time     | partial | `now_millis()` + `Clock` capability (prototype); `DateTime`/`Duration`/`monotonic` still new                                     |
 | std.fiber    | new     | runtime scheduler                                                                                                                |
 | std.math     | done    | Double fns + constants; abs/min/max/clamp + to_double/to_int are Int/Double methods                                              |

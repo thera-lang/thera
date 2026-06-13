@@ -1,105 +1,211 @@
-// std.process — process spawning and execution control.
+// std.process — spawn and control subprocesses.
 //
 // Import as: import std.process
 //
-// Running a command synchronously:
+// Run a command to completion, capturing its output:
 //
 //   let result = process.run('git', args: ['status', '--short'])?;
 //   println(result.stdout);
 //
-// Spawning an asynchronous child process:
+// Or start one and stream its pipes through the std.io Reader/Writer protocol:
 //
-//   let child = process.start('sleep', args: ['5'])?;
-//   let exit_code = child.wait()?;
+//   import std.io;
+//   let child = process.start('grep', args: ['hawk'])?;
+//   child.stdin().write('hawk\nrust\n'.bytes())?;   // stdin(): Writer
+//   let out = io.read_all(child.stdout())?;          // stdout(): Reader
+//   let code = child.wait()?;
 
-// The result of a synchronous process execution.
+import std.io;
+
+// The result of running a command to completion.
 pub type ProcessResult = {
     exit_code: Int,
     stdout: String,
     stderr: String,
 }
 
-// Represents a running asynchronous child process.
+// A handle to a spawned child process.
 pub type Process = {
     id: Int,
 }
 
-@extern('process_wait')
-native fn _wait(_ proc: Process) -> Result<Int, Error>
+// --- errors ---
 
-@extern('process_kill')
-native fn _kill(_ proc: Process) -> Result<Void, Error>
+pub enum ProcessError {
+    NotFound(String),   // the executable could not be found
+    Io(String),         // any other failure (spawn, wait, pipe I/O)
+}
 
-@extern('process_stdin_write')
-native fn _stdin_write(_ proc: Process, _ data: String) -> Result<Void, Error>
-
-@extern('process_stdout_read')
-native fn _stdout_read(_ proc: Process) -> Result<String, Error>
-
-@extern('process_stderr_read')
-native fn _stderr_read(_ proc: Process) -> Result<String, Error>
-
-impl Process {
-    // Wait for the process to complete, returning its exit code.
-    pub fn wait(self) -> Result<Int, Error> {
-        return _wait(self);
-    }
-
-    // Terminate the process (typically sending a SIGKILL or equivalent).
-    pub fn kill(self) -> Result<Void, Error> {
-        return _kill(self);
-    }
-
-    // Write a string to the process's standard input.
-    pub fn stdin_write(self, _ data: String) -> Result<Void, Error> {
-        return _stdin_write(self, data);
-    }
-
-    // Read available output from the process's stdout.
-    //
-    // TODO: Currently returns a String representing the block of currently
-    // available output. When Hawk supports a streaming I/O API (e.g. Reader/Writer
-    // interfaces), this should be migrated to return an `io.Reader` or similar.
-    // An empty string `""` indicates EOF (the stream has closed).
-    pub fn stdout_read(self) -> Result<String, Error> {
-        return _stdout_read(self);
-    }
-
-    // Read available output from the process's stderr.
-    //
-    // TODO: Currently returns a String representing the block of currently
-    // available output. When Hawk supports a streaming I/O API (e.g. Reader/Writer
-    // interfaces), this should be migrated to return an `io.Reader` or similar.
-    // An empty string `""` indicates EOF (the stream has closed).
-    pub fn stderr_read(self) -> Result<String, Error> {
-        return _stderr_read(self);
+impl Error for ProcessError {
+    pub fn message(self) -> String {
+        return match self {
+            NotFound(m) => m,
+            Io(m) => m,
+        };
     }
 }
 
-// Run a command synchronously, blocking until it completes.
-//
-//   `command`: the executable to run (e.g. 'git', 'python3').
-//   `args`: arguments passed to the command.
-//   `working_dir`: optional directory path to run the process in.
-//   `env`: optional environment variables mapping to supply.
-@extern('process_run')
-pub native fn run(
-    _ command: String,
-    args: List<String> = [],
-    working_dir: Option<String>,
-    env: Option<Map<String, String>>,
-) -> Result<ProcessResult, Error>
+impl Display for ProcessError {
+    pub fn display(self) -> String {
+        return self.message();
+    }
+}
 
-// Start a command asynchronously, returning a Process handle immediately.
-//
-//   `command`: the executable to start (e.g. 'git', 'python3').
-//   `args`: arguments passed to the command.
-//   `working_dir`: optional directory path to run the process in.
-//   `env`: optional environment variables mapping to supply.
+// Native errors arrive as "<kind>\u{1}<message>"; map the kind to a variant.
+fn to_process_error(_ raw: String) -> ProcessError {
+    let parts = raw.split('\u{1}');
+    let kind = parts.get(0).unwrap_or('io');
+    let msg = parts.get(1).unwrap_or(raw);
+    if kind == 'not_found' {
+        return ProcessError.NotFound(msg);
+    }
+    return ProcessError.Io(msg);
+}
+
+// --- native bindings (private; errors come back kind-tagged) ---
+
+@extern('process_run')
+native fn _run(
+    _ command: String,
+    _ args: List<String>,
+    _ working_dir: Option<String>,
+    _ env: Option<Map<String, String>>,
+) -> Result<ProcessResult, String>
+
 @extern('process_start')
-pub native fn start(
+native fn _start(
+    _ command: String,
+    _ args: List<String>,
+    _ working_dir: Option<String>,
+    _ env: Option<Map<String, String>>,
+) -> Result<Process, String>
+
+@extern('process_wait')
+native fn _wait(_ proc: Process) -> Result<Int, String>
+
+@extern('process_kill')
+native fn _kill(_ proc: Process) -> Result<Void, String>
+
+@extern('process_stdin_write')
+native fn _stdin_write(_ id: Int, _ data: Bytes) -> Result<Int, String>
+
+@extern('process_stdin_close')
+native fn _stdin_close(_ id: Int) -> Result<Void, String>
+
+@extern('process_stdout_read')
+native fn _stdout_read(_ id: Int, _ max: Int) -> Result<Bytes, String>
+
+@extern('process_stderr_read')
+native fn _stderr_read(_ id: Int, _ max: Int) -> Result<Bytes, String>
+
+// --- child pipes as std.io streams ---
+
+// A child's stdin, as a `Writer`. Each write is flushed.
+type ProcessStdin = { id: Int }
+impl Writer for ProcessStdin {
+    pub fn write(self, _ data: Bytes) -> Result<Int, Error> {
+        return match _stdin_write(self.id, data) {
+            Ok(n) => Result.Ok(n),
+            Err(e) => Result.Err(to_process_error(e)),
+        };
+    }
+}
+
+// A child's stdout, as a `Reader`. An empty read is EOF.
+type ProcessStdout = { id: Int }
+impl Reader for ProcessStdout {
+    pub fn read(self, max: Int) -> Result<Bytes, Error> {
+        return match _stdout_read(self.id, max) {
+            Ok(b) => Result.Ok(b),
+            Err(e) => Result.Err(to_process_error(e)),
+        };
+    }
+}
+
+// A child's stderr, as a `Reader`. An empty read is EOF.
+type ProcessStderr = { id: Int }
+impl Reader for ProcessStderr {
+    pub fn read(self, max: Int) -> Result<Bytes, Error> {
+        return match _stderr_read(self.id, max) {
+            Ok(b) => Result.Ok(b),
+            Err(e) => Result.Err(to_process_error(e)),
+        };
+    }
+}
+
+impl Process {
+    // The child's standard input as a `Writer`.
+    pub fn stdin(self) -> Writer {
+        return ProcessStdin { id: self.id };
+    }
+
+    // The child's standard output as a `Reader` (compose with `io.read_all`).
+    pub fn stdout(self) -> Reader {
+        return ProcessStdout { id: self.id };
+    }
+
+    // The child's standard error as a `Reader`.
+    pub fn stderr(self) -> Reader {
+        return ProcessStderr { id: self.id };
+    }
+
+    // Close the child's stdin, signalling end-of-input. Required before reading
+    // the output of a filter (e.g. `cat`, `grep`), which otherwise blocks
+    // waiting for more input.
+    pub fn close_stdin(self) -> Result<Void, ProcessError> {
+        return match _stdin_close(self.id) {
+            Ok(_) => Result.Ok(void),
+            Err(e) => Result.Err(to_process_error(e)),
+        };
+    }
+
+    // Wait for the child to exit, returning its exit code.
+    pub fn wait(self) -> Result<Int, ProcessError> {
+        return match _wait(self) {
+            Ok(code) => Result.Ok(code),
+            Err(e) => Result.Err(to_process_error(e)),
+        };
+    }
+
+    // Terminate the child (SIGKILL or platform equivalent) and reap it.
+    pub fn kill(self) -> Result<Void, ProcessError> {
+        return match _kill(self) {
+            Ok(_) => Result.Ok(void),
+            Err(e) => Result.Err(to_process_error(e)),
+        };
+    }
+}
+
+// --- spawning ---
+
+// Run a command to completion, capturing stdout/stderr and the exit code.
+//
+//   `command`: the executable (e.g. 'git', 'python3').
+//   `args`: its arguments.
+//   `working_dir`: directory to run in (defaults to the current one).
+//   `env`: environment variables (defaults to the parent's).
+pub fn run(
     _ command: String,
     args: List<String> = [],
-    working_dir: Option<String>,
-    env: Option<Map<String, String>>,
-) -> Result<Process, Error>
+    working_dir: Option<String> = Option.None,
+    env: Option<Map<String, String>> = Option.None,
+) -> Result<ProcessResult, ProcessError> {
+    return match _run(command, args, working_dir, env) {
+        Ok(result) => Result.Ok(result),
+        Err(e) => Result.Err(to_process_error(e)),
+    };
+}
+
+// Start a command, returning a `Process` handle immediately (stdin/stdout/stderr
+// are piped). Same arguments as `run`.
+pub fn start(
+    _ command: String,
+    args: List<String> = [],
+    working_dir: Option<String> = Option.None,
+    env: Option<Map<String, String>> = Option.None,
+) -> Result<Process, ProcessError> {
+    return match _start(command, args, working_dir, env) {
+        Ok(proc) => Result.Ok(proc),
+        Err(e) => Result.Err(to_process_error(e)),
+    };
+}
