@@ -120,3 +120,76 @@ by how *pervasive* each is in real front-end code:
 Small and time-boxed: the lexer is a sitting, the parser is the bulk, the
 evaluator is short. If the parser hits a hard wall, **stop** — that wall is the
 finding; prioritize the fix and resume.
+
+## Spike results (2026-06)
+
+The full slice landed: `pkgs/calc/` is a working `lexer` → `parser` → `eval`
+pipeline with 13 tests and an end-to-end `main` (`hawk run pkgs/calc/main.hawk
+-- '1 + 2 * 3'` → `7`; `'5 / (3 - 3)'` → `error: division by zero`). **The
+headline result: Hawk can already express a complete small front-end** — no hard
+walls.
+
+### What worked, with no friction (the encouraging core)
+
+- **Directly-recursive enums.** `enum Expr { Num(Double), Neg(Expr), Bin(Op,
+  Expr, Expr) }` — an enum holding itself directly (two recursive fields in
+  `Bin`), no boxing or indirection needed. This is the shape every AST has, and
+  it was the biggest open risk; it just works.
+- **Mutually recursive functions** (`parse_expr` ↔ `parse_term` ↔ `parse_factor`
+  ↔ `parse_expr`) — no forward declarations needed.
+- **`match` on variants with payload binding** (`Number(n)`, `Bin(op, l, r)`),
+  and **`?` propagation inside match-arm blocks** and through recursion.
+- **Structural `Eq`/`Debug` on recursive enums** → `assert_eq` compares whole
+  ASTs out of the box (`assert_eq(actual: ast('1+2*3'), expected: Expr.Bin(...))`).
+  This is a large win for testing a compiler.
+- **Per-domain error enums** (`LexError`/`ParseError`/`EvalError`), each `impl
+  Error`, unified as `Result<_, Error>` across stages via `?` subsumption.
+- A **mutable cursor struct** (`Parser { pos }`) with in-place `self.pos = …`.
+- `std.char`, `chars()`, `String.from_chars`, `to_double`, list push/index, and
+  cross-module sibling imports (`import 'lexer'`) — all comfortable.
+
+### Gaps & friction, ranked
+
+1. **No tail expressions — pervasive; the clear #1.** A block-bodied `match`
+   arm (or `if`/block) yields `Unit`, never its last expression, so any arm that
+   *computes* a value must `return` it or assign a `mut`. I hit this instinctively
+   in the lexer (`Some(n) => { tokens.push(…); Result.Ok(i) }` doesn't typecheck).
+   The forced idiom is "statement-position `match` where every arm `return`s,"
+   and `let x = match … { … }` is unavailable whenever an arm needs more than one
+   statement to produce its value. For match-dense compiler code this is the
+   dominant ergonomic tax. **Recommended next language task:** allow a block's
+   final expression to be its value (at minimum in `match` arms / `if` / block
+   expressions). (The statement-match-all-arms-`return` form *is* accepted as a
+   function's terminator, with no trailing `return` — that much is fine.)
+
+2. **No `if`-as-expression — occasional; same family as #1.** Computing a value
+   from a condition needs a temp + statements. Subsumed by a tail-expression fix.
+
+3. **No `match` on named constants — minor, lexer-only.** Patterns must be
+   literals, so dispatching on character *classes* (`char.PLUS`, …) is an
+   if-else ladder rather than a `match` (int-literal patterns work but mean magic
+   numbers). A real lexer tolerates the ladder; `match` guards or const patterns
+   would be nicer.
+
+4. **No list/string slicing — minor, recurring.** Wrote a `slice(List<Int>)`
+   helper yet again (as `std.json`/`std.time` each did). A `List.slice` (and
+   string substring) would retire boilerplate every scanner reinvents — worth a
+   stdlib add even before any language change.
+
+### A notable *negative* result
+
+**Interface inheritance was never wanted by the spike.** Each stage used a
+concrete error enum with an explicit `impl Display`, `assert_err` (no `Debug`
+bound) covered the error tests, and only the top-level `main` called
+`e.message()`. So `interface Error: Display + Debug` is **not** on the critical
+path for front-end code — it stays a general ergonomics cleanup, not a
+self-hosting blocker. (Nested patterns also went unused: the grammar's matches
+are single-level.)
+
+### Verdict
+
+The next language task that most improves front-end ergonomics is **tail
+expressions (#1)** — it shapes every function and is felt on nearly every match.
+That ranks ahead of interface inheritance for the self-hosting arc. The slice
+itself can grow (the `let`-binding stretch, better error positions) but has
+already served its purpose: it turned "what might Hawk lack?" into a ranked list.

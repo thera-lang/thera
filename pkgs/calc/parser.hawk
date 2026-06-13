@@ -1,0 +1,151 @@
+// calc spike — the parser (stage 2 of lex → parse → eval).
+//
+// Recursive descent with precedence over the token list. The point of this
+// stage is to stress the shapes a real parser has: a directly-recursive AST
+// enum (`Expr` holds `Expr`), dense `match` on tokens, mutually recursive
+// productions, and `Result`-threaded errors. See docs/selfhosting.md.
+//
+//   expr   = term (('+' | '-') term)*
+//   term   = factor (('*' | '/') factor)*
+//   factor = NUMBER | '(' expr ')' | '-' factor
+
+import 'lexer';
+
+pub enum Op { Add, Sub, Mul, Div }
+
+// The abstract syntax tree. `Neg` and `Bin` hold `Expr` directly — a
+// directly-recursive enum (not via a collection).
+pub enum Expr {
+    Num(Double),
+    Neg(Expr),
+    Bin(Op, Expr, Expr),
+}
+
+pub enum ParseError {
+    Unexpected(String),
+    Expected(String),
+    Trailing(String),
+}
+
+impl Error for ParseError {
+    pub fn message(self) -> String {
+        return match self {
+            Unexpected(m) => m,
+            Expected(m) => 'expected ${m}',
+            Trailing(m) => m,
+        };
+    }
+}
+
+impl Display for ParseError {
+    pub fn display(self) -> String {
+        return self.message();
+    }
+}
+
+// A cursor over the token list.
+type Parser = {
+    tokens: List<Token>,
+    pos: Int,
+}
+
+impl Parser {
+    fn peek(self) -> Token {
+        return self.tokens[self.pos];
+    }
+
+    fn parse_expr(self) -> Result<Expr, ParseError> {
+        let mut left = self.parse_term()?;
+        let mut going = true;
+        while going {
+            match self.peek() {
+                Plus => {
+                    self.pos = self.pos + 1;
+                    let right = self.parse_term()?;
+                    left = Expr.Bin(Op.Add, left, right);
+                },
+                Minus => {
+                    self.pos = self.pos + 1;
+                    let right = self.parse_term()?;
+                    left = Expr.Bin(Op.Sub, left, right);
+                },
+                _ => {
+                    going = false;
+                },
+            }
+        }
+        return Result.Ok(left);
+    }
+
+    fn parse_term(self) -> Result<Expr, ParseError> {
+        let mut left = self.parse_factor()?;
+        let mut going = true;
+        while going {
+            match self.peek() {
+                Star => {
+                    self.pos = self.pos + 1;
+                    let right = self.parse_factor()?;
+                    left = Expr.Bin(Op.Mul, left, right);
+                },
+                Slash => {
+                    self.pos = self.pos + 1;
+                    let right = self.parse_factor()?;
+                    left = Expr.Bin(Op.Div, left, right);
+                },
+                _ => {
+                    going = false;
+                },
+            }
+        }
+        return Result.Ok(left);
+    }
+
+    fn parse_factor(self) -> Result<Expr, ParseError> {
+        match self.peek() {
+            Number(n) => {
+                self.pos = self.pos + 1;
+                return Result.Ok(Expr.Num(n));
+            },
+            Minus => {
+                self.pos = self.pos + 1;
+                let inner = self.parse_factor()?;
+                return Result.Ok(Expr.Neg(inner));
+            },
+            LParen => {
+                self.pos = self.pos + 1;
+                let inner = self.parse_expr()?;
+                return self.expect_rparen(inner);
+            },
+            _ => {
+                return Result.Err(ParseError.Unexpected('expected a number, "(", or "-"'));
+            },
+        }
+    }
+
+    // Consume the closing ')' after a parenthesized expression.
+    fn expect_rparen(self, _ inner: Expr) -> Result<Expr, ParseError> {
+        match self.peek() {
+            RParen => {
+                self.pos = self.pos + 1;
+                return Result.Ok(inner);
+            },
+            _ => {
+                return Result.Err(ParseError.Expected('")"'));
+            },
+        }
+    }
+}
+
+// Parse a full token list (which must end in `Token.Eof`) into an `Expr`.
+pub fn parse(_ tokens: List<Token>) -> Result<Expr, ParseError> {
+    let p = Parser { tokens: tokens, pos: 0 };
+    let expr = p.parse_expr()?;
+    match p.peek() {
+        Eof => {
+            return Result.Ok(expr);
+        },
+        _ => {
+            return Result.Err(ParseError.Trailing('unexpected trailing input'));
+        },
+    }
+}

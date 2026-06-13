@@ -1,0 +1,61 @@
+// Tests for the calc parser (spike stage 2): precedence, associativity,
+// parens, unary minus, and parse errors — asserted on the AST shape.
+
+import std.testing;
+
+import 'lexer';
+import 'parser';
+
+// Lex + parse, surfacing either stage's error as the common Error.
+fn ast(_ src: String) -> Result<Expr, Error> {
+    let toks = tokenize(src)?;
+    return Result.Ok(parse(toks)?);
+}
+
+@test
+fn test_precedence_mul_binds_tighter() -> Result<Void, Error> {
+    // 1 + 2 * 3  ->  (1 + (2 * 3))
+    let expected = Expr.Bin(Op.Add,
+        Expr.Num(1.0),
+        Expr.Bin(Op.Mul, Expr.Num(2.0), Expr.Num(3.0)));
+    testing.assert_eq(actual: ast('1 + 2 * 3')?, expected: expected)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_subtraction_is_left_associative() -> Result<Void, Error> {
+    // 1 - 2 - 3  ->  ((1 - 2) - 3)
+    let expected = Expr.Bin(Op.Sub,
+        Expr.Bin(Op.Sub, Expr.Num(1.0), Expr.Num(2.0)),
+        Expr.Num(3.0));
+    testing.assert_eq(actual: ast('1 - 2 - 3')?, expected: expected)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_parens_override_precedence() -> Result<Void, Error> {
+    // (1 + 2) * 3
+    let expected = Expr.Bin(Op.Mul,
+        Expr.Bin(Op.Add, Expr.Num(1.0), Expr.Num(2.0)),
+        Expr.Num(3.0));
+    testing.assert_eq(actual: ast('(1 + 2) * 3')?, expected: expected)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_unary_minus() -> Result<Void, Error> {
+    testing.assert_eq(actual: ast('-5')?, expected: Expr.Neg(Expr.Num(5.0)))?;
+    // Binds tighter than '*': -2 * 3 -> ((-2) * 3)
+    let expected = Expr.Bin(Op.Mul, Expr.Neg(Expr.Num(2.0)), Expr.Num(3.0));
+    testing.assert_eq(actual: ast('-2 * 3')?, expected: expected)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_parse_errors() -> Result<Void, Error> {
+    testing.assert_err(ast('1 +'))?;     // operand expected, got Eof
+    testing.assert_err(ast('(1'))?;       // missing ')'
+    testing.assert_err(ast('1 2'))?;      // trailing input
+    testing.assert_err(ast('* 3'))?;      // leading operator
+    return Result.Ok(void);
+}

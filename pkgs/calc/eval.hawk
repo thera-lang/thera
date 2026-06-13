@@ -1,0 +1,62 @@
+// calc spike — the evaluator (stage 3 of lex → parse → eval).
+//
+// A recursive walk over the AST — the `match`-as-only-branching idiom over a
+// self-referential enum. Division by zero is the one runtime error.
+
+import 'parser';
+
+pub enum EvalError {
+    DivByZero,
+}
+
+impl Error for EvalError {
+    pub fn message(self) -> String {
+        return match self {
+            DivByZero => 'division by zero',
+        };
+    }
+}
+
+impl Display for EvalError {
+    pub fn display(self) -> String {
+        return self.message();
+    }
+}
+
+// Evaluate an expression to a Double.
+pub fn eval(_ e: Expr) -> Result<Double, EvalError> {
+    match e {
+        Num(n) => {
+            return Result.Ok(n);
+        },
+        Neg(inner) => {
+            let v = eval(inner)?;
+            return Result.Ok(-v);
+        },
+        Bin(op, left, right) => {
+            let l = eval(left)?;
+            let r = eval(right)?;
+            return apply(op, l, r);
+        },
+    }
+}
+
+fn apply(_ op: Op, _ l: Double, _ r: Double) -> Result<Double, EvalError> {
+    match op {
+        Add => {
+            return Result.Ok(l + r);
+        },
+        Sub => {
+            return Result.Ok(l - r);
+        },
+        Mul => {
+            return Result.Ok(l * r);
+        },
+        Div => {
+            if r == 0.0 {
+                return Result.Err(EvalError.DivByZero);
+            }
+            return Result.Ok(l / r);
+        },
+    }
+}

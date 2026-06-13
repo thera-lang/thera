@@ -1,0 +1,33 @@
+// calc spike — the end-to-end demo: lex → parse → eval an expression from the
+// command line.
+//
+//   hawk run pkgs/calc/main.hawk -- '1 + 2 * 3'      => 7
+//   hawk run pkgs/calc/main.hawk -- '5 / (3 - 3)'    => error: division by zero
+
+import 'lexer';
+import 'parser';
+import 'eval';
+
+fn evaluate(_ src: String) -> Result<Double, Error> {
+    let toks = tokenize(src)?;
+    let expr = parse(toks)?;
+    return Result.Ok(eval(expr)?);
+}
+
+fn main(parameters: List<String>) -> Result<Int, Error> {
+    let src = parameters.join(' ');
+    if src.trim() == '' {
+        println('usage: calc <expression>');
+        return Result.Ok(1);
+    }
+    match evaluate(src) {
+        Ok(value) => {
+            println('${value}');
+            return Result.Ok(0);
+        },
+        Err(e) => {
+            println('error: ${e.message()}');
+            return Result.Ok(1);
+        },
+    }
+}
