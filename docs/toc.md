@@ -30,5 +30,8 @@ is"; read top-down for progressive detail.
   native-function ABI.
 - [roadmap.md](roadmap.md) — current **status**, the three bootstrap arcs, and
   what's next.
+- [selfhosting.md](selfhosting.md) — the **self-hosting spike**: a scoped
+  calculator front-end slice to port to Hawk, to surface the real language gaps
+  before committing to arc 3.
 
 (A concise orientation for agents lives in the repo-root `CLAUDE.md`.)

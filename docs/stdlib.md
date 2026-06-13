@@ -660,9 +660,44 @@ pub enum CliError { UnknownFlag(String), MissingValue(String),
 Names are declared **bare** (`flag('verbose')`); the parser accepts the long
 form (`--verbose`), abbreviations (`-v`), `--name value` / `--name=value` for
 options, and `--no-name` for `negatable` flags. `--help`/`-h` is auto-registered
-but never auto-intercepted — the caller decides when to print `help()`. Deferred
-to v2: short-flag clustering (`-rf`). The `Error` interface migration will let
-`CliError` `implement Error`; today it is a concrete enum callers `match` on.
+but never auto-intercepted — the caller decides when to print `help()`.
+`CliError` implements `Error` + `Display`, so it propagates as `Result<_, Error>`
+and renders directly while callers who want the cause still `match` on it.
+
+**Usability follow-ups (v2).** Writing real clients (`pkgs/cli/main.hawk`,
+`examples/git_branch.hawk`) showed the *parsing* is handled, but the glue
+**around** a parse — help, subcommand dispatch, errors, exit codes — is
+re-implemented by every multi-command client. The library should absorb it,
+roughly in priority order:
+
+- **An opinionated entry adapter** (the headline). One call that parses and:
+  on a `CliError`, prints the message + usage to stderr and signals a non-zero
+  exit; on `--help`, prints the *selected* (sub)command's help and signals exit
+  0; otherwise hands back the resolved command + its `Matches`. This collapses
+  the ~40 lines of identical glue every client writes (`pkgs/cli` included).
+- **Selected-subcommand help.** `--help` is auto-registered but inert; a
+  client must find the chosen subcommand and call *its* `help()`
+  (`pkgs/cli` iterates `subcommands` by name to do this). Add
+  `Matches.selected_help()` / `Command.help_for(name)`.
+- **Dispatch ergonomics.** Today: `subcommand()` (→`Option<String>`) then
+  `matches()` (→`Option<Matches>`) then a string-equality ladder (no string
+  match patterns). Return the selected subcommand **and** its `Matches`
+  together, or support handler registration, to remove the boilerplate.
+- **Required positionals + arity.** Positionals are descriptive only; a client
+  hand-checks `positional(0)` and emits "expected `<file>`". Let `positional`
+  be marked required, yielding an automatic `MissingPositional` (and feeding
+  the generated usage); add a `TooManyArgs` for arity.
+- **Command-path-aware errors.** A subcommand parse error bubbles up without
+  recording which subcommand failed, so a client can only show the *top-level*
+  help (`hawk run --bad` shows `hawk` usage, not `run`'s). Carry the command
+  path in `CliError`.
+- **Help formatting.** Column-align the name/description columns in `help()`
+  (today they're space-padded, not aligned). Plus short-flag clustering
+  (`-rf`), still deferred.
+
+None are blockers — all are "remove a decision" wins. The entry adapter is the
+high-leverage one; required positionals and command-path-aware errors are the
+next tier.
 
 ### `std.term` — terminal _(new)_
 
@@ -877,7 +912,7 @@ dependency graph, so future work lands in the right order:
 | std.hash     | new     | runtime native                                                                                                                   |
 | std.http     | new     | client only; runtime sockets + TLS                                                                                               |
 | std.log      | new     |                                                                                                                                  |
-| std.cli      | done    | pure Hawk; declarative `Command`/`Matches`/`CliError` + `--help`, abbrs, negation; `Args` stays the raw escape hatch              |
+| std.cli      | done    | pure Hawk; declarative `Command`/`Matches`/`CliError` + `--help`, abbrs, negation; `Args` is the raw escape hatch. v2: entry adapter, selected-subcommand help, required positionals, command-path errors (§ std.cli) |
 | std.term     | new     |                                                                                                                                  |
 | std.char     | done    | pure Hawk; `pub` API + ASCII scope; `is_hex_digit` added, ident predicates removed                                               |
 | std.regex    | removed | was pure Hawk over `re2_*` natives that didn't survive the runtime migration; deleted as non-functional — design captured above for a rebuild (needs a runtime engine: hand-rolled or the `regex` crate) |
