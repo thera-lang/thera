@@ -86,9 +86,9 @@ enough to reduce hallucination.
    [testability.md](testability.md).
 
 8. **Text is UTF-8; bytes are `Bytes`.** `String` is validated UTF-8; raw binary
-   is the `Bytes` type (§ Core types). Conversions are explicit:
-   `s.chars()` returns code points (`List<Int>`) and `s.bytes()` returns the
-   UTF-8 encoding as `Bytes` (`.to_list()` for the raw 0..=255 byte values);
+   is the `Bytes` type (§ Core types). Conversions are explicit: `s.chars()`
+   returns code points (`List<Int>`) and `s.bytes()` returns the UTF-8 encoding
+   as `Bytes` (`.to_list()` for the raw 0..=255 byte values);
    `Bytes.to_string()` validates UTF-8. String offsets follow the existing
    convention: code-point counts for `len`, UTF-8 byte offsets where byte
    positions are needed.
@@ -114,8 +114,8 @@ The shared vocabulary the modules are built from. These live in `std.core`
 
 ### `Bytes` — immutable byte buffer _(implemented, prelude)_
 
-Runtime-backed opaque types in the prelude (`std.core/bytes.hawk`); `String.bytes()`
-returns `Bytes` (use `.to_list()` for the raw byte values).
+Runtime-backed opaque types in the prelude (`std.core/bytes.hawk`);
+`String.bytes()` returns `Bytes` (use `.to_list()` for the raw byte values).
 
 ```
 pub type Bytes = { /* opaque, runtime-backed */ }
@@ -187,8 +187,8 @@ still passes where `Result<_, Error>` is expected (`std.cli`'s `CliError` is the
 first example, and `?` propagates it into an `Error`-returning caller). The
 concrete `Message` is the simple-case error and the `throw`/`Ok`-wrap target.
 
-> **`Error` extends `Display + Debug` (interface inheritance).** A value typed as
-> the `Error` _interface_ is itself `Display` and `Debug`: interpolate it
+> **`Error` extends `Display + Debug` (interface inheritance).** A value typed
+> as the `Error` _interface_ is itself `Display` and `Debug`: interpolate it
 > directly (`'${e}'`), and `assert_ok`/`assert_err` accept a `Result<_, Error>`
 > (their `E: Debug` bound is satisfied). Each error type provides an explicit
 > `impl Display` (`Debug` is the structural auto-derive). One cosmetic limit
@@ -534,28 +534,33 @@ pub enum JsonError { Syntax(String) }                // implements Error + Displ
 ```
 
 `Int`/`Double` are split (not a single `Number`) so integers round-trip exactly
-and construct cleanly (`json.int(42)`); the parser picks the variant by syntax (a
-`.`/`e`/`E` → `Double`), and `as_int`/`as_double` cross-tolerate. `get`/`at`
+and construct cleanly (`json.int(42)`); the parser picks the variant by syntax
+(a `.`/`e`/`E` → `Double`), and `as_int`/`as_double` cross-tolerate. `get`/`at`
 return `Json` (Null on miss) rather than `Option`, so navigation chains —
 `root.get('user').get('name').as_string()` — which matters because Hawk's
 `Option` has no `and_then` yet. Strings handle the full escape set including
-`\uXXXX` with surrogate-pair combining. `JsonError` is `Syntax`-only for v1 (parse
-is the only fallible op; a `Type`/`Missing` variant returns with typed `decode`).
+`\uXXXX` with surrogate-pair combining. `JsonError` is `Syntax`-only for v1
+(parse is the only fallible op; a `Type`/`Missing` variant returns with typed
+`decode`).
 
 **Encoding ergonomics — three layers.** Building a heterogeneous value needs
-`Json` (Hawk has no heterogeneous map/list literal — a raw `{ 'a': 1, 'b': true }`
-is a `Map`, not a `Json`, and won't pass to `stringify`). The layers:
+`Json` (Hawk has no heterogeneous map/list literal — a raw
+`{ 'a': 1, 'b': true }` is a `Map`, not a `Json`, and won't pass to
+`stringify`). The layers:
 
-1. **Constructors (today):** `json.obj({ 'two': json.int(123), 'three': json.double(1.2) })`
-   — container literals stay; only the leaves wrap.
+1. **Constructors (today):**
+   `json.obj({ 'two': json.int(123), 'three': json.double(1.2) })` — container
+   literals stay; only the leaves wrap.
 2. **Auto-boxing (proposed — §Sequencing):** an expected-type-directed coercion
    that extends the existing implicit `Ok`-wrap to `Json`: where a `Json` is
-   expected, a literal/primitive boxes into its variant (`Int`→`Json.Int`, a list
-   literal→`Json.Array` recursively, a `String`-keyed map literal→`Json.Object`),
-   so `let doc: Json = { 'two': 123, 'three': 1.2 }` just works. Encode-only;
-   scoped to the blessed `Json` type. The most LLM-friendly for ad-hoc inline JSON.
+   expected, a literal/primitive boxes into its variant (`Int`→`Json.Int`, a
+   list literal→`Json.Array` recursively, a `String`-keyed map
+   literal→`Json.Object`), so `let doc: Json = { 'two': 123, 'three': 1.2 }`
+   just works. Encode-only; scoped to the blessed `Json` type. The most
+   LLM-friendly for ad-hoc inline JSON.
 3. **Reflection `encode<T>`/`decode<T>` (research-later — §Sequencing):** typed
-   struct ↔ JSON with no manual wrapping, and the only path to typed **decoding**.
+   struct ↔ JSON with no manual wrapping, and the only path to typed
+   **decoding**.
 
 These three coexist: a named type → reflection; an ad-hoc inline blob →
 auto-boxing; the constructors are the explicit fallback under both.
@@ -661,39 +666,40 @@ Names are declared **bare** (`flag('verbose')`); the parser accepts the long
 form (`--verbose`), abbreviations (`-v`), `--name value` / `--name=value` for
 options, and `--no-name` for `negatable` flags. `--help`/`-h` is auto-registered
 but never auto-intercepted — the caller decides when to print `help()`.
-`CliError` implements `Error` + `Display`, so it propagates as `Result<_, Error>`
-and renders directly while callers who want the cause still `match` on it.
+`CliError` implements `Error` + `Display`, so it propagates as
+`Result<_, Error>` and renders directly while callers who want the cause still
+`match` on it.
 
 **Usability follow-ups (v2).** Writing real clients (`pkgs/cli/main.hawk`,
-`examples/git_branch.hawk`) showed the *parsing* is handled, but the glue
+`examples/git_branch.hawk`) showed the _parsing_ is handled, but the glue
 **around** a parse — help, subcommand dispatch, errors, exit codes — is
 re-implemented by every multi-command client. The library should absorb it,
 roughly in priority order:
 
-- **An opinionated entry adapter** (the headline). One call that parses and:
-  on a `CliError`, prints the message + usage to stderr and signals a non-zero
-  exit; on `--help`, prints the *selected* (sub)command's help and signals exit
+- **An opinionated entry adapter** (the headline). One call that parses and: on
+  a `CliError`, prints the message + usage to stderr and signals a non-zero
+  exit; on `--help`, prints the _selected_ (sub)command's help and signals exit
   0; otherwise hands back the resolved command + its `Matches`. This collapses
   the ~40 lines of identical glue every client writes (`pkgs/cli` included).
-- **Selected-subcommand help.** `--help` is auto-registered but inert; a
-  client must find the chosen subcommand and call *its* `help()`
-  (`pkgs/cli` iterates `subcommands` by name to do this). Add
-  `Matches.selected_help()` / `Command.help_for(name)`.
+- **Selected-subcommand help.** `--help` is auto-registered but inert; a client
+  must find the chosen subcommand and call _its_ `help()` (`pkgs/cli` iterates
+  `subcommands` by name to do this). Add `Matches.selected_help()` /
+  `Command.help_for(name)`.
 - **Dispatch ergonomics.** Today: `subcommand()` (→`Option<String>`) then
   `matches()` (→`Option<Matches>`) then a string-equality ladder (no string
   match patterns). Return the selected subcommand **and** its `Matches`
   together, or support handler registration, to remove the boilerplate.
 - **Required positionals + arity.** Positionals are descriptive only; a client
-  hand-checks `positional(0)` and emits "expected `<file>`". Let `positional`
-  be marked required, yielding an automatic `MissingPositional` (and feeding
-  the generated usage); add a `TooManyArgs` for arity.
+  hand-checks `positional(0)` and emits "expected `<file>`". Let `positional` be
+  marked required, yielding an automatic `MissingPositional` (and feeding the
+  generated usage); add a `TooManyArgs` for arity.
 - **Command-path-aware errors.** A subcommand parse error bubbles up without
-  recording which subcommand failed, so a client can only show the *top-level*
+  recording which subcommand failed, so a client can only show the _top-level_
   help (`hawk run --bad` shows `hawk` usage, not `run`'s). Carry the command
   path in `CliError`.
 - **Help formatting.** Column-align the name/description columns in `help()`
-  (today they're space-padded, not aligned). Plus short-flag clustering
-  (`-rf`), still deferred.
+  (today they're space-padded, not aligned). Plus short-flag clustering (`-rf`),
+  still deferred.
 
 None are blockers — all are "remove a decision" wins. The entry adapter is the
 high-leverage one; required positionals and command-path-aware errors are the
@@ -768,12 +774,13 @@ impl Captures {
 pub enum RegexError { Syntax(String) }   // implements Error + Display (mirrors JsonError)
 ```
 
-Notes for the rebuild: group 0 is the full match, `1..` the numbered subgroups; a
-group that did not participate in the match is `None`. `$1` / `${name}` expand
+Notes for the rebuild: group 0 is the full match, `1..` the numbered subgroups;
+a group that did not participate in the match is `None`. `$1` / `${name}` expand
 capture references in replacements. The `re2_*` native bindings and the compiled
 handle stay module-private (once visibility enforcement lands). The original
 `compile` returned `Result<_, Error>` with the raw native message; the rebuild
-should wrap it in a proper `RegexError.Syntax` (principle 4), as `std.json` does.
+should wrap it in a proper `RegexError.Syntax` (principle 4), as `std.json`
+does.
 
 ### `std.testing` — assertions _(implemented)_
 
@@ -782,8 +789,8 @@ should wrap it in a proper `RegexError.Syntax` (principle 4), as `std.json` does
 over `<T: Eq + Debug>` (the generics arc), rendering mismatches via the
 structural `debug`. Self-tested in `testing_test.hawk`. Because `Error` extends
 `Debug` (interface inheritance), `assert_ok`/`assert_err` inspect a
-`Result<_, Error>` directly — the interface-typed error satisfies their `E: Debug`
-bound.
+`Result<_, Error>` directly — the interface-typed error satisfies their
+`E: Debug` bound.
 
 ## What is intentionally _not_ in core
 
@@ -824,18 +831,19 @@ dependency graph, so future work lands in the right order:
    the typed binary `BytesReader`.
 
 3. **Lazy `Iterator<T>` — done (v1).** `Iterator<T>` is a **generic interface**
-   in the prelude (Hawk's first), `pub interface Iterator<T> { fn next(self) ->
-   Option<T>; }` — pull-based, `self`-mutating cursor. `std.iter` ships the
-   `range`/`from_list` sources and the eager `collect`/`count` consumers, and a
-   `for x in it` loop drives any iterator (the for-loop lowers to `next()`/match
-   over `Option`, dispatched virtually so concrete and interface-typed iterators
-   work alike). Landing it added the generic-interface machinery end to end
-   (parser type params on `interface`/`impl Iface<Args> for T`, conformance
-   substitution, and receiver-arg inference reused from the collection types) and
-   filled a codegen gap: block-bodied match arms (`Some(v) => { … }`) now compile
-   (a block in expression position yields `Unit`, since Hawk has no tail
-   expressions). Deferred: `map`/`filter`/`take`/`enumerate` adapters and a
-   fluent `Iter<T>` wrapper; these unblock `fs.walk`, `io.lines`, and `BufReader`.
+   in the prelude (Hawk's first),
+   `pub interface Iterator<T> { fn next(self) -> Option<T>; }` — pull-based,
+   `self`-mutating cursor. `std.iter` ships the `range`/`from_list` sources and
+   the eager `collect`/`count` consumers, and a `for x in it` loop drives any
+   iterator (the for-loop lowers to `next()`/match over `Option`, dispatched
+   virtually so concrete and interface-typed iterators work alike). Landing it
+   added the generic-interface machinery end to end (parser type params on
+   `interface`/`impl Iface<Args> for T`, conformance substitution, and
+   receiver-arg inference reused from the collection types) and filled a codegen
+   gap: block-bodied match arms (`Some(v) => { … }`) now compile (a block in
+   expression position yields `Unit`, since Hawk has no tail expressions).
+   Deferred: `map`/`filter`/`take`/`enumerate` adapters and a fluent `Iter<T>`
+   wrapper; these unblock `fs.walk`, `io.lines`, and `BufReader`.
 
 4. **`Error` interface migration — done.** `std.core/error.hawk`'s `Error` is
    now an interface with a `Message` struct; `throw`/`?`/implicit-`Ok` needed no
@@ -849,32 +857,34 @@ dependency graph, so future work lands in the right order:
 5. **JSON encoding ergonomics.** Two independent improvements over the
    constructors (`json.obj`/`json.int`/…) that ship today, for the two distinct
    use cases — building ad-hoc inline JSON, and serializing typed data:
-
    - **Auto-boxing into `Json` (proposed; smaller).** Extend the existing
      expected-type-directed boxing — the implicit `Ok`-wrap (`return n` →
      `Ok(n)`) — to the blessed `Json` type. **Rule:** when the expected type is
      exactly `Json`, an expression whose type is `Int`/`Double`/`String`/`Bool`
      boxes into the matching variant; a **list literal** elaborates each element
      against `Json` and boxes to `Json.Array`; a **`String`-keyed map literal**
-     boxes its values to `Json.Object`. So `let doc: Json = { 'two': 123, 'tags':
-     ['a', 'b'], 'ok': true }` works. Scoped to literals/primitives in `Json`
-     context (not arbitrary coercion), and **encode-only**. It introduces Hawk's
-     first implicit *primitive* boxing — softened by the `Ok`-wrap precedent (same
-     mechanism, another blessed type) and by being lossless. Highest
-     ergonomic-return-per-effort; the most LLM-friendly for inline JSON.
-   - **Compile-time reflection `encode<T>`/`decode<T>` (research-later; bigger).**
-     Typed struct ↔ JSON with no manual wrapping, and the only path to typed
-     **decoding** (the harder, more valuable half) plus `Debug`/`Eq` derive. Done
-     as *compile-time, monomorphized* reflection (serde/Zig-comptime style) it
-     carries no runtime metadata, so it stays AOT/tree-shake-friendly — but it
-     entangles with the generics strategy (monomorphization vs today's dynamic
-     dispatch), so it's a deliberate arc to research, not a quick add. Open design
-     questions: enum→JSON representation, field renaming, `Option` fields, and
-     decode-error variants (`Type`/`Missing` on `JsonError`).
+     boxes its values to `Json.Object`. So
+     `let doc: Json = { 'two': 123, 'tags': ['a', 'b'], 'ok': true }` works.
+     Scoped to literals/primitives in `Json` context (not arbitrary coercion),
+     and **encode-only**. It introduces Hawk's first implicit _primitive_ boxing
+     — softened by the `Ok`-wrap precedent (same mechanism, another blessed
+     type) and by being lossless. Highest ergonomic-return-per-effort; the most
+     LLM-friendly for inline JSON.
+   - **Compile-time reflection `encode<T>`/`decode<T>` (research-later;
+     bigger).** Typed struct ↔ JSON with no manual wrapping, and the only path
+     to typed **decoding** (the harder, more valuable half) plus `Debug`/`Eq`
+     derive. Done as _compile-time, monomorphized_ reflection
+     (serde/Zig-comptime style) it carries no runtime metadata, so it stays
+     AOT/tree-shake-friendly — but it entangles with the generics strategy
+     (monomorphization vs today's dynamic dispatch), so it's a deliberate arc to
+     research, not a quick add. Open design questions: enum→JSON representation,
+     field renaming, `Option` fields, and decode-error variants
+     (`Type`/`Missing` on `JsonError`).
 
    The two coexist (named type → reflection; ad-hoc blob → auto-boxing); the
-   constructors are the explicit fallback under both. Preferred over macros/codegen
-   (a last resort) — compile-time reflection is the principled substitute.
+   constructors are the explicit fallback under both. Preferred over
+   macros/codegen (a last resort) — compile-time reflection is the principled
+   substitute.
 
 6. **Runtime natives.** New runtime support is needed for `std.time` (clocks),
    `std.random` (entropy), `std.http` (sockets + TLS), `std.hash`, and
@@ -895,26 +905,26 @@ dependency graph, so future work lands in the right order:
 
 ## Status summary
 
-| Module       | Status  | Notes                                                                                                                            |
-| ------------ | ------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Module       | Status  | Notes                                                                                                                                                                                                                               |
+| ------------ | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | prelude/core | exists  | Int/Double + String parsing; `String.slice`/`List.slice` (code-point / element ranges, clamped); `Bytes`/`BytesBuilder`; `Set<T>` in Hawk over `Map`; `Error` is an interface + `Message`; `Iterator<T>` protocol; still want `Ord` |
-| std.io       | done    | v1: `Reader`/`Writer`/`Closer` + `IoError`, `read_all`/`copy`, stdin/stdout/stderr, `StringWriter`; `lines`/`Iterator` + streaming files deferred |
-| std.iter     | done    | v1: `Iterator<T>` (prelude) + `range`/`from_list` sources + `collect`/`count`; `for x in it` drives any iterator; adapters (`map`/`filter`/`take`) deferred |
-| std.fs       | done    | v1: read/write text+bytes, exists, metadata, list_dir, create_dir(_all), remove(_dir_all), rename, copy, temp_dir; classified `FsError`; streaming `File`/`open`/`walk`/`temp_file` deferred to v2 |
-| std.path     | done    | pure Hawk; `components`/`with_extension` added; normalize/relative deferred                                                      |
-| std.env      | done    | vars/args/cwd/os/exit + `Env` capability + `testing.fixed_env`; `OS`→`os()`                                                      |
-| std.process  | done    | `run`/`start`; pipes are `std.io` `Reader`/`Writer` (+ `close_stdin`); classified `ProcessError`                                  |
-| std.time     | done    | wall + monotonic clocks, `Duration`/`Instant` (nanos), `DateTime` (Unix ms UTC) + RFC 3339 format/parse, `sleep`; `Clock` capability + `testing.fixed_clock` |
-| std.fiber    | new     | runtime scheduler                                                                                                                |
-| std.math     | done    | Double fns + constants; abs/min/max/clamp + to_double/to_int are Int/Double methods                                              |
-| std.random   | done    | SplitMix64; state is a visible Int; mix via native (bitops gap)                                                                  |
-| std.json     | done    | pure Hawk; structural `Json` + constructors, parse/stringify, navigation; Int/Double split; auto-boxing + typed decode later        |
-| std.encoding | new     |                                                                                                                                  |
-| std.hash     | new     | runtime native                                                                                                                   |
-| std.http     | new     | client only; runtime sockets + TLS                                                                                               |
-| std.log      | new     |                                                                                                                                  |
-| std.cli      | done    | pure Hawk; declarative `Command`/`Matches`/`CliError` + `--help`, abbrs, negation; `Args` is the raw escape hatch. v2: entry adapter, selected-subcommand help, required positionals, command-path errors (§ std.cli) |
-| std.term     | new     |                                                                                                                                  |
-| std.char     | done    | pure Hawk; `pub` API + ASCII scope; `is_hex_digit` added, ident predicates removed                                               |
-| std.regex    | removed | was pure Hawk over `re2_*` natives that didn't survive the runtime migration; deleted as non-functional — design captured above for a rebuild (needs a runtime engine: hand-rolled or the `regex` crate) |
-| std.testing  | done    | `assert`/`assert_eq`/`assert_ne`/`assert_ok`/`assert_err` + `fixed_clock`/`fixed_env` doubles; self-tested                       |
+| std.io       | done    | v1: `Reader`/`Writer`/`Closer` + `IoError`, `read_all`/`copy`, stdin/stdout/stderr, `StringWriter`; `lines`/`Iterator` + streaming files deferred                                                                                   |
+| std.iter     | done    | v1: `Iterator<T>` (prelude) + `range`/`from_list` sources + `collect`/`count`; `for x in it` drives any iterator; adapters (`map`/`filter`/`take`) deferred                                                                         |
+| std.fs       | done    | v1: read/write text+bytes, exists, metadata, list_dir, create_dir(\_all), remove(\_dir_all), rename, copy, temp_dir; classified `FsError`; streaming `File`/`open`/`walk`/`temp_file` deferred to v2                                |
+| std.path     | done    | pure Hawk; `components`/`with_extension` added; normalize/relative deferred                                                                                                                                                         |
+| std.env      | done    | vars/args/cwd/os/exit + `Env` capability + `testing.fixed_env`; `OS`→`os()`                                                                                                                                                         |
+| std.process  | done    | `run`/`start`; pipes are `std.io` `Reader`/`Writer` (+ `close_stdin`); classified `ProcessError`                                                                                                                                    |
+| std.time     | done    | wall + monotonic clocks, `Duration`/`Instant` (nanos), `DateTime` (Unix ms UTC) + RFC 3339 format/parse, `sleep`; `Clock` capability + `testing.fixed_clock`                                                                        |
+| std.fiber    | new     | runtime scheduler                                                                                                                                                                                                                   |
+| std.math     | done    | Double fns + constants; abs/min/max/clamp + to_double/to_int are Int/Double methods                                                                                                                                                 |
+| std.random   | done    | SplitMix64; state is a visible Int; mix via native (bitops gap)                                                                                                                                                                     |
+| std.json     | done    | pure Hawk; structural `Json` + constructors, parse/stringify, navigation; Int/Double split; auto-boxing + typed decode later                                                                                                        |
+| std.encoding | new     |                                                                                                                                                                                                                                     |
+| std.hash     | new     | runtime native                                                                                                                                                                                                                      |
+| std.http     | new     | client only; runtime sockets + TLS                                                                                                                                                                                                  |
+| std.log      | new     |                                                                                                                                                                                                                                     |
+| std.cli      | done    | pure Hawk; declarative `Command`/`Matches`/`CliError` + `--help`, abbrs, negation; `Args` is the raw escape hatch. v2: entry adapter, selected-subcommand help, required positionals, command-path errors (§ std.cli)               |
+| std.term     | new     |                                                                                                                                                                                                                                     |
+| std.char     | done    | pure Hawk; `pub` API + ASCII scope; `is_hex_digit` added, ident predicates removed                                                                                                                                                  |
+| std.regex    | removed | was pure Hawk over `re2_*` natives that didn't survive the runtime migration; deleted as non-functional — design captured above for a rebuild (needs a runtime engine: hand-rolled or the `regex` crate)                            |
+| std.testing  | done    | `assert`/`assert_eq`/`assert_ne`/`assert_ok`/`assert_err` + `fixed_clock`/`fixed_env` doubles; self-tested                                                                                                                          |

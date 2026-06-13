@@ -3,7 +3,8 @@
 **What this is:** the design for making a block's final expression its value
 (and, with it, `if`/`match` usable in value position), plus a component-by-
 component estimate of how large the arc is. Motivated by the self-hosting spike,
-where "no tail expressions" was the #1 friction ([selfhosting.md](selfhosting.md)).
+where "no tail expressions" was the #1 friction
+([selfhosting.md](selfhosting.md)).
 
 ## The feature
 
@@ -12,8 +13,8 @@ Today a block runs statements and yields `Unit`; a value-producing branch must
 expression of a block — an expression with no trailing `;` — is the block's
 value.** Since `if`/`match` arms are blocks, they then yield values too.
 
-**Decided scope: expression position only; function returns stay explicit.**
-A block yields a value where a value is expected — a `let` initializer, a `match`
+**Decided scope: expression position only; function returns stay explicit.** A
+block yields a value where a value is expected — a `let` initializer, a `match`
 arm, an `if`/`else` branch, an argument. A **function body still returns with an
 explicit `return`** (a bare trailing expression there is not a return — it's the
 existing require-`;` rule). See the rationale under Design decisions; we can
@@ -43,7 +44,7 @@ let max = if a > b { a } else { b };
 ```
 
 **Semicolon rule (consistent with our existing require-`;` work):** in an
-expression-position block, every statement ends in `;` *except* a final
+expression-position block, every statement ends in `;` _except_ a final
 expression with no `;`, which is the tail. `let x = { f(); g() }` → `x` is
 `g()`'s value; `let x = { f(); g(); }` → `x` is `Unit` (g discarded). A bare
 trailing expression with no `;` is **only** legal in expression position;
@@ -56,18 +57,19 @@ block parser.
 ## Why it generalizes (not just a parser nicety)
 
 Most languages an LLM has seen (Rust, Kotlin, Scala, ML, Ruby) make the last
-expression the value, so a model *instinctively* writes `let x = if c { a } else
-{ b }` or a value-yielding match block — which today is a compile error and a
-wasted iteration. Closing the gap makes the obvious thing compile. The shape
-(compute a value by cases) is pervasive in ordinary code, not just parsers.
+expression the value, so a model _instinctively_ writes
+`let x = if c { a } else { b }` or a value-yielding match block — which today is
+a compile error and a wasted iteration. Closing the gap makes the obvious thing
+compile. The shape (compute a value by cases) is pervasive in ordinary code, not
+just parsers.
 
 ## Current representation (what's already there)
 
 The AST is already partway here:
 
 - `MatchExpr` is an **expression**; `MatchArm.body` is an `Expr`; a `{…}` arm is
-  a `BlockExpr` wrapping a `Block`. `ReturnExpr`/`ThrowExpr` exist so `=> return
-  x` works in an arm.
+  a `BlockExpr` wrapping a `Block`. `ReturnExpr`/`ThrowExpr` exist so
+  `=> return x` works in an arm.
 - `Block` is a bare `List<Stmt>` with **no value slot** — the missing piece.
 - `BlockExpr` codegen is literally `_block(block); emit(constUnit)`
   (`codegen.dart`) — the one line that throws the value away.
@@ -96,12 +98,14 @@ Front-end only. Roughly ordered by effort:
    (Unit when absent). `IfExpr` unifies then/else (and requires an `else`).
    `MatchExpr` already unifies arm types — block arms fall out once the block
    carries the tail.
-4. **Checker (small).** A value-position `if`/block must actually produce a value
-   (else-branch present; tail present). Match exhaustiveness is already handled.
+4. **Checker (small).** A value-position `if`/block must actually produce a
+   value (else-branch present; tail present). Match exhaustiveness is already
+   handled.
 5. **Codegen (small–medium).** Two spots: `BlockExpr` emits the tail value
    instead of `constUnit`; `IfExpr` leaves a value from each branch and merges
-   (mirrors the existing `_matchExpr` merge-label pattern). Match block arms then
-   "just work." The statement-level `_block` and `IfStmt` paths don't change.
+   (mirrors the existing `_matchExpr` merge-label pattern). Match block arms
+   then "just work." The statement-level `_block` and `IfStmt` paths don't
+   change.
 6. **Runtime:** none.
 
 **Estimate:** a **medium arc** — bigger than the slice spike, well short of the
@@ -115,8 +119,8 @@ block parser and codegen are untouched.
   (decided).** A block yields a value where a value is expected (`let`
   initializer, `match` arm, `if`/`else` branch, argument). A **function body
   still returns with `return`** — a bare trailing expression there is not a
-  return. The rule reads as *"expressions yield their last value; functions
-  return explicitly,"* which is close to how the AST already splits `BlockExpr`
+  return. The rule reads as _"expressions yield their last value; functions
+  return explicitly,"_ which is close to how the AST already splits `BlockExpr`
   from a statement-position `Block`.
 
   This deliberately **declines** implicit function return
@@ -124,16 +128,17 @@ block parser and codegen are untouched.
   weighed against the Rust-style "a block is a block everywhere" alternative:
   - It preserves Hawk's explicit-return ethos — the value a function produces is
     always marked.
-  - It removes the one real footgun: the `;` flip
-    (`{ …; foo() }` vs `{ …; foo(); }`) silently changing a *return* value. With
-    function bodies non-value-position, that case can't arise; in expression
-    position the static expected type catches a wrong-typed tail at compile time.
+  - It removes the one real footgun: the `;` flip (`{ …; foo() }` vs
+    `{ …; foo(); }`) silently changing a _return_ value. With function bodies
+    non-value-position, that case can't arise; in expression position the static
+    expected type catches a wrong-typed tail at compile time.
   - The cost is small and familiar: `return x;` in functions (as today), and the
     occasional helper instead of a one-line implicit-return function.
 
   **Revisit if** dogfooding or other feedback shows the explicit-return tax
   outweighs the safety — the expression-position machinery would already be in
   place, so extending tails to function bodies later is additive.
+
 - **`if` with no `else` in value position** → error (can't produce a value);
   fine as a statement.
 - **`return`/`throw` as tails** already work via `ReturnExpr`/`ThrowExpr`; they

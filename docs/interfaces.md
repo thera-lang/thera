@@ -66,14 +66,14 @@ This reads "an `Error` is a `Display` and a `Debug` that additionally has
 `message()`." It buys two things:
 
 1. **A wider conformance obligation.** `impl Error for FsError` is only valid
-   when `FsError` also satisfies `Display` and `Debug` — the checker requires the
-   supers (transitively), reusing the same `_satisfiesBound` logic as generic
-   bounds (`Debug` is satisfied by the structural auto-derive for free; `Display`
-   needs an explicit `impl Display`, since it has no derive). So the supers are
-   **separate impls**, not re-declarations — matching Rust's `trait Error:
-   Display` model and our existing `Message` (which already carries both `impl
-   Error` and `impl Display`).
-2. **A wider interface type.** A value typed as the `Error` *interface* now
+   when `FsError` also satisfies `Display` and `Debug` — the checker requires
+   the supers (transitively), reusing the same `_satisfiesBound` logic as
+   generic bounds (`Debug` is satisfied by the structural auto-derive for free;
+   `Display` needs an explicit `impl Display`, since it has no derive). So the
+   supers are **separate impls**, not re-declarations — matching Rust's
+   `trait Error: Display` model and our existing `Message` (which already
+   carries both `impl Error` and `impl Display`).
+2. **A wider interface type.** A value typed as the `Error` _interface_ now
    exposes the super-interfaces' methods too: `e.display()`, `e.debug()`, and
    `'${e}'`/`println(e)` all resolve, and an `Error`-typed value is **assignable
    where a `Display` or `Debug` is expected** (and satisfies a `T: Debug` bound,
@@ -94,7 +94,7 @@ impls. Calling `e.display()` on an `Error`-typed `e` lowers to the existing
 super-interfaces' method names are flattened into the sub-interface's method set
 (so lookup and `call.virtual` eligibility see them), and the conformance,
 assignability, and bound-satisfaction checks walk the super relation
-transitively. No default/inherited *method bodies* — only the obligation and the
+transitively. No default/inherited _method bodies_ — only the obligation and the
 widened method set; a super method still dispatches to the concrete type's own
 impl.
 
