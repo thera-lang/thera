@@ -16,6 +16,20 @@
 // Still TBD (straightforward additions once needed): `first`/`last`/`sort`.
 
 impl List<T> {
+    // Indexing — `xs[i]` and `xs[i] = v` — is built-in operator syntax (lowered
+    // by the compiler, not a method, so it has no declaration here). The read
+    //
+    //   fn [](self, _ i: Int) -> T          // traps if `i` is out of range
+    //
+    // returns the element at `i`, **trapping** on an out-of-range index — use
+    // `get` below for the checked `Option<T>` form. The write
+    //
+    //   fn []=(self, _ i: Int, _ v: T)      // traps if `i` is out of range
+    //
+    // replaces `xs[i]` in place; it cannot extend the list (use `push`), so an
+    // out-of-range index traps. (Indexing isn't an overloadable interface yet;
+    // this documents the contract the compiler implements for `List`.)
+
     // Number of elements.
     @extern('list_len')
     pub native fn len(self) -> Int

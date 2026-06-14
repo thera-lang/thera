@@ -11,12 +11,22 @@
 //
 // Use `.get(key)` when a missing key is a normal, expected case. See "Runtime
 // faults" and "Collections" in docs/language.md.
-//
-// NOTE: the runtime currently returns Option<V> from `scores[key]` (identical to
-// `.get`). The trapping semantics documented above are the agreed design, still
-// to be implemented in the Rust runtime.
 
 impl Map<K, V> {
+    // Indexing — `m[key]` and `m[key] = v` — is built-in operator syntax (lowered
+    // by the compiler, not a method, so it has no declaration here). The read
+    //
+    //   fn [](self, _ key: K) -> V          // traps if `key` is absent
+    //
+    // returns the value for `key`, **trapping** on a missing key — use `get`
+    // below for the checked `Option<V>` form. The write
+    //
+    //   fn []=(self, _ key: K, _ v: V)      // insert or update; never traps
+    //
+    // inserts a new entry or replaces the existing one (the binding must be
+    // `mut`). (Indexing isn't an overloadable interface yet; this documents the
+    // contract the compiler implements for `Map`.)
+
     // Number of entries.
     @extern('map_len')
     pub native fn len(self) -> Int
