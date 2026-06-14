@@ -230,11 +230,18 @@ low-regret** refactors make the Dart code already resemble its Hawk image,
 shrinking the port to transcription. Each stands on its own (keeps the Dart
 suite green) and is worth doing even if the port slipped:
 
-- **Lift AST node behavior into free functions.** Move `describe()` /
-  `childNodes` / span helpers off the node classes into top-level functions that
-  switch on the node. This is exactly the Hawk form (enums are dumb data;
-  behavior is free `fn`s that `match`), so those functions port 1:1. Low risk,
-  immediately tidier.
+- **Lift AST node behavior into free functions — assessed, deferred.** The idea
+  was to move `describe()` / `childNodes` off the node classes into top-level
+  functions that switch on the node (the Hawk form: enums are dumb data, behavior
+  is free `fn`s that `match`). On inspection the payoff is low *now*: `childNodes`
+  is declared on `AstNode` and overridden in ~40 node classes but has a **single**
+  consumer (`lsp/ast_utils.dart`), and `describe()` serves only `lsp/hover.dart`
+  + tests — all LSP/debug code, none in the first port. The core ported pipeline
+  (parser/checker/inference/codegen) already treats nodes as dumb data and
+  `switch`es on them, so the AST is already in port shape. Lifting `childNodes`
+  also presupposes a unifying `Node` type (the generic heterogeneous walk),
+  which is the deferred tagged-union rewrite below. Do this lazily, when the LSP
+  and debug tooling are themselves ported — not as speculative churn now.
 - **Make parser error recovery Result-shaped (or clearly quarantined).** Either
   convert `_parseDecl` to return a result the top loop recovers on, or at
   minimum confine the `_ParseFail` exception to a single boundary function whose
@@ -318,9 +325,11 @@ small and known, and the bytecode-writer gaps are the gating ones to close first
   mutable struct field (spike-validated). Bootstrapped via Dart, validated
   per-phase against the Dart oracle, with byte-identical self-compilation as the
   milestone.
-- **Dart prep:** lift node behavior to free functions, make recovery
-  Result-shaped, audit the stdlib surface, tighten phase purity — small
-  refactors that make the port transcription and partly serve horizon 1.
+- **Dart prep (done):** the stdlib-surface audit (gap list for the roadmap), the
+  parser's exception idioms quarantined/removed, the loader made pure behind an
+  injected `FileSystem`, and the lone `RegExp` dropped. Lifting AST node behavior
+  to free functions was assessed and deferred (low payoff now — it serves
+  not-yet-ported LSP/debug code and presupposes the deferred tagged-union AST).
 - **Gating language work — done:** tail expressions (block/match-arm tails and
   `if`-as-expression), nested patterns, interface inheritance, and slicing all
   landed, so the parser/checker port is unblocked.
