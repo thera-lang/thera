@@ -203,10 +203,12 @@ match-dense port magnifies each:
   chains, `if`-tails) — both stages landed ([tailexpr.md](tailexpr.md)). This
   retires the dominant match-dense friction (spike gaps #1 and #2's
   `if`-as-expression cousin) before the parser/checker port.
-- **Nested patterns (spike #2).** AST walks want
-  `match e { Bin(Add, Num(a), Num(b)) => … }`. Not yet available; a real
-  constant-folder/checker hits it constantly. Likely the next pattern-matching
-  feature after tails.
+- **Nested patterns (spike #2) — done.** A `match` arm can now destructure
+  several levels deep and bind at the leaves
+  (`match e { Bin(Add, Num(a), Num(b)) => … }`), with literal patterns supported
+  too. Codegen-only change (the front-end already bound nested patterns); a real
+  constant-folder/checker — and the calc evaluator, which dropped its `apply`
+  helper — uses it directly.
 - **Interface inheritance — done.** `interface Error: Display + Debug` landed
   (see [interfaces.md](interfaces.md)); the port's per-phase error enums get
   `'${e}'` and `assert_*` for free. (The spike correctly flagged this as _not_
@@ -215,9 +217,10 @@ match-dense port magnifies each:
 - Nice-to-haves that don't gate: `match` guards / patterns on named constants
   (lexer ergonomics), richer structural `debug` (diagnostics).
 
-The recommendation: **land tail expressions, then (likely) nested patterns,
-before porting the parser onward.** The lexer and `bytecode/` writer can be
-ported first regardless, since they're light on both.
+The gating language work is now **done** — tail expressions and nested patterns
+both landed, alongside interface inheritance and slicing. The parser/checker port
+no longer waits on a language feature; the lexer and `bytecode/` writer remain the
+lightest places to start.
 
 ## (3) De-risking refactors in the Dart front-end
 
@@ -269,6 +272,6 @@ buys little and risks the working toolchain.
 - **Dart prep:** lift node behavior to free functions, make recovery
   Result-shaped, audit the stdlib surface, tighten phase purity — small
   refactors that make the port transcription and partly serve horizon 1.
-- **Gating language work:** tail expressions (both stages done — block/match-arm
-  tails and `if`-as-expression), then likely nested patterns, before the
-  parser/checker port; interface inheritance and slicing already landed.
+- **Gating language work — done:** tail expressions (block/match-arm tails and
+  `if`-as-expression), nested patterns, interface inheritance, and slicing all
+  landed, so the parser/checker port is unblocked.

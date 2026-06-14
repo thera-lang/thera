@@ -435,6 +435,39 @@ fn f() -> Result<Int, Int> { let x = g()?; return x; }
           ]));
     });
 
+    test('nested constructor patterns lower without error', () {
+      // Regression: a nested pattern (`Bin(Add, Num(a), Num(b))`) used to throw
+      // "unsupported nested pattern" at codegen. It now lowers to recursive
+      // enum.tag tests + enum.get extractions.
+      final m = compile('''
+enum Op { Add }
+enum Expr { Num(Int), Bin(Op, Expr, Expr) }
+fn f(_ e: Expr) -> Int {
+    return match e {
+        Bin(Add, Num(a), Num(b)) => a + b,
+        _ => 0,
+    };
+}
+''');
+      final ops = m.functions[0].code; // f
+      // The nested arm checks three tags (Bin, Add, Num, Num → at least 3
+      // enum.tag tests before the catch-all) and extracts payload fields.
+      expect(ops.whereType<Simple>().where((i) => i.op == Op.enumTag).length,
+          greaterThanOrEqualTo(3));
+      expect(ops.whereType<EnumGet>(), isNotEmpty);
+    });
+
+    test('a literal pattern lowers to a structural equality test', () {
+      final m = compile('''
+fn f(_ n: Int) -> String {
+    return match n { 0 => 'zero', _ => 'other' };
+}
+''');
+      final ops = m.functions[0].code; // f
+      expect(
+          ops.whereType<CallNative>().where((i) => i.name == 'eq'), isNotEmpty);
+    });
+
     test('a struct declaration becomes a type-table entry', () {
       final m = compile(
           'type Point = { x: Int, y: Int } fn f() -> Int { return 0; }');
@@ -1047,6 +1080,28 @@ fn main() -> Int {
     return area(Shape.Circle(6)) + area(Shape.Rect(2, 3));
 }
 '''), 42); // 36 + 6
+    });
+
+    test('user enum: nested constructor patterns destructure and fall through',
+        () {
+      if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+      expect(runExit('nested_match', '''
+enum Op { Add, Mul }
+enum Expr { Num(Int), Bin(Op, Expr, Expr) }
+fn eval(_ e: Expr) -> Int {
+    return match e {
+        Num(n) => n,
+        Bin(Add, l, r) => eval(l) + eval(r),
+        Bin(Mul, l, r) => eval(l) * eval(r),
+    };
+}
+fn main() -> Int {
+    // (2 + 3) * 4 = 20 — needs the nested `Bin(Add, …)` / `Bin(Mul, …)` arms
+    // and a non-matching subject to fall to the next arm.
+    let e = Expr.Bin(Op.Mul, Expr.Bin(Op.Add, Expr.Num(2), Expr.Num(3)), Expr.Num(4));
+    return eval(e);
+}
+'''), 20);
     });
 
     test('user enum: .name() and equality', () {

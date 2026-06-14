@@ -225,7 +225,12 @@ pattern = '_'                                            // wildcard
         | INT | STRING | 'true' | 'false'                 // literal pattern
 ```
 
-Literal patterns cover ints, strings, and booleans (not floats). There are no
+Constructor arguments are themselves patterns, so patterns **nest** to any depth
+and bind at the leaves — `match e { Bin(Add, Num(a), Num(b)) => … }` tests the
+`Bin` tag, the nested `Add`/`Num` tags, and binds `a`/`b`. A non-matching nested
+pattern falls through to the next arm (matches are assumed exhaustive; end with a
+catch-all `_` when the patterns are refutable). Literal patterns cover ints,
+strings, and booleans (not floats) and may appear at any depth. There are no
 or-patterns, guards, range, or struct/field patterns.
 
 ### Expressions

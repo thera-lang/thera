@@ -23,29 +23,20 @@ impl Display for EvalError {
     }
 }
 
-// Evaluate an expression to a Double. Each arm yields its value as a tail
-// expression (the block arms run `?`-propagating statements first), so the whole
-// walk is a single `return match`.
+// Evaluate an expression to a Double. Nested patterns let each operator be its
+// own arm (`Bin(Add, l, r)`, …), so the operator dispatch folds into the tree
+// walk — no separate `apply` helper. Each arm yields its value as a tail
+// expression; `?` propagates a div-by-zero out of the recursion.
 pub fn eval(_ e: Expr) -> Result<Double, EvalError> {
     return match e {
         Num(n) => Result.Ok(n),
-        Neg(inner) => {
-            let v = eval(inner)?;
-            Result.Ok(-v)
+        Neg(inner) => Result.Ok(-eval(inner)?),
+        Bin(Add, l, r) => Result.Ok(eval(l)? + eval(r)?),
+        Bin(Sub, l, r) => Result.Ok(eval(l)? - eval(r)?),
+        Bin(Mul, l, r) => Result.Ok(eval(l)? * eval(r)?),
+        Bin(Div, l, r) => {
+            let rv = eval(r)?;
+            if rv == 0.0 { Result.Err(EvalError.DivByZero) } else { Result.Ok(eval(l)? / rv) }
         },
-        Bin(op, left, right) => {
-            let l = eval(left)?;
-            let r = eval(right)?;
-            apply(op, l, r)
-        },
-    };
-}
-
-fn apply(_ op: Op, _ l: Double, _ r: Double) -> Result<Double, EvalError> {
-    return match op {
-        Add => Result.Ok(l + r),
-        Sub => Result.Ok(l - r),
-        Mul => Result.Ok(l * r),
-        Div => if r == 0.0 { Result.Err(EvalError.DivByZero) } else { Result.Ok(l / r) },
     };
 }

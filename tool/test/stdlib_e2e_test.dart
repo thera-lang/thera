@@ -103,6 +103,51 @@ fn main() -> Int {
     expect(r.stdout, '7\nis: zero\ndoubled: 10\n');
   });
 
+  test('nested patterns: constructor destructuring with fall-through', () {
+    // A nested constructor pattern (`Bin(Add, Num(a), Num(b))`) destructures
+    // several levels deep and binds at the leaves; a non-matching subject falls
+    // through to a later arm. Also exercises top-level literal patterns.
+    final r = emitAndRun('nested', '''
+enum Op { Add, Mul }
+enum Expr { Num(Int), Bin(Op, Expr, Expr) }
+
+// Constant-fold a literal `Num + Num`; otherwise leave the expression as-is.
+fn fold(_ e: Expr) -> Expr {
+    return match e {
+        Bin(Add, Num(a), Num(b)) => Expr.Num(a + b),
+        Bin(Mul, Num(a), Num(b)) => Expr.Num(a * b),
+        other => other,
+    };
+}
+fn value(_ e: Expr) -> Int {
+    return match e {
+        Num(n) => n,
+        _ => -1,
+    };
+}
+fn shape(_ n: Int) -> String {
+    return match n {
+        0 => 'none',
+        1 => 'one',
+        _ => 'many',
+    };
+}
+fn main() -> Int {
+    println('\${value(fold(Expr.Bin(Op.Add, Expr.Num(2), Expr.Num(3))))}'); // 5
+    println('\${value(fold(Expr.Bin(Op.Mul, Expr.Num(4), Expr.Num(5))))}'); // 20
+    // A Bin whose operands aren't both Num doesn't match the nested arms → -1.
+    let nested = Expr.Bin(Op.Add, Expr.Bin(Op.Add, Expr.Num(1), Expr.Num(1)), Expr.Num(9));
+    println('\${value(fold(nested))}'); // -1 (still a Bin, not a Num)
+    println(shape(0));
+    println(shape(7));
+    return 0;
+}
+''', []);
+    if (r == null) return markTestSkipped('Rust runtime unavailable');
+    expect(r.exitCode, 0, reason: r.stderr.toString());
+    expect(r.stdout, '5\n20\n-1\nnone\nmany\n');
+  });
+
   test('if-expressions: value position, else-if chains, and if-tails', () {
     // `if` is usable in value position (docs/tailexpr.md stage 2): as a direct
     // value, as an `else if` chain, and as a block/match-arm tail.

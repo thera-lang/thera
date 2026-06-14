@@ -1287,30 +1287,83 @@ class _FnCompiler {
 
     for (var i = 0; i < e.arms.length; i++) {
       final arm = e.arms[i];
-      final pattern = arm.pattern;
       final isLast = i == e.arms.length - 1;
-      final catchAll = pattern is WildcardPattern || pattern is IdentPattern;
 
-      if (isLast || catchAll) {
-        _bindArm(pattern, subject, e.span);
+      // An irrefutable pattern (or the final arm — arms are assumed exhaustive)
+      // is taken to match: emit its bindings only, run the body, and stop, since
+      // any later arms are unreachable.
+      if (isLast || _isIrrefutable(arm.pattern)) {
+        _emitPattern(arm.pattern, subject, subjectType, null);
         _armBody(arm.body, end, jumpToEnd: false);
-        break; // any later arms are unreachable
+        break;
       }
-      if (pattern is! ConstructorPattern) {
-        throw CodegenException(
-            'unsupported match pattern: ${pattern.runtimeType}', e.span);
-      }
+      // A refutable arm: test the pattern (jumping to the next arm on any
+      // mismatch, at every level of nesting), bind, run the body, merge at end.
       final next = _newLabel();
-      _emit(Load(subject));
-      _emit(const Simple(Op.enumTag));
-      _emit(ConstInt(_variantTag(subjectType, pattern.name, e.span)));
-      _emit(const Simple(Op.eqI64));
-      _emitJump(_Jk.ifFalse, next);
-      _bindArm(pattern, subject, e.span);
+      _emitPattern(arm.pattern, subject, subjectType, next);
       _armBody(arm.body, end, jumpToEnd: true);
       _bind(next);
     }
     _bind(end);
+  }
+
+  /// Whether [p] always matches, so it needs no test: a wildcard or a bare
+  /// variable binding. (A constructor or literal pattern is refutable — even
+  /// nested ones — so it must be tested.)
+  bool _isIrrefutable(Pattern p) => p is WildcardPattern || p is IdentPattern;
+
+  /// Emit code that matches [pattern] against the value in [valueSlot] (whose
+  /// enum type name, when known, is [valueType]) and binds the variables it
+  /// introduces. When [fail] is non-null, any mismatch jumps there; when null
+  /// the pattern is taken to match (an irrefutable or final arm), so only the
+  /// bindings are emitted. Recurses into constructor arguments, so nested
+  /// constructor and literal sub-patterns work.
+  void _emitPattern(
+      Pattern pattern, int valueSlot, String? valueType, int? fail) {
+    switch (pattern) {
+      case WildcardPattern():
+        break; // matches anything, binds nothing
+      case IdentPattern(:final name):
+        _slots[name] = valueSlot; // bind the whole value to this name
+      case LiteralPattern(:final literal):
+        if (fail != null) {
+          _emit(Load(valueSlot));
+          _expr(literal);
+          _emit(const CallNative('eq', 2)); // structural equality (any type)
+          _emitJump(_Jk.ifFalse, fail);
+        }
+      case ConstructorPattern(:final name, :final args):
+        final info = valueType == null ? null : _enums[valueType];
+        final tag = info?.tagOf(name) ?? -1;
+        if (fail != null) {
+          _emit(Load(valueSlot));
+          _emit(const Simple(Op.enumTag));
+          _emit(ConstInt(_variantTag(valueType, name, pattern.span)));
+          _emit(const Simple(Op.eqI64));
+          _emitJump(_Jk.ifFalse, fail);
+        }
+        for (var k = 0; k < args.length; k++) {
+          final arg = args[k];
+          if (arg is WildcardPattern)
+            continue; // field ignored; skip extraction
+          final fieldSlot = _freshSlot();
+          _emit(Load(valueSlot));
+          _emit(EnumGet(k));
+          _emit(Store(fieldSlot));
+          _emitPattern(arg, fieldSlot, _enumFieldTypeName(info, tag, k), fail);
+        }
+    }
+  }
+
+  /// The type name of field [k] of variant [tag] in enum [info] — the enum to
+  /// match a nested constructor pattern against — or null if not resolvable
+  /// (then a nested constructor pattern can't compute its tag and is skipped).
+  String? _enumFieldTypeName(_EnumInfo? info, int tag, int k) {
+    if (info == null || tag < 0 || tag >= info.variants.length) return null;
+    final fields = info.variants[tag].fields;
+    if (k >= fields.length) return null;
+    final f = fields[k];
+    return f is NamedType ? f.name : null;
   }
 
   /// A match arm body either yields a value (and jumps to the merge point) or
@@ -1324,37 +1377,6 @@ class _FnCompiler {
       default:
         _expr(body);
         if (jumpToEnd) _emitJump(_Jk.jump, end);
-    }
-  }
-
-  /// Bind the variables a pattern introduces, reading payload fields from the
-  /// subject in [subjectSlot]. Payload bindings' types come from the inference
-  /// pass (`Expr.resolvedType` on their uses), so no type bookkeeping is needed
-  /// here.
-  void _bindArm(Pattern pattern, int subjectSlot, SourceSpan span) {
-    switch (pattern) {
-      case ConstructorPattern(:final args):
-        for (var k = 0; k < args.length; k++) {
-          final arg = args[k];
-          switch (arg) {
-            case IdentPattern(name: final boundName):
-              _emit(Load(subjectSlot));
-              _emit(EnumGet(k));
-              _emit(Store(_declareLocal(boundName)));
-            case WildcardPattern():
-              break; // payload field ignored
-            default:
-              throw CodegenException(
-                  'unsupported nested pattern: ${arg.runtimeType}', span);
-          }
-        }
-      case IdentPattern(:final name):
-        _slots[name] = subjectSlot; // bind the whole subject
-      case WildcardPattern():
-        break;
-      case LiteralPattern():
-        throw CodegenException(
-            'literal patterns in match not yet supported', span);
     }
   }
 
