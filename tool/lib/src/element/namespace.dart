@@ -74,9 +74,11 @@ LibraryNamespace publicSurfaceOf(LibrarySource lib) {
 }
 
 /// The namespace an import binds: its explicit alias, or the trailing segment
-/// of its path (`std.fs` -> `fs`, `'util/strings'` -> `strings`).
+/// of its path (`std.fs` -> `fs`, `'util/strings'` -> `strings`). Split on `/`
+/// then `.` (rather than a regex) so the logic ports directly to Hawk, whose
+/// `String.split` takes a literal separator.
 String _namespaceOf(ImportDecl decl) =>
-    decl.alias ?? decl.path.split(RegExp(r'[./]')).last;
+    decl.alias ?? decl.path.split('/').last.split('.').last;
 
 /// The public top-level name a declaration contributes, or null when it is
 /// private or has no name (impl blocks, imports).
