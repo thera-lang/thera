@@ -166,10 +166,7 @@ impl Json {
 
 fn int_if_integral(_ x: Double) -> Option<Int> {
     let n = x.to_int(); // truncates toward zero
-    if n.to_double() == x {
-        return Option.Some(n);
-    }
-    return Option.None;
+    return if n.to_double() == x { Option.Some(n) } else { Option.None };
 }
 
 // --- parsing ---
@@ -674,7 +671,7 @@ fn hex_char(_ n: Int) -> Int {
 }
 
 fn indent_str(_ level: Int) -> String {
-    let mut out: List<Int> = [];
+    let out: List<Int> = [];
     let mut i = 0;
     while i < level * 2 {
         out.push(char.SPACE);

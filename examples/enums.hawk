@@ -25,9 +25,9 @@ fn describe_direction(d: Direction) -> String {
 
 fn area(s: Shape) -> Int {
     return match s {
-        Circle(r)    => r * r,
-        Rect(w, h)   => w * h,
-        Point        => 0,
+        Circle(r)  => r * r,
+        Rect(w, h) => w * h,
+        Point      => 0,
     };
 }
 

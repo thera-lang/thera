@@ -1,5 +1,5 @@
-import std.fs;
 import std.cli;
+import std.fs;
 
 type Counts = {
     lines: Int,
