@@ -894,12 +894,9 @@ class _FnCompiler {
         // A block in expression position (e.g. a block-bodied match arm). Its
         // statements run for their effects; its value is the tail expression
         // (docs/tailexpr.md), or Unit when there's no tail.
-        _block(block);
-        if (block.tail != null) {
-          _expr(block.tail!);
-        } else {
-          _emit(const Simple(Op.constUnit));
-        }
+        _emitBlockValue(block);
+      case IfExpr(:final condition, :final then, :final else_):
+        _ifExpr(condition, then, else_);
       case ReturnExpr(:final value):
         _emitReturn(value);
       case ThrowExpr(:final value):
@@ -1060,6 +1057,10 @@ class _FnCompiler {
           visit(body, {...bound, for (final p in params) p.name});
         case BlockExpr(:final block):
           visitBlock(block, bound);
+        case IfExpr(:final condition, :final then, :final else_):
+          visit(condition, bound);
+          visitBlock(then, bound);
+          if (else_ != null) visitBlock(else_, bound);
         case ReturnExpr(:final value):
           if (value != null) visit(value, bound);
         case ThrowExpr(:final value):
@@ -1174,6 +1175,10 @@ class _FnCompiler {
           }
         case BlockExpr(:final block):
           blk(block);
+        case IfExpr(:final condition, :final then, :final else_):
+          ex(condition);
+          blk(then);
+          if (else_ != null) blk(else_);
         case ReturnExpr(:final value):
           if (value != null) ex(value);
         case ThrowExpr(:final value):
@@ -1240,6 +1245,39 @@ class _FnCompiler {
   /// then a tag-check chain. The final arm is the fall-through (matches always,
   /// given exhaustiveness), so a value is produced on every path that doesn't
   /// return/throw.
+  /// Emit a block in value position: its statements (for effect), then its tail
+  /// value — or `constUnit` when there's no tail. Leaves exactly one value, so
+  /// it's a drop-in for any single-value expression slot (block exprs, `if`
+  /// branches, match arm blocks via [_armBody]).
+  void _emitBlockValue(Block block) {
+    _block(block);
+    if (block.tail != null) {
+      _expr(block.tail!);
+    } else {
+      _emit(const Simple(Op.constUnit));
+    }
+  }
+
+  /// Emit an `if` expression: evaluate the condition, run the taken branch for
+  /// its value, and merge at the end (mirrors [_matchExpr]). Both arms leave one
+  /// value; an absent `else` contributes `Unit` (only reached for a discarded
+  /// statement `if` — a value-position `if` requires `else`, enforced earlier).
+  void _ifExpr(Expr condition, Block then, Block? else_) {
+    _expr(condition);
+    final elseLabel = _newLabel();
+    final end = _newLabel();
+    _emitJump(_Jk.ifFalse, elseLabel);
+    _emitBlockValue(then);
+    _emitJump(_Jk.jump, end);
+    _bind(elseLabel);
+    if (else_ != null) {
+      _emitBlockValue(else_);
+    } else {
+      _emit(const Simple(Op.constUnit));
+    }
+    _bind(end);
+  }
+
   void _matchExpr(MatchExpr e) {
     final subjectType = _typeOf(e.subject);
     _expr(e.subject);

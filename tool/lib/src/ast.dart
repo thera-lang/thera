@@ -1028,6 +1028,30 @@ class BlockExpr extends Expr {
   String describe() => 'block{...}';
 }
 
+/// `if` in **expression position** — its value is the chosen branch's value
+/// (each branch is a tail-valued block; see docs/tailexpr.md). Distinct from the
+/// statement-position [IfStmt]. `else_` is required where the value is used (the
+/// parser enforces it for a primary `if`; the checker for an `if`-tail) and
+/// optional when the `if` is a discarded expression statement (then the value is
+/// Unit). An `else if` chain is the `else_` block's tail.
+class IfExpr extends Expr {
+  final Expr condition;
+  final Block then;
+  final Block? else_;
+  IfExpr(super.span, {required this.condition, required this.then, this.else_});
+
+  @override
+  Iterable<AstNode> get childNodes => [
+        condition,
+        then,
+        if (else_ != null) else_!,
+      ];
+
+  @override
+  String describe() => 'if ${condition.describe()} {...}'
+      '${else_ != null ? ' else {...}' : ''}';
+}
+
 // return and throw as expressions (for use in match arm bodies, etc.)
 class ReturnExpr extends Expr {
   final Expr? value;

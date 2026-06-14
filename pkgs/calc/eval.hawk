@@ -46,11 +46,6 @@ fn apply(_ op: Op, _ l: Double, _ r: Double) -> Result<Double, EvalError> {
         Add => Result.Ok(l + r),
         Sub => Result.Ok(l - r),
         Mul => Result.Ok(l * r),
-        Div => {
-            if r == 0.0 {
-                return Result.Err(EvalError.DivByZero);
-            }
-            Result.Ok(l / r)
-        },
+        Div => if r == 0.0 { Result.Err(EvalError.DivByZero) } else { Result.Ok(l / r) },
     };
 }

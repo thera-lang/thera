@@ -262,6 +262,7 @@ primary  = INT | FLOAT | STRING | 'true' | 'false' | 'self' | 'void'
          | IDENT                                          // name
          | listLit | mapLit
          | matchExpr
+         | ifExpr                                         // if as a value (tail-valued)
          | exprBlock                                      // block expression (tail-valued)
          | 'return' expr? | 'throw' expr
 
@@ -275,6 +276,12 @@ structBody= '{' ( field (',' field)* ','? )? '}'   field = IDENT ':' expr
 
 matchExpr = 'match' exprNB '{' arm* '}'
 arm       = pattern '=>' ( exprBlock | expr ) ','?      // a block arm is tail-valued
+
+// `if` in expression position (docs/tailexpr.md). Branches are tail-valued
+// `exprBlock`s; `else` is required where the value is used (a primary `if`, or
+// an `if` tail), optional for a discarded statement `if` inside an exprBlock. The
+// statement form (`ifStmt`, above) is a separate node and keeps `else` optional.
+ifExpr    = 'if' exprNB exprBlock ( 'else' ( ifExpr | exprBlock ) )?
 ```
 
 A method call is `postfix` chaining: `recv '.' method` forms a field access, and
@@ -328,9 +335,10 @@ checklist; items that are planned link to [roadmap.md](roadmap.md).
 **Statements & control flow**
 
 - `break` / `continue` (and labeled loops); a `loop { }` form.
-- Standalone `if` / `match` as statements bind as expressions; there is no
-  separate statement form, which is fine, but note there are no block-less `if`
-  bodies (the body is always a `block`).
+- `if` and `match` work in both statement position (`ifStmt`, a bare `match`) and
+  expression position (`ifExpr`, `matchExpr`); the value forms are tail-valued
+  (docs/tailexpr.md). There are no block-less `if` bodies (the body is always a
+  block).
 
 **Patterns**
 

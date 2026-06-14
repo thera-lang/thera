@@ -198,10 +198,11 @@ This makes the port incremental and continuously checkable, not a big-bang.
 The spike's ranked gaps are now _prerequisites_, not curiosities — a 6k-line,
 match-dense port magnifies each:
 
-- **Tail expressions (spike #1) — Stage 1 done.** Expression-position blocks and
-  `{…}` match arms now yield their tail ([tailexpr.md](tailexpr.md)); this retires
-  the dominant match-dense friction before the parser/checker port. Stage 2
-  (`if`-as-expression) remains but is additive.
+- **Tail expressions (spike #1) — done.** Expression-position blocks and `{…}`
+  match arms yield their tail, and `if` is usable in value position (`else if`
+  chains, `if`-tails) — both stages landed ([tailexpr.md](tailexpr.md)). This
+  retires the dominant match-dense friction (spike gaps #1 and #2's
+  `if`-as-expression cousin) before the parser/checker port.
 - **Nested patterns (spike #2).** AST walks want
   `match e { Bin(Add, Num(a), Num(b)) => … }`. Not yet available; a real
   constant-folder/checker hits it constantly. Likely the next pattern-matching
@@ -268,6 +269,6 @@ buys little and risks the working toolchain.
 - **Dart prep:** lift node behavior to free functions, make recovery
   Result-shaped, audit the stdlib surface, tighten phase purity — small
   refactors that make the port transcription and partly serve horizon 1.
-- **Gating language work:** tail expressions (Stage 1 done; `if`-expr stage
-  remains), then likely nested patterns, before the parser/checker port;
-  interface inheritance and slicing already landed.
+- **Gating language work:** tail expressions (both stages done — block/match-arm
+  tails and `if`-as-expression), then likely nested patterns, before the
+  parser/checker port; interface inheritance and slicing already landed.

@@ -149,8 +149,9 @@ block parser and codegen are untouched.
 1. **Block + match-arm tails** (no `if`-expr) — **DONE.** This alone retires the
    #1 spike friction (match-arm value blocks) and the awkward `mut`/helper
    workarounds. Smallest useful slice.
-2. **`if`-as-expression** (`IfExpr` or always-expression `if`). The natural
-   completion; gives `let x = if c { a } else { b }`. _Not yet implemented._
+2. **`if`-as-expression** (`IfExpr`) — **DONE.** The natural completion; gives
+   `let x = if c { a } else { b }`, `else if` chains, and `if` as a block/match-arm
+   tail.
 
 ## Status — Stage 1 landed (2026-06)
 
@@ -173,9 +174,6 @@ Dogfooded in `pkgs/calc/eval.hawk`: `eval`/`apply` went from statement-position
 `match` where every arm `return`s to a single `return match { … }` with
 value-yielding arms (block arms run their `?`-propagating statements, then a tail).
 
-Stage 2 (`if`-as-expression) remains; the expression-position machinery is now in
-place, so it's additive.
-
 ### Design note (settled during Stage 1)
 
 `match` arms whose body is a bare `return`/`throw` keep lowering through
@@ -183,3 +181,30 @@ place, so it's additive.
 require-`;` boundary lives entirely in the parser: `_parseBlock` (statement
 blocks) vs `_parseExprBlock` (tail-valued), so function bodies were untouched and
 the "`;`-flip changes a return value" footgun cannot arise.
+
+## Status — Stage 2 landed (2026-06)
+
+`if` is now usable in expression position via a distinct `IfExpr` node (the
+statement form stays `IfStmt`, so `if c { return x; }` and other bare control-flow
+`if`s are unchanged). It covers `let max = if a > b { a } else { b }`, `else if`
+chains, and `if` as a block/match-arm **tail** (e.g.
+`Other => { let d = n * 2; if d > 10 { 'big' } else { 'small' } }`).
+
+- **`else` rules.** In value position an `else` is required: the parser enforces
+  it for a primary `if` (`let x = if c { 1 }` is a parse error), and the checker
+  for an `if`-tail. A discarded statement `if` inside an expression block needs no
+  `else` (its value is `Unit`).
+- **Parser.** A primary-position `if` (`_parsePrimary`) parses as `IfExpr` with
+  `else` required; inside `_parseExprBlock`, a leading `if` is a value-producing
+  `IfExpr` (the tail when last, else a discarded statement, `else` optional).
+  Branches are tail-valued (`_parseExprBlock`); an `else if` chain is the `else`
+  block's tail.
+- **Inference/checker.** `IfExpr` unifies the two branch tails (no `else` ⇒
+  `Unit`); the condition must be `Bool`.
+- **Codegen.** `IfExpr` evaluates the condition and merges the taken branch's
+  value at a label (mirrors `_matchExpr`), via the shared `_emitBlockValue` helper
+  that also backs `BlockExpr` and match arm blocks. No runtime change.
+
+Dogfooded: `pkgs/calc/eval.hawk`'s `apply` Div arm became
+`Div => if r == 0.0 { Result.Err(EvalError.DivByZero) } else { Result.Ok(l / r) }`
+(an early-return collapsed into an `if`-value).

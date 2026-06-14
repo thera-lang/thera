@@ -598,13 +598,14 @@ class Parser {
   }
 
   /// Whether [k] begins a statement-leading keyword (so it's parsed as a
-  /// statement, never a tail expression).
+  /// statement, never a tail expression). `if` is intentionally excluded: in an
+  /// expression block it's parsed as a value-producing [IfExpr] (which may be a
+  /// tail), handled directly in [_parseExprBlock].
   bool _isStmtKeyword(TokenKind k) =>
       k == TokenKind.kwLet ||
       k == TokenKind.kwConst ||
       k == TokenKind.kwReturn ||
       k == TokenKind.kwThrow ||
-      k == TokenKind.kwIf ||
       k == TokenKind.kwFor ||
       k == TokenKind.kwWhile;
 
@@ -629,11 +630,11 @@ class Parser {
               left: expr, op: compoundOp, right: rhs);
       return AssignStmt(start, target: expr, value: value);
     }
-    // A block-terminated expression statement (a bare `match`, ending in `}`)
-    // needs no trailing ';', like `if`/`while`/`for`. Everything else requires
-    // one — so a missing ';' (e.g. two adjacent string literals) is an error,
-    // not a silently-dropped second statement.
-    if (expr is MatchExpr) {
+    // A block-terminated expression statement (a bare `match` or `if`, ending in
+    // `}`) needs no trailing ';', like `if`/`while`/`for`. Everything else
+    // requires one — so a missing ';' (e.g. two adjacent string literals) is an
+    // error, not a silently-dropped second statement.
+    if (expr is MatchExpr || expr is IfExpr) {
       _match(TokenKind.semi);
     } else {
       _expect(TokenKind.semi, "';'");
@@ -653,6 +654,20 @@ class Parser {
     while (!_check(TokenKind.rBrace) && !_atEnd) {
       if (_isStmtKeyword(_current.kind)) {
         stmts.add(_parseStmt());
+        continue;
+      }
+      // A leading `if` is a value-producing expression here: the tail when it's
+      // last, otherwise a discarded statement (so `else` is optional — the
+      // checker requires it only in tail position). See docs/tailexpr.md.
+      if (_check(TokenKind.kwIf)) {
+        final ifStart = _current.span;
+        final ifExpr = _parseIfExpr(requireElse: false);
+        if (_check(TokenKind.rBrace)) {
+          tail = ifExpr;
+          break;
+        }
+        _match(TokenKind.semi); // block-terminated; ';' optional
+        stmts.add(ExprStmt(ifStart, ifExpr));
         continue;
       }
       final exprStart = _current.span;
@@ -809,6 +824,34 @@ class Parser {
       }
     }
     return IfStmt(SourceSpan.cover(start.span, endSpan),
+        condition: condition, then: then, else_: else_);
+  }
+
+  /// Parse `if` in **expression position** (docs/tailexpr.md). The branches are
+  /// tail-valued blocks. [requireElse] is set where the `if`'s value is used (a
+  /// primary `if`), so a missing `else` — which couldn't produce a value — is a
+  /// parse error; it's cleared where the `if` may be a discarded statement.
+  IfExpr _parseIfExpr({required bool requireElse}) {
+    final start = _advance(); // 'if'
+    final condition = _parseExprNoBrace();
+    final then = _parseExprBlock();
+    Block? else_;
+    SourceSpan endSpan = then.span;
+    if (_match(TokenKind.kwElse)) {
+      if (_check(TokenKind.kwIf)) {
+        // `else if …`: the chained `if` is the else block's tail (so it still
+        // produces a value). It inherits [requireElse].
+        final inner = _parseIfExpr(requireElse: requireElse);
+        else_ = Block(inner.span, inner.span, const [], tail: inner);
+        endSpan = inner.span;
+      } else {
+        else_ = _parseExprBlock();
+        endSpan = else_.span;
+      }
+    } else if (requireElse) {
+      _fail("an `if` used as a value needs an `else` branch", then.span);
+    }
+    return IfExpr(SourceSpan.cover(start.span, endSpan),
         condition: condition, then: then, else_: else_);
   }
 
@@ -1146,6 +1189,12 @@ class Parser {
 
       case TokenKind.kwMatch:
         return _parseMatchExpr();
+
+      case TokenKind.kwIf:
+        // `if` in expression position is value-producing, so an `else` is
+        // required here (docs/tailexpr.md). A statement-position `if` is parsed
+        // as an `IfStmt` (via `_parseStmt`), not through here.
+        return _parseIfExpr(requireElse: true);
 
       case TokenKind.kwReturn:
         _advance();

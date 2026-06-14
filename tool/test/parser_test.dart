@@ -499,6 +499,38 @@ impl T {
       final result = parseRaw('fn f() -> Int { 1 + 2 }');
       expect(result.hasErrors, isTrue);
     });
+
+    test('if in value position parses as an IfExpr', () {
+      final stmts = bodyOf('fn f() { let m = if a { 1 } else { 2 }; }');
+      final ifx = (stmts.single as LetStmt).value as IfExpr;
+      expect(ifx.else_, isNotNull);
+      expect(ifx.then.tail, isA<IntLiteral>()); // the branch is tail-valued
+    });
+
+    test('an else-if chain nests in the else block tail', () {
+      final stmts =
+          bodyOf('fn f() { let m = if a { 1 } else if b { 2 } else { 3 }; }');
+      final ifx = (stmts.single as LetStmt).value as IfExpr;
+      expect(ifx.else_!.tail, isA<IfExpr>()); // `else if …` is the else tail
+    });
+
+    test('a value-position if with no else is a parse error', () {
+      final result = parseRaw('fn f() { let m = if a { 1 }; }');
+      expect(result.hasErrors, isTrue);
+    });
+
+    test('if as a block tail parses as the tail', () {
+      final stmts =
+          bodyOf('fn f() { let m = { g(); if a { 1 } else { 2 } }; }');
+      final block = ((stmts.single as LetStmt).value as BlockExpr).block;
+      expect(block.stmts, hasLength(1)); // `g();`
+      expect(block.tail, isA<IfExpr>());
+    });
+
+    test('a statement-position if is still an IfStmt (else optional)', () {
+      final stmts = bodyOf('fn f() { if a { g(); } }');
+      expect(stmts.single, isA<IfStmt>());
+    });
   });
 
   group('expressions', () {

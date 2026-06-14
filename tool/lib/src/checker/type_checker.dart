@@ -304,8 +304,14 @@ class TypeChecker {
     }
     // The tail expression (expression-position blocks only) is checked in the
     // scope the statements built; its value is the block's value.
-    if (block.tail != null) {
-      _checkExpr(block.tail!, scope, returnType: returnType);
+    final tail = block.tail;
+    if (tail != null) {
+      // A tail is value position, so an `if` tail must have an `else` (a primary
+      // `if` is already else-checked by the parser; this catches the tail form).
+      if (tail is IfExpr && tail.else_ == null) {
+        _error('an `if` used as a value needs an `else` branch', tail.span);
+      }
+      _checkExpr(tail, scope, returnType: returnType);
     }
   }
 
@@ -458,6 +464,12 @@ class TypeChecker {
 
       case BlockExpr(:final block):
         _checkBlock(block, scope, returnType: returnType);
+
+      case IfExpr(:final condition, :final then, :final else_):
+        _checkExpr(condition, scope);
+        _checkCondition(condition);
+        _checkBlock(then, scope, returnType: returnType);
+        if (else_ != null) _checkBlock(else_, scope, returnType: returnType);
 
       case ReturnExpr(:final value, :final span):
         if (value != null) _checkExpr(value, scope, returnType: returnType);

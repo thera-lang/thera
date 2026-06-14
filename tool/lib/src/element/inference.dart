@@ -329,6 +329,18 @@ class Inferrer {
         return _inferBlock(block, scope,
             typeParams: typeParams, selfType: selfType, expected: expected);
 
+      case IfExpr(:final condition, :final then, :final else_):
+        sub(condition);
+        // Each branch is a tail-valued block; the `if`'s type is their unified
+        // tail type. With no `else` the value is Unit (only valid as a discarded
+        // statement — the checker rejects an else-less `if` in value position).
+        final thenType = _inferBlock(then, scope,
+            typeParams: typeParams, selfType: selfType, expected: expected);
+        if (else_ == null) return PrimitiveType.unit;
+        final elseType = _inferBlock(else_, scope,
+            typeParams: typeParams, selfType: selfType, expected: expected);
+        return thenType is UnknownType ? elseType : thenType;
+
       case ReturnExpr(:final value):
         if (value != null) sub(value);
         return const UnknownType();

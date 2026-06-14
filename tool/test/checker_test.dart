@@ -786,6 +786,35 @@ fn label<T: Display>(_ x: T) -> String { return x.display(); }
         isEmpty,
       );
     });
+
+    test('an if-expression types its binding from the branches', () {
+      expect(
+        check('fn f(_ a: Bool) -> Int { let m = if a { 1 } else { 2 }; '
+            'return m; }'),
+        isEmpty,
+      );
+    });
+
+    test('an if-tail with no else is rejected in value position', () {
+      expect(
+        check('fn f(_ a: Bool) -> Int { let m = { if a { 1 } }; return 0; }'),
+        contains(contains('needs an `else` branch')),
+      );
+    });
+
+    test('an if-expression condition must be Bool', () {
+      expect(
+        check('fn f() -> Int { let m = if 3 { 1 } else { 2 }; return m; }'),
+        contains(contains('condition')),
+      );
+    });
+
+    test('a discarded statement if needs no else (still an IfStmt)', () {
+      expect(
+        check('fn f(_ a: Bool) { if a { let x = 1; } }'),
+        isEmpty,
+      );
+    });
   });
 
   group('interface inheritance', () {

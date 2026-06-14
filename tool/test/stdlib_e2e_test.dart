@@ -103,6 +103,39 @@ fn main() -> Int {
     expect(r.stdout, '7\nis: zero\ndoubled: 10\n');
   });
 
+  test('if-expressions: value position, else-if chains, and if-tails', () {
+    // `if` is usable in value position (docs/tailexpr.md stage 2): as a direct
+    // value, as an `else if` chain, and as a block/match-arm tail.
+    final r = emitAndRun('ifexpr', '''
+enum Tag { Zero, Other }
+fn max(_ a: Int, _ b: Int) -> Int { return if a > b { a } else { b }; }
+fn grade(_ n: Int) -> String {
+    return if n >= 90 { 'A' } else if n >= 80 { 'B' } else { 'C' };
+}
+fn describe(_ t: Tag, _ n: Int) -> String {
+    return match t {
+        Zero => 'zero',
+        Other => {
+            let doubled = n * 2;
+            if doubled > 10 { 'big' } else { 'small' }   // if as a match-arm tail
+        },
+    };
+}
+fn main() -> Int {
+    println('\${max(3, 7)}');
+    println(grade(95));
+    println(grade(85));
+    println(grade(50));
+    println(describe(Tag.Other, 2));
+    println(describe(Tag.Other, 9));
+    return 0;
+}
+''', []);
+    if (r == null) return markTestSkipped('Rust runtime unavailable');
+    expect(r.exitCode, 0, reason: r.stderr.toString());
+    expect(r.stdout, '7\nA\nB\nC\nsmall\nbig\n');
+  });
+
   test('a sub-interface dispatches inherited super-interface methods', () {
     // `Named` extends `Display`. A `Named`-typed value exposes the inherited
     // `display()` (and interpolates via it) plus its own `id()`; both dispatch
