@@ -550,6 +550,59 @@ impl T {
       expect((right.left as IntLiteral).value, 2);
     });
 
+    group('bitwise operators', () {
+      test('& | ^ ~ parse with their op text', () {
+        expect((exprOf('a & b') as BinaryExpr).op, '&');
+        expect((exprOf('a | b') as BinaryExpr).op, '|');
+        expect((exprOf('a ^ b') as BinaryExpr).op, '^');
+        expect((exprOf('~a') as UnaryExpr).op, '~');
+        // && / || are still distinct from & / |.
+        expect((exprOf('a && b') as BinaryExpr).op, '&&');
+        expect((exprOf('a || b') as BinaryExpr).op, '||');
+      });
+
+      test('shifts combine adjacent < / > into << >> >>>', () {
+        expect((exprOf('a << b') as BinaryExpr).op, '<<');
+        expect((exprOf('a >> b') as BinaryExpr).op, '>>');
+        expect((exprOf('a >>> b') as BinaryExpr).op, '>>>');
+      });
+
+      test('precedence: shift tighter than +, looser than comparison', () {
+        // 1 + 2 << 3  =>  (1 + 2) << 3
+        final shift = exprOf('1 + 2 << 3') as BinaryExpr;
+        expect(shift.op, '<<');
+        expect((shift.left as BinaryExpr).op, '+');
+        // a < b << c  =>  a < (b << c)
+        final cmp = exprOf('a < b << c') as BinaryExpr;
+        expect(cmp.op, '<');
+        expect((cmp.right as BinaryExpr).op, '<<');
+      });
+
+      test('precedence: & tighter than | and looser than ==', () {
+        // a | b & c  =>  a | (b & c)
+        final or = exprOf('a | b & c') as BinaryExpr;
+        expect(or.op, '|');
+        expect((or.right as BinaryExpr).op, '&');
+        // a & b == c  =>  a & (b == c)   (== binds tighter than &)
+        final and = exprOf('a & b == c') as BinaryExpr;
+        expect(and.op, '&');
+        expect((and.right as BinaryExpr).op, '==');
+      });
+
+      test('nested generics still close with single > (not a shift)', () {
+        // `List<List<Int>>` is a type, not `List < List < Int >>`.
+        final stmts = (parse('fn f() { let v: List<List<Int>> = xs; }')
+                .decls
+                .single as FnDecl)
+            .body!
+            .stmts;
+        final let = stmts.single as LetStmt;
+        final t = let.type as NamedType;
+        expect(t.name, 'List');
+        expect((t.args.single as NamedType).name, 'List');
+      });
+    });
+
     test('void is the unit value literal', () {
       expect(exprOf('void'), isA<UnitLiteral>());
       expect(exprOf('Ok(void)'), isA<CallExpr>());

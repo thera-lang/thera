@@ -103,6 +103,26 @@ fn main() -> Int {
     expect(r.stdout, '7\nis: zero\ndoubled: 10\n');
   });
 
+  test('bitwise operators run end to end (and/or/xor/not/shifts)', () {
+    final r = emitAndRun('bitwise', '''
+fn main() -> Int {
+    let a = 12 & 10;       // 8
+    let b = 12 | 10;       // 14
+    let c = 12 ^ 10;       // 6
+    let d = ~0;            // -1
+    let e = 1 << 4;        // 16
+    let f = -8 >> 1;       // -4  (arithmetic, sign-preserving)
+    let g = -1 >>> 60;     // 15  (logical, zero-fill)
+    let p = 1 + 1 << 2;    // 8   (shift looser than +)
+    println('\${a} \${b} \${c} \${d} \${e} \${f} \${g} \${p}');
+    return 0;
+}
+''', []);
+    if (r == null) return markTestSkipped('Rust runtime unavailable');
+    expect(r.exitCode, 0, reason: r.stderr.toString());
+    expect(r.stdout, '8 14 6 -1 16 -4 15 8\n');
+  });
+
   test('nested patterns: constructor destructuring with fall-through', () {
     // A nested constructor pattern (`Bin(Add, Num(a), Num(b))`) destructures
     // several levels deep and binds at the leaves; a non-matching subject falls

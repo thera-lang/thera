@@ -205,15 +205,19 @@ class Lexer {
           _emitSpan(
               TokenKind.ampAmp, _spanFrom(startOffset, startLine, startCol));
         } else {
-          _error('unexpected character: &', startOffset, startLine, startCol);
+          _emit(TokenKind.amp, startOffset, startLine, startCol);
         }
       case '|':
         if (_match('|')) {
           _emitSpan(
               TokenKind.pipePipe, _spanFrom(startOffset, startLine, startCol));
         } else {
-          _error('unexpected character: |', startOffset, startLine, startCol);
+          _emit(TokenKind.pipe, startOffset, startLine, startCol);
         }
+      case '^':
+        _emit(TokenKind.caret, startOffset, startLine, startCol);
+      case '~':
+        _emit(TokenKind.tilde, startOffset, startLine, startCol);
       case '?':
         _emit(TokenKind.question, startOffset, startLine, startCol);
       case '"':

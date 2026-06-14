@@ -72,6 +72,13 @@ enum TokenKind {
   ampAmp, //   &&
   pipePipe, // ||
   bang, //     !
+  amp, //      &  (bitwise and)
+  pipe, //     |  (bitwise or)
+  caret, //    ^  (bitwise xor)
+  tilde, //    ~  (bitwise complement)
+  // Note: the shift operators << >> >>> are not tokens; the parser combines
+  // adjacent `lt`/`gt` tokens, leaving nested generics (`List<List<Int>>`)
+  // to close with single `>` tokens. See parser `_parseShift`.
 
   // Special
   eof,

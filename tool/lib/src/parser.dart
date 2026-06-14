@@ -949,8 +949,43 @@ class Parser {
   }
 
   Expr _parseAnd({bool allowStructLiteral = true}) {
-    var left = _parseEquality(allowStructLiteral: allowStructLiteral);
+    var left = _parseBitOr(allowStructLiteral: allowStructLiteral);
     while (_check(TokenKind.ampAmp)) {
+      final op = _advance().span.text;
+      final right = _parseBitOr(allowStructLiteral: allowStructLiteral);
+      left = BinaryExpr(SourceSpan.cover(left.span, right.span),
+          left: left, op: op, right: right);
+    }
+    return left;
+  }
+
+  // Bitwise precedence (C-family): `|` looser than `^` looser than `&`, all
+  // between `&&` and equality.
+  Expr _parseBitOr({bool allowStructLiteral = true}) {
+    var left = _parseBitXor(allowStructLiteral: allowStructLiteral);
+    while (_check(TokenKind.pipe)) {
+      final op = _advance().span.text;
+      final right = _parseBitXor(allowStructLiteral: allowStructLiteral);
+      left = BinaryExpr(SourceSpan.cover(left.span, right.span),
+          left: left, op: op, right: right);
+    }
+    return left;
+  }
+
+  Expr _parseBitXor({bool allowStructLiteral = true}) {
+    var left = _parseBitAnd(allowStructLiteral: allowStructLiteral);
+    while (_check(TokenKind.caret)) {
+      final op = _advance().span.text;
+      final right = _parseBitAnd(allowStructLiteral: allowStructLiteral);
+      left = BinaryExpr(SourceSpan.cover(left.span, right.span),
+          left: left, op: op, right: right);
+    }
+    return left;
+  }
+
+  Expr _parseBitAnd({bool allowStructLiteral = true}) {
+    var left = _parseEquality(allowStructLiteral: allowStructLiteral);
+    while (_check(TokenKind.amp)) {
       final op = _advance().span.text;
       final right = _parseEquality(allowStructLiteral: allowStructLiteral);
       left = BinaryExpr(SourceSpan.cover(left.span, right.span),
@@ -971,18 +1006,67 @@ class Parser {
   }
 
   Expr _parseComparison({bool allowStructLiteral = true}) {
-    var left = _parseRange(allowStructLiteral: allowStructLiteral);
+    var left = _parseShift(allowStructLiteral: allowStructLiteral);
     while (_check(TokenKind.lt) ||
         _check(TokenKind.gt) ||
         _check(TokenKind.ltEq) ||
         _check(TokenKind.gtEq)) {
       final op = _advance().span.text;
+      final right = _parseShift(allowStructLiteral: allowStructLiteral);
+      left = BinaryExpr(SourceSpan.cover(left.span, right.span),
+          left: left, op: op, right: right);
+    }
+    return left;
+  }
+
+  // Shift precedence (tighter than comparison, looser than range/additive). The
+  // operators `<< >> >>>` aren't lexer tokens — they're recognized here by
+  // combining *adjacent* `<`/`>` tokens, so nested generics (`List<List<Int>>`)
+  // still close with single `>` tokens (which the type parser consumes).
+  Expr _parseShift({bool allowStructLiteral = true}) {
+    var left = _parseRange(allowStructLiteral: allowStructLiteral);
+    while (true) {
+      final op = _shiftOpAhead();
+      if (op == null) break;
+      for (var i = 0; i < op.length; i++) {
+        _advance(); // consume the 2 or 3 `<`/`>` tokens forming the operator
+      }
       final right = _parseRange(allowStructLiteral: allowStructLiteral);
       left = BinaryExpr(SourceSpan.cover(left.span, right.span),
           left: left, op: op, right: right);
     }
     return left;
   }
+
+  /// The shift operator at the cursor (`<<`, `>>`, or `>>>`) when the
+  /// `<`/`>` tokens are adjacent (no intervening space), else null — so a single
+  /// `<`/`>` stays a comparison and `a > b` isn't misread as a shift.
+  String? _shiftOpAhead() {
+    final t0 = _current;
+    final t1 = _peek(1);
+    if (t0.kind == TokenKind.lt &&
+        t1.kind == TokenKind.lt &&
+        _adjacent(t0, t1)) {
+      return '<<';
+    }
+    if (t0.kind == TokenKind.gt &&
+        t1.kind == TokenKind.gt &&
+        _adjacent(t0, t1)) {
+      final t2 = _peek(2);
+      if (t2.kind == TokenKind.gt && _adjacent(t1, t2)) return '>>>';
+      return '>>';
+    }
+    return null;
+  }
+
+  /// The token [n] positions ahead of the cursor (clamped to EOF).
+  Token _peek(int n) =>
+      _pos + n < _tokens.length ? _tokens[_pos + n] : _tokens.last;
+
+  /// Whether [b] immediately follows [a] with no gap — used to tell the shift
+  /// `>>` from two separate `>` tokens.
+  bool _adjacent(Token a, Token b) =>
+      b.span.offset == a.span.offset + a.span.length;
 
   Expr _parseRange({bool allowStructLiteral = true}) {
     final left = _parseAddition(allowStructLiteral: allowStructLiteral);
@@ -1021,7 +1105,9 @@ class Parser {
   }
 
   Expr _parseUnary({bool allowStructLiteral = true}) {
-    if (_check(TokenKind.bang) || _check(TokenKind.minus)) {
+    if (_check(TokenKind.bang) ||
+        _check(TokenKind.minus) ||
+        _check(TokenKind.tilde)) {
       final op = _advance();
       final operand = _parseUnary(allowStructLiteral: allowStructLiteral);
       return UnaryExpr(SourceSpan.cover(op.span, operand.span),

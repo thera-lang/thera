@@ -1424,6 +1424,8 @@ class _FnCompiler {
         _emit(Simple(_isDouble(e.operand) ? Op.negF64 : Op.negI64));
       case '!':
         _emit(const Simple(Op.not));
+      case '~':
+        _emit(const Simple(Op.bnotI64));
       default:
         throw CodegenException('unsupported unary operator: ${e.op}', e.span);
     }
@@ -1431,6 +1433,7 @@ class _FnCompiler {
 
   static const _arithmetic = {'+', '-', '*', '/', '%'};
   static const _comparison = {'==', '!=', '<', '<=', '>', '>='};
+  static const _bitwise = {'&', '|', '^', '<<', '>>', '>>>'};
 
   void _binaryExpr(BinaryExpr e) {
     if (e.op == '&&' || e.op == '||') {
@@ -1501,6 +1504,12 @@ class _FnCompiler {
       _emit(Simple(_arithOp(e.op, isDouble, e.span)));
     } else if (_comparison.contains(e.op)) {
       _emit(Simple(_cmpOp(e.op, isDouble)));
+    } else if (_bitwise.contains(e.op)) {
+      if (isDouble) {
+        throw CodegenException(
+            'bitwise operator `${e.op}` requires Int operands', e.span);
+      }
+      _emit(Simple(_bitwiseOp(e.op, e.span)));
     } else {
       throw CodegenException('unsupported operator: ${e.op}', e.span);
     }
@@ -1542,6 +1551,16 @@ class _FnCompiler {
         '>' => isDouble ? Op.gtF64 : Op.gtI64,
         '>=' => isDouble ? Op.geF64 : Op.geI64,
         _ => throw CodegenException('unsupported comparison: $op'),
+      };
+
+  Op _bitwiseOp(String op, SourceSpan span) => switch (op) {
+        '&' => Op.andI64,
+        '|' => Op.orI64,
+        '^' => Op.xorI64,
+        '<<' => Op.shlI64,
+        '>>' => Op.shrI64,
+        '>>>' => Op.ushrI64,
+        _ => throw CodegenException('unsupported bitwise operator: $op', span),
       };
 
   bool _isDouble(Expr e) => _typeOf(e) == 'Double';
