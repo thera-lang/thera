@@ -116,8 +116,15 @@ class TypeChecker {
   /// signature is well-formed, every super names an interface, and the
   /// inheritance relation has no cycle.
   void _checkInterfaceDecl(InterfaceDecl decl) {
+    // The interface's own type parameters are in scope in its method signatures
+    // (e.g. `T` in `interface Iterator<T> { fn next(self) -> Option<T>; }`),
+    // along with any the method itself declares.
+    final ifaceTypeParams = {for (final tp in decl.typeParams) tp.name};
     for (final m in decl.methods) {
-      _checkFnSig(m);
+      _checkFnSig(m, typeParams: {
+        ...ifaceTypeParams,
+        for (final tp in m.typeParams) tp.name,
+      });
     }
     for (final superName in decl.superInterfaces) {
       final superDef = _library.typeDefs[superName];

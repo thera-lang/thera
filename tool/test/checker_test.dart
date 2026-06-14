@@ -635,6 +635,21 @@ fn f(_ x: Ghost) {
       );
     });
 
+    test('interface type parameters are in scope in method signatures', () {
+      // Regression: `T` in a generic interface's method was reported as unknown.
+      expect(
+        check('interface Iterator<T> { fn next(self) -> Option<T>; }'),
+        isEmpty,
+      );
+    });
+
+    test('an undeclared type in an interface method is still unknown', () {
+      expect(
+        check('interface Foo<T> { fn bar(self) -> U; }'),
+        contains('unknown type: U'),
+      );
+    });
+
     test('an undeclared type parameter is an unknown type', () {
       expect(check('type Box = { value: T }'), contains('unknown type: T'));
     });
