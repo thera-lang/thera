@@ -124,10 +124,11 @@ class LspServer {
     publishDiagnostics(connection, uri, text, _importsFor);
   }
 
-  /// The import closure for the document at [uri] (a `file://` URI). Imports are
-  /// resolved from disk relative to the file's path; the in-memory [program] is
-  /// used for the primary file. Returns an empty closure for a non-file or
-  /// unresolvable URI (the prelude/imports simply won't link).
+  /// The import closure for the document at [uri] (a `file://` URI). The
+  /// in-memory [program] is used for the primary file; imported files are read
+  /// through the overlay-aware [_OverlayFileSystem], so unsaved edits to an
+  /// imported library are honored too. Returns an empty closure for a non-file
+  /// or unresolvable URI (the prelude/imports simply won't link).
   LoadedImports _importsFor(String uri, Program program) {
     final String path;
     try {
@@ -137,7 +138,7 @@ class LspServer {
     } catch (_) {
       return _noImports;
     }
-    return loadImports(path, program);
+    return loadImports(path, program, fs: _OverlayFileSystem(sourceProvider));
   }
 
   static const LoadedImports _noImports =
@@ -195,4 +196,24 @@ class LspServer {
     }
     return offset;
   }
+}
+
+/// A [FileSystem] for the loader that reads through the LSP's overlays first
+/// (unsaved buffers), falling back to disk — so imported libraries reflect
+/// in-flight edits, not just their saved contents.
+class _OverlayFileSystem implements FileSystem {
+  final SourceProvider _source;
+  final FileSystem _disk = const DiskFileSystem();
+  _OverlayFileSystem(this._source);
+
+  @override
+  String? read(String path) =>
+      _source.hasOverlay(path) ? _source.read(path) : _disk.read(path);
+
+  @override
+  bool fileExists(String path) =>
+      _source.hasOverlay(path) || _disk.fileExists(path);
+
+  @override
+  bool directoryExists(String path) => _disk.directoryExists(path);
 }

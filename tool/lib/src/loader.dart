@@ -19,6 +19,49 @@ typedef LoadedImports = ({
   Map<String, LibraryNamespace> namespaces,
 });
 
+/// The file-system operations the loader needs, injected so import-graph
+/// resolution is a pure function of its inputs (and so the LSP can supply
+/// unsaved-buffer overlays). The Hawk port supplies this as a `FileSystem`
+/// capability (see docs/testability.md); on disk it is [DiskFileSystem], and a
+/// test can pass an in-memory map.
+abstract interface class FileSystem {
+  /// The contents of [path], or null if it can't be read.
+  String? read(String path);
+
+  /// Whether [path] exists as a file.
+  bool fileExists(String path);
+
+  /// Whether [path] exists as a directory.
+  bool directoryExists(String path);
+}
+
+/// The default [FileSystem]: reads real files via `dart:io`.
+class DiskFileSystem implements FileSystem {
+  const DiskFileSystem();
+
+  @override
+  String? read(String path) {
+    try {
+      return File(path).readAsStringSync();
+    } on FileSystemException {
+      return null;
+    }
+  }
+
+  @override
+  bool fileExists(String path) => File(path).existsSync();
+
+  @override
+  bool directoryExists(String path) => Directory(path).existsSync();
+}
+
+/// The directory portion of [path] — everything before the last `/` (pure string
+/// work, so the loader logic needs no `dart:io`). `a/b/c.hawk` -> `a/b`.
+String _dirname(String path) {
+  final i = path.lastIndexOf('/');
+  return i <= 0 ? '' : path.substring(0, i);
+}
+
 /// Locate the SDK root by searching upward from the running script.
 ///
 /// Resolution order:
@@ -51,26 +94,23 @@ String? findSdkRoot() {
 /// (Per the visibility spec a base that is *both* a file and a directory is an
 /// error; until the resolver moves into the element model this prefers the
 /// file. See docs/visibility.md.)
-String? resolveLibraryFile(String base) {
+String? resolveLibraryFile(String base, FileSystem fs) {
   final file = '$base.hawk';
-  if (File(file).existsSync()) return file;
-  if (Directory(base).existsSync()) {
+  if (fs.fileExists(file)) return file;
+  if (fs.directoryExists(base)) {
     final name = base.split('/').last;
     final barrel = '$base/$name.hawk';
-    if (File(barrel).existsSync()) return barrel;
+    if (fs.fileExists(barrel)) return barrel;
   }
   return null;
 }
 
-/// Lex and parse [path], or null if it can't be read or has lex/parse errors
-/// (the type-checker surfaces those against the primary program).
-Program? parseFileOrNull(String path) {
-  final String source;
-  try {
-    source = File(path).readAsStringSync();
-  } on FileSystemException {
-    return null;
-  }
+/// Lex and parse [path] (read via [fs]), or null if it can't be read or has
+/// lex/parse errors (the type-checker surfaces those against the primary
+/// program).
+Program? parseFileOrNull(String path, FileSystem fs) {
+  final source = fs.read(path);
+  if (source == null) return null;
   final lexResult = Lexer(source).tokenize();
   if (lexResult.hasErrors) return null;
   final parseResult = Parser(lexResult.tokens).parse();
@@ -84,8 +124,13 @@ Program? parseFileOrNull(String path) {
 /// namespaces. Imports resolve transitively (see [resolveLibraryFile]);
 /// unparseable/missing imports are skipped (the type-checker reports them). The
 /// [program] itself is used as-is (not re-read), so in-memory edits are honored.
-LoadedImports loadImports(String path, Program program) {
-  final sdkRoot = findSdkRoot();
+///
+/// [fs] is the file-system seam (default: real disk); the LSP passes an
+/// overlay-aware one. [sdkRoot] locates `std.*` (default: discovered via
+/// [findSdkRoot]); passing both makes this a pure function of its inputs.
+LoadedImports loadImports(String path, Program program,
+    {FileSystem fs = const DiskFileSystem(), String? sdkRoot}) {
+  sdkRoot ??= findSdkRoot();
   final order = <Program>[]; // imported programs, deduped, in load order
   final cache = <String, LibrarySource>{}; // resolved file -> library source
 
@@ -102,7 +147,7 @@ LoadedImports loadImports(String path, Program program) {
     } else {
       base = '$baseDir/$importPath';
     }
-    return resolveLibraryFile(base);
+    return resolveLibraryFile(base, fs);
   }
 
   // Resolve [file] to a library source, recursively linking its imports. Cached
@@ -111,12 +156,12 @@ LoadedImports loadImports(String path, Program program) {
   LibrarySource? sourceFor(String file) {
     final cached = cache[file];
     if (cached != null) return cached;
-    final prog = parseFileOrNull(file);
+    final prog = parseFileOrNull(file, fs);
     if (prog == null)
       return null; // missing/unparseable; the checker reports it
     final source = LibrarySource(prog);
     cache[file] = source;
-    _linkImports(prog, File(file).parent.path, resolve, sourceFor, source);
+    _linkImports(prog, _dirname(file), resolve, sourceFor, source);
     order.add(prog);
     return source;
   }
@@ -132,7 +177,7 @@ LoadedImports loadImports(String path, Program program) {
   // namespaces can be derived.
   final root = LibrarySource(program);
   cache[path] = root;
-  _linkImports(program, File(path).parent.path, resolve, sourceFor, root);
+  _linkImports(program, _dirname(path), resolve, sourceFor, root);
 
   // Namespaces are the union across every linked module, not just the root's.
   // An imported module's body can itself use a namespace-qualified call into

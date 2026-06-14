@@ -6,6 +6,23 @@ import 'package:hawk/src/loader.dart';
 import 'package:hawk/src/parser.dart';
 import 'package:test/test.dart';
 
+/// An in-memory [FileSystem] for testing the loader without touching disk: a
+/// file exists iff it's a key, and a directory exists iff some key is under it.
+class _InMemoryFs implements FileSystem {
+  final Map<String, String> files;
+  _InMemoryFs(this.files);
+
+  @override
+  String? read(String path) => files[path];
+
+  @override
+  bool fileExists(String path) => files.containsKey(path);
+
+  @override
+  bool directoryExists(String path) =>
+      files.keys.any((p) => p.startsWith('$path/'));
+}
+
 /// The analysis path shared by the CLI and the LSP: parse, link the import
 /// closure, then type-check with those imports and namespaces. These guard the
 /// regression where the LSP checked a program in isolation — so calls to
@@ -27,6 +44,23 @@ List<String> checkLinked(String path, String source) {
 }
 
 void main() {
+  test('loadImports resolves the closure from an in-memory FileSystem (pure)',
+      () {
+    // The import-graph logic is a pure function of (path, program, fs, sdkRoot):
+    // it touches no disk when given an in-memory FileSystem.
+    final fs = _InMemoryFs({
+      '/p/lib.hawk': 'pub fn helper() -> Int { return 1; }',
+      '/p/app.hawk': "import 'lib';\n"
+          'fn main() -> Int { return lib.helper(); }',
+    });
+    final program = Parser(Lexer(fs.files['/p/app.hawk']!).tokenize().tokens)
+        .parse()
+        .program;
+    final imports = loadImports('/p/app.hawk', program, fs: fs, sdkRoot: null);
+    expect(imports.programs, hasLength(1)); // lib.hawk, resolved + linked
+    expect(imports.namespaces.keys, contains('lib'));
+  });
+
   test(
       'a lambda arg to an imported function is typed from the linked signature',
       () {
