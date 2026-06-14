@@ -67,4 +67,74 @@ impl BytesBuilder {
     // Freeze the accumulated bytes into a `Bytes` (the builder stays usable).
     @extern('bytesbuilder_finish')
     pub native fn finish(self) -> Bytes
+
+    // --- fixed little-endian integers / floats ---
+    // Pure Hawk over `write_u8` + bitwise ops (each `write_u8` keeps the low 8
+    // bits). These mirror the runtime's `serialize.rs` writer, so the bytecode
+    // writer can be expressed in Hawk. `>>>` (logical shift) extracts each byte
+    // of the raw bit pattern regardless of sign.
+
+    // The low 32 bits of `v`, little-endian (4 bytes).
+    pub fn write_u32_le(self, _ v: Int) -> Void {
+        self.write_u8(v);
+        self.write_u8(v >>> 8);
+        self.write_u8(v >>> 16);
+        self.write_u8(v >>> 24);
+    }
+
+    // All 64 bits of `v`, little-endian (8 bytes).
+    pub fn write_u64_le(self, _ v: Int) -> Void {
+        self.write_u8(v);
+        self.write_u8(v >>> 8);
+        self.write_u8(v >>> 16);
+        self.write_u8(v >>> 24);
+        self.write_u8(v >>> 32);
+        self.write_u8(v >>> 40);
+        self.write_u8(v >>> 48);
+        self.write_u8(v >>> 56);
+    }
+
+    // The 8 IEEE-754 bytes of `d`, little-endian.
+    pub fn write_f64_le(self, _ d: Double) -> Void {
+        self.write_u64_le(d.to_bits());
+    }
+
+    // --- LEB128 varints ---
+
+    // Unsigned LEB128 of `v`'s 64-bit pattern (the encoding used for lengths and
+    // indices). `>>>` treats `v` as unsigned, so the full range round-trips.
+    pub fn write_uvarint(self, _ v: Int) -> Void {
+        let mut x = v;
+        let mut more = true;
+        while more {
+            let low = x & 0x7F;
+            x = x >>> 7;
+            if x != 0 {
+                self.write_u8(low | 0x80);
+            } else {
+                self.write_u8(low);
+                more = false;
+            }
+        }
+    }
+
+    // Signed LEB128 of `v` (the encoding used for `Int` immediates). `>>` is
+    // arithmetic, so the sign extends; the high bit of the final group encodes
+    // the sign.
+    pub fn write_ivarint(self, _ v: Int) -> Void {
+        let mut x = v;
+        let mut more = true;
+        while more {
+            let low = x & 0x7F;
+            x = x >> 7;
+            let sign_set = (low & 0x40) != 0;
+            let done = (x == 0 && !sign_set) || (x == -1 && sign_set);
+            if done {
+                self.write_u8(low);
+                more = false;
+            } else {
+                self.write_u8(low | 0x80);
+            }
+        }
+    }
 }

@@ -83,3 +83,66 @@ fn test_builder_write_u8_masks() -> Result<Void, Error> {
     testing.assert_eq(actual: bb.finish().to_list(), expected: [65, 255])?;
     return Result.Ok(void);
 }
+
+// The pure-Hawk little-endian / LEB128 writers (over write_u8 + bitwise ops),
+// mirroring the runtime's serialize.rs — the bytecode-writer primitives.
+
+@test
+fn test_write_fixed_little_endian() -> Result<Void, Error> {
+    let bb = BytesBuilder.new();
+    bb.write_u32_le(0x04030201);
+    testing.assert_eq(actual: bb.finish().to_list(), expected: [1, 2, 3, 4])?;
+
+    let b2 = BytesBuilder.new();
+    b2.write_u64_le(0x0807060504030201);
+    testing.assert_eq(actual: b2.finish().to_list(),
+        expected: [1, 2, 3, 4, 5, 6, 7, 8])?;
+
+    // 1.0 == 0x3FF0000000000000, little-endian.
+    let b3 = BytesBuilder.new();
+    b3.write_f64_le(1.0);
+    testing.assert_eq(actual: b3.finish().to_list(),
+        expected: [0, 0, 0, 0, 0, 0, 0xF0, 0x3F])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_write_uvarint() -> Result<Void, Error> {
+    let zero = BytesBuilder.new();
+    zero.write_uvarint(0);
+    testing.assert_eq(actual: zero.finish().to_list(), expected: [0])?;
+
+    // 300 = 0b1_0010_1100 → [0xAC, 0x02].
+    let bb = BytesBuilder.new();
+    bb.write_uvarint(300);
+    testing.assert_eq(actual: bb.finish().to_list(), expected: [0xAC, 0x02])?;
+
+    // 127 fits in one group; 128 needs two.
+    let b2 = BytesBuilder.new();
+    b2.write_uvarint(127);
+    b2.write_uvarint(128);
+    testing.assert_eq(actual: b2.finish().to_list(), expected: [0x7F, 0x80, 0x01])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_write_ivarint() -> Result<Void, Error> {
+    let bb = BytesBuilder.new();
+    bb.write_ivarint(0);
+    bb.write_ivarint(-1);
+    bb.write_ivarint(63);
+    bb.write_ivarint(-128);
+    // 0 → [0x00]; -1 → [0x7F]; 63 → [0x3F]; -128 → [0x80, 0x7F].
+    testing.assert_eq(actual: bb.finish().to_list(),
+        expected: [0x00, 0x7F, 0x3F, 0x80, 0x7F])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_double_to_bits() -> Result<Void, Error> {
+    testing.assert_eq(actual: (1.0).to_bits(), expected: 0x3FF0000000000000)?;
+    testing.assert_eq(actual: (0.0).to_bits(), expected: 0)?;
+    // -2.0 == 0xC000000000000000 (a negative i64 once reinterpreted).
+    testing.assert_eq(actual: (-2.0).to_bits(), expected: 0xC000000000000000)?;
+    return Result.Ok(void);
+}

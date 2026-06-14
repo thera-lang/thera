@@ -44,4 +44,10 @@ impl Double {
     // Truncate toward zero to an Int (drops any fractional part).
     @extern('double_to_int')
     pub native fn to_int(self) -> Int
+
+    // The raw IEEE-754 bit pattern of this Double, reinterpreted as an Int (the
+    // 64 bits, not a numeric conversion). For hashing, serialization, and exact
+    // bit inspection; e.g. `(1.0).to_bits()` is 0x3FF0000000000000.
+    @extern('double_to_bits')
+    pub native fn to_bits(self) -> Int
 }

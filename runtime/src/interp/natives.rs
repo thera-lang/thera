@@ -79,6 +79,7 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("str_try_from_chars", native_str_try_from_chars),
     ("int_to_double", native_int_to_double),
     ("double_to_int", native_double_to_int),
+    ("double_to_bits", native_double_to_bits),
     ("math_sqrt", native_math_sqrt),
     ("math_pow", native_math_pow),
     ("math_floor", native_math_floor),
@@ -1101,6 +1102,14 @@ fn native_int_to_double(_out: &mut dyn Write, args: &[Value]) -> Result<Value, T
 fn native_double_to_int(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let x = as_double(expect_one(args, "double_to_int")?, "double_to_int")?;
     Ok(Value::Int(x as i64))
+}
+
+/// `d.to_bits()` — reinterpret the IEEE-754 bit pattern of `d` as an `Int`
+/// (i64). The inverse of the bit-mixing in `std.random`; lets the bytecode
+/// writer emit a Double's raw bytes from pure Hawk (via `write_u64_le`).
+fn native_double_to_bits(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let x = as_double(expect_one(args, "double_to_bits")?, "double_to_bits")?;
+    Ok(Value::Int(x.to_bits() as i64))
 }
 
 /// Apply a unary `f64 -> f64` function to a single Double argument.
