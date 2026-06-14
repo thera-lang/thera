@@ -240,10 +240,10 @@ suite green) and is worth doing even if the port slipped:
   minimum confine the `_ParseFail` exception to a single boundary function whose
   body becomes the Hawk recovery loop. Removes the one control-flow idiom Hawk
   lacks.
-- **Audit the stdlib surface the front-end uses.** Catalog every Dart library
-  API the front-end touches (regex, `dart:io`, collection extras, number
-  formatting) and confirm a Hawk-stdlib equivalent exists — or add it. Anything
-  Dart-only is a hidden port blocker; surfacing it now feeds the stdlib roadmap.
+- **Audit the stdlib surface the front-end uses — done; see "Stdlib-surface
+  audit" below.** The core phases turned out remarkably self-contained; the audit
+  produced a short, prioritized list of real stdlib gaps (the bytecode-writer
+  ones most urgent) to feed the stdlib roadmap.
 - **Tighten phase boundaries to pure `(input) → output`.** Where a phase reads
   ambient state or the filesystem directly, thread it through a parameter
   instead. This both eases the port and is the exact discipline the incremental
@@ -257,6 +257,55 @@ sealed classes + `switch` already map cleanly to Hawk `enum` + `match`, so the
 payoff is small), introducing a lossless syntax tree (that belongs to horizon 1,
 after the batch port), or porting the LSP. Over-refactoring Dart to _be_ Hawk
 buys little and risks the working toolchain.
+
+### Stdlib-surface audit — findings
+
+A sweep of the external/notable Dart APIs the **core phases** use (lexer, parser,
+ast, element, checker, codegen, bytecode — excluding the LSP and `loader`, which
+aren't in the first port). The headline: the core is almost free of external
+dependencies — no `package:` imports outside the LSP, and only the bytecode layer
+reaches for `dart:typed_data`/`dart:convert`.
+
+| Dart API (core phases)                         | Where                       | Hawk today                          | Status |
+| ---------------------------------------------- | --------------------------- | ----------------------------------- | ------ |
+| `String.codeUnitAt` / `writeCharCode`          | lexer, parser string-split  | `String.chars()` / `String.from_chars` (code points) | ✅ (spike-validated) |
+| `int.parse` / `double.parse` (decimal)         | parser literals             | `String.to_int()` / `to_double()`   | ✅ |
+| `List.map` / `filter` / `fold` / `slice`       | throughout                  | same (std.core)                     | ✅ |
+| `Map` get/has/remove/keys/values, `m[k]=v`     | throughout                  | same (std.core)                     | ✅ |
+| `BytesBuilder.write_u8/bytes/str`, `String.bytes()` | bytecode writer        | same (std.core `BytesBuilder`)      | ✅ |
+| `RegExp` (`path.split(RegExp('[./]'))`)        | `element/namespace.dart` ×1 | no regex                            | ⚠️ trivial — de-RegExp (split on `/` then `.`) |
+| `BigInt.parse(radix: 16)` + `toSigned(64)`     | parser hex literals         | `to_int()` is base-10 only          | ❌ **gap:** hex/radix int parse |
+| `ByteData.setUint32/setFloat64` (little-endian)| bytecode writer            | `BytesBuilder` writes `u8`/bytes only | ❌ **gap:** LE multi-byte writes |
+| `double` → raw 8 bytes (IEEE-754 bits)         | bytecode writer (`setFloat64`) | no `Double.to_bits()`/`to_le_bytes()` | ❌ **gap:** needs a native |
+| `List.firstWhere` / `indexWhere` / `any`       | codegen, element, checker   | List has map/filter/fold, **no** find/index/any | ❌ **gap:** List search |
+| `Map.putIfAbsent` / `.entries`                 | resolver, codegen           | `if !m.has(k) { m[k]=v }` works     | ⚠️ ergonomic add |
+| `List.asMap().entries` (index+value)           | a few enumerations          | index loop; `iter.enumerate` deferred | ⚠️ ergonomic |
+
+**Prioritized stdlib gaps to feed the roadmap** (ordered by when the port hits
+them — the bytecode writer is the planned first chunk, so its gaps come first):
+
+1. **Bytecode-writer primitives (most urgent).** `BytesBuilder` needs
+   little-endian multi-byte writes (`write_u32_le`, `write_u64_le`,
+   `write_f64_le`), and `Double` needs an IEEE-754 **bit reinterpret**
+   (`to_bits() -> Int` or `to_le_bytes() -> Bytes`) — a new runtime native, the
+   single deepest gap (the runtime already does the reverse in `std.random`'s
+   `to_unit`). Without these the `.hawkbc` writer can't emit `constDouble` or the
+   u32 length/offset fields.
+2. **Hex / radix integer parsing.** The lexer/parser parse `0x…` literals via
+   `BigInt.parse(radix: 16)` with signed-64 wrapping. Hawk's `String.to_int()` is
+   base-10; add `Int.parse(s, radix)` (or a `String.to_int_radix`) with two's-
+   complement wrapping. Bitwise ops (now in the language) make a pure-Hawk version
+   feasible if a native isn't wanted.
+3. **List search.** `find` / `index_of` / `any` / `all` (and `contains`) — used by
+   the enum registry (`indexWhere`), checker, and codegen. Pure-Hawk additions to
+   `std.core/list`.
+4. **Ergonomic Map/iter adds** (non-blocking): `Map.put_if_absent` / an entries
+   view, and an `enumerate` iterator adapter (already on the iter backlog).
+
+Everything else maps directly, and the lexer/parser string handling is already
+spike-validated (`chars()`/`from_chars`). Net: the port's stdlib dependencies are
+small and known, and the bytecode-writer gaps are the gating ones to close first
+(fittingly, since `bytecode/` is the first port chunk).
 
 ## Summary
 
