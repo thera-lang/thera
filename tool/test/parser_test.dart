@@ -465,6 +465,42 @@ impl T {
     });
   });
 
+  group('tail expressions', () {
+    List<Stmt> bodyOf(String source) =>
+        (parse(source).decls.single as FnDecl).body!.stmts;
+
+    test('a block-expr initializer captures a trailing expression as the tail',
+        () {
+      final stmts = bodyOf('fn f() { let x = { let a = 1; a + 2 }; }');
+      final block = ((stmts.single as LetStmt).value as BlockExpr).block;
+      expect(block.stmts, hasLength(1)); // the `let a = 1;`
+      expect(block.tail, isA<BinaryExpr>()); // `a + 2`, no trailing ';'
+    });
+
+    test('a trailing ; means no tail (value is Unit)', () {
+      final stmts = bodyOf('fn f() { let x = { g(); }; }');
+      final block = ((stmts.single as LetStmt).value as BlockExpr).block;
+      expect(block.stmts, hasLength(1));
+      expect(block.tail, isNull);
+    });
+
+    test('a block-bodied match arm carries a tail', () {
+      final stmts = bodyOf(
+          "fn f() { let y = match e { Some(n) => { let m = n; m }, None => 0 }; }");
+      final match = (stmts.single as LetStmt).value as MatchExpr;
+      final armBlock = (match.arms.first.body as BlockExpr).block;
+      expect(armBlock.stmts, hasLength(1)); // `let m = n;`
+      expect(armBlock.tail, isA<IdentExpr>()); // `m`
+    });
+
+    test('a statement-position function body keeps the require-; rule', () {
+      // A bare trailing expression in a function body is not a tail; it must be
+      // `return`ed, so an un-terminated one is a parse error.
+      final result = parseRaw('fn f() -> Int { 1 + 2 }');
+      expect(result.hasErrors, isTrue);
+    });
+  });
+
   group('expressions', () {
     Expr exprOf(String exprSource) {
       final stmts =

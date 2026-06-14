@@ -177,7 +177,15 @@ is resolved by the base name (one flat type table). The unit type is spelled
 ### Statements
 
 ```
+// A statement-position block (function/if/while/for body): statements only.
 block     = '{' statement* '}'
+
+// An expression-position block (a `{…}` that is itself an expression, e.g. a
+// `let` initializer or a `{…}` match arm): an optional trailing expression with
+// no ';' is the block's *tail* — its value. See docs/tailexpr.md. (Function and
+// loop bodies use `block` above, so they keep the require-';' rule and produce
+// values with `return`.)
+exprBlock = '{' statement* expr? '}'
 
 statement = letStmt | constStmt | returnStmt | throwStmt
           | ifStmt | forStmt | whileStmt | assignOrExpr
@@ -254,7 +262,7 @@ primary  = INT | FLOAT | STRING | 'true' | 'false' | 'self' | 'void'
          | IDENT                                          // name
          | listLit | mapLit
          | matchExpr
-         | block                                          // block expression
+         | exprBlock                                      // block expression (tail-valued)
          | 'return' expr? | 'throw' expr
 
 lambdaParams = lambdaParam (',' lambdaParam)*
@@ -266,7 +274,7 @@ mapEntry  = expr ':' expr
 structBody= '{' ( field (',' field)* ','? )? '}'   field = IDENT ':' expr
 
 matchExpr = 'match' exprNB '{' arm* '}'
-arm       = pattern '=>' ( block | expr ) ','?
+arm       = pattern '=>' ( exprBlock | expr ) ','?      // a block arm is tail-valued
 ```
 
 A method call is `postfix` chaining: `recv '.' method` forms a field access, and

@@ -302,6 +302,11 @@ class TypeChecker {
     for (final stmt in block.stmts) {
       _checkStmt(stmt, scope, returnType: returnType);
     }
+    // The tail expression (expression-position blocks only) is checked in the
+    // scope the statements built; its value is the block's value.
+    if (block.tail != null) {
+      _checkExpr(block.tail!, scope, returnType: returnType);
+    }
   }
 
   void _checkStmt(Stmt stmt, _Scope scope, {TypeRef? returnType}) {

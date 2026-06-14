@@ -891,11 +891,15 @@ class _FnCompiler {
       case MatchExpr():
         _matchExpr(expr);
       case BlockExpr(:final block):
-        // A block in expression position (e.g. a block-bodied match arm).
-        // Hawk has no tail expressions — every statement is terminated — so a
-        // block yields Unit; its statements run for their effects.
+        // A block in expression position (e.g. a block-bodied match arm). Its
+        // statements run for their effects; its value is the tail expression
+        // (docs/tailexpr.md), or Unit when there's no tail.
         _block(block);
-        _emit(const Simple(Op.constUnit));
+        if (block.tail != null) {
+          _expr(block.tail!);
+        } else {
+          _emit(const Simple(Op.constUnit));
+        }
       case ReturnExpr(:final value):
         _emitReturn(value);
       case ThrowExpr(:final value):
@@ -996,6 +1000,7 @@ class _FnCompiler {
       for (final s in b.stmts) {
         stmt(s, local);
       }
+      if (b.tail != null) visit(b.tail!, local);
     }
 
     visit = (Expr e, Set<String> bound) {
@@ -1112,6 +1117,7 @@ class _FnCompiler {
       for (final s in b.stmts) {
         st(s);
       }
+      if (b.tail != null) ex(b.tail!);
     }
 
     ex = (Expr e) {

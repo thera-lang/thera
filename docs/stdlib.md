@@ -840,8 +840,9 @@ dependency graph, so future work lands in the right order:
    added the generic-interface machinery end to end (parser type params on
    `interface`/`impl Iface<Args> for T`, conformance substitution, and
    receiver-arg inference reused from the collection types) and filled a codegen
-   gap: block-bodied match arms (`Some(v) => { … }`) now compile (a block in
-   expression position yields `Unit`, since Hawk has no tail expressions).
+   gap: block-bodied match arms (`Some(v) => { … }`) compile. (Such a block then
+   yielded `Unit`; expression-position **tail expressions** now make its final
+   expression the value — see [tailexpr.md](tailexpr.md).)
    Deferred: `map`/`filter`/`take`/`enumerate` adapters and a fluent `Iter<T>`
    wrapper; these unblock `fs.walk`, `io.lines`, and `BufReader`.
 

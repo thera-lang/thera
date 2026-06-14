@@ -74,6 +74,35 @@ fn main() -> Int {
     expect(r.stdout, 'Dog(Rex)\na cat\n');
   });
 
+  test('tail expressions: block-bodied match arms and let-init blocks', () {
+    // A `{…}` match arm and a `let`-initializer block each yield their final
+    // expression (no `;`), instead of Unit — see docs/tailexpr.md. Statements
+    // before the tail run for their effects.
+    final r = emitAndRun('tailexpr', '''
+enum Sign { Zero, Other }
+fn classify(_ s: Sign, _ n: Int) -> String {
+    let label = match s {
+        Zero => { let z = 'zero'; 'is: ' + z },
+        Other => {
+            let doubled = n * 2;
+            'doubled: ' + '\${doubled}'
+        },
+    };
+    return label;
+}
+fn main() -> Int {
+    let x = { let a = 3; a + 4 };   // block-expr tail
+    println('\${x}');
+    println(classify(Sign.Zero, 0));
+    println(classify(Sign.Other, 5));
+    return 0;
+}
+''', []);
+    if (r == null) return markTestSkipped('Rust runtime unavailable');
+    expect(r.exitCode, 0, reason: r.stderr.toString());
+    expect(r.stdout, '7\nis: zero\ndoubled: 10\n');
+  });
+
   test('a sub-interface dispatches inherited super-interface methods', () {
     // `Named` extends `Display`. A `Named`-typed value exposes the inherited
     // `display()` (and interpolates via it) plus its own `id()`; both dispatch

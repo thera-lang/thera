@@ -594,6 +594,24 @@ class Parser {
     // We parse the left side as an expression, then check for an assignment op.
     final start = _current.span;
     final expr = _parseExpr();
+    return _finishExprStmt(start, expr);
+  }
+
+  /// Whether [k] begins a statement-leading keyword (so it's parsed as a
+  /// statement, never a tail expression).
+  bool _isStmtKeyword(TokenKind k) =>
+      k == TokenKind.kwLet ||
+      k == TokenKind.kwConst ||
+      k == TokenKind.kwReturn ||
+      k == TokenKind.kwThrow ||
+      k == TokenKind.kwIf ||
+      k == TokenKind.kwFor ||
+      k == TokenKind.kwWhile;
+
+  /// Given an already-parsed leading [expr] (at [start]), finish it as an
+  /// assignment or an expression statement, consuming the terminating `;`.
+  /// Shared by `_parseStmt` and the expression-block parser.
+  Stmt _finishExprStmt(SourceSpan start, Expr expr) {
     final compoundOp = _compoundAssignOp(_current.kind);
     if (_check(TokenKind.eq) || compoundOp != null) {
       if (expr is! IdentExpr && expr is! FieldExpr && expr is! IndexExpr) {
@@ -621,6 +639,33 @@ class Parser {
       _expect(TokenKind.semi, "';'");
     }
     return ExprStmt(start, expr);
+  }
+
+  /// Parse a block in **expression position** (a `BlockExpr` or a `{…}` match
+  /// arm). Identical to [_parseBlock] except a final expression with no trailing
+  /// `;` becomes the block's tail (its value) rather than requiring a `;`. The
+  /// statement-level [_parseBlock] is unchanged, so function/`if`/`while`/`for`
+  /// bodies keep the require-`;` rule. See docs/tailexpr.md.
+  Block _parseExprBlock() {
+    final start = _expect(TokenKind.lBrace, '{');
+    final stmts = <Stmt>[];
+    Expr? tail;
+    while (!_check(TokenKind.rBrace) && !_atEnd) {
+      if (_isStmtKeyword(_current.kind)) {
+        stmts.add(_parseStmt());
+        continue;
+      }
+      final exprStart = _current.span;
+      final expr = _parseExpr();
+      // A trailing expression immediately before `}`, with no `;`, is the tail.
+      if (_check(TokenKind.rBrace)) {
+        tail = expr;
+        break;
+      }
+      stmts.add(_finishExprStmt(exprStart, expr));
+    }
+    final end = _expect(TokenKind.rBrace, '}');
+    return Block(start.span, end.span, stmts, tail: tail);
   }
 
   /// The arithmetic operator a compound-assignment token applies, or null if
@@ -1096,7 +1141,7 @@ class Parser {
         // A map literal starts with a string/int literal key followed by ':'.
         // An empty `{}` is also a map literal.
         if (_isMapLiteralStart()) return _parseMapLiteral();
-        final block = _parseBlock();
+        final block = _parseExprBlock();
         return BlockExpr(SourceSpan.cover(t.span, block.span), block);
 
       case TokenKind.kwMatch:
@@ -1214,7 +1259,7 @@ class Parser {
       final Expr body;
       if (_check(TokenKind.lBrace)) {
         final blockStartTok = _current;
-        final block = _parseBlock();
+        final block = _parseExprBlock();
         body =
             BlockExpr(SourceSpan.cover(blockStartTok.span, block.span), block);
       } else {

@@ -749,6 +749,45 @@ fn label<T: Display>(_ x: T) -> String { return x.display(); }
     });
   });
 
+  group('tail expressions', () {
+    test('a block-expr tail types the binding', () {
+      // The block's value is its tail (`a + 2` : Int), so the annotated binding
+      // type-checks.
+      expect(
+        check('fn f() -> Int { let x: Int = { let a = 1; a + 2 }; return x; }'),
+        isEmpty,
+      );
+    });
+
+    test('a block-expr tail with the wrong type is rejected', () {
+      expect(
+        check("fn f() { let x: Int = { 'hello' }; }"),
+        contains(contains("binding 'x'")),
+      );
+    });
+
+    test('a block with no tail yields Unit', () {
+      // `{ g(); }` has a trailing ';', so its value is Unit — assigning it to an
+      // Int binding is a mismatch.
+      expect(
+        check('fn g() -> Int { return 0; }\n'
+            'fn f() { let x: Int = { g(); }; }'),
+        contains(contains("binding 'x'")),
+      );
+    });
+
+    test('block-bodied match arms unify on their tails', () {
+      expect(
+        check('enum E { A, B }\n'
+            'fn f(_ e: E) -> Int {\n'
+            '  let n = match e { A => { let x = 1; x }, B => 2 };\n'
+            '  return n;\n'
+            '}'),
+        isEmpty,
+      );
+    });
+  });
+
   group('interface inheritance', () {
     const base = '''
 interface Display { fn display(self) -> String; }

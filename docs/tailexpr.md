@@ -146,10 +146,40 @@ block parser and codegen are untouched.
 
 ## Staging
 
-1. **Block + match-arm tails** (no `if`-expr). This alone retires the #1 spike
-   friction (match-arm value blocks) and the awkward `mut`/helper workarounds.
-   Smallest useful slice.
+1. **Block + match-arm tails** (no `if`-expr) — **DONE.** This alone retires the
+   #1 spike friction (match-arm value blocks) and the awkward `mut`/helper
+   workarounds. Smallest useful slice.
 2. **`if`-as-expression** (`IfExpr` or always-expression `if`). The natural
-   completion; gives `let x = if c { a } else { b }`.
+   completion; gives `let x = if c { a } else { b }`. _Not yet implemented._
 
-Decide decision (A)/(B) first; it applies to both stages.
+## Status — Stage 1 landed (2026-06)
+
+A `{…}` in **expression position** (a `let`/argument initializer, a `{…}` match
+arm) yields its tail: a final expression with no trailing `;`. Statement-position
+blocks (function/`if`/`while`/`for` bodies) are unchanged — they keep the
+require-`;` rule, so functions still produce values with `return`. Front-end
+only; no runtime/bytecode change, exactly as predicted.
+
+What it touched: a `Block.tail: Expr?` slot (populated only on the expression-
+block parse path — `_parseExprBlock`, used by `BlockExpr` and match arms);
+inference types an expression-block as its tail (`Unit` when absent), so block
+match arms unify on their tails; the checker checks the tail in the post-statement
+scope (a wrong-typed tail is caught against the binding's annotation); codegen's
+`BlockExpr` emits the tail value instead of `constUnit`, after which block match
+arms "just work" through the existing `_armBody` merge. The free-variable/boxing
+walks were extended to visit the tail.
+
+Dogfooded in `pkgs/calc/eval.hawk`: `eval`/`apply` went from statement-position
+`match` where every arm `return`s to a single `return match { … }` with
+value-yielding arms (block arms run their `?`-propagating statements, then a tail).
+
+Stage 2 (`if`-as-expression) remains; the expression-position machinery is now in
+place, so it's additive.
+
+### Design note (settled during Stage 1)
+
+`match` arms whose body is a bare `return`/`throw` keep lowering through
+`_armBody`'s divergence cases; a block arm's value flows through its tail. The
+require-`;` boundary lives entirely in the parser: `_parseBlock` (statement
+blocks) vs `_parseExprBlock` (tail-valued), so function bodies were untouched and
+the "`;`-flip changes a return value" footgun cannot arise.

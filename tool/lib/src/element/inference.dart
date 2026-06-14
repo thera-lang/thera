@@ -74,13 +74,24 @@ class Inferrer {
 
   // --- statements ---
 
-  void _inferBlock(Block block, Map<String, Type> outer,
-      {required Set<String> typeParams, Type? selfType, Type? returnType}) {
+  /// Infer the types of a block's statements, and return the block's value
+  /// type: its tail expression's type (typed against [expected]), or `Unit` when
+  /// there's no tail. Statement-position callers ignore the result (their blocks
+  /// have no tail, so it's `Unit`).
+  Type _inferBlock(Block block, Map<String, Type> outer,
+      {required Set<String> typeParams,
+      Type? selfType,
+      Type? returnType,
+      Type? expected}) {
     final scope = Map<String, Type>.from(outer);
     for (final stmt in block.stmts) {
       _inferStmt(stmt, scope,
           typeParams: typeParams, selfType: selfType, returnType: returnType);
     }
+    final tail = block.tail;
+    if (tail == null) return PrimitiveType.unit;
+    return _infer(tail, scope,
+        typeParams: typeParams, selfType: selfType, expected: expected);
   }
 
   void _inferStmt(Stmt stmt, Map<String, Type> scope,
@@ -315,8 +326,8 @@ class Inferrer {
         return FunctionType(paramTypes, ret);
 
       case BlockExpr(:final block):
-        _inferBlock(block, scope, typeParams: typeParams, selfType: selfType);
-        return const UnknownType();
+        return _inferBlock(block, scope,
+            typeParams: typeParams, selfType: selfType, expected: expected);
 
       case ReturnExpr(:final value):
         if (value != null) sub(value);
