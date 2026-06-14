@@ -1,0 +1,57 @@
+// Tests for the built-in Map<K, V> type. Map is in the prelude (always in
+// scope), so it's used unqualified — no sibling import.
+
+import std.testing;
+
+@test
+fn test_literal_get_has() -> Result<Void, Error> {
+    let m = {'a': 1, 'b': 2, 'c': 3};
+    testing.assert_eq(actual: m.len(), expected: 3)?;
+    testing.assert(!m.is_empty())?;
+    testing.assert_eq(actual: m.get('b'), expected: Option.Some(2))?;
+    testing.assert_eq(actual: m.get('z'), expected: Option.None)?; // absent
+    testing.assert(m.has('a'))?;
+    testing.assert(!m.has('z'))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_empty() -> Result<Void, Error> {
+    let m: Map<String, Int> = {};
+    testing.assert_eq(actual: m.len(), expected: 0)?;
+    testing.assert(m.is_empty())?;
+    testing.assert_eq(actual: m.get('x'), expected: Option.None)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_insert_and_update() -> Result<Void, Error> {
+    let mut m: Map<String, Int> = {};
+    m['x'] = 1;
+    m['y'] = 2;
+    testing.assert_eq(actual: m.len(), expected: 2)?;
+    testing.assert_eq(actual: m.get('x'), expected: Option.Some(1))?;
+    m['x'] = 9; // updates in place, not a second entry
+    testing.assert_eq(actual: m.len(), expected: 2)?;
+    testing.assert_eq(actual: m.get('x'), expected: Option.Some(9))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_remove() -> Result<Void, Error> {
+    let mut m = {'a': 1, 'b': 2};
+    testing.assert_eq(actual: m.remove('a'), expected: Option.Some(1))?;
+    testing.assert_eq(actual: m.remove('a'), expected: Option.None)?; // already gone
+    testing.assert(!m.has('a'))?;
+    testing.assert_eq(actual: m.len(), expected: 1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_keys_values_keep_insertion_order() -> Result<Void, Error> {
+    let m = {'first': 10, 'second': 20, 'third': 30};
+    testing.assert_eq(actual: m.keys(),
+        expected: ['first', 'second', 'third'])?;
+    testing.assert_eq(actual: m.values(), expected: [10, 20, 30])?;
+    return Result.Ok(void);
+}
