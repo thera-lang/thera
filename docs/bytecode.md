@@ -235,18 +235,24 @@ ref-ness is recorded in the function's stackmap, not the opcode.
 | ------------- | ---------------------------------------------------- |
 | int arith     | `add.i64 sub.i64 mul.i64 div.i64 mod.i64 neg.i64`    |
 | float arith   | `add.f64 sub.f64 mul.f64 div.f64 neg.f64`            |
+| int bitwise   | `and.i64 or.i64 xor.i64 bnot.i64 shl.i64 shr.i64 ushr.i64` |
 | int compare   | `eq.i64 ne.i64 lt.i64 le.i64 gt.i64 ge.i64` → `bool` |
 | float compare | `eq.f64 ne.f64 lt.f64 le.f64 gt.f64 ge.f64` → `bool` |
 | bool          | `not` (→ bool)                                       |
 | convert       | `i64.to_f64  f64.to_i64`                             |
 
 `&&` / `||` short-circuit, so the frontend lowers them to branches — there is no
-`and`/`or` opcode. `==` on strings/structs dispatches to `Eq` (a method call),
-not `eq.i64`. Bitwise ops on `Int` are deferred until the language exposes them.
+`and`/`or` opcode (`and.i64`/`or.i64` are *bitwise*). `==` on strings/structs
+dispatches to `Eq` (a method call), not `eq.i64`.
 
 `add.i64`/`sub.i64`/`mul.i64` **wrap** on overflow (two's complement); they do
 not trap. `div.i64`/`mod.i64` trap on a zero divisor and otherwise truncate
 toward zero (Rust i64 semantics).
+
+The bitwise ops act on the two's-complement `i64`. `bnot.i64` is unary
+(complement). The shifts mask the amount to `0..=63`: `shl.i64` left-shifts
+(wrapping), `shr.i64` is **arithmetic** (sign-preserving), `ushr.i64` is
+**logical** (zero-fill). These back the `& | ^ ~ << >> >>>` operators.
 
 ### Stack manipulation
 

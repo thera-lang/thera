@@ -10,8 +10,8 @@ the lexer so the lexical half can't silently drift.
 
 Its second job is to make **parser completeness** legible: the precedence table
 and the [Not yet in the grammar](#not-yet-in-the-grammar) section spell out what
-is deliberately or incidentally absent (e.g. bitwise operators) — see also
-[roadmap.md](roadmap.md). The semantics behind the forms live in
+is deliberately or incidentally absent (e.g. increment/decrement, casts) — see
+also [roadmap.md](roadmap.md). The semantics behind the forms live in
 [language.md](language.md); the rationale in [guidelines.md](guidelines.md).
 
 ## Notation
@@ -97,14 +97,16 @@ scalar value); an unrecognized escape is an **error** (no silent pass-through).
 {  }  (  )  [  ]  ,  ;  :  .  ..  ->  =>  ?  @  _
 +  -  *  /  %  =  ==  !=  <  >  <=  >=  &&  ||  !
 +=  -=  *=  /=  %=
+&  |  ^  ~          // bitwise
 ```
 
-(`DIGIT` is `0`–`9`; `HEXDIGIT` is `0`–`9` / `a`–`f` / `A`–`F`; `ALPHA` is a
-Latin letter.)
+The shift operators `<< >> >>>` are not lexed as tokens; the parser forms them
+from adjacent `<`/`>` (see the precedence section). (`DIGIT` is `0`–`9`;
+`HEXDIGIT` is `0`–`9` / `a`–`f` / `A`–`F`; `ALPHA` is a Latin letter.)
 
 That is the complete operator set. See
 [Not yet in the grammar](#not-yet-in-the-grammar) for the families that are
-absent (bitwise, shift, compound assignment, …).
+absent (increment/decrement, casts, …).
 
 ## Syntactic grammar
 
@@ -241,13 +243,18 @@ noted.
 ```
 expr       = or
 or         = and        ( '||' and )*
-and        = equality   ( '&&' equality )*
+and        = bitOr      ( '&&' bitOr )*
+bitOr      = bitXor     ( '|' bitXor )*
+bitXor     = bitAnd     ( '^' bitAnd )*
+bitAnd     = equality   ( '&' equality )*
 equality   = comparison ( ( '==' | '!=' ) comparison )*
-comparison = range      ( ( '<' | '>' | '<=' | '>=' ) range )*
+comparison = shift      ( ( '<' | '>' | '<=' | '>=' ) shift )*
+shift      = range      ( ( '<<' | '>>' | '>>>' ) range )*  // << >> formed from
+           //   adjacent < / > tokens, so nested generics close with single >
 range      = addition   ( '..' addition )?               // non-associative
 addition   = mul        ( ( '+' | '-' ) mul )*
 mul        = unary      ( ( '*' | '/' | '%' ) unary )*
-unary      = ( '!' | '-' ) unary                         // prefix, right-assoc
+unary      = ( '!' | '-' | '~' ) unary                   // prefix, right-assoc
            | postfix
 postfix    = primary postfixOp*
 postfixOp  = '.' IDENT                                    // field or method name
@@ -296,21 +303,28 @@ followed by `:`, otherwise a **block expression**.
 
 ## Operator precedence (summary)
 
-| Level | Operators         | Assoc          | Notes                      |
-| ----- | ----------------- | -------------- | -------------------------- |
-| 1     | `\|\|`            | left           | logical or                 |
-| 2     | `&&`              | left           | logical and                |
-| 3     | `==` `!=`         | left           | equality                   |
-| 4     | `<` `>` `<=` `>=` | left           | comparison                 |
-| 5     | `..`              | non-assoc      | range (one only)           |
-| 6     | `+` `-`           | left           | additive                   |
-| 7     | `*` `/` `%`       | left           | multiplicative             |
-| 8     | `!` `-` (prefix)  | right          | unary                      |
-| 9     | `.` `()` `[]` `?` | left (postfix) | field/call/index/propagate |
+| Level | Operators            | Assoc          | Notes                       |
+| ----- | -------------------- | -------------- | --------------------------- |
+| 1     | `\|\|`               | left           | logical or                  |
+| 2     | `&&`                 | left           | logical and                 |
+| 3     | `\|`                 | left           | bitwise or                  |
+| 4     | `^`                  | left           | bitwise xor                 |
+| 5     | `&`                  | left           | bitwise and                 |
+| 6     | `==` `!=`            | left           | equality                    |
+| 7     | `<` `>` `<=` `>=`    | left           | comparison                  |
+| 8     | `<<` `>>` `>>>`      | left           | shift (see below)           |
+| 9     | `..`                 | non-assoc      | range (one only)            |
+| 10    | `+` `-`              | left           | additive                    |
+| 11    | `*` `/` `%`          | left           | multiplicative              |
+| 12    | `!` `-` `~` (prefix) | right          | unary                       |
+| 13    | `.` `()` `[]` `?`    | left (postfix) | field/call/index/propagate  |
 
-The gap between levels 4 and 6 — where bitwise-or, bitwise-xor, bitwise-and, and
-the shift operators would sit in a C-family language — is **empty**. That
-absence is the headline completeness item below.
+The bitwise (`& | ^ ~`) and shift (`<< >> >>>`) operators follow the C family.
+`>>` is **arithmetic** (sign-preserving), `>>>` is **logical** (zero-fill); the
+shift amount is masked to `0..=63`. They are `Int`-only. The shift operators are
+not lexer tokens — the parser forms them by combining **adjacent** `<`/`>`
+tokens, so nested generics (`List<List<Int>>`) still close with single `>`
+tokens (a `>` separated from its neighbour by a space is never a shift).
 
 ## Not yet in the grammar
 
@@ -319,10 +333,6 @@ checklist; items that are planned link to [roadmap.md](roadmap.md).
 
 **Operators**
 
-- **Bitwise & shift:** `&` `|` `^` `~` `<<` `>>` — none exist (no tokens, no
-  precedence tier). The reason `std.random`'s mixing and the future `std.hash` /
-  `std.encoding` need Rust natives. Tracked on the roadmap as a self-contained
-  arc (also wants an unsigned integer type or defined logical-shift semantics).
 - **Increment / decrement:** `++` `--`. (Compound assignment `+= -= *= /= %=`
   _is_ supported — desugared to `t = t op e`.)
 - **Cast operator:** `expr as Type` — `as` is import-only.
