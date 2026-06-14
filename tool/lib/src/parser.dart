@@ -31,14 +31,29 @@ class Parser {
   ParseResult parse() {
     final decls = <Decl>[];
     while (!_atEnd) {
-      try {
-        decls.add(_parseDecl());
-      } on _ParseFail catch (_) {
-        // _error() already recorded; sync to next declaration boundary.
-        _syncToDecl();
-      }
+      final decl = _parseDeclOrRecover();
+      if (decl != null) decls.add(decl);
     }
     return ParseResult(Program(decls), _errors);
+  }
+
+  /// Parse one top-level declaration, recovering from a parse error by syncing
+  /// to the next declaration boundary (returning null for the failed one). This
+  /// is the parser's **single** error-recovery boundary: `_fail` throws
+  /// `_ParseFail` from anywhere in the parse, and it is caught only here.
+  ///
+  /// Hawk port note: Hawk has no exceptions, so this becomes a *panic-flag* loop
+  /// — `_fail` records the error and sets a `panicking` flag instead of throwing,
+  /// parse helpers short-circuit while it is set, and this boundary syncs to the
+  /// next declaration and clears it. The shape — one recovery point at the
+  /// declaration boundary — is unchanged; only the unwind mechanism differs.
+  Decl? _parseDeclOrRecover() {
+    try {
+      return _parseDecl();
+    } on _ParseFail {
+      _syncToDecl(); // the error was already recorded by _fail
+      return null;
+    }
   }
 
   // ---- token navigation ----
@@ -699,16 +714,19 @@ class Parser {
   /// `0x9E3779B97F4A7C15` is a valid negative constant), matching the runtime's
   /// two's-complement wrapping arithmetic.
   int _parseIntLiteral(String text, SourceSpan span) {
-    try {
-      if (text.length > 2 &&
-          text[0] == '0' &&
-          (text[1] == 'x' || text[1] == 'X')) {
-        return BigInt.parse(text.substring(2), radix: 16).toSigned(64).toInt();
-      }
-      return int.parse(text);
-    } on FormatException {
-      _fail('invalid integer literal: "$text"', span);
+    // `tryParse` returns null (rather than throwing) on bad input — mirroring
+    // Hawk's `String.to_int()` / `Int.parse`, which return `Option`, so the
+    // failure handling ports without exceptions.
+    if (text.length > 2 &&
+        text[0] == '0' &&
+        (text[1] == 'x' || text[1] == 'X')) {
+      final hex = BigInt.tryParse(text.substring(2), radix: 16);
+      if (hex == null) _fail('invalid integer literal: "$text"', span);
+      return hex.toSigned(64).toInt();
     }
+    final value = int.tryParse(text);
+    if (value == null) _fail('invalid integer literal: "$text"', span);
+    return value;
   }
 
   /// Parse a local `const NAME [: Type] = expr;` as an immutable [LetStmt].
