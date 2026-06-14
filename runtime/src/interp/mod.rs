@@ -240,6 +240,44 @@ impl<'a> Vm<'a> {
                     frame.stack.push(Value::Int(a.wrapping_neg()));
                 }
 
+                // --- integer bitwise ---
+                Instr::AndI64 => {
+                    let (a, b) = pop_two_int(&mut frame.stack)?;
+                    frame.stack.push(Value::Int(a & b));
+                }
+                Instr::OrI64 => {
+                    let (a, b) = pop_two_int(&mut frame.stack)?;
+                    frame.stack.push(Value::Int(a | b));
+                }
+                Instr::XorI64 => {
+                    let (a, b) = pop_two_int(&mut frame.stack)?;
+                    frame.stack.push(Value::Int(a ^ b));
+                }
+                Instr::BNotI64 => {
+                    let a = pop_int(&mut frame.stack)?;
+                    frame.stack.push(Value::Int(!a));
+                }
+                // Shift amount is masked to 0..=63 (the low 6 bits), so a shift is
+                // always well-defined (matches Java/JS/Dart).
+                Instr::ShlI64 => {
+                    let (a, b) = pop_two_int(&mut frame.stack)?;
+                    frame
+                        .stack
+                        .push(Value::Int(a.wrapping_shl((b & 63) as u32)));
+                }
+                Instr::ShrI64 => {
+                    let (a, b) = pop_two_int(&mut frame.stack)?;
+                    frame
+                        .stack
+                        .push(Value::Int(a.wrapping_shr((b & 63) as u32)));
+                }
+                Instr::UShrI64 => {
+                    let (a, b) = pop_two_int(&mut frame.stack)?;
+                    frame
+                        .stack
+                        .push(Value::Int(((a as u64) >> ((b & 63) as u32)) as i64));
+                }
+
                 // --- float arithmetic ---
                 Instr::AddF64 => {
                     let (a, b) = pop_two_double(&mut frame.stack)?;
@@ -887,6 +925,87 @@ mod tests {
             Instr::Return,
         ];
         assert_eq!(run(&code), Ok(Value::Int(20)));
+    }
+
+    #[test]
+    fn bitwise_and_or_xor_not() {
+        // 0b1100 & 0b1010 = 0b1000 (8); | = 0b1110 (14); ^ = 0b0110 (6).
+        assert_eq!(
+            run(&[
+                Instr::ConstInt(12),
+                Instr::ConstInt(10),
+                Instr::AndI64,
+                Instr::Return
+            ]),
+            Ok(Value::Int(8))
+        );
+        assert_eq!(
+            run(&[
+                Instr::ConstInt(12),
+                Instr::ConstInt(10),
+                Instr::OrI64,
+                Instr::Return
+            ]),
+            Ok(Value::Int(14))
+        );
+        assert_eq!(
+            run(&[
+                Instr::ConstInt(12),
+                Instr::ConstInt(10),
+                Instr::XorI64,
+                Instr::Return
+            ]),
+            Ok(Value::Int(6))
+        );
+        // ~0 = -1 (two's complement).
+        assert_eq!(
+            run(&[Instr::ConstInt(0), Instr::BNotI64, Instr::Return]),
+            Ok(Value::Int(-1))
+        );
+    }
+
+    #[test]
+    fn shifts_arithmetic_vs_logical() {
+        // 1 << 4 = 16.
+        assert_eq!(
+            run(&[
+                Instr::ConstInt(1),
+                Instr::ConstInt(4),
+                Instr::ShlI64,
+                Instr::Return
+            ]),
+            Ok(Value::Int(16))
+        );
+        // -8 >> 1 = -4 (arithmetic: sign-preserving).
+        assert_eq!(
+            run(&[
+                Instr::ConstInt(-8),
+                Instr::ConstInt(1),
+                Instr::ShrI64,
+                Instr::Return
+            ]),
+            Ok(Value::Int(-4))
+        );
+        // -1 >>> 1 = i64::MAX (logical: zero-fill over the 64-bit pattern).
+        assert_eq!(
+            run(&[
+                Instr::ConstInt(-1),
+                Instr::ConstInt(1),
+                Instr::UShrI64,
+                Instr::Return
+            ]),
+            Ok(Value::Int(i64::MAX))
+        );
+        // Shift amount is masked to 0..=63: `1 << 64` == `1 << 0` == 1.
+        assert_eq!(
+            run(&[
+                Instr::ConstInt(1),
+                Instr::ConstInt(64),
+                Instr::ShlI64,
+                Instr::Return
+            ]),
+            Ok(Value::Int(1))
+        );
     }
 
     #[test]

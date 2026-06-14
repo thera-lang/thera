@@ -141,6 +141,29 @@ impl FnBuilder {
         self.emit(Instr::NegI64)
     }
 
+    // --- integer bitwise ---
+    pub fn and_i64(&mut self) -> &mut Self {
+        self.emit(Instr::AndI64)
+    }
+    pub fn or_i64(&mut self) -> &mut Self {
+        self.emit(Instr::OrI64)
+    }
+    pub fn xor_i64(&mut self) -> &mut Self {
+        self.emit(Instr::XorI64)
+    }
+    pub fn bnot_i64(&mut self) -> &mut Self {
+        self.emit(Instr::BNotI64)
+    }
+    pub fn shl_i64(&mut self) -> &mut Self {
+        self.emit(Instr::ShlI64)
+    }
+    pub fn shr_i64(&mut self) -> &mut Self {
+        self.emit(Instr::ShrI64)
+    }
+    pub fn ushr_i64(&mut self) -> &mut Self {
+        self.emit(Instr::UShrI64)
+    }
+
     // --- float arithmetic ---
     pub fn add_f64(&mut self) -> &mut Self {
         self.emit(Instr::AddF64)

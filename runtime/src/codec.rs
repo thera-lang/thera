@@ -149,6 +149,13 @@ mod op {
     pub const CALL_VIRTUAL: u8 = 51;
     pub const LIST_GET: u8 = 52;
     pub const LIST_SET: u8 = 53;
+    pub const AND_I64: u8 = 54;
+    pub const OR_I64: u8 = 55;
+    pub const XOR_I64: u8 = 56;
+    pub const BNOT_I64: u8 = 57;
+    pub const SHL_I64: u8 = 58;
+    pub const SHR_I64: u8 = 59;
+    pub const USHR_I64: u8 = 60;
 }
 
 /// Encode a module to the wire format.
@@ -385,6 +392,13 @@ fn encode_instr(w: &mut Writer, instr: &Instr, pool: &StringPool) {
         Instr::DivI64 => w.write_u8(op::DIV_I64),
         Instr::ModI64 => w.write_u8(op::MOD_I64),
         Instr::NegI64 => w.write_u8(op::NEG_I64),
+        Instr::AndI64 => w.write_u8(op::AND_I64),
+        Instr::OrI64 => w.write_u8(op::OR_I64),
+        Instr::XorI64 => w.write_u8(op::XOR_I64),
+        Instr::BNotI64 => w.write_u8(op::BNOT_I64),
+        Instr::ShlI64 => w.write_u8(op::SHL_I64),
+        Instr::ShrI64 => w.write_u8(op::SHR_I64),
+        Instr::UShrI64 => w.write_u8(op::USHR_I64),
         Instr::AddF64 => w.write_u8(op::ADD_F64),
         Instr::SubF64 => w.write_u8(op::SUB_F64),
         Instr::MulF64 => w.write_u8(op::MUL_F64),
@@ -504,6 +518,13 @@ fn decode_instr(r: &mut Reader, pool: &[String]) -> Result<Instr, DecodeError> {
         op::DIV_I64 => Instr::DivI64,
         op::MOD_I64 => Instr::ModI64,
         op::NEG_I64 => Instr::NegI64,
+        op::AND_I64 => Instr::AndI64,
+        op::OR_I64 => Instr::OrI64,
+        op::XOR_I64 => Instr::XorI64,
+        op::BNOT_I64 => Instr::BNotI64,
+        op::SHL_I64 => Instr::ShlI64,
+        op::SHR_I64 => Instr::ShrI64,
+        op::USHR_I64 => Instr::UShrI64,
         op::ADD_F64 => Instr::AddF64,
         op::SUB_F64 => Instr::SubF64,
         op::MUL_F64 => Instr::MulF64,
@@ -644,6 +665,13 @@ mod tests {
             Instr::DivI64,
             Instr::ModI64,
             Instr::NegI64,
+            Instr::AndI64,
+            Instr::OrI64,
+            Instr::XorI64,
+            Instr::BNotI64,
+            Instr::ShlI64,
+            Instr::ShrI64,
+            Instr::UShrI64,
             Instr::AddF64,
             Instr::SubF64,
             Instr::MulF64,

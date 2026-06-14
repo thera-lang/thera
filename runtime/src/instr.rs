@@ -49,6 +49,19 @@ pub enum Instr {
     ModI64,
     NegI64,
 
+    // --- integer bitwise (on the two's-complement i64) ---
+    AndI64,
+    OrI64,
+    XorI64,
+    /// Bitwise complement (unary).
+    BNotI64,
+    /// Left shift; shift amount masked to 0..=63.
+    ShlI64,
+    /// Arithmetic (sign-preserving) right shift; amount masked to 0..=63.
+    ShrI64,
+    /// Logical (zero-fill) right shift; amount masked to 0..=63.
+    UShrI64,
+
     // --- float arithmetic ---
     AddF64,
     SubF64,

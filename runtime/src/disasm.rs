@@ -56,6 +56,14 @@ fn fmt_instr(instr: &Instr, module: &Module) -> String {
         Instr::ModI64 => "mod.i64".to_string(),
         Instr::NegI64 => "neg.i64".to_string(),
 
+        Instr::AndI64 => "and.i64".to_string(),
+        Instr::OrI64 => "or.i64".to_string(),
+        Instr::XorI64 => "xor.i64".to_string(),
+        Instr::BNotI64 => "bnot.i64".to_string(),
+        Instr::ShlI64 => "shl.i64".to_string(),
+        Instr::ShrI64 => "shr.i64".to_string(),
+        Instr::UShrI64 => "ushr.i64".to_string(),
+
         Instr::AddF64 => "add.f64".to_string(),
         Instr::SubF64 => "sub.f64".to_string(),
         Instr::MulF64 => "mul.f64".to_string(),

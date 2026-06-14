@@ -61,7 +61,15 @@ enum Op {
   callIndirect(50),
   callVirtual(51),
   listGet(52),
-  listSet(53);
+  listSet(53),
+  // Integer bitwise (on the two's-complement i64); see docs/bytecode.md.
+  andI64(54),
+  orI64(55),
+  xorI64(56),
+  bnotI64(57),
+  shlI64(58),
+  shrI64(59), // arithmetic (sign-preserving) right shift
+  ushrI64(60); // logical (zero-fill) right shift
 
   final int byte;
   const Op(this.byte);
