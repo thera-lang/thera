@@ -13,10 +13,86 @@ answers three questions, in the order they actually constrain each other:
    refactors that make the Dart code already shaped like its Hawk image, so the
    port is transcription rather than redesign.
 
-This builds directly on the self-hosting spike
-([selfhosting.md](selfhosting.md)), which proved Hawk can already express a
-complete small front-end and produced the ranked language-gap list this plan
-depends on.
+This builds directly on the self-hosting spike (folded into "The grounding
+spike" below), which proved Hawk can already express a complete small front-end
+and produced the ranked language-gap list this plan depends on.
+
+## The grounding spike
+
+Before committing to the full port, a scoped, time-boxed spike ported a small
+but structurally representative front-end slice to Hawk — a probe whose real
+output was a _prioritized list of language gaps_. The dominant risk on this arc
+was never a feature we had already named (interface inheritance, say); it was
+**what we hadn't discovered Hawk couldn't express yet**. A real port _confirms_
+the blocker list and its priority far better than guessing — the same lesson
+that writing real `std.cli` clients taught at library scale.
+
+**The slice:** a tiny calculator front-end (lex → parse → eval), structurally a
+real front-end — recursive-descent with precedence, a recursive AST, errors
+threaded through recursion — without grammar sprawl:
+
+```
+program = expr EOF
+expr    = term (('+' | '-') term)*          // left-assoc, lower precedence
+term    = factor (('*' | '/') factor)*      // left-assoc, higher precedence
+factor  = NUMBER | '(' expr ')' | '-' factor
+NUMBER  = DIGIT+ ('.' DIGIT+)?
+```
+
+**The result:** the full slice landed — `pkgs/calc/` is a working `lexer` →
+`parser` → `eval` pipeline with tests and an end-to-end `main`
+(`hawk run pkgs/calc/main.hawk -- '1 + 2 * 3'` → `7`; `'5 / (3 - 3)'` →
+`error: division by zero`). **Hawk can already express a complete small
+front-end — no hard walls.**
+
+### What worked with no friction (the encouraging core)
+
+- **Directly-recursive enums.** `enum Expr { Num(Double), Neg(Expr), Bin(Op,
+  Expr, Expr) }` — an enum holding itself directly, no boxing. The shape every
+  AST has, and the biggest open risk; it just works.
+- **Mutually recursive functions** (`parse_expr` ↔ `parse_term` ↔
+  `parse_factor`) — no forward declarations.
+- **`match` on variants with payload binding** (`Number(n)`, `Bin(op, l, r)`),
+  and **`?` propagation inside match-arm blocks** and through recursion.
+- **Structural `Eq`/`Debug` on recursive enums** → `assert_eq` compares whole
+  ASTs out of the box. A large win for testing a compiler.
+- **Per-domain error enums** (`LexError`/`ParseError`/`EvalError`), each
+  `impl Error`, unified as `Result<_, Error>` across stages via `?` subsumption.
+- A **mutable cursor struct** (`Parser { pos }`) with in-place `self.pos = …`,
+  `std.char`, `chars()`, `String.from_chars`, list push/index, and cross-module
+  sibling imports (`import 'lexer'`) — all comfortable.
+
+### Gaps the spike ranked — now all addressed
+
+1. **Tail expressions (the clear #1, pervasive).** A block-bodied `match` arm
+   yielded `Unit`, never its last expression, so any arm that _computes_ a value
+   had to `return` or assign a `mut`. The dominant ergonomic tax in match-dense
+   compiler code. **Done** — see [tailexpr.md](tailexpr.md).
+2. **`if`-as-expression (occasional, same family as #1).** **Done** (subsumed by
+   the tail-expression work).
+3. **Nested patterns / `match` on named constants.** Single arms couldn't
+   destructure `Some(Number(n))`, and dispatching on character _classes_ was an
+   if-else ladder. Nested patterns **done**; const-pattern `match` guards remain
+   a minor nice-to-have.
+4. **List/string slicing.** Every scanner reinvented a `slice` helper.
+   `List.slice`/`String.slice` **done**.
+
+### A notable _negative_ result
+
+**Interface inheritance was never wanted by the spike.** Each stage used a
+concrete error enum with an explicit `impl Display`; `assert_err` covered the
+error tests, and only `main` called `e.message()`. So `interface Error: Display
++ Debug` is **not** on the critical path for front-end code — it stays a general
+ergonomics cleanup, not a self-hosting blocker. (It has since landed anyway, and
+removes friction now that it exists.)
+
+### Verdict
+
+The spike turned "what might Hawk lack?" into a ranked list and confirmed the
+foundation the full port builds on: recursive AST enums, a mutable cursor
+struct, `match` + `?`, and structural `Eq`/`Debug` for AST diffing. Every gating
+gap it found is now closed (see "Language work this depends on" below), so the
+port is transcription, not a wait on language features.
 
 ## What we are _not_ porting
 

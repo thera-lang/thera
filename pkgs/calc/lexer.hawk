@@ -4,7 +4,8 @@
 // the front-end shapes a real lexer has: a cursor over `s.chars()`, std.char
 // predicates, an enum with a payload, and errors threaded as a Result.
 //
-// See docs/selfhosting.md for why this slice exists and what we're learning.
+// See "The grounding spike" in docs/frontend_in_hawk.md for why this slice
+// exists and what we learned from it.
 
 import std.char;
 

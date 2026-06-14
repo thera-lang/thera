@@ -3,8 +3,8 @@
 **What this is:** the design for making a block's final expression its value
 (and, with it, `if`/`match` usable in value position), plus a component-by-
 component estimate of how large the arc is. Motivated by the self-hosting spike,
-where "no tail expressions" was the #1 friction
-([selfhosting.md](selfhosting.md)).
+where "no tail expressions" was the #1 friction (see "The grounding spike" in
+[frontend_in_hawk.md](frontend_in_hawk.md)).
 
 ## The feature
 

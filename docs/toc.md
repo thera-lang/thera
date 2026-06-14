@@ -30,14 +30,13 @@ is"; read top-down for progressive detail.
   native-function ABI.
 - [roadmap.md](roadmap.md) — current **status**, the three bootstrap arcs, and
   what's next.
-- [selfhosting.md](selfhosting.md) — the **self-hosting spike**: a scoped
-  calculator front-end slice to port to Hawk, to surface the real language gaps
-  before committing to arc 3.
 - [tailexpr.md](tailexpr.md) — **tail expressions** spec & sizing: making a
   block's last expression its value (and `if`/`match` value-position), the #1
   gap from the self-hosting spike.
 - [frontend_in_hawk.md](frontend_in_hawk.md) — the **Hawk-in-Hawk front-end
   architecture**: the incremental/LSP target, the first batch-compiler port and
   its Dart→Hawk representational mapping, and the de-risking Dart refactors.
+  Opens with the grounding self-hosting spike (the calculator slice) that ranked
+  the language gaps the port depended on.
 
 (A concise orientation for agents lives in the repo-root `CLAUDE.md`.)

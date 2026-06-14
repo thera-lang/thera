@@ -3,7 +3,8 @@
 // Recursive descent with precedence over the token list. The point of this
 // stage is to stress the shapes a real parser has: a directly-recursive AST
 // enum (`Expr` holds `Expr`), dense `match` on tokens, mutually recursive
-// productions, and `Result`-threaded errors. See docs/selfhosting.md.
+// productions, and `Result`-threaded errors. See "The grounding spike" in
+// docs/frontend_in_hawk.md.
 //
 //   expr   = term (('+' | '-') term)*
 //   term   = factor (('*' | '/') factor)*

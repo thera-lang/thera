@@ -93,11 +93,12 @@ incrementally:
 - Only once that is stable, start porting the front-end's lowering rules into
   Hawk and iterate until it compiles itself.
 
-The first concrete step toward arc 3 is a **scoped spike** — port a tiny
-calculator front-end (lex → parse → eval) to Hawk, whose purpose is to surface
-the real language gaps (tail expressions, nested patterns, string slicing,
-interface inheritance, …) and rank them, rather than guessing which to build.
-See [selfhosting.md](selfhosting.md).
+The first concrete step toward arc 3 was a **scoped spike** — a tiny calculator
+front-end (lex → parse → eval) ported to Hawk (`pkgs/calc/`), which surfaced and
+ranked the real language gaps (tail expressions, nested patterns, string
+slicing, interface inheritance, …) rather than guessing which to build. All of
+those gaps are now closed; the port itself is underway. See
+[frontend_in_hawk.md](frontend_in_hawk.md).
 
 ## Deferred work
 
