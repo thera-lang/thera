@@ -4,6 +4,17 @@ import std.random;
 import std.testing;
 
 @test
+fn test_seeded_draw_is_pinned() -> Result<Void, Error> {
+    // The first draw from seed 0 is fixed by the SplitMix64 constants: the state
+    // advances to GAMMA, mixes to 0xE220A8397B1DCDAF, and maps to this Double.
+    // Pins the pure-Hawk `mix`/`to_unit` against drift (matches the reference and
+    // the prior native implementation bit-for-bit).
+    testing.assert_eq(actual: random.seeded(0).double(),
+        expected: 0.8833108082136426)?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_seeded_is_reproducible() -> Result<Void, Error> {
     // Identical seeds yield identical sequences.
     let a = random.seeded(12345);

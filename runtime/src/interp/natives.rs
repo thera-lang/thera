@@ -116,8 +116,6 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("time_now_millis", native_time_now_millis),
     ("time_monotonic_nanos", native_time_monotonic_nanos),
     ("time_sleep_millis", native_time_sleep_millis),
-    ("random_mix", native_random_mix),
-    ("random_to_unit", native_random_to_unit),
     ("random_seed_entropy", native_random_seed_entropy),
     ("env_get", native_env_get),
     ("env_set", native_env_set),
@@ -908,35 +906,19 @@ fn native_time_sleep_millis(_out: &mut dyn Write, args: &[Value]) -> Result<Valu
 // --- random natives ---
 //
 // std.random is a SplitMix64 generator whose entire state is a visible `Int`
-// field in Hawk (no hidden runtime state). The state advances in Hawk by a
-// wrapping add of the golden-ratio constant; these natives do only the parts
-// that need bit operations, which Hawk does not have yet: mixing a state value
-// into a uniform output, mapping bits to a unit Double, and seeding from
-// entropy. Hand-rolled (SplitMix64 is a few lines) to keep the runtime
-// dependency-free; a crate could replace it behind the same three natives.
+// field in Hawk (no hidden runtime state). The state advance, the mixing
+// finalizer, and the unit-Double mapping are all pure Hawk now (bitwise ops +
+// wrapping multiply); the one remaining native is the entropy seed, which reads
+// the system clock. `splitmix64_mix` stays only because that seed mixes its raw
+// clock reading.
 
 /// SplitMix64 finalizing mix: scramble a state value into a uniformly
-/// distributed 64-bit output.
+/// distributed 64-bit output. (Mirrored in pure Hawk by `std.random`'s `mix`;
+/// kept here for `random_seed_entropy`.)
 fn splitmix64_mix(mut z: u64) -> u64 {
     z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
     z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
     z ^ (z >> 31)
-}
-
-/// `random_mix(state)` — the SplitMix64 output for a state value. The bit
-/// pattern is reinterpreted between Hawk's `Int` (i64) and the u64 the mixer
-/// uses.
-fn native_random_mix(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
-    let state = as_int(expect_one(args, "random_mix")?, "random_mix")? as u64;
-    Ok(Value::Int(splitmix64_mix(state) as i64))
-}
-
-/// `random_to_unit(bits)` — map a uniform 64-bit pattern to a Double in [0, 1)
-/// using its top 53 bits (the f64 mantissa width).
-fn native_random_to_unit(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
-    let bits = as_int(expect_one(args, "random_to_unit")?, "random_to_unit")? as u64;
-    let unit = (bits >> 11) as f64 / (1u64 << 53) as f64;
-    Ok(Value::Double(unit))
 }
 
 /// `random_seed_entropy()` — a non-deterministic seed from the system clock,
@@ -1865,21 +1847,6 @@ mod tests {
         // Distinct states give distinct outputs; the mixer is not the identity.
         assert_ne!(splitmix64_mix(1), splitmix64_mix(2));
         assert_ne!(splitmix64_mix(1), 1);
-    }
-
-    #[test]
-    fn random_to_unit_is_in_range() {
-        let sink = &mut std::io::sink();
-        // All-zero bits -> 0.0; all-one bits -> just under 1.0.
-        assert_eq!(
-            native_random_to_unit(sink, &[Value::Int(0)]),
-            Ok(Value::Double(0.0)),
-        );
-        let max = native_random_to_unit(sink, &[Value::Int(-1)]); // 0xFFFF...FFFF
-        match max {
-            Ok(Value::Double(x)) => assert!((0.0..1.0).contains(&x), "{x} not in [0,1)"),
-            other => panic!("expected a Double in [0,1), got {other:?}"),
-        }
     }
 
     #[test]
