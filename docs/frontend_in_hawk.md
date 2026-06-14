@@ -35,10 +35,10 @@ This keeps the bootstrap honest and small: one artifact to reproduce (a
 A straight, mostly-pure pipeline already (line counts are a rough size guide):
 
 ```
-source ──Lexer──▶ tokens ──Parser──▶ AST ──┬─ buildLibrary (resolver) ─▶ elements
-                                            ├─ Inferrer ─▶ types
-                                            ├─ TypeChecker ─▶ diagnostics
-                                            └─ codegen ─▶ Module ─▶ .hawkbc
+source ──Lexer──▶ tokens ──Parser──▶ AST ─┬─ buildLibrary (resolver) ─▶ elements
+                                          ├─ Inferrer ─▶ types
+                                          ├─ TypeChecker ─▶ diagnostics
+                                          └─ codegen ─▶ Module ─▶ .hawkbc
 ```
 
 | Dart (`tool/lib/src/`)                        | LOC  | Role                                  |
