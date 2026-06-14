@@ -1,0 +1,45 @@
+// The in-memory bytecode module model — the Hawk mirror of the runtime's
+// `Module` (runtime/src/module.rs) and the Dart toolchain's bytecode/module.dart.
+// A module is the unit the front-end emits and the runtime loads from a
+// `.hawkbc` file.
+
+import 'instr';
+
+// A struct/enum layout entry. For now the runtime only needs the name and the
+// field count (the type table).
+pub type TypeDef = {
+    name: String,
+    field_count: Int,
+}
+
+// A single function: its name, arity, local-slot count (params included), and
+// instruction stream. Locals are slots [0, local_count).
+pub type FuncDef = {
+    name: String,
+    param_count: Int,
+    local_count: Int,
+    code: List<Instr>,
+}
+
+// Struct and enum type ids occupy separate numeric spaces (struct ids index the
+// type table; enum ids are the reserved Result/Option 0/1 plus sequential user
+// ids), so enum ids carry this offset in the dispatch table to keep the
+// `(type, selector)` key unambiguous. Mirrors the runtime's `ENUM_DISPATCH_BASE`.
+pub const ENUM_DISPATCH_BASE: Int = 1 << 31;
+
+// One row of the dynamic-dispatch table: the implementation of interface method
+// `selector` for the concrete type id `type_id` (a type-table index for a
+// struct; `ENUM_DISPATCH_BASE | ty` for an enum) is `functions[func]`.
+// `call.virtual <selector>` looks the target up by the receiver's type id.
+pub type DispatchEntry = {
+    type_id: Int,
+    selector: String,
+    func: Int,
+}
+
+// A compiled module: its functions, type table, and virtual-dispatch table.
+pub type Module = {
+    functions: List<FuncDef>,
+    types: List<TypeDef>,
+    dispatch: List<DispatchEntry>,
+}

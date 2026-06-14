@@ -1,0 +1,170 @@
+// The in-memory bytecode instruction model — the Hawk mirror of the runtime's
+// `Instr` enum (runtime/src/instr.rs) and the Dart toolchain's bytecode/instr.dart.
+// The front-end emits a list of these per function; `encode_module` serializes
+// them to the `.hawkbc` wire format.
+//
+// Jump targets are absolute instruction indices (as in the runtime's in-memory
+// form), serialized as uvarints.
+
+// One-byte opcode tags. These must match `runtime/src/codec.rs` `mod op`
+// exactly — the byte values are the wire contract between the toolchains.
+pub enum Op {
+    ConstInt,
+    ConstDouble,
+    ConstBool,
+    ConstUnit,
+    ConstStr,
+    Load,
+    Store,
+    AddI64,
+    SubI64,
+    MulI64,
+    DivI64,
+    ModI64,
+    NegI64,
+    AddF64,
+    SubF64,
+    MulF64,
+    DivF64,
+    NegF64,
+    EqI64,
+    NeI64,
+    LtI64,
+    LeI64,
+    GtI64,
+    GeI64,
+    EqF64,
+    NeF64,
+    LtF64,
+    LeF64,
+    GtF64,
+    GeF64,
+    Not,
+    I64ToF64,
+    F64ToI64,
+    Pop,
+    Dup,
+    Call,
+    CallNative,
+    EnumNew,
+    EnumTag,
+    EnumGet,
+    ListNew,
+    Jump,
+    JumpIfTrue,
+    JumpIfFalse,
+    Return,
+    StructNew,
+    FieldGet,
+    FieldSet,
+    ClosureNew,
+    CallIndirect,
+    CallVirtual,
+    ListGet,
+    ListSet,
+    // Integer bitwise (on the two's-complement i64); see docs/bytecode.md.
+    AndI64,
+    OrI64,
+    XorI64,
+    BnotI64,
+    ShlI64,
+    ShrI64,  // arithmetic (sign-preserving) right shift
+    UShrI64, // logical (zero-fill) right shift
+}
+
+impl Op {
+    // The one-byte wire tag for this opcode.
+    pub fn byte(self) -> Int {
+        return match self {
+            ConstInt => 1,
+            ConstDouble => 2,
+            ConstBool => 3,
+            ConstUnit => 4,
+            ConstStr => 5,
+            Load => 6,
+            Store => 7,
+            AddI64 => 8,
+            SubI64 => 9,
+            MulI64 => 10,
+            DivI64 => 11,
+            ModI64 => 12,
+            NegI64 => 13,
+            AddF64 => 14,
+            SubF64 => 15,
+            MulF64 => 16,
+            DivF64 => 17,
+            NegF64 => 18,
+            EqI64 => 19,
+            NeI64 => 20,
+            LtI64 => 21,
+            LeI64 => 22,
+            GtI64 => 23,
+            GeI64 => 24,
+            EqF64 => 25,
+            NeF64 => 26,
+            LtF64 => 27,
+            LeF64 => 28,
+            GtF64 => 29,
+            GeF64 => 30,
+            Not => 31,
+            I64ToF64 => 32,
+            F64ToI64 => 33,
+            Pop => 34,
+            Dup => 35,
+            Call => 36,
+            CallNative => 37,
+            EnumNew => 38,
+            EnumTag => 39,
+            EnumGet => 40,
+            ListNew => 41,
+            Jump => 42,
+            JumpIfTrue => 43,
+            JumpIfFalse => 44,
+            Return => 45,
+            StructNew => 46,
+            FieldGet => 47,
+            FieldSet => 48,
+            ClosureNew => 49,
+            CallIndirect => 50,
+            CallVirtual => 51,
+            ListGet => 52,
+            ListSet => 53,
+            AndI64 => 54,
+            OrI64 => 55,
+            XorI64 => 56,
+            BnotI64 => 57,
+            ShlI64 => 58,
+            ShrI64 => 59,
+            UShrI64 => 60,
+        };
+    }
+}
+
+// A single instruction. Operand-less opcodes (arithmetic, comparison, stack,
+// `return`, …) are carried by `Simple`; the rest are their own variants with
+// their operands. `CallNative`/`CallVirtual`/`ConstStr` carry their string
+// directly (interned into the constant pool at encode time).
+pub enum Instr {
+    // An opcode with no operands.
+    Simple(Op),
+    ConstInt(Int),
+    ConstDouble(Double),
+    ConstBool(Bool),
+    ConstStr(String),
+    Load(Int),                  // slot
+    Store(Int),                 // slot
+    Call(Int, Int),             // func index, argc
+    CallNative(String, Int),    // native name, argc
+    EnumNew(Int, Int, Int),     // type, variant, field count
+    EnumGet(Int),               // field index
+    StructNew(Int),             // type
+    FieldGet(Int),              // field index
+    FieldSet(Int),              // field index
+    ListNew(Int),               // element count
+    ClosureNew(Int, Int),       // func index, capture count
+    CallIndirect(Int),          // argc
+    CallVirtual(String, Int),   // selector, argc
+    Jump(Int),                  // absolute target
+    JumpIfTrue(Int),            // absolute target
+    JumpIfFalse(Int),           // absolute target
+}

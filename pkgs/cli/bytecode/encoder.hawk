@@ -1,0 +1,249 @@
+// Encodes a `Module` to the `.hawkbc` wire format — the Hawk mirror of the
+// runtime's `codec.rs` encode side and the Dart toolchain's bytecode/encoder.dart.
+//
+// A `"HAWK"` magic + version header, then length-prefixed sections (Constants,
+// Types, Functions, Dispatch). Strings are deduplicated into a constant pool and
+// referenced by index; `call.native`/`call.virtual`/`const.str` reference their
+// string by pool index. Function names are written inline (not pooled), matching
+// the runtime's loader. The output must be byte-identical to the Dart encoder's
+// (and the runtime's `emit-demo`) for the same module — the round-trip contract
+// the toolchains share.
+
+import 'instr';
+import 'module';
+
+const MAGIC: String = 'HAWK';
+const VERSION: Int = 1;
+
+// Section ids. Unknown ids are skipped on decode via their byte length.
+const SECTION_FUNCTIONS: Int = 1;
+const SECTION_CONSTANTS: Int = 2;
+const SECTION_TYPES: Int = 3;
+const SECTION_DISPATCH: Int = 4;
+
+// Collects and deduplicates strings during encoding, preserving first-seen order
+// so the encoded pool matches the runtime's. A linear scan keeps the port free
+// of map-field mutation; the pool is small.
+type StringPool = {
+    strings: List<String>,
+}
+
+impl StringPool {
+    // Intern `s`, returning its pool index (reusing an existing entry).
+    fn intern(self, _ s: String) -> Int {
+        let mut i = 0;
+        while i < self.strings.len() {
+            if self.strings[i] == s {
+                return i;
+            }
+            i = i + 1;
+        }
+        let n = self.strings.len();
+        self.strings.push(s);
+        return n;
+    }
+
+    // The index of an already-interned string.
+    fn index_of(self, _ s: String) -> Int {
+        let mut i = 0;
+        while i < self.strings.len() {
+            if self.strings[i] == s {
+                return i;
+            }
+            i = i + 1;
+        }
+        return -1; // unreachable: every referenced string is interned first
+    }
+}
+
+// Encode a module to the wire format.
+pub fn encode_module(_ m: Module) -> Bytes {
+    // First pass: intern every string the module references — type names, string
+    // literals, and the names of called natives/selectors — in the same order
+    // the runtime does, so the pools (and therefore the bytes) match exactly.
+    let pool = StringPool { strings: [] };
+    for t in m.types {
+        pool.intern(t.name);
+    }
+    for f in m.functions {
+        for instr in f.code {
+            match instr {
+                ConstStr(v) => {
+                    pool.intern(v);
+                },
+                CallVirtual(sel, _) => {
+                    pool.intern(sel);
+                },
+                CallNative(name, _) => {
+                    pool.intern(name);
+                },
+                _ => {},
+            }
+        }
+    }
+    for e in m.dispatch {
+        pool.intern(e.selector);
+    }
+
+    // Constants section: the deduplicated strings.
+    let consts = BytesBuilder.new();
+    consts.write_uvarint(pool.strings.len());
+    for s in pool.strings {
+        write_str_lp(consts, s);
+    }
+
+    // Types section: name (pool index) + field count per type.
+    let types = BytesBuilder.new();
+    types.write_uvarint(m.types.len());
+    for t in m.types {
+        types.write_uvarint(pool.index_of(t.name));
+        types.write_uvarint(t.field_count);
+    }
+
+    // Functions section: bodies reference the pool by index.
+    let funcs = BytesBuilder.new();
+    funcs.write_uvarint(m.functions.len());
+    for f in m.functions {
+        encode_function(funcs, f, pool);
+    }
+
+    // Dispatch section: (type id, selector pool index, function index) per row.
+    let dispatch = BytesBuilder.new();
+    dispatch.write_uvarint(m.dispatch.len());
+    for e in m.dispatch {
+        dispatch.write_uvarint(e.type_id);
+        dispatch.write_uvarint(pool.index_of(e.selector));
+        dispatch.write_uvarint(e.func);
+    }
+
+    let w = BytesBuilder.new();
+    w.write_str(MAGIC); // raw, unprefixed (ASCII "HAWK")
+    w.write_u32_le(VERSION);
+    write_section(w, SECTION_CONSTANTS, consts.finish());
+    write_section(w, SECTION_TYPES, types.finish());
+    write_section(w, SECTION_FUNCTIONS, funcs.finish());
+    // The dispatch section is omitted entirely when empty (matching the Dart
+    // encoder and keeping older modules byte-identical).
+    if m.dispatch.len() != 0 {
+        write_section(w, SECTION_DISPATCH, dispatch.finish());
+    }
+    return w.finish();
+}
+
+// A length-prefixed string: uvarint byte-length, then the raw UTF-8 bytes.
+// (`write_str` appends UTF-8 with no prefix, so the length goes ahead of it.)
+fn write_str_lp(_ w: BytesBuilder, _ s: String) -> Void {
+    w.write_uvarint(s.byte_len());
+    w.write_str(s);
+}
+
+// Append `payload` as a section: id byte, uvarint length, then the raw bytes.
+fn write_section(_ w: BytesBuilder, _ id: Int, _ payload: Bytes) -> Void {
+    w.write_u8(id);
+    w.write_uvarint(payload.len());
+    w.write_bytes(payload);
+}
+
+fn encode_function(_ w: BytesBuilder, _ f: FuncDef, _ pool: StringPool) -> Void {
+    write_str_lp(w, f.name);
+    w.write_uvarint(f.param_count);
+    w.write_uvarint(f.local_count);
+    w.write_uvarint(f.code.len());
+    for instr in f.code {
+        encode_instr(w, instr, pool);
+    }
+}
+
+fn encode_instr(_ w: BytesBuilder, _ instr: Instr, _ pool: StringPool) -> Void {
+    match instr {
+        Simple(op) => {
+            w.write_u8(op.byte());
+        },
+        ConstInt(value) => {
+            w.write_u8(Op.ConstInt.byte());
+            w.write_ivarint(value);
+        },
+        ConstDouble(value) => {
+            w.write_u8(Op.ConstDouble.byte());
+            w.write_f64_le(value);
+        },
+        ConstBool(value) => {
+            w.write_u8(Op.ConstBool.byte());
+            w.write_u8(if value { 1 } else { 0 });
+        },
+        ConstStr(value) => {
+            w.write_u8(Op.ConstStr.byte());
+            w.write_uvarint(pool.index_of(value));
+        },
+        Load(slot) => {
+            w.write_u8(Op.Load.byte());
+            w.write_uvarint(slot);
+        },
+        Store(slot) => {
+            w.write_u8(Op.Store.byte());
+            w.write_uvarint(slot);
+        },
+        Call(func, argc) => {
+            w.write_u8(Op.Call.byte());
+            w.write_uvarint(func);
+            w.write_uvarint(argc);
+        },
+        CallNative(name, argc) => {
+            w.write_u8(Op.CallNative.byte());
+            w.write_uvarint(pool.index_of(name));
+            w.write_uvarint(argc);
+        },
+        EnumNew(type_id, variant, field_count) => {
+            w.write_u8(Op.EnumNew.byte());
+            w.write_uvarint(type_id);
+            w.write_uvarint(variant);
+            w.write_uvarint(field_count);
+        },
+        EnumGet(index) => {
+            w.write_u8(Op.EnumGet.byte());
+            w.write_uvarint(index);
+        },
+        StructNew(type_id) => {
+            w.write_u8(Op.StructNew.byte());
+            w.write_uvarint(type_id);
+        },
+        FieldGet(index) => {
+            w.write_u8(Op.FieldGet.byte());
+            w.write_uvarint(index);
+        },
+        FieldSet(index) => {
+            w.write_u8(Op.FieldSet.byte());
+            w.write_uvarint(index);
+        },
+        ListNew(count) => {
+            w.write_u8(Op.ListNew.byte());
+            w.write_uvarint(count);
+        },
+        ClosureNew(func, captures) => {
+            w.write_u8(Op.ClosureNew.byte());
+            w.write_uvarint(func);
+            w.write_uvarint(captures);
+        },
+        CallIndirect(argc) => {
+            w.write_u8(Op.CallIndirect.byte());
+            w.write_uvarint(argc);
+        },
+        CallVirtual(selector, argc) => {
+            w.write_u8(Op.CallVirtual.byte());
+            w.write_uvarint(pool.index_of(selector));
+            w.write_uvarint(argc);
+        },
+        Jump(target) => {
+            w.write_u8(Op.Jump.byte());
+            w.write_uvarint(target);
+        },
+        JumpIfTrue(target) => {
+            w.write_u8(Op.JumpIfTrue.byte());
+            w.write_uvarint(target);
+        },
+        JumpIfFalse(target) => {
+            w.write_u8(Op.JumpIfFalse.byte());
+            w.write_uvarint(target);
+        },
+    }
+}

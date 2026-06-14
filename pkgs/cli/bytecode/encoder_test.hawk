@@ -1,0 +1,135 @@
+// Tests for the Hawk `.hawkbc` encoder, diffed byte-for-byte against the Dart
+// oracle. The headline test rebuilds the runtime's `demo_module()` (the same
+// module `cargo run -- emit-demo` writes and the Dart `demoModule()` mirrors)
+// and asserts the encoded bytes match that artifact exactly — so the Hawk
+// encoder is pinned to the same golden both other encoders are. Two smaller
+// hand-derived goldens cover the type table, the dispatch section, and the
+// numeric/bool/negative-immediate opcodes the demo doesn't exercise.
+
+import std.testing;
+
+import 'instr';
+import 'module';
+import 'encoder';
+
+// The runtime's demo:
+//   fn double(x) { return x * 2; }
+//   fn main() { println('double(21) = ' + stringify(double(21))); return 0; }
+// `main` is function index 0, `double` is index 1 (so `Call(1, 1)`).
+fn demo_module() -> Module {
+    let main_fn = FuncDef {
+        name: 'main',
+        param_count: 0,
+        local_count: 0,
+        code: [
+            Instr.ConstStr('double(21) = '),
+            Instr.ConstInt(21),
+            Instr.Call(1, 1),
+            Instr.CallNative('stringify', 1),
+            Instr.CallNative('str_concat', 2),
+            Instr.CallNative('println', 1),
+            Instr.Simple(Op.Pop),
+            Instr.ConstInt(0),
+            Instr.Simple(Op.Return),
+        ],
+    };
+    let double_fn = FuncDef {
+        name: 'double',
+        param_count: 1,
+        local_count: 1,
+        code: [
+            Instr.Load(0),
+            Instr.ConstInt(2),
+            Instr.Simple(Op.MulI64),
+            Instr.Simple(Op.Return),
+        ],
+    };
+    return Module { functions: [main_fn, double_fn], types: [], dispatch: [] };
+}
+
+@test
+fn test_demo_is_byte_identical_to_runtime() -> Result<Void, Error> {
+    // Captured from `cargo run -- emit-demo` (runtime/src/main.rs demo_module).
+    let expected = [
+        72, 65, 87, 75, 1, 0, 0, 0,
+        2, 44, 4, 13, 100, 111, 117, 98, 108, 101, 40, 50, 49, 41, 32, 61, 32,
+        9, 115, 116, 114, 105, 110, 103, 105, 102, 121,
+        10, 115, 116, 114, 95, 99, 111, 110, 99, 97, 116,
+        7, 112, 114, 105, 110, 116, 108, 110,
+        3, 1, 0,
+        1, 45, 2, 4, 109, 97, 105, 110, 0, 0, 9,
+        5, 0, 1, 21, 36, 1, 1, 37, 1, 1, 37, 2, 2, 37, 3, 1, 34, 1, 0, 45,
+        6, 100, 111, 117, 98, 108, 101, 1, 1, 4, 6, 0, 1, 2, 10, 45,
+    ];
+    testing.assert_eq(actual: encode_module(demo_module()).to_list(),
+        expected: expected)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_types_and_dispatch_sections() -> Result<Void, Error> {
+    // A module with a type (Point, 2 fields) and a dispatch row (show -> f).
+    // The pool interns "Point" first (types pass), then "show" (dispatch pass).
+    let f = FuncDef {
+        name: 'f',
+        param_count: 0,
+        local_count: 0,
+        code: [Instr.Simple(Op.ConstUnit), Instr.Simple(Op.Return)],
+    };
+    let m = Module {
+        functions: [f],
+        types: [TypeDef { name: 'Point', field_count: 2 }],
+        dispatch: [DispatchEntry { type_id: 0, selector: 'show', func: 0 }],
+    };
+    let expected = [
+        72, 65, 87, 75, 1, 0, 0, 0,
+        // constants: 2 strings — "Point" (idx 0), "show" (idx 1)
+        2, 12, 2, 5, 80, 111, 105, 110, 116, 4, 115, 104, 111, 119,
+        // types: 1 type, name-index 0, field-count 2
+        3, 3, 1, 0, 2,
+        // functions: 1 fn "f", 0/0, 2 instrs (const.unit=4, return=45)
+        1, 8, 1, 1, 102, 0, 0, 2, 4, 45,
+        // dispatch: 1 row — type 0, selector-index 1, func 0
+        4, 4, 1, 0, 1, 0,
+    ];
+    testing.assert_eq(actual: encode_module(m).to_list(), expected: expected)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_double_bool_and_negative_int() -> Result<Void, Error> {
+    // const.double(1.5), const.bool(true), const.int(-1), return.
+    let g = FuncDef {
+        name: 'g',
+        param_count: 0,
+        local_count: 0,
+        code: [
+            Instr.ConstDouble(1.5),
+            Instr.ConstBool(true),
+            Instr.ConstInt(-1),
+            Instr.Simple(Op.Return),
+        ],
+    };
+    let m = Module { functions: [g], types: [], dispatch: [] };
+    let expected = [
+        72, 65, 87, 75, 1, 0, 0, 0,
+        2, 1, 0, // no pooled strings
+        3, 1, 0, // no types
+        1, 20, 1, 1, 103, 0, 0, 4,
+        2, 0, 0, 0, 0, 0, 0, 248, 63, // const.double 1.5 (IEEE-754 LE)
+        3, 1,                          // const.bool true
+        1, 127,                        // const.int -1 (signed LEB128)
+        45,                            // return
+    ];
+    testing.assert_eq(actual: encode_module(m).to_list(), expected: expected)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_empty_dispatch_section_is_omitted() -> Result<Void, Error> {
+    // No dispatch rows → the dispatch section is omitted, leaving the exact
+    // 104-byte demo output (the byte-for-byte test above pins its contents).
+    testing.assert_eq(actual: encode_module(demo_module()).to_list().len(),
+        expected: 104)?;
+    return Result.Ok(void);
+}
