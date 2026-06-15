@@ -90,6 +90,44 @@ impl String {
     @extern('str_to_double')
     pub native fn to_double(self) -> Option<Double>
 
+    // Parse the whole string as an integer in `radix` (2..=16), or None if it
+    // isn't a valid numeral in that radix (bad digit, empty, or a lone `-`). An
+    // optional leading `-` is allowed; letters a-f / A-F are digits 10..15.
+    // Overflow wraps two's-complement to 64 bits (matching `Int` arithmetic), so
+    // a full-width pattern like `'9E3779B97F4A7C15'.to_int_radix(16)` yields its
+    // signed value — mirroring the front-end's `0x…` literal handling. Pure Hawk
+    // over wrapping `*`/`+`; the ASCII digit ranges are inlined to avoid a
+    // std.core → std.char dependency.
+    pub fn to_int_radix(self, _ radix: Int) -> Option<Int> {
+        let cps = self.chars();
+        let n = cps.len();
+        if n == 0 {
+            return Option.None;
+        }
+        let mut i = 0;
+        let mut neg = false;
+        if cps[0] == 45 { // '-'
+            neg = true;
+            i = 1;
+        }
+        if i >= n {
+            return Option.None; // a lone '-'
+        }
+        let mut acc = 0;
+        while i < n {
+            let d = digit_value_for(cps[i]);
+            if d < 0 || d >= radix {
+                return Option.None;
+            }
+            acc = acc * radix + d; // wraps two's-complement on overflow
+            i = i + 1;
+        }
+        if neg {
+            return Option.Some(0 - acc);
+        }
+        return Option.Some(acc);
+    }
+
     // Construct a String from a list of Unicode code points (as Int). The
     // inverse of `s.chars()`. This is total: a value that is not a valid Unicode
     // scalar (a surrogate, out of range, or negative) becomes U+FFFD (�). Use
@@ -105,4 +143,20 @@ impl String {
     //   String.try_from_chars([0xD800])     // None (a lone surrogate)
     @extern('str_try_from_chars')
     pub native fn try_from_chars(_ cps: List<Int>) -> Option<String>
+}
+
+// The value 0..35 of an ASCII alphanumeric code point (`0-9`, `a-z`, `A-Z`), or
+// -1 for anything else. Used by `to_int_radix`; the caller checks the value
+// against the radix. Inlined ASCII ranges keep std.core independent of std.char.
+fn digit_value_for(_ cp: Int) -> Int {
+    if cp >= 48 && cp <= 57 { // '0'..'9'
+        return cp - 48;
+    }
+    if cp >= 97 && cp <= 122 { // 'a'..'z'
+        return cp - 97 + 10;
+    }
+    if cp >= 65 && cp <= 90 { // 'A'..'Z'
+        return cp - 65 + 10;
+    }
+    return -1;
 }

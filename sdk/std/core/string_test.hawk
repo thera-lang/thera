@@ -81,6 +81,27 @@ fn test_try_from_chars() -> Result<Void, Error> {
 }
 
 @test
+fn test_to_int_radix() -> Result<Void, Error> {
+    // Hex (the front-end's `0x…` literal case).
+    testing.assert_eq(actual: 'FF'.to_int_radix(16), expected: Option.Some(255))?;
+    testing.assert_eq(actual: '1a'.to_int_radix(16), expected: Option.Some(26))?;
+    // Binary and decimal, with an optional sign.
+    testing.assert_eq(actual: '1010'.to_int_radix(2), expected: Option.Some(10))?;
+    testing.assert_eq(actual: '-7f'.to_int_radix(16),
+        expected: Option.Some(0 - 127))?;
+    // A full-width pattern wraps two's-complement to its signed value (the
+    // SplitMix64 gamma; matches BigInt.parse(radix:16).toSigned(64)).
+    testing.assert_eq(actual: '9E3779B97F4A7C15'.to_int_radix(16),
+        expected: Option.Some(0 - 7046029254386353131))?;
+    // Invalid: a digit beyond the radix, a non-digit, empty, and a lone sign.
+    testing.assert_eq(actual: '2'.to_int_radix(2), expected: Option.None)?;
+    testing.assert_eq(actual: 'xz'.to_int_radix(16), expected: Option.None)?;
+    testing.assert_eq(actual: ''.to_int_radix(10), expected: Option.None)?;
+    testing.assert_eq(actual: '-'.to_int_radix(10), expected: Option.None)?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_concat_operator() -> Result<Void, Error> {
     testing.assert_eq(actual: 'foo' + 'bar', expected: 'foobar')?;
     // Left-associative, chains.
