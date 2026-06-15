@@ -1,0 +1,156 @@
+// Tests for the resolver: parse a program, build the element model, and check
+// that member types, signatures, enum variants, impl methods, and the flattened
+// interface closure resolve as expected.
+
+import std.testing;
+
+import '../lexer/lexer';
+import '../parser/parser';
+import 'types';
+import 'element';
+import 'resolver';
+
+fn lib_of(_ src: String) -> LibraryElement {
+    return build_library(parse(tokenize(src).tokens).program, [], {});
+}
+
+@test
+fn test_struct_fields_resolve() -> Result<Void, Error> {
+    let lib = lib_of('type Point = { x: Int, y: Double }');
+    match lib.type_defs.get('Point') {
+        Some(pt) => {
+            testing.assert_eq(actual: pt.kind, expected: TypeDefKind.Struct)?;
+            testing.assert_eq(actual: pt.fields.get('x'),
+                expected: Option.Some(Type.Primitive(Primitive.Int)))?;
+            testing.assert_eq(actual: pt.fields.get('y'),
+                expected: Option.Some(Type.Primitive(Primitive.Double)))?;
+        },
+        None => {
+            testing.assert(false, message: 'Point not in type_defs')?;
+        },
+    }
+    return Result.Ok(void);
+}
+
+@test
+fn test_function_signature_resolves() -> Result<Void, Error> {
+    let lib = lib_of('type Point = { x: Int, y: Int }\n'
+        + 'fn origin(_ p: Point) -> Int { return p.x; }');
+    match lib.functions.get('origin') {
+        Some(f) => {
+            testing.assert_eq(actual: f.return_type,
+                expected: Type.Primitive(Primitive.Int))?;
+            testing.assert_eq(actual: f.parameters.len(), expected: 1)?;
+            testing.assert_eq(actual: f.parameters[0].ty,
+                expected: Type.Interface('Point', []))?;
+        },
+        None => {
+            testing.assert(false, message: 'origin not found')?;
+        },
+    }
+    return Result.Ok(void);
+}
+
+@test
+fn test_generic_struct_field_is_type_parameter() -> Result<Void, Error> {
+    let lib = lib_of('type Box<T> = { value: T }');
+    match lib.type_defs.get('Box') {
+        Some(b) => {
+            testing.assert_eq(actual: b.type_parameters, expected: ['T'])?;
+            testing.assert_eq(actual: b.fields.get('value'),
+                expected: Option.Some(Type.TypeParameter('T')))?;
+        },
+        None => {
+            testing.assert(false, message: 'Box not found')?;
+        },
+    }
+    return Result.Ok(void);
+}
+
+@test
+fn test_enum_variants_resolve() -> Result<Void, Error> {
+    let lib = lib_of('enum Shape { Circle(Double), Rect(Int, Int) }');
+    match lib.type_defs.get('Shape') {
+        Some(sh) => {
+            testing.assert_eq(actual: sh.variants.len(), expected: 2)?;
+            match find_variant(sh, 'Rect') {
+                Some(rect) => {
+                    testing.assert_eq(actual: rect.fields, expected: [
+                        Type.Primitive(Primitive.Int),
+                        Type.Primitive(Primitive.Int),
+                    ])?;
+                },
+                None => {
+                    testing.assert(false, message: 'Rect variant not found')?;
+                },
+            }
+        },
+        None => {
+            testing.assert(false, message: 'Shape not found')?;
+        },
+    }
+    return Result.Ok(void);
+}
+
+@test
+fn test_impl_methods_attach() -> Result<Void, Error> {
+    let lib = lib_of('type Point = { x: Int, y: Int }\n'
+        + 'impl Point {\n'
+        + '  pub fn x_of(self) -> Int { return self.x; }\n'
+        + '  pub fn make() -> Point { return Point { x: 0, y: 0 }; }\n'
+        + '}');
+    match lib.type_defs.get('Point') {
+        Some(pt) => {
+            match find_method(pt, 'x_of') {
+                Some(m) => {
+                    testing.assert(!m.is_static, message: 'x_of has self')?;
+                    testing.assert_eq(actual: m.return_type,
+                        expected: Type.Primitive(Primitive.Int))?;
+                },
+                None => {
+                    testing.assert(false, message: 'x_of not attached')?;
+                },
+            }
+            match find_method(pt, 'make') {
+                Some(m) => {
+                    testing.assert(m.is_static, message: 'make is static')?;
+                },
+                None => {
+                    testing.assert(false, message: 'make not attached')?;
+                },
+            }
+        },
+        None => {
+            testing.assert(false, message: 'Point not found')?;
+        },
+    }
+    return Result.Ok(void);
+}
+
+@test
+fn test_interface_inheritance_flattens() -> Result<Void, Error> {
+    let lib = lib_of('interface Display { fn show(self) -> String; }\n'
+        + 'interface Debug { fn dbg(self) -> String; }\n'
+        + 'interface Pretty: Display + Debug { fn pretty(self) -> String; }');
+    match lib.type_defs.get('Pretty') {
+        Some(p) => {
+            // The closure carries both supers; the methods are flattened in.
+            testing.assert(str_list_has(p.super_interfaces, 'Display'))?;
+            testing.assert(str_list_has(p.super_interfaces, 'Debug'))?;
+            testing.assert(match find_method(p, 'show') {
+                Some(_) => true,
+                None => false,
+            }, message: 'inherited show flattened in')?;
+            testing.assert(match find_method(p, 'dbg') {
+                Some(_) => true,
+                None => false,
+            }, message: 'inherited dbg flattened in')?;
+            // Its own method stays listed as own.
+            testing.assert(str_list_has(p.own_methods, 'pretty'))?;
+        },
+        None => {
+            testing.assert(false, message: 'Pretty not found')?;
+        },
+    }
+    return Result.Ok(void);
+}

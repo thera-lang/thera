@@ -1,0 +1,375 @@
+// The resolver — the Hawk mirror of element/resolver.dart. Resolves syntactic
+// `TypeRef`s to semantic `Type`s, and builds the `LibraryElement` for a program
+// (plus its imports) in passes over the parsed AST.
+
+import '../ast/ast';
+import 'types';
+import 'element';
+
+// --- TypeRef -> Type resolution ---
+
+// Resolve an optional type reference; a missing one (omitted annotation) is
+// Unknown.
+pub fn resolve_opt(_ ref: Option<TypeRef>, _ type_defs: Map<String, TypeDefElement>,
+    _ type_params: Set<String>, _ self_type: Option<Type>) -> Type {
+    return match ref {
+        Some(r) => resolve_type_ref(r, type_defs, type_params, self_type),
+        None => Type.Unknown,
+    };
+}
+
+pub fn resolve_type_ref(_ ref: TypeRef, _ type_defs: Map<String, TypeDefElement>,
+    _ type_params: Set<String>, _ self_type: Option<Type>) -> Type {
+    return match ref {
+        Named(nt) => resolve_named(nt, type_defs, type_params, self_type),
+        Function(ft) => Type.Function(
+            ft.params.map((p) => resolve_type_ref(p, type_defs, type_params, self_type)),
+            resolve_type_ref(ft.return_type, type_defs, type_params, self_type)),
+    };
+}
+
+fn resolve_named(_ nt: NamedType, _ type_defs: Map<String, TypeDefElement>,
+    _ type_params: Set<String>, _ self_type: Option<Type>) -> Type {
+    match primitive_type(nt.name) {
+        Some(p) => {
+            return p;
+        },
+        None => {},
+    }
+    if nt.name == 'Self' {
+        return self_type.unwrap_or(Type.Unknown);
+    }
+    if type_params.has(nt.name) {
+        return Type.TypeParameter(nt.name);
+    }
+    if !type_defs.has(nt.name) {
+        return Type.Unknown;
+    }
+    let args = nt.args.map((a) => resolve_type_ref(a, type_defs, type_params, self_type));
+    return Type.Interface(nt.name, args);
+}
+
+// The built-in type-definition elements, by name. These back an InterfaceType
+// (the generics) and are the attachment point for `impl` blocks / static methods.
+pub fn builtin_type_defs() -> Map<String, TypeDefElement> {
+    let m: Map<String, TypeDefElement> = {};
+    // Primitives — for impl/static-method attachment only.
+    m['String'] = new_builtin('String', []);
+    m['Int'] = new_builtin('Int', []);
+    m['Bool'] = new_builtin('Bool', []);
+    m['Double'] = new_builtin('Double', []);
+    // Generic built-ins.
+    m['List'] = new_builtin('List', ['T']);
+    m['Set'] = new_builtin('Set', ['T']);
+    m['Map'] = new_builtin('Map', ['K', 'V']);
+    m['Result'] = new_builtin('Result', ['T', 'E']);
+    m['Option'] = new_builtin('Option', ['T']);
+    // Runtime-backed opaque types (methods are native fns in std.core).
+    m['Bytes'] = new_builtin('Bytes', []);
+    m['BytesBuilder'] = new_builtin('BytesBuilder', []);
+    // Opaque built-ins; real declarations shadow these when linked in.
+    m['Error'] = new_builtin('Error', []);
+    m['Args'] = new_builtin('Args', []);
+    return m;
+}
+
+// --- building the library ---
+
+// Build the resolved LibraryElement for `program` plus any `imports`.
+//
+// Pass 1 registers a skeleton element for every declared type (so mutually
+// recursive references resolve); pass 2 fills member types, signatures, consts,
+// and impl methods; pass 3 flattens the inherited interface closure.
+pub fn build_library(_ program: Program, _ imports: List<Program>,
+    _ namespaces: Map<String, LibraryNamespace>) -> LibraryElement {
+    let type_defs = builtin_type_defs();
+    let functions: Map<String, FunctionElement> = {};
+    let consts: Map<String, ConstElement> = {};
+    let modules: Set<String> = Set.new();
+
+    // Imports are registered first so the primary program can shadow them.
+    let programs: List<Program> = [];
+    for ip in imports {
+        programs.push(ip);
+    }
+    programs.push(program);
+
+    // ---- pass 1: skeleton type definitions ----
+    for p in programs {
+        for decl in p.decls {
+            match decl {
+                Type(x) => {
+                    type_defs[x.name] = new_struct(x.name, type_param_names(x.type_params));
+                },
+                Enum(x) => {
+                    type_defs[x.name] = new_enum(x.name, type_param_names(x.type_params));
+                },
+                Interface(x) => {
+                    type_defs[x.name] = new_interface(x.name, type_param_names(x.type_params));
+                },
+                Import(x) => {
+                    modules.add(import_namespace(x));
+                },
+                _ => {},
+            }
+        }
+    }
+
+    // ---- pass 2: members, signatures, consts ----
+    for p in programs {
+        for decl in p.decls {
+            match decl {
+                Type(x) => {
+                    let tps = type_param_set(x.type_params);
+                    match type_defs.get(x.name) {
+                        Some(element) => {
+                            for f in x.fields {
+                                element.fields[f.name] = resolve_type_ref(f.type_ann, type_defs, tps, Option.None);
+                            }
+                        },
+                        None => {},
+                    }
+                },
+                Enum(x) => {
+                    let tps = type_param_set(x.type_params);
+                    match type_defs.get(x.name) {
+                        Some(element) => {
+                            for v in x.variants {
+                                element.variants.push(EnumVariantElement {
+                                    name: v.name,
+                                    fields: v.fields.map((f) => resolve_type_ref(f, type_defs, tps, Option.None)),
+                                });
+                            }
+                        },
+                        None => {},
+                    }
+                },
+                Fn(x) => {
+                    functions[x.name] = function_element(x, type_defs);
+                },
+                Const(x) => {
+                    consts[x.name] = ConstElement {
+                        name: x.name,
+                        ty: resolve_opt(x.type_ann, type_defs, Set.new(), Option.None),
+                    };
+                },
+                Impl(x) => {
+                    resolve_impl(x, type_defs);
+                },
+                Interface(x) => {
+                    match type_defs.get(x.name) {
+                        Some(element) => {
+                            for s in x.super_interfaces {
+                                element.super_interfaces.push(s);
+                            }
+                            let tps = type_param_set(x.type_params);
+                            let self_type = Type.Interface(x.name,
+                                x.type_params.map((tp) => Type.TypeParameter(tp.name)));
+                            for m in x.methods {
+                                element.own_methods.push(m.name);
+                                element.methods.push(method_element(m, x.name, type_defs, tps, Option.Some(self_type)));
+                            }
+                        },
+                        None => {},
+                    }
+                },
+                Import(x) => {},
+            }
+        }
+    }
+
+    // ---- pass 3: flatten the inherited interface closure ----
+    // A sub-interface exposes its supers' methods too, and is assignable where a
+    // super is expected. Walk supers transitively (the `seen` set tolerates a
+    // cycle, which the checker reports), copy inherited methods the sub doesn't
+    // declare, and rewrite super_interfaces to the full closure.
+    for def in type_defs.values() {
+        if def.kind == TypeDefKind.Interface {
+            let closure: Set<String> = Set.new();
+            let queue: List<String> = [];
+            for s in def.super_interfaces {
+                queue.push(s);
+            }
+            let mut qi = 0;
+            while qi < queue.len() {
+                let super_name = queue[qi];
+                qi = qi + 1;
+                if super_name != def.name && !closure.has(super_name) {
+                    closure.add(super_name);
+                    match type_defs.get(super_name) {
+                        Some(super_def) => {
+                            if super_def.kind == TypeDefKind.Interface {
+                                for s in super_def.super_interfaces {
+                                    queue.push(s);
+                                }
+                                for m in super_def.methods {
+                                    match find_method(def, m.name) {
+                                        Some(_) => {},
+                                        None => {
+                                            def.methods.push(m);
+                                        },
+                                    }
+                                }
+                            }; // trailing `;`: a discarded statement, not a tail
+                        },
+                        None => {},
+                    }
+                }
+            }
+            def.super_interfaces = closure.to_list();
+        }
+    }
+
+    return LibraryElement {
+        type_defs: type_defs,
+        functions: functions,
+        consts: consts,
+        modules: modules,
+        namespaces: namespaces,
+    };
+}
+
+fn resolve_impl(_ decl: ImplDecl, _ type_defs: Map<String, TypeDefElement>) -> Void {
+    match type_defs.get(decl.type_name) {
+        None => {}, // unknown target type; the checker reports it
+        Some(owner) => {
+            match decl.interface_name {
+                Some(iface) => {
+                    // Trailing `;`: keep this if a discarded statement, not the
+                    // arm's tail value (an else-less if-tail would need an else).
+                    if !implements_interface(owner, iface) {
+                        owner.interfaces.push(iface);
+                    };
+                },
+                None => {},
+            }
+            let impl_params = type_param_set(decl.type_params);
+            // For an `impl Int`/`String`/… the receiver's type is the primitive
+            // itself, not an interface wrapper.
+            let self_type = match primitive_type(decl.type_name) {
+                Some(p) => p,
+                None => Type.Interface(decl.type_name,
+                    decl.type_params.map((tp) => Type.TypeParameter(tp.name))),
+            };
+            for m in decl.methods {
+                owner.methods.push(method_element(m, decl.type_name, type_defs, impl_params, Option.Some(self_type)));
+            }
+        },
+    }
+}
+
+fn function_element(_ decl: FnDecl, _ type_defs: Map<String, TypeDefElement>) -> FunctionElement {
+    let tps = type_param_set(decl.type_params);
+    return FunctionElement {
+        name: decl.name,
+        type_parameters: type_param_names(decl.type_params),
+        type_parameter_bounds: type_param_bounds(decl),
+        parameters: build_params(decl, type_defs, tps, Option.None),
+        return_type: resolve_return(decl.return_type, type_defs, tps, Option.None),
+        owner: Option.None,
+        is_static: false,
+    };
+}
+
+fn method_element(_ decl: FnDecl, _ owner: String, _ type_defs: Map<String, TypeDefElement>,
+    _ outer_type_params: Set<String>, _ self_type: Option<Type>) -> FunctionElement {
+    let tps: Set<String> = Set.new();
+    for t in outer_type_params.to_list() {
+        tps.add(t);
+    }
+    for tp in decl.type_params {
+        tps.add(tp.name);
+    }
+    return FunctionElement {
+        name: decl.name,
+        type_parameters: type_param_names(decl.type_params),
+        type_parameter_bounds: type_param_bounds(decl),
+        parameters: build_params(decl, type_defs, tps, self_type),
+        return_type: resolve_return(decl.return_type, type_defs, tps, self_type),
+        owner: Option.Some(owner),
+        is_static: !has_self_param(decl.params),
+    };
+}
+
+// A missing `-> Type` means the function returns Unit (Hawk's implicit-unit
+// return), not "unknown".
+fn resolve_return(_ ref: Option<TypeRef>, _ type_defs: Map<String, TypeDefElement>,
+    _ type_params: Set<String>, _ self_type: Option<Type>) -> Type {
+    return match ref {
+        None => Type.Primitive(Primitive.Unit),
+        Some(r) => resolve_type_ref(r, type_defs, type_params, self_type),
+    };
+}
+
+fn build_params(_ decl: FnDecl, _ type_defs: Map<String, TypeDefElement>,
+    _ type_params: Set<String>, _ self_type: Option<Type>) -> List<ParameterElement> {
+    let result: List<ParameterElement> = [];
+    for p in decl.params {
+        if p.is_self {
+            result.push(ParameterElement {
+                label: Option.None,
+                is_self: true,
+                name: 'self',
+                ty: self_type.unwrap_or(Type.Unknown),
+                has_default: false,
+            });
+        } else {
+            result.push(ParameterElement {
+                label: p.label,
+                is_self: false,
+                name: p.name,
+                ty: resolve_opt(p.type_ann, type_defs, type_params, self_type),
+                has_default: match p.default_value {
+                    Some(_) => true,
+                    None => false,
+                },
+            });
+        }
+    }
+    return result;
+}
+
+// --- small helpers ---
+
+fn type_param_names(_ tps: List<TypeParam>) -> List<String> {
+    return tps.map((tp) => tp.name);
+}
+
+fn type_param_set(_ tps: List<TypeParam>) -> Set<String> {
+    let s: Set<String> = Set.new();
+    for tp in tps {
+        s.add(tp.name);
+    }
+    return s;
+}
+
+fn type_param_bounds(_ decl: FnDecl) -> Map<String, List<String>> {
+    let b: Map<String, List<String>> = {};
+    for tp in decl.type_params {
+        b[tp.name] = tp.bounds;
+    }
+    return b;
+}
+
+fn has_self_param(_ params: List<Param>) -> Bool {
+    for p in params {
+        if p.is_self {
+            return true;
+        }
+    }
+    return false;
+}
+
+// The namespace an import binds: its alias, or the trailing path segment
+// (`std.fs` -> `fs`).
+fn import_namespace(_ decl: ImportDecl) -> String {
+    return match decl.alias {
+        Some(a) => a,
+        None => last_segment(decl.path),
+    };
+}
+
+fn last_segment(_ path: String) -> String {
+    let segs = path.split('.');
+    return segs[segs.len() - 1];
+}
