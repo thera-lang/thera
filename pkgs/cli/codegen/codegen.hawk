@@ -1,0 +1,1342 @@
+// The bytecode emitter — the Hawk mirror of the `_FnCompiler` half of the Dart
+// toolchain's codegen/codegen.dart. Walks a type-checked AST and emits the
+// runtime's stack-based instructions.
+//
+// The Dart compiler reads `Expr.resolvedType` (annotated up front by the
+// inferrer) for opcode/dispatch selection. Hawk's inference is pure, so this
+// compiler calls `infer_expr` on demand against a `type_scope: Map<String, Type>`
+// it maintains in parallel with the local `slots` — every binding records both
+// its slot and its type. The compiler is a mutable struct: its `impl` methods
+// grow `code`/`slots`/… in place (Hawk structs are references).
+//
+// Stage 1 covers functions, control flow, primitives, calls (free + native),
+// strings, lists/maps, indexing, fields, and propagation. Struct/enum
+// construction, `match`, method calls, and lambdas are staged follow-ups — they
+// record a `CodegenError` if reached.
+
+import '../ast/ast';
+import '../lexer/token'; // SourceSpan
+import '../bytecode/instr';
+import '../bytecode/module';
+import '../element/types';
+import '../element/element';
+import '../element/resolver';
+import '../element/inference';
+import 'module_scope';
+
+// A construct codegen does not yet handle (or an invariant a checked program
+// should already guarantee). Collected rather than thrown — Hawk has no
+// exceptions, and a fully-ported codegen produces none for a valid program.
+pub type CodegenError = {
+    message: String,
+    span: SourceSpan,
+}
+
+pub type CodegenResult = {
+    module: Module,
+    errors: List<CodegenError>,
+}
+
+// The three jump kinds the backpatcher emits.
+pub enum Jk {
+    Jump,
+    IfTrue,
+    IfFalse,
+}
+
+// A placeholder jump awaiting its target: the instruction position to patch, the
+// label it targets, and which jump opcode to emit.
+pub type Fixup = {
+    pos: Int,
+    label: Int,
+    kind: Jk,
+}
+
+// --- entry point ---
+
+// Compile `program` plus any `imports` into one module. All modules' functions,
+// types, and methods register into a single scope (so cross-module references
+// resolve), then every unit is compiled.
+pub fn compile_program(_ program: Program, _ imports: List<Program>,
+    _ namespaces: Map<String, LibraryNamespace>) -> CodegenResult {
+    let library = build_library(program, imports, namespaces);
+    let ns_set: Set<String> = Set.new();
+    for k in namespaces.keys() {
+        ns_set.add(k);
+    }
+    let scope = new_module_scope(ns_set, library);
+
+    let modules: List<Program> = [];
+    for ip in imports {
+        modules.push(ip);
+    }
+    modules.push(program);
+    for m in modules {
+        register_module(scope, m);
+    }
+    scope.flatten_interfaces();
+
+    let errors: List<CodegenError> = [];
+    let functions: List<FuncDef> = [];
+    let mut i = 0;
+    // Re-read `units.len()` each iteration: lifted lambdas append units that are
+    // themselves compiled by this same loop.
+    while i < scope.units.len() {
+        functions.push(new_fn_compiler(scope, errors).compile(i));
+        i = i + 1;
+    }
+    return CodegenResult {
+        module: Module {
+            functions: functions,
+            types: scope.types,
+            dispatch: scope.build_dispatch(),
+        },
+        errors: errors,
+    };
+}
+
+// Register one module's declarations into the shared scope.
+fn register_module(_ scope: ModuleScope, _ program: Program) -> Void {
+    for decl in program.decls {
+        match decl {
+            Fn(x) => {
+                if x.is_native {
+                    scope.add_native(x);
+                } else {
+                    scope.add_function(x);
+                }
+            },
+            Type(x) => { scope.add_struct(x); },
+            Enum(x) => { scope.add_enum(x); },
+            Const(x) => { scope.add_const(x); },
+            Interface(x) => { scope.add_interface(x); },
+            Impl(x) => {
+                match x.interface_name {
+                    Some(iface) => { scope.add_interface_impl(x.type_name, iface); },
+                    None => {},
+                }
+                for method in x.methods {
+                    let is_static = !has_self_param(method.params);
+                    if method.is_native && is_static {
+                        scope.add_native_static_method(x.type_name, method);
+                    } else if method.is_native {
+                        scope.add_native_instance_method(x.type_name, method);
+                    } else {
+                        match method.body {
+                            Some(_) => { scope.add_method(x.type_name, method); },
+                            None => {},
+                        }
+                    }
+                    match x.interface_name {
+                        Some(_) => {
+                            if !is_static && !method.is_native {
+                                scope.add_dispatch(x.type_name, method.name);
+                            }
+                        },
+                        None => {},
+                    }
+                }
+            },
+            Import(x) => {},
+        }
+    }
+}
+
+// --- the per-function compiler ---
+
+pub type FnCompiler = {
+    scope: ModuleScope,
+    code: List<Instr>,
+    slots: Map<String, Int>,
+    type_scope: Map<String, Type>,
+    type_param_bounds: Map<String, List<String>>,
+    consts_in_progress: Set<String>,
+    boxed_locals: Set<String>,
+    local_count: Int,
+    param_count: Int,
+    returns_result: Bool,
+    labels: List<Option<Int>>,
+    fixups: List<Fixup>,
+    ctx: InferCtx,
+    errors: List<CodegenError>,
+}
+
+pub fn new_fn_compiler(_ scope: ModuleScope, _ errors: List<CodegenError>) -> FnCompiler {
+    return FnCompiler {
+        scope: scope,
+        code: [],
+        slots: {},
+        type_scope: {},
+        type_param_bounds: {},
+        consts_in_progress: Set.new(),
+        boxed_locals: Set.new(),
+        local_count: 0,
+        param_count: 0,
+        returns_result: false,
+        labels: [],
+        fixups: [],
+        ctx: new_ctx(scope.library),
+        errors: errors,
+    };
+}
+
+impl FnCompiler {
+    // Compile the unit at `index` in the module scope.
+    pub fn compile(self, _ index: Int) -> FuncDef {
+        let fn_decl = self.scope.units[index];
+        self.returns_result = type_ref_name(fn_decl.return_type) == Option.Some('Result');
+        for tp in fn_decl.type_params {
+            self.type_param_bounds[tp.name] = tp.bounds;
+        }
+
+        // Build the inference context for this unit.
+        let type_params: Set<String> = Set.new();
+        for tp in fn_decl.type_params {
+            type_params.add(tp.name);
+        }
+        let self_type = match self.scope.unit_self_types[index] {
+            Some(name) => Option.Some(self_type_of(name)),
+            None => Option.None,
+        };
+        let return_type = match fn_decl.return_type {
+            Some(ref) => Option.Some(
+                resolve_type_ref(ref, self.scope.library.type_defs, type_params, self_type)),
+            None => Option.None,
+        };
+        self.ctx = InferCtx {
+            library: self.scope.library,
+            type_params: type_params,
+            self_type: self_type,
+            return_type: return_type,
+            type_param_bounds: self.type_param_bounds,
+        };
+
+        // Boxed cells: capture params arriving boxed, plus this function's own
+        // captured `mut` locals.
+        match self.scope.boxed_params.get(index) {
+            Some(bp) => {
+                for b in bp.to_list() {
+                    self.boxed_locals.add(b);
+                }
+            },
+            None => {},
+        }
+
+        // Seed the type scope: a lifted lambda uses its stashed param types; a
+        // normal function/method resolves its parameter annotations.
+        let lambda_types = self.scope.lambda_param_types.get(index);
+        for p in fn_decl.params {
+            self.declare_local(p.name);
+            self.param_count = self.param_count + 1;
+            let pt = if p.is_self {
+                self_type.unwrap_or(Type.Unknown)
+            } else {
+                match lambda_types {
+                    Some(lt) => match lt.get(p.name) {
+                        Some(t) => t,
+                        None => Type.Unknown,
+                    },
+                    None => resolve_opt(p.type_ann, self.scope.library.type_defs, type_params, self_type),
+                }
+            };
+            self.type_scope[p.name] = pt;
+        }
+
+        match fn_decl.body {
+            Some(body) => { self.block(body); },
+            None => {},
+        }
+        // Guarantee the stream ends with a return (a Void fall-through returns Unit).
+        if self.code.len() == 0 || !self.ends_in_return() {
+            self.emit(Instr.Simple(Op.ConstUnit));
+            self.emit(Instr.Simple(Op.Return));
+        }
+        self.resolve_jumps();
+        return FuncDef {
+            name: self.scope.unit_names[index],
+            param_count: self.param_count,
+            local_count: self.local_count,
+            code: self.code,
+        };
+    }
+
+    // --- low-level emit / labels / slots ---
+
+    fn emit(self, _ instr: Instr) -> Void {
+        self.code.push(instr);
+    }
+
+    fn error(self, _ message: String, _ span: SourceSpan) -> Void {
+        self.errors.push(CodegenError { message: message, span: span });
+    }
+
+    fn new_label(self) -> Int {
+        self.labels.push(Option.None);
+        return self.labels.len() - 1;
+    }
+
+    fn bind(self, _ label: Int) -> Void {
+        self.labels[label] = Option.Some(self.code.len());
+    }
+
+    fn emit_jump(self, _ kind: Jk, _ label: Int) -> Void {
+        self.fixups.push(Fixup { pos: self.code.len(), label: label, kind: kind });
+        self.emit(Instr.Jump(0)); // placeholder, replaced during resolution
+    }
+
+    fn resolve_jumps(self) -> Void {
+        for f in self.fixups {
+            let target = match self.labels[f.label] {
+                Some(t) => t,
+                None => 0,
+            };
+            self.code[f.pos] = match f.kind {
+                Jump => Instr.Jump(target),
+                IfTrue => Instr.JumpIfTrue(target),
+                IfFalse => Instr.JumpIfFalse(target),
+            };
+        }
+    }
+
+    fn fresh_slot(self) -> Int {
+        let s = self.local_count;
+        self.local_count = self.local_count + 1;
+        return s;
+    }
+
+    fn declare_local(self, _ name: String) -> Int {
+        let slot = self.local_count;
+        self.local_count = self.local_count + 1;
+        self.slots[name] = slot;
+        return slot;
+    }
+
+    fn ends_in_return(self) -> Bool {
+        return match self.code[self.code.len() - 1] {
+            Simple(op) => op == Op.Return,
+            _ => false,
+        };
+    }
+
+    fn is_namespace(self, _ name: String) -> Bool {
+        return !self.slots.has(name) && self.scope.namespaces.has(name);
+    }
+
+    // Push the value of local `name`; a boxed local holds a one-field cell.
+    fn load_local_value(self, _ name: String, _ span: SourceSpan) -> Void {
+        match self.slots.get(name) {
+            Some(slot) => {
+                self.emit(Instr.Load(slot));
+                if self.boxed_locals.has(name) {
+                    self.emit(Instr.FieldGet(0));
+                }
+            },
+            None => {
+                if self.scope.consts.has(name) {
+                    self.emit_const(name, span);
+                } else {
+                    self.error('not a local variable: ${name}', span);
+                }
+            },
+        }
+    }
+
+    // Inline a top-level constant by compiling its initializer at the use site.
+    fn emit_const(self, _ name: String, _ span: SourceSpan) -> Void {
+        if self.consts_in_progress.has(name) {
+            self.error('cyclic constant: ${name}', span);
+            return;
+        }
+        self.consts_in_progress.add(name);
+        match self.scope.consts.get(name) {
+            Some(e) => { self.expr(e); },
+            None => {},
+        }
+        self.consts_in_progress.remove(name);
+    }
+
+    // The static type *name* of an expression, for opcode/dispatch selection.
+    // None for Unit and anything without a usable concrete name.
+    fn type_of(self, _ e: Expr) -> Option<String> {
+        return name_of_type(infer_expr(e, self.type_scope, self.ctx, Option.None));
+    }
+
+    // --- statements ---
+
+    fn block(self, _ block: Block) -> Void {
+        for stmt in block.stmts {
+            self.stmt(stmt);
+        }
+    }
+
+    fn stmt(self, _ stmt: Stmt) -> Void {
+        match stmt {
+            Let(x) => {
+                // Evaluate before declaring, so the initializer can't see the
+                // not-yet-bound name. A captured `mut` local is boxed.
+                self.expr(x.value);
+                let ty = infer_expr(x.value, self.type_scope, self.ctx, Option.None);
+                if self.boxed_locals.has(x.name) {
+                    self.emit(Instr.StructNew(self.scope.cell_type_index()));
+                }
+                let slot = self.declare_local(x.name);
+                self.type_scope[x.name] = ty;
+                self.emit(Instr.Store(slot));
+            },
+            Assign(span, target, value) => {
+                self.assign(target, value, span);
+            },
+            If(x) => {
+                self.expr(x.condition);
+                match x.else_block {
+                    None => {
+                        let end = self.new_label();
+                        self.emit_jump(Jk.IfFalse, end);
+                        self.block(x.then_block);
+                        self.bind(end);
+                    },
+                    Some(eb) => {
+                        let else_label = self.new_label();
+                        let end = self.new_label();
+                        self.emit_jump(Jk.IfFalse, else_label);
+                        self.block(x.then_block);
+                        self.emit_jump(Jk.Jump, end);
+                        self.bind(else_label);
+                        self.block(eb);
+                        self.bind(end);
+                    },
+                }
+            },
+            While(x) => {
+                let start = self.new_label();
+                let end = self.new_label();
+                self.bind(start);
+                self.expr(x.condition);
+                self.emit_jump(Jk.IfFalse, end);
+                self.block(x.body);
+                self.emit_jump(Jk.Jump, start);
+                self.bind(end);
+            },
+            For(x) => {
+                self.for_stmt(x.pattern, x.iterable, x.body);
+            },
+            Return(_, value) => {
+                self.emit_return(value);
+            },
+            Throw(_, value) => {
+                self.emit_throw(value);
+            },
+            Expr(_, e) => {
+                // The result of an expression statement is discarded.
+                self.expr(e);
+                self.emit(Instr.Simple(Op.Pop));
+            },
+        }
+    }
+
+    fn assign(self, _ target: Expr, _ value: Expr, _ span: SourceSpan) -> Void {
+        match target {
+            Ident(_, name) => {
+                match self.slots.get(name) {
+                    Some(slot) => {
+                        if self.boxed_locals.has(name) {
+                            // Write into the cell, not the slot.
+                            self.emit(Instr.Load(slot));
+                            self.expr(value);
+                            self.emit(Instr.FieldSet(0));
+                        } else {
+                            self.expr(value);
+                            self.emit(Instr.Store(slot));
+                        }
+                    },
+                    None => { self.error('assignment to unknown local: ${name}', span); },
+                }
+            },
+            Field(_, object, field) => {
+                match self.struct_of(object, span) {
+                    Some(info) => {
+                        self.expr(object);
+                        self.expr(value);
+                        self.emit(Instr.FieldSet(self.field_index(info, field, span)));
+                    },
+                    None => {},
+                }
+            },
+            Index(_, object, index) => {
+                self.expr(object);
+                self.expr(index);
+                self.expr(value);
+                match self.type_of(object) {
+                    Some(t) => {
+                        if t == 'List' {
+                            self.emit(Instr.Simple(Op.ListSet));
+                        } else if t == 'Map' {
+                            self.emit(Instr.CallNative('map_set', 3));
+                            self.emit(Instr.Simple(Op.Pop));
+                        } else {
+                            self.error('indexed assignment on ${t} is not supported', span);
+                        }
+                    },
+                    None => { self.error('indexed assignment on unknown type', span); },
+                }
+            },
+            _ => { self.error('unsupported assignment target', span); },
+        }
+    }
+
+    // Emit a `return`, applying implicit `Ok` wrapping when the function returns
+    // `Result` and the value isn't already a `Result`.
+    fn emit_return(self, _ value: Option<Expr>) -> Void {
+        match value {
+            None => { self.emit(Instr.Simple(Op.ConstUnit)); },
+            Some(v) => {
+                self.expr(v);
+                if self.returns_result && self.type_of(v) != Option.Some('Result') {
+                    self.emit(Instr.EnumNew(TY_RESULT, TAG_OK, 1));
+                }
+            },
+        }
+        self.emit(Instr.Simple(Op.Return));
+    }
+
+    // `throw e` is sugar for `return Err(e)` in a `Result`-returning function.
+    fn emit_throw(self, _ value: Expr) -> Void {
+        self.expr(value);
+        self.emit(Instr.EnumNew(TY_RESULT, TAG_ERR, 1));
+        self.emit(Instr.Simple(Op.Return));
+    }
+
+    fn for_stmt(self, _ pattern: Pattern, _ iterable: Expr, _ body: Block) -> Void {
+        let var_name = match pattern {
+            Ident(_, name) => Option.Some(name),
+            Wildcard(_) => Option.None,
+            _ => {
+                self.error('unsupported for-loop pattern', expr_span(iterable));
+                Option.None
+            },
+        };
+        match iterable {
+            Range(_, _, _) => { self.range_for(var_name, iterable, body); },
+            _ => {
+                match self.type_of(iterable) {
+                    Some(t) => {
+                        if t == 'List' {
+                            self.list_for(var_name, iterable, body);
+                        } else if self.is_iterator(iterable) {
+                            self.iterator_for(var_name, iterable, body);
+                        } else {
+                            self.error('cannot iterate ${t} (only ranges, lists, and Iterators are supported)', expr_span(iterable));
+                        }
+                    },
+                    None => { self.error('cannot iterate this value', expr_span(iterable)); },
+                }
+            },
+        }
+    }
+
+    fn is_iterator(self, _ e: Expr) -> Bool {
+        match self.type_of(e) {
+            Some(name) => {
+                if name == 'Iterator' {
+                    return true;
+                }
+                return match self.scope.interface_impls.get(name) {
+                    Some(s) => s.has('Iterator'),
+                    None => false,
+                };
+            },
+            None => { return false; },
+        }
+    }
+
+    // Bind a for-loop variable into the type scope (the element type), parallel
+    // to its slot. Reuses inference's element-typing.
+    fn bind_loop_var(self, _ var_name: Option<String>, _ iter: Expr) -> Int {
+        let iter_type = infer_expr(iter, self.type_scope, self.ctx, Option.None);
+        let element = for_element_type(iter_type, self.ctx);
+        return match var_name {
+            Some(name) => {
+                self.type_scope[name] = element;
+                self.declare_local(name)
+            },
+            None => self.fresh_slot(),
+        };
+    }
+
+    fn range_for(self, _ var_name: Option<String>, _ range: Expr, _ body: Block) -> Void {
+        match range {
+            Range(_, start_e, end_e) => {
+                self.expr(start_e);
+                let counter = match var_name {
+                    Some(name) => {
+                        self.type_scope[name] = Type.Primitive(Primitive.Int);
+                        self.declare_local(name)
+                    },
+                    None => self.fresh_slot(),
+                };
+                self.emit(Instr.Store(counter));
+                self.expr(end_e);
+                let limit = self.fresh_slot();
+                self.emit(Instr.Store(limit));
+
+                let start = self.new_label();
+                let end = self.new_label();
+                self.bind(start);
+                self.emit(Instr.Load(counter));
+                self.emit(Instr.Load(limit));
+                self.emit(Instr.Simple(Op.LtI64));
+                self.emit_jump(Jk.IfFalse, end);
+                self.block(body);
+                self.emit(Instr.Load(counter));
+                self.emit(Instr.ConstInt(1));
+                self.emit(Instr.Simple(Op.AddI64));
+                self.emit(Instr.Store(counter));
+                self.emit_jump(Jk.Jump, start);
+                self.bind(end);
+            },
+            _ => {},
+        }
+    }
+
+    fn list_for(self, _ var_name: Option<String>, _ list_expr: Expr, _ body: Block) -> Void {
+        self.expr(list_expr);
+        let list = self.fresh_slot();
+        self.emit(Instr.Store(list));
+        let i = self.fresh_slot();
+        self.emit(Instr.ConstInt(0));
+        self.emit(Instr.Store(i));
+
+        let start = self.new_label();
+        let end = self.new_label();
+        self.bind(start);
+        self.emit(Instr.Load(i));
+        self.emit(Instr.Load(list));
+        self.emit(Instr.CallNative('list_len', 1));
+        self.emit(Instr.Simple(Op.LtI64));
+        self.emit_jump(Jk.IfFalse, end);
+        let elem = self.bind_loop_var(var_name, list_expr);
+        self.emit(Instr.Load(list));
+        self.emit(Instr.Load(i));
+        self.emit(Instr.Simple(Op.ListGet));
+        self.emit(Instr.Store(elem));
+        self.block(body);
+        self.emit(Instr.Load(i));
+        self.emit(Instr.ConstInt(1));
+        self.emit(Instr.Simple(Op.AddI64));
+        self.emit(Instr.Store(i));
+        self.emit_jump(Jk.Jump, start);
+        self.bind(end);
+    }
+
+    fn iterator_for(self, _ var_name: Option<String>, _ iter_expr: Expr, _ body: Block) -> Void {
+        self.expr(iter_expr);
+        let it = self.fresh_slot();
+        self.emit(Instr.Store(it));
+
+        let start = self.new_label();
+        let end = self.new_label();
+        self.bind(start);
+        self.emit(Instr.Load(it));
+        self.emit(Instr.CallVirtual('next', 1)); // Option<T> on the stack
+        let opt = self.fresh_slot();
+        self.emit(Instr.Store(opt));
+        self.emit(Instr.Load(opt));
+        self.emit(Instr.Simple(Op.EnumTag));
+        self.emit(Instr.ConstInt(TAG_NONE));
+        self.emit(Instr.Simple(Op.EqI64));
+        self.emit_jump(Jk.IfTrue, end); // None: exhausted
+        let elem = self.bind_loop_var(var_name, iter_expr);
+        self.emit(Instr.Load(opt));
+        self.emit(Instr.EnumGet(0));
+        self.emit(Instr.Store(elem));
+        self.block(body);
+        self.emit_jump(Jk.Jump, start);
+        self.bind(end);
+    }
+
+    // --- expressions ---
+
+    fn expr(self, _ e: Expr) -> Void {
+        match e {
+            Int(_, v) => { self.emit(Instr.ConstInt(v)); },
+            Float(_, v) => { self.emit(Instr.ConstDouble(v)); },
+            Bool(_, v) => { self.emit(Instr.ConstBool(v)); },
+            Unit(_) => { self.emit(Instr.Simple(Op.ConstUnit)); },
+            Str(_, _) => { self.string_expr(e); },
+            Ident(span, name) => { self.load_local_value(name, span); },
+            Unary(span, op, operand) => { self.unary_expr(op, operand, span); },
+            Binary(span, left, op, right) => { self.binary_expr(left, op, right, span); },
+            ListLit(_, items) => {
+                for item in items {
+                    self.expr(item);
+                }
+                self.emit(Instr.ListNew(items.len()));
+            },
+            MapLit(_, entries) => {
+                for entry in entries {
+                    self.expr(entry.key);
+                    self.expr(entry.value);
+                }
+                self.emit(Instr.CallNative('map_new', entries.len() * 2));
+            },
+            Index(span, object, index) => {
+                self.expr(object);
+                self.expr(index);
+                self.emit_index_get(object, span);
+            },
+            Field(span, object, field) => { self.field_expr(object, field, span); },
+            Struct(x) => { self.struct_expr(x); },
+            Call(x) => { self.call_expr(x); },
+            Propagate(_, inner) => { self.propagate_expr(inner); },
+            Match(x) => { self.error('match codegen not yet ported', x.span); },
+            Block(_, block) => { self.emit_block_value(block); },
+            If(x) => { self.if_expr(x.condition, x.then_block, x.else_block); },
+            Return(_, value) => { self.emit_return(value); },
+            Throw(_, value) => { self.emit_throw(value); },
+            Lambda(x) => { self.error('lambda codegen not yet ported', x.span); },
+            Range(span, _, _) => { self.error('a range is only valid as a for-loop iterable', span); },
+        }
+    }
+
+    // Emit a block in value position: statements for effect, then the tail value
+    // (or Unit when there's no tail). Leaves exactly one value.
+    fn emit_block_value(self, _ block: Block) -> Void {
+        self.block(block);
+        match block.tail {
+            Some(tail) => { self.expr(tail); },
+            None => { self.emit(Instr.Simple(Op.ConstUnit)); },
+        }
+    }
+
+    fn if_expr(self, _ condition: Expr, _ then_block: Block, _ else_block: Option<Block>) -> Void {
+        self.expr(condition);
+        let else_label = self.new_label();
+        let end = self.new_label();
+        self.emit_jump(Jk.IfFalse, else_label);
+        self.emit_block_value(then_block);
+        self.emit_jump(Jk.Jump, end);
+        self.bind(else_label);
+        match else_block {
+            Some(eb) => { self.emit_block_value(eb); },
+            None => { self.emit(Instr.Simple(Op.ConstUnit)); },
+        }
+        self.bind(end);
+    }
+
+    // `expr?` — propagate Err/None. The failing tag is 1 for each and the
+    // payload to unwrap is field 0, so one lowering serves Result and Option.
+    fn propagate_expr(self, _ inner: Expr) -> Void {
+        self.expr(inner);
+        self.emit(Instr.Simple(Op.Dup));
+        self.emit(Instr.Simple(Op.EnumTag));
+        self.emit(Instr.ConstInt(TAG_ERR));
+        self.emit(Instr.Simple(Op.EqI64));
+        let ok = self.new_label();
+        self.emit_jump(Jk.IfFalse, ok);
+        self.emit(Instr.Simple(Op.Return)); // failing: return the value as-is
+        self.bind(ok);
+        self.emit(Instr.EnumGet(0)); // success: unwrap the payload
+    }
+
+    fn unary_expr(self, _ op: String, _ operand: Expr, _ span: SourceSpan) -> Void {
+        self.expr(operand);
+        if op == '-' {
+            self.emit(Instr.Simple(if self.is_double(operand) { Op.NegF64 } else { Op.NegI64 }));
+        } else if op == '!' {
+            self.emit(Instr.Simple(Op.Not));
+        } else if op == '~' {
+            self.emit(Instr.Simple(Op.BnotI64));
+        } else {
+            self.error('unsupported unary operator: ${op}', span);
+        }
+    }
+
+    fn binary_expr(self, _ left: Expr, _ op: String, _ right: Expr, _ span: SourceSpan) -> Void {
+        if op == '&&' || op == '||' {
+            self.logical_expr(left, op, right);
+            return;
+        }
+        let operand_type = self.type_of(left);
+        let is_primitive = operand_type == Option.Some('Int')
+            || operand_type == Option.Some('Double')
+            || operand_type == Option.Some('Bool');
+
+        // `==`/`!=`: an explicit `impl Eq`, else dynamic dispatch, else the
+        // structural `eq` native (non-primitives) or a typed opcode (primitives).
+        if op == '==' || op == '!=' {
+            if self.dispatches_via(operand_type, 'eq') {
+                self.expr(left);
+                self.expr(right);
+                self.emit(Instr.CallVirtual('eq', 2));
+                if op == '!=' {
+                    self.emit(Instr.Simple(Op.Not));
+                }
+                return;
+            }
+            match self.interface_method(operand_type, 'Eq', 'eq') {
+                Some(eq_idx) => {
+                    self.expr(left);
+                    self.expr(right);
+                    self.emit(Instr.Call(eq_idx, 2));
+                    if op == '!=' {
+                        self.emit(Instr.Simple(Op.Not));
+                    }
+                    return;
+                },
+                None => {},
+            }
+            if !is_primitive {
+                self.expr(left);
+                self.expr(right);
+                self.emit(Instr.CallNative('eq', 2));
+                if op == '!=' {
+                    self.emit(Instr.Simple(Op.Not));
+                }
+                return;
+            }
+        }
+
+        // String concatenation via the `str_concat` native.
+        if op == '+' && operand_type == Option.Some('String') {
+            self.expr(left);
+            self.expr(right);
+            self.emit(Instr.CallNative('str_concat', 2));
+            return;
+        }
+
+        if !is_primitive {
+            self.error('operator `${op}` on ${operand_type.unwrap_or('unknown type')} not yet supported', span);
+            return;
+        }
+        let is_double = operand_type == Option.Some('Double');
+
+        self.expr(left);
+        self.expr(right);
+        if is_arithmetic(op) {
+            if op == '%' && is_double {
+                self.error('`%` is not defined for Double', span);
+            } else {
+                self.emit(Instr.Simple(arith_op(op, is_double)));
+            }
+        } else if is_comparison_op(op) {
+            self.emit(Instr.Simple(cmp_op(op, is_double)));
+        } else if is_bitwise(op) {
+            if is_double {
+                self.error('bitwise operator `${op}` requires Int operands', span);
+            } else {
+                self.emit(Instr.Simple(bitwise_op(op)));
+            }
+        } else {
+            self.error('unsupported operator: ${op}', span);
+        }
+    }
+
+    // `&&` / `||` short-circuit via branches (no and/or opcode).
+    fn logical_expr(self, _ left: Expr, _ op: String, _ right: Expr) -> Void {
+        let is_and = op == '&&';
+        let short_circuit = self.new_label();
+        let end = self.new_label();
+        self.expr(left);
+        self.emit_jump(if is_and { Jk.IfFalse } else { Jk.IfTrue }, short_circuit);
+        self.expr(right);
+        self.emit_jump(Jk.Jump, end);
+        self.bind(short_circuit);
+        self.emit(Instr.ConstBool(!is_and)); // && → false, || → true
+        self.bind(end);
+    }
+
+    fn is_double(self, _ e: Expr) -> Bool {
+        return self.type_of(e) == Option.Some('Double');
+    }
+
+    // --- strings ---
+
+    fn string_expr(self, _ e: Expr) -> Void {
+        match e {
+            Str(span, parts) => {
+                if parts.len() == 0 {
+                    self.emit(Instr.ConstStr(''));
+                    return;
+                }
+                self.string_piece(parts[0], span);
+                let mut i = 1;
+                while i < parts.len() {
+                    self.string_piece(parts[i], span);
+                    self.emit(Instr.CallNative('str_concat', 2));
+                    i = i + 1;
+                }
+            },
+            _ => {},
+        }
+    }
+
+    fn string_piece(self, _ part: StringPart, _ span: SourceSpan) -> Void {
+        match part {
+            Text(_, text) => { self.emit(Instr.ConstStr(text)); },
+            Interp(_, e) => {
+                let ty_name = self.type_of(e);
+                self.expr(e);
+                if ty_name == Option.Some('String') {
+                    // already a string
+                } else if ty_name == Option.Some('Int') || ty_name == Option.Some('Double') || ty_name == Option.Some('Bool') {
+                    self.emit(Instr.CallNative('stringify', 1));
+                } else if self.dispatches_via(ty_name, 'display') {
+                    self.emit(Instr.CallVirtual('display', 1));
+                } else {
+                    match self.interface_method(ty_name, 'Display', 'display') {
+                        Some(display_idx) => { self.emit(Instr.Call(display_idx, 1)); },
+                        None => {
+                            self.error('cannot interpolate ${ty_name.unwrap_or('value')} — it does not implement Display', span);
+                        },
+                    }
+                }
+            },
+        }
+    }
+
+    // Push a print argument rendered via its Display impl when it has one.
+    fn render_for_print(self, _ value: Expr) -> Void {
+        self.expr(value);
+        let ty_name = self.type_of(value);
+        match self.interface_method(ty_name, 'Display', 'display') {
+            Some(display_idx) => { self.emit(Instr.Call(display_idx, 1)); },
+            None => {
+                if self.dispatches_via(ty_name, 'display') {
+                    self.emit(Instr.CallVirtual('display', 1));
+                }
+            },
+        }
+    }
+
+    // --- structs / fields / indexing ---
+
+    fn struct_expr(self, _ x: StructExpr) -> Void {
+        match self.scope.structs.get(x.type_name) {
+            Some(info) => {
+                for field_name in info.field_names {
+                    match find_field_init(x.fields, field_name) {
+                        Some(value) => { self.expr(value); },
+                        None => { self.error('missing field `${field_name}` in ${x.type_name} literal', x.span); },
+                    }
+                }
+                self.emit(Instr.StructNew(info.index));
+            },
+            None => { self.error('unknown struct type: ${x.type_name}', x.span); },
+        }
+    }
+
+    fn field_expr(self, _ object: Expr, _ field: String, _ span: SourceSpan) -> Void {
+        // A namespace-qualified constant: `ns.NAME` → inline its initializer.
+        match object {
+            Ident(_, ns_name) => {
+                if self.is_namespace(ns_name) && self.scope.consts.has(field) {
+                    self.emit_const(field, span);
+                    return;
+                }
+            },
+            _ => {},
+        }
+        // A bare `Enum.Variant` is a zero-field enum constructor.
+        match self.enum_variant(object, field) {
+            Some(ev) => {
+                if field_count_of(ev.info, field) != 0 {
+                    self.error('enum variant `${field}` takes arguments', span);
+                } else {
+                    self.emit(Instr.EnumNew(ev.info.ty, ev.tag, 0));
+                }
+            },
+            None => {
+                match self.struct_of(object, span) {
+                    Some(info) => {
+                        self.expr(object);
+                        self.emit(Instr.FieldGet(self.field_index(info, field, span)));
+                    },
+                    None => {},
+                }
+            },
+        }
+    }
+
+    fn struct_of(self, _ object: Expr, _ span: SourceSpan) -> Option<StructInfo> {
+        match self.type_of(object) {
+            Some(name) => {
+                match self.scope.structs.get(name) {
+                    Some(info) => { return Option.Some(info); },
+                    None => {},
+                }
+            },
+            None => {},
+        }
+        self.error('field access on non-struct value', span);
+        return Option.None;
+    }
+
+    fn field_index(self, _ info: StructInfo, _ field: String, _ span: SourceSpan) -> Int {
+        let idx = field_index_of(info, field);
+        if idx < 0 {
+            self.error('no such field: ${field}', span);
+        }
+        return idx;
+    }
+
+    fn emit_index_get(self, _ object: Expr, _ span: SourceSpan) -> Void {
+        match self.type_of(object) {
+            Some(t) => {
+                if t == 'List' {
+                    self.emit(Instr.Simple(Op.ListGet));
+                } else if t == 'Map' {
+                    self.emit(Instr.CallNative('map_index', 2));
+                } else {
+                    self.error('indexing on ${t} is not supported', span);
+                }
+            },
+            None => { self.error('indexing on unknown type', span); },
+        }
+    }
+
+    // --- enums ---
+
+    // If `object` names a user enum (Enum or ns.Enum, not a local) and `name` is
+    // one of its variants, the enum info and the variant's tag.
+    fn enum_variant(self, _ object: Expr, _ name: String) -> Option<EnumVariantRef> {
+        match self.static_type_name(object) {
+            Some(type_name) => {
+                match self.scope.enums.get(type_name) {
+                    Some(info) => {
+                        let tag = tag_of(info, name);
+                        if tag < 0 {
+                            return Option.None;
+                        }
+                        return Option.Some(EnumVariantRef { info: info, tag: tag });
+                    },
+                    None => {},
+                }
+            },
+            None => {},
+        }
+        return Option.None;
+    }
+
+    // The bare type name a (possibly namespace-qualified) type expression refers
+    // to, when it names a struct/enum/built-in type and isn't shadowed by a local.
+    fn static_type_name(self, _ e: Expr) -> Option<String> {
+        match e {
+            Ident(_, name) => {
+                if !self.slots.has(name) && self.is_type_name(name) {
+                    return Option.Some(name);
+                }
+            },
+            Field(_, inner, field) => {
+                match inner {
+                    Ident(_, ns_name) => {
+                        if self.is_namespace(ns_name) && self.is_type_name(field) {
+                            return Option.Some(field);
+                        }
+                    },
+                    _ => {},
+                }
+            },
+            _ => {},
+        }
+        return Option.None;
+    }
+
+    fn is_type_name(self, _ name: String) -> Bool {
+        return self.scope.structs.has(name)
+            || self.scope.enums.has(name)
+            || is_builtin_type_name(name);
+    }
+
+    // --- calls ---
+
+    fn call_expr(self, _ x: CallExpr) -> Void {
+        let callee = x.callee;
+        match callee {
+            Field(_, _, _) => {
+                self.error('method-call codegen not yet ported', x.span);
+                return;
+            },
+            Ident(_, name) => {
+                // A call through a function value in a local (a let-bound lambda
+                // or a function-typed parameter) shadows a same-named function.
+                if self.slots.has(name) {
+                    self.load_local_value(name, x.span);
+                    for arg in x.args {
+                        self.expr(arg.value);
+                    }
+                    self.emit(Instr.CallIndirect(x.args.len()));
+                    return;
+                }
+                match self.scope.function_index.get(name) {
+                    Some(fn_index) => {
+                        let ordered = self.resolve_args(self.scope.units[fn_index].params, x.args, x.span);
+                        for value in ordered {
+                            self.expr(value);
+                        }
+                        self.emit(Instr.Call(fn_index, ordered.len()));
+                        return;
+                    },
+                    None => {},
+                }
+                match self.scope.native_fns.get(name) {
+                    Some(native_fn) => {
+                        // `println`/`print` render their argument via Display.
+                        if (native_fn == 'println' || native_fn == 'print') && x.args.len() == 1 {
+                            self.render_for_print(x.args[0].value);
+                            self.emit(Instr.CallNative(native_fn, 1));
+                            return;
+                        }
+                        for arg in x.args {
+                            self.expr(arg.value);
+                        }
+                        self.emit(Instr.CallNative(native_fn, x.args.len()));
+                        return;
+                    },
+                    None => {},
+                }
+                self.error('unknown function: ${name}', x.span);
+            },
+            _ => { self.error('unsupported call target', x.span); },
+        }
+    }
+
+    // Match call arguments to a callee's (non-self) parameters, returning the
+    // value expressions in parameter order (named-argument + default resolution).
+    fn resolve_args(self, _ params: List<Param>, _ call_args: List<CallArg>, _ span: SourceSpan) -> List<Expr> {
+        let positional: List<Expr> = [];
+        let named: Map<String, Expr> = {};
+        for a in call_args {
+            match a.label {
+                Some(l) => { named[l] = a.value; },
+                None => { positional.push(a.value); },
+            }
+        }
+        let ordered: List<Expr> = [];
+        let mut pi = 0;
+        for p in params {
+            if !p.is_self {
+                let value = match p.label {
+                    None => {
+                        // Suppressed external label (`_`): positional only.
+                        if pi < positional.len() {
+                            let v = positional[pi];
+                            pi = pi + 1;
+                            Option.Some(v)
+                        } else {
+                            p.default_value
+                        }
+                    },
+                    Some(label) => {
+                        match named.get(label) {
+                            Some(v) => Option.Some(v),
+                            None => {
+                                if pi < positional.len() && label == p.name {
+                                    let v = positional[pi];
+                                    pi = pi + 1;
+                                    Option.Some(v)
+                                } else {
+                                    p.default_value
+                                }
+                            },
+                        }
+                    },
+                };
+                match value {
+                    Some(v) => { ordered.push(v); },
+                    None => { self.error('missing argument for parameter `${p.name}`', span); },
+                }
+            }
+        }
+        return ordered;
+    }
+
+    // --- dispatch helpers ---
+
+    fn interface_method(self, _ ty_name: Option<String>, _ interface_name: String, _ method: String) -> Option<Int> {
+        match ty_name {
+            Some(t) => {
+                let implements = match self.scope.interface_impls.get(t) {
+                    Some(s) => s.has(interface_name),
+                    None => false,
+                };
+                if implements {
+                    match self.scope.method_table.get(t) {
+                        Some(m) => { return m.get(method); },
+                        None => {},
+                    }
+                }
+            },
+            None => {},
+        }
+        return Option.None;
+    }
+
+    fn dispatch_interfaces(self, _ name: Option<String>) -> Option<List<String>> {
+        match name {
+            Some(n) => {
+                if self.scope.interface_methods.has(n) {
+                    return Option.Some([n]);
+                }
+                match self.type_param_bounds.get(n) {
+                    Some(bounds) => {
+                        let ifaces: List<String> = [];
+                        for b in bounds {
+                            if self.scope.interface_methods.has(b) {
+                                ifaces.push(b);
+                            }
+                        }
+                        if ifaces.len() > 0 {
+                            return Option.Some(ifaces);
+                        }
+                    },
+                    None => {},
+                }
+            },
+            None => {},
+        }
+        return Option.None;
+    }
+
+    fn dispatches_via(self, _ ty_name: Option<String>, _ method: String) -> Bool {
+        match self.dispatch_interfaces(ty_name) {
+            Some(ifaces) => {
+                for i in ifaces {
+                    match self.scope.interface_methods.get(i) {
+                        Some(s) => {
+                            if s.has(method) {
+                                return true;
+                            }
+                        },
+                        None => {},
+                    }
+                }
+            },
+            None => {},
+        }
+        return false;
+    }
+}
+
+// A resolved enum variant reference (its enum info and the variant's tag).
+pub type EnumVariantRef = {
+    info: EnumInfo,
+    tag: Int,
+}
+
+// --- free helpers ---
+
+// The self type a method receiver denotes (primitive, or the bare interface
+// type — generic args aren't needed for codegen's name-keyed dispatch).
+fn self_type_of(_ name: String) -> Type {
+    return match primitive_type(name) {
+        Some(p) => p,
+        None => Type.Interface(name, []),
+    };
+}
+
+fn type_ref_name(_ t: Option<TypeRef>) -> Option<String> {
+    return match t {
+        Some(r) => match r {
+            Named(nt) => Option.Some(nt.name),
+            Function(_) => Option.None,
+        },
+        None => Option.None,
+    };
+}
+
+fn name_of_type(_ t: Type) -> Option<String> {
+    return match t {
+        Primitive(p) => match p {
+            Int => Option.Some('Int'),
+            Double => Option.Some('Double'),
+            Bool => Option.Some('Bool'),
+            Str => Option.Some('String'),
+            Unit => Option.None,
+        },
+        Interface(name, _) => Option.Some(name),
+        TypeParameter(name) => Option.Some(name),
+        _ => Option.None,
+    };
+}
+
+fn find_field_init(_ fields: List<FieldInit>, _ name: String) -> Option<Expr> {
+    for f in fields {
+        if f.name == name {
+            return Option.Some(f.value);
+        }
+    }
+    return Option.None;
+}
+
+fn is_builtin_type_name(_ name: String) -> Bool {
+    return name == 'String' || name == 'Bytes' || name == 'BytesBuilder'
+        || name == 'Int' || name == 'Bool' || name == 'Double' || name == 'Float'
+        || name == 'Void' || name == 'List' || name == 'Map' || name == 'Set'
+        || name == 'Result' || name == 'Option';
+}
+
+fn is_arithmetic(_ op: String) -> Bool {
+    return op == '+' || op == '-' || op == '*' || op == '/' || op == '%';
+}
+
+fn is_comparison_op(_ op: String) -> Bool {
+    return op == '==' || op == '!=' || op == '<' || op == '<=' || op == '>' || op == '>=';
+}
+
+fn is_bitwise(_ op: String) -> Bool {
+    return op == '&' || op == '|' || op == '^' || op == '<<' || op == '>>' || op == '>>>';
+}
+
+fn arith_op(_ op: String, _ is_double: Bool) -> Op {
+    if op == '+' {
+        return if is_double { Op.AddF64 } else { Op.AddI64 };
+    }
+    if op == '-' {
+        return if is_double { Op.SubF64 } else { Op.SubI64 };
+    }
+    if op == '*' {
+        return if is_double { Op.MulF64 } else { Op.MulI64 };
+    }
+    if op == '/' {
+        return if is_double { Op.DivF64 } else { Op.DivI64 };
+    }
+    return Op.ModI64; // `%` (Int only; the Double case is rejected by the caller)
+}
+
+fn cmp_op(_ op: String, _ is_double: Bool) -> Op {
+    if op == '==' {
+        return if is_double { Op.EqF64 } else { Op.EqI64 };
+    }
+    if op == '!=' {
+        return if is_double { Op.NeF64 } else { Op.NeI64 };
+    }
+    if op == '<' {
+        return if is_double { Op.LtF64 } else { Op.LtI64 };
+    }
+    if op == '<=' {
+        return if is_double { Op.LeF64 } else { Op.LeI64 };
+    }
+    if op == '>' {
+        return if is_double { Op.GtF64 } else { Op.GtI64 };
+    }
+    return if is_double { Op.GeF64 } else { Op.GeI64 };
+}
+
+fn bitwise_op(_ op: String) -> Op {
+    if op == '&' {
+        return Op.AndI64;
+    }
+    if op == '|' {
+        return Op.OrI64;
+    }
+    if op == '^' {
+        return Op.XorI64;
+    }
+    if op == '<<' {
+        return Op.ShlI64;
+    }
+    if op == '>>' {
+        return Op.ShrI64;
+    }
+    return Op.UShrI64; // `>>>`
+}

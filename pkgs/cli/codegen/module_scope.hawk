@@ -1,0 +1,389 @@
+// Module-wide codegen tables — the Hawk mirror of the `_ModuleScope` half of the
+// Dart toolchain's codegen/codegen.dart.
+//
+// Every module's functions, types, and methods register into one shared scope
+// (so cross-module references resolve) before any body is compiled. Functions
+// and impl methods become a flat list of "units"; a unit's position is the
+// function-table index used by `call`. The scope is a mutable struct: its `impl`
+// methods grow the tables in place (Hawk structs are references — `self.x = …`
+// and `self.list.push(…)` both persist), mirroring the Dart class's mutation.
+
+import '../ast/ast';
+import '../bytecode/instr';
+import '../bytecode/module';
+import '../element/types';
+import '../element/element';
+
+// Well-known enum type ids and variant tags, fixed by convention and shared with
+// the runtime (runtime/src/value.rs). Result and Option are not in the type
+// table — `enum.new` carries its field count inline.
+pub const TY_RESULT: Int = 0;
+pub const TY_OPTION: Int = 1;
+pub const TAG_OK: Int = 0;
+pub const TAG_ERR: Int = 1;
+pub const TAG_NONE: Int = 1; // Option.None (Some = 0); see sdk/std/core/option.hawk
+
+// Layout of a struct type: its index in the module type table and its field
+// names in declaration order (which fixes the field indices).
+pub type StructInfo = {
+    index: Int,
+    field_names: List<String>,
+}
+
+pub fn field_index_of(_ info: StructInfo, _ name: String) -> Int {
+    let mut i = 0;
+    while i < info.field_names.len() {
+        if info.field_names[i] == name {
+            return i;
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
+// Layout of a user-defined enum: its runtime type id and its variants in
+// declaration order (which fixes the variant tags). Built-in Result/Option use
+// the fixed ids 0/1 and aren't registered here.
+pub type EnumInfo = {
+    ty: Int,
+    variants: List<EnumVariant>,
+}
+
+// The tag (variant index) of `name`, or -1 if it isn't a variant.
+pub fn tag_of(_ info: EnumInfo, _ name: String) -> Int {
+    let mut i = 0;
+    while i < info.variants.len() {
+        if info.variants[i].name == name {
+            return i;
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
+pub fn field_count_of(_ info: EnumInfo, _ name: String) -> Int {
+    for v in info.variants {
+        if v.name == name {
+            return v.fields.len();
+        }
+    }
+    return 0;
+}
+
+// A pending dynamic-dispatch row recorded from an `impl Interface for Type`
+// block, resolved into the module's dispatch table by `build_dispatch`.
+pub type PendingDispatch = {
+    type_name: String,
+    selector: String,
+}
+
+// The shared codegen scope. The mutable lists/maps are filled during
+// registration; `library` backs the on-demand inference codegen consumes for
+// opcode selection (Hawk has no `Expr.resolvedType`).
+pub type ModuleScope = {
+    units: List<FnDecl>,              // index -> declaration
+    unit_names: List<String>,         // index -> mangled name (e.g. Point.area)
+    unit_self_types: List<Option<String>>, // index -> receiver type, if a method
+    function_index: Map<String, Int>, // bare name -> unit index
+    method_table: Map<String, Map<String, Int>>, // type -> method -> idx
+    structs: Map<String, StructInfo>,
+    enums: Map<String, EnumInfo>,
+    types: List<TypeDef>,
+    consts: Map<String, Expr>,
+    native_fns: Map<String, String>,
+    native_static_methods: Map<String, Map<String, String>>,
+    native_instance_methods: Map<String, Map<String, String>>,
+    interface_impls: Map<String, Set<String>>,
+    interface_methods: Map<String, Set<String>>,
+    pending_dispatch: List<PendingDispatch>,
+    interface_supers: Map<String, List<String>>,
+    namespaces: Set<String>,
+    next_enum_ty: Int,
+    boxed_params: Map<Int, Set<String>>,
+    cell_type: Option<Int>,
+    // Lifted-lambda units carry their parameter types here (capture + own
+    // params), so the lambda's body can be typed when compiled as its own unit
+    // — the pure-inference analogue of the Dart inferrer's annotation.
+    lambda_param_types: Map<Int, Map<String, Type>>,
+    // The resolved element model, for building an `InferCtx` per unit.
+    library: LibraryElement,
+}
+
+pub fn new_module_scope(_ namespaces: Set<String>, _ library: LibraryElement) -> ModuleScope {
+    return ModuleScope {
+        units: [],
+        unit_names: [],
+        unit_self_types: [],
+        function_index: {},
+        method_table: {},
+        structs: {},
+        enums: {},
+        types: [],
+        consts: {},
+        native_fns: {},
+        native_static_methods: {},
+        native_instance_methods: {},
+        interface_impls: {},
+        interface_methods: {},
+        pending_dispatch: [],
+        interface_supers: {},
+        namespaces: namespaces,
+        next_enum_ty: 2,
+        boxed_params: {},
+        cell_type: Option.None,
+        lambda_param_types: {},
+        library: library,
+    };
+}
+
+impl ModuleScope {
+    fn add_unit(self, _ decl: FnDecl, _ name: String, _ self_type: Option<String>) -> Void {
+        self.units.push(decl);
+        self.unit_names.push(name);
+        self.unit_self_types.push(self_type);
+    }
+
+    pub fn add_function(self, _ decl: FnDecl) -> Void {
+        self.function_index[decl.name] = self.units.len();
+        self.add_unit(decl, decl.name, Option.None);
+    }
+
+    // A top-level `native fn`: its name binds to the runtime native named by its
+    // `@extern('<symbol>')` decorator (or its own name).
+    pub fn add_native(self, _ decl: FnDecl) -> Void {
+        self.native_fns[decl.name] = extern_symbol(decl);
+    }
+
+    pub fn add_struct(self, _ decl: TypeDecl) -> Void {
+        let field_names = decl.fields.map((f) => f.name);
+        self.structs[decl.name] = StructInfo {
+            index: self.types.len(),
+            field_names: field_names,
+        };
+        self.types.push(TypeDef { name: decl.name, field_count: decl.fields.len() });
+    }
+
+    pub fn add_enum(self, _ decl: EnumDecl) -> Void {
+        let ty = if decl.name == 'Result' {
+            TY_RESULT
+        } else if decl.name == 'Option' {
+            TY_OPTION
+        } else {
+            let t = self.next_enum_ty;
+            self.next_enum_ty = self.next_enum_ty + 1;
+            t
+        };
+        self.enums[decl.name] = EnumInfo { ty: ty, variants: decl.variants };
+    }
+
+    pub fn add_const(self, _ decl: ConstDecl) -> Void {
+        self.consts[decl.name] = decl.value;
+    }
+
+    pub fn add_native_static_method(self, _ type_name: String, _ method: FnDecl) -> Void {
+        if !self.native_static_methods.has(type_name) {
+            self.native_static_methods[type_name] = {};
+        }
+        match self.native_static_methods.get(type_name) {
+            Some(m) => { m[method.name] = extern_symbol(method); },
+            None => {},
+        }
+    }
+
+    pub fn add_native_instance_method(self, _ type_name: String, _ method: FnDecl) -> Void {
+        if !self.native_instance_methods.has(type_name) {
+            self.native_instance_methods[type_name] = {};
+        }
+        match self.native_instance_methods.get(type_name) {
+            Some(m) => { m[method.name] = extern_symbol(method); },
+            None => {},
+        }
+    }
+
+    pub fn add_interface_impl(self, _ type_name: String, _ interface_name: String) -> Void {
+        if !self.interface_impls.has(type_name) {
+            self.interface_impls[type_name] = Set.new();
+        }
+        match self.interface_impls.get(type_name) {
+            Some(s) => { s.add(interface_name); },
+            None => {},
+        }
+    }
+
+    pub fn add_method(self, _ type_name: String, _ method: FnDecl) -> Void {
+        let self_type = if has_self_param(method.params) {
+            Option.Some(type_name)
+        } else {
+            Option.None
+        };
+        if !self.method_table.has(type_name) {
+            self.method_table[type_name] = {};
+        }
+        match self.method_table.get(type_name) {
+            Some(m) => { m[method.name] = self.units.len(); },
+            None => {},
+        }
+        self.add_unit(method, type_name + '.' + method.name, self_type);
+    }
+
+    pub fn add_interface(self, _ decl: InterfaceDecl) -> Void {
+        let names: Set<String> = Set.new();
+        for m in decl.methods {
+            names.add(m.name);
+        }
+        self.interface_methods[decl.name] = names;
+        if decl.super_interfaces.len() > 0 {
+            self.interface_supers[decl.name] = decl.super_interfaces;
+        }
+    }
+
+    pub fn add_dispatch(self, _ type_name: String, _ selector: String) -> Void {
+        self.pending_dispatch.push(PendingDispatch { type_name: type_name, selector: selector });
+    }
+
+    // Register a lifted lambda as a synthetic top-level unit; returns its
+    // function-table index. `boxed_params` names the leading (capture) params
+    // that hold a boxed cell; `param_types` types every parameter so the lambda
+    // body can be inferred when compiled.
+    pub fn add_lambda(self, _ decl: FnDecl, _ boxed: Set<String>,
+        _ param_types: Map<String, Type>) -> Int {
+        let index = self.units.len();
+        self.add_unit(decl, '__lambda_${index}', Option.None);
+        if boxed.len() > 0 {
+            self.boxed_params[index] = boxed;
+        }
+        self.lambda_param_types[index] = param_types;
+        return index;
+    }
+
+    // The type-table index of the one-field cell struct used to box captured
+    // `mut` locals, created on first use.
+    pub fn cell_type_index(self) -> Int {
+        match self.cell_type {
+            Some(i) => { return i; },
+            None => {},
+        }
+        let i = self.types.len();
+        self.types.push(TypeDef { name: '<cell>', field_count: 1 });
+        self.cell_type = Option.Some(i);
+        return i;
+    }
+
+    // Fold each interface's super-interface methods into its dispatchable method
+    // set (transitive; tolerates a cycle). Run once after every interface is
+    // registered.
+    pub fn flatten_interfaces(self) -> Void {
+        for name in self.interface_methods.keys() {
+            match self.interface_methods.get(name) {
+                Some(methods) => {
+                    let seen: Set<String> = Set.new();
+                    seen.add(name);
+                    let queue: List<String> = [];
+                    match self.interface_supers.get(name) {
+                        Some(supers) => {
+                            for s in supers {
+                                queue.push(s);
+                            }
+                        },
+                        None => {},
+                    }
+                    let mut qi = 0;
+                    while qi < queue.len() {
+                        let s = queue[qi];
+                        qi = qi + 1;
+                        if !seen.has(s) {
+                            seen.add(s);
+                            match self.interface_methods.get(s) {
+                                Some(super_methods) => {
+                                    for sm in super_methods.to_list() {
+                                        methods.add(sm);
+                                    }
+                                },
+                                None => {},
+                            }
+                            match self.interface_supers.get(s) {
+                                Some(more) => {
+                                    for m in more {
+                                        queue.push(m);
+                                    }
+                                },
+                                None => {},
+                            }
+                        }
+                    }
+                },
+                None => {},
+            }
+        }
+    }
+
+    // Resolve the pending dispatch rows into the module's dispatch table.
+    pub fn build_dispatch(self) -> List<DispatchEntry> {
+        let entries: List<DispatchEntry> = [];
+        for row in self.pending_dispatch {
+            let func = match self.method_table.get(row.type_name) {
+                Some(m) => m.get(row.selector),
+                None => Option.None,
+            };
+            let type_id = match self.structs.get(row.type_name) {
+                Some(si) => Option.Some(si.index),
+                None => match self.enums.get(row.type_name) {
+                    Some(ei) => Option.Some(ENUM_DISPATCH_BASE | ei.ty),
+                    None => Option.None,
+                },
+            };
+            match func {
+                Some(f) => {
+                    match type_id {
+                        Some(tid) => {
+                            entries.push(DispatchEntry { type_id: tid, selector: row.selector, func: f });
+                        },
+                        None => {},
+                    }
+                },
+                None => {},
+            }
+        }
+        return entries;
+    }
+}
+
+// --- decorator / native-symbol helpers ---
+
+// The runtime native symbol a `native fn` binds to: its `@extern('<symbol>')`
+// decorator argument, or its own name when unannotated.
+pub fn extern_symbol(_ decl: FnDecl) -> String {
+    for d in decl.decorators {
+        if d.name == 'extern' && d.args.len() > 0 {
+            match string_literal(d.args[0]) {
+                Some(s) => { return s; },
+                None => {},
+            }
+        }
+    }
+    return decl.name;
+}
+
+// The plain text of a non-interpolated string-literal expression, or None.
+pub fn string_literal(_ e: Expr) -> Option<String> {
+    return match e {
+        Str(_, parts) => if parts.len() == 1 {
+            match parts[0] {
+                Text(_, t) => Option.Some(t),
+                Interp(_, _) => Option.None,
+            }
+        } else {
+            Option.None
+        },
+        _ => Option.None,
+    };
+}
+
+pub fn has_self_param(_ params: List<Param>) -> Bool {
+    for p in params {
+        if p.is_self {
+            return true;
+        }
+    }
+    return false;
+}

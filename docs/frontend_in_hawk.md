@@ -279,7 +279,14 @@ This makes the port incremental and continuously checkable, not a big-bang.
    (undefined name, unknown type/field, type mismatch on let/return/condition/
    argument, call arity & labels, generic bounds, lambda-param inferability,
    interface conformance). Tests assert diagnostic counts + messages.
-6. **`codegen/`** — AST → bytecode; the final diff is end-to-end `.hawkbc`.
+6. **`codegen/` — in progress (Stage 1 done).** `pkgs/cli/codegen/`
+   (module_scope.hawk + codegen.hawk): the module scope (unit table, struct/enum
+   layout, native + dispatch tables) and the per-function emitter. Stage 1 covers
+   functions, control flow, primitives, strings, lists/maps, indexing, fields,
+   propagation, and free/native calls; `match`, struct/enum construction, method
+   calls, and lambdas/closures are staged follow-ups. Validated **byte-identical**
+   against the Dart oracle (`compileProgram(…, imports: [])` + `encodeModule`) on
+   arithmetic/control-flow, if-else/Double, and list/for-loop programs.
 7. **`driver.hawk`** — wire the phases, reuse the `std.cli` Command app (the
    `pkgs/cli` rewrite already prototyped this).
 

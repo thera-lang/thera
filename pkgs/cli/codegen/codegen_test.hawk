@@ -1,0 +1,91 @@
+// Tests for the bytecode emitter, diffed byte-for-byte against the Dart oracle.
+//
+// Each golden is the output of the Dart `compileProgram(program, imports: [])`
+// + `encodeModule` for the same source (core-free, so the two compilers compile
+// exactly the same units). A match means the Hawk front-end lowers the program
+// to byte-identical `.hawkbc` — the end-to-end self-hosting check.
+
+import std.testing;
+
+import '../lexer/lexer';
+import '../parser/parser';
+import '../bytecode/encoder';
+import 'codegen';
+
+fn emit_bytes(_ src: String) -> List<Int> {
+    let result = compile_program(parse(tokenize(src).tokens).program, [], {});
+    return encode_module(result.module).to_list();
+}
+
+fn errors_of(_ src: String) -> Int {
+    return compile_program(parse(tokenize(src).tokens).program, [], {}).errors.len();
+}
+
+@test
+fn test_arithmetic_and_control_flow_byte_identical() -> Result<Void, Error> {
+    let src = 'fn add(_ a: Int, _ b: Int) -> Int { return a + b; }\n'
+        + 'fn main() -> Int {\n'
+        + '    let x = add(2, 3);\n'
+        + '    let mut sum = 0;\n'
+        + '    let mut i = 0;\n'
+        + '    while i < x {\n'
+        + '        sum = sum + i;\n'
+        + '        i = i + 1;\n'
+        + '    }\n'
+        + '    return sum;\n'
+        + '}';
+    testing.assert_eq(actual: errors_of(src), expected: 0)?;
+    testing.assert_eq(actual: emit_bytes(src), expected: [
+        72, 65, 87, 75, 1, 0, 0, 0, 2, 1, 0, 3, 1, 0, 1, 65, 2, 3, 97, 100, 100,
+        2, 2, 4, 6, 0, 6, 1, 8, 45, 4, 109, 97, 105, 110, 0, 3, 23, 1, 2, 1, 3,
+        36, 0, 2, 7, 0, 1, 0, 7, 1, 1, 0, 7, 2, 6, 2, 6, 0, 21, 44, 21, 6, 1, 6,
+        2, 8, 7, 1, 6, 2, 1, 1, 8, 7, 2, 42, 8, 6, 1, 45,
+    ])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_if_else_and_double_byte_identical() -> Result<Void, Error> {
+    // `if`-statement early return, an `if`-expression tail, comparisons, a Bool
+    // local, and Double arithmetic (the F64 opcode + the 8-byte float constant).
+    let src = 'fn classify(_ n: Int) -> Int {\n'
+        + '    if n < 0 { return -1; }\n'
+        + '    let big = n > 100;\n'
+        + '    return if big { 2 } else { 1 };\n'
+        + '}\n'
+        + 'fn scale(_ x: Double) -> Double { return x * 2.0; }';
+    testing.assert_eq(actual: errors_of(src), expected: 0)?;
+    testing.assert_eq(actual: emit_bytes(src), expected: [
+        72, 65, 87, 75, 1, 0, 0, 0, 2, 1, 0, 3, 1, 0, 1, 65, 2, 8, 99, 108, 97,
+        115, 115, 105, 102, 121, 1, 2, 17, 6, 0, 1, 0, 21, 44, 7, 1, 1, 13, 45,
+        6, 0, 1, 228, 0, 23, 7, 1, 6, 1, 44, 15, 1, 2, 42, 16, 1, 1, 45, 5, 115,
+        99, 97, 108, 101, 1, 1, 4, 6, 0, 2, 0, 0, 0, 0, 0, 0, 0, 64, 16, 45,
+    ])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_list_and_for_loop_byte_identical() -> Result<Void, Error> {
+    // A `for x in list` index loop (the `list_len`/`list.get` lowering) and a
+    // list literal — exercising the native-symbol pool and `list.new`.
+    let src = 'fn sum_list(_ xs: List<Int>) -> Int {\n'
+        + '    let mut total = 0;\n'
+        + '    for v in xs {\n'
+        + '        total = total + v;\n'
+        + '    }\n'
+        + '    return total;\n'
+        + '}\n'
+        + 'fn triples() -> List<Int> {\n'
+        + '    return [1, 2, 3];\n'
+        + '}';
+    testing.assert_eq(actual: errors_of(src), expected: 0)?;
+    testing.assert_eq(actual: emit_bytes(src), expected: [
+        72, 65, 87, 75, 1, 0, 0, 0, 2, 10, 1, 8, 108, 105, 115, 116, 95, 108,
+        101, 110, 3, 1, 0, 1, 81, 2, 8, 115, 117, 109, 95, 108, 105, 115, 116,
+        1, 5, 26, 1, 0, 7, 1, 6, 0, 7, 2, 1, 0, 7, 3, 6, 3, 6, 2, 37, 0, 1, 21,
+        44, 24, 6, 2, 6, 3, 52, 7, 4, 6, 1, 6, 4, 8, 7, 1, 6, 3, 1, 1, 8, 7, 3,
+        42, 6, 6, 1, 45, 7, 116, 114, 105, 112, 108, 101, 115, 0, 0, 5, 1, 1, 1,
+        2, 1, 3, 41, 3, 45,
+    ])?;
+    return Result.Ok(void);
+}
