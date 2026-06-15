@@ -1,0 +1,269 @@
+// The semantic type lattice — the Hawk mirror of element/types.dart.
+//
+// A `Type` is the *meaning* of a syntactic `TypeRef` after name resolution. The
+// Dart `InterfaceType` holds the target element by object; here it holds the
+// element's **name** (`Interface(name, args)`), looked up in the registry when
+// element details are needed — so type equality stays structural (name + args)
+// while matching Dart's identity-equality (names are unique in the flat table).
+
+import 'element';
+
+pub enum Primitive {
+    Int,
+    Double,
+    Bool,
+    Str, // `String` (named `Str` to avoid colliding with the type name)
+    Unit,
+}
+
+pub enum Type {
+    Primitive(Primitive),
+    // A struct/enum/interface/built-in, by element name, with resolved args.
+    Interface(String, List<Type>),
+    // An as-yet-unbound generic type parameter, e.g. `T` in `Box<T>`.
+    TypeParameter(String),
+    Function(List<Type>, Type),
+    // The type of an expression the resolver couldn't determine; lenient on both
+    // sides of assignability so it never cascades.
+    Unknown,
+}
+
+// The displayed form of a type (Dart's `toString`).
+pub fn type_to_string(_ t: Type) -> String {
+    return match t {
+        Primitive(p) => primitive_to_string(p),
+        Interface(name, args) => if args.len() == 0 {
+            name
+        } else {
+            name + '<' + join_type_strings(args) + '>'
+        },
+        TypeParameter(name) => name,
+        Function(params, ret) => '(' + join_type_strings(params) + ') -> '
+            + type_to_string(ret),
+        Unknown => '?',
+    };
+}
+
+fn primitive_to_string(_ p: Primitive) -> String {
+    return match p {
+        Int => 'Int',
+        Double => 'Double',
+        Bool => 'Bool',
+        Str => 'String',
+        Unit => 'Void',
+    };
+}
+
+fn join_type_strings(_ ts: List<Type>) -> String {
+    return ts.map((t) => type_to_string(t)).join(', ');
+}
+
+// The `Type` a type name denotes if it is a primitive, else None. Shared by the
+// resolver/inference so `self` in `impl Int` (etc.) gets the primitive type the
+// value has, rather than an interface wrapper.
+pub fn primitive_type(_ name: String) -> Option<Type> {
+    if name == 'Int' {
+        return Option.Some(Type.Primitive(Primitive.Int));
+    }
+    if name == 'Bool' {
+        return Option.Some(Type.Primitive(Primitive.Bool));
+    }
+    if name == 'Double' || name == 'Float' {
+        return Option.Some(Type.Primitive(Primitive.Double));
+    }
+    if name == 'String' {
+        return Option.Some(Type.Primitive(Primitive.Str));
+    }
+    if name == 'Void' {
+        return Option.Some(Type.Primitive(Primitive.Unit));
+    }
+    return Option.None;
+}
+
+// Whether a value of type `source` may be used where `target` is expected.
+//
+// Deliberately lenient so the checker never reports a *false* mismatch: an
+// `Unknown` or a `TypeParameter` on either side is always compatible. Otherwise
+// types must match structurally — same element and assignable arguments — with
+// interface and super-interface subtyping resolved through `type_defs`.
+pub fn is_assignable(_ source: Type, _ target: Type,
+    _ type_defs: Map<String, TypeDefElement>) -> Bool {
+    match source {
+        Unknown => {
+            return true;
+        },
+        TypeParameter(_) => {
+            return true;
+        },
+        _ => {},
+    }
+    match target {
+        Unknown => {
+            return true;
+        },
+        TypeParameter(_) => {
+            return true;
+        },
+        _ => {},
+    }
+    if source == target {
+        return true;
+    }
+    // A concrete type is assignable to an interface it implements, and a
+    // sub-interface value where one of its (transitively closed) supers is
+    // expected. See docs/interfaces.md.
+    match target {
+        Interface(tname, _) => {
+            if is_interface_def(type_defs, tname) {
+                match source {
+                    Interface(sname, _) => {
+                        match map_get_def(type_defs, sname) {
+                            Some(sdef) => {
+                                if implements_interface(sdef, tname) {
+                                    return true;
+                                }
+                                if sdef.kind == TypeDefKind.Interface
+                                    && str_list_has(sdef.super_interfaces, tname) {
+                                    return true;
+                                }
+                            },
+                            None => {},
+                        }
+                    },
+                    _ => {},
+                }
+            }
+        },
+        _ => {},
+    }
+    // Same-element generics: assignable element with pairwise-assignable args.
+    match source {
+        Interface(sname, sargs) => {
+            match target {
+                Interface(tname, targs) => {
+                    if sname != tname {
+                        return false;
+                    }
+                    if sargs.len() != targs.len() {
+                        return false;
+                    }
+                    let mut i = 0;
+                    while i < sargs.len() {
+                        if !is_assignable(sargs[i], targs[i], type_defs) {
+                            return false;
+                        }
+                        i = i + 1;
+                    }
+                    return true;
+                },
+                _ => {
+                    return false;
+                },
+            }
+        },
+        Function(sparams, sret) => {
+            match target {
+                Function(tparams, tret) => {
+                    if sparams.len() != tparams.len() {
+                        return false;
+                    }
+                    let mut i = 0;
+                    while i < sparams.len() {
+                        if !is_assignable(sparams[i], tparams[i], type_defs) {
+                            return false;
+                        }
+                        i = i + 1;
+                    }
+                    return is_assignable(sret, tret, type_defs);
+                },
+                _ => {
+                    return false;
+                },
+            }
+        },
+        _ => {
+            return false;
+        },
+    }
+}
+
+fn is_interface_def(_ type_defs: Map<String, TypeDefElement>, _ name: String) -> Bool {
+    return match map_get_def(type_defs, name) {
+        Some(d) => d.kind == TypeDefKind.Interface,
+        None => false,
+    };
+}
+
+fn map_get_def(_ type_defs: Map<String, TypeDefElement>, _ name: String)
+    -> Option<TypeDefElement> {
+    return type_defs.get(name);
+}
+
+// Replace the `TypeParameter`s named in `bindings` throughout `type`. Used to
+// instantiate a generic member (substituting `{T: Int}` into `List<T>`).
+pub fn substitute(_ ty: Type, _ bindings: Map<String, Type>) -> Type {
+    return match ty {
+        TypeParameter(name) => match bindings.get(name) {
+            Some(t) => t,
+            None => ty,
+        },
+        Interface(name, args) => if args.len() == 0 {
+            ty
+        } else {
+            Type.Interface(name, args.map((a) => substitute(a, bindings)))
+        },
+        Function(params, ret) => Type.Function(
+            params.map((p) => substitute(p, bindings)),
+            substitute(ret, bindings)),
+        Primitive(_) => ty,
+        Unknown => ty,
+    };
+}
+
+// Best-effort unification: when `param` is (or contains) a type parameter,
+// record what `actual` binds it to in `bindings` (mutated in place). Recovers
+// generic type arguments from call/constructor argument types.
+pub fn unify(_ param: Type, _ actual: Type, _ bindings: Map<String, Type>) -> Void {
+    match param {
+        TypeParameter(name) => {
+            let is_unknown = match actual {
+                Unknown => true,
+                _ => false,
+            };
+            if !is_unknown && !bindings.has(name) {
+                bindings[name] = actual;
+            }
+        },
+        Interface(_, pargs) => {
+            match actual {
+                Interface(_, aargs) => {
+                    if aargs.len() == pargs.len() {
+                        let mut i = 0;
+                        while i < pargs.len() {
+                            unify(pargs[i], aargs[i], bindings);
+                            i = i + 1;
+                        }
+                    }
+                },
+                _ => {},
+            }
+        },
+        Function(pparams, pret) => {
+            match actual {
+                Function(aparams, aret) => {
+                    if aparams.len() == pparams.len() {
+                        let mut i = 0;
+                        while i < pparams.len() {
+                            unify(pparams[i], aparams[i], bindings);
+                            i = i + 1;
+                        }
+                        unify(pret, aret, bindings);
+                    }
+                },
+                _ => {},
+            }
+        },
+        Primitive(_) => {},
+        Unknown => {},
+    }
+}

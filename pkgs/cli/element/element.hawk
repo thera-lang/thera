@@ -1,0 +1,163 @@
+// The element model — the Hawk mirror of the Dart toolchain's element/element.dart.
+//
+// Where the AST records syntax, the *element model* records resolved
+// declarations: member types as semantic `Type`s, with cross-references. It is
+// built as a separate stage over the parsed AST (see resolver.hawk).
+//
+// Dart's identity-bearing element objects don't map to Hawk's value semantics,
+// so the port references type definitions by **name** (a `Type.Interface` holds
+// the element's name, not the object) and looks them up in the `LibraryElement`
+// registry. Dart's `TypeDefElement` subclass hierarchy becomes one tagged struct
+// (a `kind` discriminant) so the resolver can fill `methods`/`fields`/… in place
+// across passes (struct fields stored in a Map are mutated by reference).
+
+import 'types';
+
+pub enum TypeDefKind {
+    Struct,
+    Enum,
+    Interface,
+    Builtin,
+}
+
+// A resolved positional payload type list lives on each variant.
+pub type EnumVariantElement = {
+    name: String,
+    fields: List<Type>, // resolved payload types; empty = payload-free
+}
+
+pub type ParameterElement = {
+    label: Option<String>, // external label; None when suppressed (`_`)
+    is_self: Bool,
+    name: String,
+    ty: Type,
+    has_default: Bool,
+}
+
+// A free function or a method. `owner` is the type name for a method (None for a
+// free function); `is_static` is a method with no `self`.
+pub type FunctionElement = {
+    name: String,
+    type_parameters: List<String>,
+    type_parameter_bounds: Map<String, List<String>>,
+    parameters: List<ParameterElement>,
+    return_type: Type,
+    owner: Option<String>,
+    is_static: Bool,
+}
+
+pub type ConstElement = {
+    name: String,
+    ty: Type,
+}
+
+// A declared (or built-in) type definition: struct, enum, interface, or built-in
+// generic. The mutable lists/maps are filled during resolution.
+pub type TypeDefElement = {
+    name: String,
+    kind: TypeDefKind,
+    type_parameters: List<String>,
+    methods: List<FunctionElement>, // from impl blocks / interface decls
+    interfaces: List<String>,       // `impl Interface for Type` conformances
+    // Struct fields: name -> resolved type (insertion order preserved).
+    fields: Map<String, Type>,
+    // Enum variants, in declaration order.
+    variants: List<EnumVariantElement>,
+    // Interface: the (transitively flattened) super-interfaces, and the method
+    // names declared directly on this interface (conformance needs only these).
+    super_interfaces: List<String>,
+    own_methods: List<String>,
+}
+
+// --- constructors for skeleton elements (resolver pass 1) ---
+
+pub fn new_struct(_ name: String, _ type_params: List<String>) -> TypeDefElement {
+    return empty_def(name, TypeDefKind.Struct, type_params);
+}
+
+pub fn new_enum(_ name: String, _ type_params: List<String>) -> TypeDefElement {
+    return empty_def(name, TypeDefKind.Enum, type_params);
+}
+
+pub fn new_interface(_ name: String, _ type_params: List<String>) -> TypeDefElement {
+    return empty_def(name, TypeDefKind.Interface, type_params);
+}
+
+pub fn new_builtin(_ name: String, _ type_params: List<String>) -> TypeDefElement {
+    return empty_def(name, TypeDefKind.Builtin, type_params);
+}
+
+fn empty_def(_ name: String, _ kind: TypeDefKind, _ type_params: List<String>)
+    -> TypeDefElement {
+    return TypeDefElement {
+        name: name,
+        kind: kind,
+        type_parameters: type_params,
+        methods: [],
+        interfaces: [],
+        fields: {},
+        variants: [],
+        super_interfaces: [],
+        own_methods: [],
+    };
+}
+
+// --- queries over an element ---
+
+// The method named `name` declared on `e`, or None.
+pub fn find_method(_ e: TypeDefElement, _ name: String) -> Option<FunctionElement> {
+    for m in e.methods {
+        if m.name == name {
+            return Option.Some(m);
+        }
+    }
+    return Option.None;
+}
+
+// The variant named `name` of an enum element, or None.
+pub fn find_variant(_ e: TypeDefElement, _ name: String) -> Option<EnumVariantElement> {
+    for v in e.variants {
+        if v.name == name {
+            return Option.Some(v);
+        }
+    }
+    return Option.None;
+}
+
+// Whether `e` declares it implements `interface_name`.
+pub fn implements_interface(_ e: TypeDefElement, _ interface_name: String) -> Bool {
+    return str_list_has(e.interfaces, interface_name);
+}
+
+// --- the resolved library ---
+
+// The public surface a namespace exposes: its public names, plus any exposed by
+// more than one re-exported library (a barrel collision).
+pub type LibraryNamespace = {
+    names: Set<String>,
+    collisions: Set<String>,
+}
+
+pub fn namespace_exposes(_ ns: LibraryNamespace, _ name: String) -> Bool {
+    return ns.names.has(name);
+}
+
+// The resolved element model for a program plus its imports.
+pub type LibraryElement = {
+    type_defs: Map<String, TypeDefElement>,
+    functions: Map<String, FunctionElement>,
+    consts: Map<String, ConstElement>,
+    modules: Set<String>, // value-side module aliases from `import std.x`
+    namespaces: Map<String, LibraryNamespace>,
+}
+
+// --- small helpers (List<String> has no `contains` yet — audit gap) ---
+
+pub fn str_list_has(_ xs: List<String>, _ s: String) -> Bool {
+    for x in xs {
+        if x == s {
+            return true;
+        }
+    }
+    return false;
+}

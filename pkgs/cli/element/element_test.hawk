@@ -1,0 +1,72 @@
+import std.testing;
+
+import 'types';
+import 'element';
+
+fn defs() -> Map<String, TypeDefElement> {
+    let m: Map<String, TypeDefElement> = {};
+    m['List'] = new_builtin('List', ['T']);
+    m['Display'] = new_interface('Display', []);
+    m['Error'] = new_interface('Error', []);
+    return m;
+}
+
+@test
+fn test_primitive_type_lookup() -> Result<Void, Error> {
+    testing.assert_eq(actual: primitive_type('Int'),
+        expected: Option.Some(Type.Primitive(Primitive.Int)))?;
+    testing.assert_eq(actual: primitive_type('Nope'), expected: Option.None)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_type_to_string() -> Result<Void, Error> {
+    let list_int = Type.Interface('List', [Type.Primitive(Primitive.Int)]);
+    testing.assert_eq(actual: type_to_string(list_int), expected: 'List<Int>')?;
+    testing.assert_eq(actual: type_to_string(Type.Unknown), expected: '?')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_is_assignable_basics() -> Result<Void, Error> {
+    let d = defs();
+    let int_t = Type.Primitive(Primitive.Int);
+    // Unknown / TypeParameter are lenient on either side.
+    testing.assert(is_assignable(Type.Unknown, int_t, d))?;
+    testing.assert(is_assignable(int_t, Type.TypeParameter('T'), d))?;
+    // Same type assignable; different primitives not.
+    testing.assert(is_assignable(int_t, int_t, d))?;
+    testing.assert(!is_assignable(int_t, Type.Primitive(Primitive.Bool), d))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_is_assignable_interface_subtyping() -> Result<Void, Error> {
+    let d = defs();
+    // Error extends Display (transitive supers stored on the element).
+    d['Error'].super_interfaces.push('Display');
+    // A struct that impls Error.
+    d['Boom'] = new_struct('Boom', []);
+    d['Boom'].interfaces.push('Error');
+    let boom = Type.Interface('Boom', []);
+    let err = Type.Interface('Error', []);
+    let disp = Type.Interface('Display', []);
+    testing.assert(is_assignable(boom, err, d), message: 'Boom -> Error')?;
+    // Error value assignable where Display (a super) is expected.
+    testing.assert(is_assignable(err, disp, d), message: 'Error -> Display')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_substitute_and_unify() -> Result<Void, Error> {
+    let bindings: Map<String, Type> = {};
+    unify(Type.Interface('List', [Type.TypeParameter('T')]),
+        Type.Interface('List', [Type.Primitive(Primitive.Int)]), bindings);
+    testing.assert_eq(actual: bindings.get('T'),
+        expected: Option.Some(Type.Primitive(Primitive.Int)))?;
+    // substitute applies the binding.
+    testing.assert_eq(
+        actual: substitute(Type.TypeParameter('T'), bindings),
+        expected: Type.Primitive(Primitive.Int))?;
+    return Result.Ok(void);
+}
