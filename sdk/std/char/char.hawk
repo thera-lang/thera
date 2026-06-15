@@ -112,6 +112,20 @@ pub fn digit_value(_ cp: Int) -> Option<Int> {
     return Option.None;
 }
 
+// Return the value 0..15 of an ASCII hex digit (0-9, a-f, A-F), or None.
+pub fn hex_digit_value(_ cp: Int) -> Option<Int> {
+    if is_digit(cp) {
+        return Option.Some(cp - DIGIT_0);
+    }
+    if cp >= UPPER_A && cp <= UPPER_A + 5 { // A..F
+        return Option.Some(cp - UPPER_A + 10);
+    }
+    if cp >= LOWER_A && cp <= LOWER_A + 5 { // a..f
+        return Option.Some(cp - LOWER_A + 10);
+    }
+    return Option.None;
+}
+
 // Return the lowercase equivalent of an uppercase ASCII letter; other code
 // points are returned unchanged.
 pub fn to_lower(_ cp: Int) -> Int {

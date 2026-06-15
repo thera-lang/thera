@@ -258,9 +258,14 @@ This makes the port incremental and continuously checkable, not a big-bang.
 
 ### Suggested sequence (each independently shippable & diffable)
 
-1. **`bytecode/` writer** — emit `.hawkbc` bytes; diff against the Dart writer.
-   Pure, isolated, high-confidence start.
-2. **`lexer/`** — already spike-validated at small scale; diff token streams.
+1. **`bytecode/` writer — done.** `pkgs/cli/bytecode/` ({instr,module,encoder}.hawk)
+   emits `.hawkbc`; its test rebuilds the runtime's `demo_module()` and asserts
+   byte-identical output against `emit-demo` (plus hand-derived goldens for the
+   type/dispatch sections and the numeric opcodes).
+2. **`lexer/` — done.** `pkgs/cli/lexer/` (token.hawk + lexer.hawk) is a faithful
+   transcription of `lexer.dart`/`token.dart`; the Hawk tests pin token kinds /
+   lexemes / spans / error messages, and a Dart `lexer_parity_test.dart` asserts
+   the oracle produces the same `kind:lexeme` streams for the same corpus.
 3. **`ast/` + `parser/`** — the bulk; diff AST structurally against Dart. The
    recovery-loop translation lands here.
 4. **`element/` (resolver + types + inference)** — symbol tables and typing.
@@ -268,6 +273,21 @@ This makes the port incremental and continuously checkable, not a big-bang.
 6. **`codegen/`** — AST → bytecode; the final diff is end-to-end `.hawkbc`.
 7. **`driver.hawk`** — wire the phases, reuse the `std.cli` Command app (the
    `pkgs/cli` rewrite already prototyped this).
+
+#### Findings from the ported chunks
+
+- **No `break` / `continue`.** Hawk exits loops on a condition only (a `mut`
+  flag), so the lexer's `break`-driven loops were rewritten: a
+  `while going && !at_end` flag for whitespace/comment skipping, and letting the
+  loop guard fall through where the Dart code `break`s after consuming a trailing
+  backslash. `return` was kept where Dart used it (Hawk has `return`). Minor,
+  local, mechanical — but pervasive enough in scanner/parser code that a
+  `break`/`continue` (already on the roadmap's deferred list) would shave real
+  friction off the parser port. Not a blocker.
+- **A few letters lack `std.char` constants** (`x`, escape letters `n`/`t`/`r`/…).
+  Worked around with a tiny `is_letter(cp, "x")` helper (`from_chars` + `==`); a
+  `char.hex_digit_value` was added to std.char (it parallels `digit_value` and
+  the `\xNN`/`\u{}` escapes wanted it). No language gap.
 
 ### Language work this depends on (gating the port)
 

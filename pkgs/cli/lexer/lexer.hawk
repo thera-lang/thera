@@ -1,0 +1,544 @@
+// The lexer — the Hawk mirror of the Dart toolchain's lexer.dart. Turns source
+// text into a token stream, accumulating errors and continuing rather than
+// stopping at the first one. A faithful transcription; the notable shape change
+// is that Hawk has no `break`, so the `break`-driven loops are rewritten to exit
+// on a condition (string scanning) or fall through their loop guard.
+//
+// The cursor runs over the source's code points (`source.chars()`); spans are
+// code-point based, matching the Dart code-unit spans for ASCII source.
+
+import std.char;
+
+import 'token';
+
+// A lexical error: a message and the span it occurred at.
+pub type LexError = {
+    message: String,
+    span: SourceSpan,
+}
+
+impl Display for LexError {
+    pub fn display(self) -> String {
+        return '${self.span}: ${self.message}';
+    }
+}
+
+// The result of tokenizing: the tokens (always ending in `Eof`) and any errors.
+pub type LexResult = {
+    tokens: List<Token>,
+    errors: List<LexError>,
+}
+
+impl LexResult {
+    pub fn has_errors(self) -> Bool {
+        return self.errors.len() != 0;
+    }
+}
+
+// A cursor over the source's code points, accumulating tokens and errors. The
+// `ts_*` fields hold the start of the token currently being scanned, so `emit`
+// and `error` can form its span without threading the start through every call.
+type Lexer = {
+    source: String,
+    chars: List<Int>,
+    pos: Int,
+    line: Int,
+    col: Int,
+    tokens: List<Token>,
+    errors: List<LexError>,
+    ts_offset: Int,
+    ts_line: Int,
+    ts_col: Int,
+}
+
+// Tokenize `source` into a `LexResult` (tokens end with `Eof`).
+pub fn tokenize(_ source: String) -> LexResult {
+    let lx = Lexer {
+        source: source,
+        chars: source.chars(),
+        pos: 0,
+        line: 1,
+        col: 1,
+        tokens: [],
+        errors: [],
+        ts_offset: 0,
+        ts_line: 1,
+        ts_col: 1,
+    };
+    return lx.run();
+}
+
+impl Lexer {
+    fn run(self) -> LexResult {
+        while !self.at_end() {
+            self.skip_whitespace_and_comments();
+            if !self.at_end() {
+                self.scan_token();
+            }
+        }
+        self.tokens.push(Token {
+            kind: TokenKind.Eof,
+            span: self.span_at(self.pos, 0),
+            value: Option.None,
+        });
+        return LexResult { tokens: self.tokens, errors: self.errors };
+    }
+
+    // --- cursor ---
+
+    fn at_end(self) -> Bool {
+        return self.pos >= self.chars.len();
+    }
+
+    // The current code point, or NUL at end of input.
+    fn ch(self) -> Int {
+        if self.at_end() {
+            return char.NUL;
+        }
+        return self.chars[self.pos];
+    }
+
+    // The next code point, or NUL if there isn't one.
+    fn peek(self) -> Int {
+        if self.pos + 1 < self.chars.len() {
+            return self.chars[self.pos + 1];
+        }
+        return char.NUL;
+    }
+
+    // Consume and return the current code point, advancing line/column.
+    fn advance(self) -> Int {
+        let c = self.chars[self.pos];
+        self.pos = self.pos + 1;
+        if c == char.LF {
+            self.line = self.line + 1;
+            self.col = 1;
+        } else {
+            self.col = self.col + 1;
+        }
+        return c;
+    }
+
+    // Consume the current code point iff it equals `expected`.
+    fn match_ch(self, _ expected: Int) -> Bool {
+        if self.at_end() || self.ch() != expected {
+            return false;
+        }
+        self.advance();
+        return true;
+    }
+
+    fn span_at(self, _ offset: Int, _ length: Int) -> SourceSpan {
+        return SourceSpan {
+            source: self.source,
+            offset: offset,
+            length: length,
+            line: self.line,
+            column: self.col,
+        };
+    }
+
+    fn span_from(self, _ start_offset: Int, _ start_line: Int, _ start_col: Int)
+        -> SourceSpan {
+        return SourceSpan {
+            source: self.source,
+            offset: start_offset,
+            length: self.pos - start_offset,
+            line: start_line,
+            column: start_col,
+        };
+    }
+
+    // --- token emission ---
+
+    // Emit a value-less token spanning from the current token start to `pos`.
+    fn emit(self, _ kind: TokenKind) -> Void {
+        self.tokens.push(Token {
+            kind: kind,
+            span: self.span_from(self.ts_offset, self.ts_line, self.ts_col),
+            value: Option.None,
+        });
+    }
+
+    // Record an error at the current token start.
+    fn error(self, _ message: String) -> Void {
+        self.error_at(message, self.ts_offset, self.ts_line, self.ts_col);
+    }
+
+    // Record an error at an explicit start position (used for escapes, which
+    // start partway through a string token).
+    fn error_at(self, _ message: String, _ o: Int, _ l: Int, _ c: Int) -> Void {
+        self.errors.push(LexError {
+            message: message,
+            span: self.span_from(o, l, c),
+        });
+    }
+
+    // --- scanning ---
+
+    fn skip_whitespace_and_comments(self) -> Void {
+        let mut going = true;
+        while going && !self.at_end() {
+            let c = self.ch();
+            if char.is_whitespace(c) {
+                self.advance();
+            } else if c == char.SLASH && self.peek() == char.SLASH {
+                while !self.at_end() && self.ch() != char.LF {
+                    self.advance();
+                }
+            } else {
+                going = false;
+            }
+        }
+    }
+
+    fn scan_token(self) -> Void {
+        self.ts_offset = self.pos;
+        self.ts_line = self.line;
+        self.ts_col = self.col;
+        let c = self.advance();
+
+        if c == char.LBRACE {
+            self.emit(TokenKind.LBrace);
+        } else if c == char.RBRACE {
+            self.emit(TokenKind.RBrace);
+        } else if c == char.LPAREN {
+            self.emit(TokenKind.LParen);
+        } else if c == char.RPAREN {
+            self.emit(TokenKind.RParen);
+        } else if c == char.LBRACKET {
+            self.emit(TokenKind.LBracket);
+        } else if c == char.RBRACKET {
+            self.emit(TokenKind.RBracket);
+        } else if c == char.COMMA {
+            self.emit(TokenKind.Comma);
+        } else if c == char.SEMI {
+            self.emit(TokenKind.Semi);
+        } else if c == char.COLON {
+            self.emit(TokenKind.Colon);
+        } else if c == char.AT {
+            self.emit(TokenKind.At);
+        } else if c == char.PLUS {
+            if self.match_ch(char.EQ) {
+                self.emit(TokenKind.PlusEq);
+            } else {
+                self.emit(TokenKind.Plus);
+            }
+        } else if c == char.STAR {
+            if self.match_ch(char.EQ) {
+                self.emit(TokenKind.StarEq);
+            } else {
+                self.emit(TokenKind.Star);
+            }
+        } else if c == char.PERCENT {
+            if self.match_ch(char.EQ) {
+                self.emit(TokenKind.PercentEq);
+            } else {
+                self.emit(TokenKind.Percent);
+            }
+        } else if c == char.SLASH {
+            if self.match_ch(char.EQ) {
+                self.emit(TokenKind.SlashEq);
+            } else {
+                self.emit(TokenKind.Slash);
+            }
+        } else if c == char.DOT {
+            if self.match_ch(char.DOT) {
+                self.emit(TokenKind.DotDot);
+            } else {
+                self.emit(TokenKind.Dot);
+            }
+        } else if c == char.MINUS {
+            if self.match_ch(char.GT) {
+                self.emit(TokenKind.Arrow);
+            } else if self.match_ch(char.EQ) {
+                self.emit(TokenKind.MinusEq);
+            } else {
+                self.emit(TokenKind.Minus);
+            }
+        } else if c == char.EQ {
+            if self.match_ch(char.EQ) {
+                self.emit(TokenKind.EqEq);
+            } else if self.match_ch(char.GT) {
+                self.emit(TokenKind.FatArrow);
+            } else {
+                self.emit(TokenKind.Eq);
+            }
+        } else if c == char.BANG {
+            if self.match_ch(char.EQ) {
+                self.emit(TokenKind.BangEq);
+            } else {
+                self.emit(TokenKind.Bang);
+            }
+        } else if c == char.LT {
+            if self.match_ch(char.EQ) {
+                self.emit(TokenKind.LtEq);
+            } else {
+                self.emit(TokenKind.Lt);
+            }
+        } else if c == char.GT {
+            if self.match_ch(char.EQ) {
+                self.emit(TokenKind.GtEq);
+            } else {
+                self.emit(TokenKind.Gt);
+            }
+        } else if c == char.AMP {
+            if self.match_ch(char.AMP) {
+                self.emit(TokenKind.AmpAmp);
+            } else {
+                self.emit(TokenKind.Amp);
+            }
+        } else if c == char.PIPE {
+            if self.match_ch(char.PIPE) {
+                self.emit(TokenKind.PipePipe);
+            } else {
+                self.emit(TokenKind.Pipe);
+            }
+        } else if c == char.CARET {
+            self.emit(TokenKind.Caret);
+        } else if c == char.TILDE {
+            self.emit(TokenKind.Tilde);
+        } else if c == char.QUESTION {
+            self.emit(TokenKind.Question);
+        } else if c == char.DQUOTE || c == char.SQUOTE {
+            self.scan_string(c);
+        } else if char.is_digit(c) {
+            self.scan_number();
+        } else if char.is_alpha(c) || c == char.UNDERSCORE {
+            self.scan_ident();
+        } else {
+            self.error("unexpected character: ${String.from_chars([c])}");
+        }
+    }
+
+    fn scan_string(self, _ quote: Int) -> Void {
+        let buf: List<Int> = [];
+        while !self.at_end() && self.ch() != quote {
+            if self.ch() == char.BACKSLASH {
+                let eo = self.pos;
+                let el = self.line;
+                let ec = self.col;
+                self.advance(); // consume the backslash
+                // At end after the backslash: stop (the loop guard exits next).
+                if !self.at_end() {
+                    self.scan_string_escape(buf, eo, el, ec);
+                }
+            } else if self.ch() == char.DOLLAR && self.peek() == char.LBRACE {
+                self.scan_interpolation(buf);
+            } else {
+                buf.push(self.ch());
+                self.advance();
+            }
+        }
+        if self.at_end() {
+            self.error("unterminated string literal");
+        } else {
+            self.advance(); // closing quote
+        }
+        self.tokens.push(Token {
+            kind: TokenKind.StringLiteral,
+            span: self.span_from(self.ts_offset, self.ts_line, self.ts_col),
+            value: Option.Some(String.from_chars(buf)),
+        });
+    }
+
+    // Capture a `${...}` interpolation verbatim into `buf` so the parser can
+    // split it later. Tracks brace depth, but copies nested string literals
+    // whole so a `}` inside one (e.g. `${ m['}'] }`) doesn't close it early.
+    fn scan_interpolation(self, _ buf: List<Int>) -> Void {
+        buf.push(char.DOLLAR);
+        self.advance(); // $
+        buf.push(char.LBRACE);
+        self.advance(); // {
+        let mut depth = 1;
+        while !self.at_end() && depth > 0 {
+            let ic = self.ch();
+            if ic == char.SQUOTE || ic == char.DQUOTE {
+                // Copy a nested string literal verbatim, honoring backslash
+                // escapes so an escaped quote doesn't end it prematurely.
+                buf.push(ic);
+                self.advance();
+                while !self.at_end() && self.ch() != ic {
+                    if self.ch() == char.BACKSLASH {
+                        buf.push(self.ch());
+                        self.advance();
+                        if !self.at_end() {
+                            buf.push(self.ch());
+                            self.advance();
+                        }
+                    } else {
+                        buf.push(self.ch());
+                        self.advance();
+                    }
+                }
+                if !self.at_end() {
+                    buf.push(self.ch()); // closing quote
+                    self.advance();
+                }
+            } else {
+                if ic == char.LBRACE {
+                    depth = depth + 1;
+                } else if ic == char.RBRACE {
+                    depth = depth - 1;
+                }
+                buf.push(ic);
+                self.advance();
+            }
+        }
+    }
+
+    // Decode one escape into `buf`. The backslash is already consumed; `ch()` is
+    // the escape character. `(o, l, c)` is the backslash position, for errors.
+    fn scan_string_escape(self, _ buf: List<Int>, _ o: Int, _ l: Int, _ c: Int)
+        -> Void {
+        let e = self.ch();
+        self.advance(); // consume the escape character
+        if is_letter(e, 'n') {
+            buf.push(char.LF);
+        } else if is_letter(e, 't') {
+            buf.push(char.TAB);
+        } else if is_letter(e, 'r') {
+            buf.push(char.CR);
+        } else if e == char.BACKSLASH {
+            buf.push(char.BACKSLASH);
+        } else if e == char.SQUOTE {
+            buf.push(char.SQUOTE);
+        } else if e == char.DQUOTE {
+            buf.push(char.DQUOTE);
+        } else if e == char.DOLLAR {
+            buf.push(char.DOLLAR);
+        } else if is_letter(e, 'x') {
+            self.scan_hex_escape(buf, o, l, c);
+        } else if is_letter(e, 'u') {
+            self.scan_unicode_escape(buf, o, l, c);
+        } else {
+            // An unrecognized escape is an error, not a silent pass-through.
+            self.error_at("unknown escape sequence: '\\${String.from_chars([e])}'",
+                o, l, c);
+            buf.push(e); // keep scanning; the error fails the parse
+        }
+    }
+
+    // `\xNN` — exactly two hex digits, a code point in 0x00..0xFF.
+    fn scan_hex_escape(self, _ buf: List<Int>, _ o: Int, _ l: Int, _ c: Int)
+        -> Void {
+        let mut value = 0;
+        let mut i = 0;
+        while i < 2 {
+            if self.at_end() || !char.is_hex_digit(self.ch()) {
+                self.error_at("'\\x' needs exactly two hex digits", o, l, c);
+                return;
+            }
+            value = value * 16 + char.hex_digit_value(self.ch()).unwrap_or(0);
+            self.advance();
+            i = i + 1;
+        }
+        buf.push(value);
+    }
+
+    // `\u{...}` — 1..6 hex digits in braces, naming a Unicode scalar value.
+    fn scan_unicode_escape(self, _ buf: List<Int>, _ o: Int, _ l: Int, _ c: Int)
+        -> Void {
+        if self.ch() != char.LBRACE {
+            self.error_at("'\\u' must be followed by '{...}'", o, l, c);
+            return;
+        }
+        self.advance(); // consume '{'
+        let mut value = 0;
+        let mut digits = 0;
+        while !self.at_end() && self.ch() != char.RBRACE {
+            if !char.is_hex_digit(self.ch()) {
+                self.error_at("invalid hex digit in '\\u{...}'", o, l, c);
+                return;
+            }
+            value = value * 16 + char.hex_digit_value(self.ch()).unwrap_or(0);
+            digits = digits + 1;
+            if digits > 6 {
+                self.error_at("too many hex digits in '\\u{...}' (max 6)", o, l, c);
+                return;
+            }
+            self.advance();
+        }
+        if self.at_end() || digits == 0 {
+            self.error_at("empty or unterminated '\\u{...}' escape", o, l, c);
+            return;
+        }
+        self.advance(); // consume '}'
+        // Reject surrogates and out-of-range values — not Unicode scalar values.
+        if value > 0x10FFFF || (value >= 0xD800 && value <= 0xDFFF) {
+            self.error_at("invalid Unicode scalar value in '\\u{...}'", o, l, c);
+            return;
+        }
+        buf.push(value);
+    }
+
+    fn scan_number(self) -> Void {
+        // Hex integer literal: `0x` / `0X` then hex digits. The first digit (the
+        // `0`) is already consumed; check the source for it.
+        if self.chars[self.ts_offset] == char.DIGIT_0
+            && (is_letter(self.ch(), 'x') || is_letter(self.ch(), 'X')) {
+            self.advance(); // x / X
+            let mut saw_digit = false;
+            while !self.at_end() && char.is_hex_digit(self.ch()) {
+                self.advance();
+                saw_digit = true;
+            }
+            if !saw_digit {
+                self.error('hex literal needs at least one digit after 0x');
+            }
+            self.emit(TokenKind.IntLiteral);
+            return;
+        }
+        while !self.at_end() && char.is_digit(self.ch()) {
+            self.advance();
+        }
+        let mut is_float = false;
+        if !self.at_end() && self.ch() == char.DOT && char.is_digit(self.peek()) {
+            is_float = true;
+            self.advance(); // .
+            while !self.at_end() && char.is_digit(self.ch()) {
+                self.advance();
+            }
+        }
+        if is_float {
+            self.emit(TokenKind.FloatLiteral);
+        } else {
+            self.emit(TokenKind.IntLiteral);
+        }
+    }
+
+    fn scan_ident(self) -> Void {
+        while !self.at_end()
+            && (char.is_alphanumeric(self.ch()) || self.ch() == char.UNDERSCORE) {
+            self.advance();
+        }
+        let span = self.span_from(self.ts_offset, self.ts_line, self.ts_col);
+        let text = span.text();
+        if text == "_" {
+            self.tokens.push(Token {
+                kind: TokenKind.Underscore,
+                span: span,
+                value: Option.None,
+            });
+            return;
+        }
+        match keyword_kind(text) {
+            Some(k) => {
+                self.tokens.push(Token { kind: k, span: span, value: Option.None });
+            },
+            None => {
+                self.tokens.push(Token {
+                    kind: TokenKind.Identifier,
+                    span: span,
+                    value: Option.Some(text),
+                });
+            },
+        }
+    }
+}
+
+// True if code point `cp` is the single ASCII character `letter`. Used for the
+// handful of letters std.char has no named constant for (`x`, escape letters).
+fn is_letter(_ cp: Int, _ letter: String) -> Bool {
+    return String.from_chars([cp]) == letter;
+}

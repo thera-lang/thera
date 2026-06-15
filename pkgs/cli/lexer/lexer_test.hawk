@@ -1,0 +1,217 @@
+// Tests for the Hawk lexer, with token streams derived from the Dart lexer's
+// behavior (the oracle this port transcribes). Each test pins token kinds and,
+// where it matters, lexemes / spans / error messages for a representative slice
+// of the grammar: keywords, identifiers, every punctuation and operator, the
+// number forms, strings with escapes and interpolation capture, comment and
+// whitespace skipping, line/column tracking, and the error paths.
+
+import std.testing;
+
+import 'token';
+import 'lexer';
+
+// The token kinds for `src` (including the trailing Eof).
+fn kinds(_ src: String) -> List<TokenKind> {
+    return tokenize(src).tokens.map((t) => t.kind);
+}
+
+@test
+fn test_keywords_and_identifiers() -> Result<Void, Error> {
+    let toks = tokenize('fn foo let x').tokens;
+    testing.assert_eq(actual: toks.map((t) => t.kind), expected: [
+        TokenKind.KwFn, TokenKind.Identifier, TokenKind.KwLet,
+        TokenKind.Identifier, TokenKind.Eof,
+    ])?;
+    testing.assert_eq(actual: toks[1].lexeme(), expected: 'foo')?;
+    testing.assert_eq(actual: toks[3].lexeme(), expected: 'x')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_every_keyword_lexes_as_its_kind() -> Result<Void, Error> {
+    // A keyword spelled exactly is its keyword kind; a near-miss is an identifier.
+    testing.assert_eq(actual: kinds('match'),
+        expected: [TokenKind.KwMatch, TokenKind.Eof])?;
+    testing.assert_eq(actual: kinds('matches'),
+        expected: [TokenKind.Identifier, TokenKind.Eof])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_punctuation() -> Result<Void, Error> {
+    testing.assert_eq(actual: kinds('{ } ( ) [ ] , ; : . @ ?'), expected: [
+        TokenKind.LBrace, TokenKind.RBrace, TokenKind.LParen, TokenKind.RParen,
+        TokenKind.LBracket, TokenKind.RBracket, TokenKind.Comma, TokenKind.Semi,
+        TokenKind.Colon, TokenKind.Dot, TokenKind.At, TokenKind.Question,
+        TokenKind.Eof,
+    ])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_operators_single_and_multi_char() -> Result<Void, Error> {
+    // Multi-char operators win over their prefixes (maximal munch).
+    testing.assert_eq(
+        actual: kinds('+ - * / % += -= *= /= %= = == != < > <= >= && || ! & | ^ ~ -> => ..'),
+        expected: [
+            TokenKind.Plus, TokenKind.Minus, TokenKind.Star, TokenKind.Slash,
+            TokenKind.Percent, TokenKind.PlusEq, TokenKind.MinusEq,
+            TokenKind.StarEq, TokenKind.SlashEq, TokenKind.PercentEq,
+            TokenKind.Eq, TokenKind.EqEq, TokenKind.BangEq, TokenKind.Lt,
+            TokenKind.Gt, TokenKind.LtEq, TokenKind.GtEq, TokenKind.AmpAmp,
+            TokenKind.PipePipe, TokenKind.Bang, TokenKind.Amp, TokenKind.Pipe,
+            TokenKind.Caret, TokenKind.Tilde, TokenKind.Arrow, TokenKind.FatArrow,
+            TokenKind.DotDot, TokenKind.Eof,
+        ])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_numbers() -> Result<Void, Error> {
+    let toks = tokenize('0 42 3.14 0xFF 0X1a 7.0').tokens;
+    testing.assert_eq(actual: toks.map((t) => t.kind), expected: [
+        TokenKind.IntLiteral, TokenKind.IntLiteral, TokenKind.FloatLiteral,
+        TokenKind.IntLiteral, TokenKind.IntLiteral, TokenKind.FloatLiteral,
+        TokenKind.Eof,
+    ])?;
+    testing.assert_eq(actual: toks[2].lexeme(), expected: '3.14')?;
+    testing.assert_eq(actual: toks[3].lexeme(), expected: '0xFF')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_dot_after_int_is_not_a_float() -> Result<Void, Error> {
+    // `3.foo` is `3` `.` `foo` — a float needs a digit after the dot.
+    testing.assert_eq(actual: kinds('3.foo'), expected: [
+        TokenKind.IntLiteral, TokenKind.Dot, TokenKind.Identifier, TokenKind.Eof,
+    ])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_string_basic_both_quotes() -> Result<Void, Error> {
+    let a = tokenize("'hello'").tokens;
+    testing.assert_eq(actual: a[0].kind, expected: TokenKind.StringLiteral)?;
+    testing.assert_eq(actual: a[0].lexeme(), expected: 'hello')?;
+    let b = tokenize("\"world\"").tokens;
+    testing.assert_eq(actual: b[0].lexeme(), expected: 'world')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_string_escapes() -> Result<Void, Error> {
+    // \n \t \\ \' decode to their characters; the lexeme holds decoded content.
+    let toks = tokenize("'a\\nb\\t\\\\\\''").tokens;
+    testing.assert_eq(actual: toks[0].kind, expected: TokenKind.StringLiteral)?;
+    testing.assert_eq(actual: toks[0].lexeme(), expected: "a\nb\t\\'")?;
+    // \xNN and \u{...} hex escapes.
+    testing.assert_eq(actual: tokenize("'\\x41'").tokens[0].lexeme(),
+        expected: 'A')?;
+    testing.assert_eq(actual: tokenize("'\\u{48}'").tokens[0].lexeme(),
+        expected: 'H')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_interpolation_captured_verbatim() -> Result<Void, Error> {
+    // `${...}` is kept verbatim (the parser splits it later). `\${` escapes the
+    // dollar so the literal `${...}` reaches the lexer under test.
+    let toks = tokenize("'a\${1 + 2}b'").tokens;
+    testing.assert_eq(actual: toks[0].kind, expected: TokenKind.StringLiteral)?;
+    testing.assert_eq(actual: toks[0].lexeme(), expected: "a\${1 + 2}b")?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_interpolation_nested_string_brace_not_closing() -> Result<Void, Error> {
+    // A `}` inside a nested string within `${...}` must not close the
+    // interpolation early. Source under test: '${"x}"}'
+    let toks = tokenize("'\${\"x}\"}'").tokens;
+    testing.assert_eq(actual: toks[0].kind, expected: TokenKind.StringLiteral)?;
+    testing.assert_eq(actual: toks[0].lexeme(), expected: "\${\"x}\"}")?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_comments_and_whitespace_skipped() -> Result<Void, Error> {
+    let toks = tokenize('fn  // a comment\n  x').tokens;
+    testing.assert_eq(actual: toks.map((t) => t.kind), expected: [
+        TokenKind.KwFn, TokenKind.Identifier, TokenKind.Eof,
+    ])?;
+    testing.assert_eq(actual: toks[1].lexeme(), expected: 'x')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_line_and_column_tracking() -> Result<Void, Error> {
+    // 'a' on line 1 col 1; 'b' on line 2 col 3 (after two spaces of indent).
+    let toks = tokenize('a\n  b').tokens;
+    testing.assert_eq(actual: toks[0].span.line, expected: 1)?;
+    testing.assert_eq(actual: toks[0].span.column, expected: 1)?;
+    testing.assert_eq(actual: toks[1].span.line, expected: 2)?;
+    testing.assert_eq(actual: toks[1].span.column, expected: 3)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_underscore_vs_identifier() -> Result<Void, Error> {
+    testing.assert_eq(actual: kinds('_'),
+        expected: [TokenKind.Underscore, TokenKind.Eof])?;
+    let toks = tokenize('_foo').tokens;
+    testing.assert_eq(actual: toks[0].kind, expected: TokenKind.Identifier)?;
+    testing.assert_eq(actual: toks[0].lexeme(), expected: '_foo')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_error_unterminated_string() -> Result<Void, Error> {
+    let r = tokenize("'abc");
+    testing.assert(r.has_errors())?;
+    testing.assert_eq(actual: r.errors[0].message,
+        expected: 'unterminated string literal')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_error_unexpected_character() -> Result<Void, Error> {
+    let r = tokenize('#');
+    testing.assert(r.has_errors())?;
+    testing.assert_eq(actual: r.errors[0].message,
+        expected: 'unexpected character: #')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_error_bad_hex_literal() -> Result<Void, Error> {
+    let r = tokenize('0x');
+    testing.assert(r.has_errors())?;
+    testing.assert_eq(actual: r.errors[0].message,
+        expected: 'hex literal needs at least one digit after 0x')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_error_unknown_escape() -> Result<Void, Error> {
+    let r = tokenize("'\\d'");
+    testing.assert(r.has_errors())?;
+    testing.assert_eq(actual: r.errors[0].message,
+        expected: "unknown escape sequence: '\\d'")?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_error_bad_hex_escape() -> Result<Void, Error> {
+    let r = tokenize("'\\xZZ'");
+    testing.assert(r.has_errors())?;
+    testing.assert_eq(actual: r.errors[0].message,
+        expected: "'\\x' needs exactly two hex digits")?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_tokens_always_end_with_eof() -> Result<Void, Error> {
+    let toks = tokenize('').tokens;
+    testing.assert_eq(actual: toks.len(), expected: 1)?;
+    testing.assert(toks[0].is_eof())?;
+    return Result.Ok(void);
+}

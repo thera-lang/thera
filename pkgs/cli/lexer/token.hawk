@@ -1,0 +1,173 @@
+// The token model — the Hawk mirror of the Dart toolchain's token.dart:
+// the token kinds, the keyword table, source spans, and the Token itself.
+//
+// Variants are listed in the same order as the Dart `TokenKind` enum so the two
+// stay easy to diff. Spans are code-point based (Hawk strings index by code
+// point), which matches the Dart code-unit spans for ASCII source — the common
+// case for Hawk programs.
+
+pub enum TokenKind {
+    // Literals
+    IntLiteral,
+    FloatLiteral,
+    StringLiteral, // raw content between quotes; may contain ${...} segments
+
+    // Keywords
+    KwAs,
+    KwConst,
+    KwElse,
+    KwEnum,
+    KwFalse,
+    KwFn,
+    KwFor,
+    KwIf,
+    KwImpl,
+    KwImport,
+    KwIn,
+    KwInterface,
+    KwLet,
+    KwMatch,
+    KwMut,
+    KwNative,
+    KwPub,
+    KwReturn,
+    KwSelf,
+    KwThrow,
+    KwTrue,
+    KwType,
+    KwVoid, // the unit value (the `Void` type's single value)
+    KwWhile,
+
+    // Identifiers (type names, Ok, Err, Some, None, user names, etc.)
+    Identifier,
+
+    // Punctuation
+    LBrace,     // {
+    RBrace,     // }
+    LParen,     // (
+    RParen,     // )
+    LBracket,   // [
+    RBracket,   // ]
+    Comma,      // ,
+    Semi,       // ;
+    Colon,      // :
+    Dot,        // .
+    DotDot,     // ..
+    Arrow,      // ->
+    FatArrow,   // =>
+    Question,   // ?
+    At,         // @
+    Underscore, // _  (label suppressor and wildcard pattern)
+
+    // Operators
+    Plus,      // +
+    Minus,     // -
+    Star,      // *
+    Slash,     // /
+    Percent,   // %
+    PlusEq,    // +=
+    MinusEq,   // -=
+    StarEq,    // *=
+    SlashEq,   // /=
+    PercentEq, // %=
+    Eq,        // =
+    EqEq,      // ==
+    BangEq,    // !=
+    Lt,        // <
+    Gt,        // >
+    LtEq,      // <=
+    GtEq,      // >=
+    AmpAmp,    // &&
+    PipePipe,  // ||
+    Bang,      // !
+    Amp,       // &  (bitwise and)
+    Pipe,      // |  (bitwise or)
+    Caret,     // ^  (bitwise xor)
+    Tilde,     // ~  (bitwise complement)
+    // Note: the shift operators << >> >>> are not tokens; the parser combines
+    // adjacent `Lt`/`Gt` tokens, leaving nested generics (`List<List<Int>>`) to
+    // close with single `>` tokens.
+
+    // Special
+    Eof,
+}
+
+// The reserved keyword for `text`, or None for an ordinary identifier. Mirrors
+// the Dart `_keywords` table (kept in the same order).
+pub fn keyword_kind(_ text: String) -> Option<TokenKind> {
+    return match text {
+        'as' => Option.Some(TokenKind.KwAs),
+        'const' => Option.Some(TokenKind.KwConst),
+        'else' => Option.Some(TokenKind.KwElse),
+        'enum' => Option.Some(TokenKind.KwEnum),
+        'false' => Option.Some(TokenKind.KwFalse),
+        'fn' => Option.Some(TokenKind.KwFn),
+        'for' => Option.Some(TokenKind.KwFor),
+        'if' => Option.Some(TokenKind.KwIf),
+        'impl' => Option.Some(TokenKind.KwImpl),
+        'import' => Option.Some(TokenKind.KwImport),
+        'in' => Option.Some(TokenKind.KwIn),
+        'interface' => Option.Some(TokenKind.KwInterface),
+        'let' => Option.Some(TokenKind.KwLet),
+        'match' => Option.Some(TokenKind.KwMatch),
+        'mut' => Option.Some(TokenKind.KwMut),
+        'native' => Option.Some(TokenKind.KwNative),
+        'pub' => Option.Some(TokenKind.KwPub),
+        'return' => Option.Some(TokenKind.KwReturn),
+        'self' => Option.Some(TokenKind.KwSelf),
+        'throw' => Option.Some(TokenKind.KwThrow),
+        'true' => Option.Some(TokenKind.KwTrue),
+        'type' => Option.Some(TokenKind.KwType),
+        'void' => Option.Some(TokenKind.KwVoid),
+        'while' => Option.Some(TokenKind.KwWhile),
+        _ => Option.None,
+    };
+}
+
+// A region of source: the originating text plus the code-point offset, length,
+// and the 1-based (line, column) of its start.
+pub type SourceSpan = {
+    source: String,
+    offset: Int,
+    length: Int,
+    line: Int,
+    column: Int,
+}
+
+impl SourceSpan {
+    // The slice of `source` this span covers.
+    pub fn text(self) -> String {
+        return self.source.slice(self.offset, self.offset + self.length);
+    }
+}
+
+impl Display for SourceSpan {
+    pub fn display(self) -> String {
+        return '${self.line}:${self.column}';
+    }
+}
+
+// A lexical token: its kind, its source span, and (for string literals and
+// identifiers) its content. Other kinds carry no value — use `lexeme`/`span`.
+pub type Token = {
+    kind: TokenKind,
+    span: SourceSpan,
+    // String-literal content (with ${...} kept verbatim) or identifier text;
+    // None for every other kind.
+    value: Option<String>,
+}
+
+impl Token {
+    // The token's text: its stored value, or the spanned source for kinds that
+    // carry none.
+    pub fn lexeme(self) -> String {
+        return match self.value {
+            Some(v) => v,
+            None => self.span.text(),
+        };
+    }
+
+    pub fn is_eof(self) -> Bool {
+        return self.kind == TokenKind.Eof;
+    }
+}

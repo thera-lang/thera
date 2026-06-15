@@ -72,3 +72,20 @@ fn test_digit_value() -> Result<Void, Error> {
     testing.assert_eq(actual: digit_value(SPACE), expected: Option.None)?;
     return Result.Ok(void);
 }
+
+@test
+fn test_hex_digit_value() -> Result<Void, Error> {
+    testing.assert_eq(actual: hex_digit_value(DIGIT_0), expected: Option.Some(0))?;
+    testing.assert_eq(actual: hex_digit_value(DIGIT_9), expected: Option.Some(9))?;
+    testing.assert_eq(actual: hex_digit_value(UPPER_A), expected: Option.Some(10))?;
+    testing.assert_eq(actual: hex_digit_value(UPPER_A + 5), // 'F'
+        expected: Option.Some(15))?;
+    testing.assert_eq(actual: hex_digit_value(LOWER_A), expected: Option.Some(10))?;
+    testing.assert_eq(actual: hex_digit_value(LOWER_A + 5), // 'f'
+        expected: Option.Some(15))?;
+    // 'g' and 'G' are past the hex range; SPACE is not a digit.
+    testing.assert_eq(actual: hex_digit_value(LOWER_A + 6), expected: Option.None)?;
+    testing.assert_eq(actual: hex_digit_value(UPPER_A + 6), expected: Option.None)?;
+    testing.assert_eq(actual: hex_digit_value(SPACE), expected: Option.None)?;
+    return Result.Ok(void);
+}
