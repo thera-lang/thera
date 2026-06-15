@@ -125,14 +125,14 @@ pub fn is_assignable(_ source: Type, _ target: Type,
                                 if sdef.kind == TypeDefKind.Interface
                                     && str_list_has(sdef.super_interfaces, tname) {
                                     return true;
-                                }
+                                };
                             },
                             None => {},
                         }
                     },
                     _ => {},
                 }
-            }
+            };
         },
         _ => {},
     }
@@ -232,7 +232,7 @@ pub fn unify(_ param: Type, _ actual: Type, _ bindings: Map<String, Type>) -> Vo
             };
             if !is_unknown && !bindings.has(name) {
                 bindings[name] = actual;
-            }
+            };
         },
         Interface(_, pargs) => {
             match actual {
@@ -243,7 +243,7 @@ pub fn unify(_ param: Type, _ actual: Type, _ bindings: Map<String, Type>) -> Vo
                             unify(pargs[i], aargs[i], bindings);
                             i = i + 1;
                         }
-                    }
+                    };
                 },
                 _ => {},
             }
@@ -258,7 +258,7 @@ pub fn unify(_ param: Type, _ actual: Type, _ bindings: Map<String, Type>) -> Vo
                             i = i + 1;
                         }
                         unify(pret, aret, bindings);
-                    }
+                    };
                 },
                 _ => {},
             }
