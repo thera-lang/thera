@@ -1,0 +1,77 @@
+// Smoke tests for the AST data model: that the mutually-recursive enums/structs
+// construct, and that the derived structural Eq/Debug compare a whole tree —
+// the property the parser port relies on to diff its output (`assert_eq` over a
+// deep Program). Real parser-output assertions arrive with the parser.
+
+import std.testing;
+
+import '../lexer/token';
+import 'ast';
+
+// A throwaway span for hand-built nodes (structural equality over a tree built
+// with the same span makes spans drop out of the comparison).
+fn sp() -> SourceSpan {
+    return SourceSpan { source: '', offset: 0, length: 0, line: 1, column: 1 };
+}
+
+// `fn main() -> Int { return 0; }` as a hand-built Program — exercises Decl →
+// FnDecl → Block → Stmt → Expr → TypeRef nesting in one tree.
+fn sample(_ ret: Int) -> Program {
+    return Program {
+        decls: [
+            Decl.Fn(FnDecl {
+                span: sp(),
+                decorators: [],
+                is_pub: false,
+                is_native: false,
+                name: 'main',
+                name_span: sp(),
+                type_params: [],
+                params: [],
+                return_type: Option.Some(TypeRef.Named(NamedType {
+                    span: sp(),
+                    name: 'Int',
+                    args: [],
+                    namespace: Option.None,
+                })),
+                body: Option.Some(Block {
+                    start_span: sp(),
+                    end_span: sp(),
+                    stmts: [Stmt.Return(sp(), Option.Some(Expr.Int(sp(), ret)))],
+                    tail: Option.None,
+                }),
+            }),
+        ],
+        file_path: Option.None,
+    };
+}
+
+@test
+fn test_identical_trees_are_equal() -> Result<Void, Error> {
+    testing.assert_eq(actual: sample(0), expected: sample(0))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_differing_trees_are_unequal() -> Result<Void, Error> {
+    // A single deep leaf differs (the return value), so the whole tree differs.
+    testing.assert_ne(actual: sample(0), unexpected: sample(1))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_recursive_expr_and_pattern() -> Result<Void, Error> {
+    // A nested expression and a nested pattern both round-trip through equality,
+    // exercising the directly-recursive enum arms (Binary holds Expr; Constructor
+    // holds List<Pattern>).
+    let e = Expr.Binary(sp(), Expr.Int(sp(), 1), '+', Expr.Int(sp(), 2));
+    testing.assert_eq(actual: e,
+        expected: Expr.Binary(sp(), Expr.Int(sp(), 1), '+', Expr.Int(sp(), 2)))?;
+    testing.assert_ne(actual: e,
+        unexpected: Expr.Binary(sp(), Expr.Int(sp(), 1), '-', Expr.Int(sp(), 2)))?;
+
+    let p = Pattern.Constructor(sp(), 'Some', [Pattern.Ident(sp(), 'x')]);
+    testing.assert_eq(actual: p,
+        expected: Pattern.Constructor(sp(), 'Some', [Pattern.Ident(sp(), 'x')]))?;
+    return Result.Ok(void);
+}

@@ -1,0 +1,331 @@
+// The abstract syntax tree — the Hawk mirror of the Dart toolchain's ast.dart.
+//
+// Dart's sealed class hierarchies (Decl / Stmt / Expr / TypeRef / Pattern /
+// StringPart) become one Hawk `enum` per base, with each node a variant. Nodes
+// with several fields carry a named payload struct; small nodes carry their
+// fields positionally. Dart's record fields (`List<(String, TypeRef)>`, …)
+// become small named structs (`FieldDef`, `MapEntry`, `FieldInit`).
+//
+// Every node carries a `SourceSpan` (the incremental/IDE guardrail). The
+// inference pass's mutable `resolvedType` annotations are deferred — the parser
+// produces a pure tree, and how a later phase attaches types is its own design
+// question. The enums/structs derive structural Eq/Debug, so a parsed tree can
+// be compared with `assert_eq` (the diff-against-Dart approach the port uses).
+//
+// `type` is a reserved word, so fields Dart names `type` are `type_ann` here.
+
+import '../lexer/token'; // SourceSpan
+
+// --- Top level ---
+
+pub type Program = {
+    decls: List<Decl>,
+    // Set by the loader after parsing; the parser leaves it None.
+    file_path: Option<String>,
+}
+
+// --- Declarations ---
+
+pub enum Decl {
+    Import(ImportDecl),
+    Fn(FnDecl),
+    Type(TypeDecl),
+    Impl(ImplDecl),
+    Interface(InterfaceDecl),
+    Const(ConstDecl),
+    Enum(EnumDecl),
+}
+
+pub type ImportDecl = {
+    span: SourceSpan,
+    path: String, // e.g. 'std.fs' or 'wordcount'
+    alias: Option<String>,
+    is_pub: Bool, // `pub import` re-exports the target's public symbols
+}
+
+pub type FnDecl = {
+    span: SourceSpan,
+    decorators: List<Decorator>,
+    is_pub: Bool,
+    is_native: Bool,
+    name: String,
+    name_span: SourceSpan,
+    type_params: List<TypeParam>,
+    params: List<Param>,
+    return_type: Option<TypeRef>,
+    body: Option<Block>, // None for a native fn
+}
+
+pub type TypeDecl = {
+    span: SourceSpan,
+    is_pub: Bool,
+    name: String,
+    name_span: SourceSpan,
+    type_params: List<TypeParam>,
+    fields: List<FieldDef>,
+}
+
+// A struct field: a name and its declared type.
+pub type FieldDef = {
+    name: String,
+    type_ann: TypeRef,
+}
+
+pub type ImplDecl = {
+    span: SourceSpan,
+    type_name: String,
+    name_span: SourceSpan, // span of type_name
+    type_params: List<TypeParam>,
+    interface_name: Option<String>, // None = inherent impl
+    // The interface's type args, e.g. <Int> in `impl Iterator<Int> for RangeIter`.
+    interface_args: List<TypeRef>,
+    methods: List<FnDecl>,
+}
+
+pub type InterfaceDecl = {
+    span: SourceSpan,
+    is_pub: Bool,
+    name: String,
+    name_span: SourceSpan,
+    type_params: List<TypeParam>,
+    super_interfaces: List<String>, // extended interfaces, e.g. Display + Debug
+    methods: List<FnDecl>,
+}
+
+pub type ConstDecl = {
+    span: SourceSpan,
+    is_pub: Bool,
+    name: String,
+    name_span: SourceSpan,
+    type_ann: Option<TypeRef>,
+    value: Expr,
+}
+
+pub type EnumDecl = {
+    span: SourceSpan,
+    is_pub: Bool,
+    name: String,
+    name_span: SourceSpan,
+    type_params: List<TypeParam>,
+    variants: List<EnumVariant>,
+}
+
+pub type EnumVariant = {
+    span: SourceSpan,
+    name: String,
+    name_span: SourceSpan,
+    fields: List<TypeRef>, // positional payload types; empty = no payload
+}
+
+// --- Helpers attached to declarations ---
+
+pub type Decorator = {
+    span: SourceSpan,
+    name: String,
+    args: List<Expr>,
+}
+
+pub type TypeParam = {
+    span: SourceSpan,
+    name: String,
+    bounds: List<String>, // e.g. ['Eq', 'Debug']
+}
+
+pub type Param = {
+    span: SourceSpan,
+    // External label: None means suppressed (`_`); Some(name) when no separate
+    // label was given (label == name); Some(other) for a distinct external label.
+    label: Option<String>,
+    is_self: Bool,
+    name: String,
+    name_span: SourceSpan,
+    type_ann: Option<TypeRef>,
+    default_value: Option<Expr>,
+}
+
+// --- Type references ---
+
+pub enum TypeRef {
+    Named(NamedType),
+    Function(FunctionType),
+}
+
+pub type NamedType = {
+    span: SourceSpan,
+    name: String,
+    args: List<TypeRef>,
+    // The import namespace a qualified reference was written with (`time` in
+    // `time.Clock`), or None for a bare name. Resolution is by `name` alone; the
+    // qualifier is carried for diagnostics.
+    namespace: Option<String>,
+}
+
+// A function type, e.g. `(Int, String) -> Bool` or `() -> Int`.
+pub type FunctionType = {
+    span: SourceSpan,
+    params: List<TypeRef>,
+    return_type: TypeRef,
+}
+
+// --- Statements ---
+
+pub enum Stmt {
+    Let(LetStmt),
+    Return(SourceSpan, Option<Expr>),
+    Throw(SourceSpan, Expr),
+    Expr(SourceSpan, Expr),
+    Assign(SourceSpan, Expr, Expr), // target (Ident/Field/Index), value
+    If(IfStmt),
+    For(ForStmt),
+    While(WhileStmt),
+}
+
+pub type LetStmt = {
+    span: SourceSpan,
+    is_mut: Bool,
+    name: String,
+    name_span: SourceSpan,
+    type_ann: Option<TypeRef>,
+    value: Expr,
+}
+
+pub type IfStmt = {
+    span: SourceSpan,
+    condition: Expr,
+    then_block: Block,
+    else_block: Option<Block>,
+}
+
+pub type ForStmt = {
+    span: SourceSpan,
+    pattern: Pattern,
+    iterable: Expr,
+    body: Block,
+}
+
+pub type WhileStmt = {
+    span: SourceSpan,
+    condition: Expr,
+    body: Block,
+}
+
+pub type Block = {
+    start_span: SourceSpan,
+    end_span: SourceSpan,
+    stmts: List<Stmt>,
+    // The block's tail expression: a final expression with no trailing `;` whose
+    // value is the block's value. Populated only for blocks parsed in expression
+    // position (a BlockExpr or a `{…}` match arm); None for statement-position
+    // blocks (fn/if/while/for bodies). See docs/tailexpr.md.
+    tail: Option<Expr>,
+}
+
+// --- Patterns ---
+
+pub enum Pattern {
+    Wildcard(SourceSpan),
+    Ident(SourceSpan, String),
+    Constructor(SourceSpan, String, List<Pattern>),
+    Literal(SourceSpan, Expr),
+}
+
+// --- Expressions ---
+
+pub enum Expr {
+    Int(SourceSpan, Int),
+    Float(SourceSpan, Double),
+    Bool(SourceSpan, Bool),
+    Unit(SourceSpan), // the unit value `void`
+    Str(SourceSpan, List<StringPart>),
+    ListLit(SourceSpan, List<Expr>),
+    MapLit(SourceSpan, List<MapEntry>),
+    Struct(StructExpr),
+    Ident(SourceSpan, String),
+    Call(CallExpr),
+    Field(SourceSpan, Expr, String), // object, field name
+    Index(SourceSpan, Expr, Expr), // object, index
+    Binary(SourceSpan, Expr, String, Expr), // left, op, right
+    Unary(SourceSpan, String, Expr), // op, operand
+    Propagate(SourceSpan, Expr), // inner?
+    Range(SourceSpan, Expr, Expr), // start..end
+    Match(MatchExpr),
+    Lambda(LambdaExpr),
+    Block(SourceSpan, Block),
+    If(IfExpr),
+    Return(SourceSpan, Option<Expr>),
+    Throw(SourceSpan, Expr),
+}
+
+// A string literal's segments: literal text and `${...}` interpolations.
+pub enum StringPart {
+    Text(SourceSpan, String),
+    Interp(SourceSpan, Expr),
+}
+
+pub type MapEntry = {
+    key: Expr,
+    value: Expr,
+}
+
+pub type StructExpr = {
+    span: SourceSpan,
+    type_name: String,
+    fields: List<FieldInit>,
+}
+
+// A struct-literal field initializer: `name: value`.
+pub type FieldInit = {
+    name: String,
+    value: Expr,
+}
+
+pub type CallExpr = {
+    span: SourceSpan,
+    callee: Expr,
+    type_args: List<TypeRef>,
+    args: List<CallArg>,
+}
+
+pub type CallArg = {
+    span: SourceSpan,
+    label: Option<String>,
+    value: Expr,
+}
+
+pub type MatchExpr = {
+    span: SourceSpan,
+    subject: Expr,
+    arms: List<MatchArm>,
+}
+
+pub type MatchArm = {
+    span: SourceSpan,
+    pattern: Pattern,
+    body: Expr,
+}
+
+// A single lambda parameter: a name with an optional type annotation (None when
+// omitted, to be filled by inference from context).
+pub type LambdaParam = {
+    span: SourceSpan,
+    name: String,
+    type_ann: Option<TypeRef>,
+}
+
+pub type LambdaExpr = {
+    span: SourceSpan,
+    params: List<LambdaParam>,
+    body: Expr,
+}
+
+// `if` in expression position — its value is the chosen branch's value. Distinct
+// from the statement-position `Stmt.If`. `else_block` is required where the value
+// is used (enforced in the parser/checker) and optional for a discarded
+// statement `if`. An `else if` chain is the else block's tail. See
+// docs/tailexpr.md.
+pub type IfExpr = {
+    span: SourceSpan,
+    condition: Expr,
+    then_block: Block,
+    else_block: Option<Block>,
+}
