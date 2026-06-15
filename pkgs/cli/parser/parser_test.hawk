@@ -1,0 +1,169 @@
+// Tests for the parser. Expressions are checked by rendering the parsed tree
+// with `describe_expr` (the canonical span-free form, matching Dart's
+// `Expr.describe()`); declarations and error recovery are checked structurally.
+
+import std.testing;
+
+import '../lexer/token';
+import '../lexer/lexer';
+import '../ast/ast';
+import '../ast/describe';
+import 'parser';
+
+// Parse `src` as a single expression and render it canonically.
+fn expr_str(_ src: String) -> String {
+    return describe_expr(parse_expression(tokenize(src).tokens));
+}
+
+fn parse_src(_ src: String) -> ParseResult {
+    return parse(tokenize(src).tokens);
+}
+
+fn decl_name(_ d: Decl) -> String {
+    return match d {
+        Import(x) => x.path,
+        Fn(x) => x.name,
+        Type(x) => x.name,
+        Impl(x) => x.type_name,
+        Interface(x) => x.name,
+        Const(x) => x.name,
+        Enum(x) => x.name,
+    };
+}
+
+@test
+fn test_arithmetic_precedence() -> Result<Void, Error> {
+    testing.assert_eq(actual: expr_str('1 + 2 * 3'), expected: '(1 + (2 * 3))')?;
+    testing.assert_eq(actual: expr_str('1 * 2 + 3'), expected: '((1 * 2) + 3)')?;
+    testing.assert_eq(actual: expr_str('(1 + 2) * 3'), expected: '((1 + 2) * 3)')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_logical_and_bitwise_precedence() -> Result<Void, Error> {
+    testing.assert_eq(actual: expr_str('a || b && c'),
+        expected: '(a || (b && c))')?;
+    // C-family bitwise: | looser than ^ looser than &, all looser than equality
+    // (the classic C gotcha: `&` binds looser than `==`).
+    testing.assert_eq(actual: expr_str('1 | 2 ^ 3 & 4'),
+        expected: '(1 | (2 ^ (3 & 4)))')?;
+    testing.assert_eq(actual: expr_str('a == b & c'),
+        expected: '((a == b) & c)')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_unary_and_shift() -> Result<Void, Error> {
+    testing.assert_eq(actual: expr_str('-x'), expected: '(-x)')?;
+    testing.assert_eq(actual: expr_str('!a'), expected: '(!a)')?;
+    testing.assert_eq(actual: expr_str('~b'), expected: '(~b)')?;
+    // Adjacent `<`/`>` combine into shift operators.
+    testing.assert_eq(actual: expr_str('1 << 2'), expected: '(1 << 2)')?;
+    testing.assert_eq(actual: expr_str('a >> b >>> c'),
+        expected: '((a >> b) >>> c)')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_postfix_chains() -> Result<Void, Error> {
+    testing.assert_eq(actual: expr_str('a.b.c'), expected: 'a.b.c')?;
+    testing.assert_eq(actual: expr_str('f(a, b)'), expected: 'f(a, b)')?;
+    testing.assert_eq(actual: expr_str('obj.method(x)'),
+        expected: 'obj.method(x)')?;
+    testing.assert_eq(actual: expr_str('xs[0]'), expected: 'xs[0]')?;
+    testing.assert_eq(actual: expr_str('compute()?'), expected: 'compute()?')?;
+    // A labeled call argument and a generic call.
+    testing.assert_eq(actual: expr_str('f(x: 1, y: 2)'),
+        expected: 'f(x: 1, y: 2)')?;
+    testing.assert_eq(actual: expr_str('parse<Int>(s)'),
+        expected: 'parse<Int>(s)')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_range() -> Result<Void, Error> {
+    testing.assert_eq(actual: expr_str('0..n'), expected: '0..n')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_collections_and_struct() -> Result<Void, Error> {
+    testing.assert_eq(actual: expr_str('[1, 2, 3]'), expected: '[1, 2, 3]')?;
+    testing.assert_eq(actual: expr_str("{'a': 1, 'b': 2}"),
+        expected: '{"a": 1, "b": 2}')?;
+    testing.assert_eq(actual: expr_str('Point { x: 1, y: 2 }'),
+        expected: 'Point { x: 1, y: 2 }')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_lambdas() -> Result<Void, Error> {
+    testing.assert_eq(actual: expr_str('n => n + 1'),
+        expected: 'n => (n + 1)')?;
+    testing.assert_eq(actual: expr_str('(a, b) => a'), expected: '(a, b) => a')?;
+    testing.assert_eq(actual: expr_str('(a: Int) => a'),
+        expected: '(a: Int) => a')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_match_and_if_expr() -> Result<Void, Error> {
+    testing.assert_eq(actual: expr_str('match x { Some(n) => n, None => 0 }'),
+        expected: 'match x { Some(n) => n, None => 0 }')?;
+    testing.assert_eq(actual: expr_str('if a { 1 } else { 2 }'),
+        expected: 'if a {...} else {...}')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_string_interpolation() -> Result<Void, Error> {
+    // The text/interp segments split; the interpolated expression is parsed.
+    testing.assert_eq(actual: expr_str("'a' + 'b'"),
+        expected: '("a" + "b")')?;
+    let parsed = expr_str("'n = ${1 + 2}!'");
+    testing.assert_eq(actual: parsed, expected: '"n = ${(1 + 2)}!"')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_hex_literal_value() -> Result<Void, Error> {
+    // 0xFF parses to 255; the describe form is just the decimal value.
+    testing.assert_eq(actual: expr_str('0xFF'), expected: '255')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_parse_function_program() -> Result<Void, Error> {
+    let r = parse_src('fn main() -> Int { return 1 + 2; }');
+    testing.assert(!r.has_errors(), message: 'unexpected parse errors')?;
+    testing.assert_eq(actual: r.program.decls.len(), expected: 1)?;
+    testing.assert_eq(actual: decl_name(r.program.decls[0]), expected: 'main')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_parse_each_declaration_kind() -> Result<Void, Error> {
+    let src = 'import std.io;\n'
+        + 'pub const MAX: Int = 10;\n'
+        + 'type Point = { x: Int, y: Int }\n'
+        + 'enum Color { Red, Green, Blue }\n'
+        + 'interface Shape { fn area(self) -> Double; }\n'
+        + 'fn area(_ s: Shape) -> Double { return s.area(); }\n'
+        + 'impl Point { pub fn origin() -> Point { return Point { x: 0, y: 0 }; } }';
+    let r = parse_src(src);
+    testing.assert(!r.has_errors(), message: 'unexpected parse errors')?;
+    testing.assert_eq(actual: r.program.decls.len(), expected: 7)?;
+    testing.assert_eq(actual: decl_name(r.program.decls[3]), expected: 'Color')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_error_recovery_skips_to_next_decl() -> Result<Void, Error> {
+    // The first declaration is malformed (no function name); the parser records
+    // an error, resyncs to the next `fn`, and parses the good one.
+    let r = parse_src('fn { } fn good() -> Int { return 1; }');
+    testing.assert(r.has_errors(), message: 'expected a parse error')?;
+    testing.assert_eq(actual: r.program.decls.len(), expected: 1)?;
+    testing.assert_eq(actual: decl_name(r.program.decls[0]), expected: 'good')?;
+    return Result.Ok(void);
+}

@@ -1,0 +1,1816 @@
+// The parser — the Hawk mirror of the Dart toolchain's parser.dart. A
+// recursive-descent parser with operator precedence, producing the AST.
+//
+// Two shape changes from Dart, both because Hawk lacks the control flow:
+//
+//  * Error recovery. Dart throws a `_ParseFail` sentinel from `_fail` and catches
+//    it at the single declaration boundary. Hawk has no exceptions, so this is a
+//    **panic flag**: `fail` records the error and sets `panicking`; the
+//    token-consuming primitives (`advance`/`match_kind`) and every parse loop
+//    short-circuit while it is set (so no tokens are consumed and no cascading
+//    errors are recorded during the unwind); methods return a throwaway node that
+//    the boundary discards. `parse_decl_or_recover` clears the flag and resyncs.
+//  * No `break`. Dart's comma-separated list loops `break` after a missing
+//    separator; here each carries a `going` flag the body clears instead.
+
+import std.char;
+
+import '../lexer/token';
+import '../lexer/lexer';
+import '../ast/ast';
+
+pub type ParseError = {
+    message: String,
+    span: SourceSpan,
+}
+
+impl Display for ParseError {
+    pub fn display(self) -> String {
+        return '${self.span}: ${self.message}';
+    }
+}
+
+pub type ParseResult = {
+    program: Program,
+    errors: List<ParseError>,
+}
+
+impl ParseResult {
+    pub fn has_errors(self) -> Bool {
+        return self.errors.len() != 0;
+    }
+}
+
+type Parser = {
+    tokens: List<Token>,
+    pos: Int,
+    errors: List<ParseError>,
+    panicking: Bool,
+}
+
+// Parse a token stream into a Program (plus any recovered errors).
+pub fn parse(_ tokens: List<Token>) -> ParseResult {
+    let p = Parser { tokens: tokens, pos: 0, errors: [], panicking: false };
+    return p.parse_program();
+}
+
+// Parse a single expression from a token stream — used for string-interpolation
+// segments (mirrors the Dart parser's internal `_parseExpr` re-entry).
+pub fn parse_expression(_ tokens: List<Token>) -> Expr {
+    let p = Parser { tokens: tokens, pos: 0, errors: [], panicking: false };
+    return p.parse_expr();
+}
+
+impl Parser {
+    fn parse_program(self) -> ParseResult {
+        let decls: List<Decl> = [];
+        while !self.at_end() {
+            match self.parse_decl_or_recover() {
+                Some(d) => {
+                    decls.push(d);
+                },
+                None => {},
+            }
+        }
+        return ParseResult {
+            program: Program { decls: decls, file_path: Option.None },
+            errors: self.errors,
+        };
+    }
+
+    // Parse one declaration, recovering on a parse error by syncing to the next
+    // declaration boundary (returning None for the failed one). The single
+    // recovery point: `fail` sets `panicking` from anywhere in the parse, and it
+    // is cleared only here.
+    fn parse_decl_or_recover(self) -> Option<Decl> {
+        let d = self.parse_decl();
+        if self.panicking {
+            self.panicking = false; // clear before syncing (sync consumes tokens)
+            self.sync_to_decl();
+            return Option.None;
+        }
+        return Option.Some(d);
+    }
+
+    // --- token navigation ---
+
+    fn at_end(self) -> Bool {
+        return self.current().is_eof();
+    }
+
+    fn current(self) -> Token {
+        return self.tokens[self.pos];
+    }
+
+    fn next_tok(self) -> Token {
+        if self.pos + 1 < self.tokens.len() {
+            return self.tokens[self.pos + 1];
+        }
+        return self.tokens[self.tokens.len() - 1];
+    }
+
+    // The token `n` positions ahead of the cursor (clamped to the last token).
+    fn peek_tok(self, _ n: Int) -> Token {
+        if self.pos + n < self.tokens.len() {
+            return self.tokens[self.pos + n];
+        }
+        return self.tokens[self.tokens.len() - 1];
+    }
+
+    fn advance(self) -> Token {
+        if self.panicking {
+            return self.current(); // frozen during recovery: consume nothing
+        }
+        let t = self.tokens[self.pos];
+        if !self.at_end() {
+            self.pos = self.pos + 1;
+        }
+        return t;
+    }
+
+    fn check(self, _ kind: TokenKind) -> Bool {
+        return self.current().kind == kind;
+    }
+
+    fn match_kind(self, _ kind: TokenKind) -> Bool {
+        if self.panicking {
+            return false;
+        }
+        if self.check(kind) {
+            self.advance();
+            return true;
+        }
+        return false;
+    }
+
+    fn expect(self, _ kind: TokenKind, _ description: String) -> Token {
+        if self.check(kind) {
+            return self.advance();
+        }
+        let t = self.current();
+        let found = if t.span.text() == '' {
+            'eof'
+        } else {
+            '"${t.span.text()}"'
+        };
+        self.fail('expected ${description}, found ${found}');
+        return self.current();
+    }
+
+    // Records an error and enters panic mode, to be unwound at the declaration
+    // boundary. Only the first error of a panic is recorded (mirroring the
+    // throw-unwind, which records once then stops parsing).
+    fn fail(self, _ message: String) -> Void {
+        self.fail_at(message, self.current().span);
+    }
+
+    fn fail_at(self, _ message: String, _ span: SourceSpan) -> Void {
+        if self.panicking {
+            return;
+        }
+        self.errors.push(ParseError { message: message, span: span });
+        self.panicking = true;
+    }
+
+    fn sync_to_decl(self) -> Void {
+        // Skip tokens until something that can start a top-level declaration.
+        while !self.at_end() && !self.starts_decl(self.current().kind) {
+            self.advance();
+        }
+    }
+
+    fn starts_decl(self, _ k: TokenKind) -> Bool {
+        return k == TokenKind.KwFn
+            || k == TokenKind.KwType
+            || k == TokenKind.KwImpl
+            || k == TokenKind.KwInterface
+            || k == TokenKind.KwImport
+            || k == TokenKind.KwNative
+            || k == TokenKind.KwPub
+            || k == TokenKind.KwConst
+            || k == TokenKind.KwEnum
+            || k == TokenKind.At;
+    }
+
+    fn prev_span(self) -> SourceSpan {
+        return self.tokens[self.pos - 1].span;
+    }
+
+    // --- throwaway nodes returned after `fail` (discarded at the boundary) ---
+
+    fn err_expr(self) -> Expr {
+        return Expr.Unit(self.current().span);
+    }
+
+    fn err_type(self) -> TypeRef {
+        return TypeRef.Named(NamedType {
+            span: self.current().span,
+            name: '',
+            args: [],
+            namespace: Option.None,
+        });
+    }
+
+    fn err_pattern(self) -> Pattern {
+        return Pattern.Wildcard(self.current().span);
+    }
+
+    fn err_decl(self) -> Decl {
+        return Decl.Import(ImportDecl {
+            span: self.current().span,
+            path: '',
+            alias: Option.None,
+            is_pub: false,
+        });
+    }
+
+    fn err_stmt(self) -> Stmt {
+        return Stmt.Expr(self.current().span, self.err_expr());
+    }
+
+    fn err_param(self) -> Param {
+        return Param {
+            span: self.current().span,
+            label: Option.None,
+            is_self: false,
+            name: '',
+            name_span: self.current().span,
+            type_ann: Option.None,
+            default_value: Option.None,
+        };
+    }
+
+    // --- declarations ---
+
+    fn parse_decl(self) -> Decl {
+        let decorators: List<Decorator> = [];
+        while !self.panicking && self.check(TokenKind.At) {
+            decorators.push(self.parse_decorator());
+        }
+
+        let pub_tok = self.current();
+        let has_pub = self.check(TokenKind.KwPub);
+        let is_pub = self.match_kind(TokenKind.KwPub);
+
+        let start = if decorators.len() != 0 {
+            decorators[0].span
+        } else if has_pub {
+            pub_tok.span
+        } else {
+            self.current().span
+        };
+
+        let k = self.current().kind;
+
+        if k == TokenKind.KwImport {
+            if decorators.len() != 0 {
+                self.fail('decorators are not allowed on import declarations');
+                return self.err_decl();
+            }
+            return self.parse_import(is_pub, start);
+        }
+        if k == TokenKind.KwNative {
+            return Decl.Fn(self.parse_fn_decl(decorators, true, is_pub, start));
+        }
+        if k == TokenKind.KwFn {
+            return Decl.Fn(self.parse_fn_decl(decorators, false, is_pub, start));
+        }
+        if k == TokenKind.KwType {
+            if decorators.len() != 0 {
+                self.fail('decorators are not allowed on type declarations');
+                return self.err_decl();
+            }
+            return self.parse_type_decl(is_pub, start);
+        }
+        if k == TokenKind.KwImpl {
+            if decorators.len() != 0 {
+                self.fail('decorators are not allowed on impl blocks');
+                return self.err_decl();
+            }
+            if is_pub {
+                self.fail('`pub` is not allowed on impl blocks; '
+                    + 'mark individual methods `pub` instead');
+                return self.err_decl();
+            }
+            return self.parse_impl_decl(start);
+        }
+        if k == TokenKind.KwInterface {
+            if decorators.len() != 0 {
+                self.fail('decorators are not allowed on interface declarations');
+                return self.err_decl();
+            }
+            return self.parse_interface_decl(is_pub, start);
+        }
+        if k == TokenKind.KwConst {
+            if decorators.len() != 0 {
+                self.fail('decorators are not allowed on const declarations');
+                return self.err_decl();
+            }
+            return self.parse_const_decl(is_pub, start);
+        }
+        if k == TokenKind.KwEnum {
+            if decorators.len() != 0 {
+                self.fail('decorators are not allowed on enum declarations');
+                return self.err_decl();
+            }
+            return self.parse_enum_decl(is_pub, start);
+        }
+
+        self.fail('expected a declaration '
+            + '(fn, type, impl, interface, import, const, enum)');
+        return self.err_decl();
+    }
+
+    fn parse_decorator(self) -> Decorator {
+        let start = self.expect(TokenKind.At, '@');
+        let name_tok = self.expect(TokenKind.Identifier, 'decorator name');
+        let args: List<Expr> = [];
+        let mut end = name_tok.span;
+        if self.match_kind(TokenKind.LParen) {
+            let mut going = true;
+            while going && !self.panicking && !self.check(TokenKind.RParen) && !self.at_end() {
+                args.push(self.parse_expr());
+                if !self.match_kind(TokenKind.Comma) {
+                    going = false;
+                }
+            }
+            let rparen = self.expect(TokenKind.RParen, ')');
+            end = rparen.span;
+        }
+        return Decorator { span: start.span.cover(end), name: name_tok.lexeme(), args: args };
+    }
+
+    fn parse_import(self, _ is_pub: Bool, _ start: SourceSpan) -> Decl {
+        self.advance(); // 'import'
+        let mut path = '';
+        if self.check(TokenKind.StringLiteral) {
+            path = self.value_of(self.advance());
+        } else {
+            path = self.expect(TokenKind.Identifier, 'module path').lexeme();
+            while !self.panicking && self.check(TokenKind.Dot) {
+                self.advance();
+                path = path + '.' + self.expect(TokenKind.Identifier, 'module name segment').lexeme();
+            }
+        }
+        let mut alias = Option.None;
+        if self.match_kind(TokenKind.KwAs) {
+            alias = Option.Some(self.expect(TokenKind.Identifier, 'alias name').lexeme());
+        }
+        self.match_kind(TokenKind.Semi);
+        let end = self.prev_span();
+        return Decl.Import(ImportDecl {
+            span: start.cover(end),
+            path: path,
+            alias: alias,
+            is_pub: is_pub,
+        });
+    }
+
+    fn parse_fn_decl(self, _ decorators: List<Decorator>, _ is_native: Bool,
+        _ is_pub: Bool, _ start: SourceSpan) -> FnDecl {
+        if is_native {
+            self.advance(); // 'native'
+        }
+        self.expect(TokenKind.KwFn, 'fn');
+        let name_tok = self.expect(TokenKind.Identifier, 'function name');
+        let type_params = self.parse_type_params();
+        self.expect(TokenKind.LParen, '(');
+        let params = self.parse_param_list();
+        self.expect(TokenKind.RParen, ')');
+        let mut return_type = Option.None;
+        if self.match_kind(TokenKind.Arrow) {
+            return_type = Option.Some(self.parse_type_ref());
+        }
+        let mut body = Option.None;
+        let mut end = self.prev_span();
+        if self.check(TokenKind.LBrace) {
+            let b = self.parse_block();
+            end = block_span(b);
+            body = Option.Some(b);
+        } else {
+            self.match_kind(TokenKind.Semi); // optional ';' on a body-less fn
+            end = self.prev_span();
+        }
+        return FnDecl {
+            span: start.cover(end),
+            decorators: decorators,
+            is_pub: is_pub,
+            is_native: is_native,
+            name: name_tok.lexeme(),
+            name_span: name_tok.span,
+            type_params: type_params,
+            params: params,
+            return_type: return_type,
+            body: body,
+        };
+    }
+
+    fn parse_type_params(self) -> List<TypeParam> {
+        let params: List<TypeParam> = [];
+        if !self.check(TokenKind.Lt) {
+            return params;
+        }
+        self.advance(); // <
+        let mut going = true;
+        while going && !self.panicking && !self.check(TokenKind.Gt) && !self.at_end() {
+            let name_tok = self.expect(TokenKind.Identifier, 'type parameter name');
+            let bounds: List<String> = [];
+            let mut end = name_tok.span;
+            if self.match_kind(TokenKind.Colon) {
+                let first = self.expect(TokenKind.Identifier, 'bound name');
+                bounds.push(first.lexeme());
+                end = first.span;
+                while !self.panicking && self.check(TokenKind.Plus) {
+                    self.advance();
+                    let nb = self.expect(TokenKind.Identifier, 'bound name');
+                    bounds.push(nb.lexeme());
+                    end = nb.span;
+                }
+            }
+            params.push(TypeParam {
+                span: name_tok.span.cover(end),
+                name: name_tok.lexeme(),
+                bounds: bounds,
+            });
+            if !self.match_kind(TokenKind.Comma) {
+                going = false;
+            }
+        }
+        self.expect(TokenKind.Gt, '>');
+        return params;
+    }
+
+    fn parse_param_list(self) -> List<Param> {
+        let params: List<Param> = [];
+        let mut going = true;
+        while going && !self.panicking && !self.check(TokenKind.RParen) && !self.at_end() {
+            params.push(self.parse_param());
+            if !self.match_kind(TokenKind.Comma) {
+                going = false;
+            }
+        }
+        return params;
+    }
+
+    fn parse_param(self) -> Param {
+        let start = self.current();
+        if self.check(TokenKind.KwSelf) {
+            let self_tok = self.advance();
+            return Param {
+                span: self_tok.span,
+                label: Option.None,
+                is_self: true,
+                name: 'self',
+                name_span: self_tok.span,
+                type_ann: Option.None,
+                default_value: Option.None,
+            };
+        }
+
+        // Label/name forms:
+        //   _ name        → suppressed label
+        //   name          → label == name
+        //   label name    → distinct external label and internal name
+        let mut label = Option.None;
+        let mut name = '';
+        let mut name_span = self.current().span;
+
+        if self.check(TokenKind.Underscore) {
+            self.advance(); // _
+            let name_tok = self.expect(TokenKind.Identifier, 'parameter name');
+            name = name_tok.lexeme();
+            name_span = name_tok.span;
+        } else if self.check(TokenKind.Identifier) {
+            let first = self.advance();
+            if self.check(TokenKind.Identifier) {
+                label = Option.Some(first.lexeme());
+                let name_tok = self.advance();
+                name = name_tok.lexeme();
+                name_span = name_tok.span;
+            } else {
+                label = Option.Some(first.lexeme());
+                name = first.lexeme();
+                name_span = first.span;
+            }
+        } else {
+            self.fail('expected parameter name or _');
+            return self.err_param();
+        }
+
+        let mut type_ann = Option.None;
+        if self.match_kind(TokenKind.Colon) {
+            type_ann = Option.Some(self.parse_type_ref());
+        }
+        let mut default_value = Option.None;
+        let mut end = name_span;
+        if self.match_kind(TokenKind.Eq) {
+            let dv = self.parse_expr();
+            end = expr_span(dv);
+            default_value = Option.Some(dv);
+        } else {
+            match type_ann {
+                Some(t) => {
+                    end = type_span(t);
+                },
+                None => {},
+            }
+        }
+
+        return Param {
+            span: start.span.cover(end),
+            label: label,
+            is_self: false,
+            name: name,
+            name_span: name_span,
+            type_ann: type_ann,
+            default_value: default_value,
+        };
+    }
+
+    fn parse_type_decl(self, _ is_pub: Bool, _ start: SourceSpan) -> Decl {
+        self.advance(); // 'type'
+        let name_tok = self.expect(TokenKind.Identifier, 'type name');
+        let type_params = self.parse_type_params();
+        self.expect(TokenKind.Eq, '=');
+        self.expect(TokenKind.LBrace, '{');
+        let fields: List<FieldDef> = [];
+        let mut going = true;
+        while going && !self.panicking && !self.check(TokenKind.RBrace) && !self.at_end() {
+            let fname = self.expect(TokenKind.Identifier, 'field name').lexeme();
+            self.expect(TokenKind.Colon, ':');
+            let ftype = self.parse_type_ref();
+            fields.push(FieldDef { name: fname, type_ann: ftype });
+            if !self.match_kind(TokenKind.Comma) {
+                going = false;
+            }
+        }
+        let rbrace = self.expect(TokenKind.RBrace, '}');
+        return Decl.Type(TypeDecl {
+            span: start.cover(rbrace.span),
+            is_pub: is_pub,
+            name: name_tok.lexeme(),
+            name_span: name_tok.span,
+            type_params: type_params,
+            fields: fields,
+        });
+    }
+
+    // A possibly-qualified type/interface name (`Clock` or `time.Clock`); the
+    // namespace is dropped (lookup is by base name).
+    fn parse_qualified_type_name(self, _ role: String) -> Token {
+        let mut tok = self.expect(TokenKind.Identifier, role);
+        if self.match_kind(TokenKind.Dot) {
+            tok = self.expect(TokenKind.Identifier, '${role} after "${tok.lexeme()}."');
+        }
+        return tok;
+    }
+
+    fn parse_impl_decl(self, _ start: SourceSpan) -> Decl {
+        self.advance(); // 'impl'
+        let first_tok = self.parse_qualified_type_name('type or interface name');
+        let first_params = self.parse_type_params();
+        let mut type_name = '';
+        let mut name_span = first_tok.span;
+        let mut interface_name = Option.None;
+        let mut type_params: List<TypeParam> = [];
+        let mut interface_args: List<TypeRef> = [];
+        if self.match_kind(TokenKind.KwFor) {
+            interface_name = Option.Some(first_tok.lexeme());
+            for tp in first_params {
+                interface_args.push(TypeRef.Named(NamedType {
+                    span: tp.span,
+                    name: tp.name,
+                    args: [],
+                    namespace: Option.None,
+                }));
+            }
+            let type_tok = self.parse_qualified_type_name('type name');
+            type_name = type_tok.lexeme();
+            name_span = type_tok.span;
+            type_params = self.parse_type_params();
+        } else {
+            type_name = first_tok.lexeme();
+            name_span = first_tok.span;
+            type_params = first_params;
+        }
+        self.expect(TokenKind.LBrace, '{');
+        let methods: List<FnDecl> = [];
+        while !self.panicking && !self.check(TokenKind.RBrace) && !self.at_end() {
+            let method_start_tok = self.current();
+            let decos: List<Decorator> = [];
+            while !self.panicking && self.check(TokenKind.At) {
+                decos.push(self.parse_decorator());
+            }
+            let pub_tok = self.current();
+            let has_pub = self.check(TokenKind.KwPub);
+            let m_pub = self.match_kind(TokenKind.KwPub);
+            let m_native = self.check(TokenKind.KwNative);
+            let m_start = if decos.len() != 0 {
+                decos[0].span
+            } else if has_pub {
+                pub_tok.span
+            } else {
+                method_start_tok.span
+            };
+            methods.push(self.parse_fn_decl(decos, m_native, m_pub, m_start));
+        }
+        let rbrace = self.expect(TokenKind.RBrace, '}');
+        return Decl.Impl(ImplDecl {
+            span: start.cover(rbrace.span),
+            type_name: type_name,
+            name_span: name_span,
+            type_params: type_params,
+            interface_name: interface_name,
+            interface_args: interface_args,
+            methods: methods,
+        });
+    }
+
+    fn parse_interface_decl(self, _ is_pub: Bool, _ start: SourceSpan) -> Decl {
+        self.advance(); // 'interface'
+        let name_tok = self.expect(TokenKind.Identifier, 'interface name');
+        let type_params = self.parse_type_params();
+        let super_interfaces: List<String> = [];
+        if self.match_kind(TokenKind.Colon) {
+            super_interfaces.push(self.expect(TokenKind.Identifier, 'super-interface').lexeme());
+            while !self.panicking && self.check(TokenKind.Plus) {
+                self.advance();
+                super_interfaces.push(self.expect(TokenKind.Identifier, 'super-interface').lexeme());
+            }
+        }
+        self.expect(TokenKind.LBrace, '{');
+        let methods: List<FnDecl> = [];
+        let mut going = true;
+        while going && !self.panicking && !self.check(TokenKind.RBrace) && !self.at_end() {
+            let method_start_tok = self.current();
+            let pub_tok = self.current();
+            let has_pub = self.check(TokenKind.KwPub);
+            let m_pub = self.match_kind(TokenKind.KwPub);
+            if !self.check(TokenKind.KwFn) {
+                self.fail('expected fn in interface');
+                going = false;
+            } else {
+                let m_start = if has_pub { pub_tok.span } else { method_start_tok.span };
+                methods.push(self.parse_fn_decl([], false, m_pub, m_start));
+            }
+        }
+        let rbrace = self.expect(TokenKind.RBrace, '}');
+        return Decl.Interface(InterfaceDecl {
+            span: start.cover(rbrace.span),
+            is_pub: is_pub,
+            name: name_tok.lexeme(),
+            name_span: name_tok.span,
+            type_params: type_params,
+            super_interfaces: super_interfaces,
+            methods: methods,
+        });
+    }
+
+    fn parse_const_decl(self, _ is_pub: Bool, _ start: SourceSpan) -> Decl {
+        self.advance(); // 'const'
+        let name_tok = self.expect(TokenKind.Identifier, 'constant name');
+        let mut type_ann = Option.None;
+        if self.match_kind(TokenKind.Colon) {
+            type_ann = Option.Some(self.parse_type_ref());
+        }
+        self.expect(TokenKind.Eq, '=');
+        let value = self.parse_expr();
+        self.match_kind(TokenKind.Semi);
+        let end = self.prev_span();
+        return Decl.Const(ConstDecl {
+            span: start.cover(end),
+            is_pub: is_pub,
+            name: name_tok.lexeme(),
+            name_span: name_tok.span,
+            type_ann: type_ann,
+            value: value,
+        });
+    }
+
+    fn parse_enum_decl(self, _ is_pub: Bool, _ start: SourceSpan) -> Decl {
+        self.advance(); // 'enum'
+        let name_tok = self.expect(TokenKind.Identifier, 'enum name');
+        let type_params = self.parse_type_params();
+        self.expect(TokenKind.LBrace, '{');
+        let variants: List<EnumVariant> = [];
+        let mut going = true;
+        while going && !self.panicking && !self.check(TokenKind.RBrace) && !self.at_end() {
+            let v_tok = self.expect(TokenKind.Identifier, 'variant name');
+            let v_fields: List<TypeRef> = [];
+            let mut end = v_tok.span;
+            if self.match_kind(TokenKind.LParen) {
+                let mut fgoing = true;
+                while fgoing && !self.panicking && !self.check(TokenKind.RParen) && !self.at_end() {
+                    v_fields.push(self.parse_type_ref());
+                    if !self.match_kind(TokenKind.Comma) {
+                        fgoing = false;
+                    }
+                }
+                let rparen = self.expect(TokenKind.RParen, ')');
+                end = rparen.span;
+            }
+            variants.push(EnumVariant {
+                span: v_tok.span.cover(end),
+                name: v_tok.lexeme(),
+                name_span: v_tok.span,
+                fields: v_fields,
+            });
+            if !self.match_kind(TokenKind.Comma) {
+                going = false;
+            }
+        }
+        let rbrace = self.expect(TokenKind.RBrace, '}');
+        return Decl.Enum(EnumDecl {
+            span: start.cover(rbrace.span),
+            is_pub: is_pub,
+            name: name_tok.lexeme(),
+            name_span: name_tok.span,
+            type_params: type_params,
+            variants: variants,
+        });
+    }
+
+    // --- type references ---
+
+    fn parse_type_ref(self) -> TypeRef {
+        // '(' begins a function type '(T1, ...) -> R' (the unit type is `Void`).
+        if self.check(TokenKind.LParen) {
+            let start = self.current();
+            self.advance();
+            let params: List<TypeRef> = [];
+            let mut going = true;
+            while going && !self.panicking && !self.check(TokenKind.RParen) && !self.at_end() {
+                params.push(self.parse_type_ref());
+                if !self.match_kind(TokenKind.Comma) {
+                    going = false;
+                }
+            }
+            self.expect(TokenKind.RParen, ')');
+            if self.match_kind(TokenKind.Arrow) {
+                let return_type = self.parse_type_ref();
+                return TypeRef.Function(FunctionType {
+                    span: start.span.cover(type_span(return_type)),
+                    params: params,
+                    return_type: return_type,
+                });
+            }
+            self.fail('expected "->" in function type (the unit type is `Void`)');
+            return self.err_type();
+        }
+        let first_tok = self.expect(TokenKind.Identifier, 'type name');
+        let mut namespace = Option.None;
+        let mut name_tok = first_tok;
+        if self.match_kind(TokenKind.Dot) {
+            namespace = Option.Some(first_tok.lexeme());
+            name_tok = self.expect(TokenKind.Identifier, 'type name after "${first_tok.lexeme()}."');
+        }
+        let args: List<TypeRef> = [];
+        let mut end = name_tok.span;
+        if self.check(TokenKind.Lt) {
+            self.advance(); // <
+            let mut going = true;
+            while going && !self.panicking && !self.check(TokenKind.Gt) && !self.at_end() {
+                args.push(self.parse_type_ref());
+                if !self.match_kind(TokenKind.Comma) {
+                    going = false;
+                }
+            }
+            let gt = self.expect(TokenKind.Gt, '>');
+            end = gt.span;
+        }
+        return TypeRef.Named(NamedType {
+            span: first_tok.span.cover(end),
+            name: name_tok.lexeme(),
+            args: args,
+            namespace: namespace,
+        });
+    }
+
+    // --- block and statements ---
+
+    fn parse_block(self) -> Block {
+        let start = self.expect(TokenKind.LBrace, '{');
+        let stmts: List<Stmt> = [];
+        while !self.panicking && !self.check(TokenKind.RBrace) && !self.at_end() {
+            stmts.push(self.parse_stmt());
+        }
+        let end = self.expect(TokenKind.RBrace, '}');
+        return Block {
+            start_span: start.span,
+            end_span: end.span,
+            stmts: stmts,
+            tail: Option.None,
+        };
+    }
+
+    fn parse_stmt(self) -> Stmt {
+        let k = self.current().kind;
+        if k == TokenKind.KwLet {
+            return self.parse_let_stmt();
+        }
+        if k == TokenKind.KwConst {
+            return self.parse_const_as_let();
+        }
+        if k == TokenKind.KwReturn {
+            return self.parse_return_stmt();
+        }
+        if k == TokenKind.KwThrow {
+            return self.parse_throw_stmt();
+        }
+        if k == TokenKind.KwIf {
+            return self.parse_if_stmt();
+        }
+        if k == TokenKind.KwFor {
+            return self.parse_for_stmt();
+        }
+        if k == TokenKind.KwWhile {
+            return self.parse_while_stmt();
+        }
+        let start = self.current().span;
+        let expr = self.parse_expr();
+        return self.finish_expr_stmt(start, expr);
+    }
+
+    // Whether `k` begins a statement-leading keyword (parsed as a statement,
+    // never a tail expression). `if` is excluded: in an expression block it is a
+    // value-producing IfExpr handled directly in parse_expr_block.
+    fn is_stmt_keyword(self, _ k: TokenKind) -> Bool {
+        return k == TokenKind.KwLet
+            || k == TokenKind.KwConst
+            || k == TokenKind.KwReturn
+            || k == TokenKind.KwThrow
+            || k == TokenKind.KwFor
+            || k == TokenKind.KwWhile;
+    }
+
+    // Finish an already-parsed leading `expr` (at `start`) as an assignment or an
+    // expression statement, consuming the terminating `;`.
+    fn finish_expr_stmt(self, _ start: SourceSpan, _ expr: Expr) -> Stmt {
+        let compound = self.compound_assign_op(self.current().kind);
+        let is_compound = match compound {
+            Some(_) => true,
+            None => false,
+        };
+        if self.check(TokenKind.Eq) || is_compound {
+            if !is_lvalue(expr) {
+                self.fail('invalid assignment target');
+                return self.err_stmt();
+            }
+            self.advance(); // '=' or the compound operator
+            let rhs = self.parse_expr();
+            self.expect(TokenKind.Semi, "';'");
+            let value = match compound {
+                Some(op) => Expr.Binary(expr_span(expr).cover(expr_span(rhs)), expr, op, rhs),
+                None => rhs,
+            };
+            return Stmt.Assign(start, expr, value);
+        }
+        // A block-terminated expression statement (a bare `match`/`if` ending in
+        // `}`) needs no trailing ';'; everything else requires one.
+        if is_block_terminated(expr) {
+            self.match_kind(TokenKind.Semi);
+        } else {
+            self.expect(TokenKind.Semi, "';'");
+        }
+        return Stmt.Expr(start, expr);
+    }
+
+    // Parse a block in expression position (a BlockExpr or a `{…}` match arm): a
+    // final expression with no trailing `;` becomes the block's tail value.
+    fn parse_expr_block(self) -> Block {
+        let start = self.expect(TokenKind.LBrace, '{');
+        let stmts: List<Stmt> = [];
+        let mut tail = Option.None;
+        let mut going = true;
+        while going && !self.panicking && !self.check(TokenKind.RBrace) && !self.at_end() {
+            if self.is_stmt_keyword(self.current().kind) {
+                stmts.push(self.parse_stmt());
+            } else if self.check(TokenKind.KwIf) {
+                let if_start = self.current().span;
+                let if_expr = self.parse_if_expr(false);
+                if self.check(TokenKind.RBrace) {
+                    tail = Option.Some(if_expr);
+                    going = false;
+                } else {
+                    self.match_kind(TokenKind.Semi);
+                    stmts.push(Stmt.Expr(if_start, if_expr));
+                }
+            } else {
+                let expr_start = self.current().span;
+                let expr = self.parse_expr();
+                if self.check(TokenKind.RBrace) {
+                    tail = Option.Some(expr);
+                    going = false;
+                } else {
+                    stmts.push(self.finish_expr_stmt(expr_start, expr));
+                }
+            }
+        }
+        let end = self.expect(TokenKind.RBrace, '}');
+        return Block {
+            start_span: start.span,
+            end_span: end.span,
+            stmts: stmts,
+            tail: tail,
+        };
+    }
+
+    // The arithmetic operator a compound-assignment token applies, or None.
+    fn compound_assign_op(self, _ k: TokenKind) -> Option<String> {
+        if k == TokenKind.PlusEq {
+            return Option.Some('+');
+        }
+        if k == TokenKind.MinusEq {
+            return Option.Some('-');
+        }
+        if k == TokenKind.StarEq {
+            return Option.Some('*');
+        }
+        if k == TokenKind.SlashEq {
+            return Option.Some('/');
+        }
+        if k == TokenKind.PercentEq {
+            return Option.Some('%');
+        }
+        return Option.None;
+    }
+
+    // Parse an integer literal lexeme, decimal or 0x/0X hex. Hex wraps an
+    // unsigned 64-bit pattern to a signed Int (via to_int_radix), matching the
+    // runtime's two's-complement arithmetic.
+    fn parse_int_literal(self, _ text: String, _ span: SourceSpan) -> Int {
+        if text.len() > 2 && text.slice(0, 1) == '0'
+            && (text.slice(1, 2) == 'x' || text.slice(1, 2) == 'X') {
+            match text.slice(2, text.len()).to_int_radix(16) {
+                Some(v) => {
+                    return v;
+                },
+                None => {
+                    self.fail_at('invalid integer literal: "${text}"', span);
+                    return 0;
+                },
+            }
+        }
+        match text.to_int() {
+            Some(v) => {
+                return v;
+            },
+            None => {
+                self.fail_at('invalid integer literal: "${text}"', span);
+                return 0;
+            },
+        }
+    }
+
+    // Parse a local `const NAME [: Type] = expr;` as an immutable LetStmt.
+    fn parse_const_as_let(self) -> Stmt {
+        let start = self.advance(); // 'const'
+        let name_tok = self.expect(TokenKind.Identifier, 'constant name');
+        let mut type_ann = Option.None;
+        if self.match_kind(TokenKind.Colon) {
+            type_ann = Option.Some(self.parse_type_ref());
+        }
+        self.expect(TokenKind.Eq, '=');
+        let value = self.parse_expr();
+        self.expect(TokenKind.Semi, "';'");
+        let end = self.prev_span();
+        return Stmt.Let(LetStmt {
+            span: start.span.cover(end),
+            is_mut: false,
+            name: name_tok.lexeme(),
+            name_span: name_tok.span,
+            type_ann: type_ann,
+            value: value,
+        });
+    }
+
+    fn parse_let_stmt(self) -> Stmt {
+        let start = self.advance(); // 'let'
+        let is_mut = self.match_kind(TokenKind.KwMut);
+        let name_tok = self.expect(TokenKind.Identifier, 'variable name');
+        let mut type_ann = Option.None;
+        if self.match_kind(TokenKind.Colon) {
+            type_ann = Option.Some(self.parse_type_ref());
+        }
+        self.expect(TokenKind.Eq, '=');
+        let value = self.parse_expr();
+        self.expect(TokenKind.Semi, "';'");
+        let end = self.prev_span();
+        return Stmt.Let(LetStmt {
+            span: start.span.cover(end),
+            is_mut: is_mut,
+            name: name_tok.lexeme(),
+            name_span: name_tok.span,
+            type_ann: type_ann,
+            value: value,
+        });
+    }
+
+    fn parse_return_stmt(self) -> Stmt {
+        let e = self.parse_expr(); // primary handles `return`
+        self.expect(TokenKind.Semi, "';'");
+        let end = self.prev_span();
+        match e {
+            Return(s, v) => {
+                return Stmt.Return(s.cover(end), v);
+            },
+            _ => {
+                return Stmt.Expr(expr_span(e), e); // defensive; unreachable
+            },
+        }
+    }
+
+    fn parse_throw_stmt(self) -> Stmt {
+        let e = self.parse_expr(); // primary handles `throw`
+        self.expect(TokenKind.Semi, "';'");
+        let end = self.prev_span();
+        match e {
+            Throw(s, v) => {
+                return Stmt.Throw(s.cover(end), v);
+            },
+            _ => {
+                return Stmt.Expr(expr_span(e), e); // defensive; unreachable
+            },
+        }
+    }
+
+    fn parse_if_stmt(self) -> Stmt {
+        let start = self.advance(); // 'if'
+        let condition = self.parse_expr_no_brace();
+        let then_block = self.parse_block();
+        let mut else_block = Option.None;
+        let mut end = block_span(then_block);
+        if self.match_kind(TokenKind.KwElse) {
+            if self.check(TokenKind.KwIf) {
+                let inner = self.parse_if_stmt();
+                let inner_span = stmt_span(inner);
+                else_block = Option.Some(Block {
+                    start_span: inner_span,
+                    end_span: inner_span,
+                    stmts: [inner],
+                    tail: Option.None,
+                });
+                end = inner_span;
+            } else {
+                let eb = self.parse_block();
+                end = block_span(eb);
+                else_block = Option.Some(eb);
+            }
+        }
+        return Stmt.If(IfStmt {
+            span: start.span.cover(end),
+            condition: condition,
+            then_block: then_block,
+            else_block: else_block,
+        });
+    }
+
+    // Parse `if` in expression position (docs/tailexpr.md). `require_else` is set
+    // where the `if`'s value is used (a primary `if`), so a missing `else` is a
+    // parse error; cleared where the `if` may be a discarded statement.
+    fn parse_if_expr(self, _ require_else: Bool) -> Expr {
+        let start = self.advance(); // 'if'
+        let condition = self.parse_expr_no_brace();
+        let then_block = self.parse_expr_block();
+        let mut else_block = Option.None;
+        let mut end = block_span(then_block);
+        if self.match_kind(TokenKind.KwElse) {
+            if self.check(TokenKind.KwIf) {
+                let inner = self.parse_if_expr(require_else);
+                let inner_span = expr_span(inner);
+                else_block = Option.Some(Block {
+                    start_span: inner_span,
+                    end_span: inner_span,
+                    stmts: [],
+                    tail: Option.Some(inner),
+                });
+                end = inner_span;
+            } else {
+                let eb = self.parse_expr_block();
+                end = block_span(eb);
+                else_block = Option.Some(eb);
+            }
+        } else if require_else {
+            self.fail_at('an `if` used as a value needs an `else` branch',
+                block_span(then_block));
+            return self.err_expr();
+        }
+        return Expr.If(IfExpr {
+            span: start.span.cover(end),
+            condition: condition,
+            then_block: then_block,
+            else_block: else_block,
+        });
+    }
+
+    fn parse_for_stmt(self) -> Stmt {
+        let start = self.advance(); // 'for'
+        let pattern = self.parse_pattern();
+        self.expect(TokenKind.KwIn, 'in');
+        let iterable = self.parse_expr_no_brace();
+        let body = self.parse_block();
+        return Stmt.For(ForStmt {
+            span: start.span.cover(block_span(body)),
+            pattern: pattern,
+            iterable: iterable,
+            body: body,
+        });
+    }
+
+    fn parse_while_stmt(self) -> Stmt {
+        let start = self.advance(); // 'while'
+        let condition = self.parse_expr_no_brace();
+        let body = self.parse_block();
+        return Stmt.While(WhileStmt {
+            span: start.span.cover(block_span(body)),
+            condition: condition,
+            body: body,
+        });
+    }
+
+    // --- patterns ---
+
+    fn parse_pattern(self) -> Pattern {
+        if self.check(TokenKind.Underscore) {
+            let tok = self.advance();
+            return Pattern.Wildcard(tok.span);
+        }
+        if self.check(TokenKind.Identifier) {
+            let tok = self.advance();
+            let name = tok.lexeme();
+            if self.check(TokenKind.LParen) {
+                self.advance();
+                let args: List<Pattern> = [];
+                let mut going = true;
+                while going && !self.panicking && !self.check(TokenKind.RParen) && !self.at_end() {
+                    args.push(self.parse_pattern());
+                    if !self.match_kind(TokenKind.Comma) {
+                        going = false;
+                    }
+                }
+                let rparen = self.expect(TokenKind.RParen, ')');
+                return Pattern.Constructor(tok.span.cover(rparen.span), name, args);
+            }
+            // Uppercase-first → zero-arg constructor; lowercase → binding.
+            if char.is_upper(name.chars()[0]) {
+                return Pattern.Constructor(tok.span, name, []);
+            }
+            return Pattern.Ident(tok.span, name);
+        }
+        if self.check(TokenKind.KwTrue) || self.check(TokenKind.KwFalse)
+            || self.check(TokenKind.IntLiteral) || self.check(TokenKind.StringLiteral) {
+            let literal = self.parse_primary(true);
+            return Pattern.Literal(expr_span(literal), literal);
+        }
+        self.fail('expected a pattern');
+        return self.err_pattern();
+    }
+
+    // --- expressions ---
+
+    fn parse_expr(self) -> Expr {
+        return self.parse_or(true);
+    }
+
+    // Stops before `{` — for if/for/while/match conditions, so `if foo { … }`
+    // doesn't read `foo { … }` as a struct literal.
+    fn parse_expr_no_brace(self) -> Expr {
+        return self.parse_or(false);
+    }
+
+    fn parse_or(self, _ allow_struct: Bool) -> Expr {
+        let mut left = self.parse_and(allow_struct);
+        while !self.panicking && self.check(TokenKind.PipePipe) {
+            let op = self.advance().span.text();
+            let right = self.parse_and(allow_struct);
+            left = Expr.Binary(expr_span(left).cover(expr_span(right)), left, op, right);
+        }
+        return left;
+    }
+
+    fn parse_and(self, _ allow_struct: Bool) -> Expr {
+        let mut left = self.parse_bit_or(allow_struct);
+        while !self.panicking && self.check(TokenKind.AmpAmp) {
+            let op = self.advance().span.text();
+            let right = self.parse_bit_or(allow_struct);
+            left = Expr.Binary(expr_span(left).cover(expr_span(right)), left, op, right);
+        }
+        return left;
+    }
+
+    fn parse_bit_or(self, _ allow_struct: Bool) -> Expr {
+        let mut left = self.parse_bit_xor(allow_struct);
+        while !self.panicking && self.check(TokenKind.Pipe) {
+            let op = self.advance().span.text();
+            let right = self.parse_bit_xor(allow_struct);
+            left = Expr.Binary(expr_span(left).cover(expr_span(right)), left, op, right);
+        }
+        return left;
+    }
+
+    fn parse_bit_xor(self, _ allow_struct: Bool) -> Expr {
+        let mut left = self.parse_bit_and(allow_struct);
+        while !self.panicking && self.check(TokenKind.Caret) {
+            let op = self.advance().span.text();
+            let right = self.parse_bit_and(allow_struct);
+            left = Expr.Binary(expr_span(left).cover(expr_span(right)), left, op, right);
+        }
+        return left;
+    }
+
+    fn parse_bit_and(self, _ allow_struct: Bool) -> Expr {
+        let mut left = self.parse_equality(allow_struct);
+        while !self.panicking && self.check(TokenKind.Amp) {
+            let op = self.advance().span.text();
+            let right = self.parse_equality(allow_struct);
+            left = Expr.Binary(expr_span(left).cover(expr_span(right)), left, op, right);
+        }
+        return left;
+    }
+
+    fn parse_equality(self, _ allow_struct: Bool) -> Expr {
+        let mut left = self.parse_comparison(allow_struct);
+        while !self.panicking && (self.check(TokenKind.EqEq) || self.check(TokenKind.BangEq)) {
+            let op = self.advance().span.text();
+            let right = self.parse_comparison(allow_struct);
+            left = Expr.Binary(expr_span(left).cover(expr_span(right)), left, op, right);
+        }
+        return left;
+    }
+
+    fn parse_comparison(self, _ allow_struct: Bool) -> Expr {
+        let mut left = self.parse_shift(allow_struct);
+        while !self.panicking && (self.check(TokenKind.Lt) || self.check(TokenKind.Gt)
+            || self.check(TokenKind.LtEq) || self.check(TokenKind.GtEq)) {
+            let op = self.advance().span.text();
+            let right = self.parse_shift(allow_struct);
+            left = Expr.Binary(expr_span(left).cover(expr_span(right)), left, op, right);
+        }
+        return left;
+    }
+
+    // Shift precedence. `<< >> >>>` aren't lexer tokens — they're recognized by
+    // combining *adjacent* `<`/`>` tokens, so nested generics still close with
+    // single `>` tokens.
+    fn parse_shift(self, _ allow_struct: Bool) -> Expr {
+        let mut left = self.parse_range(allow_struct);
+        let mut going = true;
+        while going && !self.panicking {
+            match self.shift_op_ahead() {
+                Some(op) => {
+                    let mut i = 0;
+                    while i < op.len() {
+                        self.advance();
+                        i = i + 1;
+                    }
+                    let right = self.parse_range(allow_struct);
+                    left = Expr.Binary(expr_span(left).cover(expr_span(right)), left, op, right);
+                },
+                None => {
+                    going = false;
+                },
+            }
+        }
+        return left;
+    }
+
+    // The shift operator at the cursor (`<<`, `>>`, `>>>`) when the `<`/`>`
+    // tokens are adjacent (no gap), else None.
+    fn shift_op_ahead(self) -> Option<String> {
+        let t0 = self.current();
+        let t1 = self.peek_tok(1);
+        if t0.kind == TokenKind.Lt && t1.kind == TokenKind.Lt && adjacent(t0, t1) {
+            return Option.Some('<<');
+        }
+        if t0.kind == TokenKind.Gt && t1.kind == TokenKind.Gt && adjacent(t0, t1) {
+            let t2 = self.peek_tok(2);
+            if t2.kind == TokenKind.Gt && adjacent(t1, t2) {
+                return Option.Some('>>>');
+            }
+            return Option.Some('>>');
+        }
+        return Option.None;
+    }
+
+    fn parse_range(self, _ allow_struct: Bool) -> Expr {
+        let left = self.parse_addition(allow_struct);
+        if self.check(TokenKind.DotDot) {
+            self.advance();
+            let right = self.parse_addition(allow_struct);
+            return Expr.Range(expr_span(left).cover(expr_span(right)), left, right);
+        }
+        return left;
+    }
+
+    fn parse_addition(self, _ allow_struct: Bool) -> Expr {
+        let mut left = self.parse_multiplication(allow_struct);
+        while !self.panicking && (self.check(TokenKind.Plus) || self.check(TokenKind.Minus)) {
+            let op = self.advance().span.text();
+            let right = self.parse_multiplication(allow_struct);
+            left = Expr.Binary(expr_span(left).cover(expr_span(right)), left, op, right);
+        }
+        return left;
+    }
+
+    fn parse_multiplication(self, _ allow_struct: Bool) -> Expr {
+        let mut left = self.parse_unary(allow_struct);
+        while !self.panicking && (self.check(TokenKind.Star) || self.check(TokenKind.Slash)
+            || self.check(TokenKind.Percent)) {
+            let op = self.advance().span.text();
+            let right = self.parse_unary(allow_struct);
+            left = Expr.Binary(expr_span(left).cover(expr_span(right)), left, op, right);
+        }
+        return left;
+    }
+
+    fn parse_unary(self, _ allow_struct: Bool) -> Expr {
+        if self.check(TokenKind.Bang) || self.check(TokenKind.Minus) || self.check(TokenKind.Tilde) {
+            let op = self.advance();
+            let operand = self.parse_unary(allow_struct);
+            return Expr.Unary(op.span.cover(expr_span(operand)), op.span.text(), operand);
+        }
+        return self.parse_postfix(allow_struct);
+    }
+
+    fn parse_postfix(self, _ allow_struct: Bool) -> Expr {
+        let mut expr = self.parse_primary(allow_struct);
+        let mut going = true;
+        while going && !self.panicking {
+            if self.check(TokenKind.Dot) {
+                self.advance();
+                let field = self.expect(TokenKind.Identifier, 'field or method name');
+                expr = Expr.Field(expr_span(expr).cover(field.span), expr, field.lexeme());
+            } else if self.check(TokenKind.LParen) {
+                let args = self.parse_call_args();
+                let end = self.prev_span();
+                expr = Expr.Call(CallExpr {
+                    span: expr_span(expr).cover(end),
+                    callee: expr,
+                    type_args: [],
+                    args: args,
+                });
+            } else if self.check(TokenKind.Lt) && self.looks_like_type_arg_list() {
+                let type_args = self.parse_type_arg_list();
+                if self.check(TokenKind.LParen) {
+                    let args = self.parse_call_args();
+                    let end = self.prev_span();
+                    expr = Expr.Call(CallExpr {
+                        span: expr_span(expr).cover(end),
+                        callee: expr,
+                        type_args: type_args,
+                        args: args,
+                    });
+                } else {
+                    self.fail('expected ( after type argument list');
+                    going = false;
+                }
+            } else if self.check(TokenKind.LBracket) {
+                self.advance();
+                let index = self.parse_expr();
+                let rbracket = self.expect(TokenKind.RBracket, ']');
+                expr = Expr.Index(expr_span(expr).cover(rbracket.span), expr, index);
+            } else if self.check(TokenKind.Question) {
+                let q = self.advance();
+                expr = Expr.Propagate(expr_span(expr).cover(q.span), expr);
+            } else {
+                going = false;
+            }
+        }
+        return expr;
+    }
+
+    fn parse_call_args(self) -> List<CallArg> {
+        self.expect(TokenKind.LParen, '(');
+        let args: List<CallArg> = [];
+        let mut going = true;
+        while going && !self.panicking && !self.check(TokenKind.RParen) && !self.at_end() {
+            let mut label = Option.None;
+            let mut label_span: Option<SourceSpan> = Option.None;
+            if self.check(TokenKind.Identifier) && self.next_tok().kind == TokenKind.Colon {
+                let label_tok = self.advance();
+                label = Option.Some(label_tok.lexeme());
+                label_span = Option.Some(label_tok.span);
+                self.advance(); // ':'
+            }
+            let val = self.parse_expr();
+            let span = match label_span {
+                Some(ls) => ls.cover(expr_span(val)),
+                None => expr_span(val),
+            };
+            args.push(CallArg { span: span, label: label, value: val });
+            if !self.match_kind(TokenKind.Comma) {
+                going = false;
+            }
+        }
+        self.expect(TokenKind.RParen, ')');
+        return args;
+    }
+
+    // Heuristic lookahead: after `<`, a `TypeName>` or `TypeName, TypeName>`
+    // looks like a type-argument list rather than a comparison.
+    fn looks_like_type_arg_list(self) -> Bool {
+        let mut i = self.pos + 1; // after <
+        if i >= self.tokens.len() {
+            return false;
+        }
+        let mut result: Option<Bool> = Option.None;
+        while result == Option.None {
+            let t = self.tokens[i];
+            if t.kind != TokenKind.Identifier {
+                result = Option.Some(false);
+            } else {
+                i = i + 1;
+                if i >= self.tokens.len() {
+                    result = Option.Some(false);
+                } else {
+                    let after = self.tokens[i].kind;
+                    if after == TokenKind.Gt {
+                        result = Option.Some(true);
+                    } else if after == TokenKind.Comma {
+                        i = i + 1;
+                    } else {
+                        result = Option.Some(false); // nested generics: too complex here
+                    }
+                }
+            }
+        }
+        return result.unwrap_or(false);
+    }
+
+    fn parse_type_arg_list(self) -> List<TypeRef> {
+        self.advance(); // <
+        let args: List<TypeRef> = [];
+        let mut going = true;
+        while going && !self.panicking && !self.check(TokenKind.Gt) && !self.at_end() {
+            args.push(self.parse_type_ref());
+            if !self.match_kind(TokenKind.Comma) {
+                going = false;
+            }
+        }
+        self.expect(TokenKind.Gt, '>');
+        return args;
+    }
+
+    fn parse_primary(self, _ allow_struct: Bool) -> Expr {
+        let t = self.current();
+        let k = t.kind;
+
+        if k == TokenKind.IntLiteral {
+            self.advance();
+            return Expr.Int(t.span, self.parse_int_literal(t.span.text(), t.span));
+        }
+        if k == TokenKind.FloatLiteral {
+            self.advance();
+            match t.span.text().to_double() {
+                Some(d) => {
+                    return Expr.Float(t.span, d);
+                },
+                None => {
+                    self.fail_at('invalid float literal: "${t.span.text()}"', t.span);
+                    return self.err_expr();
+                },
+            }
+        }
+        if k == TokenKind.StringLiteral {
+            self.advance();
+            return Expr.Str(t.span, self.split_string_parts(self.value_of(t), t.span));
+        }
+        if k == TokenKind.KwTrue {
+            self.advance();
+            return Expr.Bool(t.span, true);
+        }
+        if k == TokenKind.KwFalse {
+            self.advance();
+            return Expr.Bool(t.span, false);
+        }
+        if k == TokenKind.KwSelf {
+            self.advance();
+            return Expr.Ident(t.span, 'self');
+        }
+        if k == TokenKind.KwVoid {
+            self.advance();
+            return Expr.Unit(t.span);
+        }
+        if k == TokenKind.LParen {
+            self.advance();
+            if self.paren_is_lambda_params() {
+                let params: List<LambdaParam> = [];
+                let mut going = true;
+                while going && !self.panicking && !self.check(TokenKind.RParen) && !self.at_end() {
+                    let name_tok = self.expect(TokenKind.Identifier, 'parameter name');
+                    let mut type_ann = Option.None;
+                    let mut span = name_tok.span;
+                    if self.match_kind(TokenKind.Colon) {
+                        let ty = self.parse_type_ref();
+                        span = name_tok.span.cover(type_span(ty));
+                        type_ann = Option.Some(ty);
+                    }
+                    params.push(LambdaParam { span: span, name: name_tok.lexeme(), type_ann: type_ann });
+                    if !self.match_kind(TokenKind.Comma) {
+                        going = false;
+                    }
+                }
+                self.expect(TokenKind.RParen, ')');
+                self.expect(TokenKind.FatArrow, '=>');
+                let body = self.parse_expr();
+                return Expr.Lambda(LambdaExpr {
+                    span: t.span.cover(expr_span(body)),
+                    params: params,
+                    body: body,
+                });
+            }
+            let inner = self.parse_expr();
+            self.expect(TokenKind.RParen, ')');
+            return inner;
+        }
+        if k == TokenKind.LBracket {
+            return self.parse_list_literal();
+        }
+        if k == TokenKind.LBrace {
+            if self.is_map_literal_start() {
+                return self.parse_map_literal();
+            }
+            let block = self.parse_expr_block();
+            return Expr.Block(t.span.cover(block_span(block)), block);
+        }
+        if k == TokenKind.KwMatch {
+            return self.parse_match_expr();
+        }
+        if k == TokenKind.KwIf {
+            return self.parse_if_expr(true);
+        }
+        if k == TokenKind.KwReturn {
+            self.advance();
+            let mut ret_val = Option.None;
+            let mut end = t.span;
+            if !self.check(TokenKind.Semi) && !self.check(TokenKind.RBrace)
+                && !self.check(TokenKind.Comma) && !self.at_end() {
+                let v = self.parse_expr();
+                end = expr_span(v);
+                ret_val = Option.Some(v);
+            }
+            return Expr.Return(t.span.cover(end), ret_val);
+        }
+        if k == TokenKind.KwThrow {
+            self.advance();
+            let val = self.parse_expr();
+            return Expr.Throw(t.span.cover(expr_span(val)), val);
+        }
+        if k == TokenKind.Identifier {
+            self.advance();
+            let name = t.lexeme();
+            // Bare single-parameter lambda: `ident => expr`.
+            if self.check(TokenKind.FatArrow) {
+                self.advance();
+                let body = self.parse_expr();
+                return Expr.Lambda(LambdaExpr {
+                    span: t.span.cover(expr_span(body)),
+                    params: [LambdaParam { span: t.span, name: name, type_ann: Option.None }],
+                    body: body,
+                });
+            }
+            // Struct literal: `TypeName { field: expr, ... }`.
+            if allow_struct && self.check(TokenKind.LBrace) {
+                return self.parse_struct_literal(name, t.span);
+            }
+            return Expr.Ident(t.span, name);
+        }
+
+        self.fail('unexpected token: "${t.span.text()}"');
+        return self.err_expr();
+    }
+
+    // Just after consuming a `(` in expression position: scan to the matching
+    // `)` (tracking nesting) and return true if it is immediately followed by
+    // `=>` — i.e. a lambda parameter list, not a parenthesized expression.
+    fn paren_is_lambda_params(self) -> Bool {
+        let mut depth = 1;
+        let mut i = self.pos;
+        let mut result: Option<Bool> = Option.None;
+        while result == Option.None && i < self.tokens.len() {
+            let k = self.tokens[i].kind;
+            if k == TokenKind.LParen {
+                depth = depth + 1;
+            } else if k == TokenKind.RParen {
+                depth = depth - 1;
+                if depth == 0 {
+                    let next = if i + 1 < self.tokens.len() {
+                        self.tokens[i + 1].kind
+                    } else {
+                        TokenKind.Eof
+                    };
+                    result = Option.Some(next == TokenKind.FatArrow);
+                }
+            } else if k == TokenKind.Eof {
+                result = Option.Some(false);
+            }
+            i = i + 1;
+        }
+        return result.unwrap_or(false);
+    }
+
+    // True when the current `{` opens a map literal (`{}` or `{ key: value, ...}`
+    // with a string/int literal key) rather than a block.
+    fn is_map_literal_start(self) -> Bool {
+        let peek1 = self.peek_tok(1);
+        if peek1.kind == TokenKind.RBrace {
+            return true;
+        }
+        if peek1.kind == TokenKind.StringLiteral || peek1.kind == TokenKind.IntLiteral {
+            return self.peek_tok(2).kind == TokenKind.Colon;
+        }
+        return false;
+    }
+
+    fn parse_map_literal(self) -> Expr {
+        let start = self.advance(); // '{'
+        let entries: List<MapEntry> = [];
+        let mut going = true;
+        while going && !self.panicking && !self.check(TokenKind.RBrace) && !self.at_end() {
+            let key = self.parse_expr();
+            self.expect(TokenKind.Colon, ':');
+            let value = self.parse_expr();
+            entries.push(MapEntry { key: key, value: value });
+            if !self.match_kind(TokenKind.Comma) {
+                going = false;
+            }
+        }
+        let rbrace = self.expect(TokenKind.RBrace, '}');
+        return Expr.MapLit(start.span.cover(rbrace.span), entries);
+    }
+
+    fn parse_list_literal(self) -> Expr {
+        let start = self.advance(); // [
+        let items: List<Expr> = [];
+        let mut going = true;
+        while going && !self.panicking && !self.check(TokenKind.RBracket) && !self.at_end() {
+            items.push(self.parse_expr());
+            if !self.match_kind(TokenKind.Comma) {
+                going = false;
+            }
+        }
+        let rbracket = self.expect(TokenKind.RBracket, ']');
+        return Expr.ListLit(start.span.cover(rbracket.span), items);
+    }
+
+    fn parse_struct_literal(self, _ type_name: String, _ start: SourceSpan) -> Expr {
+        self.advance(); // {
+        let fields: List<FieldInit> = [];
+        let mut going = true;
+        while going && !self.panicking && !self.check(TokenKind.RBrace) && !self.at_end() {
+            let fname = self.expect(TokenKind.Identifier, 'field name').lexeme();
+            self.expect(TokenKind.Colon, ':');
+            let fval = self.parse_expr();
+            fields.push(FieldInit { name: fname, value: fval });
+            if !self.match_kind(TokenKind.Comma) {
+                going = false;
+            }
+        }
+        let rbrace = self.expect(TokenKind.RBrace, '}');
+        return Expr.Struct(StructExpr {
+            span: start.cover(rbrace.span),
+            type_name: type_name,
+            fields: fields,
+        });
+    }
+
+    fn parse_match_expr(self) -> Expr {
+        let start = self.advance(); // 'match'
+        let subject = self.parse_expr_no_brace();
+        self.expect(TokenKind.LBrace, '{');
+        let arms: List<MatchArm> = [];
+        while !self.panicking && !self.check(TokenKind.RBrace) && !self.at_end() {
+            let pattern = self.parse_pattern();
+            self.expect(TokenKind.FatArrow, '=>');
+            let mut body = self.err_expr();
+            if self.check(TokenKind.LBrace) {
+                let block_start = self.current();
+                let block = self.parse_expr_block();
+                body = Expr.Block(block_start.span.cover(block_span(block)), block);
+            } else {
+                body = self.parse_expr();
+            }
+            self.match_kind(TokenKind.Comma);
+            arms.push(MatchArm {
+                span: pattern_span(pattern).cover(expr_span(body)),
+                pattern: pattern,
+                body: body,
+            });
+        }
+        let rbrace = self.expect(TokenKind.RBrace, '}');
+        return Expr.Match(MatchExpr {
+            span: start.span.cover(rbrace.span),
+            subject: subject,
+            arms: arms,
+        });
+    }
+
+    // The string-literal content captured by the lexer (None defensively maps to
+    // empty, though string tokens always carry a value).
+    fn value_of(self, _ t: Token) -> String {
+        return match t.value {
+            Some(v) => v,
+            None => '',
+        };
+    }
+
+    // --- string interpolation splitting ---
+
+    // Split the raw string content (as captured by the lexer) into Text and
+    // Interp parts. ${...} nesting (and nested string literals within) is handled.
+    fn split_string_parts(self, _ raw: String, _ parent: SourceSpan) -> List<StringPart> {
+        let cps = raw.chars();
+        let n = cps.len();
+        let parts: List<StringPart> = [];
+        let mut buf: List<Int> = [];
+        let mut i = 0;
+        while i < n {
+            if cps[i] == char.DOLLAR && i + 1 < n && cps[i + 1] == char.LBRACE {
+                if buf.len() != 0 {
+                    parts.push(StringPart.Text(parent, String.from_chars(buf)));
+                    buf = []; // reset the text accumulator (List has no clear())
+                }
+                i = i + 2; // skip ${
+                let interp_start = i;
+                let mut depth = 1;
+                while i < n && depth > 0 {
+                    let c = cps[i];
+                    if c == char.SQUOTE || c == char.DQUOTE {
+                        i = i + 1;
+                        while i < n && cps[i] != c {
+                            if cps[i] == char.BACKSLASH {
+                                i = i + 1; // skip the escaped character
+                            }
+                            i = i + 1;
+                        }
+                        i = i + 1; // past the closing quote
+                    } else {
+                        if c == char.LBRACE {
+                            depth = depth + 1;
+                        } else if c == char.RBRACE {
+                            depth = depth - 1;
+                        }
+                        i = i + 1;
+                    }
+                }
+                // cps[interp_start .. i-1] is the expression source (closing } excluded).
+                let expr_source = String.from_chars(cps.slice(interp_start, i - 1));
+                let lex_result = tokenize(expr_source);
+                if lex_result.tokens.len() > 1 {
+                    let expr = parse_expression(lex_result.tokens);
+                    parts.push(StringPart.Interp(parent, expr));
+                } else {
+                    // Empty interpolation — emit empty text.
+                    parts.push(StringPart.Text(parent, ''));
+                }
+            } else {
+                buf.push(cps[i]);
+                i = i + 1;
+            }
+        }
+        if buf.len() != 0 {
+            parts.push(StringPart.Text(parent, String.from_chars(buf)));
+        }
+        return parts;
+    }
+}
+
+// --- free helpers over the AST ---
+
+fn stmt_span(_ s: Stmt) -> SourceSpan {
+    return match s {
+        Let(x) => x.span,
+        Return(sp, _) => sp,
+        Throw(sp, _) => sp,
+        Expr(sp, _) => sp,
+        Assign(sp, _, _) => sp,
+        If(x) => x.span,
+        For(x) => x.span,
+        While(x) => x.span,
+    };
+}
+
+// An assignment target must be a simple lvalue: identifier, field, or index.
+fn is_lvalue(_ e: Expr) -> Bool {
+    return match e {
+        Ident(_, _) => true,
+        Field(_, _, _) => true,
+        Index(_, _, _) => true,
+        _ => false,
+    };
+}
+
+// A bare `match`/`if` expression statement ends in `}`, so it needs no `;`.
+fn is_block_terminated(_ e: Expr) -> Bool {
+    return match e {
+        Match(_) => true,
+        If(_) => true,
+        _ => false,
+    };
+}
+
+// Whether `b` immediately follows `a` with no gap — tells the shift `>>` from
+// two separate `>` tokens.
+fn adjacent(_ a: Token, _ b: Token) -> Bool {
+    return b.span.offset == a.span.offset + a.span.length;
+}

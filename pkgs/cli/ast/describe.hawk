@@ -1,0 +1,178 @@
+// Canonical, span-free rendering of AST nodes — the Hawk mirror of the Dart
+// nodes' `describe()` methods (ast.dart). Behavior over the enums lives in free
+// functions that `match`, per the port's node-as-data design.
+//
+// These compact one-liners are the parser port's diff key: a parsed expression
+// renders to the same string as Dart's `Expr.describe()`, so a corpus can be
+// diffed against the Dart oracle (and Hawk tests read clearly). Declaration and
+// statement describers — Dart's multi-line, indented forms — are added with the
+// driver; expressions/types/patterns are what the parser tests exercise.
+
+import '../lexer/token';
+import 'ast';
+
+pub fn describe_expr(_ e: Expr) -> String {
+    return match e {
+        Int(_, v) => '${v}',
+        Float(_, v) => '${v}',
+        Bool(_, v) => if v { 'true' } else { 'false' },
+        Unit(_) => 'void',
+        Str(_, parts) => '"' + describe_parts(parts) + '"',
+        ListLit(_, items) => '[' + join_exprs(items) + ']',
+        MapLit(_, entries) => '{' + describe_entries(entries) + '}',
+        Struct(x) => '${x.type_name} { ${describe_field_inits(x.fields)} }',
+        Ident(_, name) => name,
+        Call(x) => describe_expr(x.callee) + describe_type_args(x.type_args)
+            + '(' + describe_args(x.args) + ')',
+        Field(_, obj, f) => describe_expr(obj) + '.' + f,
+        Index(_, obj, idx) => describe_expr(obj) + '[' + describe_expr(idx) + ']',
+        Binary(_, l, op, r) => '(' + describe_expr(l) + ' ' + op + ' ' + describe_expr(r) + ')',
+        Unary(_, op, operand) => '(' + op + describe_expr(operand) + ')',
+        Propagate(_, inner) => describe_expr(inner) + '?',
+        Range(_, s, en) => describe_expr(s) + '..' + describe_expr(en),
+        Match(x) => 'match ' + describe_expr(x.subject) + ' { ' + describe_arms(x.arms) + ' }',
+        Lambda(x) => describe_lambda(x),
+        Block(_, _) => 'block{...}',
+        If(x) => describe_if(x),
+        Return(_, v) => describe_return(v),
+        Throw(_, v) => 'throw ' + describe_expr(v),
+    };
+}
+
+pub fn describe_type(_ t: TypeRef) -> String {
+    return match t {
+        Named(x) => describe_named(x),
+        Function(x) => '(' + join_types(x.params) + ') -> ' + describe_type(x.return_type),
+    };
+}
+
+pub fn describe_pattern(_ p: Pattern) -> String {
+    return match p {
+        Wildcard(_) => '_',
+        Ident(_, name) => name,
+        Constructor(_, name, args) => if args.len() == 0 {
+            name
+        } else {
+            name + '(' + describe_patterns(args) + ')'
+        },
+        Literal(_, lit) => describe_expr(lit),
+    };
+}
+
+// --- helpers (the list joins and the compound nodes) ---
+
+fn describe_named(_ x: NamedType) -> String {
+    let qualified = match x.namespace {
+        Some(ns) => ns + '.' + x.name,
+        None => x.name,
+    };
+    if x.args.len() == 0 {
+        return qualified;
+    }
+    return qualified + '<' + join_types(x.args) + '>';
+}
+
+fn describe_type_args(_ ts: List<TypeRef>) -> String {
+    if ts.len() == 0 {
+        return '';
+    }
+    return '<' + join_types(ts) + '>';
+}
+
+fn describe_lambda(_ x: LambdaExpr) -> String {
+    // The bare single-param form `n => …` only when it has no annotation.
+    let unannotated = x.params.len() == 1 && match x.params[0].type_ann {
+        Some(_) => false,
+        None => true,
+    };
+    let ps = if unannotated {
+        x.params[0].name
+    } else {
+        '(' + x.params.map((p) => describe_lambda_param(p)).join(', ') + ')'
+    };
+    return ps + ' => ' + describe_expr(x.body);
+}
+
+fn describe_lambda_param(_ p: LambdaParam) -> String {
+    return match p.type_ann {
+        Some(t) => p.name + ': ' + describe_type(t),
+        None => p.name,
+    };
+}
+
+fn describe_if(_ x: IfExpr) -> String {
+    let tail = match x.else_block {
+        Some(_) => ' else {...}',
+        None => '',
+    };
+    return 'if ' + describe_expr(x.condition) + ' {...}' + tail;
+}
+
+fn describe_return(_ v: Option<Expr>) -> String {
+    return match v {
+        Some(e) => 'return ' + describe_expr(e),
+        None => 'return',
+    };
+}
+
+fn describe_parts(_ parts: List<StringPart>) -> String {
+    return parts.map((p) => describe_part(p)).join('');
+}
+
+fn describe_part(_ p: StringPart) -> String {
+    return match p {
+        Text(_, t) => t,
+        // The literal `${` is built from two separate string literals: a `'\${'`
+        // literal would be re-read as an interpolation by the string-splitter
+        // (the `\$` escape is collapsed to `$` before splitting; see the parser
+        // port notes), so its `$` and `{` are kept in different literals.
+        Interp(_, e) => '$' + '{' + describe_expr(e) + '}',
+    };
+}
+
+fn describe_arg(_ a: CallArg) -> String {
+    return match a.label {
+        Some(l) => l + ': ' + describe_expr(a.value),
+        None => describe_expr(a.value),
+    };
+}
+
+fn describe_arm(_ a: MatchArm) -> String {
+    return describe_pattern(a.pattern) + ' => ' + describe_expr(a.body);
+}
+
+fn describe_entry(_ e: MapEntry) -> String {
+    return describe_expr(e.key) + ': ' + describe_expr(e.value);
+}
+
+fn describe_field_init(_ f: FieldInit) -> String {
+    return f.name + ': ' + describe_expr(f.value);
+}
+
+fn join_exprs(_ xs: List<Expr>) -> String {
+    return xs.map((e) => describe_expr(e)).join(', ');
+}
+
+fn join_types(_ xs: List<TypeRef>) -> String {
+    return xs.map((t) => describe_type(t)).join(', ');
+}
+
+fn describe_patterns(_ xs: List<Pattern>) -> String {
+    return xs.map((p) => describe_pattern(p)).join(', ');
+}
+
+fn describe_args(_ xs: List<CallArg>) -> String {
+    return xs.map((a) => describe_arg(a)).join(', ');
+}
+
+fn describe_arms(_ xs: List<MatchArm>) -> String {
+    return xs.map((a) => describe_arm(a)).join(', ');
+}
+
+fn describe_entries(_ xs: List<MapEntry>) -> String {
+    return xs.map((e) => describe_entry(e)).join(', ');
+}
+
+fn describe_field_inits(_ xs: List<FieldInit>) -> String {
+    return xs.map((f) => describe_field_init(f)).join(', ');
+}

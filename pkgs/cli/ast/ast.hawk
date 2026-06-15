@@ -329,3 +329,53 @@ pub type IfExpr = {
     then_block: Block,
     else_block: Option<Block>,
 }
+
+// --- Span accessors (Dart's `.span` getters, as free functions over the enums) ---
+
+pub fn expr_span(_ e: Expr) -> SourceSpan {
+    return match e {
+        Int(s, _) => s,
+        Float(s, _) => s,
+        Bool(s, _) => s,
+        Unit(s) => s,
+        Str(s, _) => s,
+        ListLit(s, _) => s,
+        MapLit(s, _) => s,
+        Struct(x) => x.span,
+        Ident(s, _) => s,
+        Call(x) => x.span,
+        Field(s, _, _) => s,
+        Index(s, _, _) => s,
+        Binary(s, _, _, _) => s,
+        Unary(s, _, _) => s,
+        Propagate(s, _) => s,
+        Range(s, _, _) => s,
+        Match(x) => x.span,
+        Lambda(x) => x.span,
+        Block(s, _) => s,
+        If(x) => x.span,
+        Return(s, _) => s,
+        Throw(s, _) => s,
+    };
+}
+
+pub fn type_span(_ t: TypeRef) -> SourceSpan {
+    return match t {
+        Named(x) => x.span,
+        Function(x) => x.span,
+    };
+}
+
+pub fn pattern_span(_ p: Pattern) -> SourceSpan {
+    return match p {
+        Wildcard(s) => s,
+        Ident(s, _) => s,
+        Constructor(s, _, _) => s,
+        Literal(s, _) => s,
+    };
+}
+
+// A block's span runs from its opening to its closing brace.
+pub fn block_span(_ b: Block) -> SourceSpan {
+    return b.start_span.cover(b.end_span);
+}

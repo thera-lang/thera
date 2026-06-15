@@ -139,6 +139,26 @@ impl SourceSpan {
     pub fn text(self) -> String {
         return self.source.slice(self.offset, self.offset + self.length);
     }
+
+    // A span from the start of `self` to the end of `other` (used to widen a
+    // node's span to enclose its children). An empty-source span is treated as
+    // absent, so covering with one returns the other — mirroring the Dart
+    // `SourceSpan.cover` factory.
+    pub fn cover(self, _ other: SourceSpan) -> SourceSpan {
+        if self.source == '' {
+            return other;
+        }
+        if other.source == '' {
+            return self;
+        }
+        return SourceSpan {
+            source: self.source,
+            offset: self.offset,
+            length: other.offset + other.length - self.offset,
+            line: self.line,
+            column: self.column,
+        };
+    }
 }
 
 impl Display for SourceSpan {
