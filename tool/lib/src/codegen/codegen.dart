@@ -1278,12 +1278,43 @@ class _FnCompiler {
     _bind(end);
   }
 
+  /// A match large enough to dispatch on a hoisted enum tag rather than the
+  /// per-arm `enum.tag` recompute + linear tag chain. Below this many cases the
+  /// simple chain is smaller (and the hoist would not pay for itself), so small
+  /// matches lower byte-for-byte as before.
+  static const int _kMatchDispatchMinCases = 6;
+
   void _matchExpr(MatchExpr e) {
     final subjectType = _typeOf(e.subject);
     _expr(e.subject);
     final subject = _freshSlot();
     _emit(Store(subject));
     final end = _newLabel();
+
+    // Large enum matches dispatch on the subject's tag, computed once into a
+    // slot instead of reloaded and recomputed per arm. When every non-final arm
+    // is a flat constructor over a distinct tag, the dispatch is a balanced
+    // binary search (the final arm is the catch-all — matching the linear
+    // scheme's fall-through and the checker's exhaustiveness); otherwise the
+    // chain stays linear but reuses the hoisted tag. Small matches keep the
+    // plain chain (no hoist), so their lowering is unchanged.
+    final isEnum = subjectType != null && _enums.containsKey(subjectType);
+    final dispatch = isEnum ? _planDispatch(e, subjectType) : null;
+    int? tagSlot;
+    if (isEnum &&
+        (dispatch != null || _topLevelTagTests(e) >= _kMatchDispatchMinCases)) {
+      _emit(Load(subject));
+      _emit(const Simple(Op.enumTag));
+      tagSlot = _freshSlot();
+      _emit(Store(tagSlot));
+    }
+
+    if (dispatch != null) {
+      _emitDispatch(dispatch.cases, dispatch.defaultArm, subject, subjectType,
+          tagSlot!, end);
+      _bind(end);
+      return;
+    }
 
     for (var i = 0; i < e.arms.length; i++) {
       final arm = e.arms[i];
@@ -1300,11 +1331,106 @@ class _FnCompiler {
       // A refutable arm: test the pattern (jumping to the next arm on any
       // mismatch, at every level of nesting), bind, run the body, merge at end.
       final next = _newLabel();
-      _emitPattern(arm.pattern, subject, subjectType, next);
+      _emitPattern(arm.pattern, subject, subjectType, next, tagSlot: tagSlot);
       _armBody(arm.body, end, jumpToEnd: true);
       _bind(next);
     }
     _bind(end);
+  }
+
+  /// The number of arms that emit a top-level `enum.tag` test in the linear
+  /// scheme — the non-final constructor-pattern arms. Drives whether hoisting
+  /// the subject's tag pays off.
+  int _topLevelTagTests(MatchExpr e) {
+    var n = 0;
+    for (var i = 0; i < e.arms.length - 1; i++) {
+      if (e.arms[i].pattern is ConstructorPattern) n++;
+    }
+    return n;
+  }
+
+  /// Plan a binary-search dispatch for [e] over enum [enumType], or return null
+  /// when it doesn't qualify (too few cases, a non-flat / refutable sub-pattern,
+  /// a literal/irrefutable mid-arm, or a duplicate or unknown tag). Every
+  /// non-final arm must be a constructor whose arguments are all irrefutable
+  /// (wildcard or binding), so the tag alone decides the arm — preserving
+  /// first-match semantics. The final arm is the catch-all default (it runs for
+  /// its own tag and any tag no earlier case claimed, exactly as the linear
+  /// scheme's fall-through final arm does).
+  ({Map<int, MatchArm> cases, MatchArm defaultArm})? _planDispatch(
+      MatchExpr e, String enumType) {
+    final info = _enums[enumType];
+    if (info == null || e.arms.length - 1 < _kMatchDispatchMinCases)
+      return null;
+    final cases = <int, MatchArm>{};
+    for (var i = 0; i < e.arms.length - 1; i++) {
+      final p = e.arms[i].pattern;
+      if (p is! ConstructorPattern) return null; // literal / wildcard mid-match
+      if (!p.args.every((a) => a is WildcardPattern || a is IdentPattern)) {
+        return null; // a nested refutable sub-pattern needs the linear chain
+      }
+      final tag = info.tagOf(p.name); // -1 when the variant is unknown
+      if (tag < 0 || cases.containsKey(tag)) return null; // unknown / duplicate
+      cases[tag] = e.arms[i];
+    }
+    return (cases: cases, defaultArm: e.arms.last);
+  }
+
+  /// Emit a balanced binary search over the (distinct, sorted) case tags, with
+  /// every miss routed to a single shared default. Each node compares the
+  /// hoisted tag in [tagSlot]: `<` branches left, `>` branches right, and the
+  /// equal fall-through runs the case. Reaching a tag not in the set falls to
+  /// [defaultArm]. O(log n) comparisons instead of the chain's O(n).
+  void _emitDispatch(Map<int, MatchArm> cases, MatchArm defaultArm, int subject,
+      String? subjectType, int tagSlot, int end) {
+    final tags = cases.keys.toList()..sort();
+    final defaultLabel = _newLabel();
+
+    void leaf(MatchArm arm, {required bool jumpToEnd}) {
+      // The tag is already known here, so only bind fields (fail == null), then
+      // run the body.
+      _emitPattern(arm.pattern, subject, subjectType, null);
+      _armBody(arm.body, end, jumpToEnd: jumpToEnd);
+    }
+
+    void bisect(int lo, int hi) {
+      final mid = (lo + hi) >> 1;
+      final t = tags[mid];
+      final hasLeft = lo <= mid - 1;
+      final hasRight = mid + 1 <= hi;
+      if (!hasLeft && !hasRight) {
+        _emit(Load(tagSlot));
+        _emit(ConstInt(t));
+        _emit(const Simple(Op.eqI64));
+        _emitJump(_Jk.ifFalse, defaultLabel);
+        leaf(cases[t]!, jumpToEnd: true);
+        return;
+      }
+      // Absent subranges route their branch straight to the default.
+      final leftTarget = hasLeft ? _newLabel() : defaultLabel;
+      final rightTarget = hasRight ? _newLabel() : defaultLabel;
+      _emit(Load(tagSlot));
+      _emit(ConstInt(t));
+      _emit(const Simple(Op.ltI64));
+      _emitJump(_Jk.ifTrue, leftTarget);
+      _emit(Load(tagSlot));
+      _emit(ConstInt(t));
+      _emit(const Simple(Op.gtI64));
+      _emitJump(_Jk.ifTrue, rightTarget);
+      leaf(cases[t]!, jumpToEnd: true); // equal
+      if (hasLeft) {
+        _bind(leftTarget);
+        bisect(lo, mid - 1);
+      }
+      if (hasRight) {
+        _bind(rightTarget);
+        bisect(mid + 1, hi);
+      }
+    }
+
+    bisect(0, tags.length - 1);
+    _bind(defaultLabel);
+    leaf(defaultArm, jumpToEnd: false);
   }
 
   /// Whether [p] always matches, so it needs no test: a wildcard or a bare
@@ -1318,8 +1444,13 @@ class _FnCompiler {
   /// the pattern is taken to match (an irrefutable or final arm), so only the
   /// bindings are emitted. Recurses into constructor arguments, so nested
   /// constructor and literal sub-patterns work.
+  ///
+  /// [tagSlot], when given, holds [valueSlot]'s precomputed `enum.tag`, so a
+  /// top-level constructor test reloads it instead of recomputing the tag. It
+  /// applies only at this level; nested sub-patterns recompute their own tags.
   void _emitPattern(
-      Pattern pattern, int valueSlot, String? valueType, int? fail) {
+      Pattern pattern, int valueSlot, String? valueType, int? fail,
+      {int? tagSlot}) {
     switch (pattern) {
       case WildcardPattern():
         break; // matches anything, binds nothing
@@ -1336,8 +1467,12 @@ class _FnCompiler {
         final info = valueType == null ? null : _enums[valueType];
         final tag = info?.tagOf(name) ?? -1;
         if (fail != null) {
-          _emit(Load(valueSlot));
-          _emit(const Simple(Op.enumTag));
+          if (tagSlot != null) {
+            _emit(Load(tagSlot)); // reuse the hoisted tag
+          } else {
+            _emit(Load(valueSlot));
+            _emit(const Simple(Op.enumTag));
+          }
           _emit(ConstInt(_variantTag(valueType, name, pattern.span)));
           _emit(const Simple(Op.eqI64));
           _emitJump(_Jk.ifFalse, fail);

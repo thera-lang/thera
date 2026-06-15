@@ -272,8 +272,11 @@ Offsets are signed byte deltas from the _start of the next_ instruction.
 | `jump_if_false` | `off: i32` | `bool →` |                                         |
 | `return`        | —          | `[v] →`  | returns top slot, or nothing for `Void` |
 
-A `switch.tag` (jump table on an enum tag) is an obvious later addition for fast
-`match`; initially `match` lowers to `enum.tag` + a comparison/branch chain.
+A `switch.tag` (jump table on an enum tag) is an obvious later addition for
+O(1) `match`. Until then, a small `match` lowers to `enum.tag` + a linear
+comparison/branch chain; a large enum `match` hoists `enum.tag` once and
+dispatches via a balanced binary search over the arm tags (O(log n) compares) —
+see "Match dispatch" below.
 
 ### Calls
 
@@ -368,8 +371,21 @@ store x
 `return`. **Implicit `Ok` wrapping** on a bare `return v` →
 `enum.new Result, Ok` then `return`.
 
-**`match`** — `enum.tag`, then a branch chain (later: `switch.tag`); each arm
-uses `enum.get` to bind payload fields.
+**`match`** (Match dispatch) — the subject's `enum.tag` drives arm selection;
+each arm uses `enum.get` to bind payload fields. Two shapes, by size:
+
+- **Small match** — a linear chain: per refutable arm, `enum.tag` + `const.int`
+  + `eq.i64` + `jump_if_false` to the next arm. The final arm is the
+  exhaustiveness fall-through (no test). Simple and compact.
+- **Large enum match** (≥ 6 arms) — the tag is computed **once** into a slot,
+  then reused. When every non-final arm is a flat constructor over a distinct
+  tag, dispatch is a **balanced binary search** on the sorted tags (`lt.i64` /
+  `gt.i64` route left/right; equal runs the arm), with every miss and the final
+  arm sharing one default target — O(log n) comparisons instead of O(n). A large
+  match whose arms have refutable *nested* sub-patterns (which can fail after
+  the tag matches and must fall through in source order) keeps the linear chain
+  but still reuses the single hoisted tag. `switch.tag` would later make the
+  dense case O(1).
 
 **`for x in 0..n`** — standard counter: a local, `lt.i64` test, `jump_if_false`
 out, body, `add.i64` increment, `jump` back. Iterating collections goes through

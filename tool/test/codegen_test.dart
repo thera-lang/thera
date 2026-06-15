@@ -468,6 +468,73 @@ fn f(_ n: Int) -> String {
           ops.whereType<CallNative>().where((i) => i.name == 'eq'), isNotEmpty);
     });
 
+    test('a large enum match dispatches via a hoisted-tag binary search', () {
+      // Eight flat nullary-constructor arms (>= the dispatch threshold) lower to
+      // a balanced binary search over a single hoisted tag: one enum.tag (the
+      // hoist) instead of one per arm, and lt/gt comparisons instead of an
+      // all-equality chain.
+      final m = compile('''
+enum E { A, B, C, D, F, G, H, I }
+fn f(_ e: E) -> Int {
+    return match e {
+        A => 0, B => 1, C => 2, D => 3,
+        F => 4, G => 5, H => 6, I => 7,
+    };
+}
+''');
+      final ops = m.functions[0].code; // f
+      // The tag is computed exactly once and reused (vs. once per arm).
+      expect(
+          ops.whereType<Simple>().where((i) => i.op == Op.enumTag).length, 1);
+      // Binary search uses ordered comparisons; the linear chain never would.
+      expect(
+          ops.whereType<Simple>().where((i) => i.op == Op.ltI64), isNotEmpty);
+      expect(
+          ops.whereType<Simple>().where((i) => i.op == Op.gtI64), isNotEmpty);
+    });
+
+    test('a small enum match stays a linear tag chain (no dispatch)', () {
+      // Below the threshold the lowering is unchanged: a per-arm enum.tag chain,
+      // no ordered comparisons.
+      final m = compile('''
+enum E { A, B, C }
+fn f(_ e: E) -> Int {
+    return match e { A => 0, B => 1, C => 2 };
+}
+''');
+      final ops = m.functions[0].code; // f
+      expect(ops.whereType<Simple>().where((i) => i.op == Op.ltI64), isEmpty);
+      expect(ops.whereType<Simple>().where((i) => i.op == Op.gtI64), isEmpty);
+      // A tag test per refutable (non-final) arm — recomputed, not hoisted.
+      expect(ops.whereType<Simple>().where((i) => i.op == Op.enumTag).length,
+          greaterThan(1));
+    });
+
+    test('a large match with a nested arm keeps the chain but hoists the tag',
+        () {
+      // A refutable nested sub-pattern can fail after its tag matches and must
+      // fall through to the next arm, so the binary search doesn't apply — but
+      // with enough top-level tag tests the chain still reuses one hoisted tag.
+      final m = compile('''
+enum Op { Add }
+enum E { A, B, C, D, F, Bin(Op, E) }
+fn f(_ e: E) -> Int {
+    return match e {
+        A => 0, B => 1, C => 2, D => 3, F => 4,
+        Bin(Add, A) => 5,
+        _ => 6,
+    };
+}
+''');
+      final ops = m.functions[0].code; // f
+      expect(ops.whereType<Simple>().where((i) => i.op == Op.ltI64), isEmpty);
+      // The top-level tag is hoisted once; only the nested `Bin(Add, A)` arm
+      // recomputes a tag for its sub-value, so there are far fewer than one
+      // enum.tag per arm.
+      expect(ops.whereType<Simple>().where((i) => i.op == Op.enumTag).length,
+          lessThan(4));
+    });
+
     test('a struct declaration becomes a type-table entry', () {
       final m = compile(
           'type Point = { x: Int, y: Int } fn f() -> Int { return 0; }');
