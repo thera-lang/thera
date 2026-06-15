@@ -393,11 +393,11 @@ impl Lexer {
         -> Void {
         let e = self.ch();
         self.advance(); // consume the escape character
-        if is_letter(e, 'n') {
+        if e == LOWER_N {
             buf.push(char.LF);
-        } else if is_letter(e, 't') {
+        } else if e == LOWER_T {
             buf.push(char.TAB);
-        } else if is_letter(e, 'r') {
+        } else if e == LOWER_R {
             buf.push(char.CR);
         } else if e == char.BACKSLASH {
             buf.push(char.BACKSLASH);
@@ -407,9 +407,9 @@ impl Lexer {
             buf.push(char.DQUOTE);
         } else if e == char.DOLLAR {
             buf.push(char.DOLLAR);
-        } else if is_letter(e, 'x') {
+        } else if e == LOWER_X {
             self.scan_hex_escape(buf, o, l, c);
-        } else if is_letter(e, 'u') {
+        } else if e == LOWER_U {
             self.scan_unicode_escape(buf, o, l, c);
         } else {
             // An unrecognized escape is an error, not a silent pass-through.
@@ -475,8 +475,7 @@ impl Lexer {
     fn scan_number(self) -> Void {
         // Hex integer literal: `0x` / `0X` then hex digits. The first digit (the
         // `0`) is already consumed; check the source for it.
-        if self.chars[self.ts_offset] == char.DIGIT_0
-            && (is_letter(self.ch(), 'x') || is_letter(self.ch(), 'X')) {
+        if self.chars[self.ts_offset] == char.DIGIT_0 && (self.ch() == LOWER_X || self.ch() == UPPER_X) {
             self.advance(); // x / X
             let mut saw_digit = false;
             while !self.at_end() && char.is_hex_digit(self.ch()) {
@@ -537,8 +536,9 @@ impl Lexer {
     }
 }
 
-// True if code point `cp` is the single ASCII character `letter`. Used for the
-// handful of letters std.char has no named constant for (`x`, escape letters).
-fn is_letter(_ cp: Int, _ letter: String) -> Bool {
-    return String.from_chars([cp]) == letter;
-}
+const UPPER_X: Int = 88;
+const LOWER_N: Int = 110;
+const LOWER_R: Int = 114;
+const LOWER_T: Int = 116;
+const LOWER_U: Int = 117;
+const LOWER_X: Int = 120;
