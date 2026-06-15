@@ -285,9 +285,41 @@ This makes the port incremental and continuously checkable, not a big-bang.
   `break`/`continue` (already on the roadmap's deferred list) would shave real
   friction off the parser port. Not a blocker.
 - **A few letters lack `std.char` constants** (`x`, escape letters `n`/`t`/`r`/…).
-  Worked around with a tiny `is_letter(cp, "x")` helper (`from_chars` + `==`); a
-  `char.hex_digit_value` was added to std.char (it parallels `digit_value` and
+  A `char.hex_digit_value` was added to std.char (it parallels `digit_value` and
   the `\xNN`/`\u{}` escapes wanted it). No language gap.
+
+The `ast/` + `parser/` chunk added:
+
+- **`ast/` is data + free functions.** The Dart sealed hierarchies map to one
+  `enum` per base; multi-field nodes carry a named payload struct, Dart records
+  (`List<(String, TypeRef)>`) become small structs (`FieldDef`/`MapEntry`/…), and
+  `.span`/`describe()` become free `fn`s that `match`. Deep mutual recursion
+  (Decl → FnDecl → Block → Stmt → Expr → TypeRef) and struct-mediated recursion
+  compile fine; structural `Eq`/`Debug` diff a whole `Program`.
+- **`hawkbc` hex parsing → `String.to_int_radix`.** Closed the audit's hex gap in
+  pure Hawk (wrapping `*`/`+`), no native — see the stdlib commit.
+- **Panic-flag recovery works.** The `_ParseFail` throw → a `panicking` flag the
+  token primitives and parse loops short-circuit on, cleared at the decl
+  boundary; verified by a recovery test. The one real translation cost of the
+  port, and it's local.
+
+Bugs/gaps surfaced (not blocking; worth tracking):
+
+- **`\$` does not escape interpolation.** The lexer collapses `\$`→`$` in the
+  captured value, then the parser's `_splitStringParts` re-reads `${` as an
+  interpolation — so a literal `${` can't be written as `'\${'`, and a malformed
+  one **crashes the Dart parser with a `RangeError`** (`substring(2,1)`) rather
+  than erroring cleanly. The Hawk port's splitter handles the empty/garbage case
+  without crashing; the escape-semantics question is a real one for both
+  front-ends. (Worked around in `describe.hawk` by building `${` from two
+  literals.)
+- **`check` doesn't validate built-in `List`/generic method names.** A call to a
+  non-existent `xs.remove_last()` passed `hawk check` (only surfaced at codegen).
+  A checker gap to close when the checker is ported.
+- **`Option.None` locals need a type annotation when only a later assignment
+  pins the element type** (`let mut x: Option<SourceSpan> = Option.None;`).
+  Inference doesn't flow backward from a later `x = Some(span)` through a
+  `match`/method call. Minor, but recurring in stateful parser code.
 
 ### Language work this depends on (gating the port)
 
