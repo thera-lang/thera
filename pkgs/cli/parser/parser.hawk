@@ -1725,7 +1725,11 @@ impl Parser {
         let mut buf: List<Int> = [];
         let mut i = 0;
         while i < n {
-            if cps[i] == char.DOLLAR && i + 1 < n && cps[i + 1] == char.LBRACE {
+            if cps[i] == char.BACKSLASH && i + 1 < n {
+                // `\\` / `\$` from the lexer: the next char is a literal `\`/`$`.
+                buf.push(cps[i + 1]);
+                i = i + 2;
+            } else if cps[i] == char.DOLLAR && i + 1 < n && cps[i + 1] == char.LBRACE {
                 if buf.len() != 0 {
                     parts.push(StringPart.Text(parent, String.from_chars(buf)));
                     buf = []; // reset the text accumulator (List has no clear())

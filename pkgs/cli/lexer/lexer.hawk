@@ -389,24 +389,31 @@ impl Lexer {
 
     // Decode one escape into `buf`. The backslash is already consumed; `ch()` is
     // the escape character. `(o, l, c)` is the backslash position, for errors.
+    //
+    // Decoded characters go through `push_literal`, which re-escapes a literal
+    // `\` or `$` (as `\\` / `\$`) in the captured value. This keeps an escaped
+    // `\${` distinguishable from a real `${…}` interpolation (which is captured
+    // raw): the value's only *bare* `${` are interpolations, and the parser's
+    // splitter decodes `\\`/`\$` back to their characters. Without this, `\$`
+    // de-escapes to a bare `$` that the splitter mistakes for interpolation.
     fn scan_string_escape(self, _ buf: List<Int>, _ o: Int, _ l: Int, _ c: Int)
         -> Void {
         let e = self.ch();
         self.advance(); // consume the escape character
         if e == LOWER_N {
-            buf.push(char.LF);
+            push_literal(buf, char.LF);
         } else if e == LOWER_T {
-            buf.push(char.TAB);
+            push_literal(buf, char.TAB);
         } else if e == LOWER_R {
-            buf.push(char.CR);
+            push_literal(buf, char.CR);
         } else if e == char.BACKSLASH {
-            buf.push(char.BACKSLASH);
+            push_literal(buf, char.BACKSLASH);
         } else if e == char.SQUOTE {
-            buf.push(char.SQUOTE);
+            push_literal(buf, char.SQUOTE);
         } else if e == char.DQUOTE {
-            buf.push(char.DQUOTE);
+            push_literal(buf, char.DQUOTE);
         } else if e == char.DOLLAR {
-            buf.push(char.DOLLAR);
+            push_literal(buf, char.DOLLAR);
         } else if e == LOWER_X {
             self.scan_hex_escape(buf, o, l, c);
         } else if e == LOWER_U {
@@ -415,7 +422,7 @@ impl Lexer {
             // An unrecognized escape is an error, not a silent pass-through.
             self.error_at("unknown escape sequence: '\\${String.from_chars([e])}'",
                 o, l, c);
-            buf.push(e); // keep scanning; the error fails the parse
+            push_literal(buf, e); // keep scanning; the error fails the parse
         }
     }
 
@@ -433,7 +440,7 @@ impl Lexer {
             self.advance();
             i = i + 1;
         }
-        buf.push(value);
+        push_literal(buf, value);
     }
 
     // `\u{...}` — 1..6 hex digits in braces, naming a Unicode scalar value.
@@ -469,7 +476,7 @@ impl Lexer {
             self.error_at("invalid Unicode scalar value in '\\u{...}'", o, l, c);
             return;
         }
-        buf.push(value);
+        push_literal(buf, value);
     }
 
     fn scan_number(self) -> Void {
@@ -542,3 +549,14 @@ const LOWER_R: Int = 114;
 const LOWER_T: Int = 116;
 const LOWER_U: Int = 117;
 const LOWER_X: Int = 120;
+
+// Append a decoded text code point to a string-literal buffer, re-escaping a
+// literal `\` or `$` as `\\` / `\$`. This keeps the captured value's only bare
+// `${` sequences the real interpolations; the parser's splitter decodes the
+// escapes back. (Interpolation content is captured raw, not through here.)
+fn push_literal(_ buf: List<Int>, _ cp: Int) -> Void {
+    if cp == char.BACKSLASH || cp == char.DOLLAR {
+        buf.push(char.BACKSLASH);
+    }
+    buf.push(cp);
+}

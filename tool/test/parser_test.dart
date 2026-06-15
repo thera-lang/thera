@@ -38,11 +38,15 @@ void main() {
     });
 
     test('known escapes decode in a string literal', () {
-      final lex = Lexer(r"'a\nb\t\\\'\$'").tokenize();
+      // `\`/`$`-free escapes here, so the captured value equals the decoded
+      // text. A literal `\`/`$` is re-escaped in the value (`\\`/`\$`) so the
+      // splitter can tell it from a real `${…}`; that round-trip is covered by
+      // the parser's `\$ escapes interpolation` test.
+      final lex = Lexer(r"'a\nb\t\''").tokenize();
       expect(lex.hasErrors, isFalse);
       final str =
           lex.tokens.firstWhere((t) => t.kind == TokenKind.stringLiteral);
-      expect(str.value, "a\nb\t\\'\$");
+      expect(str.value, "a\nb\t'");
     });
 
     test('an unknown escape sequence is an error, not a pass-through', () {
@@ -664,6 +668,40 @@ impl T {
       final texts = e.parts.whereType<TextPart>().map((t) => t.text).toList();
       expect(texts, ['a', 'b']); // 'b' proves the right '}' was matched
       expect(e.parts.whereType<InterpPart>().single.expr, isA<CallExpr>());
+    });
+
+    test(r'\$ escapes interpolation: \${x} is literal text, not an interp', () {
+      // Sources are raw so the `\$`/`\${` reach the lexer under test.
+      final lit = exprOf(r"'\${x}'") as StringExpr;
+      expect(lit.parts.whereType<InterpPart>(), isEmpty);
+      expect(
+          lit.parts.whereType<TextPart>().map((t) => t.text).join(), r'${x}');
+
+      // A real interpolation still interpolates.
+      final real = exprOf(r"'${x}'") as StringExpr;
+      expect(real.parts.whereType<InterpPart>().length, 1);
+
+      // \$ not before a brace, and \\ , round-trip to their literal characters.
+      expect(
+          (exprOf(r"'a\$b'") as StringExpr)
+              .parts
+              .whereType<TextPart>()
+              .single
+              .text,
+          r'a$b');
+      expect(
+          (exprOf(r"'a\\b'") as StringExpr)
+              .parts
+              .whereType<TextPart>()
+              .single
+              .text,
+          r'a\b');
+    });
+
+    test('an unterminated interpolation does not crash the splitter', () {
+      // `'${'` (no closing brace) used to throw a RangeError in the splitter.
+      final e = parseRaw(r"'${'").program; // tolerated; just shouldn't throw
+      expect(e, isNotNull);
     });
 
     test('lambda', () {

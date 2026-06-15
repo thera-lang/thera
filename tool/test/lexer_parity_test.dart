@@ -69,13 +69,23 @@ void main() {
 
   test('strings — escapes decode, interpolation is captured verbatim', () {
     // Raw Dart strings so the backslashes/`${}` reach the lexer under test.
-    expect(lex(r"'a\nb\t\\\''"), ['stringLiteral:a\nb\t\\\'', 'eof:']);
+    // (`\`/`$`-free escapes here; a literal `\` or `$` is re-escaped in the
+    // captured value — see the escaped-dollar test below.)
+    expect(lex(r"'a\nb\t\''"), ['stringLiteral:a\nb\t\'', 'eof:']);
     expect(lex(r"'\x41'"), ['stringLiteral:A', 'eof:']);
     expect(lex(r"'\u{48}'"), ['stringLiteral:H', 'eof:']);
     expect(lex(r"'a${1 + 2}b'"), [r'stringLiteral:a${1 + 2}b', 'eof:']);
     // A `}` inside a nested string within `${...}` must not close it early.
     // Source under test: '${"x}"}' (escaped here, not raw, for the inner ").
     expect(lex('\'\${"x}"}\''), ['stringLiteral:\${"x}"}', 'eof:']);
+  });
+
+  test('escaped \$ is re-escaped in the value (so `\\\${` stays literal)', () {
+    // The captured value carries `\$`/`\\` so the parser's splitter can tell an
+    // escaped dollar from a real interpolation. `\${x}` → value `\${x}`.
+    expect(lex(r"'\${x}'"), [r'stringLiteral:\${x}', 'eof:']);
+    expect(lex(r"'a\$b'"), [r'stringLiteral:a\$b', 'eof:']);
+    expect(lex(r"'a\\b'"), [r'stringLiteral:a\\b', 'eof:']);
   });
 
   test('comments and whitespace are skipped', () {

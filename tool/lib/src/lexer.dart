@@ -301,24 +301,31 @@ class Lexer {
   /// Decode one escape sequence into [buf]. The backslash is already consumed;
   /// `_ch` is the escape character. The position of the backslash ([o]/[l]/[c])
   /// is used for diagnostics. Consumes everything the escape spans.
+  ///
+  /// Decoded characters go through [_writeLiteral], which re-escapes a literal
+  /// `\` or `$` (as `\\` / `\$`) in the captured value. This keeps an escaped
+  /// `\${` distinguishable from a real `${…}` interpolation (captured raw): the
+  /// value's only *bare* `${` are interpolations, and the parser's splitter
+  /// decodes `\\`/`\$` back. Without this, `\$` de-escapes to a bare `$` the
+  /// splitter mistakes for interpolation.
   void _scanStringEscape(StringBuffer buf, int o, int l, int c) {
     final e = _ch;
     _advance(); // consume the escape character
     switch (e) {
       case 'n':
-        buf.write('\n');
+        _writeLiteral(buf, 0x0A);
       case 't':
-        buf.write('\t');
+        _writeLiteral(buf, 0x09);
       case 'r':
-        buf.write('\r');
+        _writeLiteral(buf, 0x0D);
       case '\\':
-        buf.write('\\');
+        _writeLiteral(buf, 0x5C);
       case "'":
-        buf.write("'");
+        _writeLiteral(buf, 0x27);
       case '"':
-        buf.write('"');
+        _writeLiteral(buf, 0x22);
       case r'$':
-        buf.write(r'$');
+        _writeLiteral(buf, 0x24);
       case 'x':
         _scanHexEscape(buf, o, l, c);
       case 'u':
@@ -327,8 +334,16 @@ class Lexer {
         // An unrecognized escape is an error, not a silent pass-through — a
         // typo like `\d` shouldn't quietly become a literal backslash-d.
         _error("unknown escape sequence: '\\$e'", o, l, c);
-        buf.write(e); // keep scanning; the error fails the parse
+        _writeLiteral(
+            buf, e.codeUnitAt(0)); // keep scanning; the error fails the parse
     }
+  }
+
+  /// Append a decoded text code point to a string-literal buffer, re-escaping a
+  /// literal `\` or `$` as `\\` / `\$` (see [_scanStringEscape]).
+  void _writeLiteral(StringBuffer buf, int code) {
+    if (code == 0x5C || code == 0x24) buf.writeCharCode(0x5C);
+    buf.writeCharCode(code);
   }
 
   /// `\xNN` — exactly two hex digits, a code point in 0x00..0xFF (always a
@@ -343,7 +358,7 @@ class Lexer {
       value = value * 16 + _hexDigit(_ch);
       _advance();
     }
-    buf.writeCharCode(value);
+    _writeLiteral(buf, value);
   }
 
   /// `\u{...}` — 1..6 hex digits in braces, naming a Unicode scalar value.
@@ -379,7 +394,7 @@ class Lexer {
       _error(r"invalid Unicode scalar value in '\u{...}'", o, l, c);
       return;
     }
-    buf.writeCharCode(value);
+    _writeLiteral(buf, value);
   }
 
   static int _hexDigit(String c) {

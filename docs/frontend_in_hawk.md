@@ -305,14 +305,16 @@ The `ast/` + `parser/` chunk added:
 
 Bugs/gaps surfaced (not blocking; worth tracking):
 
-- **`\$` does not escape interpolation.** The lexer collapses `\$`→`$` in the
-  captured value, then the parser's `_splitStringParts` re-reads `${` as an
-  interpolation — so a literal `${` can't be written as `'\${'`, and a malformed
-  one **crashes the Dart parser with a `RangeError`** (`substring(2,1)`) rather
-  than erroring cleanly. The Hawk port's splitter handles the empty/garbage case
-  without crashing; the escape-semantics question is a real one for both
-  front-ends. (Worked around in `describe.hawk` by building `${` from two
-  literals.)
+- **`\$` does not escape interpolation — fixed (both front-ends).** The lexer
+  used to collapse `\$`→`$` in the captured value, so the parser's splitter
+  re-read `${` as an interpolation (and a malformed one crashed the Dart parser
+  with a `RangeError`). Fix: the lexer now re-escapes a literal `\`/`$` in the
+  value (`\\`/`\$`); the splitter decodes those and treats only a *bare* `$`+`{`
+  as interpolation. `\${x}` is now literal `${x}`; the round-trip is identical
+  for every valid existing string. Applied identically to the Dart toolchain
+  (`lexer.dart`/`parser.dart`) and the Hawk port (`lexer/`/`parser/`), with the
+  unterminated-`${` overrun hardened into a clean parse. Lexeme of a string now
+  carries the escaped value (decoding is the splitter's job).
 - **`check` doesn't validate built-in `List`/generic method names.** A call to a
   non-existent `xs.remove_last()` passed `hawk check` (only surfaced at codegen).
   A checker gap to close when the checker is ported.

@@ -100,11 +100,14 @@ fn test_string_basic_both_quotes() -> Result<Void, Error> {
 
 @test
 fn test_string_escapes() -> Result<Void, Error> {
-    // \n \t \\ \' decode to their characters; the lexeme holds decoded content.
-    let toks = tokenize("'a\\nb\\t\\\\\\''").tokens;
+    // \n \t \' decode to their characters in the captured value. (A literal `\`
+    // or `$` is re-escaped in the value so the splitter can tell it from a real
+    // `${…}`; that round-trip is checked in the parser tests, where the decoded
+    // text part is observable.)
+    let toks = tokenize("'a\\nb\\t\\''").tokens;
     testing.assert_eq(actual: toks[0].kind, expected: TokenKind.StringLiteral)?;
-    testing.assert_eq(actual: toks[0].lexeme(), expected: "a\nb\t\\'")?;
-    // \xNN and \u{...} hex escapes.
+    testing.assert_eq(actual: toks[0].lexeme(), expected: "a\nb\t'")?;
+    // \xNN and \u{...} hex escapes (neither yields a `\` or `$` here).
     testing.assert_eq(actual: tokenize("'\\x41'").tokens[0].lexeme(),
         expected: 'A')?;
     testing.assert_eq(actual: tokenize("'\\u{48}'").tokens[0].lexeme(),

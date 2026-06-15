@@ -125,6 +125,58 @@ fn test_string_interpolation() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
+// Render a parsed string's parts, tagging each as text (`T:`) or interpolation
+// (`I:`) so a literal `${…}` (text) is distinguishable from a real one.
+fn parts_desc(_ src: String) -> String {
+    let parts = match parse_expression(tokenize(src).tokens) {
+        Str(_, ps) => ps,
+        _ => [],
+    };
+    return parts.map((p) => part_tag(p)).join('|');
+}
+
+fn part_tag(_ p: StringPart) -> String {
+    return match p {
+        Text(_, t) => 'T:' + t,
+        Interp(_, e) => 'I:' + describe_expr(e),
+    };
+}
+
+@test
+fn test_escaped_dollar_is_literal() -> Result<Void, Error> {
+    // Sources are built from code points so the test file's own string handling
+    // can't pre-mangle a literal `${`. 39=' 92=\\ 36=$ 123={ 120=x 125=} 97=a 98=b
+    //   '${x}'  → interpolation of x
+    testing.assert_eq(
+        actual: parts_desc(String.from_chars([39, 36, 123, 120, 125, 39])),
+        expected: 'I:x')?;
+    //   '\${x}' → the literal text "${x}" (the `\$` genuinely escapes)
+    testing.assert_eq(
+        actual: parts_desc(String.from_chars([39, 92, 36, 123, 120, 125, 39])),
+        expected: 'T:' + String.from_chars([36, 123, 120, 125]))?;
+    //   'a\$b'  → literal text "a$b" (escaped dollar, not before a brace)
+    testing.assert_eq(
+        actual: parts_desc(String.from_chars([39, 97, 92, 36, 98, 39])),
+        expected: 'T:a$b')?;
+    //   'a\\b'  → literal text "a\b" (escaped backslash)
+    testing.assert_eq(
+        actual: parts_desc(String.from_chars([39, 97, 92, 92, 98, 39])),
+        expected: 'T:a\\b')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_unterminated_interpolation_does_not_crash() -> Result<Void, Error> {
+    // A malformed `'${'` (no closing brace) must not overrun the splitter — it
+    // used to crash the Dart parser with a RangeError. Here it parses to a string.
+    let e = parse_expression(tokenize(String.from_chars([39, 36, 123, 39])).tokens);
+    testing.assert(match e {
+        Str(_, _) => true,
+        _ => false,
+    }, message: 'expected a string expression')?;
+    return Result.Ok(void);
+}
+
 @test
 fn test_hex_literal_value() -> Result<Void, Error> {
     // 0xFF parses to 255; the describe form is just the decimal value.

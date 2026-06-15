@@ -1437,7 +1437,11 @@ class Parser {
     final buf = StringBuffer();
 
     while (i < raw.length) {
-      if (raw[i] == r'$' && i + 1 < raw.length && raw[i + 1] == '{') {
+      if (raw[i] == r'\' && i + 1 < raw.length) {
+        // `\\` / `\$` from the lexer: the next char is a literal `\`/`$`.
+        buf.writeCharCode(raw.codeUnitAt(i + 1));
+        i += 2;
+      } else if (raw[i] == r'$' && i + 1 < raw.length && raw[i + 1] == '{') {
         if (buf.isNotEmpty) {
           parts.add(TextPart(parentSpan, buf.toString()));
           buf.clear();
@@ -1465,8 +1469,12 @@ class Parser {
             i++;
           }
         }
-        // raw[interpStart .. i-1] is the expression source (closing } excluded).
-        final exprSource = raw.substring(interpStart, i - 1);
+        // The expression source is raw[interpStart .. end). When the `}` closed
+        // (depth back to 0) it sits at i-1 and is excluded; an unterminated
+        // interpolation runs to the end (guards against a substring overrun —
+        // the RangeError this used to throw).
+        final exprEnd = depth == 0 ? i - 1 : i;
+        final exprSource = raw.substring(interpStart, exprEnd);
         final lexResult = Lexer(exprSource).tokenize();
         final parseResult = Parser(lexResult.tokens).parse();
         // The interpolation should be a single expression statement.
