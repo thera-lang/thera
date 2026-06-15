@@ -348,6 +348,23 @@ The `element/` chunk (model + resolver) added:
   *queries* (type-of is a memoizable query, not a stored field). The codegen
   already recomputes types independently, so nothing depends on the annotation.
 
+Two language wrinkles to revisit (tracked, not blocking):
+
+- **A trailing else-less `if` in a match arm is treated as a value tail.** A
+  side-effecting `if cond { … }` as the last statement of a `{…}` match arm (or
+  block expression) is parsed as the block's tail value, so the checker demands
+  an `else` — even when the arm's value is discarded (a `match` statement of type
+  `Void`). The workaround is a trailing `;`. A future refinement could give an
+  else-less if-tail type `Unit` and require `else` only where a non-unit value is
+  actually used (the Rust rule). **Compounding gap:** importing a module does
+  **not** tail-check its function bodies, so these errors hide until a *direct*
+  `hawk check` of the file — the checker port should check imported bodies (and
+  the self-hosting milestone needs every source to pass a direct check).
+- **`{}` and `void` are interchangeable unit values.** An empty block `{}` and
+  the unit literal `void` both denote the unit value in expression position (e.g.
+  a no-op match arm `_ => {}` vs `_ => void`), verified compiling mixed. Benign
+  redundancy; a later call on whether to canonicalize one form or accept both.
+
 ### Language work this depends on (gating the port)
 
 The spike's ranked gaps are now _prerequisites_, not curiosities — a 6k-line,
