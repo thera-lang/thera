@@ -274,7 +274,11 @@ This makes the port incremental and continuously checkable, not a big-bang.
    element model, the type lattice, the two-pass resolver, and the pure-function
    typing engine. Tests build a `LibraryElement` and assert resolved member types
    and inferred expression types.
-5. **`checker/`** — diagnostics; diff diagnostic sets.
+5. **`checker/` — done.** `pkgs/cli/checker/checker.hawk`: the first consumer of
+   the inference engine. Walks decls/blocks/stmts/exprs and emits diagnostics
+   (undefined name, unknown type/field, type mismatch on let/return/condition/
+   argument, call arity & labels, generic bounds, lambda-param inferability,
+   interface conformance). Tests assert diagnostic counts + messages.
 6. **`codegen/`** — AST → bytecode; the final diff is end-to-end `.hawkbc`.
 7. **`driver.hawk`** — wire the phases, reuse the `std.cli` Command app (the
    `pkgs/cli` rewrite already prototyped this).
@@ -375,6 +379,33 @@ The `element/` chunk (inference) added:
 - **Scopes are copied explicitly.** Hawk `Map` is a reference, so each block/arm
   that shadows the outer scope copies it (`copy_scope`) where Dart wrote
   `Map.from` — the one mechanical cost, fully local.
+
+The `checker/` chunk added:
+
+- **`infer_expr` on demand replaces `resolvedType`.** The Dart checker reads the
+  inferrer's in-place annotation at every type-mismatch site; the Hawk checker
+  calls `infer_expr(expr, scope, ctx, expected)` there instead, and **threads the
+  contextual `expected`** into call arguments, `let` values, `return` values, and
+  lambda bodies — so bidirectional lambda-parameter typing (`xs.map(n => …)`)
+  still works without a pre-pass. This is what made the pure engine worth it: the
+  checker is its first real consumer and needs no annotated tree. (Cost: subtrees
+  are re-inferred where the walk and a mismatch check overlap — fine for now;
+  memoization is the horizon-1 plan.)
+- **One unified `Map<String, Type>` scope.** Dart kept two parallel scopes — a
+  `TypeRef?` map for name-definedness and the inferred annotations for types. The
+  port collapses them: presence in the map is "defined", the value is the
+  binding's type (`Unknown` when undetermined). Pattern/loop bindings reuse
+  inference's `bind_match_pattern` / `bind_for_pattern`, so they bind *real*
+  payload/element types rather than Dart's placeholder `null` — strictly more
+  precise.
+- **`InferCtx` carries the per-function constants** the Dart `TypeChecker` held as
+  mutable fields (in-scope generics + bounds, `self`'s type, the return type), so
+  the same context object drives both the checks and the inference calls.
+- **No new language gaps.** The whole ~700-line checker ported on the existing
+  surface; the only friction was the (already-tracked) statement-vs-value-tail
+  `if` rule — a trailing `;` on a value-position `if`, none on a
+  statement-position one. A 17-test suite (incl. a rich-generics false-positive
+  guard) pins counts + messages.
 
 Two language wrinkles to revisit (tracked, not blocking):
 

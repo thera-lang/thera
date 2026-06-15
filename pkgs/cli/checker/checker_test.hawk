@@ -1,0 +1,192 @@
+// Tests for the type checker: parse a program, check it, and assert on the
+// diagnostics produced (count and messages). Covers name/type/field resolution,
+// type-mismatch (let/return/condition/argument), call arity & labels, generic
+// bounds, lambda-parameter inferability, and interface/conformance checks.
+
+import std.testing;
+
+import '../lexer/lexer';
+import '../parser/parser';
+import '../element/element';
+import 'checker';
+
+fn errors_of(_ src: String) -> List<CheckError> {
+    return check(parse(tokenize(src).tokens).program, [], {}).errors;
+}
+
+fn first_message(_ errs: List<CheckError>) -> String {
+    if errs.len() == 0 {
+        return '<no errors>';
+    }
+    return errs[0].message;
+}
+
+@test
+fn test_clean_program_has_no_errors() -> Result<Void, Error> {
+    let errs = errors_of('fn add(_ a: Int, _ b: Int) -> Int { return a + b; }');
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_undefined_name() -> Result<Void, Error> {
+    let errs = errors_of('fn f() -> Int { return missing; }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs), expected: 'undefined name: missing')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_unknown_type() -> Result<Void, Error> {
+    let errs = errors_of('fn f(_ x: Foo) -> Int { return 0; }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs), expected: 'unknown type: Foo')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_unknown_field() -> Result<Void, Error> {
+    let errs = errors_of('type P = { x: Int }\n'
+        + 'fn f() -> P { return P { x: 1, y: 2 }; }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs),
+        expected: 'unknown field "y" on type P')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_let_binding_mismatch() -> Result<Void, Error> {
+    let errs = errors_of('fn f() { let x: Int = true; }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs),
+        expected: 'binding \'x\': expected Int, found Bool')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_return_type_mismatch() -> Result<Void, Error> {
+    let errs = errors_of('fn f() -> Int { return true; }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs),
+        expected: 'return type mismatch: expected Int, found Bool')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_implicit_ok_return_is_clean() -> Result<Void, Error> {
+    // Returning a bare `T` from a `Result<T, E>` function is allowed.
+    let errs = errors_of('fn f() -> Result<Int, Error> { return 5; }');
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_condition_not_bool() -> Result<Void, Error> {
+    let errs = errors_of('fn f() { while 5 { } }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs),
+        expected: 'condition must be Bool, found Int')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_call_arity() -> Result<Void, Error> {
+    let errs = errors_of('fn g(_ a: Int) { }\n'
+        + 'fn f() { g(); }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs),
+        expected: '"g" expects 1 argument, got 0')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_unknown_argument_label() -> Result<Void, Error> {
+    let errs = errors_of('fn g(_ a: Int) { }\n'
+        + 'fn f() { g(b: 1); }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs),
+        expected: 'unknown argument label "b" for "g"')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_argument_type_mismatch() -> Result<Void, Error> {
+    let errs = errors_of('fn g(_ a: Int) { }\n'
+        + 'fn f() { g(true); }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs),
+        expected: 'argument to "g": expected Int, found Bool')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_lambda_param_not_inferable() -> Result<Void, Error> {
+    let errs = errors_of('fn f() { let g = (x) => x; }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs),
+        expected: 'cannot infer the type of lambda parameter \'x\'; '
+            + 'add a type annotation, e.g. (x: Int) => ...')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_unknown_super_interface() -> Result<Void, Error> {
+    let errs = errors_of('interface Foo: Bar { }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs),
+        expected: 'unknown super-interface: Bar')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_conformance_missing_method() -> Result<Void, Error> {
+    let errs = errors_of('interface Show { fn show(self) -> String; }\n'
+        + 'type P = { v: Int }\n'
+        + 'impl Show for P { }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs),
+        expected: 'missing method \'show\' required by interface \'Show\'')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_generic_bound_violation() -> Result<Void, Error> {
+    let errs = errors_of('interface Show { fn show(self) -> String; }\n'
+        + 'type P = { v: Int }\n'
+        + 'fn need<T: Show>(_ x: T) { }\n'
+        + 'fn f() { need(P { v: 1 }); }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs),
+        expected: 'type argument `P` for `T` does not implement `Show` '
+            + '(required by "need")')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_rich_generic_program_is_clean() -> Result<Void, Error> {
+    // A false-positive guard: generic enum + struct, an impl method, and a
+    // generic function whose lambda argument is typed bidirectionally from the
+    // (recovered) type arguments — all of which must check cleanly.
+    let errs = errors_of('enum Opt<T> { Some(T), Nope }\n'
+        + 'type Box<T> = { value: T }\n'
+        + 'impl Box<T> { fn get(self) -> T { return self.value; } }\n'
+        + 'fn map_opt<T, U>(_ o: Opt<T>, _ f: (T) -> U) -> Opt<U> {\n'
+        + '  return match o { Some(v) => Opt.Some(f(v)), Nope => Opt.Nope };\n'
+        + '}\n'
+        + 'fn main() -> Int {\n'
+        + '  let b = Box { value: 10 };\n'
+        + '  let doubled = map_opt(Opt.Some(b.get()), (x) => x + x);\n'
+        + '  return match doubled { Some(v) => v, Nope => 0 };\n'
+        + '}');
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_generic_bound_satisfied_by_primitive_is_clean() -> Result<Void, Error> {
+    // Primitives satisfy the built-in Display/Eq/Debug bounds.
+    let errs = errors_of('fn need<T: Display>(_ x: T) { }\n'
+        + 'fn f() { need(5); }');
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    return Result.Ok(void);
+}

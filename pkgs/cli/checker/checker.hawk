@@ -1,0 +1,881 @@
+// The type checker — the Hawk mirror of checker/type_checker.dart, and the first
+// consumer of the pure inference engine (inference.hawk).
+//
+// The Dart checker leans on `Expr.resolvedType`, annotated up front by the
+// `Inferrer`. Hawk's inference is pure (no annotation), so this checker calls
+// `infer_expr` *on demand* wherever it needs an expression's type — and threads
+// the contextual `expected` type into call arguments, `let` values, `return`
+// values, and lambda bodies, so bidirectional lambda-parameter typing still
+// works without a pre-pass. The per-function context (in-scope generics + their
+// bounds, `self`'s type, the return type) rides in an `InferCtx`, shared with
+// inference. Scopes are `Map<String, Type>` (name present == in scope; the value
+// is the binding's type, `Unknown` when undetermined) — unifying what the Dart
+// checker split between a `TypeRef?` scope and the inferred annotations.
+
+import '../ast/ast';
+import '../lexer/token'; // SourceSpan
+import '../element/types';
+import '../element/element';
+import '../element/resolver';
+import '../element/inference';
+
+pub type CheckError = {
+    message: String,
+    span: SourceSpan,
+}
+
+pub type CheckResult = {
+    errors: List<CheckError>,
+}
+
+pub fn has_errors(_ r: CheckResult) -> Bool {
+    return r.errors.len() > 0;
+}
+
+// Type-check `program`. `imports` are pre-registered (their declarations resolve
+// into the element model but are not themselves checked); `namespaces` carries
+// the import-namespace surfaces. Returns the accumulated diagnostics.
+pub fn check(_ program: Program, _ imports: List<Program>,
+    _ namespaces: Map<String, LibraryNamespace>) -> CheckResult {
+    let errors: List<CheckError> = [];
+    let library = build_library(program, imports, namespaces);
+    check_program(errors, program, library);
+    return CheckResult { errors: errors };
+}
+
+fn add_error(_ errors: List<CheckError>, _ message: String, _ span: SourceSpan) -> Void {
+    errors.push(CheckError { message: message, span: span });
+}
+
+// ---- declaration checking ----
+
+fn check_program(_ errors: List<CheckError>, _ program: Program, _ library: LibraryElement) -> Void {
+    for decl in program.decls {
+        match decl {
+            Fn(x) => { check_fn(errors, x, library, Option.None, Set.new()); },
+            Type(x) => { check_type_decl(errors, x, library); },
+            Impl(x) => {
+                let self_type = impl_self_type(x);
+                let type_params = type_param_set(x.type_params);
+                for m in x.methods {
+                    check_fn(errors, m, library, Option.Some(self_type), type_params);
+                }
+                match x.interface_name {
+                    Some(_) => { check_conformance(errors, x, library); },
+                    None => {},
+                }
+            },
+            Interface(x) => { check_interface_decl(errors, x, library); },
+            Const(x) => {
+                match x.type_ann {
+                    Some(ref) => { check_type_ref(errors, ref, library.type_defs, Set.new()); },
+                    None => {},
+                }
+                check_expr(errors, x.value, empty_scope(), new_ctx(library), Option.None);
+            },
+            Enum(x) => {
+                let tps = type_param_set(x.type_params);
+                for v in x.variants {
+                    for f in v.fields {
+                        check_type_ref(errors, f, library.type_defs, tps);
+                    }
+                }
+            },
+            Import(x) => {},
+        }
+    }
+}
+
+fn check_type_decl(_ errors: List<CheckError>, _ decl: TypeDecl, _ library: LibraryElement) -> Void {
+    let tps = type_param_set(decl.type_params);
+    for f in decl.fields {
+        check_type_ref(errors, f.type_ann, library.type_defs, tps);
+    }
+}
+
+fn check_fn(_ errors: List<CheckError>, _ fn_decl: FnDecl, _ library: LibraryElement,
+    _ self_type: Option<Type>, _ outer_type_params: Set<String>) -> Void {
+    let type_params = union_type_params(outer_type_params, fn_decl.type_params);
+    check_fn_sig(errors, fn_decl, library.type_defs, type_params);
+
+    match fn_decl.body {
+        None => { return; },
+        Some(body) => {
+            let return_type = match fn_decl.return_type {
+                Some(ref) => Option.Some(
+                    resolve_type_ref(ref, library.type_defs, type_params, self_type)),
+                None => Option.None,
+            };
+            let ctx = InferCtx {
+                library: library,
+                type_params: type_params,
+                self_type: self_type,
+                return_type: return_type,
+                type_param_bounds: fn_param_bounds(fn_decl),
+            };
+            let scope = empty_scope();
+            for p in fn_decl.params {
+                if p.is_self {
+                    match self_type {
+                        Some(st) => { scope['self'] = st; },
+                        None => {},
+                    }
+                } else {
+                    scope[p.name] = resolve_opt(p.type_ann, library.type_defs, type_params, self_type);
+                }
+            }
+            check_block(errors, body, scope, ctx);
+        },
+    }
+}
+
+fn check_fn_sig(_ errors: List<CheckError>, _ fn_decl: FnDecl,
+    _ type_defs: Map<String, TypeDefElement>, _ type_params: Set<String>) -> Void {
+    for p in fn_decl.params {
+        match p.type_ann {
+            Some(ref) => { check_type_ref(errors, ref, type_defs, type_params); },
+            None => {},
+        }
+    }
+    match fn_decl.return_type {
+        Some(ref) => { check_type_ref(errors, ref, type_defs, type_params); },
+        None => {},
+    }
+}
+
+// ---- interface declaration / conformance ----
+
+fn check_interface_decl(_ errors: List<CheckError>, _ decl: InterfaceDecl, _ library: LibraryElement) -> Void {
+    let iface_tps = type_param_set(decl.type_params);
+    for m in decl.methods {
+        check_fn_sig(errors, m, library.type_defs, union_type_params(iface_tps, m.type_params));
+    }
+    for super_name in decl.super_interfaces {
+        match library.type_defs.get(super_name) {
+            None => { add_error(errors, 'unknown super-interface: ${super_name}', decl.name_span); },
+            Some(super_def) => {
+                if super_def.kind != TypeDefKind.Interface {
+                    add_error(errors, '\'${super_name}\' is not an interface', decl.name_span);
+                };
+            },
+        }
+    }
+    if str_list_has(decl.super_interfaces, decl.name) || extends_cycle(decl.name, library) {
+        add_error(errors, 'interface \'${decl.name}\' extends itself (inheritance cycle)', decl.name_span);
+    }
+}
+
+// Whether interface `name` participates in a mutual/longer inheritance cycle —
+// reachable as a super of one of its own (transitive) supers.
+fn extends_cycle(_ name: String, _ library: LibraryElement) -> Bool {
+    match library.type_defs.get(name) {
+        Some(start) => {
+            if start.kind == TypeDefKind.Interface {
+                for s in start.super_interfaces {
+                    match library.type_defs.get(s) {
+                        Some(sd) => {
+                            if sd.kind == TypeDefKind.Interface && str_list_has(sd.super_interfaces, name) {
+                                return true;
+                            };
+                        },
+                        None => {},
+                    }
+                }
+            };
+        },
+        None => {},
+    }
+    return false;
+}
+
+fn check_conformance(_ errors: List<CheckError>, _ decl: ImplDecl, _ library: LibraryElement) -> Void {
+    let iface_name = match decl.interface_name {
+        Some(n) => n,
+        None => { return; },
+    };
+    let iface_def = match library.type_defs.get(iface_name) {
+        Some(d) => d,
+        None => {
+            add_error(errors, 'unknown interface: ${iface_name}', decl.name_span);
+            return;
+        },
+    };
+    if iface_def.kind != TypeDefKind.Interface {
+        add_error(errors, '\'${iface_name}\' is not an interface', decl.name_span);
+        return;
+    }
+    match library.type_defs.get(decl.type_name) {
+        None => { return; }, // unknown target type — reported elsewhere
+        Some(owner) => {
+            let impl_type = impl_self_type(decl);
+            let self_type = Type.Interface(iface_name, []);
+            let iface_params = iface_def.type_parameters;
+            if decl.interface_args.len() != iface_params.len() {
+                add_error(errors,
+                    'interface \'${iface_name}\' takes ${iface_params.len()} type argument(s), but ${decl.interface_args.len()} were given',
+                    decl.name_span);
+                return;
+            }
+            let impl_tps = type_param_set(decl.type_params);
+            let iface_bindings: Map<String, Type> = {};
+            let mut i = 0;
+            while i < iface_params.len() {
+                iface_bindings[iface_params[i]] = resolve_type_ref(
+                    decl.interface_args[i], library.type_defs, impl_tps, Option.Some(impl_type));
+                i = i + 1;
+            }
+            let provided: Set<String> = Set.new();
+            for m in decl.methods {
+                provided.add(m.name);
+            }
+            // Only the interface's *own* methods are required here; inherited
+            // super-interface methods are satisfied by implementing the super.
+            for im in iface_def.methods {
+                if str_list_has(iface_def.own_methods, im.name) {
+                    if !provided.has(im.name) {
+                        add_error(errors,
+                            'missing method \'${im.name}\' required by interface \'${iface_name}\'',
+                            decl.name_span);
+                    } else {
+                        match find_method(owner, im.name) {
+                            Some(om) => {
+                                if !signatures_match(im, om, self_type, impl_type, iface_bindings, library.type_defs) {
+                                    add_error(errors,
+                                        'method \'${im.name}\' does not match its declaration in interface \'${iface_name}\'',
+                                        decl.name_span);
+                                };
+                            },
+                            None => {},
+                        }
+                    }
+                }
+            }
+            // Inherited obligation: implementing a sub-interface requires
+            // implementing each super-interface too.
+            for super_name in iface_def.super_interfaces {
+                if !satisfies_bound(impl_type, super_name, library.type_defs) {
+                    add_error(errors,
+                        '\'${decl.type_name}\' implements \'${iface_name}\', which extends \'${super_name}\', but does not implement \'${super_name}\'',
+                        decl.name_span);
+                }
+            }
+        },
+    }
+}
+
+// Whether impl method `om` matches interface method `im`, treating `Self` (==
+// `self_type` inside the interface) as `impl_type`.
+fn signatures_match(_ im: FunctionElement, _ om: FunctionElement, _ self_type: Type,
+    _ impl_type: Type, _ iface_bindings: Map<String, Type>,
+    _ type_defs: Map<String, TypeDefElement>) -> Bool {
+    if im.is_static != om.is_static {
+        return false;
+    }
+    let i_params = non_self_params(im.parameters);
+    let o_params = non_self_params(om.parameters);
+    if i_params.len() != o_params.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < i_params.len() {
+        let expect = self_to_impl(substitute(i_params[i].ty, iface_bindings), self_type, impl_type);
+        if !type_matches(expect, o_params[i].ty) {
+            return false;
+        }
+        i = i + 1;
+    }
+    let expect_ret = self_to_impl(substitute(im.return_type, iface_bindings), self_type, impl_type);
+    return type_matches(expect_ret, om.return_type);
+}
+
+// Substitute `Self` (== `self_type`) with `impl_type` throughout `t`.
+fn self_to_impl(_ t: Type, _ self_type: Type, _ impl_type: Type) -> Type {
+    if t == self_type {
+        return impl_type;
+    }
+    return match t {
+        Interface(name, args) => Type.Interface(name,
+            args.map((a) => self_to_impl(a, self_type, impl_type))),
+        Function(params, ret) => Type.Function(
+            params.map((p) => self_to_impl(p, self_type, impl_type)),
+            self_to_impl(ret, self_type, impl_type)),
+        _ => t,
+    };
+}
+
+// Lenient type equality for conformance: an unknown matches anything (a separate
+// diagnostic already explains the unresolved type).
+fn type_matches(_ a: Type, _ b: Type) -> Bool {
+    return match a {
+        Unknown => true,
+        _ => match b {
+            Unknown => true,
+            _ => a == b,
+        },
+    };
+}
+
+// ---- block / statement checking ----
+
+fn check_block(_ errors: List<CheckError>, _ block: Block, _ outer: Map<String, Type>, _ ctx: InferCtx) -> Void {
+    let scope = copy_scope(outer);
+    for stmt in block.stmts {
+        check_stmt(errors, stmt, scope, ctx);
+    }
+    match block.tail {
+        Some(tail) => {
+            // A tail is value position, so an `if` tail must have an `else`.
+            match tail {
+                If(ix) => {
+                    match ix.else_block {
+                        None => { add_error(errors, 'an `if` used as a value needs an `else` branch', ix.span); },
+                        Some(_) => {},
+                    }
+                },
+                _ => {},
+            }
+            check_expr(errors, tail, scope, ctx, Option.None);
+        },
+        None => {},
+    }
+}
+
+fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Void {
+    match stmt {
+        Let(x) => {
+            match x.type_ann {
+                Some(ref) => { check_type_ref(errors, ref, ctx.library.type_defs, ctx.type_params); },
+                None => {},
+            }
+            let annotated = match x.type_ann {
+                Some(ref) => Option.Some(
+                    resolve_type_ref(ref, ctx.library.type_defs, ctx.type_params, ctx.self_type)),
+                None => Option.None,
+            };
+            check_expr(errors, x.value, scope, ctx, annotated);
+            let actual = infer_expr(x.value, scope, ctx, annotated);
+            scope[x.name] = match annotated {
+                Some(a) => a,
+                None => actual,
+            };
+            match annotated {
+                Some(a) => { expect_type(errors, actual, a, 'binding \'${x.name}\'', x.span, ctx.library.type_defs); },
+                None => {},
+            }
+        },
+        Return(span, value) => {
+            match value {
+                Some(v) => {
+                    check_expr(errors, v, scope, ctx, ctx.return_type);
+                    match ctx.return_type {
+                        Some(rt) => { check_return(errors, v, rt, span, scope, ctx); },
+                        None => {},
+                    }
+                },
+                None => {},
+            }
+        },
+        Assign(_, target, value) => {
+            check_expr(errors, target, scope, ctx, Option.None);
+            check_expr(errors, value, scope, ctx, Option.None);
+        },
+        Expr(_, e) => {
+            check_expr(errors, e, scope, ctx, Option.None);
+        },
+        If(x) => {
+            check_expr(errors, x.condition, scope, ctx, Option.None);
+            check_condition(errors, x.condition, scope, ctx);
+            check_block(errors, x.then_block, scope, ctx);
+            match x.else_block {
+                Some(eb) => { check_block(errors, eb, scope, ctx); },
+                None => {},
+            }
+        },
+        For(x) => {
+            check_expr(errors, x.iterable, scope, ctx, Option.None);
+            let iter_type = infer_expr(x.iterable, scope, ctx, Option.None);
+            let body_scope = copy_scope(scope);
+            bind_for_pattern(x.pattern, iter_type, body_scope, ctx);
+            check_block(errors, x.body, body_scope, ctx);
+        },
+        While(x) => {
+            check_expr(errors, x.condition, scope, ctx, Option.None);
+            check_condition(errors, x.condition, scope, ctx);
+            check_block(errors, x.body, scope, ctx);
+        },
+        Throw(_, value) => {
+            check_expr(errors, value, scope, ctx, Option.None);
+        },
+    }
+}
+
+// ---- expression checking ----
+
+fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Type>,
+    _ ctx: InferCtx, _ expected: Option<Type>) -> Void {
+    match expr {
+        Ident(span, name) => {
+            if !is_defined_name(name, scope, ctx.library) {
+                add_error(errors, 'undefined name: ${name}', span);
+            };
+        },
+        Call(x) => {
+            check_expr(errors, x.callee, scope, ctx, Option.None);
+            let expected_params = expected_arg_types(x.callee, x.args, scope, ctx);
+            let mut i = 0;
+            while i < x.args.len() {
+                let exp = match expected_params {
+                    Some(eps) => if i < eps.len() { Option.Some(eps[i]) } else { Option.None },
+                    None => Option.None,
+                };
+                check_expr(errors, x.args[i].value, scope, ctx, exp);
+                i = i + 1;
+            }
+            match x.callee {
+                Ident(_, name) => {
+                    match ctx.library.functions.get(name) {
+                        Some(fn_el) => { check_call_args(errors, fn_el, x.args, x.span, scope, ctx); },
+                        None => {},
+                    }
+                },
+                _ => {},
+            }
+        },
+        Field(_, object, _) => {
+            check_expr(errors, object, scope, ctx, Option.None);
+        },
+        Index(_, object, index) => {
+            check_expr(errors, object, scope, ctx, Option.None);
+            check_expr(errors, index, scope, ctx, Option.None);
+        },
+        Binary(_, left, _, right) => {
+            check_expr(errors, left, scope, ctx, Option.None);
+            check_expr(errors, right, scope, ctx, Option.None);
+        },
+        Unary(_, _, operand) => {
+            check_expr(errors, operand, scope, ctx, Option.None);
+        },
+        Propagate(_, inner) => {
+            check_expr(errors, inner, scope, ctx, Option.None);
+        },
+        Range(_, start, end) => {
+            check_expr(errors, start, scope, ctx, Option.None);
+            check_expr(errors, end, scope, ctx, Option.None);
+        },
+        ListLit(_, items) => {
+            for item in items {
+                check_expr(errors, item, scope, ctx, Option.None);
+            }
+        },
+        MapLit(_, entries) => {
+            for entry in entries {
+                check_expr(errors, entry.key, scope, ctx, Option.None);
+                check_expr(errors, entry.value, scope, ctx, Option.None);
+            }
+        },
+        Struct(x) => {
+            match ctx.library.type_defs.get(x.type_name) {
+                Some(element) => {
+                    if element.kind == TypeDefKind.Struct {
+                        for fi in x.fields {
+                            if !element.fields.has(fi.name) {
+                                add_error(errors, 'unknown field "${fi.name}" on type ${x.type_name}', x.span);
+                            }
+                            check_expr(errors, fi.value, scope, ctx, element.fields.get(fi.name));
+                        }
+                    } else {
+                        for fi in x.fields {
+                            check_expr(errors, fi.value, scope, ctx, Option.None);
+                        }
+                    };
+                },
+                None => {
+                    for fi in x.fields {
+                        check_expr(errors, fi.value, scope, ctx, Option.None);
+                    }
+                },
+            }
+        },
+        Str(_, parts) => {
+            for part in parts {
+                match part {
+                    Interp(_, e) => { check_expr(errors, e, scope, ctx, Option.None); },
+                    Text(_, _) => {},
+                }
+            }
+        },
+        Match(x) => {
+            check_expr(errors, x.subject, scope, ctx, Option.None);
+            let subject_type = infer_expr(x.subject, scope, ctx, Option.None);
+            for arm in x.arms {
+                let arm_scope = copy_scope(scope);
+                bind_match_pattern(arm.pattern, subject_type, arm_scope, ctx);
+                check_expr(errors, arm.body, arm_scope, ctx, Option.None);
+            }
+        },
+        Lambda(x) => {
+            check_lambda(errors, x, scope, ctx, expected);
+        },
+        Block(_, block) => {
+            check_block(errors, block, scope, ctx);
+        },
+        If(x) => {
+            check_expr(errors, x.condition, scope, ctx, Option.None);
+            check_condition(errors, x.condition, scope, ctx);
+            check_block(errors, x.then_block, scope, ctx);
+            match x.else_block {
+                Some(eb) => { check_block(errors, eb, scope, ctx); },
+                None => {},
+            }
+        },
+        Return(span, value) => {
+            match value {
+                Some(v) => {
+                    check_expr(errors, v, scope, ctx, ctx.return_type);
+                    match ctx.return_type {
+                        Some(rt) => { check_return(errors, v, rt, span, scope, ctx); },
+                        None => {},
+                    }
+                },
+                None => {},
+            }
+        },
+        Throw(_, value) => {
+            check_expr(errors, value, scope, ctx, Option.None);
+        },
+        Int(_, _) => {},
+        Float(_, _) => {},
+        Bool(_, _) => {},
+        Unit(_) => {},
+    }
+}
+
+fn check_lambda(_ errors: List<CheckError>, _ x: LambdaExpr, _ scope: Map<String, Type>,
+    _ ctx: InferCtx, _ expected: Option<Type>) -> Void {
+    let lambda_scope = copy_scope(scope);
+    let expected_params = expected_function_params(expected);
+    let mut i = 0;
+    while i < x.params.len() {
+        let p = x.params[i];
+        let pt = match p.type_ann {
+            Some(ref) => {
+                check_type_ref(errors, ref, ctx.library.type_defs, ctx.type_params);
+                resolve_type_ref(ref, ctx.library.type_defs, ctx.type_params, ctx.self_type)
+            },
+            None => {
+                let from_ctx = match expected_params {
+                    Some(eps) => if i < eps.len() { eps[i] } else { Type.Unknown },
+                    None => Type.Unknown,
+                };
+                // No annotation and nothing in the surrounding context determined
+                // the type — we don't guess.
+                match from_ctx {
+                    Unknown => {
+                        add_error(errors,
+                            'cannot infer the type of lambda parameter \'${p.name}\'; add a type annotation, e.g. (${p.name}: Int) => ...',
+                            x.span);
+                    },
+                    _ => {},
+                }
+                from_ctx
+            },
+        };
+        lambda_scope[p.name] = pt;
+        i = i + 1;
+    }
+    check_expr(errors, x.body, lambda_scope, ctx, expected_function_return(expected));
+}
+
+// ---- call checking ----
+
+fn check_call_args(_ errors: List<CheckError>, _ fn_el: FunctionElement, _ args: List<CallArg>,
+    _ span: SourceSpan, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Void {
+    let params = non_self_params(fn_el.parameters);
+
+    // Every named argument label must be a declared parameter label.
+    let valid_labels: Set<String> = Set.new();
+    for p in params {
+        match p.label {
+            Some(l) => { valid_labels.add(l); },
+            None => {},
+        }
+    }
+    for arg in args {
+        match arg.label {
+            Some(l) => {
+                if !valid_labels.has(l) {
+                    add_error(errors, 'unknown argument label "${l}" for "${fn_el.name}"', span);
+                    return;
+                };
+            },
+            None => {},
+        }
+    }
+
+    // Argument count against [required, max].
+    let mut required = 0;
+    for p in params {
+        if !p.has_default {
+            required = required + 1;
+        }
+    }
+    let max = params.len();
+    if args.len() < required || args.len() > max {
+        let range = if required == max { '${required}' } else { '${required}–${max}' };
+        let plural = if required == 1 && max == 1 { '' } else { 's' };
+        add_error(errors,
+            '"${fn_el.name}" expects ${range} argument${plural}, got ${args.len()}', span);
+        return;
+    }
+
+    // Each argument's type against its parameter.
+    let mut i = 0;
+    while i < args.len() {
+        let arg = args[i];
+        let param = match arg.label {
+            Some(l) => param_by_label(params, l),
+            None => if i < params.len() { Option.Some(params[i]) } else { Option.None },
+        };
+        match param {
+            Some(p) => {
+                let actual = infer_expr(arg.value, scope, ctx, Option.Some(p.ty));
+                expect_type(errors, actual, p.ty, 'argument to "${fn_el.name}"', span, ctx.library.type_defs);
+            },
+            None => {},
+        }
+        i = i + 1;
+    }
+
+    check_bounds(errors, fn_el, params, args, span, scope, ctx);
+}
+
+// Enforce generic bounds at a call site: infer each type parameter's binding
+// from the arguments, then check each bound type argument satisfies every
+// declared interface bound (`fn f<T: Display>(x: T)` rejects `f(5)`).
+fn check_bounds(_ errors: List<CheckError>, _ fn_el: FunctionElement,
+    _ params: List<ParameterElement>, _ args: List<CallArg>, _ span: SourceSpan,
+    _ scope: Map<String, Type>, _ ctx: InferCtx) -> Void {
+    if fn_el.type_parameter_bounds.len() == 0 {
+        return;
+    }
+    let bindings: Map<String, Type> = {};
+    let mut i = 0;
+    while i < args.len() {
+        let param = match args[i].label {
+            Some(l) => param_by_label(params, l),
+            None => if i < params.len() { Option.Some(params[i]) } else { Option.None },
+        };
+        match param {
+            Some(p) => {
+                let actual = infer_expr(args[i].value, scope, ctx, Option.None);
+                unify(p.ty, actual, bindings);
+            },
+            None => {},
+        }
+        i = i + 1;
+    }
+    for tp in fn_el.type_parameter_bounds.keys() {
+        match bindings.get(tp) {
+            Some(arg) => {
+                match fn_el.type_parameter_bounds.get(tp) {
+                    Some(bounds) => {
+                        for bound in bounds {
+                            if !satisfies_bound(arg, bound, ctx.library.type_defs) {
+                                add_error(errors,
+                                    'type argument `${type_to_string(arg)}` for `${tp}` does not implement `${bound}` (required by "${fn_el.name}")',
+                                    span);
+                            }
+                        }
+                    },
+                    None => {},
+                }
+            },
+            None => {}, // unconstrained here — nothing to check
+        }
+    }
+}
+
+// Whether `t` satisfies interface `bound`. The built-in interfaces
+// (`Eq`/`Display`/`Debug`) hold for every primitive; `Eq`/`Debug` additionally
+// hold for any struct/enum (auto-derived); any other interface needs an explicit
+// `impl`. Lenient for unresolved types so it never reports a false mismatch.
+fn satisfies_bound(_ t: Type, _ bound: String, _ type_defs: Map<String, TypeDefElement>) -> Bool {
+    match t {
+        Unknown => { return true; },
+        TypeParameter(_) => { return true; },
+        Primitive(_) => { return is_builtin_interface(bound); },
+        _ => {},
+    }
+    // An interface-typed value satisfies a bound it *is* or transitively extends.
+    match t {
+        Interface(name, _) => {
+            match type_defs.get(name) {
+                Some(def) => {
+                    if def.kind == TypeDefKind.Interface {
+                        return name == bound || str_list_has(def.super_interfaces, bound);
+                    };
+                },
+                None => {},
+            }
+        },
+        _ => {},
+    }
+    if bound == 'Eq' || bound == 'Debug' {
+        return true; // structural derive
+    }
+    return match t {
+        Interface(name, _) => match type_defs.get(name) {
+            Some(def) => implements_interface(def, bound),
+            None => false,
+        },
+        _ => false,
+    };
+}
+
+fn is_builtin_interface(_ bound: String) -> Bool {
+    return bound == 'Eq' || bound == 'Display' || bound == 'Debug';
+}
+
+fn param_by_label(_ params: List<ParameterElement>, _ label: String) -> Option<ParameterElement> {
+    for p in params {
+        match p.label {
+            Some(l) => {
+                if l == label {
+                    return Option.Some(p);
+                };
+            },
+            None => {},
+        }
+    }
+    return Option.None;
+}
+
+// ---- type reference checking ----
+
+fn check_type_ref(_ errors: List<CheckError>, _ type_ref: TypeRef,
+    _ type_defs: Map<String, TypeDefElement>, _ type_params: Set<String>) -> Void {
+    match type_ref {
+        Named(nt) => {
+            if !name_known(nt.name, type_defs, type_params) {
+                add_error(errors, 'unknown type: ${nt.name}', nt.span);
+            }
+            for arg in nt.args {
+                check_type_ref(errors, arg, type_defs, type_params);
+            }
+        },
+        Function(ft) => {
+            for p in ft.params {
+                check_type_ref(errors, p, type_defs, type_params);
+            }
+            check_type_ref(errors, ft.return_type, type_defs, type_params);
+        },
+    }
+}
+
+// A type name is known if it resolves to something concrete — `Self`, a
+// primitive, a type parameter in scope, or a declared/built-in type.
+fn name_known(_ name: String, _ type_defs: Map<String, TypeDefElement>, _ type_params: Set<String>) -> Bool {
+    if name == 'Self' {
+        return true;
+    }
+    match primitive_type(name) {
+        Some(_) => { return true; },
+        None => {},
+    }
+    if type_params.has(name) {
+        return true;
+    }
+    return type_defs.has(name);
+}
+
+// ---- type-mismatch diagnostics ----
+
+// Report when `actual` is not assignable to `expected`. `Unknown` is lenient on
+// both sides (so the checker never reports a *false* mismatch); `type_defs` backs
+// interface subtyping.
+fn expect_type(_ errors: List<CheckError>, _ actual: Type, _ expected: Type,
+    _ context: String, _ span: SourceSpan, _ type_defs: Map<String, TypeDefElement>) -> Void {
+    if !is_assignable(actual, expected, type_defs) {
+        add_error(errors, '${context}: expected ${type_to_string(expected)}, found ${type_to_string(actual)}', span);
+    }
+}
+
+// A loop/branch condition must be `Bool`.
+fn check_condition(_ errors: List<CheckError>, _ condition: Expr,
+    _ scope: Map<String, Type>, _ ctx: InferCtx) -> Void {
+    let t = infer_expr(condition, scope, ctx, Option.None);
+    if !is_assignable(t, Type.Primitive(Primitive.Bool), ctx.library.type_defs) {
+        add_error(errors, 'condition must be Bool, found ${type_to_string(t)}', expr_span(condition));
+    }
+}
+
+// Check `return value;` against the declared return type. Allows the implicit
+// `Ok` wrap — returning a `T` from a `Result<T, E>` function.
+fn check_return(_ errors: List<CheckError>, _ value: Expr, _ expected: Type,
+    _ span: SourceSpan, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Void {
+    let actual = infer_expr(value, scope, ctx, Option.Some(expected));
+    if is_assignable(actual, expected, ctx.library.type_defs) {
+        return;
+    }
+    match expected {
+        Interface(name, args) => {
+            if name == 'Result' && args.len() > 0 && is_assignable(actual, args[0], ctx.library.type_defs) {
+                return; // implicit Ok(value)
+            };
+        },
+        _ => {},
+    }
+    add_error(errors, 'return type mismatch: expected ${type_to_string(expected)}, found ${type_to_string(actual)}', span);
+}
+
+// ---- helpers ----
+
+fn is_defined_name(_ name: String, _ scope: Map<String, Type>, _ library: LibraryElement) -> Bool {
+    return scope.has(name)
+        || library.functions.has(name)
+        || library.modules.has(name)
+        || library.consts.has(name)
+        // Type names appear as values for static dispatch (`Type.method()`) and
+        // enum variant access (`Enum.Variant`).
+        || library.type_defs.has(name);
+}
+
+fn impl_self_type(_ decl: ImplDecl) -> Type {
+    return match primitive_type(decl.type_name) {
+        Some(p) => p,
+        None => Type.Interface(decl.type_name,
+            decl.type_params.map((tp) => Type.TypeParameter(tp.name))),
+    };
+}
+
+fn type_param_set(_ tps: List<TypeParam>) -> Set<String> {
+    let s: Set<String> = Set.new();
+    for tp in tps {
+        s.add(tp.name);
+    }
+    return s;
+}
+
+fn union_type_params(_ outer: Set<String>, _ own: List<TypeParam>) -> Set<String> {
+    let s: Set<String> = Set.new();
+    for t in outer.to_list() {
+        s.add(t);
+    }
+    for tp in own {
+        s.add(tp.name);
+    }
+    return s;
+}
+
+fn fn_param_bounds(_ decl: FnDecl) -> Map<String, List<String>> {
+    let b: Map<String, List<String>> = {};
+    for tp in decl.type_params {
+        b[tp.name] = tp.bounds;
+    }
+    return b;
+}
+
+fn empty_scope() -> Map<String, Type> {
+    let s: Map<String, Type> = {};
+    return s;
+}

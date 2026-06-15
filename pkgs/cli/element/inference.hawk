@@ -209,7 +209,7 @@ fn infer_lambda(_ x: LambdaExpr, _ scope: Map<String, Type>, _ ctx: InferCtx,
     return Type.Function(param_types, ret);
 }
 
-fn expected_function_params(_ expected: Option<Type>) -> Option<List<Type>> {
+pub fn expected_function_params(_ expected: Option<Type>) -> Option<List<Type>> {
     return match expected {
         Some(t) => match t {
             Function(params, _) => Option.Some(params),
@@ -219,7 +219,7 @@ fn expected_function_params(_ expected: Option<Type>) -> Option<List<Type>> {
     };
 }
 
-fn expected_function_return(_ expected: Option<Type>) -> Option<Type> {
+pub fn expected_function_return(_ expected: Option<Type>) -> Option<Type> {
     return match expected {
         Some(t) => match t {
             Function(_, ret) => Option.Some(ret),
@@ -443,7 +443,7 @@ fn infer_call_field(_ obj: Expr, _ field: String, _ arg_types: List<Type>,
 // excluding `self`), or None when the callee can't be resolved cheaply here.
 // Type parameters are instantiated from the receiver and from the non-lambda
 // arguments (inferred first), so a later lambda argument sees them bound.
-fn expected_arg_types(_ callee: Expr, _ args: List<CallArg>,
+pub fn expected_arg_types(_ callee: Expr, _ args: List<CallArg>,
     _ scope: Map<String, Type>, _ ctx: InferCtx) -> Option<List<Type>> {
     let mut params: Option<List<ParameterElement>> = Option.None;
     let bindings: Map<String, Type> = {};
@@ -840,7 +840,7 @@ fn receiver_bindings(_ name: String, _ args: List<Type>, _ ctx: InferCtx) -> Map
 
 // --- small helpers ---
 
-fn non_self_params(_ params: List<ParameterElement>) -> List<ParameterElement> {
+pub fn non_self_params(_ params: List<ParameterElement>) -> List<ParameterElement> {
     let out: List<ParameterElement> = [];
     for p in params {
         if !p.is_self {
@@ -875,7 +875,7 @@ fn merge_into(_ dst: Map<String, Type>, _ src: Map<String, Type>) -> Void {
     }
 }
 
-fn copy_scope(_ m: Map<String, Type>) -> Map<String, Type> {
+pub fn copy_scope(_ m: Map<String, Type>) -> Map<String, Type> {
     let out: Map<String, Type> = {};
     for k in m.keys() {
         match m.get(k) {
