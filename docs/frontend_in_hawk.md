@@ -266,9 +266,14 @@ This makes the port incremental and continuously checkable, not a big-bang.
    transcription of `lexer.dart`/`token.dart`; the Hawk tests pin token kinds /
    lexemes / spans / error messages, and a Dart `lexer_parity_test.dart` asserts
    the oracle produces the same `kind:lexeme` streams for the same corpus.
-3. **`ast/` + `parser/`** — the bulk; diff AST structurally against Dart. The
-   recovery-loop translation lands here.
-4. **`element/` (resolver + types + inference)** — symbol tables and typing.
+3. **`ast/` + `parser/` — done.** `pkgs/cli/ast/` (ast.hawk + describe.hawk) and
+   `pkgs/cli/parser/parser.hawk`; structural `Eq`/`Debug` diff a whole `Program`,
+   and the recovery-loop translation (panic flag) landed here.
+4. **`element/` (resolver + types + inference) — done.** `pkgs/cli/element/`
+   (element.hawk, types.hawk, resolver.hawk, inference.hawk): the name-based
+   element model, the type lattice, the two-pass resolver, and the pure-function
+   typing engine. Tests build a `LibraryElement` and assert resolved member types
+   and inferred expression types.
 5. **`checker/`** — diagnostics; diff diagnostic sets.
 6. **`codegen/`** — AST → bytecode; the final diff is end-to-end `.hawkbc`.
 7. **`driver.hawk`** — wire the phases, reuse the `std.cli` Command app (the
@@ -340,13 +345,36 @@ The `element/` chunk (model + resolver) added:
   is parsed as a value-position tail (the checker then demands an `else`); a
   trailing `;` demotes it to a discarded statement. Both minor, both recurring in
   match-dense compiler code.
-- **`resolvedType` mutation is the open fork for inference.** The Dart inferrer
-  annotates every `Expr` with its type in place; Hawk `Expr`s are immutable
-  values. Planned resolution: drop the annotation pass and make typing a *pure
-  function* (`infer_expr(expr, scope, …) -> Type`) the checker calls on demand —
+- **`resolvedType` mutation was the open fork for inference — now resolved.** The
+  Dart inferrer annotates every `Expr` with its type in place; Hawk `Expr`s are
+  immutable values. Resolution (now implemented in `inference.hawk`): the
+  annotation pass is gone and typing is a *pure function*
+  (`infer_expr(expr, scope, ctx, expected) -> Type`) the checker calls on demand —
   simpler than the Dart two-pass, and better aligned with horizon-1's per-node
   *queries* (type-of is a memoizable query, not a stored field). The codegen
-  already recomputes types independently, so nothing depends on the annotation.
+  already recomputes types independently, so nothing depended on the annotation.
+
+The `element/` chunk (inference) added:
+
+- **Pure typing, no AST mutation.** `infer_expr` returns a `Type` and never
+  touches the node; `expected: Option<Type>` threads the bidirectional
+  expectation (un-annotated lambda params take their types from the surrounding
+  signature). A per-function `InferCtx` bundles the constants the Dart class held
+  as fields (`library`, in-scope generics + their bounds, `self`'s type, the
+  return type). Constructed against the existing element model — name-based
+  `Type.Interface` lookups, structural `substitute`/`unify` — with no new
+  language features needed.
+- **Dropping the annotation drops the cosmetic walks.** The Dart version recursed
+  into every sub-expression *only* to fill `resolvedType` (a range's bounds, the
+  rest of a list's items, an `if` statement's branches). Without annotation only
+  the recursion that determines the returned type remains, and `infer_stmt`
+  collapses to **just `let`** — the sole statement kind that grows the scope a
+  block's tail expression sees; the checker types every other statement's
+  sub-expressions when it visits them. A noticeably smaller, flatter port than
+  the Dart original.
+- **Scopes are copied explicitly.** Hawk `Map` is a reference, so each block/arm
+  that shadows the outer scope copies it (`copy_scope`) where Dart wrote
+  `Map.from` — the one mechanical cost, fully local.
 
 Two language wrinkles to revisit (tracked, not blocking):
 

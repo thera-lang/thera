@@ -1,0 +1,166 @@
+// Tests for the typing engine: build an element model from a small program,
+// then infer the type of a parsed expression in a constructed scope. Exercises
+// literals, collections, identifier/const lookup, enum construction (incl.
+// generic recovery), struct literals, field access, and method dispatch.
+
+import std.testing;
+
+import '../lexer/lexer';
+import '../parser/parser';
+import 'types';
+import 'element';
+import 'resolver';
+import 'inference';
+
+fn lib_of(_ src: String) -> LibraryElement {
+    return build_library(parse(tokenize(src).tokens).program, [], {});
+}
+
+fn type_of(_ src: String, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
+    return infer_in(parse_expression(tokenize(src).tokens), scope, ctx);
+}
+
+fn empty_scope() -> Map<String, Type> {
+    let s: Map<String, Type> = {};
+    return s;
+}
+
+@test
+fn test_arithmetic_is_int() -> Result<Void, Error> {
+    let ctx = new_ctx(lib_of(''));
+    testing.assert_eq(actual: type_of('1 + 2', empty_scope(), ctx),
+        expected: Type.Primitive(Primitive.Int))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_comparison_is_bool() -> Result<Void, Error> {
+    let ctx = new_ctx(lib_of(''));
+    testing.assert_eq(actual: type_of('1 < 2', empty_scope(), ctx),
+        expected: Type.Primitive(Primitive.Bool))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_list_literal_is_list_of_element() -> Result<Void, Error> {
+    let ctx = new_ctx(lib_of(''));
+    testing.assert_eq(actual: type_of('[1, 2, 3]', empty_scope(), ctx),
+        expected: Type.Interface('List', [Type.Primitive(Primitive.Int)]))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_map_literal_is_map_of_key_value() -> Result<Void, Error> {
+    let ctx = new_ctx(lib_of(''));
+    testing.assert_eq(actual: type_of('{ 1: true }', empty_scope(), ctx),
+        expected: Type.Interface('Map', [
+            Type.Primitive(Primitive.Int),
+            Type.Primitive(Primitive.Bool),
+        ]))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_identifier_from_scope() -> Result<Void, Error> {
+    let ctx = new_ctx(lib_of(''));
+    let scope = empty_scope();
+    scope['x'] = Type.Primitive(Primitive.Double);
+    testing.assert_eq(actual: type_of('x', scope, ctx),
+        expected: Type.Primitive(Primitive.Double))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_const_lookup() -> Result<Void, Error> {
+    let ctx = new_ctx(lib_of('const MAX: Int = 100;'));
+    testing.assert_eq(actual: type_of('MAX', empty_scope(), ctx),
+        expected: Type.Primitive(Primitive.Int))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_bare_enum_variant() -> Result<Void, Error> {
+    let ctx = new_ctx(lib_of('enum Color { Red, Green, Blue }'));
+    testing.assert_eq(actual: type_of('Color.Red', empty_scope(), ctx),
+        expected: Type.Interface('Color', []))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_generic_enum_construction_recovers_arg() -> Result<Void, Error> {
+    let ctx = new_ctx(lib_of('enum Box<T> { Of(T), Empty }'));
+    testing.assert_eq(actual: type_of('Box.Of(5)', empty_scope(), ctx),
+        expected: Type.Interface('Box', [Type.Primitive(Primitive.Int)]))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_generic_struct_literal_recovers_arg() -> Result<Void, Error> {
+    let ctx = new_ctx(lib_of('type Wrap<T> = { value: T }'));
+    testing.assert_eq(actual: type_of('Wrap { value: true }', empty_scope(), ctx),
+        expected: Type.Interface('Wrap', [Type.Primitive(Primitive.Bool)]))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_struct_field_access() -> Result<Void, Error> {
+    let ctx = new_ctx(lib_of('type Point = { x: Int, y: Double }'));
+    let scope = empty_scope();
+    scope['p'] = Type.Interface('Point', []);
+    testing.assert_eq(actual: type_of('p.x', scope, ctx),
+        expected: Type.Primitive(Primitive.Int))?;
+    testing.assert_eq(actual: type_of('p.y', scope, ctx),
+        expected: Type.Primitive(Primitive.Double))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_method_return_type() -> Result<Void, Error> {
+    let ctx = new_ctx(lib_of('type Point = { x: Int, y: Int }\n'
+        + 'impl Point { pub fn sum(self) -> Int { return self.x + self.y; } }'));
+    let scope = empty_scope();
+    scope['p'] = Type.Interface('Point', []);
+    testing.assert_eq(actual: type_of('p.sum()', scope, ctx),
+        expected: Type.Primitive(Primitive.Int))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_generic_method_instantiates_from_receiver() -> Result<Void, Error> {
+    // A `List<Int>` indexes to `Int`, exercising receiver-type-arg binding.
+    let ctx = new_ctx(lib_of(''));
+    let scope = empty_scope();
+    scope['xs'] = Type.Interface('List', [Type.Primitive(Primitive.Int)]);
+    testing.assert_eq(actual: type_of('xs[0]', scope, ctx),
+        expected: Type.Primitive(Primitive.Int))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_free_function_call_return_type() -> Result<Void, Error> {
+    let ctx = new_ctx(lib_of('fn twice(_ n: Int) -> Int { return n + n; }'));
+    testing.assert_eq(actual: type_of('twice(21)', empty_scope(), ctx),
+        expected: Type.Primitive(Primitive.Int))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_match_arm_binds_variant_payload() -> Result<Void, Error> {
+    // Matching a `Box<Int>` binds the payload to `Int`; the arm's value is that.
+    let ctx = new_ctx(lib_of('enum Box<T> { Of(T), Empty }'));
+    let scope = empty_scope();
+    scope['b'] = Type.Interface('Box', [Type.Primitive(Primitive.Int)]);
+    testing.assert_eq(
+        actual: type_of('match b { Of(v) => v, Empty => 0 }', scope, ctx),
+        expected: Type.Primitive(Primitive.Int))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_block_tail_sees_let_bindings() -> Result<Void, Error> {
+    let ctx = new_ctx(lib_of(''));
+    testing.assert_eq(
+        actual: type_of('{ let n = 5; n }', empty_scope(), ctx),
+        expected: Type.Primitive(Primitive.Int))?;
+    return Result.Ok(void);
+}
