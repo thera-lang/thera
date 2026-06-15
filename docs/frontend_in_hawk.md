@@ -323,6 +323,31 @@ Bugs/gaps surfaced (not blocking; worth tracking):
   Inference doesn't flow backward from a later `x = Some(span)` through a
   `match`/method call. Minor, but recurring in stateful parser code.
 
+The `element/` chunk (model + resolver) added:
+
+- **Identity-bearing elements → name-based references.** Dart's
+  `InterfaceType.element` is an object pointer (type equality is element
+  identity); the port's `Type.Interface(name, args)` holds the element *name* and
+  looks the element up in the registry, so type equality stays structural and
+  matches identity (names are unique). The `TypeDefElement` subclass hierarchy
+  becomes one tagged struct so the resolver fills `methods`/`fields`/`variants`
+  in place across passes — verified that a struct stored in a `Map`/`List`
+  mutates by reference (the property the two-pass resolver needs).
+- **Mutual imports work** (`types` ↔ `element`), so the cyclic Dart split ports
+  directly.
+- **`fn` is reserved**, so a parameter named `fn` is a syntax error (renamed to
+  `decl`). And **an else-less `if` as the last statement of a match-arm block**
+  is parsed as a value-position tail (the checker then demands an `else`); a
+  trailing `;` demotes it to a discarded statement. Both minor, both recurring in
+  match-dense compiler code.
+- **`resolvedType` mutation is the open fork for inference.** The Dart inferrer
+  annotates every `Expr` with its type in place; Hawk `Expr`s are immutable
+  values. Planned resolution: drop the annotation pass and make typing a *pure
+  function* (`infer_expr(expr, scope, …) -> Type`) the checker calls on demand —
+  simpler than the Dart two-pass, and better aligned with horizon-1's per-node
+  *queries* (type-of is a memoizable query, not a stored field). The codegen
+  already recomputes types independently, so nothing depends on the annotation.
+
 ### Language work this depends on (gating the port)
 
 The spike's ranked gaps are now _prerequisites_, not curiosities — a 6k-line,
