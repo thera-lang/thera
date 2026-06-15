@@ -190,17 +190,24 @@ statement form stays `IfStmt`, so `if c { return x; }` and other bare control-fl
 chains, and `if` as a block/match-arm **tail** (e.g.
 `Other => { let d = n * 2; if d > 10 { 'big' } else { 'small' } }`).
 
-- **`else` rules.** In value position an `else` is required: the parser enforces
-  it for a primary `if` (`let x = if c { 1 }` is a parse error), and the checker
-  for an `if`-tail. A discarded statement `if` inside an expression block needs no
-  `else` (its value is `Unit`).
+- **`else` rules.** An else-less `if` always has type `Unit` (its then-branch
+  runs for effect). The parser still requires `else` for a *primary* `if` whose
+  value is consumed directly (`let x = if c { 1 }` is a parse error). For an
+  `if`-**tail**, the checker requires `else` only when the then-branch actually
+  *produces a value* the missing `else` couldn't supply — so a side-effecting
+  `… { if c { foo() } }` (a `Unit` then-block) is a fine tail with no `else`, but
+  `… { if c { 5 } }` is not. This mirrors Rust: an else-less `if` is `()`, and
+  it's an error only where a real value is wanted. A discarded statement `if`
+  needs no `else` either (its value is `Unit`).
 - **Parser.** A primary-position `if` (`_parsePrimary`) parses as `IfExpr` with
   `else` required; inside `_parseExprBlock`, a leading `if` is a value-producing
   `IfExpr` (the tail when last, else a discarded statement, `else` optional).
   Branches are tail-valued (`_parseExprBlock`); an `else if` chain is the `else`
   block's tail.
 - **Inference/checker.** `IfExpr` unifies the two branch tails (no `else` ⇒
-  `Unit`); the condition must be `Bool`.
+  `Unit`); the condition must be `Bool`. The checker's tail-position `else`
+  requirement fires only when an else-less `if`'s then-branch yields a non-`Unit`
+  value (see "`else` rules" above).
 - **Codegen.** `IfExpr` evaluates the condition and merges the taken branch's
   value at a label (mirrors `_matchExpr`), via the shared `_emitBlockValue` helper
   that also backs `BlockExpr` and match arm blocks. No runtime change.

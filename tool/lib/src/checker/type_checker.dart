@@ -313,10 +313,18 @@ class TypeChecker {
     // scope the statements built; its value is the block's value.
     final tail = block.tail;
     if (tail != null) {
-      // A tail is value position, so an `if` tail must have an `else` (a primary
-      // `if` is already else-checked by the parser; this catches the tail form).
+      // An else-less `if` tail has type Unit (its then-branch runs for effect).
+      // That's only an error when the then-branch actually produces a value —
+      // i.e. a value the missing `else` couldn't supply. A side-effecting
+      // `if cond { … }` whose block is Unit is fine as a tail. See
+      // docs/tailexpr.md.
       if (tail is IfExpr && tail.else_ == null) {
-        _error('an `if` used as a value needs an `else` branch', tail.span);
+        final thenType = tail.then.tail?.resolvedType;
+        if (thenType != null &&
+            thenType is! UnknownType &&
+            thenType != PrimitiveType.unit) {
+          _error('an `if` used as a value needs an `else` branch', tail.span);
+        }
       }
       _checkExpr(tail, scope, returnType: returnType);
     }

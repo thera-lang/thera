@@ -130,6 +130,27 @@ fn test_lambda_param_not_inferable() -> Result<Void, Error> {
 }
 
 @test
+fn test_elseless_if_tail_unit_is_clean() -> Result<Void, Error> {
+    // A side-effecting else-less `if` as a block tail yields Unit — no `else`
+    // required (the relaxed tail-expression rule).
+    let errs = errors_of('fn log(_ s: String) { }\n'
+        + 'fn f(_ c: Bool) -> Int { let u = { if c { log("hi") } }; return 0; }');
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_elseless_if_tail_with_value_needs_else() -> Result<Void, Error> {
+    // But an else-less `if` whose then-branch yields a real value still needs an
+    // `else` — the missing branch can't supply that value.
+    let errs = errors_of('fn f(_ c: Bool) -> Int { let u = { if c { 5 } }; return 0; }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs),
+        expected: 'an `if` used as a value needs an `else` branch')?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_unknown_super_interface() -> Result<Void, Error> {
     let errs = errors_of('interface Foo: Bar { }');
     testing.assert_eq(actual: errs.len(), expected: 1)?;

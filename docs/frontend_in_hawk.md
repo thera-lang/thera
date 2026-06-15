@@ -407,18 +407,24 @@ The `checker/` chunk added:
   statement-position one. A 17-test suite (incl. a rich-generics false-positive
   guard) pins counts + messages.
 
-Two language wrinkles to revisit (tracked, not blocking):
+Language wrinkles (one resolved, one tracked):
 
-- **A trailing else-less `if` in a match arm is treated as a value tail.** A
-  side-effecting `if cond { … }` as the last statement of a `{…}` match arm (or
-  block expression) is parsed as the block's tail value, so the checker demands
-  an `else` — even when the arm's value is discarded (a `match` statement of type
-  `Void`). The workaround is a trailing `;`. A future refinement could give an
-  else-less if-tail type `Unit` and require `else` only where a non-unit value is
-  actually used (the Rust rule). **Compounding gap:** importing a module does
-  **not** tail-check its function bodies, so these errors hide until a *direct*
-  `hawk check` of the file — the checker port should check imported bodies (and
-  the self-hosting milestone needs every source to pass a direct check).
+- **A trailing else-less `if` in a match arm was treated as a value tail —
+  resolved.** A side-effecting `if cond { … }` as the last statement of a `{…}`
+  match arm (or block expression) was parsed as the block's tail value, so the
+  checker demanded an `else` even when the arm's value is discarded; the
+  workaround was a trailing `;`. **Fixed (both front-ends)** by the Rust rule: an
+  else-less `if` has type `Unit`, and the tail-position `else` requirement fires
+  only when the then-branch actually produces a non-`Unit` value (see
+  docs/tailexpr.md). A pure relaxation — every phase below the checker already
+  treated an else-less `if` as `Unit` (the parser parses it as a tail, inference
+  types it `Unit`, codegen emits `constUnit` for the absent `else`), so the change
+  was a ~5-line checker tweak each side. The now-redundant `;` workarounds in
+  `element/{types,resolver}.hawk` were stripped. **Compounding gap (still open):**
+  importing a module does **not** tail-check its function bodies, so body-level
+  errors hide until a *direct* `hawk check` of the file — the checker port should
+  check imported bodies (and the self-hosting milestone needs every source to pass
+  a direct check).
 - **`{}` and `void` are interchangeable unit values.** An empty block `{}` and
   the unit literal `void` both denote the unit value in expression position (e.g.
   a no-op match arm `_ => {}` vs `_ => void`), verified compiling mixed. Benign

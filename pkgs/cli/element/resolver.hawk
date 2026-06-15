@@ -210,7 +210,7 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
                                         },
                                     }
                                 }
-                            }; // trailing `;`: a discarded statement, not a tail
+                            }
                         },
                         None => {},
                     }
@@ -235,11 +235,9 @@ fn resolve_impl(_ decl: ImplDecl, _ type_defs: Map<String, TypeDefElement>) -> V
         Some(owner) => {
             match decl.interface_name {
                 Some(iface) => {
-                    // Trailing `;`: keep this if a discarded statement, not the
-                    // arm's tail value (an else-less if-tail would need an else).
                     if !implements_interface(owner, iface) {
                         owner.interfaces.push(iface);
-                    };
+                    }
                 },
                 None => {},
             }

@@ -817,6 +817,16 @@ fn label<T: Display>(_ x: T) -> String { return x.display(); }
       );
     });
 
+    test('a side-effecting else-less if-tail (Unit) needs no else', () {
+      // The then-branch runs for effect and yields Unit, so the missing `else`
+      // supplies nothing — the tail is fine without it.
+      expect(
+        check('fn log(_ s: String) { }\n'
+            'fn f(_ a: Bool) -> Int { let u = { if a { log("hi") } }; return 0; }'),
+        isEmpty,
+      );
+    });
+
     test('an if-expression condition must be Bool', () {
       expect(
         check('fn f() -> Int { let m = if 3 { 1 } else { 2 }; return m; }'),

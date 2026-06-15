@@ -324,11 +324,18 @@ fn check_block(_ errors: List<CheckError>, _ block: Block, _ outer: Map<String, 
     }
     match block.tail {
         Some(tail) => {
-            // A tail is value position, so an `if` tail must have an `else`.
+            // An else-less `if` tail has type Unit (its then-branch runs for
+            // effect). That's only an error when the then-branch actually
+            // produces a value the missing `else` couldn't supply; a
+            // side-effecting `if cond { … }` whose block is Unit is a fine tail.
             match tail {
                 If(ix) => {
                     match ix.else_block {
-                        None => { add_error(errors, 'an `if` used as a value needs an `else` branch', ix.span); },
+                        None => {
+                            if produces_value(infer_block(ix.then_block, scope, ctx, Option.None)) {
+                                add_error(errors, 'an `if` used as a value needs an `else` branch', ix.span);
+                            };
+                        },
                         Some(_) => {},
                     }
                 },
@@ -878,4 +885,17 @@ fn fn_param_bounds(_ decl: FnDecl) -> Map<String, List<String>> {
 fn empty_scope() -> Map<String, Type> {
     let s: Map<String, Type> = {};
     return s;
+}
+
+// Whether a type is a genuine, known value (not `Unit`, not `Unknown`) — used to
+// decide whether an else-less `if` tail actually needs an `else`.
+fn produces_value(_ t: Type) -> Bool {
+    return match t {
+        Unknown => false,
+        Primitive(p) => match p {
+            Unit => false,
+            _ => true,
+        },
+        _ => true,
+    };
 }
