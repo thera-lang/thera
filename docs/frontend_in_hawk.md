@@ -435,17 +435,23 @@ The `checker/` chunk added:
 
 The `driver/` + `loader/` chunk surfaced one structural finding:
 
-- **Top-level names are global — private helpers collide across co-loaded files.**
-  Codegen's function table is flat-by-bare-name (`functionIndex[decl.name]`), and
-  the checker only arity-checks *free-function* call sites, so two files that each
-  define a private `fn last_segment(…)` with different arities link to one unit and
-  a call resolves to the wrong one — surfacing only at codegen as a "missing
-  argument" (it slips past `check`). Hit twice porting the loader (`last_segment`
-  vs the resolver's, `dirname` vs `std.path`'s); worked around by renaming. The
-  real fix is file-scoped private units (mangled names) — a module-system gap to
-  close before the front-end can self-compile its *whole* multi-file tree (the
-  loader currently runs against the **Dart**-compiled `main.hawk`, which has the
-  same flat table, so the constraint is shared, not Hawk-specific).
+- **Free functions resolved global-by-bare-name → now same-file-first
+  (collision fixed).** Codegen's function table and the element model's
+  `functions` map were flat-by-bare-name, so two co-loaded files that each define
+  a private `fn last_segment(…)` of different arity linked to one unit and a call
+  resolved to the wrong one — surfacing at codegen as a "missing argument" that
+  slipped past `check` (hit twice porting the loader: `last_segment` vs the
+  resolver's, `dirname` vs `std.path`'s). **Fixed in both front-ends:** each
+  file's functions also register in a per-file table and a bare reference resolves
+  *same-file-first*, with the flat table as the cross-file fallback (threaded
+  through codegen `_fileFunctions`/`_globalFunctions` + `unitFiles`, the element
+  model's `LibraryElement.fileFunctions`/`functionFor`, inference's
+  `_currentFile`, and the checker's primary file). Byte-identical for
+  collision-free programs; the loader's rename workarounds were reverted. **Still
+  open:** this fixes the *collision*, not *visibility* — a private remains
+  reachable cross-file via the fallback, and a `pub` name still collides across
+  libraries through a namespace-qualified call (the qualifier is cosmetic). Real
+  per-namespace resolution + private enforcement is the next visibility step.
 
 Language wrinkles (one resolved, one tracked):
 
