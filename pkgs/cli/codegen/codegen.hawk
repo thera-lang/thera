@@ -688,7 +688,7 @@ impl FnCompiler {
             Struct(x) => { self.struct_expr(x); },
             Call(x) => { self.call_expr(x); },
             Propagate(_, inner) => { self.propagate_expr(inner); },
-            Match(x) => { self.error('match codegen not yet ported', x.span); },
+            Match(x) => { self.match_expr(x); },
             Block(_, block) => { self.emit_block_value(block); },
             If(x) => { self.if_expr(x.condition, x.then_block, x.else_block); },
             Return(_, value) => { self.emit_return(value); },
@@ -736,6 +736,142 @@ impl FnCompiler {
         self.emit(Instr.Simple(Op.Return)); // failing: return the value as-is
         self.bind(ok);
         self.emit(Instr.EnumGet(0)); // success: unwrap the payload
+    }
+
+    // --- match ---
+
+    // `match` on an enum (Result/Option or a user enum): store the subject, then
+    // a tag-check chain. The final arm is the fall-through (matches always, given
+    // exhaustiveness). (The balanced binary-search dispatch optimization for
+    // large flat-constructor matches is a follow-up section.)
+    fn match_expr(self, _ e: MatchExpr) -> Void {
+        let subject_ty = infer_expr(e.subject, self.type_scope, self.ctx, Option.None);
+        let subject_type = name_of_type(subject_ty);
+        self.expr(e.subject);
+        let subject = self.fresh_slot();
+        self.emit(Instr.Store(subject));
+        let end = self.new_label();
+
+        let mut i = 0;
+        let mut going = true;
+        while going && i < e.arms.len() {
+            let arm = e.arms[i];
+            let is_last = i == e.arms.len() - 1;
+            // Bind the arm's pattern variables' *types* (parallel to emit_pattern's
+            // slots), so the arm body can be inferred for opcode selection.
+            bind_match_pattern(arm.pattern, subject_ty, self.type_scope, self.ctx);
+
+            // An irrefutable pattern (or the final arm — arms are exhaustive) is
+            // taken to match: emit its bindings, run the body, and stop (later
+            // arms are unreachable).
+            if is_last || is_irrefutable(arm.pattern) {
+                self.emit_pattern(arm.pattern, subject, subject_type, Option.None, Option.None);
+                self.arm_body(arm.body, end, false);
+                going = false;
+            } else {
+                let next = self.new_label();
+                self.emit_pattern(arm.pattern, subject, subject_type, Option.Some(next), Option.None);
+                self.arm_body(arm.body, end, true);
+                self.bind(next);
+                i = i + 1;
+            }
+        }
+        self.bind(end);
+    }
+
+    // Match `pattern` against the value in `value_slot` (whose enum type name,
+    // when known, is `value_type`) and bind the variables it introduces. When
+    // `fail` is set, any mismatch jumps there; when None the pattern is taken to
+    // match (only bindings are emitted). `tag_slot`, when set, holds a precomputed
+    // `enum.tag` reused at this level instead of recomputing.
+    fn emit_pattern(self, _ pattern: Pattern, _ value_slot: Int, _ value_type: Option<String>,
+        _ fail: Option<Int>, _ tag_slot: Option<Int>) -> Void {
+        match pattern {
+            Wildcard(_) => {}, // matches anything, binds nothing
+            Ident(_, name) => { self.slots[name] = value_slot; }, // bind the whole value
+            Literal(_, literal) => {
+                match fail {
+                    Some(f) => {
+                        self.emit(Instr.Load(value_slot));
+                        self.expr(literal);
+                        self.emit(Instr.CallNative('eq', 2)); // structural equality
+                        self.emit_jump(Jk.IfFalse, f);
+                    },
+                    None => {},
+                }
+            },
+            Constructor(span, name, args) => {
+                let info = match value_type {
+                    Some(t) => self.scope.enums.get(t),
+                    None => Option.None,
+                };
+                let tag = match info {
+                    Some(ei) => tag_of(ei, name),
+                    None => -1,
+                };
+                match fail {
+                    Some(f) => {
+                        match tag_slot {
+                            Some(ts) => { self.emit(Instr.Load(ts)); }, // reuse the hoisted tag
+                            None => {
+                                self.emit(Instr.Load(value_slot));
+                                self.emit(Instr.Simple(Op.EnumTag));
+                            },
+                        }
+                        self.emit(Instr.ConstInt(self.variant_tag(value_type, name, span)));
+                        self.emit(Instr.Simple(Op.EqI64));
+                        self.emit_jump(Jk.IfFalse, f);
+                    },
+                    None => {},
+                }
+                let mut k = 0;
+                while k < args.len() {
+                    let arg = args[k];
+                    match arg {
+                        Wildcard(_) => {}, // field ignored; skip extraction
+                        _ => {
+                            let field_slot = self.fresh_slot();
+                            self.emit(Instr.Load(value_slot));
+                            self.emit(Instr.EnumGet(k));
+                            self.emit(Instr.Store(field_slot));
+                            self.emit_pattern(arg, field_slot, enum_field_type_name(info, tag, k), fail, Option.None);
+                        },
+                    }
+                    k = k + 1;
+                }
+            },
+        }
+    }
+
+    // A match arm body either yields a value (and jumps to the merge point) or
+    // transfers control out of the function (return/throw).
+    fn arm_body(self, _ body: Expr, _ end: Int, _ jump_to_end: Bool) -> Void {
+        match body {
+            Return(_, value) => { self.emit_return(value); },
+            Throw(_, value) => { self.emit_throw(value); },
+            _ => {
+                self.expr(body);
+                if jump_to_end {
+                    self.emit_jump(Jk.Jump, end);
+                }
+            },
+        }
+    }
+
+    // The variant tag for a constructor `name` within enum `enum_type`.
+    fn variant_tag(self, _ enum_type: Option<String>, _ name: String, _ span: SourceSpan) -> Int {
+        let tag = match enum_type {
+            Some(t) => match self.scope.enums.get(t) {
+                Some(ei) => tag_of(ei, name),
+                None => -1,
+            },
+            None => -1,
+        };
+        if tag >= 0 {
+            return tag;
+        }
+        self.error('unknown variant `${name}`', span);
+        return 0;
     }
 
     fn unary_expr(self, _ op: String, _ operand: Expr, _ span: SourceSpan) -> Void {
@@ -1257,6 +1393,36 @@ fn name_of_type(_ t: Type) -> Option<String> {
         TypeParameter(name) => Option.Some(name),
         _ => Option.None,
     };
+}
+
+// Whether `p` always matches, so it needs no test: a wildcard or a bare variable
+// binding. (A constructor or literal pattern — even nested — is refutable.)
+fn is_irrefutable(_ p: Pattern) -> Bool {
+    return match p {
+        Wildcard(_) => true,
+        Ident(_, _) => true,
+        _ => false,
+    };
+}
+
+// The type name of field `k` of variant `tag` in enum `info` — the enum to match
+// a nested constructor pattern against — or None if not resolvable.
+fn enum_field_type_name(_ info: Option<EnumInfo>, _ tag: Int, _ k: Int) -> Option<String> {
+    match info {
+        Some(ei) => {
+            if tag >= 0 && tag < ei.variants.len() {
+                let fields = ei.variants[tag].fields;
+                if k < fields.len() {
+                    return match fields[k] {
+                        Named(nt) => Option.Some(nt.name),
+                        Function(_) => Option.None,
+                    };
+                }
+            }
+        },
+        None => {},
+    }
+    return Option.None;
 }
 
 fn find_field_init(_ fields: List<FieldInit>, _ name: String) -> Option<Expr> {
