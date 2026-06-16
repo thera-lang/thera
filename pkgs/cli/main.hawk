@@ -11,6 +11,9 @@
 //   hawk lsp             start the language server
 
 import std.cli;
+import std.fs;
+
+import 'driver';
 
 fn build_app() -> cli.Command {
     return cli.Command.new('hawk')
@@ -21,6 +24,10 @@ fn build_app() -> cli.Command {
         .subcommand(cli.Command.new('check')
             .about('type-check a Hawk program without running it')
             .positional('file', help: 'the .hawk file to check'))
+        .subcommand(cli.Command.new('emit')
+            .about('compile a Hawk program to a .hawkbc bytecode file')
+            .positional('file', help: 'the .hawk file to compile')
+            .positional('out', help: 'the .hawkbc output path'))
         .subcommand(cli.Command.new('test')
             .about('run the @test functions in a Hawk program')
             .positional('file', help: 'the .hawk file to test'))
@@ -85,15 +92,85 @@ fn run_subcommand(_ app: cli.Command, _ name: String, _ m: cli.Matches) -> Resul
     }
 }
 
-// The file-taking subcommands (run/check/test): require a `<file>` positional.
+// The file-taking subcommands (run/check/emit/test): require a `<file>`
+// positional, then dispatch to the real pipeline (check/emit) or a stub.
 fn run_on_file(_ name: String, _ sub: cli.Matches) -> Result<Int, Error> {
     match sub.positional(0) {
         Some(file) => {
+            if name == 'check' {
+                return do_check(file);
+            }
+            if name == 'emit' {
+                match sub.positional(1) {
+                    Some(out) => {
+                        return do_emit(file, out);
+                    },
+                    None => {
+                        println('hawk emit: expected <file> <out.hawkbc>');
+                        return Result.Ok(2);
+                    },
+                }
+            }
+            // run/test still drive the runtime (a follow-up: the import loader
+            // and runtime invocation).
             println('${name}: not yet implemented (${file})');
             return Result.Ok(0);
         },
         None => {
             println('hawk ${name}: expected a <file> argument');
+            return Result.Ok(2);
+        },
+    }
+}
+
+// `hawk check <file>` — type-check, printing `file:line:col: message` for each
+// diagnostic. Exit 0 when clean, 1 with diagnostics, 2 on an I/O error.
+fn do_check(_ file: String) -> Result<Int, Error> {
+    match fs.read_text(file) {
+        Ok(source) => {
+            let diags = check_source(source);
+            for d in diags {
+                println(format_diagnostic(d, file));
+            }
+            if diags.len() == 0 {
+                return Result.Ok(0);
+            }
+            return Result.Ok(1);
+        },
+        Err(e) => {
+            println('hawk check: cannot read ${file}: ${e}');
+            return Result.Ok(2);
+        },
+    }
+}
+
+// `hawk emit <file> <out>` — compile to a `.hawkbc` file, or print diagnostics.
+fn do_emit(_ file: String, _ out: String) -> Result<Int, Error> {
+    match fs.read_text(file) {
+        Ok(source) => {
+            let outcome = compile_source(source);
+            for d in outcome.diagnostics {
+                println(format_diagnostic(d, file));
+            }
+            match outcome.bytes {
+                Some(bytes) => {
+                    match fs.write_bytes(out, bytes) {
+                        Ok(_) => {
+                            return Result.Ok(0);
+                        },
+                        Err(e) => {
+                            println('hawk emit: cannot write ${out}: ${e}');
+                            return Result.Ok(2);
+                        },
+                    }
+                },
+                None => {
+                    return Result.Ok(1);
+                },
+            }
+        },
+        Err(e) => {
+            println('hawk emit: cannot read ${file}: ${e}');
             return Result.Ok(2);
         },
     }

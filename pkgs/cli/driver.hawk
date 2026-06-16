@@ -1,0 +1,115 @@
+// The front-end driver — wires the phases (lexer → parser → checker → codegen →
+// encoder) into the source-to-bytecode pipeline the CLI drives.
+//
+// This is the seam where the Hawk-written front-end becomes a usable compiler:
+// `check_source` reports diagnostics, `compile_source` produces `.hawkbc` bytes.
+// Each phase short-circuits on errors (a parse error suppresses type errors,
+// etc.), matching the Dart toolchain.
+//
+// Slice 1 compiles a *self-contained* program (no imports — `imports: []`); the
+// import-closure loader that links `std.core` and `import`ed libraries is the
+// next slice. Until then, programs that need the prelude (e.g. `println`) won't
+// resolve, but a core-free program checks and emits byte-identically.
+
+import 'lexer/token'; // SourceSpan
+import 'lexer/lexer';
+import 'parser/parser';
+import 'checker/checker';
+import 'codegen/codegen';
+import 'bytecode/encoder';
+
+// A uniform diagnostic across the phases (each phase's error type is structurally
+// a message + a span; this is the common currency the CLI prints).
+pub type Diagnostic = {
+    message: String,
+    span: SourceSpan,
+}
+
+// The outcome of compiling a source: any diagnostics, and the encoded `.hawkbc`
+// bytes when there were none.
+pub type CompileOutcome = {
+    diagnostics: List<Diagnostic>,
+    bytes: Option<Bytes>,
+}
+
+// Type-check `source`, returning its diagnostics (empty = clean). Lex and parse
+// errors short-circuit — they make later phases meaningless.
+pub fn check_source(_ source: String) -> List<Diagnostic> {
+    let lex = tokenize(source);
+    if lex.errors.len() > 0 {
+        return lex_diagnostics(lex.errors);
+    }
+    let parsed = parse(lex.tokens);
+    if parsed.errors.len() > 0 {
+        return parse_diagnostics(parsed.errors);
+    }
+    return check_diagnostics(check(parsed.program, [], {}).errors);
+}
+
+// Compile `source` to `.hawkbc` bytes. Each phase short-circuits on errors, so
+// `bytes` is present only for a clean program.
+pub fn compile_source(_ source: String) -> CompileOutcome {
+    let lex = tokenize(source);
+    if lex.errors.len() > 0 {
+        return failed(lex_diagnostics(lex.errors));
+    }
+    let parsed = parse(lex.tokens);
+    if parsed.errors.len() > 0 {
+        return failed(parse_diagnostics(parsed.errors));
+    }
+    let checked = check(parsed.program, [], {});
+    if checked.errors.len() > 0 {
+        return failed(check_diagnostics(checked.errors));
+    }
+    let cg = compile_program(parsed.program, [], {});
+    if cg.errors.len() > 0 {
+        return failed(codegen_diagnostics(cg.errors));
+    }
+    return CompileOutcome {
+        diagnostics: [],
+        bytes: Option.Some(encode_module(cg.module)),
+    };
+}
+
+// `file:line:column: message` — the diagnostic line the CLI prints.
+pub fn format_diagnostic(_ d: Diagnostic, _ file_path: String) -> String {
+    return '${file_path}:${d.span}: ${d.message}';
+}
+
+// --- helpers ---
+
+fn failed(_ diagnostics: List<Diagnostic>) -> CompileOutcome {
+    return CompileOutcome { diagnostics: diagnostics, bytes: Option.None };
+}
+
+fn lex_diagnostics(_ errors: List<LexError>) -> List<Diagnostic> {
+    let out: List<Diagnostic> = [];
+    for e in errors {
+        out.push(Diagnostic { message: e.message, span: e.span });
+    }
+    return out;
+}
+
+fn parse_diagnostics(_ errors: List<ParseError>) -> List<Diagnostic> {
+    let out: List<Diagnostic> = [];
+    for e in errors {
+        out.push(Diagnostic { message: e.message, span: e.span });
+    }
+    return out;
+}
+
+fn check_diagnostics(_ errors: List<CheckError>) -> List<Diagnostic> {
+    let out: List<Diagnostic> = [];
+    for e in errors {
+        out.push(Diagnostic { message: e.message, span: e.span });
+    }
+    return out;
+}
+
+fn codegen_diagnostics(_ errors: List<CodegenError>) -> List<Diagnostic> {
+    let out: List<Diagnostic> = [];
+    for e in errors {
+        out.push(Diagnostic { message: e.message, span: e.span });
+    }
+    return out;
+}

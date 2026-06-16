@@ -295,8 +295,17 @@ This makes the port incremental and continuously checkable, not a big-bang.
    time (from the bidirectional `expected`) and seeded into the lifted unit's
    `type_scope`, since a lifted lambda compiles as its own unit with no annotated
    tree to read.
-7. **`driver.hawk`** — wire the phases, reuse the `std.cli` Command app (the
-   `pkgs/cli` rewrite already prototyped this).
+7. **`driver.hawk` — in progress (Slice 1 done).** `pkgs/cli/driver.hawk` wires
+   the phases into the source→bytecode pipeline (`check_source` →
+   diagnostics; `compile_source` → `.hawkbc` bytes, each phase short-circuiting
+   on errors), and `main.hawk` drives `check`/`emit` over `std.fs` on the
+   `std.cli` Command app. The Hawk-written CLI, run via the Dart bootstrap
+   (`hawk run pkgs/cli/main.hawk emit <file> <out>`), emits **byte-identical**
+   `.hawkbc` for a self-contained program — and the runtime executes it. Slice 1
+   compiles *core-free* programs (`imports: []`); the **import-closure loader**
+   (`std.core` auto-load + `import` resolution + namespace barrels + file-system
+   seam) is the next slice, after which the front-end self-compiles its own
+   multi-file sources.
 
 #### Findings from the ported chunks
 
