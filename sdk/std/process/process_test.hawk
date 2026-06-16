@@ -29,6 +29,25 @@ fn test_run_reports_exit_code() -> Result<Void, Error> {
 }
 
 @test
+fn test_exec_returns_exit_code() -> Result<Void, Error> {
+    // exec inherits this process's stdio and returns just the exit code (no
+    // capture); the commands here write nothing, so they don't disturb output.
+    testing.assert_eq(actual: process.exec('sh', args: ['-c', 'exit 0'])?, expected: 0)?;
+    testing.assert_eq(actual: process.exec('sh', args: ['-c', 'exit 5'])?, expected: 5)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_exec_missing_command_is_not_found() -> Result<Void, Error> {
+    let classified = match process.exec('hawk_no_such_program_42') {
+        Ok(_) => false,
+        Err(e) => is_not_found(e),
+    };
+    testing.assert(classified, message: 'expected a NotFound ProcessError')?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_run_captures_stderr() -> Result<Void, Error> {
     let r = process.run('sh', args: ['-c', 'echo oops 1>&2'])?;
     testing.assert_eq(actual: r.stderr.trim(), expected: 'oops')?;

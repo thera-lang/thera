@@ -341,14 +341,18 @@ value, and Hawk has no load-time init to materialize a `const` from one (see
 ### `std.process` — subprocess spawning _(implemented)_
 
 Purpose: run and stream child processes. `run` captures output to completion;
-`start` spawns and exposes the pipes through the `std.io` `Reader`/`Writer`
-protocol, so `io.read_all`/`io.copy` work against a child's streams.
+`exec` inherits this process's terminal (live output, interactive stdin) and
+returns just the exit code; `start` spawns and exposes the pipes through the
+`std.io` `Reader`/`Writer` protocol, so `io.read_all`/`io.copy` work against a
+child's streams.
 
 ```
 pub fn run(_ command: String, args: List<String> = [],
            working_dir: Option<String> = Option.None,
            env: Option<Map<String, String>> = Option.None)
     -> Result<ProcessResult, ProcessError>;   // captured stdout/stderr/exit_code
+
+pub fn exec(...) -> Result<Int, ProcessError>;            // same args; inherits stdio, returns exit code
 
 pub fn start(...) -> Result<Process, ProcessError>;       // same args; pipes are piped
 
@@ -367,8 +371,13 @@ impl Process {
 pub enum ProcessError { NotFound(String), Io(String) }   // implements Error + Display
 ```
 
-Notes: pipes stream `Bytes` (the `Reader`/`Writer` currency), so writing text is
-`child.stdin().write(s.bytes())`. `close_stdin()` is the explicit EOF signal a
+Notes: `exec` is the inherit-stdio counterpart to `run` (capture) — use it to
+launch a child whose console you want to share (a REPL, a pager, a subcommand
+whose output should stream as it happens); it's how the Hawk CLI's `run`/`test`
+drive the runtime. `run` pipes and captures; `exec` shares the parent fds and
+returns only the exit code. Pipes stream `Bytes` (the `Reader`/`Writer`
+currency), so writing text is `child.stdin().write(s.bytes())`. `close_stdin()`
+is the explicit EOF signal a
 write-then-read filter (`cat`, `grep`, `sort`) needs — without it `read_all`
 deadlocks waiting on a child that's waiting on more input. `ProcessError` is
 classified: a missing executable is `NotFound` (matchable), everything else is
@@ -914,7 +923,7 @@ dependency graph, so future work lands in the right order:
 | std.fs       | done    | v1: read/write text+bytes, exists, metadata, list_dir, create_dir(\_all), remove(\_dir_all), rename, copy, temp_dir; classified `FsError`; streaming `File`/`open`/`walk`/`temp_file` deferred to v2                                |
 | std.path     | done    | pure Hawk; `components`/`with_extension` added; normalize/relative deferred                                                                                                                                                         |
 | std.env      | done    | vars/args/cwd/os/exit + `Env` capability + `testing.fixed_env`; `OS`→`os()`                                                                                                                                                         |
-| std.process  | done    | `run`/`start`; pipes are `std.io` `Reader`/`Writer` (+ `close_stdin`); classified `ProcessError`                                                                                                                                    |
+| std.process  | done    | `run` (capture) / `exec` (inherit stdio, exit code) / `start`; pipes are `std.io` `Reader`/`Writer` (+ `close_stdin`); classified `ProcessError`                                                                                     |
 | std.time     | done    | wall + monotonic clocks, `Duration`/`Instant` (nanos), `DateTime` (Unix ms UTC) + RFC 3339 format/parse, `sleep`; `Clock` capability + `testing.fixed_clock`                                                                        |
 | std.fiber    | new     | runtime scheduler                                                                                                                                                                                                                   |
 | std.math     | done    | Double fns + constants; abs/min/max/clamp + to_double/to_int are Int/Double methods                                                                                                                                                 |

@@ -131,6 +131,7 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("list_join", native_list_join),
     ("list_push", native_list_push),
     ("process_run", native_process_run),
+    ("process_exec", native_process_exec),
     ("process_start", native_process_start),
     ("process_wait", native_process_wait),
     ("process_kill", native_process_kill),
@@ -1618,6 +1619,56 @@ fn native_process_run(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Tra
             );
             Ok(Value::ok(res))
         }
+        Err(e) => Ok(proc_err(&e, format!("failed to run '{cmd_name}': {e}"))),
+    }
+}
+
+/// `process_exec(command, args, working_dir, env)` — run a child that *inherits*
+/// the parent's stdin/stdout/stderr (so its output streams live to the terminal
+/// and it can read interactive input), returning just the exit code. The
+/// inherit-stdio counterpart to `process_run`, which pipes and captures output.
+fn native_process_exec(out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    if args.is_empty() || args.len() > 4 {
+        return Err(bug(format!(
+            "process_exec expects between 1 and 4 arguments, got {}",
+            args.len()
+        )));
+    }
+    let cmd_name = str_contents(&args[0])?;
+    let cmd_args = if args.len() >= 2 {
+        expect_string_list(&args[1], "process_exec: args")?
+    } else {
+        Vec::new()
+    };
+    let working_dir = if args.len() >= 3 {
+        expect_option_string(&args[2], "process_exec: working_dir")?
+    } else {
+        None
+    };
+    let env = if args.len() >= 4 {
+        expect_option_map(&args[3], "process_exec: env")?
+    } else {
+        None
+    };
+
+    let mut command = Command::new(&cmd_name);
+    command.args(&cmd_args);
+    if let Some(dir) = working_dir {
+        command.current_dir(dir);
+    }
+    if let Some(env_map) = env {
+        command.envs(env_map);
+    }
+    // stdin/stdout/stderr are inherited by default (`Command::status`), so the
+    // child shares our terminal. Flush our own buffered output first so the
+    // parent's and child's writes stay correctly ordered.
+    let _ = out.flush();
+    command.stdin(Stdio::inherit());
+    command.stdout(Stdio::inherit());
+    command.stderr(Stdio::inherit());
+
+    match command.status() {
+        Ok(status) => Ok(Value::ok(Value::Int(status.code().unwrap_or(-1) as i64))),
         Err(e) => Ok(proc_err(&e, format!("failed to run '{cmd_name}': {e}"))),
     }
 }

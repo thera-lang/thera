@@ -72,6 +72,14 @@ native fn _run(
     _ env: Option<Map<String, String>>,
 ) -> Result<ProcessResult, String>
 
+@extern('process_exec')
+native fn _exec(
+    _ command: String,
+    _ args: List<String>,
+    _ working_dir: Option<String>,
+    _ env: Option<Map<String, String>>,
+) -> Result<Int, String>
+
 @extern('process_start')
 native fn _start(
     _ command: String,
@@ -192,6 +200,23 @@ pub fn run(
 ) -> Result<ProcessResult, ProcessError> {
     return match _run(command, args, working_dir, env) {
         Ok(result) => Result.Ok(result),
+        Err(e) => Result.Err(to_process_error(e)),
+    };
+}
+
+// Run a command that *inherits* this process's stdin/stdout/stderr, so its
+// output streams live to the terminal and it can read interactive input.
+// Returns the child's exit code. Unlike `run`, nothing is captured — use this
+// to launch a child whose console you want to share (a REPL, a pager, a
+// subcommand whose output should appear as it happens). Same arguments as `run`.
+pub fn exec(
+    _ command: String,
+    args: List<String> = [],
+    working_dir: Option<String> = Option.None,
+    env: Option<Map<String, String>> = Option.None,
+) -> Result<Int, ProcessError> {
+    return match _exec(command, args, working_dir, env) {
+        Ok(code) => Result.Ok(code),
         Err(e) => Result.Err(to_process_error(e)),
     };
 }

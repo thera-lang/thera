@@ -6,12 +6,11 @@
 // `<sdk_root>/runtime/target/debug/hawk` (a dev checkout), mirroring the Dart
 // toolchain's RunCommand/TestCommand.
 //
-// One behavioural difference from the Dart commands, which inherit the terminal:
-// `std.process` *captures* the child's stdout/stderr, so this replays them after
-// the child exits (output is buffered, and interactive stdin isn't wired up yet).
+// The child runs with inherited stdio (`process.exec`), so its output streams
+// live to the terminal and it can read interactive input — matching the Dart
+// CLI; the run returns the child's exit code.
 
 import std.fs;
-import std.io;
 import std.path;
 import std.process;
 import std.time;
@@ -45,10 +44,8 @@ pub fn run_file(_ file: String, _ program_args: List<String>, _ sdk_root: Option
                 },
                 Some(runtime) => {
                     match run_bytecode(runtime, bytes, Option.None, program_args) {
-                        Ok(r) => {
-                            print(r.stdout);
-                            emit_stderr(r.stderr);
-                            return Result.Ok(r.exit_code);
+                        Ok(code) => {
+                            return Result.Ok(code);
                         },
                         Err(e) => {
                             println('hawk run: ${e.message()}');
@@ -153,11 +150,9 @@ fn run_test_file(_ path_str: String, _ runtime: String, _ sdk_root: Option<Strin
     // A unique entry name so the driver never collides with a tested module's
     // own `main` (executables under test keep theirs; it's dead code here).
     match run_bytecode(runtime, bytes, Option.Some('__hawk_test_main'), []) {
-        Ok(r) => {
-            print(r.stdout);
-            emit_stderr(r.stderr);
+        Ok(code) => {
             let total = tests.len();
-            return Option.Some(TestCounts { total: total, failures: failures_from_exit(r.exit_code, total) });
+            return Option.Some(TestCounts { total: total, failures: failures_from_exit(code, total) });
         },
         Err(e) => {
             println('  error: ${e.message()}');
@@ -237,8 +232,10 @@ fn test_driver(_ tests: List<String>) -> String {
 
 // Write `bytes` to a temporary `.hawkbc` and run it on the `runtime`, passing
 // `program_args` to the program. `entry` selects a non-default entry function
-// (`--entry NAME`); None runs `main`. The temp dir is removed afterwards.
-fn run_bytecode(_ runtime: String, _ bytes: Bytes, _ entry: Option<String>, _ program_args: List<String>) -> Result<process.ProcessResult, Error> {
+// (`--entry NAME`); None runs `main`. The child inherits this process's
+// stdin/stdout/stderr (output streams live), and we return its exit code. The
+// temp dir is removed afterwards.
+fn run_bytecode(_ runtime: String, _ bytes: Bytes, _ entry: Option<String>, _ program_args: List<String>) -> Result<Int, Error> {
     let dir = temp_dir_unique('hawk');
     let out = path.join(dir, 'out.hawkbc');
     match fs.write_bytes(out, bytes) {
@@ -260,10 +257,10 @@ fn run_bytecode(_ runtime: String, _ bytes: Bytes, _ entry: Option<String>, _ pr
     for a in program_args {
         args.push(a);
     }
-    let result = process.run(runtime, args: args);
+    let result = process.exec(runtime, args: args);
     cleanup_dir(dir);
     return match result {
-        Ok(r) => Result.Ok(r),
+        Ok(code) => Result.Ok(code),
         Err(e) => Result.Err(e),
     };
 }
@@ -406,17 +403,7 @@ fn str_less(_ a: String, _ b: String) -> Bool {
     return na < nb;
 }
 
-// --- output / temp-dir helpers ---
-
-fn emit_stderr(_ text: String) -> Void {
-    if text == '' {
-        return;
-    }
-    match io.stderr().write(text.bytes()) {
-        Ok(_) => {},
-        Err(_) => {},
-    }
-}
+// --- temp-dir helpers ---
 
 fn temp_dir_unique(_ prefix: String) -> String {
     let dir = path.join(fs.temp_dir(), '${prefix}_${time.now_millis()}');
