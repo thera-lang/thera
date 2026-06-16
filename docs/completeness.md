@@ -29,13 +29,15 @@ priority. None of these block day-to-day self-hosting; they close the gap to
   unported. This is the largest remaining chunk and the gateway to the horizon-1
   incremental engine (see [frontend_in_hawk.md](frontend_in_hawk.md) §1).
   *Effort: large.*
-- **`hawk check <dir>` and multi-target.** The Dart `check`/`test` accept files
-  *or directories* (recursing for `*.hawk` / `*_test.hawk`); the Hawk `check`/`emit`
-  take a single file (`test` already recurses). Generalize `check` to dirs +
-  multiple targets for parity. *Effort: small.*
-- **Minor parity:** port `hawk parse` (AST dump); send diagnostics/errors to
-  **stderr** (the Hawk CLI currently `println`s them to stdout, the Dart CLI uses
-  stderr). *Effort: small.*
+- **`hawk check <dir>` and multi-target — done.** `check` now accepts one or
+  more files/directories (directories recurse for `*.hawk`), sums diagnostics
+  across them, and exits 0 clean / 1 with diagnostics / 2 on a missing target —
+  sharing the recursive collector with `test`. (`emit` stays single-file by
+  design.) `hawk parse` is intentionally **not** ported — an AST dump is a
+  toolchain-debugging affordance, not agent-facing; the structured-understanding
+  capability for agents is the LSP.
+- **Minor parity:** send diagnostics/errors to **stderr** (the Hawk CLI
+  currently `println`s them to stdout, the Dart CLI uses stderr). *Effort: small.*
 
 ## Static analysis robustness (the checker must predict codegen)
 

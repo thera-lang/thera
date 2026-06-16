@@ -315,7 +315,7 @@ fn collect_test_files(_ targets: List<String>) -> List<String> {
             Ok(meta) => {
                 match meta.kind {
                     Dir => {
-                        collect_from_dir(target, found);
+                        collect_from_dir(target, '_test.hawk', found);
                     },
                     _ => {
                         found.push(target);
@@ -330,7 +330,10 @@ fn collect_test_files(_ targets: List<String>) -> List<String> {
     return sort_dedup(found);
 }
 
-fn collect_from_dir(_ dir: String, _ found: List<String>) -> Void {
+// Recursively append directory entries whose basename ends in `suffix` to
+// `found` (descending into subdirectories). Shared by `test` (`_test.hawk`) and
+// `check` (`.hawk`).
+pub fn collect_from_dir(_ dir: String, _ suffix: String, _ found: List<String>) -> Void {
     match fs.list_dir(dir) {
         Ok(names) => {
             for name in names {
@@ -339,10 +342,10 @@ fn collect_from_dir(_ dir: String, _ found: List<String>) -> Void {
                     Ok(meta) => {
                         match meta.kind {
                             Dir => {
-                                collect_from_dir(full, found);
+                                collect_from_dir(full, suffix, found);
                             },
                             _ => {
-                                if name.ends_with('_test.hawk') {
+                                if name.ends_with(suffix) {
                                     found.push(full);
                                 }
                             },
@@ -357,7 +360,7 @@ fn collect_from_dir(_ dir: String, _ found: List<String>) -> Void {
 }
 
 // Selection-sort the paths (no `List.sort` yet), then drop adjacent duplicates.
-fn sort_dedup(_ items: List<String>) -> List<String> {
+pub fn sort_dedup(_ items: List<String>) -> List<String> {
     let n = items.len();
     let mut i = 0;
     while i < n {

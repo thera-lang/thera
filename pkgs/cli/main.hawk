@@ -5,10 +5,10 @@
 // compiler/runner/LSP they will drive are not yet written in Hawk. As the
 // hawk-in-hawk arc advances, each stub is replaced by the real implementation.
 //
-//   hawk run   <file>    run a Hawk program
-//   hawk check <file>    type-check a program without running it
-//   hawk test  <file>    run a program's @test functions
-//   hawk lsp             start the language server
+//   hawk run   <file>       run a Hawk program (args after <file> go to it)
+//   hawk check <file|dir>…  type-check programs without running them
+//   hawk test  <file|dir>…  run @test functions
+//   hawk lsp                start the language server
 
 import std.cli;
 import std.fs;
@@ -25,8 +25,8 @@ fn build_app() -> cli.Command {
             .positional('file', help: 'the .hawk file to run')
             .trailing_var_arg(true))
         .subcommand(cli.Command.new('check')
-            .about('type-check a Hawk program without running it')
-            .positional('file', help: 'the .hawk file to check'))
+            .about('type-check Hawk programs without running them')
+            .positional('target', help: 'a .hawk file or directory to check'))
         .subcommand(cli.Command.new('emit')
             .about('compile a Hawk program to a .hawkbc bytecode file')
             .positional('file', help: 'the .hawk file to compile')
@@ -98,8 +98,8 @@ fn run_subcommand(_ app: cli.Command, _ name: String, _ m: cli.Matches) -> Resul
 }
 
 // The file-taking subcommands (run/check/emit/test): dispatch to the real
-// pipeline. `test` takes one or more `<file|dir>` targets; the rest take a
-// single `<file>` (and `run` passes any trailing positionals to the program).
+// pipeline. `test` and `check` take one or more `<file|dir>` targets; `emit`
+// takes `<file> <out>`; `run` takes `<file>` then forwards trailing args.
 fn run_on_file(_ name: String, _ sub: cli.Matches) -> Result<Int, Error> {
     let positionals = sub.positionals();
     if name == 'test' {
@@ -109,11 +109,15 @@ fn run_on_file(_ name: String, _ sub: cli.Matches) -> Result<Int, Error> {
         }
         return test_paths(positionals, find_sdk_root());
     }
+    if name == 'check' {
+        if positionals.len() == 0 {
+            println('hawk check: expected a <file|dir> argument');
+            return Result.Ok(2);
+        }
+        return do_check(positionals, find_sdk_root());
+    }
     match sub.positional(0) {
         Some(file) => {
-            if name == 'check' {
-                return do_check(file);
-            }
             if name == 'emit' {
                 match sub.positional(1) {
                     Some(out) => {
@@ -138,25 +142,53 @@ fn run_on_file(_ name: String, _ sub: cli.Matches) -> Result<Int, Error> {
     }
 }
 
-// `hawk check <file>` — type-check, printing `file:line:col: message` for each
-// diagnostic. Exit 0 when clean, 1 with diagnostics, 2 on an I/O error.
-fn do_check(_ file: String) -> Result<Int, Error> {
-    match fs.read_text(file) {
-        Ok(source) => {
-            let diags = check_source_at(source, file, find_sdk_root());
-            for d in diags {
-                println(format_diagnostic(d, file));
-            }
-            if diags.len() == 0 {
-                return Result.Ok(0);
-            }
-            return Result.Ok(1);
-        },
-        Err(e) => {
-            println('hawk check: cannot read ${file}: ${e}');
-            return Result.Ok(2);
-        },
+// `hawk check <file|dir>...` — type-check each target, printing
+// `file:line:col: message` for every diagnostic. A directory is searched
+// recursively for `*.hawk`; a file is checked directly. Exit 0 when clean, 1
+// when any diagnostics, 2 when a target is missing.
+fn do_check(_ targets: List<String>, _ sdk_root: Option<String>) -> Result<Int, Error> {
+    // Resolve targets to a sorted, de-duplicated list of files (dirs recurse for
+    // `*.hawk`); a missing target is a usage error.
+    let files: List<String> = [];
+    let mut missing = false;
+    for target in targets {
+        match fs.metadata(target) {
+            Ok(meta) => {
+                match meta.kind {
+                    Dir => { collect_from_dir(target, '.hawk', files); },
+                    _ => { files.push(target); },
+                }
+            },
+            Err(_) => {
+                println('hawk check: not found: ${target}');
+                missing = true;
+            },
+        }
     }
+    if missing {
+        return Result.Ok(2);
+    }
+
+    let mut total = 0;
+    for file in sort_dedup(files) {
+        match fs.read_text(file) {
+            Ok(source) => {
+                let diags = check_source_at(source, file, sdk_root);
+                for d in diags {
+                    println(format_diagnostic(d, file));
+                }
+                total = total + diags.len();
+            },
+            Err(e) => {
+                println('hawk check: cannot read ${file}: ${e}');
+                total = total + 1;
+            },
+        }
+    }
+    if total > 0 {
+        return Result.Ok(1);
+    }
+    return Result.Ok(0);
 }
 
 // `hawk emit <file> <out>` — compile to a `.hawkbc` file, or print diagnostics.
