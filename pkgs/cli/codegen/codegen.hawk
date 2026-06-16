@@ -212,10 +212,18 @@ impl FnCompiler {
         };
 
         // Boxed cells: capture params arriving boxed, plus this function's own
-        // captured `mut` locals.
+        // `mut` locals that some lambda captures — both read/written through a cell.
         match self.scope.boxed_params.get(index) {
             Some(bp) => {
                 for b in bp.to_list() {
+                    self.boxed_locals.add(b);
+                }
+            },
+            None => {},
+        }
+        match fn_decl.body {
+            Some(body) => {
+                for b in boxed_mut_locals(body).to_list() {
                     self.boxed_locals.add(b);
                 }
             },
@@ -2172,6 +2180,160 @@ fn fv_stmt(_ s: Stmt, _ bound: Set<String>, _ free: List<String>, _ seen: Set<St
             let loop_bound = copy_set(bound);
             fv_pattern_bindings(x.pattern, loop_bound);
             fv_visit_block(x.body, loop_bound, free, seen);
+        },
+    }
+}
+
+// The `mut` locals of the function with body `body` that are captured by a
+// lambda, and therefore need boxing. One walk gathers this function's own `mut`
+// declarations (not descending into lambda bodies — those belong to the lifted
+// unit) and its top-level lambdas; a captured-and-mutable local is the
+// intersection.
+fn boxed_mut_locals(_ body: Block) -> Set<String> {
+    let muts: Set<String> = Set.new();
+    let lambdas: List<LambdaExpr> = [];
+    bml_block(body, muts, lambdas);
+    let result: Set<String> = Set.new();
+    if muts.len() == 0 || lambdas.len() == 0 {
+        return result;
+    }
+    let captured: Set<String> = Set.new();
+    for l in lambdas {
+        for name in free_variables(l) {
+            captured.add(name);
+        }
+    }
+    for name in muts.to_list() {
+        if captured.has(name) {
+            result.add(name);
+        }
+    }
+    return result;
+}
+
+fn bml_block(_ b: Block, _ muts: Set<String>, _ lambdas: List<LambdaExpr>) -> Void {
+    for s in b.stmts {
+        bml_stmt(s, muts, lambdas);
+    }
+    match b.tail {
+        Some(t) => { bml_expr(t, muts, lambdas); },
+        None => {},
+    }
+}
+
+fn bml_expr(_ e: Expr, _ muts: Set<String>, _ lambdas: List<LambdaExpr>) -> Void {
+    match e {
+        Lambda(x) => { lambdas.push(x); }, // a lambda of this function; don't descend
+        Ident(_, _) => {},
+        Int(_, _) => {},
+        Float(_, _) => {},
+        Bool(_, _) => {},
+        Unit(_) => {},
+        Str(_, parts) => {
+            for p in parts {
+                match p {
+                    Interp(_, ie) => { bml_expr(ie, muts, lambdas); },
+                    Text(_, _) => {},
+                }
+            }
+        },
+        ListLit(_, items) => {
+            for it in items {
+                bml_expr(it, muts, lambdas);
+            }
+        },
+        MapLit(_, entries) => {
+            for en in entries {
+                bml_expr(en.key, muts, lambdas);
+                bml_expr(en.value, muts, lambdas);
+            }
+        },
+        Struct(x) => {
+            for f in x.fields {
+                bml_expr(f.value, muts, lambdas);
+            }
+        },
+        Call(x) => {
+            bml_expr(x.callee, muts, lambdas);
+            for a in x.args {
+                bml_expr(a.value, muts, lambdas);
+            }
+        },
+        Field(_, obj, _) => { bml_expr(obj, muts, lambdas); },
+        Index(_, obj, idx) => {
+            bml_expr(obj, muts, lambdas);
+            bml_expr(idx, muts, lambdas);
+        },
+        Binary(_, l, _, r) => {
+            bml_expr(l, muts, lambdas);
+            bml_expr(r, muts, lambdas);
+        },
+        Unary(_, _, operand) => { bml_expr(operand, muts, lambdas); },
+        Propagate(_, inner) => { bml_expr(inner, muts, lambdas); },
+        Range(_, s, en) => {
+            bml_expr(s, muts, lambdas);
+            bml_expr(en, muts, lambdas);
+        },
+        Match(x) => {
+            bml_expr(x.subject, muts, lambdas);
+            for arm in x.arms {
+                bml_expr(arm.body, muts, lambdas);
+            }
+        },
+        Block(_, block) => { bml_block(block, muts, lambdas); },
+        If(x) => {
+            bml_expr(x.condition, muts, lambdas);
+            bml_block(x.then_block, muts, lambdas);
+            match x.else_block {
+                Some(eb) => { bml_block(eb, muts, lambdas); },
+                None => {},
+            }
+        },
+        Return(_, value) => {
+            match value {
+                Some(v) => { bml_expr(v, muts, lambdas); },
+                None => {},
+            }
+        },
+        Throw(_, value) => { bml_expr(value, muts, lambdas); },
+    }
+}
+
+fn bml_stmt(_ s: Stmt, _ muts: Set<String>, _ lambdas: List<LambdaExpr>) -> Void {
+    match s {
+        Let(x) => {
+            bml_expr(x.value, muts, lambdas);
+            if x.is_mut {
+                muts.add(x.name);
+            }
+        },
+        Assign(_, target, value) => {
+            bml_expr(target, muts, lambdas);
+            bml_expr(value, muts, lambdas);
+        },
+        Expr(_, e) => { bml_expr(e, muts, lambdas); },
+        Return(_, value) => {
+            match value {
+                Some(v) => { bml_expr(v, muts, lambdas); },
+                None => {},
+            }
+        },
+        Throw(_, value) => { bml_expr(value, muts, lambdas); },
+        If(x) => {
+            bml_expr(x.condition, muts, lambdas);
+            bml_block(x.then_block, muts, lambdas);
+            match x.else_block {
+                Some(eb) => { bml_block(eb, muts, lambdas); },
+                None => {},
+            }
+        },
+        While(x) => {
+            bml_expr(x.condition, muts, lambdas);
+            bml_block(x.body, muts, lambdas);
+        },
+        For(x) => {
+            bml_expr(x.iterable, muts, lambdas);
+            bml_block(x.body, muts, lambdas);
         },
     }
 }

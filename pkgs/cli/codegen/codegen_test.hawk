@@ -243,3 +243,35 @@ fn test_lambdas_byte_identical() -> Result<Void, Error> {
     ])?;
     return Result.Ok(void);
 }
+
+@test
+fn test_lambda_mut_capture_byte_identical() -> Result<Void, Error> {
+    // A lambda that captures and mutates a `mut` local of the enclosing function:
+    // `total` is boxed in a one-field `<cell>` (struct.new), the closure captures
+    // the cell itself, and the lifted unit reads/writes through it (field.get /
+    // field.set) so the closure and a later call share the running state.
+    let src = 'fn counter() -> (Int) -> Int {\n'
+        + '    let mut total = 0;\n'
+        + '    return (delta) => {\n'
+        + '        total = total + delta;\n'
+        + '        return total;\n'
+        + '    };\n'
+        + '}\n'
+        + 'fn use_counter() -> Int {\n'
+        + '    let bump = counter();\n'
+        + '    let a = bump(5);\n'
+        + '    let b = bump(3);\n'
+        + '    return a + b;\n'
+        + '}';
+    testing.assert_eq(actual: errors_of(src), expected: 0)?;
+    testing.assert_eq(actual: emit_bytes(src), expected: [
+        72, 65, 87, 75, 1, 0, 0, 0, 2, 8, 1, 6, 60, 99, 101, 108, 108, 62, 3, 3,
+        1, 0, 1, 1, 98, 3, 7, 99, 111, 117, 110, 116, 101, 114, 0, 1, 6, 1, 0,
+        46, 0, 7, 0, 6, 0, 49, 2, 1, 45, 11, 117, 115, 101, 95, 99, 111, 117,
+        110, 116, 101, 114, 0, 3, 14, 36, 0, 0, 7, 0, 6, 0, 1, 5, 50, 1, 7, 1, 6,
+        0, 1, 3, 50, 1, 7, 2, 6, 1, 6, 2, 8, 45, 10, 95, 95, 108, 97, 109, 98,
+        100, 97, 95, 50, 2, 2, 11, 6, 0, 6, 0, 47, 0, 6, 1, 8, 48, 0, 6, 0, 47,
+        0, 45, 4, 45,
+    ])?;
+    return Result.Ok(void);
+}
