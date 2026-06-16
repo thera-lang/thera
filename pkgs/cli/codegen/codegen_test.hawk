@@ -216,3 +216,30 @@ fn test_method_calls_dispatch_byte_identical() -> Result<Void, Error> {
     ])?;
     return Result.Ok(void);
 }
+
+@test
+fn test_lambdas_byte_identical() -> Result<Void, Error> {
+    // Plain lambdas: a non-capturing lambda passed to a higher-order function
+    // (its un-annotated `v` typed bidirectionally from the param signature),
+    // a capturing lambda returned as a closure (`(x) => x + n` captures `n`),
+    // and calling a closure held in a local (`add5(10)` → call.indirect). Each
+    // lambda lifts to a `__lambda_N` unit whose body types via the param stash.
+    let src = 'fn apply(_ f: (Int) -> Int, _ x: Int) -> Int { return f(x); }\n'
+        + 'fn double_it(_ n: Int) -> Int { return apply((v) => v * 2, n); }\n'
+        + 'fn adder(_ n: Int) -> (Int) -> Int { return (x) => x + n; }\n'
+        + 'fn use_adder() -> Int {\n'
+        + '    let add5 = adder(5);\n'
+        + '    return add5(10);\n'
+        + '}';
+    testing.assert_eq(actual: errors_of(src), expected: 0)?;
+    testing.assert_eq(actual: emit_bytes(src), expected: [
+        72, 65, 87, 75, 1, 0, 0, 0, 2, 1, 0, 3, 1, 0, 1, 121, 6, 5, 97, 112, 112,
+        108, 121, 2, 2, 4, 6, 0, 6, 1, 50, 1, 45, 9, 100, 111, 117, 98, 108, 101,
+        95, 105, 116, 1, 1, 4, 49, 4, 0, 6, 0, 36, 0, 2, 45, 5, 97, 100, 100, 101,
+        114, 1, 1, 3, 6, 0, 49, 5, 1, 45, 9, 117, 115, 101, 95, 97, 100, 100, 101,
+        114, 0, 1, 7, 1, 5, 36, 2, 1, 7, 0, 6, 0, 1, 10, 50, 1, 45, 10, 95, 95,
+        108, 97, 109, 98, 100, 97, 95, 52, 1, 1, 4, 6, 0, 1, 2, 10, 45, 10, 95,
+        95, 108, 97, 109, 98, 100, 97, 95, 53, 2, 2, 4, 6, 1, 6, 0, 8, 45,
+    ])?;
+    return Result.Ok(void);
+}

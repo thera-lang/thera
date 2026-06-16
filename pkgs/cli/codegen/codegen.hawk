@@ -374,8 +374,13 @@ impl FnCompiler {
             Let(x) => {
                 // Evaluate before declaring, so the initializer can't see the
                 // not-yet-bound name. A captured `mut` local is boxed.
-                self.expr(x.value);
-                let ty = infer_expr(x.value, self.type_scope, self.ctx, Option.None);
+                let annotated = match x.type_ann {
+                    Some(ref) => Option.Some(
+                        resolve_type_ref(ref, self.scope.library.type_defs, self.ctx.type_params, self.ctx.self_type)),
+                    None => Option.None,
+                };
+                self.expr_expecting(x.value, annotated);
+                let ty = infer_expr(x.value, self.type_scope, self.ctx, annotated);
                 if self.boxed_locals.has(x.name) {
                     self.emit(Instr.StructNew(self.scope.cell_type_index()));
                 }
@@ -490,7 +495,7 @@ impl FnCompiler {
         match value {
             None => { self.emit(Instr.Simple(Op.ConstUnit)); },
             Some(v) => {
-                self.expr(v);
+                self.expr_expecting(v, self.ctx.return_type);
                 if self.returns_result && self.type_of(v) != Option.Some('Result') {
                     self.emit(Instr.EnumNew(TY_RESULT, TAG_OK, 1));
                 }
@@ -656,7 +661,15 @@ impl FnCompiler {
 
     // --- expressions ---
 
+    // Emit an expression, discarding any contextual `expected` type. Most
+    // positions use this; the few that carry a known expected (a `let` value, a
+    // `return` value, a struct-field value, a call argument) use `expr_expecting`
+    // so a lambda there can type its un-annotated parameters bidirectionally.
     fn expr(self, _ e: Expr) -> Void {
+        self.expr_expecting(e, Option.None);
+    }
+
+    fn expr_expecting(self, _ e: Expr, _ expected: Option<Type>) -> Void {
         match e {
             Int(_, v) => { self.emit(Instr.ConstInt(v)); },
             Float(_, v) => { self.emit(Instr.ConstDouble(v)); },
@@ -693,7 +706,7 @@ impl FnCompiler {
             If(x) => { self.if_expr(x.condition, x.then_block, x.else_block); },
             Return(_, value) => { self.emit_return(value); },
             Throw(_, value) => { self.emit_throw(value); },
-            Lambda(x) => { self.error('lambda codegen not yet ported', x.span); },
+            Lambda(x) => { self.lambda_expr(x, expected); },
             Range(span, _, _) => { self.error('a range is only valid as a for-loop iterable', span); },
         }
     }
@@ -736,6 +749,62 @@ impl FnCompiler {
         self.emit(Instr.Simple(Op.Return)); // failing: return the value as-is
         self.bind(ok);
         self.emit(Instr.EnumGet(0)); // success: unwrap the payload
+    }
+
+    // --- lambdas / closures ---
+
+    // A lambda: lift its body to a synthetic top-level function whose leading
+    // parameters are its captured variables, push the captured values, and build
+    // a closure value `{ func, captures }`. `expected` lets an un-annotated
+    // parameter take its type from the surrounding function type.
+    fn lambda_expr(self, _ x: LambdaExpr, _ expected: Option<Type>) -> Void {
+        // Free variables that name an enclosing local are the captures;
+        // references to functions/types/namespaces resolve the same way in the
+        // lifted unit and need no capture.
+        let captures: List<String> = [];
+        for name in free_variables(x) {
+            if self.slots.has(name) {
+                captures.push(name);
+            }
+        }
+        let boxed_captures: Set<String> = Set.new();
+        for name in captures {
+            if self.boxed_locals.has(name) {
+                boxed_captures.add(name);
+            }
+        }
+
+        // The lifted unit's parameter types (captures + lambda params), stashed
+        // so its body can be inferred when compiled as its own unit. The lambda's
+        // own param types come from its full inferred function type (annotation
+        // or the expected function type); captures keep their enclosing types.
+        let param_types = match infer_expr(Expr.Lambda(x), self.type_scope, self.ctx, expected) {
+            Function(ps, _) => ps,
+            _ => [],
+        };
+        let stash: Map<String, Type> = {};
+        for c in captures {
+            stash[c] = self.type_scope.get(c).unwrap_or(Type.Unknown);
+        }
+        let mut i = 0;
+        while i < x.params.len() {
+            let pt = if i < param_types.len() {
+                param_types[i]
+            } else {
+                Type.Unknown
+            };
+            stash[x.params[i].name] = pt;
+            i = i + 1;
+        }
+
+        let lifted = lift_lambda(x, captures);
+        let index = self.scope.add_lambda(lifted, boxed_captures, stash);
+        // Push the captured values (in capture order), then bundle the closure. A
+        // boxed capture pushes the cell itself (Load, no field.get) so it's shared.
+        for name in captures {
+            self.emit(Instr.Load(self.slots[name]));
+        }
+        self.emit(Instr.ClosureNew(index, captures.len()));
     }
 
     // --- match ---
@@ -1193,9 +1262,19 @@ impl FnCompiler {
     fn struct_expr(self, _ x: StructExpr) -> Void {
         match self.scope.structs.get(x.type_name) {
             Some(info) => {
+                let declared = match self.scope.library.type_defs.get(x.type_name) {
+                    Some(def) => Option.Some(def.fields),
+                    None => Option.None,
+                };
                 for field_name in info.field_names {
                     match find_field_init(x.fields, field_name) {
-                        Some(value) => { self.expr(value); },
+                        Some(value) => {
+                            let exp = match declared {
+                                Some(fields) => fields.get(field_name),
+                                None => Option.None,
+                            };
+                            self.expr_expecting(value, exp);
+                        },
                         None => { self.error('missing field `${field_name}` in ${x.type_name} literal', x.span); },
                     }
                 }
@@ -1350,9 +1429,7 @@ impl FnCompiler {
                 match self.scope.function_index.get(name) {
                     Some(fn_index) => {
                         let ordered = self.resolve_args(self.scope.units[fn_index].params, x.args, x.span);
-                        for value in ordered {
-                            self.expr(value);
-                        }
+                        self.emit_ordered_args(x.callee, x.args, ordered);
                         self.emit(Instr.Call(fn_index, ordered.len()));
                         return;
                     },
@@ -1544,9 +1621,7 @@ impl FnCompiler {
                     self.expr(obj); // self → local slot 0 of the callee
                 }
                 let ordered = self.resolve_args(self.scope.units[idx].params, x.args, x.span);
-                for value in ordered {
-                    self.expr(value);
-                }
+                self.emit_ordered_args(x.callee, x.args, ordered);
                 self.emit(Instr.Call(idx, ordered.len() + if is_static { 0 } else { 1 }));
             },
             None => {
@@ -1623,6 +1698,23 @@ impl FnCompiler {
             i = i + 1;
         }
         self.bind(end);
+    }
+
+    // Emit the parameter-ordered argument values, each with its expected type
+    // (the callee's parameter types, instantiated) so a lambda argument types its
+    // un-annotated parameters bidirectionally. `expected_arg_types` returns one
+    // entry per non-self parameter, aligned with `ordered`.
+    fn emit_ordered_args(self, _ callee: Expr, _ args: List<CallArg>, _ ordered: List<Expr>) -> Void {
+        let expected = expected_arg_types(callee, args, self.type_scope, self.ctx);
+        let mut i = 0;
+        while i < ordered.len() {
+            let exp = match expected {
+                Some(eps) => if i < eps.len() { Option.Some(eps[i]) } else { Option.None },
+                None => Option.None,
+            };
+            self.expr_expecting(ordered[i], exp);
+            i = i + 1;
+        }
     }
 
     // Match call arguments to a callee's (non-self) parameters, returning the
@@ -1856,6 +1948,232 @@ fn name_of_type(_ t: Type) -> Option<String> {
         TypeParameter(name) => Option.Some(name),
         _ => Option.None,
     };
+}
+
+// Build the synthetic FnDecl a lambda lowers to: its parameters are the captured
+// variables (leading, in capture order) followed by the lambda's own parameters;
+// its body returns the lambda's body expression.
+fn lift_lambda(_ x: LambdaExpr, _ captures: List<String>) -> FnDecl {
+    let body = Block {
+        start_span: x.span,
+        end_span: x.span,
+        stmts: [Stmt.Return(x.span, Option.Some(x.body))],
+        tail: Option.None,
+    };
+    let params: List<Param> = [];
+    for c in captures {
+        params.push(Param {
+            span: x.span,
+            label: Option.Some(c),
+            is_self: false,
+            name: c,
+            name_span: x.span,
+            type_ann: Option.None,
+            default_value: Option.None,
+        });
+    }
+    for p in x.params {
+        params.push(Param {
+            span: p.span,
+            label: Option.Some(p.name),
+            is_self: false,
+            name: p.name,
+            name_span: p.span,
+            type_ann: p.type_ann,
+            default_value: Option.None,
+        });
+    }
+    return FnDecl {
+        span: x.span,
+        decorators: [],
+        is_pub: false,
+        is_native: false,
+        name: '<lambda>',
+        name_span: x.span,
+        type_params: [],
+        params: params,
+        return_type: Option.None,
+        body: Option.Some(body),
+    };
+}
+
+// The free variables of `lambda`: identifiers referenced in its body that it
+// does not itself bind. Its own parameters, and names introduced by nested
+// lambdas, match patterns, block lets, and for loops, are bound (not free).
+// Listed in first-reference order so the capture layout is deterministic.
+fn free_variables(_ lambda: LambdaExpr) -> List<String> {
+    let free: List<String> = [];
+    let seen: Set<String> = Set.new();
+    let bound: Set<String> = Set.new();
+    for p in lambda.params {
+        bound.add(p.name);
+    }
+    fv_visit(lambda.body, bound, free, seen);
+    return free;
+}
+
+fn copy_set(_ s: Set<String>) -> Set<String> {
+    let out: Set<String> = Set.new();
+    for x in s.to_list() {
+        out.add(x);
+    }
+    return out;
+}
+
+fn fv_ref(_ name: String, _ bound: Set<String>, _ free: List<String>, _ seen: Set<String>) -> Void {
+    if !bound.has(name) && !seen.has(name) {
+        seen.add(name);
+        free.push(name);
+    }
+}
+
+fn fv_pattern_bindings(_ p: Pattern, _ into: Set<String>) -> Void {
+    match p {
+        Ident(_, name) => { into.add(name); },
+        Constructor(_, _, args) => {
+            for a in args {
+                fv_pattern_bindings(a, into);
+            }
+        },
+        Wildcard(_) => {},
+        Literal(_, _) => {},
+    }
+}
+
+fn fv_visit_block(_ b: Block, _ bound: Set<String>, _ free: List<String>, _ seen: Set<String>) -> Void {
+    let local = copy_set(bound);
+    for s in b.stmts {
+        fv_stmt(s, local, free, seen);
+    }
+    match b.tail {
+        Some(t) => { fv_visit(t, local, free, seen); },
+        None => {},
+    }
+}
+
+fn fv_visit(_ e: Expr, _ bound: Set<String>, _ free: List<String>, _ seen: Set<String>) -> Void {
+    match e {
+        Ident(_, name) => { fv_ref(name, bound, free, seen); },
+        Int(_, _) => {},
+        Float(_, _) => {},
+        Bool(_, _) => {},
+        Unit(_) => {},
+        Str(_, parts) => {
+            for p in parts {
+                match p {
+                    Interp(_, ie) => { fv_visit(ie, bound, free, seen); },
+                    Text(_, _) => {},
+                }
+            }
+        },
+        ListLit(_, items) => {
+            for it in items {
+                fv_visit(it, bound, free, seen);
+            }
+        },
+        MapLit(_, entries) => {
+            for en in entries {
+                fv_visit(en.key, bound, free, seen);
+                fv_visit(en.value, bound, free, seen);
+            }
+        },
+        Struct(x) => {
+            for f in x.fields {
+                fv_visit(f.value, bound, free, seen);
+            }
+        },
+        Call(x) => {
+            fv_visit(x.callee, bound, free, seen);
+            for a in x.args {
+                fv_visit(a.value, bound, free, seen);
+            }
+        },
+        Field(_, obj, _) => { fv_visit(obj, bound, free, seen); },
+        Index(_, obj, idx) => {
+            fv_visit(obj, bound, free, seen);
+            fv_visit(idx, bound, free, seen);
+        },
+        Binary(_, l, _, r) => {
+            fv_visit(l, bound, free, seen);
+            fv_visit(r, bound, free, seen);
+        },
+        Unary(_, _, operand) => { fv_visit(operand, bound, free, seen); },
+        Propagate(_, inner) => { fv_visit(inner, bound, free, seen); },
+        Range(_, s, en) => {
+            fv_visit(s, bound, free, seen);
+            fv_visit(en, bound, free, seen);
+        },
+        Match(x) => {
+            fv_visit(x.subject, bound, free, seen);
+            for arm in x.arms {
+                let arm_bound = copy_set(bound);
+                fv_pattern_bindings(arm.pattern, arm_bound);
+                fv_visit(arm.body, arm_bound, free, seen);
+            }
+        },
+        Lambda(x) => {
+            let inner = copy_set(bound);
+            for p in x.params {
+                inner.add(p.name);
+            }
+            fv_visit(x.body, inner, free, seen);
+        },
+        Block(_, block) => { fv_visit_block(block, bound, free, seen); },
+        If(x) => {
+            fv_visit(x.condition, bound, free, seen);
+            fv_visit_block(x.then_block, bound, free, seen);
+            match x.else_block {
+                Some(eb) => { fv_visit_block(eb, bound, free, seen); },
+                None => {},
+            }
+        },
+        Return(_, value) => {
+            match value {
+                Some(v) => { fv_visit(v, bound, free, seen); },
+                None => {},
+            }
+        },
+        Throw(_, value) => { fv_visit(value, bound, free, seen); },
+    }
+}
+
+fn fv_stmt(_ s: Stmt, _ bound: Set<String>, _ free: List<String>, _ seen: Set<String>) -> Void {
+    match s {
+        Let(x) => {
+            fv_visit(x.value, bound, free, seen);
+            bound.add(x.name); // visible to later statements in the block
+        },
+        Assign(_, target, value) => {
+            fv_visit(target, bound, free, seen);
+            fv_visit(value, bound, free, seen);
+        },
+        Expr(_, e) => { fv_visit(e, bound, free, seen); },
+        Return(_, value) => {
+            match value {
+                Some(v) => { fv_visit(v, bound, free, seen); },
+                None => {},
+            }
+        },
+        Throw(_, value) => { fv_visit(value, bound, free, seen); },
+        If(x) => {
+            fv_visit(x.condition, bound, free, seen);
+            fv_visit_block(x.then_block, bound, free, seen);
+            match x.else_block {
+                Some(eb) => { fv_visit_block(eb, bound, free, seen); },
+                None => {},
+            }
+        },
+        While(x) => {
+            fv_visit(x.condition, bound, free, seen);
+            fv_visit_block(x.body, bound, free, seen);
+        },
+        For(x) => {
+            fv_visit(x.iterable, bound, free, seen);
+            let loop_bound = copy_set(bound);
+            fv_pattern_bindings(x.pattern, loop_bound);
+            fv_visit_block(x.body, loop_bound, free, seen);
+        },
+    }
 }
 
 // Whether `p` always matches, so it needs no test: a wildcard or a bare variable
