@@ -742,8 +742,8 @@ impl FnCompiler {
 
     // `match` on an enum (Result/Option or a user enum): store the subject, then
     // a tag-check chain. The final arm is the fall-through (matches always, given
-    // exhaustiveness). (The balanced binary-search dispatch optimization for
-    // large flat-constructor matches is a follow-up section.)
+    // exhaustiveness). A large enum match dispatches on a hoisted tag (computed
+    // once) via a balanced binary search instead of the linear chain.
     fn match_expr(self, _ e: MatchExpr) -> Void {
         let subject_ty = infer_expr(e.subject, self.type_scope, self.ctx, Option.None);
         let subject_type = name_of_type(subject_ty);
@@ -751,6 +751,41 @@ impl FnCompiler {
         let subject = self.fresh_slot();
         self.emit(Instr.Store(subject));
         let end = self.new_label();
+
+        let is_enum = match subject_type {
+            Some(t) => self.scope.enums.has(t),
+            None => false,
+        };
+        let dispatch = if is_enum {
+            self.plan_dispatch(e, subject_type)
+        } else {
+            Option.None
+        };
+
+        // Hoist the subject's tag into a slot when a dispatch plan exists or the
+        // linear chain would emit enough top-level tag tests to pay for it.
+        let has_dispatch = match dispatch {
+            Some(_) => true,
+            None => false,
+        };
+        let tag_slot = if is_enum && (has_dispatch || top_level_tag_tests(e) >= MATCH_DISPATCH_MIN_CASES) {
+            self.emit(Instr.Load(subject));
+            self.emit(Instr.Simple(Op.EnumTag));
+            let ts = self.fresh_slot();
+            self.emit(Instr.Store(ts));
+            Option.Some(ts)
+        } else {
+            Option.None
+        };
+
+        match dispatch {
+            Some(plan) => {
+                self.emit_dispatch(plan, subject, subject_ty, subject_type, tag_slot.unwrap_or(0), end);
+                self.bind(end);
+                return;
+            },
+            None => {},
+        }
 
         let mut i = 0;
         let mut going = true;
@@ -770,13 +805,122 @@ impl FnCompiler {
                 going = false;
             } else {
                 let next = self.new_label();
-                self.emit_pattern(arm.pattern, subject, subject_type, Option.Some(next), Option.None);
+                self.emit_pattern(arm.pattern, subject, subject_type, Option.Some(next), tag_slot);
                 self.arm_body(arm.body, end, true);
                 self.bind(next);
                 i = i + 1;
             }
         }
         self.bind(end);
+    }
+
+    // Plan a binary-search dispatch over enum `enum_type`, or None when it
+    // doesn't qualify: too few cases, a non-flat / refutable sub-pattern, a
+    // literal/irrefutable mid-arm, or a duplicate or unknown tag. Every non-final
+    // arm must be a constructor whose arguments are all irrefutable, so the tag
+    // alone decides the arm. The final arm is the catch-all default.
+    fn plan_dispatch(self, _ e: MatchExpr, _ enum_type: Option<String>) -> Option<DispatchPlan> {
+        let info = match enum_type {
+            Some(t) => self.scope.enums.get(t),
+            None => Option.None,
+        };
+        match info {
+            Some(ei) => {
+                if e.arms.len() - 1 < MATCH_DISPATCH_MIN_CASES {
+                    return Option.None;
+                }
+                let cases: Map<Int, MatchArm> = {};
+                let mut i = 0;
+                let mut ok = true;
+                while ok && i < e.arms.len() - 1 {
+                    match e.arms[i].pattern {
+                        Constructor(_, name, args) => {
+                            if !all_irrefutable_args(args) {
+                                ok = false; // a nested refutable sub-pattern needs the chain
+                            } else {
+                                let tag = tag_of(ei, name);
+                                if tag < 0 || cases.has(tag) {
+                                    ok = false; // unknown / duplicate
+                                } else {
+                                    cases[tag] = e.arms[i];
+                                }
+                            }
+                        },
+                        _ => { ok = false; }, // literal / wildcard mid-match
+                    }
+                    i = i + 1;
+                }
+                if !ok {
+                    return Option.None;
+                }
+                return Option.Some(DispatchPlan {
+                    cases: cases,
+                    default_arm: e.arms[e.arms.len() - 1],
+                });
+            },
+            None => {},
+        }
+        return Option.None;
+    }
+
+    // Emit a balanced binary search over the (distinct, sorted) case tags, with
+    // every miss routed to a single shared default.
+    fn emit_dispatch(self, _ plan: DispatchPlan, _ subject: Int, _ subject_ty: Type,
+        _ subject_type: Option<String>, _ tag_slot: Int, _ end: Int) -> Void {
+        let tags = sorted_keys(plan.cases);
+        let default_label = self.new_label();
+        self.emit_bisect(0, tags.len() - 1, tags, plan.cases, default_label,
+            subject, subject_ty, subject_type, tag_slot, end);
+        self.bind(default_label);
+        self.emit_leaf(plan.default_arm, subject, subject_ty, subject_type, end, false);
+    }
+
+    fn emit_bisect(self, _ lo: Int, _ hi: Int, _ tags: List<Int>, _ cases: Map<Int, MatchArm>,
+        _ default_label: Int, _ subject: Int, _ subject_ty: Type, _ subject_type: Option<String>,
+        _ tag_slot: Int, _ end: Int) -> Void {
+        let mid = (lo + hi) / 2;
+        let t = tags[mid];
+        let has_left = lo <= mid - 1;
+        let has_right = mid + 1 <= hi;
+        if !has_left && !has_right {
+            self.emit(Instr.Load(tag_slot));
+            self.emit(Instr.ConstInt(t));
+            self.emit(Instr.Simple(Op.EqI64));
+            self.emit_jump(Jk.IfFalse, default_label);
+            self.emit_leaf(get_case(cases, t), subject, subject_ty, subject_type, end, true);
+            return;
+        }
+        // Absent subranges route their branch straight to the default.
+        let left_target = if has_left { self.new_label() } else { default_label };
+        let right_target = if has_right { self.new_label() } else { default_label };
+        self.emit(Instr.Load(tag_slot));
+        self.emit(Instr.ConstInt(t));
+        self.emit(Instr.Simple(Op.LtI64));
+        self.emit_jump(Jk.IfTrue, left_target);
+        self.emit(Instr.Load(tag_slot));
+        self.emit(Instr.ConstInt(t));
+        self.emit(Instr.Simple(Op.GtI64));
+        self.emit_jump(Jk.IfTrue, right_target);
+        self.emit_leaf(get_case(cases, t), subject, subject_ty, subject_type, end, true); // equal
+        if has_left {
+            self.bind(left_target);
+            self.emit_bisect(lo, mid - 1, tags, cases, default_label,
+                subject, subject_ty, subject_type, tag_slot, end);
+        }
+        if has_right {
+            self.bind(right_target);
+            self.emit_bisect(mid + 1, hi, tags, cases, default_label,
+                subject, subject_ty, subject_type, tag_slot, end);
+        }
+    }
+
+    // The tag is already known at a leaf, so only bind fields (fail = None), then
+    // run the body.
+    fn emit_leaf(self, _ arm: MatchArm, _ subject: Int, _ subject_ty: Type,
+        _ subject_type: Option<String>, _ end: Int, _ jump_to_end: Bool) -> Void {
+        bind_match_pattern(arm.pattern, subject_ty, self.type_scope, self.ctx);
+        self.emit_pattern(arm.pattern, subject, subject_type, Option.None, Option.None);
+        self.arm_body(arm.body, end, jump_to_end);
     }
 
     // Match `pattern` against the value in `value_slot` (whose enum type name,
@@ -1357,6 +1501,80 @@ impl FnCompiler {
 pub type EnumVariantRef = {
     info: EnumInfo,
     tag: Int,
+}
+
+// A match large enough to dispatch on a hoisted enum tag rather than the per-arm
+// tag recompute + linear chain. Below this many non-final cases the simple chain
+// is smaller, so small matches lower byte-for-byte as the plain chain.
+pub const MATCH_DISPATCH_MIN_CASES: Int = 6;
+
+// A planned binary-search dispatch: each non-final arm keyed by its variant tag,
+// plus the final catch-all arm.
+pub type DispatchPlan = {
+    cases: Map<Int, MatchArm>,
+    default_arm: MatchArm,
+}
+
+// The number of non-final arms that emit a top-level tag test in the linear
+// scheme — the constructor-pattern arms. Drives whether hoisting the tag pays.
+fn top_level_tag_tests(_ e: MatchExpr) -> Int {
+    let mut n = 0;
+    let mut i = 0;
+    while i < e.arms.len() - 1 {
+        match e.arms[i].pattern {
+            Constructor(_, _, _) => { n = n + 1; },
+            _ => {},
+        }
+        i = i + 1;
+    }
+    return n;
+}
+
+fn all_irrefutable_args(_ args: List<Pattern>) -> Bool {
+    for a in args {
+        match a {
+            Wildcard(_) => {},
+            Ident(_, _) => {},
+            _ => { return false; },
+        }
+    }
+    return true;
+}
+
+fn get_case(_ cases: Map<Int, MatchArm>, _ tag: Int) -> MatchArm {
+    return cases[tag];
+}
+
+// The case tags, ascending (selection sort over the distinct map keys).
+fn sorted_keys(_ cases: Map<Int, MatchArm>) -> List<Int> {
+    let keys = cases.keys();
+    let used: Set<Int> = Set.new();
+    let sorted: List<Int> = [];
+    let mut count = 0;
+    while count < keys.len() {
+        let mut best: Option<Int> = Option.None;
+        for k in keys {
+            if !used.has(k) {
+                match best {
+                    None => { best = Option.Some(k); },
+                    Some(b) => {
+                        if k < b {
+                            best = Option.Some(k);
+                        }
+                    },
+                }
+            }
+        }
+        match best {
+            Some(b) => {
+                sorted.push(b);
+                used.add(b);
+            },
+            None => {},
+        }
+        count = count + 1;
+    }
+    return sorted;
 }
 
 // --- free helpers ---
