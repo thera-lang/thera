@@ -32,8 +32,9 @@ enough to **write the Hawk front-end in Hawk** (arc 3 below).
 
 Plus tooling: an `FnBuilder` assembler (labels, auto-tracked locals), a
 disassembler, and a serialized **`.hawkbc`** format (header + sections, LEB128,
-a string constant pool, natives referenced by name). The `hawk` binary can
-`emit-demo` and `run` a `.hawkbc` file.
+a string constant pool, natives referenced by name). The `hawk` binary runs a
+`.hawkbc` file directly (`hawk [--entry NAME] <file.hawkbc> [args]`), plus an
+`emit-demo` dev helper.
 
 **Dart toolchain (`tool/`)** — lexer, parser, type-checker, LSP, **and a
 bytecode emitter** (`hawk emit <file> <out.hawkbc>`). `hawk run` compiles to

@@ -245,7 +245,8 @@ fn run_bytecode(_ runtime: String, _ bytes: Bytes, _ entry: Option<String>, _ pr
             return Result.Err(e);
         },
     }
-    let args: List<String> = ['run'];
+    // The runtime runs a `.hawkbc` directly: `[--entry NAME] <file> [args]`.
+    let args: List<String> = [];
     match entry {
         Some(name) => {
             args.push('--entry');

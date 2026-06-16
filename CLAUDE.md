@@ -50,7 +50,7 @@ The runtime is the main thing to build and test:
 cd runtime
 cargo test          # also: cargo clippy, cargo fmt
 cargo run -- emit-demo /tmp/x.hawkbc   # write a sample module
-cargo run -- run /tmp/x.hawkbc          # load + run it
+cargo run -- /tmp/x.hawkbc             # load + run it
 ```
 
 The Dart toolchain runs current Hawk: `bin/hawk.sh <run|check> <file.hawk>`.

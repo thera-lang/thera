@@ -55,7 +55,7 @@ void main() {
       final tmp = '${Directory.systemTemp.path}/hawk_dart_demo.hawkbc';
       File(tmp).writeAsBytesSync(encodeModule(demoModule()));
 
-      final r = Process.runSync(hawkBin, ['run', tmp]);
+      final r = Process.runSync(hawkBin, [tmp]);
       expect(r.exitCode, 0, reason: r.stderr.toString());
       expect(r.stdout, 'double(21) = 42\n');
     });

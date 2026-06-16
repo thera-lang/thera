@@ -132,7 +132,7 @@ class RunCommand extends Command<void> {
     File('${dir.path}/out.hawkbc').writeAsBytesSync(bytes);
     final process = await Process.start(
       runtime,
-      ['run', '${dir.path}/out.hawkbc', ...programArgs],
+      ['${dir.path}/out.hawkbc', ...programArgs],
       mode: ProcessStartMode.inheritStdio,
     );
     final code = await process.exitCode;
@@ -407,7 +407,7 @@ class TestCommand extends Command<void> {
     // own `main` (executables under test keep theirs; it's just dead code here).
     final process = await Process.start(
       runtime,
-      ['run', '--entry', '__hawk_test_main', out.path],
+      ['--entry', '__hawk_test_main', out.path],
       mode: ProcessStartMode.inheritStdio,
     );
     final exitCode = await process.exitCode;

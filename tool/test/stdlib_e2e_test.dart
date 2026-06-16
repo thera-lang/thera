@@ -22,7 +22,7 @@ void main() {
       ['run', 'bin/hawk.dart', 'emit', '${dir.path}/prog.hawk', out],
     );
     expect(emit.exitCode, 0, reason: 'emit failed: ${emit.stderr}');
-    return Process.runSync(hawkBin, ['run', out, ...args]);
+    return Process.runSync(hawkBin, [out, ...args]);
   }
 
   test('std.args (written in Hawk) links and parses a positional', () {
@@ -609,7 +609,7 @@ fn main() -> Result<Int, Error> {
     );
     expect(emit.exitCode, 0, reason: emit.stderr.toString());
 
-    final r = Process.runSync(hawkBin, ['run', out, data]);
+    final r = Process.runSync(hawkBin, [out, data]);
     expect(r.exitCode, 0, reason: r.stderr.toString());
     expect(r.stdout, '2\tlines\n6\twords\n31\tbytes\n');
   });
@@ -707,7 +707,7 @@ fn main() -> Int {
     );
     expect(emit.exitCode, 0, reason: emit.stderr.toString());
 
-    final r = Process.runSync(hawkBin, ['run', out]);
+    final r = Process.runSync(hawkBin, [out]);
     expect(r.exitCode, 0, reason: r.stderr.toString());
     expect(
         r.stdout,
@@ -727,7 +727,7 @@ fn main() -> Int {
     );
     expect(emit.exitCode, 0, reason: emit.stderr.toString());
 
-    final r = Process.runSync(hawkBin, ['run', out]);
+    final r = Process.runSync(hawkBin, [out]);
     expect(r.exitCode, 0, reason: r.stderr.toString());
     expect(r.stdout, '20\n40\n60\nbig: 2\ntotal: 21\n');
   });
@@ -793,7 +793,7 @@ fn main() -> Int {
     );
     expect(emit.exitCode, 0, reason: emit.stderr.toString());
 
-    final r = Process.runSync(hawkBin, ['run', out]);
+    final r = Process.runSync(hawkBin, [out]);
     expect(r.exitCode, 42, reason: r.stderr.toString());
   });
 }

@@ -14,25 +14,28 @@ use hawk::value::{Obj, TAG_OK, TY_RESULT, Value};
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(String::as_str) {
-        Some("run") => cmd_run(&args[2.min(args.len())..]),
+        // The dev helper to write a sample module; everything else is a file to
+        // run (no `run` verb — the runtime's job is to run a `.hawkbc`).
         Some("emit-demo") => cmd_emit_demo(args.get(2)),
-        _ => {
-            eprintln!("usage: hawk <run|emit-demo> <file.hawkbc>");
+        Some(_) => cmd_run(&args[1..]),
+        None => {
+            eprintln!("usage: hawk [--entry NAME] <file.hawkbc> [args]");
+            eprintln!("       hawk emit-demo <file.hawkbc>");
             ExitCode::from(2)
         }
     }
 }
 
-/// Load a `.hawkbc` file and run its entry function. `args` is everything after
-/// `run`: an optional `--entry NAME` (default `main`) selects the entry — used
-/// by `hawk test`, whose synthesized driver avoids colliding with a tested
-/// module's own `main` — then the `.hawkbc` path, then the program arguments.
+/// Load a `.hawkbc` file and run its entry function. `args` is an optional
+/// `--entry NAME` (default `main`) selecting the entry — used by `hawk test`,
+/// whose synthesized driver avoids colliding with a tested module's own `main` —
+/// then the `.hawkbc` path, then the program arguments.
 fn cmd_run(args: &[String]) -> ExitCode {
     let (entry_name, rest) = match args.split_first() {
         Some((flag, tail)) if flag == "--entry" => match tail.split_first() {
             Some((name, tail)) => (name.as_str(), tail),
             None => {
-                eprintln!("usage: hawk run [--entry NAME] <file.hawkbc> [args]");
+                eprintln!("usage: hawk [--entry NAME] <file.hawkbc> [args]");
                 return ExitCode::from(2);
             }
         },
@@ -40,7 +43,7 @@ fn cmd_run(args: &[String]) -> ExitCode {
     };
 
     let Some(path) = rest.first() else {
-        eprintln!("usage: hawk run [--entry NAME] <file.hawkbc> [args]");
+        eprintln!("usage: hawk [--entry NAME] <file.hawkbc> [args]");
         return ExitCode::from(2);
     };
 

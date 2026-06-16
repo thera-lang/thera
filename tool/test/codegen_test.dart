@@ -841,7 +841,7 @@ fn main() -> Int {
       final tmp = '${Directory.systemTemp.path}/hawk_codegen_e2e.hawkbc';
       File(tmp).writeAsBytesSync(encodeModule(m));
 
-      final r = Process.runSync(hawkBin, ['run', tmp]);
+      final r = Process.runSync(hawkBin, [tmp]);
       expect(r.stdout, 'hello from hawk\n');
       expect(r.exitCode, 7);
     });
@@ -861,7 +861,7 @@ fn main() -> Int {
       final tmp = '${Directory.systemTemp.path}/hawk_codegen_arith.hawkbc';
       File(tmp).writeAsBytesSync(encodeModule(m));
 
-      final r = Process.runSync(hawkBin, ['run', tmp]);
+      final r = Process.runSync(hawkBin, [tmp]);
       expect(r.exitCode, 42);
     });
 
@@ -869,7 +869,7 @@ fn main() -> Int {
       final m = compile(source);
       final tmp = '${Directory.systemTemp.path}/hawk_cf_$name.hawkbc';
       File(tmp).writeAsBytesSync(encodeModule(m));
-      return Process.runSync(hawkBin!, ['run', tmp]).exitCode;
+      return Process.runSync(hawkBin!, [tmp]).exitCode;
     }
 
     test('for-loop sum', () {
@@ -941,7 +941,7 @@ fn main() -> Int { println(Point { x: 3, y: 4 }); return 0; }
 ''');
       final tmp = '${Directory.systemTemp.path}/hawk_println_display.hawkbc';
       File(tmp).writeAsBytesSync(encodeModule(m));
-      final r = Process.runSync(hawkBin, ['run', tmp]);
+      final r = Process.runSync(hawkBin, [tmp]);
       expect(r.stdout, '(3, 4)\n');
     });
 
@@ -1005,7 +1005,7 @@ fn main() -> Int {
 ''');
       final tmp = '${Directory.systemTemp.path}/hawk_demo_src.hawkbc';
       File(tmp).writeAsBytesSync(encodeModule(m));
-      final r = Process.runSync(hawkBin, ['run', tmp]);
+      final r = Process.runSync(hawkBin, [tmp]);
       expect(r.stdout, 'double(21) = 42\n');
       expect(r.exitCode, 0);
     });
@@ -1214,7 +1214,7 @@ fn main() -> Int {
       final m = compile(File('../examples/enums.hawk').readAsStringSync());
       final tmp = '${Directory.systemTemp.path}/hawk_enums_ex.hawkbc';
       File(tmp).writeAsBytesSync(encodeModule(m));
-      final r = Process.runSync(hawkBin, ['run', tmp]);
+      final r = Process.runSync(hawkBin, [tmp]);
       expect(r.exitCode, 0, reason: r.stderr.toString());
       expect(r.stdout, contains('circle area: 25'));
       expect(r.stdout, contains('name: North'));
@@ -1309,7 +1309,7 @@ fn main() -> Int {
         final tmp = '${Directory.systemTemp.path}/hawk_$name.hawkbc';
         File(tmp).writeAsBytesSync(
             encodeModule(compileWith(src, {'std.fs': _fsLib})));
-        final r = Process.runSync(hawkBin, ['run', tmp]);
+        final r = Process.runSync(hawkBin, [tmp]);
         return {'code': r.exitCode, 'out': r.stdout, 'err': r.stderr};
       }
 
@@ -1345,7 +1345,7 @@ fn main() -> Result<Int, Error> {
           'std.fs': _fsLib,
           'std.process': _processLib,
         })));
-        final r = Process.runSync(hawkBin, ['run', tmp]);
+        final r = Process.runSync(hawkBin, [tmp]);
         return {'code': r.exitCode, 'out': r.stdout, 'err': r.stderr};
       }
 
@@ -1379,7 +1379,7 @@ fn main() -> Result<Int, Error> {
       String stdout(String name, String src) {
         final tmp = '${Directory.systemTemp.path}/hawk_$name.hawkbc';
         File(tmp).writeAsBytesSync(encodeModule(compile(src)));
-        return Process.runSync(hawkBin, ['run', tmp]).stdout as String;
+        return Process.runSync(hawkBin, [tmp]).stdout as String;
       }
 
       // remove() drops an entry; len() reflects it.
@@ -1411,7 +1411,7 @@ fn main() -> Int {
 ''');
       final tmp = '${Directory.systemTemp.path}/hawk_display.hawkbc';
       File(tmp).writeAsBytesSync(encodeModule(m));
-      final r = Process.runSync(hawkBin, ['run', tmp]);
+      final r = Process.runSync(hawkBin, [tmp]);
       expect(r.exitCode, 0, reason: r.stderr.toString());
       expect(r.stdout, 'value: tag\n');
     });
@@ -1467,7 +1467,7 @@ fn main() -> Int {
       final m = compile('fn main() -> Result<Int, Int> { throw 7; }');
       final tmp = '${Directory.systemTemp.path}/hawk_ret_err.hawkbc';
       File(tmp).writeAsBytesSync(encodeModule(m));
-      final r = Process.runSync(hawkBin, ['run', tmp]);
+      final r = Process.runSync(hawkBin, [tmp]);
       expect(r.exitCode, 1);
       expect(r.stderr, contains('error: 7'));
     });
@@ -1478,7 +1478,7 @@ fn main() -> Int {
           compile('fn main(args: List<String>) -> Int { return args.len(); }');
       final tmp = '${Directory.systemTemp.path}/hawk_argv.hawkbc';
       File(tmp).writeAsBytesSync(encodeModule(m));
-      final r = Process.runSync(hawkBin, ['run', tmp, 'a', 'b', 'c']);
+      final r = Process.runSync(hawkBin, [tmp, 'a', 'b', 'c']);
       expect(r.exitCode, 3);
     });
   });
@@ -1512,7 +1512,7 @@ fn main() -> Int {
 ''');
       final tmp = '${Directory.systemTemp.path}/hawk_generic.hawkbc';
       File(tmp).writeAsBytesSync(encodeModule(m));
-      expect(Process.runSync(hawkBin, ['run', tmp]).exitCode, 42);
+      expect(Process.runSync(hawkBin, [tmp]).exitCode, 42);
     });
 
     test('a linked program runs end to end', () {
@@ -1525,7 +1525,7 @@ fn main() -> Int {
       File(tmp)
           .writeAsBytesSync(encodeModule(compileProgram(root, imports: [lib])));
 
-      expect(Process.runSync(hawkBin, ['run', tmp]).exitCode, 42);
+      expect(Process.runSync(hawkBin, [tmp]).exitCode, 42);
     });
   });
 
@@ -1579,7 +1579,7 @@ fn main() -> Int {
 ''');
       final tmp = '${Directory.systemTemp.path}/hawk_closure.hawkbc';
       File(tmp).writeAsBytesSync(encodeModule(m));
-      expect(Process.runSync(hawkBin, ['run', tmp]).exitCode, 42);
+      expect(Process.runSync(hawkBin, [tmp]).exitCode, 42);
     });
   });
 
@@ -1647,7 +1647,7 @@ fn main() -> Int {
 ''');
       final tmp = '${Directory.systemTemp.path}/hawk_box.hawkbc';
       File(tmp).writeAsBytesSync(encodeModule(m));
-      expect(Process.runSync(hawkBin, ['run', tmp]).exitCode, 105);
+      expect(Process.runSync(hawkBin, [tmp]).exitCode, 105);
     });
 
     test('a non-captured mutable local stays unboxed', () {
@@ -1670,7 +1670,7 @@ fn main() -> Int {
 ''');
       final tmp = '${Directory.systemTemp.path}/hawk_capture.hawkbc';
       File(tmp).writeAsBytesSync(encodeModule(m));
-      expect(Process.runSync(hawkBin, ['run', tmp]).exitCode, 15);
+      expect(Process.runSync(hawkBin, [tmp]).exitCode, 15);
     });
 
     test('a lambda inside a method capturing self runs end to end', () {
@@ -1693,7 +1693,7 @@ fn main() -> Int {
 ''');
       final tmp = '${Directory.systemTemp.path}/hawk_self_capture.hawkbc';
       File(tmp).writeAsBytesSync(encodeModule(m));
-      expect(Process.runSync(hawkBin, ['run', tmp]).exitCode, 114);
+      expect(Process.runSync(hawkBin, [tmp]).exitCode, 114);
     });
   });
 
