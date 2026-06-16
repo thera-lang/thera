@@ -48,8 +48,10 @@ type Parser = {
     panicking: Bool,
 }
 
-// Parse a token stream into a Program (plus any recovered errors).
-pub fn parse(_ tokens: List<Token>) -> ParseResult {
+// Parse a token stream into a Program (plus any recovered errors). (Named
+// `parse_tokens`, not `parse`, so it doesn't collide with `std.json`'s `parse`
+// in a closure that imports both — top-level fn names are global.)
+pub fn parse_tokens(_ tokens: List<Token>) -> ParseResult {
     let p = Parser { tokens: tokens, pos: 0, errors: [], panicking: false };
     return p.parse_program();
 }

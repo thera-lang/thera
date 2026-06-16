@@ -1,0 +1,61 @@
+// Tests for the LSP dispatch: drive `Server.handle` with a request/notification
+// body and capture the framed output through an in-memory `StringWriter`, so the
+// real JSON-RPC + diagnostics path runs end to end without a process or sockets.
+
+import std.testing;
+import std.io;
+
+import 'server';
+
+// Run one message through a fresh server and return everything it wrote.
+fn handled(_ body: String) -> String {
+    let server = new_server(Option.None);
+    let out = io.StringWriter.new();
+    server.handle(out, body);
+    return match out.into_string() {
+        Ok(s) => s,
+        Err(_) => '',
+    };
+}
+
+@test
+fn test_initialize_advertises_capabilities() -> Result<Void, Error> {
+    let out = handled('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}');
+    testing.assert(out.contains('Content-Length:'), message: 'framed reply')?;
+    testing.assert(out.contains('"capabilities"'), message: 'has capabilities')?;
+    testing.assert(out.contains('textDocumentSync'), message: 'declares document sync')?;
+    testing.assert(out.contains('"id":1') || out.contains('"id": 1'), message: 'echoes the id')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_did_open_publishes_diagnostics() -> Result<Void, Error> {
+    // The program references an undefined name, which the checker flags even
+    // without the prelude linked (a pure scope check).
+    let body = '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"file:///x.hawk","text":"fn f() -> Int { return missing; }"}}}';
+    let out = handled(body);
+    testing.assert(out.contains('textDocument/publishDiagnostics'), message: 'publishes diagnostics')?;
+    testing.assert(out.contains('undefined name: missing'), message: 'reports the error')?;
+    testing.assert(out.contains('file:///x.hawk'), message: 'for the right document')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_clean_document_publishes_empty_diagnostics() -> Result<Void, Error> {
+    let body = '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"file:///ok.hawk","text":"fn add(_ a: Int, _ b: Int) -> Int { return a + b; }"}}}';
+    let out = handled(body);
+    testing.assert(out.contains('textDocument/publishDiagnostics'), message: 'still publishes')?;
+    testing.assert(out.contains('"diagnostics":[]') || out.contains('"diagnostics": []'),
+        message: 'with no diagnostics')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_shutdown_responds_null() -> Result<Void, Error> {
+    let out = handled('{"jsonrpc":"2.0","id":9,"method":"shutdown"}');
+    testing.assert(out.contains('"result":null') || out.contains('"result": null'),
+        message: 'null result')?;
+    return Result.Ok(void);
+}

@@ -12,9 +12,11 @@
 
 import std.cli;
 import std.fs;
+import std.io;
 
 import 'driver';
 import 'loader';
+import 'lsp/server';
 import 'runner';
 
 fn build_app() -> cli.Command {
@@ -91,7 +93,7 @@ fn run_subcommand(_ app: cli.Command, _ name: String, _ m: cli.Matches) -> Resul
             }
             // `lsp` is the only command that takes no file argument.
             if name == 'lsp' {
-                eprintln('lsp: not yet implemented');
+                serve(io.stdin(), io.stdout(), find_sdk_root());
                 return Result.Ok(0);
             }
             return run_on_file(name, sub);

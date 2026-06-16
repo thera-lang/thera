@@ -13,12 +13,12 @@ import '../bytecode/encoder';
 import 'codegen';
 
 fn emit_bytes(_ src: String) -> List<Int> {
-    let result = compile_program(parse(tokenize(src).tokens).program, [], {});
+    let result = compile_program(parse_tokens(tokenize(src).tokens).program, [], {});
     return encode_module(result.module).to_list();
 }
 
 fn errors_of(_ src: String) -> Int {
-    return compile_program(parse(tokenize(src).tokens).program, [], {}).errors.len();
+    return compile_program(parse_tokens(tokenize(src).tokens).program, [], {}).errors.len();
 }
 
 @test
@@ -109,7 +109,7 @@ fn test_list_and_for_loop_byte_identical() -> Result<Void, Error> {
 }
 
 fn program_of(_ src: String, _ path: String) -> Program {
-    let prog = parse(tokenize(src).tokens).program;
+    let prog = parse_tokens(tokenize(src).tokens).program;
     prog.file_path = Option.Some(path);
     return prog;
 }

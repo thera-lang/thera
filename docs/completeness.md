@@ -24,11 +24,18 @@ priority. None of these block day-to-day self-hosting; they close the gap to
   marked trailing, so `hawk run foo.hawk --bar --baz=qux` forwards
   `--bar --baz=qux` to the program with no `--` separator (the `run` command's
   own flags must precede `<file>`).
-- **Translate the LSP command.** `hawk lsp` is still a stub; the Dart
-  `lsp/server.dart` (~870 LOC: diagnostics, hover, definition, symbols) is
-  unported. This is the largest remaining chunk and the gateway to the horizon-1
-  incremental engine (see [frontend_in_hawk.md](frontend_in_hawk.md) §1).
-  *Effort: large.*
+- **Translate the LSP command — in progress.** Slice 1 done: `hawk lsp` is a
+  working language server in Hawk (`pkgs/cli/lsp/`). The JSON-RPC + Content-Length
+  transport is reimplemented over `std.io` + `std.json` (replacing the Dart
+  `package:lsp_server`); it handles the lifecycle (`initialize`/`shutdown`/`exit`),
+  full-document sync (`didOpen`/`didChange`/`didClose`), and live
+  `publishDiagnostics` driven by `check_source_at`. Tested in-process (framing
+  helpers, the read loop over an in-memory `Reader`, and `Server.handle` via a
+  `StringWriter`) and verified end-to-end over real stdio. **Remaining slices:**
+  `documentSymbol` (outline), `hover`, `definition` — all need a node-at-offset
+  traversal; and overlay-aware imports (honor unsaved edits in imported libs).
+  The gateway to the horizon-1 incremental engine (see
+  [frontend_in_hawk.md](frontend_in_hawk.md) §1).
 - **`hawk check <dir>` and multi-target — done.** `check` now accepts one or
   more files/directories (directories recurse for `*.hawk`), sums diagnostics
   across them, and exits 0 clean / 1 with diagnostics / 2 on a missing target —
@@ -79,14 +86,20 @@ flag them. Closing these is the prerequisite for a useful IDE.
 
 ## Module system / visibility
 
-- **Real per-namespace resolution + private enforcement.** Free functions resolve
-  same-file-first with a global fallback (fixes collisions), but: a `private` fn is
-  still reachable cross-file via the fallback, and a `pub` name still collides
-  across libraries through a namespace-qualified call (the qualifier is cosmetic in
-  codegen — this is why `main.hawk`'s dispatch fn had to be renamed off `run` to
-  avoid `process.run`). Types/enums/consts/natives remain global-by-bare-name.
-  Proper module-scoped resolution + `pub`/private enforcement is the real fix.
-  See [frontend_in_hawk.md](frontend_in_hawk.md) driver/loader findings.
+- **Real per-namespace resolution + private enforcement — rising priority.** Free
+  functions resolve same-file-first with a global fallback (fixes collisions),
+  but: a `private` fn is still reachable cross-file via the fallback, and a `pub`
+  name still collides across libraries through a namespace-qualified call (the
+  qualifier is cosmetic in codegen). Types/enums/consts/natives are likewise
+  global-by-bare-name. This now bites real work: bringing `std.json`/`std.io`
+  into the front-end for the LSP collided `json.parse` with the parser's `parse`
+  (renamed to `parse_tokens`) and a local `Message` struct with `std.core`'s
+  `Message` (renamed) — both surfacing only at codegen, not `check`. The
+  rename-to-dodge tax grows with every library the closure pulls in. Proper
+  module-scoped resolution (qualified calls resolve within the named library) +
+  `pub`/private enforcement is the real fix, and a checker diagnostic for
+  duplicate top-level names would at least surface collisions early. See
+  [frontend_in_hawk.md](frontend_in_hawk.md) driver/loader findings.
 
 ## Bootstrapping & language evolution (process)
 

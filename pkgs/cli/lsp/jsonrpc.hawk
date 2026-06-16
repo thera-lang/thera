@@ -1,0 +1,148 @@
+// JSON-RPC 2.0 transport over a byte stream, with the LSP `Content-Length`
+// framing. This is the Hawk stand-in for the Dart `package:lsp_server`
+// `Connection`: it reads length-framed JSON messages from a `Reader` and writes
+// them to a `Writer`, leaving message dispatch to the caller (see server.hawk).
+//
+// Wire format (LSP base protocol): each message is
+//   Content-Length: <N>\r\n\r\n<N bytes of UTF-8 JSON>
+// Other headers may precede the blank line; only Content-Length is required.
+
+import std.io;
+import std.json;
+
+// An incremental reader: it buffers bytes from a `Reader` and hands back one
+// complete message body (the JSON text) at a time. `pending` holds bytes read
+// past the last returned message (the start of the next one).
+pub type MsgBuffer = {
+    pending: Bytes,
+}
+
+pub fn new_buffer() -> MsgBuffer {
+    return MsgBuffer { pending: Bytes.empty() };
+}
+
+impl MsgBuffer {
+    // The next message body, or None at end of input. Blocks (parking the fiber,
+    // once those land) reading from `reader` until a full message is buffered.
+    pub fn read_message(self, _ reader: Reader) -> Option<String> {
+        let mut going = true;
+        while going {
+            match extract_message(self.pending) {
+                Some(framed) => {
+                    self.pending = framed.rest;
+                    return Option.Some(framed.body);
+                },
+                None => {},
+            }
+            // Need more bytes before a full message is available.
+            match reader.read(8192) {
+                Ok(chunk) => {
+                    if chunk.len() == 0 {
+                        return Option.None; // EOF
+                    }
+                    self.pending = self.pending.concat(chunk);
+                },
+                Err(_) => {
+                    return Option.None;
+                },
+            }
+        }
+        return Option.None; // unreachable: the loop only exits via `return`
+    }
+}
+
+// One extracted message and the bytes that follow it (the start of the next).
+// (Named `FramedMessage`, not `Message`, since top-level type names are global
+// across the import closure and `std.core` already defines a `Message`.)
+type FramedMessage = {
+    body: String,
+    rest: Bytes,
+}
+
+// Try to peel one complete framed message off the front of `buf`. None when the
+// header is incomplete or the body hasn't fully arrived yet.
+fn extract_message(_ buf: Bytes) -> Option<FramedMessage> {
+    match find_header_end(buf) {
+        None => { return Option.None; },
+        Some(body_start) => {
+            let header = bytes_to_string(buf.slice(0, body_start));
+            match parse_content_length(header) {
+                None => { return Option.None; },
+                Some(len) => {
+                    let body_end = body_start + len;
+                    if buf.len() < body_end {
+                        return Option.None; // body still arriving
+                    }
+                    let body = bytes_to_string(buf.slice(body_start, body_end));
+                    return Option.Some(FramedMessage { body: body, rest: buf.slice(body_end, buf.len()) });
+                },
+            }
+        },
+    }
+}
+
+// The index just past the `\r\n\r\n` that ends the header block (i.e. where the
+// body starts), or None if the terminator isn't in `buf` yet.
+pub fn find_header_end(_ buf: Bytes) -> Option<Int> {
+    let n = buf.len();
+    let mut i = 0;
+    while i + 3 < n {
+        if byte_at(buf, i) == 13 && byte_at(buf, i + 1) == 10
+            && byte_at(buf, i + 2) == 13 && byte_at(buf, i + 3) == 10 {
+            return Option.Some(i + 4);
+        }
+        i = i + 1;
+    }
+    return Option.None;
+}
+
+// The `Content-Length` value from a header block, or None if absent/malformed.
+// The header name is matched case-insensitively, per the base protocol.
+pub fn parse_content_length(_ header: String) -> Option<Int> {
+    for line in header.lines() {
+        let parts = line.split(':');
+        if parts.len() >= 2 {
+            if parts[0].trim().to_lowercase() == 'content-length' {
+                return parts[1].trim().to_int();
+            }
+        }
+    }
+    return Option.None;
+}
+
+// --- writing ---
+
+// Serialize `message` and write it to `writer`, framed with its Content-Length.
+pub fn send_message(_ writer: Writer, _ message: Json) -> Void {
+    let body = json.stringify(message);
+    write_all(writer, frame(body).bytes());
+}
+
+// The framed text for a JSON body: the header, a blank line, then the body.
+// (Content-Length counts UTF-8 *bytes*, not code points.)
+pub fn frame(_ body: String) -> String {
+    return 'Content-Length: ${body.byte_len()}\r\n\r\n${body}';
+}
+
+fn write_all(_ writer: Writer, _ data: Bytes) -> Void {
+    match writer.write(data) {
+        Ok(_) => {},
+        Err(_) => {},
+    }
+}
+
+// --- helpers ---
+
+fn byte_at(_ buf: Bytes, _ i: Int) -> Int {
+    return match buf.get(i) {
+        Some(b) => b,
+        None => -1,
+    };
+}
+
+fn bytes_to_string(_ b: Bytes) -> String {
+    return match b.to_string() {
+        Ok(s) => s,
+        Err(_) => '',
+    };
+}

@@ -11,7 +11,7 @@ import 'element';
 import 'resolver';
 
 fn lib_of(_ src: String) -> LibraryElement {
-    return build_library(parse(tokenize(src).tokens).program, [], {});
+    return build_library(parse_tokens(tokenize(src).tokens).program, [], {});
 }
 
 @test

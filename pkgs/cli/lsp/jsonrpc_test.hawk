@@ -1,0 +1,75 @@
+// Tests for the JSON-RPC framing helpers (the pure parts of the transport).
+
+import std.testing;
+import std.io;
+
+import 'jsonrpc';
+
+// An in-memory `Reader` that hands out `data` in `max`-sized chunks, so the
+// read loop can be driven without a real stream (empty read = EOF).
+type FakeReader = { data: Bytes, pos: Int }
+impl Reader for FakeReader {
+    pub fn read(self, max: Int) -> Result<Bytes, Error> {
+        let end = (self.pos + max).min(self.data.len());
+        let chunk = self.data.slice(self.pos, end);
+        self.pos = end;
+        return Result.Ok(chunk);
+    }
+}
+
+@test
+fn test_read_message_loop() -> Result<Void, Error> {
+    // Two framed messages back to back, then EOF.
+    let input = '${frame('{"a":1}')}${frame('{"b":2}')}';
+    let reader = FakeReader { data: input.bytes(), pos: 0 };
+    let buf = new_buffer();
+    testing.assert_eq(actual: buf.read_message(reader), expected: Option.Some('{"a":1}'))?;
+    testing.assert_eq(actual: buf.read_message(reader), expected: Option.Some('{"b":2}'))?;
+    testing.assert_eq(actual: buf.read_message(reader), expected: Option.None)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_find_header_end_locates_body() -> Result<Void, Error> {
+    let buf = 'Content-Length: 5\r\n\r\nhello'.bytes();
+    match find_header_end(buf) {
+        Some(pos) => {
+            let body = match buf.slice(pos, buf.len()).to_string() {
+                Ok(s) => s,
+                Err(_) => '',
+            };
+            testing.assert_eq(actual: body, expected: 'hello')?;
+        },
+        None => {
+            testing.assert(false, message: 'header terminator not found')?;
+        },
+    }
+    return Result.Ok(void);
+}
+
+@test
+fn test_find_header_end_incomplete() -> Result<Void, Error> {
+    // No blank line yet -> the header isn't complete.
+    testing.assert_eq(actual: find_header_end('Content-Length: 5\r\n'.bytes()),
+        expected: Option.None)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_parse_content_length() -> Result<Void, Error> {
+    testing.assert_eq(actual: parse_content_length('Content-Length: 42\r\n'),
+        expected: Option.Some(42))?;
+    // The header name is case-insensitive.
+    testing.assert_eq(actual: parse_content_length('content-length: 7'),
+        expected: Option.Some(7))?;
+    // No Content-Length present.
+    testing.assert_eq(actual: parse_content_length('Content-Type: x\r\n'),
+        expected: Option.None)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_frame_prefixes_byte_length() -> Result<Void, Error> {
+    testing.assert_eq(actual: frame('hi'), expected: 'Content-Length: 2\r\n\r\nhi')?;
+    return Result.Ok(void);
+}

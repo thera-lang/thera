@@ -13,7 +13,7 @@ import 'resolver';
 import 'inference';
 
 fn lib_of(_ src: String) -> LibraryElement {
-    return build_library(parse(tokenize(src).tokens).program, [], {});
+    return build_library(parse_tokens(tokenize(src).tokens).program, [], {});
 }
 
 fn type_of(_ src: String, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {

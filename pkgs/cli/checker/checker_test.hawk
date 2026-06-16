@@ -11,7 +11,7 @@ import '../element/element';
 import 'checker';
 
 fn errors_of(_ src: String) -> List<CheckError> {
-    return check(parse(tokenize(src).tokens).program, [], {}).errors;
+    return check(parse_tokens(tokenize(src).tokens).program, [], {}).errors;
 }
 
 fn first_message(_ errs: List<CheckError>) -> String {

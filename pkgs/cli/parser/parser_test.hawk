@@ -16,7 +16,7 @@ fn expr_str(_ src: String) -> String {
 }
 
 fn parse_src(_ src: String) -> ParseResult {
-    return parse(tokenize(src).tokens);
+    return parse_tokens(tokenize(src).tokens);
 }
 
 fn decl_name(_ d: Decl) -> String {

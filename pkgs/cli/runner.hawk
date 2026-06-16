@@ -115,7 +115,7 @@ fn run_test_file(_ path_str: String, _ runtime: String, _ sdk_root: Option<Strin
 
     // Parse once to discover the @test functions.
     let lex = tokenize(source);
-    let parsed = parse(lex.tokens);
+    let parsed = parse_tokens(lex.tokens);
     println(path_str); // the per-file header is part of the report (stdout)
     if lex.errors.len() > 0 || parsed.errors.len() > 0 {
         // Re-run the standard pipeline so the lex/parse errors print uniformly.

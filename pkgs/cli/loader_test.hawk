@@ -13,7 +13,7 @@ import 'loader';
 // re-export-cycle detection on `file_path` (Hawk has no object identity), which
 // `parse_file_or_null` sets for every real file.
 fn prog_of(_ src: String, _ path: String) -> Program {
-    let prog = parse(tokenize(src).tokens).program;
+    let prog = parse_tokens(tokenize(src).tokens).program;
     prog.file_path = Option.Some(path);
     return prog;
 }

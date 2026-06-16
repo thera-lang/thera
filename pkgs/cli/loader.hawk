@@ -99,7 +99,7 @@ pub fn parse_file_or_null(_ path: String) -> Option<Program> {
             if lex.errors.len() > 0 {
                 return Option.None;
             }
-            let parsed = parse(lex.tokens);
+            let parsed = parse_tokens(lex.tokens);
             if parsed.errors.len() > 0 {
                 return Option.None;
             }

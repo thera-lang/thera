@@ -40,7 +40,7 @@ pub fn check_source(_ source: String) -> List<Diagnostic> {
     if lex.errors.len() > 0 {
         return lex_diagnostics(lex.errors);
     }
-    let parsed = parse(lex.tokens);
+    let parsed = parse_tokens(lex.tokens);
     if parsed.errors.len() > 0 {
         return parse_diagnostics(parsed.errors);
     }
@@ -54,7 +54,7 @@ pub fn compile_source(_ source: String) -> CompileOutcome {
     if lex.errors.len() > 0 {
         return failed(lex_diagnostics(lex.errors));
     }
-    let parsed = parse(lex.tokens);
+    let parsed = parse_tokens(lex.tokens);
     if parsed.errors.len() > 0 {
         return failed(parse_diagnostics(parsed.errors));
     }
@@ -80,7 +80,7 @@ pub fn check_source_at(_ source: String, _ path: String, _ sdk_root: Option<Stri
     if lex.errors.len() > 0 {
         return lex_diagnostics(lex.errors);
     }
-    let parsed = parse(lex.tokens);
+    let parsed = parse_tokens(lex.tokens);
     if parsed.errors.len() > 0 {
         return parse_diagnostics(parsed.errors);
     }
@@ -97,7 +97,7 @@ pub fn compile_source_at(_ source: String, _ path: String, _ sdk_root: Option<St
     if lex.errors.len() > 0 {
         return failed(lex_diagnostics(lex.errors));
     }
-    let parsed = parse(lex.tokens);
+    let parsed = parse_tokens(lex.tokens);
     if parsed.errors.len() > 0 {
         return failed(parse_diagnostics(parsed.errors));
     }

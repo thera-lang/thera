@@ -1,0 +1,189 @@
+// The Hawk language server: a JSON-RPC dispatch loop over stdio that answers a
+// small slice of the LSP. Slice 1 covers the lifecycle (`initialize` /
+// `shutdown` / `exit`), full-document sync (`didOpen` / `didChange` /
+// `didClose`), and live `publishDiagnostics`. Document symbols, hover, and
+// definition land in later slices.
+//
+// This is the Hawk port of the Dart `lsp/server.dart` (which rode on
+// `package:lsp_server`); here the transport is our own jsonrpc.hawk.
+
+import std.json;
+
+import 'jsonrpc';
+import 'diagnostics';
+
+// The server state: the set of open documents (URI -> current text) and the SDK
+// root used to resolve a document's imports.
+pub type Server = {
+    docs: Map<String, String>,
+    sdk_root: Option<String>,
+    shutdown_received: Bool,
+}
+
+pub fn new_server(_ sdk_root: Option<String>) -> Server {
+    return Server { docs: {}, sdk_root: sdk_root, shutdown_received: false };
+}
+
+// Run the server: read framed messages from `reader`, dispatch each, and write
+// responses/notifications to `writer`, until `exit` (or end of input).
+pub fn serve(_ reader: Reader, _ writer: Writer, _ sdk_root: Option<String>) -> Void {
+    let buf = new_buffer();
+    let server = new_server(sdk_root);
+    let mut going = true;
+    while going {
+        match buf.read_message(reader) {
+            Some(body) => {
+                going = server.handle(writer, body);
+            },
+            None => {
+                going = false;
+            },
+        }
+    }
+}
+
+impl Server {
+    // Handle one raw message body. Returns false when the server should stop
+    // (an `exit` notification).
+    pub fn handle(self, _ writer: Writer, _ body: String) -> Bool {
+        let msg = match json.parse(body) {
+            Ok(j) => j,
+            Err(_) => { return true; }, // ignore unparseable input
+        };
+        // A request has both `method` and `id`; a notification has `method` and
+        // no `id`; a response (no `method`) we ignore — we send no requests.
+        return match msg.get('method').as_string() {
+            Some(method) => self.dispatch(writer, method, msg.get('id'), msg.get('params')),
+            None => true,
+        };
+    }
+
+    // `id` is a JSON Null for a notification, present for a request.
+    fn dispatch(self, _ writer: Writer, _ method: String, _ id: Json, _ params: Json) -> Bool {
+        if method == 'initialize' {
+            send_response(writer, id, initialize_result());
+            return true;
+        }
+        if method == 'initialized' {
+            return true;
+        }
+        if method == 'shutdown' {
+            self.shutdown_received = true;
+            send_response(writer, id, json.null());
+            return true;
+        }
+        if method == 'exit' {
+            return false;
+        }
+        if method == 'textDocument/didOpen' {
+            let doc = params.get('textDocument');
+            self.update_document(writer, doc.get('uri').as_string(), doc.get('text').as_string());
+            return true;
+        }
+        if method == 'textDocument/didChange' {
+            // Full sync: the last content change carries the whole document.
+            let uri = params.get('textDocument').get('uri').as_string();
+            self.update_document(writer, uri, last_change_text(params.get('contentChanges')));
+            return true;
+        }
+        if method == 'textDocument/didClose' {
+            match params.get('textDocument').get('uri').as_string() {
+                Some(uri) => {
+                    match self.docs.remove(uri) {
+                        Some(_) => {},
+                        None => {},
+                    }
+                },
+                None => {},
+            }
+            return true;
+        }
+        // An unhandled *request* still needs a reply so the client doesn't hang;
+        // a notification (Null id) is simply dropped.
+        if !id.is_null() {
+            send_response(writer, id, json.null());
+        }
+        return true;
+    }
+
+    // Store `text` for `uri` (when both are present) and publish its diagnostics.
+    fn update_document(self, _ writer: Writer, _ uri: Option<String>, _ text: Option<String>) -> Void {
+        match uri {
+            Some(u) => {
+                match text {
+                    Some(t) => {
+                        self.docs[u] = t;
+                        self.publish(writer, u, t);
+                    },
+                    None => {},
+                }
+            },
+            None => {},
+        }
+    }
+
+    fn publish(self, _ writer: Writer, _ uri: String, _ text: String) -> Void {
+        send_notification(writer, 'textDocument/publishDiagnostics', json.obj({
+            'uri': json.str(uri),
+            'diagnostics': compute_diagnostics(text, uri_to_path(uri), self.sdk_root),
+        }));
+    }
+}
+
+// --- JSON-RPC envelope helpers ---
+
+fn send_response(_ writer: Writer, _ id: Json, _ result: Json) -> Void {
+    send_message(writer, json.obj({
+        'jsonrpc': json.str('2.0'),
+        'id': id,
+        'result': result,
+    }));
+}
+
+fn send_notification(_ writer: Writer, _ method: String, _ params: Json) -> Void {
+    send_message(writer, json.obj({
+        'jsonrpc': json.str('2.0'),
+        'method': json.str(method),
+        'params': params,
+    }));
+}
+
+// --- LSP payloads ---
+
+fn initialize_result() -> Json {
+    return json.obj({
+        'capabilities': json.obj({
+            'textDocumentSync': json.int(1), // TextDocumentSyncKind.Full
+        }),
+        'serverInfo': json.obj({
+            'name': json.str('hawk'),
+            'version': json.str('0.1.0'),
+        }),
+    });
+}
+
+// --- helpers ---
+
+// The text of the last full-document content change (full-sync convention), or
+// None when there are no changes.
+fn last_change_text(_ changes: Json) -> Option<String> {
+    return match changes.as_array() {
+        Some(list) => {
+            if list.len() == 0 {
+                Option.None
+            } else {
+                list[list.len() - 1].get('text').as_string()
+            }
+        },
+        None => Option.None,
+    };
+}
+
+// A `file://` URI to a filesystem path. (URL-decoding of escaped characters is a
+// follow-up; ordinary paths pass through unchanged.)
+fn uri_to_path(_ uri: String) -> String {
+    if uri.starts_with('file://') {
+        return uri.slice('file://'.len(), uri.len());
+    }
+    return uri;
+}
