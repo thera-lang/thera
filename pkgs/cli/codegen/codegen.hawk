@@ -1332,8 +1332,8 @@ impl FnCompiler {
     fn call_expr(self, _ x: CallExpr) -> Void {
         let callee = x.callee;
         match callee {
-            Field(_, _, _) => {
-                self.error('method-call codegen not yet ported', x.span);
+            Field(_, obj, field) => {
+                self.method_call(x, obj, field);
                 return;
             },
             Ident(_, name) => {
@@ -1378,6 +1378,160 @@ impl FnCompiler {
             },
             _ => { self.error('unsupported call target', x.span); },
         }
+    }
+
+    // `recv.method(args)` / `Type.method(args)`. This section covers the direct
+    // (non-dynamic-dispatch) lowerings; the receiver's static type or a namespace
+    // qualifier selects the target. User methods and `call.virtual` dispatch are
+    // the next section.
+    fn method_call(self, _ x: CallExpr, _ obj: Expr, _ field: String) -> Void {
+        // 1. Enum payload constructor: `Shape.Circle(5)`.
+        match self.enum_variant(obj, field) {
+            Some(ev) => {
+                for arg in x.args {
+                    self.expr(arg.value);
+                }
+                self.emit(Instr.EnumNew(ev.info.ty, ev.tag, x.args.len()));
+                return;
+            },
+            None => {},
+        }
+
+        // 2. `e.name()` on an enum value → the variant name (from its tag).
+        if field == 'name' && x.args.len() == 0 {
+            match self.type_of(obj) {
+                Some(t) => {
+                    match self.scope.enums.get(t) {
+                        Some(info) => {
+                            self.enum_name(obj, info);
+                            return;
+                        },
+                        None => {},
+                    }
+                },
+                None => {},
+            }
+        }
+
+        // 3. Namespace-qualified native function: `fs.read_text(...)` → a runtime
+        // native, no receiver.
+        match obj {
+            Ident(_, ns_name) => {
+                if self.is_namespace(ns_name) {
+                    match self.scope.native_fns.get(field) {
+                        Some(native_sym) => {
+                            for arg in x.args {
+                                self.expr(arg.value);
+                            }
+                            self.emit(Instr.CallNative(native_sym, x.args.len()));
+                            return;
+                        },
+                        None => {},
+                    }
+                }
+            },
+            _ => {},
+        }
+
+        // 4. Instance `native fn` from an `impl` block: the receiver is pushed as
+        // the native's first argument. This backs the built-in methods on
+        // String/List/Map/Option — ordinary `native fn`s in std.core.
+        match self.type_of(obj) {
+            Some(t) => {
+                match self.scope.native_instance_methods.get(t) {
+                    Some(m) => {
+                        match m.get(field) {
+                            Some(instance_native) => {
+                                self.expr(obj);
+                                for arg in x.args {
+                                    self.expr(arg.value);
+                                }
+                                self.emit(Instr.CallNative(instance_native, x.args.len() + 1));
+                                return;
+                            },
+                            None => {},
+                        }
+                    },
+                    None => {},
+                }
+            },
+            None => {},
+        }
+
+        // 5. Namespace-qualified free function: `ns.fn(...)` → a direct call.
+        match obj {
+            Ident(_, ns_name) => {
+                if self.is_namespace(ns_name) {
+                    match self.scope.function_index.get(field) {
+                        Some(fn_idx) => {
+                            let ordered = self.resolve_args(self.scope.units[fn_idx].params, x.args, x.span);
+                            for value in ordered {
+                                self.expr(value);
+                            }
+                            self.emit(Instr.Call(fn_idx, ordered.len()));
+                            return;
+                        },
+                        None => {},
+                    }
+                }
+            },
+            _ => {},
+        }
+
+        // 6. Static native method on a type: `String.from_chars(...)` → a runtime
+        // native, no receiver.
+        match self.static_type_name(obj) {
+            Some(static_type) => {
+                match self.scope.native_static_methods.get(static_type) {
+                    Some(m) => {
+                        match m.get(field) {
+                            Some(native_sym) => {
+                                for arg in x.args {
+                                    self.expr(arg.value);
+                                }
+                                self.emit(Instr.CallNative(native_sym, x.args.len()));
+                                return;
+                            },
+                            None => {},
+                        }
+                    },
+                    None => {},
+                }
+            },
+            None => {},
+        }
+
+        // 7–8: dynamic dispatch / user methods / function-valued fields — the
+        // next section.
+        self.error('method-call dispatch not yet ported', x.span);
+    }
+
+    // `e.name()` — the variant name, looked up from the enum tag (a tag-check
+    // chain; the last variant is the fall-through).
+    fn enum_name(self, _ receiver: Expr, _ info: EnumInfo) -> Void {
+        self.expr(receiver);
+        self.emit(Instr.Simple(Op.EnumTag));
+        let tag = self.fresh_slot();
+        self.emit(Instr.Store(tag));
+        let end = self.new_label();
+        let mut i = 0;
+        while i < info.variants.len() {
+            let name = info.variants[i].name;
+            if i == info.variants.len() - 1 {
+                self.emit(Instr.ConstStr(name)); // last variant: fall through
+            } else {
+                let next = self.new_label();
+                self.emit(Instr.Load(tag));
+                self.emit(Instr.ConstInt(i));
+                self.emit(Instr.Simple(Op.EqI64));
+                self.emit_jump(Jk.IfFalse, next);
+                self.emit(Instr.ConstStr(name));
+                self.emit_jump(Jk.Jump, end);
+                self.bind(next);
+            }
+            i = i + 1;
+        }
+        self.bind(end);
     }
 
     // Match call arguments to a callee's (non-self) parameters, returning the
