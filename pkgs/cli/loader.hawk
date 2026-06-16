@@ -57,7 +57,7 @@ pub fn find_sdk_root() -> Option<String> {
                 if is_dir(dir + '/sdk/std') {
                     return Option.Some(dir);
                 }
-                let parent = path_dirname(dir);
+                let parent = dirname(dir);
                 if parent == '' || parent == dir {
                     going = false;
                 } else {
@@ -81,7 +81,7 @@ fn resolve_library_file(_ base: String) -> Option<String> {
         return Option.Some(file);
     }
     if is_dir(base) {
-        let barrel = base + '/' + path_last_segment(base, '/') + '.hawk';
+        let barrel = base + '/' + last_segment(base, '/') + '.hawk';
         if is_file(barrel) {
             return Option.Some(barrel);
         }
@@ -148,7 +148,7 @@ impl Loader {
             Some(prog) => {
                 let source = LibrarySource { program: prog, imports: {} };
                 self.cache[file] = source;
-                self.link_imports(prog, path_dirname(file), source);
+                self.link_imports(prog, dirname(file), source);
                 self.order.push(prog);
                 return Option.Some(source);
             },
@@ -194,7 +194,7 @@ pub fn load_imports(_ path: String, _ program: Program, _ sdk_root: Option<Strin
     // can be derived.
     let root = LibrarySource { program: program, imports: {} };
     loader.cache[path] = root;
-    loader.link_imports(program, path_dirname(path), root);
+    loader.link_imports(program, dirname(path), root);
 
     // Namespaces are the union across every linked module (an imported module's
     // body can itself use a namespace-qualified call); the root's bindings win.
@@ -287,7 +287,7 @@ fn collect_surface(_ source: LibrarySource, _ names: Set<String>, _ collisions: 
 fn namespace_of(_ decl: ImportDecl) -> String {
     return match decl.alias {
         Some(a) => a,
-        None => path_last_segment(path_last_segment(decl.path, '/'), '.'),
+        None => last_segment(last_segment(decl.path, '/'), '.'),
     };
 }
 
@@ -322,7 +322,7 @@ fn is_dir(_ path: String) -> Bool {
 }
 
 // The directory portion of `path` — everything before the last `/`.
-fn path_dirname(_ path: String) -> String {
+fn dirname(_ path: String) -> String {
     let parts = path.split('/');
     if parts.len() <= 1 {
         return '';
@@ -337,7 +337,7 @@ fn path_dirname(_ path: String) -> String {
 }
 
 // The last `sep`-separated segment of `s` (`a/b/c` with `/` -> `c`).
-fn path_last_segment(_ s: String, _ sep: String) -> String {
+fn last_segment(_ s: String, _ sep: String) -> String {
     let parts = s.split(sep);
     return parts[parts.len() - 1];
 }

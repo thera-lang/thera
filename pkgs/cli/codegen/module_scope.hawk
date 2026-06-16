@@ -84,7 +84,13 @@ pub type ModuleScope = {
     units: List<FnDecl>,              // index -> declaration
     unit_names: List<String>,         // index -> mangled name (e.g. Point.area)
     unit_self_types: List<Option<String>>, // index -> receiver type, if a method
-    function_index: Map<String, Int>, // bare name -> unit index
+    unit_files: List<Option<String>>, // index -> declaring file (for name scoping)
+    // Free functions resolve same-file-first: a per-file table (file key -> name
+    // -> idx), with a cross-file fallback (every function, last-wins). A private
+    // helper resolves to its own file's definition even when another file
+    // declares a same-named one. Mirrors the element model's `file_functions`.
+    file_functions: Map<String, Map<String, Int>>,
+    global_functions: Map<String, Int>,
     method_table: Map<String, Map<String, Int>>, // type -> method -> idx
     structs: Map<String, StructInfo>,
     enums: Map<String, EnumInfo>,
@@ -114,7 +120,9 @@ pub fn new_module_scope(_ namespaces: Set<String>, _ library: LibraryElement) ->
         units: [],
         unit_names: [],
         unit_self_types: [],
-        function_index: {},
+        unit_files: [],
+        file_functions: {},
+        global_functions: {},
         method_table: {},
         structs: {},
         enums: {},
@@ -137,15 +145,47 @@ pub fn new_module_scope(_ namespaces: Set<String>, _ library: LibraryElement) ->
 }
 
 impl ModuleScope {
-    fn add_unit(self, _ decl: FnDecl, _ name: String, _ self_type: Option<String>) -> Void {
+    fn add_unit(self, _ decl: FnDecl, _ name: String, _ self_type: Option<String>,
+        _ file: Option<String>) -> Void {
         self.units.push(decl);
         self.unit_names.push(name);
         self.unit_self_types.push(self_type);
+        self.unit_files.push(file);
     }
 
-    pub fn add_function(self, _ decl: FnDecl) -> Void {
-        self.function_index[decl.name] = self.units.len();
-        self.add_unit(decl, decl.name, Option.None);
+    pub fn add_function(self, _ decl: FnDecl, _ file: Option<String>) -> Void {
+        let index = self.units.len();
+        let key = file_key(file);
+        if !self.file_functions.has(key) {
+            self.file_functions[key] = {};
+        }
+        match self.file_functions.get(key) {
+            Some(m) => { m[decl.name] = index; },
+            None => {},
+        }
+        self.global_functions[decl.name] = index;
+        self.add_unit(decl, decl.name, Option.None, file);
+    }
+
+    // The unit index of free function `name` referenced from `file` — the file's
+    // own function if it has one, else the cross-file fallback.
+    pub fn resolve_function(self, _ file: Option<String>, _ name: String) -> Option<Int> {
+        match self.file_functions.get(file_key(file)) {
+            Some(m) => {
+                match m.get(name) {
+                    Some(i) => { return Option.Some(i); },
+                    None => {},
+                }
+            },
+            None => {},
+        }
+        return self.global_functions.get(name);
+    }
+
+    // The unit index of a namespace-qualified (`ns.fn(...)`) free function — the
+    // cross-file surface.
+    pub fn resolve_global_function(self, _ name: String) -> Option<Int> {
+        return self.global_functions.get(name);
     }
 
     // A top-level `native fn`: its name binds to the runtime native named by its
@@ -210,7 +250,7 @@ impl ModuleScope {
         }
     }
 
-    pub fn add_method(self, _ type_name: String, _ method: FnDecl) -> Void {
+    pub fn add_method(self, _ type_name: String, _ method: FnDecl, _ file: Option<String>) -> Void {
         let self_type = if has_self_param(method.params) {
             Option.Some(type_name)
         } else {
@@ -223,7 +263,7 @@ impl ModuleScope {
             Some(m) => { m[method.name] = self.units.len(); },
             None => {},
         }
-        self.add_unit(method, type_name + '.' + method.name, self_type);
+        self.add_unit(method, type_name + '.' + method.name, self_type, file);
     }
 
     pub fn add_interface(self, _ decl: InterfaceDecl) -> Void {
@@ -246,9 +286,9 @@ impl ModuleScope {
     // that hold a boxed cell; `param_types` types every parameter so the lambda
     // body can be inferred when compiled.
     pub fn add_lambda(self, _ decl: FnDecl, _ boxed: Set<String>,
-        _ param_types: Map<String, Type>) -> Int {
+        _ param_types: Map<String, Type>, _ file: Option<String>) -> Int {
         let index = self.units.len();
-        self.add_unit(decl, '__lambda_${index}', Option.None);
+        self.add_unit(decl, '__lambda_${index}', Option.None, file);
         if boxed.len() > 0 {
             self.boxed_params[index] = boxed;
         }

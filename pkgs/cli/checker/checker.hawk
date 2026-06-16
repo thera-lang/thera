@@ -39,7 +39,7 @@ pub fn check(_ program: Program, _ imports: List<Program>,
     _ namespaces: Map<String, LibraryNamespace>) -> CheckResult {
     let errors: List<CheckError> = [];
     let library = build_library(program, imports, namespaces);
-    check_program(errors, program, library);
+    check_program(errors, program, library, program.file_path);
     return CheckResult { errors: errors };
 }
 
@@ -49,16 +49,17 @@ fn add_error(_ errors: List<CheckError>, _ message: String, _ span: SourceSpan) 
 
 // ---- declaration checking ----
 
-fn check_program(_ errors: List<CheckError>, _ program: Program, _ library: LibraryElement) -> Void {
+fn check_program(_ errors: List<CheckError>, _ program: Program, _ library: LibraryElement,
+    _ file: Option<String>) -> Void {
     for decl in program.decls {
         match decl {
-            Fn(x) => { check_fn(errors, x, library, Option.None, Set.new()); },
+            Fn(x) => { check_fn(errors, x, library, Option.None, Set.new(), file); },
             Type(x) => { check_type_decl(errors, x, library); },
             Impl(x) => {
                 let self_type = impl_self_type(x);
                 let type_params = type_param_set(x.type_params);
                 for m in x.methods {
-                    check_fn(errors, m, library, Option.Some(self_type), type_params);
+                    check_fn(errors, m, library, Option.Some(self_type), type_params, file);
                 }
                 match x.interface_name {
                     Some(_) => { check_conformance(errors, x, library); },
@@ -71,7 +72,9 @@ fn check_program(_ errors: List<CheckError>, _ program: Program, _ library: Libr
                     Some(ref) => { check_type_ref(errors, ref, library.type_defs, Set.new()); },
                     None => {},
                 }
-                check_expr(errors, x.value, empty_scope(), new_ctx(library), Option.None);
+                let ctx = new_ctx(library);
+                ctx.current_file = file;
+                check_expr(errors, x.value, empty_scope(), ctx, Option.None);
             },
             Enum(x) => {
                 let tps = type_param_set(x.type_params);
@@ -94,7 +97,7 @@ fn check_type_decl(_ errors: List<CheckError>, _ decl: TypeDecl, _ library: Libr
 }
 
 fn check_fn(_ errors: List<CheckError>, _ fn_decl: FnDecl, _ library: LibraryElement,
-    _ self_type: Option<Type>, _ outer_type_params: Set<String>) -> Void {
+    _ self_type: Option<Type>, _ outer_type_params: Set<String>, _ file: Option<String>) -> Void {
     let type_params = union_type_params(outer_type_params, fn_decl.type_params);
     check_fn_sig(errors, fn_decl, library.type_defs, type_params);
 
@@ -112,6 +115,7 @@ fn check_fn(_ errors: List<CheckError>, _ fn_decl: FnDecl, _ library: LibraryEle
                 self_type: self_type,
                 return_type: return_type,
                 type_param_bounds: fn_param_bounds(fn_decl),
+                current_file: file,
             };
             let scope = empty_scope();
             for p in fn_decl.params {
@@ -440,7 +444,7 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
             }
             match x.callee {
                 Ident(_, name) => {
-                    match ctx.library.functions.get(name) {
+                    match function_for(ctx.library, ctx.current_file, name) {
                         Some(fn_el) => { check_call_args(errors, fn_el, x.args, x.span, scope, ctx); },
                         None => {},
                     }

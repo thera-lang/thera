@@ -30,6 +30,9 @@ pub type InferCtx = {
     self_type: Option<Type>,
     return_type: Option<Type>,
     type_param_bounds: Map<String, List<String>>,
+    // The file of the function being inferred — the scope a bare free-function
+    // reference resolves against (same-file-first).
+    current_file: Option<String>,
 }
 
 // A context for inferring at the top level (no enclosing generics/self/return).
@@ -40,6 +43,7 @@ pub fn new_ctx(_ library: LibraryElement) -> InferCtx {
         self_type: Option.None,
         return_type: Option.None,
         type_param_bounds: {},
+        current_file: Option.None,
     };
 }
 
@@ -331,7 +335,7 @@ fn infer_call_ident(_ name: String, _ arg_types: List<Type>,
         },
         None => {},
     }
-    match ctx.library.functions.get(name) {
+    match function_for(ctx.library, ctx.current_file, name) {
         Some(fn_el) => { return instantiate_return(fn_el, arg_types); },
         None => {},
     }
@@ -450,7 +454,7 @@ pub fn expected_arg_types(_ callee: Expr, _ args: List<CallArg>,
 
     match callee {
         Ident(_, name) => {
-            match ctx.library.functions.get(name) {
+            match function_for(ctx.library, ctx.current_file, name) {
                 Some(fn_el) => { params = Option.Some(fn_el.parameters); },
                 None => {
                     return match scope.get(name) {

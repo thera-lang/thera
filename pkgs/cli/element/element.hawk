@@ -146,9 +146,39 @@ pub fn namespace_exposes(_ ns: LibraryNamespace, _ name: String) -> Bool {
 pub type LibraryElement = {
     type_defs: Map<String, TypeDefElement>,
     functions: Map<String, FunctionElement>,
+    // Per-file free functions (file key -> name -> element), so a bare function
+    // reference resolves same-file-first — a private helper resolves to its own
+    // file's definition even when another co-loaded file declares a same-named
+    // one. `functions` above is the cross-file fallback (last-wins).
+    file_functions: Map<String, Map<String, FunctionElement>>,
     consts: Map<String, ConstElement>,
     modules: Set<String>, // value-side module aliases from `import std.x`
     namespaces: Map<String, LibraryNamespace>,
+}
+
+// Resolve free function `name` referenced from `file`: the file's own function
+// if it has one, else the cross-file fallback.
+pub fn function_for(_ lib: LibraryElement, _ file: Option<String>, _ name: String)
+    -> Option<FunctionElement> {
+    match lib.file_functions.get(file_key(file)) {
+        Some(m) => {
+            match m.get(name) {
+                Some(f) => { return Option.Some(f); },
+                None => {},
+            }
+        },
+        None => {},
+    }
+    return lib.functions.get(name);
+}
+
+// A `Map` key for an optional file path (a real path can't be empty, so `''`
+// safely denotes "no declaring file" — the primary/anonymous program).
+pub fn file_key(_ file: Option<String>) -> String {
+    return match file {
+        Some(p) => p,
+        None => '',
+    };
 }
 
 // --- small helpers (List<String> has no `contains` yet — audit gap) ---

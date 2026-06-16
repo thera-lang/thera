@@ -84,6 +84,7 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
     _ namespaces: Map<String, LibraryNamespace>) -> LibraryElement {
     let type_defs = builtin_type_defs();
     let functions: Map<String, FunctionElement> = {};
+    let file_functions: Map<String, Map<String, FunctionElement>> = {};
     let consts: Map<String, ConstElement> = {};
     let modules: Set<String> = Set.new();
 
@@ -145,7 +146,16 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
                     }
                 },
                 Fn(x) => {
-                    functions[x.name] = function_element(x, type_defs);
+                    let element = function_element(x, type_defs);
+                    functions[x.name] = element;
+                    let key = file_key(p.file_path);
+                    if !file_functions.has(key) {
+                        file_functions[key] = {};
+                    }
+                    match file_functions.get(key) {
+                        Some(m) => { m[x.name] = element; },
+                        None => {},
+                    }
                 },
                 Const(x) => {
                     consts[x.name] = ConstElement {
@@ -223,6 +233,7 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
     return LibraryElement {
         type_defs: type_defs,
         functions: functions,
+        file_functions: file_functions,
         consts: consts,
         modules: modules,
         namespaces: namespaces,

@@ -97,13 +97,14 @@ pub fn compile_program(_ program: Program, _ imports: List<Program>,
 
 // Register one module's declarations into the shared scope.
 fn register_module(_ scope: ModuleScope, _ program: Program) -> Void {
+    let file = program.file_path;
     for decl in program.decls {
         match decl {
             Fn(x) => {
                 if x.is_native {
                     scope.add_native(x);
                 } else {
-                    scope.add_function(x);
+                    scope.add_function(x, file);
                 }
             },
             Type(x) => { scope.add_struct(x); },
@@ -123,7 +124,7 @@ fn register_module(_ scope: ModuleScope, _ program: Program) -> Void {
                         scope.add_native_instance_method(x.type_name, method);
                     } else {
                         match method.body {
-                            Some(_) => { scope.add_method(x.type_name, method); },
+                            Some(_) => { scope.add_method(x.type_name, method, file); },
                             None => {},
                         }
                     }
@@ -158,6 +159,9 @@ pub type FnCompiler = {
     labels: List<Option<Int>>,
     fixups: List<Fixup>,
     ctx: InferCtx,
+    // The file this unit was declared in — the scope a bare free-function
+    // reference resolves against (same-file-first).
+    file: Option<String>,
     errors: List<CodegenError>,
 }
 
@@ -176,6 +180,7 @@ pub fn new_fn_compiler(_ scope: ModuleScope, _ errors: List<CodegenError>) -> Fn
         labels: [],
         fixups: [],
         ctx: new_ctx(scope.library),
+        file: Option.None,
         errors: errors,
     };
 }
@@ -184,6 +189,7 @@ impl FnCompiler {
     // Compile the unit at `index` in the module scope.
     pub fn compile(self, _ index: Int) -> FuncDef {
         let fn_decl = self.scope.units[index];
+        self.file = self.scope.unit_files[index];
         self.returns_result = type_ref_name(fn_decl.return_type) == Option.Some('Result');
         for tp in fn_decl.type_params {
             self.type_param_bounds[tp.name] = tp.bounds;
@@ -209,6 +215,7 @@ impl FnCompiler {
             self_type: self_type,
             return_type: return_type,
             type_param_bounds: self.type_param_bounds,
+            current_file: self.file,
         };
 
         // Boxed cells: capture params arriving boxed, plus this function's own
@@ -806,7 +813,8 @@ impl FnCompiler {
         }
 
         let lifted = lift_lambda(x, captures);
-        let index = self.scope.add_lambda(lifted, boxed_captures, stash);
+        // The lifted unit resolves bare names in the enclosing unit's file.
+        let index = self.scope.add_lambda(lifted, boxed_captures, stash, self.file);
         // Push the captured values (in capture order), then bundle the closure. A
         // boxed capture pushes the cell itself (Load, no field.get) so it's shared.
         for name in captures {
@@ -1434,7 +1442,7 @@ impl FnCompiler {
                     self.emit(Instr.CallIndirect(x.args.len()));
                     return;
                 }
-                match self.scope.function_index.get(name) {
+                match self.scope.resolve_function(self.file, name) {
                     Some(fn_index) => {
                         let ordered = self.resolve_args(self.scope.units[fn_index].params, x.args, x.span);
                         self.emit_ordered_args(x.callee, x.args, ordered);
@@ -1547,7 +1555,7 @@ impl FnCompiler {
         match obj {
             Ident(_, ns_name) => {
                 if self.is_namespace(ns_name) {
-                    match self.scope.function_index.get(field) {
+                    match self.scope.resolve_global_function(field) {
                         Some(fn_idx) => {
                             let ordered = self.resolve_args(self.scope.units[fn_idx].params, x.args, x.span);
                             for value in ordered {
