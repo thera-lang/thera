@@ -365,9 +365,12 @@ Bugs/gaps surfaced (not blocking; worth tracking):
   (`lexer.dart`/`parser.dart`) and the Hawk port (`lexer/`/`parser/`), with the
   unterminated-`${` overrun hardened into a clean parse. Lexeme of a string now
   carries the escaped value (decoding is the splitter's job).
-- **`check` doesn't validate built-in `List`/generic method names.** A call to a
-  non-existent `xs.remove_last()` passed `hawk check` (only surfaced at codegen).
-  A checker gap to close when the checker is ported.
+- **`check` doesn't validate built-in `List`/generic method names — fixed (both
+  front-ends).** A call to a non-existent `xs.remove_last()` used to pass
+  `hawk check` (surfacing only at codegen); the checker now resolves field
+  accesses and method calls against the receiver's type and reports `no such
+  field`/`no method` when a concrete receiver doesn't provide the member. See
+  [completeness.md](completeness.md) (static-analysis robustness).
 - **`Option.None` locals need a type annotation when only a later assignment
   pins the element type** (`let mut x: Option<SourceSpan> = Option.None;`).
   Inference doesn't flow backward from a later `x = Some(span)` through a

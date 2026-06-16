@@ -814,6 +814,44 @@ fn primitive_type_name(_ p: Primitive) -> Option<String> {
     };
 }
 
+// --- member-resolution predicates (used by the checker for diagnostics) ---
+
+// Whether `field` is NOT a declared field of `recv` when `recv` is a known
+// struct -- the signal the checker uses to flag a bad field access. False (no
+// error) for any receiver that isn't a resolved struct, so only a definitive
+// miss on a known struct value is reported.
+pub fn struct_field_missing(_ recv: Type, _ field: String, _ ctx: InferCtx) -> Bool {
+    return match type_def_for(recv, ctx) {
+        Some(element) => element.kind == TypeDefKind.Struct && !element.fields.has(field),
+        None => false,
+    };
+}
+
+// Whether calling `field(...)` on a value of `recv` resolves -- to an impl
+// method, the synthesized enum `name()`, or a function-valued field. Mirrors
+// the value-receiver arm of `infer_call_field`. Conservative: true (no error)
+// when `recv` isn't a concrete element we can judge (Unknown, a type parameter,
+// a namespace/static receiver typed Unknown), so only a definitive miss on a
+// known type is flagged.
+pub fn method_resolves(_ recv: Type, _ field: String, _ arg_count: Int, _ ctx: InferCtx) -> Bool {
+    match type_def_for(recv, ctx) {
+        Some(element) => {
+            match find_method(element, field) {
+                Some(_) => { return true; },
+                None => {},
+            }
+            if field == 'name' && arg_count == 0 && element.kind == TypeDefKind.Enum {
+                return true;
+            }
+            return match field_type(recv, field, ctx) {
+                Function(_, _) => true,
+                _ => false,
+            };
+        },
+        None => { return true; },
+    }
+}
+
 fn is_enum_type(_ ty: Type, _ ctx: InferCtx) -> Bool {
     return match ty {
         Interface(name, _) => match ctx.library.type_defs.get(name) {

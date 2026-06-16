@@ -689,5 +689,30 @@ class Inferrer {
         Primitive.unit => null,
       };
 
+  // --- member-resolution predicates (used by the checker for diagnostics) ---
+
+  /// Whether `field` is *not* a declared field of [recvType] when [recvType] is
+  /// a known struct — the signal the checker uses to flag a bad field access.
+  /// Returns false (no error) for any receiver that isn't a resolved struct, so
+  /// only a definitive miss on a known struct value is reported.
+  bool structFieldMissing(Type recvType, String field) {
+    final element = typeDefFor(recvType);
+    return element is StructElement && !element.fields.containsKey(field);
+  }
+
+  /// Whether calling `field(...)` on a value of [recvType] resolves — to an
+  /// impl method, the synthesized enum `name()`, or a function-valued field.
+  /// Mirrors the value-receiver arm of [_inferCall]. Conservative: returns true
+  /// (no error) when [recvType] isn't a concrete element we can judge (Unknown,
+  /// a type parameter, a namespace/static receiver typed Unknown), so only a
+  /// definitive miss on a known type is flagged.
+  bool methodResolves(Type recvType, String field, int argCount) {
+    final element = typeDefFor(recvType);
+    if (element == null) return true; // unknown / type-parameter receiver
+    if (element.method(field) != null) return true;
+    if (field == 'name' && argCount == 0 && element is EnumElement) return true;
+    return _fieldType(recvType, field) is FunctionType;
+  }
+
   static const _comparison = {'==', '!=', '<', '<=', '>', '>='};
 }

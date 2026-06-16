@@ -55,6 +55,44 @@ fn test_unknown_field() -> Result<Void, Error> {
 }
 
 @test
+fn test_field_access_missing_field() -> Result<Void, Error> {
+    let errs = errors_of('type P = { x: Int }\n'
+        + 'fn f() { let p = P { x: 1 }; let q = p.z; }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs),
+        expected: 'no such field "z" on type P')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_field_access_valid() -> Result<Void, Error> {
+    let errs = errors_of('type P = { x: Int }\n'
+        + 'fn f() -> Int { let p = P { x: 1 }; return p.x; }');
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_method_call_missing() -> Result<Void, Error> {
+    let errs = errors_of('type B = { v: Int }\n'
+        + 'impl B { fn get(self) -> Int { return self.v; } }\n'
+        + 'fn f() { let b = B { v: 1 }; let r = b.missing(); }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs),
+        expected: 'no method "missing" on B')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_method_call_valid() -> Result<Void, Error> {
+    let errs = errors_of('type B = { v: Int }\n'
+        + 'impl B { fn get(self) -> Int { return self.v; } }\n'
+        + 'fn f() -> Int { let b = B { v: 1 }; return b.get(); }');
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_let_binding_mismatch() -> Result<Void, Error> {
     let errs = errors_of('fn f() { let x: Int = true; }');
     testing.assert_eq(actual: errs.len(), expected: 1)?;

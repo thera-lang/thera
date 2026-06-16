@@ -41,18 +41,23 @@ priority. None of these block day-to-day self-hosting; they close the gap to
 ## Static analysis robustness (the checker must predict codegen)
 
 The guiding invariant: **anything `emit`/`run` rejects, `check` should reject
-too.** Today several errors only surface at codegen, so `hawk check` passes on
-programs that then fail to compile — and an LSP built on the checker wouldn't flag
-them. Closing these is the prerequisite for a useful IDE.
+too.** Several errors used to surface only at codegen, so `hawk check` passed on
+programs that then failed to compile — and an LSP built on the checker wouldn't
+flag them. Closing these is the prerequisite for a useful IDE.
 
-- **Validate field references.** `pt.z` for a `Point { x, y }` passes `check` but
-  fails at codegen (`no such field: z`). The checker should resolve field accesses
-  against the receiver's struct type. *(Both front-ends.)*
-- **Validate method / built-in method names.** `xs.remove_last()` passes `check`
-  but fails at codegen (`no method "remove_last" on List`). The checker should
-  resolve method calls against the receiver type's methods (user `impl`s, interface
-  methods, and the built-in `String`/`List`/`Map`/`Option`/primitive natives).
-  *(Already tracked in frontend_in_hawk.md; same root cause as field refs.)*
+- **Validate field references — done (both front-ends).** `pt.z` for a
+  `Point { x, y }` now reports `no such field "z" on type Point` at `check`.
+- **Validate method / built-in method names — done (both front-ends).**
+  `xs.remove_last()` now reports `no method "remove_last" on List<Int>` at
+  `check`, resolving against user `impl`s, interface methods, the built-in
+  `String`/`List`/`Map`/`Option`/primitive natives, the synthesized enum
+  `name()`, and function-valued fields. Both checks are **conservative** — they
+  fire only when the receiver resolves to a concrete type the checker can judge
+  (an unknown/type-parameter/namespace receiver is left to codegen), which kept
+  the whole corpus false-positive-free. *(Implemented via `methodResolves` /
+  `structFieldMissing` resolution predicates on the inferrer, mirroring the
+  codegen ladder.)* Remaining sub-gap: field access on a **non-struct** concrete
+  value (e.g. `5.x`) still falls through to codegen — narrow, low-priority.
 - **Body-check imported libraries.** Importing a module does **not** type-check
   its function bodies — body-level errors hide until a *direct* `hawk check` of
   that file. The self-hosting milestone wants every source to pass a direct check,

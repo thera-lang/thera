@@ -365,6 +365,52 @@ fn f() { let p = Point { x: 1, y: 2 }; }
 ''');
       expect(errors, isEmpty);
     });
+
+    test('field access on a missing field is an error', () {
+      final errors = check('''
+type Point = { x: Int, y: Int }
+fn f() -> Int { let p = Point { x: 1, y: 2 }; return p.z; }
+''');
+      expect(errors.any((e) => e.contains('no such field "z"')), isTrue);
+    });
+
+    test('field access on a declared field is valid', () {
+      expect(
+        check('''
+type Point = { x: Int, y: Int }
+fn f() -> Int { let p = Point { x: 1, y: 2 }; return p.x; }
+'''),
+        isEmpty,
+      );
+    });
+  });
+
+  // ---- method-call checking (the checker predicts codegen's "no method") ----
+  //
+  // These use a user struct so they're hermetic; the built-in case
+  // (`xs.remove_last()`) goes through the same `methodResolves` path and is
+  // exercised end-to-end against the real stdlib by the CLI corpus check.
+
+  group('method calls', () {
+    test('a missing method on a user struct is an error', () {
+      final errors = check('''
+type Box = { v: Int }
+impl Box { fn get(self) -> Int { return self.v; } }
+fn f() -> Int { let b = Box { v: 1 }; return b.missing(); }
+''');
+      expect(errors.any((e) => e.contains('no method "missing"')), isTrue);
+    });
+
+    test('a declared method is valid', () {
+      expect(
+        check('''
+type Box = { v: Int }
+impl Box { fn get(self) -> Int { return self.v; } }
+fn f() -> Int { let b = Box { v: 1 }; return b.get(); }
+'''),
+        isEmpty,
+      );
+    });
   });
 
   group('static dispatch', () {

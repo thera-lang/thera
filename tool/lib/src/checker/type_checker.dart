@@ -44,6 +44,10 @@ class TypeChecker {
   late LibraryElement _library;
   late TypeResolver _resolver;
 
+  /// The inferrer that annotated the AST; reused for member-resolution
+  /// predicates (`methodResolves` / `structFieldMissing`) in member checks.
+  late Inferrer _inferrer;
+
   /// The primary program's file — the scope a bare free-function reference
   /// resolves against (same-file-first).
   String? _file;
@@ -67,7 +71,7 @@ class TypeChecker {
         buildLibrary(program, imports: _importPrograms, namespaces: namespaces);
     _resolver = TypeResolver(_library.typeDefs);
     _file = program.filePath;
-    Inferrer(_library).inferProgram(program);
+    _inferrer = Inferrer(_library)..inferProgram(program);
 
     _checkProgram(program);
     return CheckResult(List.unmodifiable(_errors));
@@ -391,17 +395,35 @@ class TypeChecker {
         }
 
       case CallExpr(:final callee, :final args, :final span):
-        _checkExpr(callee, scope);
-        for (final a in args) {
-          _checkExpr(a.value, scope);
-        }
-        if (callee is IdentExpr) {
-          final fn = _library.functionFor(_file, callee.name);
-          if (fn != null) _checkCallArgs(fn, args, span);
+        if (callee is FieldExpr) {
+          // A method call `r.m(args)`: check the receiver and arguments, then
+          // validate the method resolves — but do NOT check the callee as a
+          // field access (which would reject `m` as a missing field).
+          _checkExpr(callee.object, scope);
+          for (final a in args) {
+            _checkExpr(a.value, scope);
+          }
+          _checkMethodCall(callee, args, span);
+        } else {
+          _checkExpr(callee, scope);
+          for (final a in args) {
+            _checkExpr(a.value, scope);
+          }
+          if (callee is IdentExpr) {
+            final fn = _library.functionFor(_file, callee.name);
+            if (fn != null) _checkCallArgs(fn, args, span);
+          }
         }
 
-      case FieldExpr(:final object):
+      case FieldExpr(:final object, :final field, :final span):
         _checkExpr(object, scope);
+        // Flag a field that the receiver's (known) struct type doesn't declare.
+        // Conservative: only a definitive miss on a resolved struct value is an
+        // error (namespace consts / `Enum.Variant` have a non-struct receiver).
+        final recv = object.resolvedType;
+        if (recv != null && _inferrer.structFieldMissing(recv, field)) {
+          _error('no such field "$field" on type $recv', span);
+        }
 
       case IndexExpr(:final object, :final index):
         _checkExpr(object, scope);
@@ -506,6 +528,19 @@ class TypeChecker {
   }
 
   // ---- call checking ----
+
+  /// Validate a method call `r.m(args)`: when the receiver resolves to a known
+  /// type that doesn't provide `m` (as an impl method, the enum `name()`, or a
+  /// function-valued field), report it — so `check` predicts codegen's "no
+  /// method" error. Conservative on unknown/namespace/static receivers (see
+  /// [Inferrer.methodResolves]), which are typed as non-values and skipped.
+  void _checkMethodCall(FieldExpr callee, List<CallArg> args, SourceSpan span) {
+    final recv = callee.object.resolvedType;
+    if (recv == null) return;
+    if (!_inferrer.methodResolves(recv, callee.field, args.length)) {
+      _error('no method "${callee.field}" on $recv', span);
+    }
+  }
 
   void _checkCallArgs(FunctionElement fn, List<CallArg> args, SourceSpan span) {
     final params = fn.parameters.where((p) => !p.isSelf).toList();

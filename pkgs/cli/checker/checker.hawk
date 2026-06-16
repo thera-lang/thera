@@ -431,7 +431,13 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
             };
         },
         Call(x) => {
-            check_expr(errors, x.callee, scope, ctx, Option.None);
+            // A method call `r.m(args)`: check the receiver (not the callee as a
+            // field access, which would reject `m` as a missing field), then
+            // validate the method resolves. Other callees check normally.
+            match x.callee {
+                Field(_, recv, _) => { check_expr(errors, recv, scope, ctx, Option.None); },
+                _ => { check_expr(errors, x.callee, scope, ctx, Option.None); },
+            }
             let expected_params = expected_arg_types(x.callee, x.args, scope, ctx);
             let mut i = 0;
             while i < x.args.len() {
@@ -449,11 +455,24 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
                         None => {},
                     }
                 },
+                Field(_, recv, field) => {
+                    let recv_type = infer_expr(recv, scope, ctx, Option.None);
+                    if !method_resolves(recv_type, field, x.args.len(), ctx) {
+                        add_error(errors, 'no method "${field}" on ${type_to_string(recv_type)}', x.span);
+                    };
+                },
                 _ => {},
             }
         },
-        Field(_, object, _) => {
+        Field(span, object, field) => {
             check_expr(errors, object, scope, ctx, Option.None);
+            // Flag a field the receiver's (known) struct type doesn't declare.
+            // Conservative: only a definitive miss on a resolved struct value is
+            // an error (namespace consts / `Enum.Variant` have a non-struct recv).
+            let recv = infer_expr(object, scope, ctx, Option.None);
+            if struct_field_missing(recv, field, ctx) {
+                add_error(errors, 'no such field "${field}" on type ${type_to_string(recv)}', span);
+            };
         },
         Index(_, object, index) => {
             check_expr(errors, object, scope, ctx, Option.None);
