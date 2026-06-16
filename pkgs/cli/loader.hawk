@@ -1,0 +1,343 @@
+// The import-closure loader — the Hawk mirror of the Dart toolchain's loader.dart
+// (plus the namespace layer of element/namespace.dart).
+//
+// Resolves and parses a program's transitive imports so the checker and emitter
+// can link them in: `std.core` is auto-imported (the unqualified prelude), `std.x`
+// anchors at the SDK std root, and any other path is relative to the importing
+// file. A path resolves to a single-file library (`<base>.hawk`) or a directory's
+// barrel (`<base>/<name>.hawk`). Cycles terminate via a file cache (a library is
+// cached before its own imports are linked). The result also carries the import
+// namespaces (alias / trailing segment -> the imported library's public surface).
+
+import 'ast/ast';
+import 'lexer/lexer';
+import 'parser/parser';
+import 'element/element'; // LibraryNamespace
+
+import std.fs;
+import std.env;
+
+const STD_PREFIX: String = 'std.';
+
+// A loaded library and the libraries its imports resolve to, keyed by the import
+// path exactly as written (so a namespace can be derived per import and barrels
+// can be followed). `imports` is filled after construction so caching the node
+// first guards re-export cycles.
+pub type LibrarySource = {
+    program: Program,
+    imports: Map<String, LibrarySource>,
+}
+
+// The loaded import closure: the flat list of imported programs (the typing /
+// linking substrate) and the namespaces the program's own imports bind.
+pub type LoadedImports = {
+    programs: List<Program>,
+    namespaces: Map<String, LibraryNamespace>,
+}
+
+// --- SDK root discovery ---
+
+// Locate the SDK root (the directory containing `sdk/std/`): the HAWK_SDK
+// environment variable, else a walk upward from the current directory.
+pub fn find_sdk_root() -> Option<String> {
+    match env.get('HAWK_SDK') {
+        Some(root) => {
+            if is_dir(root + '/sdk/std') {
+                return Option.Some(root);
+            };
+        },
+        None => {},
+    }
+    match env.current_dir() {
+        Ok(start) => {
+            let mut dir = start;
+            let mut i = 0;
+            let mut going = true;
+            while going && i < 8 {
+                if is_dir(dir + '/sdk/std') {
+                    return Option.Some(dir);
+                }
+                let parent = path_dirname(dir);
+                if parent == '' || parent == dir {
+                    going = false;
+                } else {
+                    dir = parent;
+                    i = i + 1;
+                }
+            }
+        },
+        Err(_) => {},
+    }
+    return Option.None;
+}
+
+// --- file resolution ---
+
+// Resolve a library base path (no extension) to its source file: `<base>.hawk`,
+// or, when `<base>` is a directory, its barrel `<base>/<name>.hawk`.
+fn resolve_library_file(_ base: String) -> Option<String> {
+    let file = base + '.hawk';
+    if is_file(file) {
+        return Option.Some(file);
+    }
+    if is_dir(base) {
+        let barrel = base + '/' + path_last_segment(base, '/') + '.hawk';
+        if is_file(barrel) {
+            return Option.Some(barrel);
+        }
+    }
+    return Option.None;
+}
+
+// Lex and parse `path`, or None if it can't be read or has lex/parse errors (the
+// checker surfaces those against the primary program). Stamps the program's
+// `file_path` so cycle detection and diagnostics can key on it.
+pub fn parse_file_or_null(_ path: String) -> Option<Program> {
+    match fs.read_text(path) {
+        Ok(source) => {
+            let lex = tokenize(source);
+            if lex.errors.len() > 0 {
+                return Option.None;
+            }
+            let parsed = parse(lex.tokens);
+            if parsed.errors.len() > 0 {
+                return Option.None;
+            }
+            let prog = parsed.program;
+            prog.file_path = Option.Some(path);
+            return Option.Some(prog);
+        },
+        Err(_) => { return Option.None; },
+    }
+}
+
+// --- the loader ---
+
+type Loader = {
+    sdk_root: Option<String>,
+    order: List<Program>,            // imported programs, deduped, in load order
+    cache: Map<String, LibrarySource>, // resolved file -> library source
+}
+
+impl Loader {
+    // Resolve an import path to a source file. `std.*` anchors at the SDK std
+    // root (dots become separators); any other path is relative to the importing
+    // file's directory.
+    fn resolve(self, _ import_path: String, _ base_dir: String) -> Option<String> {
+        if import_path.starts_with(STD_PREFIX) {
+            match self.sdk_root {
+                Some(root) => {
+                    let rel = import_path.slice(STD_PREFIX.len(), import_path.len()).split('.').join('/');
+                    return resolve_library_file(root + '/sdk/std/' + rel);
+                },
+                None => { return Option.None; },
+            }
+        }
+        return resolve_library_file(base_dir + '/' + import_path);
+    }
+
+    // Resolve `file` to a library source, recursively linking its imports. Cached
+    // before recursing (to terminate cycles); each program is added to the flat
+    // list exactly once.
+    fn source_for(self, _ file: String) -> Option<LibrarySource> {
+        match self.cache.get(file) {
+            Some(cached) => { return Option.Some(cached); },
+            None => {},
+        }
+        match parse_file_or_null(file) {
+            Some(prog) => {
+                let source = LibrarySource { program: prog, imports: {} };
+                self.cache[file] = source;
+                self.link_imports(prog, path_dirname(file), source);
+                self.order.push(prog);
+                return Option.Some(source);
+            },
+            None => { return Option.None; },
+        }
+    }
+
+    // Resolve each `import` in `prog` and record the child library under the
+    // import path on `into`.
+    fn link_imports(self, _ prog: Program, _ base_dir: String, _ into: LibrarySource) -> Void {
+        for decl in prog.decls {
+            match decl {
+                Import(x) => {
+                    match self.resolve(x.path, base_dir) {
+                        Some(file) => {
+                            match self.source_for(file) {
+                                Some(child) => { into.imports[x.path] = child; },
+                                None => {},
+                            }
+                        },
+                        None => {},
+                    }
+                },
+                _ => {},
+            }
+        }
+    }
+}
+
+// Resolve and parse the import closure of `program` (located at `path`). `program`
+// itself is used as-is (not re-read), so in-memory edits are honored.
+pub fn load_imports(_ path: String, _ program: Program, _ sdk_root: Option<String>) -> LoadedImports {
+    let loader = Loader { sdk_root: sdk_root, order: [], cache: {} };
+
+    // std.core is auto-imported into every program — load it so its types (Error),
+    // impls (Display for Error), and the prelude methods on built-in types link.
+    match loader.resolve('std.core', '') {
+        Some(core) => { loader.source_for(core); },
+        None => {},
+    }
+
+    // The primary program is already parsed; link its imports so its namespaces
+    // can be derived.
+    let root = LibrarySource { program: program, imports: {} };
+    loader.cache[path] = root;
+    loader.link_imports(program, path_dirname(path), root);
+
+    // Namespaces are the union across every linked module (an imported module's
+    // body can itself use a namespace-qualified call); the root's bindings win.
+    let namespaces: Map<String, LibraryNamespace> = {};
+    merge_namespaces(namespaces, namespaces_for(root));
+    for file in loader.cache.keys() {
+        merge_namespaces(namespaces, namespaces_for(loader.cache[file]));
+    }
+    return LoadedImports { programs: loader.order, namespaces: namespaces };
+}
+
+fn merge_namespaces(_ into: Map<String, LibraryNamespace>, _ from: Map<String, LibraryNamespace>) -> Void {
+    for name in from.keys() {
+        if !into.has(name) {
+            into[name] = from[name];
+        }
+    }
+}
+
+// --- namespaces (mirror of element/namespace.dart) ---
+
+// The namespaces bound by `root`'s own imports: import namespace (alias, or the
+// trailing path segment) -> the imported library's public surface.
+pub fn namespaces_for(_ root: LibrarySource) -> Map<String, LibraryNamespace> {
+    let result: Map<String, LibraryNamespace> = {};
+    for decl in root.program.decls {
+        match decl {
+            Import(x) => {
+                match root.imports.get(x.path) {
+                    Some(child) => { result[namespace_of(x)] = public_surface_of(child); },
+                    None => {},
+                }
+            },
+            _ => {},
+        }
+    }
+    return result;
+}
+
+// The public surface of `lib`: its own `pub` declarations plus the flattened
+// public surfaces of its `pub import`s.
+pub fn public_surface_of(_ lib: LibrarySource) -> LibraryNamespace {
+    let names: Set<String> = Set.new();
+    let collisions: Set<String> = Set.new();
+    let visited: Set<String> = Set.new();
+    collect_surface(lib, names, collisions, visited);
+    return LibraryNamespace { names: names, collisions: collisions };
+}
+
+// Cycle detection keys on the program's `file_path` (Hawk has no object identity).
+fn collect_surface(_ source: LibrarySource, _ names: Set<String>, _ collisions: Set<String>,
+    _ visited: Set<String>) -> Void {
+    let key = match source.program.file_path {
+        Some(p) => p,
+        None => '',
+    };
+    if visited.has(key) {
+        return;
+    }
+    visited.add(key);
+    for decl in source.program.decls {
+        match public_name(decl) {
+            Some(name) => {
+                if names.has(name) {
+                    collisions.add(name);
+                } else {
+                    names.add(name);
+                }
+            },
+            None => {},
+        }
+    }
+    for decl in source.program.decls {
+        match decl {
+            Import(x) => {
+                if x.is_pub {
+                    match source.imports.get(x.path) {
+                        Some(child) => { collect_surface(child, names, collisions, visited); },
+                        None => {},
+                    }
+                }
+            },
+            _ => {},
+        }
+    }
+}
+
+// The namespace an import binds: its explicit alias, or the trailing segment of
+// its path (`std.fs` -> `fs`, `util/strings` -> `strings`).
+fn namespace_of(_ decl: ImportDecl) -> String {
+    return match decl.alias {
+        Some(a) => a,
+        None => path_last_segment(path_last_segment(decl.path, '/'), '.'),
+    };
+}
+
+// The public top-level name a declaration contributes, or None when private or
+// nameless (impl blocks, imports).
+fn public_name(_ decl: Decl) -> Option<String> {
+    return match decl {
+        Fn(x) => if x.is_pub { Option.Some(x.name) } else { Option.None },
+        Type(x) => if x.is_pub { Option.Some(x.name) } else { Option.None },
+        Enum(x) => if x.is_pub { Option.Some(x.name) } else { Option.None },
+        Const(x) => if x.is_pub { Option.Some(x.name) } else { Option.None },
+        Interface(x) => if x.is_pub { Option.Some(x.name) } else { Option.None },
+        Impl(_) => Option.None,
+        Import(_) => Option.None,
+    };
+}
+
+// --- path / fs helpers ---
+
+fn is_file(_ path: String) -> Bool {
+    return match fs.metadata(path) {
+        Ok(m) => m.kind == fs.FileKind.File,
+        Err(_) => false,
+    };
+}
+
+fn is_dir(_ path: String) -> Bool {
+    return match fs.metadata(path) {
+        Ok(m) => m.kind == fs.FileKind.Dir,
+        Err(_) => false,
+    };
+}
+
+// The directory portion of `path` — everything before the last `/`.
+fn path_dirname(_ path: String) -> String {
+    let parts = path.split('/');
+    if parts.len() <= 1 {
+        return '';
+    }
+    let dir_parts: List<String> = [];
+    let mut i = 0;
+    while i < parts.len() - 1 {
+        dir_parts.push(parts[i]);
+        i = i + 1;
+    }
+    return dir_parts.join('/');
+}
+
+// The last `sep`-separated segment of `s` (`a/b/c` with `/` -> `c`).
+fn path_last_segment(_ s: String, _ sep: String) -> String {
+    let parts = s.split(sep);
+    return parts[parts.len() - 1];
+}

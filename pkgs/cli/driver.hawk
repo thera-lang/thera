@@ -17,6 +17,7 @@ import 'parser/parser';
 import 'checker/checker';
 import 'codegen/codegen';
 import 'bytecode/encoder';
+import 'loader';
 
 // A uniform diagnostic across the phases (each phase's error type is structurally
 // a message + a span; this is the common currency the CLI prints).
@@ -62,6 +63,52 @@ pub fn compile_source(_ source: String) -> CompileOutcome {
         return failed(check_diagnostics(checked.errors));
     }
     let cg = compile_program(parsed.program, [], {});
+    if cg.errors.len() > 0 {
+        return failed(codegen_diagnostics(cg.errors));
+    }
+    return CompileOutcome {
+        diagnostics: [],
+        bytes: Option.Some(encode_module(cg.module)),
+    };
+}
+
+// Type-check `source` (located at `path`) with its full import closure resolved
+// from `sdk_root` (`std.core` auto-loaded, `import`s linked). The loader-backed
+// counterpart to `check_source` — this is what the CLI uses on a real file.
+pub fn check_source_at(_ source: String, _ path: String, _ sdk_root: Option<String>) -> List<Diagnostic> {
+    let lex = tokenize(source);
+    if lex.errors.len() > 0 {
+        return lex_diagnostics(lex.errors);
+    }
+    let parsed = parse(lex.tokens);
+    if parsed.errors.len() > 0 {
+        return parse_diagnostics(parsed.errors);
+    }
+    let program = parsed.program;
+    program.file_path = Option.Some(path);
+    let loaded = load_imports(path, program, sdk_root);
+    return check_diagnostics(check(program, loaded.programs, loaded.namespaces).errors);
+}
+
+// Compile `source` (located at `path`) to `.hawkbc` bytes with its import closure
+// linked in — the loader-backed counterpart to `compile_source`.
+pub fn compile_source_at(_ source: String, _ path: String, _ sdk_root: Option<String>) -> CompileOutcome {
+    let lex = tokenize(source);
+    if lex.errors.len() > 0 {
+        return failed(lex_diagnostics(lex.errors));
+    }
+    let parsed = parse(lex.tokens);
+    if parsed.errors.len() > 0 {
+        return failed(parse_diagnostics(parsed.errors));
+    }
+    let program = parsed.program;
+    program.file_path = Option.Some(path);
+    let loaded = load_imports(path, program, sdk_root);
+    let checked = check(program, loaded.programs, loaded.namespaces);
+    if checked.errors.len() > 0 {
+        return failed(check_diagnostics(checked.errors));
+    }
+    let cg = compile_program(program, loaded.programs, loaded.namespaces);
     if cg.errors.len() > 0 {
         return failed(codegen_diagnostics(cg.errors));
     }

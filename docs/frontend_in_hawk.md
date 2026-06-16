@@ -295,17 +295,19 @@ This makes the port incremental and continuously checkable, not a big-bang.
    time (from the bidirectional `expected`) and seeded into the lifted unit's
    `type_scope`, since a lifted lambda compiles as its own unit with no annotated
    tree to read.
-7. **`driver.hawk` — in progress (Slice 1 done).** `pkgs/cli/driver.hawk` wires
-   the phases into the source→bytecode pipeline (`check_source` →
-   diagnostics; `compile_source` → `.hawkbc` bytes, each phase short-circuiting
-   on errors), and `main.hawk` drives `check`/`emit` over `std.fs` on the
-   `std.cli` Command app. The Hawk-written CLI, run via the Dart bootstrap
-   (`hawk run pkgs/cli/main.hawk emit <file> <out>`), emits **byte-identical**
-   `.hawkbc` for a self-contained program — and the runtime executes it. Slice 1
-   compiles *core-free* programs (`imports: []`); the **import-closure loader**
-   (`std.core` auto-load + `import` resolution + namespace barrels + file-system
-   seam) is the next slice, after which the front-end self-compiles its own
-   multi-file sources.
+7. **`driver.hawk` + `loader.hawk` — done.** `pkgs/cli/driver.hawk` wires the
+   phases into the source→bytecode pipeline (`check_source`/`check_source_at` →
+   diagnostics; `compile_source`/`compile_source_at` → `.hawkbc` bytes, each phase
+   short-circuiting on errors); `pkgs/cli/loader.hawk` ports the import-closure
+   loader (`std.core` auto-load, `std.x` / relative resolution, directory barrels,
+   namespace surfaces, SDK-root discovery via `HAWK_SDK` or a cwd walk-up) over
+   `std.fs`/`std.env`; `main.hawk` drives `check`/`emit` on the `std.cli` app. The
+   Hawk-written CLI, run via the Dart bootstrap
+   (`hawk run pkgs/cli/main.hawk emit <file> <out>`), now compiles a **std-using**
+   program — its `.hawkbc` is **byte-identical** to the Dart oracle (2141 bytes for
+   a `println`/list/`for`/interpolation program), and the runtime executes it.
+   This is the self-hosting validation: the Hawk front-end resolving the prelude
+   and emitting oracle-matching bytecode the runtime runs.
 
 #### Findings from the ported chunks
 
@@ -430,6 +432,20 @@ The `checker/` chunk added:
   `if` rule — a trailing `;` on a value-position `if`, none on a
   statement-position one. A 17-test suite (incl. a rich-generics false-positive
   guard) pins counts + messages.
+
+The `driver/` + `loader/` chunk surfaced one structural finding:
+
+- **Top-level names are global — private helpers collide across co-loaded files.**
+  Codegen's function table is flat-by-bare-name (`functionIndex[decl.name]`), and
+  the checker only arity-checks *free-function* call sites, so two files that each
+  define a private `fn last_segment(…)` with different arities link to one unit and
+  a call resolves to the wrong one — surfacing only at codegen as a "missing
+  argument" (it slips past `check`). Hit twice porting the loader (`last_segment`
+  vs the resolver's, `dirname` vs `std.path`'s); worked around by renaming. The
+  real fix is file-scoped private units (mangled names) — a module-system gap to
+  close before the front-end can self-compile its *whole* multi-file tree (the
+  loader currently runs against the **Dart**-compiled `main.hawk`, which has the
+  same flat table, so the constraint is shared, not Hawk-specific).
 
 Language wrinkles (one resolved, one tracked):
 

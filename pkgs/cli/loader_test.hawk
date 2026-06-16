@@ -1,0 +1,74 @@
+// Tests for the loader's namespace layer (the public-surface / barrel logic),
+// exercised on hand-built `LibrarySource`s so they need no file system. The
+// file-resolution + import-closure walk is covered end-to-end by the driver
+// (the Hawk CLI emits byte-identical `.hawkbc` for a std-using program).
+
+import std.testing;
+
+import 'lexer/lexer';
+import 'parser/parser';
+import 'loader';
+
+// Parse `src`, stamping a distinct `path` as its `file_path` — the loader keys
+// re-export-cycle detection on `file_path` (Hawk has no object identity), which
+// `parse_file_or_null` sets for every real file.
+fn prog_of(_ src: String, _ path: String) -> Program {
+    let prog = parse(tokenize(src).tokens).program;
+    prog.file_path = Option.Some(path);
+    return prog;
+}
+
+@test
+fn test_public_surface_collects_only_pub_decls() -> Result<Void, Error> {
+    let prog = prog_of('pub fn a() { }\n'
+        + 'fn b() { }\n'
+        + 'pub type T = { x: Int }\n'
+        + 'pub const C: Int = 1;\n'
+        + 'const D: Int = 2;', 'lib.hawk');
+    let surface = public_surface_of(LibrarySource { program: prog, imports: {} });
+    testing.assert(surface.names.has('a'), message: 'pub fn a is exposed')?;
+    testing.assert(!surface.names.has('b'), message: 'private fn b is hidden')?;
+    testing.assert(surface.names.has('T'), message: 'pub type T is exposed')?;
+    testing.assert(surface.names.has('C'), message: 'pub const C is exposed')?;
+    testing.assert(!surface.names.has('D'), message: 'private const D is hidden')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_namespaces_for_binds_import_to_surface() -> Result<Void, Error> {
+    let child = LibrarySource {
+        program: prog_of('pub fn helper() { }\nfn secret() { }', 'util.hawk'),
+        imports: {},
+    };
+    let main_src = LibrarySource {
+        program: prog_of('import \'util\';\nfn main() { }', 'main.hawk'),
+        imports: {},
+    };
+    main_src.imports['util'] = child;
+    match namespaces_for(main_src).get('util') {
+        Some(surface) => {
+            testing.assert(surface.names.has('helper'), message: 'util exposes helper')?;
+            testing.assert(!surface.names.has('secret'), message: 'util hides secret')?;
+        },
+        None => {
+            testing.assert(false, message: 'expected a util namespace')?;
+        },
+    }
+    return Result.Ok(void);
+}
+
+@test
+fn test_pub_import_reexports_through_barrel() -> Result<Void, Error> {
+    // A barrel: `pub import 'inner'` re-exports inner's public surface alongside
+    // the barrel's own public declarations.
+    let inner = LibrarySource { program: prog_of('pub fn deep() { }', 'inner.hawk'), imports: {} };
+    let barrel = LibrarySource {
+        program: prog_of('pub import \'inner\';\npub fn own() { }', 'barrel.hawk'),
+        imports: {},
+    };
+    barrel.imports['inner'] = inner;
+    let surface = public_surface_of(barrel);
+    testing.assert(surface.names.has('own'), message: 'barrel exposes its own fn')?;
+    testing.assert(surface.names.has('deep'), message: 're-exports inner deep fn')?;
+    return Result.Ok(void);
+}
