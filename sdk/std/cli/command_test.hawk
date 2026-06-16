@@ -146,3 +146,22 @@ fn test_help_text() -> Result<Void, Error> {
     testing.assert(text.contains('--help, -h'), message: 'auto help flag')?;
     return Result.Ok(void);
 }
+
+@test
+fn test_trailing_var_arg() -> Result<Void, Error> {
+    let cmd = Command.new('run')
+        .positional('file')
+        .trailing_var_arg(true);
+
+    // The first positional and everything after it (flags included) are captured
+    // verbatim — no `--` separator, no "unknown flag" error.
+    let m = testing.assert_ok(cmd.parse(['foo.hawk', '--bar', '--baz=qux', '-v']))?;
+    testing.assert_eq(actual: m.positionals(),
+        expected: ['foo.hawk', '--bar', '--baz=qux', '-v'])?;
+
+    // The command's own flags still parse when they precede the first positional.
+    let m2 = testing.assert_ok(cmd.parse(['--help', 'foo.hawk', '--bar']))?;
+    testing.assert_eq(actual: m2.flag('help'), expected: true)?;
+    testing.assert_eq(actual: m2.positionals(), expected: ['foo.hawk', '--bar'])?;
+    return Result.Ok(void);
+}

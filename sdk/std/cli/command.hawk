@@ -80,6 +80,10 @@ pub type Command = {
     options: List<Opt>,
     positionals: List<Positional>,
     subcommands: List<Command>,
+    // When true, the first positional token (and everything after it, flags
+    // included) is captured verbatim as positionals — for a launcher command
+    // that forwards a trailing argv to a wrapped program (`run <file> [args]`).
+    trailing_var_arg: Bool,
 }
 
 // What `parse` can reject. Implements the common `Error` interface, so a
@@ -131,6 +135,7 @@ impl Command {
             options: [],
             positionals: [],
             subcommands: [],
+            trailing_var_arg: false,
         };
         c.flags.push(Flag {
             name: 'help',
@@ -178,6 +183,17 @@ impl Command {
     // Declare a positional argument (named only for `--help`).
     pub fn positional(self, _ name: String, help: String = '') -> Command {
         self.positionals.push(Positional { name: name, help: help });
+        return self;
+    }
+
+    // Capture a trailing argv verbatim: once the first positional token is seen,
+    // it and every token after it (including `--flag` / `-x` forms) are collected
+    // as positionals with no further parsing. For a launcher that forwards args to
+    // a wrapped program — `hawk run <file> --flag` passes `--flag` to `<file>`,
+    // no `--` separator needed. The command's own flags must precede the first
+    // positional.
+    pub fn trailing_var_arg(self, _ enabled: Bool) -> Command {
+        self.trailing_var_arg = enabled;
         return self;
     }
 
@@ -295,6 +311,15 @@ impl Command {
                 } else {
                     return Result.Err(CliError.UnknownSubcommand(t));
                 }
+            } else if self.trailing_var_arg {
+                // First positional in a launcher command: this token and the rest
+                // of argv (flags included) belong to the wrapped program — capture
+                // verbatim and stop parsing.
+                while i < args.len() {
+                    m.positional_values.push(args[i]);
+                    i = i + 1;
+                }
+                step = 0;
             } else {
                 m.positional_values.push(t);
             }
