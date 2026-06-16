@@ -19,11 +19,16 @@ class Inferrer {
   /// type `T` resolve against `T`'s interface bound. Set per [_inferFn].
   Map<String, List<String>> _typeParamBounds = const {};
 
+  /// The file of the program being inferred — the scope a bare free-function
+  /// reference resolves against (same-file-first). Set per [inferProgram].
+  String? _currentFile;
+
   Inferrer(this.library) : _resolver = TypeResolver(library.typeDefs);
 
   // --- entry points ---
 
   void inferProgram(Program program) {
+    _currentFile = program.filePath;
     for (final decl in program.decls) {
       switch (decl) {
         case FnDecl():
@@ -379,7 +384,7 @@ class Inferrer {
       // A function-typed local/parameter called directly: `f(x)`.
       final local = scope[callee.name];
       if (local is FunctionType) return local.returnType;
-      final fn = library.functions[callee.name];
+      final fn = library.functionFor(_currentFile, callee.name);
       if (fn != null) return _instantiateReturn(fn, argTypes);
       return const UnknownType();
     }
@@ -477,7 +482,7 @@ class Inferrer {
     final bindings = <String, Type>{};
 
     if (callee is IdentExpr) {
-      final fn = library.functions[callee.name];
+      final fn = library.functionFor(_currentFile, callee.name);
       if (fn != null) {
         params = fn.parameters;
       } else {

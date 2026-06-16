@@ -200,6 +200,18 @@ class LibraryElement {
   final Map<String, FunctionElement> functions;
   final Map<String, ConstElement> consts;
 
+  /// Per-file free functions (declaring file -> name -> element), so a bare
+  /// function reference resolves **same-file-first** — a private helper resolves
+  /// to its own file's definition even when another co-loaded file declares a
+  /// same-named one. [functions] above is the cross-file fallback (last-wins).
+  /// Mirrors codegen's `_fileFunctions`/`_globalFunctions`.
+  final Map<String?, Map<String, FunctionElement>> fileFunctions;
+
+  /// Resolve free function [name] referenced from [file]: the file's own
+  /// function if it has one, else the cross-file fallback.
+  FunctionElement? functionFor(String? file, String name) =>
+      fileFunctions[file]?[name] ?? functions[name];
+
   /// Module aliases brought in by `import std.x` (the value side, e.g. `fs`).
   final Set<String> modules;
 
@@ -214,6 +226,7 @@ class LibraryElement {
     required this.functions,
     required this.consts,
     required this.modules,
+    this.fileFunctions = const {},
     this.namespaces = const {},
   });
 }

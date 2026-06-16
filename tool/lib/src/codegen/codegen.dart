@@ -87,12 +87,13 @@ Module compileProgram(Program program,
 
 /// Register one module's declarations into the shared [scope].
 void _registerModule(_ModuleScope scope, Program program) {
+  final file = program.filePath;
   for (final decl in program.decls) {
     switch (decl) {
       case FnDecl() when decl.isNative:
         scope.addNative(decl);
       case FnDecl():
-        scope.addFunction(decl);
+        scope.addFunction(decl, file);
       case TypeDecl():
         scope.addStruct(decl);
       case EnumDecl():
@@ -112,7 +113,7 @@ void _registerModule(_ModuleScope scope, Program program) {
           } else if (method.isNative) {
             scope.addNativeInstanceMethod(decl.typeName, method);
           } else if (method.body != null) {
-            scope.addMethod(decl.typeName, method);
+            scope.addMethod(decl.typeName, method, file);
           }
           // Each non-native interface-method impl gets a dispatch-table row so
           // `call.virtual` can reach it from an interface-typed receiver.
@@ -179,7 +180,31 @@ class _ModuleScope {
   final List<FnDecl> units = []; // index -> declaration
   final List<String> unitNames = []; // index -> mangled name (e.g. Point.area)
   final List<String?> unitSelfTypes = []; // index -> receiver type, if a method
-  final Map<String, int> functionIndex = {}; // bare name -> unit index
+  final List<String?> unitFiles =
+      []; // index -> declaring file (for name scoping)
+
+  // Free functions resolve **same-file-first**: a per-file table holds each
+  // file's own top-level functions, with a cross-file table (every function,
+  // last-wins — the historical flat index) as the fallback. So a private helper
+  // resolves to its *own* file's definition even when another file declares a
+  // same-named helper — the collision that blocks linking the front-end's own
+  // modules — while bare cross-file/prelude references still resolve through the
+  // fallback. (This fixes the name *collision*; it does not yet *enforce*
+  // visibility — a private remains reachable cross-file via the fallback. Real
+  // per-namespace resolution + private enforcement is a later step; see
+  // docs/frontend_in_hawk.md.)
+  final Map<String?, Map<String, int>> _fileFunctions = {};
+  final Map<String, int> _globalFunctions = {};
+
+  /// The unit index of free function [name] referenced from [file] — the file's
+  /// own function if it has one, else the cross-file fallback.
+  int? resolveFunction(String? file, String name) =>
+      _fileFunctions[file]?[name] ?? _globalFunctions[name];
+
+  /// The unit index of a namespace-qualified (`ns.fn(...)`) free function — the
+  /// cross-file surface (a flat lookup, as today).
+  int? resolveGlobalFunction(String name) => _globalFunctions[name];
+
   final Map<String, Map<String, int>> methodTable = {}; // type -> method -> idx
   final Map<String, _StructInfo> structs = {};
   final Map<String, _EnumInfo> enums = {};
@@ -303,9 +328,11 @@ class _ModuleScope {
     enums[decl.name] = _EnumInfo(ty, decl.variants);
   }
 
-  void addFunction(FnDecl decl) {
-    functionIndex[decl.name] = units.length;
-    _addUnit(decl, decl.name, null);
+  void addFunction(FnDecl decl, String? file) {
+    final index = units.length;
+    (_fileFunctions[file] ??= {})[decl.name] = index;
+    _globalFunctions[decl.name] = index;
+    _addUnit(decl, decl.name, null, file);
   }
 
   /// Register a top-level `native fn`: its name binds to the runtime native
@@ -333,16 +360,17 @@ class _ModuleScope {
     interfaceImpls.putIfAbsent(type, () => {}).add(interfaceName);
   }
 
-  void addMethod(String type, FnDecl method) {
+  void addMethod(String type, FnDecl method, String? file) {
     final selfType = method.params.any((p) => p.isSelf) ? type : null;
     methodTable.putIfAbsent(type, () => {})[method.name] = units.length;
-    _addUnit(method, '$type.${method.name}', selfType);
+    _addUnit(method, '$type.${method.name}', selfType, file);
   }
 
-  void _addUnit(FnDecl decl, String name, String? selfType) {
+  void _addUnit(FnDecl decl, String name, String? selfType, String? file) {
     units.add(decl);
     unitNames.add(name);
     unitSelfTypes.add(selfType);
+    unitFiles.add(file);
   }
 
   /// Register a lifted lambda as a synthetic top-level unit and return its
@@ -351,9 +379,9 @@ class _ModuleScope {
   /// still compiled). [boxedParams] names the leading (capture) parameters that
   /// hold a boxed cell rather than a plain value, so the lifted function reads
   /// and writes them through the cell.
-  int addLambda(FnDecl decl, Set<String> boxedParams) {
+  int addLambda(FnDecl decl, Set<String> boxedParams, String? file) {
     final index = units.length;
-    _addUnit(decl, '__lambda_$index', null);
+    _addUnit(decl, '__lambda_$index', null, file);
     if (boxedParams.isNotEmpty) this.boxedParams[index] = boxedParams;
     return index;
   }
@@ -377,8 +405,11 @@ class _ModuleScope {
 /// Compiles one function: tracks local slots and emits its instruction stream.
 class _FnCompiler {
   final _ModuleScope _scope;
-  Map<String, int> get functionIndex => _scope.functionIndex;
   Map<String, Map<String, int>> get _methods => _scope.methodTable;
+
+  /// The file this unit was declared in — the scope a bare free-function
+  /// reference resolves against (so a private helper resolves same-file-first).
+  String? _file;
 
   /// Whether [type] explicitly implements [interfaceName] (an `impl Interface
   /// for Type` block), and the unit index of [type]'s `[interfaceName]` method.
@@ -479,6 +510,7 @@ class _FnCompiler {
   /// Compile the unit at [index] in the module scope.
   FuncDef compile(int index) {
     final fn = _units[index];
+    _file = _scope.unitFiles[index];
     _returnsResult = _typeRefName(fn.returnType) == 'Result';
     // This unit's generic parameters and their bounds, so a method call on a
     // value of type `T` (erased) can dispatch through `T`'s interface bound.
@@ -928,7 +960,8 @@ class _FnCompiler {
         if (_boxedLocals.contains(name)) name,
     };
     final lifted = _liftLambda(expr, captures);
-    final index = _scope.addLambda(lifted, boxedCaptures);
+    // The lifted unit resolves bare names in the enclosing unit's file.
+    final index = _scope.addLambda(lifted, boxedCaptures, _file);
     // Push the captured values (in capture order), then bundle the closure. A
     // boxed capture pushes the cell itself (Load, no field.get) so it's shared.
     for (final name in captures) {
@@ -1900,7 +1933,7 @@ class _FnCompiler {
       return;
     }
 
-    final fnIndex = functionIndex[name];
+    final fnIndex = _scope.resolveFunction(_file, name);
     if (fnIndex != null) {
       final ordered =
           _resolveArgs(_units[fnIndex].params, expr.args, expr.span);
@@ -1984,10 +2017,10 @@ class _FnCompiler {
     }
 
     // Namespace-qualified free function: `ns.fn(...)` → a direct call (the
-    // imported function is a unit in the flat table).
+    // imported function is a unit in the cross-file table).
     if (callee.object is IdentExpr &&
         _isNamespace((callee.object as IdentExpr).name)) {
-      final fnIdx = functionIndex[callee.field];
+      final fnIdx = _scope.resolveGlobalFunction(callee.field);
       if (fnIdx != null) {
         final ordered =
             _resolveArgs(_units[fnIdx].params, expr.args, expr.span);

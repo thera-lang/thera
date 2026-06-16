@@ -44,6 +44,10 @@ class TypeChecker {
   late LibraryElement _library;
   late TypeResolver _resolver;
 
+  /// The primary program's file — the scope a bare free-function reference
+  /// resolves against (same-file-first).
+  String? _file;
+
   LibraryElement get library => _library;
   TypeResolver get resolver => _resolver;
 
@@ -62,6 +66,7 @@ class TypeChecker {
     _library =
         buildLibrary(program, imports: _importPrograms, namespaces: namespaces);
     _resolver = TypeResolver(_library.typeDefs);
+    _file = program.filePath;
     Inferrer(_library).inferProgram(program);
 
     _checkProgram(program);
@@ -391,7 +396,7 @@ class TypeChecker {
           _checkExpr(a.value, scope);
         }
         if (callee is IdentExpr) {
-          final fn = _library.functions[callee.name];
+          final fn = _library.functionFor(_file, callee.name);
           if (fn != null) _checkCallArgs(fn, args, span);
         }
 

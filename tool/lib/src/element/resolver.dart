@@ -98,6 +98,7 @@ LibraryElement buildLibrary(
 }) {
   final typeDefs = builtinTypeDefs();
   final functions = <String, FunctionElement>{};
+  final fileFunctions = <String?, Map<String, FunctionElement>>{};
   final consts = <String, ConstElement>{};
   final modules = <String>{};
 
@@ -150,7 +151,9 @@ LibraryElement buildLibrary(
             ));
           }
         case FnDecl():
-          functions[decl.name] = _functionElement(resolver, decl);
+          final element = _functionElement(resolver, decl);
+          functions[decl.name] = element;
+          (fileFunctions[p.filePath] ??= {})[decl.name] = element;
         case ConstDecl():
           consts[decl.name] =
               ConstElement(decl.name, resolver.resolve(decl.type));
@@ -203,6 +206,7 @@ LibraryElement buildLibrary(
   return LibraryElement(
     typeDefs: typeDefs,
     functions: functions,
+    fileFunctions: fileFunctions,
     consts: consts,
     modules: modules,
     namespaces: namespaces,
