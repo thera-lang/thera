@@ -455,6 +455,17 @@ Notes: no mutexes/atomics — single-threaded means no data races
 ([language.md](language.md) §Concurrency). `select` over channels is a candidate
 addition.
 
+**Fibers gate the IO-heavy libraries.** The "concurrency is invisible" principle
+(§ Cross-cutting #5) — blocking I/O parks the fiber instead of the thread — only
+becomes real once the scheduler lands, so `std.http` and any other library that
+wants concurrent, blocking-looking I/O depends on `std.fiber` first; the two
+should be sequenced together (see § Sequencing). And because the fiber API is
+load-bearing for that whole tier, its design should be driven by **iterative
+feedback from real IO use cases** (a concurrent HTTP fetch, a server accept loop,
+piping between processes) rather than fixed up front — prototype against those
+clients and let them shape `spawn`/`join`/channels (and whether `select` is
+needed) before freezing the surface.
+
 ### `std.math` — numeric functions _(implemented)_
 
 Hawk has no function overloading and no implicit `Int`→`Double` coercion, so the
@@ -574,6 +585,17 @@ return `Json` (Null on miss) rather than `Option`, so navigation chains —
 These three coexist: a named type → reflection; an ad-hoc inline blob →
 auto-boxing; the constructors are the explicit fallback under both.
 
+**The struct story is a planned priority, not just research.** Today the only
+JSON↔struct path is hand-mapping through the `Json` enum (`as_*` on the way in,
+constructors on the way out) — the most common real task (decode a response into
+a typed struct, serialize a struct to a request body) is the most boilerplate.
+Typed `encode<T>`/`decode<T>` (layer 3) is the committed direction for closing
+that gap; **decode is the higher-value half** (typed parsing with
+`Type`/`Missing` errors) and the harder one. It's gated on the generics strategy
+(monomorphized compile-time reflection vs. today's dynamic dispatch), so it's a
+deliberate arc — but the goal is explicit: a Hawk struct should round-trip to
+JSON without manual wrapping. See § Sequencing #5.
+
 **YAML/TOML/CSV are ecosystem** — this is where an agent looks first and finds
 the pointer.
 
@@ -603,8 +625,14 @@ crypto (signing, TLS primitives, AEAD) is ecosystem.
 
 ### `std.http` — HTTP client _(new)_
 
-Purpose: make HTTP requests. **Client only** in core; a server and raw sockets
-are ecosystem.
+Purpose: make HTTP requests. **Client first** in core; raw sockets stay
+ecosystem. A **simple HTTP server** is under consideration for core — either in
+`std.http` or a sibling `std.http.server` — because lightweight servers
+(webhooks, a local endpoint, a health check) are common enough in agent/CLI
+tooling to be worth a built-in answer; full server *frameworks* (routing DSLs,
+middleware stacks) stay ecosystem. Both client and server depend on `std.fiber`
+for concurrent, blocking-looking I/O (see § `std.fiber` and § Sequencing), so
+this lands after the scheduler.
 
 ```
 pub type Request = { method: String, url: String,
@@ -806,6 +834,10 @@ structural `debug`. Self-tested in `testing_test.hawk`. Because `Error` extends
 So the boundary is explicit (and so an agent knows where to look):
 
 - **Other config formats** — YAML, TOML, CSV → ecosystem (JSON is core).
+  Deferred deliberately, but **revisit with usage feedback**: TOML in particular
+  is common enough for CLI/tool config that it's the first candidate to promote
+  into core if real use cases pile up. Pivot when the demand is demonstrated, not
+  speculatively.
 - **HTTP server, raw TCP/UDP sockets** → ecosystem (HTTP client is core).
 - **Databases / SQLite** → ecosystem.
 - **Full cryptography / TLS primitives, signing** → ecosystem (digests +
@@ -899,7 +931,13 @@ dependency graph, so future work lands in the right order:
 6. **Runtime natives.** New runtime support is needed for `std.time` (clocks),
    `std.random` (entropy), `std.http` (sockets + TLS), `std.hash`, and
    `std.fiber` (the scheduler). These are independent of the front-end arcs and
-   can proceed in parallel.
+   can proceed in parallel — **except** that the **IO-heavy libraries depend on
+   `std.fiber`**: `std.http` (client and the candidate server) wants
+   concurrent, blocking-looking I/O, which is only "invisible" once the
+   scheduler parks fibers (principle #5). So sequence `std.fiber` **before**
+   `std.http`, and let real IO clients (a concurrent fetch, a server accept loop)
+   drive the fiber API's design rather than fixing it up front (see
+   § `std.fiber`).
 
 7. **Visibility enforcement** ([visibility.md](visibility.md)). Some modules
    (e.g. `std.process`) have native bindings that should be module-private;
