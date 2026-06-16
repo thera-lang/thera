@@ -14,29 +14,62 @@ use crate::value::{Obj, TAG_SOME, TY_OPTION, Value};
 /// A native function: receives the VM's output sink and the call arguments.
 pub type NativeFn = fn(out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap>;
 
-// Indices into the native table. These must match the order of [`NATIVES`]
-// (guarded by a test). They name the runtime's *in-memory* dispatch index;
-// persisted bytecode references natives by name and resolves to these on load.
-pub const NATIVE_PRINTLN: u32 = 0;
-pub const NATIVE_PRINT: u32 = 1;
-pub const NATIVE_STRINGIFY: u32 = 2;
-pub const NATIVE_STR_CONCAT: u32 = 3;
-pub const NATIVE_LIST_INDEX: u32 = 4;
-pub const NATIVE_LIST_GET: u32 = 5;
-pub const NATIVE_LIST_LEN: u32 = 6;
-pub const NATIVE_LIST_SET: u32 = 7;
-pub const NATIVE_MAP_NEW: u32 = 8;
-pub const NATIVE_MAP_INDEX: u32 = 9;
-pub const NATIVE_MAP_GET: u32 = 10;
-pub const NATIVE_MAP_LEN: u32 = 11;
-pub const NATIVE_MAP_HAS: u32 = 12;
-pub const NATIVE_MAP_SET: u32 = 13;
-pub const NATIVE_SET_NEW: u32 = 14;
-pub const NATIVE_SET_LEN: u32 = 15;
-pub const NATIVE_SET_HAS: u32 = 16;
-pub const NATIVE_SET_ADD: u32 = 17;
-pub const NATIVE_SET_REMOVE: u32 = 18;
-pub const NATIVE_EQ: u32 = 19;
+// Named dispatch indices for the natives that Rust-side bytecode construction
+// (the builders, codec, and demo) references by index. They *derive* from
+// [`NATIVES`] via [`native_idx`], so the table is the single source of truth:
+// reorder or insert anywhere and these follow automatically (a wrong name fails
+// the build). The index is the runtime's *in-memory* dispatch slot; persisted
+// bytecode references natives by name and resolves to it on load.
+pub const NATIVE_PRINTLN: u32 = native_idx("println");
+pub const NATIVE_PRINT: u32 = native_idx("print");
+pub const NATIVE_STRINGIFY: u32 = native_idx("stringify");
+pub const NATIVE_STR_CONCAT: u32 = native_idx("str_concat");
+pub const NATIVE_LIST_INDEX: u32 = native_idx("list_index");
+pub const NATIVE_LIST_GET: u32 = native_idx("list_get");
+pub const NATIVE_LIST_LEN: u32 = native_idx("list_len");
+pub const NATIVE_LIST_SET: u32 = native_idx("list_set");
+pub const NATIVE_MAP_NEW: u32 = native_idx("map_new");
+pub const NATIVE_MAP_INDEX: u32 = native_idx("map_index");
+pub const NATIVE_MAP_GET: u32 = native_idx("map_get");
+pub const NATIVE_MAP_LEN: u32 = native_idx("map_len");
+pub const NATIVE_MAP_HAS: u32 = native_idx("map_has");
+pub const NATIVE_MAP_SET: u32 = native_idx("map_set");
+pub const NATIVE_SET_NEW: u32 = native_idx("set_new");
+pub const NATIVE_SET_LEN: u32 = native_idx("set_len");
+pub const NATIVE_SET_HAS: u32 = native_idx("set_has");
+pub const NATIVE_SET_ADD: u32 = native_idx("set_add");
+pub const NATIVE_SET_REMOVE: u32 = native_idx("set_remove");
+pub const NATIVE_EQ: u32 = native_idx("eq");
+
+/// The index of the native named `name` in [`NATIVES`], evaluated at compile
+/// time so the `NATIVE_*` constants stay in sync with the table for free.
+/// Panics (a build error) if `name` is not a registered native.
+const fn native_idx(name: &str) -> u32 {
+    let mut i = 0;
+    while i < NATIVES.len() {
+        if const_str_eq(NATIVES[i].0, name) {
+            return i as u32;
+        }
+        i += 1;
+    }
+    panic!("native_idx: unknown native name");
+}
+
+/// `&str` equality usable in a `const fn`.
+const fn const_str_eq(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < a.len() {
+        if a[i] != b[i] {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
 
 /// The canonical native table: the name each native is bound by, paired with
 /// its implementation, in index order. Names are the stable identity used by
