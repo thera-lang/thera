@@ -1501,9 +1501,100 @@ impl FnCompiler {
             None => {},
         }
 
-        // 7–8: dynamic dispatch / user methods / function-valued fields — the
-        // next section.
-        self.error('method-call dispatch not yet ported', x.span);
+        // 7. Dynamic dispatch: the receiver is interface-typed (`x: Display`) or
+        // a generic parameter bound by an interface. The concrete type isn't
+        // known here, so dispatch on the runtime type id.
+        let recv_type_name = self.type_of(obj);
+        match self.dispatch_interfaces(recv_type_name) {
+            Some(ifaces) => {
+                let mut declares = false;
+                for i in ifaces {
+                    match self.scope.interface_methods.get(i) {
+                        Some(s) => {
+                            if s.has(field) {
+                                declares = true;
+                            }
+                        },
+                        None => {},
+                    }
+                }
+                if !declares {
+                    self.error('no method "${field}" on ${recv_type_name.unwrap_or('unknown type')}', x.span);
+                    return;
+                }
+                self.expr(obj);
+                for arg in x.args {
+                    self.expr(arg.value);
+                }
+                self.emit(Instr.CallVirtual(field, x.args.len() + 1));
+                return;
+            },
+            None => {},
+        }
+
+        // 8. A user method (instance or static), else a function-valued field
+        // invoked like a method.
+        match self.resolve_method(obj, field) {
+            Some(idx) => {
+                let is_static = match self.scope.unit_self_types[idx] {
+                    Some(_) => false,
+                    None => true,
+                };
+                if !is_static {
+                    self.expr(obj); // self → local slot 0 of the callee
+                }
+                let ordered = self.resolve_args(self.scope.units[idx].params, x.args, x.span);
+                for value in ordered {
+                    self.expr(value);
+                }
+                self.emit(Instr.Call(idx, ordered.len() + if is_static { 0 } else { 1 }));
+            },
+            None => {
+                // A function-valued field invoked like a method: `c.now()` where
+                // `now` is a struct field holding a closure (no method by that name).
+                match self.type_of(obj) {
+                    Some(obj_type) => {
+                        match self.scope.structs.get(obj_type) {
+                            Some(struct_info) => {
+                                let fi = field_index_of(struct_info, field);
+                                if fi >= 0 {
+                                    self.expr(obj);
+                                    self.emit(Instr.FieldGet(fi));
+                                    for arg in x.args {
+                                        self.expr(arg.value);
+                                    }
+                                    self.emit(Instr.CallIndirect(x.args.len()));
+                                    return;
+                                };
+                            },
+                            None => {},
+                        }
+                    },
+                    None => {},
+                }
+                self.error('no method "${field}" on ${self.type_of(obj).unwrap_or('unknown type')}', x.span);
+            },
+        }
+    }
+
+    // The unit index of method `name` on receiver `receiver`, or None. A type
+    // name (`Type` or `ns.Type`, not a local) selects a static method; otherwise
+    // the receiver's static type does.
+    fn resolve_method(self, _ receiver: Expr, _ name: String) -> Option<Int> {
+        let ty = match self.static_type_name(receiver) {
+            Some(t) => Option.Some(t),
+            None => self.type_of(receiver),
+        };
+        match ty {
+            Some(t) => {
+                match self.scope.method_table.get(t) {
+                    Some(m) => { return m.get(name); },
+                    None => {},
+                }
+            },
+            None => {},
+        }
+        return Option.None;
     }
 
     // `e.name()` — the variant name, looked up from the enum tag (a tag-check
