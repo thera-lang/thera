@@ -18,12 +18,12 @@ priority. None of these block day-to-day self-hosting; they close the gap to
   stdin/stdout/stderr and returns its exit code; `hawk run`/`test` drive the
   runtime through it, so output streams live and interactive stdin works
   (`process.run` still captures for the programmatic case).
-- **Forward CLI args after `hawk run <file>` to the program.** Today only plain
-  positional args reach the program; dash-flags (`hawk run prog --name x`) are
-  intercepted by `std.cli`'s parser and error out. The Dart CLI separates program
-  args with `--`. Either teach `std.cli` a `--` passthrough (everything after `--`
-  becomes trailing positionals) or give the `run` subcommand a raw-rest capture.
-  *Effort: small, in `std.cli` + `main.hawk`.*
+- **Forward CLI args after `hawk run <file>` to the program — done.** `std.cli`
+  gained a `trailing_var_arg` capability: once a command's first positional is
+  seen, it and everything after (flags included) are captured verbatim. `run` is
+  marked trailing, so `hawk run foo.hawk --bar --baz=qux` forwards
+  `--bar --baz=qux` to the program with no `--` separator (the `run` command's
+  own flags must precede `<file>`).
 - **Translate the LSP command.** `hawk lsp` is still a stub; the Dart
   `lsp/server.dart` (~870 LOC: diagnostics, hover, definition, symbols) is
   unported. This is the largest remaining chunk and the gateway to the horizon-1
