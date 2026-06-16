@@ -35,10 +35,17 @@ priority. None of these block day-to-day self-hosting; they close the gap to
   `documentSymbol` (the outline) — a syntactic walk of the parsed decls into a
   `DocumentSymbol[]` tree (functions/types/consts/enums/interfaces/impls, with
   enum variants and impl/interface methods nested), built from the recovered
-  parse so it works while the file still has errors. **Remaining slices:**
-  `hover`, `definition` (both need a node-at-offset traversal); and overlay-aware
-  imports (honor unsaved edits in imported libs). The gateway to the horizon-1
-  incremental engine (see [frontend_in_hawk.md](frontend_in_hawk.md) §1).
+  parse so it works while the file still has errors. **Slice 3 done:** `hover` —
+  the identifier under the cursor (found from the token stream) resolved to a
+  top-level declaration (in the file or its imports) whose signature is shown as
+  a `hawk` code block. Covers functions/types/enums/interfaces/consts, same-file
+  and cross-file. (Follow-up: hovering a *local*/parameter or an expression to
+  show its *inferred* type needs scope-reconstruction inference at an offset —
+  the Dart version's `resolvedType` path, dropped in the port.) **Remaining
+  slice:** `definition` (reuses the same identifier-at-offset → declaration
+  lookup, returning the decl's location); plus overlay-aware imports (honor
+  unsaved edits in imported libs). The gateway to the horizon-1 incremental
+  engine (see [frontend_in_hawk.md](frontend_in_hawk.md) §1).
 - **`hawk check <dir>` and multi-target — done.** `check` now accepts one or
   more files/directories (directories recurse for `*.hawk`), sums diagnostics
   across them, and exits 0 clean / 1 with diagnostics / 2 on a missing target —

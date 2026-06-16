@@ -1,0 +1,183 @@
+// LSP hover: the identifier under the cursor, resolved to a top-level
+// declaration whose signature is shown. The cursor's identifier is found from
+// the token stream (robust, no AST walk); the name is then looked up among the
+// file's and its imports' declarations.
+//
+// Ported from the Dart `lsp/hover.dart`, scoped to declaration signatures. The
+// Dart version also showed an expression's *inferred* type (via the dropped
+// `resolvedType` annotation); that needs scope-reconstruction inference at an
+// offset and is a follow-up — so hovering a local/parameter that isn't a
+// top-level name yields nothing for now.
+
+import std.json;
+
+import '../ast/ast';       // Program, Decl, the per-decl payloads
+import '../ast/describe';  // describe_type
+import '../lexer/token';   // SourceSpan, Token, TokenKind
+import '../lexer/lexer';   // tokenize
+import 'diagnostics';      // span_to_range
+
+// The identifier under the cursor: its name and source span.
+pub type NameRef = {
+    name: String,
+    span: SourceSpan,
+}
+
+// The `Hover` (as JSON) for `offset` in `text`: the resolved declaration's
+// signature, or JSON null when nothing resolves.
+pub fn handle_hover(_ program: Program, _ imports: List<Program>, _ text: String, _ offset: Int) -> Json {
+    return match name_at(text, offset) {
+        Some(ref) => match find_decl(program, imports, ref.name) {
+            Some(decl) => hover_result(describe_decl(decl), ref.span),
+            None => json.null(),
+        },
+        None => json.null(),
+    };
+}
+
+// The identifier token whose span covers `offset` (a code-point offset), if any.
+pub fn name_at(_ text: String, _ offset: Int) -> Option<NameRef> {
+    for tok in tokenize(text).tokens {
+        if tok.kind == TokenKind.Identifier {
+            let s = tok.span;
+            if offset >= s.offset && offset <= s.offset + s.length {
+                return Option.Some(NameRef { name: tok.lexeme(), span: s });
+            }
+        }
+    }
+    return Option.None;
+}
+
+// The 0-based (line, character) LSP position as a code-point offset into `text`.
+pub fn position_to_offset(_ text: String, _ line: Int, _ character: Int) -> Int {
+    let lines = text.split('\n');
+    let mut offset = 0;
+    let mut i = 0;
+    while i < line && i < lines.len() {
+        offset = offset + lines[i].len() + 1; // +1 for the '\n'
+        i = i + 1;
+    }
+    if line < lines.len() {
+        let line_text = lines[line];
+        offset = offset + (if character < line_text.len() { character } else { line_text.len() });
+    }
+    return offset;
+}
+
+// --- declaration lookup ---
+
+// The first top-level declaration named `name`, searching the primary program
+// then its imports.
+pub fn find_decl(_ program: Program, _ imports: List<Program>, _ name: String) -> Option<Decl> {
+    match find_decl_in(program, name) {
+        Some(d) => { return Option.Some(d); },
+        None => {},
+    }
+    for imp in imports {
+        match find_decl_in(imp, name) {
+            Some(d) => { return Option.Some(d); },
+            None => {},
+        }
+    }
+    return Option.None;
+}
+
+fn find_decl_in(_ program: Program, _ name: String) -> Option<Decl> {
+    for decl in program.decls {
+        match decl_name(decl) {
+            Some(n) => {
+                if n == name {
+                    return Option.Some(decl);
+                }
+            },
+            None => {},
+        }
+    }
+    return Option.None;
+}
+
+// The declared name of a top-level decl (None for impls/imports, which name no
+// new symbol).
+pub fn decl_name(_ decl: Decl) -> Option<String> {
+    return match decl {
+        Fn(d) => Option.Some(d.name),
+        Type(d) => Option.Some(d.name),
+        Enum(d) => Option.Some(d.name),
+        Interface(d) => Option.Some(d.name),
+        Const(d) => Option.Some(d.name),
+        Impl(_) => Option.None,
+        Import(_) => Option.None,
+    };
+}
+
+// --- rendering ---
+
+fn hover_result(_ code: String, _ span: SourceSpan) -> Json {
+    return json.obj({
+        'contents': json.obj({
+            'kind': json.str('markdown'),
+            'value': json.str('```hawk\n${code}\n```'),
+        }),
+        'range': span_to_range(span),
+    });
+}
+
+fn describe_decl(_ decl: Decl) -> String {
+    return match decl {
+        Fn(d) => describe_fn(d),
+        Type(d) => describe_type_decl(d),
+        Enum(d) => describe_enum(d),
+        Interface(d) => describe_interface(d),
+        Const(d) => describe_const(d),
+        Impl(_) => '',
+        Import(_) => '',
+    };
+}
+
+fn describe_fn(_ d: FnDecl) -> String {
+    let params = d.params.map((p) => describe_param(p)).join(', ');
+    let ret = match d.return_type {
+        Some(t) => ' -> ${describe_type(t)}',
+        None => '',
+    };
+    return 'fn ${d.name}(${params})${ret}';
+}
+
+fn describe_param(_ p: Param) -> String {
+    if p.is_self {
+        return 'self';
+    }
+    return match p.type_ann {
+        Some(t) => '${p.name}: ${describe_type(t)}',
+        None => p.name,
+    };
+}
+
+fn describe_type_decl(_ d: TypeDecl) -> String {
+    let fields = d.fields.map((f) => '  ${f.name}: ${describe_type(f.type_ann)}').join('\n');
+    return 'type ${d.name} = {\n${fields}\n}';
+}
+
+fn describe_enum(_ d: EnumDecl) -> String {
+    let variants = d.variants.map((v) => describe_variant(v)).join('\n');
+    return 'enum ${d.name} {\n${variants}\n}';
+}
+
+fn describe_variant(_ v: EnumVariant) -> String {
+    if v.fields.len() == 0 {
+        return '  ${v.name}';
+    }
+    return '  ${v.name}(${v.fields.map((t) => describe_type(t)).join(', ')})';
+}
+
+fn describe_interface(_ d: InterfaceDecl) -> String {
+    let methods = d.methods.map((m) => '  ${describe_fn(m)}').join('\n');
+    return 'interface ${d.name} {\n${methods}\n}';
+}
+
+fn describe_const(_ d: ConstDecl) -> String {
+    return match d.type_ann {
+        Some(t) => 'const ${d.name}: ${describe_type(t)} = ...',
+        None => 'const ${d.name} = ...',
+    };
+}

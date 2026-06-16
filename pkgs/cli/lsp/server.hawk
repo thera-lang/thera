@@ -11,10 +11,12 @@ import std.json;
 
 import '../lexer/lexer';   // tokenize
 import '../parser/parser'; // parse_tokens
+import '../loader';        // load_imports
 
 import 'jsonrpc';
 import 'diagnostics';
 import 'symbols';
+import 'hover';
 
 // The server state: the set of open documents (URI -> current text) and the SDK
 // root used to resolve a document's imports.
@@ -94,6 +96,11 @@ impl Server {
             send_response(writer, id, self.document_symbols(params.get('textDocument').get('uri').as_string()));
             return true;
         }
+        if method == 'textDocument/hover' {
+            send_response(writer, id,
+                self.hover(params.get('textDocument').get('uri').as_string(), params.get('position')));
+            return true;
+        }
         if method == 'textDocument/didClose' {
             match params.get('textDocument').get('uri').as_string() {
                 Some(uri) => {
@@ -142,6 +149,28 @@ impl Server {
         };
     }
 
+    // Hover for an open document at a position: the resolved declaration's
+    // signature, or JSON null. Imports are loaded so a hover on an imported name
+    // (a stdlib function/type) resolves too.
+    fn hover(self, _ uri: Option<String>, _ position: Json) -> Json {
+        return match uri {
+            Some(u) => match self.docs.get(u) {
+                Some(text) => {
+                    let line = position.get('line').as_int().unwrap_or(0);
+                    let character = position.get('character').as_int().unwrap_or(0);
+                    let offset = position_to_offset(text, line, character);
+                    let program = parse_tokens(tokenize(text).tokens).program;
+                    let path = uri_to_path(u);
+                    program.file_path = Option.Some(path);
+                    let loaded = load_imports(path, program, self.sdk_root);
+                    handle_hover(program, loaded.programs, text, offset)
+                },
+                None => json.null(),
+            },
+            None => json.null(),
+        };
+    }
+
     fn publish(self, _ writer: Writer, _ uri: String, _ text: String) -> Void {
         send_notification(writer, 'textDocument/publishDiagnostics', json.obj({
             'uri': json.str(uri),
@@ -175,6 +204,7 @@ fn initialize_result() -> Json {
         'capabilities': json.obj({
             'textDocumentSync': json.int(1), // TextDocumentSyncKind.Full
             'documentSymbolProvider': json.bool(true),
+            'hoverProvider': json.bool(true),
         }),
         'serverInfo': json.obj({
             'name': json.str('hawk'),

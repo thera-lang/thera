@@ -85,6 +85,47 @@ fn test_document_symbol_unknown_doc_is_empty() -> Result<Void, Error> {
 }
 
 @test
+fn test_hover_shows_declaration_signature() -> Result<Void, Error> {
+    let server = new_server(Option.None);
+    let opened = io.StringWriter.new();
+    server.handle(opened, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"file:///h.hawk",'
+        + '"text":"pub fn greet(_ n: String) -> String { return n; }"}}}');
+
+    // Hover on `greet` (line 0, character 8 falls inside the name).
+    let asked = io.StringWriter.new();
+    server.handle(asked, '{"jsonrpc":"2.0","id":5,"method":"textDocument/hover","params":'
+        + '{"textDocument":{"uri":"file:///h.hawk"},"position":{"line":0,"character":8}}}');
+    let out = match asked.into_string() {
+        Ok(s) => s,
+        Err(_) => '',
+    };
+    testing.assert(out.contains('fn greet'), message: 'shows the signature')?;
+    testing.assert(out.contains('String'), message: 'shows the types')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_hover_on_a_keyword_is_null() -> Result<Void, Error> {
+    let server = new_server(Option.None);
+    let opened = io.StringWriter.new();
+    server.handle(opened, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"file:///h.hawk","text":"pub fn greet() -> Int { return 1; }"}}}');
+
+    // Character 0 is the `pub` keyword — not an identifier, so no hover.
+    let asked = io.StringWriter.new();
+    server.handle(asked, '{"jsonrpc":"2.0","id":6,"method":"textDocument/hover","params":'
+        + '{"textDocument":{"uri":"file:///h.hawk"},"position":{"line":0,"character":0}}}');
+    let out = match asked.into_string() {
+        Ok(s) => s,
+        Err(_) => '',
+    };
+    testing.assert(out.contains('"result":null') || out.contains('"result": null'),
+        message: 'no hover on a keyword')?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_shutdown_responds_null() -> Result<Void, Error> {
     let out = handled('{"jsonrpc":"2.0","id":9,"method":"shutdown"}');
     testing.assert(out.contains('"result":null') || out.contains('"result": null'),
