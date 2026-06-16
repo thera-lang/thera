@@ -53,6 +53,38 @@ fn test_clean_document_publishes_empty_diagnostics() -> Result<Void, Error> {
 }
 
 @test
+fn test_document_symbol_outline() -> Result<Void, Error> {
+    // didOpen populates the document store; documentSymbol then reads it back.
+    let server = new_server(Option.None);
+    let opened = io.StringWriter.new();
+    server.handle(opened, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"file:///s.hawk",'
+        + '"text":"pub fn greet() -> Int { return 1; }\\nenum Color { Red, Green }"}}}');
+
+    let asked = io.StringWriter.new();
+    server.handle(asked, '{"jsonrpc":"2.0","id":3,"method":"textDocument/documentSymbol","params":'
+        + '{"textDocument":{"uri":"file:///s.hawk"}}}');
+    let out = match asked.into_string() {
+        Ok(s) => s,
+        Err(_) => '',
+    };
+    testing.assert(out.contains('selectionRange'), message: 'is a symbol response')?;
+    testing.assert(out.contains('"greet"'), message: 'has the function')?;
+    testing.assert(out.contains('"Color"'), message: 'has the enum')?;
+    testing.assert(out.contains('"Red"'), message: 'nests the enum variant')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_document_symbol_unknown_doc_is_empty() -> Result<Void, Error> {
+    let out = handled('{"jsonrpc":"2.0","id":4,"method":"textDocument/documentSymbol","params":'
+        + '{"textDocument":{"uri":"file:///nope.hawk"}}}');
+    testing.assert(out.contains('"result":[]') || out.contains('"result": []'),
+        message: 'empty outline for an unopened document')?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_shutdown_responds_null() -> Result<Void, Error> {
     let out = handled('{"jsonrpc":"2.0","id":9,"method":"shutdown"}');
     testing.assert(out.contains('"result":null') || out.contains('"result": null'),

@@ -9,8 +9,12 @@
 
 import std.json;
 
+import '../lexer/lexer';   // tokenize
+import '../parser/parser'; // parse_tokens
+
 import 'jsonrpc';
 import 'diagnostics';
+import 'symbols';
 
 // The server state: the set of open documents (URI -> current text) and the SDK
 // root used to resolve a document's imports.
@@ -86,6 +90,10 @@ impl Server {
             self.update_document(writer, uri, last_change_text(params.get('contentChanges')));
             return true;
         }
+        if method == 'textDocument/documentSymbol' {
+            send_response(writer, id, self.document_symbols(params.get('textDocument').get('uri').as_string()));
+            return true;
+        }
         if method == 'textDocument/didClose' {
             match params.get('textDocument').get('uri').as_string() {
                 Some(uri) => {
@@ -122,6 +130,18 @@ impl Server {
         }
     }
 
+    // The outline for an open document, or an empty array when it isn't open.
+    // Built from the recovered parse, so it still works while the file has errors.
+    fn document_symbols(self, _ uri: Option<String>) -> Json {
+        return match uri {
+            Some(u) => match self.docs.get(u) {
+                Some(text) => build_symbols(parse_tokens(tokenize(text).tokens).program),
+                None => json.arr([]),
+            },
+            None => json.arr([]),
+        };
+    }
+
     fn publish(self, _ writer: Writer, _ uri: String, _ text: String) -> Void {
         send_notification(writer, 'textDocument/publishDiagnostics', json.obj({
             'uri': json.str(uri),
@@ -154,6 +174,7 @@ fn initialize_result() -> Json {
     return json.obj({
         'capabilities': json.obj({
             'textDocumentSync': json.int(1), // TextDocumentSyncKind.Full
+            'documentSymbolProvider': json.bool(true),
         }),
         'serverInfo': json.obj({
             'name': json.str('hawk'),

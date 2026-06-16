@@ -1,0 +1,91 @@
+// LSP document symbols (the outline): a parsed program's top-level declarations
+// as a `DocumentSymbol[]` tree. Purely syntactic — no type analysis — so it
+// works on a partially-recovered parse while the file still has errors.
+//
+// Ported from the Dart `lsp/symbols.dart`.
+
+import std.json;
+
+import '../ast/ast';      // Program, Decl, the per-decl payloads, EnumVariant
+import '../lexer/token';  // SourceSpan
+import 'diagnostics';     // span_to_range
+
+// LSP `SymbolKind` values (the subset we emit):
+//   Class=5  Method=6  Enum=10  Interface=11  Function=12  Constant=14
+//   EnumMember=22
+
+pub fn build_symbols(_ program: Program) -> Json {
+    let symbols: List<Json> = [];
+    for decl in program.decls {
+        match decl {
+            Fn(d) => {
+                symbols.push(make_symbol(d.name, 12, d.is_pub, d.span, d.name_span, Option.None));
+            },
+            Type(d) => {
+                symbols.push(make_symbol(d.name, 5, d.is_pub, d.span, d.name_span, Option.None));
+            },
+            Const(d) => {
+                symbols.push(make_symbol(d.name, 14, d.is_pub, d.span, d.span, Option.None));
+            },
+            Enum(d) => {
+                symbols.push(make_symbol(d.name, 10, d.is_pub, d.span, d.name_span,
+                    Option.Some(variant_symbols(d.variants))));
+            },
+            Interface(d) => {
+                symbols.push(make_symbol(d.name, 11, d.is_pub, d.span, d.name_span,
+                    Option.Some(method_symbols(d.methods))));
+            },
+            Impl(d) => {
+                // An impl isn't `pub`-able; its name is `Iface for Type` (or just
+                // `Type` for an inherent impl), and its methods are children.
+                symbols.push(make_symbol(impl_label(d), 11, false, d.span, d.name_span,
+                    Option.Some(method_symbols(d.methods))));
+            },
+            Import(_) => {},
+        }
+    }
+    return json.arr(symbols);
+}
+
+fn impl_label(_ d: ImplDecl) -> String {
+    return match d.interface_name {
+        Some(iface) => '${iface} for ${d.type_name}',
+        None => d.type_name,
+    };
+}
+
+fn method_symbols(_ methods: List<FnDecl>) -> List<Json> {
+    let out: List<Json> = [];
+    for m in methods {
+        out.push(make_symbol(m.name, 6, m.is_pub, m.span, m.name_span, Option.None));
+    }
+    return out;
+}
+
+fn variant_symbols(_ variants: List<EnumVariant>) -> List<Json> {
+    let out: List<Json> = [];
+    for v in variants {
+        out.push(make_symbol(v.name, 22, false, v.span, v.span, Option.None));
+    }
+    return out;
+}
+
+// One `DocumentSymbol`: `detail` is "pub" when `is_pub`; `children` is present
+// only for container symbols (enums/interfaces/impls).
+fn make_symbol(_ name: String, _ kind: Int, _ is_pub: Bool, _ range_span: SourceSpan,
+    _ sel_span: SourceSpan, _ children: Option<List<Json>>) -> Json {
+    let m: Map<String, Json> = {
+        'name': json.str(name),
+        'kind': json.int(kind),
+        'range': span_to_range(range_span),
+        'selectionRange': span_to_range(sel_span),
+    };
+    if is_pub {
+        m['detail'] = json.str('pub');
+    }
+    match children {
+        Some(c) => { m['children'] = json.arr(c); },
+        None => {},
+    }
+    return json.obj(m);
+}

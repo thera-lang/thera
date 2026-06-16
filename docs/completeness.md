@@ -31,11 +31,14 @@ priority. None of these block day-to-day self-hosting; they close the gap to
   full-document sync (`didOpen`/`didChange`/`didClose`), and live
   `publishDiagnostics` driven by `check_source_at`. Tested in-process (framing
   helpers, the read loop over an in-memory `Reader`, and `Server.handle` via a
-  `StringWriter`) and verified end-to-end over real stdio. **Remaining slices:**
-  `documentSymbol` (outline), `hover`, `definition` — all need a node-at-offset
-  traversal; and overlay-aware imports (honor unsaved edits in imported libs).
-  The gateway to the horizon-1 incremental engine (see
-  [frontend_in_hawk.md](frontend_in_hawk.md) §1).
+  `StringWriter`) and verified end-to-end over real stdio. **Slice 2 done:**
+  `documentSymbol` (the outline) — a syntactic walk of the parsed decls into a
+  `DocumentSymbol[]` tree (functions/types/consts/enums/interfaces/impls, with
+  enum variants and impl/interface methods nested), built from the recovered
+  parse so it works while the file still has errors. **Remaining slices:**
+  `hover`, `definition` (both need a node-at-offset traversal); and overlay-aware
+  imports (honor unsaved edits in imported libs). The gateway to the horizon-1
+  incremental engine (see [frontend_in_hawk.md](frontend_in_hawk.md) §1).
 - **`hawk check <dir>` and multi-target — done.** `check` now accepts one or
   more files/directories (directories recurse for `*.hawk`), sums diagnostics
   across them, and exits 0 clean / 1 with diagnostics / 2 on a missing target —
