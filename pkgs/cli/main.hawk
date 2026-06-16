@@ -15,6 +15,7 @@ import std.fs;
 
 import 'driver';
 import 'loader';
+import 'runner';
 
 fn build_app() -> cli.Command {
     return cli.Command.new('hawk')
@@ -43,7 +44,7 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
     // bubble to the runtime's structural fallback.
     match app.parse(parameters) {
         Ok(m) => {
-            return run(app, m);
+            return dispatch(app, m);
         },
         Err(e) => {
             println('hawk: ${e}');
@@ -55,7 +56,9 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
 }
 
 // Dispatch the top-level parse: a subcommand, or the no-command help path.
-fn run(_ app: cli.Command, _ m: cli.Matches) -> Result<Int, Error> {
+// (Named `dispatch`, not `run`, to avoid colliding with the imported
+// `process.run` — free-function names still share one global namespace.)
+fn dispatch(_ app: cli.Command, _ m: cli.Matches) -> Result<Int, Error> {
     match m.subcommand() {
         Some(name) => {
             return run_subcommand(app, name, m);
@@ -93,9 +96,18 @@ fn run_subcommand(_ app: cli.Command, _ name: String, _ m: cli.Matches) -> Resul
     }
 }
 
-// The file-taking subcommands (run/check/emit/test): require a `<file>`
-// positional, then dispatch to the real pipeline (check/emit) or a stub.
+// The file-taking subcommands (run/check/emit/test): dispatch to the real
+// pipeline. `test` takes one or more `<file|dir>` targets; the rest take a
+// single `<file>` (and `run` passes any trailing positionals to the program).
 fn run_on_file(_ name: String, _ sub: cli.Matches) -> Result<Int, Error> {
+    let positionals = sub.positionals();
+    if name == 'test' {
+        if positionals.len() == 0 {
+            println('hawk test: expected a <file|dir> argument');
+            return Result.Ok(2);
+        }
+        return test_paths(positionals, find_sdk_root());
+    }
     match sub.positional(0) {
         Some(file) => {
             if name == 'check' {
@@ -112,8 +124,9 @@ fn run_on_file(_ name: String, _ sub: cli.Matches) -> Result<Int, Error> {
                     },
                 }
             }
-            // run/test still drive the runtime (a follow-up: the import loader
-            // and runtime invocation).
+            if name == 'run' {
+                return run_file(file, positionals.slice(1, positionals.len()), find_sdk_root());
+            }
             println('${name}: not yet implemented (${file})');
             return Result.Ok(0);
         },

@@ -308,6 +308,21 @@ This makes the port incremental and continuously checkable, not a big-bang.
    a `println`/list/`for`/interpolation program), and the runtime executes it.
    This is the self-hosting validation: the Hawk front-end resolving the prelude
    and emitting oracle-matching bytecode the runtime runs.
+8. **`run` / `test` (runtime invocation) — done.** `pkgs/cli/runner.hawk` wires
+   the two subcommands that drive the Rust runtime: `run` compiles to a temporary
+   `.hawkbc` and spawns `<sdk_root>/runtime/target/debug/hawk` (forwarding program
+   args, propagating the exit code); `test` discovers `@test` functions,
+   synthesizes the `__hawk_test_main` driver, runs it under `--entry`, and prints
+   the per-test/per-file report + summary (with recursive `*_test.hawk` collection,
+   sorted + de-duplicated). Both mirror the Dart `RunCommand`/`TestCommand`. **The
+   front-end now self-hosts the test pipeline:** it compiles and runs its own
+   104-test `pkgs/cli` suite, the full **200-test** stdlib suite (output
+   byte-identical to the Dart oracle), and all 12 examples. Two design departures
+   from the Dart CLI, both because `std.process` *captures* the child's
+   stdout/stderr rather than inheriting the terminal: output is buffered and
+   replayed (no interactive stdin), and `hawk run prog --flag` doesn't forward
+   dash-flags to the program (std.cli intercepts them; positional args do forward).
+   See [completeness.md](completeness.md) for the punchlist.
 
 #### Findings from the ported chunks
 
@@ -452,6 +467,29 @@ The `driver/` + `loader/` chunk surfaced one structural finding:
   reachable cross-file via the fallback, and a `pub` name still collides across
   libraries through a namespace-qualified call (the qualifier is cosmetic). Real
   per-namespace resolution + private enforcement is the next visibility step.
+
+The `run`/`test` chunk surfaced two latent codegen bugs (both now fixed), caught
+by running real code (the stdlib suite) through the Hawk front-end for the first
+time — the kind of coverage `check`/`emit` goldens miss:
+
+- **`Bool ==`/`!=` lowered to the `eqI64` opcode → runtime trap.** The runtime
+  keeps `Value::Bool` distinct from `Value::Int`, so `eqI64` (which pops two
+  Ints) trapped `Bug("expected Int, found Bool")` on any Bool comparison. A
+  **latent bug in both toolchains** — a one-line `true != false` trapped the Dart
+  oracle too; it had simply never been exercised, since Bool-to-Bool `==`/`!=` is
+  rare in the tested corpus (it first bit interface conformance, which compares
+  two `is_static` Bools). Fix: route Bool equality through the structural `eq`
+  native (the non-primitive path) in both `codegen.dart` and `codegen.hawk`.
+  Guarded by a Hawk byte golden, a Dart structural test, and Dart e2e tests
+  (Bool-eq + a user `impl Iface for T`).
+- **`let x: T = init` typed `x` from the initializer, not the annotation**
+  (Hawk codegen only — the Dart oracle was already correct via the inference
+  pass's `annotated ?? inferred`). So `let prefix: List<String> = []` made
+  `prefix` `List<unknown>`, and `prefix[0].is_empty()` failed to resolve at
+  codegen. The Hawk codegen's own statement walker had diverged from the shared
+  inference engine; fixed to use the annotation when present. (The checker missed
+  it because imported-library *bodies* aren't body-checked — the still-open wrinkle
+  below — but codegen must compile them.)
 
 Language wrinkles (one resolved, one tracked):
 

@@ -1,0 +1,442 @@
+// Runtime invocation for the CLI: `hawk run` and `hawk test`.
+//
+// `run` compiles a program to a temporary `.hawkbc` and executes it on the Rust
+// runtime; `test` synthesizes a driver `main` that runs each `@test` function
+// and reports per-test results. Both locate the runtime binary at
+// `<sdk_root>/runtime/target/debug/hawk` (a dev checkout), mirroring the Dart
+// toolchain's RunCommand/TestCommand.
+//
+// One behavioural difference from the Dart commands, which inherit the terminal:
+// `std.process` *captures* the child's stdout/stderr, so this replays them after
+// the child exits (output is buffered, and interactive stdin isn't wired up yet).
+
+import std.fs;
+import std.io;
+import std.path;
+import std.process;
+import std.time;
+
+import 'ast/ast';      // Program, FnDecl, Decl
+import 'lexer/lexer';  // tokenize
+import 'parser/parser'; // parse
+import 'driver';       // compile_source_at, check_source_at, format_diagnostic
+
+// The per-file test tally a run produces (a `@test` count and how many failed).
+type TestCounts = {
+    total: Int,
+    failures: Int,
+}
+
+// --- run ---
+
+// `hawk run <file> [args]` — compile `file`, then execute it on the runtime,
+// passing `program_args` through to the program's `main`. Returns the child's
+// exit code (or a non-zero code if compilation or spawning failed).
+pub fn run_file(_ file: String, _ program_args: List<String>, _ sdk_root: Option<String>) -> Result<Int, Error> {
+    match compile_or_report(file, sdk_root) {
+        None => {
+            return Result.Ok(1);
+        },
+        Some(bytes) => {
+            match find_runtime_binary(sdk_root) {
+                None => {
+                    println(runtime_missing_message());
+                    return Result.Ok(1);
+                },
+                Some(runtime) => {
+                    match run_bytecode(runtime, bytes, Option.None, program_args) {
+                        Ok(r) => {
+                            print(r.stdout);
+                            emit_stderr(r.stderr);
+                            return Result.Ok(r.exit_code);
+                        },
+                        Err(e) => {
+                            println('hawk run: ${e.message()}');
+                            return Result.Ok(1);
+                        },
+                    }
+                },
+            }
+        },
+    }
+}
+
+// --- test ---
+
+// `hawk test <file|dir>...` — discover `*_test.hawk` files under each target,
+// run their `@test` functions, and print a per-file/per-test report plus a
+// summary. Returns 0 when every file passed, 1 otherwise.
+pub fn test_paths(_ targets: List<String>, _ sdk_root: Option<String>) -> Result<Int, Error> {
+    match find_runtime_binary(sdk_root) {
+        None => {
+            println(runtime_missing_message());
+            return Result.Ok(1);
+        },
+        Some(runtime) => {
+            let files = collect_test_files(targets);
+            if files.len() == 0 {
+                println('hawk test: no *_test.hawk files found.');
+                return Result.Ok(1);
+            }
+            let mut total_tests = 0;
+            let mut failed_files = 0;
+            for f in files {
+                match run_test_file(f, runtime, sdk_root) {
+                    Some(counts) => {
+                        total_tests = total_tests + counts.total;
+                        if counts.failures > 0 {
+                            failed_files = failed_files + 1;
+                        }
+                    },
+                    None => {
+                        failed_files = failed_files + 1;
+                    },
+                }
+            }
+            println('');
+            if failed_files == 0 {
+                println('All tests passed (${total_tests} in ${files.len()} ${file_word(files.len())}).');
+                return Result.Ok(0);
+            }
+            println('${failed_files} of ${files.len()} ${file_word(files.len())} had failures.');
+            return Result.Ok(1);
+        },
+    }
+}
+
+// Compile one test file with a synthesized driver and run it. Streams the file
+// header and (after the child exits) its per-test output. Returns the counts, or
+// None if the file failed to read/parse/compile (already reported).
+fn run_test_file(_ path_str: String, _ runtime: String, _ sdk_root: Option<String>) -> Option<TestCounts> {
+    let source = match fs.read_text(path_str) {
+        Ok(s) => s,
+        Err(e) => {
+            println('hawk test: cannot read ${path_str}: ${e}');
+            return Option.None;
+        },
+    };
+
+    // Parse once to discover the @test functions.
+    let lex = tokenize(source);
+    let parsed = parse(lex.tokens);
+    println(path_str);
+    if lex.errors.len() > 0 || parsed.errors.len() > 0 {
+        // Re-run the standard pipeline so the lex/parse errors print uniformly.
+        for d in check_source_at(source, path_str, sdk_root) {
+            println(format_diagnostic(d, path_str));
+        }
+        return Option.None;
+    }
+
+    let tests = test_names(parsed.program);
+    if tests.len() == 0 {
+        println('  (no @test functions)');
+        return Option.Some(TestCounts { total: 0, failures: 0 });
+    }
+
+    // Recompile the source plus a synthesized driver `main` that runs each test.
+    let combined = '${source}\n${test_driver(tests)}';
+    let outcome = compile_source_at(combined, path_str, sdk_root);
+    if outcome.diagnostics.len() > 0 {
+        for d in outcome.diagnostics {
+            println(format_diagnostic(d, path_str));
+        }
+        return Option.None;
+    }
+    let bytes = match outcome.bytes {
+        Some(b) => b,
+        None => {
+            return Option.None;
+        },
+    };
+
+    // A unique entry name so the driver never collides with a tested module's
+    // own `main` (executables under test keep theirs; it's dead code here).
+    match run_bytecode(runtime, bytes, Option.Some('__hawk_test_main'), []) {
+        Ok(r) => {
+            print(r.stdout);
+            emit_stderr(r.stderr);
+            let total = tests.len();
+            return Option.Some(TestCounts { total: total, failures: failures_from_exit(r.exit_code, total) });
+        },
+        Err(e) => {
+            println('  error: ${e.message()}');
+            return Option.None;
+        },
+    }
+}
+
+// `main` returns the failure count; a non-zero, non-count exit (e.g. a runtime
+// trap) still counts as a single failure for the file.
+fn failures_from_exit(_ exit_code: Int, _ total: Int) -> Int {
+    if exit_code == 0 {
+        return 0;
+    }
+    if exit_code <= total {
+        return exit_code;
+    }
+    return 1;
+}
+
+// The names of the `@test`-decorated functions in `program`, in source order.
+fn test_names(_ program: Program) -> List<String> {
+    let names: List<String> = [];
+    for decl in program.decls {
+        match decl {
+            Fn(f) => {
+                if has_test_decorator(f) {
+                    names.push(f.name);
+                }
+            },
+            _ => {},
+        }
+    }
+    return names;
+}
+
+fn has_test_decorator(_ f: FnDecl) -> Bool {
+    for d in f.decorators {
+        if d.name == 'test' {
+            return true;
+        }
+    }
+    return false;
+}
+
+// The synthesized driver: a `main` that runs each `@test` function, prints a
+// per-test `ok`/`FAIL` line (with the error on failure), and returns the number
+// of failures (which becomes the process exit code).
+fn test_driver(_ tests: List<String>) -> String {
+    let mut s = '';
+    s = '${s}fn __hawk_pass(_ name: String) -> Int {\n';
+    s = '${s}    println(\'  ok    \${name}\');\n';
+    s = '${s}    return 0;\n';
+    s = '${s}}\n';
+    s = '${s}fn __hawk_fail(_ name: String, _ e: Error) -> Int {\n';
+    s = '${s}    println(\'  FAIL  \${name}\');\n';
+    // `e` is typed as the `Error` interface (not itself `Display`); render it
+    // through its `message()`.
+    s = '${s}    println(\'          \${e.message()}\');\n';
+    s = '${s}    return 1;\n';
+    s = '${s}}\n';
+    s = '${s}fn __hawk_test_main() -> Int {\n';
+    s = '${s}    let mut __hawk_failures = 0;\n';
+    for t in tests {
+        s = '${s}    let __hawk_r_${t} = match ${t}() {\n';
+        s = '${s}        Ok(_) => __hawk_pass(\'${t}\'),\n';
+        s = '${s}        Err(e) => __hawk_fail(\'${t}\', e),\n';
+        s = '${s}    };\n';
+        s = '${s}    __hawk_failures = __hawk_failures + __hawk_r_${t};\n';
+    }
+    s = '${s}    return __hawk_failures;\n';
+    s = '${s}}\n';
+    return s;
+}
+
+// --- shared runtime invocation ---
+
+// Write `bytes` to a temporary `.hawkbc` and run it on the `runtime`, passing
+// `program_args` to the program. `entry` selects a non-default entry function
+// (`--entry NAME`); None runs `main`. The temp dir is removed afterwards.
+fn run_bytecode(_ runtime: String, _ bytes: Bytes, _ entry: Option<String>, _ program_args: List<String>) -> Result<process.ProcessResult, Error> {
+    let dir = temp_dir_unique('hawk');
+    let out = path.join(dir, 'out.hawkbc');
+    match fs.write_bytes(out, bytes) {
+        Ok(_) => {},
+        Err(e) => {
+            cleanup_dir(dir);
+            return Result.Err(e);
+        },
+    }
+    let args: List<String> = ['run'];
+    match entry {
+        Some(name) => {
+            args.push('--entry');
+            args.push(name);
+        },
+        None => {},
+    }
+    args.push(out);
+    for a in program_args {
+        args.push(a);
+    }
+    let result = process.run(runtime, args: args);
+    cleanup_dir(dir);
+    return match result {
+        Ok(r) => Result.Ok(r),
+        Err(e) => Result.Err(e),
+    };
+}
+
+// The Rust runtime binary in the dev checkout (`<root>/runtime/target/debug/hawk`),
+// or None if the SDK root is unknown or the binary isn't built.
+pub fn find_runtime_binary(_ sdk_root: Option<String>) -> Option<String> {
+    return match sdk_root {
+        Some(root) => {
+            let bin = path.join(path.join(path.join(path.join(root, 'runtime'), 'target'), 'debug'), 'hawk');
+            if fs.exists(bin) {
+                Option.Some(bin)
+            } else {
+                Option.None
+            }
+        },
+        None => Option.None,
+    };
+}
+
+fn runtime_missing_message() -> String {
+    return 'hawk: the Rust runtime was not found at runtime/target/debug/hawk. Build it first: run `cargo build` in the runtime/ directory.';
+}
+
+// --- compile helper ---
+
+// Compile `file` to bytecode bytes, printing any read error or diagnostics.
+// Returns None on any failure (the caller then reports a non-zero exit).
+fn compile_or_report(_ file: String, _ sdk_root: Option<String>) -> Option<Bytes> {
+    let source = match fs.read_text(file) {
+        Ok(s) => s,
+        Err(e) => {
+            println('hawk: cannot read ${file}: ${e}');
+            return Option.None;
+        },
+    };
+    let outcome = compile_source_at(source, file, sdk_root);
+    for d in outcome.diagnostics {
+        println(format_diagnostic(d, file));
+    }
+    return outcome.bytes;
+}
+
+// --- test-file discovery ---
+
+// Collect `*_test.hawk` paths from `targets` — files used directly, directories
+// searched recursively — sorted and de-duplicated for stable output.
+fn collect_test_files(_ targets: List<String>) -> List<String> {
+    let found: List<String> = [];
+    for target in targets {
+        match fs.metadata(target) {
+            Ok(meta) => {
+                match meta.kind {
+                    Dir => {
+                        collect_from_dir(target, found);
+                    },
+                    _ => {
+                        found.push(target);
+                    },
+                }
+            },
+            Err(_) => {
+                println('hawk test: not found: ${target}');
+            },
+        }
+    }
+    return sort_dedup(found);
+}
+
+fn collect_from_dir(_ dir: String, _ found: List<String>) -> Void {
+    match fs.list_dir(dir) {
+        Ok(names) => {
+            for name in names {
+                let full = path.join(dir, name);
+                match fs.metadata(full) {
+                    Ok(meta) => {
+                        match meta.kind {
+                            Dir => {
+                                collect_from_dir(full, found);
+                            },
+                            _ => {
+                                if name.ends_with('_test.hawk') {
+                                    found.push(full);
+                                }
+                            },
+                        }
+                    },
+                    Err(_) => {},
+                }
+            }
+        },
+        Err(_) => {},
+    }
+}
+
+// Selection-sort the paths (no `List.sort` yet), then drop adjacent duplicates.
+fn sort_dedup(_ items: List<String>) -> List<String> {
+    let n = items.len();
+    let mut i = 0;
+    while i < n {
+        let mut lo = i;
+        let mut j = i + 1;
+        while j < n {
+            if str_less(items[j], items[lo]) {
+                lo = j;
+            }
+            j = j + 1;
+        }
+        if lo != i {
+            let tmp = items[i];
+            items[i] = items[lo];
+            items[lo] = tmp;
+        }
+        i = i + 1;
+    }
+    let out: List<String> = [];
+    let mut k = 0;
+    while k < n {
+        if k == 0 || items[k] != items[k - 1] {
+            out.push(items[k]);
+        }
+        k = k + 1;
+    }
+    return out;
+}
+
+// Lexicographic `a < b` by Unicode code point (String has no `<` yet).
+fn str_less(_ a: String, _ b: String) -> Bool {
+    let ca = a.chars();
+    let cb = b.chars();
+    let na = ca.len();
+    let nb = cb.len();
+    let mut i = 0;
+    while i < na && i < nb {
+        if ca[i] != cb[i] {
+            return ca[i] < cb[i];
+        }
+        i = i + 1;
+    }
+    return na < nb;
+}
+
+// --- output / temp-dir helpers ---
+
+fn emit_stderr(_ text: String) -> Void {
+    if text == '' {
+        return;
+    }
+    match io.stderr().write(text.bytes()) {
+        Ok(_) => {},
+        Err(_) => {},
+    }
+}
+
+fn temp_dir_unique(_ prefix: String) -> String {
+    let dir = path.join(fs.temp_dir(), '${prefix}_${time.now_millis()}');
+    match fs.create_dir_all(dir) {
+        Ok(_) => {},
+        Err(_) => {},
+    }
+    return dir;
+}
+
+fn cleanup_dir(_ dir: String) -> Void {
+    match fs.remove_dir_all(dir) {
+        Ok(_) => {},
+        Err(_) => {},
+    }
+}
+
+fn file_word(_ n: Int) -> String {
+    if n == 1 {
+        return 'file';
+    }
+    return 'files';
+}

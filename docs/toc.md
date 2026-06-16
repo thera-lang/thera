@@ -38,5 +38,9 @@ is"; read top-down for progressive detail.
   its Dart→Hawk representational mapping, and the de-risking Dart refactors.
   Opens with the grounding self-hosting spike (the calculator slice) that ranked
   the language gaps the port depended on.
+- [completeness.md](completeness.md) — the **self-hosting punchlist**: what
+  remains before the Hawk front-end replaces the Dart toolchain (CLI/runtime
+  invocation, static-analysis robustness, visibility, the bootstrap/SDK-snapshot
+  process, and retiring Dart).
 
 (A concise orientation for agents lives in the repo-root `CLAUDE.md`.)
