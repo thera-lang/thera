@@ -107,7 +107,7 @@ fn test_subcommands() -> Result<Void, Error> {
     testing.assert_eq(actual: m.subcommand(), expected: Option.Some('commit'))?;
 
     // The subcommand's own matches carry its parsed flags.
-    let sub = testing.assert_ok(m.matches().ok_or(Message { text: 'no submatches' }))?;
+    let sub = testing.assert_ok(m.matches().ok_or(error('no submatches')))?;
     testing.assert_eq(actual: sub.flag('amend'), expected: true)?;
 
     // An unknown subcommand is rejected.

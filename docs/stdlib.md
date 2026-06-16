@@ -173,19 +173,23 @@ pub interface Error {
 }
 ```
 
-A general-purpose error for the simple case, and the conventional `throw`
-target:
+A general-purpose error for the simple case is built with a **constructor**, not
+a named type (the Go `errors.New` / Rust `anyhow!` model):
 
 ```
-pub type Message = { text: String }       // implements Error + Display
-// (a `throw 'oops'` shorthand that builds a Message is still planned)
+pub fn error(_ message: String) -> Error;   // the simple-case error / `throw` target
+// return Result.Err(error('file not found'));   throw error('...');
+// (a `throw 'oops'` shorthand that desugars to `error` is still planned)
 ```
 
-`Error` is now an interface (`std.core/error.hawk`); domain modules define their
-own error enums and `impl Error` for them, so a value `match`-able on its cause
-still passes where `Result<_, Error>` is expected (`std.cli`'s `CliError` is the
-first example, and `?` propagates it into an `Error`-returning caller). The
-concrete `Message` is the simple-case error and the `throw`/`Ok`-wrap target.
+The concrete carrier is a private implementation detail you never name —
+deliberately, so the always-in-scope prelude doesn't claim a common noun like
+`Message` (which would collide with user types; the prelude is the one surface
+even per-namespace resolution can't disambiguate). `Error` is an interface
+(`std.core/error.hawk`); domain modules define their own error enums and
+`impl Error` for them, so a value `match`-able on its cause still passes where
+`Result<_, Error>` is expected (`std.cli`'s `CliError` is the first example, and
+`?` propagates it into an `Error`-returning caller).
 
 > **`Error` extends `Display + Debug` (interface inheritance).** A value typed
 > as the `Error` _interface_ is itself `Display` and `Debug`: interpolate it
@@ -955,7 +959,7 @@ dependency graph, so future work lands in the right order:
 
 | Module       | Status  | Notes                                                                                                                                                                                                                               |
 | ------------ | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| prelude/core | exists  | Int/Double + String parsing; `String.slice`/`List.slice` (code-point / element ranges, clamped); `Bytes`/`BytesBuilder`; `Set<T>` in Hawk over `Map`; `Error` is an interface + `Message`; `Iterator<T>` protocol; still want `Ord` |
+| prelude/core | exists  | Int/Double + String parsing; `String.slice`/`List.slice` (code-point / element ranges, clamped); `Bytes`/`BytesBuilder`; `Set<T>` in Hawk over `Map`; `Error` is an interface + the `error(...)` constructor; `Iterator<T>` protocol; still want `Ord` |
 | std.io       | done    | v1: `Reader`/`Writer`/`Closer` + `IoError`, `read_all`/`copy`, stdin/stdout/stderr, `StringWriter`; `lines`/`Iterator` + streaming files deferred                                                                                   |
 | std.iter     | done    | v1: `Iterator<T>` (prelude) + `range`/`from_list` sources + `collect`/`count`; `for x in it` drives any iterator; adapters (`map`/`filter`/`take`) deferred                                                                         |
 | std.fs       | done    | v1: read/write text+bytes, exists, metadata, list_dir, create_dir(\_all), remove(\_dir_all), rename, copy, temp_dir; classified `FsError`; streaming `File`/`open`/`walk`/`temp_file` deferred to v2                                |

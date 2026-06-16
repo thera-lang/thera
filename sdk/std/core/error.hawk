@@ -17,18 +17,29 @@ pub interface Error: Display + Debug {
     fn message(self) -> String;
 }
 
-// The general-purpose error for the simple case: a plain message. Construct it
-// directly:
+// The general-purpose error for the simple case: a plain message. Build one with
+// the `error` constructor, which yields the `Error` interface:
 //
-//   return Result.Err(Message { text: 'file not found' });
+//   return Result.Err(error('file not found'));
+//   throw error('file not found');                  // or, eventually, `throw '...'`
 //
-// (A `throw '...'` shorthand that builds a `Message` is planned; see
-// docs/language.md.)
-pub type Message = {
+// The concrete carrier (`ErrorMessage`) is an implementation detail you never
+// name — `error(...)` is the only door. This keeps `std.core` from claiming a
+// common noun like `Message` in the always-in-scope prelude, where it would
+// collide with user types. (A `throw '...'` shorthand that desugars to `error`
+// is planned; see docs/language.md.)
+pub fn error(_ message: String) -> Error {
+    return ErrorMessage { text: message };
+}
+
+// The carrier behind `error(...)`. Not part of the public surface — call `error`
+// instead of constructing it — but `pub` so other `std` modules can build the
+// simple error without each defining their own.
+pub type ErrorMessage = {
     text: String,
 }
 
-impl Error for Message {
+impl Error for ErrorMessage {
     pub fn message(self) -> String {
         return self.text;
     }
@@ -36,7 +47,7 @@ impl Error for Message {
 
 // Renders as its text under interpolation / `println`. Because `Error` extends
 // `Display`, an `Error`-typed value interpolates directly too (`'${e}'`).
-impl Display for Message {
+impl Display for ErrorMessage {
     pub fn display(self) -> String {
         return self.text;
     }

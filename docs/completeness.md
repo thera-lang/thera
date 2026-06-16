@@ -101,6 +101,15 @@ flag them. Closing these is the prerequisite for a useful IDE.
   duplicate top-level names would at least surface collisions early. See
   [frontend_in_hawk.md](frontend_in_hawk.md) driver/loader findings.
 
+  A distinct, *permanent* sub-case: **prelude (`std.core`) names are always
+  unqualified and in scope, so per-namespace resolution can never disambiguate
+  them** — they're de-facto soft reserved words. So the prelude must hold only
+  language-fundamental types/traits + verbs, never ordinary domain nouns.
+  Accordingly `std.core`'s `Message` error type was replaced by an `error('...')`
+  **constructor** (Go `errors.New` style) over a private carrier — the user never
+  names it, so it can't collide. New common-noun symbols don't belong in the
+  prelude.
+
 ## Bootstrapping & language evolution (process)
 
 Once the Hawk front-end is the *only* front-end, "change the language" means

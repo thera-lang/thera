@@ -95,7 +95,7 @@ fn test_assert_ok_on_interface_error() -> Result<Void, Error> {
     // The result of an assertion is `Result<Void, Error>` — feed it to assert_ok.
     testing.assert_ok(testing.assert(true))?;
     // And an Err-typed `Error` value flows through assert_err.
-    let failed: Result<Int, Error> = Result.Err(Message { text: 'boom' });
+    let failed: Result<Int, Error> = Result.Err(error('boom'));
     testing.assert_err(failed)?;
     return Result.Ok(void);
 }

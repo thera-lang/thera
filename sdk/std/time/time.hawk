@@ -271,12 +271,12 @@ impl DateTime {
 // --- internal helpers ---
 
 fn parse_fail(_ why: String) -> Result<DateTime, Error> {
-    return Result.Err(Message { text: 'invalid RFC 3339 timestamp: ${why}' });
+    return Result.Err(error('invalid RFC 3339 timestamp: ${why}'));
 }
 
 fn check_range(_ value: Int, _ low: Int, _ high: Int, _ what: String) -> Result<Void, Error> {
     if value < low || value > high {
-        return Result.Err(Message { text: '${what} out of range: ${value}' });
+        return Result.Err(error('${what} out of range: ${value}'));
     }
     return Result.Ok(void);
 }
@@ -284,7 +284,7 @@ fn check_range(_ value: Int, _ low: Int, _ high: Int, _ what: String) -> Result<
 // Read exactly `count` decimal digits at `start`, as a non-negative Int.
 fn read_digits(_ cs: List<Int>, _ start: Int, _ count: Int) -> Result<Int, Error> {
     if start + count > cs.len() {
-        return Result.Err(Message { text: 'unexpected end of timestamp' });
+        return Result.Err(error('unexpected end of timestamp'));
     }
     let mut value = 0;
     let mut i = start;
@@ -292,7 +292,7 @@ fn read_digits(_ cs: List<Int>, _ start: Int, _ count: Int) -> Result<Int, Error
     while i < end {
         let c = cs[i];
         if !char.is_digit(c) {
-            return Result.Err(Message { text: 'expected a digit in timestamp' });
+            return Result.Err(error('expected a digit in timestamp'));
         }
         value = value * 10 + (c - char.DIGIT_0);
         i = i + 1;
@@ -302,7 +302,7 @@ fn read_digits(_ cs: List<Int>, _ start: Int, _ count: Int) -> Result<Int, Error
 
 fn expect_code(_ cs: List<Int>, _ i: Int, _ code: Int) -> Result<Void, Error> {
     if i >= cs.len() || cs[i] != code {
-        return Result.Err(Message { text: 'malformed timestamp' });
+        return Result.Err(error('malformed timestamp'));
     }
     return Result.Ok(void);
 }

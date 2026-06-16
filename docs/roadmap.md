@@ -222,7 +222,7 @@ synthesizes a driver (`__hawk_test_main`) that runs each test and prints an
 compiles the test file + driver, and runs it on the runtime via
 `run --entry __hawk_test_main` (a unique entry so it never collides with a
 tested module's own `main`). The exit code is the failure count; an overall
-summary follows. `std.testing` throws a `Message` (the concrete `Error`); the
+summary follows. `std.testing` throws `error(...)` (the general-purpose `Error`); the
 driver renders a caught `Err(e)` via `e.message()` (`Error` now extends
 `Display`, so `'${e}'` works too — see [interfaces.md](interfaces.md),
 "Interface inheritance").

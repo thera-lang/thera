@@ -1,11 +1,11 @@
-// Tests for the std.core Error interface and the Message error.
+// Tests for the std.core Error interface and the `error(...)` constructor.
 
 import std.testing;
 
-// A function that returns the interface-typed Error from a concrete Message —
-// the pattern domain code uses at boundaries.
+// A function that returns the interface-typed Error from `error(...)` — the
+// pattern domain code uses at boundaries.
 fn as_error(_ s: String) -> Error {
-    return Message { text: s };
+    return error(s);
 }
 
 // Read an Error through the interface (dynamic dispatch to the concrete type).
@@ -14,16 +14,16 @@ fn describe(_ e: Error) -> String {
 }
 
 @test
-fn test_message_reports_its_text() -> Result<Void, Error> {
-    let e = Message { text: 'boom' };
+fn test_error_reports_its_text() -> Result<Void, Error> {
+    let e = error('boom');
     testing.assert_eq(actual: e.message(), expected: 'boom')?;
     return Result.Ok(void);
 }
 
 @test
-fn test_concrete_message_is_display() -> Result<Void, Error> {
-    // A concrete Message interpolates via its Display impl.
-    let e = Message { text: 'kaboom' };
+fn test_error_is_display() -> Result<Void, Error> {
+    // The `error(...)` value interpolates via Display (Error extends Display).
+    let e = error('kaboom');
     testing.assert_eq(actual: 'e = ${e}', expected: 'e = kaboom')?;
     return Result.Ok(void);
 }
@@ -49,7 +49,7 @@ fn test_error_propagates_through_question_mark() -> Result<Void, Error> {
 }
 
 fn deep() -> Result<Int, Error> {
-    return Result.Err(Message { text: 'deep' });
+    return Result.Err(error('deep'));
 }
 
 fn bubble() -> Result<Int, Error> {

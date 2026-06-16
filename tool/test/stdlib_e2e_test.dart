@@ -582,11 +582,11 @@ fn main() -> Int {
     expect(r.exitCode, 1, reason: r.stderr.toString());
   });
 
-  test('std.core auto-loads: Message constructs and interpolates via Display',
+  test('std.core auto-loads: error() constructs and interpolates via Display',
       () {
     final r = emitAndRun('core', '''
 fn main() -> Result<Int, Error> {
-    let e = Message { text: 'kaboom' };
+    let e = error('kaboom');
     println('e = \${e}');
     return Result.Ok(0);
 }
@@ -667,7 +667,7 @@ fn main() -> Int {
     final r = emitAndRun('void_unit', '''
 fn check(_ ok: Bool) -> Result<Void, Error> {
     if !ok {
-        throw Message { text: 'bad' };
+        throw error('bad');
     }
     return Result.Ok(void);
 }
