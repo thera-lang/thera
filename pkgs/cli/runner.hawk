@@ -39,7 +39,7 @@ pub fn run_file(_ file: String, _ program_args: List<String>, _ sdk_root: Option
         Some(bytes) => {
             match find_runtime_binary(sdk_root) {
                 None => {
-                    println(runtime_missing_message());
+                    eprintln(runtime_missing_message());
                     return Result.Ok(1);
                 },
                 Some(runtime) => {
@@ -48,7 +48,7 @@ pub fn run_file(_ file: String, _ program_args: List<String>, _ sdk_root: Option
                             return Result.Ok(code);
                         },
                         Err(e) => {
-                            println('hawk run: ${e.message()}');
+                            eprintln('hawk run: ${e.message()}');
                             return Result.Ok(1);
                         },
                     }
@@ -66,13 +66,13 @@ pub fn run_file(_ file: String, _ program_args: List<String>, _ sdk_root: Option
 pub fn test_paths(_ targets: List<String>, _ sdk_root: Option<String>) -> Result<Int, Error> {
     match find_runtime_binary(sdk_root) {
         None => {
-            println(runtime_missing_message());
+            eprintln(runtime_missing_message());
             return Result.Ok(1);
         },
         Some(runtime) => {
             let files = collect_test_files(targets);
             if files.len() == 0 {
-                println('hawk test: no *_test.hawk files found.');
+                eprintln('hawk test: no *_test.hawk files found.');
                 return Result.Ok(1);
             }
             let mut total_tests = 0;
@@ -108,7 +108,7 @@ fn run_test_file(_ path_str: String, _ runtime: String, _ sdk_root: Option<Strin
     let source = match fs.read_text(path_str) {
         Ok(s) => s,
         Err(e) => {
-            println('hawk test: cannot read ${path_str}: ${e}');
+            eprintln('hawk test: cannot read ${path_str}: ${e}');
             return Option.None;
         },
     };
@@ -116,11 +116,11 @@ fn run_test_file(_ path_str: String, _ runtime: String, _ sdk_root: Option<Strin
     // Parse once to discover the @test functions.
     let lex = tokenize(source);
     let parsed = parse(lex.tokens);
-    println(path_str);
+    println(path_str); // the per-file header is part of the report (stdout)
     if lex.errors.len() > 0 || parsed.errors.len() > 0 {
         // Re-run the standard pipeline so the lex/parse errors print uniformly.
         for d in check_source_at(source, path_str, sdk_root) {
-            println(format_diagnostic(d, path_str));
+            eprintln(format_diagnostic(d, path_str));
         }
         return Option.None;
     }
@@ -136,7 +136,7 @@ fn run_test_file(_ path_str: String, _ runtime: String, _ sdk_root: Option<Strin
     let outcome = compile_source_at(combined, path_str, sdk_root);
     if outcome.diagnostics.len() > 0 {
         for d in outcome.diagnostics {
-            println(format_diagnostic(d, path_str));
+            eprintln(format_diagnostic(d, path_str));
         }
         return Option.None;
     }
@@ -155,7 +155,7 @@ fn run_test_file(_ path_str: String, _ runtime: String, _ sdk_root: Option<Strin
             return Option.Some(TestCounts { total: total, failures: failures_from_exit(code, total) });
         },
         Err(e) => {
-            println('  error: ${e.message()}');
+            eprintln('  error: ${e.message()}');
             return Option.None;
         },
     }
@@ -293,13 +293,13 @@ fn compile_or_report(_ file: String, _ sdk_root: Option<String>) -> Option<Bytes
     let source = match fs.read_text(file) {
         Ok(s) => s,
         Err(e) => {
-            println('hawk: cannot read ${file}: ${e}');
+            eprintln('hawk: cannot read ${file}: ${e}');
             return Option.None;
         },
     };
     let outcome = compile_source_at(source, file, sdk_root);
     for d in outcome.diagnostics {
-        println(format_diagnostic(d, file));
+        eprintln(format_diagnostic(d, file));
     }
     return outcome.bytes;
 }
@@ -323,7 +323,7 @@ fn collect_test_files(_ targets: List<String>) -> List<String> {
                 }
             },
             Err(_) => {
-                println('hawk test: not found: ${target}');
+                eprintln('hawk test: not found: ${target}');
             },
         }
     }

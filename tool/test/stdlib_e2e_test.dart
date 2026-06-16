@@ -53,6 +53,21 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
     expect(r.stderr, contains('need an arg'));
   });
 
+  test('eprintln/eprint write to stderr, not stdout', () {
+    final r = emitAndRun('eprintln', '''
+fn main() -> Int {
+    println('out line');
+    eprintln('err line');
+    eprint('err frag');
+    return 0;
+}
+''', []);
+    if (r == null) return markTestSkipped('Rust runtime unavailable');
+    expect(r.exitCode, 0, reason: r.stderr.toString());
+    expect(r.stdout, 'out line\n');
+    expect(r.stderr, 'err line\nerr frag');
+  });
+
   test('Bool == / != run end to end (structural eq, not the Int opcode)', () {
     // Regression: Bool is a distinct runtime value, so `==`/`!=` must lower to
     // the structural `eq` native — the `eqI64` opcode rejects a Bool operand.

@@ -36,8 +36,11 @@ priority. None of these block day-to-day self-hosting; they close the gap to
   design.) `hawk parse` is intentionally **not** ported — an AST dump is a
   toolchain-debugging affordance, not agent-facing; the structured-understanding
   capability for agents is the LSP.
-- **Minor parity:** send diagnostics/errors to **stderr** (the Hawk CLI
-  currently `println`s them to stdout, the Dart CLI uses stderr). *Effort: small.*
+- **Diagnostics → stderr — done.** Added the prelude `eprintln`/`eprint` (the
+  missing stderr siblings of `println`/`print`); the CLI routes all diagnostics
+  and error/usage messages through them, while program output, the `test` report,
+  and `--help` success stay on stdout. So `hawk check foo 2>/dev/null` is silent
+  and stdout stays pipe-clean.
 
 ## Static analysis robustness (the checker must predict codegen)
 
@@ -59,10 +62,17 @@ flag them. Closing these is the prerequisite for a useful IDE.
   `structFieldMissing` resolution predicates on the inferrer, mirroring the
   codegen ladder.)* Remaining sub-gap: field access on a **non-struct** concrete
   value (e.g. `5.x`) still falls through to codegen — narrow, low-priority.
-- **Body-check imported libraries.** Importing a module does **not** type-check
-  its function bodies — body-level errors hide until a *direct* `hawk check` of
-  that file. The self-hosting milestone wants every source to pass a direct check,
-  and this is also what let the `let`-annotation codegen bug hide from `check`.
+- **Body-checking imported libraries — not needed (resolved by `hawk check
+  <dir>`).** Importing a module contributes only its *signatures*, not a check of
+  its function bodies — which is the **right** scoping for single-file check:
+  `hawk check foo` should report foo's diagnostics, not dump errors from files it
+  merely imports. The original worry ("a library's body errors hide until a
+  direct check of that file") is answered by directory checking — `hawk check .`
+  checks every file's body directly. One residual, accepted nuance: `hawk run
+  foo` can still fail at codegen on a body error in an *imported* lib that
+  `hawk check foo` didn't report (codegen compiles imports); the workflow answer
+  is to check the project (a dir), not rely on transitive checking from one entry
+  file — standard compiler behavior.
 - **Backward-flowing inference for `Option.None` locals.** `let mut x = Option.None;`
   needs an annotation when only a later `x = Some(v)` pins the element type;
   inference doesn't flow backward. Minor, recurring in stateful code.

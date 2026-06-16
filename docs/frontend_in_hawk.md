@@ -507,11 +507,12 @@ Language wrinkles (one resolved, one tracked):
   treated an else-less `if` as `Unit` (the parser parses it as a tail, inference
   types it `Unit`, codegen emits `constUnit` for the absent `else`), so the change
   was a ~5-line checker tweak each side. The now-redundant `;` workarounds in
-  `element/{types,resolver}.hawk` were stripped. **Compounding gap (still open):**
-  importing a module does **not** tail-check its function bodies, so body-level
-  errors hide until a *direct* `hawk check` of the file — the checker port should
-  check imported bodies (and the self-hosting milestone needs every source to pass
-  a direct check).
+  `element/{types,resolver}.hawk` were stripped. **(Earlier "compounding gap" now
+  resolved by design:** importing a module contributes only its *signatures*, not
+  a check of its bodies — the right scoping for single-file check. Whole-project
+  coverage comes from `hawk check <dir>`, which checks every file's body
+  directly, so no transitive body-checking of imports is needed. See
+  [completeness.md](completeness.md).)
 - **`{}` and `void` are interchangeable unit values.** An empty block `{}` and
   the unit literal `void` both denote the unit value in expression position (e.g.
   a no-op match arm `_ => {}` vs `_ => void`), verified compiling mixed. Benign

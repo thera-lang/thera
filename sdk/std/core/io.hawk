@@ -14,3 +14,12 @@ pub native fn println<T: Display>(_ value: T) -> Void
 // Like `println`, but without the trailing newline.
 @extern('print')
 pub native fn print<T: Display>(_ value: T) -> Void
+
+// Write `value`'s Display form followed by a newline to stderr — for
+// diagnostics and errors, keeping stdout clean for program output.
+@extern('eprintln')
+pub native fn eprintln<T: Display>(_ value: T) -> Void
+
+// Like `eprintln`, but without the trailing newline.
+@extern('eprint')
+pub native fn eprint<T: Display>(_ value: T) -> Void

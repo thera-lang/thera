@@ -97,7 +97,7 @@ enough to reduce hallucination.
 
 | Tier          | Import          | Contents                                                                                                                       |
 | ------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| **Prelude**   | none (auto)     | primitives, `List`/`Map`/`Set`, `Option`/`Result`, `Error` + `Eq`/`Display`/`Debug`/`Ord`, `println`/`print`, `String` methods |
+| **Prelude**   | none (auto)     | primitives, `List`/`Map`/`Set`, `Option`/`Result`, `Error` + `Eq`/`Display`/`Debug`/`Ord`, `println`/`print`/`eprintln`/`eprint`, `String` methods |
 | **Core std**  | `import std.x`  | `io fs path env process time fiber math random json encoding hash http log cli term regex testing`                             |
 | **Ecosystem** | package manager | databases, YAML/TOML/CSV, HTTP server, raw sockets, compression, full crypto/TLS, UUID, templating, …                          |
 

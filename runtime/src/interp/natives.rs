@@ -156,6 +156,10 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("io_stdin_read", native_io_stdin_read),
     ("io_stdout_write", native_io_stdout_write),
     ("io_stderr_write", native_io_stderr_write),
+    // Appended after the index-stable block above (these are bound by name, so
+    // no `NATIVE_*` index constant is needed).
+    ("eprintln", native_eprintln),
+    ("eprint", native_eprint),
 ];
 
 /// The native functions the runtime ships with, in index order.
@@ -238,6 +242,23 @@ fn native_println(out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
 fn native_print(out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let s = display_string(expect_one(args, "print")?)?;
     write!(out, "{s}").map_err(|e| bug(format!("print: {e}")))?;
+    Ok(Value::Unit)
+}
+
+/// `eprintln(value)` — like `println` but to stderr (diagnostics, errors). Flush
+/// stdout first so the two streams stay correctly ordered.
+fn native_eprintln(out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let s = display_string(expect_one(args, "eprintln")?)?;
+    let _ = out.flush();
+    writeln!(std::io::stderr(), "{s}").map_err(|e| bug(format!("eprintln: {e}")))?;
+    Ok(Value::Unit)
+}
+
+/// `eprint(value)` — like `eprintln` without the trailing newline.
+fn native_eprint(out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let s = display_string(expect_one(args, "eprint")?)?;
+    let _ = out.flush();
+    write!(std::io::stderr(), "{s}").map_err(|e| bug(format!("eprint: {e}")))?;
     Ok(Value::Unit)
 }
 
