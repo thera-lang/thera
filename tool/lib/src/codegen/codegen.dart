@@ -1619,7 +1619,8 @@ class _FnCompiler {
 
     // `==`/`!=`: dispatch to an explicit `impl Eq` when the operand type has
     // one; otherwise the structural `eq` native (the derived default for
-    // non-primitives) or a typed opcode (primitives).
+    // non-primitives, and for Bool — which has no typed equality opcode) or a
+    // typed opcode (Int/Double).
     if (e.op == '==' || e.op == '!=') {
       // An Eq-typed value or an `Eq`-bounded type parameter: the concrete type
       // isn't known here, so dispatch dynamically — an explicit `impl Eq` wins
@@ -1639,7 +1640,9 @@ class _FnCompiler {
         if (e.op == '!=') _emit(const Simple(Op.not));
         return;
       }
-      if (!isPrimitive) {
+      // Non-primitives use the structural `eq` native; so does Bool, which the
+      // runtime keeps distinct from Int (the `eqI64` opcode rejects it).
+      if (!isPrimitive || operandType == 'Bool') {
         _expr(e.left);
         _expr(e.right);
         _emit(const CallNative('eq', 2));

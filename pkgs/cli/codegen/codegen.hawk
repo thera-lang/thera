@@ -395,7 +395,12 @@ impl FnCompiler {
                     None => Option.None,
                 };
                 self.expr_expecting(x.value, annotated);
-                let ty = infer_expr(x.value, self.type_scope, self.ctx, annotated);
+                // An explicit annotation is the binding's type (matching the
+                // inference engine); fall back to the initializer's inferred type.
+                let ty = match annotated {
+                    Some(a) => a,
+                    None => infer_expr(x.value, self.type_scope, self.ctx, Option.None),
+                };
                 if self.boxed_locals.has(x.name) {
                     self.emit(Instr.StructNew(self.scope.cell_type_index()));
                 }
@@ -1127,7 +1132,8 @@ impl FnCompiler {
             || operand_type == Option.Some('Bool');
 
         // `==`/`!=`: an explicit `impl Eq`, else dynamic dispatch, else the
-        // structural `eq` native (non-primitives) or a typed opcode (primitives).
+        // structural `eq` native (non-primitives, and Bool — which has no typed
+        // equality opcode) or a typed opcode (Int/Double).
         if op == '==' || op == '!=' {
             if self.dispatches_via(operand_type, 'eq') {
                 self.expr(left);
@@ -1150,7 +1156,9 @@ impl FnCompiler {
                 },
                 None => {},
             }
-            if !is_primitive {
+            // Non-primitives use the structural `eq` native; so does Bool, which
+            // the runtime keeps distinct from Int (the `eqI64` opcode rejects it).
+            if !is_primitive || operand_type == Option.Some('Bool') {
                 self.expr(left);
                 self.expr(right);
                 self.emit(Instr.CallNative('eq', 2));

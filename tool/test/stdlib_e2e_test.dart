@@ -53,6 +53,46 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
     expect(r.stderr, contains('need an arg'));
   });
 
+  test('Bool == / != run end to end (structural eq, not the Int opcode)', () {
+    // Regression: Bool is a distinct runtime value, so `==`/`!=` must lower to
+    // the structural `eq` native — the `eqI64` opcode rejects a Bool operand.
+    // (Surfaced by interface conformance, which compares `is_static` Bools.)
+    final r = emitAndRun('booleq', '''
+type Flag = { on: Bool }
+fn main() -> Int {
+    let a = true;
+    let b = false;
+    println(a == a);
+    println(a != b);
+    let x = Flag { on: true };
+    let y = Flag { on: false };
+    println(x.on != y.on);
+    return 0;
+}
+''', []);
+    if (r == null) return markTestSkipped('Rust runtime unavailable');
+    expect(r.exitCode, 0, reason: r.stderr.toString());
+    expect(r.stdout, 'true\ntrue\ntrue\n');
+  });
+
+  test('a user impl of an interface checks and runs (conformance path)', () {
+    // Regression: type-checking a user `impl Iface for T` compares the
+    // interface and impl method signatures, including their `is_static` Bools —
+    // which previously trapped at runtime when the front-end ran in Hawk.
+    final r = emitAndRun('conformance', '''
+interface Greet { fn greet(self) -> Int }
+type Counter = { n: Int }
+impl Greet for Counter { pub fn greet(self) -> Int { return self.n; } }
+fn main() -> Int {
+    println(Counter { n: 7 }.greet());
+    return 0;
+}
+''', []);
+    if (r == null) return markTestSkipped('Rust runtime unavailable');
+    expect(r.exitCode, 0, reason: r.stderr.toString());
+    expect(r.stdout, '7\n');
+  });
+
   test('an interface-typed parameter dispatches dynamically (call.virtual)',
       () {
     // `Display` is the std.core interface; `describe` takes it as a value, so

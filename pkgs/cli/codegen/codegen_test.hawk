@@ -45,6 +45,24 @@ fn test_arithmetic_and_control_flow_byte_identical() -> Result<Void, Error> {
 }
 
 @test
+fn test_bool_equality_byte_identical() -> Result<Void, Error> {
+    // Regression: Bool is a distinct runtime value, so `==`/`!=` lower to the
+    // structural `eq` native (the `101, 113` = "eq" in the pool), not `eqI64`.
+    let src = 'fn main() -> Bool {\n'
+        + '    let a = true;\n'
+        + '    let b = false;\n'
+        + '    return a != b;\n'
+        + '}';
+    testing.assert_eq(actual: errors_of(src), expected: 0)?;
+    testing.assert_eq(actual: emit_bytes(src), expected: [
+        72, 65, 87, 75, 1, 0, 0, 0, 2, 4, 1, 2, 101, 113, 3, 1, 0, 1, 26, 1, 4,
+        109, 97, 105, 110, 0, 2, 9, 3, 1, 7, 0, 3, 0, 7, 1, 6, 0, 6, 1, 37, 0,
+        2, 31, 45,
+    ])?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_if_else_and_double_byte_identical() -> Result<Void, Error> {
     // `if`-statement early return, an `if`-expression tail, comparisons, a Bool
     // local, and Double arithmetic (the F64 opcode + the 8-byte float constant).

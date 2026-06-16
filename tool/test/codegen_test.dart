@@ -217,6 +217,29 @@ fn main() -> Int {
       expect(not, contains(isA<Simple>().having((i) => i.op, 'op', Op.not)));
     });
 
+    test('Bool equality uses the structural eq native, not the Int opcode', () {
+      // Regression: Bool is a distinct runtime value; the `eqI64` opcode rejects
+      // it, so `==`/`!=` must lower to the structural `eq` native.
+      final eq = compile(
+              'fn f() -> Bool { let a = true; let b = false; return a == b; }')
+          .functions
+          .single
+          .code;
+      expect(
+          eq, contains(isA<CallNative>().having((i) => i.name, 'name', 'eq')));
+      expect(eq,
+          isNot(contains(isA<Simple>().having((i) => i.op, 'op', Op.eqI64))));
+
+      final ne = compile(
+              'fn f() -> Bool { let a = true; let b = false; return a != b; }')
+          .functions
+          .single
+          .code;
+      expect(
+          ne, contains(isA<CallNative>().having((i) => i.name, 'name', 'eq')));
+      expect(ne, contains(isA<Simple>().having((i) => i.op, 'op', Op.not)));
+    });
+
     test('assignment to a mutable local', () {
       final m = compile('fn f() -> Int { let mut x = 1; x = 2; return x; }');
       final ops = m.functions.single.code;
