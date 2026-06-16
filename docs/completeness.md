@@ -13,12 +13,11 @@ priority. None of these block day-to-day self-hosting; they close the gap to
 
 ## CLI / runtime invocation
 
-- **Inherit-stdio for `hawk run`.** `std.process` only *captures* a child's
-  stdout/stderr (replayed after exit), so `hawk run` buffers output and can't wire
-  interactive stdin — unlike the Dart CLI, which uses inherit-stdio. Add a
-  runtime/process native (an inherit-stdio spawn mode, e.g. `process.exec` that
-  shares the parent's fds and returns just an exit code), then have `run` use it.
-  *Effort: runtime native + small runner change.*
+- **Inherit-stdio for `hawk run` — done.** `process.exec` (backed by the
+  `process_exec` runtime native) spawns a child sharing the parent's
+  stdin/stdout/stderr and returns its exit code; `hawk run`/`test` drive the
+  runtime through it, so output streams live and interactive stdin works
+  (`process.run` still captures for the programmatic case).
 - **Forward CLI args after `hawk run <file>` to the program.** Today only plain
   positional args reach the program; dash-flags (`hawk run prog --name x`) are
   intercepted by `std.cli`'s parser and error out. The Dart CLI separates program
