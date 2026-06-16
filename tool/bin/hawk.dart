@@ -52,7 +52,6 @@ List<int> _compileProgram(String path, Program program) {
 
 void main(List<String> args) async {
   final runner = CommandRunner<void>('hawk', 'The Hawk language toolchain.')
-    ..addCommand(ParseCommand())
     ..addCommand(RunCommand())
     ..addCommand(EmitCommand())
     ..addCommand(CheckCommand())
@@ -95,25 +94,6 @@ Program _loadProgram(String path) {
   }
 
   return parseResult.program;
-}
-
-class ParseCommand extends Command<void> {
-  @override
-  String get name => 'parse';
-
-  @override
-  String get description => 'Lex and parse <file>, then print the AST.';
-
-  @override
-  String get invocation => 'hawk parse <file>';
-
-  @override
-  void run() {
-    if (argResults!.rest.isEmpty) {
-      usageException('Expected a file argument.');
-    }
-    stdout.write(_loadProgram(argResults!.rest[0]).describe());
-  }
 }
 
 class RunCommand extends Command<void> {
