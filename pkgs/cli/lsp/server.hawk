@@ -9,6 +9,7 @@
 
 import std.json;
 
+import '../ast/ast';       // Program
 import '../lexer/lexer';   // tokenize
 import '../parser/parser'; // parse_tokens
 import '../loader';        // load_imports
@@ -17,6 +18,7 @@ import 'jsonrpc';
 import 'diagnostics';
 import 'symbols';
 import 'hover';
+import 'definition';
 
 // The server state: the set of open documents (URI -> current text) and the SDK
 // root used to resolve a document's imports.
@@ -28,6 +30,15 @@ pub type Server = {
 
 pub fn new_server(_ sdk_root: Option<String>) -> Server {
     return Server { docs: {}, sdk_root: sdk_root, shutdown_received: false };
+}
+
+// A parsed open document plus its import closure and the cursor offset — the
+// shared input to the position-based requests (hover, definition).
+type DocAnalysis = {
+    program: Program,
+    imports: List<Program>,
+    text: String,
+    offset: Int,
 }
 
 // Run the server: read framed messages from `reader`, dispatch each, and write
@@ -101,6 +112,11 @@ impl Server {
                 self.hover(params.get('textDocument').get('uri').as_string(), params.get('position')));
             return true;
         }
+        if method == 'textDocument/definition' {
+            send_response(writer, id,
+                self.definition(params.get('textDocument').get('uri').as_string(), params.get('position')));
+            return true;
+        }
         if method == 'textDocument/didClose' {
             match params.get('textDocument').get('uri').as_string() {
                 Some(uri) => {
@@ -149,25 +165,42 @@ impl Server {
         };
     }
 
-    // Hover for an open document at a position: the resolved declaration's
-    // signature, or JSON null. Imports are loaded so a hover on an imported name
-    // (a stdlib function/type) resolves too.
+    // Hover at a position: the resolved declaration's signature, or JSON null.
     fn hover(self, _ uri: Option<String>, _ position: Json) -> Json {
+        return match self.analyze_at(uri, position) {
+            Some(a) => handle_hover(a.program, a.imports, a.text, a.offset),
+            None => json.null(),
+        };
+    }
+
+    // Go-to-definition at a position: the declaration's `Location`, or JSON null.
+    fn definition(self, _ uri: Option<String>, _ position: Json) -> Json {
+        return match self.analyze_at(uri, position) {
+            Some(a) => handle_definition(a.program, a.imports, a.text, a.offset),
+            None => json.null(),
+        };
+    }
+
+    // Parse an open document and load its import closure, resolving `position` to
+    // a code-point offset — the shared setup for hover/definition. None when the
+    // document isn't open. Imports are loaded so a name from an imported library
+    // (a stdlib function/type) resolves too.
+    fn analyze_at(self, _ uri: Option<String>, _ position: Json) -> Option<DocAnalysis> {
         return match uri {
             Some(u) => match self.docs.get(u) {
                 Some(text) => {
-                    let line = position.get('line').as_int().unwrap_or(0);
-                    let character = position.get('character').as_int().unwrap_or(0);
-                    let offset = position_to_offset(text, line, character);
+                    let offset = position_to_offset(text,
+                        position.get('line').as_int().unwrap_or(0),
+                        position.get('character').as_int().unwrap_or(0));
                     let program = parse_tokens(tokenize(text).tokens).program;
                     let path = uri_to_path(u);
                     program.file_path = Option.Some(path);
                     let loaded = load_imports(path, program, self.sdk_root);
-                    handle_hover(program, loaded.programs, text, offset)
+                    Option.Some(DocAnalysis { program: program, imports: loaded.programs, text: text, offset: offset })
                 },
-                None => json.null(),
+                None => Option.None,
             },
-            None => json.null(),
+            None => Option.None,
         };
     }
 
@@ -205,6 +238,7 @@ fn initialize_result() -> Json {
             'textDocumentSync': json.int(1), // TextDocumentSyncKind.Full
             'documentSymbolProvider': json.bool(true),
             'hoverProvider': json.bool(true),
+            'definitionProvider': json.bool(true),
         }),
         'serverInfo': json.obj({
             'name': json.str('hawk'),

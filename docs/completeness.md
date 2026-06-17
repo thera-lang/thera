@@ -24,28 +24,32 @@ priority. None of these block day-to-day self-hosting; they close the gap to
   marked trailing, so `hawk run foo.hawk --bar --baz=qux` forwards
   `--bar --baz=qux` to the program with no `--` separator (the `run` command's
   own flags must precede `<file>`).
-- **Translate the LSP command — in progress.** Slice 1 done: `hawk lsp` is a
-  working language server in Hawk (`pkgs/cli/lsp/`). The JSON-RPC + Content-Length
-  transport is reimplemented over `std.io` + `std.json` (replacing the Dart
-  `package:lsp_server`); it handles the lifecycle (`initialize`/`shutdown`/`exit`),
-  full-document sync (`didOpen`/`didChange`/`didClose`), and live
-  `publishDiagnostics` driven by `check_source_at`. Tested in-process (framing
-  helpers, the read loop over an in-memory `Reader`, and `Server.handle` via a
-  `StringWriter`) and verified end-to-end over real stdio. **Slice 2 done:**
-  `documentSymbol` (the outline) — a syntactic walk of the parsed decls into a
-  `DocumentSymbol[]` tree (functions/types/consts/enums/interfaces/impls, with
-  enum variants and impl/interface methods nested), built from the recovered
-  parse so it works while the file still has errors. **Slice 3 done:** `hover` —
-  the identifier under the cursor (found from the token stream) resolved to a
-  top-level declaration (in the file or its imports) whose signature is shown as
-  a `hawk` code block. Covers functions/types/enums/interfaces/consts, same-file
-  and cross-file. (Follow-up: hovering a *local*/parameter or an expression to
-  show its *inferred* type needs scope-reconstruction inference at an offset —
-  the Dart version's `resolvedType` path, dropped in the port.) **Remaining
-  slice:** `definition` (reuses the same identifier-at-offset → declaration
-  lookup, returning the decl's location); plus overlay-aware imports (honor
-  unsaved edits in imported libs). The gateway to the horizon-1 incremental
-  engine (see [frontend_in_hawk.md](frontend_in_hawk.md) §1).
+- **Translate the LSP command — done (v1).** `hawk lsp` is a working language
+  server in Hawk (`pkgs/cli/lsp/`). The JSON-RPC + Content-Length transport is
+  reimplemented over `std.io` + `std.json` (replacing the Dart
+  `package:lsp_server`); it handles the lifecycle (`initialize`/`shutdown`/`exit`)
+  and full-document sync (`didOpen`/`didChange`/`didClose`). The four feature
+  slices:
+  - **diagnostics** — live `publishDiagnostics` driven by `check_source_at`.
+  - **documentSymbol** — the outline: a syntactic walk of the parsed decls into a
+    `DocumentSymbol[]` tree (enum variants + impl/interface methods nested), from
+    the recovered parse so it works while the file still has errors.
+  - **hover** — the identifier under the cursor (found from the token stream)
+    resolved to a top-level declaration (file or imports) whose signature shows as
+    a `hawk` code block.
+  - **definition** — the same identifier-at-offset → declaration lookup, returning
+    the declaration's `Location` (same-file or jumping into the imported library).
+
+  Tested in-process (framing helpers, the read loop over an in-memory `Reader`,
+  and `Server.handle` via a `StringWriter`) and verified end-to-end over real
+  stdio, including cross-file hover/definition. **Follow-ups (v2):** hovering a
+  *local*/parameter or an expression to show its *inferred* type, and resolving
+  field/method members — both need scope-reconstruction inference at an offset
+  (the Dart version's `resolvedType` path, dropped in the port); local-variable
+  go-to-definition (needs the scope walk); overlay-aware imports (honor unsaved
+  edits in imported libs); and memoization so hover/definition don't reload the
+  import closure per request — the gateway to the horizon-1 incremental engine
+  (see [frontend_in_hawk.md](frontend_in_hawk.md) §1).
 - **`hawk check <dir>` and multi-target — done.** `check` now accepts one or
   more files/directories (directories recurse for `*.hawk`), sums diagnostics
   across them, and exits 0 clean / 1 with diagnostics / 2 on a missing target —

@@ -126,6 +126,48 @@ fn test_hover_on_a_keyword_is_null() -> Result<Void, Error> {
 }
 
 @test
+fn test_definition_jumps_to_declaration() -> Result<Void, Error> {
+    let server = new_server(Option.None);
+    let opened = io.StringWriter.new();
+    server.handle(opened, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"file:///d.hawk",'
+        + '"text":"fn helper() -> Int { return 1; }\\nfn main() -> Int { return helper(); }"}}}');
+
+    // Go-to-definition on the `helper` call (line 1, inside the name) lands on
+    // the `helper` declaration up on line 0.
+    let asked = io.StringWriter.new();
+    server.handle(asked, '{"jsonrpc":"2.0","id":7,"method":"textDocument/definition","params":'
+        + '{"textDocument":{"uri":"file:///d.hawk"},"position":{"line":1,"character":28}}}');
+    let out = match asked.into_string() {
+        Ok(s) => s,
+        Err(_) => '',
+    };
+    testing.assert(out.contains('file:///d.hawk'), message: 'returns a location in the file')?;
+    testing.assert(out.contains('"line":0') || out.contains('"line": 0'),
+        message: 'points at the declaration on line 0')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_definition_on_unknown_is_null() -> Result<Void, Error> {
+    let server = new_server(Option.None);
+    let opened = io.StringWriter.new();
+    server.handle(opened, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"file:///d.hawk","text":"fn main() -> Int { return 1; }"}}}');
+    // Character 0 is the `fn` keyword — no identifier, no definition.
+    let asked = io.StringWriter.new();
+    server.handle(asked, '{"jsonrpc":"2.0","id":8,"method":"textDocument/definition","params":'
+        + '{"textDocument":{"uri":"file:///d.hawk"},"position":{"line":0,"character":0}}}');
+    let out = match asked.into_string() {
+        Ok(s) => s,
+        Err(_) => '',
+    };
+    testing.assert(out.contains('"result":null') || out.contains('"result": null'),
+        message: 'no definition for a keyword')?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_shutdown_responds_null() -> Result<Void, Error> {
     let out = handled('{"jsonrpc":"2.0","id":9,"method":"shutdown"}');
     testing.assert(out.contains('"result":null') || out.contains('"result": null'),
