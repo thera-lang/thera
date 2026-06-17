@@ -216,7 +216,7 @@ pub type Block = {
     // The block's tail expression: a final expression with no trailing `;` whose
     // value is the block's value. Populated only for blocks parsed in expression
     // position (a BlockExpr or a `{…}` match arm); None for statement-position
-    // blocks (fn/if/while/for bodies). See docs/tailexpr.md.
+    // blocks (fn/if/while/for bodies). See docs/language.md.
     tail: Option<Expr>,
 }
 
@@ -322,7 +322,7 @@ pub type LambdaExpr = {
 // from the statement-position `Stmt.If`. `else_block` is required where the value
 // is used (enforced in the parser/checker) and optional for a discarded
 // statement `if`. An `else if` chain is the else block's tail. See
-// docs/tailexpr.md.
+// docs/language.md.
 pub type IfExpr = {
     span: SourceSpan,
     condition: Expr,

@@ -132,7 +132,7 @@ bool isAssignable(Type source, Type target) {
   if (source is TypeParameterType || target is TypeParameterType) return true;
   if (source == target) return true;
   // A concrete type is assignable to an interface it implements (interface-typed
-  // values; dynamic dispatch — see docs/interfaces.md).
+  // values; dynamic dispatch — see docs/language.md).
   if (target is InterfaceType &&
       target.element is InterfaceElement &&
       source is InterfaceType &&
@@ -140,7 +140,7 @@ bool isAssignable(Type source, Type target) {
     return true;
   }
   // A sub-interface value is assignable where one of its super-interfaces is
-  // expected (`Error` extends `Display`/`Debug` — see docs/interfaces.md). The
+  // expected (`Error` extends `Display`/`Debug` — see docs/language.md). The
   // element's `superInterfaces` holds the transitive closure.
   if (target is InterfaceType &&
       target.element is InterfaceElement &&

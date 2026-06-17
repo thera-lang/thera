@@ -93,7 +93,7 @@ String? findSdkRoot() {
 ///
 /// (Per the visibility spec a base that is *both* a file and a directory is an
 /// error; until the resolver moves into the element model this prefers the
-/// file. See docs/visibility.md.)
+/// file. See docs/language.md.)
 String? resolveLibraryFile(String base, FileSystem fs) {
   final file = '$base.hawk';
   if (fs.fileExists(file)) return file;

@@ -326,7 +326,7 @@ class TypeChecker {
       // That's only an error when the then-branch actually produces a value —
       // i.e. a value the missing `else` couldn't supply. A side-effecting
       // `if cond { … }` whose block is Unit is fine as a tail. See
-      // docs/tailexpr.md.
+      // docs/language.md.
       if (tail is IfExpr && tail.else_ == null) {
         final thenType = tail.then.tail?.resolvedType;
         if (thenType != null &&
@@ -629,7 +629,7 @@ class TypeChecker {
   /// At runtime, a `call.virtual` on a receiver with no impl row falls back to
   /// the built-in structural forms (primitives' Display/Eq/Debug, structs' and
   /// enums' derived eq/debug) — so these type-level facts are backed by real
-  /// dispatch (see docs/interfaces.md, Stage E).
+  /// dispatch (see docs/language.md, Stage E).
   static const _builtinInterfaces = {'Eq', 'Display', 'Debug'};
   bool _satisfiesBound(Type t, String bound) {
     if (t is UnknownType || t is TypeParameterType) return true;

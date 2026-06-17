@@ -260,6 +260,18 @@ enforced code formatter (`hawk fmt`). By restricting the layout of code to one
 standard representation, it ensures that generated code and reference prompts
 match exactly, minimizing token waste and code generation divergence.
 
+### VIII. Functional Core, Imperative Shell
+
+Hawk's productive middle ground combines functional safety with imperative
+practicality via a **functional core, imperative shell** architecture: pure
+functions and immutable data pipelines hold the domain logic (zero state
+hallucination, trivially testable, linear to reason about), while the messy,
+mutable, side-effecting parts — filesystem, processes, network — are quarantined
+to the application boundary. This is reinforced by keeping the language
+**WYSIWYG**: no heavy metaprogramming, macros, or aggressive operator
+overloading, which would otherwise blind both the agent and its static-analysis
+tools to what the code actually does.
+
 ---
 
 ## 4. The Runtime Architecture

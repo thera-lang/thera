@@ -12,7 +12,7 @@ Its second job is to make **parser completeness** legible: the precedence table
 and the [Not yet in the grammar](#not-yet-in-the-grammar) section spell out what
 is deliberately or incidentally absent (e.g. increment/decrement, casts) — see
 also [roadmap.md](roadmap.md). The semantics behind the forms live in
-[language.md](language.md); the rationale in [guidelines.md](guidelines.md).
+[language.md](language.md); the rationale in [overview.md](overview.md).
 
 ## Notation
 
@@ -184,7 +184,7 @@ block     = '{' statement* '}'
 
 // An expression-position block (a `{…}` that is itself an expression, e.g. a
 // `let` initializer or a `{…}` match arm): an optional trailing expression with
-// no ';' is the block's *tail* — its value. See docs/tailexpr.md. (Function and
+// no ';' is the block's *tail* — its value. See docs/language.md. (Function and
 // loop bodies use `block` above, so they keep the require-';' rule and produce
 // values with `return`.)
 exprBlock = '{' statement* expr? '}'
@@ -289,7 +289,7 @@ structBody= '{' ( field (',' field)* ','? )? '}'   field = IDENT ':' expr
 matchExpr = 'match' exprNB '{' arm* '}'
 arm       = pattern '=>' ( exprBlock | expr ) ','?      // a block arm is tail-valued
 
-// `if` in expression position (docs/tailexpr.md). Branches are tail-valued
+// `if` in expression position (docs/language.md). Branches are tail-valued
 // `exprBlock`s; `else` is required where the value is used (a primary `if`, or
 // an `if` tail), optional for a discarded statement `if` inside an exprBlock. The
 // statement form (`ifStmt`, above) is a separate node and keeps `else` optional.
@@ -352,7 +352,7 @@ checklist; items that are planned link to [roadmap.md](roadmap.md).
 - `break` / `continue` (and labeled loops); a `loop { }` form.
 - `if` and `match` work in both statement position (`ifStmt`, a bare `match`) and
   expression position (`ifExpr`, `matchExpr`); the value forms are tail-valued
-  (docs/tailexpr.md). There are no block-less `if` bodies (the body is always a
+  (docs/language.md). There are no block-less `if` bodies (the body is always a
   block).
 
 **Patterns**

@@ -62,7 +62,7 @@ pub const ENUM_DISPATCH_BASE: u32 = 1 << 31;
 /// method `selector` for the concrete type `ty` (a `Module::types` index for a
 /// struct; `ENUM_DISPATCH_BASE | ty` for an enum) is `Module::functions[func]`.
 /// `call.virtual <selector>` reads the receiver's type id and looks the target
-/// up here. See docs/interfaces.md ("Dynamic dispatch").
+/// up here. See docs/language.md ("Dynamic dispatch").
 #[derive(Clone, Debug, PartialEq)]
 pub struct DispatchEntry {
     pub ty: u32,

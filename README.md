@@ -18,7 +18,7 @@ and refactor code.
 - **Comprehensive standard library** — reduces reliance on unfamiliar
   third-party APIs
 
-See [docs/guidelines.md](docs/guidelines.md) for the full architectural
+See [docs/overview.md](docs/overview.md) for the full architectural
 rationale, [docs/toc.md](docs/toc.md) for the design docs, and
 [docs/roadmap.md](docs/roadmap.md) for current status.
 

@@ -314,7 +314,7 @@ positional. A `Void` return pushes nothing.
 > primitives, strings, collections) falls back to the built-in interfaces'
 > structural forms: native `display` (primitives/String), the recursive
 > structural `debug` (the `Debug` auto-derive), and structural `eq`. See
-> docs/interfaces.md ("Dynamic dispatch — the arc, staged").
+> docs/language.md ("Dynamic dispatch — the arc, staged").
 
 ### Aggregates & heap allocation
 

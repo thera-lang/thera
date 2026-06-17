@@ -12,7 +12,7 @@ type-checks and compiles Hawk source to bytecode, and a **growing core stdlib**
 implemented **visibility/library** model, and **interface dispatch — static on
 concrete types and dynamic (`call.virtual`) for interface-typed values and
 bounded generics, with bounds enforced at call sites** (see
-[interfaces.md](interfaces.md)) — all work; real CLI programs compile and run
+[language.md](language.md)) — all work; real CLI programs compile and run
 end to end (see `examples/`), and `hawk test` runs the `@test` functions in
 `*_test.hawk` files, all on a runtime with a **precise mark-sweep GC**. Not yet
 done: a **broader stdlib**; _enforced_ visibility; **generic operators**
@@ -70,15 +70,17 @@ The path to a self-hosting `hawk`:
    format/opcodes/native-ABI. This is the bootstrap compiler that will produce
    the first `frontend.hawkbc`. The lowering rules it implements are the
    reference the Hawk-written front-end re-implements.
-3. **Hawk front-end emits `.hawkbc`** — self-hosting; bootstrapped by arc 2
-   compiling the Hawk-written front-end the first time. _Deliberately deferred_
-   until the Dart front-end + Rust runtime are stable and complete enough to run
-   real programs (see Strategy). The architecture — the incremental/LSP target,
-   the first batch-compiler port, and the de-risking Dart refactors — is in
-   [frontend_in_hawk.md](frontend_in_hawk.md).
+3. **Hawk front-end emits `.hawkbc`** — self-hosting; _largely here._ The
+   Hawk-written front-end (`pkgs/cli/`: lexer → parser → resolver → checker →
+   inference → codegen → encoder, plus `check`/`emit`/`run`/`test`/`lsp`)
+   compiles its own sources and the whole stdlib **byte-identically** to the Dart
+   oracle, and `bin/build_sdk.sh` embeds it into the `hawk` binary (the build's
+   fixpoint check confirms the SDK reproduces its own front-end). What remains
+   before Dart can be retired is below (Retiring the Dart toolchain).
 
-The Dart toolchain is maintained — parsing current Hawk and emitting bytecode —
-until the Hawk front-end can compile itself.
+The Dart toolchain is still maintained as the **bootstrap compiler** (it emits
+the first `frontend.hawkbc`) and the **per-phase oracle** (byte-identity
+diffing), until the items below are closed.
 
 ## Strategy: walk toward self-hosting, don't run
 
@@ -94,12 +96,13 @@ incrementally:
 - Only once that is stable, start porting the front-end's lowering rules into
   Hawk and iterate until it compiles itself.
 
-The first concrete step toward arc 3 was a **scoped spike** — a tiny calculator
-front-end (lex → parse → eval) ported to Hawk (`pkgs/calc/`), which surfaced and
-ranked the real language gaps (tail expressions, nested patterns, string
-slicing, interface inheritance, …) rather than guessing which to build. All of
-those gaps are now closed; the port itself is underway. See
-[frontend_in_hawk.md](frontend_in_hawk.md).
+That played out as planned: a scoped **spike** (a calculator front-end in
+`pkgs/calc/`) first ranked the real language gaps (tail expressions, nested
+patterns, string slicing, interface inheritance, …) rather than guessing; those
+gaps were closed; then the full front-end was ported into `pkgs/cli/` and now
+self-hosts. The remaining front-end work is the LSP's v2 (inference-at-offset for
+hover/definition, overlay-aware imports, memoization) toward an incremental
+engine — tracked under Deferred work.
 
 ## Deferred work
 
@@ -115,7 +118,7 @@ gaps, by where they live:
   (`first`/`last`/ `slice`/`sort`, more `String`/`Map`) and the `@test` runner's
   surface — still the bulk of the "batteries included" goal.
 - **Interface dispatch (`Display`/`Eq`/`Debug`) — static _and_ dynamic; see
-  [interfaces.md](interfaces.md).** Conformance is recorded and checked
+  [language.md](language.md).** Conformance is recorded and checked
   (`impl Interface for Type` must provide every method, signatures matching with
   `Self`). A known concrete type dispatches statically (a direct `call`);
   interface-typed values (`fn show(x: Display)`, fields, returns,
@@ -197,7 +200,7 @@ gaps, by where they live:
 - Block expressions and literal/nested `match` patterns remain. Interface
   dispatch is done — static on concrete types, dynamic (`call.virtual` + vtable)
   for interface-typed values and bounded generics (see
-  [interfaces.md](interfaces.md)). (Closures lower fully: lambdas lift to
+  [language.md](language.md)). (Closures lower fully: lambdas lift to
   top-level functions; captures by value, with captured `mut` locals boxed into
   cells, via `closure.new` / `call.indirect`. Lambda parameter types are
   resolved by annotation or bidirectional inference, with a hard error
@@ -208,7 +211,7 @@ gaps, by where they live:
   `_isDefinedName`. It can become a `Set<String>`, retiring `_inferType` and the
   `type` argument of `_bindPattern`. Small and self-contained.
 
-**Language / libraries & visibility:** (see [visibility.md](visibility.md))
+**Language / libraries & visibility:** (see [language.md](language.md))
 
 - **Visibility model — largely implemented.** `pub`/`pub import` parse; imports
   bind a namespace (trailing segment) and qualified access (`ns.fn`,
@@ -219,10 +222,11 @@ gaps, by where they live:
   (`String.from_chars`). The stdlib is reorganized into directory libraries with
   `core` as a barrel (interfaces/error/string/list/map) and `std.cli` over args;
   examples use qualified imports.
-- **Remaining (deferred, tracked in visibility.md):** _enforce_ `pub`/privacy
-  (cross-file refs to non-`pub` symbols error; drop the flat fallback) and
-  `_test.hawk` white-box access — plus selective import, field-level visibility,
-  impl coherence, and a "module"→"library" terminology sweep.
+- **Remaining (deferred):** _enforce_ `pub`/privacy (cross-file refs to non-`pub`
+  symbols error; drop the flat fallback) and `_test.hawk` white-box access — plus
+  selective import, field-level visibility, impl coherence, and a
+  "module"→"library" terminology sweep. (Consolidated under *Retiring the Dart
+  toolchain* below.)
 
 **Cross-cutting:** stdlib native names are now written once, as `@extern('...')`
 on the `native fn` declarations in `sdk/std` (the `element/builtins.dart` mirror
@@ -240,7 +244,7 @@ compiles the test file + driver, and runs it on the runtime via
 tested module's own `main`). The exit code is the failure count; an overall
 summary follows. `std.testing` throws `error(...)` (the general-purpose `Error`); the
 driver renders a caught `Err(e)` via `e.message()` (`Error` now extends
-`Display`, so `'${e}'` works too — see [interfaces.md](interfaces.md),
+`Display`, so `'${e}'` works too — see [language.md](language.md),
 "Interface inheritance").
 
 Remaining polish (not blockers): per-test **source locations** on failure (the
@@ -254,7 +258,7 @@ type argument must satisfy every bound (primitives carry the built-in
 `Eq`/`Display`/`Debug`; `Eq`/`Debug` derive structurally for structs/enums;
 other interfaces need an explicit `impl`). Inside a generic body, a method call
 on the erased `T` dispatches via `call.virtual` (see
-[interfaces.md](interfaces.md)). Still open from this area: **generic
+[language.md](language.md)). Still open from this area: **generic
 operators** (`<T: Add>`, operators-as-traits).
 
 **Bitwise operators — not yet in the language.** Hawk has no `& | ^ << >>` (nor
@@ -317,6 +321,45 @@ unqualified variant construction (a general "variants of an in-scope enum are
 callable unqualified" rule, or sugar) is deferred until there's feedback that
 the qualified form is onerous.
 
+## Retiring the Dart toolchain
+
+The Hawk front-end self-hosts (byte-identical, embedded in the SDK). The Dart
+toolchain (`tool/`) stays as bootstrap + oracle until these close:
+
+- **Per-namespace resolution + `pub`/privacy enforcement — rising priority.**
+  Free functions resolve same-file-first with a global fallback, but a `private`
+  fn is still reachable cross-file, and a `pub` name still collides across
+  libraries through a namespace-qualified call (the qualifier is cosmetic in
+  codegen); types/enums/consts/natives are likewise global-by-bare-name. This
+  already bites: pulling `std.json`/`std.io` into the front-end collided
+  `json.parse` with the parser's `parse` (renamed `parse_tokens`) and a local
+  `Message` with `std.core`'s (renamed) — caught only at codegen, not `check`.
+  Proper module-scoped resolution (qualified calls resolve *within* the named
+  library) + privacy enforcement is the real fix; a duplicate-top-level-name
+  diagnostic would at least surface collisions early. A *permanent* sub-case:
+  **prelude (`std.core`) names are always unqualified**, so they're de-facto soft
+  reserved words — the prelude must hold only language-fundamental
+  types/traits/verbs, never common domain nouns (why the `Message` error type
+  became the `error('…')` constructor over a private carrier).
+- **Visibility follow-ups** (from the visibility model now in
+  [language.md](language.md)): enforce `pub`/privacy; grant `_test.hawk`
+  white-box access to its target's privates (only meaningful once privacy is
+  enforced); `impl` coherence / orphan rules; optional selective import
+  (`show`/`hide`) and field-level visibility; sweep remaining "module" wording to
+  "library"/"source file".
+- **Checker predicts codegen — residual gaps.** Field/method validation lands
+  (`check` rejects bad field accesses and method calls, conservative on unknown
+  receivers). Remaining: field access on a non-struct concrete value (`5.x`)
+  still slips to codegen; backward-flowing inference for `let mut x = Option.None`
+  needs an annotation when only a later assignment pins the element type.
+- **LSP v2 toward an incremental engine** — inference-at-offset (hover/definition
+  on locals, expressions, members), overlay-aware imports (honor unsaved edits),
+  and memoizing the import-closure load so analysis isn't redone per keystroke
+  (see the incremental note above).
+- **Drop the Dart bootstrap dependency** — check in a `frontend.hawkbc` snapshot
+  so the SDK builds from a *previous SDK* rather than from Dart; then retire
+  `tool/` once we're confident enough in byte-identity to stop diffing.
+
 ## Planned sequence
 
 1. ~~Consolidation: entry/args convention + `Result`-return unwrapping in the
@@ -330,7 +373,9 @@ the qualified form is onerous.
    `eq`/`debug` fallbacks. Generic operators (`<T: Add>`) remain.
 5. **`hawk test` runner** — _done_: runs `@test` functions in `*_test.hawk`
    files, with per-test pass/fail reporting.
-6. **Walk toward arc 3** — stdlib-in-Hawk, then the Hawk front-end.
+6. ~~**Walk toward arc 3** — stdlib-in-Hawk, then the Hawk front-end.~~ _done:
+   the front-end self-hosts and ships in the SDK; what's left is under Retiring
+   the Dart toolchain._
 
 ## Staged path (runtime, longer view)
 

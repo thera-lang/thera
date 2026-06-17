@@ -50,7 +50,7 @@ swapped out from under you.
 
 ### Most code should take neither
 
-The deepest layer of [the functional core](guidelines.md#L92) reads no ambient
+The deepest layer of [the functional core](overview.md) reads no ambient
 state at all. A function that formats a log line should **take a `DateTime`**,
 not take a `Clock` and read it; a parser should **take the `String`**, not a
 `FileSystem` and a path. The seam there is "pass the data in." The capability
@@ -154,7 +154,7 @@ fn test_logic_under_a_fixed_clock() -> Result<Void, Error> {
 ```
 
 This relies entirely on the interface-typed parameters + dynamic dispatch from
-the [interfaces arc](interfaces.md): the `Clock` parameter dispatches through
+the [interfaces arc](language.md): the `Clock` parameter dispatches through
 `call.virtual` to whichever implementation was passed, including across module
 boundaries (the `FixedClock` impl in `std.testing` conforms to the `Clock`
 interface declared in `std.time`).

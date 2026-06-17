@@ -4,7 +4,7 @@
 `hawk` tool, and open language-design questions. An informal working reference,
 not a formal spec. The concrete syntax — keyword set, operator precedence, and
 every production in EBNF — is in [grammar.md](grammar.md). For the _why_ see
-[guidelines.md](guidelines.md); for how programs execute see
+[overview.md](overview.md); for how programs execute see
 [bytecode.md](bytecode.md) and [architecture.md](architecture.md).
 
 ---
@@ -399,6 +399,44 @@ for i in 0..10 {
 
 ---
 
+## Tail expressions
+
+In **expression position**, the final expression of a block — one with no
+trailing `;` — is the block's value. Because `if` and `match` arms are blocks,
+they yield values too, so they can be used where a value is expected (a `let`
+initializer, a `match` arm, an `if`/`else` branch, a call argument).
+
+```hawk
+// the block's last expression is its value
+let label = match tok {
+    Number(n) => {
+        let s = format(n);
+        'num: ${s}'          // ← tail; no trailing ';'
+    },
+    _ => 'other',
+};
+
+// if usable in value position
+let max = if a > b { a } else { b };
+```
+
+**Semicolon rule.** In an expression-position block, every statement ends in `;`
+*except* a final tail expression. `let x = { f(); g() }` makes `x` the value of
+`g()`; `let x = { f(); g(); }` makes `x` `Unit` (the value of `g()` is
+discarded). A bare trailing expression is legal **only** in expression position.
+
+**Function bodies are not expression position** — a function still returns with
+an explicit `return`, and a bare trailing expression in a function body is a
+statement (the require-`;` rule), not an implicit return. This is deliberate: the
+value a function produces is always marked, and the `;`-flip can never silently
+change a *return* value.
+
+**`if` without `else`** has type `Unit` (the then-branch runs for effect). An
+`else` is required only where the `if`'s value is actually consumed — `let x = if c { 1 }`
+is an error, but a side-effecting `if c { foo() }` as a tail or statement is fine.
+
+---
+
 ## Collections
 
 ```hawk
@@ -518,28 +556,53 @@ import std.cli      // → std/cli/cli.hawk      (directory library, via its bar
 ```
 
 A barrel re-exports its directory's files with `pub import`, so a whole
-directory imports as one namespace. See [visibility.md](visibility.md).
+directory imports as one namespace. See [language.md](language.md).
 
 ---
 
 ## Visibility
 
+The unit of privacy is the **physical `.hawk` source file**. Hawk has no
+"module" (no multi-file unit with shared privacy); the relevant terms are a
+**source file** (the privacy unit), a **library** (an importable surface — a
+single file, or a directory fronted by its barrel), and a **barrel** (a library
+root that re-exports its directory's files). In the common case the file *is*
+the library.
+
 A top-level declaration (`fn`, `type`, `enum`, `const`, `interface`) is
-**private to its source file** unless marked `pub`. The physical `.hawk` file is
-the privacy boundary; within a file everything is mutually visible, and across
-files only `pub` symbols are — once imported.
+**private to its source file** unless marked `pub`. Within a file everything is
+mutually visible; across files only `pub` symbols are, and only once imported.
 
 ```hawk
 pub fn format_date(_ d: Date) -> String { ... }   // public API
-fn pad2(_ n: Int) -> String { ... }                // file-private
+fn pad2(_ n: Int) -> String { ... }                // file-private helper
 ```
 
-A `pub` type exposes its fields; `impl` methods are exposed individually
-(`pub fn`). A file can `pub import` another file to re-export its public symbols
-— the basis of barrels. Sibling `_test.hawk` files get white-box access to their
-target's private symbols. The full model — barrels, the `<dirname>.hawk`
-convention, the test rule, and terminology (a source file vs. a library) — is in
-[visibility.md](visibility.md).
+- **Types expose their fields.** Making a `type`/`enum` `pub` also exposes its
+  fields/variants — there is no per-field `pub`. (Mutability is the separate,
+  immutable-by-default axis.)
+- **Methods are exposed individually** — a method is callable cross-file only
+  when it is `pub fn`.
+- **`impl` blocks live wherever visibility allows** — an `impl Foo` or
+  `impl Iface for Foo` may sit in any file that can see `Foo` (and the
+  interface).
+- **`pub import` re-exports** — it binds the namespace *and* republishes the
+  target's public symbols as part of this library's API (the basis of barrels;
+  see [Imports](#imports)). A plain `import` does not re-export. If two
+  re-exported files both export `format`, the **barrel** fails to compile — the
+  conflict is the barrel author's, never the consumer's.
+
+**Testing — white-box access.** A test lives beside its target as
+`foo_test.hawk` and imports it normally (`import 'foo'`). The one special case is
+visibility: because the names match, that import also sees `foo.hawk`'s
+**private** symbols, so `foo.internal_helper` is reachable from `foo_test.hawk`
+and nowhere else. It's still referenced through the import's namespace; the
+filename convention grants the access, avoiding a general package-private axis.
+
+Visibility and qualification are **front-end** concerns — name resolution
+applies them and they are erased in `.hawkbc` (calls are by index; the bytecode
+has no notion of "private" or namespaces). *Privacy is not yet fully enforced*
+(see [roadmap.md](roadmap.md)).
 
 ---
 
@@ -616,8 +679,10 @@ with `unwrap_or` for a default.
 
 ## Interfaces
 
-Interfaces describe capability. Structs implement them explicitly. No
-inheritance — composition is preferred.
+Interfaces describe capability. A type implements one explicitly with
+`impl Interface for Type`; the checker verifies the impl provides **every**
+interface method with a matching signature (with `Self` read as the implementing
+type), reporting any missing or mismatched.
 
 ```hawk
 interface Greet {
@@ -709,6 +774,41 @@ impl Display for Point {
 String interpolation (`${}`) requires `Display`. Attempting to interpolate a
 type that does not implement `Display` is a compile error.
 
+`Eq` works the same way: `==`/`!=` use a type's explicit `impl Eq` when present,
+otherwise the structural derive (primitives, and structs/enums whose fields are
+all `Eq`). So `Eq` and `Debug` are **structural-by-default with explicit
+override**; `Display` is always explicit (it has no meaningful default).
+
+### Interface inheritance
+
+An interface may **extend** one or more others, declaring that any conforming
+type must also satisfy those super-interfaces. The `: Super1 + Super2` clause
+uses the same `+`-joined form as a generic bound; supers must be interfaces and
+the relation must be acyclic.
+
+```hawk
+pub interface Error: Display + Debug {
+    fn message(self) -> String;
+}
+```
+
+This reads "an `Error` is a `Display` and a `Debug` that additionally has
+`message()`." `impl Error for FsError` is valid only when `FsError` also
+satisfies `Display` and `Debug` (via their own impls — `Debug` for free from the
+structural derive). A value typed as the `Error` *interface* then also exposes
+the super-interfaces' methods (`e.display()`, `'${e}'`) and is assignable where a
+`Display`/`Debug` (or a `T: Debug` bound) is expected. There are no inherited
+method *bodies* — only the obligation and the widened method set.
+
+### Dispatch
+
+Calling an interface method on a value whose **concrete type is known at the
+call site** is just a direct call — no vtable. Dynamic dispatch is used only when
+the concrete type is not statically known: **interface-typed values**
+(`fn show(x: Display)`, `List<Display>`) and **bounded generics**
+(`fn dump<T: Display>(x: T)`, bounds enforced at call sites). The mechanism is
+type-id-keyed — see [architecture.md](architecture.md).
+
 ---
 
 ## Decorators / annotations
@@ -731,7 +831,7 @@ suffix: `src/foo.hawk` is tested by `src/foo_test.hawk`. The test imports its
 sibling through the normal import process, and — because the names match — that
 import additionally gets **white-box** access to the target's _private_ symbols
 (not just its `pub` ones). See
-[visibility.md](visibility.md#testing-white-box-access).
+[language.md](language.md).
 
 Test functions are marked with `@test`, take no arguments, and return
 `Result<Void, Error>`. A test passes when it returns `Result.Ok(void)` and fails
@@ -929,10 +1029,10 @@ implicit `Ok` on `return` — are documented above as the language's behavior.)
 - ~~**Visibility / access control**~~ — _decided._ The source file is the
   privacy boundary; `pub` exposes a symbol; directories aggregate through a
   `<dirname>.hawk` barrel; sibling `_test.hawk` files get white-box access. See
-  [visibility.md](visibility.md).
+  [language.md](language.md).
 - ~~**Library / import system**~~ — _decided (mechanism)._ Explicit imports;
   each binds a namespace (the trailing path segment) accessed qualified, with
-  `std.core` the unqualified prelude. See [visibility.md](visibility.md). Still
+  `std.core` the unqualified prelude. See [language.md](language.md). Still
   open: a **package manager** — Go-style URL imports or a central registry
   (npm/PyPI) — and whether third-party packages exist at all for the POC.
 - **Generics** — parametric only, or constraints/bounds from day one?

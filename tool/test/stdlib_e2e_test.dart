@@ -131,7 +131,7 @@ fn main() -> Int {
 
   test('tail expressions: block-bodied match arms and let-init blocks', () {
     // A `{…}` match arm and a `let`-initializer block each yield their final
-    // expression (no `;`), instead of Unit — see docs/tailexpr.md. Statements
+    // expression (no `;`), instead of Unit — see docs/language.md. Statements
     // before the tail run for their effects.
     final r = emitAndRun('tailexpr', '''
 enum Sign { Zero, Other }
@@ -224,7 +224,7 @@ fn main() -> Int {
   });
 
   test('if-expressions: value position, else-if chains, and if-tails', () {
-    // `if` is usable in value position (docs/tailexpr.md stage 2): as a direct
+    // `if` is usable in value position (docs/language.md stage 2): as a direct
     // value, as an `else if` chain, and as a block/match-arm tail.
     final r = emitAndRun('ifexpr', '''
 enum Tag { Zero, Other }

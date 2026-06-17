@@ -84,6 +84,22 @@ hawk source ──[front-end]──► Module (in-memory bytecode)
   compiled frames must share a representation, so the JIT tier is what forces
   the tagged→untagged move (and it is entangled with precise GC roots).
 
+## Interface dispatch
+
+A method call on a value whose concrete type is known at the call site is a
+direct `call` — no vtable. Dispatch goes dynamic only when the concrete type
+isn't statically known: an **interface-typed value** (`fn show(x: Display)`,
+`List<Display>`) or a **bounded generic** (`<T: Display>`). Those lower to a
+`call.virtual <selector>` op, dispatched **type-id-keyed**: every runtime value
+carries its concrete type (`Obj::Struct{ty}` / `Obj::Enum{ty}`; primitives are
+self-identifying tags), so `call.virtual` reads the receiver's type id and looks
+up `(type_id, selector)` in the module's dispatch table. **Built-in fallbacks**
+cover primitives' `Display`/`Eq`/`Debug` and the structural `eq`/`debug` derives
+when no impl row matches. (The alternative — monomorphization / dictionary
+passing — is heavier; type-id keying is cheap and a natural fit for the tagged
+`Value`.) The interface *semantics* — conformance, inheritance, the
+structural-by-default derives — are in [language.md](language.md).
+
 ## Garbage collection
 
 The two-tier stack (interpreter and JIT frames interleaved) is what makes root

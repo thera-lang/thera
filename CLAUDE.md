@@ -40,7 +40,7 @@ dispatch**: interface-typed values (`fn show(x: Display)`, `List<Display>`) and
 bounded generics (`<T: Eq + Debug>`, enforced at call sites) dispatch via
 `call.virtual`, with built-in fallbacks for primitives and the structural
 `eq`/`debug` derives. See [docs/roadmap.md](docs/roadmap.md) and
-[docs/interfaces.md](docs/interfaces.md).
+[docs/language.md](docs/language.md).
 
 ## Commands
 

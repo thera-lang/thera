@@ -1067,7 +1067,7 @@ impl Parser {
         });
     }
 
-    // Parse `if` in expression position (docs/tailexpr.md). `require_else` is set
+    // Parse `if` in expression position (docs/language.md). `require_else` is set
     // where the `if`'s value is used (a primary `if`), so a missing `else` is a
     // parse error; cleared where the `if` may be a discarded statement.
     fn parse_if_expr(self, _ require_else: Bool) -> Expr {

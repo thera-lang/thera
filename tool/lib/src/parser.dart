@@ -661,7 +661,7 @@ class Parser {
   /// arm). Identical to [_parseBlock] except a final expression with no trailing
   /// `;` becomes the block's tail (its value) rather than requiring a `;`. The
   /// statement-level [_parseBlock] is unchanged, so function/`if`/`while`/`for`
-  /// bodies keep the require-`;` rule. See docs/tailexpr.md.
+  /// bodies keep the require-`;` rule. See docs/language.md.
   Block _parseExprBlock() {
     final start = _expect(TokenKind.lBrace, '{');
     final stmts = <Stmt>[];
@@ -673,7 +673,7 @@ class Parser {
       }
       // A leading `if` is a value-producing expression here: the tail when it's
       // last, otherwise a discarded statement (so `else` is optional — the
-      // checker requires it only in tail position). See docs/tailexpr.md.
+      // checker requires it only in tail position). See docs/language.md.
       if (_check(TokenKind.kwIf)) {
         final ifStart = _current.span;
         final ifExpr = _parseIfExpr(requireElse: false);
@@ -845,7 +845,7 @@ class Parser {
         condition: condition, then: then, else_: else_);
   }
 
-  /// Parse `if` in **expression position** (docs/tailexpr.md). The branches are
+  /// Parse `if` in **expression position** (docs/language.md). The branches are
   /// tail-valued blocks. [requireElse] is set where the `if`'s value is used (a
   /// primary `if`), so a missing `else` — which couldn't produce a value — is a
   /// parse error; it's cleared where the `if` may be a discarded statement.
@@ -1296,7 +1296,7 @@ class Parser {
 
       case TokenKind.kwIf:
         // `if` in expression position is value-producing, so an `else` is
-        // required here (docs/tailexpr.md). A statement-position `if` is parsed
+        // required here (docs/language.md). A statement-position `if` is parsed
         // as an `IfStmt` (via `_parseStmt`), not through here.
         return _parseIfExpr(requireElse: true);
 

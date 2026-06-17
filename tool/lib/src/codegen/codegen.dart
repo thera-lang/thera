@@ -192,7 +192,7 @@ class _ModuleScope {
   // fallback. (This fixes the name *collision*; it does not yet *enforce*
   // visibility — a private remains reachable cross-file via the fallback. Real
   // per-namespace resolution + private enforcement is a later step; see
-  // docs/frontend_in_hawk.md.)
+  // docs/roadmap.md.)
   final Map<String?, Map<String, int>> _fileFunctions = {};
   final Map<String, int> _globalFunctions = {};
 
@@ -925,7 +925,7 @@ class _FnCompiler {
       case BlockExpr(:final block):
         // A block in expression position (e.g. a block-bodied match arm). Its
         // statements run for their effects; its value is the tail expression
-        // (docs/tailexpr.md), or Unit when there's no tail.
+        // (docs/language.md), or Unit when there's no tail.
         _emitBlockValue(block);
       case IfExpr(:final condition, :final then, :final else_):
         _ifExpr(condition, then, else_);

@@ -595,7 +595,7 @@ class Block extends AstNode {
   /// value is the block's value. Only populated for blocks parsed in expression
   /// position (a `BlockExpr` or a `{…}` match arm); always null for
   /// statement-position blocks (function bodies, `if`/`while`/`for` bodies),
-  /// where the require-`;` rule is unchanged. See docs/tailexpr.md.
+  /// where the require-`;` rule is unchanged. See docs/language.md.
   final Expr? tail;
 
   Block(this.startSpan, this.endSpan, this.stmts, {this.tail});
@@ -1029,7 +1029,7 @@ class BlockExpr extends Expr {
 }
 
 /// `if` in **expression position** — its value is the chosen branch's value
-/// (each branch is a tail-valued block; see docs/tailexpr.md). Distinct from the
+/// (each branch is a tail-valued block; see docs/language.md). Distinct from the
 /// statement-position [IfStmt]. `else_` is required where the value is used (the
 /// parser enforces it for a primary `if`; the checker for an `if`-tail) and
 /// optional when the `if` is a discarded expression statement (then the value is

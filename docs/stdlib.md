@@ -5,9 +5,8 @@ the principles that make it self-consistent, the tiers that decide what ships in
 core vs. the ecosystem, and a module-by-module catalog with representative APIs.
 It is the artifact that guides future stdlib work; it describes the **target**,
 not only what exists today. The _why_ behind a comprehensive stdlib is in
-[guidelines.md](guidelines.md); the language surface in
-[language.md](language.md); interfaces/dispatch in
-[interfaces.md](interfaces.md).
+[overview.md](overview.md); the language surface (including interfaces and
+dispatch) in [language.md](language.md).
 
 ## Why a deep stdlib
 
@@ -18,7 +17,7 @@ remove a decision: there should be one obvious way to read a file, parse JSON,
 spawn a process, or make an HTTP request, and it should be in `std`.
 
 The bar: **solid, self-consistent, and reasonably complete** for CLI tooling and
-agent automation (the target domain, see [guidelines.md](guidelines.md) §0). The
+agent automation (the target domain, see [overview.md](overview.md)). The
 long tail — databases, exotic formats, GUI — belongs to the package ecosystem,
 but every _common_ task must have an answer in core.
 
@@ -57,7 +56,7 @@ enough to reduce hallucination.
    all of them implement the common `Error` interface (`§ Error`), which is the
    uniform currency at boundaries and the conventional `E` in library-agnostic
    code. No exceptions, no hidden control flow (see
-   [guidelines.md](guidelines.md) §3).
+   [overview.md](overview.md)).
 
 5. **Concurrency is invisible.** Hawk uses single-threaded cooperative fibers
    ([language.md](language.md) §Concurrency): I/O parks the calling fiber and
@@ -81,7 +80,7 @@ enough to reduce hallucination.
    system implementation. Some capabilities make the value-you-hold form the
    default instead (`random.Rng` has no ambient form, since reproducibility is
    the common case). This keeps the functional core pure, quarantines effects to
-   the shell ([guidelines.md](guidelines.md) §4), and makes the test seam
+   the shell ([overview.md](overview.md)), and makes the test seam
    explicit rather than a global override. Full design:
    [testability.md](testability.md).
 
@@ -856,7 +855,7 @@ This design leans on language features not all of which exist yet. The
 dependency graph, so future work lands in the right order:
 
 1. **Generics arc (biggest unblocker).** Interface-typed values + dynamic
-   dispatch ([interfaces.md](interfaces.md), "Deferred") are a prerequisite for
+   dispatch ([language.md](language.md), "Deferred") are a prerequisite for
    the library's two core abstractions:
    - `io.copy(dst: Writer, src: Reader)` and any function taking a `Reader`/
      `Writer` parameter — these are interface-typed.
@@ -887,7 +886,7 @@ dependency graph, so future work lands in the right order:
    receiver-arg inference reused from the collection types) and filled a codegen
    gap: block-bodied match arms (`Some(v) => { … }`) compile. (Such a block then
    yielded `Unit`; expression-position **tail expressions** now make its final
-   expression the value — see [tailexpr.md](tailexpr.md).)
+   expression the value — see [language.md](language.md).)
    Deferred: `map`/`filter`/`take`/`enumerate` adapters and a fluent `Iter<T>`
    wrapper; these unblock `fs.walk`, `io.lines`, and `BufReader`.
 
@@ -943,7 +942,7 @@ dependency graph, so future work lands in the right order:
    drive the fiber API's design rather than fixing it up front (see
    § `std.fiber`).
 
-7. **Visibility enforcement** ([visibility.md](visibility.md)). Some modules
+7. **Visibility enforcement** ([language.md](language.md)). Some modules
    (e.g. `std.process`) have native bindings that should be module-private;
    today the language can't enforce it. Tighten when visibility lands.
 

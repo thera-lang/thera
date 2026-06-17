@@ -111,7 +111,7 @@ pub fn is_assignable(_ source: Type, _ target: Type,
     }
     // A concrete type is assignable to an interface it implements, and a
     // sub-interface value where one of its (transitively closed) supers is
-    // expected. See docs/interfaces.md.
+    // expected. See docs/language.md.
     match target {
         Interface(tname, _) => {
             if is_interface_def(type_defs, tname) {
