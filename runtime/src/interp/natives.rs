@@ -1263,7 +1263,8 @@ fn checked_index(i: i64, len: usize) -> Result<usize, Trap> {
 }
 
 // Reads clone the collection out (cheap — `Value` is `Copy`) so `f` may compare
-// elements (`==` re-enters the heap) without holding a heap borrow.
+// elements (`==` re-enters the heap) or allocate (wrap a result in `Some`)
+// without holding a heap borrow.
 fn with_list<R>(
     v: &Value,
     who: &str,
@@ -1274,6 +1275,25 @@ fn with_list<R>(
             Obj::List(items) => f(&items),
             _ => Err(bug(format!("{who}: expected list"))),
         },
+        _ => Err(bug(format!("{who}: expected list"))),
+    }
+}
+
+// Like [`with_list`] but *borrows* the list — no clone. Only sound when `f`
+// neither allocates nor mutates the heap while it runs (it holds a heap borrow),
+// so it's restricted to trivial reads like `len` and indexing. This matters a
+// lot: cloning the whole backing `Vec` just to read `list.len()` made `len` —
+// the single most-called native in a compile — O(n) and allocating.
+fn with_list_ref<R>(
+    v: &Value,
+    who: &str,
+    f: impl FnOnce(&[Value]) -> Result<R, Trap>,
+) -> Result<R, Trap> {
+    match v {
+        Value::Ref(h) => heap::with_obj(*h, |obj| match obj {
+            Obj::List(items) => f(items),
+            _ => Err(bug(format!("{who}: expected list"))),
+        }),
         _ => Err(bug(format!("{who}: expected list"))),
     }
 }
@@ -1349,7 +1369,7 @@ fn map_insert(entries: &mut Vec<(Value, Value)>, key: Value, val: Value) {
 fn native_list_index(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let (list, idx) = args2(args, "list index")?;
     let i = as_int(idx, "list index")?;
-    with_list(list, "list index", |items| {
+    with_list_ref(list, "list index", |items| {
         Ok(items[checked_index(i, items.len())?])
     })
 }
@@ -1368,7 +1388,7 @@ fn native_list_get(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> 
 
 /// `list.len()`.
 fn native_list_len(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
-    with_list(expect_one(args, "list.len")?, "list.len", |items| {
+    with_list_ref(expect_one(args, "list.len")?, "list.len", |items| {
         Ok(Value::Int(items.len() as i64))
     })
 }

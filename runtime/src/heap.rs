@@ -219,9 +219,7 @@ pub fn collect(roots: impl Iterator<Item = Value>) {
         while let Some(handle) = worklist.pop() {
             if let Some(obj) = &heap.slots[handle as usize] {
                 live_bytes += obj.heap_bytes();
-                for child in obj.child_values() {
-                    mark(&mut marked, &mut worklist, child);
-                }
+                obj.for_each_child(|child| mark(&mut marked, &mut worklist, child));
             }
         }
 

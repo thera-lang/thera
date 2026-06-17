@@ -139,18 +139,34 @@ pub enum Obj {
 }
 
 impl Obj {
-    /// The heap handles this object holds — the trace primitive a mark-sweep
-    /// collector follows from a marked object to its children. (Primitives in
+    /// Apply `f` to each heap handle this object holds — the trace primitive a
+    /// mark-sweep collector follows from a marked object to its children.
+    /// Allocation-free: the mark walk visits every live object, so collecting
+    /// each one's children into a throwaway `Vec` (the old `child_values`) made
+    /// GC allocate proportionally to the whole live set. (Primitives in
     /// `List`/`Map`/`Set`/fields are `Value::Int`/etc. and carry no handle.)
-    pub fn child_values(&self) -> Vec<Value> {
+    pub fn for_each_child(&self, mut f: impl FnMut(Value)) {
         match self {
-            Obj::Str(_) | Obj::Bytes(_) | Obj::BytesBuilder(_) => vec![],
-            Obj::List(items) | Obj::Set(items) => items.clone(),
-            Obj::Map(entries) => entries.iter().flat_map(|(k, v)| [*k, *v]).collect(),
-            Obj::Struct { fields, .. } => fields.clone(),
-            Obj::Enum(e) => e.fields.clone(),
-            Obj::Closure { captures, .. } => captures.clone(),
+            Obj::Str(_) | Obj::Bytes(_) | Obj::BytesBuilder(_) => {}
+            Obj::List(items) | Obj::Set(items) => items.iter().for_each(|&v| f(v)),
+            Obj::Map(entries) => entries.iter().for_each(|&(k, v)| {
+                f(k);
+                f(v);
+            }),
+            Obj::Struct { fields, .. } => fields.iter().for_each(|&v| f(v)),
+            Obj::Enum(e) => e.fields.iter().for_each(|&v| f(v)),
+            Obj::Closure { captures, .. } => captures.iter().for_each(|&v| f(v)),
         }
+    }
+
+    /// The heap handles this object holds, as a `Vec`. Convenience over
+    /// [`for_each_child`](Self::for_each_child) for tests; the collector uses the
+    /// allocation-free form.
+    #[cfg(test)]
+    pub fn child_values(&self) -> Vec<Value> {
+        let mut out = Vec::new();
+        self.for_each_child(|v| out.push(v));
+        out
     }
 
     /// An estimate of the bytes this object occupies: the in-slab slot (one

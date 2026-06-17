@@ -10,9 +10,20 @@ edition = "2024"
 name = "hawkrt"
 path = "src/main.rs"
 
+[features]
+# Per-native call counting, dumped to stderr at end of run when HAWK_NATIVE_STATS
+# is set. A tuning aid; off by default so the interpreter pays nothing.
+native-stats = []
+
 [dependencies]
 
 [profile.dev]
 # This makes the debug interpreter loop closer to the performance of the release
 # interpreter (4x slower instead of 15x).
 opt-level = 1 # Basic optimizations.
+
+# Release performance with line tables, so a sampling profiler can map the
+# inlined `run_loop` back to source lines. Build with `--profile profiling`.
+[profile.profiling]
+inherits = "release"
+debug = "line-tables-only"

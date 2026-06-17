@@ -92,7 +92,75 @@ impl Drop for GcPause {
 /// stdout. Convenience over [`Vm`].
 pub fn run(module: &Module, func: usize, args: &[Value]) -> Result<Value, Trap> {
     let mut out = std::io::stdout();
-    Vm::new(&mut out).run(module, func, args)
+    let result = Vm::new(&mut out).run(module, func, args);
+    dump_native_stats();
+    result
+}
+
+// --- native-call profiling probe (the `native-stats` feature) ---
+//
+// A coarse per-native call counter, to see which natives dominate a workload
+// without a sampling profiler. Compiled out entirely unless the `native-stats`
+// feature is on, so the shipping interpreter pays nothing; when on, it prints
+// the counts (descending) to stderr at the end of a run if HAWK_NATIVE_STATS is
+// set in the environment.
+
+#[cfg(feature = "native-stats")]
+mod native_stats {
+    use super::natives;
+
+    static ON: std::sync::LazyLock<bool> =
+        std::sync::LazyLock::new(|| std::env::var_os("HAWK_NATIVE_STATS").is_some());
+
+    thread_local! {
+        static CALLS: std::cell::RefCell<Vec<u64>> = const { std::cell::RefCell::new(Vec::new()) };
+    }
+
+    pub(super) fn count(index: u32) {
+        if *ON {
+            CALLS.with(|c| {
+                let mut v = c.borrow_mut();
+                let i = index as usize;
+                if i >= v.len() {
+                    v.resize(i + 1, 0);
+                }
+                v[i] += 1;
+            });
+        }
+    }
+
+    pub(super) fn dump() {
+        if !*ON {
+            return;
+        }
+        CALLS.with(|c| {
+            let v = c.borrow();
+            let mut rows: Vec<(u64, &str)> = v
+                .iter()
+                .enumerate()
+                .filter(|&(_, &n)| n > 0)
+                .map(|(i, &n)| (n, natives::native_name(i as u32).unwrap_or("?")))
+                .collect();
+            rows.sort_by(|a, b| b.0.cmp(&a.0));
+            let total: u64 = rows.iter().map(|(n, _)| n).sum();
+            eprintln!("--- native call counts (total {total}) ---");
+            for (n, name) in rows.iter().take(30) {
+                eprintln!("{n:>12}  {name}");
+            }
+        });
+    }
+}
+
+#[inline(always)]
+fn count_native(_index: u32) {
+    #[cfg(feature = "native-stats")]
+    native_stats::count(_index);
+}
+
+#[inline(always)]
+fn dump_native_stats() {
+    #[cfg(feature = "native-stats")]
+    native_stats::dump();
 }
 
 /// Evaluate a bare instruction stream in a synthetic single-function module
@@ -363,12 +431,18 @@ impl<'a> Vm<'a> {
                         .len()
                         .checked_sub(argc)
                         .ok_or_else(|| bug("call.native: operand stack underflow"))?;
-                    let args = frame.stack.split_off(base);
                     let f = *self
                         .natives
                         .get(*native as usize)
                         .ok_or_else(|| bug(format!("call.native: no native at index {native}")))?;
-                    let ret = f(&mut *self.out, &args)?;
+                    count_native(*native);
+                    // Pass the arguments as a slice of the operand stack rather
+                    // than splitting them into a fresh Vec: with millions of
+                    // tiny native calls (`len`, `eq`), that per-call allocation
+                    // dominated. Natives never touch `frame.stack`, and leaving
+                    // the args in place keeps them GC-rooted across the call.
+                    let ret = f(&mut *self.out, &frame.stack[base..])?;
+                    frame.stack.truncate(base);
                     frame.stack.push(ret);
                 }
                 Instr::CallIndirect { argc } => {
