@@ -147,6 +147,22 @@ gaps, by where they live:
   heap; the hand-rolled collector fit the existing structure.
   `examples/gc_stress.hawk` validates it (~16 MB of churn holds flat at ~2.4 MB
   resident). See [architecture.md](architecture.md).
+- **Map/Set scaling — hashed, insertion-ordered (deferred).** `Obj::Map` is a
+  `Vec<(Value, Value)>` with a linear `map_find` and clone-on-mutate, so lookups
+  are O(n) and building an N-entry map (the codegen symbol tables) is O(n²). The
+  read-path clone is gone (`with_map_ref` borrows), but the scan and the
+  clone-write-back build cost remain. Fix: an insertion-ordered hashed map (a Vec
+  for order + a hash→index table, indexmap-style) used **above a size threshold**
+  so small maps stay linear. Constraints: content-based key hashing consistent
+  with `values_eq`; preserved insertion order (output is byte-identical to the
+  Dart oracle); and precomputed per-key hashes so a lookup needn't re-enter the
+  heap while holding the map's borrow (the reason mutators clone today). The same
+  treatment applies to `Set`.
+- More broadly, **read accessors that clone whole heap objects** are a recurring
+  cost (fixed for `list.len`/indexing, GC marking, and map reads — each was the
+  hot spot when it was the hot spot). The clone-out is correct when a closure
+  re-enters the heap to allocate/compare, but it's silently O(n) for trivial
+  reads; prefer the borrowing accessor and clone only when the closure needs it.
 - Cranelift JIT, untagged value representation, `f64`/large-int constant-pool
   entries — performance/compaction, not correctness-blocking.
 
