@@ -11,12 +11,12 @@ import 'package:hawk/src/lsp/server.dart';
 import 'package:hawk/src/parser.dart';
 
 /// The Rust runtime binary in the development repo, or null if it isn't built.
-/// Assumes a dev checkout: `runtime/target/debug/hawk` under the repo root (the
+/// Assumes a dev checkout: `runtime/target/debug/hawkrt` under the repo root (the
 /// same directory that holds `sdk/std/`).
 String? _findRuntimeBinary() {
   final root = findSdkRoot();
   if (root == null) return null;
-  final bin = '$root/runtime/target/debug/hawk';
+  final bin = '$root/runtime/target/debug/hawkrt';
   return File(bin).existsSync() ? bin : null;
 }
 
@@ -123,7 +123,7 @@ class RunCommand extends Command<void> {
     final runtime = _findRuntimeBinary();
     if (runtime == null) {
       stderr.writeln('hawk: the Rust runtime was not found at '
-          'runtime/target/debug/hawk. Build it first: run `cargo build` in '
+          'runtime/target/debug/hawkrt. Build it first: run `cargo build` in '
           'the runtime/ directory.');
       exit(1);
     }
@@ -302,7 +302,7 @@ class TestCommand extends Command<void> {
     final runtime = _findRuntimeBinary();
     if (runtime == null) {
       stderr.writeln('hawk: the Rust runtime was not found at '
-          'runtime/target/debug/hawk. Build it first: run `cargo build` in '
+          'runtime/target/debug/hawkrt. Build it first: run `cargo build` in '
           'the runtime/ directory.');
       exit(1);
     }

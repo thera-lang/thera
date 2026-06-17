@@ -37,14 +37,32 @@ pub type LoadedImports = {
 
 // --- SDK root discovery ---
 
-// Locate the SDK root (the directory containing `sdk/std/`): the HAWK_SDK
-// environment variable, else a walk upward from the current directory.
+// The stdlib directory under an SDK root, or None if there's no stdlib there.
+// The two layouts diverge only here: a distributed SDK keeps it at `<root>/std`,
+// the in-repo checkout at `<root>/sdk/std`.
+pub fn std_root(_ root: String) -> Option<String> {
+    if is_dir(root + '/std') {
+        return Option.Some(root + '/std');
+    }
+    if is_dir(root + '/sdk/std') {
+        return Option.Some(root + '/sdk/std');
+    }
+    return Option.None;
+}
+
+// Locate the SDK root — the directory whose stdlib `std_root` can find. Discovery
+// is location-based (no environment variable): first the directory above the
+// running executable (`<install>/bin/hawk` -> `<install>/`, the installed SDK),
+// then a walk upward from the current directory (the in-repo dev checkout, and
+// the fallback when the executable isn't an installed `hawk`).
 pub fn find_sdk_root() -> Option<String> {
-    match env.get('HAWK_SDK') {
-        Some(root) => {
-            if is_dir(root + '/sdk/std') {
-                return Option.Some(root);
-            };
+    match env.current_exe() {
+        Some(exe) => {
+            let root = dirname(dirname(exe)); // bin/hawk -> bin -> root
+            match std_root(root) {
+                Some(_) => { return Option.Some(root); },
+                None => {},
+            }
         },
         None => {},
     }
@@ -54,8 +72,9 @@ pub fn find_sdk_root() -> Option<String> {
             let mut i = 0;
             let mut going = true;
             while going && i < 8 {
-                if is_dir(dir + '/sdk/std') {
-                    return Option.Some(dir);
+                match std_root(dir) {
+                    Some(_) => { return Option.Some(dir); },
+                    None => {},
                 }
                 let parent = dirname(dir);
                 if parent == '' || parent == dir {
@@ -127,8 +146,13 @@ impl Loader {
         if import_path.starts_with(STD_PREFIX) {
             match self.sdk_root {
                 Some(root) => {
-                    let rel = import_path.slice(STD_PREFIX.len(), import_path.len()).split('.').join('/');
-                    return resolve_library_file(root + '/sdk/std/' + rel);
+                    match std_root(root) {
+                        Some(std) => {
+                            let rel = import_path.slice(STD_PREFIX.len(), import_path.len()).split('.').join('/');
+                            return resolve_library_file(std + '/' + rel);
+                        },
+                        None => { return Option.None; },
+                    }
                 },
                 None => { return Option.None; },
             }

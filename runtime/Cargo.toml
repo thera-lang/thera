@@ -3,6 +3,13 @@ name = "hawk"
 version = "0.1.0"
 edition = "2024"
 
+# The library crate stays `hawk` (so `use hawk::…` is unchanged), but the binary
+# is `hawkrt` — the *bare runtime*. The full SDK launcher (this binary with the
+# front-end bytecode embedded) is named `hawk` by the SDK build.
+[[bin]]
+name = "hawkrt"
+path = "src/main.rs"
+
 [dependencies]
 
 [profile.dev]

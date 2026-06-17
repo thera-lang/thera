@@ -1,27 +1,93 @@
-//! A minimal CLI for the runtime: enough to persist a module to a `.hawkbc`
-//! file and run one back. This is a placeholder that grows into the real `hawk`
-//! tool (front-end, JIT, …) later.
+//! The runtime CLI. In its bare form (`hawkrt`) it loads and runs a `.hawkbc`.
+//! The SDK build embeds the compiled front-end (`frontend.hawkbc`) into this same
+//! binary and ships it as `hawk`: then a subcommand (`run`/`check`/…) boots the
+//! embedded front-end, while a `.hawkbc` path (or `--entry`) still runs directly.
 
 use std::process::ExitCode;
 
 use hawk::builder::FnBuilder;
-use hawk::codec::{read_module_from_file, write_module_to_file};
+use hawk::codec::{decode_module, read_module_from_file, write_module_to_file};
 use hawk::heap;
-use hawk::interp::{NATIVE_PRINTLN, NATIVE_STR_CONCAT, NATIVE_STRINGIFY, run};
+use hawk::interp::{NATIVE_PRINTLN, NATIVE_STR_CONCAT, NATIVE_STRINGIFY, run, set_program_args};
 use hawk::module::Module;
 use hawk::value::{Obj, TAG_OK, TY_RESULT, Value};
+
+/// The compiled front-end, embedded by `build.rs`. Empty in a bare `cargo build`
+/// (this is `hawkrt`); the SDK build supplies the real bytes (this is `hawk`).
+const FRONTEND_BC: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/frontend.hawkbc"));
+
+const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+", env!("HAWK_BUILD_SHA"));
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(String::as_str) {
-        // The dev helper to write a sample module; everything else is a file to
-        // run (no `run` verb — the runtime's job is to run a `.hawkbc`).
+        Some("--version") | Some("-V") => {
+            println!("hawk {VERSION}");
+            ExitCode::SUCCESS
+        }
+        // The dev helper to write a sample module.
         Some("emit-demo") => cmd_emit_demo(args.get(2)),
-        Some(_) => cmd_run(&args[1..]),
+        // An explicit entry or a `.hawkbc` path runs directly on the bare runtime
+        // — this is also how the embedded front-end re-invokes us to execute a
+        // program it just compiled.
+        Some("--entry") => cmd_run(&args[1..]),
+        Some(p) if is_bytecode_path(p) => cmd_run(&args[1..]),
+        // Any other first argument is a front-end subcommand (`run`, `check`,
+        // `test`, `emit`, `lsp`, `--help`). Boot the embedded front-end if we
+        // have one; otherwise this is the bare runtime and there's nothing to do.
+        Some(_) | None if !FRONTEND_BC.is_empty() => cmd_frontend(&args[1..]),
         None => {
-            eprintln!("usage: hawk [--entry NAME] <file.hawkbc> [args]");
-            eprintln!("       hawk emit-demo <file.hawkbc>");
+            eprintln!("usage: hawkrt [--entry NAME] <file.hawkbc> [args]");
+            eprintln!("       hawkrt emit-demo <file.hawkbc>");
             ExitCode::from(2)
+        }
+        Some(other) => {
+            eprintln!("hawkrt: '{other}' is not a bytecode file (.hawkbc)");
+            eprintln!("this is the bare runtime; build the SDK for the `hawk` front-end");
+            eprintln!("usage: hawkrt [--entry NAME] <file.hawkbc> [args]");
+            ExitCode::from(2)
+        }
+    }
+}
+
+/// Whether an argument names a bytecode file (the bare-runtime fast path). A
+/// suffix test, so a non-existent path still routes here and reports a load error
+/// rather than being mistaken for a front-end subcommand.
+fn is_bytecode_path(arg: &str) -> bool {
+    arg.ends_with(".hawkbc")
+}
+
+/// Boot the embedded front-end: decode `frontend.hawkbc` and call its `main` with
+/// the CLI arguments (`run foo.hawk`, `check .`, …) as a `List<String>`.
+fn cmd_frontend(args: &[String]) -> ExitCode {
+    let module = match decode_module(FRONTEND_BC) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("hawk: the embedded front-end is corrupt: {e:?}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let Some(entry) = module.function_index("main") else {
+        eprintln!("hawk: the embedded front-end has no 'main' function");
+        return ExitCode::FAILURE;
+    };
+
+    set_program_args(args.to_vec());
+    let argv = Value::new_list(args.iter().cloned().map(Value::new_str).collect());
+    let call_args = match module.functions[entry].param_count {
+        0 => vec![],
+        1 => vec![argv],
+        n => {
+            eprintln!("hawk: the front-end's main takes {n} parameters; expected 0 or 1");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    match run(&module, entry, &call_args) {
+        Ok(v) => exit_code(&v),
+        Err(trap) => {
+            eprintln!("hawk: trap: {trap:?}");
+            ExitCode::FAILURE
         }
     }
 }
@@ -35,7 +101,7 @@ fn cmd_run(args: &[String]) -> ExitCode {
         Some((flag, tail)) if flag == "--entry" => match tail.split_first() {
             Some((name, tail)) => (name.as_str(), tail),
             None => {
-                eprintln!("usage: hawk [--entry NAME] <file.hawkbc> [args]");
+                eprintln!("usage: hawkrt [--entry NAME] <file.hawkbc> [args]");
                 return ExitCode::from(2);
             }
         },
@@ -43,7 +109,7 @@ fn cmd_run(args: &[String]) -> ExitCode {
     };
 
     let Some(path) = rest.first() else {
-        eprintln!("usage: hawk [--entry NAME] <file.hawkbc> [args]");
+        eprintln!("usage: hawkrt [--entry NAME] <file.hawkbc> [args]");
         return ExitCode::from(2);
     };
 
@@ -127,7 +193,7 @@ fn render(v: &Value) -> String {
 /// Write a small sample module to `path`, for exercising `run` end to end.
 fn cmd_emit_demo(path: Option<&String>) -> ExitCode {
     let Some(path) = path else {
-        eprintln!("usage: hawk emit-demo <file.hawkbc>");
+        eprintln!("usage: hawkrt emit-demo <file.hawkbc>");
         return ExitCode::from(2);
     };
 

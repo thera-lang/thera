@@ -3,7 +3,7 @@
 // `run` compiles a program to a temporary `.hawkbc` and executes it on the Rust
 // runtime; `test` synthesizes a driver `main` that runs each `@test` function
 // and reports per-test results. Both locate the runtime binary at
-// `<sdk_root>/runtime/target/debug/hawk` (a dev checkout), mirroring the Dart
+// `<sdk_root>/runtime/target/debug/hawkrt` (a dev checkout), mirroring the Dart
 // toolchain's RunCommand/TestCommand.
 //
 // The child runs with inherited stdio (`process.exec`), so its output streams
@@ -14,6 +14,7 @@ import std.fs;
 import std.path;
 import std.process;
 import std.time;
+import std.env;
 
 import 'ast/ast';      // Program, FnDecl, Decl
 import 'lexer/lexer';  // tokenize
@@ -266,24 +267,26 @@ fn run_bytecode(_ runtime: String, _ bytes: Bytes, _ entry: Option<String>, _ pr
     };
 }
 
-// The Rust runtime binary in the dev checkout (`<root>/runtime/target/debug/hawk`),
-// or None if the SDK root is unknown or the binary isn't built.
+// The bare-runtime binary that executes a compiled `.hawkbc`. In the in-repo
+// checkout that's `<root>/runtime/target/debug/hawkrt`; in a distributed SDK the
+// launcher (`bin/hawk`) *is* the runtime, so we hand back our own executable —
+// invoked on a `.hawkbc` it runs it directly. None if neither resolves.
 pub fn find_runtime_binary(_ sdk_root: Option<String>) -> Option<String> {
-    return match sdk_root {
+    match sdk_root {
         Some(root) => {
-            let bin = path.join(path.join(path.join(path.join(root, 'runtime'), 'target'), 'debug'), 'hawk');
+            let bin = path.join(path.join(path.join(path.join(root, 'runtime'), 'target'), 'debug'), 'hawkrt');
             if fs.exists(bin) {
-                Option.Some(bin)
-            } else {
-                Option.None
+                return Option.Some(bin);
             }
         },
-        None => Option.None,
-    };
+        None => {},
+    }
+    // Distributed SDK: re-invoke ourselves as the runtime.
+    return env.current_exe();
 }
 
 fn runtime_missing_message() -> String {
-    return 'hawk: the Rust runtime was not found at runtime/target/debug/hawk. Build it first: run `cargo build` in the runtime/ directory.';
+    return 'hawk: the Rust runtime was not found at runtime/target/debug/hawkrt. Build it first: run `cargo build` in the runtime/ directory.';
 }
 
 // --- compile helper ---

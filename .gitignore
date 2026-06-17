@@ -1,2 +1,5 @@
 # Compiled Hawk bytecode (build artifacts; emit/run write these anywhere).
 *.hawkbc
+
+# The assembled binary SDK + build intermediates (see bin/build_sdk.sh).
+build/

@@ -138,22 +138,33 @@ changing a compiler written in the language it compiles. Two questions:
    (rebuild `frontend.hawkbc` from sources that the *previous* compiler accepts),
    then use the new feature in the sources. This is the standard self-hosting
    ratchet; it works in a monorepo.
-2. **Do we want a separate binary SDK snapshot?** Eventually, yes — for *release*
-   stability, not for development. A periodically-updated **SDK artifact (the Rust
-   VM binary + a frozen `frontend.hawkbc` + the stdlib sources)** decouples "the
-   compiler people use" from "the compiler in `main`", so a breaking in-progress
-   change can't brick the build, and bootstrapping doesn't require a from-source
-   Rust + Dart toolchain. Until the Dart toolchain is retired it *is* our stable
-   bootstrap, so the binary-SDK snapshot becomes worthwhile precisely when we drop
-   Dart. Plan: define the SDK layout + a `hawk` launcher that finds it (the
-   `find_sdk_root` / `find_runtime_binary` seams already exist), then cut snapshots
-   on a cadence.
+2. **A binary SDK — done (buildable).** `bin/build_sdk.sh` assembles
+   `build/sdk/` = `bin/hawk` (the runtime with `frontend.hawkbc` **embedded** via
+   `include_bytes!`) + `std/` (stdlib sources) + a `version` stamp
+   (`<pkg>+<gitsha>`). The Rust crate's binary is renamed **`hawkrt`** (the bare
+   runtime, what `cargo build` yields); the SDK launcher is **`hawk`** (the same
+   binary with the front-end embedded). Dispatch: a `.hawkbc` path or `--entry`
+   runs directly on the bare runtime; any other subcommand boots the embedded
+   front-end — which, for `run`/`test`, re-invokes the launcher as the runtime.
+   SDK-root discovery is **location-based** (no env var): the binary finds its
+   `std/` from `<exe>/../` (installed) or a cwd walk-up (in-repo), and `std_root`
+   accepts either `<root>/std` (distributed) or `<root>/sdk/std` (in-repo). The
+   build ends with a **fixpoint check**: the freshly-built SDK re-emits its own
+   front-end and the bytes must match the Dart-bootstrapped `frontend.hawkbc` —
+   proving the SDK reproduces its own compiler. The Dart toolchain is still the
+   stage-0 bootstrap (it emits the first `frontend.hawkbc`); retiring it means
+   bootstrapping the SDK from a *previous* SDK instead. A checked-in
+   `frontend.hawkbc` snapshot (so the build needs no Dart at all) is the remaining
+   step, worthwhile precisely when we drop Dart.
 
 ## Retiring the Dart toolchain (the finish line)
 
 The Dart toolchain (`tool/`) is the bootstrap compiler and the per-phase oracle.
-It can be retired once: (a) the LSP is ported, (b) the checker is robust enough
-that `check` predicts `emit`/`run` (the static-analysis items above), (c) the
-binary-SDK snapshot replaces "compile the front-end with Dart" as the bootstrap,
-and (d) we're confident enough in byte-identity to stop diffing against it. Until
-then it stays as the safety net.
+It can be retired once: (a) the LSP is ported — **done**; (b) the checker is
+robust enough that `check` predicts `emit`/`run` (the static-analysis items
+above); (c) the binary SDK bootstraps from a *previous SDK* rather than from Dart
+— the SDK is **buildable** (`bin/build_sdk.sh`) and self-reproduces (fixpoint),
+but still takes its stage-0 `frontend.hawkbc` from Dart; the remaining step is a
+checked-in `frontend.hawkbc` snapshot to break that dependency; and (d) we're
+confident enough in byte-identity to stop diffing against it. Until then it stays
+as the safety net.

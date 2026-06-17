@@ -155,6 +155,7 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("env_vars", native_env_vars),
     ("env_args", native_env_args),
     ("env_current_dir", native_env_current_dir),
+    ("env_current_exe", native_env_current_exe),
     ("env_set_current_dir", native_env_set_current_dir),
     ("env_os", native_env_os),
     ("env_exit", native_env_exit),
@@ -1067,6 +1068,16 @@ fn native_env_current_dir(_out: &mut dyn Write, args: &[Value]) -> Result<Value,
     Ok(match std::env::current_dir() {
         Ok(p) => Value::ok(Value::new_str(p.to_string_lossy().into_owned())),
         Err(e) => Value::err(Value::new_str(e.to_string())),
+    })
+}
+
+/// `env.current_exe()` — the path to the running executable, or None if it can't
+/// be determined. The SDK uses this to locate its `std/` relative to `bin/hawk`.
+fn native_env_current_exe(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    expect_no_args(args, "env_current_exe")?;
+    Ok(match std::env::current_exe() {
+        Ok(p) => Value::some(Value::new_str(p.to_string_lossy().into_owned())),
+        Err(_) => Value::none(),
     })
 }
 

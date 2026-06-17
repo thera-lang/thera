@@ -49,11 +49,18 @@ The runtime is the main thing to build and test:
 ```
 cd runtime
 cargo test          # also: cargo clippy, cargo fmt
+cargo build         # builds `hawkrt` — the bare runtime (runs a .hawkbc)
 cargo run -- emit-demo /tmp/x.hawkbc   # write a sample module
 cargo run -- /tmp/x.hawkbc             # load + run it
 ```
 
 The Dart toolchain runs current Hawk: `bin/hawk.sh <run|check> <file.hawk>`.
+
+`bin/build_sdk.sh` assembles the binary SDK in `build/sdk/`: `bin/hawk` (the
+runtime with the compiled front-end embedded) + `std/` + a `version` stamp. So
+`hawkrt` = bare runtime (from `cargo build`); `hawk` = runtime + embedded
+front-end (the SDK launcher). The build ends with a fixpoint check (the SDK
+re-emits its own front-end and the bytes must match).
 
 ## Working conventions
 

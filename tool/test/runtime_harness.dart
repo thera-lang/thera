@@ -13,7 +13,7 @@ String? buildRuntime() {
     // If the build failed, fall through to an existing binary if present.
   }
 
-  final bin = '$runtimeDir/target/debug/hawk';
+  final bin = '$runtimeDir/target/debug/hawkrt';
   return File(bin).existsSync() ? bin : null;
 }
 

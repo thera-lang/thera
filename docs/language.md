@@ -843,7 +843,7 @@ discovery) needs to know about the difference.
 <repo>/
   bin/             ← dev-mode entry point scripts
   runtime/         ← Rust runtime: bytecode interpreter, GC, Cranelift JIT
-                     (builds the `hawk` binary)
+                     (builds `hawkrt`, the bare runtime)
   pkgs/
     cli/           ← Hawk front-end + CLI harness (written in Hawk)
   sdk/
@@ -863,6 +863,17 @@ discovery) needs to know about the difference.
   docs/
 ```
 
+### Two binaries: `hawkrt` and `hawk`
+
+The Rust crate builds **`hawkrt`** — the *bare runtime*: it loads and runs a
+`.hawkbc` and nothing else. The SDK build takes that same binary, embeds the
+compiled front-end (`frontend.hawkbc`) into it, and ships it as **`hawk`** — the
+full launcher. So `hawk` is `hawkrt` + an embedded front-end: invoked on a
+`.hawkbc` (or `--entry`) it behaves as the bare runtime; invoked on a subcommand
+(`run`, `check`, `test`, `emit`, `lsp`) it boots its embedded front-end. The
+distinction lets a `cargo build` (which yields `hawkrt`) be unambiguously the
+runtime, while `hawk` is unambiguously the runtime + front-end.
+
 ### Distributed layout
 
 The build bundles the compiled `hawk` binary with the standard library source.
@@ -871,23 +882,26 @@ The `std/` directory moves to the top level — there is no `sdk/` wrapper:
 ```
 <install>/
   bin/
-    hawk           ← compiled runtime binary
+    hawk           ← bare runtime + embedded front-end
   std/             ← stdlib source files (still needed at runtime)
+  version          ← SDK version stamp (e.g. 0.1.0+<gitsha>)
 ```
 
 ### SDK root discovery
 
 The `hawk` binary locates the SDK root at runtime by resolving one directory
-above its own location (`bin/../`). The stdlib directory beneath that root is
-the one place the two layouts diverge:
+above its own executable location (`bin/../`), then falling back to a walk
+upward from the current directory (the in-repo dev case). The stdlib directory
+beneath that root is the one place the two layouts diverge — `std_root` accepts
+either `<root>/std` (distributed) or `<root>/sdk/std` (in-repo):
 
 | Mode        | Binary / entry point | SDK root     | stdlib dir        |
 | ----------- | -------------------- | ------------ | ----------------- |
 | In-repo     | `<repo>/bin/…`       | `<repo>/`    | `<repo>/sdk/std/` |
 | Distributed | `<install>/bin/hawk` | `<install>/` | `<install>/std/`  |
 
-The `HAWK_SDK` environment variable overrides automatic discovery — useful for
-running tests against an alternate SDK or wrapping the binary in a script.
+Discovery is location-based (no environment variable): the binary finds its SDK
+from where it lives, so an installed `hawk` works from any working directory.
 
 ### Standard library source files
 

@@ -300,7 +300,8 @@ This makes the port incremental and continuously checkable, not a big-bang.
    diagnostics; `compile_source`/`compile_source_at` → `.hawkbc` bytes, each phase
    short-circuiting on errors); `pkgs/cli/loader.hawk` ports the import-closure
    loader (`std.core` auto-load, `std.x` / relative resolution, directory barrels,
-   namespace surfaces, SDK-root discovery via `HAWK_SDK` or a cwd walk-up) over
+   namespace surfaces, SDK-root discovery via the executable location or a cwd
+   walk-up) over
    `std.fs`/`std.env`; `main.hawk` drives `check`/`emit` on the `std.cli` app. The
    Hawk-written CLI, run via the Dart bootstrap
    (`hawk run pkgs/cli/main.hawk emit <file> <out>`), now compiles a **std-using**
@@ -310,7 +311,7 @@ This makes the port incremental and continuously checkable, not a big-bang.
    and emitting oracle-matching bytecode the runtime runs.
 8. **`run` / `test` (runtime invocation) — done.** `pkgs/cli/runner.hawk` wires
    the two subcommands that drive the Rust runtime: `run` compiles to a temporary
-   `.hawkbc` and spawns `<sdk_root>/runtime/target/debug/hawk` (forwarding program
+   `.hawkbc` and spawns `<sdk_root>/runtime/target/debug/hawkrt` (forwarding program
    args, propagating the exit code); `test` discovers `@test` functions,
    synthesizes the `__hawk_test_main` driver, runs it under `--entry`, and prints
    the per-test/per-file report + summary (with recursive `*_test.hawk` collection,
