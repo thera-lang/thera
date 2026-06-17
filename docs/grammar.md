@@ -230,8 +230,8 @@ pattern = '_'                                            // wildcard
 Constructor arguments are themselves patterns, so patterns **nest** to any depth
 and bind at the leaves — `match e { Bin(Add, Num(a), Num(b)) => … }` tests the
 `Bin` tag, the nested `Add`/`Num` tags, and binds `a`/`b`. A non-matching nested
-pattern falls through to the next arm (matches are assumed exhaustive; end with a
-catch-all `_` when the patterns are refutable). Literal patterns cover ints,
+pattern falls through to the next arm (matches are assumed exhaustive; end with
+a catch-all `_` when the patterns are refutable). Literal patterns cover ints,
 strings, and booleans (not floats) and may appear at any depth. There are no
 or-patterns, guards, range, or struct/field patterns.
 
@@ -303,21 +303,21 @@ followed by `:`, otherwise a **block expression**.
 
 ## Operator precedence (summary)
 
-| Level | Operators            | Assoc          | Notes                       |
-| ----- | -------------------- | -------------- | --------------------------- |
-| 1     | `\|\|`               | left           | logical or                  |
-| 2     | `&&`                 | left           | logical and                 |
-| 3     | `\|`                 | left           | bitwise or                  |
-| 4     | `^`                  | left           | bitwise xor                 |
-| 5     | `&`                  | left           | bitwise and                 |
-| 6     | `==` `!=`            | left           | equality                    |
-| 7     | `<` `>` `<=` `>=`    | left           | comparison                  |
-| 8     | `<<` `>>` `>>>`      | left           | shift (see below)           |
-| 9     | `..`                 | non-assoc      | range (one only)            |
-| 10    | `+` `-`              | left           | additive                    |
-| 11    | `*` `/` `%`          | left           | multiplicative              |
-| 12    | `!` `-` `~` (prefix) | right          | unary                       |
-| 13    | `.` `()` `[]` `?`    | left (postfix) | field/call/index/propagate  |
+| Level | Operators            | Assoc          | Notes                      |
+| ----- | -------------------- | -------------- | -------------------------- |
+| 1     | `\|\|`               | left           | logical or                 |
+| 2     | `&&`                 | left           | logical and                |
+| 3     | `\|`                 | left           | bitwise or                 |
+| 4     | `^`                  | left           | bitwise xor                |
+| 5     | `&`                  | left           | bitwise and                |
+| 6     | `==` `!=`            | left           | equality                   |
+| 7     | `<` `>` `<=` `>=`    | left           | comparison                 |
+| 8     | `<<` `>>` `>>>`      | left           | shift (see below)          |
+| 9     | `..`                 | non-assoc      | range (one only)           |
+| 10    | `+` `-`              | left           | additive                   |
+| 11    | `*` `/` `%`          | left           | multiplicative             |
+| 12    | `!` `-` `~` (prefix) | right          | unary                      |
+| 13    | `.` `()` `[]` `?`    | left (postfix) | field/call/index/propagate |
 
 The bitwise (`& | ^ ~`) and shift (`<< >> >>>`) operators follow the C family.
 `>>` is **arithmetic** (sign-preserving), `>>>` is **logical** (zero-fill); the
@@ -350,10 +350,10 @@ checklist; items that are planned link to [roadmap.md](roadmap.md).
 **Statements & control flow**
 
 - `break` / `continue` (and labeled loops); a `loop { }` form.
-- `if` and `match` work in both statement position (`ifStmt`, a bare `match`) and
-  expression position (`ifExpr`, `matchExpr`); the value forms are tail-valued
-  (docs/language.md). There are no block-less `if` bodies (the body is always a
-  block).
+- `if` and `match` work in both statement position (`ifStmt`, a bare `match`)
+  and expression position (`ifExpr`, `matchExpr`); the value forms are
+  tail-valued (docs/language.md). There are no block-less `if` bodies (the body
+  is always a block).
 
 **Patterns**
 
@@ -366,7 +366,3 @@ checklist; items that are planned link to [roadmap.md](roadmap.md).
   (`_looksLikeTypeArgList`) that bails on **nested** generics in call position,
   e.g. `f<Result<T, E>>(…)`. Annotated positions (`let`, params) handle nesting
   fine; only the `name<…>(…)` call form is limited.
-
-```
-
-```

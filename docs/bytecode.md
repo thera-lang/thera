@@ -231,18 +231,18 @@ ref-ness is recorded in the function's stackmap, not the opcode.
 
 ### Arithmetic, comparison, logic
 
-| Op group      | Ops                                                  |
-| ------------- | ---------------------------------------------------- |
-| int arith     | `add.i64 sub.i64 mul.i64 div.i64 mod.i64 neg.i64`    |
-| float arith   | `add.f64 sub.f64 mul.f64 div.f64 neg.f64`            |
+| Op group      | Ops                                                        |
+| ------------- | ---------------------------------------------------------- |
+| int arith     | `add.i64 sub.i64 mul.i64 div.i64 mod.i64 neg.i64`          |
+| float arith   | `add.f64 sub.f64 mul.f64 div.f64 neg.f64`                  |
 | int bitwise   | `and.i64 or.i64 xor.i64 bnot.i64 shl.i64 shr.i64 ushr.i64` |
-| int compare   | `eq.i64 ne.i64 lt.i64 le.i64 gt.i64 ge.i64` → `bool` |
-| float compare | `eq.f64 ne.f64 lt.f64 le.f64 gt.f64 ge.f64` → `bool` |
-| bool          | `not` (→ bool)                                       |
-| convert       | `i64.to_f64  f64.to_i64`                             |
+| int compare   | `eq.i64 ne.i64 lt.i64 le.i64 gt.i64 ge.i64` → `bool`       |
+| float compare | `eq.f64 ne.f64 lt.f64 le.f64 gt.f64 ge.f64` → `bool`       |
+| bool          | `not` (→ bool)                                             |
+| convert       | `i64.to_f64  f64.to_i64`                                   |
 
 `&&` / `||` short-circuit, so the frontend lowers them to branches — there is no
-`and`/`or` opcode (`and.i64`/`or.i64` are *bitwise*). `==` on strings/structs
+`and`/`or` opcode (`and.i64`/`or.i64` are _bitwise_). `==` on strings/structs
 dispatches to `Eq` (a method call), not `eq.i64`.
 
 `add.i64`/`sub.i64`/`mul.i64` **wrap** on overflow (two's complement); they do
@@ -272,8 +272,8 @@ Offsets are signed byte deltas from the _start of the next_ instruction.
 | `jump_if_false` | `off: i32` | `bool →` |                                         |
 | `return`        | —          | `[v] →`  | returns top slot, or nothing for `Void` |
 
-A `switch.tag` (jump table on an enum tag) is an obvious later addition for
-O(1) `match`. Until then, a small `match` lowers to `enum.tag` + a linear
+A `switch.tag` (jump table on an enum tag) is an obvious later addition for O(1)
+`match`. Until then, a small `match` lowers to `enum.tag` + a linear
 comparison/branch chain; a large enum `match` hoists `enum.tag` once and
 dispatches via a balanced binary search over the arm tags (O(log n) compares) —
 see "Match dispatch" below.
@@ -375,14 +375,14 @@ store x
 each arm uses `enum.get` to bind payload fields. Two shapes, by size:
 
 - **Small match** — a linear chain: per refutable arm, `enum.tag` + `const.int`
-  + `eq.i64` + `jump_if_false` to the next arm. The final arm is the
-  exhaustiveness fall-through (no test). Simple and compact.
+  - `eq.i64` + `jump_if_false` to the next arm. The final arm is the
+    exhaustiveness fall-through (no test). Simple and compact.
 - **Large enum match** (≥ 6 arms) — the tag is computed **once** into a slot,
   then reused. When every non-final arm is a flat constructor over a distinct
   tag, dispatch is a **balanced binary search** on the sorted tags (`lt.i64` /
   `gt.i64` route left/right; equal runs the arm), with every miss and the final
   arm sharing one default target — O(log n) comparisons instead of O(n). A large
-  match whose arms have refutable *nested* sub-patterns (which can fail after
+  match whose arms have refutable _nested_ sub-patterns (which can fail after
   the tag matches and must fall through in source order) keeps the linear chain
   but still reuses the single hoisted tag. `switch.tag` would later make the
   dense case O(1).

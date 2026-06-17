@@ -81,6 +81,11 @@ let greeting = 'Hello, ${name}!';
 let path = dir + '/' + name + '.hawk';
 ```
 
+Strings are UTF-8 and are **not** integer-indexable — `s[i]` is disallowed,
+since it would let code split a multi-byte character in half. Iterate explicitly
+instead: `.chars()` yields Unicode code points, `.graphemes()` user-perceived
+characters.
+
 ### Collections
 
 | Type        | Description                           | Example               |
@@ -95,13 +100,22 @@ let scores: Map<String, Int> = {'alice': 10, 'bob': 7};
 let tags: Set<String>        = Set.from(['cli', 'tool', 'cli']);  // {'cli', 'tool'}
 ```
 
+### Bytes
+
+`Bytes` is the core type for raw binary data (binary I/O, HTTP bodies, the
+`.hawkbc` format). It is an **immutable** byte sequence — `len`, `get` (→
+`Option<Int>`), `slice`, `concat`, `to_string` (→ `Result`, UTF-8 validated),
+`to_list`, plus `Bytes.empty()` / `Bytes.from_list(...)`. Build one up with the
+mutable `BytesBuilder` (`write_u8` / `write_bytes` / `write_str`, the
+little-endian `write_u32_le` / `write_u64_le` / `write_f64_le`, varints, then
+`finish()` → `Bytes`). Both live in `std.core`, so they're available
+unqualified.
+
 ### Open questions
 
 - **`Char`** — single character type (like Rust's `char` or Go's `rune`)? Most
   CLI use cases are satisfied by `String`; leaving this out keeps the type
   surface smaller. Deferred.
-- **`Bytes`** — raw byte sequence, needed for binary I/O and HTTP bodies. Likely
-  a stdlib type (`std.bytes`) rather than a built-in primitive.
 - **`Tuple`** — anonymous fixed-size heterogeneous record, e.g. `(Int, String)`.
   Useful for multi-return but adds syntax complexity. Deferred.
 - **Integer sizes** — a single `Int` (64-bit) covers most CLI needs. Explicit
@@ -421,19 +435,20 @@ let max = if a > b { a } else { b };
 ```
 
 **Semicolon rule.** In an expression-position block, every statement ends in `;`
-*except* a final tail expression. `let x = { f(); g() }` makes `x` the value of
+_except_ a final tail expression. `let x = { f(); g() }` makes `x` the value of
 `g()`; `let x = { f(); g(); }` makes `x` `Unit` (the value of `g()` is
 discarded). A bare trailing expression is legal **only** in expression position.
 
 **Function bodies are not expression position** — a function still returns with
 an explicit `return`, and a bare trailing expression in a function body is a
-statement (the require-`;` rule), not an implicit return. This is deliberate: the
-value a function produces is always marked, and the `;`-flip can never silently
-change a *return* value.
+statement (the require-`;` rule), not an implicit return. This is deliberate:
+the value a function produces is always marked, and the `;`-flip can never
+silently change a _return_ value.
 
 **`if` without `else`** has type `Unit` (the then-branch runs for effect). An
-`else` is required only where the `if`'s value is actually consumed — `let x = if c { 1 }`
-is an error, but a side-effecting `if c { foo() }` as a tail or statement is fine.
+`else` is required only where the `if`'s value is actually consumed —
+`let x = if c { 1 }` is an error, but a side-effecting `if c { foo() }` as a
+tail or statement is fine.
 
 ---
 
@@ -556,7 +571,7 @@ import std.cli      // → std/cli/cli.hawk      (directory library, via its bar
 ```
 
 A barrel re-exports its directory's files with `pub import`, so a whole
-directory imports as one namespace. See [language.md](language.md).
+directory imports as one namespace. See [Visibility](#visibility).
 
 ---
 
@@ -566,7 +581,7 @@ The unit of privacy is the **physical `.hawk` source file**. Hawk has no
 "module" (no multi-file unit with shared privacy); the relevant terms are a
 **source file** (the privacy unit), a **library** (an importable surface — a
 single file, or a directory fronted by its barrel), and a **barrel** (a library
-root that re-exports its directory's files). In the common case the file *is*
+root that re-exports its directory's files). In the common case the file _is_
 the library.
 
 A top-level declaration (`fn`, `type`, `enum`, `const`, `interface`) is
@@ -586,22 +601,22 @@ fn pad2(_ n: Int) -> String { ... }                // file-private helper
 - **`impl` blocks live wherever visibility allows** — an `impl Foo` or
   `impl Iface for Foo` may sit in any file that can see `Foo` (and the
   interface).
-- **`pub import` re-exports** — it binds the namespace *and* republishes the
+- **`pub import` re-exports** — it binds the namespace _and_ republishes the
   target's public symbols as part of this library's API (the basis of barrels;
   see [Imports](#imports)). A plain `import` does not re-export. If two
   re-exported files both export `format`, the **barrel** fails to compile — the
   conflict is the barrel author's, never the consumer's.
 
 **Testing — white-box access.** A test lives beside its target as
-`foo_test.hawk` and imports it normally (`import 'foo'`). The one special case is
-visibility: because the names match, that import also sees `foo.hawk`'s
+`foo_test.hawk` and imports it normally (`import 'foo'`). The one special case
+is visibility: because the names match, that import also sees `foo.hawk`'s
 **private** symbols, so `foo.internal_helper` is reachable from `foo_test.hawk`
 and nowhere else. It's still referenced through the import's namespace; the
 filename convention grants the access, avoiding a general package-private axis.
 
 Visibility and qualification are **front-end** concerns — name resolution
 applies them and they are erased in `.hawkbc` (calls are by index; the bytecode
-has no notion of "private" or namespaces). *Privacy is not yet fully enforced*
+has no notion of "private" or namespaces). _Privacy is not yet fully enforced_
 (see [roadmap.md](roadmap.md)).
 
 ---
@@ -795,16 +810,16 @@ pub interface Error: Display + Debug {
 This reads "an `Error` is a `Display` and a `Debug` that additionally has
 `message()`." `impl Error for FsError` is valid only when `FsError` also
 satisfies `Display` and `Debug` (via their own impls — `Debug` for free from the
-structural derive). A value typed as the `Error` *interface* then also exposes
-the super-interfaces' methods (`e.display()`, `'${e}'`) and is assignable where a
-`Display`/`Debug` (or a `T: Debug` bound) is expected. There are no inherited
-method *bodies* — only the obligation and the widened method set.
+structural derive). A value typed as the `Error` _interface_ then also exposes
+the super-interfaces' methods (`e.display()`, `'${e}'`) and is assignable where
+a `Display`/`Debug` (or a `T: Debug` bound) is expected. There are no inherited
+method _bodies_ — only the obligation and the widened method set.
 
 ### Dispatch
 
 Calling an interface method on a value whose **concrete type is known at the
-call site** is just a direct call — no vtable. Dynamic dispatch is used only when
-the concrete type is not statically known: **interface-typed values**
+call site** is just a direct call — no vtable. Dynamic dispatch is used only
+when the concrete type is not statically known: **interface-typed values**
 (`fn show(x: Display)`, `List<Display>`) and **bounded generics**
 (`fn dump<T: Display>(x: T)`, bounds enforced at call sites). The mechanism is
 type-id-keyed — see [architecture.md](architecture.md).
@@ -830,8 +845,7 @@ Test files are co-located with the source file they test, using a `_test`
 suffix: `src/foo.hawk` is tested by `src/foo_test.hawk`. The test imports its
 sibling through the normal import process, and — because the names match — that
 import additionally gets **white-box** access to the target's _private_ symbols
-(not just its `pub` ones). See
-[language.md](language.md).
+(not just its `pub` ones). See [Visibility](#visibility).
 
 Test functions are marked with `@test`, take no arguments, and return
 `Result<Void, Error>`. A test passes when it returns `Result.Ok(void)` and fails
@@ -965,7 +979,7 @@ discovery) needs to know about the difference.
 
 ### Two binaries: `hawkrt` and `hawk`
 
-The Rust crate builds **`hawkrt`** — the *bare runtime*: it loads and runs a
+The Rust crate builds **`hawkrt`** — the _bare runtime_: it loads and runs a
 `.hawkbc` and nothing else. The SDK build takes that same binary, embeds the
 compiled front-end (`frontend.hawkbc`) into it, and ships it as **`hawk`** — the
 full launcher. So `hawk` is `hawkrt` + an embedded front-end: invoked on a
@@ -1018,38 +1032,22 @@ graph unless explicitly re-imported with `as`. Every other `std.*` library
 
 ## Open design questions
 
-Decisions not yet settled. (Resolved ones — `${}` interpolation, `throw`,
-implicit `Ok` on `return` — are documented above as the language's behavior.)
+Decisions not yet settled. Resolved ones are documented above as the language's
+behavior: `${}` interpolation, `throw`, implicit `Ok` on `return`, visibility &
+libraries, interface dispatch, `Option` over nullable types, bounded generics,
+and UTF-8 strings without integer indexing.
 
-- **Strings & Unicode.** Strings are stored UTF-8. The plan: make `char` a
-  32-bit Unicode scalar, and forbid integer indexing on strings — force explicit
-  iteration via `.chars()` (code points) or `.graphemes()` (user-perceived
-  characters) so code never slices an emoji in half. `Char` as a distinct type
-  is still open (see Types → Open questions above).
-- ~~**Visibility / access control**~~ — _decided._ The source file is the
-  privacy boundary; `pub` exposes a symbol; directories aggregate through a
-  `<dirname>.hawk` barrel; sibling `_test.hawk` files get white-box access. See
-  [language.md](language.md).
-- ~~**Library / import system**~~ — _decided (mechanism)._ Explicit imports;
-  each binds a namespace (the trailing path segment) accessed qualified, with
-  `std.core` the unqualified prelude. See [language.md](language.md). Still
-  open: a **package manager** — Go-style URL imports or a central registry
-  (npm/PyPI) — and whether third-party packages exist at all for the POC.
-- **Generics** — parametric only, or constraints/bounds from day one?
+- **Package management** — is there a third-party package ecosystem for the POC
+  at all, and if so, Go-style URL imports or a central registry (npm/PyPI)? The
+  import _mechanism_ (namespaces, barrels) is settled; distribution is not.
 - **Numeric tower** — single `Int`/`Double`, or sized types (`Int32`, `Int64`)?
-- ~~**Interface dispatch**~~ — _decided._ The concrete type is known at every
-  call site today, so the frontend resolves statically and emits a direct `call`
-  (covers `Display`/`Eq`). A per-type vtable (`call.interface`) is added only
-  when Hawk gains type-erased interface values; the JIT devirtualizes when it
-  knows the type. See [bytecode.md](bytecode.md).
+  (Tracked alongside Types → Open questions.)
 - **Decorator semantics** — compile-time metadata only, or runtime hooks?
 - **Process spawning ergonomics** — method call (`run('git', [...])`) or a
   shell-string shorthand (`$('git status')`)? The former is safer; the latter is
   more familiar to shell scripters.
 - **Streams** — how to pipe one process's stdout into another: lazy iterators?
   an explicit pipe operator?
-- **Script mode** — should `main` be optional for simple one-file scripts, the
-  way Python and Node allow top-level statements?
 - **Inline error handling (`catch`)** — Hawk uses `?` to propagate. A Zig-style
   `expr catch fallback` / `expr catch |e| { ... }` as an inline default handler
   is worth considering as an additional form.
