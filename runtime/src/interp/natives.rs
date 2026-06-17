@@ -1328,6 +1328,25 @@ fn with_map<R>(
     }
 }
 
+// Like [`with_map`] but *borrows* the map — no clone (the read-path clone was
+// O(n) per lookup). `f` may compare keys (`==` re-enters the heap, but only for
+// *reads*, so the nested shared borrow is fine); it must not allocate or mutate
+// the VM heap while it runs (extract a `Value` and build any `Some` wrapper after
+// it returns — see `map.get`).
+fn with_map_ref<R>(
+    v: &Value,
+    who: &str,
+    f: impl FnOnce(&[(Value, Value)]) -> Result<R, Trap>,
+) -> Result<R, Trap> {
+    match v {
+        Value::Ref(h) => heap::with_obj(*h, |obj| match obj {
+            Obj::Map(entries) => f(entries),
+            _ => Err(bug(format!("{who}: expected map"))),
+        }),
+        _ => Err(bug(format!("{who}: expected map"))),
+    }
+}
+
 // Map mutators compare keys (`==` re-enters the heap), so they operate on a
 // clone and write it back — no heap borrow is held while `f` runs.
 fn with_map_mut<R>(
@@ -1428,25 +1447,30 @@ fn native_map_new(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
 /// `map[key]` — value for `key`, faulting if absent.
 fn native_map_index(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let (map, key) = args2(args, "map index")?;
-    with_map(map, "map index", |entries| {
-        map_find(entries, key).cloned().ok_or(Trap::MissingKey)
+    with_map_ref(map, "map index", |entries| {
+        map_find(entries, key).copied().ok_or(Trap::MissingKey)
     })
 }
 
 /// `map.get(key)` — `Some(value)` if present, else `None`.
 fn native_map_get(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let (map, key) = args2(args, "map.get")?;
-    with_map(map, "map.get", |entries| {
-        Ok(match map_find(entries, key) {
-            Some(v) => Value::some(*v),
-            None => Value::none(),
-        })
+    // Find under a borrow (no clone), copy the value out, then build the `Some`
+    // wrapper after the borrow is released (`Value::some` allocates).
+    let found = with_map_ref(
+        map,
+        "map.get",
+        |entries| Ok(map_find(entries, key).copied()),
+    )?;
+    Ok(match found {
+        Some(v) => Value::some(v),
+        None => Value::none(),
     })
 }
 
 /// `map.len()`.
 fn native_map_len(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
-    with_map(expect_one(args, "map.len")?, "map.len", |entries| {
+    with_map_ref(expect_one(args, "map.len")?, "map.len", |entries| {
         Ok(Value::Int(entries.len() as i64))
     })
 }
@@ -1454,7 +1478,7 @@ fn native_map_len(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
 /// `map.has(key)`.
 fn native_map_has(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let (map, key) = args2(args, "map.has")?;
-    with_map(map, "map.has", |entries| {
+    with_map_ref(map, "map.has", |entries| {
         Ok(Value::Bool(map_find(entries, key).is_some()))
     })
 }
