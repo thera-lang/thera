@@ -97,6 +97,38 @@ pub fn run(module: &Module, func: usize, args: &[Value]) -> Result<Value, Trap> 
     result
 }
 
+/// The result of running a fiber's frame stack to a suspension point. `Done`
+/// carries the return value of the entry frame; `Parked` means a native asked to
+/// suspend, leaving the whole frame stack on `self.frames` for the driver to
+/// resume. Nothing parks yet — this is the seam the fiber scheduler grows into.
+enum RunOutcome {
+    Done(Value),
+    Parked,
+}
+
+// A native suspends the running fiber by setting `PARK_REQUEST` — the same
+// flag-then-check-at-a-safepoint shape as the GC's `GC_PENDING`. `run_loop`
+// checks it immediately after a native returns and, if set, rewinds to
+// re-execute the call when the fiber is resumed.
+thread_local! {
+    static PARK_REQUEST: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Ask the running fiber to park once the current native returns. A blocking
+/// native (a future `join` / `receive` / `sleep`) calls this when its resource
+/// isn't ready, then returns; `run_loop` re-runs the native on resume, by which
+/// point it is. Unused until the scheduler lands (Phase 1).
+#[allow(dead_code)]
+pub(crate) fn request_park() {
+    PARK_REQUEST.with(|p| p.set(true));
+}
+
+/// Consume a pending park request (clearing it). Read at the post-native
+/// safepoint in `run_loop`.
+fn take_park() -> bool {
+    PARK_REQUEST.with(|p| p.replace(false))
+}
+
 // --- native-call profiling probe (the `native-stats` feature) ---
 //
 // A coarse per-native call counter, to see which natives dominate a workload
@@ -184,8 +216,25 @@ impl<'a> Vm<'a> {
     }
 
     /// Run `module`'s function at index `func` with `args`.
+    ///
+    /// This is the **proto-scheduler**: it runs the (single) fiber and resumes it
+    /// whenever it parks. Phase 1 generalizes the loop into a run-queue over many
+    /// fibers with readiness wakeups; today nothing parks, so it returns on the
+    /// first `Done`.
     pub fn run(&mut self, module: &Module, func: usize, args: &[Value]) -> Result<Value, Trap> {
-        self.call(module, func, args.to_vec())
+        let mut frame = Self::make_frame(module, func, args.to_vec())?;
+        loop {
+            match self.run_loop(module, frame)? {
+                RunOutcome::Done(value) => return Ok(value),
+                RunOutcome::Parked => {
+                    // The fiber suspended; its frame stack is on `self.frames`.
+                    // With one fiber, resume it immediately (pop the saved top
+                    // frame back into the loop). Phase 1 instead picks the next
+                    // ready fiber and blocks the thread when none are.
+                    frame = self.frames.pop().expect("a parked fiber left its frame");
+                }
+            }
+        }
     }
 
     /// Build the call frame for `module.functions[func]`, placing `locals`
@@ -214,10 +263,18 @@ impl<'a> Vm<'a> {
         })
     }
 
-    /// Build a frame for `func` and run it to completion.
+    /// Build a frame for `func` and run it to completion. For re-entrant
+    /// (nested) and `eval` use, where suspension is not allowed: a park here is a
+    /// bug, since only the top-level scheduler driver can resume a fiber. This is
+    /// the "park only at the top of `run_loop`" guard — a blocking native must
+    /// never be reached from inside a nested interpreter re-entry (e.g. the
+    /// structural `debug`/`display` fallback).
     fn call(&mut self, module: &Module, func: usize, args: Vec<Value>) -> Result<Value, Trap> {
         let frame = Self::make_frame(module, func, args)?;
-        self.run_loop(module, frame)
+        match self.run_loop(module, frame)? {
+            RunOutcome::Done(value) => Ok(value),
+            RunOutcome::Parked => Err(bug("fiber parked in a non-schedulable context")),
+        }
     }
 
     /// The interpreter loop over the **explicit call-frame stack** (`self.frames`,
@@ -226,8 +283,10 @@ impl<'a> Vm<'a> {
     /// and calls no longer recurse through the Rust stack — `Instr::Call`/`Return`
     /// push and pop frames here. Runs until the `initial` frame returns (the
     /// stack drops back to the depth it was pushed at), so a nested invocation
-    /// resumes its caller's loop.
-    fn run_loop(&mut self, module: &Module, initial: Frame) -> Result<Value, Trap> {
+    /// resumes its caller's loop. Returns [`RunOutcome::Done`] with the entry
+    /// frame's value, or [`RunOutcome::Parked`] when a native suspended the fiber
+    /// (the frame stack is left on `self.frames` for the driver to resume).
+    fn run_loop(&mut self, module: &Module, initial: Frame) -> Result<RunOutcome, Trap> {
         let base_depth = self.frames.len();
         let mut frame = initial;
         let mut code = &module.functions[frame.func].code;
@@ -442,6 +501,17 @@ impl<'a> Vm<'a> {
                     // dominated. Natives never touch `frame.stack`, and leaving
                     // the args in place keeps them GC-rooted across the call.
                     let ret = f(&mut *self.out, &frame.stack[base..])?;
+                    if take_park() {
+                        // The native asked to suspend this fiber (its awaited
+                        // resource isn't ready). Rewind to re-execute this
+                        // `call.native` on resume: the args are still on the
+                        // operand stack, and the native runs again — this time
+                        // finding its resource ready. The whole frame stack stays
+                        // on `self.frames` as the parked fiber's saved state.
+                        frame.pc -= 1;
+                        self.frames.push(frame);
+                        return Ok(RunOutcome::Parked);
+                    }
                     frame.stack.truncate(base);
                     frame.stack.push(ret);
                 }
@@ -632,7 +702,7 @@ impl<'a> Vm<'a> {
                     let value = frame.stack.pop().unwrap_or(Value::Unit);
                     if self.frames.len() == base_depth {
                         // The frame this `run_loop` was entered for has returned.
-                        return Ok(value);
+                        return Ok(RunOutcome::Done(value));
                     }
                     frame = self.frames.pop().unwrap();
                     code = &module.functions[frame.func].code;
