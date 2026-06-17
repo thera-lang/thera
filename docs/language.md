@@ -273,6 +273,11 @@ let handle = fiber.spawn(() => fetch_user(id: 42));
 let user = handle.join()?;
 ```
 
+The runtime design for this — fibers as stackless coroutines over the
+interpreter's explicit frame stack, the scheduler, parking, and I/O — is sketched
+in [architecture.md](architecture.md) §Concurrency. (Not yet implemented;
+`std.fiber` is the planned surface.)
+
 **Fallback:** if the fiber runtime proves too costly to implement in the POC,
 the language will fall back to explicit `async`/`await`. In that model,
 functions that perform I/O are marked `async` and callers use `await` — the

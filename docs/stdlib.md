@@ -456,7 +456,10 @@ impl Channel<T> {
 
 Notes: no mutexes/atomics — single-threaded means no data races
 ([language.md](language.md) §Concurrency). `select` over channels is a candidate
-addition.
+addition. The **runtime implementation** — fibers as stackless coroutines over
+the interpreter's explicit frame stack, the scheduler, parking, GC roots across
+fibers, and the I/O staging — is sketched in [architecture.md](architecture.md)
+§Concurrency.
 
 **Fibers gate the IO-heavy libraries.** The "concurrency is invisible" principle
 (§ Cross-cutting #5) — blocking I/O parks the fiber instead of the thread — only

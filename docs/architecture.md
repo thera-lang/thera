@@ -208,6 +208,91 @@ contract and the planned conservative-JIT-frame scan both rule out — revisit
 only if fragmentation or generational promotion later justifies full precision
 across both tiers.
 
+## Concurrency: the fiber scheduler
+
+_Design sketch — not yet implemented (`std.fiber` is the surface; see
+[language.md](language.md) §Concurrency and [stdlib.md](stdlib.md) §`std.fiber`)._
+
+Hawk's concurrency is single-threaded cooperative fibers: blocking-looking I/O
+parks the calling fiber and resumes another, with no `async`/`await` coloring.
+The runtime structure already built for the GC makes this cheap to implement.
+
+**Why it's cheap here.** Hawk calls don't use the Rust call stack — `run_loop`
+keeps an explicit `frames: Vec<Frame>` (each `Frame` owning its `pc`, locals, and
+operand stack) and pushes/pops it on `Call`/`Return`; a `Return` with no caller
+frame already exits the loop. So a fiber's **entire** resumable state is that
+frame stack — an ordinary heap-side value the scheduler can set aside and pick up
+later. No OS threads, no stack copying, no `unsafe` stack switching: the property
+that usually makes green threads hard is already paid for. This is a **stackless**
+coroutine design — the fiber _is_ its `Vec<Frame>`.
+
+**Pieces.**
+
+- `Fiber { id, frames: Vec<Frame>, status }`, `status ∈ { Ready, Running,
+  Blocked(reason), Done(Value) }`. The running fiber's frames live in the `Vm`; a
+  parked fiber's frames are stored back in its `Fiber`.
+- `Scheduler { fibers: Slab<Fiber>, ready: VecDeque<FiberId>, poller }` on one OS
+  thread. Loop: take a `Ready` fiber, run it until it parks or finishes, repeat;
+  when `ready` is empty but fibers are blocked on I/O, block the thread in the
+  poller until a source is ready, wake the owners, continue. The program ends when
+  the **main** fiber (fiber 0) returns — surviving fibers are abandoned (Go
+  semantics).
+
+**Parking = returning to the scheduler.** `run_loop` already returns when the
+frame stack empties (fiber done). Add a second exit: a native that would block
+returns a `Park(reason)` signal instead of a value; `run_loop` hands the current
+fiber's `Vec<Frame>` back to its `Fiber`, marks it `Blocked(reason)`, and returns
+to the scheduler. Resuming is just re-entering `run_loop` with those frames
+reinstated and the awaited result pushed onto the operand stack. Nothing else is
+saved — the frames _are_ the continuation.
+
+**The one constraint — park only at the top of the loop.** A fiber can park only
+when the Rust stack is _just_ `run_loop`, not when a native has re-entered it (the
+structural-`debug`/virtual-dispatch path that pushes onto the same frame stack
+within one Rust call — see GC above). Blocking I/O is always called at Hawk level,
+so this is the normal case; the rule is simply "a blocking native is never invoked
+from inside a nested interpreter re-entry." (If that ever needs lifting, the
+nested path can be reworked to loop instead of recurse.)
+
+**Yield points.** Cooperative — a fiber holds the thread until it parks: blocking
+I/O (parks on readiness), `join` on an unfinished fiber, channel `send`/`receive`
+on a full/empty channel, and an explicit `fiber.yield()`. No preemption, so a
+CPU-bound fiber that never parks starves the rest (acceptable for the model; if it
+bites, the interpreter's existing loop back-edge counter — already there for
+JIT tier-up — can force an occasional yield).
+
+**GC roots span all fibers.** Today the collector's roots are the running frame
+stack. With fibers they become the union over **every** live fiber's frames, plus
+values buffered in channels. That is the one substantive GC change — and it's
+small: the safepoint already sits at the `run_loop` top, so the root walk just
+iterates the scheduler's fibers instead of one stack.
+
+**Channels.** `Channel<T>` = a bounded `VecDeque<Value>` plus queues of blocked
+senders and receivers. `send` parks the sender when full; `receive` parks the
+receiver when empty and returns `None` once closed and drained. Buffered values
+are GC roots.
+
+**`spawn`/`join`.** `fiber.spawn(work)` allocates a `Fiber` whose initial frame
+invokes the `work` closure, enqueues it `Ready`, and returns a `Fiber<T>` handle
+(a heap value carrying the id). `handle.join()` returns the stored result if the
+target is `Done`, else parks the caller on its completion; a finishing fiber
+re-queues its joiners with its result.
+
+**I/O integration — two stages.** (1) A simple first cut keeps syscalls blocking
+but runs them on a small worker-thread pool, parking the Hawk fiber until a worker
+signals completion — the single-thread _Hawk_ guarantee still holds (workers run
+no Hawk code) and it needs no event loop, so it unblocks `std.fiber`/`std.http`
+soonest. (2) The scaling goal is readiness-based non-blocking I/O via
+`kqueue`/`epoll` in the scheduler's poller, so thousands of fibers park on one
+thread. Both preserve the "blocking-looking, never blocks the thread" contract.
+This is also where the first real runtime-dependency question lands — a poller
+crate (`mio`) vs. hand-rolled `kqueue`/`epoll` to stay dependency-free.
+
+This design is the reason the [language.md](language.md) `async`/`await` fallback
+should stay a fallback: the stackless-fiber model delivers the same
+blocking-looking I/O with no function coloring, and the frame-stack groundwork is
+already in place.
+
 ## Persistence and the native ABI
 
 `bin/hawk` is the Rust runtime with an **embedded `frontend.hawkbc`** (the
