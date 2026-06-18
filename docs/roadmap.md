@@ -308,11 +308,29 @@ gaps, by where they live:
     get full argument checking (arity/labels/types) too, not just existence. For a
     static method the diagnosed type-parameter set folds in the owner's parameters
     (a static `Set.new() -> Set<T>` has `T` from the `impl`, not the method).
-  - **`Unknown` propagates permissively.** An `Unknown` value is still accepted
-    anywhere it appears, so a genuine "couldn't infer" can slip through silently
-    (e.g. a binding nothing pins, passed on untyped). `Unknown` should be a typed
-    _hole_ flagged at its origin, not a wildcard. (Forward-flow + method-arg
-    checking now catch the once-canonical `xs.push("a"); xs.push(1)` case.)
+  - **`Unknown` propagates permissively — investigated; a broad flip is _not_
+    viable.** A spike instrumented the checker to report every wholly- or
+    partially-`Unknown` type consumed in a value position
+    (let/return/arg/condition/match-subject/for-iterable) across the whole corpus
+    (examples + stdlib + the self-hosted front-end). Result: **1** wholly-`Unknown`
+    hole (a benign parser local whose type didn't resolve, handled leniently) and
+    **~330 partials** — almost entirely `Result.Ok(x)` / `Result.Err(e)` producing
+    `Result<T, Unknown>`, because constructing _one_ variant of a two-parameter
+    enum can't determine the _other_ parameter (the `Err` type of an `Ok`). So
+    leniency on `Unknown` is **load-bearing**: it's what lets `return Result.Ok(0)`
+    typecheck in a `-> Result<Int, Error>` function without annotating the error
+    type. Flagging partials would be ~330 false positives on idiomatic code. The
+    targeted diagnostics already built — forward-flow, method-argument checking,
+    the unpinnable-generic "cannot infer", assignment-target threading — are the
+    right model and have closed the practical hole problem; there is no broad
+    "reject `Unknown`" flip to make. The constructive follow-up the spike surfaced
+    is **precision, not a diagnostic**: thread the expected type into enum
+    construction so `Result.Ok(x)` under an expected `Result<T, Error>` infers
+    `E = Error` (binding the un-constructed variant's parameter from context — the
+    same expected-threading used elsewhere), cleaning up nearly all the partials
+    for hover/LSP and future analysis with no false-positive risk. (Forward-flow +
+    method-arg checking already catch the once-canonical `xs.push("a"); xs.push(1)`
+    case.)
   - ~~**`match`-arm types not unified.**~~ _Done._ `check_match` folds each arm's
     type into a running reference (the `expected` type when the match is in an
     annotated context, else the first value-producing arm) and flags an arm
