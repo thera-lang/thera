@@ -12,8 +12,8 @@ type-checks and compiles Hawk source to bytecode, and a **growing core stdlib**
 implemented **visibility/library** model, and **interface dispatch — static on
 concrete types and dynamic (`call.virtual`) for interface-typed values and
 bounded generics, with bounds enforced at call sites** (see
-[language.md](language.md)) — all work; real CLI programs compile and run
-end to end (see `examples/`), and `hawk test` runs the `@test` functions in
+[language.md](language.md)) — all work; real CLI programs compile and run end to
+end (see `examples/`), and `hawk test` runs the `@test` functions in
 `*_test.hawk` files, all on a runtime with a **precise mark-sweep GC**. Not yet
 done: a **broader stdlib**; _enforced_ visibility; **generic operators**
 (`<T: Add>`); **bitwise operators** (`& | ^ << >>`); and **index (`[]`) operator
@@ -73,10 +73,10 @@ The path to a self-hosting `hawk`:
 3. **Hawk front-end emits `.hawkbc`** — self-hosting; _largely here._ The
    Hawk-written front-end (`pkgs/cli/`: lexer → parser → resolver → checker →
    inference → codegen → encoder, plus `check`/`emit`/`run`/`test`/`lsp`)
-   compiles its own sources and the whole stdlib **byte-identically** to the Dart
-   oracle, and `bin/build_sdk.sh` embeds it into the `hawk` binary (the build's
-   fixpoint check confirms the SDK reproduces its own front-end). What remains
-   before Dart can be retired is below (Retiring the Dart toolchain).
+   compiles its own sources and the whole stdlib **byte-identically** to the
+   Dart oracle, and `bin/build_sdk.sh` embeds it into the `hawk` binary (the
+   build's fixpoint check confirms the SDK reproduces its own front-end). What
+   remains before Dart can be retired is below (Retiring the Dart toolchain).
 
 The Dart toolchain is still maintained as the **bootstrap compiler** (it emits
 the first `frontend.hawkbc`) and the **per-phase oracle** (byte-identity
@@ -100,8 +100,8 @@ That played out as planned: a scoped **spike** (a calculator front-end in
 `pkgs/calc/`) first ranked the real language gaps (tail expressions, nested
 patterns, string slicing, interface inheritance, …) rather than guessing; those
 gaps were closed; then the full front-end was ported into `pkgs/cli/` and now
-self-hosts. The remaining front-end work is the LSP's v2 (inference-at-offset for
-hover/definition, overlay-aware imports, memoization) toward an incremental
+self-hosts. The remaining front-end work is the LSP's v2 (inference-at-offset
+for hover/definition, overlay-aware imports, memoization) toward an incremental
 engine — tracked under Deferred work.
 
 ## Deferred work
@@ -138,13 +138,13 @@ gaps, by where they live:
   when neither applies — no guessing. The payoff has landed:
   `List.map`/`filter`/ `fold` are written in Hawk and take closures
   (`sdk/std/core/list.hawk`, `examples/list_hof.hawk`).
-  - **Gap — block-body lambda return inference.** A lambda with a `{ … }` body
-    infers its return type as `Void` (it doesn't unify its `return`
-    statements/tail), so `f(() => { return 5; })` types the closure as `() -> Void`
-    rather than `() -> Int`. Bites generic callees that depend on the closure's
-    result type — e.g. `fiber.spawn(() => { … return x; })` yields `Fiber<Void>`;
-    use an expression body or a named function meanwhile. Expression-body lambdas
-    infer correctly. Both front-ends.
+- **Gap — block-body lambda return inference.** A lambda with a `{ … }` body
+  infers its return type as `Void` (it doesn't unify its `return`
+  statements/tail), so `f(() => { return 5; })` types the closure as
+  `() -> Void` rather than `() -> Int`. Bites generic callees that depend on the
+  closure's result type — e.g. `fiber.spawn(() => { … return x; })` yields
+  `Fiber<Void>`; use an expression body or a named function meanwhile.
+  Expression-body lambdas infer correctly. Both front-ends.
 - **GC — _done_.** A precise non-moving mark-sweep, built in free-standing
   steps: **(1) explicit call-frame stack** (`Vm::run_loop` over a `Vec<Frame>`;
   precise roots enumerable, deep recursion no longer overflows the host stack);
@@ -161,13 +161,13 @@ gaps, by where they live:
   `Vec<(Value, Value)>` with a linear `map_find` and clone-on-mutate, so lookups
   are O(n) and building an N-entry map (the codegen symbol tables) is O(n²). The
   read-path clone is gone (`with_map_ref` borrows), but the scan and the
-  clone-write-back build cost remain. Fix: an insertion-ordered hashed map (a Vec
-  for order + a hash→index table, indexmap-style) used **above a size threshold**
-  so small maps stay linear. Constraints: content-based key hashing consistent
-  with `values_eq`; preserved insertion order (output is byte-identical to the
-  Dart oracle); and precomputed per-key hashes so a lookup needn't re-enter the
-  heap while holding the map's borrow (the reason mutators clone today). The same
-  treatment applies to `Set`.
+  clone-write-back build cost remain. Fix: an insertion-ordered hashed map (a
+  Vec for order + a hash→index table, indexmap-style) used **above a size
+  threshold** so small maps stay linear. Constraints: content-based key hashing
+  consistent with `values_eq`; preserved insertion order (output is
+  byte-identical to the Dart oracle); and precomputed per-key hashes so a lookup
+  needn't re-enter the heap while holding the map's borrow (the reason mutators
+  clone today). The same treatment applies to `Set`.
 - More broadly, **read accessors that clone whole heap objects** are a recurring
   cost (fixed for `list.len`/indexing, GC marking, and map reads — each was the
   hot spot when it was the hot spot). The clone-out is correct when a closure
@@ -207,11 +207,10 @@ gaps, by where they live:
 - Block expressions and literal/nested `match` patterns remain. Interface
   dispatch is done — static on concrete types, dynamic (`call.virtual` + vtable)
   for interface-typed values and bounded generics (see
-  [language.md](language.md)). (Closures lower fully: lambdas lift to
-  top-level functions; captures by value, with captured `mut` locals boxed into
-  cells, via `closure.new` / `call.indirect`. Lambda parameter types are
-  resolved by annotation or bidirectional inference, with a hard error
-  otherwise.)
+  [language.md](language.md)). (Closures lower fully: lambdas lift to top-level
+  functions; captures by value, with captured `mut` locals boxed into cells, via
+  `closure.new` / `call.indirect`. Lambda parameter types are resolved by
+  annotation or bidirectional inference, with a hard error otherwise.)
 - **Tech debt — collapse the checker's `_Scope`.** The checker still tracks
   locals as `Map<String, TypeRef?>`, but since inference annotates expressions
   the type _values_ are now vestigial — only key-presence drives
@@ -229,11 +228,11 @@ gaps, by where they live:
   (`String.from_chars`). The stdlib is reorganized into directory libraries with
   `core` as a barrel (interfaces/error/string/list/map) and `std.cli` over args;
   examples use qualified imports.
-- **Remaining (deferred):** _enforce_ `pub`/privacy (cross-file refs to non-`pub`
-  symbols error; drop the flat fallback) and `_test.hawk` white-box access — plus
-  selective import, field-level visibility, impl coherence, and a
-  "module"→"library" terminology sweep. (Consolidated under *Retiring the Dart
-  toolchain* below.)
+- **Remaining (deferred):** _enforce_ `pub`/privacy (cross-file refs to
+  non-`pub` symbols error; drop the flat fallback) and `_test.hawk` white-box
+  access — plus selective import, field-level visibility, impl coherence, and a
+  "module"→"library" terminology sweep. (Consolidated under _Retiring the Dart
+  toolchain_ below.)
 
 **Cross-cutting:** stdlib native names are now written once, as `@extern('...')`
 on the `native fn` declarations in `sdk/std` (the `element/builtins.dart` mirror
@@ -249,9 +248,9 @@ synthesizes a driver (`__hawk_test_main`) that runs each test and prints an
 compiles the test file + driver, and runs it on the runtime via
 `run --entry __hawk_test_main` (a unique entry so it never collides with a
 tested module's own `main`). The exit code is the failure count; an overall
-summary follows. `std.testing` throws `error(...)` (the general-purpose `Error`); the
-driver renders a caught `Err(e)` via `e.message()` (`Error` now extends
-`Display`, so `'${e}'` works too — see [language.md](language.md),
+summary follows. `std.testing` throws `error(...)` (the general-purpose
+`Error`); the driver renders a caught `Err(e)` via `e.message()` (`Error` now
+extends `Display`, so `'${e}'` works too — see [language.md](language.md),
 "Interface inheritance").
 
 Remaining polish (not blockers): per-test **source locations** on failure (the
@@ -265,8 +264,8 @@ type argument must satisfy every bound (primitives carry the built-in
 `Eq`/`Display`/`Debug`; `Eq`/`Debug` derive structurally for structs/enums;
 other interfaces need an explicit `impl`). Inside a generic body, a method call
 on the erased `T` dispatches via `call.virtual` (see
-[language.md](language.md)). Still open from this area: **generic
-operators** (`<T: Add>`, operators-as-traits).
+[language.md](language.md)). Still open from this area: **generic operators**
+(`<T: Add>`, operators-as-traits).
 
 **Bitwise operators — not yet in the language.** Hawk has no `& | ^ << >>` (nor
 an unsigned integer type), so bit-twiddling code can't be written in Hawk today.
@@ -341,30 +340,31 @@ toolchain (`tool/`) stays as bootstrap + oracle until these close:
   already bites: pulling `std.json`/`std.io` into the front-end collided
   `json.parse` with the parser's `parse` (renamed `parse_tokens`) and a local
   `Message` with `std.core`'s (renamed) — caught only at codegen, not `check`.
-  Proper module-scoped resolution (qualified calls resolve *within* the named
+  Proper module-scoped resolution (qualified calls resolve _within_ the named
   library) + privacy enforcement is the real fix; a duplicate-top-level-name
-  diagnostic would at least surface collisions early. A *permanent* sub-case:
-  **prelude (`std.core`) names are always unqualified**, so they're de-facto soft
-  reserved words — the prelude must hold only language-fundamental
+  diagnostic would at least surface collisions early. A _permanent_ sub-case:
+  **prelude (`std.core`) names are always unqualified**, so they're de-facto
+  soft reserved words — the prelude must hold only language-fundamental
   types/traits/verbs, never common domain nouns (why the `Message` error type
   became the `error('…')` constructor over a private carrier).
 - **Visibility follow-ups** (from the visibility model now in
   [language.md](language.md)): enforce `pub`/privacy; grant `_test.hawk`
   white-box access to its target's privates (only meaningful once privacy is
   enforced); `impl` coherence / orphan rules; optional selective import
-  (`show`/`hide`) and field-level visibility; sweep remaining "module" wording to
-  "library"/"source file".
+  (`show`/`hide`) and field-level visibility; sweep remaining "module" wording
+  to "library"/"source file".
 - **Checker predicts codegen — residual gaps.** Field/method validation lands
   (`check` rejects bad field accesses and method calls, conservative on unknown
   receivers). Remaining: field access on a non-struct concrete value (`5.x`)
-  still slips to codegen; backward-flowing inference for `let mut x = Option.None`
-  needs an annotation when only a later assignment pins the element type.
-- **LSP v2 toward an incremental engine** — inference-at-offset (hover/definition
-  on locals, expressions, members), overlay-aware imports (honor unsaved edits),
-  and memoizing the import-closure load so analysis isn't redone per keystroke
-  (see the incremental note above).
+  still slips to codegen; backward-flowing inference for
+  `let mut x = Option.None` needs an annotation when only a later assignment
+  pins the element type.
+- **LSP v2 toward an incremental engine** — inference-at-offset
+  (hover/definition on locals, expressions, members), overlay-aware imports
+  (honor unsaved edits), and memoizing the import-closure load so analysis isn't
+  redone per keystroke (see the incremental note above).
 - **Drop the Dart bootstrap dependency** — check in a `frontend.hawkbc` snapshot
-  so the SDK builds from a *previous SDK* rather than from Dart; then retire
+  so the SDK builds from a _previous SDK_ rather than from Dart; then retire
   `tool/` once we're confident enough in byte-identity to stop diffing.
 
 ## Planned sequence

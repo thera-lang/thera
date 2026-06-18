@@ -197,6 +197,10 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("fiber_spawn", native_fiber_spawn),
     ("fiber_join", native_fiber_join),
     ("fiber_yield", native_fiber_yield),
+    ("channel_new", native_channel_new),
+    ("channel_send", native_channel_send),
+    ("channel_receive", native_channel_receive),
+    ("channel_close", native_channel_close),
 ];
 
 /// The native functions the runtime ships with, in index order.
@@ -1045,6 +1049,50 @@ fn native_fiber_join(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap
 fn native_fiber_yield(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     expect_no_args(args, "fiber_yield")?;
     super::park_yield_ready();
+    Ok(Value::Unit)
+}
+
+/// `channel(capacity)` — create a channel buffering up to `capacity`, returning
+/// its id (the Hawk surface wraps it in a `Channel<T>`).
+fn native_channel_new(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let cap = as_int(expect_one(args, "channel_new")?, "channel_new")?;
+    let cap = if cap < 0 { 0 } else { cap as usize };
+    Ok(Value::Int(super::sched_channel_new(cap) as i64))
+}
+
+/// `channel.send(id, value)` — buffer `value`, blocking while the channel is
+/// full (re-running on resume). Traps if the channel is closed.
+fn native_channel_send(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (id, value) = args2(args, "channel_send")?;
+    let id = as_int(id, "channel_send")? as usize;
+    match super::sched_chan_send(id, *value) {
+        super::SendOutcome::Sent => Ok(Value::Unit),
+        super::SendOutcome::Full => {
+            super::park_block_retry();
+            Ok(Value::Unit) // placeholder; discarded — the call re-runs after the park
+        }
+        super::SendOutcome::Closed => Err(Trap::ClosedChannel),
+    }
+}
+
+/// `channel.receive(id)` — the next buffered value as `Some`, blocking while the
+/// channel is empty (re-running on resume); `None` once closed and drained.
+fn native_channel_receive(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let id = as_int(expect_one(args, "channel_receive")?, "channel_receive")? as usize;
+    match super::sched_chan_receive(id) {
+        super::RecvOutcome::Got(value) => Ok(Value::some(value)),
+        super::RecvOutcome::Drained => Ok(Value::none()),
+        super::RecvOutcome::Empty => {
+            super::park_block_retry();
+            Ok(Value::Unit) // placeholder; discarded — the call re-runs after the park
+        }
+    }
+}
+
+/// `channel.close(id)` — no more sends; receivers drain then get `None`.
+fn native_channel_close(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let id = as_int(expect_one(args, "channel_close")?, "channel_close")? as usize;
+    super::sched_chan_close(id);
     Ok(Value::Unit)
 }
 

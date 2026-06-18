@@ -32,6 +32,38 @@ pub fn yield() -> Void {
     _yield();
 }
 
+// A channel carrying values of type `T` between fibers, over a bounded buffer.
+pub type Channel<T> = {
+    id: Int,
+}
+
+// Create a channel buffering up to `capacity` values (clamped to at least 1). A
+// `send` blocks while the buffer is full; a `receive` blocks while it is empty.
+pub fn channel<T>(capacity: Int = 1) -> Channel<T> {
+    return Channel { id: _chan_new(capacity) };
+}
+
+impl Channel<T> {
+    // Send a value, blocking the caller while the buffer is full. Traps if the
+    // channel has been closed.
+    pub fn send(self, _ value: T) -> Void {
+        _chan_send<T>(self.id, value);
+    }
+
+    // Receive the next value, blocking while the buffer is empty. Returns `None`
+    // once the channel is closed and drained — so `while let Some(v) = ...` (via
+    // `match`) drains a closed channel cleanly.
+    pub fn receive(self) -> Option<T> {
+        return _chan_receive<T>(self.id);
+    }
+
+    // Close the channel: no further sends (a later `send` traps); receivers drain
+    // the remaining buffer and then receive `None`.
+    pub fn close(self) -> Void {
+        _chan_close(self.id);
+    }
+}
+
 @extern('fiber_spawn')
 native fn _spawn<T>(_ work: () -> T) -> Int
 
@@ -40,3 +72,15 @@ native fn _join<T>(_ id: Int) -> T
 
 @extern('fiber_yield')
 native fn _yield() -> Void
+
+@extern('channel_new')
+native fn _chan_new(_ capacity: Int) -> Int
+
+@extern('channel_send')
+native fn _chan_send<T>(_ id: Int, _ value: T) -> Void
+
+@extern('channel_receive')
+native fn _chan_receive<T>(_ id: Int) -> Option<T>
+
+@extern('channel_close')
+native fn _chan_close(_ id: Int) -> Void

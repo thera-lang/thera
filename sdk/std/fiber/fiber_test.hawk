@@ -50,3 +50,51 @@ fn test_fiber_spawns_fiber() -> Result<Void, Error> {
     testing.assert_eq(actual: outer.join(), expected: 15)?;
     return Result.Ok(void);
 }
+
+// A buffered channel preserves FIFO order; a closed channel drains its buffer
+// then yields `None`.
+@test
+fn test_channel_buffer_and_drain() -> Result<Void, Error> {
+    let ch: fiber.Channel<Int> = fiber.channel(8);
+    ch.send(1);
+    ch.send(2);
+    ch.send(3);
+    ch.close();
+    let got: List<String> = [];
+    let mut going = true;
+    while going {
+        match ch.receive() {
+            Some(v) => { got.push('${v}'); },
+            None    => { going = false; },
+        }
+    }
+    testing.assert_eq(actual: got.join(','), expected: '1,2,3')?;
+    return Result.Ok(void);
+}
+
+// A producer fiber and the consumer hand off through a small buffer: the sender
+// blocks when the buffer is full, the receiver blocks when it is empty.
+@test
+fn test_channel_producer_consumer() -> Result<Void, Error> {
+    let ch: fiber.Channel<Int> = fiber.channel(2);
+    let producer = fiber.spawn(() => {
+        let mut i = 1;
+        while i <= 5 {
+            ch.send(i);
+            i = i + 1;
+        }
+        ch.close();
+        return 0;
+    });
+    let mut sum = 0;
+    let mut going = true;
+    while going {
+        match ch.receive() {
+            Some(v) => { sum = sum + v; },
+            None    => { going = false; },
+        }
+    }
+    producer.join();
+    testing.assert_eq(actual: sum, expected: 15)?;
+    return Result.Ok(void);
+}

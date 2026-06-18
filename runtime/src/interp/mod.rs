@@ -32,6 +32,9 @@ pub enum Trap {
     IndexOutOfBounds { index: i64, len: usize },
     /// Map indexed with `map[key]` where `key` is absent.
     MissingKey,
+    /// `channel.send` on a channel that has been closed (a program contract
+    /// violation, like sending on a closed Go channel).
+    ClosedChannel,
     /// The bytecode was malformed (stack underflow, type mismatch, bad slot).
     /// Valid bytecode from a correct producer never triggers this.
     Bug(String),
@@ -170,7 +173,31 @@ enum FiberState {
 struct Scheduler {
     fibers: Vec<Fiber>,     // indexed by fiber id; never compacted, so ids stay stable
     ready: VecDeque<usize>, // runnable fiber ids
-    blocked: Vec<usize>,    // parked on a resource; woken en masse on any completion
+    blocked: Vec<usize>,    // parked on a resource; woken en masse on any progress
+    channels: Vec<Chan>,    // indexed by channel id
+}
+
+/// A bounded channel: a FIFO buffer of values plus a closed flag. A `send` blocks
+/// (parks) when the buffer is full; a `receive` blocks when it is empty, and
+/// yields `None` once the channel is closed and drained.
+struct Chan {
+    buffer: VecDeque<Value>,
+    capacity: usize,
+    closed: bool,
+}
+
+/// Outcome of a non-blocking `chan_send` attempt.
+pub(super) enum SendOutcome {
+    Sent,
+    Full,
+    Closed,
+}
+
+/// Outcome of a non-blocking `chan_receive` attempt.
+pub(super) enum RecvOutcome {
+    Got(Value),
+    Empty,
+    Drained,
 }
 
 const MAIN_FIBER: usize = 0;
@@ -181,7 +208,67 @@ impl Scheduler {
             fibers: Vec::new(),
             ready: VecDeque::new(),
             blocked: Vec::new(),
+            channels: Vec::new(),
         }
+    }
+
+    /// Move every blocked fiber back to the ready queue, so each re-checks its
+    /// resource on resume. Coarse (no per-resource waiter lists), but correct.
+    fn wake_all(&mut self) {
+        self.ready.extend(self.blocked.drain(..));
+    }
+
+    /// Create a channel buffering up to `capacity` (clamped to ≥ 1 — true
+    /// 0-capacity rendezvous is a later refinement), returning its id.
+    fn channel_new(&mut self, capacity: usize) -> usize {
+        let id = self.channels.len();
+        self.channels.push(Chan {
+            buffer: VecDeque::new(),
+            capacity: capacity.max(1),
+            closed: false,
+        });
+        id
+    }
+
+    /// Try to send `value` into channel `id` without blocking; wakes blocked
+    /// fibers on success so a waiting receiver re-checks.
+    fn chan_send(&mut self, id: usize, value: Value) -> SendOutcome {
+        let ch = &mut self.channels[id];
+        let outcome = if ch.closed {
+            SendOutcome::Closed
+        } else if ch.buffer.len() < ch.capacity {
+            ch.buffer.push_back(value);
+            SendOutcome::Sent
+        } else {
+            SendOutcome::Full
+        };
+        if matches!(outcome, SendOutcome::Sent) {
+            self.wake_all();
+        }
+        outcome
+    }
+
+    /// Try to receive from channel `id` without blocking; wakes blocked fibers on
+    /// success so a waiting sender re-checks.
+    fn chan_receive(&mut self, id: usize) -> RecvOutcome {
+        let ch = &mut self.channels[id];
+        let outcome = if let Some(v) = ch.buffer.pop_front() {
+            RecvOutcome::Got(v)
+        } else if ch.closed {
+            RecvOutcome::Drained
+        } else {
+            RecvOutcome::Empty
+        };
+        if matches!(outcome, RecvOutcome::Got(_)) {
+            self.wake_all();
+        }
+        outcome
+    }
+
+    /// Close channel `id`; receivers drain the buffer then get `None`.
+    fn chan_close(&mut self, id: usize) {
+        self.channels[id].closed = true;
+        self.wake_all();
     }
 
     /// Spawn a fiber to run `closure`, returning its id. Enqueued runnable.
@@ -207,7 +294,7 @@ impl Scheduler {
     /// per-resource waiter lists arrive with channels).
     fn complete(&mut self, id: usize, value: Value) {
         self.fibers[id].state = FiberState::Done(value);
-        self.ready.extend(self.blocked.drain(..));
+        self.wake_all();
     }
 
     /// Save a suspended fiber's stack and route it per its park request.
@@ -236,11 +323,33 @@ pub(super) fn sched_result(id: usize) -> Option<Value> {
     SCHEDULER.with(|s| s.borrow().result(id))
 }
 
-/// Add every non-running fiber's live values to `roots` (GC). The running fiber's
-/// frames are rooted separately, from the `Vm`.
+/// Create a channel buffering up to `capacity`; returns its id. (`channel_new`.)
+pub(super) fn sched_channel_new(capacity: usize) -> usize {
+    SCHEDULER.with(|s| s.borrow_mut().channel_new(capacity))
+}
+
+/// Non-blocking send into channel `id`. (`channel_send`.)
+pub(super) fn sched_chan_send(id: usize, value: Value) -> SendOutcome {
+    SCHEDULER.with(|s| s.borrow_mut().chan_send(id, value))
+}
+
+/// Non-blocking receive from channel `id`. (`channel_receive`.)
+pub(super) fn sched_chan_receive(id: usize) -> RecvOutcome {
+    SCHEDULER.with(|s| s.borrow_mut().chan_receive(id))
+}
+
+/// Close channel `id`. (`channel_close`.)
+pub(super) fn sched_chan_close(id: usize) {
+    SCHEDULER.with(|s| s.borrow_mut().chan_close(id));
+}
+
+/// Add every non-running fiber's live values to `roots` (GC), plus the values
+/// buffered in channels. The running fiber's frames are rooted separately, from
+/// the `Vm`.
 fn gather_scheduler_roots(roots: &mut Vec<Value>) {
     SCHEDULER.with(|s| {
-        for fiber in &s.borrow().fibers {
+        let s = s.borrow();
+        for fiber in &s.fibers {
             match &fiber.state {
                 FiberState::NotStarted(c) => roots.push(*c),
                 FiberState::Done(v) => roots.push(*v),
@@ -251,6 +360,9 @@ fn gather_scheduler_roots(roots: &mut Vec<Value>) {
                 }
                 FiberState::Running => {}
             }
+        }
+        for ch in &s.channels {
+            roots.extend(ch.buffer.iter().copied());
         }
     });
 }
