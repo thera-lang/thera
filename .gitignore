@@ -1,5 +1,7 @@
 # Compiled Hawk bytecode (build artifacts; emit/run write these anywhere).
 *.hawkbc
+# …except the checked-in self-hosting bootstrap (see bootstrap/README.md).
+!bootstrap/frontend.hawkbc
 
 # The assembled binary SDK + build intermediates (see bin/build_sdk.sh).
 build/

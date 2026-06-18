@@ -8,17 +8,18 @@ Full design docs: start at **[docs/toc.md](docs/toc.md)**.
 
 ## Repo map
 
-- `runtime/` — **the active codebase**: a Rust runtime with a Tier-0 bytecode
-  interpreter and the serialized `.hawkbc` format.
+- `runtime/` — a Rust runtime: a Tier-0 bytecode interpreter, the serialized
+  `.hawkbc` format, GC, and the cooperative fiber scheduler. Builds `hawkrt`
+  (the bare runtime).
+- `pkgs/cli/` — **the active front-end**, written in Hawk: lexer → parser →
+  resolver → checker → inference → codegen → encoder, plus the
+  `check`/`emit`/`run`/`test`/`lsp` CLI. It self-hosts.
 - `sdk/std/` — Hawk standard library sources (`.hawk`, with `native fn` decls).
   Each library lives in its own named subdir (`sdk/std/path/path.hawk`), with
   Hawk tests beside it as `<name>_test.hawk`.
-- `tool/` — legacy Dart toolchain (lexer/parser/checker/codegen/LSP). `hawk run`
-  compiles to `.hawkbc` and executes it on the Rust runtime; `hawk test` runs
-  the `@test` functions in `*_test.hawk` files (synthesizes a driver `main`,
-  runs it via the runtime's `run --entry`). The tree-walking interpreter has
-  been retired. Maintained until the Hawk front-end can self-host.
-- `pkgs/cli/` — placeholder for the future Hawk-written front-end + CLI.
+- `bootstrap/frontend.hawkbc` — the checked-in self-hosting bootstrap (the
+  front-end compiled to bytecode); compiles the next revision of the front-end so
+  the build needs no external toolchain. See `bootstrap/README.md`.
 - `examples/` — example `.hawk` programs. `bin/` — dev entry scripts.
 - `docs/` — design docs.
 
@@ -26,10 +27,11 @@ Full design docs: start at **[docs/toc.md](docs/toc.md)**.
 
 The Rust runtime executes bytecode covering `Int`/`Double`/`Bool`/`Unit`,
 control flow, functions + recursion, closures, enums, structs + a type table,
-`List`/`Map`/`Set`, and observable output. Bytecode serializes to/from `.hawkbc`
-(constant pool; natives bound by name). The Dart toolchain parses/checks/runs
-`.hawk` **and emits `.hawkbc`** (`hawk emit`), covering the language core; the
-Hawk-written front-end is deferred.
+`List`/`Map`/`Set`, cooperative fibers + channels, and observable output.
+Bytecode serializes to/from `.hawkbc` (constant pool; natives bound by name).
+**The front-end is self-hosted in Hawk** (`pkgs/cli/`) — it parses/checks/runs
+`.hawk` and emits `.hawkbc`, and `bin/build_sdk.sh` reproduces it byte-for-byte
+(fixpoint). The Dart toolchain that bootstrapped it has been retired.
 
 Notable front-end facts (easy to get wrong): `Result`/`Option` are ordinary
 `std.core` enums — construct them **qualified** (`Result.Ok(x)`, `Option.None`);
@@ -54,13 +56,21 @@ cargo run -- emit-demo /tmp/x.hawkbc   # write a sample module
 cargo run -- /tmp/x.hawkbc             # load + run it
 ```
 
-The Dart toolchain runs current Hawk: `bin/hawk.sh <run|check> <file.hawk>`.
+The self-hosted front-end runs current Hawk via `bin/hawk.sh <run|check|test|emit>
+<args>` — it compiles the current `pkgs/cli` with the checked-in bootstrap
+snapshot and runs the result on `hawkrt` (caching the dev front-end in `build/`,
+rebuilt when `pkgs/cli`/`sdk/std` change). No external toolchain.
+
+`bin/test.sh` runs everything: cargo tests, the `pkgs/cli` and `sdk/std` @test
+suites, and the examples.
 
 `bin/build_sdk.sh` assembles the binary SDK in `build/sdk/`: `bin/hawk` (the
 runtime with the compiled front-end embedded) + `std/` + a `version` stamp. So
 `hawkrt` = bare runtime (from `cargo build`); `hawk` = runtime + embedded
-front-end (the SDK launcher). The build ends with a fixpoint check (the SDK
-re-emits its own front-end and the bytes must match).
+front-end (the SDK launcher). The build bootstraps from `bootstrap/frontend.hawkbc`
+and ends with a fixpoint check (the SDK re-emits its own front-end and the bytes
+must match). Refresh the snapshot after front-end changes (see
+`bootstrap/README.md`).
 
 ## Working conventions
 

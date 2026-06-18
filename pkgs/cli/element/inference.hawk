@@ -47,6 +47,20 @@ pub fn new_ctx(_ library: LibraryElement) -> InferCtx {
     };
 }
 
+// `ctx` with its `return_type` replaced — used to check a lambda body, where a
+// `return` returns from the lambda (its own result type), not the enclosing
+// function.
+pub fn with_return_type(_ ctx: InferCtx, _ ret: Type) -> InferCtx {
+    return InferCtx {
+        library: ctx.library,
+        type_params: ctx.type_params,
+        self_type: ctx.self_type,
+        return_type: Option.Some(ret),
+        type_param_bounds: ctx.type_param_bounds,
+        current_file: ctx.current_file,
+    };
+}
+
 // Infer an expression's type in `scope`, with no contextual expectation.
 pub fn infer_in(_ expr: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
     return infer_expr(expr, scope, ctx, Option.None);
@@ -219,7 +233,7 @@ fn infer_lambda(_ x: LambdaExpr, _ scope: Map<String, Type>, _ ctx: InferCtx,
 // no `return` does it fall back to the tail-or-`Unit` rule (`infer_block`). This
 // is what makes `() => { …; return x; }` infer `() -> typeof(x)` rather than the
 // `Unit` a tail-only reading would give.
-fn lambda_body_type(_ body: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx,
+pub fn lambda_body_type(_ body: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx,
     _ expected: Option<Type>) -> Type {
     return match body {
         Block(_, block) => match block.tail {

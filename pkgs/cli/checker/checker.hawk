@@ -613,7 +613,13 @@ fn check_lambda(_ errors: List<CheckError>, _ x: LambdaExpr, _ scope: Map<String
         lambda_scope[p.name] = pt;
         i = i + 1;
     }
-    check_expr(errors, x.body, lambda_scope, ctx, expected_function_return(expected));
+    // A `return` inside the lambda returns from the lambda, so check the body
+    // against the lambda's own return type (inferred from the body) rather than
+    // the enclosing function's. A lambda-vs-expected-signature mismatch is caught
+    // separately at the call site.
+    let lambda_return = lambda_body_type(x.body, lambda_scope, ctx, expected_function_return(expected));
+    let body_ctx = with_return_type(ctx, lambda_return);
+    check_expr(errors, x.body, lambda_scope, body_ctx, expected_function_return(expected));
 }
 
 // ---- call checking ----
