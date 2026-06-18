@@ -1,0 +1,52 @@
+import std.testing;
+
+import std.fiber;
+
+// A spawned fiber runs and `join` returns its result.
+@test
+fn test_spawn_join_returns_value() -> Result<Void, Error> {
+    let f = fiber.spawn(() => 6 * 7);
+    testing.assert_eq(actual: f.join(), expected: 42)?;
+    return Result.Ok(void);
+}
+
+// Several fibers run; each `join` blocks until that fiber finishes.
+@test
+fn test_many_fibers_each_join() -> Result<Void, Error> {
+    let a = fiber.spawn(() => 1);
+    let b = fiber.spawn(() => 2);
+    let c = fiber.spawn(() => 3);
+    testing.assert_eq(actual: a.join() + b.join() + c.join(), expected: 6)?;
+    return Result.Ok(void);
+}
+
+// `yield` cedes the thread, so two fibers interleave — and the cooperative,
+// FIFO scheduling makes the interleaving deterministic.
+@test
+fn test_yield_interleaves_deterministically() -> Result<Void, Error> {
+    let log: List<String> = [];
+    let a = fiber.spawn(() => {
+        log.push('a1'); fiber.yield();
+        log.push('a2'); fiber.yield();
+        log.push('a3');
+        return 0;
+    });
+    let b = fiber.spawn(() => {
+        log.push('b1'); fiber.yield();
+        log.push('b2');
+        return 0;
+    });
+    a.join();
+    b.join();
+    testing.assert_eq(actual: log.join(','), expected: 'a1,b1,a2,b2,a3')?;
+    return Result.Ok(void);
+}
+
+// A fiber can spawn and join another fiber (the scheduler is re-entrant across
+// fibers, not just the main one).
+@test
+fn test_fiber_spawns_fiber() -> Result<Void, Error> {
+    let outer = fiber.spawn(() => fiber.spawn(() => 10).join() + 5);
+    testing.assert_eq(actual: outer.join(), expected: 15)?;
+    return Result.Ok(void);
+}

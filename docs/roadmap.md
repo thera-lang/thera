@@ -138,6 +138,13 @@ gaps, by where they live:
   when neither applies — no guessing. The payoff has landed:
   `List.map`/`filter`/ `fold` are written in Hawk and take closures
   (`sdk/std/core/list.hawk`, `examples/list_hof.hawk`).
+  - **Gap — block-body lambda return inference.** A lambda with a `{ … }` body
+    infers its return type as `Void` (it doesn't unify its `return`
+    statements/tail), so `f(() => { return 5; })` types the closure as `() -> Void`
+    rather than `() -> Int`. Bites generic callees that depend on the closure's
+    result type — e.g. `fiber.spawn(() => { … return x; })` yields `Fiber<Void>`;
+    use an expression body or a named function meanwhile. Expression-body lambdas
+    infer correctly. Both front-ends.
 - **GC — _done_.** A precise non-moving mark-sweep, built in free-standing
   steps: **(1) explicit call-frame stack** (`Vm::run_loop` over a `Vec<Frame>`;
   precise roots enumerable, deep recursion no longer overflows the host stack);

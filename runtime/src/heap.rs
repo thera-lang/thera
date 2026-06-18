@@ -189,9 +189,16 @@ pub fn resume_gc() {
 /// stack — is the complete live set. The common-path check is two `Cell` reads
 /// (no heap borrow, `roots` left unconsumed), so it is cheap per instruction.
 pub fn maybe_collect(roots: impl Iterator<Item = Value>) {
-    if GC_PENDING.get() && GC_PAUSED.get() == 0 {
+    if should_collect() {
         collect(roots);
     }
+}
+
+/// Whether the safepoint should collect now (pending and not paused). Lets a
+/// caller gather roots only when a collection will actually happen — used by the
+/// interpreter, which must walk every fiber's frames to collect.
+pub fn should_collect() -> bool {
+    GC_PENDING.get() && GC_PAUSED.get() == 0
 }
 
 /// A precise, non-moving mark-sweep over `roots`. Marks everything reachable

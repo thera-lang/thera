@@ -194,6 +194,9 @@ const NATIVES: &[(&str, NativeFn)] = &[
     // no `NATIVE_*` index constant is needed).
     ("eprintln", native_eprintln),
     ("eprint", native_eprint),
+    ("fiber_spawn", native_fiber_spawn),
+    ("fiber_join", native_fiber_join),
+    ("fiber_yield", native_fiber_yield),
 ];
 
 /// The native functions the runtime ships with, in index order.
@@ -1012,6 +1015,37 @@ static PROGRAM_ARGS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new
 /// function runs.
 pub fn set_program_args(args: Vec<String>) {
     let _ = PROGRAM_ARGS.set(args);
+}
+
+// --- fibers (std.fiber) ---
+
+/// `fiber.spawn(work)` — schedule `work` (a `() -> T` closure) as a new fiber and
+/// return its id (the Hawk surface wraps it in a `Fiber<T>`).
+fn native_fiber_spawn(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let closure = *expect_one(args, "fiber_spawn")?;
+    Ok(Value::Int(super::sched_spawn(closure) as i64))
+}
+
+/// `fiber.join(id)` — the result of fiber `id`, blocking until it finishes. While
+/// the fiber is still running this parks the caller (re-running the call on
+/// resume); once woken and retried, the result is present.
+fn native_fiber_join(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let id = as_int(expect_one(args, "fiber_join")?, "fiber_join")? as usize;
+    match super::sched_result(id) {
+        Some(value) => Ok(value),
+        None => {
+            super::park_block_retry();
+            Ok(Value::Unit) // placeholder; discarded — the call re-runs after the park
+        }
+    }
+}
+
+/// `fiber.yield()` — cede the thread to the scheduler; the fiber stays runnable
+/// and resumes right after this call.
+fn native_fiber_yield(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    expect_no_args(args, "fiber_yield")?;
+    super::park_yield_ready();
+    Ok(Value::Unit)
 }
 
 fn expect_no_args(args: &[Value], who: &str) -> Result<(), Trap> {

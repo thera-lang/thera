@@ -434,17 +434,18 @@ non-zero; `parse_rfc3339` accepts a `Z` or `±HH:MM` zone and an optional
 fractional part (keeping millisecond precision), normalizing to UTC. `sleep`
 blocks the thread until cooperative fibers arrive.
 
-### `std.fiber` — cooperative concurrency _(new; referenced in language.md)_
+### `std.fiber` — cooperative concurrency _(spawn/join/yield implemented; channels + I/O parking deferred)_
 
 Purpose: explicit concurrency on the single thread.
 
 ```
-pub type Fiber<T> = { /* handle */ }
-pub fn spawn<T>(_ work: () -> T) -> Fiber<T>;
+pub type Fiber<T> = { /* handle */ }            // implemented
+pub fn spawn<T>(_ work: () -> T) -> Fiber<T>;    // implemented
+pub fn yield() -> Void;                          // implemented — cede the thread
 
-impl Fiber<T> { pub fn join(self) -> T; }   // the only way to get the result out
+impl Fiber<T> { pub fn join(self) -> T; }   // implemented — the only way to get the result out
 
-// Channels for fiber-to-fiber handoff.
+// Channels for fiber-to-fiber handoff — deferred (next).
 pub type Channel<T> = { }
 pub fn channel<T>(capacity: Int = 0) -> Channel<T>;
 impl Channel<T> {
@@ -453,6 +454,16 @@ impl Channel<T> {
     pub fn close(self) -> Void;
 }
 ```
+
+**Status:** `spawn`/`join`/`yield` run on a cooperative FIFO scheduler — a fiber
+runs until it `join`s an unfinished fiber (blocks) or `yield`s, then the next
+ready fiber runs; `join` is the only way out. Deterministic scheduling, and GC
+keeps parked fibers' values alive. Deferred: channels, and parking on real I/O
+(today only `join`/`yield` park — see the I/O staging in the design). One
+ergonomic snag from the front end, not fibers: a **block-body** work closure
+(`spawn(() => { … return x; })`) infers its return as `Void`, so use an
+expression body (`spawn(() => compute())`) or a named function until block-body
+lambda return inference lands (tracked in [roadmap.md](roadmap.md)).
 
 Notes: no mutexes/atomics — single-threaded means no data races
 ([language.md](language.md) §Concurrency). `select` over channels is a candidate
@@ -969,7 +980,7 @@ dependency graph, so future work lands in the right order:
 | std.env      | done    | vars/args/cwd/os/exit + `Env` capability + `testing.fixed_env`; `OS`→`os()`                                                                                                                                                         |
 | std.process  | done    | `run` (capture) / `exec` (inherit stdio, exit code) / `start`; pipes are `std.io` `Reader`/`Writer` (+ `close_stdin`); classified `ProcessError`                                                                                     |
 | std.time     | done    | wall + monotonic clocks, `Duration`/`Instant` (nanos), `DateTime` (Unix ms UTC) + RFC 3339 format/parse, `sleep`; `Clock` capability + `testing.fixed_clock`                                                                        |
-| std.fiber    | new     | runtime scheduler                                                                                                                                                                                                                   |
+| std.fiber    | partial | cooperative scheduler: `spawn`/`join`/`yield` over a FIFO run-queue, GC roots across fibers; channels + parking on real I/O deferred                                                                                                  |
 | std.math     | done    | Double fns + constants; abs/min/max/clamp + to_double/to_int are Int/Double methods                                                                                                                                                 |
 | std.random   | done    | SplitMix64; state is a visible Int; mix via native (bitops gap)                                                                                                                                                                     |
 | std.json     | done    | pure Hawk; structural `Json` + constructors, parse/stringify, navigation; Int/Double split; auto-boxing + typed decode later                                                                                                        |

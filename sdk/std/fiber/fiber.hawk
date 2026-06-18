@@ -1,0 +1,42 @@
+// std.fiber — cooperative concurrency on the single thread.
+//
+// Spawn work as a fiber and join its result. Fibers are scheduled cooperatively:
+// a fiber runs until it blocks (a `join` on an unfinished fiber) or `yield`s,
+// then the scheduler runs the next runnable one. Single-threaded, so there are
+// no data races and no locks needed. The runtime design (fibers as stackless
+// coroutines over the interpreter's frame stack) is in docs/architecture.md
+// §Concurrency.
+
+// A handle to a spawned fiber computing a `T`.
+pub type Fiber<T> = {
+    id: Int,
+}
+
+// Schedule `work` to run as a new fiber; returns a handle to it. The fiber makes
+// progress cooperatively — when the current fiber blocks or yields.
+pub fn spawn<T>(_ work: () -> T) -> Fiber<T> {
+    return Fiber { id: _spawn<T>(work) };
+}
+
+impl Fiber<T> {
+    // The fiber's result, blocking the caller until the fiber has finished. This
+    // is the only way to get a value out of a fiber.
+    pub fn join(self) -> T {
+        return _join<T>(self.id);
+    }
+}
+
+// Cede the thread to the scheduler; this fiber stays runnable and resumes later.
+// Useful to let other fibers make progress in a compute loop.
+pub fn yield() -> Void {
+    _yield();
+}
+
+@extern('fiber_spawn')
+native fn _spawn<T>(_ work: () -> T) -> Int
+
+@extern('fiber_join')
+native fn _join<T>(_ id: Int) -> T
+
+@extern('fiber_yield')
+native fn _yield() -> Void

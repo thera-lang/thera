@@ -11,6 +11,8 @@
 //! one `Vec` is also what lets a precise GC enumerate the roots, and it is the
 //! structure fibers will pause/resume.
 
+use std::cell::{Cell, RefCell};
+use std::collections::VecDeque;
 use std::io::Write;
 
 use crate::heap;
@@ -97,36 +99,160 @@ pub fn run(module: &Module, func: usize, args: &[Value]) -> Result<Value, Trap> 
     result
 }
 
-/// The result of running a fiber's frame stack to a suspension point. `Done`
-/// carries the return value of the entry frame; `Parked` means a native asked to
-/// suspend, leaving the whole frame stack on `self.frames` for the driver to
-/// resume. Nothing parks yet — this is the seam the fiber scheduler grows into.
+/// The result of running a fiber to a suspension point. `Done` carries the entry
+/// frame's value; `Parked` means a native suspended the fiber — its whole frame
+/// stack is left on `self.frames` for the scheduler — tagged with how to resume.
 enum RunOutcome {
     Done(Value),
-    Parked,
+    Parked(ParkRequest),
 }
 
-// A native suspends the running fiber by setting `PARK_REQUEST` — the same
+/// How a parked fiber resumes — set by the native that suspended it.
+#[derive(Clone, Copy)]
+enum ParkRequest {
+    /// The op could not complete (its resource isn't ready): the fiber blocks
+    /// until woken, and the `call.native` re-executes on resume — by which point
+    /// the resource is ready (`join`; later `receive`/`sleep`). The native is
+    /// written to be idempotent across that retry.
+    BlockRetry,
+    /// The op completed; the fiber merely cedes the thread, stays runnable, and
+    /// resumes right after the call (`yield`).
+    YieldReady,
+}
+
+// A native suspends the running fiber by setting `PARK` — the same
 // flag-then-check-at-a-safepoint shape as the GC's `GC_PENDING`. `run_loop`
-// checks it immediately after a native returns and, if set, rewinds to
-// re-execute the call when the fiber is resumed.
+// reads it immediately after a native returns.
 thread_local! {
-    static PARK_REQUEST: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static PARK: Cell<Option<ParkRequest>> = const { Cell::new(None) };
 }
 
-/// Ask the running fiber to park once the current native returns. A blocking
-/// native (a future `join` / `receive` / `sleep`) calls this when its resource
-/// isn't ready, then returns; `run_loop` re-runs the native on resume, by which
-/// point it is. Unused until the scheduler lands (Phase 1).
-#[allow(dead_code)]
-pub(crate) fn request_park() {
-    PARK_REQUEST.with(|p| p.set(true));
+/// Block the running fiber until woken, re-running this native on resume. A
+/// blocking native (`join`) calls this when its resource isn't ready.
+pub(super) fn park_block_retry() {
+    PARK.set(Some(ParkRequest::BlockRetry));
 }
 
-/// Consume a pending park request (clearing it). Read at the post-native
-/// safepoint in `run_loop`.
-fn take_park() -> bool {
-    PARK_REQUEST.with(|p| p.replace(false))
+/// Yield the running fiber cooperatively — it stays runnable. Called by `yield`.
+pub(super) fn park_yield_ready() {
+    PARK.set(Some(ParkRequest::YieldReady));
+}
+
+fn take_park() -> Option<ParkRequest> {
+    PARK.take()
+}
+
+// --- the cooperative fiber scheduler ---
+
+/// A cooperative fiber: its saved state. The running fiber's frames live in the
+/// `Vm` (`self.frames` + the active frame); a fiber that is not running keeps its
+/// call stack here.
+struct Fiber {
+    state: FiberState,
+}
+
+enum FiberState {
+    /// Spawned but not yet started: the `() -> T` closure to invoke. The initial
+    /// frame is built lazily on first run (the scheduler has the `Module`).
+    NotStarted(Value),
+    /// A started fiber's saved call stack (bottom-first; the top is the active
+    /// frame while it runs).
+    Suspended(Vec<Frame>),
+    /// Currently executing — its frames are in the `Vm`, not here.
+    Running,
+    /// Finished, with its return value (awaited by `join`).
+    Done(Value),
+}
+
+/// The single-threaded cooperative scheduler: one fiber runs at a time; a
+/// blocking native parks the running fiber and the driver picks the next ready
+/// one. The ready queue is FIFO, so scheduling is deterministic.
+struct Scheduler {
+    fibers: Vec<Fiber>,     // indexed by fiber id; never compacted, so ids stay stable
+    ready: VecDeque<usize>, // runnable fiber ids
+    blocked: Vec<usize>,    // parked on a resource; woken en masse on any completion
+}
+
+const MAIN_FIBER: usize = 0;
+
+impl Scheduler {
+    fn new() -> Self {
+        Scheduler {
+            fibers: Vec::new(),
+            ready: VecDeque::new(),
+            blocked: Vec::new(),
+        }
+    }
+
+    /// Spawn a fiber to run `closure`, returning its id. Enqueued runnable.
+    fn spawn(&mut self, closure: Value) -> usize {
+        let id = self.fibers.len();
+        self.fibers.push(Fiber {
+            state: FiberState::NotStarted(closure),
+        });
+        self.ready.push_back(id);
+        id
+    }
+
+    /// The result of fiber `id`, if it has finished.
+    fn result(&self, id: usize) -> Option<Value> {
+        match self.fibers.get(id).map(|f| &f.state) {
+            Some(FiberState::Done(v)) => Some(*v),
+            _ => None,
+        }
+    }
+
+    /// Record that `id` finished with `value`, and wake everyone blocked (coarse
+    /// but correct — a completion is the only thing a blocked `join` waits on;
+    /// per-resource waiter lists arrive with channels).
+    fn complete(&mut self, id: usize, value: Value) {
+        self.fibers[id].state = FiberState::Done(value);
+        self.ready.extend(self.blocked.drain(..));
+    }
+
+    /// Save a suspended fiber's stack and route it per its park request.
+    fn park(&mut self, id: usize, frames: Vec<Frame>, req: ParkRequest) {
+        self.fibers[id].state = FiberState::Suspended(frames);
+        match req {
+            ParkRequest::YieldReady => self.ready.push_back(id),
+            ParkRequest::BlockRetry => self.blocked.push(id),
+        }
+    }
+}
+
+thread_local! {
+    static SCHEDULER: RefCell<Scheduler> = RefCell::new(Scheduler::new());
+}
+
+/// Spawn a fiber running `closure`; returns its id. Called by the `fiber_spawn`
+/// native.
+pub(super) fn sched_spawn(closure: Value) -> usize {
+    SCHEDULER.with(|s| s.borrow_mut().spawn(closure))
+}
+
+/// The result of fiber `id` if finished, else `None`. Called by the `fiber_join`
+/// native.
+pub(super) fn sched_result(id: usize) -> Option<Value> {
+    SCHEDULER.with(|s| s.borrow().result(id))
+}
+
+/// Add every non-running fiber's live values to `roots` (GC). The running fiber's
+/// frames are rooted separately, from the `Vm`.
+fn gather_scheduler_roots(roots: &mut Vec<Value>) {
+    SCHEDULER.with(|s| {
+        for fiber in &s.borrow().fibers {
+            match &fiber.state {
+                FiberState::NotStarted(c) => roots.push(*c),
+                FiberState::Done(v) => roots.push(*v),
+                FiberState::Suspended(frames) => {
+                    for f in frames {
+                        roots.extend(f.locals.iter().chain(f.stack.iter()).copied());
+                    }
+                }
+                FiberState::Running => {}
+            }
+        }
+    });
 }
 
 // --- native-call profiling probe (the `native-stats` feature) ---
@@ -215,26 +341,93 @@ impl<'a> Vm<'a> {
         }
     }
 
-    /// Run `module`'s function at index `func` with `args`.
-    ///
-    /// This is the **proto-scheduler**: it runs the (single) fiber and resumes it
-    /// whenever it parks. Phase 1 generalizes the loop into a run-queue over many
-    /// fibers with readiness wakeups; today nothing parks, so it returns on the
-    /// first `Done`.
+    /// Run `module`'s function at index `func` with `args` as the **main fiber**,
+    /// driving the cooperative scheduler until it returns. The program ends when
+    /// the main fiber returns (Go semantics); any fibers it spawned and left
+    /// running are abandoned. The thread-local scheduler is reset around the run,
+    /// so nothing leaks into a later `eval`/`call`.
     pub fn run(&mut self, module: &Module, func: usize, args: &[Value]) -> Result<Value, Trap> {
-        let mut frame = Self::make_frame(module, func, args.to_vec())?;
+        SCHEDULER.with(|s| {
+            let mut s = s.borrow_mut();
+            *s = Scheduler::new();
+            // The main fiber is id 0, currently running (its frames are in the Vm).
+            s.fibers.push(Fiber {
+                state: FiberState::Running,
+            });
+        });
+        let result = self.drive(module, func, args);
+        SCHEDULER.with(|s| *s.borrow_mut() = Scheduler::new());
+        result
+    }
+
+    /// The scheduler loop. Runs the current fiber to its next suspension; on a
+    /// park, saves its stack and switches to the next ready fiber; on completion,
+    /// records the result (waking blocked joiners) and — for the main fiber —
+    /// returns. A blocking park with no runnable fiber is a deadlock.
+    fn drive(&mut self, module: &Module, func: usize, args: &[Value]) -> Result<Value, Trap> {
+        let mut current = MAIN_FIBER;
+        let mut active = Self::make_frame(module, func, args.to_vec())?;
         loop {
-            match self.run_loop(module, frame)? {
-                RunOutcome::Done(value) => return Ok(value),
-                RunOutcome::Parked => {
-                    // The fiber suspended; its frame stack is on `self.frames`.
-                    // With one fiber, resume it immediately (pop the saved top
-                    // frame back into the loop). Phase 1 instead picks the next
-                    // ready fiber and blocks the thread when none are.
-                    frame = self.frames.pop().expect("a parked fiber left its frame");
+            // `base_depth` is 0: run the fiber until its *whole* stack unwinds.
+            match self.run_loop(module, active, 0)? {
+                RunOutcome::Done(value) => {
+                    SCHEDULER.with(|s| s.borrow_mut().complete(current, value));
+                    if current == MAIN_FIBER {
+                        return Ok(value);
+                    }
+                }
+                RunOutcome::Parked(req) => {
+                    let frames = std::mem::take(&mut self.frames);
+                    SCHEDULER.with(|s| s.borrow_mut().park(current, frames, req));
+                }
+            }
+            // Pick the next runnable fiber (self.frames is empty here).
+            match self.next_ready(module)? {
+                Some((id, frame)) => {
+                    current = id;
+                    active = frame;
+                }
+                None => {
+                    // Nothing runnable. If fibers are still blocked, it's a
+                    // deadlock; otherwise everything finished (main already
+                    // returned above, so this is a spawned-only tail).
+                    let blocked = SCHEDULER.with(|s| !s.borrow().blocked.is_empty());
+                    return if blocked {
+                        Err(bug("all fibers blocked (deadlock)"))
+                    } else {
+                        Ok(Value::Unit)
+                    };
                 }
             }
         }
+    }
+
+    /// Dequeue the next ready fiber and load it: build its initial frame from the
+    /// spawned closure, or restore its saved stack (the top becomes the active
+    /// frame, the rest go to `self.frames`). `self.frames` must be empty on entry.
+    fn next_ready(&mut self, module: &Module) -> Result<Option<(usize, Frame)>, Trap> {
+        let Some(id) = SCHEDULER.with(|s| s.borrow_mut().ready.pop_front()) else {
+            return Ok(None);
+        };
+        let state = SCHEDULER
+            .with(|s| std::mem::replace(&mut s.borrow_mut().fibers[id].state, FiberState::Running));
+        let active = match state {
+            FiberState::NotStarted(closure) => {
+                let (func, locals) = closure_parts(&closure)?;
+                Self::make_frame(module, func as usize, locals)?
+            }
+            FiberState::Suspended(mut frames) => {
+                let active = frames
+                    .pop()
+                    .ok_or_else(|| bug("resumed a fiber with an empty stack"))?;
+                self.frames = frames;
+                active
+            }
+            FiberState::Running | FiberState::Done(_) => {
+                return Err(bug("scheduled a running or finished fiber"));
+            }
+        };
+        Ok(Some((id, active)))
     }
 
     /// Build the call frame for `module.functions[func]`, placing `locals`
@@ -271,9 +464,12 @@ impl<'a> Vm<'a> {
     /// structural `debug`/`display` fallback).
     fn call(&mut self, module: &Module, func: usize, args: Vec<Value>) -> Result<Value, Trap> {
         let frame = Self::make_frame(module, func, args)?;
-        match self.run_loop(module, frame)? {
+        // Run just this frame's subtree: stop when it returns past the current
+        // depth (rather than unwinding the whole fiber, as the scheduler does).
+        let base_depth = self.frames.len();
+        match self.run_loop(module, frame, base_depth)? {
             RunOutcome::Done(value) => Ok(value),
-            RunOutcome::Parked => Err(bug("fiber parked in a non-schedulable context")),
+            RunOutcome::Parked(_) => Err(bug("fiber parked in a non-schedulable context")),
         }
     }
 
@@ -286,19 +482,29 @@ impl<'a> Vm<'a> {
     /// resumes its caller's loop. Returns [`RunOutcome::Done`] with the entry
     /// frame's value, or [`RunOutcome::Parked`] when a native suspended the fiber
     /// (the frame stack is left on `self.frames` for the driver to resume).
-    fn run_loop(&mut self, module: &Module, initial: Frame) -> Result<RunOutcome, Trap> {
-        let base_depth = self.frames.len();
+    fn run_loop(
+        &mut self,
+        module: &Module,
+        initial: Frame,
+        base_depth: usize,
+    ) -> Result<RunOutcome, Trap> {
         let mut frame = initial;
         let mut code = &module.functions[frame.func].code;
 
         macro_rules! poll_gc {
             () => {
-                heap::maybe_collect(
-                    self.frames
-                        .iter()
-                        .chain(std::iter::once(&frame))
-                        .flat_map(|f| f.locals.iter().chain(f.stack.iter()).copied()),
-                )
+                // Gather roots only when a collection will actually run. Besides
+                // this fiber's frames (`self.frames` + the active `frame`), the
+                // roots include every *other* fiber's frames, held in the
+                // scheduler — so a value live only in a parked fiber survives.
+                if heap::should_collect() {
+                    let mut roots: Vec<Value> = Vec::new();
+                    for f in self.frames.iter().chain(std::iter::once(&frame)) {
+                        roots.extend(f.locals.iter().chain(f.stack.iter()).copied());
+                    }
+                    gather_scheduler_roots(&mut roots);
+                    heap::collect(roots.into_iter());
+                }
             };
         }
 
@@ -501,19 +707,30 @@ impl<'a> Vm<'a> {
                     // dominated. Natives never touch `frame.stack`, and leaving
                     // the args in place keeps them GC-rooted across the call.
                     let ret = f(&mut *self.out, &frame.stack[base..])?;
-                    if take_park() {
-                        // The native asked to suspend this fiber (its awaited
-                        // resource isn't ready). Rewind to re-execute this
-                        // `call.native` on resume: the args are still on the
-                        // operand stack, and the native runs again — this time
-                        // finding its resource ready. The whole frame stack stays
-                        // on `self.frames` as the parked fiber's saved state.
-                        frame.pc -= 1;
-                        self.frames.push(frame);
-                        return Ok(RunOutcome::Parked);
+                    match take_park() {
+                        None => {
+                            frame.stack.truncate(base);
+                            frame.stack.push(ret);
+                        }
+                        Some(req @ ParkRequest::BlockRetry) => {
+                            // The op's resource isn't ready. Rewind to re-execute
+                            // this `call.native` on resume — the args are still on
+                            // the operand stack, the placeholder return is
+                            // discarded, and the native runs again (ready by then).
+                            // The whole frame stack stays on `self.frames` as the
+                            // parked fiber's saved state.
+                            frame.pc -= 1;
+                            self.frames.push(frame);
+                            return Ok(RunOutcome::Parked(req));
+                        }
+                        Some(req @ ParkRequest::YieldReady) => {
+                            // The op completed; resume right after the call.
+                            frame.stack.truncate(base);
+                            frame.stack.push(ret);
+                            self.frames.push(frame);
+                            return Ok(RunOutcome::Parked(req));
+                        }
                     }
-                    frame.stack.truncate(base);
-                    frame.stack.push(ret);
                 }
                 Instr::CallIndirect { argc } => {
                     poll_gc!();
@@ -701,7 +918,8 @@ impl<'a> Vm<'a> {
                 Instr::Return => {
                     let value = frame.stack.pop().unwrap_or(Value::Unit);
                     if self.frames.len() == base_depth {
-                        // The frame this `run_loop` was entered for has returned.
+                        // The entry frame for this `run_loop` has returned (for the
+                        // scheduler, base_depth 0 means the whole fiber unwound).
                         return Ok(RunOutcome::Done(value));
                     }
                     frame = self.frames.pop().unwrap();
