@@ -732,6 +732,24 @@ fn main() -> Int {
     expect(r.stdout, '20\n40\n60\nbig: 2\ntotal: 21\n');
   });
 
+  test('examples/fibers.hawk runs and prints expected output', () {
+    if (hawkBin == null) return markTestSkipped('Rust runtime unavailable');
+    final dir = Directory.systemTemp.createTempSync('hawk_fib');
+    final out = '${dir.path}/fibers.hawkbc';
+    final emit = Process.runSync(
+      Platform.resolvedExecutable,
+      ['run', 'bin/hawk.dart', 'emit', '../examples/fibers.hawk', out],
+    );
+    expect(emit.exitCode, 0, reason: emit.stderr.toString());
+
+    final r = Process.runSync(hawkBin, [out]);
+    expect(r.exitCode, 0, reason: r.stderr.toString());
+    expect(
+        r.stdout,
+        'sum of squares 1..5 = 55\n'
+        'consumed 10 values, sum = 55\n');
+  });
+
   test('static methods on built-in types run', () {
     // impl on a primitive: `Int.answer()` + a chained call off a String static
     // method (5 + 42 = 47 -> exit code 47).

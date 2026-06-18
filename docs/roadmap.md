@@ -157,6 +157,24 @@ gaps, by where they live:
   heap; the hand-rolled collector fit the existing structure.
   `examples/gc_stress.hawk` validates it (~16 MB of churn holds flat at ~2.4 MB
   resident). See [architecture.md](architecture.md).
+- **Fibers / cooperative concurrency — in progress.** A single-threaded
+  cooperative scheduler over the interpreter's explicit frame stack (design in
+  [architecture.md](architecture.md) §Concurrency; surface in
+  [stdlib.md](stdlib.md) §`std.fiber`). Done: **(phase 0)** a scheduler-drivable
+  `run_loop` returning `Done`/`Parked`; **(phase 1)** `spawn`/`join`/`yield` with
+  GC roots across every fiber; **(phase 2)** buffered `Channel<T>`
+  (`send`/`receive`/`close`), channel buffers rooted too. Upcoming:
+  - **Phase 3 — park on real I/O.** Start with `time.sleep` (a timer in the
+    scheduler), then offload genuinely-blocking syscalls (`fs`/`stdin`/`process`,
+    later sockets) to a worker-thread pool that wakes the fiber on completion —
+    keeping the single Hawk thread. This makes "blocking-looking I/O parks the
+    fiber, not the thread" real, and unblocks `std.http`.
+  - **Phase 4 — readiness poller** (`kqueue`/`epoll`) replacing the worker-pool
+    offload for sockets, to scale to many concurrent connections; the first real
+    runtime-dependency call (`mio` vs hand-rolled). Gated on `std.http`.
+  - **Refinements:** per-channel waiter lists (replace the coarse wake-all-on-
+    progress), true 0-capacity rendezvous channels, `select` over channels, and
+    deciding program-exit semantics for still-running spawned fibers.
 - **Map/Set scaling — hashed, insertion-ordered (deferred).** `Obj::Map` is a
   `Vec<(Value, Value)>` with a linear `map_find` and clone-on-mutate, so lookups
   are O(n) and building an N-entry map (the codegen symbol tables) is O(n²). The

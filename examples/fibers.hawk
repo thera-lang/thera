@@ -1,0 +1,71 @@
+// Cooperative concurrency with std.fiber.
+//
+// Hawk runs fibers cooperatively on a single thread: a fiber runs until it
+// blocks (a `join` on an unfinished fiber, or a channel `send`/`receive` that
+// can't proceed) or `yield`s, and the scheduler then runs the next one. Because
+// only one fiber runs at a time there are no data races and no locks.
+//
+// Two patterns below: fan-out/collect with spawn+join, and a producer/consumer
+// pipeline over a channel.
+
+import std.fiber;
+
+fn square(_ n: Int) -> Int {
+    return n * n;
+}
+
+// Fan out independent work across fibers, then collect the results by joining.
+fn sum_of_squares(_ xs: List<Int>) -> Int {
+    let handles: List<fiber.Fiber<Int>> = [];
+    for x in xs {
+        // The closure captures `x` by value, so each fiber squares its own item.
+        handles.push(fiber.spawn(() => square(x)));
+    }
+    let mut total = 0;
+    for h in handles {
+        total = total + h.join();   // join blocks until that fiber has finished
+    }
+    return total;
+}
+
+// A producer fiber feeds `count` values into a channel and closes it; the caller
+// consumes until the channel is drained. The channel's small buffer means the
+// producer blocks when it gets ahead and resumes as the consumer catches up.
+fn produce(_ ch: fiber.Channel<Int>, _ count: Int) -> Int {
+    let mut i = 1;
+    while i <= count {
+        ch.send(i);
+        i = i + 1;
+    }
+    ch.close();
+    return 0;
+}
+
+fn main() -> Int {
+    // Fan-out / collect.
+    let total = sum_of_squares([1, 2, 3, 4, 5]);
+    println('sum of squares 1..5 = ${total}');           // 55
+
+    // Producer / consumer over a bounded channel.
+    let ch: fiber.Channel<Int> = fiber.channel(4);
+    let producer = fiber.spawn(() => produce(ch, 10));
+
+    let mut count = 0;
+    let mut sum = 0;
+    let mut going = true;
+    while going {
+        match ch.receive() {
+            Some(v) => {
+                count = count + 1;
+                sum = sum + v;
+            },
+            None => {
+                going = false;
+            },
+        }
+    }
+    producer.join();
+    println('consumed ${count} values, sum = ${sum}');   // 10 values, sum 55
+
+    return 0;
+}
