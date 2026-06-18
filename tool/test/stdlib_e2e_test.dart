@@ -750,6 +750,22 @@ fn main() -> Int {
         'consumed 10 values, sum = 55\n');
   });
 
+  test('block-body lambda infers its return type from `return`', () {
+    // Previously a `{ … return x; }` lambda inferred `() -> Void`, so a generic
+    // callee depending on the result type mis-typed (`Fiber<Void>` etc.). The
+    // body's `return`s now drive the lambda's return type. a = 42, b = 1 -> 43.
+    final r = emitAndRun('block_lambda', '''
+fn apply<T>(_ w: () -> T) -> T { return w(); }
+fn main() -> Int {
+  let a = apply(() => { let x = 6; let y = 7; return x * y; });
+  let b = apply(() => { if a > 40 { return 1; } return 2; });
+  return a + b;
+}
+''', []);
+    if (r == null) return markTestSkipped('Rust runtime unavailable');
+    expect(r.exitCode, 43, reason: r.stderr.toString());
+  });
+
   test('static methods on built-in types run', () {
     // impl on a primitive: `Int.answer()` + a chained call off a String static
     // method (5 + 42 = 47 -> exit code 47).

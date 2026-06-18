@@ -99,6 +99,87 @@ class Inferrer {
         typeParams: typeParams, selfType: selfType, expected: expected);
   }
 
+  /// The type a lambda body produces. An expression body (`() => expr`) is just
+  /// the type of `expr`. A block body (`() => { … }`) returns via explicit
+  /// `return`, so when it has no tail expression its type is the unified type of
+  /// its `return` statements (or `Unit` for a void body) — `() => { …; return x; }`
+  /// infers `() -> typeof(x)` rather than the `Unit` a tail-only reading gives.
+  Type _lambdaBodyType(Expr body, Map<String, Type> scope,
+      {required Set<String> typeParams, Type? selfType, Type? expected}) {
+    if (body is BlockExpr && body.block.tail == null) {
+      final returns = _collectBlockReturns(body.block, scope,
+          typeParams: typeParams, selfType: selfType, expected: expected);
+      // Always infer the whole body so every sub-expression (conditions,
+      // expression statements, …) gets its resolvedType — codegen reads those.
+      // The type is the unified `return` type, or `Unit` for a void body.
+      _inferBlock(body.block, scope,
+          typeParams: typeParams, selfType: selfType, expected: expected);
+      return returns is UnknownType ? PrimitiveType.unit : returns;
+    }
+    return _infer(body, scope,
+        typeParams: typeParams, selfType: selfType, expected: expected);
+  }
+
+  /// The unified type of the `return <expr>` statements in `block`, recursing
+  /// into nested `if`/`for`/`while` bodies (but not into nested lambdas, which own
+  /// their returns). `UnknownType` when the block has no `return`. First-known
+  /// wins on a disagreement.
+  Type _collectBlockReturns(Block block, Map<String, Type> scope,
+      {required Set<String> typeParams, Type? selfType, Type? expected}) {
+    final s = Map<String, Type>.from(scope);
+    Type result = const UnknownType();
+    for (final stmt in block.stmts) {
+      result = _firstKnown(
+          result,
+          _stmtReturnType(stmt, s,
+              typeParams: typeParams, selfType: selfType, expected: expected));
+      // Grow the scope a following `return` sees (only `let` binds a name).
+      if (stmt is LetStmt) {
+        final annotated = stmt.type == null
+            ? null
+            : _resolver.resolve(stmt.type,
+                typeParams: typeParams, selfType: selfType);
+        final inferred = _infer(stmt.value, s,
+            typeParams: typeParams, selfType: selfType, expected: annotated);
+        s[stmt.name] = annotated ?? inferred;
+      }
+    }
+    return result;
+  }
+
+  Type _stmtReturnType(Stmt stmt, Map<String, Type> scope,
+      {required Set<String> typeParams, Type? selfType, Type? expected}) {
+    switch (stmt) {
+      case ReturnStmt(:final value):
+        return value == null
+            ? PrimitiveType.unit
+            : _infer(value, scope,
+                typeParams: typeParams, selfType: selfType, expected: expected);
+      case IfStmt(:final then, :final else_):
+        final thenRet = _collectBlockReturns(then, scope,
+            typeParams: typeParams, selfType: selfType, expected: expected);
+        return else_ == null
+            ? thenRet
+            : _firstKnown(
+                thenRet,
+                _collectBlockReturns(else_, scope,
+                    typeParams: typeParams,
+                    selfType: selfType,
+                    expected: expected));
+      case ForStmt(:final body):
+        return _collectBlockReturns(body, scope,
+            typeParams: typeParams, selfType: selfType, expected: expected);
+      case WhileStmt(:final body):
+        return _collectBlockReturns(body, scope,
+            typeParams: typeParams, selfType: selfType, expected: expected);
+      default:
+        return const UnknownType();
+    }
+  }
+
+  /// `a` unless it is unknown, in which case `b` — "first known type wins".
+  Type _firstKnown(Type a, Type b) => a is UnknownType ? b : a;
+
   void _inferStmt(Stmt stmt, Map<String, Type> scope,
       {required Set<String> typeParams, Type? selfType, Type? returnType}) {
     switch (stmt) {
@@ -324,7 +405,7 @@ class Inferrer {
         }
         // Record the resolved parameter types for the checker (stage 3).
         expr.resolvedParamTypes = paramTypes;
-        final ret = _infer(body, lambdaScope,
+        final ret = _lambdaBodyType(body, lambdaScope,
             typeParams: typeParams,
             selfType: selfType,
             expected: expectedFn?.returnType);

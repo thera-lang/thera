@@ -209,8 +209,78 @@ fn infer_lambda(_ x: LambdaExpr, _ scope: Map<String, Type>, _ ctx: InferCtx,
         lambda_scope[p.name] = pt;
         i = i + 1;
     }
-    let ret = infer_expr(x.body, lambda_scope, ctx, expected_function_return(expected));
+    let ret = lambda_body_type(x.body, lambda_scope, ctx, expected_function_return(expected));
     return Type.Function(param_types, ret);
+}
+
+// The type a lambda body produces. An expression body (`() => expr`) is just the
+// type of `expr`. A block body (`() => { … }`) returns via explicit `return`, so
+// its type is the unified type of its `return` statements; only when the body has
+// no `return` does it fall back to the tail-or-`Unit` rule (`infer_block`). This
+// is what makes `() => { …; return x; }` infer `() -> typeof(x)` rather than the
+// `Unit` a tail-only reading would give.
+fn lambda_body_type(_ body: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx,
+    _ expected: Option<Type>) -> Type {
+    return match body {
+        Block(_, block) => match block.tail {
+            // A trailing tail expression is the block's value (the existing rule).
+            Some(_) => infer_block(block, scope, ctx, expected),
+            // No tail: the body produces its value via explicit `return` — its
+            // type is the unified `return` type, or `Unit` for a void body.
+            None => match collect_block_returns(block, scope, ctx, expected) {
+                Unknown => Type.Primitive(Primitive.Unit),
+                t => t,
+            },
+        },
+        _ => infer_expr(body, scope, ctx, expected),
+    };
+}
+
+// The unified type of the `return <expr>` statements in `block`, recursing into
+// nested `if`/`for`/`while` bodies (but not into nested lambdas, which own their
+// returns). `Unknown` when the block has no `return`. First-known wins on a
+// disagreement — the checker flags an inconsistent one against the chosen type.
+fn collect_block_returns(_ block: Block, _ scope: Map<String, Type>, _ ctx: InferCtx,
+    _ expected: Option<Type>) -> Type {
+    let s = copy_scope(scope);
+    let mut result = Type.Unknown;
+    for stmt in block.stmts {
+        result = first_known(result, stmt_return_type(stmt, s, ctx, expected));
+        infer_stmt(stmt, s, ctx); // grow the scope a following `return` sees (`let`)
+    }
+    return result;
+}
+
+fn stmt_return_type(_ stmt: Stmt, _ scope: Map<String, Type>, _ ctx: InferCtx,
+    _ expected: Option<Type>) -> Type {
+    return match stmt {
+        Return(_, value) => match value {
+            Some(e) => infer_expr(e, scope, ctx, expected),
+            None => Type.Primitive(Primitive.Unit),
+        },
+        If(x) => {
+            let then_ret = collect_block_returns(x.then_block, scope, ctx, expected);
+            match x.else_block {
+                Some(eb) => first_known(then_ret, collect_block_returns(eb, scope, ctx, expected)),
+                None => then_ret,
+            }
+        },
+        For(x) => collect_block_returns(x.body, scope, ctx, expected),
+        While(x) => collect_block_returns(x.body, scope, ctx, expected),
+        Let(_) => Type.Unknown,
+        Throw(_, _) => Type.Unknown,
+        Expr(_, _) => Type.Unknown,
+        Assign(_, _, _) => Type.Unknown,
+    };
+}
+
+// `a` unless it is `Unknown`, in which case `b` — the "first known type wins"
+// merge used to combine `return`/branch types.
+fn first_known(_ a: Type, _ b: Type) -> Type {
+    return match a {
+        Unknown => b,
+        _ => a,
+    };
 }
 
 pub fn expected_function_params(_ expected: Option<Type>) -> Option<List<Type>> {

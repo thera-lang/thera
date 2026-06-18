@@ -138,13 +138,12 @@ gaps, by where they live:
   when neither applies — no guessing. The payoff has landed:
   `List.map`/`filter`/ `fold` are written in Hawk and take closures
   (`sdk/std/core/list.hawk`, `examples/list_hof.hawk`).
-- **Gap — block-body lambda return inference.** A lambda with a `{ … }` body
-  infers its return type as `Void` (it doesn't unify its `return`
-  statements/tail), so `f(() => { return 5; })` types the closure as
-  `() -> Void` rather than `() -> Int`. Bites generic callees that depend on the
-  closure's result type — e.g. `fiber.spawn(() => { … return x; })` yields
-  `Fiber<Void>`; use an expression body or a named function meanwhile.
-  Expression-body lambdas infer correctly. Both front-ends.
+  - **Block-body lambda return inference — _done_.** A `{ … }` lambda body that
+    returns via `return` now infers the unified type of its `return` statements
+    (recursing into nested `if`/`for`/`while`), falling back to the tail/`Unit`
+    when it has none — so `f(() => { … return x; })` types as `() -> typeof(x)`,
+    not `() -> Void`. Both front-ends; byte-identical. (See "Type inference —
+    model & gaps" below for the broader picture.)
 - **GC — _done_.** A precise non-moving mark-sweep, built in free-standing
   steps: **(1) explicit call-frame stack** (`Vm::run_loop` over a `Vec<Frame>`;
   precise roots enumerable, deep recursion no longer overflows the host stack);
@@ -229,6 +228,39 @@ gaps, by where they live:
   functions; captures by value, with captured `mut` locals boxed into cells, via
   `closure.new` / `call.indirect`. Lambda parameter types are resolved by
   annotation or bidirectional inference, with a hard error otherwise.)
+- **Type inference — the model & remaining gaps.** The goal is _predictable_
+  inference: a reader (or LLM) can tell where a type is inferred vs. where an
+  annotation is required, and an un-inferable type is a **clear, located
+  check-time error** — never a silent `Unknown`/`Void` that misfires downstream.
+  The shape already realized for **lambda parameters** is the template: a type
+  comes from an annotation or the surrounding context, and when neither applies
+  the checker says exactly that (_"cannot infer the type of lambda parameter 'x';
+  add a type annotation, e.g. (x: Int) => …"_). Extend it to the cases that still
+  yield a silent `Unknown`:
+  - ~~**Block-body lambda return.**~~ _Done_ (unifies the body's `return`s; see
+    above).
+  - **`Option.None` / empty-collection locals.** `let mut x = Option.None;`
+    (pinned only by a later `x = Some(5)`) and `let xs = [];` infer an `Unknown`
+    element; backward flow from a later assignment/use doesn't happen. Today it
+    surfaces as a confusing _codegen_ error at the use site ("cannot interpolate
+    value…", "operator + on unknown type") instead of a check-time "annotate
+    here". Target: require an annotation with a clear diagnostic.
+  - **Generic call fixed only by return context.** `let v = mk();` where
+    `mk<T>() -> List<T>` leaves `T` unbound with no annotation/use to pin it —
+    should be a clear "annotate" error, not `Unknown`.
+  - **`Unknown` propagates permissively.** An `Unknown` value is accepted
+    anywhere (e.g. heterogeneous `xs.push("a"); xs.push(1)` on an un-annotated
+    list), so a real "couldn't infer" slips through silently. `Unknown` should be
+    a typed _hole_ flagged at its origin, not a wildcard.
+  - **`match`-arm types not unified.** `match c { … => 1, … => "x" }` takes the
+    first arm's type and never flags the inconsistent one; arms should unify, and
+    a genuine disagreement be an error.
+
+  The through-line: the checker is currently _conservative on `Unknown`_ (never
+  errors on one), trading a confusing late failure for a clear early one.
+  Flipping that — diagnosing an un-inferable type at its source, lambda-param
+  style — is the bulk of the work, and doubles as the LSP's "why is this an
+  error" answer.
 - **Tech debt — collapse the checker's `_Scope`.** The checker still tracks
   locals as `Map<String, TypeRef?>`, but since inference annotates expressions
   the type _values_ are now vestigial — only key-presence drives

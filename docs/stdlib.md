@@ -463,11 +463,7 @@ Deterministic scheduling, and GC keeps parked fibers' and channels' values alive
 Channels are **buffered** (capacity ≥ 1, FIFO; a closed channel drains then gives
 `None`; `send` after `close` traps); true 0-capacity rendezvous is a later
 refinement. Deferred: parking on real I/O — today only fiber/channel ops park
-(see the I/O staging in the design). One ergonomic snag from the front end, not
-fibers: a **block-body** work closure (`spawn(() => { … return x; })`) infers its
-return as `Void`, so use an expression body (`spawn(() => compute())`) or a named
-function until block-body lambda return inference lands (tracked in
-[roadmap.md](roadmap.md)).
+(see the I/O staging in the design).
 
 Notes: no mutexes/atomics — single-threaded means no data races
 ([language.md](language.md) §Concurrency). `select` over channels is a candidate
