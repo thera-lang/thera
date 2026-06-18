@@ -1203,6 +1203,71 @@ pub fn resolve_method(_ recv: Type, _ field: String, _ ctx: InferCtx) -> Option<
     return Option.None;
 }
 
+// A resolved free-function-style callee reached through a `recv.field(...)`
+// expression: a namespace function (`ns.fn`) or a static method (`Type.method`).
+// `type_params` are the parameters a caller must determine — the callee's own,
+// plus (for a static method) the owner type's, since a static call has no
+// receiver to bind them. Used by the checker to validate arguments and to
+// diagnose a return-only type parameter that nothing pins.
+pub type StaticCall = {
+    fn_el: FunctionElement,
+    type_params: List<String>,
+}
+
+// Resolve a `recv.field(...)` callee that is a namespace function or a static
+// method. None for a value-receiver method (use `resolve_method`), an enum
+// constructor, or an unresolved callee.
+pub fn resolve_ns_or_static_call(_ recv: Expr, _ field: String,
+    _ scope: Map<String, Type>, _ ctx: InferCtx) -> Option<StaticCall> {
+    // Namespace function: `ns.fn(...)`.
+    match recv {
+        Ident(_, nsname) => {
+            if is_namespace(nsname, scope, ctx) {
+                match ctx.library.functions.get(field) {
+                    Some(fn_el) => {
+                        return Option.Some(StaticCall { fn_el: fn_el, type_params: fn_el.type_parameters });
+                    },
+                    None => {},
+                }
+            };
+        },
+        _ => {},
+    }
+    // Static method: `(ns.)?Type.method(...)`.
+    match type_def_for_expr(recv, scope, ctx) {
+        Some(type_def) => {
+            match find_method(type_def, field) {
+                Some(method) => {
+                    if method.is_static {
+                        return Option.Some(StaticCall {
+                            fn_el: method,
+                            type_params: combined_type_params(method.type_parameters, type_def.type_parameters),
+                        });
+                    };
+                },
+                None => {},
+            }
+        },
+        None => {},
+    }
+    return Option.None;
+}
+
+// `a` followed by the members of `b` not already in `a` — the static-method
+// type-parameter set (the method's own, then the owner's).
+fn combined_type_params(_ a: List<String>, _ b: List<String>) -> List<String> {
+    let out: List<String> = [];
+    for n in a {
+        out.push(n);
+    }
+    for n in b {
+        if !str_list_has(out, n) {
+            out.push(n);
+        }
+    }
+    return out;
+}
+
 fn is_enum_type(_ ty: Type, _ ctx: InferCtx) -> Bool {
     return match ty {
         Interface(name, _) => match ctx.library.type_defs.get(name) {

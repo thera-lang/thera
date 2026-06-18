@@ -425,3 +425,42 @@ fn test_generic_call_pinned_by_surrounding_argument_is_clean() -> Result<Void, E
     testing.assert_eq(actual: errs.len(), expected: 0)?;
     return Result.Ok(void);
 }
+
+// ---- static-method call checking ----
+// (Namespace-function calls share the same `check_call_args` /
+// `check_inferable_type_args` path. They're exercised end to end by the rest of
+// the suite — the whole front-end is namespace calls — but need an import + a
+// namespace map to set up hermetically, so the focused unit tests use static
+// methods, which `errors_of` builds directly.)
+
+@test
+fn test_static_method_wrong_arity() -> Result<Void, Error> {
+    let errs = errors_of('type Box<T> = { value: T }\n'
+        + 'impl Box<T> { fn empty() -> Int { return 0; } }\n'
+        + 'fn f() -> Int { return Box.empty(1, 2); }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs), expected: '"empty" expects 0 arguments, got 2')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_static_method_generic_unpinnable_is_diagnosed() -> Result<Void, Error> {
+    // `T` is the owner's parameter and shows up only in the static method's
+    // return — unannotated, it can't be inferred.
+    let errs = errors_of('type Box<T> = { value: T }\n'
+        + 'impl Box<T> { fn make() -> Box<T> { return Box { value: 0 }; } }\n'
+        + 'fn f() { let b = Box.make(); }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert(first_message(errs).contains('cannot infer type argument `T` for "make"'),
+        message: 'diagnoses the owner type parameter')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_static_method_generic_pinned_by_annotation_is_clean() -> Result<Void, Error> {
+    let errs = errors_of('type Box<T> = { value: T }\n'
+        + 'impl Box<T> { fn make() -> Box<T> { return Box { value: 0 }; } }\n'
+        + 'fn f() { let b: Box<Int> = Box.make(); }');
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    return Result.Ok(void);
+}

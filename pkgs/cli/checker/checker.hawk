@@ -458,25 +458,37 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
                     match function_for(ctx.library, ctx.current_file, name) {
                         Some(fn_el) => {
                             check_call_args(errors, fn_el, {}, x.args, x.span, scope, ctx);
-                            check_inferable_type_args(errors, fn_el, x, expected, scope, ctx);
+                            check_inferable_type_args(errors, fn_el, fn_el.type_parameters, x, expected, scope, ctx);
                         },
                         None => {},
                     }
                 },
                 Field(_, recv, field) => {
-                    let recv_type = infer_expr(recv, scope, ctx, Option.None);
-                    if !method_resolves(recv_type, field, x.args.len(), ctx) {
-                        add_error(errors, 'no method "${field}" on ${type_to_string(recv_type)}', x.span);
-                    } else {
-                        // The method resolved — validate its arguments (arity,
-                        // labels, types) against the resolved signature.
-                        match resolve_method(recv_type, field, ctx) {
-                            Some(res) => {
-                                check_call_args(errors, res.method, res.bindings, x.args, x.span, scope, ctx);
-                            },
-                            None => {},
-                        }
-                    };
+                    // A namespace function (`ns.fn`) or static method (`Type.m`)
+                    // is a free-function-style call: validate its arguments and
+                    // diagnose an unpinnable return-only type parameter, like a
+                    // bare call. Otherwise it's a value-receiver method.
+                    match resolve_ns_or_static_call(recv, field, scope, ctx) {
+                        Some(target) => {
+                            check_call_args(errors, target.fn_el, {}, x.args, x.span, scope, ctx);
+                            check_inferable_type_args(errors, target.fn_el, target.type_params, x, expected, scope, ctx);
+                        },
+                        None => {
+                            let recv_type = infer_expr(recv, scope, ctx, Option.None);
+                            if !method_resolves(recv_type, field, x.args.len(), ctx) {
+                                add_error(errors, 'no method "${field}" on ${type_to_string(recv_type)}', x.span);
+                            } else {
+                                // The method resolved — validate its arguments
+                                // (arity, labels, types) against the signature.
+                                match resolve_method(recv_type, field, ctx) {
+                                    Some(res) => {
+                                        check_call_args(errors, res.method, res.bindings, x.args, x.span, scope, ctx);
+                                    },
+                                    None => {},
+                                }
+                            };
+                        },
+                    }
                 },
                 _ => {},
             }
@@ -808,8 +820,9 @@ fn check_bounds(_ errors: List<CheckError>, _ fn_el: FunctionElement,
 // lambda-parameter "cannot infer" diagnostic). A parameter that appears in a
 // parameter position is bound by its argument and so never reported here.
 fn check_inferable_type_args(_ errors: List<CheckError>, _ fn_el: FunctionElement,
-    _ call: CallExpr, _ expected: Option<Type>, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Void {
-    if fn_el.type_parameters.len() == 0 {
+    _ type_params: List<String>, _ call: CallExpr, _ expected: Option<Type>,
+    _ scope: Map<String, Type>, _ ctx: InferCtx) -> Void {
+    if type_params.len() == 0 {
         return;
     }
     // Infer the arguments bidirectionally (as the call itself does), so a lambda
@@ -828,7 +841,7 @@ fn check_inferable_type_args(_ errors: List<CheckError>, _ fn_el: FunctionElemen
         a = a + 1;
     }
     let bindings = call_bindings(fn_el, call.type_args, arg_types, expected, ctx);
-    for tp in fn_el.type_parameters {
+    for tp in type_params {
         if !bindings.has(tp) && type_mentions_param(fn_el.return_type, tp) {
             add_error(errors,
                 'cannot infer type argument `${tp}` for "${fn_el.name}"; add a type annotation (e.g. `let x: ... = ...`) or type arguments (`${fn_el.name}<...>(...)`)',

@@ -265,10 +265,12 @@ gaps, by where they live:
     *return* type and stays unbound after all three is the first real
     "annotate here" diagnostic: _"cannot infer type argument `T` for "mk"; add a
     type annotation … or type arguments (`mk<…>(…)`)"_ — the analogue of the
-    lambda-parameter one. Scoped to bare `Ident` free-function calls for now;
-    namespace functions (`fiber.channel()`) and static methods (`Set.new()`) are
-    always annotated in the corpus today, so extending the diagnostic to them is
-    a safe follow-up (it needs the checker to arg-check those call forms first).
+    lambda-parameter one. Now covers bare `Ident` calls, **namespace functions**
+    (`ns.fn()`), and **static methods** (`Type.method()`) — `resolve_ns_or_static_call`
+    in `element/inference.hawk` resolves the latter two, and those call forms now
+    get full argument checking (arity/labels/types) too, not just existence. For a
+    static method the diagnosed type-parameter set folds in the owner's parameters
+    (a static `Set.new() -> Set<T>` has `T` from the `impl`, not the method).
   - **`Unknown` propagates permissively.** An `Unknown` value is still accepted
     anywhere it appears, so a genuine "couldn't infer" can slip through silently
     (e.g. a binding nothing pins, passed on untyped). `Unknown` should be a typed
@@ -433,13 +435,15 @@ the old Dart byte oracle. What's left to round out the front-end:
   (`show`/`hide`) and field-level visibility; sweep remaining "module" wording
   to "library"/"source file".
 - **Checker predicts codegen — residual gaps.** Field/method validation lands
-  (`check` rejects bad field accesses, missing methods, and now bad method
-  **arguments** — arity/labels/types with receiver-generic substitution —
-  conservative on unknown receivers). Remaining: field access on a non-struct
-  concrete value (`5.x`) still slips to codegen; and the remaining
-  inference-completeness work (`Unknown`-as-a-diagnosed-hole, return-context-only
-  generics) — forward-flow for `Option.None`/empty-literal locals, method-argument
-  checking, and `match`-arm unification are now done — see "Type inference — the
+  (`check` rejects bad field accesses, missing methods, and bad call
+  **arguments** — arity/labels/types — for every call form: free functions,
+  methods (with receiver-generic substitution), namespace functions, and static
+  methods; conservative on unknown receivers). Remaining: field access on a
+  non-struct concrete value (`5.x`) still slips to codegen; and the remaining
+  inference-completeness work (`Unknown`-as-a-diagnosed-hole) — forward-flow for
+  `Option.None`/empty-literal locals, method-argument checking, `match`-arm
+  unification, and return-context generic inference (with the unpinnable-`T`
+  diagnostic across all call forms) are now done — see "Type inference — the
   model & remaining gaps" above.
 - **Parser/codegen bug — trailing `;` after a block-`if`/`match` corrupts a
   module (near-term).** A trailing `;` on a block-form statement whose body ends
