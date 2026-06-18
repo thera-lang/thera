@@ -379,12 +379,14 @@ impl FnCompiler {
     // --- statements ---
 
     fn block(self, _ block: Block) -> Void {
-        for stmt in block.stmts {
-            self.stmt(stmt);
+        let mut i = 0;
+        while i < block.stmts.len() {
+            self.stmt(block.stmts[i], block.stmts, i);
+            i = i + 1;
         }
     }
 
-    fn stmt(self, _ stmt: Stmt) -> Void {
+    fn stmt(self, _ stmt: Stmt, _ stmts: List<Stmt>, _ index: Int) -> Void {
         match stmt {
             Let(x) => {
                 // Evaluate before declaring, so the initializer can't see the
@@ -399,7 +401,9 @@ impl FnCompiler {
                 // inference engine); fall back to the initializer's inferred type.
                 let ty = match annotated {
                     Some(a) => a,
-                    None => infer_expr(x.value, self.type_scope, self.ctx, Option.None),
+                    None => refine_binding_type(x.name,
+                        infer_expr(x.value, self.type_scope, self.ctx, Option.None),
+                        stmts, index + 1, self.type_scope, self.ctx),
                 };
                 if self.boxed_locals.has(x.name) {
                     self.emit(Instr.StructNew(self.scope.cell_type_index()));

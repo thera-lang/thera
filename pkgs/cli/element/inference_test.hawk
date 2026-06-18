@@ -164,3 +164,72 @@ fn test_block_tail_sees_let_bindings() -> Result<Void, Error> {
         expected: Type.Primitive(Primitive.Int))?;
     return Result.Ok(void);
 }
+
+// ---- forward-flow inference ----
+// An empty literal / `None` binding is underdetermined at its initializer; these
+// assert the element type is recovered from the binding's first pinning use later
+// in the block (a push, an indexed assignment, or a reassignment).
+
+@test
+fn test_forward_flow_empty_list_pinned_by_push() -> Result<Void, Error> {
+    // `let xs = []` then `xs.push(5)` makes `xs` a `List<Int>`, so the tail
+    // `xs[0]` is `Int` (rather than the `Unknown` an empty literal alone gives).
+    let ctx = new_ctx(lib_of(''));
+    testing.assert_eq(
+        actual: type_of('{ let xs = []; xs.push(5); xs[0] }', empty_scope(), ctx),
+        expected: Type.Primitive(Primitive.Int))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_forward_flow_empty_list_pinned_by_reassignment() -> Result<Void, Error> {
+    let ctx = new_ctx(lib_of(''));
+    testing.assert_eq(
+        actual: type_of('{ let mut xs = []; xs = [1, 2]; xs[0] }', empty_scope(), ctx),
+        expected: Type.Primitive(Primitive.Int))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_forward_flow_empty_map_pinned_by_index_assign() -> Result<Void, Error> {
+    // An indexed assignment recovers both the key and value type of an empty map.
+    let ctx = new_ctx(lib_of(''));
+    testing.assert_eq(
+        actual: type_of('{ let m = {}; m[\'a\'] = 10; m[\'a\'] }', empty_scope(), ctx),
+        expected: Type.Primitive(Primitive.Int))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_forward_flow_none_pinned_by_reassignment() -> Result<Void, Error> {
+    // `let mut x = Opt.Nope` is `Opt<Unknown>`; the reassignment pins it to
+    // `Opt<Int>`, so the matched payload `v` is `Int`.
+    let ctx = new_ctx(lib_of('enum Opt<T> { Some(T), Nope }'));
+    testing.assert_eq(
+        actual: type_of('{ let mut x = Opt.Nope; x = Opt.Some(5); match x { Some(v) => v, Nope => 0 } }',
+            empty_scope(), ctx),
+        expected: Type.Primitive(Primitive.Int))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_forward_flow_first_pinning_use_wins() -> Result<Void, Error> {
+    // The first `push` determines the element type; a later inconsistent push does
+    // not change it (it becomes a mismatch the checker reports separately).
+    let ctx = new_ctx(lib_of(''));
+    testing.assert_eq(
+        actual: type_of('{ let xs = []; xs.push(1); xs.push(\'a\'); xs[0] }', empty_scope(), ctx),
+        expected: Type.Primitive(Primitive.Int))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_forward_flow_unpinned_stays_unknown() -> Result<Void, Error> {
+    // With no pinning use, the binding keeps its lenient `Unknown` element — the
+    // refinement never guesses.
+    let ctx = new_ctx(lib_of(''));
+    testing.assert_eq(
+        actual: type_of('{ let xs = []; xs[0] }', empty_scope(), ctx),
+        expected: Type.Unknown)?;
+    return Result.Ok(void);
+}

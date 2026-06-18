@@ -258,9 +258,12 @@ fn collect_block_returns(_ block: Block, _ scope: Map<String, Type>, _ ctx: Infe
     _ expected: Option<Type>) -> Type {
     let s = copy_scope(scope);
     let mut result = Type.Unknown;
-    for stmt in block.stmts {
+    let mut i = 0;
+    while i < block.stmts.len() {
+        let stmt = block.stmts[i];
         result = first_known(result, stmt_return_type(stmt, s, ctx, expected));
-        infer_stmt(stmt, s, ctx); // grow the scope a following `return` sees (`let`)
+        infer_stmt_fwd(stmt, block.stmts, i, s, ctx); // grow the scope a following `return` sees
+        i = i + 1;
     }
     return result;
 }
@@ -341,8 +344,10 @@ fn infer_if(_ x: IfExpr, _ scope: Map<String, Type>, _ ctx: InferCtx,
 pub fn infer_block(_ block: Block, _ outer: Map<String, Type>, _ ctx: InferCtx,
     _ expected: Option<Type>) -> Type {
     let scope = copy_scope(outer);
-    for stmt in block.stmts {
-        infer_stmt(stmt, scope, ctx);
+    let mut i = 0;
+    while i < block.stmts.len() {
+        infer_stmt_fwd(block.stmts[i], block.stmts, i, scope, ctx);
+        i = i + 1;
     }
     return match block.tail {
         Some(tail) => infer_expr(tail, scope, ctx, expected),
@@ -352,24 +357,195 @@ pub fn infer_block(_ block: Block, _ outer: Map<String, Type>, _ ctx: InferCtx,
 
 // Process a statement for its effect on `scope`. Only `let` grows the scope a
 // following tail expression sees; every other statement is typed by the checker
-// directly, so inference skips it here.
+// directly, so inference skips it here. (No forward-flow context — used where a
+// statement is processed in isolation; block walkers use `infer_stmt_fwd`.)
 fn infer_stmt(_ stmt: Stmt, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Void {
     match stmt {
-        Let(x) => {
-            // A type annotation on the binding is the expected type for its value.
-            let annotated = match x.type_ann {
-                Some(ref) => Option.Some(
-                    resolve_type_ref(ref, ctx.library.type_defs, ctx.type_params, ctx.self_type)),
-                None => Option.None,
-            };
-            let inferred = infer_expr(x.value, scope, ctx, annotated);
-            scope[x.name] = match annotated {
-                Some(a) => a,
-                None => inferred,
-            };
+        Let(x) => { scope[x.name] = let_bound_type(x, [], 0, scope, ctx); },
+        _ => {},
+    }
+}
+
+// As `infer_stmt`, but with the binding's block context (`stmts[index]` is this
+// statement) so a `let` can refine an underdetermined type by forward-flow.
+fn infer_stmt_fwd(_ stmt: Stmt, _ stmts: List<Stmt>, _ index: Int,
+    _ scope: Map<String, Type>, _ ctx: InferCtx) -> Void {
+    match stmt {
+        Let(x) => { scope[x.name] = let_bound_type(x, stmts, index + 1, scope, ctx); },
+        _ => {},
+    }
+}
+
+// The type a `let` binding takes in `scope`: its annotation when present, else
+// its initializer's inferred type — refined by forward-flow against the binding's
+// later uses in `stmts[start..]` (see `refine_binding_type`).
+pub fn let_bound_type(_ x: LetStmt, _ stmts: List<Stmt>, _ start: Int,
+    _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
+    // A type annotation on the binding is the expected type for its value.
+    let annotated = match x.type_ann {
+        Some(ref) => Option.Some(
+            resolve_type_ref(ref, ctx.library.type_defs, ctx.type_params, ctx.self_type)),
+        None => Option.None,
+    };
+    let inferred = infer_expr(x.value, scope, ctx, annotated);
+    return match annotated {
+        Some(a) => a,
+        None => refine_binding_type(x.name, inferred, stmts, start, scope, ctx),
+    };
+}
+
+// --- forward-flow inference ---
+//
+// An empty literal or `None` can't be typed from its initializer alone: `let xs =
+// []` infers `List<Unknown>`, `let mut x = Option.None` infers `Option<Unknown>`.
+// Rather than leave the hole (which suppresses later diagnostics), look forward to
+// the binding's first *pinning use* in the same block and take the element/value
+// type from it: a `push`, an indexed assignment, or a reassignment. Deterministic
+// — the first pinning use wins, so a later inconsistent use is a checker error
+// (`xs.push(1); xs.push('a')` types `xs` as `List<Int>` and rejects the second).
+
+// Refine `inferred` for binding `name` from its uses in `stmts[start..]` (the
+// statements following the binding in its block). Returns `inferred` unchanged
+// when it is already fully known or nothing in scope pins it.
+pub fn refine_binding_type(_ name: String, _ inferred: Type, _ stmts: List<Stmt>,
+    _ start: Int, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
+    if !has_unknown_component(inferred) {
+        return inferred;
+    }
+    let s = copy_scope(scope);
+    let mut i = start;
+    while i < stmts.len() {
+        let stmt = stmts[i];
+        match pinning_candidate(name, stmt, inferred, s, ctx) {
+            Some(cand) => {
+                let merged = merge_known(inferred, cand);
+                // The first use that actually fills an `Unknown` wins.
+                if !(merged == inferred) {
+                    return merged;
+                };
+            },
+            None => {},
+        }
+        infer_stmt(stmt, s, ctx); // grow the scope an intervening `let` introduces
+        i = i + 1;
+    }
+    return inferred;
+}
+
+// A candidate full type for `name` recovered from a single statement, when that
+// statement pins the binding: a reassignment `name = v` (adopt `v`'s type), an
+// indexed assignment `name[k] = v`, or a `name.push(v)` call. `current` is the
+// binding's type so far (it decides whether `name[k] = v` reads as a `List` or a
+// `Map`). None when the statement doesn't constrain `name`.
+fn pinning_candidate(_ name: String, _ stmt: Stmt, _ current: Type,
+    _ scope: Map<String, Type>, _ ctx: InferCtx) -> Option<Type> {
+    return match stmt {
+        Assign(_, target, value) => match target {
+            Ident(_, n) => if n == name {
+                Option.Some(infer_expr(value, scope, ctx, Option.None))
+            } else {
+                Option.None
+            },
+            Index(_, obj, key) => match obj {
+                Ident(_, n) => if n == name {
+                    indexed_assign_candidate(current, key, value, scope, ctx)
+                } else {
+                    Option.None
+                },
+                _ => Option.None,
+            },
+            _ => Option.None,
+        },
+        Expr(_, e) => match e {
+            Call(c) => push_candidate(name, c, scope, ctx),
+            _ => Option.None,
+        },
+        _ => Option.None,
+    };
+}
+
+// `name[k] = v` as a candidate: a `Map`'s key/value from `k`/`v`, a `List`'s
+// element from `v`. None for any other receiver type.
+fn indexed_assign_candidate(_ current: Type, _ key: Expr, _ value: Expr,
+    _ scope: Map<String, Type>, _ ctx: InferCtx) -> Option<Type> {
+    let v = infer_expr(value, scope, ctx, Option.None);
+    return match current {
+        Interface(name, _) => if name == 'Map' {
+            Option.Some(Type.Interface('Map', [infer_expr(key, scope, ctx, Option.None), v]))
+        } else if name == 'List' {
+            Option.Some(Type.Interface('List', [v]))
+        } else {
+            Option.None
+        },
+        _ => Option.None,
+    };
+}
+
+// `name.push(v)` as a `List<typeof(v)>` candidate. None otherwise.
+fn push_candidate(_ name: String, _ call: CallExpr,
+    _ scope: Map<String, Type>, _ ctx: InferCtx) -> Option<Type> {
+    match call.callee {
+        Field(_, obj, method) => match obj {
+            Ident(_, n) => {
+                if n == name && method == 'push' && call.args.len() == 1 {
+                    return Option.Some(Type.Interface('List',
+                        [infer_expr(call.args[0].value, scope, ctx, Option.None)]));
+                };
+            },
+            _ => {},
         },
         _ => {},
     }
+    return Option.None;
+}
+
+// Fill `a`'s `Unknown` slots from `b`, structurally — same-named interfaces of
+// equal arity merge element-wise; an `Unknown` is replaced wholesale. Used to
+// graft a forward-flow candidate onto an underdetermined binding type.
+fn merge_known(_ a: Type, _ b: Type) -> Type {
+    return match a {
+        Unknown => b,
+        Interface(an, aargs) => match b {
+            Interface(bn, bargs) => if an == bn && aargs.len() == bargs.len() {
+                let merged: List<Type> = [];
+                let mut i = 0;
+                while i < aargs.len() {
+                    merged.push(merge_known(aargs[i], bargs[i]));
+                    i = i + 1;
+                }
+                Type.Interface(an, merged)
+            } else {
+                a
+            },
+            _ => a,
+        },
+        _ => a,
+    };
+}
+
+// Whether `t` has an `Unknown` anywhere in its structure — the signal that a
+// binding is underdetermined and worth refining by forward-flow.
+fn has_unknown_component(_ t: Type) -> Bool {
+    return match t {
+        Unknown => true,
+        Interface(_, args) => {
+            for a in args {
+                if has_unknown_component(a) {
+                    return true;
+                }
+            }
+            false
+        },
+        Function(params, ret) => {
+            for p in params {
+                if has_unknown_component(p) {
+                    return true;
+                }
+            }
+            has_unknown_component(ret)
+        },
+        _ => false,
+    };
 }
 
 // --- calls ---

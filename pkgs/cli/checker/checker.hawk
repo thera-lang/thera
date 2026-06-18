@@ -323,8 +323,10 @@ fn type_matches(_ a: Type, _ b: Type) -> Bool {
 
 fn check_block(_ errors: List<CheckError>, _ block: Block, _ outer: Map<String, Type>, _ ctx: InferCtx) -> Void {
     let scope = copy_scope(outer);
-    for stmt in block.stmts {
-        check_stmt(errors, stmt, scope, ctx);
+    let mut i = 0;
+    while i < block.stmts.len() {
+        check_stmt(errors, block.stmts[i], block.stmts, i, scope, ctx);
+        i = i + 1;
     }
     match block.tail {
         Some(tail) => {
@@ -351,7 +353,8 @@ fn check_block(_ errors: List<CheckError>, _ block: Block, _ outer: Map<String, 
     }
 }
 
-fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Void {
+fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ stmts: List<Stmt>, _ index: Int,
+    _ scope: Map<String, Type>, _ ctx: InferCtx) -> Void {
     match stmt {
         Let(x) => {
             match x.type_ann {
@@ -365,9 +368,11 @@ fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ scope: Map<String, Typ
             };
             check_expr(errors, x.value, scope, ctx, annotated);
             let actual = infer_expr(x.value, scope, ctx, annotated);
+            // Forward-flow: an underdetermined binding (`let xs = []`) takes its
+            // element type from its first pinning use later in the block.
             scope[x.name] = match annotated {
                 Some(a) => a,
-                None => actual,
+                None => refine_binding_type(x.name, actual, stmts, index + 1, scope, ctx),
             };
             match annotated {
                 Some(a) => { expect_type(errors, actual, a, 'binding \'${x.name}\'', x.span, ctx.library.type_defs); },

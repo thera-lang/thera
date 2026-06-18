@@ -238,12 +238,18 @@ gaps, by where they live:
   yield a silent `Unknown`:
   - ~~**Block-body lambda return.**~~ _Done_ (unifies the body's `return`s; see
     above).
-  - **`Option.None` / empty-collection locals.** `let mut x = Option.None;`
-    (pinned only by a later `x = Some(5)`) and `let xs = [];` infer an `Unknown`
-    element; backward flow from a later assignment/use doesn't happen. Today it
-    surfaces as a confusing _codegen_ error at the use site ("cannot interpolate
-    value…", "operator + on unknown type") instead of a check-time "annotate
-    here". Target: require an annotation with a clear diagnostic.
+  - ~~**`Option.None` / empty-collection locals.**~~ _Done (forward-flow)._
+    `let mut x = Option.None;` and `let xs = [];` infer an `Unknown` element from
+    the initializer alone; the binding now takes its element/value type from its
+    **first pinning use** later in the block — a `push`, an indexed assignment
+    (`m[k] = v`), or a reassignment (`x = Some(5)`). Deterministic (first use
+    wins, so a later inconsistent use is a mismatch the checker reports), and
+    purely additive: a binding nothing pins stays a lenient `Unknown` (no
+    spurious "annotate" error — the corpus showed requiring annotations here
+    over-fires). `refine_binding_type` in `element/inference.hawk`, wired into the
+    checker and codegen block walkers. _Not yet: method-call **argument** type
+    checking, so `xs.push("a")` after `xs.push(1)` types `xs` as `List<Int>` but
+    the bad push isn't yet flagged (a separate gap)._
   - **Generic call fixed only by return context.** `let v = mk();` where
     `mk<T>() -> List<T>` leaves `T` unbound with no annotation/use to pin it —
     should be a clear "annotate" error, not `Unknown`.
@@ -407,9 +413,10 @@ the old Dart byte oracle. What's left to round out the front-end:
 - **Checker predicts codegen — residual gaps.** Field/method validation lands
   (`check` rejects bad field accesses and method calls, conservative on unknown
   receivers). Remaining: field access on a non-struct concrete value (`5.x`)
-  still slips to codegen; and the inference-completeness work (forward-flow for
-  `Option.None`/empty-literal locals, `Unknown`-as-a-diagnosed-hole) — see "Type
-  inference — the model & remaining gaps" above.
+  still slips to codegen; and the remaining inference-completeness work
+  (`Unknown`-as-a-diagnosed-hole, `match`-arm unification, return-context-only
+  generics) — forward-flow for `Option.None`/empty-literal locals is now done —
+  see "Type inference — the model & remaining gaps" above.
 - **LSP v2 toward an incremental engine** — inference-at-offset
   (hover/definition on locals, expressions, members), overlay-aware imports
   (honor unsaved edits), and memoizing the import-closure load so analysis isn't
