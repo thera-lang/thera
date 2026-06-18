@@ -247,16 +247,24 @@ gaps, by where they live:
     purely additive: a binding nothing pins stays a lenient `Unknown` (no
     spurious "annotate" error — the corpus showed requiring annotations here
     over-fires). `refine_binding_type` in `element/inference.hawk`, wired into the
-    checker and codegen block walkers. _Not yet: method-call **argument** type
-    checking, so `xs.push("a")` after `xs.push(1)` types `xs` as `List<Int>` but
-    the bad push isn't yet flagged (a separate gap)._
+    checker and codegen block walkers.
+  - ~~**Method-call arguments unchecked.**~~ _Done._ The checker validated free
+    function arguments (arity, labels, types) but method calls only checked that
+    the method *existed*. Now `check_call_args` takes the receiver's generic
+    bindings and validates a resolved method's arguments too (`resolve_method` in
+    `element/inference.hawk`), substituting the receiver's type arguments so a
+    method's `T` is concrete (`push` on a `List<Int>` wants `Int`). Lenient on
+    `Unknown`/`TypeParameter`, so it never false-fires on the method's own
+    unbound generics (`map`'s `U`) or an imperfectly-inferred receiver — the whole
+    stdlib + self-hosted front-end check clean.
   - **Generic call fixed only by return context.** `let v = mk();` where
     `mk<T>() -> List<T>` leaves `T` unbound with no annotation/use to pin it —
     should be a clear "annotate" error, not `Unknown`.
-  - **`Unknown` propagates permissively.** An `Unknown` value is accepted
-    anywhere (e.g. heterogeneous `xs.push("a"); xs.push(1)` on an un-annotated
-    list), so a real "couldn't infer" slips through silently. `Unknown` should be
-    a typed _hole_ flagged at its origin, not a wildcard.
+  - **`Unknown` propagates permissively.** An `Unknown` value is still accepted
+    anywhere it appears, so a genuine "couldn't infer" can slip through silently
+    (e.g. a binding nothing pins, passed on untyped). `Unknown` should be a typed
+    _hole_ flagged at its origin, not a wildcard. (Forward-flow + method-arg
+    checking now catch the once-canonical `xs.push("a"); xs.push(1)` case.)
   - **`match`-arm types not unified.** `match c { … => 1, … => "x" }` takes the
     first arm's type and never flags the inconsistent one; arms should unify, and
     a genuine disagreement be an error.
@@ -411,12 +419,14 @@ the old Dart byte oracle. What's left to round out the front-end:
   (`show`/`hide`) and field-level visibility; sweep remaining "module" wording
   to "library"/"source file".
 - **Checker predicts codegen — residual gaps.** Field/method validation lands
-  (`check` rejects bad field accesses and method calls, conservative on unknown
-  receivers). Remaining: field access on a non-struct concrete value (`5.x`)
-  still slips to codegen; and the remaining inference-completeness work
-  (`Unknown`-as-a-diagnosed-hole, `match`-arm unification, return-context-only
-  generics) — forward-flow for `Option.None`/empty-literal locals is now done —
-  see "Type inference — the model & remaining gaps" above.
+  (`check` rejects bad field accesses, missing methods, and now bad method
+  **arguments** — arity/labels/types with receiver-generic substitution —
+  conservative on unknown receivers). Remaining: field access on a non-struct
+  concrete value (`5.x`) still slips to codegen; and the remaining
+  inference-completeness work (`Unknown`-as-a-diagnosed-hole, `match`-arm
+  unification, return-context-only generics) — forward-flow for
+  `Option.None`/empty-literal locals is now done — see "Type inference — the
+  model & remaining gaps" above.
 - **LSP v2 toward an incremental engine** — inference-at-offset
   (hover/definition on locals, expressions, members), overlay-aware imports
   (honor unsaved edits), and memoizing the import-closure load so analysis isn't

@@ -456,7 +456,7 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
             match x.callee {
                 Ident(_, name) => {
                     match function_for(ctx.library, ctx.current_file, name) {
-                        Some(fn_el) => { check_call_args(errors, fn_el, x.args, x.span, scope, ctx); },
+                        Some(fn_el) => { check_call_args(errors, fn_el, {}, x.args, x.span, scope, ctx); },
                         None => {},
                     }
                 },
@@ -464,6 +464,15 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
                     let recv_type = infer_expr(recv, scope, ctx, Option.None);
                     if !method_resolves(recv_type, field, x.args.len(), ctx) {
                         add_error(errors, 'no method "${field}" on ${type_to_string(recv_type)}', x.span);
+                    } else {
+                        // The method resolved — validate its arguments (arity,
+                        // labels, types) against the resolved signature.
+                        match resolve_method(recv_type, field, ctx) {
+                            Some(res) => {
+                                check_call_args(errors, res.method, res.bindings, x.args, x.span, scope, ctx);
+                            },
+                            None => {},
+                        }
                     };
                 },
                 _ => {},
@@ -629,7 +638,8 @@ fn check_lambda(_ errors: List<CheckError>, _ x: LambdaExpr, _ scope: Map<String
 
 // ---- call checking ----
 
-fn check_call_args(_ errors: List<CheckError>, _ fn_el: FunctionElement, _ args: List<CallArg>,
+fn check_call_args(_ errors: List<CheckError>, _ fn_el: FunctionElement,
+    _ bindings: Map<String, Type>, _ args: List<CallArg>,
     _ span: SourceSpan, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Void {
     let params = non_self_params(fn_el.parameters);
 
@@ -679,22 +689,27 @@ fn check_call_args(_ errors: List<CheckError>, _ fn_el: FunctionElement, _ args:
         };
         match param {
             Some(p) => {
-                let actual = infer_expr(arg.value, scope, ctx, Option.Some(p.ty));
-                expect_type(errors, actual, p.ty, 'argument to "${fn_el.name}"', span, ctx.library.type_defs);
+                // Receiver generics make the parameter concrete (a method's `T`
+                // becomes the receiver's element); for a free function `bindings`
+                // is empty and this is a no-op.
+                let pty = substitute(p.ty, bindings);
+                let actual = infer_expr(arg.value, scope, ctx, Option.Some(pty));
+                expect_type(errors, actual, pty, 'argument to "${fn_el.name}"', span, ctx.library.type_defs);
             },
             None => {},
         }
         i = i + 1;
     }
 
-    check_bounds(errors, fn_el, params, args, span, scope, ctx);
+    check_bounds(errors, fn_el, params, bindings, args, span, scope, ctx);
 }
 
 // Enforce generic bounds at a call site: infer each type parameter's binding
 // from the arguments, then check each bound type argument satisfies every
 // declared interface bound (`fn f<T: Display>(x: T)` rejects `f(5)`).
 fn check_bounds(_ errors: List<CheckError>, _ fn_el: FunctionElement,
-    _ params: List<ParameterElement>, _ args: List<CallArg>, _ span: SourceSpan,
+    _ params: List<ParameterElement>, _ recv_bindings: Map<String, Type>,
+    _ args: List<CallArg>, _ span: SourceSpan,
     _ scope: Map<String, Type>, _ ctx: InferCtx) -> Void {
     if fn_el.type_parameter_bounds.len() == 0 {
         return;
@@ -708,8 +723,10 @@ fn check_bounds(_ errors: List<CheckError>, _ fn_el: FunctionElement,
         };
         match param {
             Some(p) => {
+                // Make receiver generics concrete first, so unification recovers
+                // only the callee's *own* type parameters (those carrying bounds).
                 let actual = infer_expr(args[i].value, scope, ctx, Option.None);
-                unify(p.ty, actual, bindings);
+                unify(substitute(p.ty, recv_bindings), actual, bindings);
             },
             None => {},
         }

@@ -1112,6 +1112,38 @@ pub fn method_resolves(_ recv: Type, _ field: String, _ arg_count: Int, _ ctx: I
     }
 }
 
+// A resolved impl method plus the receiver's generic bindings — enough for the
+// checker to validate the call's arguments (substituting the bindings into the
+// method's parameter types makes receiver generics concrete, e.g. `push`'s `T`
+// becomes `Int` on a `List<Int>`).
+pub type MethodResolution = {
+    method: FunctionElement,
+    bindings: Map<String, Type>,
+}
+
+// Resolve a user/native impl method `field` on receiver type `recv`. None when
+// `field` isn't an impl method on a known element (the enum `name()`, a
+// function-valued field, or an unresolved/lenient receiver) — cases the checker
+// leaves un-arg-checked, mirroring `method_resolves`' conservatism.
+pub fn resolve_method(_ recv: Type, _ field: String, _ ctx: InferCtx) -> Option<MethodResolution> {
+    match type_def_for(recv, ctx) {
+        Some(element) => {
+            match find_method(element, field) {
+                Some(method) => {
+                    let bindings = match recv {
+                        Interface(rname, rargs) => receiver_bindings(rname, rargs, ctx),
+                        _ => empty_bindings(),
+                    };
+                    return Option.Some(MethodResolution { method: method, bindings: bindings });
+                },
+                None => {},
+            }
+        },
+        None => {},
+    }
+    return Option.None;
+}
+
 fn is_enum_type(_ ty: Type, _ ctx: InferCtx) -> Bool {
     return match ty {
         Interface(name, _) => match ctx.library.type_defs.get(name) {

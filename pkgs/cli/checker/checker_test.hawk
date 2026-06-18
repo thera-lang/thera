@@ -249,3 +249,58 @@ fn test_generic_bound_satisfied_by_primitive_is_clean() -> Result<Void, Error> {
     testing.assert_eq(actual: errs.len(), expected: 0)?;
     return Result.Ok(void);
 }
+
+// ---- method-call argument checking ----
+
+@test
+fn test_method_arg_type_mismatch() -> Result<Void, Error> {
+    let errs = errors_of('type Counter = { n: Int }\n'
+        + 'impl Counter { fn bump(self, _ by: Int) -> Int { return self.n + by; } }\n'
+        + 'fn f() -> Int { let c = Counter { n: 0 }; return c.bump(\'x\'); }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs),
+        expected: 'argument to "bump": expected Int, found String')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_method_arg_valid_is_clean() -> Result<Void, Error> {
+    let errs = errors_of('type Counter = { n: Int }\n'
+        + 'impl Counter { fn bump(self, _ by: Int) -> Int { return self.n + by; } }\n'
+        + 'fn f() -> Int { let c = Counter { n: 0 }; return c.bump(5); }');
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_method_wrong_arity() -> Result<Void, Error> {
+    let errs = errors_of('type Counter = { n: Int }\n'
+        + 'impl Counter { fn bump(self, _ by: Int) -> Int { return self.n + by; } }\n'
+        + 'fn f() -> Int { let c = Counter { n: 0 }; return c.bump(1, 2); }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs),
+        expected: '"bump" expects 1 argument, got 2')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_generic_method_arg_substitutes_receiver() -> Result<Void, Error> {
+    // `put`'s parameter is the receiver's `T`; on a `Box<Int>` a `String`
+    // argument is a mismatch (receiver generics are made concrete first).
+    let errs = errors_of('type Box<T> = { value: T }\n'
+        + 'impl Box<T> { fn put(self, _ v: T) -> T { return v; } }\n'
+        + 'fn f() -> Int { let b = Box { value: 1 }; return b.put(\'x\'); }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs),
+        expected: 'argument to "put": expected Int, found String')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_generic_method_arg_matching_is_clean() -> Result<Void, Error> {
+    let errs = errors_of('type Box<T> = { value: T }\n'
+        + 'impl Box<T> { fn put(self, _ v: T) -> T { return v; } }\n'
+        + 'fn f() -> Int { let b = Box { value: 1 }; return b.put(7); }');
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    return Result.Ok(void);
+}
