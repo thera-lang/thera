@@ -83,7 +83,7 @@ pub fn infer_expr(_ expr: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx,
         MapLit(_, entries) => infer_map(entries, scope, ctx),
         Struct(x) => infer_struct(x, scope, ctx),
         Ident(_, name) => infer_ident(name, scope, ctx),
-        Call(x) => infer_call(x, scope, ctx),
+        Call(x) => infer_call(x, scope, ctx, expected),
         Field(_, object, field) => infer_field(object, field, scope, ctx),
         Index(_, object, _) => index_result(infer_expr(object, scope, ctx, Option.None)),
         Binary(_, left, op, right) => infer_binary(left, op, right, scope, ctx),
@@ -550,7 +550,8 @@ fn has_unknown_component(_ t: Type) -> Bool {
 
 // --- calls ---
 
-fn infer_call(_ x: CallExpr, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
+fn infer_call(_ x: CallExpr, _ scope: Map<String, Type>, _ ctx: InferCtx,
+    _ expected: Option<Type>) -> Type {
     let callee = x.callee;
     let args = x.args;
     // Bidirectional: when the callee's parameter types are known, infer each
@@ -569,7 +570,7 @@ fn infer_call(_ x: CallExpr, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Typ
     }
 
     match callee {
-        Ident(_, name) => { return infer_call_ident(name, arg_types, scope, ctx); },
+        Ident(_, name) => { return infer_call_ident(name, arg_types, x.type_args, expected, scope, ctx); },
         Field(_, obj, field) => { return infer_call_field(obj, field, arg_types, scope, ctx); },
         _ => {},
     }
@@ -583,8 +584,8 @@ fn infer_call(_ x: CallExpr, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Typ
     };
 }
 
-fn infer_call_ident(_ name: String, _ arg_types: List<Type>,
-    _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
+fn infer_call_ident(_ name: String, _ arg_types: List<Type>, _ type_args: List<TypeRef>,
+    _ expected: Option<Type>, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
     // A function-typed local/parameter called directly: `f(x)`.
     match scope.get(name) {
         Some(local) => {
@@ -596,7 +597,7 @@ fn infer_call_ident(_ name: String, _ arg_types: List<Type>,
         None => {},
     }
     match function_for(ctx.library, ctx.current_file, name) {
-        Some(fn_el) => { return instantiate_return(fn_el, arg_types); },
+        Some(fn_el) => { return instantiate_return_ctx(fn_el, type_args, arg_types, expected, ctx); },
         None => {},
     }
     return Type.Unknown;
@@ -945,6 +946,64 @@ fn instantiate_return(_ fn_el: FunctionElement, _ arg_types: List<Type>) -> Type
         i = i + 1;
     }
     return substitute(fn_el.return_type, bindings);
+}
+
+// Bind a generic callee's type parameters from (in priority order) explicit type
+// arguments, the argument types, then the expected (return) type — the last lets
+// a `T` that appears only in the return be recovered from the call's context (a
+// binding annotation, the enclosing return type, a surrounding argument). `unify`
+// only fills an as-yet-unbound parameter, so the priority order holds.
+pub fn call_bindings(_ fn_el: FunctionElement, _ type_args: List<TypeRef>,
+    _ arg_types: List<Type>, _ expected: Option<Type>, _ ctx: InferCtx) -> Map<String, Type> {
+    let bindings: Map<String, Type> = {};
+    let tps = fn_el.type_parameters;
+    let mut t = 0;
+    while t < type_args.len() && t < tps.len() {
+        bindings[tps[t]] = resolve_type_ref(type_args[t], ctx.library.type_defs, ctx.type_params, ctx.self_type);
+        t = t + 1;
+    }
+    let positional = non_self_params(fn_el.parameters);
+    let mut i = 0;
+    while i < arg_types.len() && i < positional.len() {
+        unify(positional[i].ty, arg_types[i], bindings);
+        i = i + 1;
+    }
+    match expected {
+        Some(e) => { unify(fn_el.return_type, e, bindings); },
+        None => {},
+    }
+    return bindings;
+}
+
+// As `instantiate_return`, but context-aware: instantiates from explicit type
+// arguments and the expected type as well as the argument types.
+fn instantiate_return_ctx(_ fn_el: FunctionElement, _ type_args: List<TypeRef>,
+    _ arg_types: List<Type>, _ expected: Option<Type>, _ ctx: InferCtx) -> Type {
+    return substitute(fn_el.return_type, call_bindings(fn_el, type_args, arg_types, expected, ctx));
+}
+
+// Whether `name` (a type parameter) occurs anywhere in `ty`.
+pub fn type_mentions_param(_ ty: Type, _ name: String) -> Bool {
+    return match ty {
+        TypeParameter(n) => n == name,
+        Interface(_, args) => {
+            for a in args {
+                if type_mentions_param(a, name) {
+                    return true;
+                }
+            }
+            false
+        },
+        Function(params, ret) => {
+            for p in params {
+                if type_mentions_param(p, name) {
+                    return true;
+                }
+            }
+            type_mentions_param(ret, name)
+        },
+        _ => false,
+    };
 }
 
 // Result of `object[index]`: a `List<T>`'s element, a `Map<K, V>`'s value.

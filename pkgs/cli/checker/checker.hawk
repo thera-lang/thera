@@ -456,7 +456,10 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
             match x.callee {
                 Ident(_, name) => {
                     match function_for(ctx.library, ctx.current_file, name) {
-                        Some(fn_el) => { check_call_args(errors, fn_el, {}, x.args, x.span, scope, ctx); },
+                        Some(fn_el) => {
+                            check_call_args(errors, fn_el, {}, x.args, x.span, scope, ctx);
+                            check_inferable_type_args(errors, fn_el, x, expected, scope, ctx);
+                        },
                         None => {},
                     }
                 },
@@ -793,6 +796,43 @@ fn check_bounds(_ errors: List<CheckError>, _ fn_el: FunctionElement,
                 }
             },
             None => {}, // unconstrained here — nothing to check
+        }
+    }
+}
+
+// Diagnose a generic call whose type can't be inferred: a callee type parameter
+// that appears in the *return* type but isn't pinned by an explicit type
+// argument, an argument, or the expected type. That `T` only shows up in the
+// result, so without context it stays an undetermined hole — ask for an
+// annotation rather than letting it propagate silently (the analogue of the
+// lambda-parameter "cannot infer" diagnostic). A parameter that appears in a
+// parameter position is bound by its argument and so never reported here.
+fn check_inferable_type_args(_ errors: List<CheckError>, _ fn_el: FunctionElement,
+    _ call: CallExpr, _ expected: Option<Type>, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Void {
+    if fn_el.type_parameters.len() == 0 {
+        return;
+    }
+    // Infer the arguments bidirectionally (as the call itself does), so a lambda
+    // argument takes its parameter types from the callee's signature and pins the
+    // type parameters it determines — otherwise a `(x) => …` would type as
+    // `(Unknown) -> Unknown` and leave its result parameter spuriously unbound.
+    let expected_params = expected_arg_types(call.callee, call.args, scope, ctx);
+    let arg_types: List<Type> = [];
+    let mut a = 0;
+    while a < call.args.len() {
+        let exp = match expected_params {
+            Some(eps) => if a < eps.len() { Option.Some(eps[a]) } else { Option.None },
+            None => Option.None,
+        };
+        arg_types.push(infer_expr(call.args[a].value, scope, ctx, exp));
+        a = a + 1;
+    }
+    let bindings = call_bindings(fn_el, call.type_args, arg_types, expected, ctx);
+    for tp in fn_el.type_parameters {
+        if !bindings.has(tp) && type_mentions_param(fn_el.return_type, tp) {
+            add_error(errors,
+                'cannot infer type argument `${tp}` for "${fn_el.name}"; add a type annotation (e.g. `let x: ... = ...`) or type arguments (`${fn_el.name}<...>(...)`)',
+                call.span);
         }
     }
 }

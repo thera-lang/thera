@@ -366,3 +366,62 @@ fn test_match_return_arm_is_exempt() -> Result<Void, Error> {
     testing.assert_eq(actual: errs.len(), expected: 0)?;
     return Result.Ok(void);
 }
+
+// ---- return-context-only generic inference ----
+
+@test
+fn test_generic_call_unpinnable_is_diagnosed() -> Result<Void, Error> {
+    // `T` appears only in `mk`'s return; with no annotation, type argument, or
+    // surrounding context it can't be inferred — a located "annotate" error.
+    let errs = errors_of('fn mk<T>() -> List<T> { return []; }\n'
+        + 'fn f() { let v = mk(); }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert(first_message(errs).contains('cannot infer type argument `T` for "mk"'),
+        message: 'names the uninferable parameter')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_generic_call_pinned_by_annotation_is_clean() -> Result<Void, Error> {
+    let errs = errors_of('fn mk<T>() -> List<T> { return []; }\n'
+        + 'fn f() { let v: List<Int> = mk(); }');
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_generic_call_pinned_by_type_args_is_clean() -> Result<Void, Error> {
+    let errs = errors_of('fn mk<T>() -> List<T> { return []; }\n'
+        + 'fn f() { let v = mk<Int>(); }');
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_generic_call_pinned_by_return_context_is_clean() -> Result<Void, Error> {
+    // The enclosing function's return type flows in as the expected type and pins T.
+    let errs = errors_of('fn mk<T>() -> List<T> { return []; }\n'
+        + 'fn g() -> List<Int> { return mk(); }');
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_generic_call_pinned_by_argument_is_clean() -> Result<Void, Error> {
+    // `T` also appears in a parameter, so the argument pins it — never reported.
+    let errs = errors_of('fn id<T>(_ x: T) -> T { return x; }\n'
+        + 'fn f() { let v = id(5); }');
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_generic_call_pinned_by_surrounding_argument_is_clean() -> Result<Void, Error> {
+    // Passed where a `List<Int>` is expected: the argument context pins T. (The
+    // callee body avoids prelude methods, which don't resolve in this harness.)
+    let errs = errors_of('fn mk<T>() -> List<T> { return []; }\n'
+        + 'fn take(_ xs: List<Int>) -> Int { return 0; }\n'
+        + 'fn f() -> Int { return take(mk()); }');
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    return Result.Ok(void);
+}

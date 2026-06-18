@@ -257,9 +257,18 @@ gaps, by where they live:
     `Unknown`/`TypeParameter`, so it never false-fires on the method's own
     unbound generics (`map`'s `U`) or an imperfectly-inferred receiver — the whole
     stdlib + self-hosted front-end check clean.
-  - **Generic call fixed only by return context.** `let v = mk();` where
-    `mk<T>() -> List<T>` leaves `T` unbound with no annotation/use to pin it —
-    should be a clear "annotate" error, not `Unknown`.
+  - ~~**Generic call fixed only by return context.**~~ _Done._ A generic call's
+    type parameters are now bound from explicit type arguments (`mk<Int>()`), the
+    arguments, **and the expected type** (the binding annotation, the enclosing
+    return type, a surrounding argument position) — `call_bindings` in
+    `element/inference.hawk`. A callee type parameter that appears only in the
+    *return* type and stays unbound after all three is the first real
+    "annotate here" diagnostic: _"cannot infer type argument `T` for "mk"; add a
+    type annotation … or type arguments (`mk<…>(…)`)"_ — the analogue of the
+    lambda-parameter one. Scoped to bare `Ident` free-function calls for now;
+    namespace functions (`fiber.channel()`) and static methods (`Set.new()`) are
+    always annotated in the corpus today, so extending the diagnostic to them is
+    a safe follow-up (it needs the checker to arg-check those call forms first).
   - **`Unknown` propagates permissively.** An `Unknown` value is still accepted
     anywhere it appears, so a genuine "couldn't infer" can slip through silently
     (e.g. a binding nothing pins, passed on untyped). `Unknown` should be a typed
