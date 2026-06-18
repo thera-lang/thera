@@ -265,9 +265,14 @@ gaps, by where they live:
     (e.g. a binding nothing pins, passed on untyped). `Unknown` should be a typed
     _hole_ flagged at its origin, not a wildcard. (Forward-flow + method-arg
     checking now catch the once-canonical `xs.push("a"); xs.push(1)` case.)
-  - **`match`-arm types not unified.** `match c { … => 1, … => "x" }` takes the
-    first arm's type and never flags the inconsistent one; arms should unify, and
-    a genuine disagreement be an error.
+  - ~~**`match`-arm types not unified.**~~ _Done._ `check_match` folds each arm's
+    type into a running reference (the `expected` type when the match is in an
+    annotated context, else the first value-producing arm) and flags an arm
+    assignable to neither it nor itself — `match c { … => 1, … => "x" }` now
+    errors on the second arm, and a wrong *later* arm is caught even when the
+    first matches (the old first-arm-wins inference missed it). Value-less arms
+    (a `Unit` block, or `Unknown` from a bare `return`/`throw`) are exempt, so a
+    side-effecting or partial match still checks.
 
   The through-line: the checker is currently _conservative on `Unknown`_ (never
   errors on one), trading a confusing late failure for a clear early one.
@@ -423,9 +428,9 @@ the old Dart byte oracle. What's left to round out the front-end:
   **arguments** — arity/labels/types with receiver-generic substitution —
   conservative on unknown receivers). Remaining: field access on a non-struct
   concrete value (`5.x`) still slips to codegen; and the remaining
-  inference-completeness work (`Unknown`-as-a-diagnosed-hole, `match`-arm
-  unification, return-context-only generics) — forward-flow for
-  `Option.None`/empty-literal locals is now done — see "Type inference — the
+  inference-completeness work (`Unknown`-as-a-diagnosed-hole, return-context-only
+  generics) — forward-flow for `Option.None`/empty-literal locals, method-argument
+  checking, and `match`-arm unification are now done — see "Type inference — the
   model & remaining gaps" above.
 - **LSP v2 toward an incremental engine** — inference-at-offset
   (hover/definition on locals, expressions, members), overlay-aware imports

@@ -549,13 +549,7 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
             }
         },
         Match(x) => {
-            check_expr(errors, x.subject, scope, ctx, Option.None);
-            let subject_type = infer_expr(x.subject, scope, ctx, Option.None);
-            for arm in x.arms {
-                let arm_scope = copy_scope(scope);
-                bind_match_pattern(arm.pattern, subject_type, arm_scope, ctx);
-                check_expr(errors, arm.body, arm_scope, ctx, Option.None);
-            }
+            check_match(errors, x, scope, ctx, expected);
         },
         Lambda(x) => {
             check_lambda(errors, x, scope, ctx, expected);
@@ -634,6 +628,56 @@ fn check_lambda(_ errors: List<CheckError>, _ x: LambdaExpr, _ scope: Map<String
     let lambda_return = lambda_body_type(x.body, lambda_scope, ctx, expected_function_return(expected));
     let body_ctx = with_return_type(ctx, lambda_return);
     check_expr(errors, x.body, lambda_scope, body_ctx, expected_function_return(expected));
+}
+
+// Check a `match`, including arm-type agreement: every arm that produces a value
+// must produce the same type as the others (or the `expected` type when the match
+// is in an annotated context). Arms with no value type — a `Unit` block or an
+// `Unknown` body like a bare `return`/`throw` — are exempt, so a side-effecting
+// match still checks. The reference type is `expected` when known, else the first
+// value-producing arm; a later arm assignable to neither it nor itself is flagged.
+fn check_match(_ errors: List<CheckError>, _ x: MatchExpr, _ scope: Map<String, Type>,
+    _ ctx: InferCtx, _ expected: Option<Type>) -> Void {
+    check_expr(errors, x.subject, scope, ctx, Option.None);
+    let subject_type = infer_expr(x.subject, scope, ctx, Option.None);
+    let mut reference: Type = match expected {
+        Some(e) => e,
+        None => Type.Unknown,
+    };
+    for arm in x.arms {
+        let arm_scope = copy_scope(scope);
+        bind_match_pattern(arm.pattern, subject_type, arm_scope, ctx);
+        check_expr(errors, arm.body, arm_scope, ctx, expected);
+        let arm_type = infer_expr(arm.body, arm_scope, ctx, expected);
+        reference = unify_arm(errors, reference, arm_type, arm.body, ctx);
+    }
+}
+
+// Fold one arm's type into the running match type, flagging an incompatibility.
+// A value-less arm (`Unit` block, or `Unknown` from a bare `return`/`throw`) is
+// exempt and leaves the reference unchanged; the first value-producing arm (or
+// the `expected` type) sets the reference every later value arm must match.
+fn unify_arm(_ errors: List<CheckError>, _ reference: Type, _ arm_type: Type,
+    _ body: Expr, _ ctx: InferCtx) -> Type {
+    if !produces_value(arm_type) {
+        return reference;
+    }
+    match reference {
+        Unknown => { return arm_type; },
+        _ => {},
+    }
+    if !arms_compatible(arm_type, reference, ctx.library.type_defs) {
+        add_error(errors,
+            'match arms have incompatible types: expected ${type_to_string(reference)}, found ${type_to_string(arm_type)}',
+            expr_span(body));
+    }
+    return reference;
+}
+
+// Whether two value-producing arm types may coexist — assignable in either
+// direction (covering interface subtyping and lenient `Unknown` slots).
+fn arms_compatible(_ a: Type, _ b: Type, _ type_defs: Map<String, TypeDefElement>) -> Bool {
+    return is_assignable(a, b, type_defs) || is_assignable(b, a, type_defs);
 }
 
 // ---- call checking ----

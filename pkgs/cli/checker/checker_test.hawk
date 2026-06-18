@@ -304,3 +304,65 @@ fn test_generic_method_arg_matching_is_clean() -> Result<Void, Error> {
     testing.assert_eq(actual: errs.len(), expected: 0)?;
     return Result.Ok(void);
 }
+
+// ---- match-arm unification ----
+
+@test
+fn test_match_arms_incompatible_value_types() -> Result<Void, Error> {
+    let errs = errors_of('fn f(_ n: Int) -> Int {\n'
+        + '  let x = match n { 0 => \'a\', _ => 1 };\n'
+        + '  return n;\n'
+        + '}');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs),
+        expected: 'match arms have incompatible types: expected String, found Int')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_match_arms_consistent_is_clean() -> Result<Void, Error> {
+    let errs = errors_of('fn f(_ n: Int) -> Int {\n'
+        + '  let x = match n { 0 => 10, _ => 20 };\n'
+        + '  return x;\n'
+        + '}');
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_match_later_arm_violates_expected_type() -> Result<Void, Error> {
+    // Under an annotated context (the function's return type), a wrong *later*
+    // arm is caught even though the first arm matches — the old whole-match
+    // inference (first arm wins) missed this.
+    let errs = errors_of('fn f(_ n: Int) -> String {\n'
+        + '  return match n { 0 => \'zero\', _ => 1 };\n'
+        + '}');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs),
+        expected: 'match arms have incompatible types: expected String, found Int')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_match_unit_arm_is_exempt() -> Result<Void, Error> {
+    // A value-less arm (an empty block → Unit) doesn't conflict with a value arm,
+    // so a side-effecting/partial match still checks.
+    let errs = errors_of('fn f(_ n: Int) -> Int {\n'
+        + '  let x = match n { 0 => 1, _ => {} };\n'
+        + '  return n;\n'
+        + '}');
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_match_return_arm_is_exempt() -> Result<Void, Error> {
+    // An arm that is a bare `return` is `Unknown`-typed and exempt from
+    // unification (it diverges rather than producing the match's value).
+    let errs = errors_of('fn f(_ n: Int) -> Int {\n'
+        + '  let x = match n { 0 => 1, _ => return 0 };\n'
+        + '  return x;\n'
+        + '}');
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    return Result.Ok(void);
+}
