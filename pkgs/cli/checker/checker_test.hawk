@@ -464,3 +464,27 @@ fn test_static_method_generic_pinned_by_annotation_is_clean() -> Result<Void, Er
     testing.assert_eq(actual: errs.len(), expected: 0)?;
     return Result.Ok(void);
 }
+
+// ---- assignment target supplies the expected type ----
+
+@test
+fn test_reassignment_target_pins_generic() -> Result<Void, Error> {
+    // `b`'s declared type is the expected type for the RHS, so the unannotated
+    // `Box.make()` is pinned — not flagged as an uninferable generic.
+    let errs = errors_of('type Box<T> = { value: T }\n'
+        + 'impl Box<T> { fn make() -> Box<T> { return Box { value: 0 }; } }\n'
+        + 'fn f() { let mut b: Box<Int> = Box.make(); b = Box.make(); }');
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_index_assignment_target_pins_generic() -> Result<Void, Error> {
+    // The map's value type (`Box<Int>`) is the expected type for `m[k] = ...`,
+    // pinning the constructor's parameter (the module_scope.hawk:245 shape).
+    let errs = errors_of('type Box<T> = { value: T }\n'
+        + 'impl Box<T> { fn make() -> Box<T> { return Box { value: 0 }; } }\n'
+        + 'fn f() { let m: Map<String, Box<Int>> = {}; m[\'a\'] = Box.make(); }');
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    return Result.Ok(void);
+}

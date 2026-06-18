@@ -260,7 +260,9 @@ gaps, by where they live:
   - ~~**Generic call fixed only by return context.**~~ _Done._ A generic call's
     type parameters are now bound from explicit type arguments (`mk<Int>()`), the
     arguments, **and the expected type** (the binding annotation, the enclosing
-    return type, a surrounding argument position) — `call_bindings` in
+    return type, a surrounding argument position, or an **assignment target** —
+    `s = Set.new()`, `m[k] = Set.new()`, `obj.field = …` thread the target's type
+    in) — `call_bindings` in
     `element/inference.hawk`. A callee type parameter that appears only in the
     *return* type and stays unbound after all three is the first real
     "annotate here" diagnostic: _"cannot infer type argument `T` for "mk"; add a
@@ -445,6 +447,21 @@ the old Dart byte oracle. What's left to round out the front-end:
   unification, and return-context generic inference (with the unpinnable-`T`
   diagnostic across all call forms) are now done — see "Type inference — the
   model & remaining gaps" above.
+- **Static-method type arguments — an expressiveness gap.** There is no
+  expression-level syntax to construct a generic type whose parameter isn't
+  otherwise inferable. `Set<String>.new()` doesn't parse ("expected `(` after
+  type argument list"), and `Set.new<String>()` parses but binds `<String>` to
+  `new`'s _own_ (empty) type parameters, not the owner `Set<T>`'s `T`, so it
+  doesn't pin the type either. The only working form today is a type-annotated
+  binding (`let s: Set<String> = Set.new()`), which forces an extra local when
+  the construction is an argument or assignment RHS. Consider supporting
+  `Set<String>.new()` — type arguments on the **receiver type** of a static call
+  — as the natural way to say "construct a `Set<String>`". Surfaced by the
+  "cannot infer type argument" diagnostic, whose own hint (`new<...>()`) is the
+  non-working form for a static method; until/unless `Set<String>.new()` lands,
+  that diagnostic shouldn't suggest type arguments for a static method (the
+  annotation is the real fix). Most ordinary cases are now covered by
+  assignment-/argument-context inference, so this is a corner, not a blocker.
 - **Parser/codegen bug — trailing `;` after a block-`if`/`match` corrupts a
   module (near-term).** A trailing `;` on a block-form statement whose body ends
   in a nested block — e.g. `if cond { … match … { } };` as the **last statement

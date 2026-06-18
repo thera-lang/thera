@@ -393,7 +393,14 @@ fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ stmts: List<Stmt>, _ i
         },
         Assign(_, target, value) => {
             check_expr(errors, target, scope, ctx, Option.None);
-            check_expr(errors, value, scope, ctx, Option.None);
+            // The assignment target's type is the expected type for the value, so
+            // a generic constructor on the RHS (`s = Set.new()`, `m[k] = Set.new()`,
+            // `obj.field = ...`) takes its type parameters from the target rather
+            // than being flagged as uninferable. `infer_expr` of an lvalue yields
+            // exactly that type — a local's, a list element's / map value's, or a
+            // struct field's.
+            let target_type = infer_expr(target, scope, ctx, Option.None);
+            check_expr(errors, value, scope, ctx, Option.Some(target_type));
         },
         Expr(_, e) => {
             check_expr(errors, e, scope, ctx, Option.None);
