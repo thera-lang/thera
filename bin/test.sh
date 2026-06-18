@@ -23,6 +23,21 @@ echo "==> hawk test pkgs/cli (front-end)"
 echo "==> hawk test sdk/std (stdlib)"
 "$HAWK" test sdk/std || fail=1
 
+echo "==> lsp transport (end-to-end over a pipe)"
+# Drive the real `hawk lsp` process through stdin/stdout the way an editor does:
+# a single Content-Length-framed `initialize`, then EOF (the server exits). This
+# exercises the actual stdout transport — the in-process server @tests use a
+# StringWriter and so can't catch a framing/flushing regression (e.g. the
+# line-buffered-stdout bug where only the header reached the client). The body
+# carries "capabilities", so finding it proves the full message arrived.
+lsp_body='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{}}}'
+lsp_out="$(printf 'Content-Length: %d\r\n\r\n%s' "${#lsp_body}" "$lsp_body" | "$HAWK" lsp 2>/dev/null)"
+if printf '%s' "$lsp_out" | grep -q '"capabilities"'; then
+  echo "  ok   initialize handshake returns capabilities"
+else
+  echo "  FAIL lsp initialize: no framed response body received"; fail=1
+fi
+
 echo "==> examples"
 # Pin the output of a few representative examples (the rest must just run).
 check_out() {

@@ -432,10 +432,28 @@ the old Dart byte oracle. What's left to round out the front-end:
   generics) — forward-flow for `Option.None`/empty-literal locals, method-argument
   checking, and `match`-arm unification are now done — see "Type inference — the
   model & remaining gaps" above.
+- **Parser/codegen bug — trailing `;` after a block-`if`/`match` corrupts a
+  module (near-term).** A trailing `;` on a block-form statement whose body ends
+  in a nested block — e.g. `if cond { … match … { } };` as the **last statement
+  of a `for`-loop body** — miscompiles: the enclosing source file's exported
+  declarations silently fail to register, surfacing as bogus errors in
+  *importing* files (`unknown function: <name>`, `field access on non-struct
+  value`) rather than at the `;`. Hit while writing `check_match`; worked around
+  by dropping the redundant `;` (block statements don't need one) and flattening
+  the nesting into a helper. Both front-ends (current + the bootstrap snapshot)
+  fail identically, so it's not snapshot drift — it's a real parser or codegen
+  defect. To fix: build the minimal repro (`fn` with `for { if c { match x {} }
+  ; }` plus an importer), find where the trailing `;` derails declaration
+  registration (suspect the statement/tail boundary in the parser, or block
+  codegen dropping the file's symbol table), and add a parser test. Until then,
+  prefer no trailing `;` on block-form `if`/`for`/`while`/`match` statements.
 - **LSP v2 toward an incremental engine** — inference-at-offset
   (hover/definition on locals, expressions, members), overlay-aware imports
   (honor unsaved edits), and memoizing the import-closure load so analysis isn't
-  redone per keystroke (see the incremental note above).
+  redone per keystroke (see the incremental note above). _Transport now has an
+  end-to-end smoke test (`bin/test.sh`) after a line-buffered-stdout bug let only
+  the header of each message reach the client; the in-process server `@test`s use
+  a `StringWriter` and couldn't catch it._
 
 ## Planned sequence
 

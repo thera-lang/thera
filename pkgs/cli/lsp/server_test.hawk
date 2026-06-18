@@ -174,3 +174,68 @@ fn test_shutdown_responds_null() -> Result<Void, Error> {
         message: 'null result')?;
     return Result.Ok(void);
 }
+
+// Handle one message on an existing server (preserving its document state) and
+// return everything it wrote — for multi-message flows (open, then edit/close).
+fn capture(_ server: Server, _ body: String) -> String {
+    let out = io.StringWriter.new();
+    server.handle(out, body);
+    return match out.into_string() {
+        Ok(s) => s,
+        Err(_) => '',
+    };
+}
+
+@test
+fn test_did_change_republishes_diagnostics() -> Result<Void, Error> {
+    // Open a clean document, then edit it (full-sync `didChange`) to introduce an
+    // error; the server must re-check and publish the new diagnostic.
+    let server = new_server(Option.None);
+    let _opened = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"file:///e.hawk","text":"fn add(_ a: Int, _ b: Int) -> Int { return a + b; }"}}}');
+    let out = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didChange","params":'
+        + '{"textDocument":{"uri":"file:///e.hawk"},'
+        + '"contentChanges":[{"text":"fn f() -> Int { return missing; }"}]}}');
+    testing.assert(out.contains('textDocument/publishDiagnostics'), message: 'republishes on edit')?;
+    testing.assert(out.contains('undefined name: missing'), message: 'reflects the new text')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_did_close_removes_document() -> Result<Void, Error> {
+    // After `didClose` the document is forgotten, so a later documentSymbol over
+    // it yields the empty (unknown-document) outline.
+    let server = new_server(Option.None);
+    let _opened = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"file:///g.hawk","text":"fn solo() -> Int { return 1; }"}}}');
+    let _closed = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didClose","params":'
+        + '{"textDocument":{"uri":"file:///g.hawk"}}}');
+    let out = capture(server, '{"jsonrpc":"2.0","id":10,"method":"textDocument/documentSymbol","params":'
+        + '{"textDocument":{"uri":"file:///g.hawk"}}}');
+    testing.assert(out.contains('"result":[]') || out.contains('"result": []'),
+        message: 'closed document has no outline')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_exit_stops_the_serve_loop() -> Result<Void, Error> {
+    // The `exit` notification returns false, which is how `serve` leaves its loop.
+    let server = new_server(Option.None);
+    let out = io.StringWriter.new();
+    let keep_going = server.handle(out, '{"jsonrpc":"2.0","method":"exit"}');
+    testing.assert(!keep_going, message: 'exit stops serving')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_unknown_request_gets_null_reply() -> Result<Void, Error> {
+    // An unhandled *request* (has an id) still gets a reply, so the client never
+    // hangs waiting; a notification (no id) is silently dropped.
+    let out = handled('{"jsonrpc":"2.0","id":11,"method":"textDocument/completion","params":{}}');
+    testing.assert(out.contains('"id":11') || out.contains('"id": 11'), message: 'echoes the id')?;
+    testing.assert(out.contains('"result":null') || out.contains('"result": null'),
+        message: 'replies with null result')?;
+    let dropped = handled('{"jsonrpc":"2.0","method":"textDocument/somethingNew","params":{}}');
+    testing.assert_eq(actual: dropped, expected: '')?;
+    return Result.Ok(void);
+}

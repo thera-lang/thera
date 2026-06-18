@@ -669,10 +669,13 @@ fn native_io_stdin_read(_out: &mut dyn Write, args: &[Value]) -> Result<Value, T
 }
 
 /// `io.stdout().write(data)` — write all of `data` to the program's output.
-/// Returns the number of bytes written, or `Err(message)`.
+/// Returns the number of bytes written, or `Err(message)`. Flushes after the
+/// write: the runtime's stdout is line-buffered, so an explicit binary write
+/// (e.g. an LSP `Content-Length`-framed message, whose JSON body has no trailing
+/// newline) would otherwise sit in the buffer and never reach the consumer.
 fn native_io_stdout_write(out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let data = bytes_contents(expect_one(args, "io_stdout_write")?, "io_stdout_write")?;
-    Ok(match out.write_all(&data) {
+    Ok(match out.write_all(&data).and_then(|()| out.flush()) {
         Ok(()) => Value::ok(Value::Int(data.len() as i64)),
         Err(e) => Value::err(Value::new_str(format!("stdout: {e}"))),
     })
