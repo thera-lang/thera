@@ -191,6 +191,41 @@ gaps, by where they live:
   reads; prefer the borrowing accessor and clone only when the closure needs it.
 - Cranelift JIT, untagged value representation, `f64`/large-int constant-pool
   entries — performance/compaction, not correctness-blocking.
+- **Profiling Hawk code — planned, staged.** OS-level samplers (`perf`,
+  Instruments, samply) are nearly blind to an interpreter: every Hawk function is
+  the same `run_loop` native frame, and the Hawk call stack lives in the VM's
+  `Vec<Frame>`. So the runtime grows its own profiler — as CPython
+  (cProfile/py-spy), Ruby (stackprof/rbspy), and Lua do. The primary audience is
+  **coding agents**, which shifts the design toward _deterministic, function-level,
+  flat text_ over flame-graph SVGs and line-level precision. Staging:
+  1. **`hawk run --profile` — in-VM, no `.hawkbc` change.** Exact per-function
+     **call counts** and per-call-site **allocation counts**, plus a self-time
+     distribution from **instruction-budget sampling** — snapshot the frame stack
+     every K bytecode instructions at the **GC safepoint already at the top of
+     `run_loop`**. That's deterministic and cross-platform (no wall-clock signals),
+     so runs are _reproducible_ — what an agent's before/after comparison needs. A
+     frame already knows its function, so v1 needs nothing new in the bytecode.
+     Output is a flat table sorted by cost (`function | calls | self% | total% |
+     allocs`) an agent reads directly. Counts alone miss "few calls, each slow," so
+     the sampler ships in v1 too, not just counters.
+  2. **Line attribution — enhancement.** Add a bytecode→source-line table to
+     `.hawkbc` (debug info) so a sample/counter resolves to a Hawk line, for
+     micro-optimization and human flame graphs. Demoted from a v1 prerequisite once
+     we accepted that function-level is enough for _algorithmic_ issues (the target
+     use case). The same debug info gives traps a source location and feeds the
+     test-failure / stack-trace needs (see the `hawk test` polish note below).
+  3. **OS-profiler integration — JIT tier.** Once the Cranelift JIT lands, JITed
+     Hawk functions are real native frames; emit the standard symbol info — Linux
+     `perf`'s `/tmp/perf-<pid>.map` (addresses) or `jitdump` (`perf inject --jit`,
+     line-level) — so `perf`/samply/Instruments resolve hot Hawk frames natively
+     (the trick V8/JVM/.NET use). This is the deep-dive view (time in natives,
+     syscalls, GC, the machine code itself); #1 stays the portable, always-on view
+     that works across both the interpreter and JIT tiers. #1 and #3 are
+     complementary, not a choice.
+
+  (Profiling the _runtime itself_ — the Rust interpreter/natives — is separate and
+  already covered by `cargo` + samply/Instruments and the `[profile.profiling]` /
+  `native-stats` setup.)
 
 **Front-end (codegen):**
 
@@ -335,9 +370,20 @@ extends `Display`, so `'${e}'` works too — see [language.md](language.md),
 "Interface inheritance").
 
 Remaining polish (not blockers): per-test **source locations** on failure (the
-runner reports the test name, not the failing assertion's line — needs spans
-plumbed through `throw`); a richer structural `debug` (struct field / enum
-variant names); and a machine-readable output mode.
+runner reports the test name, not the failing assertion's line). Two routes,
+likely the second. (a) Plumb spans through `throw`. (b) Since Hawk has **no
+exceptions** — errors are values, so there's no stack to unwind, and test
+failures are about the only place a "where did this happen" location is wanted —
+add **caller-location metaconstants** (`__FILE__` / `__LINE__`). The clean form
+is a _default parameter value the compiler fills in at the call site_, à la C#'s
+`[CallerLineNumber]` / Rust's `#[track_caller]`: `fn assert_eq<T>(…, file:
+String = __FILE__, line: Int = __LINE__)` lets `std.testing` report the failing
+assertion's location with zero boilerplate at the call site, and needs no
+`.hawkbc` debug info. (Full line-table debug info — see "Profiling Hawk code"
+above — is the heavier alternative, and is what would instead give traps a
+source location or back a future runtime stack trace.) Also remaining: a richer
+structural `debug` (struct field / enum variant names); and a machine-readable
+output mode.
 
 **Type-param bound enforcement — done (the generics arc landed).** Bounds
 (`<T: Display>`, `<T: Eq + Debug>`) are enforced at call sites: the inferred
