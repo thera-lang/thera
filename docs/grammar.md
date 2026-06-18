@@ -3,10 +3,10 @@
 **What this is:** a semi-formal EBNF description of Hawk's concrete syntax — the
 single reference for the keyword set, the operator/precedence table, and the
 shape of every declaration, statement, and expression. It is **descriptive**:
-the hand-written recursive-descent parser (`tool/lib/src/lexer.dart`,
-`tool/lib/src/parser.dart`) is the source of truth, and this doc tracks it. A
-test (`tool/test/grammar_doc_test.dart`) cross-checks the keyword list against
-the lexer so the lexical half can't silently drift.
+the hand-written recursive-descent parser (`pkgs/cli/lexer/`,
+`pkgs/cli/parser/`) is the source of truth, and this doc tracks it. A lexer test
+(`pkgs/cli/lexer/lexer_test.hawk`) cross-checks the keyword list against the
+lexer so the lexical half can't silently drift.
 
 Its second job is to make **parser completeness** legible: the precedence table
 and the [Not yet in the grammar](#not-yet-in-the-grammar) section spell out what

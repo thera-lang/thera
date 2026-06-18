@@ -6,8 +6,9 @@ design behind this plan see [architecture.md](architecture.md).
 ## Current state
 
 **Checkpoint (2026-06).** Foundations are in place: a defined **`.hawkbc`
-bytecode format**, a **bytecode interpreter** (Rust), a **Dart front-end** that
-type-checks and compiles Hawk source to bytecode, and a **growing core stdlib**
+bytecode format**, a **bytecode interpreter** (Rust), a **self-hosted Hawk
+front-end** (`pkgs/cli/`) that type-checks and compiles Hawk source to bytecode,
+and a **growing core stdlib**
 (in Hawk + natives). **Closures**, generics-aware **inference**, a largely
 implemented **visibility/library** model, and **interface dispatch — static on
 concrete types and dynamic (`call.virtual`) for interface-typed values and
@@ -36,11 +37,12 @@ a string constant pool, natives referenced by name). The `hawk` binary runs a
 `.hawkbc` file directly (`hawk [--entry NAME] <file.hawkbc> [args]`), plus an
 `emit-demo` dev helper.
 
-**Dart toolchain (`tool/`)** — lexer, parser, type-checker, LSP, **and a
-bytecode emitter** (`hawk emit <file> <out.hawkbc>`). `hawk run` compiles to
-`.hawkbc` and executes it on the Rust runtime; `hawk test` runs the `@test`
-functions in `*_test.hawk` files. (The original tree-walking interpreter has
-been retired.) The emitter lowers the whole language _core_ to `.hawkbc`:
+**Self-hosted front-end (`pkgs/cli/`, in Hawk)** — lexer, parser, type-checker,
+inference, codegen, LSP, **and a bytecode emitter** (`hawk emit <file>
+<out.hawkbc>`). `hawk run` compiles to `.hawkbc` and executes it on the Rust
+runtime; `hawk test` runs the `@test` functions in `*_test.hawk` files. (It was
+bootstrapped by a Dart toolchain, now removed.) The emitter lowers the whole
+language _core_ to `.hawkbc`:
 functions and recursion, locals and typed arithmetic, control flow
 (`if`/`while`/`for`, short-circuit `&&`/`||`), calls and string interpolation,
 `Result`/`Option` as ordinary library enums (`?`, `throw`, implicit `Ok`,
@@ -50,7 +52,7 @@ table, literals, field get/set), methods (instance + static, including
 interface (`Eq`/`Display`) dispatch on concrete types, and `List`/`Map`
 literals/indexing/iteration. `hawk emit` type-checks before lowering.
 
-The front-end carries a real **type system** (`tool/lib/src/element/`): a
+The front-end carries a real **type system** (`pkgs/cli/element/`): a
 separate resolution stage builds a semantic `Type`/element model over the AST
 and a synthesizing inference pass annotates every expression with its resolved
 type (seeing _through_ generics — `Option<T>`/`List<T>` elements, method
@@ -70,17 +72,14 @@ The path to a self-hosting `hawk`:
    format/opcodes/native-ABI. This is the bootstrap compiler that will produce
    the first `frontend.hawkbc`. The lowering rules it implements are the
    reference the Hawk-written front-end re-implements.
-3. **Hawk front-end emits `.hawkbc`** — self-hosting; _largely here._ The
-   Hawk-written front-end (`pkgs/cli/`: lexer → parser → resolver → checker →
-   inference → codegen → encoder, plus `check`/`emit`/`run`/`test`/`lsp`)
-   compiles its own sources and the whole stdlib **byte-identically** to the
-   Dart oracle, and `bin/build_sdk.sh` embeds it into the `hawk` binary (the
-   build's fixpoint check confirms the SDK reproduces its own front-end). What
-   remains before Dart can be retired is below (Retiring the Dart toolchain).
-
-The Dart toolchain is still maintained as the **bootstrap compiler** (it emits
-the first `frontend.hawkbc`) and the **per-phase oracle** (byte-identity
-diffing), until the items below are closed.
+3. **Hawk front-end emits `.hawkbc`** — self-hosting; **done.** The Hawk-written
+   front-end (`pkgs/cli/`: lexer → parser → resolver → checker → inference →
+   codegen → encoder, plus `check`/`emit`/`run`/`test`/`lsp`) compiles its own
+   sources and the whole stdlib, and `bin/build_sdk.sh` embeds it into the `hawk`
+   binary, with a fixpoint check that the front-end reproduces itself. The Dart
+   toolchain that bootstrapped this has been **removed**; the build now
+   bootstraps from a checked-in `bootstrap/frontend.hawkbc` snapshot. Remaining
+   front-end work is below.
 
 ## Strategy: walk toward self-hosting, don't run
 
@@ -182,7 +181,7 @@ gaps, by where they live:
   Vec for order + a hash→index table, indexmap-style) used **above a size
   threshold** so small maps stay linear. Constraints: content-based key hashing
   consistent with `values_eq`; preserved insertion order (output is
-  byte-identical to the Dart oracle); and precomputed per-key hashes so a lookup
+  byte-identical, checked by the self-hosting fixpoint); and precomputed per-key hashes so a lookup
   needn't re-enter the heap while holding the map's borrow (the reason mutators
   clone today). The same treatment applies to `Set`.
 - More broadly, **read accessors that clone whole heap objects** are a recurring
@@ -197,7 +196,7 @@ gaps, by where they live:
 
 - ~~**User-defined enums** (multi-variant, `.name()`).~~ (done — codegen-only;
   enums erase at runtime)
-- **Type-inference system (core built; see `tool/lib/src/element/`).** A
+- **Type-inference system (core built; see `pkgs/cli/element/`).** A
   semantic `Type`/element model and a synthesizing inference pass now annotate
   every expression with a resolved type (`Expr.resolvedType`), which codegen
   consumes. This sees _through_ generics (the `T` behind `Option<T>`/`List<T>`,
@@ -333,7 +332,7 @@ design.
 **Index operator (`[]`) overloading — not yet.** `a[i]` (read) and `a[i] = v`
 (write) are hardcoded in codegen to the built-in `List`/`Map` natives by static
 type; any other receiver is a compile error
-(`tool/lib/src/codegen/codegen.dart`, `_indexNative` + the index-assign switch).
+(`pkgs/cli/codegen/codegen.hawk`, `_indexNative` + the index-assign switch).
 Allowing user types to be indexed is a **small–medium, self-contained** change —
 no parser or runtime work (both forms already parse; a user index op is just a
 method call that reuses the existing static/`call.virtual` dispatch). It
@@ -377,10 +376,12 @@ unqualified variant construction (a general "variants of an in-scope enum are
 callable unqualified" rule, or sugar) is deferred until there's feedback that
 the qualified form is onerous.
 
-## Retiring the Dart toolchain
+## Remaining front-end work
 
-The Hawk front-end self-hosts (byte-identical, embedded in the SDK). The Dart
-toolchain (`tool/`) stays as bootstrap + oracle until these close:
+The Hawk front-end self-hosts and the **Dart toolchain has been removed**: the
+build bootstraps from the checked-in `bootstrap/frontend.hawkbc` snapshot (see
+`bootstrap/README.md`), and `bin/test.sh` + the `build_sdk` self-fixpoint replace
+the old Dart byte oracle. What's left to round out the front-end:
 
 - **Per-namespace resolution + `pub`/privacy enforcement — rising priority.**
   Free functions resolve same-file-first with a global fallback, but a `private`
@@ -406,16 +407,13 @@ toolchain (`tool/`) stays as bootstrap + oracle until these close:
 - **Checker predicts codegen — residual gaps.** Field/method validation lands
   (`check` rejects bad field accesses and method calls, conservative on unknown
   receivers). Remaining: field access on a non-struct concrete value (`5.x`)
-  still slips to codegen; backward-flowing inference for
-  `let mut x = Option.None` needs an annotation when only a later assignment
-  pins the element type.
+  still slips to codegen; and the inference-completeness work (forward-flow for
+  `Option.None`/empty-literal locals, `Unknown`-as-a-diagnosed-hole) — see "Type
+  inference — the model & remaining gaps" above.
 - **LSP v2 toward an incremental engine** — inference-at-offset
   (hover/definition on locals, expressions, members), overlay-aware imports
   (honor unsaved edits), and memoizing the import-closure load so analysis isn't
   redone per keystroke (see the incremental note above).
-- **Drop the Dart bootstrap dependency** — check in a `frontend.hawkbc` snapshot
-  so the SDK builds from a _previous SDK_ rather than from Dart; then retire
-  `tool/` once we're confident enough in byte-identity to stop diffing.
 
 ## Planned sequence
 
@@ -431,8 +429,8 @@ toolchain (`tool/`) stays as bootstrap + oracle until these close:
 5. **`hawk test` runner** — _done_: runs `@test` functions in `*_test.hawk`
    files, with per-test pass/fail reporting.
 6. ~~**Walk toward arc 3** — stdlib-in-Hawk, then the Hawk front-end.~~ _done:
-   the front-end self-hosts and ships in the SDK; what's left is under Retiring
-   the Dart toolchain._
+   the front-end self-hosts and ships in the SDK; what's left is under Remaining
+   front-end work._
 
 ## Staged path (runtime, longer view)
 

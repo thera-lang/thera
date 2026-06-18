@@ -13,9 +13,9 @@
 // The runtime now has a precise mark-sweep collector, so this churn runs with a
 // flat, tiny live set: the heap fills to its collection threshold, sweeps the
 // garbage, and repeats. Measure the *runtime's* resident memory in isolation
-// (hawk.sh also runs the Dart front-end, which dwarfs it):
+// (measure the bare runtime in isolation):
 //
-//   dart run tool/bin/hawk.dart emit examples/gc_stress.hawk /tmp/gc.hawkbc
+//   bin/hawk.sh emit examples/gc_stress.hawk /tmp/gc.hawkbc
 //   /usr/bin/time -l runtime/target/release/hawkrt /tmp/gc.hawkbc
 //
 // With BUDGET_MB = 16 this peaks at a few MB resident (bounded by the GC's byte

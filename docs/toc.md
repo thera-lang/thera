@@ -24,6 +24,6 @@ is"; read top-down for progressive detail.
   VM (interpreter → Cranelift JIT), execution pipeline, interface dispatch, GC
   strategy, the native-function ABI, and the embedded front-end.
 - [roadmap.md](roadmap.md) — current **status**, the bootstrap arcs, deferred
-  work, and what remains to retire the Dart toolchain.
+  work, and remaining front-end work.
 
 (A concise orientation for agents lives in the repo-root `CLAUDE.md`.)
