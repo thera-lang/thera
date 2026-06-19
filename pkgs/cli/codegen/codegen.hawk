@@ -35,20 +35,6 @@ pub type CodegenError = {
 pub type CodegenResult = {
     module: Module,
     errors: List<CodegenError>,
-    // Call sites where codegen's callee classification disagrees with the element
-    // model's (`infer_callee_kind`). Empty in a healthy build; a non-empty list
-    // signals the two resolution cascades have drifted. See `method_call`.
-    xchecks: List<XCheckMismatch>,
-}
-
-// A `recv.field(...)` site classified differently by the element model and the
-// codegen backend — a drift between the two resolution paths (see the cross-check
-// in `method_call` and `infer_callee_kind` in element/inference.hawk).
-pub type XCheckMismatch = {
-    span: SourceSpan,
-    field: String,
-    infer_kind: CalleeKind,
-    codegen_kind: CalleeKind,
 }
 
 // The three jump kinds the backpatcher emits.
@@ -91,13 +77,12 @@ pub fn compile_program(_ program: Program, _ imports: List<Program>,
     scope.flatten_interfaces();
 
     let errors: List<CodegenError> = [];
-    let xchecks: List<XCheckMismatch> = [];
     let functions: List<FuncDef> = [];
     let mut i = 0;
     // Re-read `units.len()` each iteration: lifted lambdas append units that are
     // themselves compiled by this same loop.
     while i < scope.units.len() {
-        functions.push(new_fn_compiler(scope, errors, xchecks).compile(i));
+        functions.push(new_fn_compiler(scope, errors).compile(i));
         i = i + 1;
     }
     return CodegenResult {
@@ -107,7 +92,6 @@ pub fn compile_program(_ program: Program, _ imports: List<Program>,
             dispatch: scope.build_dispatch(),
         },
         errors: errors,
-        xchecks: xchecks,
     };
 }
 
@@ -179,13 +163,9 @@ pub type FnCompiler = {
     // reference resolves against (same-file-first).
     file: Option<String>,
     errors: List<CodegenError>,
-    // Shared with all units' compilers (like `errors`): callee-classification
-    // disagreements recorded by the inference/codegen cross-check in `method_call`.
-    xchecks: List<XCheckMismatch>,
 }
 
-pub fn new_fn_compiler(_ scope: ModuleScope, _ errors: List<CodegenError>,
-    _ xchecks: List<XCheckMismatch>) -> FnCompiler {
+pub fn new_fn_compiler(_ scope: ModuleScope, _ errors: List<CodegenError>) -> FnCompiler {
     return FnCompiler {
         scope: scope,
         code: [],
@@ -202,7 +182,6 @@ pub fn new_fn_compiler(_ scope: ModuleScope, _ errors: List<CodegenError>,
         ctx: new_ctx(scope.library),
         file: Option.None,
         errors: errors,
-        xchecks: xchecks,
     };
 }
 
@@ -1506,45 +1485,57 @@ impl FnCompiler {
         }
     }
 
-    // `recv.method(args)` / `Type.method(args)`. This section covers the direct
-    // (non-dynamic-dispatch) lowerings; the receiver's static type or a namespace
-    // qualifier selects the target. User methods and `call.virtual` dispatch are
-    // the next section.
+    // `recv.method(args)` / `Type.method(args)`. The element model
+    // (`infer_callee_kind`) is the single source of truth for *which* kind of
+    // callee a site is — codegen no longer re-derives that classification, it
+    // dispatches on it and only chooses the backend lowering (native symbol vs.
+    // unit index vs. virtual selector) for the resolved kind.
     fn method_call(self, _ x: CallExpr, _ obj: Expr, _ field: String) -> Void {
-        // Cross-check: classify this site against the element model too, and
-        // record any disagreement. Read-only; the lowering below is unchanged.
-        self.xcheck_callee(x, obj, field);
+        let emitted = match infer_callee_kind(obj, field, x.args.len(), self.type_scope, self.ctx) {
+            EnumCtor => self.emit_enum_ctor(x, obj, field),
+            EnumName => self.emit_enum_name_call(x, obj),
+            Namespace => self.emit_namespace_call(x, obj, field),
+            StaticMethod => self.emit_static_method_call(x, obj, field),
+            InstanceMethod => self.emit_instance_method_call(x, obj, field),
+            Virtual => self.emit_virtual_call(x, obj, field),
+            FieldCall => self.emit_field_call(x, obj, field),
+            Unresolved => false,
+        };
+        if !emitted {
+            self.error('no method "${field}" on ${self.type_of(obj).unwrap_or('unknown type')}', x.span);
+        }
+    }
 
-        // 1. Enum payload constructor: `Shape.Circle(5)`.
+    // Enum payload constructor: `Shape.Circle(5)`.
+    fn emit_enum_ctor(self, _ x: CallExpr, _ obj: Expr, _ field: String) -> Bool {
         match self.enum_variant(obj, field) {
             Some(ev) => {
                 for arg in x.args {
                     self.expr(arg.value);
                 }
                 self.emit(Instr.EnumNew(ev.info.ty, ev.tag, x.args.len()));
-                return;
+                return true;
             },
-            None => {},
+            None => { return false; },
         }
+    }
 
-        // 2. `e.name()` on an enum value → the variant name (from its tag).
-        if field == 'name' && x.args.len() == 0 {
-            match self.type_of(obj) {
-                Some(t) => {
-                    match self.scope.enums.get(t) {
-                        Some(info) => {
-                            self.enum_name(obj, info);
-                            return;
-                        },
-                        None => {},
-                    }
-                },
-                None => {},
-            }
+    // `e.name()` on an enum value → the variant name (from its tag).
+    fn emit_enum_name_call(self, _ x: CallExpr, _ obj: Expr) -> Bool {
+        match self.type_of(obj) {
+            Some(t) => {
+                match self.scope.enums.get(t) {
+                    Some(info) => { self.enum_name(obj, info); return true; },
+                    None => { return false; },
+                }
+            },
+            None => { return false; },
         }
+    }
 
-        // 3. Namespace-qualified native function: `fs.read_text(...)` → a runtime
-        // native, no receiver.
+    // Namespace-qualified call: `ns.fn(...)`. A `native fn` lowers to a receiver-
+    // less native; an ordinary free function to a direct call.
+    fn emit_namespace_call(self, _ x: CallExpr, _ obj: Expr, _ field: String) -> Bool {
         match obj {
             Ident(_, ns_name) => {
                 if self.is_namespace(ns_name) {
@@ -1554,7 +1545,18 @@ impl FnCompiler {
                                 self.expr(arg.value);
                             }
                             self.emit(Instr.CallNative(native_sym, x.args.len()));
-                            return;
+                            return true;
+                        },
+                        None => {},
+                    }
+                    match self.scope.resolve_global_function(field) {
+                        Some(fn_idx) => {
+                            let ordered = self.resolve_args(self.scope.units[fn_idx].params, x.args, x.span);
+                            for value in ordered {
+                                self.expr(value);
+                            }
+                            self.emit(Instr.Call(fn_idx, ordered.len()));
+                            return true;
                         },
                         None => {},
                     }
@@ -1562,10 +1564,46 @@ impl FnCompiler {
             },
             _ => {},
         }
+        return false;
+    }
 
-        // 4. Instance `native fn` from an `impl` block: the receiver is pushed as
-        // the native's first argument. This backs the built-in methods on
-        // String/List/Map/Option — ordinary `native fn`s in std.core.
+    // Static method on a type: `String.from_chars(...)` (a runtime native) or a
+    // user `fn` with no `self` (a direct call, no receiver pushed).
+    fn emit_static_method_call(self, _ x: CallExpr, _ obj: Expr, _ field: String) -> Bool {
+        match self.static_type_name(obj) {
+            Some(static_type) => {
+                match self.scope.native_static_methods.get(static_type) {
+                    Some(m) => {
+                        match m.get(field) {
+                            Some(native_sym) => {
+                                for arg in x.args {
+                                    self.expr(arg.value);
+                                }
+                                self.emit(Instr.CallNative(native_sym, x.args.len()));
+                                return true;
+                            },
+                            None => {},
+                        }
+                    },
+                    None => {},
+                }
+            },
+            None => {},
+        }
+        match self.resolve_method(obj, field) {
+            Some(idx) => {
+                let ordered = self.resolve_args(self.scope.units[idx].params, x.args, x.span);
+                self.emit_ordered_args(x.callee, x.args, ordered);
+                self.emit(Instr.Call(idx, ordered.len()));
+                return true;
+            },
+            None => { return false; },
+        }
+    }
+
+    // Instance method on a concrete receiver: a built-in `native fn` (the receiver
+    // is the native's first argument) or a user method (self pushed first).
+    fn emit_instance_method_call(self, _ x: CallExpr, _ obj: Expr, _ field: String) -> Bool {
         match self.type_of(obj) {
             Some(t) => {
                 match self.scope.native_instance_methods.get(t) {
@@ -1577,7 +1615,7 @@ impl FnCompiler {
                                     self.expr(arg.value);
                                 }
                                 self.emit(Instr.CallNative(instance_native, x.args.len() + 1));
-                                return;
+                                return true;
                             },
                             None => {},
                         }
@@ -1587,55 +1625,24 @@ impl FnCompiler {
             },
             None => {},
         }
-
-        // 5. Namespace-qualified free function: `ns.fn(...)` → a direct call.
-        match obj {
-            Ident(_, ns_name) => {
-                if self.is_namespace(ns_name) {
-                    match self.scope.resolve_global_function(field) {
-                        Some(fn_idx) => {
-                            let ordered = self.resolve_args(self.scope.units[fn_idx].params, x.args, x.span);
-                            for value in ordered {
-                                self.expr(value);
-                            }
-                            self.emit(Instr.Call(fn_idx, ordered.len()));
-                            return;
-                        },
-                        None => {},
-                    }
-                }
+        match self.resolve_method(obj, field) {
+            Some(idx) => {
+                self.expr(obj); // self → local slot 0 of the callee
+                let ordered = self.resolve_args(self.scope.units[idx].params, x.args, x.span);
+                self.emit_ordered_args(x.callee, x.args, ordered);
+                self.emit(Instr.Call(idx, ordered.len() + 1));
+                return true;
             },
-            _ => {},
+            None => { return false; },
         }
+    }
 
-        // 6. Static native method on a type: `String.from_chars(...)` → a runtime
-        // native, no receiver.
-        match self.static_type_name(obj) {
-            Some(static_type) => {
-                match self.scope.native_static_methods.get(static_type) {
-                    Some(m) => {
-                        match m.get(field) {
-                            Some(native_sym) => {
-                                for arg in x.args {
-                                    self.expr(arg.value);
-                                }
-                                self.emit(Instr.CallNative(native_sym, x.args.len()));
-                                return;
-                            },
-                            None => {},
-                        }
-                    },
-                    None => {},
-                }
-            },
-            None => {},
-        }
-
-        // 7. Dynamic dispatch: the receiver is interface-typed (`x: Display`) or
-        // a generic parameter bound by an interface. The concrete type isn't
-        // known here, so dispatch on the runtime type id.
-        let recv_type_name = self.type_of(obj);
-        match self.dispatch_interfaces(recv_type_name) {
+    // Dynamic dispatch: the receiver is interface-typed (`x: Display`) or a
+    // generic parameter bound by an interface. The concrete type isn't known
+    // here, so dispatch on the runtime type id. False (→ a "no method" error)
+    // when the selector isn't declared by any candidate interface.
+    fn emit_virtual_call(self, _ x: CallExpr, _ obj: Expr, _ field: String) -> Bool {
+        match self.dispatch_interfaces(self.type_of(obj)) {
             Some(ifaces) => {
                 let mut declares = false;
                 for i in ifaces {
@@ -1649,116 +1656,35 @@ impl FnCompiler {
                     }
                 }
                 if !declares {
-                    self.error('no method "${field}" on ${recv_type_name.unwrap_or('unknown type')}', x.span);
-                    return;
+                    return false;
                 }
                 self.expr(obj);
                 for arg in x.args {
                     self.expr(arg.value);
                 }
                 self.emit(Instr.CallVirtual(field, x.args.len() + 1));
-                return;
+                return true;
             },
-            None => {},
-        }
-
-        // 8. A user method (instance or static), else a function-valued field
-        // invoked like a method.
-        match self.resolve_method(obj, field) {
-            Some(idx) => {
-                let is_static = match self.scope.unit_self_types[idx] {
-                    Some(_) => false,
-                    None => true,
-                };
-                if !is_static {
-                    self.expr(obj); // self → local slot 0 of the callee
-                }
-                let ordered = self.resolve_args(self.scope.units[idx].params, x.args, x.span);
-                self.emit_ordered_args(x.callee, x.args, ordered);
-                self.emit(Instr.Call(idx, ordered.len() + if is_static { 0 } else { 1 }));
-            },
-            None => {
-                // A function-valued field invoked like a method: `c.now()` where
-                // `now` is a struct field holding a closure (no method by that name).
-                match self.type_of(obj) {
-                    Some(obj_type) => {
-                        match self.scope.structs.get(obj_type) {
-                            Some(struct_info) => {
-                                let fi = field_index_of(struct_info, field);
-                                if fi >= 0 {
-                                    self.expr(obj);
-                                    self.emit(Instr.FieldGet(fi));
-                                    for arg in x.args {
-                                        self.expr(arg.value);
-                                    }
-                                    self.emit(Instr.CallIndirect(x.args.len()));
-                                    return;
-                                };
-                            },
-                            None => {},
-                        }
-                    },
-                    None => {},
-                }
-                self.error('no method "${field}" on ${self.type_of(obj).unwrap_or('unknown type')}', x.span);
-            },
+            None => { return false; },
         }
     }
 
-    // Record a cross-check disagreement: classify `obj.field(...)` against the
-    // element model and against codegen's ModuleScope, and note any mismatch. Both
-    // cascades key off the same inferred receiver type, so they should always
-    // agree; a disagreement means the two resolution paths have drifted.
-    fn xcheck_callee(self, _ x: CallExpr, _ obj: Expr, _ field: String) -> Void {
-        let ik = infer_callee_kind(obj, field, x.args.len(), self.type_scope, self.ctx);
-        let ck = self.codegen_callee_kind(obj, field, x.args.len());
-        if callee_kind_name(ik) != callee_kind_name(ck) {
-            self.xchecks.push(XCheckMismatch {
-                span: x.span,
-                field: field,
-                infer_kind: ik,
-                codegen_kind: ck,
-            });
-        }
-    }
-
-    // Classify `obj.field(...)` against codegen's ModuleScope tables — the same
-    // cascade `method_call` walks to choose an instruction, returning only which
-    // kind of callee it is (no emit). The element-model analogue is
-    // `infer_callee_kind`; `xcheck_callee` compares the two.
-    fn codegen_callee_kind(self, _ obj: Expr, _ field: String, _ arg_count: Int) -> CalleeKind {
-        // 1. Enum payload constructor.
-        match self.enum_variant(obj, field) {
-            Some(_) => { return CalleeKind.EnumCtor; },
-            None => {},
-        }
-        // 2. `e.name()` on an enum value.
-        if field == 'name' && arg_count == 0 {
-            match self.type_of(obj) {
-                Some(t) => {
-                    if self.scope.enums.has(t) {
-                        return CalleeKind.EnumName;
-                    }
-                },
-                None => {},
-            }
-        }
-        // 3. Namespace-qualified native function.
-        match obj {
-            Ident(_, ns_name) => {
-                if self.is_namespace(ns_name) && self.scope.native_fns.has(field) {
-                    return CalleeKind.Namespace;
-                }
-            },
-            _ => {},
-        }
-        // 4. Instance native method.
+    // A function-valued struct field invoked like a method: `c.now()` where `now`
+    // is a field holding a closure (no method by that name).
+    fn emit_field_call(self, _ x: CallExpr, _ obj: Expr, _ field: String) -> Bool {
         match self.type_of(obj) {
-            Some(t) => {
-                match self.scope.native_instance_methods.get(t) {
-                    Some(m) => {
-                        if m.has(field) {
-                            return CalleeKind.InstanceMethod;
+            Some(obj_type) => {
+                match self.scope.structs.get(obj_type) {
+                    Some(struct_info) => {
+                        let fi = field_index_of(struct_info, field);
+                        if fi >= 0 {
+                            self.expr(obj);
+                            self.emit(Instr.FieldGet(fi));
+                            for arg in x.args {
+                                self.expr(arg.value);
+                            }
+                            self.emit(Instr.CallIndirect(x.args.len()));
+                            return true;
                         }
                     },
                     None => {},
@@ -1766,62 +1692,7 @@ impl FnCompiler {
             },
             None => {},
         }
-        // 5. Namespace-qualified free function.
-        match obj {
-            Ident(_, ns_name) => {
-                if self.is_namespace(ns_name) {
-                    match self.scope.resolve_global_function(field) {
-                        Some(_) => { return CalleeKind.Namespace; },
-                        None => {},
-                    }
-                }
-            },
-            _ => {},
-        }
-        // 6. Static native method on a type.
-        match self.static_type_name(obj) {
-            Some(static_type) => {
-                match self.scope.native_static_methods.get(static_type) {
-                    Some(m) => {
-                        if m.has(field) {
-                            return CalleeKind.StaticMethod;
-                        }
-                    },
-                    None => {},
-                }
-            },
-            None => {},
-        }
-        // 7. Dynamic dispatch.
-        match self.dispatch_interfaces(self.type_of(obj)) {
-            Some(_) => { return CalleeKind.Virtual; },
-            None => {},
-        }
-        // 8. A user method (instance or static), else a function-valued field.
-        match self.resolve_method(obj, field) {
-            Some(idx) => {
-                return match self.scope.unit_self_types[idx] {
-                    Some(_) => CalleeKind.InstanceMethod,
-                    None => CalleeKind.StaticMethod,
-                };
-            },
-            None => {
-                match self.type_of(obj) {
-                    Some(obj_type) => {
-                        match self.scope.structs.get(obj_type) {
-                            Some(struct_info) => {
-                                if field_index_of(struct_info, field) >= 0 {
-                                    return CalleeKind.FieldCall;
-                                }
-                            },
-                            None => {},
-                        }
-                    },
-                    None => {},
-                }
-            },
-        }
-        return CalleeKind.Unresolved;
+        return false;
     }
 
     // The unit index of method `name` on receiver `receiver`, or None. A type

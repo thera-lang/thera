@@ -752,15 +752,14 @@ fn infer_call_field(_ obj: Expr, _ field: String, _ arg_types: List<Type>,
     return Type.Unknown;
 }
 
-// --- callee classification (codegen cross-check) ---
+// --- callee classification ---
 
 // The kind of callee a `recv.field(...)` call site resolves to, independent of
-// the concrete types involved. The element model (here) and the codegen backend
-// (its ModuleScope tables) each classify a call site to choose, respectively, a
-// result type and an emitted instruction. The two cascades are written
-// separately, so they can drift; `infer_callee_kind` and codegen's
-// `codegen_callee_kind` produce this shared vocabulary, and codegen flags any
-// site where they disagree (the first step toward a single shared resolver).
+// the concrete types involved. `infer_callee_kind` is the single source of this
+// classification: the element model owns "which kind of callee a site is", and
+// the codegen backend dispatches on it (`method_call`), adding only the backend
+// lowering for the resolved kind (a native symbol vs. a unit index vs. a virtual
+// selector) — it no longer re-derives the classification against its own tables.
 pub enum CalleeKind {
     EnumCtor,       // `(ns.)?Enum.Variant(...)`
     EnumName,       // `e.name()` on an enum value
@@ -769,20 +768,7 @@ pub enum CalleeKind {
     InstanceMethod, // `recv.method(...)` on a concrete receiver (user or native)
     Virtual,        // dynamic dispatch: interface-typed or interface-bound receiver
     FieldCall,      // a function-valued struct field invoked like a method
-    Unresolved,     // neither cascade resolves the site
-}
-
-pub fn callee_kind_name(_ k: CalleeKind) -> String {
-    return match k {
-        EnumCtor => 'enum-ctor',
-        EnumName => 'enum-name',
-        Namespace => 'namespace',
-        StaticMethod => 'static-method',
-        InstanceMethod => 'instance-method',
-        Virtual => 'virtual',
-        FieldCall => 'field-call',
-        Unresolved => 'unresolved',
-    };
+    Unresolved,     // the site doesn't resolve
 }
 
 // Classify `obj.field(...)` against the element model — the same cascade
