@@ -209,17 +209,17 @@ closed.
   by name at load. Add a test asserting every `@extern` name the front-end can emit
   is accepted by the runtime, and split the runtime table into per-module files
   (`natives_fs.rs`, `natives_string.rs`, …) as it grows.
-- **Unify call/member resolution — codegen re-derives what inference computes.**
-  `codegen.hawk`'s `call_expr`/`method_call` walk the same "what kind of callee is
-  this?" decision tree as inference's `infer_call_field`/`resolve_ns_or_static_call`
-  — enum constructor → namespace native → instance native → user method → virtual
-  dispatch. They aren't trivially mergeable (codegen needs native symbols/indices
-  via `ModuleScope`; inference needs `Type`s via the element model), but having two
-  resolvers will drift. Direction: pick **one canonical resolution** and pull the
-  knowledge codegen holds (native symbols, indices) **forward into a shared
-  result** both inference and codegen consume, so the callee is classified once.
-  High-effort/architectural — scope a spike before committing; don't tackle
-  speculatively. (Surfaced by the pkgs/ code review.)
+- ~~**Unify call/member resolution — codegen re-derives what inference computes.**~~
+  _Done (2026-06)._ Codegen no longer carries its own callee resolver: `method_call`
+  dispatches on the element model's `infer_callee_kind` — the **single source** of
+  which kind of callee a `recv.field(...)` site is — and only chooses the backend
+  lowering per kind (a native symbol, a unit index, or a virtual selector). A
+  corpus-wide cross-check first proved codegen's old `ModuleScope` cascade and the
+  element-model classification agreed everywhere; the codegen cascade was then
+  deleted, byte-identity held by the fixpoint. (Inference's type-producing
+  `infer_call_field` is deliberately left separate — its cases are coarser than
+  codegen's emission distinctions, so routing it through the same classifier would
+  fragment a clean uniform branch.) (Surfaced by the pkgs/ code review.)
 - **codegen unit-test coverage.** codegen + module_scope (~2.9k lines) have the
   thinnest direct tests (~11, a deliberate all-native stub) — they're covered
   end-to-end by the fixpoint + examples + every other suite running through them,
