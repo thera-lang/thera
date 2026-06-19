@@ -9,6 +9,8 @@ import std.testing;
 
 import '../lexer/lexer';
 import '../parser/parser';
+import '../bytecode/instr';
+import '../bytecode/module';
 import '../bytecode/encoder';
 import 'codegen';
 
@@ -20,6 +22,82 @@ fn emit_bytes(_ src: String) -> List<Int> {
 fn errors_of(_ src: String) -> Int {
     return compile_program(parse_tokens(tokenize(src).tokens).program, [], {}).errors.len();
 }
+
+// --- instruction-level lowering inspection ---
+//
+// These tests assert *which* instruction a construct lowers to (rather than
+// pinning the whole byte stream against a golden), so a regression in a specific
+// lowering — e.g. a call-resolution branch picking the wrong opcode — fails here
+// with a located, readable assertion instead of only as a fixpoint/example break.
+
+fn module_of(_ src: String) -> Module {
+    return compile_program(parse_tokens(tokenize(src).tokens).program, [], {}).module;
+}
+
+// The instruction stream of the unit named `fn_name` (a free function's bare
+// name, a method's `Type.method`), or empty if there's no such unit.
+fn code_of(_ src: String, _ fn_name: String) -> List<Instr> {
+    for f in module_of(src).functions {
+        if f.name == fn_name {
+            return f.code;
+        }
+    }
+    return [];
+}
+
+// The code of the first lifted-lambda unit (`__lambda_*`), or empty.
+fn lambda_code(_ src: String) -> List<Instr> {
+    for f in module_of(src).functions {
+        if f.name.starts_with('__lambda') {
+            return f.code;
+        }
+    }
+    return [];
+}
+
+// A short tag for an instruction, for readable structural assertions. Operand-less
+// `Simple` ops are tagged by their opcode byte (`simple_<n>`); call/field
+// instructions get a name, and native/virtual calls carry their selector.
+fn instr_tag(_ i: Instr) -> String {
+    return match i {
+        Simple(op) => 'simple_${op.byte()}',
+        Call(_, _) => 'call',
+        CallNative(name, _) => 'call_native:${name}',
+        EnumNew(_, _, _) => 'enum_new',
+        CallVirtual(sel, _) => 'call_virtual:${sel}',
+        CallIndirect(_) => 'call_indirect',
+        FieldGet(_) => 'field_get',
+        FieldSet(_) => 'field_set',
+        StructNew(_) => 'struct_new',
+        ClosureNew(_, _) => 'closure_new',
+        _ => 'other',
+    };
+}
+
+fn count_tag(_ code: List<Instr>, _ tag: String) -> Int {
+    let mut n = 0;
+    for i in code {
+        if instr_tag(i) == tag {
+            n = n + 1;
+        }
+    }
+    return n;
+}
+
+// The argument count of the first `Call` (a method's `self` counts as an
+// argument), or -1 if there is none — distinguishes an instance call from a
+// static one of the same shape.
+fn first_call_argc(_ code: List<Instr>) -> Int {
+    for i in code {
+        match i {
+            Call(_, argc) => { return argc; },
+            _ => {},
+        }
+    }
+    return -1;
+}
+
+fn enum_tag_tag() -> String { return 'simple_${Op.EnumTag.byte()}'; }
 
 @test
 fn test_arithmetic_and_control_flow_byte_identical() -> Result<Void, Error> {
@@ -321,5 +399,138 @@ fn test_lambda_mut_capture_byte_identical() -> Result<Void, Error> {
         100, 97, 95, 50, 2, 2, 11, 6, 0, 6, 0, 47, 0, 6, 1, 8, 48, 0, 6, 0, 47,
         0, 45, 4, 45,
     ])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_lowering_enum_ctor_emits_enum_new() -> Result<Void, Error> {
+    let src = 'enum Shape { Circle(Int), Square }\n'
+        + 'fn make() -> Shape { return Shape.Circle(3); }';
+    testing.assert_eq(actual: errors_of(src), expected: 0)?;
+    testing.assert_eq(actual: count_tag(code_of(src, 'make'), 'enum_new'), expected: 1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_lowering_enum_name_hoists_one_tag() -> Result<Void, Error> {
+    let src = 'enum Color { Red, Green, Blue }\n'
+        + 'fn label(_ c: Color) -> String { return c.name(); }';
+    testing.assert_eq(actual: errors_of(src), expected: 0)?;
+    testing.assert_eq(actual: count_tag(code_of(src, 'label'), enum_tag_tag()), expected: 1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_lowering_user_static_method_emits_receiverless_call() -> Result<Void, Error> {
+    let src = 'type Box = { v: Int }\n'
+        + 'impl Box { fn zero() -> Box { return Box { v: 0 }; } }\n'
+        + 'fn make() -> Box { return Box.zero(); }';
+    testing.assert_eq(actual: errors_of(src), expected: 0)?;
+    // A direct call with no receiver pushed: argc is the user-arg count (0).
+    testing.assert_eq(actual: count_tag(code_of(src, 'make'), 'call'), expected: 1)?;
+    testing.assert_eq(actual: first_call_argc(code_of(src, 'make')), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_lowering_user_instance_method_pushes_self() -> Result<Void, Error> {
+    let src = 'type Box = { v: Int }\n'
+        + 'impl Box { fn get(self) -> Int { return self.v; } }\n'
+        + 'fn read(_ b: Box) -> Int { return b.get(); }';
+    testing.assert_eq(actual: errors_of(src), expected: 0)?;
+    // Same `Call` shape as the static case, but `self` makes argc 1.
+    testing.assert_eq(actual: count_tag(code_of(src, 'read'), 'call'), expected: 1)?;
+    testing.assert_eq(actual: first_call_argc(code_of(src, 'read')), expected: 1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_lowering_native_instance_method_emits_call_native() -> Result<Void, Error> {
+    let src = 'type Buf = { n: Int }\n'
+        + 'impl Buf { native fn size(self) -> Int; }\n'
+        + 'fn go(_ b: Buf) -> Int { return b.size(); }';
+    testing.assert_eq(actual: errors_of(src), expected: 0)?;
+    testing.assert_eq(actual: count_tag(code_of(src, 'go'), 'call_native:size'), expected: 1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_lowering_native_static_method_emits_call_native() -> Result<Void, Error> {
+    let src = 'type Reg = { n: Int }\n'
+        + 'impl Reg { native fn fresh() -> Int; }\n'
+        + 'fn go() -> Int { return Reg.fresh(); }';
+    testing.assert_eq(actual: errors_of(src), expected: 0)?;
+    testing.assert_eq(actual: count_tag(code_of(src, 'go'), 'call_native:fresh'), expected: 1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_lowering_free_native_fn_emits_call_native() -> Result<Void, Error> {
+    let src = 'native fn ticks() -> Int;\n'
+        + 'fn go() -> Int { return ticks(); }';
+    testing.assert_eq(actual: errors_of(src), expected: 0)?;
+    testing.assert_eq(actual: count_tag(code_of(src, 'go'), 'call_native:ticks'), expected: 1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_lowering_field_call_emits_field_get_and_call_indirect() -> Result<Void, Error> {
+    let src = 'type Holder = { f: () -> Int }\n'
+        + 'fn go(_ h: Holder) -> Int { return h.f(); }';
+    testing.assert_eq(actual: errors_of(src), expected: 0)?;
+    let code = code_of(src, 'go');
+    testing.assert_eq(actual: count_tag(code, 'field_get'), expected: 1)?;
+    testing.assert_eq(actual: count_tag(code, 'call_indirect'), expected: 1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_lowering_interface_receiver_emits_call_virtual() -> Result<Void, Error> {
+    let src = 'interface Shape { fn area(self) -> Int; }\n'
+        + 'fn describe(_ s: Shape) -> Int { return s.area(); }';
+    testing.assert_eq(actual: errors_of(src), expected: 0)?;
+    testing.assert_eq(actual: count_tag(code_of(src, 'describe'), 'call_virtual:area'), expected: 1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_lowering_match_bisection_hoists_tag_vs_linear() -> Result<Void, Error> {
+    // A small `match` lowers to a linear chain that re-reads the subject's tag for
+    // each arm; a large flat-constructor `match` bisects, hoisting the tag once
+    // into a slot and branching on it (a balanced binary search).
+    let small = 'enum Tri { A, B, C }\n'
+        + 'fn pick(_ t: Tri) -> Int { return match t { A => 0, B => 1, C => 2 }; }';
+    testing.assert_eq(actual: errors_of(small), expected: 0)?;
+    testing.assert(count_tag(code_of(small, 'pick'), enum_tag_tag()) > 1,
+        message: 'a linear match re-reads the tag per arm')?;
+
+    let big = 'enum Dir { N, NE, E, SE, S, SW, W, NW }\n'
+        + 'fn turns(_ d: Dir) -> Int {\n'
+        + '    return match d { N => 0, NE => 1, E => 2, SE => 3, S => 4, SW => 5, W => 6, _ => 7 };\n'
+        + '}';
+    testing.assert_eq(actual: errors_of(big), expected: 0)?;
+    testing.assert_eq(actual: count_tag(code_of(big, 'turns'), enum_tag_tag()), expected: 1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_lowering_mut_capture_boxes_into_a_cell() -> Result<Void, Error> {
+    // A `mut` local captured by a lambda is boxed into a one-field cell: the
+    // enclosing fn builds the cell (struct_new) and the closure (closure_new); the
+    // lambda body reads/writes the captured value through the cell's field.
+    let src = 'fn counter() -> (Int) -> Int {\n'
+        + '    let mut total = 0;\n'
+        + '    return (delta) => {\n'
+        + '        total = total + delta;\n'
+        + '        return total;\n'
+        + '    };\n'
+        + '}';
+    testing.assert_eq(actual: errors_of(src), expected: 0)?;
+    let outer = code_of(src, 'counter');
+    testing.assert_eq(actual: count_tag(outer, 'closure_new'), expected: 1)?;
+    testing.assert(count_tag(outer, 'struct_new') >= 1, message: 'expected a cell allocation')?;
+    let body = lambda_code(src);
+    testing.assert(count_tag(body, 'field_get') >= 1, message: 'expected a boxed read')?;
+    testing.assert(count_tag(body, 'field_set') >= 1, message: 'expected a boxed write')?;
     return Result.Ok(void);
 }
