@@ -56,7 +56,7 @@ echo "    version $VERSION"
 
 echo "==> [3/3] fixpoint check (SDK re-emits its own front-end)"
 FRONTEND_BC2="$BUILD/frontend.fixpoint.hawkbc"
-"$SDK/bin/hawk" emit "$ROOT/pkgs/cli/main.hawk" "$FRONTEND_BC2"
+time "$SDK/bin/hawk" emit "$ROOT/pkgs/cli/main.hawk" "$FRONTEND_BC2"
 if cmp -s "$FRONTEND_BC" "$FRONTEND_BC2"; then
   echo "    ok: the SDK reproduces its own front-end byte-for-byte"
 else
