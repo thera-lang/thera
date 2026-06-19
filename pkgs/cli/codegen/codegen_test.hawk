@@ -21,6 +21,10 @@ fn errors_of(_ src: String) -> Int {
     return compile_program(parse_tokens(tokenize(src).tokens).program, [], {}).errors.len();
 }
 
+fn xchecks_of(_ src: String) -> Int {
+    return compile_program(parse_tokens(tokenize(src).tokens).program, [], {}).xchecks.len();
+}
+
 @test
 fn test_arithmetic_and_control_flow_byte_identical() -> Result<Void, Error> {
     let src = 'fn add(_ a: Int, _ b: Int) -> Int { return a + b; }\n'
@@ -321,5 +325,33 @@ fn test_lambda_mut_capture_byte_identical() -> Result<Void, Error> {
         100, 97, 95, 50, 2, 2, 11, 6, 0, 6, 0, 47, 0, 6, 1, 8, 48, 0, 6, 0, 47,
         0, 45, 4, 45,
     ])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_callee_classification_cross_check() -> Result<Void, Error> {
+    // The codegen and inference cascades classify each `recv.field(...)` call
+    // site independently (codegen to pick an instruction, inference to pick a
+    // type). They must agree; `compile_program` records any disagreement in
+    // `xchecks`. This program exercises several callee kinds — enum construction,
+    // the enum `name()`, a static method, an instance method, and a
+    // function-valued field invoked like a method — and asserts no drift. The
+    // full corpus (front-end + stdlib + examples) additionally covers namespace,
+    // native-instance, and virtual dispatch; bin/test.sh guards those.
+    let src = 'enum Shape { Circle(Int), Square }\n'
+        + 'type Counter = { n: Int, step: () -> Int }\n'
+        + 'impl Counter {\n'
+        + '    fn bump(self) -> Int { return self.n + self.step(); }\n'
+        + '    fn make() -> Counter { return Counter { n: 0, step: () => 1 }; }\n'
+        + '}\n'
+        + 'fn shape_name(_ s: Shape) -> String { return s.name(); }\n'
+        + 'fn payload(_ s: Shape) -> Int { return match s { Circle(n) => n, Square => 0 }; }\n'
+        + 'fn run() -> Int {\n'
+        + '    let c = Shape.Circle(3);\n'
+        + '    let k = Counter.make();\n'
+        + '    return k.bump() + payload(c);\n'
+        + '}';
+    testing.assert_eq(actual: errors_of(src), expected: 0)?;
+    testing.assert_eq(actual: xchecks_of(src), expected: 0)?;
     return Result.Ok(void);
 }

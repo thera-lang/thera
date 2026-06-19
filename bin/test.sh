@@ -55,6 +55,27 @@ else
 fi
 rm -rf "$chk_dir"
 
+echo "==> codegen/inference callee cross-check (corpus)"
+# The codegen backend and the element model classify each `recv.field(...)` call
+# site independently — codegen (its ModuleScope tables) to pick an instruction,
+# inference (`infer_callee_kind`) to pick a type. They must always agree; a
+# disagreement means the two resolution cascades have drifted. `emit` prints any
+# disagreement as an `xcheck:` diagnostic on stderr. Compile the whole corpus —
+# the front-end itself, every example, and the stdlib — and assert none appear.
+# (See codegen `xcheck_callee`.)
+xc_out="$(mktemp)"
+"$HAWK" emit pkgs/cli/main.hawk /dev/null 2>>"$xc_out" 1>/dev/null
+for f in $(find examples sdk/std -name '*.hawk' | sort); do
+  "$HAWK" emit "$f" /dev/null 2>>"$xc_out" 1>/dev/null
+done
+xc_n="$(grep -c 'xcheck:' "$xc_out")"
+if [ "$xc_n" -eq 0 ]; then
+  echo "  ok   no callee-classification disagreements across the corpus"
+else
+  echo "  FAIL $xc_n callee-classification disagreement(s):"; grep 'xcheck:' "$xc_out" | head -20; fail=1
+fi
+rm -f "$xc_out"
+
 echo "==> examples"
 # Pin the output of a few representative examples (the rest must just run).
 check_out() {

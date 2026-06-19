@@ -208,6 +208,10 @@ fn do_emit(_ file: String, _ out: String) -> Result<Int, Error> {
             for d in outcome.diagnostics {
                 eprintln(format_diagnostic(d, file));
             }
+            // Internal drift guard: codegen vs. inference callee classification.
+            for d in outcome.xchecks {
+                eprintln(format_diagnostic(d, file));
+            }
             match outcome.bytes {
                 Some(bytes) => {
                     match fs.write_bytes(out, bytes) {

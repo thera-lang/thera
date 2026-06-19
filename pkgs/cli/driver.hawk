@@ -15,6 +15,7 @@ import 'lexer/token'; // SourceSpan
 import 'lexer/lexer';
 import 'parser/parser';
 import 'checker/checker';
+import 'element/inference'; // CalleeKind, callee_kind_name
 import 'codegen/codegen';
 import 'bytecode/encoder';
 import 'loader';
@@ -31,6 +32,9 @@ pub type Diagnostic = {
 pub type CompileOutcome = {
     diagnostics: List<Diagnostic>,
     bytes: Option<Bytes>,
+    // Codegen/inference callee-classification disagreements (see codegen's
+    // `xcheck_callee`). Empty in a healthy build; surfaced as warnings, not errors.
+    xchecks: List<Diagnostic>,
 }
 
 // Type-check `source`, returning its diagnostics (empty = clean). Lex and parse
@@ -69,6 +73,7 @@ pub fn compile_source(_ source: String) -> CompileOutcome {
     return CompileOutcome {
         diagnostics: [],
         bytes: Option.Some(encode_module(cg.module)),
+        xchecks: xcheck_diagnostics(cg.xchecks),
     };
 }
 
@@ -115,6 +120,7 @@ pub fn compile_source_at(_ source: String, _ path: String, _ sdk_root: Option<St
     return CompileOutcome {
         diagnostics: [],
         bytes: Option.Some(encode_module(cg.module)),
+        xchecks: xcheck_diagnostics(cg.xchecks),
     };
 }
 
@@ -126,7 +132,21 @@ pub fn format_diagnostic(_ d: Diagnostic, _ file_path: String) -> String {
 // --- helpers ---
 
 fn failed(_ diagnostics: List<Diagnostic>) -> CompileOutcome {
-    return CompileOutcome { diagnostics: diagnostics, bytes: Option.None };
+    return CompileOutcome { diagnostics: diagnostics, bytes: Option.None, xchecks: [] };
+}
+
+// Render each callee-classification disagreement as a warning-style diagnostic.
+fn xcheck_diagnostics(_ mismatches: List<XCheckMismatch>) -> List<Diagnostic> {
+    let out: List<Diagnostic> = [];
+    for m in mismatches {
+        out.push(Diagnostic {
+            message: 'xcheck: .${m.field}(...) classified as '
+                + '${callee_kind_name(m.infer_kind)} (inference) vs '
+                + '${callee_kind_name(m.codegen_kind)} (codegen)',
+            span: m.span,
+        });
+    }
+    return out;
 }
 
 fn lex_diagnostics(_ errors: List<LexError>) -> List<Diagnostic> {

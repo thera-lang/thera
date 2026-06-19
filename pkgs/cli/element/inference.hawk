@@ -752,6 +752,141 @@ fn infer_call_field(_ obj: Expr, _ field: String, _ arg_types: List<Type>,
     return Type.Unknown;
 }
 
+// --- callee classification (codegen cross-check) ---
+
+// The kind of callee a `recv.field(...)` call site resolves to, independent of
+// the concrete types involved. The element model (here) and the codegen backend
+// (its ModuleScope tables) each classify a call site to choose, respectively, a
+// result type and an emitted instruction. The two cascades are written
+// separately, so they can drift; `infer_callee_kind` and codegen's
+// `codegen_callee_kind` produce this shared vocabulary, and codegen flags any
+// site where they disagree (the first step toward a single shared resolver).
+pub enum CalleeKind {
+    EnumCtor,       // `(ns.)?Enum.Variant(...)`
+    EnumName,       // `e.name()` on an enum value
+    Namespace,      // `ns.fn(...)` — a namespaced free or native function
+    StaticMethod,   // `(ns.)?Type.method(...)` — no receiver
+    InstanceMethod, // `recv.method(...)` on a concrete receiver (user or native)
+    Virtual,        // dynamic dispatch: interface-typed or interface-bound receiver
+    FieldCall,      // a function-valued struct field invoked like a method
+    Unresolved,     // neither cascade resolves the site
+}
+
+pub fn callee_kind_name(_ k: CalleeKind) -> String {
+    return match k {
+        EnumCtor => 'enum-ctor',
+        EnumName => 'enum-name',
+        Namespace => 'namespace',
+        StaticMethod => 'static-method',
+        InstanceMethod => 'instance-method',
+        Virtual => 'virtual',
+        FieldCall => 'field-call',
+        Unresolved => 'unresolved',
+    };
+}
+
+// Classify `obj.field(...)` against the element model — the same cascade
+// `infer_call_field` walks to produce a type, returning only which *kind* of
+// callee it is. `arg_count` distinguishes the enum `e.name()` form.
+pub fn infer_callee_kind(_ obj: Expr, _ field: String, _ arg_count: Int,
+    _ scope: Map<String, Type>, _ ctx: InferCtx) -> CalleeKind {
+    // Type-name receiver: enum construction or a static method.
+    match type_def_for_expr(obj, scope, ctx) {
+        Some(type_def) => {
+            if type_def.kind == TypeDefKind.Enum {
+                match find_variant(type_def, field) {
+                    Some(_) => { return CalleeKind.EnumCtor; },
+                    None => {},
+                }
+            }
+            match find_method(type_def, field) {
+                Some(method) => {
+                    if method.is_static {
+                        return CalleeKind.StaticMethod;
+                    };
+                },
+                None => {},
+            }
+        },
+        None => {},
+    }
+    // Namespace function: `ns.fn(...)` (free or native — both are library fns).
+    match obj {
+        Ident(_, nsname) => {
+            if is_namespace(nsname, scope, ctx) && ctx.library.functions.has(field) {
+                return CalleeKind.Namespace;
+            };
+        },
+        _ => {},
+    }
+
+    let recv_type = infer_expr(obj, scope, ctx, Option.None);
+
+    // `e.name()` on an enum value.
+    if field == 'name' && arg_count == 0 && is_enum_type(recv_type, ctx) {
+        return CalleeKind.EnumName;
+    }
+
+    // Dynamic dispatch: an interface-typed receiver or an interface-bound generic
+    // parameter — the concrete type isn't known statically.
+    if dispatches_virtually(recv_type, ctx) {
+        return CalleeKind.Virtual;
+    }
+
+    // A method declared in an impl block on a concrete receiver.
+    match type_def_for(recv_type, ctx) {
+        Some(element) => {
+            match find_method(element, field) {
+                Some(method) => {
+                    return if method.is_static {
+                        CalleeKind.StaticMethod
+                    } else {
+                        CalleeKind.InstanceMethod
+                    };
+                },
+                None => {},
+            }
+        },
+        None => {},
+    }
+
+    // A function-valued field invoked like a method.
+    match field_type(recv_type, field, ctx) {
+        Function(_, _) => { return CalleeKind.FieldCall; },
+        _ => {},
+    }
+
+    return CalleeKind.Unresolved;
+}
+
+// Whether a method call on `recv` lowers to dynamic dispatch: the receiver is an
+// interface type, or a generic parameter with an interface bound. Mirrors
+// codegen's `dispatch_interfaces`.
+fn dispatches_virtually(_ recv: Type, _ ctx: InferCtx) -> Bool {
+    return match recv {
+        Interface(name, _) => is_interface_def(name, ctx),
+        TypeParameter(tpname) => match ctx.type_param_bounds.get(tpname) {
+            Some(bounds) => {
+                for b in bounds {
+                    if is_interface_def(b, ctx) {
+                        return true;
+                    }
+                }
+                false
+            },
+            None => false,
+        },
+        _ => false,
+    };
+}
+
+fn is_interface_def(_ name: String, _ ctx: InferCtx) -> Bool {
+    return match ctx.library.type_defs.get(name) {
+        Some(def) => def.kind == TypeDefKind.Interface,
+        None => false,
+    };
+}
+
 // The expected type of each call argument (the callee's parameter types,
 // excluding `self`), or None when the callee can't be resolved cheaply here.
 // Type parameters are instantiated from the receiver and from the non-lambda

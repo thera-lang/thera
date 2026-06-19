@@ -35,6 +35,20 @@ pub type CodegenError = {
 pub type CodegenResult = {
     module: Module,
     errors: List<CodegenError>,
+    // Call sites where codegen's callee classification disagrees with the element
+    // model's (`infer_callee_kind`). Empty in a healthy build; a non-empty list
+    // signals the two resolution cascades have drifted. See `method_call`.
+    xchecks: List<XCheckMismatch>,
+}
+
+// A `recv.field(...)` site classified differently by the element model and the
+// codegen backend — a drift between the two resolution paths (see the cross-check
+// in `method_call` and `infer_callee_kind` in element/inference.hawk).
+pub type XCheckMismatch = {
+    span: SourceSpan,
+    field: String,
+    infer_kind: CalleeKind,
+    codegen_kind: CalleeKind,
 }
 
 // The three jump kinds the backpatcher emits.
@@ -77,12 +91,13 @@ pub fn compile_program(_ program: Program, _ imports: List<Program>,
     scope.flatten_interfaces();
 
     let errors: List<CodegenError> = [];
+    let xchecks: List<XCheckMismatch> = [];
     let functions: List<FuncDef> = [];
     let mut i = 0;
     // Re-read `units.len()` each iteration: lifted lambdas append units that are
     // themselves compiled by this same loop.
     while i < scope.units.len() {
-        functions.push(new_fn_compiler(scope, errors).compile(i));
+        functions.push(new_fn_compiler(scope, errors, xchecks).compile(i));
         i = i + 1;
     }
     return CodegenResult {
@@ -92,6 +107,7 @@ pub fn compile_program(_ program: Program, _ imports: List<Program>,
             dispatch: scope.build_dispatch(),
         },
         errors: errors,
+        xchecks: xchecks,
     };
 }
 
@@ -163,9 +179,13 @@ pub type FnCompiler = {
     // reference resolves against (same-file-first).
     file: Option<String>,
     errors: List<CodegenError>,
+    // Shared with all units' compilers (like `errors`): callee-classification
+    // disagreements recorded by the inference/codegen cross-check in `method_call`.
+    xchecks: List<XCheckMismatch>,
 }
 
-pub fn new_fn_compiler(_ scope: ModuleScope, _ errors: List<CodegenError>) -> FnCompiler {
+pub fn new_fn_compiler(_ scope: ModuleScope, _ errors: List<CodegenError>,
+    _ xchecks: List<XCheckMismatch>) -> FnCompiler {
     return FnCompiler {
         scope: scope,
         code: [],
@@ -182,6 +202,7 @@ pub fn new_fn_compiler(_ scope: ModuleScope, _ errors: List<CodegenError>) -> Fn
         ctx: new_ctx(scope.library),
         file: Option.None,
         errors: errors,
+        xchecks: xchecks,
     };
 }
 
@@ -1490,6 +1511,10 @@ impl FnCompiler {
     // qualifier selects the target. User methods and `call.virtual` dispatch are
     // the next section.
     fn method_call(self, _ x: CallExpr, _ obj: Expr, _ field: String) -> Void {
+        // Cross-check: classify this site against the element model too, and
+        // record any disagreement. Read-only; the lowering below is unchanged.
+        self.xcheck_callee(x, obj, field);
+
         // 1. Enum payload constructor: `Shape.Circle(5)`.
         match self.enum_variant(obj, field) {
             Some(ev) => {
@@ -1678,6 +1703,125 @@ impl FnCompiler {
                 self.error('no method "${field}" on ${self.type_of(obj).unwrap_or('unknown type')}', x.span);
             },
         }
+    }
+
+    // Record a cross-check disagreement: classify `obj.field(...)` against the
+    // element model and against codegen's ModuleScope, and note any mismatch. Both
+    // cascades key off the same inferred receiver type, so they should always
+    // agree; a disagreement means the two resolution paths have drifted.
+    fn xcheck_callee(self, _ x: CallExpr, _ obj: Expr, _ field: String) -> Void {
+        let ik = infer_callee_kind(obj, field, x.args.len(), self.type_scope, self.ctx);
+        let ck = self.codegen_callee_kind(obj, field, x.args.len());
+        if callee_kind_name(ik) != callee_kind_name(ck) {
+            self.xchecks.push(XCheckMismatch {
+                span: x.span,
+                field: field,
+                infer_kind: ik,
+                codegen_kind: ck,
+            });
+        }
+    }
+
+    // Classify `obj.field(...)` against codegen's ModuleScope tables — the same
+    // cascade `method_call` walks to choose an instruction, returning only which
+    // kind of callee it is (no emit). The element-model analogue is
+    // `infer_callee_kind`; `xcheck_callee` compares the two.
+    fn codegen_callee_kind(self, _ obj: Expr, _ field: String, _ arg_count: Int) -> CalleeKind {
+        // 1. Enum payload constructor.
+        match self.enum_variant(obj, field) {
+            Some(_) => { return CalleeKind.EnumCtor; },
+            None => {},
+        }
+        // 2. `e.name()` on an enum value.
+        if field == 'name' && arg_count == 0 {
+            match self.type_of(obj) {
+                Some(t) => {
+                    if self.scope.enums.has(t) {
+                        return CalleeKind.EnumName;
+                    }
+                },
+                None => {},
+            }
+        }
+        // 3. Namespace-qualified native function.
+        match obj {
+            Ident(_, ns_name) => {
+                if self.is_namespace(ns_name) && self.scope.native_fns.has(field) {
+                    return CalleeKind.Namespace;
+                }
+            },
+            _ => {},
+        }
+        // 4. Instance native method.
+        match self.type_of(obj) {
+            Some(t) => {
+                match self.scope.native_instance_methods.get(t) {
+                    Some(m) => {
+                        if m.has(field) {
+                            return CalleeKind.InstanceMethod;
+                        }
+                    },
+                    None => {},
+                }
+            },
+            None => {},
+        }
+        // 5. Namespace-qualified free function.
+        match obj {
+            Ident(_, ns_name) => {
+                if self.is_namespace(ns_name) {
+                    match self.scope.resolve_global_function(field) {
+                        Some(_) => { return CalleeKind.Namespace; },
+                        None => {},
+                    }
+                }
+            },
+            _ => {},
+        }
+        // 6. Static native method on a type.
+        match self.static_type_name(obj) {
+            Some(static_type) => {
+                match self.scope.native_static_methods.get(static_type) {
+                    Some(m) => {
+                        if m.has(field) {
+                            return CalleeKind.StaticMethod;
+                        }
+                    },
+                    None => {},
+                }
+            },
+            None => {},
+        }
+        // 7. Dynamic dispatch.
+        match self.dispatch_interfaces(self.type_of(obj)) {
+            Some(_) => { return CalleeKind.Virtual; },
+            None => {},
+        }
+        // 8. A user method (instance or static), else a function-valued field.
+        match self.resolve_method(obj, field) {
+            Some(idx) => {
+                return match self.scope.unit_self_types[idx] {
+                    Some(_) => CalleeKind.InstanceMethod,
+                    None => CalleeKind.StaticMethod,
+                };
+            },
+            None => {
+                match self.type_of(obj) {
+                    Some(obj_type) => {
+                        match self.scope.structs.get(obj_type) {
+                            Some(struct_info) => {
+                                if field_index_of(struct_info, field) >= 0 {
+                                    return CalleeKind.FieldCall;
+                                }
+                            },
+                            None => {},
+                        }
+                    },
+                    None => {},
+                }
+            },
+        }
+        return CalleeKind.Unresolved;
     }
 
     // The unit index of method `name` on receiver `receiver`, or None. A type
