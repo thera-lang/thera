@@ -84,7 +84,7 @@ pub fn infer_expr(_ expr: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx,
         Struct(x) => infer_struct(x, scope, ctx),
         Ident(_, name) => infer_ident(name, scope, ctx),
         Call(x) => infer_call(x, scope, ctx, expected),
-        Field(_, object, field) => infer_field(object, field, scope, ctx),
+        Field(_, object, field) => infer_field(object, field, expected, scope, ctx),
         Index(_, object, _) => index_result(infer_expr(object, scope, ctx, Option.None)),
         Binary(_, left, op, right) => infer_binary(left, op, right, scope, ctx),
         Unary(_, op, operand) => infer_unary(op, operand, scope, ctx),
@@ -571,7 +571,7 @@ fn infer_call(_ x: CallExpr, _ scope: Map<String, Type>, _ ctx: InferCtx,
 
     match callee {
         Ident(_, name) => { return infer_call_ident(name, arg_types, x.type_args, expected, scope, ctx); },
-        Field(_, obj, field) => { return infer_call_field(obj, field, arg_types, scope, ctx); },
+        Field(_, obj, field) => { return infer_call_field(obj, field, arg_types, expected, scope, ctx); },
         _ => {},
     }
 
@@ -604,9 +604,9 @@ fn infer_call_ident(_ name: String, _ arg_types: List<Type>, _ type_args: List<T
 }
 
 fn infer_call_field(_ obj: Expr, _ field: String, _ arg_types: List<Type>,
-    _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
+    _ expected: Option<Type>, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
     // Enum construction: `(ns.)?Enum.Variant(payload...)`.
-    match enum_variant_type(obj, field, arg_types, scope, ctx) {
+    match enum_variant_type(obj, field, arg_types, expected, scope, ctx) {
         Some(t) => { return t; },
         None => {},
     }
@@ -804,9 +804,10 @@ pub fn expected_arg_types(_ callee: Expr, _ args: List<CallArg>,
 
 // --- fields ---
 
-fn infer_field(_ object: Expr, _ field: String, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
+fn infer_field(_ object: Expr, _ field: String, _ expected: Option<Type>,
+    _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
     // Bare enum variant: `(ns.)?Enum.Variant` (no payload).
-    match enum_variant_type(object, field, [], scope, ctx) {
+    match enum_variant_type(object, field, [], expected, scope, ctx) {
         Some(t) => { return t; },
         None => {},
     }
@@ -1081,7 +1082,7 @@ fn type_def_for_expr(_ object: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx
 // is one of its variants, the constructed enum type (with type args recovered
 // from `arg_types`).
 fn enum_variant_type(_ object: Expr, _ variant: String, _ arg_types: List<Type>,
-    _ scope: Map<String, Type>, _ ctx: InferCtx) -> Option<Type> {
+    _ expected: Option<Type>, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Option<Type> {
     match type_def_for_expr(object, scope, ctx) {
         Some(element) => {
             if element.kind != TypeDefKind.Enum {
@@ -1095,10 +1096,23 @@ fn enum_variant_type(_ object: Expr, _ variant: String, _ arg_types: List<Type>,
                         unify(v.fields[i], arg_types[i], bindings);
                         i = i + 1;
                     }
-                    let args = element.type_parameters.map((tp) => match bindings.get(tp) {
-                        Some(t) => t,
-                        None => Type.Unknown,
-                    });
+                    // A type parameter the constructed variant's payload didn't
+                    // determine is filled from the expected type when it is the
+                    // same enum — so `Result.Ok(x)` against an expected
+                    // `Result<T, Error>` recovers `E` (the un-constructed `Err`'s
+                    // type), which the `Ok` payload alone can't. The payload wins
+                    // where both apply (a real mismatch is reported elsewhere).
+                    let expected_args = enum_expected_args(element.name, expected);
+                    let args: List<Type> = [];
+                    let mut k = 0;
+                    while k < element.type_parameters.len() {
+                        let tp = element.type_parameters[k];
+                        args.push(match bindings.get(tp) {
+                            Some(t) => t,
+                            None => arg_at(expected_args, k),
+                        });
+                        k = k + 1;
+                    }
                     return Option.Some(Type.Interface(element.name, args));
                 },
                 None => { return Option.None; },
@@ -1106,6 +1120,18 @@ fn enum_variant_type(_ object: Expr, _ variant: String, _ arg_types: List<Type>,
         },
         None => { return Option.None; },
     }
+}
+
+// The type arguments of `expected` when it is the enum named `name`, else empty
+// — so an enum construction can recover parameters its payload didn't determine.
+fn enum_expected_args(_ name: String, _ expected: Option<Type>) -> List<Type> {
+    return match expected {
+        Some(t) => match t {
+            Interface(ename, eargs) => if ename == name { eargs } else { [] },
+            _ => [],
+        },
+        None => [],
+    };
 }
 
 // The `TypeDefElement` a member/method call resolves against — for both

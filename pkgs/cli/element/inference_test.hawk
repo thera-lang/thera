@@ -233,3 +233,42 @@ fn test_forward_flow_unpinned_stays_unknown() -> Result<Void, Error> {
         expected: Type.Unknown)?;
     return Result.Ok(void);
 }
+
+// ---- enum construction recovers parameters from the expected type ----
+
+fn type_of_expecting(_ src: String, _ ctx: InferCtx, _ expected: Type) -> Type {
+    return infer_expr(parse_expression(tokenize(src).tokens), empty_scope(), ctx, Option.Some(expected));
+}
+
+@test
+fn test_enum_construction_recovers_param_from_expected() -> Result<Void, Error> {
+    // `Res.Ok(0)` fixes `T` from the payload; `E` (the un-constructed `Err`'s
+    // parameter, which the payload can't determine) is recovered from the
+    // expected type — the `Result.Ok(x)` -> `Result<T, Unknown>` precision gap.
+    let ctx = new_ctx(lib_of('enum Res<T, E> { Ok(T), Err(E) }'));
+    let expected = Type.Interface('Res', [Type.Primitive(Primitive.Int), Type.Primitive(Primitive.Bool)]);
+    testing.assert_eq(actual: type_of_expecting('Res.Ok(0)', ctx, expected), expected: expected)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_enum_construction_payload_wins_over_expected() -> Result<Void, Error> {
+    // The payload is authoritative for the parameter it determines: `Res.Ok(0)`
+    // is `Res<Int, _>` even if the expected `T` disagrees (the mismatch is a
+    // separate diagnostic); only the un-determined `E` comes from the expected.
+    let ctx = new_ctx(lib_of('enum Res<T, E> { Ok(T), Err(E) }'));
+    let expected = Type.Interface('Res', [Type.Primitive(Primitive.Str), Type.Primitive(Primitive.Bool)]);
+    testing.assert_eq(actual: type_of_expecting('Res.Ok(0)', ctx, expected),
+        expected: Type.Interface('Res', [Type.Primitive(Primitive.Int), Type.Primitive(Primitive.Bool)]))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_enum_construction_without_expected_leaves_param_unknown() -> Result<Void, Error> {
+    // No expected type: the un-determined parameter stays `Unknown` (unchanged,
+    // load-bearing behavior — see the roadmap's Unknown-hole finding).
+    let ctx = new_ctx(lib_of('enum Res<T, E> { Ok(T), Err(E) }'));
+    testing.assert_eq(actual: type_of('Res.Ok(0)', empty_scope(), ctx),
+        expected: Type.Interface('Res', [Type.Primitive(Primitive.Int), Type.Unknown]))?;
+    return Result.Ok(void);
+}

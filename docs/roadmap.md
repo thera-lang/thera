@@ -324,13 +324,15 @@ gaps, by where they live:
     the unpinnable-generic "cannot infer", assignment-target threading — are the
     right model and have closed the practical hole problem; there is no broad
     "reject `Unknown`" flip to make. The constructive follow-up the spike surfaced
-    is **precision, not a diagnostic**: thread the expected type into enum
-    construction so `Result.Ok(x)` under an expected `Result<T, Error>` infers
-    `E = Error` (binding the un-constructed variant's parameter from context — the
-    same expected-threading used elsewhere), cleaning up nearly all the partials
-    for hover/LSP and future analysis with no false-positive risk. (Forward-flow +
-    method-arg checking already catch the once-canonical `xs.push("a"); xs.push(1)`
-    case.)
+    was **precision, not a diagnostic**, and is now _done_: enum construction
+    threads the expected type, so `Result.Ok(x)` under an expected
+    `Result<T, Error>` infers `E = Error` (binding the un-constructed variant's
+    parameter from context — `enum_variant_type` in `element/inference.hawk`; the
+    payload still wins for the parameter it determines). This collapses nearly all
+    the partials into precise types for hover/LSP and future analysis, with no
+    false-positive risk; with no expected type the parameter stays `Unknown` as
+    before. (Forward-flow + method-arg checking already catch the once-canonical
+    `xs.push("a"); xs.push(1)` case.)
   - ~~**`match`-arm types not unified.**~~ _Done._ `check_match` folds each arm's
     type into a running reference (the `expected` type when the match is in an
     annotated context, else the first value-producing arm) and flags an arm
