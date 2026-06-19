@@ -38,6 +38,23 @@ else
   echo "  FAIL lsp initialize: no framed response body received"; fail=1
 fi
 
+echo "==> check diagnostics stream (stdout, not stderr)"
+# `hawk check`'s product is its diagnostics (it emits no artifact), so they go to
+# stdout — like `hawk test` and like linters (eslint/ruff/mypy). Assert that a
+# diagnostic lands on stdout and not stderr, so the convention can't regress.
+# (See docs/architecture.md, "The CLI: commands and output streams".)
+chk_dir="$(mktemp -d)"
+printf 'fn f() -> Int { return missing; }\n' > "$chk_dir/bad.hawk"
+chk_out="$("$HAWK" check "$chk_dir/bad.hawk" 2>/dev/null)"
+chk_err="$("$HAWK" check "$chk_dir/bad.hawk" 2>&1 1>/dev/null)"
+if printf '%s' "$chk_out" | grep -q 'undefined name: missing' \
+   && ! printf '%s' "$chk_err" | grep -q 'undefined name: missing'; then
+  echo "  ok   diagnostics on stdout, not stderr"
+else
+  echo "  FAIL check diagnostics stream (stdout='$chk_out')"; fail=1
+fi
+rm -rf "$chk_dir"
+
 echo "==> examples"
 # Pin the output of a few representative examples (the rest must just run).
 check_out() {

@@ -22,7 +22,8 @@ is"; read top-down for progressive detail.
   set, the Tier-0 interpreter, and the serialized `.hawkbc` format.
 - [architecture.md](architecture.md) — the runtime **architecture**: the tiered
   VM (interpreter → Cranelift JIT), execution pipeline, interface dispatch, GC
-  strategy, the native-function ABI, and the embedded front-end.
+  strategy, the native-function ABI, the embedded front-end, and the CLI's
+  commands & output-stream (stdout/stderr) convention.
 - [roadmap.md](roadmap.md) — current **status**, the bootstrap arcs, deferred
   work, and remaining front-end work.
 

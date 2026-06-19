@@ -308,6 +308,39 @@ so bytecode stays robust across runtime versions and a separate emitter (the
 Dart front-end) need not hard-code an index table. The names live in the
 constant pool.
 
+## The CLI: commands and output streams
+
+`bin/hawk` exposes the toolchain as subcommands:
+
+| command | what it does |
+| --- | --- |
+| `hawk run <file> [args…]` | compile `<file>` to bytecode and run it; trailing args pass to the program |
+| `hawk check <target>` | type-check a `.hawk` file or directory; emit diagnostics, no artifact |
+| `hawk emit <file> <out.hawkbc>` | compile `<file>` to a `.hawkbc` bytecode file |
+| `hawk test <file>` | run the `@test` functions in a Hawk program |
+| `hawk lsp` | start the language server (LSP over stdin/stdout) |
+
+**stdout vs. stderr.** The rule: stdout carries a command's _expected output_;
+stderr carries the _unexpected_ (progress, operational failures, crashes). Which
+is which turns on whether the command's product is an **artifact** or its
+**diagnostics**:
+
+- `check` and `test` are **analyzers** — they emit no artifact, so their results
+  (diagnostics for `check`; the `ok`/`FAIL` lines + summary for `test`) **are**
+  the product and go to **stdout**. This matches linters (eslint, ruff, mypy) and
+  test runners (`cargo test`, `go test`, pytest), and keeps a future
+  `--json`/SARIF mode on the same stream so `hawk check --json | jq` works.
+  Pass/fail is _also_ on the **exit code** (`check`: 0 clean / 1 diagnostics / 2
+  missing target; `test`: the failure count).
+- `emit` is a **compiler** — its product is the `.hawkbc`, so its diagnostics are
+  "why the build failed" and go to **stderr** (the rustc/clang convention),
+  leaving stdout clean.
+- `lsp` owns **stdout** for the JSON-RPC wire protocol; human-facing output
+  (build/compile progress) goes to stderr.
+- **Operational failures** for any command (file not found, can't read/write, an
+  internal trap) go to **stderr**, as does the dev launcher's build/compile
+  progress (`bin/hawk.sh`).
+
 ## Options considered and rejected
 
 - **Wasmtime as the runtime.** The Wasm sandbox fights Hawk's central use case:

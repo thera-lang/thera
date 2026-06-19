@@ -177,9 +177,14 @@ fn do_check(_ targets: List<String>, _ sdk_root: Option<String>) -> Result<Int, 
     for file in sort_dedup(files) {
         match fs.read_text(file) {
             Ok(source) => {
+                // Diagnostics are `check`'s product (it emits no artifact), so
+                // they go to stdout — like `hawk test`, and like the linters/
+                // analyzers it resembles (eslint, ruff, mypy). stderr is reserved
+                // for operational failures (below) and `emit`, which is a compiler
+                // whose product is the `.hawkbc`. (See docs/architecture.md.)
                 let diags = check_source_at(source, file, sdk_root);
                 for d in diags {
-                    eprintln(format_diagnostic(d, file));
+                    println(format_diagnostic(d, file));
                 }
                 total = total + diags.len();
             },
