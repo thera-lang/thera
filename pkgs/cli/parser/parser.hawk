@@ -1181,84 +1181,52 @@ impl Parser {
     // --- expressions ---
 
     fn parse_expr(self) -> Expr {
-        return self.parse_or(true);
+        return self.parse_binary(0, true);
     }
 
     // Stops before `{` — for if/for/while/match conditions, so `if foo { … }`
     // doesn't read `foo { … }` as a struct literal.
     fn parse_expr_no_brace(self) -> Expr {
-        return self.parse_or(false);
+        return self.parse_binary(0, false);
     }
 
-    fn parse_or(self, _ allow_struct: Bool) -> Expr {
-        let mut left = self.parse_and(allow_struct);
-        while !self.panicking && self.check(TokenKind.PipePipe) {
+    // The left-associative binary-operator levels above `shift`, loosest first:
+    //
+    //   0: ||   1: &&   2: |   3: ^   4: &   5: == !=   6: < > <= >=
+    //
+    // Each level parses an operand at the next-tighter level, then folds while the
+    // cursor is an operator of this level (`binary_op_at`). Below level 6 the ladder
+    // bottoms out into the operators with bespoke parsing — `shift` (`<<`/`>>`/`>>>`
+    // recognized by combining adjacent `<`/`>`), `range` (`..`, non-associative),
+    // then `+`/`-` and `*`/`/`/`%`. Replaces seven near-identical `parse_*` levels.
+    fn parse_binary(self, _ level: Int, _ allow_struct: Bool) -> Expr {
+        if level > 6 {
+            return self.parse_shift(allow_struct);
+        }
+        let mut left = self.parse_binary(level + 1, allow_struct);
+        while !self.panicking && self.binary_op_at(level) {
             let op = self.advance().span.text();
-            let right = self.parse_and(allow_struct);
+            let right = self.parse_binary(level + 1, allow_struct);
             left = Expr.Binary(expr_span(left).cover(expr_span(right)), left, op, right);
         }
         return left;
     }
 
-    fn parse_and(self, _ allow_struct: Bool) -> Expr {
-        let mut left = self.parse_bit_or(allow_struct);
-        while !self.panicking && self.check(TokenKind.AmpAmp) {
-            let op = self.advance().span.text();
-            let right = self.parse_bit_or(allow_struct);
-            left = Expr.Binary(expr_span(left).cover(expr_span(right)), left, op, right);
-        }
-        return left;
-    }
-
-    fn parse_bit_or(self, _ allow_struct: Bool) -> Expr {
-        let mut left = self.parse_bit_xor(allow_struct);
-        while !self.panicking && self.check(TokenKind.Pipe) {
-            let op = self.advance().span.text();
-            let right = self.parse_bit_xor(allow_struct);
-            left = Expr.Binary(expr_span(left).cover(expr_span(right)), left, op, right);
-        }
-        return left;
-    }
-
-    fn parse_bit_xor(self, _ allow_struct: Bool) -> Expr {
-        let mut left = self.parse_bit_and(allow_struct);
-        while !self.panicking && self.check(TokenKind.Caret) {
-            let op = self.advance().span.text();
-            let right = self.parse_bit_and(allow_struct);
-            left = Expr.Binary(expr_span(left).cover(expr_span(right)), left, op, right);
-        }
-        return left;
-    }
-
-    fn parse_bit_and(self, _ allow_struct: Bool) -> Expr {
-        let mut left = self.parse_equality(allow_struct);
-        while !self.panicking && self.check(TokenKind.Amp) {
-            let op = self.advance().span.text();
-            let right = self.parse_equality(allow_struct);
-            left = Expr.Binary(expr_span(left).cover(expr_span(right)), left, op, right);
-        }
-        return left;
-    }
-
-    fn parse_equality(self, _ allow_struct: Bool) -> Expr {
-        let mut left = self.parse_comparison(allow_struct);
-        while !self.panicking && (self.check(TokenKind.EqEq) || self.check(TokenKind.BangEq)) {
-            let op = self.advance().span.text();
-            let right = self.parse_comparison(allow_struct);
-            left = Expr.Binary(expr_span(left).cover(expr_span(right)), left, op, right);
-        }
-        return left;
-    }
-
-    fn parse_comparison(self, _ allow_struct: Bool) -> Expr {
-        let mut left = self.parse_shift(allow_struct);
-        while !self.panicking && (self.check(TokenKind.Lt) || self.check(TokenKind.Gt)
-            || self.check(TokenKind.LtEq) || self.check(TokenKind.GtEq)) {
-            let op = self.advance().span.text();
-            let right = self.parse_shift(allow_struct);
-            left = Expr.Binary(expr_span(left).cover(expr_span(right)), left, op, right);
-        }
-        return left;
+    // Whether the cursor is a binary operator at precedence `level` (see
+    // `parse_binary`). The precedence ladder, as a `match` rather than an
+    // allocated table so the hot descent never materializes a list.
+    fn binary_op_at(self, _ level: Int) -> Bool {
+        let k = self.current().kind;
+        return match level {
+            0 => k == TokenKind.PipePipe,
+            1 => k == TokenKind.AmpAmp,
+            2 => k == TokenKind.Pipe,
+            3 => k == TokenKind.Caret,
+            4 => k == TokenKind.Amp,
+            5 => k == TokenKind.EqEq || k == TokenKind.BangEq,
+            6 => k == TokenKind.Lt || k == TokenKind.Gt || k == TokenKind.LtEq || k == TokenKind.GtEq,
+            _ => false,
+        };
     }
 
     // Shift precedence. `<< >> >>>` aren't lexer tokens — they're recognized by

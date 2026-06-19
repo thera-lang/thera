@@ -245,3 +245,14 @@ fn test_empty_statements_are_tolerated() -> Result<Void, Error> {
     testing.assert(!r.has_errors(), message: 'stray semicolons should be ignored')?;
     return Result.Ok(void);
 }
+
+@test
+fn test_binary_precedence_ladder() -> Result<Void, Error> {
+    // One expression spanning the whole table-driven ladder, loosest to tightest:
+    // || < && < | < ^ < & < == < (comparison) < + < *. Asserts the nesting the
+    // `parse_binary` precedence match produces.
+    testing.assert_eq(
+        actual: expr_str('a || b && c | d ^ e & f == g < h + i * j'),
+        expected: '(a || (b && (c | (d ^ (e & (f == (g < (h + (i * j)))))))))')?;
+    return Result.Ok(void);
+}
