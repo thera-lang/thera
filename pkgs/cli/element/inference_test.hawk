@@ -272,3 +272,28 @@ fn test_enum_construction_without_expected_leaves_param_unknown() -> Result<Void
         expected: Type.Interface('Res', [Type.Primitive(Primitive.Int), Type.Unknown]))?;
     return Result.Ok(void);
 }
+
+// ---- forward-flow descends into nested blocks ----
+
+@test
+fn test_forward_flow_pins_through_if_block() -> Result<Void, Error> {
+    // A reassignment inside an `if` still pins the binding's type (it holds that
+    // type when the branch runs) — the parser's `let mut type_ann = Option.None;
+    // if … { type_ann = Option.Some(…) }` shape that was the last `Unknown` hole.
+    let ctx = new_ctx(lib_of('enum Opt<T> { Some(T), Nope }'));
+    testing.assert_eq(
+        actual: type_of('{ let mut x = Opt.Nope; if true { x = Opt.Some(5); } x }', empty_scope(), ctx),
+        expected: Type.Interface('Opt', [Type.Primitive(Primitive.Int)]))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_forward_flow_pins_through_for_loop_push() -> Result<Void, Error> {
+    // A `push` inside a `for` pins the element, with the loop variable in scope so
+    // `xs.push(i)` types against the iteration element rather than `Unknown`.
+    let ctx = new_ctx(lib_of(''));
+    testing.assert_eq(
+        actual: type_of('{ let xs = []; for i in 0..3 { xs.push(i); } xs[0] }', empty_scope(), ctx),
+        expected: Type.Primitive(Primitive.Int))?;
+    return Result.Ok(void);
+}

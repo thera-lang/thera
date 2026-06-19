@@ -436,7 +436,9 @@ pub fn refine_binding_type(_ name: String, _ inferred: Type, _ stmts: List<Stmt>
 // statement pins the binding: a reassignment `name = v` (adopt `v`'s type), an
 // indexed assignment `name[k] = v`, or a `name.push(v)` call. `current` is the
 // binding's type so far (it decides whether `name[k] = v` reads as a `List` or a
-// `Map`). None when the statement doesn't constrain `name`.
+// `Map`). Descends into `if`/`while`/`for` bodies — a conditional or loop
+// reassignment still pins the binding's type (it holds that type when the branch
+// runs). None when the statement doesn't constrain `name`.
 fn pinning_candidate(_ name: String, _ stmt: Stmt, _ current: Type,
     _ scope: Map<String, Type>, _ ctx: InferCtx) -> Option<Type> {
     return match stmt {
@@ -458,10 +460,56 @@ fn pinning_candidate(_ name: String, _ stmt: Stmt, _ current: Type,
         },
         Expr(_, e) => match e {
             Call(c) => push_candidate(name, c, scope, ctx),
+            // An `if`/block used as an expression-statement (no tail value) still
+            // carries reassignments in its branches.
+            If(ix) => pinning_in_if(name, ix.then_block, ix.else_block, current, scope, ctx),
+            Block(_, b) => pinning_in_block(name, b, current, scope, ctx),
             _ => Option.None,
+        },
+        If(x) => pinning_in_if(name, x.then_block, x.else_block, current, scope, ctx),
+        While(x) => pinning_in_block(name, x.body, current, scope, ctx),
+        For(x) => {
+            // Bind the loop variable so a pinning value that uses it (`xs.push(i)`)
+            // types against the iteration element, not `Unknown`.
+            let body_scope = copy_scope(scope);
+            let iter_type = infer_expr(x.iterable, scope, ctx, Option.None);
+            bind_for_pattern(x.pattern, iter_type, body_scope, ctx);
+            pinning_in_block(name, x.body, current, body_scope, ctx)
         },
         _ => Option.None,
     };
+}
+
+// The first pinning use of `name` in an `if`'s branches — its `then` block, then
+// its `else`. Shared by the statement and expression-statement `if` forms.
+fn pinning_in_if(_ name: String, _ then_block: Block, _ else_block: Option<Block>,
+    _ current: Type, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Option<Type> {
+    return match pinning_in_block(name, then_block, current, scope, ctx) {
+        Some(t) => Option.Some(t),
+        None => match else_block {
+            Some(eb) => pinning_in_block(name, eb, current, scope, ctx),
+            None => Option.None,
+        },
+    };
+}
+
+// The first pinning use of `name` among `block`'s statements (in source order,
+// itself descending into nested blocks). Grows a local scope across intervening
+// `let`s so a pinning value that references one types correctly.
+fn pinning_in_block(_ name: String, _ block: Block, _ current: Type,
+    _ scope: Map<String, Type>, _ ctx: InferCtx) -> Option<Type> {
+    let s = copy_scope(scope);
+    let mut i = 0;
+    while i < block.stmts.len() {
+        let stmt = block.stmts[i];
+        match pinning_candidate(name, stmt, current, s, ctx) {
+            Some(t) => { return Option.Some(t); },
+            None => {},
+        }
+        infer_stmt(stmt, s, ctx);
+        i = i + 1;
+    }
+    return Option.None;
 }
 
 // `name[k] = v` as a candidate: a `Map`'s key/value from `k`/`v`, a `List`'s

@@ -313,7 +313,9 @@ gaps, by where they live:
     partially-`Unknown` type consumed in a value position
     (let/return/arg/condition/match-subject/for-iterable) across the whole corpus
     (examples + stdlib + the self-hosted front-end). Result: **1** wholly-`Unknown`
-    hole (a benign parser local whose type didn't resolve, handled leniently) and
+    hole (a parser `let mut t = Option.None` pinned only by a reassignment
+    _inside_ an `if` — now fixed: forward-flow descends into `if`/`while`/`for`
+    bodies, statement and expression-statement forms alike) and
     **~330 partials** — almost entirely `Result.Ok(x)` / `Result.Err(e)` producing
     `Result<T, Unknown>`, because constructing _one_ variant of a two-parameter
     enum can't determine the _other_ parameter (the `Err` type of an `Ok`). So
