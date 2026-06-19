@@ -155,9 +155,13 @@ closed.
   types/enums/consts/natives are global-by-bare-name. This already bites: pulling
   `std.json`/`std.io` into the front-end collided `json.parse` with the parser's
   `parse` (renamed `parse_tokens`) and a local `Message` with `std.core`'s — caught
-  only at codegen, not `check`. Fix: module-scoped resolution (qualified calls
-  resolve _within_ the named library) + privacy enforcement; a
-  duplicate-top-level-name diagnostic would at least surface collisions early. A
+  only at codegen, not `check`. **Done:** a **duplicate-top-level-name diagnostic**
+  now surfaces these collisions at `check` (over the entry file + its import
+  closure; type-like/const names collide on any duplicate, functions only when a
+  `pub` definition is involved since they resolve same-file-first). Still open: the
+  resolution itself — module-scoped resolution (qualified calls resolve _within_
+  the named library; today `lib.foo` still falls through to the last-wins global
+  table) + privacy enforcement (a private fn is still reachable cross-file). A
   _permanent_ sub-case: **prelude (`std.core`) names are always unqualified**, so
   they're de-facto soft-reserved — the prelude holds only language-fundamental
   types/traits/verbs, never common domain nouns (why the `Message` error type
