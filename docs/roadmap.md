@@ -209,8 +209,42 @@ closed.
   by name at load. Add a test asserting every `@extern` name the front-end can emit
   is accepted by the runtime, and split the runtime table into per-module files
   (`natives_fs.rs`, `natives_string.rs`, …) as it grows.
+- **Unify call/member resolution — codegen re-derives what inference computes.**
+  `codegen.hawk`'s `call_expr`/`method_call` walk the same "what kind of callee is
+  this?" decision tree as inference's `infer_call_field`/`resolve_ns_or_static_call`
+  — enum constructor → namespace native → instance native → user method → virtual
+  dispatch. They aren't trivially mergeable (codegen needs native symbols/indices
+  via `ModuleScope`; inference needs `Type`s via the element model), but having two
+  resolvers will drift. Direction: pick **one canonical resolution** and pull the
+  knowledge codegen holds (native symbols, indices) **forward into a shared
+  result** both inference and codegen consume, so the callee is classified once.
+  High-effort/architectural — scope a spike before committing; don't tackle
+  speculatively. (Surfaced by the pkgs/ code review.)
+- **codegen unit-test coverage.** codegen + module_scope (~2.9k lines) have the
+  thinnest direct tests (~11, a deliberate all-native stub) — they're covered
+  end-to-end by the fixpoint + examples + every other suite running through them,
+  so a codegen regression surfaces as a fixpoint/example failure, not a located
+  unit failure. Add focused tests for the trickier lowerings (match-dispatch
+  bisection, closure capture/boxing, the call-resolution branches) rather than
+  leaning on one large implicit regression test.
+- **Parser error recovery for the LSP.** The LSP's normal input is _syntactically
+  broken_ code mid-edit; the parser should synthesize a best-effort tree (recover
+  past the error) so semantic resolution still runs and offers completions/hover.
+  Today recovery is coarse (`sync_to_decl`). A future spike: structured recovery +
+  error nodes the resolver tolerates. (Keep in mind when touching the parser — the
+  recent precedence-table refactor preserved the `panicking`/recovery structure.)
 
 ### Language features not yet built
+
+- **Syntax-elegance pass — through the LLM lens.** Several common shapes are more
+  verbose than they need to be; the dominant one is the resolution cascade
+  `match X { Some(v) => { …; return …; }, None => {} }` (55× in codegen, 38× in
+  inference, 28× in checker) — "look up, act-and-return, else fall through." Sugar
+  could collapse it: an `if let Some(v) = X { … }`, `?` working on `Option` in a
+  fallthrough/`-> Void` position, or a `guard`-style early return. Evaluate options
+  by what's best for **LLMs** — terseness, expressiveness, and _one_ obvious way to
+  do a thing (the same lens as the ternary-for-`if` question). A general pass, not
+  a single feature. (Surfaced by the pkgs/ code review.)
 
 - **Generic operators** (`<T: Add>`, operators-as-traits) — the remaining piece of
   the generics arc (bound enforcement + `call.virtual` dispatch on `T` are done).
