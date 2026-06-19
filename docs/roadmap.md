@@ -148,27 +148,25 @@ closed.
 
 ### Front-end / tooling
 
-- **Per-namespace resolution + `pub`/privacy enforcement — rising priority.** Free
-  functions resolve same-file-first with a global fallback, but a private fn is
-  still reachable cross-file, and a `pub` name still collides across libraries
-  through a namespace-qualified call (the qualifier is cosmetic in codegen);
-  types/enums/consts/natives are global-by-bare-name. This already bites: pulling
-  `std.json`/`std.io` into the front-end collided `json.parse` with the parser's
-  `parse` (renamed `parse_tokens`) and a local `Message` with `std.core`'s — caught
-  only at codegen, not `check`. **Done:** a **duplicate-top-level-name diagnostic**
-  now surfaces these collisions at `check` (over the entry file + its import
-  closure; type-like/const names collide on any duplicate, functions only when a
-  `pub` definition is involved since they resolve same-file-first). Still open: the
-  resolution itself — module-scoped resolution (qualified calls resolve _within_
-  the named library; today `lib.foo` still falls through to the last-wins global
-  table) + privacy enforcement (a private fn is still reachable cross-file). A
-  _permanent_ sub-case: **prelude (`std.core`) names are always unqualified**, so
-  they're de-facto soft-reserved — the prelude holds only language-fundamental
-  types/traits/verbs, never common domain nouns (why the `Message` error type
-  became the `error('…')` constructor over a private carrier). Related follow-ups:
-  `_test.hawk` white-box access (only meaningful once privacy is enforced), `impl`
-  coherence / orphan rules, selective import (`show`/`hide`), field-level
-  visibility, and a "module"→"library" terminology sweep.
+- **Qualified-only resolution + `pub`/privacy enforcement — rising priority.** The
+  scoping rules are now **specified** in [scoping.md](scoping.md): a bare name
+  resolves only to locals + same-file top-level + the prelude; every other
+  library's names go through its namespace (`fs.read_text`), with the qualified
+  lookup checked against that library's public surface. The implementation
+  diverges on every point — see [scoping.md](scoping.md) → *Implementation gaps*.
+  In short: resolution falls back to a single **last-wins global table** spanning
+  the whole closure (so bare names reach un-imported libraries, `lib.foo` binds to
+  the wrong library, and private names leak cross-file), the element model is one
+  flat global surface (no per-library ownership / per-file imports), and the
+  self-hosted front-end + stdlib are written with **bare cross-library calls** that
+  rely on the fallback. **Done so far:** a **duplicate-top-level-name diagnostic**
+  surfaces global-table collisions at `check`; it's a guard, not the fix.
+  Sequencing (per scoping.md): (a) enrich the element model with per-library
+  ownership + per-file imports; (b) implement surface-checked qualified resolution
+  and same-file+prelude bare resolution; (c) migrate the front-end + stdlib to
+  qualified references (must land with b); (d) enforce privacy. Related follow-ups:
+  `_test.hawk` white-box access, `impl` coherence / orphan rules, selective import
+  (`show`/`hide`), and a "module"→"library" terminology sweep.
 - **Imported-file errors are silently swallowed — correctness bug.** A parse (or
   check) error in an **imported** file is **dropped**: `hawk check app.hawk` over
   an `import 'helper'` whose `helper.hawk` has a genuine parse error (`let x = ;`)

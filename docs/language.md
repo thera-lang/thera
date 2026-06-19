@@ -621,8 +621,11 @@ filename convention grants the access, avoiding a general package-private axis.
 
 Visibility and qualification are **front-end** concerns — name resolution
 applies them and they are erased in `.hawkbc` (calls are by index; the bytecode
-has no notion of "private" or namespaces). _Privacy is not yet fully enforced_
-(see [roadmap.md](roadmap.md)).
+has no notion of "private" or namespaces). The precise resolution rules — bare vs.
+qualified, the prelude, and the algorithm — are specified in
+[scoping.md](scoping.md). _Qualified-only access and privacy are not yet fully
+enforced_ (see [scoping.md](scoping.md) → Implementation gaps and
+[roadmap.md](roadmap.md)).
 
 ---
 

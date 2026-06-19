@@ -13,6 +13,9 @@ is"; read top-down for progressive detail.
 - [grammar.md](grammar.md) — the **EBNF grammar**: the keyword set, the
   operator/precedence table, every production, and a parser-completeness
   checklist of what's not yet in the syntax.
+- [scoping.md](scoping.md) — **name resolution & scoping**: lexical/file scope,
+  the prelude, qualified-only cross-library access, the resolution algorithm, and
+  the gaps where the implementation still diverges.
 - [stdlib.md](stdlib.md) — the **standard library** design: principles, the
   prelude/core/ecosystem tiers, and the module-by-module catalog.
 - [testability.md](testability.md) — the **ambient-capability** design: an
