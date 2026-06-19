@@ -220,13 +220,17 @@ closed.
   `infer_call_field` is deliberately left separate — its cases are coarser than
   codegen's emission distinctions, so routing it through the same classifier would
   fragment a clean uniform branch.) (Surfaced by the pkgs/ code review.)
-- **codegen unit-test coverage.** codegen + module_scope (~2.9k lines) have the
-  thinnest direct tests (~11, a deliberate all-native stub) — they're covered
-  end-to-end by the fixpoint + examples + every other suite running through them,
-  so a codegen regression surfaces as a fixpoint/example failure, not a located
-  unit failure. Add focused tests for the trickier lowerings (match-dispatch
-  bisection, closure capture/boxing, the call-resolution branches) rather than
-  leaning on one large implicit regression test.
+- **codegen unit-test coverage — in progress.** codegen + module_scope (~2.9k
+  lines) were covered mainly end-to-end (fixpoint + examples + every suite running
+  through them), so a regression surfaced as a fixpoint/example break, not a
+  located unit failure. **Instruction-level tests now exist** for the trickier
+  lowerings — the call-resolution branches (enum ctor / enum `name()` / user
+  static+instance / native instance+static / free native / field call / virtual
+  dispatch), match-dispatch bisection-vs-linear, and closure mut-capture boxing —
+  decoding the emitted `Module` and asserting which opcode each lowers to (so a
+  regression is a readable, located failure). Remaining: direct coverage of
+  `module_scope` internals (name mangling, same-file-first resolution edge cases,
+  dispatch-table building) still leans on the implicit end-to-end suites.
 - **Parser error recovery for the LSP.** The LSP's normal input is _syntactically
   broken_ code mid-edit; the parser should synthesize a best-effort tree (recover
   past the error) so semantic resolution still runs and offers completions/hover.
