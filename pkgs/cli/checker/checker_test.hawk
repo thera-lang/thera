@@ -488,3 +488,68 @@ fn test_index_assignment_target_pins_generic() -> Result<Void, Error> {
     testing.assert_eq(actual: errs.len(), expected: 0)?;
     return Result.Ok(void);
 }
+
+// --- duplicate top-level definitions ---
+
+fn program_at(_ src: String, _ path: String) -> Program {
+    let p = parse_tokens(tokenize(src).tokens).program;
+    p.file_path = Option.Some(path);
+    return p;
+}
+
+// Whether any diagnostic mentions `needle`.
+fn any_message_contains(_ errs: List<CheckError>, _ needle: String) -> Bool {
+    for e in errs {
+        if e.message.contains(needle) {
+            return true;
+        }
+    }
+    return false;
+}
+
+@test
+fn test_duplicate_pub_function_across_files_is_flagged() -> Result<Void, Error> {
+    // A local `helper` shadowing another file's `pub helper` in the global
+    // fallback — the cross-file hijack that previously surfaced only at codegen.
+    let lib = program_at('pub fn helper() -> Int { return 1; }', 'lib.hawk');
+    let main = program_at('fn helper() -> Int { return 2; }\n'
+        + 'fn run() -> Int { return helper(); }', 'main.hawk');
+    let errs = check(main, [lib], {}).errors;
+    testing.assert(any_message_contains(errs, 'duplicate function `helper`'),
+        message: 'expected a duplicate-function diagnostic')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_private_function_collision_across_files_is_allowed() -> Result<Void, Error> {
+    // Two *private* same-named helpers in different files resolve same-file-first,
+    // so they don't collide — leniency the policy must keep.
+    let lib = program_at('fn helper() -> Int { return 1; }', 'lib.hawk');
+    let main = program_at('fn helper() -> Int { return 2; }\n'
+        + 'fn run() -> Int { return helper(); }', 'main.hawk');
+    let errs = check(main, [lib], {}).errors;
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_duplicate_type_across_files_is_flagged() -> Result<Void, Error> {
+    // Type-like names are global-by-bare-name, so any duplicate collides.
+    let lib = program_at('pub type Point = { x: Int }', 'lib.hawk');
+    let main = program_at('type Point = { y: Int }\n'
+        + 'fn run() -> Int { return 0; }', 'main.hawk');
+    let errs = check(main, [lib], {}).errors;
+    testing.assert(any_message_contains(errs, 'duplicate type `Point`'),
+        message: 'expected a duplicate-type diagnostic')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_redefinition_in_same_file_is_flagged() -> Result<Void, Error> {
+    let errs = errors_of('fn dup() -> Int { return 1; }\n'
+        + 'fn dup() -> Int { return 2; }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert(any_message_contains(errs, 'duplicate function `dup`'),
+        message: 'expected a same-file redefinition diagnostic')?;
+    return Result.Ok(void);
+}

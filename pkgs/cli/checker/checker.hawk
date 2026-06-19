@@ -39,12 +39,134 @@ pub fn check(_ program: Program, _ imports: List<Program>,
     _ namespaces: Map<String, LibraryNamespace>) -> CheckResult {
     let errors: List<CheckError> = [];
     let library = build_library(program, imports, namespaces);
+    check_duplicates(errors, program, imports);
     check_program(errors, program, library, program.file_path);
     return CheckResult { errors: errors };
 }
 
 fn add_error(_ errors: List<CheckError>, _ message: String, _ span: SourceSpan) -> Void {
     errors.push(CheckError { message: message, span: span });
+}
+
+// ---- duplicate top-level definition detection ----
+
+// A top-level declaration's site, for collision reporting.
+type NameSite = {
+    file: Option<String>,
+    span: SourceSpan,
+    is_pub: Bool,
+    primary: Bool,
+}
+
+// Flag top-level names defined more than once across the checked file and its
+// import closure. Resolution collapses each name space (type-like / function /
+// const) into a last-wins map, so a duplicate is silently resolved to one
+// definition — a cross-file `pub` hijack that otherwise surfaces only at codegen,
+// or not at all. Reported against the colliding definition in the file being
+// checked.
+fn check_duplicates(_ errors: List<CheckError>, _ program: Program, _ imports: List<Program>) -> Void {
+    let types: Map<String, List<NameSite>> = {};
+    let funcs: Map<String, List<NameSite>> = {};
+    let consts: Map<String, List<NameSite>> = {};
+    for ip in imports {
+        collect_names(ip, false, types, funcs, consts);
+    }
+    collect_names(program, true, types, funcs, consts);
+
+    report_dups(errors, types, 'type');
+    report_dups(errors, funcs, 'function');
+    report_dups(errors, consts, 'constant');
+}
+
+fn collect_names(_ p: Program, _ primary: Bool, _ types: Map<String, List<NameSite>>,
+    _ funcs: Map<String, List<NameSite>>, _ consts: Map<String, List<NameSite>>) -> Void {
+    for decl in p.decls {
+        match decl {
+            Fn(x) => { add_name(funcs, x.name, NameSite { file: p.file_path, span: x.name_span, is_pub: x.is_pub, primary: primary }); },
+            Type(x) => { add_name(types, x.name, NameSite { file: p.file_path, span: x.name_span, is_pub: x.is_pub, primary: primary }); },
+            Enum(x) => { add_name(types, x.name, NameSite { file: p.file_path, span: x.name_span, is_pub: x.is_pub, primary: primary }); },
+            Interface(x) => { add_name(types, x.name, NameSite { file: p.file_path, span: x.name_span, is_pub: x.is_pub, primary: primary }); },
+            Const(x) => { add_name(consts, x.name, NameSite { file: p.file_path, span: x.name_span, is_pub: x.is_pub, primary: primary }); },
+            _ => {},
+        }
+    }
+}
+
+fn add_name(_ m: Map<String, List<NameSite>>, _ name: String, _ site: NameSite) -> Void {
+    if !m.has(name) {
+        m[name] = [];
+    }
+    match m.get(name) {
+        Some(list) => { list.push(site); },
+        None => {},
+    }
+}
+
+// Report each primary-file definition that collides with another definition of
+// the same name (in the same name space).
+fn report_dups(_ errors: List<CheckError>, _ m: Map<String, List<NameSite>>, _ kind: String) -> Void {
+    for name in m.keys() {
+        match m.get(name) {
+            Some(sites) => {
+                if sites.len() >= 2 {
+                    report_name(errors, name, kind, sites);
+                }
+            },
+            None => {},
+        }
+    }
+}
+
+// Imports are collected before the primary program, so a primary definition that
+// collides with an earlier site (an import, or a prior definition in the same
+// file) is the duplicate — report it, pointing at the earliest definition it
+// shadows. Each collision is reported once, at the offending (later) definition.
+fn report_name(_ errors: List<CheckError>, _ name: String, _ kind: String, _ sites: List<NameSite>) -> Void {
+    let mut i = 0;
+    while i < sites.len() {
+        let s = sites[i];
+        if s.primary {
+            let mut j = 0;
+            let mut reported = false;
+            while j < i && !reported {
+                if !same_decl(s, sites[j]) && collides(s, sites[j], kind) {
+                    let where = if file_key(s.file) == file_key(sites[j].file) {
+                        'this file'
+                    } else {
+                        file_key(sites[j].file)
+                    };
+                    add_error(errors, 'duplicate ${kind} `${name}`: also defined in ${where}', s.span);
+                    reported = true;
+                }
+                j = j + 1;
+            }
+        }
+        i = i + 1;
+    }
+}
+
+// Whether two sites are the same physical declaration seen twice — the entry
+// file reappears in its own import closure under a different path spelling (a
+// relative CLI path vs. the loader's absolute path), so its decls are collected
+// both as primary and as an import. The span's `source` (the whole file text)
+// plus `offset` identify the declaration independent of how the path was spelled.
+fn same_decl(_ a: NameSite, _ b: NameSite) -> Bool {
+    return a.span.offset == b.span.offset && a.span.source == b.span.source;
+}
+
+// Whether two same-named definitions genuinely collide. Type-like names and
+// constants are global-by-bare-name, so any duplicate collides. Functions resolve
+// same-file-first, so a private helper may legitimately share a name with one in
+// another file; a cross-file collision is a hazard only when a publicly-visible
+// (`pub`) definition is involved (which cross-file callers reach by bare name).
+fn collides(_ a: NameSite, _ b: NameSite, _ kind: String) -> Bool {
+    if kind != 'function' {
+        return true;
+    }
+    if file_key(a.file) == file_key(b.file) {
+        return true;
+    }
+    return a.is_pub || b.is_pub;
 }
 
 // ---- declaration checking ----
