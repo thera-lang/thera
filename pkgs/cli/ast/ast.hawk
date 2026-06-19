@@ -379,3 +379,22 @@ pub fn pattern_span(_ p: Pattern) -> SourceSpan {
 pub fn block_span(_ b: Block) -> SourceSpan {
     return b.start_span.cover(b.end_span);
 }
+
+// The declared generic parameter names as a set.
+pub fn type_param_set(_ tps: List<TypeParam>) -> Set<String> {
+    let s: Set<String> = Set.new();
+    for tp in tps {
+        s.add(tp.name);
+    }
+    return s;
+}
+
+// Whether a parameter list leads with `self` (an instance method, vs. static).
+pub fn has_self_param(_ params: List<Param>) -> Bool {
+    for p in params {
+        if p.is_self {
+            return true;
+        }
+    }
+    return false;
+}

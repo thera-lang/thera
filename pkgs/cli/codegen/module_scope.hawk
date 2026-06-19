@@ -418,12 +418,3 @@ pub fn string_literal(_ e: Expr) -> Option<String> {
         _ => Option.None,
     };
 }
-
-pub fn has_self_param(_ params: List<Param>) -> Bool {
-    for p in params {
-        if p.is_self {
-            return true;
-        }
-    }
-    return false;
-}

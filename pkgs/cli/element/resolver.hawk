@@ -344,14 +344,6 @@ fn type_param_names(_ tps: List<TypeParam>) -> List<String> {
     return tps.map((tp) => tp.name);
 }
 
-fn type_param_set(_ tps: List<TypeParam>) -> Set<String> {
-    let s: Set<String> = Set.new();
-    for tp in tps {
-        s.add(tp.name);
-    }
-    return s;
-}
-
 fn type_param_bounds(_ decl: FnDecl) -> Map<String, List<String>> {
     let b: Map<String, List<String>> = {};
     for tp in decl.type_params {
@@ -360,25 +352,17 @@ fn type_param_bounds(_ decl: FnDecl) -> Map<String, List<String>> {
     return b;
 }
 
-fn has_self_param(_ params: List<Param>) -> Bool {
-    for p in params {
-        if p.is_self {
-            return true;
-        }
-    }
-    return false;
-}
-
 // The namespace an import binds: its alias, or the trailing path segment
 // (`std.fs` -> `fs`).
 fn import_namespace(_ decl: ImportDecl) -> String {
     return match decl.alias {
         Some(a) => a,
-        None => last_segment(decl.path),
+        None => trailing_segment(decl.path),
     };
 }
 
-fn last_segment(_ path: String) -> String {
+// The last dot-separated segment of a module path (`std.fs` -> `fs`).
+fn trailing_segment(_ path: String) -> String {
     let segs = path.split('.');
     return segs[segs.len() - 1];
 }
