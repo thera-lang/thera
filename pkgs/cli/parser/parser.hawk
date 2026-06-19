@@ -794,7 +794,17 @@ impl Parser {
         let start = self.expect(TokenKind.LBrace, '{');
         let stmts: List<Stmt> = [];
         while !self.panicking && !self.check(TokenKind.RBrace) && !self.at_end() {
-            stmts.push(self.parse_stmt());
+            // Tolerate a stray `;` (an empty statement) — notably one trailing a
+            // block-form statement (`if cond { … };`), which `parse_expr_block`
+            // already accepts in match arms / block expressions. Keeping the two
+            // block parsers consistent avoids a `;` that parses in one context but
+            // is a hard error in the other (and, in an imported file, silently
+            // drops the file's declarations).
+            if self.check(TokenKind.Semi) {
+                self.advance();
+            } else {
+                stmts.push(self.parse_stmt());
+            }
         }
         let end = self.expect(TokenKind.RBrace, '}');
         return Block {

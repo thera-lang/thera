@@ -219,3 +219,29 @@ fn test_error_recovery_skips_to_next_decl() -> Result<Void, Error> {
     testing.assert_eq(actual: decl_name(r.program.decls[0]), expected: 'good')?;
     return Result.Ok(void);
 }
+
+@test
+fn test_trailing_semicolon_after_block_statement() -> Result<Void, Error> {
+    // A `;` trailing a block-form statement (`if`/`for`/`while`/`match`) is a
+    // tolerated empty statement in a statement block, matching how match arms /
+    // block expressions already parse it. (Regression: this used to be a hard
+    // error only in statement blocks, which — in an imported file — silently
+    // dropped the file's declarations.)
+    let r = parse_src('fn f(_ x: Int) -> Int {\n'
+        + '  let mut a = 0;\n'
+        + '  for i in 0..x {\n'
+        + '    if i > 0 { match i { _ => { a = a + i; } } };\n'
+        + '  }\n'
+        + '  return a;\n'
+        + '}');
+    testing.assert(!r.has_errors(), message: 'trailing ; after block-if should parse')?;
+    testing.assert_eq(actual: r.program.decls.len(), expected: 1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_empty_statements_are_tolerated() -> Result<Void, Error> {
+    let r = parse_src('fn f() -> Int { ; let a = 1;; return a; }');
+    testing.assert(!r.has_errors(), message: 'stray semicolons should be ignored')?;
+    return Result.Ok(void);
+}

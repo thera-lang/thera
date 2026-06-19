@@ -530,21 +530,26 @@ the old Dart byte oracle. What's left to round out the front-end:
   that diagnostic shouldn't suggest type arguments for a static method (the
   annotation is the real fix). Most ordinary cases are now covered by
   assignment-/argument-context inference, so this is a corner, not a blocker.
-- **Parser/codegen bug — trailing `;` after a block-`if`/`match` corrupts a
-  module (near-term).** A trailing `;` on a block-form statement whose body ends
-  in a nested block — e.g. `if cond { … match … { } };` as the **last statement
-  of a `for`-loop body** — miscompiles: the enclosing source file's exported
-  declarations silently fail to register, surfacing as bogus errors in
-  *importing* files (`unknown function: <name>`, `field access on non-struct
-  value`) rather than at the `;`. Hit while writing `check_match`; worked around
-  by dropping the redundant `;` (block statements don't need one) and flattening
-  the nesting into a helper. Both front-ends (current + the bootstrap snapshot)
-  fail identically, so it's not snapshot drift — it's a real parser or codegen
-  defect. To fix: build the minimal repro (`fn` with `for { if c { match x {} }
-  ; }` plus an importer), find where the trailing `;` derails declaration
-  registration (suspect the statement/tail boundary in the parser, or block
-  codegen dropping the file's symbol table), and add a parser test. Until then,
-  prefer no trailing `;` on block-form `if`/`for`/`while`/`match` statements.
+- ~~**Parser bug — trailing `;` after a block-`if`/`match`.**~~ _Fixed._ A `;`
+  trailing a block-form statement (`if cond { … };`) parsed in match arms / block
+  expressions (`parse_expr_block` consumed an optional `;` after an `if`) but was
+  a hard error in statement blocks (`parse_block` → `parse_stmt` left the `;` for
+  the next iteration, which then failed in `parse_expr`). `parse_block` now
+  tolerates a stray `;` as an empty statement, matching the other block parser, so
+  the construct parses uniformly. _Root cause it exposed — see next bullet —
+  was deeper than the parser._
+- **Imported-file errors are silently swallowed (real correctness bug).** The
+  reason the trailing-`;` parse error "corrupted a module" was not the parser: a
+  parse (or check) error in an **imported** file is **dropped** — `hawk check
+  app.hawk` over an `import 'helper'` whose `helper.hawk` has a genuine parse
+  error (`let x = ;`) reports *nothing* and the broken import is silently ignored,
+  while checking `helper.hawk` directly reports it correctly. So any error in an
+  import surfaces only as confusing downstream "unknown name" errors in the
+  importer (or, worse, nothing). Fix: the loader must collect and surface
+  diagnostics from every file in the import closure (attributed to that file),
+  and refuse to proceed / mark the import unresolved when an imported file fails
+  to parse. This is the loader/import path, not the parser — and is the actual
+  "silent corruption" the trailing-`;` symptom pointed at.
 - **LSP v2 toward an incremental engine** — inference-at-offset
   (hover/definition on locals, expressions, members), overlay-aware imports
   (honor unsaved edits), and memoizing the import-closure load so analysis isn't
