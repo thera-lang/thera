@@ -361,8 +361,12 @@ fn import_namespace(_ decl: ImportDecl) -> String {
     };
 }
 
-// The last dot-separated segment of a module path (`std.fs` -> `fs`).
+// The namespace a path binds: the trailing segment after both `/` and `.`
+// (`std.fs` -> `fs`, `lexer/lexer` -> `lexer`). Must match the loader's
+// `namespace_of`, or a slash-import's namespace won't be recognized as defined.
 fn trailing_segment(_ path: String) -> String {
-    let segs = path.split('.');
-    return segs[segs.len() - 1];
+    let after_slash = path.split('/');
+    let tail = after_slash[after_slash.len() - 1];
+    let dotted = tail.split('.');
+    return dotted[dotted.len() - 1];
 }

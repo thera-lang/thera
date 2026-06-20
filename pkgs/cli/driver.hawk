@@ -23,7 +23,7 @@ import 'loader';
 // a message + a span; this is the common currency the CLI prints).
 pub type Diagnostic = {
     message: String,
-    span: SourceSpan,
+    span: token.SourceSpan,
 }
 
 // The outcome of compiling a source: any diagnostics, and the encoded `.hawkbc`
@@ -36,39 +36,39 @@ pub type CompileOutcome = {
 // Type-check `source`, returning its diagnostics (empty = clean). Lex and parse
 // errors short-circuit — they make later phases meaningless.
 pub fn check_source(_ source: String) -> List<Diagnostic> {
-    let lex = tokenize(source);
+    let lex = lexer.tokenize(source);
     if lex.errors.len() > 0 {
         return lex_diagnostics(lex.errors);
     }
-    let parsed = parse_tokens(lex.tokens);
+    let parsed = parser.parse_tokens(lex.tokens);
     if parsed.errors.len() > 0 {
         return parse_diagnostics(parsed.errors);
     }
-    return check_diagnostics(check(parsed.program, [], {}).errors);
+    return check_diagnostics(checker.check(parsed.program, [], {}).errors);
 }
 
 // Compile `source` to `.hawkbc` bytes. Each phase short-circuits on errors, so
 // `bytes` is present only for a clean program.
 pub fn compile_source(_ source: String) -> CompileOutcome {
-    let lex = tokenize(source);
+    let lex = lexer.tokenize(source);
     if lex.errors.len() > 0 {
         return failed(lex_diagnostics(lex.errors));
     }
-    let parsed = parse_tokens(lex.tokens);
+    let parsed = parser.parse_tokens(lex.tokens);
     if parsed.errors.len() > 0 {
         return failed(parse_diagnostics(parsed.errors));
     }
-    let checked = check(parsed.program, [], {});
+    let checked = checker.check(parsed.program, [], {});
     if checked.errors.len() > 0 {
         return failed(check_diagnostics(checked.errors));
     }
-    let cg = compile_program(parsed.program, [], {});
+    let cg = codegen.compile_program(parsed.program, [], {});
     if cg.errors.len() > 0 {
         return failed(codegen_diagnostics(cg.errors));
     }
     return CompileOutcome {
         diagnostics: [],
-        bytes: Option.Some(encode_module(cg.module)),
+        bytes: Option.Some(encoder.encode_module(cg.module)),
     };
 }
 
@@ -76,45 +76,45 @@ pub fn compile_source(_ source: String) -> CompileOutcome {
 // from `sdk_root` (`std.core` auto-loaded, `import`s linked). The loader-backed
 // counterpart to `check_source` — this is what the CLI uses on a real file.
 pub fn check_source_at(_ source: String, _ path: String, _ sdk_root: Option<String>) -> List<Diagnostic> {
-    let lex = tokenize(source);
+    let lex = lexer.tokenize(source);
     if lex.errors.len() > 0 {
         return lex_diagnostics(lex.errors);
     }
-    let parsed = parse_tokens(lex.tokens);
+    let parsed = parser.parse_tokens(lex.tokens);
     if parsed.errors.len() > 0 {
         return parse_diagnostics(parsed.errors);
     }
     let program = parsed.program;
     program.file_path = Option.Some(path);
-    let loaded = load_imports(path, program, sdk_root);
-    return check_diagnostics(check(program, loaded.programs, loaded.namespaces).errors);
+    let loaded = loader.load_imports(path, program, sdk_root);
+    return check_diagnostics(checker.check(program, loaded.programs, loaded.namespaces).errors);
 }
 
 // Compile `source` (located at `path`) to `.hawkbc` bytes with its import closure
 // linked in — the loader-backed counterpart to `compile_source`.
 pub fn compile_source_at(_ source: String, _ path: String, _ sdk_root: Option<String>) -> CompileOutcome {
-    let lex = tokenize(source);
+    let lex = lexer.tokenize(source);
     if lex.errors.len() > 0 {
         return failed(lex_diagnostics(lex.errors));
     }
-    let parsed = parse_tokens(lex.tokens);
+    let parsed = parser.parse_tokens(lex.tokens);
     if parsed.errors.len() > 0 {
         return failed(parse_diagnostics(parsed.errors));
     }
     let program = parsed.program;
     program.file_path = Option.Some(path);
-    let loaded = load_imports(path, program, sdk_root);
-    let checked = check(program, loaded.programs, loaded.namespaces);
+    let loaded = loader.load_imports(path, program, sdk_root);
+    let checked = checker.check(program, loaded.programs, loaded.namespaces);
     if checked.errors.len() > 0 {
         return failed(check_diagnostics(checked.errors));
     }
-    let cg = compile_program(program, loaded.programs, loaded.namespaces);
+    let cg = codegen.compile_program(program, loaded.programs, loaded.namespaces);
     if cg.errors.len() > 0 {
         return failed(codegen_diagnostics(cg.errors));
     }
     return CompileOutcome {
         diagnostics: [],
-        bytes: Option.Some(encode_module(cg.module)),
+        bytes: Option.Some(encoder.encode_module(cg.module)),
     };
 }
 
@@ -122,18 +122,18 @@ pub fn compile_source_at(_ source: String, _ path: String, _ sdk_root: Option<St
 // reference to an imported library's public name. Empty on lex/parse errors (the
 // normal `check` surfaces those). See checker `qualify_lint`.
 pub fn qualify_warnings_at(_ source: String, _ path: String, _ sdk_root: Option<String>) -> List<Diagnostic> {
-    let lex = tokenize(source);
+    let lex = lexer.tokenize(source);
     if lex.errors.len() > 0 {
         return [];
     }
-    let parsed = parse_tokens(lex.tokens);
+    let parsed = parser.parse_tokens(lex.tokens);
     if parsed.errors.len() > 0 {
         return [];
     }
     let program = parsed.program;
     program.file_path = Option.Some(path);
-    let loaded = load_imports(path, program, sdk_root);
-    return check_diagnostics(qualify_lint(program, loaded.namespaces));
+    let loaded = loader.load_imports(path, program, sdk_root);
+    return check_diagnostics(checker.qualify_lint(program, loaded.namespaces));
 }
 
 // `file:line:column: message` — the diagnostic line the CLI prints.
@@ -147,7 +147,7 @@ fn failed(_ diagnostics: List<Diagnostic>) -> CompileOutcome {
     return CompileOutcome { diagnostics: diagnostics, bytes: Option.None };
 }
 
-fn lex_diagnostics(_ errors: List<LexError>) -> List<Diagnostic> {
+fn lex_diagnostics(_ errors: List<lexer.LexError>) -> List<Diagnostic> {
     let out: List<Diagnostic> = [];
     for e in errors {
         out.push(Diagnostic { message: e.message, span: e.span });
@@ -155,7 +155,7 @@ fn lex_diagnostics(_ errors: List<LexError>) -> List<Diagnostic> {
     return out;
 }
 
-fn parse_diagnostics(_ errors: List<ParseError>) -> List<Diagnostic> {
+fn parse_diagnostics(_ errors: List<parser.ParseError>) -> List<Diagnostic> {
     let out: List<Diagnostic> = [];
     for e in errors {
         out.push(Diagnostic { message: e.message, span: e.span });
@@ -163,7 +163,7 @@ fn parse_diagnostics(_ errors: List<ParseError>) -> List<Diagnostic> {
     return out;
 }
 
-fn check_diagnostics(_ errors: List<CheckError>) -> List<Diagnostic> {
+fn check_diagnostics(_ errors: List<checker.CheckError>) -> List<Diagnostic> {
     let out: List<Diagnostic> = [];
     for e in errors {
         out.push(Diagnostic { message: e.message, span: e.span });
@@ -171,7 +171,7 @@ fn check_diagnostics(_ errors: List<CheckError>) -> List<Diagnostic> {
     return out;
 }
 
-fn codegen_diagnostics(_ errors: List<CodegenError>) -> List<Diagnostic> {
+fn codegen_diagnostics(_ errors: List<codegen.CodegenError>) -> List<Diagnostic> {
     let out: List<Diagnostic> = [];
     for e in errors {
         out.push(Diagnostic { message: e.message, span: e.span });
