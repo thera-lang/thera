@@ -118,6 +118,24 @@ pub fn compile_source_at(_ source: String, _ path: String, _ sdk_root: Option<St
     };
 }
 
+// The transitional qualified-reference lint for `source` (at `path`): every bare
+// reference to an imported library's public name. Empty on lex/parse errors (the
+// normal `check` surfaces those). See checker `qualify_lint`.
+pub fn qualify_warnings_at(_ source: String, _ path: String, _ sdk_root: Option<String>) -> List<Diagnostic> {
+    let lex = tokenize(source);
+    if lex.errors.len() > 0 {
+        return [];
+    }
+    let parsed = parse_tokens(lex.tokens);
+    if parsed.errors.len() > 0 {
+        return [];
+    }
+    let program = parsed.program;
+    program.file_path = Option.Some(path);
+    let loaded = load_imports(path, program, sdk_root);
+    return check_diagnostics(qualify_lint(program, loaded.namespaces));
+}
+
 // `file:line:column: message` — the diagnostic line the CLI prints.
 pub fn format_diagnostic(_ d: Diagnostic, _ file_path: String) -> String {
     return '${file_path}:${d.span}: ${d.message}';

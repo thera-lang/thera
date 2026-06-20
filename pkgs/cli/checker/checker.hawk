@@ -1168,3 +1168,348 @@ fn produces_value(_ t: Type) -> Bool {
         _ => true,
     };
 }
+
+// ---- qualified-reference lint (transitional) ----
+//
+// Flags every *bare* reference to a name that one of this file's imports exports
+// — the names that, under the qualified-only rule (docs/scoping.md), must be
+// written `ns.name`. It is a migration aid: a warning, opt-in via `check
+// --qualified`, that the codebase is driven to zero before the resolver itself
+// enforces the rule. Matching is by import surface (not the global resolver), so
+// the prelude (auto-imported, never an explicit `import`) and built-ins are
+// excluded automatically, and same-file names are excluded explicitly.
+//
+// Local bindings (params, `let`s, lambda params, `for`/`match` pattern names) and
+// type parameters shadow imported names, so they're collected per declaration and
+// excluded. Collection over-includes (a binding is excluded for the whole
+// declaration, not just its scope), which can only *miss* a flag, never produce a
+// false one.
+
+pub fn qualify_lint(_ program: Program, _ namespaces: Map<String, LibraryNamespace>) -> List<CheckError> {
+    let warnings: List<CheckError> = [];
+    let imported = imported_names(program, namespaces);
+    if imported.keys().len() == 0 {
+        return warnings;
+    }
+    let local_top = local_top_names(program);
+    for decl in program.decls {
+        lint_decl(warnings, decl, imported, local_top);
+    }
+    return warnings;
+}
+
+// Each name an explicit import of `program` exposes, mapped to the namespace that
+// exposes it (the suggested qualifier). First import wins on overlap.
+fn imported_names(_ program: Program, _ namespaces: Map<String, LibraryNamespace>) -> Map<String, String> {
+    let out: Map<String, String> = {};
+    for decl in program.decls {
+        match decl {
+            Import(x) => {
+                let ns = import_ns(x);
+                match namespaces.get(ns) {
+                    Some(surface) => {
+                        for name in surface.names.to_list() {
+                            if !out.has(name) {
+                                out[name] = ns;
+                            }
+                        }
+                    },
+                    None => {},
+                }
+            },
+            _ => {},
+        }
+    }
+    return out;
+}
+
+// The namespace an import binds: its alias, or the trailing path segment.
+fn import_ns(_ decl: ImportDecl) -> String {
+    match decl.alias {
+        Some(a) => { return a; },
+        None => {},
+    }
+    let after_slash = decl.path.split('/');
+    let tail = after_slash[after_slash.len() - 1];
+    let dotted = tail.split('.');
+    return dotted[dotted.len() - 1];
+}
+
+fn local_top_names(_ program: Program) -> Set<String> {
+    let s: Set<String> = Set.new();
+    for decl in program.decls {
+        match decl {
+            Fn(x) => { s.add(x.name); },
+            Type(x) => { s.add(x.name); },
+            Enum(x) => { s.add(x.name); },
+            Interface(x) => { s.add(x.name); },
+            Const(x) => { s.add(x.name); },
+            _ => {},
+        }
+    }
+    return s;
+}
+
+fn lint_decl(_ warnings: List<CheckError>, _ decl: Decl, _ imported: Map<String, String>,
+    _ local_top: Set<String>) -> Void {
+    match decl {
+        Fn(x) => { lint_fn(warnings, x, imported, local_top); },
+        Impl(x) => {
+            for m in x.methods {
+                lint_fn(warnings, m, imported, local_top);
+            }
+        },
+        Type(x) => {
+            let bound = type_param_set(x.type_params);
+            for f in x.fields {
+                lint_type(warnings, f.type_ann, bound, imported, local_top);
+            }
+        },
+        Enum(x) => {
+            let bound = type_param_set(x.type_params);
+            for v in x.variants {
+                for t in v.fields {
+                    lint_type(warnings, t, bound, imported, local_top);
+                }
+            }
+        },
+        Interface(x) => {
+            for m in x.methods {
+                lint_fn(warnings, m, imported, local_top);
+            }
+        },
+        Const(x) => {
+            match x.type_ann {
+                Some(t) => { lint_type(warnings, t, Set.new(), imported, local_top); },
+                None => {},
+            }
+            lint_expr(warnings, x.value, Set.new(), imported, local_top);
+        },
+        Import(_) => {},
+    }
+}
+
+fn lint_fn(_ warnings: List<CheckError>, _ fn_decl: FnDecl, _ imported: Map<String, String>,
+    _ local_top: Set<String>) -> Void {
+    let bound = type_param_set(fn_decl.type_params);
+    for p in fn_decl.params {
+        bound.add(p.name);
+        match p.type_ann {
+            Some(t) => { lint_type(warnings, t, bound, imported, local_top); },
+            None => {},
+        }
+    }
+    match fn_decl.return_type {
+        Some(t) => { lint_type(warnings, t, bound, imported, local_top); },
+        None => {},
+    }
+    match fn_decl.body {
+        Some(body) => { lint_block(warnings, body, bound, imported, local_top); },
+        None => {},
+    }
+}
+
+fn lint_block(_ warnings: List<CheckError>, _ block: Block, _ bound: Set<String>,
+    _ imported: Map<String, String>, _ local_top: Set<String>) -> Void {
+    for stmt in block.stmts {
+        lint_stmt(warnings, stmt, bound, imported, local_top);
+    }
+    match block.tail {
+        Some(e) => { lint_expr(warnings, e, bound, imported, local_top); },
+        None => {},
+    }
+}
+
+fn lint_stmt(_ warnings: List<CheckError>, _ stmt: Stmt, _ bound: Set<String>,
+    _ imported: Map<String, String>, _ local_top: Set<String>) -> Void {
+    match stmt {
+        Let(x) => {
+            match x.type_ann {
+                Some(t) => { lint_type(warnings, t, bound, imported, local_top); },
+                None => {},
+            }
+            lint_expr(warnings, x.value, bound, imported, local_top);
+            bound.add(x.name);
+        },
+        Return(_, opt) => {
+            match opt {
+                Some(e) => { lint_expr(warnings, e, bound, imported, local_top); },
+                None => {},
+            }
+        },
+        Throw(_, e) => { lint_expr(warnings, e, bound, imported, local_top); },
+        Expr(_, e) => { lint_expr(warnings, e, bound, imported, local_top); },
+        Assign(_, target, value) => {
+            lint_expr(warnings, target, bound, imported, local_top);
+            lint_expr(warnings, value, bound, imported, local_top);
+        },
+        If(x) => {
+            lint_expr(warnings, x.condition, bound, imported, local_top);
+            lint_block(warnings, x.then_block, bound, imported, local_top);
+            match x.else_block {
+                Some(b) => { lint_block(warnings, b, bound, imported, local_top); },
+                None => {},
+            }
+        },
+        For(x) => {
+            lint_expr(warnings, x.iterable, bound, imported, local_top);
+            bind_pattern(x.pattern, bound);
+            lint_block(warnings, x.body, bound, imported, local_top);
+        },
+        While(x) => {
+            lint_expr(warnings, x.condition, bound, imported, local_top);
+            lint_block(warnings, x.body, bound, imported, local_top);
+        },
+    }
+}
+
+fn lint_expr(_ warnings: List<CheckError>, _ expr: Expr, _ bound: Set<String>,
+    _ imported: Map<String, String>, _ local_top: Set<String>) -> Void {
+    match expr {
+        Ident(span, name) => { lint_ref(warnings, name, span, bound, imported, local_top); },
+        Call(x) => {
+            lint_expr(warnings, x.callee, bound, imported, local_top);
+            for a in x.args {
+                lint_expr(warnings, a.value, bound, imported, local_top);
+            }
+        },
+        Field(_, obj, _) => { lint_expr(warnings, obj, bound, imported, local_top); },
+        Index(_, obj, idx) => {
+            lint_expr(warnings, obj, bound, imported, local_top);
+            lint_expr(warnings, idx, bound, imported, local_top);
+        },
+        Binary(_, l, _, r) => {
+            lint_expr(warnings, l, bound, imported, local_top);
+            lint_expr(warnings, r, bound, imported, local_top);
+        },
+        Unary(_, _, e) => { lint_expr(warnings, e, bound, imported, local_top); },
+        Propagate(_, e) => { lint_expr(warnings, e, bound, imported, local_top); },
+        Range(_, lo, hi) => {
+            lint_expr(warnings, lo, bound, imported, local_top);
+            lint_expr(warnings, hi, bound, imported, local_top);
+        },
+        ListLit(_, items) => {
+            for e in items {
+                lint_expr(warnings, e, bound, imported, local_top);
+            }
+        },
+        MapLit(_, entries) => {
+            for e in entries {
+                lint_expr(warnings, e.key, bound, imported, local_top);
+                lint_expr(warnings, e.value, bound, imported, local_top);
+            }
+        },
+        Struct(x) => {
+            // The type name selects a struct type, so flag a bare imported type.
+            lint_ref(warnings, x.type_name, x.span, bound, imported, local_top);
+            for f in x.fields {
+                lint_expr(warnings, f.value, bound, imported, local_top);
+            }
+        },
+        Str(_, parts) => {
+            for p in parts {
+                match p {
+                    Interp(_, e) => { lint_expr(warnings, e, bound, imported, local_top); },
+                    Text(_, _) => {},
+                }
+            }
+        },
+        Match(x) => {
+            lint_expr(warnings, x.subject, bound, imported, local_top);
+            for arm in x.arms {
+                let arm_bound = copy_name_set(bound);
+                bind_pattern(arm.pattern, arm_bound);
+                lint_expr(warnings, arm.body, arm_bound, imported, local_top);
+            }
+        },
+        Lambda(x) => {
+            let inner = copy_name_set(bound);
+            for p in x.params {
+                inner.add(p.name);
+                match p.type_ann {
+                    Some(t) => { lint_type(warnings, t, inner, imported, local_top); },
+                    None => {},
+                }
+            }
+            lint_expr(warnings, x.body, inner, imported, local_top);
+        },
+        Block(_, block) => { lint_block(warnings, block, bound, imported, local_top); },
+        If(x) => {
+            lint_expr(warnings, x.condition, bound, imported, local_top);
+            lint_block(warnings, x.then_block, bound, imported, local_top);
+            match x.else_block {
+                Some(b) => { lint_block(warnings, b, bound, imported, local_top); },
+                None => {},
+            }
+        },
+        Return(_, opt) => {
+            match opt {
+                Some(e) => { lint_expr(warnings, e, bound, imported, local_top); },
+                None => {},
+            }
+        },
+        Throw(_, e) => { lint_expr(warnings, e, bound, imported, local_top); },
+        Int(_, _) => {},
+        Float(_, _) => {},
+        Bool(_, _) => {},
+        Unit(_) => {},
+    }
+}
+
+// A type reference: flag a bare (unqualified) named type that an import exposes.
+fn lint_type(_ warnings: List<CheckError>, _ type_ref: TypeRef, _ bound: Set<String>,
+    _ imported: Map<String, String>, _ local_top: Set<String>) -> Void {
+    match type_ref {
+        Named(nt) => {
+            match nt.namespace {
+                None => { lint_ref(warnings, nt.name, nt.span, bound, imported, local_top); },
+                Some(_) => {},
+            }
+            for a in nt.args {
+                lint_type(warnings, a, bound, imported, local_top);
+            }
+        },
+        Function(ft) => {
+            for p in ft.params {
+                lint_type(warnings, p, bound, imported, local_top);
+            }
+            lint_type(warnings, ft.return_type, bound, imported, local_top);
+        },
+    }
+}
+
+// Emit a warning if `name` is a bare reference to an imported name (not a local
+// binding, not defined in this file).
+fn lint_ref(_ warnings: List<CheckError>, _ name: String, _ span: SourceSpan, _ bound: Set<String>,
+    _ imported: Map<String, String>, _ local_top: Set<String>) -> Void {
+    if bound.has(name) || local_top.has(name) {
+        return;
+    }
+    match imported.get(name) {
+        Some(ns) => {
+            add_error(warnings, 'bare reference to `${name}`; qualify as `${ns}.${name}` (library `${ns}`)', span);
+        },
+        None => {},
+    }
+}
+
+fn bind_pattern(_ pattern: Pattern, _ bound: Set<String>) -> Void {
+    match pattern {
+        Wildcard(_) => {},
+        Ident(_, name) => { bound.add(name); },
+        Constructor(_, _, sub) => {
+            for p in sub {
+                bind_pattern(p, bound);
+            }
+        },
+        Literal(_, _) => {},
+    }
+}
+
+fn copy_name_set(_ s: Set<String>) -> Set<String> {
+    let out: Set<String> = Set.new();
+    for x in s.to_list() {
+        out.add(x);
+    }
+    return out;
+}
