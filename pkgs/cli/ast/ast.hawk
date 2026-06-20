@@ -41,6 +41,9 @@ pub type ImportDecl = {
     path: String, // e.g. 'std.fs' or 'wordcount'
     alias: Option<String>,
     is_pub: Bool, // `pub import` re-exports the target's public symbols
+    // `import 'x' as _;` — bind no namespace; bring the library's public names
+    // into this file's scope *unqualified* (see docs/scoping.md). `alias` is None.
+    unqualified: Bool,
 }
 
 pub type FnDecl = {

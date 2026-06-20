@@ -530,6 +530,15 @@ import std.fs as fs;
 testing.assert_eq(actual: result, expected: 5)?;
 ```
 
+`as _` binds **no** prefix and instead brings the library's public names into the
+file **unqualified** — the opt-in escape hatch for a library used pervasively,
+where qualifying every reference would be noise. The default stays qualified; see
+[scoping.md](scoping.md) for the full rules.
+
+```hawk
+import 'ast' as _;            // Expr, Stmt, Decl, … usable bare in this file
+```
+
 `std.core` is the **prelude**: automatically imported into every file, with its
 names available **unqualified** (`Result`/`Option`/`Error`, `Eq`/`Display`/
 `Debug`, `println`/…). `Result`/`Option` are ordinary prelude enums, so their

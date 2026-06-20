@@ -611,3 +611,12 @@ fn test_qualify_lint_flags_bare_type_reference() -> Result<Void, Error> {
         message: 'expected a bare-type-reference warning')?;
     return Result.Ok(void);
 }
+
+@test
+fn test_qualify_lint_allows_unqualified_import() -> Result<Void, Error> {
+    // `import 'lib' as _;` brings lib's names in bare — they must not be flagged.
+    let warns = lint_of("import 'lib' as _;\n"
+        + 'fn run() -> Int { return helper(); }', 'lib', ['helper']);
+    testing.assert_eq(actual: warns.len(), expected: 0)?;
+    return Result.Ok(void);
+}

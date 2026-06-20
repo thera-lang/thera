@@ -256,3 +256,21 @@ fn test_binary_precedence_ladder() -> Result<Void, Error> {
         expected: '(a || (b && (c | (d ^ (e & (f == (g < (h + (i * j)))))))))')?;
     return Result.Ok(void);
 }
+
+@test
+fn test_import_alias_and_unqualified() -> Result<Void, Error> {
+    // `as <ident>` sets an alias; `as _` marks the import unqualified (no alias).
+    let aliased = parse_src('import std.fs as fs;');
+    testing.assert(!aliased.has_errors(), message: 'alias import should parse')?;
+    let unq = parse_src("import 'ast' as _;");
+    testing.assert(!unq.has_errors(), message: 'as _ import should parse')?;
+    match unq.program.decls[0] {
+        Import(x) => {
+            testing.assert(x.unqualified, message: 'as _ should set unqualified')?;
+            testing.assert(match x.alias { Some(_) => false, None => true },
+                message: 'as _ leaves alias None')?;
+        },
+        _ => { testing.assert(false, message: 'expected an import decl')?; },
+    }
+    return Result.Ok(void);
+}

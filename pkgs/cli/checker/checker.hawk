@@ -1198,23 +1198,46 @@ pub fn qualify_lint(_ program: Program, _ namespaces: Map<String, LibraryNamespa
     return warnings;
 }
 
-// Each name an explicit import of `program` exposes, mapped to the namespace that
-// exposes it (the suggested qualifier). First import wins on overlap.
+// Each name a *qualified* import of `program` exposes, mapped to the namespace
+// that exposes it (the suggested qualifier). Names brought in unqualified by an
+// `import 'x' as _;` are excluded — they're allowed bare. First import wins.
 fn imported_names(_ program: Program, _ namespaces: Map<String, LibraryNamespace>) -> Map<String, String> {
+    // Pass 1: names made bare-legal by an `as _` import.
+    let unqualified_ok: Set<String> = Set.new();
+    for decl in program.decls {
+        match decl {
+            Import(x) => {
+                if x.unqualified {
+                    match namespaces.get(import_ns(x)) {
+                        Some(surface) => {
+                            for name in surface.names.to_list() {
+                                unqualified_ok.add(name);
+                            }
+                        },
+                        None => {},
+                    }
+                }
+            },
+            _ => {},
+        }
+    }
+    // Pass 2: names a qualified import exposes that aren't also imported unqualified.
     let out: Map<String, String> = {};
     for decl in program.decls {
         match decl {
             Import(x) => {
-                let ns = import_ns(x);
-                match namespaces.get(ns) {
-                    Some(surface) => {
-                        for name in surface.names.to_list() {
-                            if !out.has(name) {
-                                out[name] = ns;
+                if !x.unqualified {
+                    let ns = import_ns(x);
+                    match namespaces.get(ns) {
+                        Some(surface) => {
+                            for name in surface.names.to_list() {
+                                if !out.has(name) && !unqualified_ok.has(name) {
+                                    out[name] = ns;
+                                }
                             }
-                        }
-                    },
-                    None => {},
+                        },
+                        None => {},
+                    }
                 }
             },
             _ => {},

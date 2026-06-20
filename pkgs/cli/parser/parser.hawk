@@ -223,6 +223,7 @@ impl Parser {
             path: '',
             alias: Option.None,
             is_pub: false,
+            unqualified: false,
         });
     }
 
@@ -355,8 +356,15 @@ impl Parser {
             }
         }
         let mut alias = Option.None;
+        let mut unqualified = false;
         if self.match_kind(TokenKind.KwAs) {
-            alias = Option.Some(self.expect(TokenKind.Identifier, 'alias name').lexeme());
+            // `as _` binds no namespace — the library's names come in unqualified.
+            if self.check(TokenKind.Underscore) {
+                self.advance();
+                unqualified = true;
+            } else {
+                alias = Option.Some(self.expect(TokenKind.Identifier, 'alias name').lexeme());
+            }
         }
         self.match_kind(TokenKind.Semi);
         let end = self.prev_span();
@@ -365,6 +373,7 @@ impl Parser {
             path: path,
             alias: alias,
             is_pub: is_pub,
+            unqualified: unqualified,
         });
     }
 

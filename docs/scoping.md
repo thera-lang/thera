@@ -18,16 +18,22 @@ spec the front-end resolver is held to.
 
   The spaces don't collide: a `type Set` and a value `Set` can coexist; `a[i]`
   vs `Set` vs `set(...)` are disambiguated by syntactic position.
-- **Qualified-only cross-library access.** A name defined in *another* library is
-  reachable only through that library's **namespace** (`fs.read_text`,
-  `parser.parse_tokens`). The **prelude** (`std.core`) is the sole exception: its
-  public names are available unqualified. There is **no global namespace** — a
-  bare name never reaches into a library this file didn't import.
+- **Qualified-only cross-library access (by default).** A name defined in
+  *another* library is reachable only through that library's **namespace**
+  (`fs.read_text`, `parser.parse_tokens`). The **prelude** (`std.core`) is the
+  built-in exception: its public names are available unqualified. There is **no
+  global namespace** — a bare name never reaches into a library this file didn't
+  import.
 
   Rationale: every non-local, non-prelude name shows its origin syntactically
   (`fs.read_text` is visibly `fs`'s), which is what an agent or reader needs to
   follow provenance, and it removes the whole-program ambiguity a global fallback
   creates.
+- **`as _` — opt-in unqualified import.** `import 'ast' as _;` binds **no
+  namespace**; it brings the library's public names into this file's scope
+  **unqualified** (the explicit escape hatch for a library used pervasively, where
+  qualifying every reference would be noise). It's per-file and opt-in, so the
+  default stays qualified and predictable. See [Imports](#imports--namespaces).
 
 ## Lexical scope (within a function)
 
@@ -74,11 +80,18 @@ common domain nouns — precisely because its names occupy every file's bare sco
 import std.fs;                 // namespace: fs
 import 'parser/parser';        // namespace: parser   (trailing path segment)
 import std.testing as testing; // namespace: testing  (explicit alias)
+import 'ast' as _;             // no namespace — ast's public names come in bare
 ```
 
 - An `import` binds **one namespace** in the importing file: its `as` alias, or
   the trailing path segment of the import path (`std.fs` → `fs`,
   `util/strings` → `strings`).
+- **`import 'x' as _;`** binds **no** namespace and instead makes `x`'s public
+  names resolve **bare** in this file (it slots into bare resolution, below). Use
+  it for a library referenced pervasively. The cost is the reader must know `x`'s
+  surface to attribute a bare name to it — so it's opt-in, not the default. If two
+  `as _` imports expose the same name, there's no qualifier to disambiguate with;
+  resolve it by importing one of them normally (qualified) instead.
 - The namespace's **public surface** is the imported library's own `pub`
   declarations, plus — transitively — the public surfaces of that library's
   `pub import`s (the basis of barrels). A plain `import` does not re-export.
@@ -111,9 +124,10 @@ first match; failing all steps is a located error.
 
 1. an in-scope **local binding** (param/`let`) → that binding;
 2. a **same-file top-level** function or const named `name` → that declaration;
-3. a **prelude** public function or const named `name` → that declaration;
-4. otherwise **unresolved** → `undefined name: name`. A bare name is *never*
-   resolved against another imported library.
+3. a public function/const named `name` exposed by an **`as _` import** → it;
+4. a **prelude** public function or const named `name` → that declaration;
+5. otherwise **unresolved** → `undefined name: name`. A bare name is *never*
+   resolved against a library imported with a namespace (it must be qualified).
 
 ### A qualified value name `ns.name` (a reference, or `ns.name(...)`)
 
@@ -129,8 +143,9 @@ first match; failing all steps is a located error.
    receiver type;
 2. a **built-in** (`Int`/`String`/`List`/`Map`/…) → that built-in;
 3. a **same-file** `type`/`enum`/`interface` named `T` → it;
-4. a **prelude** public type named `T` → it;
-5. otherwise **unknown type**.
+4. a public type named `T` exposed by an **`as _` import** → it;
+5. a **prelude** public type named `T` → it;
+6. otherwise **unknown type**.
 
 ### A qualified type name `ns.T`
 
@@ -187,12 +202,20 @@ are the violations to address.
    `compile_program`, …) and rely on the global fallback. Under qualified-only
    these must be **migrated to qualified form** (`loader.load_imports`, …). This
    migration must land together with (1)–(3), or the build breaks.
-7. **Partial guard in place.** The duplicate-top-level-name diagnostic
-   ([checker.hawk](../pkgs/cli/checker/checker.hawk)) surfaces collisions in the
-   global tables at `check` time. It mitigates (1)/(2) but is not the resolution
-   fix; once (1)–(5) land it becomes a same-file-redefinition check.
+7. **Guards / scaffolding in place.** Three pieces of the target already exist,
+   ahead of the resolver change:
+   - the duplicate-top-level-name diagnostic surfaces global-table collisions at
+     `check` (mitigates (1)/(2); becomes a same-file-redefinition check once the
+     resolver is module-scoped);
+   - **`import 'x' as _;`** (unqualified import) is implemented end to end — parser,
+     and the lint treats its names as bare-legal; under the lenient resolver it's a
+     no-op at runtime (bare names already resolve), so it can be adopted now;
+   - **`check --qualified`** (`qualify_lint`) warns on every bare reference an import
+     exposes — the migration checklist, driven to zero before enforcement.
 
-A natural sequencing: enrich the element model with per-library ownership and
-per-file imports (5); implement surface-checked qualified resolution and
-same-file+prelude bare resolution (1–4); migrate the front-end and stdlib to
-qualified references (6); then enforce privacy and tighten the diagnostics.
+A natural sequencing: adopt `as _` for the pervasively-used foundational libraries
+and qualify the rest (6, driven by the lint, byte-identical under the lenient
+resolver); enrich the element model with per-library ownership and per-file
+imports (5); implement surface-checked qualified resolution and
+same-file+`as _`+prelude bare resolution (1–4); then enforce privacy and tighten
+the diagnostics.

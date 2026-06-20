@@ -127,7 +127,7 @@ only on `fn` / `native fn`; `pub` is not allowed on `impl` (mark methods `pub`
 instead).
 
 ```
-importDecl  = 'import' ( STRING | IDENT ('.' IDENT)* ) ( 'as' IDENT )? ';'?
+importDecl  = 'import' ( STRING | IDENT ('.' IDENT)* ) ( 'as' ( IDENT | '_' ) )? ';'?
 
 fnDecl      = 'native'? 'fn' IDENT typeParams? '(' paramList? ')'
               ( '->' type )? ( block | ';'? )
