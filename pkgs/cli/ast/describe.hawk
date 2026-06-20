@@ -9,7 +9,7 @@
 // driver; expressions/types/patterns are what the parser tests exercise.
 
 import '../lexer/token';
-import 'ast';
+import 'ast' as _; // a pure AST renderer — ast's node types are used pervasively
 
 pub fn describe_expr(_ e: Expr) -> String {
     return match e {
