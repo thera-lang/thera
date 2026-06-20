@@ -1552,9 +1552,10 @@ impl FnCompiler {
                     match self.scope.resolve_global_function(field) {
                         Some(fn_idx) => {
                             let ordered = self.resolve_args(self.scope.units[fn_idx].params, x.args, x.span);
-                            for value in ordered {
-                                self.expr(value);
-                            }
+                            // Thread expected arg types (like the bare-call path), so a
+                            // qualified call passing an un-annotated lambda types it
+                            // bidirectionally — making `ns.fn(...)` byte-identical to `fn(...)`.
+                            self.emit_ordered_args(x.callee, x.args, ordered);
                             self.emit(Instr.Call(fn_idx, ordered.len()));
                             return true;
                         },
