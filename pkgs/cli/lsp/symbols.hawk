@@ -4,10 +4,10 @@
 //
 // Ported from the Dart `lsp/symbols.dart`.
 
-import std.json;
+import std.json as _;
 
-import '../ast/ast';      // Program, Decl, the per-decl payloads, EnumVariant
-import '../lexer/token';  // SourceSpan
+import '../ast/ast' as _;      // Program, Decl, the per-decl payloads, EnumVariant
+import '../lexer/token' as _;  // SourceSpan
 import 'diagnostics';     // span_to_range
 
 // LSP `SymbolKind` values (the subset we emit):
@@ -77,8 +77,8 @@ fn make_symbol(_ name: String, _ kind: Int, _ is_pub: Bool, _ range_span: Source
     let m: Map<String, Json> = {
         'name': json.str(name),
         'kind': json.int(kind),
-        'range': span_to_range(range_span),
-        'selectionRange': span_to_range(sel_span),
+        'range': diagnostics.span_to_range(range_span),
+        'selectionRange': diagnostics.span_to_range(sel_span),
     };
     if is_pub {
         m['detail'] = json.str('pub');

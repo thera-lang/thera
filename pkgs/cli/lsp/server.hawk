@@ -7,9 +7,9 @@
 // This is the Hawk port of the Dart `lsp/server.dart` (which rode on
 // `package:lsp_server`); here the transport is our own jsonrpc.hawk.
 
-import std.json;
+import std.json as _;
 
-import '../ast/ast';       // Program
+import '../ast/ast' as _;       // Program
 import '../lexer/lexer';   // tokenize
 import '../parser/parser'; // parse_tokens
 import '../loader';        // load_imports
@@ -44,7 +44,7 @@ type DocAnalysis = {
 // Run the server: read framed messages from `reader`, dispatch each, and write
 // responses/notifications to `writer`, until `exit` (or end of input).
 pub fn serve(_ reader: Reader, _ writer: Writer, _ sdk_root: Option<String>) -> Void {
-    let buf = new_buffer();
+    let buf = jsonrpc.new_buffer();
     let server = new_server(sdk_root);
     let mut going = true;
     while going {
@@ -158,7 +158,7 @@ impl Server {
     fn document_symbols(self, _ uri: Option<String>) -> Json {
         return match uri {
             Some(u) => match self.docs.get(u) {
-                Some(text) => build_symbols(parse_tokens(tokenize(text).tokens).program),
+                Some(text) => symbols.build_symbols(parser.parse_tokens(lexer.tokenize(text).tokens).program),
                 None => json.arr([]),
             },
             None => json.arr([]),
@@ -168,7 +168,7 @@ impl Server {
     // Hover at a position: the resolved declaration's signature, or JSON null.
     fn hover(self, _ uri: Option<String>, _ position: Json) -> Json {
         return match self.analyze_at(uri, position) {
-            Some(a) => handle_hover(a.program, a.imports, a.text, a.offset),
+            Some(a) => hover.handle_hover(a.program, a.imports, a.text, a.offset),
             None => json.null(),
         };
     }
@@ -176,7 +176,7 @@ impl Server {
     // Go-to-definition at a position: the declaration's `Location`, or JSON null.
     fn definition(self, _ uri: Option<String>, _ position: Json) -> Json {
         return match self.analyze_at(uri, position) {
-            Some(a) => handle_definition(a.program, a.imports, a.text, a.offset),
+            Some(a) => definition.handle_definition(a.program, a.imports, a.text, a.offset),
             None => json.null(),
         };
     }
@@ -189,13 +189,13 @@ impl Server {
         return match uri {
             Some(u) => match self.docs.get(u) {
                 Some(text) => {
-                    let offset = position_to_offset(text,
+                    let offset = hover.position_to_offset(text,
                         position.get('line').as_int().unwrap_or(0),
                         position.get('character').as_int().unwrap_or(0));
-                    let program = parse_tokens(tokenize(text).tokens).program;
+                    let program = parser.parse_tokens(lexer.tokenize(text).tokens).program;
                     let path = uri_to_path(u);
                     program.file_path = Option.Some(path);
-                    let loaded = load_imports(path, program, self.sdk_root);
+                    let loaded = loader.load_imports(path, program, self.sdk_root);
                     Option.Some(DocAnalysis { program: program, imports: loaded.programs, text: text, offset: offset })
                 },
                 None => Option.None,
@@ -207,7 +207,7 @@ impl Server {
     fn publish(self, _ writer: Writer, _ uri: String, _ text: String) -> Void {
         send_notification(writer, 'textDocument/publishDiagnostics', json.obj({
             'uri': json.str(uri),
-            'diagnostics': compute_diagnostics(text, uri_to_path(uri), self.sdk_root),
+            'diagnostics': diagnostics.compute_diagnostics(text, uri_to_path(uri), self.sdk_root),
         }));
     }
 }
@@ -215,7 +215,7 @@ impl Server {
 // --- JSON-RPC envelope helpers ---
 
 fn send_response(_ writer: Writer, _ id: Json, _ result: Json) -> Void {
-    send_message(writer, json.obj({
+    jsonrpc.send_message(writer, json.obj({
         'jsonrpc': json.str('2.0'),
         'id': id,
         'result': result,
@@ -223,7 +223,7 @@ fn send_response(_ writer: Writer, _ id: Json, _ result: Json) -> Void {
 }
 
 fn send_notification(_ writer: Writer, _ method: String, _ params: Json) -> Void {
-    send_message(writer, json.obj({
+    jsonrpc.send_message(writer, json.obj({
         'jsonrpc': json.str('2.0'),
         'method': json.str(method),
         'params': params,

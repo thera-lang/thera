@@ -3,9 +3,9 @@
 // driver's `check_source_at` (lex -> parse -> load imports -> check), so this is
 // just the span -> `Range` and message -> JSON translation.
 
-import std.json;
+import std.json as _;
 
-import '../lexer/token'; // SourceSpan
+import '../lexer/token' as _; // SourceSpan
 import '../driver';      // Diagnostic, check_source_at
 
 // The LSP `Diagnostic[]` for `text` (the open buffer, located at `path`), as a
@@ -13,13 +13,13 @@ import '../driver';      // Diagnostic, check_source_at
 // the in-memory `text`.
 pub fn compute_diagnostics(_ text: String, _ path: String, _ sdk_root: Option<String>) -> Json {
     let items: List<Json> = [];
-    for d in check_source_at(text, path, sdk_root) {
+    for d in driver.check_source_at(text, path, sdk_root) {
         items.push(diagnostic_to_json(d));
     }
     return json.arr(items);
 }
 
-fn diagnostic_to_json(_ d: Diagnostic) -> Json {
+fn diagnostic_to_json(_ d: driver.Diagnostic) -> Json {
     return json.obj({
         'range': span_to_range(d.span),
         'severity': json.int(1), // DiagnosticSeverity.Error

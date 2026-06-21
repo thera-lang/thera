@@ -9,11 +9,11 @@
 // offset and is a follow-up — so hovering a local/parameter that isn't a
 // top-level name yields nothing for now.
 
-import std.json;
+import std.json as _;
 
-import '../ast/ast';       // Program, Decl, the per-decl payloads
+import '../ast/ast' as _;       // Program, Decl, the per-decl payloads
 import '../ast/describe';  // describe_type
-import '../lexer/token';   // SourceSpan, Token, TokenKind
+import '../lexer/token' as _;   // SourceSpan, Token, TokenKind
 import '../lexer/lexer';   // tokenize
 import 'diagnostics';      // span_to_range
 
@@ -44,7 +44,7 @@ pub fn handle_hover(_ program: Program, _ imports: List<Program>, _ text: String
 
 // The identifier token whose span covers `offset` (a code-point offset), if any.
 pub fn name_at(_ text: String, _ offset: Int) -> Option<NameRef> {
-    for tok in tokenize(text).tokens {
+    for tok in lexer.tokenize(text).tokens {
         if tok.kind == TokenKind.Identifier {
             let s = tok.span;
             if offset >= s.offset && offset <= s.offset + s.length {
@@ -132,7 +132,7 @@ fn hover_result(_ code: String, _ span: SourceSpan) -> Json {
             'kind': json.str('markdown'),
             'value': json.str('```hawk\n${code}\n```'),
         }),
-        'range': span_to_range(span),
+        'range': diagnostics.span_to_range(span),
     });
 }
 
@@ -151,7 +151,7 @@ fn describe_decl(_ decl: Decl) -> String {
 fn describe_fn(_ d: FnDecl) -> String {
     let params = d.params.map((p) => describe_param(p)).join(', ');
     let ret = match d.return_type {
-        Some(t) => ' -> ${describe_type(t)}',
+        Some(t) => ' -> ${describe.describe_type(t)}',
         None => '',
     };
     return 'fn ${d.name}(${params})${ret}';
@@ -162,13 +162,13 @@ fn describe_param(_ p: Param) -> String {
         return 'self';
     }
     return match p.type_ann {
-        Some(t) => '${p.name}: ${describe_type(t)}',
+        Some(t) => '${p.name}: ${describe.describe_type(t)}',
         None => p.name,
     };
 }
 
 fn describe_type_decl(_ d: TypeDecl) -> String {
-    let fields = d.fields.map((f) => '  ${f.name}: ${describe_type(f.type_ann)}').join('\n');
+    let fields = d.fields.map((f) => '  ${f.name}: ${describe.describe_type(f.type_ann)}').join('\n');
     return 'type ${d.name} = {\n${fields}\n}';
 }
 
@@ -181,7 +181,7 @@ fn describe_variant(_ v: EnumVariant) -> String {
     if v.fields.len() == 0 {
         return '  ${v.name}';
     }
-    return '  ${v.name}(${v.fields.map((t) => describe_type(t)).join(', ')})';
+    return '  ${v.name}(${v.fields.map((t) => describe.describe_type(t)).join(', ')})';
 }
 
 fn describe_interface(_ d: InterfaceDecl) -> String {
@@ -191,7 +191,7 @@ fn describe_interface(_ d: InterfaceDecl) -> String {
 
 fn describe_const(_ d: ConstDecl) -> String {
     return match d.type_ann {
-        Some(t) => 'const ${d.name}: ${describe_type(t)} = ...',
+        Some(t) => 'const ${d.name}: ${describe.describe_type(t)} = ...',
         None => 'const ${d.name} = ...',
     };
 }
