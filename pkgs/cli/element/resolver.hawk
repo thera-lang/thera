@@ -2,9 +2,9 @@
 // `TypeRef`s to semantic `Type`s, and builds the `LibraryElement` for a program
 // (plus its imports) in passes over the parsed AST.
 
-import '../ast/ast';
-import 'types';
-import 'element';
+import '../ast/ast' as _;
+import 'types' as _;
+import 'element' as _;
 
 // --- TypeRef -> Type resolution ---
 

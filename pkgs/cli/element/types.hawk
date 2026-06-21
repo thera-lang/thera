@@ -6,7 +6,7 @@
 // element details are needed — so type equality stays structural (name + args)
 // while matching Dart's identity-equality (names are unique in the flat table).
 
-import 'element';
+import 'element' as _;
 
 pub enum Primitive {
     Int,

@@ -15,9 +15,9 @@
 // scope a block's tail expression sees; the checker types every other
 // statement's sub-expressions itself when it visits them.
 
-import '../ast/ast';
-import 'types';
-import 'element';
+import '../ast/ast' as _;
+import 'types' as _;
+import 'element' as _;
 import 'resolver';
 
 // The constant-per-function context: the resolved library, the generic
@@ -213,7 +213,7 @@ fn infer_lambda(_ x: LambdaExpr, _ scope: Map<String, Type>, _ ctx: InferCtx,
     while i < x.params.len() {
         let p = x.params[i];
         let pt = match p.type_ann {
-            Some(ref) => resolve_type_ref(ref, ctx.library.type_defs, ctx.type_params, ctx.self_type),
+            Some(ref) => resolver.resolve_type_ref(ref, ctx.library.type_defs, ctx.type_params, ctx.self_type),
             None => match expected_params {
                 Some(eps) => if i < eps.len() { eps[i] } else { Type.Unknown },
                 None => Type.Unknown,
@@ -384,7 +384,7 @@ pub fn let_bound_type(_ x: LetStmt, _ stmts: List<Stmt>, _ start: Int,
     // A type annotation on the binding is the expected type for its value.
     let annotated = match x.type_ann {
         Some(ref) => Option.Some(
-            resolve_type_ref(ref, ctx.library.type_defs, ctx.type_params, ctx.self_type)),
+            resolver.resolve_type_ref(ref, ctx.library.type_defs, ctx.type_params, ctx.self_type)),
         None => Option.None,
     };
     let inferred = infer_expr(x.value, scope, ctx, annotated);
@@ -1129,7 +1129,7 @@ pub fn call_bindings(_ fn_el: FunctionElement, _ type_args: List<TypeRef>,
     let tps = fn_el.type_parameters;
     let mut t = 0;
     while t < type_args.len() && t < tps.len() {
-        bindings[tps[t]] = resolve_type_ref(type_args[t], ctx.library.type_defs, ctx.type_params, ctx.self_type);
+        bindings[tps[t]] = resolver.resolve_type_ref(type_args[t], ctx.library.type_defs, ctx.type_params, ctx.self_type);
         t = t + 1;
     }
     let positional = non_self_params(fn_el.parameters);

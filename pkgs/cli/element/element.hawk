@@ -11,7 +11,7 @@
 // (a `kind` discriminant) so the resolver can fill `methods`/`fields`/… in place
 // across passes (struct fields stored in a Map are mutated by reference).
 
-import 'types';
+import 'types' as _;
 
 pub enum TypeDefKind {
     Struct,
