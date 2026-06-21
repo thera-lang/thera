@@ -92,6 +92,12 @@ import 'ast' as _;             // no namespace — ast's public names come in ba
   surface to attribute a bare name to it — so it's opt-in, not the default. If two
   `as _` imports expose the same name, there's no qualifier to disambiguate with;
   resolve it by importing one of them normally (qualified) instead.
+- **A *constructed* type must be reachable bare** (same-file, prelude, or via
+  `as _`): a struct/enum literal names its type with a bare identifier —
+  `Point { x: 1 }` — and `ns.Point { … }` does not parse. So a library whose types
+  you *construct* (not merely annotate with) is an `as _` import. Qualification
+  (`ns.Type`) covers type annotations, static calls (`ns.Type.method`), and enum
+  construction (`ns.Enum.Variant`), but not struct-literal construction.
 - The namespace's **public surface** is the imported library's own `pub`
   declarations, plus — transitively — the public surfaces of that library's
   `pub import`s (the basis of barrels). A plain `import` does not re-export.

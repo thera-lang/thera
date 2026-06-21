@@ -94,7 +94,7 @@ fn run_subcommand(_ app: cli.Command, _ name: String, _ m: cli.Matches) -> Resul
             }
             // `lsp` is the only command that takes no file argument.
             if name == 'lsp' {
-                serve(io.stdin(), io.stdout(), find_sdk_root());
+                server.serve(io.stdin(), io.stdout(), loader.find_sdk_root());
                 return Result.Ok(0);
             }
             return run_on_file(name, sub);
@@ -112,14 +112,14 @@ fn run_on_file(_ name: String, _ sub: cli.Matches) -> Result<Int, Error> {
             eprintln('hawk test: expected a <file|dir> argument');
             return Result.Ok(2);
         }
-        return test_paths(positionals, find_sdk_root());
+        return runner.test_paths(positionals, loader.find_sdk_root());
     }
     if name == 'check' {
         if positionals.len() == 0 {
             eprintln('hawk check: expected a <file|dir> argument');
             return Result.Ok(2);
         }
-        return do_check(positionals, find_sdk_root(), sub.flag('qualified'));
+        return do_check(positionals, loader.find_sdk_root(), sub.flag('qualified'));
     }
     match sub.positional(0) {
         Some(file) => {
@@ -135,7 +135,7 @@ fn run_on_file(_ name: String, _ sub: cli.Matches) -> Result<Int, Error> {
                 }
             }
             if name == 'run' {
-                return run_file(file, positionals.slice(1, positionals.len()), find_sdk_root());
+                return runner.run_file(file, positionals.slice(1, positionals.len()), loader.find_sdk_root());
             }
             eprintln('${name}: not yet implemented (${file})');
             return Result.Ok(0);
@@ -160,7 +160,7 @@ fn do_check(_ targets: List<String>, _ sdk_root: Option<String>, _ qualified: Bo
         match fs.metadata(target) {
             Ok(meta) => {
                 match meta.kind {
-                    Dir => { collect_from_dir(target, '.hawk', files); },
+                    Dir => { runner.collect_from_dir(target, '.hawk', files); },
                     _ => { files.push(target); },
                 }
             },
@@ -175,7 +175,7 @@ fn do_check(_ targets: List<String>, _ sdk_root: Option<String>, _ qualified: Bo
     }
 
     let mut total = 0;
-    for file in sort_dedup(files) {
+    for file in runner.sort_dedup(files) {
         match fs.read_text(file) {
             Ok(source) => {
                 // Diagnostics are `check`'s product (it emits no artifact), so
@@ -183,16 +183,16 @@ fn do_check(_ targets: List<String>, _ sdk_root: Option<String>, _ qualified: Bo
                 // analyzers it resembles (eslint, ruff, mypy). stderr is reserved
                 // for operational failures (below) and `emit`, which is a compiler
                 // whose product is the `.hawkbc`. (See docs/architecture.md.)
-                let diags = check_source_at(source, file, sdk_root);
+                let diags = driver.check_source_at(source, file, sdk_root);
                 for d in diags {
-                    println(format_diagnostic(d, file));
+                    println(driver.format_diagnostic(d, file));
                 }
                 total = total + diags.len();
                 // `--qualified`: the transitional bare-reference lint. Warnings
                 // (printed, but they don't affect the exit status).
                 if qualified {
-                    for w in qualify_warnings_at(source, file, sdk_root) {
-                        println(format_diagnostic(w, file));
+                    for w in driver.qualify_warnings_at(source, file, sdk_root) {
+                        println(driver.format_diagnostic(w, file));
                     }
                 }
             },
@@ -212,9 +212,9 @@ fn do_check(_ targets: List<String>, _ sdk_root: Option<String>, _ qualified: Bo
 fn do_emit(_ file: String, _ out: String) -> Result<Int, Error> {
     match fs.read_text(file) {
         Ok(source) => {
-            let outcome = compile_source_at(source, file, find_sdk_root());
+            let outcome = driver.compile_source_at(source, file, loader.find_sdk_root());
             for d in outcome.diagnostics {
-                eprintln(format_diagnostic(d, file));
+                eprintln(driver.format_diagnostic(d, file));
             }
             match outcome.bytes {
                 Some(bytes) => {

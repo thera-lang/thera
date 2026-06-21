@@ -16,7 +16,7 @@ import std.process;
 import std.time;
 import std.env;
 
-import 'ast/ast';      // Program, FnDecl, Decl
+import 'ast/ast';      // ast.Program, ast.FnDecl, Decl
 import 'lexer/lexer';  // tokenize
 import 'parser/parser'; // parse
 import 'driver';       // compile_source_at, check_source_at, format_diagnostic
@@ -115,13 +115,13 @@ fn run_test_file(_ path_str: String, _ runtime: String, _ sdk_root: Option<Strin
     };
 
     // Parse once to discover the @test functions.
-    let lex = tokenize(source);
-    let parsed = parse_tokens(lex.tokens);
+    let lex = lexer.tokenize(source);
+    let parsed = parser.parse_tokens(lex.tokens);
     println(path_str); // the per-file header is part of the report (stdout)
     if lex.errors.len() > 0 || parsed.errors.len() > 0 {
         // Re-run the standard pipeline so the lex/parse errors print uniformly.
-        for d in check_source_at(source, path_str, sdk_root) {
-            eprintln(format_diagnostic(d, path_str));
+        for d in driver.check_source_at(source, path_str, sdk_root) {
+            eprintln(driver.format_diagnostic(d, path_str));
         }
         return Option.None;
     }
@@ -134,10 +134,10 @@ fn run_test_file(_ path_str: String, _ runtime: String, _ sdk_root: Option<Strin
 
     // Recompile the source plus a synthesized driver `main` that runs each test.
     let combined = '${source}\n${test_driver(tests)}';
-    let outcome = compile_source_at(combined, path_str, sdk_root);
+    let outcome = driver.compile_source_at(combined, path_str, sdk_root);
     if outcome.diagnostics.len() > 0 {
         for d in outcome.diagnostics {
-            eprintln(format_diagnostic(d, path_str));
+            eprintln(driver.format_diagnostic(d, path_str));
         }
         return Option.None;
     }
@@ -175,7 +175,7 @@ fn failures_from_exit(_ exit_code: Int, _ total: Int) -> Int {
 }
 
 // The names of the `@test`-decorated functions in `program`, in source order.
-fn test_names(_ program: Program) -> List<String> {
+fn test_names(_ program: ast.Program) -> List<String> {
     let names: List<String> = [];
     for decl in program.decls {
         match decl {
@@ -190,7 +190,7 @@ fn test_names(_ program: Program) -> List<String> {
     return names;
 }
 
-fn has_test_decorator(_ f: FnDecl) -> Bool {
+fn has_test_decorator(_ f: ast.FnDecl) -> Bool {
     for d in f.decorators {
         if d.name == 'test' {
             return true;
@@ -301,9 +301,9 @@ fn compile_or_report(_ file: String, _ sdk_root: Option<String>) -> Option<Bytes
             return Option.None;
         },
     };
-    let outcome = compile_source_at(source, file, sdk_root);
+    let outcome = driver.compile_source_at(source, file, sdk_root);
     for d in outcome.diagnostics {
-        eprintln(format_diagnostic(d, file));
+        eprintln(driver.format_diagnostic(d, file));
     }
     return outcome.bytes;
 }

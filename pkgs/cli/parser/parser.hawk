@@ -15,9 +15,9 @@
 
 import std.char;
 
-import '../lexer/token';
+import '../lexer/token' as _;
 import '../lexer/lexer';
-import '../ast/ast';
+import '../ast/ast' as _;
 
 pub type ParseError = {
     message: String,
@@ -1748,7 +1748,7 @@ impl Parser {
                 }
                 // cps[interp_start .. i-1] is the expression source (closing } excluded).
                 let expr_source = String.from_chars(cps.slice(interp_start, i - 1));
-                let lex_result = tokenize(expr_source);
+                let lex_result = lexer.tokenize(expr_source);
                 if lex_result.tokens.len() > 1 {
                     let expr = parse_expression(lex_result.tokens);
                     parts.push(StringPart.Interp(parent, expr));

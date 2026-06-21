@@ -9,10 +9,10 @@
 // cached before its own imports are linked). The result also carries the import
 // namespaces (alias / trailing segment -> the imported library's public surface).
 
-import 'ast/ast';
+import 'ast/ast' as _;
 import 'lexer/lexer';
 import 'parser/parser';
-import 'element/element'; // LibraryNamespace
+import 'element/element' as _;
 
 import std.fs;
 import std.env;
@@ -114,11 +114,11 @@ fn resolve_library_file(_ base: String) -> Option<String> {
 pub fn parse_file_or_null(_ path: String) -> Option<Program> {
     match fs.read_text(path) {
         Ok(source) => {
-            let lex = tokenize(source);
+            let lex = lexer.tokenize(source);
             if lex.errors.len() > 0 {
                 return Option.None;
             }
-            let parsed = parse_tokens(lex.tokens);
+            let parsed = parser.parse_tokens(lex.tokens);
             if parsed.errors.len() > 0 {
                 return Option.None;
             }
