@@ -12,7 +12,7 @@
 import 'ast/ast' as _;
 import 'lexer/lexer';
 import 'parser/parser';
-import 'element/element' as _;
+import 'element/element';
 
 import std.fs;
 import std.env;
@@ -32,7 +32,7 @@ pub type LibrarySource = {
 // linking substrate) and the namespaces the program's own imports bind.
 pub type LoadedImports = {
     programs: List<Program>,
-    namespaces: Map<String, LibraryNamespace>,
+    namespaces: Map<String, element.LibraryNamespace>,
 }
 
 // --- SDK root discovery ---
@@ -222,7 +222,7 @@ pub fn load_imports(_ path: String, _ program: Program, _ sdk_root: Option<Strin
 
     // Namespaces are the union across every linked module (an imported module's
     // body can itself use a namespace-qualified call); the root's bindings win.
-    let namespaces: Map<String, LibraryNamespace> = {};
+    let namespaces: Map<String, element.LibraryNamespace> = {};
     merge_namespaces(namespaces, namespaces_for(root));
     for file in loader.cache.keys() {
         merge_namespaces(namespaces, namespaces_for(loader.cache[file]));
@@ -230,7 +230,7 @@ pub fn load_imports(_ path: String, _ program: Program, _ sdk_root: Option<Strin
     return LoadedImports { programs: loader.order, namespaces: namespaces };
 }
 
-fn merge_namespaces(_ into: Map<String, LibraryNamespace>, _ from: Map<String, LibraryNamespace>) -> Void {
+fn merge_namespaces(_ into: Map<String, element.LibraryNamespace>, _ from: Map<String, element.LibraryNamespace>) -> Void {
     for name in from.keys() {
         if !into.has(name) {
             into[name] = from[name];
@@ -242,8 +242,8 @@ fn merge_namespaces(_ into: Map<String, LibraryNamespace>, _ from: Map<String, L
 
 // The namespaces bound by `root`'s own imports: import namespace (alias, or the
 // trailing path segment) -> the imported library's public surface.
-pub fn namespaces_for(_ root: LibrarySource) -> Map<String, LibraryNamespace> {
-    let result: Map<String, LibraryNamespace> = {};
+pub fn namespaces_for(_ root: LibrarySource) -> Map<String, element.LibraryNamespace> {
+    let result: Map<String, element.LibraryNamespace> = {};
     for decl in root.program.decls {
         match decl {
             Import(x) => {
@@ -260,12 +260,12 @@ pub fn namespaces_for(_ root: LibrarySource) -> Map<String, LibraryNamespace> {
 
 // The public surface of `lib`: its own `pub` declarations plus the flattened
 // public surfaces of its `pub import`s.
-pub fn public_surface_of(_ lib: LibrarySource) -> LibraryNamespace {
+pub fn public_surface_of(_ lib: LibrarySource) -> element.LibraryNamespace {
     let names: Set<String> = Set.new();
     let collisions: Set<String> = Set.new();
     let visited: Set<String> = Set.new();
     collect_surface(lib, names, collisions, visited);
-    return LibraryNamespace { names: names, collisions: collisions };
+    return element.LibraryNamespace { names: names, collisions: collisions };
 }
 
 // Cycle detection keys on the program's `file_path` (Hawk has no object identity).
