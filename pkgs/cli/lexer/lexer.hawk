@@ -9,7 +9,7 @@
 
 import std.char;
 
-import 'token';
+import 'token' as _; // lexer produces tokens — token's types are used throughout
 
 // A lexical error: a message and the span it occurred at.
 pub type LexError = {

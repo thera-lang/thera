@@ -14,7 +14,7 @@
 //
 // `type` is a reserved word, so fields Dart names `type` are `type_ann` here.
 
-import '../lexer/token'; // SourceSpan
+import '../lexer/token' as _; // SourceSpan, used by every node
 
 // --- Top level ---
 

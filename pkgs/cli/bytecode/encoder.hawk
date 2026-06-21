@@ -9,7 +9,7 @@
 // (and the runtime's `emit-demo`) for the same module — the round-trip contract
 // the toolchains share.
 
-import 'instr';
+import 'instr' as _; // emits instructions pervasively
 import 'module';
 
 const MAGIC: String = 'HAWK';
@@ -57,7 +57,7 @@ impl StringPool {
 }
 
 // Encode a module to the wire format.
-pub fn encode_module(_ m: Module) -> Bytes {
+pub fn encode_module(_ m: module.Module) -> Bytes {
     // First pass: intern every string the module references — type names, string
     // literals, and the names of called natives/selectors — in the same order
     // the runtime does, so the pools (and therefore the bytes) match exactly.
@@ -144,7 +144,7 @@ fn write_section(_ w: BytesBuilder, _ id: Int, _ payload: Bytes) -> Void {
     w.write_bytes(payload);
 }
 
-fn encode_function(_ w: BytesBuilder, _ f: FuncDef, _ pool: StringPool) -> Void {
+fn encode_function(_ w: BytesBuilder, _ f: module.FuncDef, _ pool: StringPool) -> Void {
     write_str_lp(w, f.name);
     w.write_uvarint(f.param_count);
     w.write_uvarint(f.local_count);

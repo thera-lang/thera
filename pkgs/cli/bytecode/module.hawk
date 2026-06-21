@@ -18,7 +18,7 @@ pub type FuncDef = {
     name: String,
     param_count: Int,
     local_count: Int,
-    code: List<Instr>,
+    code: List<instr.Instr>,
 }
 
 // Struct and enum type ids occupy separate numeric spaces (struct ids index the
