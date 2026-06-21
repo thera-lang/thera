@@ -4,11 +4,11 @@
 
 import std.testing;
 
-import '../lexer/token';
-import '../lexer/lexer';
-import '../ast/ast';
-import '../ast/describe';
-import 'parser';
+import '../lexer/token' as _;
+import '../lexer/lexer' as _;
+import '../ast/ast' as _;
+import '../ast/describe' as _;
+import 'parser' as _;
 
 // Parse `src` as a single expression and render it canonically.
 fn expr_str(_ src: String) -> String {

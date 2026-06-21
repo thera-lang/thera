@@ -5,7 +5,7 @@
 import std.testing;
 import std.io;
 
-import 'server';
+import 'server' as _;
 
 // Run one message through a fresh server and return everything it wrote.
 fn handled(_ body: String) -> String {

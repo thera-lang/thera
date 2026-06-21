@@ -5,9 +5,9 @@
 
 import std.testing;
 
-import 'lexer/lexer';
-import 'parser/parser';
-import 'loader';
+import 'lexer/lexer' as _;
+import 'parser/parser' as _;
+import 'loader' as _;
 
 // Parse `src`, stamping a distinct `path` as its `file_path` — the loader keys
 // re-export-cycle detection on `file_path` (Hawk has no object identity), which

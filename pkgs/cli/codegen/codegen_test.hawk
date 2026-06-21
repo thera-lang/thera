@@ -7,12 +7,12 @@
 
 import std.testing;
 
-import '../lexer/lexer';
-import '../parser/parser';
-import '../bytecode/instr';
-import '../bytecode/module';
-import '../bytecode/encoder';
-import 'codegen';
+import '../lexer/lexer' as _;
+import '../parser/parser' as _;
+import '../bytecode/instr' as _;
+import '../bytecode/module' as _;
+import '../bytecode/encoder' as _;
+import 'codegen' as _;
 
 fn emit_bytes(_ src: String) -> List<Int> {
     let result = compile_program(parse_tokens(tokenize(src).tokens).program, [], {});

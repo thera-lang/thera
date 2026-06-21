@@ -5,12 +5,12 @@
 
 import std.testing;
 
-import '../lexer/lexer';
-import '../parser/parser';
-import 'types';
-import 'element';
-import 'resolver';
-import 'inference';
+import '../lexer/lexer' as _;
+import '../parser/parser' as _;
+import 'types' as _;
+import 'element' as _;
+import 'resolver' as _;
+import 'inference' as _;
 
 fn lib_of(_ src: String) -> LibraryElement {
     return build_library(parse_tokens(tokenize(src).tokens).program, [], {});

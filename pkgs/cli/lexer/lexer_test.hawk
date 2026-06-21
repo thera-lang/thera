@@ -7,8 +7,8 @@
 
 import std.testing;
 
-import 'token';
-import 'lexer';
+import 'token' as _;
+import 'lexer' as _;
 
 // The token kinds for `src` (including the trailing Eof).
 fn kinds(_ src: String) -> List<TokenKind> {

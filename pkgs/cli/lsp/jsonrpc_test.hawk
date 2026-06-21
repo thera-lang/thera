@@ -3,7 +3,7 @@
 import std.testing;
 import std.io;
 
-import 'jsonrpc';
+import 'jsonrpc' as _;
 
 // An in-memory `Reader` that hands out `data` in `max`-sized chunks, so the
 // read loop can be driven without a real stream (empty read = EOF).

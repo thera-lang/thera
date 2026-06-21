@@ -8,9 +8,9 @@
 
 import std.testing;
 
-import 'instr';
-import 'module';
-import 'encoder';
+import 'instr' as _;
+import 'module' as _;
+import 'encoder' as _;
 
 // The runtime's demo:
 //   fn double(x) { return x * 2; }

@@ -5,10 +5,10 @@
 
 import std.testing;
 
-import '../lexer/lexer';
-import '../parser/parser';
-import '../element/element';
-import 'checker';
+import '../lexer/lexer' as _;
+import '../parser/parser' as _;
+import '../element/element' as _;
+import 'checker' as _;
 
 fn errors_of(_ src: String) -> List<CheckError> {
     return check(parse_tokens(tokenize(src).tokens).program, [], {}).errors;

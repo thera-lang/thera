@@ -1,7 +1,7 @@
 import std.testing;
 
-import 'types';
-import 'element';
+import 'types' as _;
+import 'element' as _;
 
 fn defs() -> Map<String, TypeDefElement> {
     let m: Map<String, TypeDefElement> = {};

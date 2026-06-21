@@ -4,7 +4,7 @@
 
 import std.testing;
 
-import 'driver';
+import 'driver' as _;
 
 @test
 fn test_check_clean_source_has_no_diagnostics() -> Result<Void, Error> {

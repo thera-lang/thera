@@ -5,8 +5,8 @@
 
 import std.testing;
 
-import '../lexer/token';
-import 'ast';
+import '../lexer/token' as _;
+import 'ast' as _;
 
 // A throwaway span for hand-built nodes (structural equality over a tree built
 // with the same span makes spans drop out of the comparison).
