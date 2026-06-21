@@ -12,12 +12,12 @@
 // is the binding's type, `Unknown` when undetermined) — unifying what the Dart
 // checker split between a `TypeRef?` scope and the inferred annotations.
 
-import '../ast/ast';
-import '../lexer/token'; // SourceSpan
-import '../element/types';
-import '../element/element';
+import '../ast/ast' as _;
+import '../lexer/token' as _; // SourceSpan
+import '../element/types' as _;
+import '../element/element' as _;
 import '../element/resolver';
-import '../element/inference';
+import '../element/inference' as _;
 
 pub type CheckError = {
     message: String,
@@ -38,7 +38,7 @@ pub fn has_errors(_ r: CheckResult) -> Bool {
 pub fn check(_ program: Program, _ imports: List<Program>,
     _ namespaces: Map<String, LibraryNamespace>) -> CheckResult {
     let errors: List<CheckError> = [];
-    let library = build_library(program, imports, namespaces);
+    let library = resolver.build_library(program, imports, namespaces);
     check_duplicates(errors, program, imports);
     check_program(errors, program, library, program.file_path);
     return CheckResult { errors: errors };
@@ -228,7 +228,7 @@ fn check_fn(_ errors: List<CheckError>, _ fn_decl: FnDecl, _ library: LibraryEle
         Some(body) => {
             let return_type = match fn_decl.return_type {
                 Some(ref) => Option.Some(
-                    resolve_type_ref(ref, library.type_defs, type_params, self_type)),
+                    resolver.resolve_type_ref(ref, library.type_defs, type_params, self_type)),
                 None => Option.None,
             };
             let ctx = InferCtx {
@@ -247,7 +247,7 @@ fn check_fn(_ errors: List<CheckError>, _ fn_decl: FnDecl, _ library: LibraryEle
                         None => {},
                     }
                 } else {
-                    scope[p.name] = resolve_opt(p.type_ann, library.type_defs, type_params, self_type);
+                    scope[p.name] = resolver.resolve_opt(p.type_ann, library.type_defs, type_params, self_type);
                 }
             }
             check_block(errors, body, scope, ctx);
@@ -346,7 +346,7 @@ fn check_conformance(_ errors: List<CheckError>, _ decl: ImplDecl, _ library: Li
             let iface_bindings: Map<String, Type> = {};
             let mut i = 0;
             while i < iface_params.len() {
-                iface_bindings[iface_params[i]] = resolve_type_ref(
+                iface_bindings[iface_params[i]] = resolver.resolve_type_ref(
                     decl.interface_args[i], library.type_defs, impl_tps, Option.Some(impl_type));
                 i = i + 1;
             }
@@ -485,7 +485,7 @@ fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ stmts: List<Stmt>, _ i
             }
             let annotated = match x.type_ann {
                 Some(ref) => Option.Some(
-                    resolve_type_ref(ref, ctx.library.type_defs, ctx.type_params, ctx.self_type)),
+                    resolver.resolve_type_ref(ref, ctx.library.type_defs, ctx.type_params, ctx.self_type)),
                 None => Option.None,
             };
             check_expr(errors, x.value, scope, ctx, annotated);
@@ -742,7 +742,7 @@ fn check_lambda(_ errors: List<CheckError>, _ x: LambdaExpr, _ scope: Map<String
         let pt = match p.type_ann {
             Some(ref) => {
                 check_type_ref(errors, ref, ctx.library.type_defs, ctx.type_params);
-                resolve_type_ref(ref, ctx.library.type_defs, ctx.type_params, ctx.self_type)
+                resolver.resolve_type_ref(ref, ctx.library.type_defs, ctx.type_params, ctx.self_type)
             },
             None => {
                 let from_ctx = match expected_params {

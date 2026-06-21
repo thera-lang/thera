@@ -14,15 +14,15 @@
 // construction, `match`, method calls, and lambdas are staged follow-ups — they
 // record a `CodegenError` if reached.
 
-import '../ast/ast';
-import '../lexer/token'; // SourceSpan
-import '../bytecode/instr';
-import '../bytecode/module';
-import '../element/types';
+import '../ast/ast' as _;
+import '../lexer/token' as _; // SourceSpan
+import '../bytecode/instr' as _;
+import '../bytecode/module' as _;
+import '../element/types' as _;
 import '../element/element';
 import '../element/resolver';
-import '../element/inference';
-import 'module_scope';
+import '../element/inference' as _;
+import 'module_scope' as _;
 
 // A construct codegen does not yet handle (or an invariant a checked program
 // should already guarantee). Collected rather than thrown — Hawk has no
@@ -58,8 +58,8 @@ pub type Fixup = {
 // types, and methods register into a single scope (so cross-module references
 // resolve), then every unit is compiled.
 pub fn compile_program(_ program: Program, _ imports: List<Program>,
-    _ namespaces: Map<String, LibraryNamespace>) -> CodegenResult {
-    let library = build_library(program, imports, namespaces);
+    _ namespaces: Map<String, element.LibraryNamespace>) -> CodegenResult {
+    let library = resolver.build_library(program, imports, namespaces);
     let ns_set: Set<String> = Set.new();
     for k in namespaces.keys() {
         ns_set.add(k);
@@ -206,7 +206,7 @@ impl FnCompiler {
         };
         let return_type = match fn_decl.return_type {
             Some(ref) => Option.Some(
-                resolve_type_ref(ref, self.scope.library.type_defs, type_params, self_type)),
+                resolver.resolve_type_ref(ref, self.scope.library.type_defs, type_params, self_type)),
             None => Option.None,
         };
         self.ctx = InferCtx {
@@ -251,7 +251,7 @@ impl FnCompiler {
                         Some(t) => t,
                         None => Type.Unknown,
                     },
-                    None => resolve_opt(p.type_ann, self.scope.library.type_defs, type_params, self_type),
+                    None => resolver.resolve_opt(p.type_ann, self.scope.library.type_defs, type_params, self_type),
                 }
             };
             self.type_scope[p.name] = pt;
@@ -393,7 +393,7 @@ impl FnCompiler {
                 // not-yet-bound name. A captured `mut` local is boxed.
                 let annotated = match x.type_ann {
                     Some(ref) => Option.Some(
-                        resolve_type_ref(ref, self.scope.library.type_defs, self.ctx.type_params, self.ctx.self_type)),
+                        resolver.resolve_type_ref(ref, self.scope.library.type_defs, self.ctx.type_params, self.ctx.self_type)),
                     None => Option.None,
                 };
                 self.expr_expecting(x.value, annotated);

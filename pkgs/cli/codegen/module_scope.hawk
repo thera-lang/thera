@@ -8,10 +8,10 @@
 // methods grow the tables in place (Hawk structs are references — `self.x = …`
 // and `self.list.push(…)` both persist), mirroring the Dart class's mutation.
 
-import '../ast/ast';
+import '../ast/ast' as _;
 import '../bytecode/instr';
-import '../bytecode/module';
-import '../element/types';
+import '../bytecode/module' as _;
+import '../element/types' as _;
 import '../element/element';
 
 // Well-known enum type ids and variant tags, fixed by convention and shared with
@@ -112,10 +112,10 @@ pub type ModuleScope = {
     // — the pure-inference analogue of the Dart inferrer's annotation.
     lambda_param_types: Map<Int, Map<String, Type>>,
     // The resolved element model, for building an `InferCtx` per unit.
-    library: LibraryElement,
+    library: element.LibraryElement,
 }
 
-pub fn new_module_scope(_ namespaces: Set<String>, _ library: LibraryElement) -> ModuleScope {
+pub fn new_module_scope(_ namespaces: Set<String>, _ library: element.LibraryElement) -> ModuleScope {
     return ModuleScope {
         units: [],
         unit_names: [],
@@ -155,7 +155,7 @@ impl ModuleScope {
 
     pub fn add_function(self, _ decl: FnDecl, _ file: Option<String>) -> Void {
         let index = self.units.len();
-        let key = file_key(file);
+        let key = element.file_key(file);
         if !self.file_functions.has(key) {
             self.file_functions[key] = {};
         }
@@ -170,7 +170,7 @@ impl ModuleScope {
     // The unit index of free function `name` referenced from `file` — the file's
     // own function if it has one, else the cross-file fallback.
     pub fn resolve_function(self, _ file: Option<String>, _ name: String) -> Option<Int> {
-        match self.file_functions.get(file_key(file)) {
+        match self.file_functions.get(element.file_key(file)) {
             Some(m) => {
                 match m.get(name) {
                     Some(i) => { return Option.Some(i); },
