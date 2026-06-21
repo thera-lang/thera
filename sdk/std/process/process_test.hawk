@@ -4,7 +4,7 @@
 import std.testing;
 import std.io;
 
-import 'process';
+import 'process' as _;
 
 fn is_not_found(_ e: ProcessError) -> Bool {
     return match e {

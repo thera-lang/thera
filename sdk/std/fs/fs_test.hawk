@@ -4,7 +4,7 @@
 import std.testing;
 import std.path;
 
-import 'fs';
+import 'fs' as _;
 
 // A fresh, empty workspace directory under the system temp dir. Pre-cleans any
 // leftovers from an earlier run.

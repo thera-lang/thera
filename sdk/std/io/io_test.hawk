@@ -3,7 +3,7 @@
 
 import std.testing;
 
-import 'io';
+import 'io' as _;
 
 // A Reader over an in-memory buffer that hands out at most `chunk` bytes per
 // read — so the combinators' read-until-EOF loops are exercised across chunks.

@@ -143,17 +143,17 @@ impl Reader for ProcessStderr {
 
 impl Process {
     // The child's standard input as a `Writer`.
-    pub fn stdin(self) -> Writer {
+    pub fn stdin(self) -> io.Writer {
         return ProcessStdin { id: self.id };
     }
 
     // The child's standard output as a `Reader` (compose with `io.read_all`).
-    pub fn stdout(self) -> Reader {
+    pub fn stdout(self) -> io.Reader {
         return ProcessStdout { id: self.id };
     }
 
     // The child's standard error as a `Reader`.
-    pub fn stderr(self) -> Reader {
+    pub fn stderr(self) -> io.Reader {
         return ProcessStderr { id: self.id };
     }
 

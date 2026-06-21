@@ -2,7 +2,7 @@
 
 import std.testing;
 
-import 'args';
+import 'args' as _;
 
 @test
 fn test_positional() -> Result<Void, Error> {

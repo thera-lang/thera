@@ -6,7 +6,7 @@
 
 import std.testing;
 
-import 'char';
+import 'char' as _;
 
 @test
 fn test_constants() -> Result<Void, Error> {

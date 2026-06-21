@@ -7,7 +7,7 @@
 
 import std.testing;
 
-import 'math';
+import 'math' as _;
 
 // Within `eps` of each other (floats rarely compare exactly equal).
 fn close(_ a: Double, _ b: Double) -> Bool {

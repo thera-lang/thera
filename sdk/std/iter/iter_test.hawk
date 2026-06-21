@@ -2,7 +2,7 @@
 
 import std.testing;
 
-import 'iter';
+import 'iter' as _;
 
 @test
 fn test_range_next_then_exhausts() -> Result<Void, Error> {

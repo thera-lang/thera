@@ -2,7 +2,7 @@
 
 import std.testing;
 
-import 'command';
+import 'command' as _;
 
 // A representative command reused across the parsing tests.
 fn sample() -> Command {

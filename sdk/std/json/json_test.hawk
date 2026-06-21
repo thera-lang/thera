@@ -2,7 +2,7 @@
 
 import std.testing;
 
-import 'json';
+import 'json' as _;
 
 @test
 fn test_parse_primitives() -> Result<Void, Error> {
