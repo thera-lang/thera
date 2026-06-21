@@ -1560,7 +1560,16 @@ impl Parser {
             }
             // Struct literal: `TypeName { field: expr, ... }`.
             if allow_struct && self.check(TokenKind.LBrace) {
-                return self.parse_struct_literal(name, t.span);
+                return self.parse_struct_literal(Option.None, name, t.span);
+            }
+            // Qualified struct literal: `ns.TypeName { field: expr, ... }`. `name`
+            // is the namespace; the next `.Ident` is the type, then `{`.
+            if allow_struct && self.check(TokenKind.Dot)
+                && self.peek_tok(1).kind == TokenKind.Identifier
+                && self.peek_tok(2).kind == TokenKind.LBrace {
+                self.advance(); // .
+                let type_tok = self.advance(); // TypeName
+                return self.parse_struct_literal(Option.Some(name), type_tok.lexeme(), t.span);
             }
             return Expr.Ident(t.span, name);
         }
@@ -1642,7 +1651,7 @@ impl Parser {
         return Expr.ListLit(start.span.cover(rbracket.span), items);
     }
 
-    fn parse_struct_literal(self, _ type_name: String, _ start: SourceSpan) -> Expr {
+    fn parse_struct_literal(self, _ namespace: Option<String>, _ type_name: String, _ start: SourceSpan) -> Expr {
         self.advance(); // {
         let fields: List<FieldInit> = [];
         let mut going = true;
@@ -1659,6 +1668,7 @@ impl Parser {
         return Expr.Struct(StructExpr {
             span: start.cover(rbrace.span),
             type_name: type_name,
+            namespace: namespace,
             fields: fields,
         });
     }

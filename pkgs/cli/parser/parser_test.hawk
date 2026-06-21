@@ -93,6 +93,9 @@ fn test_collections_and_struct() -> Result<Void, Error> {
         expected: '{"a": 1, "b": 2}')?;
     testing.assert_eq(actual: expr_str('Point { x: 1, y: 2 }'),
         expected: 'Point { x: 1, y: 2 }')?;
+    // A namespace-qualified construction of an imported type.
+    testing.assert_eq(actual: expr_str('geo.Point { x: 1, y: 2 }'),
+        expected: 'geo.Point { x: 1, y: 2 }')?;
     return Result.Ok(void);
 }
 

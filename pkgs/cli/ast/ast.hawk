@@ -273,6 +273,10 @@ pub type MapEntry = {
 pub type StructExpr = {
     span: SourceSpan,
     type_name: String,
+    // The import namespace a qualified construction was written with (`element` in
+    // `element.LibraryNamespace { … }`), or None for a bare type. Resolution is by
+    // `type_name` alone; the qualifier is carried for diagnostics (as in NamedType).
+    namespace: Option<String>,
     fields: List<FieldInit>,
 }
 

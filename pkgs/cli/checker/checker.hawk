@@ -1423,8 +1423,12 @@ fn lint_expr(_ warnings: List<CheckError>, _ expr: Expr, _ bound: Set<String>,
             }
         },
         Struct(x) => {
-            // The type name selects a struct type, so flag a bare imported type.
-            lint_ref(warnings, x.type_name, x.span, bound, imported, local_top);
+            // A bare (unqualified) construction of an imported type should be
+            // qualified — `ns.Type { … }`; an already-qualified one is fine.
+            match x.namespace {
+                None => { lint_ref(warnings, x.type_name, x.span, bound, imported, local_top); },
+                Some(_) => {},
+            }
             for f in x.fields {
                 lint_expr(warnings, f.value, bound, imported, local_top);
             }

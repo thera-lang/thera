@@ -20,7 +20,7 @@ pub fn describe_expr(_ e: Expr) -> String {
         Str(_, parts) => '"' + describe_parts(parts) + '"',
         ListLit(_, items) => '[' + join_exprs(items) + ']',
         MapLit(_, entries) => '{' + describe_entries(entries) + '}',
-        Struct(x) => '${x.type_name} { ${describe_field_inits(x.fields)} }',
+        Struct(x) => '${describe_qualifier(x.namespace)}${x.type_name} { ${describe_field_inits(x.fields)} }',
         Ident(_, name) => name,
         Call(x) => describe_expr(x.callee) + describe_type_args(x.type_args)
             + '(' + describe_args(x.args) + ')',
@@ -175,4 +175,12 @@ fn describe_entries(_ xs: List<MapEntry>) -> String {
 
 fn describe_field_inits(_ xs: List<FieldInit>) -> String {
     return xs.map((f) => describe_field_init(f)).join(', ');
+}
+
+// The `ns.` prefix of a qualified construction, or '' for a bare type.
+fn describe_qualifier(_ namespace: Option<String>) -> String {
+    return match namespace {
+        Some(ns) => '${ns}.',
+        None => '',
+    };
 }
