@@ -1,4 +1,4 @@
-//! spec: scoping.md
+//! spec: name-undefined
 //! mode: check
 
 fn main() -> Int {

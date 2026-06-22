@@ -295,7 +295,7 @@ for `throw error('...')`; today write the `error('...')` call explicitly.
 
 ```hawk
 fn read_port(args: Args) -> Result<Int, Error> {
-    let s = args.positional(0).ok_or(Error('usage: serve <port>'))?;
+    let s = args.positional(0).ok_or(error('usage: serve <port>'))?;
     return s.parse<Int>();
 }
 ```
@@ -325,7 +325,7 @@ stack unwinding; control simply returns to the caller with an `Err` value.
 fn parse_port(s: String) -> Result<Int, Error> {
     let n = s.parse<Int>()?;
     if n < 1 || n > 65535 {
-        throw Error('port out of range: ${n}');
+        throw error('port out of range: ${n}');
     }
     return n;   // implicitly Result.Ok(n)
 }
@@ -360,7 +360,7 @@ match config.log_dir {
 }
 
 // treat absence as an error and propagate with ?
-let dir = config.log_dir.ok_or(Error('log_dir is required'))?;
+let dir = config.log_dir.ok_or(error('log_dir is required'))?;
 ```
 
 ---
@@ -491,7 +491,7 @@ match nums.get(9) {
     None    => println('out of range'),
 }
 
-let score = scores.get('bob').ok_or(Error('no score for bob'))?;
+let score = scores.get('bob').ok_or(error('no score for bob'))?;
 ```
 
 Both `List` and `Map` follow the same rule: `[]` traps on absence, `.get()`
@@ -694,7 +694,7 @@ import std.cli;
 fn main(parameters: List<String>) -> Result<Int, Error> {
     let args = cli.Args.new(parameters);
 
-    let path    = args.positional(0).ok_or(Error('usage: tool <path>'))?;
+    let path    = args.positional(0).ok_or(error('usage: tool <path>'))?;
     let verbose = args.flag('--verbose', default: false);
     let output  = args.option('--output').unwrap_or('out.txt');
     // ...

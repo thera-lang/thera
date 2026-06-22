@@ -1,4 +1,4 @@
-//! spec: grammar.md#not-yet-in-the-grammar
+//! spec: cf-break-continue
 //! mode: run
 //! xfail: `break` is not yet implemented (lexes as an ordinary identifier)
 

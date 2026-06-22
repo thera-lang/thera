@@ -1,4 +1,4 @@
-//! spec: language.md#tail-expressions
+//! spec: expr-tail
 //! mode: run
 
 fn main() -> Int {

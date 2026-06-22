@@ -1,4 +1,4 @@
-//! spec: grammar.md#operator-precedence
+//! spec: expr-precedence
 //! mode: run
 
 fn main() -> Int {

@@ -16,6 +16,9 @@ is"; read top-down for progressive detail.
 - [scoping.md](scoping.md) — **name resolution & scoping**: lexical/file scope,
   the prelude, qualified-only cross-library access, the resolution algorithm, and
   the gaps where the implementation still diverges.
+- [conformance.md](conformance.md) — the **conformance coverage map**: every
+  testable unit of the spec, its stable logical ID, and its language-test status
+  (the index behind `tests/lang/`).
 - [stdlib.md](stdlib.md) — the **standard library** design: principles, the
   prelude/core/ecosystem tiers, and the module-by-module catalog.
 - [testability.md](testability.md) — the **ambient-capability** design: an

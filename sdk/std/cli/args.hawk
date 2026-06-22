@@ -7,7 +7,7 @@
 //
 //   fn main(parameters: List<String>) -> Result<Int, Error> {
 //       let args = Args.new(parameters);
-//       let path = args.positional(0).ok_or(Error('usage: tool <path>'))?;
+//       let path = args.positional(0).ok_or(error('usage: tool <path>'))?;
 //       let verbose = args.flag('--verbose', default: false);
 //       ...
 //   }
