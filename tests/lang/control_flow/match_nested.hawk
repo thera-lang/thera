@@ -1,0 +1,30 @@
+//! spec: cf-match-nested
+//! mode: run
+
+enum Op {
+    Add,
+    Sub,
+}
+
+enum Expr {
+    Num(Int),
+    Bin(Op, Expr, Expr),
+}
+
+// Patterns nest to any depth and bind at the leaves: `Bin(Add, l, r)` tests the
+// `Bin` tag and the nested zero-arg `Add`/`Sub` tag, binding `l` and `r`.
+fn eval(_ e: Expr) -> Int {
+    return match e {
+        Num(n) => n,
+        Bin(Add, l, r) => eval(l) + eval(r),
+        Bin(Sub, l, r) => eval(l) - eval(r),
+    };
+}
+
+fn main() -> Int {
+    let sum = Expr.Bin(Op.Add, Expr.Num(2), Expr.Num(3));
+    println('${eval(sum)}');   // expect: 5
+    let diff = Expr.Bin(Op.Sub, Expr.Num(10), Expr.Num(4));
+    println('${eval(diff)}');  // expect: 6
+    return 0;
+}

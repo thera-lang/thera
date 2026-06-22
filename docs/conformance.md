@@ -88,27 +88,27 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 
 | ID                  | Spec                     | Pins                                                        | Status |
 | ------------------- | ------------------------ | ---------------------------------------------------------- | ------ |
-| `cf-if`             | Control flow             | `if`/`else` statement form                                | ✗      |
-| `cf-for`            | Control flow             | `for x in` over lists and ranges                          | ✗      |
-| `cf-while`          | grammar.md Statements    | `while` loop                                              | ✗      |
-| `cf-match`          | grammar.md Patterns      | match dispatch; exhaustiveness assumption                  | ✗      |
-| `cf-match-nested`   | grammar.md Patterns      | nested constructor patterns bind at leaves                 | ✗      |
-| `cf-match-literal`  | grammar.md Patterns      | int/string/bool literal patterns (not float)               | ✗      |
+| `cf-if`             | Control flow             | `if`/`else` statement form                                | ✓      |
+| `cf-for`            | Control flow             | `for x in` over lists and ranges                          | ✓      |
+| `cf-while`          | grammar.md Statements    | `while` loop                                              | ✓      |
+| `cf-match`          | grammar.md Patterns      | match dispatch; exhaustiveness assumption                  | ✓      |
+| `cf-match-nested`   | grammar.md Patterns      | nested constructor patterns bind at leaves                 | ✓      |
+| `cf-match-literal`  | grammar.md Patterns      | int/string/bool literal patterns (not float)               | ✓      |
 | `cf-break-continue` | grammar.md Not-yet       | `break`/`continue` (unimplemented)                        | ⓧ      |
 
 ## Error handling
 
 | ID                  | Spec (language.md)       | Pins                                                        | Status |
 | ------------------- | ------------------------ | ---------------------------------------------------------- | ------ |
-| `err-result-option` | Error handling / Option  | `Result`/`Option` as qualified-constructed prelude enums   | ✗      |
-| `err-propagate`     | Error handling           | `?` propagates `Err` to the caller                        | ✗      |
-| `err-throw`         | Error handling → throw   | `throw e` ≡ `return Result.Err(e)`                        | ✗      |
-| `err-constructor`   | Error handling           | `error('…') -> Error` (lowercase) builds the simple error  | ⚠      |
-| `err-implicit-ok`   | Error handling → throw   | `return n` implicitly `Result.Ok(n)`                      | ✗      |
-| `fault-index`       | Runtime faults           | out-of-range list index / missing map key trap             | ✗      |
-| `fault-div-zero`    | Runtime faults           | integer divide-by-zero traps                              | ✗      |
-| `fault-get-checked` | Collections → get        | `.get(i)` returns `Option` instead of trapping            | ✗      |
-| `int-wraps`         | Runtime faults           | `Int` arithmetic wraps (no overflow trap)                 | ✗      |
+| `err-result-option` | Error handling / Option  | `Result`/`Option` as qualified-constructed prelude enums   | ✓      |
+| `err-propagate`     | Error handling           | `?` propagates `Err` to the caller                        | ✓      |
+| `err-throw`         | Error handling → throw   | `throw e` ≡ `return Result.Err(e)`                        | ✓      |
+| `err-constructor`   | Error handling           | `error('…') -> Error` (lowercase) builds the simple error  | ✓      |
+| `err-implicit-ok`   | Error handling → throw   | `return n` implicitly `Result.Ok(n)`                      | ✓      |
+| `fault-index`       | Runtime faults           | out-of-range list index / missing map key trap             | ✓      |
+| `fault-div-zero`    | Runtime faults           | integer divide-by-zero traps                              | ✓      |
+| `fault-get-checked` | Collections → get        | `.get(i)` returns `Option` instead of trapping            | ✓      |
+| `int-wraps`         | Runtime faults           | `Int` arithmetic wraps (no overflow trap)                 | ✓      |
 
 ## Interfaces
 
@@ -184,6 +184,15 @@ to fix, each ideally captured by a conformance test once resolved.
   "indexing on String is not supported", but `check` passes it clean — same
   check-vs-codegen split as the `5.x` field-access gap. xfail until `check`
   rejects it.
+
+- **trap messages are raw Rust `Debug` output** (`fault-index`, `fault-div-zero`).
+  A fault aborts with `hawk: trap: <RustDebug>` on stderr and a non-zero exit —
+  e.g. `IndexOutOfBounds { index: 9, len: 3 }`, `MissingKey` (which doesn't even
+  name the key), `DivByZero`. The spec (Runtime faults) only requires "a
+  diagnostic and a non-zero exit code"; the wording is unspecified and
+  developer-facing. The conformance tests match loosely on the fault-kind
+  substring. Worth specifying + humanizing the trap format (and naming the
+  missing key); the tests' needles update when it lands.
 
 - **`Double` Display for integral values — RESOLVED.** Integral `Double`s now
   render *with* a decimal point (`1.0` → `1.0`, not `1`), so `Double` output is

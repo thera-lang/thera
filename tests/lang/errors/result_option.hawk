@@ -1,0 +1,25 @@
+//! spec: err-result-option
+//! mode: run
+
+// Option is an ordinary prelude enum, constructed qualified.
+fn find(_ key: String) -> Option<Int> {
+    if key == 'a' {
+        return Option.Some(1);
+    }
+    return Option.None;
+}
+
+fn main() -> Int {
+    let hit = match find('a') {
+        Some(n) => n,
+        None => -1,
+    };
+    println('${hit}');   // expect: 1
+
+    let miss = match find('z') {
+        Some(n) => n,
+        None => -1,
+    };
+    println('${miss}');  // expect: -1
+    return 0;
+}

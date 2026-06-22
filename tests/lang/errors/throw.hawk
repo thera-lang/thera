@@ -1,0 +1,20 @@
+//! spec: err-throw
+//! mode: run
+
+// `throw e` is sugar for `return Result.Err(e)` in a Result-returning function.
+fn check(_ n: Int) -> Result<Int, Error> {
+    if n < 0 {
+        throw error('negative');
+    }
+    return Result.Ok(n);
+}
+
+fn main() -> Result<Int, Error> {
+    let ok = check(5)?;
+    println('${ok}');   // expect: 5
+    match check(-1) {
+        Ok(_) => println('unexpected'),
+        Err(e) => println('caught: ${e.message()}'),   // expect: caught: negative
+    }
+    return Result.Ok(0);
+}

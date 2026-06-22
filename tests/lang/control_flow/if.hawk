@@ -1,0 +1,19 @@
+//! spec: cf-if
+//! mode: run
+
+fn classify(_ n: Int) -> String {
+    if n > 0 {
+        return 'pos';
+    } else if n < 0 {
+        return 'neg';
+    } else {
+        return 'zero';
+    }
+}
+
+fn main() -> Int {
+    println(classify(5));    // expect: pos
+    println(classify(-3));   // expect: neg
+    println(classify(0));    // expect: zero
+    return 0;
+}

@@ -1,0 +1,26 @@
+//! spec: cf-match-literal
+//! mode: run
+
+fn count(_ n: Int) -> String {
+    return match n {
+        0 => 'zero',
+        1 => 'one',
+        _ => 'many',
+    };
+}
+
+fn bit(_ b: Bool) -> String {
+    return match b {
+        true => 'on',
+        false => 'off',
+    };
+}
+
+fn main() -> Int {
+    println(count(0));     // expect: zero
+    println(count(1));     // expect: one
+    println(count(7));     // expect: many
+    println(bit(true));    // expect: on
+    println(bit(false));   // expect: off
+    return 0;
+}

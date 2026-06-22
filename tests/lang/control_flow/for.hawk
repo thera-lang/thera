@@ -1,0 +1,19 @@
+//! spec: cf-for
+//! mode: run
+
+fn main() -> Int {
+    // over a list
+    let mut sum = 0;
+    for n in [10, 20, 30] {
+        sum = sum + n;
+    }
+    println('${sum}');   // expect: 60
+
+    // over a range (half-open)
+    let mut r = 0;
+    for i in 1..4 {
+        r = r + i;
+    }
+    println('${r}');     // expect: 6
+    return 0;
+}

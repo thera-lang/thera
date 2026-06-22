@@ -1,0 +1,17 @@
+//! spec: err-propagate
+//! mode: run
+
+fn parse(_ s: String) -> Result<Int, Error> {
+    return s.to_int().ok_or(error('not a number'));
+}
+
+fn doubled(_ s: String) -> Result<Int, Error> {
+    let n = parse(s)?;           // `?` propagates an Err to the caller
+    return Result.Ok(n * 2);
+}
+
+fn main() -> Result<Int, Error> {
+    let d = doubled('21')?;
+    println('${d}');   // expect: 42
+    return Result.Ok(0);
+}

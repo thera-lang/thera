@@ -1,0 +1,10 @@
+//! spec: fault-index
+//! mode: run
+
+fn main() -> Int {
+    let scores = {'alice': 10};
+    // Indexing a missing key traps; use `.get()` for the checked form.
+    let x = scores['bob'];   // expect trap: MissingKey
+    println('${x}');
+    return 0;
+}

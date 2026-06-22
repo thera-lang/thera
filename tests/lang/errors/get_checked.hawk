@@ -1,0 +1,19 @@
+//! spec: fault-get-checked
+//! mode: run
+
+fn main() -> Int {
+    let xs = [1, 2, 3];
+    // `.get()` is the checked alternative to `[]`: it returns Option, so an
+    // out-of-range index is a value to handle rather than a trap.
+    let miss = match xs.get(9) {
+        Some(n) => n,
+        None => -1,
+    };
+    println('${miss}');   // expect: -1
+    let hit = match xs.get(0) {
+        Some(n) => n,
+        None => -1,
+    };
+    println('${hit}');    // expect: 1
+    return 0;
+}

@@ -1,0 +1,11 @@
+//! spec: fault-div-zero
+//! mode: run
+
+fn main() -> Int {
+    let a = 10;
+    let b = 0;
+    // Integer divide-by-zero traps (unlike overflow, which wraps).
+    let x = a / b;   // expect trap: DivByZero
+    println('${x}');
+    return 0;
+}

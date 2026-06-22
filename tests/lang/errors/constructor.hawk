@@ -1,0 +1,16 @@
+//! spec: err-constructor
+//! mode: run
+
+// The simple-case error is built with the lowercase `error('…') -> Error`
+// constructor; `.message()` reads it back.
+fn fail() -> Result<Int, Error> {
+    return Result.Err(error('boom'));
+}
+
+fn main() -> Result<Int, Error> {
+    match fail() {
+        Ok(_) => println('ok'),
+        Err(e) => println('${e.message()}'),   // expect: boom
+    }
+    return Result.Ok(0);
+}

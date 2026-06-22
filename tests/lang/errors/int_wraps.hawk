@@ -1,0 +1,9 @@
+//! spec: int-wraps
+//! mode: run
+
+fn main() -> Int {
+    // Int arithmetic wraps (two's complement); overflow does not trap.
+    let max = 9223372036854775807;       // i64::MAX
+    println('${max + 1}');               // expect: -9223372036854775808
+    return 0;
+}

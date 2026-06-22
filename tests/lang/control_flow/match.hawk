@@ -1,0 +1,24 @@
+//! spec: cf-match
+//! mode: run
+
+enum Color {
+    Red,
+    Green,
+    Blue,
+}
+
+// Construction is qualified (Color.Green); match patterns stay bare.
+fn name(_ c: Color) -> String {
+    return match c {
+        Red => 'red',
+        Green => 'green',
+        Blue => 'blue',
+    };
+}
+
+fn main() -> Int {
+    println(name(Color.Red));     // expect: red
+    println(name(Color.Green));   // expect: green
+    println(name(Color.Blue));    // expect: blue
+    return 0;
+}

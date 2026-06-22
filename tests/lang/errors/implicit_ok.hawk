@@ -1,0 +1,13 @@
+//! spec: err-implicit-ok
+//! mode: run
+
+// In a Result-returning function, `return n` is implicitly `Result.Ok(n)`.
+fn get() -> Result<Int, Error> {
+    return 42;
+}
+
+fn main() -> Result<Int, Error> {
+    let n = get()?;
+    println('${n}');   // expect: 42
+    return Result.Ok(0);
+}

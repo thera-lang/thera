@@ -1,0 +1,13 @@
+//! spec: cf-while
+//! mode: run
+
+fn main() -> Int {
+    let mut i = 0;
+    let mut acc = 0;
+    while i < 5 {
+        acc = acc + i;
+        i = i + 1;
+    }
+    println('${acc}');   // expect: 10
+    return 0;
+}
