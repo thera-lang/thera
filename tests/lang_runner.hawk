@@ -1,0 +1,416 @@
+// Spec-conformance language-test harness.
+//
+// Each `.hawk` file under the test root is a conformance test: a real program
+// whose expectations live in comments, so the test and its oracle are one
+// artifact (and the file still runs by hand). The harness reads the `//!` header
+// directives and inline `// expect…` comments, invokes the `hawk` CLI (`check`
+// or `run`), and compares. See tests/lang/README.md and docs/conformance.md.
+//
+// Directives (file header):
+//   //! spec: language.md#anchor      the spec section this test pins
+//   //! mode: run | check             run+match stdout, or type-check+match diagnostics
+//   //! xfail: <reason>               the test is *expected to fail* (spec ahead of impl)
+//
+// Inline expectations (anchored to the line they appear on):
+//   // expect: <text>                 (run)   one ordered stdout line
+//   // expect error: <substring>      (check) a diagnostic on this line, message contains <substring>
+//   // expect trap: <substring>       (run)   the program traps; stderr contains <substring>
+//
+// xfail turns the spec-vs-implementation gap into a signal: an xfail test that
+// fails is XFAIL (green); one that unexpectedly passes is XPASS (red) — the cue
+// to delete the marker because the feature landed.
+//
+// Usage (from the repo root):
+//   hawk run tests/lang_runner.hawk <hawk-cmd> <test-root>
+// where <hawk-cmd> is the launcher under test (bin/hawk.sh in dev).
+
+import std.fs;
+import std.path;
+import std.process;
+
+// One test's parsed directives and expectations.
+type Test = {
+    path: String,
+    mode: String,                 // 'run' | 'check'
+    spec: String,                 // spec anchor, or '' when absent
+    xfail: Option<String>,        // Some(reason) when expected to fail
+    stdout: List<String>,         // ordered expected stdout lines (run mode)
+    errors: List<ExpectError>,    // expected diagnostics (check mode)
+    traps: List<String>,          // expected trap substrings (run mode)
+}
+
+type ExpectError = {
+    line: Int,
+    needle: String,
+}
+
+// The result of comparing one test's run against its expectations.
+enum Verdict {
+    Pass,
+    Fail(String),     // reason
+}
+
+fn main(parameters: List<String>) -> Result<Int, Error> {
+    if parameters.len() < 2 {
+        eprintln('usage: hawk run tests/lang_runner.hawk <hawk-cmd> <test-root>');
+        return Result.Ok(2);
+    }
+    let hawk = parameters[0];
+    let root = parameters[1];
+
+    let files: List<String> = [];
+    collect_hawk_files(root, files);
+
+    let mut passed = 0;
+    let mut failed = 0;
+    let mut xfail = 0;
+    let mut xpass = 0;
+
+    for file in sort_strings(files) {
+        let test = parse_test(file)?;
+        let verdict = run_test(hawk, test);
+        let expected_fail = match test.xfail {
+            Some(_) => true,
+            None => false,
+        };
+        match verdict {
+            Pass => {
+                if expected_fail {
+                    xpass = xpass + 1;
+                    println('XPASS ${file}');
+                    println('  marked xfail but passed — remove the `//! xfail:` marker');
+                } else {
+                    passed = passed + 1;
+                }
+            },
+            Fail(reason) => {
+                if expected_fail {
+                    xfail = xfail + 1;
+                } else {
+                    failed = failed + 1;
+                    println('FAIL  ${file}');
+                    for line in reason.lines() {
+                        println('  ${line}');
+                    }
+                }
+            },
+        }
+    }
+
+    println('');
+    println('${passed} passed, ${xfail} xfail, ${failed} failed, ${xpass} xpass (${files.len()} tests)');
+    if failed > 0 || xpass > 0 {
+        return Result.Ok(1);
+    }
+    return Result.Ok(0);
+}
+
+// --- parsing ---
+
+fn parse_test(_ path: String) -> Result<Test, Error> {
+    let source = fs.read_text(path)?;
+    let mut mode = '';
+    let mut spec = '';
+    let mut xfail: Option<String> = Option.None;
+    let stdout: List<String> = [];
+    let errors: List<ExpectError> = [];
+    let traps: List<String> = [];
+
+    let lines = source.lines();
+    let mut i = 0;
+    while i < lines.len() {
+        let raw = lines[i];
+        let line_no = i + 1;
+        let trimmed = raw.trim();
+        if trimmed.starts_with('//!') {
+            let body = trimmed.slice(3, trimmed.len()).trim();
+            match split_once(body, ':') {
+                Some(kv) => {
+                    let key = kv.before.trim();
+                    let value = kv.after.trim();
+                    if key == 'mode' { mode = value; }
+                    else if key == 'spec' { spec = value; }
+                    else if key == 'xfail' { xfail = Option.Some(value); }
+                },
+                None => {},
+            }
+        } else {
+            match after_marker(raw, '// expect error:') {
+                Some(needle) => { errors.push(ExpectError { line: line_no, needle: needle }); },
+                None => {
+                    match after_marker(raw, '// expect trap:') {
+                        Some(needle) => { traps.push(needle); },
+                        None => {
+                            match after_marker(raw, '// expect:') {
+                                Some(text) => { stdout.push(text); },
+                                None => {},
+                            }
+                        },
+                    }
+                },
+            }
+        }
+        i = i + 1;
+    }
+
+    // Default mode: a test with diagnostic expectations is a `check`; otherwise
+    // it is `run`. An explicit `//! mode:` always wins.
+    if mode == '' {
+        if errors.len() > 0 { mode = 'check'; } else { mode = 'run'; }
+    }
+
+    return Result.Ok(Test {
+        path: path, mode: mode, spec: spec, xfail: xfail,
+        stdout: stdout, errors: errors, traps: traps,
+    });
+}
+
+// --- execution & comparison ---
+
+fn run_test(_ hawk: String, _ test: Test) -> Verdict {
+    if test.mode == 'check' {
+        return run_check(hawk, test);
+    }
+    return run_run(hawk, test);
+}
+
+// `check` mode: type-check the file and match the emitted diagnostics against the
+// `// expect error:` lines — every expectation matched, and no surprise errors.
+fn run_check(_ hawk: String, _ test: Test) -> Verdict {
+    let result = match process.run(hawk, args: ['check', test.path]) {
+        Ok(r) => r,
+        Err(e) => { return Verdict.Fail('could not run check: ${e.message()}'); },
+    };
+    let diags = parse_diagnostics(result.stdout, test.path);
+
+    // Every expected error must match some diagnostic on its line.
+    let matched: List<Bool> = [];
+    for d in diags { matched.push(false); }
+    for want in test.errors {
+        let mut found = false;
+        let mut k = 0;
+        while k < diags.len() {
+            let d = diags[k];
+            if !matched[k] && d.line == want.line && d.message.contains(want.needle) {
+                matched[k] = true;
+                found = true;
+                k = diags.len();
+            } else {
+                k = k + 1;
+            }
+        }
+        if !found {
+            return Verdict.Fail('expected error on line ${want.line} containing:\n  "${want.needle}"\nbut no matching diagnostic was emitted.\n${render_diags(diags)}');
+        }
+    }
+
+    // No diagnostic may go unexpected.
+    let mut j = 0;
+    while j < diags.len() {
+        if !matched[j] {
+            let d = diags[j];
+            return Verdict.Fail('unexpected diagnostic on line ${d.line}:\n  ${d.message}');
+        }
+        j = j + 1;
+    }
+    return Verdict.Pass;
+}
+
+// `run` mode: execute the program; match stdout against the ordered `// expect:`
+// lines, and (when present) `// expect trap:` against a non-zero exit + stderr.
+fn run_run(_ hawk: String, _ test: Test) -> Verdict {
+    let result = match process.run(hawk, args: ['run', test.path]) {
+        Ok(r) => r,
+        Err(e) => { return Verdict.Fail('could not run program: ${e.message()}'); },
+    };
+
+    if test.traps.len() > 0 {
+        if result.exit_code == 0 {
+            return Verdict.Fail('expected a trap but the program exited 0');
+        }
+        for needle in test.traps {
+            if !result.stderr.contains(needle) {
+                return Verdict.Fail('expected trap output containing:\n  "${needle}"\nbut stderr was:\n${result.stderr}');
+            }
+        }
+        return Verdict.Pass;
+    }
+
+    let got = nonempty_lines(result.stdout);
+    if got.len() != test.stdout.len() {
+        return Verdict.Fail('stdout line count: expected ${test.stdout.len()}, got ${got.len()}\n${render_lines(test.stdout, got)}');
+    }
+    let mut i = 0;
+    while i < got.len() {
+        if got[i] != test.stdout[i] {
+            return Verdict.Fail('stdout line ${i + 1}: expected "${test.stdout[i]}", got "${got[i]}"');
+        }
+        i = i + 1;
+    }
+    return Verdict.Pass;
+}
+
+// A parsed `path:line:col: message` diagnostic line.
+type Diagnostic = {
+    line: Int,
+    message: String,
+}
+
+// Parse the CLI's diagnostic lines from `check` stdout. A diagnostic starts with
+// the file path we asked about (`path:line:col: message`); other stdout content
+// (build noise lands on stderr) is ignored.
+fn parse_diagnostics(_ stdout: String, _ path: String) -> List<Diagnostic> {
+    let out: List<Diagnostic> = [];
+    for raw in stdout.lines() {
+        if !raw.starts_with('${path}:') {
+            continue_skip();
+        } else {
+            // Split off the message at the first ': ' (colon-space), which the
+            // formatter always places after `:col`. The left part is
+            // `path:line:col`; its second-from-left ':'-field is the line.
+            match split_once(raw, ': ') {
+                Some(parts) => {
+                    let locus = parts.before.split(':');
+                    if locus.len() >= 2 {
+                        match locus[1].to_int() {
+                            Some(n) => { out.push(Diagnostic { line: n, message: parts.after }); },
+                            None => {},
+                        }
+                    }
+                },
+                None => {},
+            }
+        }
+    }
+    return out;
+}
+
+// `continue` is not yet in the language; this no-op keeps the skip branch honest.
+fn continue_skip() -> Void {}
+
+// --- string helpers ---
+
+type Split = {
+    before: String,
+    after: String,
+}
+
+// Split `s` at the first occurrence of `sep`, or None when absent.
+fn split_once(_ s: String, _ sep: String) -> Option<Split> {
+    if !s.contains(sep) {
+        return Option.None;
+    }
+    let parts = s.split(sep);
+    let before = parts[0];
+    // Rejoin the remainder so a `sep` later in the string stays in `after`.
+    let mut after = '';
+    let mut i = 1;
+    while i < parts.len() {
+        if i > 1 { after = '${after}${sep}'; }
+        after = '${after}${parts[i]}';
+        i = i + 1;
+    }
+    return Option.Some(Split { before: before, after: after });
+}
+
+// The trimmed text after `marker` in `line`, or None when the marker is absent.
+fn after_marker(_ line: String, _ marker: String) -> Option<String> {
+    if !line.contains(marker) {
+        return Option.None;
+    }
+    let parts = line.split(marker);
+    return Option.Some(parts[parts.len() - 1].trim());
+}
+
+// Split `s` into lines, dropping a single trailing empty line (the newline a
+// program's final `println` leaves behind).
+fn nonempty_lines(_ s: String) -> List<String> {
+    let all = s.lines();
+    if all.len() > 0 && all[all.len() - 1] == '' {
+        let out: List<String> = [];
+        let mut i = 0;
+        while i < all.len() - 1 {
+            out.push(all[i]);
+            i = i + 1;
+        }
+        return out;
+    }
+    return all;
+}
+
+fn render_diags(_ diags: List<Diagnostic>) -> String {
+    if diags.len() == 0 {
+        return 'no diagnostics were emitted.';
+    }
+    let mut s = 'diagnostics emitted:';
+    for d in diags {
+        s = '${s}\n  line ${d.line}: ${d.message}';
+    }
+    return s;
+}
+
+fn render_lines(_ expected: List<String>, _ got: List<String>) -> String {
+    let mut s = '--- expected ---';
+    for line in expected { s = '${s}\n${line}'; }
+    s = '${s}\n--- got ---';
+    for line in got { s = '${s}\n${line}'; }
+    return s;
+}
+
+// --- file discovery ---
+
+fn collect_hawk_files(_ dir: String, _ found: List<String>) -> Void {
+    match fs.list_dir(dir) {
+        Ok(names) => {
+            for name in names {
+                let full = path.join(dir, name);
+                match fs.metadata(full) {
+                    Ok(meta) => {
+                        match meta.kind {
+                            Dir => { collect_hawk_files(full, found); },
+                            _ => {
+                                if name.ends_with('.hawk') {
+                                    found.push(full);
+                                }
+                            },
+                        }
+                    },
+                    Err(_) => {},
+                }
+            }
+        },
+        Err(_) => {},
+    }
+}
+
+// Lexicographic selection sort by Unicode code point (no List.sort yet).
+fn sort_strings(_ items: List<String>) -> List<String> {
+    let n = items.len();
+    let mut i = 0;
+    while i < n {
+        let mut lo = i;
+        let mut j = i + 1;
+        while j < n {
+            if str_less(items[j], items[lo]) { lo = j; }
+            j = j + 1;
+        }
+        if lo != i {
+            let tmp = items[i];
+            items[i] = items[lo];
+            items[lo] = tmp;
+        }
+        i = i + 1;
+    }
+    return items;
+}
+
+fn str_less(_ a: String, _ b: String) -> Bool {
+    let ca = a.chars();
+    let cb = b.chars();
+    let mut i = 0;
+    while i < ca.len() && i < cb.len() {
+        if ca[i] != cb[i] { return ca[i] < cb[i]; }
+        i = i + 1;
+    }
+    return ca.len() < cb.len();
+}

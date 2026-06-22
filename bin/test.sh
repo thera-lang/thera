@@ -70,6 +70,13 @@ else
   fail=1
 fi
 
+echo "==> language conformance (tests/lang)"
+# Spec-conformance tests: each tests/lang/**/*.hawk pins a documented language
+# feature via embedded `//!` directives + `// expect…` comments. The harness
+# (a Hawk program) shells back to `hawk` per test and compares. xfail tests that
+# unexpectedly pass (XPASS) fail the suite. See tests/lang/README.md.
+"$HAWK" run tests/lang_runner.hawk "$HAWK" "$ROOT/tests/lang" || fail=1
+
 echo "==> examples"
 # Pin the output of a few representative examples (the rest must just run).
 check_out() {

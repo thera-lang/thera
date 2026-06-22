@@ -1,0 +1,17 @@
+//! spec: language.md#tail-expressions
+//! mode: run
+
+fn main() -> Int {
+    // `if` in value position yields its tail expression.
+    let max = if 3 > 5 { 3 } else { 5 };
+    println('${max}');           // expect: 5
+
+    // `match` arms are blocks, so they yield values too.
+    let label = match 2 {
+        1 => 'one',
+        2 => 'two',
+        _ => 'other',
+    };
+    println(label);              // expect: two
+    return 0;
+}

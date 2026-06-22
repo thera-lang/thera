@@ -1,0 +1,6 @@
+//! spec: scoping.md
+//! mode: check
+
+fn main() -> Int {
+    return missing;              // expect error: undefined name
+}

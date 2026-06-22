@@ -1,0 +1,11 @@
+//! spec: grammar.md#operator-precedence
+//! mode: run
+
+fn main() -> Int {
+    println('${1 + 2 * 3}');     // expect: 7
+    println('${(1 + 2) * 3}');   // expect: 9
+    println('${10 - 2 - 3}');    // expect: 5
+    println('${7 % 3}');         // expect: 1
+    println('${2 + 3 < 4 + 4}'); // expect: true
+    return 0;
+}
