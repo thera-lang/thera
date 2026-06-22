@@ -51,16 +51,21 @@ pub fn std_root(_ root: String) -> Option<String> {
 }
 
 // Locate the SDK root — the directory whose stdlib `std_root` can find. Discovery
-// is location-based (no environment variable): first the directory above the
-// running executable (`<install>/bin/hawk` -> `<install>/`, the installed SDK),
-// then a walk upward from the current directory (the in-repo dev checkout, and
-// the fallback when the executable isn't an installed `hawk`).
+// is location-based (no environment variable) and works from any working
+// directory: first a walk upward from the running executable's own directory,
+// then a walk upward from the current directory.
+//
+// The executable walk is the robust primary: the installed `<install>/bin/hawk`
+// finds `<install>/std` one level up, and the dev `hawkrt` (buried under
+// `<repo>/runtime/target/<profile>/`) finds the repo's `sdk/std` a few levels up
+// — so `hawk run /tmp/x.hawk` resolves the prelude regardless of where it's
+// invoked from. The current-directory walk is a fallback for a front-end whose
+// executable doesn't sit near an SDK.
 pub fn find_sdk_root() -> Option<String> {
     match env.current_exe() {
         Some(exe) => {
-            let root = dirname(dirname(exe)); // bin/hawk -> bin -> root
-            match std_root(root) {
-                Some(_) => { return Option.Some(root); },
+            match walk_up_for_std(dirname(exe)) {
+                Some(root) => { return Option.Some(root); },
                 None => {},
             }
         },
@@ -68,24 +73,33 @@ pub fn find_sdk_root() -> Option<String> {
     }
     match env.current_dir() {
         Ok(start) => {
-            let mut dir = start;
-            let mut i = 0;
-            let mut going = true;
-            while going && i < 8 {
-                match std_root(dir) {
-                    Some(_) => { return Option.Some(dir); },
-                    None => {},
-                }
-                let parent = dirname(dir);
-                if parent == '' || parent == dir {
-                    going = false;
-                } else {
-                    dir = parent;
-                    i = i + 1;
-                }
+            match walk_up_for_std(start) {
+                Some(root) => { return Option.Some(root); },
+                None => {},
             }
         },
         Err(_) => {},
+    }
+    return Option.None;
+}
+
+// Walk upward from `start` (inclusive), returning the first ancestor whose
+// stdlib `std_root` can locate, or None within the depth bound. The bound keeps
+// a rootless path (no SDK anywhere above) from walking to the filesystem root.
+fn walk_up_for_std(_ start: String) -> Option<String> {
+    let mut dir = start;
+    let mut i = 0;
+    while i < 12 {
+        match std_root(dir) {
+            Some(_) => { return Option.Some(dir); },
+            None => {},
+        }
+        let parent = dirname(dir);
+        if parent == '' || parent == dir {
+            return Option.None;
+        }
+        dir = parent;
+        i = i + 1;
     }
     return Option.None;
 }
