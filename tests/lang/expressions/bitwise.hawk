@@ -1,0 +1,10 @@
+//! spec: expr-bitwise
+//! mode: run
+
+fn main() -> Int {
+    println('${12 & 10}');   // expect: 8
+    println('${12 | 10}');   // expect: 14
+    println('${12 ^ 10}');   // expect: 6
+    println('${~5}');        // expect: -6
+    return 0;
+}

@@ -1,0 +1,16 @@
+//! spec: expr-logical
+//! mode: run
+
+fn main() -> Int {
+    println('${true && false}');    // expect: false
+    println('${true || false}');    // expect: true
+    // Short-circuit: the right operand is not evaluated, so boom() never prints.
+    println('${false && boom()}');  // expect: false
+    println('${true || boom()}');   // expect: true
+    return 0;
+}
+
+fn boom() -> Bool {
+    println('BOOM');
+    return true;
+}

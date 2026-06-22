@@ -1,0 +1,9 @@
+//! spec: expr-if-needs-else
+//! mode: check
+
+fn main() -> Int {
+    let c = true;
+    // An `if` whose value is consumed must have an `else` branch.
+    let x = if c { 1 };   // expect error: needs an `else`
+    return x;
+}

@@ -1,0 +1,12 @@
+//! spec: expr-range
+//! mode: run
+
+fn main() -> Int {
+    // `a..b` is half-open: 0..4 yields 0, 1, 2, 3.
+    let mut s = '';
+    for i in 0..4 {
+        s = '${s}${i}';
+    }
+    println(s);   // expect: 0123
+    return 0;
+}

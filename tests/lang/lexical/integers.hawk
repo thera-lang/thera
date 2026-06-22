@@ -1,0 +1,12 @@
+//! spec: lex-int
+//! mode: run
+
+fn main() -> Int {
+    println('${255}');                  // expect: 255
+    println('${0xFF}');                 // expect: 255
+    println('${0x10}');                 // expect: 16
+    println('${-7}');                   // expect: -7
+    // A hex literal is read as an unsigned 64-bit pattern wrapped into Int.
+    println('${0xFFFFFFFFFFFFFFFF}');   // expect: -1
+    return 0;
+}

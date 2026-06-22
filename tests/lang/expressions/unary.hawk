@@ -1,0 +1,10 @@
+//! spec: expr-unary
+//! mode: run
+
+fn main() -> Int {
+    println('${!true}');     // expect: false
+    println('${!false}');    // expect: true
+    println('${-(3)}');      // expect: -3
+    println('${~0}');        // expect: -1
+    return 0;
+}

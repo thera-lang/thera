@@ -1,0 +1,12 @@
+//! spec: expr-shift
+//! mode: run
+
+fn main() -> Int {
+    println('${1 << 4}');      // expect: 16
+    println('${-8 >> 1}');     // expect: -4
+    // >>> is logical (zero-fill): -1 is all ones, so >>> 60 keeps the low 4 bits.
+    println('${-1 >>> 60}');   // expect: 15
+    // The shift amount is masked to 0..63, so `<< 64` is `<< 0`.
+    println('${1 << 64}');     // expect: 1
+    return 0;
+}

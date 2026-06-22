@@ -1,0 +1,9 @@
+//! spec: lex-string-interp
+//! mode: run
+
+fn main() -> Int {
+    let name = 'world';
+    println('Hello, ${name}!');           // expect: Hello, world!
+    println('${1 + 2} and ${3 * 4}');     // expect: 3 and 12
+    return 0;
+}

@@ -28,28 +28,28 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 
 | ID                  | Spec (grammar.md)        | Pins                                                        | Status |
 | ------------------- | ------------------------ | ---------------------------------------------------------- | ------ |
-| `lex-comments`      | Comments & whitespace    | `//` line comments only; no block comments                 | ✗      |
-| `lex-int`           | Literals                 | decimal + `0x` hex; hex wraps into signed `Int`            | ✗      |
-| `lex-float`         | Literals                 | digits both sides of `.`; no `1.` / `.5` / exponent        | ✗      |
-| `lex-string-escape` | Literals                 | the 7 escapes + `\xNN` + `\u{…}`; unknown escape = error    | ✗      |
-| `lex-string-interp` | Literals                 | `${expr}` interpolation                                    | ✗      |
-| `lex-bool-unit`     | Literals                 | `true` / `false` / `void` keywords in expression position  | ✗      |
+| `lex-comments`      | Comments & whitespace    | `//` line comments only; no block comments                 | ✓      |
+| `lex-int`           | Literals                 | decimal + `0x` hex; hex wraps into signed `Int`            | ✓      |
+| `lex-float`         | Literals                 | digits both sides of `.`; no `1.` / `.5` / exponent        | ✓      |
+| `lex-string-escape` | Literals                 | the 7 escapes + `\xNN` + `\u{…}`; unknown escape = error    | ✓      |
+| `lex-string-interp` | Literals                 | `${expr}` interpolation                                    | ✓      |
+| `lex-bool-unit`     | Literals                 | `true` / `false` / `void` keywords in expression position  | ✓      |
 
 ## Expressions & operators
 
 | ID                  | Spec (grammar.md)        | Pins                                                        | Status |
 | ------------------- | ------------------------ | ---------------------------------------------------------- | ------ |
-| `expr-precedence`   | Operator precedence      | arithmetic/comparison precedence & left-assoc              | ◐      |
-| `expr-unary`        | Operator precedence      | prefix `!` `-` `~`, right-assoc                            | ✗      |
-| `expr-logical`      | Operator precedence      | `&&` `\|\|` and short-circuit evaluation                    | ✗      |
-| `expr-bitwise`      | Operator precedence      | `&` `\|` `^` `~` (Int)                                      | ✗      |
-| `expr-shift`        | Operator precedence      | `<<` `>>` (arith) `>>>` (logical), mask 0..63, Int-only     | ✗      |
-| `expr-comparison`   | Operator precedence      | `== != < > <= >=`                                          | ✗      |
-| `expr-range`        | Operator precedence      | `a..b`, non-associative                                    | ✗      |
-| `expr-concat`       | language.md Types        | `+` concatenates strings                                   | ✗      |
-| `expr-tail`         | language.md Tail exprs   | `if`/`match` as values (tail expression)                   | ◐      |
-| `expr-semicolon`    | language.md Tail exprs   | `;` discards a tail; bare tail only in expr position       | ✗      |
-| `expr-if-needs-else`| language.md Tail exprs   | `let x = if c { 1 }` (no else) is an error                 | ✗      |
+| `expr-precedence`   | Operator precedence      | arithmetic/comparison precedence & left-assoc              | ✓      |
+| `expr-unary`        | Operator precedence      | prefix `!` `-` `~`, right-assoc                            | ✓      |
+| `expr-logical`      | Operator precedence      | `&&` `\|\|` and short-circuit evaluation                    | ✓      |
+| `expr-bitwise`      | Operator precedence      | `&` `\|` `^` `~` (Int)                                      | ✓      |
+| `expr-shift`        | Operator precedence      | `<<` `>>` (arith) `>>>` (logical), mask 0..63, Int-only     | ✓      |
+| `expr-comparison`   | Operator precedence      | `== != < > <= >=`                                          | ✓      |
+| `expr-range`        | Operator precedence      | `a..b`, non-associative                                    | ◐      |
+| `expr-concat`       | language.md Types        | `+` concatenates strings                                   | ✓      |
+| `expr-tail`         | language.md Tail exprs   | `if`/`match` as values (tail expression)                   | ✓      |
+| `expr-semicolon`    | language.md Tail exprs   | `;` discards a tail; bare tail only in expr position       | ◐      |
+| `expr-if-needs-else`| language.md Tail exprs   | `let x = if c { 1 }` (no else) is an error                 | ✓      |
 
 ## Types & values
 
@@ -169,3 +169,11 @@ to fix, each ideally captured by a conformance test once resolved.
 - **field access on a non-struct value** (e.g. `5.x`) slips past `check` and is
   caught only at codegen — a known analysis gap (deferred). A `check`-mode test
   under `type-struct` should pin the intended diagnostic once fixed.
+
+- **`Double` Display drops the decimal for integral values** — `1.0`, `4.0`, and
+  `10.0 / 4.0`'s integral results render as `1`, `4`, … (indistinguishable from
+  the `Int` rendering), and `3.14` renders as `3.14`. The spec does not specify
+  `Double` formatting; whether an integral `Double` should print as `1` or `1.0`
+  is an open question (Int/Double are distinct types, so `1` is ambiguous in
+  output). `lex-float` therefore pins float *semantics* via Bool comparisons
+  rather than display strings. Decide the formatting, then add a display test.

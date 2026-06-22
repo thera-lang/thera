@@ -1,0 +1,12 @@
+//! spec: lex-comments
+//! mode: run
+
+// A full-line comment is ignored.
+fn main() -> Int {
+    // so is an indented one
+    let x = 5; // and a trailing comment
+    println('${x}');               // expect: 5
+    let url = 'http://example';    // a `//` inside a string is not a comment
+    println(url);                  // expect: http://example
+    return 0;
+}

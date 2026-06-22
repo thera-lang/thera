@@ -1,0 +1,8 @@
+//! spec: lex-comments
+//! mode: check
+
+fn main() -> Int {
+    // There are no block comments; `/*` lexes as a `/` operator and is rejected.
+    let x = 1 /* nope */ + 2;   // expect error: unexpected token
+    return 0;
+}

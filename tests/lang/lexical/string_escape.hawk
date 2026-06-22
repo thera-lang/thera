@@ -1,0 +1,10 @@
+//! spec: lex-string-escape
+//! mode: run
+
+fn main() -> Int {
+    println('\u{48}\u{69}');   // expect: Hi
+    println('\x41\x42');       // expect: AB
+    println('a\\b');           // expect: a\b
+    println('it\'s');          // expect: it's
+    return 0;
+}

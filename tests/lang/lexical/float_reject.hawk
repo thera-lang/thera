@@ -1,0 +1,9 @@
+//! spec: lex-float
+//! mode: check
+
+fn main() -> Int {
+    // Floats require digits on both sides of the `.`; `.5` (no leading digit)
+    // does not lex as a float (and `1.` is likewise rejected — see grammar.md).
+    let x = .5;          // expect error: unexpected token: "."
+    return 0;
+}

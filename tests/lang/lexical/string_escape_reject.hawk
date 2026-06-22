@@ -1,0 +1,9 @@
+//! spec: lex-string-escape
+//! mode: check
+
+fn main() -> Int {
+    // An unrecognized escape is an error — no silent pass-through.
+    let s = '\q';        // expect error: unknown escape
+    println(s);
+    return 0;
+}

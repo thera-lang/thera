@@ -1,0 +1,11 @@
+//! spec: expr-comparison
+//! mode: run
+
+fn main() -> Int {
+    println('${3 < 5}');     // expect: true
+    println('${5 <= 5}');    // expect: true
+    println('${3 == 3}');    // expect: true
+    println('${3 != 4}');    // expect: true
+    println('${5 > 9}');     // expect: false
+    return 0;
+}

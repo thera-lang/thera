@@ -1,0 +1,8 @@
+//! spec: expr-concat
+//! mode: run
+
+fn main() -> Int {
+    let r = 'a' + 'b' + 'c';
+    println(r);   // expect: abc
+    return 0;
+}

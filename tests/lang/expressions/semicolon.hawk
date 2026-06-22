@@ -1,0 +1,10 @@
+//! spec: expr-semicolon
+//! mode: run
+
+fn main() -> Int {
+    // In an expression-position block the final expression (no trailing `;`) is
+    // the block's value; the earlier `;`-terminated statements run for effect.
+    let a = { let x = 10; x + 5 };
+    println('${a}');   // expect: 15
+    return 0;
+}
