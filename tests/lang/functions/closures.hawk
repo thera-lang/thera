@@ -1,0 +1,18 @@
+//! spec: fn-closures
+//! mode: run
+
+fn main() -> Int {
+    // Capture by value: the lambda closes over `by`.
+    let by = 10;
+    let add = (n: Int) => n + by;
+    println('${add(5)}');   // expect: 15
+
+    // A captured `mut` local is shared: the closure and the enclosing scope see
+    // each other's reassignments.
+    let mut count = 0;
+    let bump = () => { count = count + 1; };
+    bump();
+    bump();
+    println('${count}');    // expect: 2
+    return 0;
+}

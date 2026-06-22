@@ -1,0 +1,13 @@
+//! spec: fn-types
+//! mode: run
+
+// A function-typed parameter `(Int) -> Int`.
+fn apply(f: (Int) -> Int, _ x: Int) -> Int {
+    return f(x);
+}
+
+fn main() -> Int {
+    let inc = (n: Int) => n + 1;
+    println('${apply(inc, 41)}');   // expect: 42
+    return 0;
+}

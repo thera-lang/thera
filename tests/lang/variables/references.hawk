@@ -1,0 +1,12 @@
+//! spec: var-references
+//! mode: run
+
+fn main() -> Int {
+    // Heap values are shared references: assigning copies the reference, not the
+    // object, so `a` observes the mutation made through `b`.
+    let a = [1, 2, 3];
+    let b = a;
+    b.push(4);
+    println('${a.len()}');   // expect: 4
+    return 0;
+}

@@ -1,0 +1,10 @@
+//! spec: fn-lambda-infer
+//! mode: check
+
+fn main() -> Int {
+    // No annotation and no surrounding context to infer `x` from — an error;
+    // the compiler does not guess.
+    let f = (x) => x + 1;   // expect error: cannot infer the type of lambda parameter
+    println('${f(1)}');
+    return 0;
+}

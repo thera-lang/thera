@@ -1,0 +1,13 @@
+//! spec: fn-lambda
+//! mode: run
+
+fn main() -> Int {
+    let nums = [1, 2, 3];
+    // single-parameter form `n => …`
+    let doubled = nums.map(n => n * 2);
+    println('${doubled[0]}');   // expect: 2
+    // parenthesized, multiple parameters
+    let total = nums.fold(0, (acc, n) => acc + n);
+    println('${total}');        // expect: 6
+    return 0;
+}

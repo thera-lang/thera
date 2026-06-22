@@ -1,0 +1,18 @@
+//! spec: fn-named-params
+//! mode: run
+
+fn greet(name: String, times: Int) -> String {
+    return '${name} x${times}';
+}
+
+// `default` is the external label; `value` is the internal name.
+fn flag(_ name: String, default value: Bool) -> Bool {
+    return value;
+}
+
+fn main() -> Int {
+    println(greet(name: 'a', times: 3));   // expect: a x3
+    let f = flag('-v', default: true);
+    println('${f}');                        // expect: true
+    return 0;
+}

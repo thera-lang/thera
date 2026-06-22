@@ -1,0 +1,12 @@
+//! spec: type-bytes
+//! mode: run
+
+fn main() -> Result<Int, Error> {
+    let b = Bytes.from_list([72, 105])?;   // 'H', 'i'
+    println('${b.len()}');                 // expect: 2
+    let text = b.to_string()?;             // UTF-8 validated
+    println(text);                         // expect: Hi
+    let empty = Bytes.empty();
+    println('${empty.len()}');             // expect: 0
+    return Result.Ok(0);
+}

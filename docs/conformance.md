@@ -55,34 +55,34 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 
 | ID                  | Spec (language.md)       | Pins                                                        | Status |
 | ------------------- | ------------------------ | ---------------------------------------------------------- | ------ |
-| `type-primitives`   | Types → Primitives       | Int/Double/Bool/String/Void behavior                       | ✗      |
-| `type-string-noindex`| Types → Primitives      | `s[i]` on a String is disallowed                          | ✗      |
-| `type-list`         | Collections              | `List<T>` literal, `len`, indexing                        | ✗      |
-| `type-map`          | Collections              | `Map<K,V>` literal, keyed access                          | ✗      |
-| `type-set`          | Collections              | `Set<T>` uniqueness via `Set.from`                        | ✗      |
-| `type-bytes`        | Types → Bytes            | `Bytes` immutability, `BytesBuilder`                      | ✗      |
-| `type-struct`       | Structs                  | `type` decl, struct literal, field access                 | ✗      |
-| `type-struct-immut` | Structs                  | struct fields immutable by default                        | ✗      |
+| `type-primitives`   | Types → Primitives       | Int/Double/Bool/String/Void behavior                       | ✓      |
+| `type-string-noindex`| Types → Primitives      | `s[i]` on a String is disallowed                          | ⓧ      |
+| `type-list`         | Collections              | `List<T>` literal, `len`, indexing                        | ✓      |
+| `type-map`          | Collections              | `Map<K,V>` literal, keyed access                          | ✓      |
+| `type-set`          | Collections              | `Set<T>` uniqueness via `Set.from`                        | ✓      |
+| `type-bytes`        | Types → Bytes            | `Bytes` len / `to_string` / `from_list` / `empty`         | ◐      |
+| `type-struct`       | Structs                  | `type` decl, struct literal, field access                 | ✓      |
+| `type-struct-immut` | Structs                  | struct fields immutable by default                        | ⓧ      |
 
 ## Variables & semantics
 
 | ID                  | Spec (language.md)       | Pins                                                        | Status |
 | ------------------- | ------------------------ | ---------------------------------------------------------- | ------ |
-| `var-let-mut`       | Variables                | immutable by default; `mut` allows reassign                | ✗      |
-| `var-let-immutable` | Variables                | reassigning a `let` is an error                            | ✗      |
-| `var-references`    | Variables                | heap values are shared references                          | ✗      |
+| `var-let-mut`       | Variables                | immutable by default; `mut` allows reassign                | ✓      |
+| `var-let-immutable` | Variables                | reassigning a `let` is an error                            | ⓧ      |
+| `var-references`    | Variables                | heap values are shared references                          | ✓      |
 
 ## Functions
 
 | ID                  | Spec (language.md)       | Pins                                                        | Status |
 | ------------------- | ------------------------ | ---------------------------------------------------------- | ------ |
-| `fn-decl`           | Functions                | params, return type, default `Void` return                | ✗      |
-| `fn-named-params`   | Named parameters         | label-by-name, `_` suppression, `external internal`        | ✗      |
-| `fn-default-params` | Named parameters         | default parameter values                                  | ✗      |
-| `fn-lambda`         | Functions                | `n => …` and `(a, b) => …` forms                          | ✗      |
-| `fn-lambda-infer`   | Functions → Param types  | lambda param type from context; error when undetermined    | ✗      |
-| `fn-closures`       | Functions                | capture by value; captured `mut` is shared                 | ✗      |
-| `fn-types`          | Functions                | `(T) -> R` function-typed values                          | ✗      |
+| `fn-decl`           | Functions                | params, return type, default `Void` return                | ✓      |
+| `fn-named-params`   | Named parameters         | label-by-name, `_` suppression, `external internal`        | ✓      |
+| `fn-default-params` | Named parameters         | default parameter values                                  | ✓      |
+| `fn-lambda`         | Functions                | `n => …` and `(a, b) => …` forms                          | ✓      |
+| `fn-lambda-infer`   | Functions → Param types  | lambda param type from context; error when undetermined    | ✓      |
+| `fn-closures`       | Functions                | capture by value; captured `mut` is shared                 | ✓      |
+| `fn-types`          | Functions                | `(T) -> R` function-typed values                          | ✓      |
 
 ## Control flow
 
@@ -169,6 +169,21 @@ to fix, each ideally captured by a conformance test once resolved.
 - **field access on a non-struct value** (e.g. `5.x`) slips past `check` and is
   caught only at codegen — a known analysis gap (deferred). A `check`-mode test
   under `type-struct` should pin the intended diagnostic once fixed.
+
+- **immutability is specified but not enforced** (`var-let-immutable`,
+  `type-struct-immut`). language.md says immutability is "enforced by the type
+  system" — `let` prevents rebinding and struct fields are immutable by default —
+  but the front-end accepts both `n = 6` (reassigning a non-`mut` `let`) and
+  `p.x = 9` (assigning a struct field) with **no diagnostic at check, codegen, or
+  runtime**: `n = 6` runs and prints `6`. Both are marked ⓧ with xfail tests that
+  flip to XPASS when an immutability pass lands. (Sibling of the qualified-only /
+  `pub` enforcement gap — the front-end is still lenient where the spec is
+  strict.)
+
+- **`s[i]` on a String is rejected late** (`type-string-noindex`). codegen emits
+  "indexing on String is not supported", but `check` passes it clean — same
+  check-vs-codegen split as the `5.x` field-access gap. xfail until `check`
+  rejects it.
 
 - **`Double` Display for integral values — RESOLVED.** Integral `Double`s now
   render *with* a decimal point (`1.0` → `1.0`, not `1`), so `Double` output is

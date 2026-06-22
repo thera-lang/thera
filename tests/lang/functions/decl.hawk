@@ -1,0 +1,17 @@
+//! spec: fn-decl
+//! mode: run
+
+fn add(a: Int, b: Int) -> Int {
+    return a + b;
+}
+
+// No return type annotation — defaults to Void.
+fn log(_ msg: String) {
+    println(msg);
+}
+
+fn main() -> Int {
+    println('${add(2, 3)}');   // expect: 5
+    log('logged');             // expect: logged
+    return 0;
+}

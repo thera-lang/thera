@@ -1,0 +1,12 @@
+//! spec: fn-default-params
+//! mode: run
+
+fn greetd(name: String = 'world') -> String {
+    return 'hi ${name}';
+}
+
+fn main() -> Int {
+    println(greetd());              // expect: hi world
+    println(greetd(name: 'bob'));   // expect: hi bob
+    return 0;
+}

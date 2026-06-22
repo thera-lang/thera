@@ -1,0 +1,14 @@
+//! spec: type-struct
+//! mode: run
+
+type Point = {
+    x: Int,
+    y: Int,
+}
+
+fn main() -> Int {
+    let p = Point { x: 3, y: 4 };
+    println('${p.x}');   // expect: 3
+    println('${p.y}');   // expect: 4
+    return 0;
+}

@@ -1,0 +1,16 @@
+//! spec: type-struct-immut
+//! mode: check
+//! xfail: struct-field immutability is not yet enforced — assigning a field is currently accepted (check, codegen, and runtime)
+
+type Point = {
+    x: Int,
+    y: Int,
+}
+
+fn main() -> Int {
+    let p = Point { x: 1, y: 2 };
+    // Struct fields are immutable by default; assigning one should be an error.
+    // The empty expectation matches any diagnostic on this line.
+    p.x = 9;   // expect error:
+    return 0;
+}

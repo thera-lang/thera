@@ -1,0 +1,10 @@
+//! spec: var-let-mut
+//! mode: run
+
+fn main() -> Int {
+    let mut count = 0;
+    count = count + 1;
+    count = count + 5;
+    println('${count}');   // expect: 6
+    return 0;
+}

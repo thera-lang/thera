@@ -1,0 +1,12 @@
+//! spec: type-list
+//! mode: run
+
+fn main() -> Int {
+    let xs = [10, 20, 30];
+    println('${xs.len()}');   // expect: 3
+    println('${xs[0]}');      // expect: 10
+    println('${xs[2]}');      // expect: 30
+    xs.push(40);
+    println('${xs.len()}');   // expect: 4
+    return 0;
+}

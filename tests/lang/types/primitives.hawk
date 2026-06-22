@@ -1,0 +1,12 @@
+//! spec: type-primitives
+//! mode: run
+
+fn main() -> Int {
+    println('${7 / 2}');          // expect: 3
+    println('${7 % 3}');          // expect: 1
+    println('${7.0 / 2.0}');      // expect: 3.5
+    let s = 'hello';
+    println('${s.len()}');        // expect: 5
+    println('${true && false}');  // expect: false
+    return 0;
+}

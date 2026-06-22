@@ -1,0 +1,10 @@
+//! spec: type-map
+//! mode: run
+
+fn main() -> Int {
+    let m = {'a': 1, 'b': 2};
+    println('${m['a']}');     // expect: 1
+    println('${m['b']}');     // expect: 2
+    println('${m.len()}');    // expect: 2
+    return 0;
+}
