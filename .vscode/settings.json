@@ -1,0 +1,4 @@
+{
+  "// hawk.exclude": "Hide editor diagnostics for the language-conformance tests, which are intentionally broken (they pin spec behavior, including unimplemented features). The server still analyzes them — the conformance harness and `hawk check` are unaffected. Requires the Hawk extension.",
+  "hawk.exclude": ["tests/lang/**"]
+}
