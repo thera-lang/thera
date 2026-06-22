@@ -28,6 +28,8 @@
       "Bash(git status *)",
       "Bash(grep *)",
       "Bash(ls *)",
+      "Bash(npm run *)",
+      "Bash(npx tsc *)",
       "Bash(rm -f /tmp/*.hawk)",
       "Bash(runtime/target/debug/hawk *)",
       "Bash(sed *)",
@@ -36,6 +38,6 @@
       "WebFetch(domain:crates.io)",
       "WebFetch(domain:docs.rs)"
     ],
-    "additionalDirectories": ["/tmp"]
+    "additionalDirectories": ["../hawk-ext", "/tmp"]
   }
 }
