@@ -1,0 +1,19 @@
+//! spec: iface-inherent
+//! mode: run
+
+type Counter = {
+    value: Int,
+}
+
+// Inherent methods live in a plain `impl Type` block (no interface).
+impl Counter {
+    fn inc(self) -> Counter {
+        return Counter { value: self.value + 1 };
+    }
+}
+
+fn main() -> Int {
+    let c = Counter { value: 0 }.inc().inc().inc();
+    println('${c.value}');   // expect: 3
+    return 0;
+}

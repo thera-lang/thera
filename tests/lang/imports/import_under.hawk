@@ -1,0 +1,10 @@
+//! spec: mod-import-under
+//! mode: run
+
+import 'greeter' as _;
+
+// `as _` binds no prefix and brings greeter's public names in unqualified.
+fn main() -> Int {
+    println(hello());   // expect: hello
+    return 0;
+}

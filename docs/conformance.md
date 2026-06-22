@@ -114,37 +114,37 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 
 | ID                  | Spec (language.md)       | Pins                                                        | Status |
 | ------------------- | ------------------------ | ---------------------------------------------------------- | ------ |
-| `iface-impl`        | Interfaces               | `impl Iface for T` checked for every method               | ✗      |
-| `iface-inherent`    | Inherent methods         | `impl T { … }` inherent methods                           | ✗      |
-| `iface-static`      | Static methods           | no-`self` methods called on the type                      | ✗      |
-| `iface-display`     | Display and Debug        | `${}` requires `Display`; missing impl = error            | ✗      |
-| `iface-debug`       | Display and Debug        | structural `Debug` derive for structs                     | ✗      |
-| `iface-eq`          | Display and Debug        | `==` structural by default; explicit `impl Eq` overrides   | ✗      |
-| `iface-inherit`     | Interface inheritance    | `interface E: Display + Debug` obligations & widened set   | ✗      |
-| `iface-dispatch`    | Dispatch                 | dynamic dispatch for interface-typed values & bounds       | ✗      |
-| `generic-bounds`    | Interfaces / Dispatch    | `<T: Eq + Debug>` enforced at call sites                  | ✗      |
+| `iface-impl`        | Interfaces               | `impl Iface for T` checked for every method               | ✓      |
+| `iface-inherent`    | Inherent methods         | `impl T { … }` inherent methods                           | ✓      |
+| `iface-static`      | Static methods           | no-`self` methods called on the type                      | ✓      |
+| `iface-display`     | Display and Debug        | `${}` requires `Display`; missing impl = error            | ◐      |
+| `iface-debug`       | Display and Debug        | structural `Debug` derive for structs                     | ◐      |
+| `iface-eq`          | Display and Debug        | `==` structural by default; explicit `impl Eq` overrides   | ✓      |
+| `iface-inherit`     | Interface inheritance    | `interface E: Display + Debug` obligations & widened set   | ✓      |
+| `iface-dispatch`    | Dispatch                 | dynamic dispatch for interface-typed values & bounds       | ✓      |
+| `generic-bounds`    | Interfaces / Dispatch    | `<T: Eq + Debug>` enforced at call sites                  | ✓      |
 
 ## Imports, scoping & visibility
 
 | ID                  | Spec (scoping.md)        | Pins                                                        | Status |
 | ------------------- | ------------------------ | ---------------------------------------------------------- | ------ |
-| `name-undefined`    | scoping.md               | a bare unknown name is a diagnostic                       | ◐      |
-| `mod-import-ns`     | Imports                  | last path segment becomes the namespace                   | ✗      |
-| `mod-import-as`     | Imports                  | `import … as alias` rebinds the prefix                    | ✗      |
-| `mod-import-under`  | Imports                  | `import … as _` brings names in unqualified                | ✗      |
-| `mod-prelude`       | Imports                  | `std.core` names available unqualified                    | ✗      |
+| `name-undefined`    | scoping.md               | a bare unknown name is a diagnostic                       | ✓      |
+| `mod-import-ns`     | Imports                  | last path segment becomes the namespace                   | ✓      |
+| `mod-import-as`     | Imports                  | `import … as alias` rebinds the prefix                    | ✓      |
+| `mod-import-under`  | Imports                  | `import … as _` brings names in unqualified                | ✓      |
+| `mod-prelude`       | Imports                  | `std.core` names available unqualified                    | ✓      |
 | `mod-qualified-only`| scoping.md               | bare cross-library reference is rejected                  | ⓧ      |
 | `vis-pub`           | Visibility               | non-`pub` top-level is file-private (enforced)            | ⓧ      |
-| `vis-barrel`        | Visibility               | `pub import` re-exports; barrel conflict fails            | ✗      |
+| `vis-barrel`        | Visibility               | barrel re-exports a directory library's symbols (std.cli) | ◐      |
 | `vis-whitebox-test` | Visibility / Testing     | `foo_test.hawk` sees `foo.hawk` privates                  | ✗      |
 
 ## Entry point & misc
 
 | ID                  | Spec (language.md)       | Pins                                                        | Status |
 | ------------------- | ------------------------ | ---------------------------------------------------------- | ------ |
-| `entry-main`        | Entry point              | `main` signatures; `Int` return is the exit code          | ✗      |
+| `entry-main`        | Entry point              | `main` signatures; `Int` return is the exit code          | ✓      |
 | `entry-main-err`    | Entry point              | an `Err` result exits non-zero, message to stderr         | ✗      |
-| `decorators`        | Decorators / annotations | `@name(args)` parse & attach (e.g. `@test`)               | ✗      |
+| `decorators`        | Decorators / annotations | `@name(args)` parse & attach (e.g. `@test`)               | ✓      |
 
 ## Findings
 
@@ -184,6 +184,27 @@ to fix, each ideally captured by a conformance test once resolved.
   "indexing on String is not supported", but `check` passes it clean — same
   check-vs-codegen split as the `5.x` field-access gap. xfail until `check`
   rejects it.
+
+- **structural `Debug`/`Display` derives aren't accepted as interface values, and
+  `${}` doesn't require `Display` at `check`** (`iface-debug`, `iface-display`).
+  Passing a struct with no explicit `impl Debug` to a `Debug`-typed parameter is
+  rejected ("expected Debug, found Point"), even though language.md says `Debug`
+  is auto-derived for structs — so the conformance tests use an explicit
+  `impl Debug`. Conversely, interpolating a struct with no `Display` impl passes
+  `check` (it then traps at runtime), though the spec says it's a compile error;
+  pinned as an `iface-display` xfail. Two sides of the same gap: the checker's
+  treatment of the structural derives at interface boundaries is looser/stricter
+  than the spec in opposite directions. (`.debug()`/`.eq()` are also not
+  directly callable on a concrete type without an impl — reachable only via
+  dispatch.)
+
+- **two IDs intentionally untested here.** `vis-whitebox-test` (a `foo_test.hawk`
+  seeing `foo.hawk` privates) is exercised by the project's real `_test.hawk`
+  suites but not pinnable in `tests/lang/`, since this harness drives
+  `hawk run`/`check`, not `hawk test`. `entry-main-err` (an `Err` from `main`
+  exits non-zero with the message on stderr — verified by probe) needs a
+  general "expected exit code / stderr" expectation the harness doesn't have yet
+  (only `expect trap:`); a candidate follow-up.
 
 - **trap messages are raw Rust `Debug` output** (`fault-index`, `fault-div-zero`).
   A fault aborts with `hawk: trap: <RustDebug>` on stderr and a non-zero exit —

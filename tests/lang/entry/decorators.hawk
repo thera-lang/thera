@@ -1,0 +1,14 @@
+//! spec: decorators
+//! mode: run
+
+// A decorator attaches compile-time metadata to a function; the function is
+// otherwise a normal, callable function.
+@route('GET', '/healthz')
+fn healthz() -> String {
+    return 'ok';
+}
+
+fn main() -> Int {
+    println(healthz());   // expect: ok
+    return 0;
+}

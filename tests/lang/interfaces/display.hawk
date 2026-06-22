@@ -1,0 +1,25 @@
+//! spec: iface-display
+//! mode: run
+
+type Point = {
+    x: Int,
+    y: Int,
+}
+
+impl Display for Point {
+    fn display(self) -> String {
+        return '(${self.x}, ${self.y})';
+    }
+}
+
+// An interface-typed parameter dispatches dynamically.
+fn show(_ d: Display) -> String {
+    return d.display();
+}
+
+fn main() -> Int {
+    let p = Point { x: 1, y: 2 };
+    println('${p}');      // expect: (1, 2)
+    println(show(p));     // expect: (1, 2)
+    return 0;
+}

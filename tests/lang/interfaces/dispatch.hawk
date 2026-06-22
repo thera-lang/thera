@@ -1,0 +1,34 @@
+//! spec: iface-dispatch
+//! mode: run
+
+type Dog = {
+    name: String,
+}
+
+impl Display for Dog {
+    fn display(self) -> String {
+        return 'dog:${self.name}';
+    }
+}
+
+type Cat = {
+    name: String,
+}
+
+impl Display for Cat {
+    fn display(self) -> String {
+        return 'cat:${self.name}';
+    }
+}
+
+// A `List<Display>` holds different concrete types; each `display()` call
+// dispatches dynamically on the value's runtime type.
+fn main() -> Int {
+    let pets: List<Display> = [Dog { name: 'rex' }, Cat { name: 'mo' }];
+    for p in pets {
+        println(p.display());
+    }
+    // expect: dog:rex
+    // expect: cat:mo
+    return 0;
+}

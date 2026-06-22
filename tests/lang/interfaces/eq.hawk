@@ -1,0 +1,18 @@
+//! spec: iface-eq
+//! mode: run
+
+type Point = {
+    x: Int,
+    y: Int,
+}
+
+// No explicit `impl Eq` — `==` uses the structural derive (all fields are Eq).
+fn main() -> Int {
+    let a = Point { x: 1, y: 2 };
+    let b = Point { x: 1, y: 2 };
+    let c = Point { x: 3, y: 4 };
+    println('${a == b}');   // expect: true
+    println('${a == c}');   // expect: false
+    println('${a != c}');   // expect: true
+    return 0;
+}

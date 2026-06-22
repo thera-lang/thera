@@ -37,6 +37,7 @@ type Test = {
     stdout: List<String>,         // ordered expected stdout lines (run mode)
     errors: List<ExpectError>,    // expected diagnostics (check mode)
     traps: List<String>,          // expected trap substrings (run mode)
+    is_test: Bool,                // false for a support file (no `//!` directives)
 }
 
 type ExpectError = {
@@ -68,37 +69,42 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
 
     for file in sort_strings(files) {
         let test = parse_test(file)?;
-        let verdict = run_test(hawk, test);
-        let expected_fail = match test.xfail {
-            Some(_) => true,
-            None => false,
-        };
-        match verdict {
-            Pass => {
-                if expected_fail {
-                    xpass = xpass + 1;
-                    println('XPASS ${file}');
-                    println('  marked xfail but passed — remove the `//! xfail:` marker');
-                } else {
-                    passed = passed + 1;
-                }
-            },
-            Fail(reason) => {
-                if expected_fail {
-                    xfail = xfail + 1;
-                } else {
-                    failed = failed + 1;
-                    println('FAIL  ${file}');
-                    for line in reason.lines() {
-                        println('  ${line}');
+        // A file with no `//!` directive is a support file (e.g. a library a
+        // multi-file import test imports) — not itself a test.
+        if test.is_test {
+            let verdict = run_test(hawk, test);
+            let expected_fail = match test.xfail {
+                Some(_) => true,
+                None => false,
+            };
+            match verdict {
+                Pass => {
+                    if expected_fail {
+                        xpass = xpass + 1;
+                        println('XPASS ${file}');
+                        println('  marked xfail but passed — remove the `//! xfail:` marker');
+                    } else {
+                        passed = passed + 1;
                     }
-                }
-            },
+                },
+                Fail(reason) => {
+                    if expected_fail {
+                        xfail = xfail + 1;
+                    } else {
+                        failed = failed + 1;
+                        println('FAIL  ${file}');
+                        for line in reason.lines() {
+                            println('  ${line}');
+                        }
+                    }
+                },
+            }
         }
     }
 
+    let total = passed + xfail + failed + xpass;
     println('');
-    println('${passed} passed, ${xfail} xfail, ${failed} failed, ${xpass} xpass (${files.len()} tests)');
+    println('${passed} passed, ${xfail} xfail, ${failed} failed, ${xpass} xpass (${total} tests)');
     if failed > 0 || xpass > 0 {
         return Result.Ok(1);
     }
@@ -115,6 +121,7 @@ fn parse_test(_ path: String) -> Result<Test, Error> {
     let stdout: List<String> = [];
     let errors: List<ExpectError> = [];
     let traps: List<String> = [];
+    let mut is_test = false;
 
     let lines = source.lines();
     let mut i = 0;
@@ -123,6 +130,7 @@ fn parse_test(_ path: String) -> Result<Test, Error> {
         let line_no = i + 1;
         let trimmed = raw.trim();
         if trimmed.starts_with('//!') {
+            is_test = true;
             let body = trimmed.slice(3, trimmed.len()).trim();
             match split_once(body, ':') {
                 Some(kv) => {
@@ -161,7 +169,7 @@ fn parse_test(_ path: String) -> Result<Test, Error> {
 
     return Result.Ok(Test {
         path: path, mode: mode, spec: spec, xfail: xfail,
-        stdout: stdout, errors: errors, traps: traps,
+        stdout: stdout, errors: errors, traps: traps, is_test: is_test,
     });
 }
 

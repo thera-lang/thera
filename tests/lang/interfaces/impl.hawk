@@ -1,0 +1,22 @@
+//! spec: iface-impl
+//! mode: run
+
+interface Greet {
+    fn greet(self) -> String;
+}
+
+type User = {
+    name: String,
+}
+
+impl Greet for User {
+    fn greet(self) -> String {
+        return 'Hello, ${self.name}!';
+    }
+}
+
+fn main() -> Int {
+    let u = User { name: 'Ada' };
+    println(u.greet());   // expect: Hello, Ada!
+    return 0;
+}

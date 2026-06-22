@@ -1,0 +1,20 @@
+//! spec: mod-prelude
+//! mode: run
+
+// std.core is the prelude: println, Result, Option, Error are available
+// unqualified with no import (variants stay qualified: Option.Some/None).
+fn pick(_ b: Bool) -> Option<Int> {
+    if b {
+        return Option.Some(1);
+    }
+    return Option.None;
+}
+
+fn main() -> Int {
+    let n = match pick(true) {
+        Some(v) => v,
+        None => 0,
+    };
+    println('${n}');   // expect: 1
+    return 0;
+}

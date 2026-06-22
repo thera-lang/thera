@@ -1,0 +1,33 @@
+//! spec: iface-inherit
+//! mode: run
+
+// An interface may extend others: a Named is also a Display.
+interface Named: Display {
+    fn id(self) -> Int;
+}
+
+type Tag = {
+    n: Int,
+}
+
+impl Display for Tag {
+    fn display(self) -> String {
+        return 'tag-${self.n}';
+    }
+}
+
+impl Named for Tag {
+    fn id(self) -> Int {
+        return self.n;
+    }
+}
+
+// A Named value also exposes the super-interface's methods (the widened set).
+fn label(_ x: Named) -> String {
+    return '${x.display()} #${x.id()}';
+}
+
+fn main() -> Int {
+    println(label(Tag { n: 7 }));   // expect: tag-7 #7
+    return 0;
+}

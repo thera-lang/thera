@@ -1,0 +1,25 @@
+//! spec: iface-debug
+//! mode: run
+
+type Point = {
+    x: Int,
+    y: Int,
+}
+
+// An explicit Debug impl (the structural auto-derive is not accepted where a
+// `Debug` interface value is expected — see docs/conformance.md Findings).
+impl Debug for Point {
+    fn debug(self) -> String {
+        return 'Point(${self.x},${self.y})';
+    }
+}
+
+fn dbg(_ d: Debug) -> String {
+    return d.debug();
+}
+
+fn main() -> Int {
+    let p = Point { x: 1, y: 2 };
+    println(dbg(p));   // expect: Point(1,2)
+    return 0;
+}

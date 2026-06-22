@@ -1,0 +1,23 @@
+//! spec: iface-static
+//! mode: run
+
+type Counter = {
+    value: Int,
+}
+
+impl Counter {
+    // No `self` parameter — a static method, called on the type.
+    fn zero() -> Counter {
+        return Counter { value: 0 };
+    }
+
+    fn inc(self) -> Counter {
+        return Counter { value: self.value + 1 };
+    }
+}
+
+fn main() -> Int {
+    let c = Counter.zero().inc();
+    println('${c.value}');   // expect: 1
+    return 0;
+}

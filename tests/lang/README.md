@@ -61,6 +61,13 @@ implies, mark it `xfail` with the reason, and the gap becomes a tracked signal.
 An `XPASS` fails the suite on purpose: it means the feature landed, so the
 `//! xfail:` marker should be deleted and the test promoted to required.
 
+## Support files (multi-file tests)
+
+A `.hawk` file with **no `//!` directive block** is treated as a *support file*,
+not a test: the harness skips running it directly. This is how a multi-file test
+(e.g. an import or white-box-visibility test) ships the library it imports — the
+test file carries the `//!` header and `import`s its sibling support file.
+
 ## Running
 
 ```

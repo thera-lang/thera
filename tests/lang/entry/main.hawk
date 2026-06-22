@@ -1,0 +1,9 @@
+//! spec: entry-main
+//! mode: run
+
+// `main` may take the program arguments as a List<String>; the returned Int is
+// the process exit code (0 here). Run with no extra args, so argc is 0.
+fn main(args: List<String>) -> Int {
+    println('argc=${args.len()}');   // expect: argc=0
+    return 0;
+}

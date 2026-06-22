@@ -1,0 +1,14 @@
+//! spec: generic-bounds
+//! mode: run
+
+// The bound `<T: Display>` is enforced at call sites; inside, `x` may be used
+// where a Display is required (here, string interpolation).
+fn describe<T: Display>(_ x: T) -> String {
+    return 'val=${x}';
+}
+
+fn main() -> Int {
+    println(describe(42));      // expect: val=42
+    println(describe('hi'));    // expect: val=hi
+    return 0;
+}

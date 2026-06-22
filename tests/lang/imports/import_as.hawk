@@ -1,0 +1,11 @@
+//! spec: mod-import-as
+//! mode: run
+
+import std.math as m;
+
+// `as` rebinds the namespace prefix.
+fn main() -> Int {
+    println('${m.PI > 3.0}');   // expect: true
+    println('${m.sqrt(9.0)}');  // expect: 3.0
+    return 0;
+}
