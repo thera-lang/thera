@@ -1098,7 +1098,7 @@ impl<'a> Vm<'a> {
         }
         Ok(match v {
             Value::Int(n) => n.to_string(),
-            Value::Double(x) => x.to_string(),
+            Value::Double(x) => crate::value::format_double(*x),
             Value::Bool(b) => b.to_string(),
             Value::Unit => "()".to_string(),
             // Clone the object out so the recursion into nested handles below

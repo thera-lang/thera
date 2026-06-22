@@ -170,10 +170,8 @@ to fix, each ideally captured by a conformance test once resolved.
   caught only at codegen — a known analysis gap (deferred). A `check`-mode test
   under `type-struct` should pin the intended diagnostic once fixed.
 
-- **`Double` Display drops the decimal for integral values** — `1.0`, `4.0`, and
-  `10.0 / 4.0`'s integral results render as `1`, `4`, … (indistinguishable from
-  the `Int` rendering), and `3.14` renders as `3.14`. The spec does not specify
-  `Double` formatting; whether an integral `Double` should print as `1` or `1.0`
-  is an open question (Int/Double are distinct types, so `1` is ambiguous in
-  output). `lex-float` therefore pins float *semantics* via Bool comparisons
-  rather than display strings. Decide the formatting, then add a display test.
+- **`Double` Display for integral values — RESOLVED.** Integral `Double`s now
+  render *with* a decimal point (`1.0` → `1.0`, not `1`), so `Double` output is
+  visually distinct from `Int`. Specified in language.md (Types → Primitives),
+  implemented in the runtime via the shared `value::format_double` (used by the
+  `Display`, error-message, and `Debug` renderers), and pinned by `lex-float`.

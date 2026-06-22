@@ -230,7 +230,7 @@ pub fn native_name(index: u32) -> Option<&'static str> {
 pub(super) fn display_string(v: &Value) -> Result<String, Trap> {
     Ok(match v {
         Value::Int(n) => n.to_string(),
-        Value::Double(x) => x.to_string(),
+        Value::Double(x) => crate::value::format_double(*x),
         Value::Bool(b) => b.to_string(),
         Value::Unit => "()".to_string(),
         Value::Ref(h) => heap::with_obj(*h, |obj| match obj {

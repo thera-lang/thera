@@ -179,7 +179,7 @@ fn exit_code(v: &Value) -> ExitCode {
 fn render(v: &Value) -> String {
     match v {
         Value::Int(n) => n.to_string(),
-        Value::Double(x) => x.to_string(),
+        Value::Double(x) => hawk::value::format_double(*x),
         Value::Bool(b) => b.to_string(),
         Value::Unit => "()".to_string(),
         Value::Ref(h) => match heap::clone_obj(*h) {

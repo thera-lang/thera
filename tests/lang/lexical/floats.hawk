@@ -2,11 +2,14 @@
 //! mode: run
 
 fn main() -> Int {
-    // Floats require digits on both sides of the `.`. The semantics are pinned
-    // via Bool comparisons so the test does not depend on Double display format
-    // (see the Findings note on integral-Double rendering in docs/conformance.md).
+    // A Double always renders with a decimal point, distinct from an Int.
+    println('${1.0}');                 // expect: 1.0
+    println('${-2.0}');                // expect: -2.0
+    println('${3.14}');                // expect: 3.14
+    println('${10.0 / 4.0}');          // expect: 2.5
+
+    // Floats require digits on both sides of the `.` (lexing rule).
     println('${3.14 > 3.0}');          // expect: true
     println('${1.5 + 1.5 == 3.0}');    // expect: true
-    println('${10.0 / 4.0 == 2.5}');   // expect: true
     return 0;
 }

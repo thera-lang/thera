@@ -27,6 +27,21 @@ pub enum Value {
     Ref(u32),
 }
 
+/// Render a `Double` to its Hawk string form. Unlike Rust's `f64::to_string`
+/// (which prints `1.0` as `"1"`), an integral `Double` keeps a trailing `.0`, so
+/// `Double` output is always visibly distinct from `Int` — `1.0` → `"1.0"`,
+/// `3.14` → `"3.14"`, `-2.0` → `"-2.0"`. Non-finite values (`inf`/`NaN`) and any
+/// value Rust already prints with a `.`/exponent pass through unchanged. Shared
+/// by the `Display`, error-message, and `Debug` renderers.
+pub fn format_double(x: f64) -> String {
+    let s = x.to_string();
+    if x.is_finite() && !s.contains(['.', 'e', 'E']) {
+        format!("{s}.0")
+    } else {
+        s
+    }
+}
+
 /// Structural equality — the default `Eq`. For heap references it compares the
 /// pointed-to objects by content (recursing through the heap), matching the
 /// reference semantics the old `Rc<RefCell<Obj>>` representation gave for free.

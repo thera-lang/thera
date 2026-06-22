@@ -73,6 +73,11 @@ values.
 | `String` | UTF-8 text                                                  | `'hello'`       |
 | `Void`   | Unit type — one value, written `void` (like `true`/`false`) | `void`          |
 
+A `Double` always renders with a decimal point, so its output is visually
+distinct from an `Int`: `1.0` displays as `1.0` (not `1`), `-2.0` as `-2.0`, and
+a non-integral value as itself (`3.14`). This differs from languages whose
+default float formatting drops a trailing `.0`.
+
 String literals use single quotes, and may span multiple lines. Interpolation
 uses `${}`, and `+` concatenates two strings:
 
