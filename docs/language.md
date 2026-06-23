@@ -395,6 +395,17 @@ faulting form — e.g. `list.get(i)` returns `Option<T>` instead of trapping.
 Reach for the checked form when absence is a normal, expected case; use indexing
 when a missing element would mean a bug.
 
+**The fault diagnostic.** A trap writes a single line to stderr of the form
+`hawk: trap: <message>` and exits non-zero. The message is human-readable and
+names the specifics:
+
+| Fault                | Message                                                       |
+| -------------------- | ------------------------------------------------------------- |
+| list index out of range | `index out of range: the index is <i> but the length is <n>` |
+| missing map key      | `key not found: <key>` (string keys are quoted, e.g. `'bob'`) |
+| integer divide-by-zero | `division by zero`                                          |
+| send on a closed channel | `send on a closed channel`                                |
+
 > Integer overflow does **not** trap: `Int` arithmetic wraps around (two's
 > complement). Divide-by-zero is the trapping case above.
 

@@ -206,14 +206,12 @@ to fix, each ideally captured by a conformance test once resolved.
   general "expected exit code / stderr" expectation the harness doesn't have yet
   (only `expect trap:`); a candidate follow-up.
 
-- **trap messages are raw Rust `Debug` output** (`fault-index`, `fault-div-zero`).
-  A fault aborts with `hawk: trap: <RustDebug>` on stderr and a non-zero exit —
-  e.g. `IndexOutOfBounds { index: 9, len: 3 }`, `MissingKey` (which doesn't even
-  name the key), `DivByZero`. The spec (Runtime faults) only requires "a
-  diagnostic and a non-zero exit code"; the wording is unspecified and
-  developer-facing. The conformance tests match loosely on the fault-kind
-  substring. Worth specifying + humanizing the trap format (and naming the
-  missing key); the tests' needles update when it lands.
+- **trap messages — RESOLVED.** Faults now abort with a human-readable
+  `hawk: trap: <message>` (e.g. `index out of range: the index is 9 but the
+  length is 3`, `key not found: 'bob'`, `division by zero`), replacing the raw
+  Rust `Debug` form. Specified in language.md (Runtime faults → "The fault
+  diagnostic"), rendered by `impl Display for Trap` (runtime), with `MissingKey`
+  now carrying the key. The `fault-*` tests pin the exact messages.
 
 - **`Double` Display for integral values — RESOLVED.** Integral `Double`s now
   render *with* a decimal point (`1.0` → `1.0`, not `1`), so `Double` output is

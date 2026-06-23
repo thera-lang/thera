@@ -4,7 +4,7 @@
 fn main() -> Int {
     let xs = [1, 2, 3];
     // Indexing past the end traps (aborts with a non-zero exit).
-    let x = xs[9];   // expect trap: IndexOutOfBounds
+    let x = xs[9];   // expect trap: index out of range: the index is 9 but the length is 3
     println('${x}');
     return 0;
 }

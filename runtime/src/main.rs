@@ -86,7 +86,7 @@ fn cmd_frontend(args: &[String]) -> ExitCode {
     match run(&module, entry, &call_args) {
         Ok(v) => exit_code(&v),
         Err(trap) => {
-            eprintln!("hawk: trap: {trap:?}");
+            eprintln!("hawk: trap: {trap}");
             ExitCode::FAILURE
         }
     }
@@ -144,7 +144,7 @@ fn cmd_run(args: &[String]) -> ExitCode {
     match run(&module, entry, &call_args) {
         Ok(v) => exit_code(&v),
         Err(trap) => {
-            eprintln!("hawk: trap: {trap:?}");
+            eprintln!("hawk: trap: {trap}");
             ExitCode::FAILURE
         }
     }

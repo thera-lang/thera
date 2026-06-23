@@ -1529,12 +1529,33 @@ fn native_map_new(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     Ok(Value::new_map(entries))
 }
 
-/// `map[key]` — value for `key`, faulting if absent.
+/// `map[key]` — value for `key`, faulting (naming the key) if absent.
 fn native_map_index(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let (map, key) = args2(args, "map index")?;
-    with_map_ref(map, "map index", |entries| {
-        map_find(entries, key).copied().ok_or(Trap::MissingKey)
+    let found = with_map_ref(map, "map index", |entries| {
+        Ok(map_find(entries, key).copied())
+    })?;
+    // Render the key for the message only on the miss path, after the map borrow
+    // is released (rendering a string key re-borrows the heap).
+    found.ok_or_else(|| Trap::MissingKey {
+        key: key_label(key),
     })
+}
+
+/// A short, human-readable rendering of a map key for the `MissingKey` message:
+/// strings quoted (`'bob'`), other primitives as their `Display` form. Map keys
+/// are strings or ints in practice; anything else falls back to a placeholder.
+fn key_label(v: &Value) -> String {
+    match v {
+        Value::Int(n) => n.to_string(),
+        Value::Double(x) => crate::value::format_double(*x),
+        Value::Bool(b) => b.to_string(),
+        Value::Unit => "void".to_string(),
+        Value::Ref(h) => heap::with_obj(*h, |obj| match obj {
+            Obj::Str(s) => format!("'{s}'"),
+            _ => "<key>".to_string(),
+        }),
+    }
 }
 
 /// `map.get(key)` — `Some(value)` if present, else `None`.

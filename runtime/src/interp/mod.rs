@@ -30,14 +30,35 @@ pub enum Trap {
     DivByZero,
     /// List index outside `0..len` (the faulting case of `list[i]`).
     IndexOutOfBounds { index: i64, len: usize },
-    /// Map indexed with `map[key]` where `key` is absent.
-    MissingKey,
+    /// Map indexed with `map[key]` where `key` is absent. `key` is a short,
+    /// human-readable rendering of the key (strings quoted), for the message.
+    MissingKey { key: String },
     /// `channel.send` on a channel that has been closed (a program contract
     /// violation, like sending on a closed Go channel).
     ClosedChannel,
     /// The bytecode was malformed (stack underflow, type mismatch, bad slot).
     /// Valid bytecode from a correct producer never triggers this.
     Bug(String),
+}
+
+/// The human-readable fault message shown to the user (`hawk: trap: <this>`).
+/// The format is specified in docs/language.md, "Runtime faults". This is
+/// distinct from the `Debug` form, which the runtime's own tests still use.
+impl std::fmt::Display for Trap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Trap::DivByZero => write!(f, "division by zero"),
+            Trap::IndexOutOfBounds { index, len } => {
+                write!(
+                    f,
+                    "index out of range: the index is {index} but the length is {len}"
+                )
+            }
+            Trap::MissingKey { key } => write!(f, "key not found: {key}"),
+            Trap::ClosedChannel => write!(f, "send on a closed channel"),
+            Trap::Bug(msg) => write!(f, "internal error (malformed bytecode): {msg}"),
+        }
+    }
 }
 
 pub(crate) fn bug(msg: impl Into<String>) -> Trap {
@@ -2311,7 +2332,12 @@ mod tests {
             b.call_native(NATIVE_MAP_INDEX, 2);
             b.ret();
         });
-        assert_eq!(r, Err(Trap::MissingKey));
+        assert_eq!(
+            r,
+            Err(Trap::MissingKey {
+                key: "'zzz'".to_string()
+            })
+        );
     }
 
     #[test]
