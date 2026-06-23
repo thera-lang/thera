@@ -1,6 +1,6 @@
 //! spec: type-struct-immut
 //! mode: check
-//! xfail: struct-field immutability is not yet enforced — assigning a field is currently accepted (check, codegen, and runtime)
+//! xfail: field immutability is deferred — the impl mutates fields pervasively (stateful structs), awaiting a `mut` field mechanism (see docs/conformance.md Findings)
 
 type Point = {
     x: Int,

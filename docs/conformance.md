@@ -69,7 +69,7 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | ID                  | Spec (language.md)       | Pins                                                        | Status |
 | ------------------- | ------------------------ | ---------------------------------------------------------- | ------ |
 | `var-let-mut`       | Variables                | immutable by default; `mut` allows reassign                | ✓      |
-| `var-let-immutable` | Variables                | reassigning a `let` is an error                            | ⓧ      |
+| `var-let-immutable` | Variables                | reassigning a `let` (or a parameter) is an error          | ✓      |
 | `var-references`    | Variables                | heap values are shared references                          | ✓      |
 
 ## Functions
@@ -170,15 +170,18 @@ to fix, each ideally captured by a conformance test once resolved.
   caught only at codegen — a known analysis gap (deferred). A `check`-mode test
   under `type-struct` should pin the intended diagnostic once fixed.
 
-- **immutability is specified but not enforced** (`var-let-immutable`,
-  `type-struct-immut`). language.md says immutability is "enforced by the type
-  system" — `let` prevents rebinding and struct fields are immutable by default —
-  but the front-end accepts both `n = 6` (reassigning a non-`mut` `let`) and
-  `p.x = 9` (assigning a struct field) with **no diagnostic at check, codegen, or
-  runtime**: `n = 6` runs and prints `6`. Both are marked ⓧ with xfail tests that
-  flip to XPASS when an immutability pass lands. (Sibling of the qualified-only /
-  `pub` enforcement gap — the front-end is still lenient where the spec is
-  strict.)
+- **binding immutability — ENFORCED; field immutability — deferred**
+  (`var-let-immutable`, `type-struct-immut`). The checker now rejects reassigning
+  a non-`mut` `let` or a parameter (`cannot assign to \`n\`: it is not declared
+  \`mut\``); the corpus was already clean (it uses `let mut` where it reassigns).
+  **Struct fields are a different story:** the implementation mutates them
+  pervasively — stateful structs (`Lexer`/`Parser`/JSON reader/codegen emitter,
+  and several stdlib types) do `self.field = …` throughout — so the spec's
+  "fields immutable by default" cannot be enforced without a `mut field`
+  mechanism + migrating those structs. Decision (see overview.md's LLM-reasoning
+  rationale): the target is uniform immutable-by-default + explicit `mut` for
+  *both* locals and fields; `type-struct-immut` stays ⓧ pending that `mut`-fields
+  arc.
 
 - **`s[i]` on a String is rejected late** (`type-string-noindex`). codegen emits
   "indexing on String is not supported", but `check` passes it clean — same

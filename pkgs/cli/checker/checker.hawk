@@ -240,6 +240,9 @@ fn check_fn(_ errors: List<CheckError>, _ fn_decl: FnDecl, _ library: LibraryEle
                 current_file: file,
             };
             let scope = empty_scope();
+            // Track binding mutability in parallel with `scope`: a name maps to
+            // whether it may be reassigned. Parameters are immutable.
+            let muts: Map<String, Bool> = {};
             for p in fn_decl.params {
                 if p.is_self {
                     match self_type {
@@ -248,9 +251,10 @@ fn check_fn(_ errors: List<CheckError>, _ fn_decl: FnDecl, _ library: LibraryEle
                     }
                 } else {
                     scope[p.name] = resolver.resolve_opt(p.type_ann, library.type_defs, type_params, self_type);
+                    muts[p.name] = false;
                 }
             }
-            check_block(errors, body, scope, ctx);
+            check_block(errors, body, scope, ctx, muts);
         },
     }
 }
@@ -443,11 +447,28 @@ fn type_matches(_ a: Type, _ b: Type) -> Bool {
 
 // ---- block / statement checking ----
 
-fn check_block(_ errors: List<CheckError>, _ block: Block, _ outer: Map<String, Type>, _ ctx: InferCtx) -> Void {
+// A shallow copy of a mutability map (name -> may-be-reassigned), mirroring
+// `copy_scope` so a block can extend its bindings without affecting the parent.
+fn copy_muts(_ m: Map<String, Bool>) -> Map<String, Bool> {
+    let out: Map<String, Bool> = {};
+    for k in m.keys() {
+        match m.get(k) {
+            Some(v) => { out[k] = v; },
+            None => {},
+        }
+    }
+    return out;
+}
+
+fn check_block(_ errors: List<CheckError>, _ block: Block, _ outer: Map<String, Type>,
+    _ ctx: InferCtx, _ muts: Map<String, Bool>) -> Void {
     let scope = copy_scope(outer);
+    // A block's bindings are scoped to it (like `scope`), so copy the mutability
+    // map too — a `let` inside the block doesn't leak to the enclosing one.
+    let block_muts = copy_muts(muts);
     let mut i = 0;
     while i < block.stmts.len() {
-        check_stmt(errors, block.stmts[i], block.stmts, i, scope, ctx);
+        check_stmt(errors, block.stmts[i], block.stmts, i, scope, ctx, block_muts);
         i = i + 1;
     }
     match block.tail {
@@ -476,7 +497,7 @@ fn check_block(_ errors: List<CheckError>, _ block: Block, _ outer: Map<String, 
 }
 
 fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ stmts: List<Stmt>, _ index: Int,
-    _ scope: Map<String, Type>, _ ctx: InferCtx) -> Void {
+    _ scope: Map<String, Type>, _ ctx: InferCtx, _ muts: Map<String, Bool>) -> Void {
     match stmt {
         Let(x) => {
             match x.type_ann {
@@ -496,6 +517,7 @@ fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ stmts: List<Stmt>, _ i
                 Some(a) => a,
                 None => refine_binding_type(x.name, actual, stmts, index + 1, scope, ctx),
             };
+            muts[x.name] = x.is_mut;
             match annotated {
                 Some(a) => { expect_type(errors, actual, a, 'binding \'${x.name}\'', x.span, ctx.library.type_defs); },
                 None => {},
@@ -515,6 +537,24 @@ fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ stmts: List<Stmt>, _ i
         },
         Assign(_, target, value) => {
             check_expr(errors, target, scope, ctx, Option.None);
+            // Immutability: reassigning a binding that isn't `mut` is an error.
+            // Only flag a name we know is an immutable local (a non-`mut` `let` or
+            // a parameter); an untracked name — a global, a match/lambda binding —
+            // is left alone. A field or index target mutates the object, not a
+            // binding, so it is not checked here.
+            match target {
+                Ident(ispan, name) => {
+                    match muts.get(name) {
+                        Some(is_mut) => {
+                            if !is_mut {
+                                add_error(errors, 'cannot assign to `${name}`: it is not declared `mut`', ispan);
+                            }
+                        },
+                        None => {},
+                    }
+                },
+                _ => {},
+            }
             // The assignment target's type is the expected type for the value, so
             // a generic constructor on the RHS (`s = Set.new()`, `m[k] = Set.new()`,
             // `obj.field = ...`) takes its type parameters from the target rather
@@ -530,9 +570,9 @@ fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ stmts: List<Stmt>, _ i
         If(x) => {
             check_expr(errors, x.condition, scope, ctx, Option.None);
             check_condition(errors, x.condition, scope, ctx);
-            check_block(errors, x.then_block, scope, ctx);
+            check_block(errors, x.then_block, scope, ctx, muts);
             match x.else_block {
-                Some(eb) => { check_block(errors, eb, scope, ctx); },
+                Some(eb) => { check_block(errors, eb, scope, ctx, muts); },
                 None => {},
             }
         },
@@ -541,12 +581,14 @@ fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ stmts: List<Stmt>, _ i
             let iter_type = infer_expr(x.iterable, scope, ctx, Option.None);
             let body_scope = copy_scope(scope);
             bind_for_pattern(x.pattern, iter_type, body_scope, ctx);
-            check_block(errors, x.body, body_scope, ctx);
+            // The loop variable isn't tracked in `muts`, so reassigning it isn't
+            // flagged; reassigning an enclosing immutable binding still is.
+            check_block(errors, x.body, body_scope, ctx, muts);
         },
         While(x) => {
             check_expr(errors, x.condition, scope, ctx, Option.None);
             check_condition(errors, x.condition, scope, ctx);
-            check_block(errors, x.body, scope, ctx);
+            check_block(errors, x.body, scope, ctx, muts);
         },
         Throw(_, value) => {
             check_expr(errors, value, scope, ctx, Option.None);
@@ -699,14 +741,17 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
             check_lambda(errors, x, scope, ctx, expected);
         },
         Block(_, block) => {
-            check_block(errors, block, scope, ctx);
+            // An expression-position block: its statements' bindings aren't
+            // tracked for mutability (a conservative `{}`), so assignments here
+            // are not immutability-checked — a deliberate v1 limitation.
+            check_block(errors, block, scope, ctx, {});
         },
         If(x) => {
             check_expr(errors, x.condition, scope, ctx, Option.None);
             check_condition(errors, x.condition, scope, ctx);
-            check_block(errors, x.then_block, scope, ctx);
+            check_block(errors, x.then_block, scope, ctx, {});
             match x.else_block {
-                Some(eb) => { check_block(errors, eb, scope, ctx); },
+                Some(eb) => { check_block(errors, eb, scope, ctx, {}); },
                 None => {},
             }
         },

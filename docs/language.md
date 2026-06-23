@@ -59,6 +59,12 @@ other's changes. Immutability is enforced by the type system — struct fields a
 immutable by default and `let` prevents rebinding — rather than by copying
 values.
 
+> **Enforcement status.** Binding immutability is enforced: reassigning a
+> non-`mut` `let` or a parameter is a compile error. Struct-field immutability is
+> the intended target but is **not yet enforced** — the implementation still
+> mutates fields, and an explicit `mut field: T` mechanism plus a migration of
+> the stateful structs is planned before fields become immutable by default.
+
 ---
 
 ## Types

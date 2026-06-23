@@ -1,12 +1,9 @@
 //! spec: var-let-immutable
 //! mode: check
-//! xfail: `let` immutability is not yet enforced — reassigning a `let` is currently accepted (check, codegen, and runtime)
 
 fn main() -> Int {
     let n = 5;
-    // Reassigning a non-`mut` binding should be an error. The empty expectation
-    // matches any diagnostic on this line, so enforcement of any wording flips
-    // this test to XPASS.
-    n = 6;   // expect error:
+    // Reassigning a binding that isn't `mut` is an error.
+    n = 6;   // expect error: cannot assign to `n`
     return 0;
 }
