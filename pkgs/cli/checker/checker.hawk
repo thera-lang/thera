@@ -41,6 +41,13 @@ pub fn check(_ program: Program, _ imports: List<Program>,
     let library = resolver.build_library(program, imports, namespaces);
     check_duplicates(errors, program, imports);
     check_program(errors, program, library, program.file_path);
+    // Qualified-only enforcement: a bare reference to a name an import exposes is
+    // an error (a cross-library name must be qualified, or imported `as _`). This
+    // was a `--qualified`-only transitional warning; the corpus was driven to
+    // zero, so it is now enforced. See docs/scoping.md.
+    for e in qualify_lint(program, namespaces) {
+        errors.push(e);
+    }
     return CheckResult { errors: errors };
 }
 

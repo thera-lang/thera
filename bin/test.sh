@@ -57,16 +57,16 @@ rm -rf "$chk_dir"
 
 echo "==> qualified-reference guard (corpus stays at 0 bare cross-library refs)"
 # The whole corpus is qualified-only: every reference to another library's public
-# name goes through `ns.name` (or an explicit `import '…' as _;`). `check
-# --qualified` runs the transitional lint and prints a "bare reference to …"
-# warning for each violation. Assert the count stays at 0 so the migration can't
-# silently regress before the resolver enforces this (Phase 3). See docs/scoping.md.
-bare_refs="$("$HAWK" check --qualified pkgs/cli sdk/std examples 2>/dev/null \
+# name goes through `ns.name` (or an explicit `import '…' as _;`). This is now
+# enforced — `check` reports a "bare reference to …" error for each violation —
+# so a regression fails the build outright; this guard keeps the count explicit
+# (and the message clear). See docs/scoping.md.
+bare_refs="$("$HAWK" check pkgs/cli sdk/std examples 2>/dev/null \
   | grep -c 'bare reference to')"
 if [ "$bare_refs" -eq 0 ]; then
   echo "  ok   0 bare cross-library references"
 else
-  echo "  FAIL $bare_refs bare cross-library reference(s); run: hawk check --qualified pkgs/cli sdk/std examples"
+  echo "  FAIL $bare_refs bare cross-library reference(s); run: hawk check pkgs/cli sdk/std examples"
   fail=1
 fi
 

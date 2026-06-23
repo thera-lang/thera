@@ -133,7 +133,7 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `mod-import-as`     | Imports                  | `import … as alias` rebinds the prefix                    | ✓      |
 | `mod-import-under`  | Imports                  | `import … as _` brings names in unqualified                | ✓      |
 | `mod-prelude`       | Imports                  | `std.core` names available unqualified                    | ✓      |
-| `mod-qualified-only`| scoping.md               | bare cross-library reference is rejected                  | ⓧ      |
+| `mod-qualified-only`| scoping.md               | bare cross-library reference is rejected                  | ✓      |
 | `vis-pub`           | Visibility               | non-`pub` top-level is file-private (enforced)            | ⓧ      |
 | `vis-barrel`        | Visibility               | barrel re-exports a directory library's symbols (std.cli) | ◐      |
 | `vis-whitebox-test` | Visibility / Testing     | `foo_test.hawk` sees `foo.hawk` privates                  | ✗      |
@@ -160,11 +160,15 @@ to fix, each ideally captured by a conformance test once resolved.
   unknown callee), so the wrong form type-checks. Fix the docs; the silent-accept
   is a separate analysis gap (relates to the Unknown-leniency work).
 
-- **`mod-qualified-only`, `vis-pub` — specified but not enforced.** Qualified-only
-  cross-library access and `pub` visibility are documented as the rules but the
-  resolver does not yet reject violations (tracked in scoping.md → Implementation
-  gaps; the corpus is already migrated and guarded at 0 bare refs). Marked ⓧ
-  until Phase 3 enforcement lands.
+- **`mod-qualified-only` — ENFORCED; `vis-pub` — still pending.** A bare
+  cross-library reference is now a `check` error (`bare reference to \`sqrt\`;
+  qualify as \`math.sqrt\``): the transitional `qualify_lint` was promoted from a
+  `--qualified`-only warning to part of `checker.check`, so a check error aborts
+  compilation before codegen. The corpus was already at 0 (guarded), so nothing
+  broke. `pub` visibility enforcement (`vis-pub`) is the next stage — it needs
+  surface-checked `ns.name` resolution plus the `foo_test.hawk` white-box
+  exception, and stays ⓧ until then. (Both still rely on lenient *resolution*
+  underneath; the per-library resolution rework is deferred — see scoping.md.)
 
 - **field access on a non-struct value** (e.g. `5.x`) slips past `check` and is
   caught only at codegen — a known analysis gap (deferred). A `check`-mode test

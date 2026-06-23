@@ -28,7 +28,6 @@ fn build_app() -> cli.Command {
             .trailing_var_arg(true))
         .subcommand(cli.Command.new('check')
             .about('type-check Hawk programs without running them')
-            .flag('qualified', help: 'warn on bare references to imported library names (transitional)')
             .positional('target', help: 'a .hawk file or directory to check'))
         .subcommand(cli.Command.new('emit')
             .about('compile a Hawk program to a .hawkbc bytecode file')
@@ -119,7 +118,7 @@ fn run_on_file(_ name: String, _ sub: cli.Matches) -> Result<Int, Error> {
             eprintln('hawk check: expected a <file|dir> argument');
             return Result.Ok(2);
         }
-        return do_check(positionals, loader.find_sdk_root(), sub.flag('qualified'));
+        return do_check(positionals, loader.find_sdk_root());
     }
     match sub.positional(0) {
         Some(file) => {
@@ -151,7 +150,7 @@ fn run_on_file(_ name: String, _ sub: cli.Matches) -> Result<Int, Error> {
 // `file:line:col: message` for every diagnostic. A directory is searched
 // recursively for `*.hawk`; a file is checked directly. Exit 0 when clean, 1
 // when any diagnostics, 2 when a target is missing.
-fn do_check(_ targets: List<String>, _ sdk_root: Option<String>, _ qualified: Bool) -> Result<Int, Error> {
+fn do_check(_ targets: List<String>, _ sdk_root: Option<String>) -> Result<Int, Error> {
     // Resolve targets to a sorted, de-duplicated list of files (dirs recurse for
     // `*.hawk`); a missing target is a usage error.
     let files: List<String> = [];
@@ -188,13 +187,6 @@ fn do_check(_ targets: List<String>, _ sdk_root: Option<String>, _ qualified: Bo
                     println(driver.format_diagnostic(d, file));
                 }
                 total = total + diags.len();
-                // `--qualified`: the transitional bare-reference lint. Warnings
-                // (printed, but they don't affect the exit status).
-                if qualified {
-                    for w in driver.qualify_warnings_at(source, file, sdk_root) {
-                        println(driver.format_diagnostic(w, file));
-                    }
-                }
             },
             Err(e) => {
                 eprintln('hawk check: cannot read ${file}: ${e}');

@@ -1,14 +1,12 @@
 //! spec: mod-qualified-only
 //! mode: check
-//! xfail: qualified-only access is not yet enforced — a bare cross-library name resolves (the transitional lint flags it only under `check --qualified`)
 
 import std.math;
 
 fn main() -> Int {
-    // `sqrt` belongs to `math`; a bare reference to it should be rejected
-    // (intended message: "bare reference"). The empty expectation matches any
-    // diagnostic on this line, so enforcement flips this to XPASS.
-    let r = sqrt(16.0);   // expect error:
+    // `sqrt` belongs to `math`; a bare reference to it is rejected — it must be
+    // written `math.sqrt` (or the library imported `as _`).
+    let r = sqrt(16.0);   // expect error: bare reference to `sqrt`
     println('${r}');
     return 0;
 }

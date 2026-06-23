@@ -216,12 +216,26 @@ are the violations to address.
    - **`import 'x' as _;`** (unqualified import) is implemented end to end — parser,
      and the lint treats its names as bare-legal; under the lenient resolver it's a
      no-op at runtime (bare names already resolve), so it can be adopted now;
-   - **`check --qualified`** (`qualify_lint`) warns on every bare reference an import
-     exposes — the migration checklist, driven to zero before enforcement.
+   - **`qualify_lint`** flags every bare reference an import exposes. It drove the
+     migration to zero and is now **promoted to a hard `check` error** (it runs in
+     `checker.check`), so a bare cross-library reference is rejected and aborts
+     compilation. This enforces the qualified-only rule for imported names at the
+     diagnostic level even though resolution underneath is still lenient (gaps
+     1–5). Its one hole: a bare name from a library that's in the closure but not
+     imported by the file isn't an "imported name", so it isn't flagged — closing
+     that needs the resolution rework below.
+
+**Status.** Migration (6) is **done** and guarded at 0. Qualified-only is
+**enforced** via the promoted `qualify_lint` (above). Remaining: `pub` visibility
+enforcement — surface-checked `ns.name` resolution (2) wiring in
+`namespace_exposes`, plus the `foo_test.hawk` white-box exception (4) — and then,
+optionally, the deeper resolution-correctness rework (per-library ownership and
+per-file namespaces, 1/3/5, with codegen in lockstep) that makes resolution
+correct-by-construction rather than lint-checked.
 
 A natural sequencing: adopt `as _` for the pervasively-used foundational libraries
 and qualify the rest (6, driven by the lint, byte-identical under the lenient
-resolver); enrich the element model with per-library ownership and per-file
-imports (5); implement surface-checked qualified resolution and
-same-file+`as _`+prelude bare resolution (1–4); then enforce privacy and tighten
-the diagnostics.
+resolver); enforce qualified-only by promoting the lint (done); enforce privacy
+via surface-checked qualified resolution + the white-box exception (2, 4); then,
+if wanted, enrich the element model with per-library ownership and per-file
+imports (5) and surface-checked same-file+`as _`+prelude bare resolution (1, 3).
