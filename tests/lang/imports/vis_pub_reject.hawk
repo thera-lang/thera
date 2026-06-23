@@ -1,14 +1,11 @@
 //! spec: vis-pub
 //! mode: check
-//! xfail: `pub` visibility is not yet enforced — a non-pub symbol is reachable across files
 
 import 'greeter';
 
 fn main() -> Int {
-    // greeter.secret() is not `pub`; reaching it from another file should be an
-    // error (intended message: "private"). The empty expectation matches any
-    // diagnostic on this line, so enforcement flips this to XPASS.
-    let s = greeter.secret();   // expect error:
+    // greeter.secret() is not `pub`; reaching it from another file is an error.
+    let s = greeter.secret();   // expect error: `secret` is not a public member of `greeter`
     println('${s}');
     return 0;
 }

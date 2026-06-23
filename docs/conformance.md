@@ -134,7 +134,7 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `mod-import-under`  | Imports                  | `import … as _` brings names in unqualified                | ✓      |
 | `mod-prelude`       | Imports                  | `std.core` names available unqualified                    | ✓      |
 | `mod-qualified-only`| scoping.md               | bare cross-library reference is rejected                  | ✓      |
-| `vis-pub`           | Visibility               | non-`pub` top-level is file-private (enforced)            | ⓧ      |
+| `vis-pub`           | Visibility               | non-`pub` top-level is file-private (enforced)            | ✓      |
 | `vis-barrel`        | Visibility               | barrel re-exports a directory library's symbols (std.cli) | ◐      |
 | `vis-whitebox-test` | Visibility / Testing     | `foo_test.hawk` sees `foo.hawk` privates                  | ✗      |
 
@@ -160,15 +160,18 @@ to fix, each ideally captured by a conformance test once resolved.
   unknown callee), so the wrong form type-checks. Fix the docs; the silent-accept
   is a separate analysis gap (relates to the Unknown-leniency work).
 
-- **`mod-qualified-only` — ENFORCED; `vis-pub` — still pending.** A bare
-  cross-library reference is now a `check` error (`bare reference to \`sqrt\`;
-  qualify as \`math.sqrt\``): the transitional `qualify_lint` was promoted from a
-  `--qualified`-only warning to part of `checker.check`, so a check error aborts
-  compilation before codegen. The corpus was already at 0 (guarded), so nothing
-  broke. `pub` visibility enforcement (`vis-pub`) is the next stage — it needs
-  surface-checked `ns.name` resolution plus the `foo_test.hawk` white-box
-  exception, and stays ⓧ until then. (Both still rely on lenient *resolution*
-  underneath; the per-library resolution rework is deferred — see scoping.md.)
+- **`mod-qualified-only` and `vis-pub` — ENFORCED.** A bare cross-library
+  reference is a `check` error (`bare reference to \`sqrt\`; qualify as
+  \`math.sqrt\``, via `qualify_lint`), and a qualified access to a non-public
+  member is a `check` error (`\`secret\` is not a public member of \`greeter\``,
+  via the new `visibility_lint` wiring in `namespace_exposes`). Both run in
+  `checker.check`, so violations abort compilation before codegen. The corpus had
+  0 of each, so nothing broke. The `foo_test.hawk` white-box exception is
+  **deferred** — tests reach their target's privates via `import … as _;` + bare
+  names, which the qualified-access check never sees, so the test suites are
+  unaffected; a future stage adds per-file white-box access for qualified test
+  access. (Both still rely on lenient *resolution* underneath; the per-library
+  resolution rework is deferred — see scoping.md.)
 
 - **field access on a non-struct value** (e.g. `5.x`) slips past `check` and is
   caught only at codegen — a known analysis gap (deferred). A `check`-mode test

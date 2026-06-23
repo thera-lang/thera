@@ -48,6 +48,11 @@ pub fn check(_ program: Program, _ imports: List<Program>,
     for e in qualify_lint(program, namespaces) {
         errors.push(e);
     }
+    // Visibility enforcement: a qualified `ns.name` to a non-public member is an
+    // error (the `pub`-visibility half of the qualified-only rules).
+    for e in visibility_lint(program, namespaces) {
+        errors.push(e);
+    }
     return CheckResult { errors: errors };
 }
 
@@ -1569,6 +1574,277 @@ fn lint_ref(_ warnings: List<CheckError>, _ name: String, _ span: SourceSpan, _ 
             add_error(warnings, 'bare reference to `${name}`; qualify as `${ns}.${name}` (library `${ns}`)', span);
         },
         None => {},
+    }
+}
+
+// ---- visibility enforcement (qualified access to a non-public member) ----
+
+// Reject `ns.name` where `name` is not a public member of the library bound to
+// the namespace `ns` (a private symbol, or one that doesn't exist). The public
+// surface lives in `namespaces[ns].names`. This is the `pub`-visibility half of
+// the qualified-only rules (docs/scoping.md); the bare half is `qualify_lint`.
+//
+// NOTE: the `foo_test.hawk` white-box exception is not yet implemented — a test
+// reaches its target's privates via `import '<base>' as _;` + *bare* names, which
+// this qualified-access check never sees, so the test suites are unaffected. A
+// future stage adds per-file white-box access for qualified test access.
+pub fn visibility_lint(_ program: Program, _ namespaces: Map<String, LibraryNamespace>) -> List<CheckError> {
+    let warnings: List<CheckError> = [];
+    if namespaces.keys().len() == 0 {
+        return warnings;
+    }
+    for decl in program.decls {
+        vis_decl(warnings, decl, namespaces);
+    }
+    return warnings;
+}
+
+// A qualified reference `ns.name`: flag it when `ns` is an imported namespace
+// (not shadowed by a local) that does not expose `name`.
+fn vis_member(_ warnings: List<CheckError>, _ ns: String, _ name: String, _ span: SourceSpan,
+    _ bound: Set<String>, _ namespaces: Map<String, LibraryNamespace>) -> Void {
+    if bound.has(ns) {
+        return;
+    }
+    match namespaces.get(ns) {
+        Some(surface) => {
+            if !namespace_exposes(surface, name) {
+                add_error(warnings, '`${name}` is not a public member of `${ns}`', span);
+            }
+        },
+        None => {},
+    }
+}
+
+fn vis_decl(_ warnings: List<CheckError>, _ decl: Decl, _ namespaces: Map<String, LibraryNamespace>) -> Void {
+    match decl {
+        Fn(x) => { vis_fn(warnings, x, namespaces); },
+        Impl(x) => {
+            for m in x.methods {
+                vis_fn(warnings, m, namespaces);
+            }
+        },
+        Type(x) => {
+            for f in x.fields {
+                vis_type(warnings, f.type_ann, Set.new(), namespaces);
+            }
+        },
+        Enum(x) => {
+            for v in x.variants {
+                for t in v.fields {
+                    vis_type(warnings, t, Set.new(), namespaces);
+                }
+            }
+        },
+        Const(x) => {
+            match x.type_ann {
+                Some(t) => { vis_type(warnings, t, Set.new(), namespaces); },
+                None => {},
+            }
+            vis_expr(warnings, x.value, Set.new(), namespaces);
+        },
+        Interface(x) => {
+            for m in x.methods {
+                vis_fn(warnings, m, namespaces);
+            }
+        },
+        Import(_) => {},
+    }
+}
+
+fn vis_fn(_ warnings: List<CheckError>, _ fn_decl: FnDecl, _ namespaces: Map<String, LibraryNamespace>) -> Void {
+    let bound: Set<String> = Set.new();
+    for p in fn_decl.params {
+        bound.add(p.name);
+        match p.type_ann {
+            Some(t) => { vis_type(warnings, t, bound, namespaces); },
+            None => {},
+        }
+    }
+    match fn_decl.return_type {
+        Some(t) => { vis_type(warnings, t, bound, namespaces); },
+        None => {},
+    }
+    match fn_decl.body {
+        Some(body) => { vis_block(warnings, body, bound, namespaces); },
+        None => {},
+    }
+}
+
+fn vis_block(_ warnings: List<CheckError>, _ block: Block, _ bound: Set<String>,
+    _ namespaces: Map<String, LibraryNamespace>) -> Void {
+    for stmt in block.stmts {
+        vis_stmt(warnings, stmt, bound, namespaces);
+    }
+    match block.tail {
+        Some(e) => { vis_expr(warnings, e, bound, namespaces); },
+        None => {},
+    }
+}
+
+fn vis_stmt(_ warnings: List<CheckError>, _ stmt: Stmt, _ bound: Set<String>,
+    _ namespaces: Map<String, LibraryNamespace>) -> Void {
+    match stmt {
+        Let(x) => {
+            match x.type_ann {
+                Some(t) => { vis_type(warnings, t, bound, namespaces); },
+                None => {},
+            }
+            vis_expr(warnings, x.value, bound, namespaces);
+            bound.add(x.name);
+        },
+        Return(_, opt) => {
+            match opt {
+                Some(e) => { vis_expr(warnings, e, bound, namespaces); },
+                None => {},
+            }
+        },
+        Throw(_, e) => { vis_expr(warnings, e, bound, namespaces); },
+        Expr(_, e) => { vis_expr(warnings, e, bound, namespaces); },
+        Assign(_, target, value) => {
+            vis_expr(warnings, target, bound, namespaces);
+            vis_expr(warnings, value, bound, namespaces);
+        },
+        If(x) => {
+            vis_expr(warnings, x.condition, bound, namespaces);
+            vis_block(warnings, x.then_block, bound, namespaces);
+            match x.else_block {
+                Some(b) => { vis_block(warnings, b, bound, namespaces); },
+                None => {},
+            }
+        },
+        For(x) => {
+            vis_expr(warnings, x.iterable, bound, namespaces);
+            let inner = copy_name_set(bound);
+            bind_pattern(x.pattern, inner);
+            vis_block(warnings, x.body, inner, namespaces);
+        },
+        While(x) => {
+            vis_expr(warnings, x.condition, bound, namespaces);
+            vis_block(warnings, x.body, bound, namespaces);
+        },
+    }
+}
+
+fn vis_expr(_ warnings: List<CheckError>, _ expr: Expr, _ bound: Set<String>,
+    _ namespaces: Map<String, LibraryNamespace>) -> Void {
+    match expr {
+        Field(span, obj, name) => {
+            match obj {
+                Ident(_, ns) => { vis_member(warnings, ns, name, span, bound, namespaces); },
+                _ => {},
+            }
+            vis_expr(warnings, obj, bound, namespaces);
+        },
+        Call(x) => {
+            vis_expr(warnings, x.callee, bound, namespaces);
+            for a in x.args {
+                vis_expr(warnings, a.value, bound, namespaces);
+            }
+        },
+        Index(_, obj, idx) => {
+            vis_expr(warnings, obj, bound, namespaces);
+            vis_expr(warnings, idx, bound, namespaces);
+        },
+        Binary(_, l, _, r) => {
+            vis_expr(warnings, l, bound, namespaces);
+            vis_expr(warnings, r, bound, namespaces);
+        },
+        Unary(_, _, e) => { vis_expr(warnings, e, bound, namespaces); },
+        Propagate(_, e) => { vis_expr(warnings, e, bound, namespaces); },
+        Range(_, lo, hi) => {
+            vis_expr(warnings, lo, bound, namespaces);
+            vis_expr(warnings, hi, bound, namespaces);
+        },
+        ListLit(_, items) => {
+            for e in items {
+                vis_expr(warnings, e, bound, namespaces);
+            }
+        },
+        MapLit(_, entries) => {
+            for e in entries {
+                vis_expr(warnings, e.key, bound, namespaces);
+                vis_expr(warnings, e.value, bound, namespaces);
+            }
+        },
+        Struct(x) => {
+            match x.namespace {
+                Some(ns) => { vis_member(warnings, ns, x.type_name, x.span, bound, namespaces); },
+                None => {},
+            }
+            for f in x.fields {
+                vis_expr(warnings, f.value, bound, namespaces);
+            }
+        },
+        Str(_, parts) => {
+            for p in parts {
+                match p {
+                    Interp(_, e) => { vis_expr(warnings, e, bound, namespaces); },
+                    Text(_, _) => {},
+                }
+            }
+        },
+        Match(x) => {
+            vis_expr(warnings, x.subject, bound, namespaces);
+            for arm in x.arms {
+                let arm_bound = copy_name_set(bound);
+                bind_pattern(arm.pattern, arm_bound);
+                vis_expr(warnings, arm.body, arm_bound, namespaces);
+            }
+        },
+        Lambda(x) => {
+            let inner = copy_name_set(bound);
+            for p in x.params {
+                inner.add(p.name);
+                match p.type_ann {
+                    Some(t) => { vis_type(warnings, t, inner, namespaces); },
+                    None => {},
+                }
+            }
+            vis_expr(warnings, x.body, inner, namespaces);
+        },
+        Block(_, block) => { vis_block(warnings, block, bound, namespaces); },
+        If(x) => {
+            vis_expr(warnings, x.condition, bound, namespaces);
+            vis_block(warnings, x.then_block, bound, namespaces);
+            match x.else_block {
+                Some(b) => { vis_block(warnings, b, bound, namespaces); },
+                None => {},
+            }
+        },
+        Return(_, opt) => {
+            match opt {
+                Some(e) => { vis_expr(warnings, e, bound, namespaces); },
+                None => {},
+            }
+        },
+        Throw(_, e) => { vis_expr(warnings, e, bound, namespaces); },
+        Ident(_, _) => {},
+        Int(_, _) => {},
+        Float(_, _) => {},
+        Bool(_, _) => {},
+        Unit(_) => {},
+    }
+}
+
+fn vis_type(_ warnings: List<CheckError>, _ type_ref: TypeRef, _ bound: Set<String>,
+    _ namespaces: Map<String, LibraryNamespace>) -> Void {
+    match type_ref {
+        Named(nt) => {
+            match nt.namespace {
+                Some(ns) => { vis_member(warnings, ns, nt.name, nt.span, bound, namespaces); },
+                None => {},
+            }
+            for a in nt.args {
+                vis_type(warnings, a, bound, namespaces);
+            }
+        },
+        Function(ft) => {
+            for p in ft.params {
+                vis_type(warnings, p, bound, namespaces);
+            }
+            vis_type(warnings, ft.return_type, bound, namespaces);
+        },
     }
 }
 
