@@ -547,10 +547,11 @@ impl Parser {
         let fields: List<FieldDef> = [];
         let mut going = true;
         while going && !self.panicking && !self.check(TokenKind.RBrace) && !self.at_end() {
+            let is_mut = self.match_kind(TokenKind.KwMut);   // `mut field: T`
             let fname = self.expect(TokenKind.Identifier, 'field name').lexeme();
             self.expect(TokenKind.Colon, ':');
             let ftype = self.parse_type_ref();
-            fields.push(FieldDef { name: fname, type_ann: ftype });
+            fields.push(FieldDef { is_mut: is_mut, name: fname, type_ann: ftype });
             if !self.match_kind(TokenKind.Comma) {
                 going = false;
             }

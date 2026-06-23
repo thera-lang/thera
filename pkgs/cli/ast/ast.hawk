@@ -70,6 +70,7 @@ pub type TypeDecl = {
 
 // A struct field: a name and its declared type.
 pub type FieldDef = {
+    is_mut: Bool,
     name: String,
     type_ann: TypeRef,
 }

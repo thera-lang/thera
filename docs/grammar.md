@@ -144,7 +144,7 @@ param       = 'self'
             // means label == name.
 
 typeDecl    = 'type' IDENT typeParams? '=' '{' field (',' field)* ','? '}'
-field       = IDENT ':' type
+field       = 'mut'? IDENT ':' type        // `mut` allows the field to be reassigned
 
 enumDecl    = 'enum' IDENT typeParams? '{' variant (',' variant)* ','? '}'
 variant     = IDENT ( '(' type (',' type)* ')' )?       // positional payload
