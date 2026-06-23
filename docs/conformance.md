@@ -63,6 +63,7 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `type-bytes`        | Types → Bytes            | `Bytes` len / `to_string` / `from_list` / `empty`         | ◐      |
 | `type-struct`       | Structs                  | `type` decl, struct literal, field access                 | ✓      |
 | `type-struct-immut` | Structs                  | struct fields immutable by default                        | ⓧ      |
+| `type-field-nonstruct`| Structs                | a bare field access on a non-struct value is rejected     | ✓      |
 
 ## Variables & semantics
 
@@ -173,9 +174,12 @@ to fix, each ideally captured by a conformance test once resolved.
   access. (Both still rely on lenient *resolution* underneath; the per-library
   resolution rework is deferred — see scoping.md.)
 
-- **field access on a non-struct value** (e.g. `5.x`) slips past `check` and is
-  caught only at codegen — a known analysis gap (deferred). A `check`-mode test
-  under `type-struct` should pin the intended diagnostic once fixed.
+- **field access on a non-struct value — RESOLVED** (`type-field-nonstruct`). A
+  bare field access on a primitive receiver (`5.x`, `true.y`) is now a `check`
+  error (`field access on a non-struct value: Int has no field "foo"`), added to
+  the `Field` case alongside the struct-field-miss check. Safe because
+  namespace/`Enum.Variant`/type receivers infer to `Unknown` (not `Primitive`),
+  and method calls go through the `Call` case; the corpus had 0 violations.
 
 - **binding immutability — ENFORCED; field immutability — deferred**
   (`var-let-immutable`, `type-struct-immut`). The checker now rejects reassigning

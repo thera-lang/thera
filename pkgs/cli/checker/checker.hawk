@@ -684,6 +684,17 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
             let recv = infer_expr(object, scope, ctx, Option.None);
             if struct_field_missing(recv, field, ctx) {
                 add_error(errors, 'no such field "${field}" on type ${type_to_string(recv)}', span);
+            } else {
+                // A bare field access on a primitive value (`5.x`, `true.y`):
+                // primitives have methods, not fields. A method call like
+                // `5.to_double()` is a `Call` (handled above), not this bare-Field
+                // case, so it is unaffected.
+                match recv {
+                    Primitive(_) => {
+                        add_error(errors, 'field access on a non-struct value: ${type_to_string(recv)} has no field "${field}"', span);
+                    },
+                    _ => {},
+                }
             };
         },
         Index(span, object, index) => {

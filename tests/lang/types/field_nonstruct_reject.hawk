@@ -1,0 +1,10 @@
+//! spec: type-field-nonstruct
+//! mode: check
+
+fn main() -> Int {
+    let n = 5;
+    // Primitives have methods, not fields; a bare field access is rejected at
+    // check. (A method call like `n.to_double()` is fine — it's a call, not this.)
+    let x = n.foo;   // expect error: field access on a non-struct value
+    return 0;
+}
