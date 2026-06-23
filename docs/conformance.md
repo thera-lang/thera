@@ -143,7 +143,7 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | ID                  | Spec (language.md)       | Pins                                                        | Status |
 | ------------------- | ------------------------ | ---------------------------------------------------------- | ------ |
 | `entry-main`        | Entry point              | `main` signatures; `Int` return is the exit code          | ✓      |
-| `entry-main-err`    | Entry point              | an `Err` result exits non-zero, message to stderr         | ✗      |
+| `entry-main-err`    | Entry point              | an `Err` result exits non-zero, message to stderr         | ✓      |
 | `decorators`        | Decorators / annotations | `@name(args)` parse & attach (e.g. `@test`)               | ✓      |
 
 ## Findings
@@ -198,13 +198,11 @@ to fix, each ideally captured by a conformance test once resolved.
   directly callable on a concrete type without an impl — reachable only via
   dispatch.)
 
-- **two IDs intentionally untested here.** `vis-whitebox-test` (a `foo_test.hawk`
+- **one ID intentionally untested here.** `vis-whitebox-test` (a `foo_test.hawk`
   seeing `foo.hawk` privates) is exercised by the project's real `_test.hawk`
   suites but not pinnable in `tests/lang/`, since this harness drives
-  `hawk run`/`check`, not `hawk test`. `entry-main-err` (an `Err` from `main`
-  exits non-zero with the message on stderr — verified by probe) needs a
-  general "expected exit code / stderr" expectation the harness doesn't have yet
-  (only `expect trap:`); a candidate follow-up.
+  `hawk run`/`check`, not `hawk test`. (`entry-main-err` is now pinned via the
+  harness's `// expect exit:` / `// expect stderr:` expectations.)
 
 - **trap messages — RESOLVED.** Faults now abort with a human-readable
   `hawk: trap: <message>` (e.g. `index out of range: the index is 9 but the

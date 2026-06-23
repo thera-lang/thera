@@ -1,0 +1,10 @@
+//! spec: entry-main-err
+//! mode: run
+
+// An `Err` result from `main` exits non-zero and prints the error message to
+// stderr (it produces no stdout).
+fn main() -> Result<Int, Error> {
+    return Result.Err(error('boom from main'));
+}
+// expect exit: 1
+// expect stderr: boom from main

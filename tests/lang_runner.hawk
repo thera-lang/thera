@@ -37,6 +37,8 @@ type Test = {
     stdout: List<String>,         // ordered expected stdout lines (run mode)
     errors: List<ExpectError>,    // expected diagnostics (check mode)
     traps: List<String>,          // expected trap substrings (run mode)
+    exit_code: Option<Int>,       // expected process exit code (run mode)
+    stderr: List<String>,         // expected stderr substrings (run mode)
     is_test: Bool,                // false for a support file (no `//!` directives)
 }
 
@@ -133,6 +135,8 @@ fn parse_test(_ path: String) -> Result<Test, Error> {
     let stdout: List<String> = [];
     let errors: List<ExpectError> = [];
     let traps: List<String> = [];
+    let mut exit_code: Option<Int> = Option.None;
+    let stderr: List<String> = [];
     let mut is_test = false;
 
     let lines = source.lines();
@@ -161,9 +165,24 @@ fn parse_test(_ path: String) -> Result<Test, Error> {
                     match after_marker(raw, '// expect trap:') {
                         Some(needle) => { traps.push(needle); },
                         None => {
-                            match after_marker(raw, '// expect:') {
-                                Some(text) => { stdout.push(text); },
-                                None => {},
+                            match after_marker(raw, '// expect exit:') {
+                                Some(code) => {
+                                    match code.to_int() {
+                                        Some(c) => { exit_code = Option.Some(c); },
+                                        None => {},
+                                    }
+                                },
+                                None => {
+                                    match after_marker(raw, '// expect stderr:') {
+                                        Some(needle) => { stderr.push(needle); },
+                                        None => {
+                                            match after_marker(raw, '// expect:') {
+                                                Some(text) => { stdout.push(text); },
+                                                None => {},
+                                            }
+                                        },
+                                    }
+                                },
                             }
                         },
                     }
@@ -181,7 +200,8 @@ fn parse_test(_ path: String) -> Result<Test, Error> {
 
     return Result.Ok(Test {
         path: path, mode: mode, spec: spec, xfail: xfail,
-        stdout: stdout, errors: errors, traps: traps, is_test: is_test,
+        stdout: stdout, errors: errors, traps: traps,
+        exit_code: exit_code, stderr: stderr, is_test: is_test,
     });
 }
 
@@ -236,8 +256,10 @@ fn run_check(_ hawk: String, _ test: Test) -> Verdict {
     return Verdict.Pass;
 }
 
-// `run` mode: execute the program; match stdout against the ordered `// expect:`
-// lines, and (when present) `// expect trap:` against a non-zero exit + stderr.
+// `run` mode: execute the program and match its observable behavior — `// expect
+// trap:` (non-zero exit + stderr), `// expect exit:` (exact code), `// expect
+// stderr:` (substrings), and the ordered `// expect:` stdout lines. The
+// exit/stderr/stdout checks compose, so a test can assert all three at once.
 fn run_run(_ hawk: String, _ test: Test) -> Verdict {
     let result = match process.run(hawk, args: ['run', test.path]) {
         Ok(r) => r,
@@ -254,6 +276,22 @@ fn run_run(_ hawk: String, _ test: Test) -> Verdict {
             }
         }
         return Verdict.Pass;
+    }
+
+    // `// expect exit: <n>` — exact process exit code.
+    match test.exit_code {
+        Some(code) => {
+            if result.exit_code != code {
+                return Verdict.Fail('exit code: expected ${code}, got ${result.exit_code}\nstderr:\n${result.stderr}');
+            }
+        },
+        None => {},
+    }
+    // `// expect stderr: <substr>` — each substring must appear on stderr.
+    for needle in test.stderr {
+        if !result.stderr.contains(needle) {
+            return Verdict.Fail('expected stderr containing:\n  "${needle}"\nbut stderr was:\n${result.stderr}');
+        }
     }
 
     let got = nonempty_lines(result.stdout);

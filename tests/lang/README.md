@@ -42,7 +42,10 @@ let y = nums[9];         // expect trap: out of range    (run)   the program tra
 
 - **`run`** mode compares the ordered `// expect:` list against the program's
   stdout (exactly, line for line). With `// expect trap:` lines it instead
-  requires a non-zero exit and the trap text on stderr.
+  requires a non-zero exit and the trap text on stderr. Two further run-mode
+  expectations compose with the stdout check: `// expect exit: <n>` asserts the
+  exact process exit code, and `// expect stderr: <text>` asserts a substring on
+  stderr (e.g. for an `Err` returned from `main`).
 - **`check`** mode requires every `// expect error:` to match a diagnostic on its
   line **and** every emitted diagnostic to be expected — a surprise error fails
   the test.
