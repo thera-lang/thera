@@ -71,8 +71,24 @@ test file carries the `//!` header and `import`s its sibling support file.
 ## Running
 
 ```
-hawk run tests/lang_runner.hawk <hawk-cmd> <test-root>
+hawk run tests/lang_runner.hawk <hawk-cmd> <test-root> [coverage-map]
 ```
 
 `<hawk-cmd>` is the `hawk` launcher under test (`bin/hawk.sh` in the dev tree);
 `<test-root>` is this directory. `bin/test.sh` wires this up.
+
+## Coverage report
+
+Pass the coverage map ([docs/conformance.md](../../docs/conformance.md)) as the
+optional third argument and the harness diffs the `//! spec:` IDs the tests cite
+against the IDs registered in the map:
+
+```
+coverage: 70/72 spec IDs have a test
+  untested (2): entry-main-err, vis-whitebox-test
+```
+
+- **untested** registered IDs are informational (some are intentionally unpinned).
+- An ID a test cites that is **not** registered in the map (a typo or a missing
+  map entry) is an error and fails the run — keeping citations and the map in
+  sync.

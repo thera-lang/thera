@@ -66,12 +66,16 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
     let mut failed = 0;
     let mut xfail = 0;
     let mut xpass = 0;
+    let specs: List<String> = [];   // every `//! spec:` ID cited by a test
 
     for file in sort_strings(files) {
         let test = parse_test(file)?;
         // A file with no `//!` directive is a support file (e.g. a library a
         // multi-file import test imports) — not itself a test.
         if test.is_test {
+            if test.spec != '' {
+                specs.push(test.spec);
+            }
             let verdict = run_test(hawk, test);
             let expected_fail = match test.xfail {
                 Some(_) => true,
@@ -105,7 +109,15 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
     let total = passed + xfail + failed + xpass;
     println('');
     println('${passed} passed, ${xfail} xfail, ${failed} failed, ${xpass} xpass (${total} tests)');
-    if failed > 0 || xpass > 0 {
+
+    // Optional 3rd arg: the conformance coverage map. When given, diff the spec
+    // IDs cited by tests against the IDs registered there.
+    let mut coverage_problem = false;
+    if parameters.len() >= 3 {
+        coverage_problem = report_coverage(parameters[2], specs);
+    }
+
+    if failed > 0 || xpass > 0 || coverage_problem {
         return Result.Ok(1);
     }
     return Result.Ok(0);
@@ -295,6 +307,105 @@ fn parse_diagnostics(_ stdout: String, _ path: String) -> List<Diagnostic> {
 
 // `continue` is not yet in the language; this no-op keeps the skip branch honest.
 fn continue_skip() -> Void {}
+
+// --- coverage report ---
+
+// Diff the spec IDs cited by tests (`specs`) against the IDs registered in the
+// conformance coverage map at `map_path`. Prints a coverage line, the untested
+// registered IDs (informational), and any IDs a test cites that are NOT
+// registered (a typo or a missing map entry). Returns true on the latter — an
+// unregistered citation is an error that should fail the suite.
+fn report_coverage(_ map_path: String, _ specs: List<String>) -> Bool {
+    let source = match fs.read_text(map_path) {
+        Ok(s) => s,
+        Err(_) => {
+            println('');
+            println('coverage: could not read ${map_path}');
+            return false;
+        },
+    };
+    let registered_ids = extract_registered_ids(source);
+    let registered = Set.from(registered_ids);
+    let tested = Set.from(specs);
+
+    let mut covered = 0;
+    let untested: List<String> = [];
+    for id in registered_ids {
+        if tested.has(id) {
+            covered = covered + 1;
+        } else {
+            untested.push(id);
+        }
+    }
+    let unregistered: List<String> = [];
+    for id in tested.to_list() {
+        if !registered.has(id) {
+            unregistered.push(id);
+        }
+    }
+
+    println('');
+    println('coverage: ${covered}/${registered_ids.len()} spec IDs have a test');
+    if untested.len() > 0 {
+        println('  untested (${untested.len()}): ${sort_strings(untested).join(', ')}');
+    }
+    if unregistered.len() > 0 {
+        println('  ERROR: ${unregistered.len()} spec ID(s) cited by a test but not registered in the coverage map:');
+        for id in sort_strings(unregistered) {
+            println('    ${id}');
+        }
+        return true;
+    }
+    return false;
+}
+
+// The registered spec IDs from the coverage map: a table row whose **first**
+// column is a backtick-quoted id-shaped token (`lex-int`, `decorators`).
+// Requiring the first column skips the notation/legend tables (whose IDs, if
+// any, sit in later columns) and prose in the Findings.
+fn extract_registered_ids(_ source: String) -> List<String> {
+    let ids: List<String> = [];
+    let seen: Set<String> = Set.new();
+    for raw in source.lines() {
+        let line = raw.trim();
+        if line.starts_with('|') {
+            // cells[0] is '' (before the leading `|`); cells[1] is the first column.
+            let cells = line.split('|');
+            if cells.len() >= 2 {
+                let first = cells[1].trim();
+                if first.len() >= 2 && first.starts_with('`') && first.ends_with('`') {
+                    let token = first.slice(1, first.len() - 1);
+                    if is_id_token(token) && !seen.has(token) {
+                        seen.add(token);
+                        ids.push(token);
+                    }
+                }
+            }
+        }
+    }
+    return ids;
+}
+
+// Whether `s` matches `[a-z][a-z0-9-]*` — the shape of a spec ID.
+fn is_id_token(_ s: String) -> Bool {
+    let cs = s.chars();
+    if cs.len() == 0 {
+        return false;
+    }
+    if cs[0] < 97 || cs[0] > 122 {   // first must be a-z
+        return false;
+    }
+    let mut i = 1;
+    while i < cs.len() {
+        let c = cs[i];
+        let ok = (c >= 97 && c <= 122) || (c >= 48 && c <= 57) || c == 45;   // a-z 0-9 '-'
+        if !ok {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
 
 // --- string helpers ---
 
