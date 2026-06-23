@@ -1,11 +1,10 @@
 //! spec: type-string-noindex
 //! mode: check
-//! xfail: `s[i]` is rejected at codegen ("indexing on String is not supported") but not yet by `check`
 
 fn main() -> Int {
     let s = 'hello';
     // Integer-indexing a String is disallowed (it could split a multi-byte
-    // character). `check` should report this; today only codegen does.
+    // character) — rejected by `check`.
     let c = s[0];   // expect error: indexing on String
     return 0;
 }

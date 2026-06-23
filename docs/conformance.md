@@ -56,7 +56,7 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | ID                  | Spec (language.md)       | Pins                                                        | Status |
 | ------------------- | ------------------------ | ---------------------------------------------------------- | ------ |
 | `type-primitives`   | Types → Primitives       | Int/Double/Bool/String/Void behavior                       | ✓      |
-| `type-string-noindex`| Types → Primitives      | `s[i]` on a String is disallowed                          | ⓧ      |
+| `type-string-noindex`| Types → Primitives      | `s[i]` on a String is disallowed                          | ✓      |
 | `type-list`         | Collections              | `List<T>` literal, `len`, indexing                        | ✓      |
 | `type-map`          | Collections              | `Map<K,V>` literal, keyed access                          | ✓      |
 | `type-set`          | Collections              | `Set<T>` uniqueness via `Set.from`                        | ✓      |
@@ -117,7 +117,7 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `iface-impl`        | Interfaces               | `impl Iface for T` checked for every method               | ✓      |
 | `iface-inherent`    | Inherent methods         | `impl T { … }` inherent methods                           | ✓      |
 | `iface-static`      | Static methods           | no-`self` methods called on the type                      | ✓      |
-| `iface-display`     | Display and Debug        | `${}` requires `Display`; missing impl = error            | ◐      |
+| `iface-display`     | Display and Debug        | `${}` requires `Display`; missing impl = error            | ✓      |
 | `iface-debug`       | Display and Debug        | structural `Debug` derive for structs                     | ◐      |
 | `iface-eq`          | Display and Debug        | `==` structural by default; explicit `impl Eq` overrides   | ✓      |
 | `iface-inherit`     | Interface inheritance    | `interface E: Display + Debug` obligations & widened set   | ✓      |
@@ -190,23 +190,22 @@ to fix, each ideally captured by a conformance test once resolved.
   *both* locals and fields; `type-struct-immut` stays ⓧ pending that `mut`-fields
   arc.
 
-- **`s[i]` on a String is rejected late** (`type-string-noindex`). codegen emits
-  "indexing on String is not supported", but `check` passes it clean — same
-  check-vs-codegen split as the `5.x` field-access gap. xfail until `check`
-  rejects it.
+- **`s[i]` on a String — now rejected at `check`** (`type-string-noindex`). The
+  `Index` case rejects a `String` receiver (`indexing on String is not
+  supported`), so it no longer slips to codegen. (The sibling `5.x`
+  field-access-on-a-non-struct gap is still codegen-only — a candidate for the
+  same treatment.)
 
-- **structural `Debug`/`Display` derives aren't accepted as interface values, and
-  `${}` doesn't require `Display` at `check`** (`iface-debug`, `iface-display`).
-  Passing a struct with no explicit `impl Debug` to a `Debug`-typed parameter is
-  rejected ("expected Debug, found Point"), even though language.md says `Debug`
-  is auto-derived for structs — so the conformance tests use an explicit
-  `impl Debug`. Conversely, interpolating a struct with no `Display` impl passes
-  `check` (it then traps at runtime), though the spec says it's a compile error;
-  pinned as an `iface-display` xfail. Two sides of the same gap: the checker's
-  treatment of the structural derives at interface boundaries is looser/stricter
-  than the spec in opposite directions. (`.debug()`/`.eq()` are also not
-  directly callable on a concrete type without an impl — reachable only via
-  dispatch.)
+- **`${}` now requires `Display` at `check`** (`iface-display`) — interpolating a
+  value whose type doesn't satisfy `Display` is a compile error (`cannot
+  interpolate Bare: it does not implement Display`), via `satisfies_bound(t,
+  'Display', …)` in the `Str` case. The corpus had 0 violations. Still open
+  (`iface-debug`): the structural `Debug` derive isn't accepted where a `Debug`
+  interface value is expected (a struct with no explicit `impl Debug` is rejected
+  as a `Debug`-typed argument, though language.md says `Debug` is auto-derived) —
+  so those tests use an explicit `impl Debug`. `.debug()`/`.eq()` are likewise
+  not directly callable on a concrete type without an impl — reachable only via
+  dispatch.
 
 - **one ID intentionally untested here.** `vis-whitebox-test` (a `foo_test.hawk`
   seeing `foo.hawk` privates) is exercised by the project's real `_test.hawk`

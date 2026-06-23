@@ -1,6 +1,5 @@
 //! spec: iface-display
 //! mode: check
-//! xfail: interpolating a non-Display type is not yet a check error (today it passes check and traps at runtime)
 
 type Bare = {
     n: Int,
@@ -8,9 +7,7 @@ type Bare = {
 
 fn main() -> Int {
     let b = Bare { n: 1 };
-    // `${}` requires Display; Bare has no impl, so this should be a compile error
-    // (intended message names Display). The empty expectation matches any
-    // diagnostic on this line, so enforcement flips this to XPASS.
-    println('${b}');   // expect error:
+    // `${}` requires Display; Bare has no impl, so this is a compile error.
+    println('${b}');   // expect error: does not implement Display
     return 0;
 }

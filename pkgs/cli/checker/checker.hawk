@@ -686,9 +686,17 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
                 add_error(errors, 'no such field "${field}" on type ${type_to_string(recv)}', span);
             };
         },
-        Index(_, object, index) => {
+        Index(span, object, index) => {
             check_expr(errors, object, scope, ctx, Option.None);
             check_expr(errors, index, scope, ctx, Option.None);
+            // A String is UTF-8 and not integer-indexable (it could split a
+            // multi-byte character). Reject `s[i]` at check, not only at codegen.
+            match infer_expr(object, scope, ctx, Option.None) {
+                Primitive(Str) => {
+                    add_error(errors, 'indexing on String is not supported (use `.chars()` or `.graphemes()`)', span);
+                },
+                _ => {},
+            }
         },
         Binary(_, left, _, right) => {
             check_expr(errors, left, scope, ctx, Option.None);
@@ -741,7 +749,15 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
         Str(_, parts) => {
             for part in parts {
                 match part {
-                    Interp(_, e) => { check_expr(errors, e, scope, ctx, Option.None); },
+                    Interp(ispan, e) => {
+                        check_expr(errors, e, scope, ctx, Option.None);
+                        // Interpolation requires Display. Primitives have it
+                        // built-in; a struct/enum needs an explicit `impl Display`.
+                        let t = infer_expr(e, scope, ctx, Option.None);
+                        if !satisfies_bound(t, 'Display', ctx.library.type_defs) {
+                            add_error(errors, 'cannot interpolate ${type_to_string(t)}: it does not implement Display', ispan);
+                        }
+                    },
                     Text(_, _) => {},
                 }
             }
