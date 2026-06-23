@@ -226,12 +226,15 @@ are the violations to address.
      that needs the resolution rework below.
 
 **Status.** Migration (6) is **done** and guarded at 0. Qualified-only is
-**enforced** via the promoted `qualify_lint` (above). Remaining: `pub` visibility
-enforcement — surface-checked `ns.name` resolution (2) wiring in
-`namespace_exposes`, plus the `foo_test.hawk` white-box exception (4) — and then,
-optionally, the deeper resolution-correctness rework (per-library ownership and
-per-file namespaces, 1/3/5, with codegen in lockstep) that makes resolution
-correct-by-construction rather than lint-checked.
+**enforced** via the promoted `qualify_lint`, and **`pub` visibility is enforced**
+via `visibility_lint` — a parallel pass that checks each qualified `ns.name`
+against the namespace's public surface (2, wiring in `namespace_exposes`). The
+corpus had 0 violations of each. Remaining: the `foo_test.hawk` white-box
+exception (4) — deferred because tests reach privates via `import … as _;` + bare
+names, which the qualified-access check never sees, so nothing is broken today —
+and then, optionally, the deeper resolution-correctness rework (per-library
+ownership and per-file namespaces, 1/3/5, with codegen in lockstep) that makes
+resolution correct-by-construction rather than lint-checked.
 
 A natural sequencing: adopt `as _` for the pervasively-used foundational libraries
 and qualify the rest (6, driven by the lint, byte-identical under the lenient
