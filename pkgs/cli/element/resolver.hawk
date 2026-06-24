@@ -121,7 +121,14 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
         for decl in p.decls {
             match decl {
                 Type(x) => {
-                    type_defs[x.name] = new_struct(x.name, type_param_names(x.type_params));
+                    // A `native type` resolves as an opaque built-in (no fields, an
+                    // attachment point for impls) — the same kind the hardcoded
+                    // `builtin_type_defs()` floor registers, which this shadows.
+                    type_defs[x.name] = if x.is_native {
+                        new_builtin(x.name, type_param_names(x.type_params))
+                    } else {
+                        new_struct(x.name, type_param_names(x.type_params))
+                    };
                 },
                 Enum(x) => {
                     type_defs[x.name] = new_enum(x.name, type_param_names(x.type_params));

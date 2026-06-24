@@ -62,6 +62,11 @@ pub type FnDecl = {
 pub type TypeDecl = {
     span: SourceSpan,
     is_pub: Bool,
+    // A `native type` (`native type List<T>`): an opaque, runtime-represented
+    // type with no field layout — a declaration site for the built-in types whose
+    // representation lives in the runtime. `fields` is empty; methods come from
+    // `impl` blocks like any other type.
+    is_native: Bool,
     name: String,
     name_span: SourceSpan,
     type_params: List<TypeParam>,
