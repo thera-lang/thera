@@ -1,0 +1,10 @@
+// Support library with a private helper, for the white-box test exception.
+// No `//!` block, so the harness treats it as a support file.
+
+fn internal_value() -> Int {
+    return 99;
+}
+
+pub fn public_value() -> Int {
+    return internal_value();
+}

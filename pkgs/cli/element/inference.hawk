@@ -1218,7 +1218,7 @@ fn field_type(_ recv: Type, _ field: String, _ ctx: InferCtx) -> Type {
 // Whether `name` refers to an import namespace here (a known namespace not
 // shadowed by a local).
 fn is_namespace(_ name: String, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Bool {
-    return !scope.has(name) && ctx.library.namespaces.has(name);
+    return !scope.has(name) && namespaces_in(ctx.library, ctx.current_file).has(name);
 }
 
 // Resolve a (possibly namespace-qualified) type reference in expression position

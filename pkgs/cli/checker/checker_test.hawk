@@ -11,7 +11,7 @@ import '../element/element' as _;
 import 'checker' as _;
 
 fn errors_of(_ src: String) -> List<CheckError> {
-    return check(parse_tokens(tokenize(src).tokens).program, [], {}).errors;
+    return check(parse_tokens(tokenize(src).tokens).program, [], {}, {}).errors;
 }
 
 fn first_message(_ errs: List<CheckError>) -> String {
@@ -514,7 +514,7 @@ fn test_duplicate_pub_function_across_files_is_flagged() -> Result<Void, Error> 
     let lib = program_at('pub fn helper() -> Int { return 1; }', 'lib.hawk');
     let main = program_at('fn helper() -> Int { return 2; }\n'
         + 'fn run() -> Int { return helper(); }', 'main.hawk');
-    let errs = check(main, [lib], {}).errors;
+    let errs = check(main, [lib], {}, {}).errors;
     testing.assert(any_message_contains(errs, 'duplicate function `helper`'),
         message: 'expected a duplicate-function diagnostic')?;
     return Result.Ok(void);
@@ -527,7 +527,7 @@ fn test_private_function_collision_across_files_is_allowed() -> Result<Void, Err
     let lib = program_at('fn helper() -> Int { return 1; }', 'lib.hawk');
     let main = program_at('fn helper() -> Int { return 2; }\n'
         + 'fn run() -> Int { return helper(); }', 'main.hawk');
-    let errs = check(main, [lib], {}).errors;
+    let errs = check(main, [lib], {}, {}).errors;
     testing.assert_eq(actual: errs.len(), expected: 0)?;
     return Result.Ok(void);
 }
@@ -538,7 +538,7 @@ fn test_duplicate_type_across_files_is_flagged() -> Result<Void, Error> {
     let lib = program_at('pub type Point = { x: Int }', 'lib.hawk');
     let main = program_at('type Point = { y: Int }\n'
         + 'fn run() -> Int { return 0; }', 'main.hawk');
-    let errs = check(main, [lib], {}).errors;
+    let errs = check(main, [lib], {}, {}).errors;
     testing.assert(any_message_contains(errs, 'duplicate type `Point`'),
         message: 'expected a duplicate-type diagnostic')?;
     return Result.Ok(void);

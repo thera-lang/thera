@@ -81,12 +81,14 @@ pub fn builtin_type_defs() -> Map<String, TypeDefElement> {
 // recursive references resolve); pass 2 fills member types, signatures, consts,
 // and impl methods; pass 3 flattens the inherited interface closure.
 pub fn build_library(_ program: Program, _ imports: List<Program>,
-    _ namespaces: Map<String, LibraryNamespace>) -> LibraryElement {
+    _ file_namespaces: Map<String, Map<String, LibraryNamespace>>,
+    _ file_bare_surface: Map<String, Set<String>>) -> LibraryElement {
     let type_defs = builtin_type_defs();
     let functions: Map<String, FunctionElement> = {};
     let file_functions: Map<String, Map<String, FunctionElement>> = {};
     let consts: Map<String, ConstElement> = {};
-    let modules: Set<String> = Set.new();
+    // The top-level names each file declares — the same-file half of bare resolution.
+    let file_owned: Map<String, Set<String>> = {};
 
     // Imports are registered first so the primary program can shadow them.
     let programs: List<Program> = [];
@@ -94,6 +96,25 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
         programs.push(ip);
     }
     programs.push(program);
+
+    // Collect each file's declared top-level names (for same-file bare resolution).
+    for p in programs {
+        let key = file_key(p.file_path);
+        if !file_owned.has(key) {
+            file_owned[key] = Set.new();
+        }
+        match file_owned.get(key) {
+            Some(owned) => {
+                for decl in p.decls {
+                    match top_decl_name(decl) {
+                        Some(n) => { owned.add(n); },
+                        None => {},
+                    }
+                }
+            },
+            None => {},
+        }
+    }
 
     // ---- pass 1: skeleton type definitions ----
     for p in programs {
@@ -107,9 +128,6 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
                 },
                 Interface(x) => {
                     type_defs[x.name] = new_interface(x.name, type_param_names(x.type_params));
-                },
-                Import(x) => {
-                    modules.add(import_namespace(x));
                 },
                 _ => {},
             }
@@ -238,8 +256,23 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
         functions: functions,
         file_functions: file_functions,
         consts: consts,
-        modules: modules,
-        namespaces: namespaces,
+        file_namespaces: file_namespaces,
+        file_bare_surface: file_bare_surface,
+        file_owned: file_owned,
+    };
+}
+
+// The top-level name a declaration introduces into its file's scope, or None for
+// the nameless declarations (`impl` blocks, `import`s).
+fn top_decl_name(_ decl: Decl) -> Option<String> {
+    return match decl {
+        Fn(x) => Option.Some(x.name),
+        Type(x) => Option.Some(x.name),
+        Enum(x) => Option.Some(x.name),
+        Interface(x) => Option.Some(x.name),
+        Const(x) => Option.Some(x.name),
+        Impl(_) => Option.None,
+        Import(_) => Option.None,
     };
 }
 
@@ -353,23 +386,4 @@ fn type_param_bounds(_ decl: FnDecl) -> Map<String, List<String>> {
         b[tp.name] = tp.bounds;
     }
     return b;
-}
-
-// The namespace an import binds: its alias, or the trailing path segment
-// (`std.fs` -> `fs`).
-fn import_namespace(_ decl: ImportDecl) -> String {
-    return match decl.alias {
-        Some(a) => a,
-        None => trailing_segment(decl.path),
-    };
-}
-
-// The namespace a path binds: the trailing segment after both `/` and `.`
-// (`std.fs` -> `fs`, `lexer/lexer` -> `lexer`). Must match the loader's
-// `namespace_of`, or a slash-import's namespace won't be recognized as defined.
-fn trailing_segment(_ path: String) -> String {
-    let after_slash = path.split('/');
-    let tail = after_slash[after_slash.len() - 1];
-    let dotted = tail.split('.');
-    return dotted[dotted.len() - 1];
 }

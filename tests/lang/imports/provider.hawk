@@ -1,0 +1,6 @@
+// Support library: a leaf the conformance fixtures import transitively.
+// No `//!` directive block, so the harness treats it as a support file.
+
+pub fn provide() -> Int {
+    return 7;
+}

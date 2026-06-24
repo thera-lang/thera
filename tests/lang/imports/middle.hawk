@@ -1,0 +1,8 @@
+// Support library that imports `provider`, so `provider` lands in the import
+// closure of a test that imports `middle` — without that test importing it directly.
+
+import 'provider';
+
+pub fn relay() -> Int {
+    return provider.provide();
+}

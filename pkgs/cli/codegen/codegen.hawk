@@ -58,13 +58,20 @@ pub type Fixup = {
 // types, and methods register into a single scope (so cross-module references
 // resolve), then every unit is compiled.
 pub fn compile_program(_ program: Program, _ imports: List<Program>,
-    _ namespaces: Map<String, element.LibraryNamespace>) -> CodegenResult {
-    let library = resolver.build_library(program, imports, namespaces);
-    let ns_set: Set<String> = Set.new();
-    for k in namespaces.keys() {
-        ns_set.add(k);
+    _ file_namespaces: Map<String, Map<String, element.LibraryNamespace>>,
+    _ file_bare_surface: Map<String, Set<String>>) -> CodegenResult {
+    let library = resolver.build_library(program, imports, file_namespaces, file_bare_surface);
+    // Per-file namespace name-sets — each compiled unit resolves qualifiers against
+    // its own file's imports (no closure-wide union).
+    let file_ns_sets: Map<String, Set<String>> = {};
+    for f in file_namespaces.keys() {
+        let s: Set<String> = Set.new();
+        for k in file_namespaces[f].keys() {
+            s.add(k);
+        }
+        file_ns_sets[f] = s;
     }
-    let scope = new_module_scope(ns_set, library);
+    let scope = new_module_scope(file_ns_sets, library);
 
     let modules: List<Program> = [];
     for ip in imports {
@@ -334,7 +341,7 @@ impl FnCompiler {
     }
 
     fn is_namespace(self, _ name: String) -> Bool {
-        return !self.slots.has(name) && self.scope.namespaces.has(name);
+        return !self.slots.has(name) && self.scope.file_has_namespace(self.file, name);
     }
 
     // Push the value of local `name`; a boxed local holds a one-field cell.

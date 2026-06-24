@@ -103,7 +103,9 @@ pub type ModuleScope = {
     interface_methods: Map<String, Set<String>>,
     pending_dispatch: List<PendingDispatch>,
     interface_supers: Map<String, List<String>>,
-    namespaces: Set<String>,
+    // Per-file namespace names (file key -> namespace names), so each unit resolves
+    // qualifiers against its own file's imports.
+    namespaces: Map<String, Set<String>>,
     mut next_enum_ty: Int,
     boxed_params: Map<Int, Set<String>>,
     mut cell_type: Option<Int>,
@@ -115,7 +117,7 @@ pub type ModuleScope = {
     library: element.LibraryElement,
 }
 
-pub fn new_module_scope(_ namespaces: Set<String>, _ library: element.LibraryElement) -> ModuleScope {
+pub fn new_module_scope(_ namespaces: Map<String, Set<String>>, _ library: element.LibraryElement) -> ModuleScope {
     return ModuleScope {
         units: [],
         unit_names: [],
@@ -186,6 +188,14 @@ impl ModuleScope {
     // cross-file surface.
     pub fn resolve_global_function(self, _ name: String) -> Option<Int> {
         return self.global_functions.get(name);
+    }
+
+    // Whether `name` is an import namespace visible in `file` — its own imports.
+    pub fn file_has_namespace(self, _ file: Option<String>, _ name: String) -> Bool {
+        return match self.namespaces.get(element.file_key(file)) {
+            Some(s) => s.has(name),
+            None => false,
+        };
     }
 
     // A top-level `native fn`: its name binds to the runtime native named by its

@@ -29,10 +29,16 @@ pub type LibrarySource = {
 }
 
 // The loaded import closure: the flat list of imported programs (the typing /
-// linking substrate) and the namespaces the program's own imports bind.
+// linking substrate) and the per-file import namespaces. Resolution is per-file —
+// a file may qualify only with namespaces it itself imports — so each file carries
+// its own table (file key -> namespace -> surface) rather than a closure-wide union.
 pub type LoadedImports = {
     programs: List<Program>,
-    namespaces: Map<String, element.LibraryNamespace>,
+    file_namespaces: Map<String, Map<String, element.LibraryNamespace>>,
+    // Per-file bare-legal cross-file surface: the names that resolve *unqualified*
+    // from another library — the prelude (`std.core`) plus every `import … as _`.
+    // Bare resolution is restricted to same-file names + these + built-ins.
+    file_bare_surface: Map<String, Set<String>>,
 }
 
 // --- SDK root discovery ---
@@ -223,8 +229,19 @@ pub fn load_imports(_ path: String, _ program: Program, _ sdk_root: Option<Strin
 
     // std.core is auto-imported into every program — load it so its types (Error),
     // impls (Display for Error), and the prelude methods on built-in types link.
+    // Its public surface is bare-legal in every file (the prelude).
+    let core_names: Set<String> = Set.new();
     match loader.resolve('std.core', '') {
-        Some(core) => { loader.source_for(core); },
+        Some(core) => {
+            match loader.source_for(core) {
+                Some(core_src) => {
+                    for n in public_surface_of(core_src).names.to_list() {
+                        core_names.add(n);
+                    }
+                },
+                None => {},
+            }
+        },
         None => {},
     }
 
@@ -234,22 +251,117 @@ pub fn load_imports(_ path: String, _ program: Program, _ sdk_root: Option<Strin
     loader.cache[path] = root;
     loader.link_imports(program, dirname(path), root);
 
-    // Namespaces are the union across every linked module (an imported module's
-    // body can itself use a namespace-qualified call); the root's bindings win.
-    let namespaces: Map<String, element.LibraryNamespace> = {};
-    merge_namespaces(namespaces, namespaces_for(root));
+    // Each file resolves qualifiers against its own imports — so build a per-file
+    // table (every linked module, plus the root) rather than a closure-wide union.
+    // A module's body may itself use a namespace-qualified call, so codegen needs
+    // each compiled file's own bindings. The bare-legal surface is built alongside.
+    let file_namespaces: Map<String, Map<String, element.LibraryNamespace>> = {};
+    let file_bare_surface: Map<String, Set<String>> = {};
     for file in loader.cache.keys() {
-        merge_namespaces(namespaces, namespaces_for(loader.cache[file]));
+        let src = loader.cache[file];
+        let key = element.file_key(src.program.file_path);
+        file_namespaces[key] = namespaces_for(src);
+        file_bare_surface[key] = bare_surface_for(src, core_names);
     }
-    return LoadedImports { programs: loader.order, namespaces: namespaces };
+    return LoadedImports {
+        programs: loader.order,
+        file_namespaces: file_namespaces,
+        file_bare_surface: file_bare_surface,
+    };
 }
 
-fn merge_namespaces(_ into: Map<String, element.LibraryNamespace>, _ from: Map<String, element.LibraryNamespace>) -> Void {
-    for name in from.keys() {
-        if !into.has(name) {
-            into[name] = from[name];
+// The names that resolve *bare* in `root` from another library: the prelude
+// (`core_names`), the public surface of each `import … as _` (unqualified) import,
+// and — for a `foo_test.hawk` — the *full* surface (incl. private) of the `foo`
+// it imports (the white-box test exception; the filenames match).
+fn bare_surface_for(_ root: LibrarySource, _ core_names: Set<String>) -> Set<String> {
+    let names: Set<String> = Set.new();
+    for n in core_names.to_list() {
+        names.add(n);
+    }
+    let test_base = test_base_name(root.program.file_path);
+    for decl in root.program.decls {
+        match decl {
+            Import(x) => {
+                match root.imports.get(x.path) {
+                    Some(child) => {
+                        if x.unqualified {
+                            for n in public_surface_of(child).names.to_list() {
+                                names.add(n);
+                            }
+                        }
+                        // White-box: `foo_test.hawk` sees `foo.hawk`'s private
+                        // top-level names bare, in addition to its public surface.
+                        match test_base {
+                            Some(base) => {
+                                if basename_no_ext(child.program.file_path) == base {
+                                    for n in all_top_names(child).to_list() {
+                                        names.add(n);
+                                    }
+                                }
+                            },
+                            None => {},
+                        }
+                    },
+                    None => {},
+                }
+            },
+            _ => {},
         }
     }
+    return names;
+}
+
+// `<base>` for a `<base>_test.hawk` source file, else None.
+fn test_base_name(_ file: Option<String>) -> Option<String> {
+    let base = basename_no_ext(file);
+    let suffix = '_test';
+    if base.len() > suffix.len()
+        && base.slice(base.len() - suffix.len(), base.len()) == suffix {
+        return Option.Some(base.slice(0, base.len() - suffix.len()));
+    }
+    return Option.None;
+}
+
+// A source file's basename without its `.hawk` extension.
+fn basename_no_ext(_ file: Option<String>) -> String {
+    let path = match file {
+        Some(p) => p,
+        None => '',
+    };
+    let seg = last_segment(path, '/');
+    let ext = '.hawk';
+    if seg.len() > ext.len() && seg.slice(seg.len() - ext.len(), seg.len()) == ext {
+        return seg.slice(0, seg.len() - ext.len());
+    }
+    return seg;
+}
+
+// Every top-level name a library declares — public and private — for white-box
+// test access.
+fn all_top_names(_ source: LibrarySource) -> Set<String> {
+    let names: Set<String> = Set.new();
+    for decl in source.program.decls {
+        match any_top_name(decl) {
+            Some(n) => { names.add(n); },
+            None => {},
+        }
+    }
+    return names;
+}
+
+// The top-level name a declaration introduces (regardless of `pub`), or None for
+// the nameless declarations (`impl` blocks, `import`s).
+fn any_top_name(_ decl: Decl) -> Option<String> {
+    return match decl {
+        Fn(x) => Option.Some(x.name),
+        Type(x) => Option.Some(x.name),
+        Enum(x) => Option.Some(x.name),
+        Const(x) => Option.Some(x.name),
+        Interface(x) => Option.Some(x.name),
+        Impl(_) => Option.None,
+        Import(_) => Option.None,
+    };
 }
 
 // --- namespaces (mirror of element/namespace.dart) ---

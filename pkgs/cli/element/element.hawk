@@ -160,8 +160,47 @@ pub type LibraryElement = {
     // one. `functions` above is the cross-file fallback (last-wins).
     file_functions: Map<String, Map<String, FunctionElement>>,
     consts: Map<String, ConstElement>,
-    modules: Set<String>, // value-side module aliases from `import std.x`
-    namespaces: Map<String, LibraryNamespace>,
+    // Per-file import namespaces (file key -> namespace -> surface). A namespace
+    // resolves only in the file that imported it — there is no closure-wide union.
+    // (This replaced a closure-wide `modules` set of value-side namespace aliases.)
+    file_namespaces: Map<String, Map<String, LibraryNamespace>>,
+    // Per-file bare-legal cross-file surface (prelude + `as _` imports) and the set
+    // of top-level names each file declares. Together these gate bare resolution:
+    // a bare name is legal only if it is same-file (`file_owned`), bare-legal from
+    // another library (`file_bare_surface`), a built-in, or in scope.
+    file_bare_surface: Map<String, Set<String>>,
+    file_owned: Map<String, Set<String>>,
+}
+
+// The namespaces visible in `file` — the import bindings of that file alone.
+pub fn namespaces_in(_ lib: LibraryElement, _ file: Option<String>) -> Map<String, LibraryNamespace> {
+    match lib.file_namespaces.get(file_key(file)) {
+        Some(m) => { return m; },
+        None => {},
+    }
+    // A file absent from the table (e.g. an in-process build with no closure) has
+    // no namespaces — an empty map. (`{}` here as a bare arm would be a block, so
+    // bind it with a type annotation to get a map literal.)
+    let none: Map<String, LibraryNamespace> = {};
+    return none;
+}
+
+// Whether `name` resolves *bare* in `file` from another library — the prelude or
+// an `as _` import (not same-file; that is `file_owns`).
+pub fn bare_surface_has(_ lib: LibraryElement, _ file: Option<String>, _ name: String) -> Bool {
+    return match lib.file_bare_surface.get(file_key(file)) {
+        Some(s) => s.has(name),
+        None => false,
+    };
+}
+
+// Whether `file` declares a top-level `name` (so a bare reference resolves to its
+// own library's declaration).
+pub fn file_owns(_ lib: LibraryElement, _ file: Option<String>, _ name: String) -> Bool {
+    return match lib.file_owned.get(file_key(file)) {
+        Some(s) => s.has(name),
+        None => false,
+    };
 }
 
 // Resolve free function `name` referenced from `file`: the file's own function

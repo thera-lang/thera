@@ -36,21 +36,25 @@ pub fn has_errors(_ r: CheckResult) -> Bool {
 // into the element model but are not themselves checked); `namespaces` carries
 // the import-namespace surfaces. Returns the accumulated diagnostics.
 pub fn check(_ program: Program, _ imports: List<Program>,
-    _ namespaces: Map<String, LibraryNamespace>) -> CheckResult {
+    _ file_namespaces: Map<String, Map<String, LibraryNamespace>>,
+    _ file_bare_surface: Map<String, Set<String>>) -> CheckResult {
     let errors: List<CheckError> = [];
-    let library = resolver.build_library(program, imports, namespaces);
+    let library = resolver.build_library(program, imports, file_namespaces, file_bare_surface);
     check_duplicates(errors, program, imports);
     check_program(errors, program, library, program.file_path);
+    // The lints operate on the primary program, so they see only its own imports'
+    // namespaces (resolution is per-file — a file qualifies only with what it imports).
+    let prog_ns = namespaces_in(library, program.file_path);
     // Qualified-only enforcement: a bare reference to a name an import exposes is
     // an error (a cross-library name must be qualified, or imported `as _`). This
     // was a `--qualified`-only transitional warning; the corpus was driven to
     // zero, so it is now enforced. See docs/scoping.md.
-    for e in qualify_lint(program, namespaces) {
+    for e in qualify_lint(program, prog_ns) {
         errors.push(e);
     }
     // Visibility enforcement: a qualified `ns.name` to a non-public member is an
     // error (the `pub`-visibility half of the qualified-only rules).
-    for e in visibility_lint(program, namespaces) {
+    for e in visibility_lint(program, prog_ns) {
         errors.push(e);
     }
     return CheckResult { errors: errors };
@@ -624,7 +628,9 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
     _ ctx: InferCtx, _ expected: Option<Type>) -> Void {
     match expr {
         Ident(span, name) => {
-            if !is_defined_name(name, scope, ctx.library) {
+            // An imported-but-unqualified name is reported by `qualify_lint` with a
+            // "qualify as `ns.name`" hint, so don't also call it undefined here.
+            if !is_defined_name(name, scope, ctx) && !qualifiable_via_namespace(name, ctx) {
                 add_error(errors, 'undefined name: ${name}', span);
             };
         },
@@ -1208,14 +1214,39 @@ fn check_return(_ errors: List<CheckError>, _ value: Expr, _ expected: Type,
 
 // ---- helpers ----
 
-fn is_defined_name(_ name: String, _ scope: Map<String, Type>, _ library: LibraryElement) -> Bool {
+fn is_defined_name(_ name: String, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Bool {
+    // A bare value name is legal only if it is in lexical scope, declared in this
+    // file, bare-legal from another library (the prelude or an `as _` import), a
+    // built-in type (used as a value for `Set.new()` / `Enum.Variant`), or an import
+    // namespace this file binds (the receiver of `ns.fn`). There is no global
+    // last-wins fallback: a name owned by a library this file never imported is
+    // unknown here, even if it sits in the closure's flat tables.
     return scope.has(name)
-        || library.functions.has(name)
-        || library.modules.has(name)
-        || library.consts.has(name)
-        // Type names appear as values for static dispatch (`Type.method()`) and
-        // enum variant access (`Enum.Variant`).
-        || library.type_defs.has(name);
+        || file_owns(ctx.library, ctx.current_file, name)
+        || bare_surface_has(ctx.library, ctx.current_file, name)
+        || is_builtin_type_name(ctx.library, name)
+        || namespaces_in(ctx.library, ctx.current_file).has(name);
+}
+
+// Whether `name` is exposed by some namespace the current file imports — so a bare
+// use is a *qualify-this* case (owned by `qualify_lint`), not an undefined name.
+fn qualifiable_via_namespace(_ name: String, _ ctx: InferCtx) -> Bool {
+    let nss = namespaces_in(ctx.library, ctx.current_file);
+    for ns in nss.keys() {
+        if namespace_exposes(nss[ns], name) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Whether `name` is a built-in type (`Int`/`List`/`Set`/…) — these are always in
+// scope and appear in value position for static methods and enum-style access.
+fn is_builtin_type_name(_ lib: LibraryElement, _ name: String) -> Bool {
+    return match lib.type_defs.get(name) {
+        Some(def) => def.kind == TypeDefKind.Builtin,
+        None => false,
+    };
 }
 
 fn impl_self_type(_ decl: ImplDecl) -> Type {

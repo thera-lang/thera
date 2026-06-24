@@ -44,7 +44,7 @@ pub fn check_source(_ source: String) -> List<Diagnostic> {
     if parsed.errors.len() > 0 {
         return parse_diagnostics(parsed.errors);
     }
-    return check_diagnostics(checker.check(parsed.program, [], {}).errors);
+    return check_diagnostics(checker.check(parsed.program, [], {}, {}).errors);
 }
 
 // Compile `source` to `.hawkbc` bytes. Each phase short-circuits on errors, so
@@ -58,11 +58,11 @@ pub fn compile_source(_ source: String) -> CompileOutcome {
     if parsed.errors.len() > 0 {
         return failed(parse_diagnostics(parsed.errors));
     }
-    let checked = checker.check(parsed.program, [], {});
+    let checked = checker.check(parsed.program, [], {}, {});
     if checked.errors.len() > 0 {
         return failed(check_diagnostics(checked.errors));
     }
-    let cg = codegen.compile_program(parsed.program, [], {});
+    let cg = codegen.compile_program(parsed.program, [], {}, {});
     if cg.errors.len() > 0 {
         return failed(codegen_diagnostics(cg.errors));
     }
@@ -87,7 +87,7 @@ pub fn check_source_at(_ source: String, _ path: String, _ sdk_root: Option<Stri
     let program = parsed.program;
     program.file_path = Option.Some(path);
     let loaded = loader.load_imports(path, program, sdk_root);
-    return check_diagnostics(checker.check(program, loaded.programs, loaded.namespaces).errors);
+    return check_diagnostics(checker.check(program, loaded.programs, loaded.file_namespaces, loaded.file_bare_surface).errors);
 }
 
 // Compile `source` (located at `path`) to `.hawkbc` bytes with its import closure
@@ -104,11 +104,11 @@ pub fn compile_source_at(_ source: String, _ path: String, _ sdk_root: Option<St
     let program = parsed.program;
     program.file_path = Option.Some(path);
     let loaded = loader.load_imports(path, program, sdk_root);
-    let checked = checker.check(program, loaded.programs, loaded.namespaces);
+    let checked = checker.check(program, loaded.programs, loaded.file_namespaces, loaded.file_bare_surface);
     if checked.errors.len() > 0 {
         return failed(check_diagnostics(checked.errors));
     }
-    let cg = codegen.compile_program(program, loaded.programs, loaded.namespaces);
+    let cg = codegen.compile_program(program, loaded.programs, loaded.file_namespaces, loaded.file_bare_surface);
     if cg.errors.len() > 0 {
         return failed(codegen_diagnostics(cg.errors));
     }

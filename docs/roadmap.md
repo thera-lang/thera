@@ -39,9 +39,10 @@ checker reports located diagnostics (type mismatches, bad calls/fields/methods,
 unpinnable generics). The inference-completeness arc is essentially closed — see
 [Inference](#inference--essentially-complete) below.
 
-**Not yet:** a broader stdlib; enforced visibility/privacy; generic operators
-(`<T: Add>`); bitwise operators (`& | ^ << >>`); index (`[]`) operator
-overloading; the Cranelift JIT tier.
+**Not yet:** a broader stdlib; generic operators (`<T: Add>`); bitwise operators
+(`& | ^ << >>`); index (`[]`) operator overloading; the Cranelift JIT tier.
+(Qualified-only resolution + `pub`/privacy are now **enforced**, with a residual
+type-position / per-library-ownership tail — see *Resolution correctness* below.)
 
 ## Open work
 
@@ -148,24 +149,33 @@ closed.
 
 ### Front-end / tooling
 
-- **Qualified-only resolution + `pub`/privacy enforcement — rising priority.** The
-  scoping rules are now **specified** in [scoping.md](scoping.md): a bare name
-  resolves only to locals + same-file top-level + the prelude; every other
-  library's names go through its namespace (`fs.read_text`), with the qualified
-  lookup checked against that library's public surface. The implementation
-  diverges on every point — see [scoping.md](scoping.md) → *Implementation gaps*.
-  In short: resolution falls back to a single **last-wins global table** spanning
-  the whole closure (so bare names reach un-imported libraries, `lib.foo` binds to
-  the wrong library, and private names leak cross-file), the element model is one
-  flat global surface (no per-library ownership / per-file imports), and the
-  self-hosted front-end + stdlib are written with **bare cross-library calls** that
-  rely on the fallback. **Done so far:** a **duplicate-top-level-name diagnostic**
-  surfaces global-table collisions at `check`; it's a guard, not the fix.
-  Sequencing (per scoping.md): (a) enrich the element model with per-library
-  ownership + per-file imports; (b) implement surface-checked qualified resolution
-  and same-file+prelude bare resolution; (c) migrate the front-end + stdlib to
-  qualified references (must land with b); (d) enforce privacy. Related follow-ups:
-  `_test.hawk` white-box access, `impl` coherence / orphan rules, selective import
+- **Resolution correctness — mostly done; a residual tech-debt tail.** The scoping
+  rules ([scoping.md](scoping.md)) are now **enforced** for the common cases:
+  qualified-only and `pub` visibility (via `qualify_lint`/`visibility_lint`,
+  corpus-guarded at 0 violations); **per-file namespaces** (a file can only qualify
+  with what it imports); **bare *value* resolution** restricted to
+  same-file + prelude + `as _` + built-ins, with **no global last-wins fallback**
+  (a value owned by an un-imported library is `undefined`); and the **white-box
+  test exception** (`foo_test.hawk` sees `foo.hawk`'s privates bare). Pinned by
+  `mod-ns-file-local`, `mod-no-bare-fallback`, `vis-whitebox-test`, plus the
+  existing `mod-qualified-only`/`vis-pub`. The closure-wide `modules` alias set was
+  removed; the duplicate-top-level-name diagnostic still guards same-name
+  collisions. **Residual tech debt** (architectural purity; the corpus is clean, so
+  these are not user-visible bugs today — see [scoping.md](scoping.md) →
+  *Implementation gaps* 1/2/5):
+  - **the per-file gate for bare *type* positions** — `check_type_ref` still
+    consults the flat `type_defs`, so the type analogue of the bare-name hole
+    remains; needs `current_file` threaded through type checking (incl. top-level
+    declaration sites that have no `InferCtx`);
+  - **surface-checked, within-library qualified resolution** (`ns.name` resolving
+    *within* `ns`'s library rather than via the global table);
+  - **physical per-library ownership** of the still-flat
+    `functions`/`type_defs`/`consts` tables (so same-name cross-file definitions are
+    correct by construction, not by the duplicate diagnostic);
+  - once the above land, **`qualify_lint`/`visibility_lint` retire** (their
+    enforcement + the "qualify as `ns.name`" message move into the resolver).
+
+  Related, still open: `impl` coherence / orphan rules, selective import
   (`show`/`hide`), and a "module"→"library" terminology sweep.
 - **Imported-file errors are silently swallowed — correctness bug.** A parse (or
   check) error in an **imported** file is **dropped**: `hawk check app.hawk` over

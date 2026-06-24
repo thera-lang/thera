@@ -15,12 +15,12 @@ import '../bytecode/encoder' as _;
 import 'codegen' as _;
 
 fn emit_bytes(_ src: String) -> List<Int> {
-    let result = compile_program(parse_tokens(tokenize(src).tokens).program, [], {});
+    let result = compile_program(parse_tokens(tokenize(src).tokens).program, [], {}, {});
     return encode_module(result.module).to_list();
 }
 
 fn errors_of(_ src: String) -> Int {
-    return compile_program(parse_tokens(tokenize(src).tokens).program, [], {}).errors.len();
+    return compile_program(parse_tokens(tokenize(src).tokens).program, [], {}, {}).errors.len();
 }
 
 // --- instruction-level lowering inspection ---
@@ -31,7 +31,7 @@ fn errors_of(_ src: String) -> Int {
 // with a located, readable assertion instead of only as a fixpoint/example break.
 
 fn module_of(_ src: String) -> Module {
-    return compile_program(parse_tokens(tokenize(src).tokens).program, [], {}).module;
+    return compile_program(parse_tokens(tokenize(src).tokens).program, [], {}, {}).module;
 }
 
 // The instruction stream of the unit named `fn_name` (a free function's bare
@@ -204,7 +204,7 @@ fn test_same_file_first_resolution_byte_identical() -> Result<Void, Error> {
     let main_prog = program_of(
         'fn combine(_ x: Int) -> Int { return x * 100; }\n'
         + 'fn use_both() -> Int { return combine(3) + lib_pick(4, 5); }', 'main.hawk');
-    let result = compile_program(main_prog, [lib], {});
+    let result = compile_program(main_prog, [lib], {}, {});
     testing.assert_eq(actual: result.errors.len(), expected: 0)?;
     testing.assert_eq(actual: encode_module(result.module).to_list(), expected: [
         72, 65, 87, 75, 1, 0, 0, 0, 2, 1, 0, 3, 1, 0, 1, 82, 4, 8, 108, 105, 98,

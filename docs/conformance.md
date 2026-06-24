@@ -136,9 +136,11 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `mod-import-under`  | Imports                  | `import … as _` brings names in unqualified                | ✓      |
 | `mod-prelude`       | Imports                  | `std.core` names available unqualified                    | ✓      |
 | `mod-qualified-only`| scoping.md               | bare cross-library reference is rejected                  | ✓      |
+| `mod-ns-file-local` | scoping.md               | a namespace is file-local; qualifying with one this file didn't import is rejected | ✓ |
+| `mod-no-bare-fallback`| scoping.md             | a bare name owned by an un-imported (closure-only) library is `undefined` — no global last-wins fallback | ✓ |
 | `vis-pub`           | Visibility               | non-`pub` top-level is file-private (enforced)            | ✓      |
 | `vis-barrel`        | Visibility               | barrel re-exports a directory library's symbols (std.cli) | ◐      |
-| `vis-whitebox-test` | Visibility / Testing     | `foo_test.hawk` sees `foo.hawk` privates                  | ✗      |
+| `vis-whitebox-test` | Visibility / Testing     | `foo_test.hawk` sees `foo.hawk` privates (bare)           | ✓      |
 
 ## Entry point & misc
 
@@ -150,82 +152,59 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 
 ## Findings
 
-Discrepancies surfaced by the reconciliation pass — spec or implementation bugs
-to fix, each ideally captured by a conformance test once resolved.
+Discrepancies surfaced by the reconciliation pass. The reconciliation drove a
+sweep of enforcement fixes (now in [Resolved](#resolved-changelog)); what remains
+open is below.
 
-- **`err-constructor` — spec writes `Error('…')`, the API is `error('…')`.**
-  The real prelude constructor is the lowercase `error(_ message: String) -> Error`
-  (`sdk/std/core/error.hawk`); the corpus uses it 60×. But language.md still
-  shows the capitalized `Error('usage: …')` in three examples (Error handling,
-  Option, Command-line arguments), and an `args.hawk` doc-comment copies it.
-  Worse, `hawk check` accepts `Error('x')` silently (checker leniency on an
-  unknown callee), so the wrong form type-checks. Fix the docs; the silent-accept
-  is a separate analysis gap (relates to the Unknown-leniency work).
+### Open
 
-- **`mod-qualified-only` and `vis-pub` — ENFORCED.** A bare cross-library
-  reference is a `check` error (`bare reference to \`sqrt\`; qualify as
-  \`math.sqrt\``, via `qualify_lint`), and a qualified access to a non-public
-  member is a `check` error (`\`secret\` is not a public member of \`greeter\``,
-  via the new `visibility_lint` wiring in `namespace_exposes`). Both run in
-  `checker.check`, so violations abort compilation before codegen. The corpus had
-  0 of each, so nothing broke. The `foo_test.hawk` white-box exception is
-  **deferred** — tests reach their target's privates via `import … as _;` + bare
-  names, which the qualified-access check never sees, so the test suites are
-  unaffected; a future stage adds per-file white-box access for qualified test
-  access. (Both still rely on lenient *resolution* underneath; the per-library
-  resolution rework is deferred — see scoping.md.)
+- **Resolution is correct for *values*, not yet for *types*** (scoping.md gaps
+  1/2/5). Per-file namespaces (gap 3) and per-file bare *value* resolution (gap 1
+  for values) are enforced with no global last-wins fallback — pinned by
+  `mod-ns-file-local`, `mod-no-bare-fallback`, `vis-whitebox-test`. Still open: the
+  same per-file gate for bare **type** references (`check_type_ref` consults the
+  flat `type_defs`), surface-checked within-library qualified resolution (gap 2),
+  and physical per-library ownership of the flat tables (gap 5; same-name
+  cross-file collisions are guarded by the duplicate-name diagnostic, not yet by
+  ownership). `qualify_lint`/`visibility_lint` still enforce the qualified-only +
+  `pub` rules and own the "qualify as `ns.name`" message; they retire once the
+  above lands. See [scoping.md](scoping.md).
 
-- **field access on a non-struct value — RESOLVED** (`type-field-nonstruct`). A
-  bare field access on a primitive receiver (`5.x`, `true.y`) is now a `check`
-  error (`field access on a non-struct value: Int has no field "foo"`), added to
-  the `Field` case alongside the struct-field-miss check. Safe because
-  namespace/`Enum.Variant`/type receivers infer to `Unknown` (not `Primitive`),
-  and method calls go through the `Call` case; the corpus had 0 violations.
-
-- **immutability — ENFORCED, uniformly** (`var-let-immutable`,
-  `type-struct-immut`, `type-mut-field`). The checker rejects reassigning a
-  non-`mut` `let`/parameter (`cannot assign to \`n\`: …`) *and* assigning a
-  non-`mut` struct field (`cannot assign to field \`x\`: it is not declared
-  \`mut\``). The `mut field: T` mechanism (parser → `FieldDef.is_mut` →
-  `TypeDefElement.mut_fields` → the `Assign` field-target check) realizes the
-  decided design: uniform immutable-by-default + explicit `mut` for both locals
-  and fields. The stateful structs that mutate `self.field` (Lexer/Parser/JSON
-  reader/codegen/lsp + several stdlib types — 62 sites, ~26 fields) were migrated
-  to `mut`; the checker-driven scan made it exhaustive. Only the *last* field of a
-  chain needs `mut` (`a.b.c = …` mutates the object `a.b` points at).
-
-- **`s[i]` on a String — now rejected at `check`** (`type-string-noindex`). The
-  `Index` case rejects a `String` receiver (`indexing on String is not
-  supported`), so it no longer slips to codegen. (The sibling `5.x`
-  field-access-on-a-non-struct gap is still codegen-only — a candidate for the
-  same treatment.)
-
-- **`${}` now requires `Display` at `check`** (`iface-display`) — interpolating a
-  value whose type doesn't satisfy `Display` is a compile error (`cannot
-  interpolate Bare: it does not implement Display`), via `satisfies_bound(t,
-  'Display', …)` in the `Str` case. The corpus had 0 violations. Still open
-  (`iface-debug`): the structural `Debug` derive isn't accepted where a `Debug`
-  interface value is expected (a struct with no explicit `impl Debug` is rejected
-  as a `Debug`-typed argument, though language.md says `Debug` is auto-derived) —
-  so those tests use an explicit `impl Debug`. `.debug()`/`.eq()` are likewise
-  not directly callable on a concrete type without an impl — reachable only via
+- **`iface-debug` — structural `Debug` derive not accepted as a `Debug` value**
+  (◐). A struct with no explicit `impl Debug` is rejected where a `Debug`-typed
+  argument is expected, though language.md says `Debug` is auto-derived; the tests
+  work around it with an explicit `impl Debug`. Likewise `.debug()`/`.eq()` aren't
+  directly callable on a concrete type without an impl — reachable only via
   dispatch.
 
-- **one ID intentionally untested here.** `vis-whitebox-test` (a `foo_test.hawk`
-  seeing `foo.hawk` privates) is exercised by the project's real `_test.hawk`
-  suites but not pinnable in `tests/lang/`, since this harness drives
-  `hawk run`/`check`, not `hawk test`. (`entry-main-err` is now pinned via the
-  harness's `// expect exit:` / `// expect stderr:` expectations.)
+- **`check` leniency on an unknown callee.** A call to an undefined free function
+  (e.g. the old capitalized `Error('x')`) type-checks silently — the checker is
+  lenient on unknown callees (part of the Unknown-leniency feedback-loop work).
+  Shrinking this is its own arc.
 
-- **trap messages — RESOLVED.** Faults now abort with a human-readable
-  `hawk: trap: <message>` (e.g. `index out of range: the index is 9 but the
-  length is 3`, `key not found: 'bob'`, `division by zero`), replacing the raw
-  Rust `Debug` form. Specified in language.md (Runtime faults → "The fault
-  diagnostic"), rendered by `impl Display for Trap` (runtime), with `MissingKey`
-  now carrying the key. The `fault-*` tests pin the exact messages.
+- **`vis-whitebox-test` — intentionally untested in this harness** (✗). A
+  `foo_test.hawk` seeing `foo.hawk`'s privates is exercised by the project's real
+  `_test.hawk` suites, but not pinnable in `tests/lang/`, since this harness drives
+  `hawk run`/`check`, not `hawk test`.
 
-- **`Double` Display for integral values — RESOLVED.** Integral `Double`s now
-  render *with* a decimal point (`1.0` → `1.0`, not `1`), so `Double` output is
-  visually distinct from `Int`. Specified in language.md (Types → Primitives),
-  implemented in the runtime via the shared `value::format_double` (used by the
-  `Display`, error-message, and `Debug` renderers), and pinned by `lex-float`.
+### Resolved (changelog)
+
+Each is now pinned by the cited conformance test(s); see git history for the
+implementation detail.
+
+- **`mod-qualified-only`, `vis-pub`** — a bare cross-library reference and a
+  qualified access to a non-public member are both `check` errors (`qualify_lint`
+  / `visibility_lint`). Corpus had 0 of each.
+- **immutability, uniform** (`var-let-immutable`, `type-struct-immut`,
+  `type-mut-field`) — reassigning a non-`mut` `let`/param *and* assigning a
+  non-`mut` field are errors; `mut` opts in. 62 field sites migrated.
+- **`type-field-nonstruct`** — a bare field access on a primitive receiver
+  (`5.x`) is a `check` error.
+- **`type-string-noindex`** — `s[i]` on a `String` is rejected at `check`.
+- **`iface-display`** — interpolating a non-`Display` value is a `check` error.
+- **trap messages** — faults abort with a human-readable `hawk: trap: <message>`
+  (`impl Display for Trap`); `MissingKey` names the key. Pinned by `fault-*`.
+- **`Double` Display for integral values** — `1.0` renders as `1.0`, not `1`
+  (`value::format_double`). Pinned by `lex-float`.
+- **`err-constructor` docs** — language.md now shows the lowercase `error('…')`
+  (the capitalized `Error('…')` examples were corrected).

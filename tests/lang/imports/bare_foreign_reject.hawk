@@ -1,0 +1,12 @@
+//! spec: mod-no-bare-fallback
+//! mode: check
+
+import 'middle';
+
+fn main() -> Int {
+    // `provide` is owned by `provider` — imported by `middle`, not by this file.
+    // A bare reference to it does not resolve: there is no global last-wins
+    // fallback across the import closure.
+    let n = provide();   // expect error: undefined name: provide
+    return n;
+}

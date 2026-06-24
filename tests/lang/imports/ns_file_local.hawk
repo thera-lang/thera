@@ -1,0 +1,13 @@
+//! spec: mod-ns-file-local
+//! mode: check
+
+import 'middle';
+
+fn main() -> Int {
+    // A namespace binding is file-local. `provider` is imported by `middle` (so it
+    // is in this program's import closure), but not by this file — so qualifying
+    // with it here is an error: the namespace must be imported into this file.
+    let n = provider.provide();   // expect error: undefined name: provider
+    println('${n}');
+    return 0;
+}
