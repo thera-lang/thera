@@ -647,7 +647,7 @@ impl FnCompiler {
         self.bind(start);
         self.emit(Instr.Load(i));
         self.emit(Instr.Load(list));
-        self.emit(Instr.CallNative('list_len', 1));
+        self.emit(Instr.Simple(Op.ListLen));
         self.emit(Instr.Simple(Op.LtI64));
         self.emit_jump(Jk.IfFalse, end);
         let elem = self.bind_loop_var(var_name, list_expr);
@@ -1622,7 +1622,15 @@ impl FnCompiler {
                                 for arg in x.args {
                                     self.expr(arg.value);
                                 }
-                                self.emit(Instr.CallNative(instance_native, x.args.len() + 1));
+                                // `list.len()` lowers to the `ListLen` primitive
+                                // (the receiver is on the stack) rather than a
+                                // native round-trip — it is by far the hottest
+                                // native. Other instance natives stay `call.native`.
+                                if instance_native == 'list_len' {
+                                    self.emit(Instr.Simple(Op.ListLen));
+                                } else {
+                                    self.emit(Instr.CallNative(instance_native, x.args.len() + 1));
+                                }
                                 return true;
                             },
                             None => {},

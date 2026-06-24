@@ -156,6 +156,7 @@ mod op {
     pub const SHL_I64: u8 = 58;
     pub const SHR_I64: u8 = 59;
     pub const USHR_I64: u8 = 60;
+    pub const LIST_LEN: u8 = 61;
 }
 
 /// Encode a module to the wire format.
@@ -465,6 +466,7 @@ fn encode_instr(w: &mut Writer, instr: &Instr, pool: &StringPool) {
         }
         Instr::ListGet => w.write_u8(op::LIST_GET),
         Instr::ListSet => w.write_u8(op::LIST_SET),
+        Instr::ListLen => w.write_u8(op::LIST_LEN),
         Instr::ClosureNew { func, captures } => {
             w.write_u8(op::CLOSURE_NEW);
             w.write_uvarint(*func as u64);
@@ -578,6 +580,7 @@ fn decode_instr(r: &mut Reader, pool: &[String]) -> Result<Instr, DecodeError> {
         },
         op::LIST_GET => Instr::ListGet,
         op::LIST_SET => Instr::ListSet,
+        op::LIST_LEN => Instr::ListLen,
         op::CLOSURE_NEW => Instr::ClosureNew {
             func: r.read_uvarint()? as u32,
             captures: r.read_uvarint()? as u8,

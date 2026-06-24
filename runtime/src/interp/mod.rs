@@ -1060,6 +1060,17 @@ impl<'a> Vm<'a> {
                         _ => return Err(bug("list.set: expected a list")),
                     }
                 }
+                Instr::ListLen => {
+                    let list = pop(&mut vstack)?;
+                    let len = match list {
+                        Value::Ref(h) => heap::with_obj(h, |obj| match obj {
+                            Obj::List(items) => Ok(items.len() as i64),
+                            _ => Err(bug("list.len: expected a list")),
+                        })?,
+                        _ => return Err(bug("list.len: expected a list")),
+                    };
+                    vstack.push(Value::Int(len));
+                }
 
                 // --- closures ---
                 Instr::ClosureNew { func, captures } => {

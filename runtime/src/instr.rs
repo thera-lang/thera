@@ -170,6 +170,12 @@ pub enum Instr {
     /// the value at `index`, trapping if out of range. Pushes nothing (like
     /// `FieldSet`). The `list[i] = v` write.
     ListSet,
+    /// Pop a list; push its length as an `Int`. The `list.len()` read, lowered to
+    /// a primitive (cf. `ListGet`) rather than a `call.native` — it is by far the
+    /// hottest native (every `for x in list` re-checks it each iteration), and the
+    /// native round-trip (dispatch + a heap thread-local + the GC/park checks)
+    /// dwarfs the O(1) length read itself.
+    ListLen,
 
     // --- closures ---
     /// Pop `captures` values (pushed left-to-right) and push a closure value

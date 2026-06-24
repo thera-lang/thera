@@ -70,6 +70,7 @@ pub enum Op {
     ShlI64,
     ShrI64,  // arithmetic (sign-preserving) right shift
     UShrI64, // logical (zero-fill) right shift
+    ListLen, // pop a list, push its length (the `list.len()` read)
 }
 
 impl Op {
@@ -136,6 +137,7 @@ impl Op {
             ShlI64 => 58,
             ShrI64 => 59,
             UShrI64 => 60,
+            ListLen => 61,
         };
     }
 }
