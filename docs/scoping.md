@@ -118,8 +118,9 @@ import 'ast' as _;             // no namespace — ast's public names come in ba
   it is `pub fn`. Making a `type`/`enum` `pub` exposes all its fields/variants
   (there is no per-field `pub`).
 - **Test white-box access.** A `foo_test.hawk` importing `foo` additionally sees
-  `foo.hawk`'s *private* symbols (the filenames match) — referenced through the
-  import's namespace. This is the one exception to cross-file privacy.
+  `foo.hawk`'s *private* top-level names as **bare** names (the filenames match) —
+  its public names are still reached through the `foo` namespace, as in any
+  importer. This is the one exception to cross-file privacy.
 
 ## Resolution algorithm
 

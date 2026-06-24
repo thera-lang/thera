@@ -300,8 +300,11 @@ let user = handle.join()?;
 
 The runtime design for this — fibers as stackless coroutines over the
 interpreter's explicit frame stack, the scheduler, parking, and I/O — is sketched
-in [architecture.md](architecture.md) §Concurrency. (Not yet implemented;
-`std.fiber` is the planned surface.)
+in [architecture.md](architecture.md) §Concurrency. A **first cut is implemented**:
+`std.fiber` provides `spawn`/`join`/`yield` and buffered channels over the
+cooperative scheduler. Still pending: parking on real blocking I/O (so an I/O call
+transparently yields the fiber) and a readiness poller for sockets — see
+[roadmap.md](roadmap.md).
 
 **Fallback:** if the fiber runtime proves too costly to implement in the POC,
 the language will fall back to explicit `async`/`await`. In that model,
@@ -659,18 +662,22 @@ fn pad2(_ n: Int) -> String { ... }                // file-private helper
 
 **Testing — white-box access.** A test lives beside its target as
 `foo_test.hawk` and imports it normally (`import 'foo'`). The one special case
-is visibility: because the names match, that import also sees `foo.hawk`'s
-**private** symbols, so `foo.internal_helper` is reachable from `foo_test.hawk`
-and nowhere else. It's still referenced through the import's namespace; the
-filename convention grants the access, avoiding a general package-private axis.
+is visibility: because the names match, the test additionally sees `foo.hawk`'s
+**private** top-level names as **bare** names — `internal_helper()` is callable
+from `foo_test.hawk` and nowhere else (its public names are still reached through
+the `foo` namespace, as in any other importer). The filename convention grants
+the access, avoiding a general package-private axis.
 
 Visibility and qualification are **front-end** concerns — name resolution
 applies them and they are erased in `.hawkbc` (calls are by index; the bytecode
 has no notion of "private" or namespaces). The precise resolution rules — bare vs.
 qualified, the prelude, and the algorithm — are specified in
-[scoping.md](scoping.md). _Qualified-only access and privacy are not yet fully
-enforced_ (see [scoping.md](scoping.md) → Implementation gaps and
-[roadmap.md](roadmap.md)).
+[scoping.md](scoping.md). Qualified-only access and `pub` privacy **are enforced**:
+a bare cross-library reference, a qualified access to a non-public member, and a
+bare reference to a value owned by an un-imported library are all `check` errors,
+and namespaces are per-file. A residual tail — the same gate for bare *type*
+references, plus per-library ownership of the symbol tables — is tracked in
+[scoping.md](scoping.md) → Implementation gaps and [roadmap.md](roadmap.md).
 
 ---
 

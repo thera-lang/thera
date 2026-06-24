@@ -298,8 +298,14 @@ ifExpr    = 'if' exprNB exprBlock ( 'else' ( ifExpr | exprBlock ) )?
 
 A method call is `postfix` chaining: `recv '.' method` forms a field access, and
 a following `'(' … ')'` makes it a call. A map literal and a block both start
-with `{`; the parser commits to a **map** when it sees `{}` or a string/int key
-followed by `:`, otherwise a **block expression**.
+with `{`; in **expression (`primary`) position** the parser commits to a **map**
+when it sees `{}` or a string/int key followed by `:`, otherwise a **block
+expression**. The exception is a position that grammatically expects a block
+first — a **`match` arm** (`pattern '=>' ( exprBlock | expr )`, which tries
+`exprBlock` before `expr`): there a bare `=> {}` is an **empty block** (value
+`Void`), *not* an empty map. So an empty-map arm must be spelled `=> { {} }` (a
+block whose tail is the map literal) or with a typed binding — a known sharp edge
+tracked in [roadmap.md](roadmap.md).
 
 ## Operator precedence (summary)
 
