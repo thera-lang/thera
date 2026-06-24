@@ -263,6 +263,32 @@ closed.
     before/after diffs are stable; exit non-zero iff a displayed diagnostic is an
     error. (A machine-readable JSON mode can follow — see the `hawk test` output
     modes.)
+- **`native type` declarations for the built-in types — uniformity / discovery.**
+  `Int`, `Double`, `Bool`, `String`, `List`, `Map`, `Bytes`, `BytesBuilder` have
+  method `impl` blocks in `sdk/std/core/` but **no `type` declaration** anywhere in
+  Hawk — `impl List<T>` resolves only because the front-end hardcodes the name (the
+  `builtin_type_defs()` registry in `resolver.hawk`). So these eight have no
+  definition site, no doc home, and nowhere their type parameters are written
+  down — unlike `Set`/`Option`/`Result`, which are ordinary Hawk decls. They are the
+  one category of addressable *type* not represented in source (the addressable
+  *operations* gap is the implicit operator lowerings — see Generic operators).
+  Proposal: a bodyless **`native type`** declaration (`pub native type List<T>`),
+  reusing the existing `native` keyword — symmetric with `native fn` ("the
+  representation lives in the runtime"). Semantics: an **opaque, runtime-represented**
+  type — `impl` blocks and interface impls attach as today, but it has **no field
+  layout**, so no struct-literal construction and no internal pattern-matching; it's
+  effectively SDK-only (a user-written `native type` has no runtime counterpart to
+  bind). No `@extern` is needed — unlike a native fn it binds to no single named
+  symbol; its identity is its name, and the runtime maps the built-in names
+  intrinsically (the `Type`-variant ↔ name table). Pass 1 of `build_library` would
+  register these from source like any type, so `builtin_type_defs()` shrinks to a
+  bootstrap floor for hermetic compiles — the same harmless dual-registration
+  `Set`/`Option`/`Result` already tolerate. Pure uniformity/docs/discovery, no
+  behaviour change. Surface: parser (`native` before `type`, no body →
+  `TypeDecl{is_native}`), resolver (register + mark opaque), checker (field access
+  stays an error; methods/impls unchanged), codegen (emits no representation), plus
+  the decls + docs. Whether to *also* gate `native fn`/`native type` to SDK paths is
+  an open question tracked with the `@extern` name-check item.
 - **Static-method type arguments — expressiveness gap.** No expression-level syntax
   constructs a generic type whose parameter isn't otherwise inferable:
   `Set<String>.new()` doesn't parse, and `Set.new<String>()` binds `<String>` to
@@ -373,6 +399,14 @@ closed.
 
 - **Generic operators** (`<T: Add>`, operators-as-traits) — the remaining piece of
   the generics arc (bound enforcement + `call.virtual` dispatch on `T` are done).
+  This is also where the language's **implicit operator/literal lowerings** would
+  gain a Hawk-level surface: `==`, `+`/interpolation, `[]`/`[]=`, and the `{}` map
+  literal are emitted by codegen straight to runtime natives (`eq`, `str_concat`,
+  `stringify`, `list_index`/`list_set`/`map_index`, `map_new`/`map_set`) with no
+  named Hawk method behind them — the one category of addressable behaviour not
+  represented in `sdk/std`. Operators-as-interfaces (`Eq`, `Add`, and `Indexable`
+  below) is what turns those into ordinary Hawk methods; revisit the exact shape
+  then (the `[]` half is the *Index operator* item).
 - **Bitwise operators** (`& | ^ << >>`, plus an unsigned type or
   defined-wrapping/logical-shift semantics on the signed `Int`). Blocks writing
   hashing/encoding and a modern PRNG in Hawk: `std.random`'s SplitMix64 mix is a
