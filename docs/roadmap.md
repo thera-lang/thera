@@ -18,8 +18,10 @@ build bootstraps from a checked-in `bootstrap/frontend.hawkbc` snapshot (see
 `@test` suites + examples) is the suite.
 
 **Runtime (`runtime/`, Rust).** A Tier-0 bytecode interpreter with an explicit
-call-frame stack (`Vm::run_loop` over `Vec<Frame>`) and a **precise non-moving
-mark-sweep GC** (`heap.rs`). It runs the full language core: `Int`/`Double`/
+call-frame stack (`Vm::run_loop` over `Vec<Frame>`, each frame a `{func, pc, base}`
+into one **unified value stack** per fiber — locals + operands laid end to end, so
+a call passes its arguments in place with no per-call allocation) and a **precise
+non-moving mark-sweep GC** (`heap.rs`). It runs the full language core: `Int`/`Double`/
 `Bool`/`Unit`, control flow, functions + recursion, **closures**, enums
 (`Result`/`Option` as ordinary `std.core` enums, with `?`/`match`/implicit-`Ok`),
 structs + a type table, `List`/`Map`/`Set`, and **interface dispatch** — static on
@@ -63,20 +65,63 @@ type-position / per-library-ownership tail — see *Resolution correctness* belo
     many connections (`mio` vs. hand-rolled — the first real runtime dependency).
   - **Refinements:** per-channel waiter lists, true 0-capacity rendezvous
     channels, `select`, and exit semantics for surviving spawned fibers.
-- **Map/Set scaling — hashed, insertion-ordered.** `Obj::Map` is a
-  `Vec<(Value, Value)>` with a linear `map_find` and clone-on-mutate, so building
-  an N-entry map (the codegen symbol tables) is O(n²). Fix: an insertion-ordered
-  hashed map (a Vec for order + a hash→index table) used **above a size
-  threshold** so small maps stay linear. Constraints: content-based key hashing
-  consistent with `values_eq`; preserved insertion order (the fixpoint checks
-  byte-identity); precomputed per-key hashes so a lookup needn't re-enter the heap
-  under the map's borrow. Same treatment for `Set`.
+- **Interpreter performance — profiled (2026-06); the easy wins are in.** Probes:
+  the front-end **self-compile** (`hawk emit pkgs/cli/main.hawk`) ≈ 11.6 s release,
+  and **mandelbrot** ≈ 0.81 s (a call-free arithmetic/loop guard). Measured with
+  the built-in `native-stats` feature (per-native call counts) + macOS `sample`
+  (time). Findings:
+  - **The cost is the heap-access path, not dispatch.** `HEAP.with` (a thread-local
+    `RefCell`) is ~62 % of `run_loop` inclusive / ~15 % pure self-time, and
+    allocation (`Vec::from_iter` + `memmove`, ~27 %: per-object field-`Vec`
+    construction, string/list building) is the other big chunk. Native *dispatch*
+    is cheap — the volume leaders (`eq` 9.2 M, `list_len` 8.4 M calls) cost mostly
+    the `HEAP.with` round-trip *around* the call, not the call itself.
+  - **Map/Set is not a self-compile hotspot** (≈0 time samples; `Set` isn't used
+    hot). Hashed Map/Set (below) is a **scaling-robustness** item for large *user*
+    programs, not a front-end speedup — re-scoped from "perf" to "scaling".
+  - **Done:** the **unified value stack** (one `Vec` per fiber, args passed in
+    place — ~8.6 %, the real win, and the JIT shares that stack); the **`ListLen`
+    opcode** (lowers `list.len()` out of `call.native` — time-neutral, but shrinks
+    bytecode and is JIT-aligned like `ListGet`/`ListSet`).
+  - **Measured and declined:** converting the heap `RefCell`→`UnsafeCell` bought
+    only ~1 % (the borrow flag isn't the cost; the thread-local TLV lookup +
+    allocation are) and would trade the runtime's loud-panic safety net for silent
+    UB if a future `with_*_mut` closure read another heap object. Not worth it
+    standalone.
+  - **What's left is structural:** cut per-object allocation (an arena / inline
+    small-field object representation) and the thread-local heap-access path. The
+    latter is best done in the **JIT era** (a raw heap base pointer shared by
+    interpreted and compiled frames, no `thread_local`, no per-access indirection)
+    — where it is load-bearing and rides along with the untagged-value move. See
+    the Cranelift bullet below.
+- **Map/Set scaling — hashed, insertion-ordered.** *(Scaling, not a self-compile
+  hotspot — see above.)* `Obj::Map` is a `Vec<(Value, Value)>` with a linear
+  `map_find` and clone-on-mutate, so building an N-entry map (the codegen symbol
+  tables) is O(n²). Fix: an insertion-ordered hashed map (a Vec for order + a
+  hash→index table) used **above a size threshold** so small maps stay linear.
+  Constraints: content-based key hashing consistent with `values_eq`; preserved
+  insertion order (the fixpoint checks byte-identity); precomputed per-key hashes
+  so a lookup needn't re-enter the heap under the map's borrow. Same treatment for
+  `Set`. Matters when a *user* program builds large maps; the front-end's own maps
+  are small enough that O(n) doesn't bite.
 - **Read accessors that clone whole heap objects** are a recurring hot spot (fixed
-  for `list.len`/indexing, GC marking, map reads). Prefer the borrowing accessor;
-  clone only when a closure re-enters the heap to allocate/compare.
+  for `list.len`/indexing, GC marking, map reads; `list.len()` is now the `ListLen`
+  opcode entirely). Prefer the borrowing accessor; clone only when a closure
+  re-enters the heap to allocate/compare.
 - **Cranelift JIT tier** (+ the untagged value representation and `f64`/large-int
   constant-pool entries it forces) — performance/compaction, not
   correctness-blocking. See runtime staging below and [architecture.md](architecture.md).
+  This is also where the **heap-access rework** belongs (the interpreter profiling
+  above pointed at `HEAP.with` as the dominant cost): the JIT needs a JIT-callable
+  heap-access path anyway — a raw heap base pointer rather than a thread-local
+  `RefCell`, with the borrow discipline enforced by construction — so the
+  non-moving slab grows that path *for* the JIT, and the interpreter inherits it.
+  A standalone interpreter-only version was measured (~1 %) and declined as not
+  worth the unsafety; here it is load-bearing. Strategic note from that review:
+  a first JIT can keep the **tagged** 16-byte `Value` (Cranelift handles it as an
+  aggregate; precise GC stays trivial because the tag survives) and defer the
+  untagged + stackmap work to a second pass — decoupling "JIT works" from "JIT is
+  fast", which de-risks bring-up.
 - **Profiling Hawk code — planned, staged.** OS-level samplers (`perf`,
   Instruments, samply) are nearly blind to an interpreter: every Hawk function is
   the same `run_loop` native frame, and the Hawk call stack lives in the VM's
