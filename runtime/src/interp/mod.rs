@@ -84,16 +84,31 @@ pub struct Vm<'a> {
     /// calls so a precise GC can enumerate *every* active frame's values as
     /// roots from one place. A nested `run_loop` (e.g. structural `debug`
     /// invoking a user impl) pushes onto and pops back from this same stack.
+    /// Each [`Frame`] holds only metadata (`func`/`pc`/`base`); the values live
+    /// in `vstack`.
     frames: Vec<Frame>,
+    /// The single value stack shared by every active frame of the running fiber:
+    /// each frame's locals followed by its operands, laid end to end (see
+    /// [`Frame`]). One contiguous `Vec` means a call passes its arguments in
+    /// place — no per-call allocation — and the precise GC roots the whole fiber
+    /// by scanning this one slice. Every slot is a live value (locals are
+    /// `Unit`-initialised, operands are always valid), so the entire `vstack` is
+    /// the fiber's root set.
+    vstack: Vec<Value>,
 }
 
 /// One activation record on the call-frame stack: the running function, its
-/// program counter, its locals, and its operand stack.
+/// program counter, and the base index of its slot region in the shared value
+/// stack ([`Vm::vstack`]). The frame's locals occupy `vstack[base .. base +
+/// local_count]`; its operand stack is everything above that — up to the next
+/// frame's `base`, or the stack top for the active frame. Locals and operands
+/// thus share one contiguous `Vec` across every active frame, so a call neither
+/// allocates nor copies its arguments: they are already on top of the stack and
+/// become the callee's leading locals in place.
 struct Frame {
     func: usize,
     pc: usize,
-    locals: Vec<Value>,
-    stack: Vec<Value>,
+    base: usize,
 }
 
 /// An RAII guard that suspends garbage collection for its lifetime (see
@@ -179,9 +194,13 @@ enum FiberState {
     /// Spawned but not yet started: the `() -> T` closure to invoke. The initial
     /// frame is built lazily on first run (the scheduler has the `Module`).
     NotStarted(Value),
-    /// A started fiber's saved call stack (bottom-first; the top is the active
-    /// frame while it runs).
-    Suspended(Vec<Frame>),
+    /// A started fiber's saved state: its value stack and its frame stack
+    /// (bottom-first; the top frame is the active one while it runs). Each fiber
+    /// owns an independent `vstack` whose frame bases start at 0.
+    Suspended {
+        vstack: Vec<Value>,
+        frames: Vec<Frame>,
+    },
     /// Currently executing — its frames are in the `Vm`, not here.
     Running,
     /// Finished, with its return value (awaited by `join`).
@@ -319,8 +338,8 @@ impl Scheduler {
     }
 
     /// Save a suspended fiber's stack and route it per its park request.
-    fn park(&mut self, id: usize, frames: Vec<Frame>, req: ParkRequest) {
-        self.fibers[id].state = FiberState::Suspended(frames);
+    fn park(&mut self, id: usize, vstack: Vec<Value>, frames: Vec<Frame>, req: ParkRequest) {
+        self.fibers[id].state = FiberState::Suspended { vstack, frames };
         match req {
             ParkRequest::YieldReady => self.ready.push_back(id),
             ParkRequest::BlockRetry => self.blocked.push(id),
@@ -374,10 +393,9 @@ fn gather_scheduler_roots(roots: &mut Vec<Value>) {
             match &fiber.state {
                 FiberState::NotStarted(c) => roots.push(*c),
                 FiberState::Done(v) => roots.push(*v),
-                FiberState::Suspended(frames) => {
-                    for f in frames {
-                        roots.extend(f.locals.iter().chain(f.stack.iter()).copied());
-                    }
+                FiberState::Suspended { vstack, .. } => {
+                    // Every slot of a suspended fiber's value stack is a live root.
+                    roots.extend(vstack.iter().copied());
                 }
                 FiberState::Running => {}
             }
@@ -471,6 +489,10 @@ impl<'a> Vm<'a> {
             out,
             natives: default_natives(),
             frames: Vec::new(),
+            // Reserve a generous slab so the value stack rarely reallocates mid-run.
+            // Growth is safe regardless (no `Value` holds an interior pointer into
+            // it), but pre-reserving keeps the hot path allocation-free.
+            vstack: Vec::with_capacity(4096),
         }
     }
 
@@ -499,7 +521,7 @@ impl<'a> Vm<'a> {
     /// returns. A blocking park with no runnable fiber is a deadlock.
     fn drive(&mut self, module: &Module, func: usize, args: &[Value]) -> Result<Value, Trap> {
         let mut current = MAIN_FIBER;
-        let mut active = Self::make_frame(module, func, args.to_vec())?;
+        let mut active = Self::push_frame(&mut self.vstack, module, func, args)?;
         loop {
             // `base_depth` is 0: run the fiber until its *whole* stack unwinds.
             match self.run_loop(module, active, 0)? {
@@ -510,8 +532,12 @@ impl<'a> Vm<'a> {
                     }
                 }
                 RunOutcome::Parked(req) => {
+                    // The whole fiber state — its frame stack (the active frame was
+                    // pushed onto `self.frames` before parking) and its value stack
+                    // — is handed to the scheduler to hold until resumed.
                     let frames = std::mem::take(&mut self.frames);
-                    SCHEDULER.with(|s| s.borrow_mut().park(current, frames, req));
+                    let vstack = std::mem::take(&mut self.vstack);
+                    SCHEDULER.with(|s| s.borrow_mut().park(current, vstack, frames, req));
                 }
             }
             // Pick the next runnable fiber (self.frames is empty here).
@@ -544,12 +570,15 @@ impl<'a> Vm<'a> {
         };
         let state = SCHEDULER
             .with(|s| std::mem::replace(&mut s.borrow_mut().fibers[id].state, FiberState::Running));
+        // `self.vstack` is empty here: the previous fiber's was taken on park, or
+        // unwound to empty on completion.
         let active = match state {
             FiberState::NotStarted(closure) => {
                 let (func, locals) = closure_parts(&closure)?;
-                Self::make_frame(module, func as usize, locals)?
+                Self::push_frame(&mut self.vstack, module, func as usize, &locals)?
             }
-            FiberState::Suspended(mut frames) => {
+            FiberState::Suspended { vstack, mut frames } => {
+                self.vstack = vstack;
                 let active = frames
                     .pop()
                     .ok_or_else(|| bug("resumed a fiber with an empty stack"))?;
@@ -563,30 +592,46 @@ impl<'a> Vm<'a> {
         Ok(Some((id, active)))
     }
 
-    /// Build the call frame for `module.functions[func]`, placing `locals`
-    /// (the arguments) in the leading slots and padding the rest with `Unit`.
-    /// Takes no `self` — so an arm can build a frame while `self.frames` is
-    /// borrowed.
-    fn make_frame(module: &Module, func: usize, mut locals: Vec<Value>) -> Result<Frame, Trap> {
+    /// Enter `func` whose `argc` arguments are **already** the top `argc` slots of
+    /// `vstack` (the in-loop call path: a caller leaves its args on the operand
+    /// stack and they become the callee's leading locals in place), padding the
+    /// remaining locals with `Unit`. Takes no `self` — so a `run_loop` arm can
+    /// build a frame while `self.frames`/`self.vstack` are borrowed.
+    fn enter_frame(
+        vstack: &mut Vec<Value>,
+        module: &Module,
+        func: usize,
+        argc: usize,
+    ) -> Result<Frame, Trap> {
         let f = module
             .functions
             .get(func)
             .ok_or_else(|| bug(format!("call: no function at index {func}")))?;
-        if locals.len() != f.param_count as usize {
+        if argc != f.param_count as usize {
             return Err(bug(format!(
                 "call: function '{}' expects {} args, got {}",
-                f.name,
-                f.param_count,
-                locals.len()
+                f.name, f.param_count, argc
             )));
         }
-        locals.resize(f.local_count as usize, Value::Unit);
-        Ok(Frame {
-            func,
-            pc: 0,
-            locals,
-            stack: Vec::new(),
-        })
+        let base = vstack
+            .len()
+            .checked_sub(argc)
+            .ok_or_else(|| bug("call: operand stack underflow"))?;
+        vstack.resize(base + f.local_count as usize, Value::Unit);
+        Ok(Frame { func, pc: 0, base })
+    }
+
+    /// Push `args` onto `vstack` and enter `func` over them — the entry path
+    /// (fiber start, re-entrant `call`, top-level `drive`), where the arguments
+    /// come from a Rust slice rather than already sitting on the stack.
+    fn push_frame(
+        vstack: &mut Vec<Value>,
+        module: &Module,
+        func: usize,
+        args: &[Value],
+    ) -> Result<Frame, Trap> {
+        vstack.extend_from_slice(args);
+        Self::enter_frame(vstack, module, func, args.len())
     }
 
     /// Build a frame for `func` and run it to completion. For re-entrant
@@ -596,7 +641,7 @@ impl<'a> Vm<'a> {
     /// never be reached from inside a nested interpreter re-entry (e.g. the
     /// structural `debug`/`display` fallback).
     fn call(&mut self, module: &Module, func: usize, args: Vec<Value>) -> Result<Value, Trap> {
-        let frame = Self::make_frame(module, func, args)?;
+        let frame = Self::push_frame(&mut self.vstack, module, func, &args)?;
         // Run just this frame's subtree: stop when it returns past the current
         // depth (rather than unwinding the whole fiber, as the scheduler does).
         let base_depth = self.frames.len();
@@ -623,22 +668,38 @@ impl<'a> Vm<'a> {
     ) -> Result<RunOutcome, Trap> {
         let mut frame = initial;
         let mut code = &module.functions[frame.func].code;
+        // Hoist the value stack and frame stack into owned locals for the loop, so
+        // the hot per-instruction accesses (operand push/pop, local load/store) hit
+        // a local `Vec` directly instead of indirecting through the `&mut self`
+        // pointer every time. They are handed back to `self` only at the rare exit
+        // and re-entry points (return/park, and the structural-fallback call below).
+        let mut vstack = std::mem::take(&mut self.vstack);
+        let mut frames = std::mem::take(&mut self.frames);
 
         macro_rules! poll_gc {
             () => {
-                // Gather roots only when a collection will actually run. Besides
-                // this fiber's frames (`self.frames` + the active `frame`), the
-                // roots include every *other* fiber's frames, held in the
-                // scheduler — so a value live only in a parked fiber survives.
+                // Gather roots only when a collection will actually run. Every slot
+                // of this fiber's value stack is a live root (locals + operands of
+                // every active frame); the roots also include every *other* fiber's
+                // value stack, held in the scheduler — so a value live only in a
+                // parked fiber survives.
                 if heap::should_collect() {
-                    let mut roots: Vec<Value> = Vec::new();
-                    for f in self.frames.iter().chain(std::iter::once(&frame)) {
-                        roots.extend(f.locals.iter().chain(f.stack.iter()).copied());
-                    }
+                    let mut roots: Vec<Value> = vstack.clone();
                     gather_scheduler_roots(&mut roots);
                     heap::collect(roots.into_iter());
                 }
             };
+        }
+
+        // Hand the hoisted stacks back to `self` and return — at every `run_loop`
+        // exit, so the caller (the scheduler driver, or a re-entrant `call`) sees
+        // the final fiber state in `self`.
+        macro_rules! exit {
+            ($outcome:expr) => {{
+                self.vstack = vstack;
+                self.frames = frames;
+                return Ok($outcome);
+            }};
         }
 
         loop {
@@ -649,183 +710,171 @@ impl<'a> Vm<'a> {
 
             match instr {
                 // --- constants ---
-                Instr::ConstInt(n) => frame.stack.push(Value::Int(*n)),
-                Instr::ConstDouble(x) => frame.stack.push(Value::Double(*x)),
-                Instr::ConstBool(b) => frame.stack.push(Value::Bool(*b)),
-                Instr::ConstUnit => frame.stack.push(Value::Unit),
+                Instr::ConstInt(n) => vstack.push(Value::Int(*n)),
+                Instr::ConstDouble(x) => vstack.push(Value::Double(*x)),
+                Instr::ConstBool(b) => vstack.push(Value::Bool(*b)),
+                Instr::ConstUnit => vstack.push(Value::Unit),
                 Instr::ConstStr(s) => {
                     poll_gc!();
-                    frame.stack.push(Value::new_str(s.clone()));
+                    vstack.push(Value::new_str(s.clone()));
                 }
 
-                // --- locals ---
+                // --- locals (slots `[base, base + local_count)` of the vstack) ---
                 Instr::Load(slot) => {
-                    let v = *frame
-                        .locals
-                        .get(*slot as usize)
+                    let v = *vstack
+                        .get(frame.base + *slot as usize)
                         .ok_or_else(|| bug(format!("load: slot {slot} out of range")))?;
-                    frame.stack.push(v);
+                    vstack.push(v);
                 }
                 Instr::Store(slot) => {
-                    let v = pop(&mut frame.stack)?;
-                    *frame
-                        .locals
-                        .get_mut(*slot as usize)
+                    let v = pop(&mut vstack)?;
+                    *vstack
+                        .get_mut(frame.base + *slot as usize)
                         .ok_or_else(|| bug(format!("store: slot {slot} out of range")))? = v;
                 }
 
                 // --- integer arithmetic (wrapping) ---
                 Instr::AddI64 => {
-                    let (a, b) = pop_two_int(&mut frame.stack)?;
-                    frame.stack.push(Value::Int(a.wrapping_add(b)));
+                    let (a, b) = pop_two_int(&mut vstack)?;
+                    vstack.push(Value::Int(a.wrapping_add(b)));
                 }
                 Instr::SubI64 => {
-                    let (a, b) = pop_two_int(&mut frame.stack)?;
-                    frame.stack.push(Value::Int(a.wrapping_sub(b)));
+                    let (a, b) = pop_two_int(&mut vstack)?;
+                    vstack.push(Value::Int(a.wrapping_sub(b)));
                 }
                 Instr::MulI64 => {
-                    let (a, b) = pop_two_int(&mut frame.stack)?;
-                    frame.stack.push(Value::Int(a.wrapping_mul(b)));
+                    let (a, b) = pop_two_int(&mut vstack)?;
+                    vstack.push(Value::Int(a.wrapping_mul(b)));
                 }
                 Instr::DivI64 => {
-                    let (a, b) = pop_two_int(&mut frame.stack)?;
+                    let (a, b) = pop_two_int(&mut vstack)?;
                     if b == 0 {
                         return Err(Trap::DivByZero);
                     }
-                    frame.stack.push(Value::Int(a.wrapping_div(b)));
+                    vstack.push(Value::Int(a.wrapping_div(b)));
                 }
                 Instr::ModI64 => {
-                    let (a, b) = pop_two_int(&mut frame.stack)?;
+                    let (a, b) = pop_two_int(&mut vstack)?;
                     if b == 0 {
                         return Err(Trap::DivByZero);
                     }
-                    frame.stack.push(Value::Int(a.wrapping_rem(b)));
+                    vstack.push(Value::Int(a.wrapping_rem(b)));
                 }
                 Instr::NegI64 => {
-                    let a = pop_int(&mut frame.stack)?;
-                    frame.stack.push(Value::Int(a.wrapping_neg()));
+                    let a = pop_int(&mut vstack)?;
+                    vstack.push(Value::Int(a.wrapping_neg()));
                 }
 
                 // --- integer bitwise ---
                 Instr::AndI64 => {
-                    let (a, b) = pop_two_int(&mut frame.stack)?;
-                    frame.stack.push(Value::Int(a & b));
+                    let (a, b) = pop_two_int(&mut vstack)?;
+                    vstack.push(Value::Int(a & b));
                 }
                 Instr::OrI64 => {
-                    let (a, b) = pop_two_int(&mut frame.stack)?;
-                    frame.stack.push(Value::Int(a | b));
+                    let (a, b) = pop_two_int(&mut vstack)?;
+                    vstack.push(Value::Int(a | b));
                 }
                 Instr::XorI64 => {
-                    let (a, b) = pop_two_int(&mut frame.stack)?;
-                    frame.stack.push(Value::Int(a ^ b));
+                    let (a, b) = pop_two_int(&mut vstack)?;
+                    vstack.push(Value::Int(a ^ b));
                 }
                 Instr::BNotI64 => {
-                    let a = pop_int(&mut frame.stack)?;
-                    frame.stack.push(Value::Int(!a));
+                    let a = pop_int(&mut vstack)?;
+                    vstack.push(Value::Int(!a));
                 }
                 // Shift amount is masked to 0..=63 (the low 6 bits), so a shift is
                 // always well-defined (matches Java/JS/Dart).
                 Instr::ShlI64 => {
-                    let (a, b) = pop_two_int(&mut frame.stack)?;
-                    frame
-                        .stack
-                        .push(Value::Int(a.wrapping_shl((b & 63) as u32)));
+                    let (a, b) = pop_two_int(&mut vstack)?;
+                    vstack.push(Value::Int(a.wrapping_shl((b & 63) as u32)));
                 }
                 Instr::ShrI64 => {
-                    let (a, b) = pop_two_int(&mut frame.stack)?;
-                    frame
-                        .stack
-                        .push(Value::Int(a.wrapping_shr((b & 63) as u32)));
+                    let (a, b) = pop_two_int(&mut vstack)?;
+                    vstack.push(Value::Int(a.wrapping_shr((b & 63) as u32)));
                 }
                 Instr::UShrI64 => {
-                    let (a, b) = pop_two_int(&mut frame.stack)?;
-                    frame
-                        .stack
-                        .push(Value::Int(((a as u64) >> ((b & 63) as u32)) as i64));
+                    let (a, b) = pop_two_int(&mut vstack)?;
+                    vstack.push(Value::Int(((a as u64) >> ((b & 63) as u32)) as i64));
                 }
 
                 // --- float arithmetic ---
                 Instr::AddF64 => {
-                    let (a, b) = pop_two_double(&mut frame.stack)?;
-                    frame.stack.push(Value::Double(a + b));
+                    let (a, b) = pop_two_double(&mut vstack)?;
+                    vstack.push(Value::Double(a + b));
                 }
                 Instr::SubF64 => {
-                    let (a, b) = pop_two_double(&mut frame.stack)?;
-                    frame.stack.push(Value::Double(a - b));
+                    let (a, b) = pop_two_double(&mut vstack)?;
+                    vstack.push(Value::Double(a - b));
                 }
                 Instr::MulF64 => {
-                    let (a, b) = pop_two_double(&mut frame.stack)?;
-                    frame.stack.push(Value::Double(a * b));
+                    let (a, b) = pop_two_double(&mut vstack)?;
+                    vstack.push(Value::Double(a * b));
                 }
                 Instr::DivF64 => {
-                    let (a, b) = pop_two_double(&mut frame.stack)?;
-                    frame.stack.push(Value::Double(a / b));
+                    let (a, b) = pop_two_double(&mut vstack)?;
+                    vstack.push(Value::Double(a / b));
                 }
                 Instr::NegF64 => {
-                    let a = pop_double(&mut frame.stack)?;
-                    frame.stack.push(Value::Double(-a));
+                    let a = pop_double(&mut vstack)?;
+                    vstack.push(Value::Double(-a));
                 }
 
                 // --- integer comparison ---
-                Instr::EqI64 => cmp_int(&mut frame.stack, |a, b| a == b)?,
-                Instr::NeI64 => cmp_int(&mut frame.stack, |a, b| a != b)?,
-                Instr::LtI64 => cmp_int(&mut frame.stack, |a, b| a < b)?,
-                Instr::LeI64 => cmp_int(&mut frame.stack, |a, b| a <= b)?,
-                Instr::GtI64 => cmp_int(&mut frame.stack, |a, b| a > b)?,
-                Instr::GeI64 => cmp_int(&mut frame.stack, |a, b| a >= b)?,
+                Instr::EqI64 => cmp_int(&mut vstack, |a, b| a == b)?,
+                Instr::NeI64 => cmp_int(&mut vstack, |a, b| a != b)?,
+                Instr::LtI64 => cmp_int(&mut vstack, |a, b| a < b)?,
+                Instr::LeI64 => cmp_int(&mut vstack, |a, b| a <= b)?,
+                Instr::GtI64 => cmp_int(&mut vstack, |a, b| a > b)?,
+                Instr::GeI64 => cmp_int(&mut vstack, |a, b| a >= b)?,
 
                 // --- float comparison ---
-                Instr::EqF64 => cmp_double(&mut frame.stack, |a, b| a == b)?,
-                Instr::NeF64 => cmp_double(&mut frame.stack, |a, b| a != b)?,
-                Instr::LtF64 => cmp_double(&mut frame.stack, |a, b| a < b)?,
-                Instr::LeF64 => cmp_double(&mut frame.stack, |a, b| a <= b)?,
-                Instr::GtF64 => cmp_double(&mut frame.stack, |a, b| a > b)?,
-                Instr::GeF64 => cmp_double(&mut frame.stack, |a, b| a >= b)?,
+                Instr::EqF64 => cmp_double(&mut vstack, |a, b| a == b)?,
+                Instr::NeF64 => cmp_double(&mut vstack, |a, b| a != b)?,
+                Instr::LtF64 => cmp_double(&mut vstack, |a, b| a < b)?,
+                Instr::LeF64 => cmp_double(&mut vstack, |a, b| a <= b)?,
+                Instr::GtF64 => cmp_double(&mut vstack, |a, b| a > b)?,
+                Instr::GeF64 => cmp_double(&mut vstack, |a, b| a >= b)?,
 
                 // --- boolean ---
                 Instr::Not => {
-                    let b = pop_bool(&mut frame.stack)?;
-                    frame.stack.push(Value::Bool(!b));
+                    let b = pop_bool(&mut vstack)?;
+                    vstack.push(Value::Bool(!b));
                 }
 
                 // --- conversions ---
                 Instr::I64ToF64 => {
-                    let a = pop_int(&mut frame.stack)?;
-                    frame.stack.push(Value::Double(a as f64));
+                    let a = pop_int(&mut vstack)?;
+                    vstack.push(Value::Double(a as f64));
                 }
                 Instr::F64ToI64 => {
-                    let a = pop_double(&mut frame.stack)?;
-                    frame.stack.push(Value::Int(a as i64));
+                    let a = pop_double(&mut vstack)?;
+                    vstack.push(Value::Int(a as i64));
                 }
 
                 // --- stack manipulation ---
                 Instr::Pop => {
-                    pop(&mut frame.stack)?;
+                    pop(&mut vstack)?;
                 }
                 Instr::Dup => {
-                    let v = *frame.stack.last().ok_or_else(|| bug("dup: empty stack"))?;
-                    frame.stack.push(v);
+                    let v = *vstack.last().ok_or_else(|| bug("dup: empty stack"))?;
+                    vstack.push(v);
                 }
 
                 // --- calls ---
                 Instr::Call { func, argc } => {
                     poll_gc!();
-                    let argc = *argc as usize;
-                    let base = frame
-                        .stack
-                        .len()
-                        .checked_sub(argc)
-                        .ok_or_else(|| bug("call: operand stack underflow"))?;
-                    let args = frame.stack.split_off(base);
-                    self.frames.push(frame);
-                    frame = Self::make_frame(module, *func as usize, args)?;
+                    // The `argc` arguments already sit on top of the operand stack;
+                    // they become the callee's leading locals in place — no split,
+                    // no allocation.
+                    let callee =
+                        Self::enter_frame(&mut vstack, module, *func as usize, *argc as usize)?;
+                    frames.push(std::mem::replace(&mut frame, callee));
                     code = &module.functions[frame.func].code;
                 }
                 Instr::CallNative { native, argc } => {
                     poll_gc!();
                     let argc = *argc as usize;
-                    let base = frame
-                        .stack
+                    let base = vstack
                         .len()
                         .checked_sub(argc)
                         .ok_or_else(|| bug("call.native: operand stack underflow"))?;
@@ -837,85 +886,88 @@ impl<'a> Vm<'a> {
                     // Pass the arguments as a slice of the operand stack rather
                     // than splitting them into a fresh Vec: with millions of
                     // tiny native calls (`len`, `eq`), that per-call allocation
-                    // dominated. Natives never touch `frame.stack`, and leaving
+                    // dominated. Natives never touch `vstack`, and leaving
                     // the args in place keeps them GC-rooted across the call.
-                    let ret = f(&mut *self.out, &frame.stack[base..])?;
+                    let ret = f(&mut *self.out, &vstack[base..])?;
                     match take_park() {
                         None => {
-                            frame.stack.truncate(base);
-                            frame.stack.push(ret);
+                            vstack.truncate(base);
+                            vstack.push(ret);
                         }
                         Some(req @ ParkRequest::BlockRetry) => {
                             // The op's resource isn't ready. Rewind to re-execute
                             // this `call.native` on resume — the args are still on
                             // the operand stack, the placeholder return is
                             // discarded, and the native runs again (ready by then).
-                            // The whole frame stack stays on `self.frames` as the
+                            // The whole frame stack stays on `frames` as the
                             // parked fiber's saved state.
                             frame.pc -= 1;
-                            self.frames.push(frame);
-                            return Ok(RunOutcome::Parked(req));
+                            frames.push(frame);
+                            exit!(RunOutcome::Parked(req));
                         }
                         Some(req @ ParkRequest::YieldReady) => {
                             // The op completed; resume right after the call.
-                            frame.stack.truncate(base);
-                            frame.stack.push(ret);
-                            self.frames.push(frame);
-                            return Ok(RunOutcome::Parked(req));
+                            vstack.truncate(base);
+                            vstack.push(ret);
+                            frames.push(frame);
+                            exit!(RunOutcome::Parked(req));
                         }
                     }
                 }
                 Instr::CallIndirect { argc } => {
                     poll_gc!();
                     let argc = *argc as usize;
-                    // Beneath the `argc` arguments sits the closure value.
-                    let base = frame
-                        .stack
+                    // Beneath the `argc` arguments sits the closure value. The
+                    // callee's locals are `[captures..., args...]`: replace the
+                    // closure slot in place with its captures, shifting the args up.
+                    let closure_slot = vstack
                         .len()
                         .checked_sub(argc + 1)
                         .ok_or_else(|| bug("call.indirect: operand stack underflow"))?;
-                    let mut slot = frame.stack.split_off(base);
-                    let args = slot.split_off(1);
-                    let callee = slot.pop().expect("closure slot present");
-                    let (func, mut callee_locals) = closure_parts(&callee)?;
-                    // The callee frame is captures followed by the arguments.
-                    callee_locals.extend(args);
-                    self.frames.push(frame);
-                    frame = Self::make_frame(module, func as usize, callee_locals)?;
+                    let (func, captures) = closure_parts(&vstack[closure_slot])?;
+                    let total = captures.len() + argc;
+                    vstack.splice(closure_slot..closure_slot + 1, captures);
+                    let callee = Self::enter_frame(&mut vstack, module, func as usize, total)?;
+                    frames.push(std::mem::replace(&mut frame, callee));
                     code = &module.functions[frame.func].code;
                 }
                 Instr::CallVirtual { selector, argc } => {
                     poll_gc!();
                     let argc = *argc as usize;
-                    let base = frame
-                        .stack
+                    let base = vstack
                         .len()
                         .checked_sub(argc)
                         .ok_or_else(|| bug("call.virtual: operand stack underflow"))?;
-                    let args = frame.stack.split_off(base);
                     // The receiver is the first argument; its concrete type id
                     // selects the implementation. A miss (no row, or a receiver
                     // with no dispatch id — primitives, strings, collections)
                     // falls back to the built-in interfaces' structural forms.
-                    let recv = args
-                        .first()
-                        .ok_or_else(|| bug("call.virtual: missing receiver"))?;
+                    let recv = vstack[base];
                     let target =
-                        dispatch_type_id(recv).and_then(|ty| module.dispatch_target(ty, selector));
+                        dispatch_type_id(&recv).and_then(|ty| module.dispatch_target(ty, selector));
                     match target {
                         Some(func) => {
-                            self.frames.push(frame);
-                            frame = Self::make_frame(module, func as usize, args)?;
+                            // Args in place become the callee's locals.
+                            let callee =
+                                Self::enter_frame(&mut vstack, module, func as usize, argc)?;
+                            frames.push(std::mem::replace(&mut frame, callee));
                             code = &module.functions[frame.func].code;
                         }
                         // The fallback may re-enter the interpreter (a nested
-                        // `debug`), so it runs while the frame is in self.frames
+                        // `debug`), which takes `self.vstack`/`self.frames` again —
+                        // so hand the hoisted stacks back to `self` first, run the
+                        // (GC-paused) fallback over a copy of the args, then take the
+                        // stacks back. The active frame's values stay rooted in the
+                        // stack throughout; the copied args are covered by the pause.
                         None => {
-                            self.frames.push(frame);
+                            let args: Vec<Value> = vstack[base..].to_vec();
+                            vstack.truncate(base);
+                            self.vstack = std::mem::take(&mut vstack);
+                            self.frames = std::mem::take(&mut frames);
                             let ret = self.virtual_fallback(module, selector, &args)?;
-                            frame = self.frames.pop().unwrap();
-                            code = &module.functions[frame.func].code;
-                            frame.stack.push(ret);
+                            vstack = std::mem::take(&mut self.vstack);
+                            frames = std::mem::take(&mut self.frames);
+                            vstack.push(ret);
                         }
                     }
                 }
@@ -928,21 +980,20 @@ impl<'a> Vm<'a> {
                 } => {
                     poll_gc!();
                     let fc = *field_count as usize;
-                    let base = frame
-                        .stack
+                    let base = vstack
                         .len()
                         .checked_sub(fc)
                         .ok_or_else(|| bug("enum.new: operand stack underflow"))?;
-                    let fields = frame.stack.split_off(base);
-                    frame.stack.push(Value::new_enum(*ty, *variant, fields));
+                    let fields = vstack.split_off(base);
+                    vstack.push(Value::new_enum(*ty, *variant, fields));
                 }
                 Instr::EnumTag => {
-                    let variant = pop_enum_variant(&mut frame.stack)?;
-                    frame.stack.push(Value::Int(variant as i64));
+                    let variant = pop_enum_variant(&mut vstack)?;
+                    vstack.push(Value::Int(variant as i64));
                 }
                 Instr::EnumGet(idx) => {
-                    let v = pop(&mut frame.stack)?;
-                    frame.stack.push(enum_field(&v, *idx as usize)?);
+                    let v = pop(&mut vstack)?;
+                    vstack.push(enum_field(&v, *idx as usize)?);
                 }
 
                 // --- structs ---
@@ -953,21 +1004,20 @@ impl<'a> Vm<'a> {
                         .get(*ty as usize)
                         .ok_or_else(|| bug(format!("struct.new: no type at index {ty}")))?
                         .field_count as usize;
-                    let base = frame
-                        .stack
+                    let base = vstack
                         .len()
                         .checked_sub(field_count)
                         .ok_or_else(|| bug("struct.new: operand stack underflow"))?;
-                    let fields = frame.stack.split_off(base);
-                    frame.stack.push(Value::new_struct(*ty, fields));
+                    let fields = vstack.split_off(base);
+                    vstack.push(Value::new_struct(*ty, fields));
                 }
                 Instr::FieldGet(idx) => {
-                    let v = pop(&mut frame.stack)?;
-                    frame.stack.push(struct_field(&v, *idx as usize)?);
+                    let v = pop(&mut vstack)?;
+                    vstack.push(struct_field(&v, *idx as usize)?);
                 }
                 Instr::FieldSet(idx) => {
-                    let value = pop(&mut frame.stack)?;
-                    let obj = pop(&mut frame.stack)?;
+                    let value = pop(&mut vstack)?;
+                    let obj = pop(&mut vstack)?;
                     set_struct_field(&obj, *idx as usize, value)?;
                 }
 
@@ -975,17 +1025,16 @@ impl<'a> Vm<'a> {
                 Instr::ListNew { count } => {
                     poll_gc!();
                     let n = *count as usize;
-                    let base = frame
-                        .stack
+                    let base = vstack
                         .len()
                         .checked_sub(n)
                         .ok_or_else(|| bug("list.new: operand stack underflow"))?;
-                    let items = frame.stack.split_off(base);
-                    frame.stack.push(Value::new_list(items));
+                    let items = vstack.split_off(base);
+                    vstack.push(Value::new_list(items));
                 }
                 Instr::ListGet => {
-                    let idx = pop_int(&mut frame.stack)?;
-                    let list = pop(&mut frame.stack)?;
+                    let idx = pop_int(&mut vstack)?;
+                    let list = pop(&mut vstack)?;
                     let elem = match list {
                         Value::Ref(h) => heap::with_obj(h, |obj| match obj {
                             Obj::List(items) => Ok(items[checked_list_index(idx, items.len())?]),
@@ -993,12 +1042,12 @@ impl<'a> Vm<'a> {
                         })?,
                         _ => return Err(bug("list.get: expected a list")),
                     };
-                    frame.stack.push(elem);
+                    vstack.push(elem);
                 }
                 Instr::ListSet => {
-                    let value = pop(&mut frame.stack)?;
-                    let idx = pop_int(&mut frame.stack)?;
-                    let list = pop(&mut frame.stack)?;
+                    let value = pop(&mut vstack)?;
+                    let idx = pop_int(&mut vstack)?;
+                    let list = pop(&mut vstack)?;
                     match list {
                         Value::Ref(h) => heap::with_obj_mut(h, |obj| match obj {
                             Obj::List(items) => {
@@ -1016,13 +1065,12 @@ impl<'a> Vm<'a> {
                 Instr::ClosureNew { func, captures } => {
                     poll_gc!();
                     let n = *captures as usize;
-                    let base = frame
-                        .stack
+                    let base = vstack
                         .len()
                         .checked_sub(n)
                         .ok_or_else(|| bug("closure.new: operand stack underflow"))?;
-                    let captured = frame.stack.split_off(base);
-                    frame.stack.push(Value::new_closure(*func, captured));
+                    let captured = vstack.split_off(base);
+                    vstack.push(Value::new_closure(*func, captured));
                 }
 
                 // --- control ---
@@ -1033,7 +1081,7 @@ impl<'a> Vm<'a> {
                     frame.pc = *target;
                 }
                 Instr::JumpIfTrue(target) => {
-                    if pop_bool(&mut frame.stack)? {
+                    if pop_bool(&mut vstack)? {
                         if *target < frame.pc {
                             poll_gc!();
                         }
@@ -1041,7 +1089,7 @@ impl<'a> Vm<'a> {
                     }
                 }
                 Instr::JumpIfFalse(target) => {
-                    if !pop_bool(&mut frame.stack)? {
+                    if !pop_bool(&mut vstack)? {
                         if *target < frame.pc {
                             poll_gc!();
                         }
@@ -1049,15 +1097,27 @@ impl<'a> Vm<'a> {
                     }
                 }
                 Instr::Return => {
-                    let value = frame.stack.pop().unwrap_or(Value::Unit);
-                    if self.frames.len() == base_depth {
+                    // The result is the callee's top operand, or `Unit` if its
+                    // operand stack is empty (a `Void` return) — distinguished by
+                    // the operand floor `base + local_count`, since locals sit below
+                    // the operands in the shared stack. Then discard the callee's
+                    // whole slot region.
+                    let floor = frame.base + module.functions[frame.func].local_count as usize;
+                    let value = if vstack.len() > floor {
+                        vstack[vstack.len() - 1]
+                    } else {
+                        Value::Unit
+                    };
+                    vstack.truncate(frame.base);
+                    if frames.len() == base_depth {
                         // The entry frame for this `run_loop` has returned (for the
-                        // scheduler, base_depth 0 means the whole fiber unwound).
-                        return Ok(RunOutcome::Done(value));
+                        // scheduler, base_depth 0 means the whole fiber unwound); the
+                        // result goes back to the Rust caller.
+                        exit!(RunOutcome::Done(value));
                     }
-                    frame = self.frames.pop().unwrap();
+                    frame = frames.pop().unwrap();
                     code = &module.functions[frame.func].code;
-                    frame.stack.push(value);
+                    vstack.push(value);
                 }
             }
         }
