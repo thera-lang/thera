@@ -222,25 +222,47 @@ closed.
 
   Related, still open: `impl` coherence / orphan rules, selective import
   (`show`/`hide`), and a "module"→"library" terminology sweep.
-- **Imported-file errors are silently swallowed — correctness bug.** A parse (or
-  check) error in an **imported** file is **dropped**: `hawk check app.hawk` over
-  an `import 'helper'` whose `helper.hawk` has a genuine parse error (`let x = ;`)
-  reports *nothing* and silently ignores the broken import, while checking
-  `helper.hawk` directly reports it. So any error in an import surfaces only as
-  confusing downstream "unknown name" errors in the importer, or nothing. Fix: the
-  loader must collect and surface diagnostics from every file in the import
-  closure (attributed to that file) and mark the import unresolved when a file
-  fails to parse. (This was the real root of the "trailing-`;` corrupts a module"
-  symptom; the parser half — `parse_block` rejecting a stray `;` after a block-form
-  statement — is fixed.)
-- **Diagnostic reporter attributes errors to the entrypoint file — correctness bug.**
-  When running `hawk check app.hawk` or reporting diagnostics, the compiler
-  sometimes incorrectly attributes errors from imported files to the entrypoint file
-  itself. For example, a missing method in `helper.hawk:26` might be printed as
-  `app.hawk:26: no method`. This happens because `driver.check_source_at` or the
-  diagnostic formatter overrides or drops the actual file origin of the span. Fix:
-  ensure the reporter respects and prints the actual file path that each diagnostic
-  span originated from.
+- **Whole-closure diagnostics with per-file origin — correctness bug.** A
+  diagnostic today carries only a message + span, **no owning file** (`Diagnostic`
+  in `driver.hawk`, `CheckError` in `checker.hawk`); the CLI prints each against
+  whatever single path it was handed — the entrypoint. Two consequences, both
+  verified against an `app.hawk` that imports `helper.hawk`:
+  - **Import errors vanish.** The checker body-checks only the *primary* program
+    (`check_program` iterates `program.decls`); imports supply signatures only. So a
+    check error inside an imported body (`helper.hawk`'s `name.frobnicate()`) is
+    never produced when checking `app.hawk` — `check helper.hawk` reports it,
+    `check app.hawk` reports nothing. A *parse* error in an import is dropped by the
+    loader and surfaces only as a misleading downstream `undefined name: helper` in
+    the importer — printed with **exit 0** (a printed error under a success code, a
+    bug in itself). (This was the root of the "trailing-`;` corrupts a module"
+    symptom; the parser half — `parse_block` rejecting a stray `;` after a
+    block-form statement — is fixed.)
+  - **Misattribution is latent, not yet observable.** Because import diagnostics
+    never reach the reporter, nothing is *mis*-attributed today — but the moment
+    they are surfaced they'd each print with the entrypoint's path, since a
+    diagnostic has no origin of its own. Per-file origin is therefore the
+    prerequisite, not a separate fix (these two were previously tracked as two
+    items).
+
+  Target — the standard error-tolerant analyzer model:
+  - The engine computes diagnostics for the **whole import closure**, each carrying
+    its **owning file** (origin) + span. The loader recovers-and-parses every file,
+    collecting that file's diagnostics under its path and marking failed imports.
+  - The **request** scopes which files' diagnostics are *displayed* (a single file
+    vs. a directory/project — the typical case); computation stays closure-wide
+    regardless, so an importer can react to a failed dependency.
+  - **Recover and resolve:** a partially-parsed `b` still offers whatever decls it
+    recovered; an importer `a` errors only on symbols genuinely missing.
+  - **Cascade suppression / cause-naming:** the resolver distinguishes "undefined"
+    from "unavailable because its source file errored" — suppressing the downstream
+    cascade and naming the cause: `helper.greet is unavailable: helper.hawk failed
+    to parse` rather than a bare `undefined name: helper`, so the reader is pointed
+    straight at the file to fix.
+  - **Format for the LLM lens:** `path:line:col: severity: message`, one per line,
+    grouped by file, deterministically ordered (file → line → col) so an agent's
+    before/after diffs are stable; exit non-zero iff a displayed diagnostic is an
+    error. (A machine-readable JSON mode can follow — see the `hawk test` output
+    modes.)
 - **Static-method type arguments — expressiveness gap.** No expression-level syntax
   constructs a generic type whose parameter isn't otherwise inferable:
   `Set<String>.new()` doesn't parse, and `Set.new<String>()` binds `<String>` to
