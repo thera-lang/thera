@@ -217,13 +217,19 @@ fn test_driver(_ tests: List<String>, _ show_output: Bool) -> String {
     s = '${s}native fn __hawk_capture_begin() -> Void\n';
     s = '${s}@extern(\'test_capture_end\')\n';
     s = '${s}native fn __hawk_capture_end() -> String\n';
-    // Print a test's captured output, each line indented under its report line.
+    // Print `text` with every line indented under the report column — so a
+    // multi-line assertion message (or captured output) stays aligned, not just
+    // its first line.
+    s = '${s}fn __hawk_indent(_ text: String) -> Void {\n';
+    s = '${s}    for __hawk_line in text.lines() {\n';
+    s = '${s}        println(\'          \' + __hawk_line);\n';
+    s = '${s}    }\n';
+    s = '${s}}\n';
+    // Print a test's captured output under an `--- output ---` header.
     s = '${s}fn __hawk_show(_ captured: String) -> Void {\n';
     s = '${s}    if captured == \'\' { return; }\n';
     s = '${s}    println(\'          --- output ---\');\n';
-    s = '${s}    for __hawk_line in captured.lines() {\n';
-    s = '${s}        println(\'          \' + __hawk_line);\n';
-    s = '${s}    }\n';
+    s = '${s}    __hawk_indent(captured);\n';
     s = '${s}}\n';
     // Report one test's outcome; return 1 on failure, 0 on success.
     s = '${s}fn __hawk_report(_ name: String, _ r: Result<Void, Error>, _ captured: String, _ show: Bool) -> Int {\n';
@@ -237,7 +243,7 @@ fn test_driver(_ tests: List<String>, _ show_output: Bool) -> String {
     // through its `message()`. A failing test always shows its captured output.
     s = '${s}        Err(e) => {\n';
     s = '${s}            println(\'  FAIL  \' + name);\n';
-    s = '${s}            println(\'          \' + e.message());\n';
+    s = '${s}            __hawk_indent(e.message());\n';
     s = '${s}            __hawk_show(captured);\n';
     s = '${s}            1\n';
     s = '${s}        },\n';
