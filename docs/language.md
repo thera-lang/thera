@@ -59,11 +59,10 @@ other's changes. Immutability is enforced by the type system — struct fields a
 immutable by default and `let` prevents rebinding — rather than by copying
 values.
 
-> **Enforcement status.** Binding immutability is enforced: reassigning a
-> non-`mut` `let` or a parameter is a compile error. Struct-field immutability is
-> the intended target but is **not yet enforced** — the implementation still
-> mutates fields, and an explicit `mut field: T` mechanism plus a migration of
-> the stateful structs is planned before fields become immutable by default.
+> **Enforcement status.** Immutability is enforced uniformly: reassigning a
+> non-`mut` `let` or parameter, or assigning a non-`mut` struct field, is a
+> compile error. A field opts into reassignment with `mut field: T` (see
+> [Structs](#structs)).
 
 ---
 
@@ -136,7 +135,9 @@ unqualified.
 
 ## Structs
 
-Structs are nominal types. Fields are immutable by default.
+Structs are nominal types. Fields are immutable by default; mark a field `mut` to
+allow reassigning it after construction (the field-level analogue of `let` vs
+`let mut`).
 
 ```hawk
 type Point = {
@@ -146,7 +147,20 @@ type Point = {
 
 let p = Point { x: 1.0, y: 2.0 };
 println('${p.x}, ${p.y}');
+p.x = 3.0;            // error: `x` is not `mut`
+
+type Cursor = {
+    mut offset: Int,   // reassignable
+    source: String,    // immutable
+}
+
+let c = Cursor { offset: 0, source: 'abc' };
+c.offset = c.offset + 1;   // ok
 ```
+
+Mutability gates *which fields may be reassigned*, not sharing: a `mut` field on a
+struct reached through two bindings is observed by both (heap values are shared
+references — see [Variables](#variables)).
 
 ---
 

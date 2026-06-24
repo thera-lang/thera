@@ -104,9 +104,9 @@ pub type ModuleScope = {
     pending_dispatch: List<PendingDispatch>,
     interface_supers: Map<String, List<String>>,
     namespaces: Set<String>,
-    next_enum_ty: Int,
+    mut next_enum_ty: Int,
     boxed_params: Map<Int, Set<String>>,
-    cell_type: Option<Int>,
+    mut cell_type: Option<Int>,
     // Lifted-lambda units carry their parameter types here (capture + own
     // params), so the lambda's body can be typed when compiled as its own unit
     // — the pure-inference analogue of the Dart inferrer's annotation.

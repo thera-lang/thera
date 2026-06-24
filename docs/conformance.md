@@ -62,7 +62,8 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `type-set`          | Collections              | `Set<T>` uniqueness via `Set.from`                        | ✓      |
 | `type-bytes`        | Types → Bytes            | `Bytes` len / `to_string` / `from_list` / `empty`         | ◐      |
 | `type-struct`       | Structs                  | `type` decl, struct literal, field access                 | ✓      |
-| `type-struct-immut` | Structs                  | struct fields immutable by default                        | ⓧ      |
+| `type-struct-immut` | Structs                  | struct fields immutable by default (non-`mut` assign = error)| ✓    |
+| `type-mut-field`    | Structs                  | a `mut field: T` may be reassigned after construction     | ✓      |
 | `type-field-nonstruct`| Structs                | a bare field access on a non-struct value is rejected     | ✓      |
 
 ## Variables & semantics
@@ -181,18 +182,17 @@ to fix, each ideally captured by a conformance test once resolved.
   namespace/`Enum.Variant`/type receivers infer to `Unknown` (not `Primitive`),
   and method calls go through the `Call` case; the corpus had 0 violations.
 
-- **binding immutability — ENFORCED; field immutability — deferred**
-  (`var-let-immutable`, `type-struct-immut`). The checker now rejects reassigning
-  a non-`mut` `let` or a parameter (`cannot assign to \`n\`: it is not declared
-  \`mut\``); the corpus was already clean (it uses `let mut` where it reassigns).
-  **Struct fields are a different story:** the implementation mutates them
-  pervasively — stateful structs (`Lexer`/`Parser`/JSON reader/codegen emitter,
-  and several stdlib types) do `self.field = …` throughout — so the spec's
-  "fields immutable by default" cannot be enforced without a `mut field`
-  mechanism + migrating those structs. Decision (see overview.md's LLM-reasoning
-  rationale): the target is uniform immutable-by-default + explicit `mut` for
-  *both* locals and fields; `type-struct-immut` stays ⓧ pending that `mut`-fields
-  arc.
+- **immutability — ENFORCED, uniformly** (`var-let-immutable`,
+  `type-struct-immut`, `type-mut-field`). The checker rejects reassigning a
+  non-`mut` `let`/parameter (`cannot assign to \`n\`: …`) *and* assigning a
+  non-`mut` struct field (`cannot assign to field \`x\`: it is not declared
+  \`mut\``). The `mut field: T` mechanism (parser → `FieldDef.is_mut` →
+  `TypeDefElement.mut_fields` → the `Assign` field-target check) realizes the
+  decided design: uniform immutable-by-default + explicit `mut` for both locals
+  and fields. The stateful structs that mutate `self.field` (Lexer/Parser/JSON
+  reader/codegen/lsp + several stdlib types — 62 sites, ~26 fields) were migrated
+  to `mut`; the checker-driven scan made it exhaustive. Only the *last* field of a
+  chain needs `mut` (`a.b.c = …` mutates the object `a.b` points at).
 
 - **`s[i]` on a String — now rejected at `check`** (`type-string-noindex`). The
   `Index` case rejects a `String` receiver (`indexing on String is not

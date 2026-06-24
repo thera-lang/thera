@@ -17,7 +17,7 @@
 
 // An iterator over the half-open integer range `[start, end)`.
 type RangeIter = {
-    current: Int,
+    mut current: Int,
     end: Int,
 }
 
@@ -40,7 +40,7 @@ pub fn range(_ start: Int, _ end: Int) -> Iterator<Int> {
 // An iterator over the elements of a list, in order.
 type ListIter<T> = {
     items: List<T>,
-    pos: Int,
+    mut pos: Int,
 }
 
 impl Iterator<T> for ListIter<T> {

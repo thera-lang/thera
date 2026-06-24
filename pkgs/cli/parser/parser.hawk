@@ -43,9 +43,9 @@ impl ParseResult {
 
 type Parser = {
     tokens: List<Token>,
-    pos: Int,
+    mut pos: Int,
     errors: List<ParseError>,
-    panicking: Bool,
+    mut panicking: Bool,
 }
 
 // Parse a token stream into a Program (plus any recovered errors). (Named

@@ -41,14 +41,14 @@ impl LexResult {
 type Lexer = {
     source: String,
     chars: List<Int>,
-    pos: Int,
-    line: Int,
-    col: Int,
+    mut pos: Int,
+    mut line: Int,
+    mut col: Int,
     tokens: List<Token>,
     errors: List<LexError>,
-    ts_offset: Int,
-    ts_line: Int,
-    ts_col: Int,
+    mut ts_offset: Int,
+    mut ts_line: Int,
+    mut ts_col: Int,
 }
 
 // Tokenize `source` into a `LexResult` (tokens end with `Eof`).

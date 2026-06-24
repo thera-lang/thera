@@ -1,6 +1,5 @@
 //! spec: type-struct-immut
 //! mode: check
-//! xfail: field immutability is deferred — the impl mutates fields pervasively (stateful structs), awaiting a `mut` field mechanism (see docs/conformance.md Findings)
 
 type Point = {
     x: Int,
@@ -9,8 +8,8 @@ type Point = {
 
 fn main() -> Int {
     let p = Point { x: 1, y: 2 };
-    // Struct fields are immutable by default; assigning one should be an error.
-    // The empty expectation matches any diagnostic on this line.
-    p.x = 9;   // expect error:
+    // Struct fields are immutable by default; `x` is not `mut`, so assigning it
+    // is an error.
+    p.x = 9;   // expect error: cannot assign to field `x`
     return 0;
 }

@@ -71,7 +71,7 @@ fn test_for_loop_over_list_iter() -> Result<Void, Error> {
 // A user-defined iterator, looped over by its *concrete* type (not the
 // Iterator interface) — exercises the concrete-conformer dispatch path.
 type Doubler = {
-    next_val: Int,
+    mut next_val: Int,
     limit: Int,
 }
 

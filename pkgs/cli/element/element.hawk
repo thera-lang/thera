@@ -61,11 +61,13 @@ pub type TypeDefElement = {
     interfaces: List<String>,       // `impl Interface for Type` conformances
     // Struct fields: name -> resolved type (insertion order preserved).
     fields: Map<String, Type>,
+    // The subset of `fields` declared `mut` (reassignable after construction).
+    mut_fields: Set<String>,
     // Enum variants, in declaration order.
     variants: List<EnumVariantElement>,
     // Interface: the (transitively flattened) super-interfaces, and the method
     // names declared directly on this interface (conformance needs only these).
-    super_interfaces: List<String>,
+    mut super_interfaces: List<String>,
     own_methods: List<String>,
 }
 
@@ -96,10 +98,16 @@ fn empty_def(_ name: String, _ kind: TypeDefKind, _ type_params: List<String>)
         methods: [],
         interfaces: [],
         fields: {},
+        mut_fields: Set.new(),
         variants: [],
         super_interfaces: [],
         own_methods: [],
     };
+}
+
+// Whether field `name` on `e` is declared `mut` (so it may be reassigned).
+pub fn field_is_mut(_ e: TypeDefElement, _ name: String) -> Bool {
+    return e.mut_fields.has(name);
 }
 
 // --- queries over an element ---

@@ -32,7 +32,7 @@ pub type InferCtx = {
     type_param_bounds: Map<String, List<String>>,
     // The file of the function being inferred — the scope a bare free-function
     // reference resolves against (same-file-first).
-    current_file: Option<String>,
+    mut current_file: Option<String>,
 }
 
 // A context for inferring at the top level (no enclosing generics/self/return).
@@ -1337,6 +1337,19 @@ fn primitive_type_name(_ p: Primitive) -> Option<String> {
 pub fn struct_field_missing(_ recv: Type, _ field: String, _ ctx: InferCtx) -> Bool {
     return match type_def_for(recv, ctx) {
         Some(element) => element.kind == TypeDefKind.Struct && !element.fields.has(field),
+        None => false,
+    };
+}
+
+// Whether `recv.field` names a real struct field that is NOT declared `mut`, so
+// assigning to it is an immutability error. False for non-structs, missing
+// fields, `mut` fields, and unresolved receivers (conservative — no false
+// positives on inference gaps).
+pub fn struct_field_immutable(_ recv: Type, _ field: String, _ ctx: InferCtx) -> Bool {
+    return match type_def_for(recv, ctx) {
+        Some(element) => element.kind == TypeDefKind.Struct
+            && element.fields.has(field)
+            && !field_is_mut(element, field),
         None => false,
     };
 }

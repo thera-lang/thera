@@ -21,7 +21,7 @@ import '../lexer/token' as _; // SourceSpan, used by every node
 pub type Program = {
     decls: List<Decl>,
     // Set by the loader after parsing; the parser leaves it None.
-    file_path: Option<String>,
+    mut file_path: Option<String>,
 }
 
 // --- Declarations ---

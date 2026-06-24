@@ -153,15 +153,15 @@ pub type FnCompiler = {
     type_param_bounds: Map<String, List<String>>,
     consts_in_progress: Set<String>,
     boxed_locals: Set<String>,
-    local_count: Int,
-    param_count: Int,
-    returns_result: Bool,
+    mut local_count: Int,
+    mut param_count: Int,
+    mut returns_result: Bool,
     labels: List<Option<Int>>,
     fixups: List<Fixup>,
-    ctx: InferCtx,
+    mut ctx: InferCtx,
     // The file this unit was declared in — the scope a bare free-function
     // reference resolves against (same-file-first).
-    file: Option<String>,
+    mut file: Option<String>,
     errors: List<CodegenError>,
 }
 

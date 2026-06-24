@@ -565,6 +565,16 @@ fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ stmts: List<Stmt>, _ i
                         None => {},
                     }
                 },
+                Field(fspan, obj, field) => {
+                    // Assigning a struct field requires the field to be `mut`
+                    // (only the last field of a chain — `a.b.c = …` mutates the
+                    // object `a.b` points at). An index target mutates a
+                    // collection, not a field, so it is not checked here.
+                    let recv = infer_expr(obj, scope, ctx, Option.None);
+                    if struct_field_immutable(recv, field, ctx) {
+                        add_error(errors, 'cannot assign to field `${field}`: it is not declared `mut`', fspan);
+                    }
+                },
                 _ => {},
             }
             // The assignment target's type is the expected type for the value, so

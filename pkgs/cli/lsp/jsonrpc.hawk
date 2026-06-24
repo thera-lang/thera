@@ -14,7 +14,7 @@ import std.json as _;
 // complete message body (the JSON text) at a time. `pending` holds bytes read
 // past the last returned message (the start of the next one).
 pub type MsgBuffer = {
-    pending: Bytes,
+    mut pending: Bytes,
 }
 
 pub fn new_buffer() -> MsgBuffer {

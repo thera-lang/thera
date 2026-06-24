@@ -75,7 +75,7 @@ pub type Positional = {
 // one with the fluent `Command.new(...).flag(...).option(...)` builder.
 pub type Command = {
     name: String,
-    about_text: String,
+    mut about_text: String,
     flags: List<Flag>,
     options: List<Opt>,
     positionals: List<Positional>,
@@ -83,7 +83,7 @@ pub type Command = {
     // When true, the first positional token (and everything after it, flags
     // included) is captured verbatim as positionals — for a launcher command
     // that forwards a trailing argv to a wrapped program (`run <file> [args]`).
-    trailing_var_arg: Bool,
+    mut trailing_var_arg: Bool,
 }
 
 // What `parse` can reject. Implements the common `Error` interface, so a
@@ -121,8 +121,8 @@ pub type Matches = {
     flag_values: Map<String, Bool>,
     option_values: Map<String, String>,
     positional_values: List<String>,
-    sub_name: Option<String>,
-    sub: Option<Matches>,
+    mut sub_name: Option<String>,
+    mut sub: Option<Matches>,
 }
 
 impl Command {

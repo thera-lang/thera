@@ -25,7 +25,7 @@ import 'definition';
 pub type Server = {
     docs: Map<String, String>,
     sdk_root: Option<String>,
-    shutdown_received: Bool,
+    mut shutdown_received: Bool,
 }
 
 pub fn new_server(_ sdk_root: Option<String>) -> Server {

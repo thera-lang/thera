@@ -9,7 +9,7 @@ import 'io' as _;
 // read — so the combinators' read-until-EOF loops are exercised across chunks.
 type MemReader = {
     data: Bytes,
-    pos: Int,
+    mut pos: Int,
     chunk: Int,
 }
 

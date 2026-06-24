@@ -126,6 +126,9 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
                         Some(element) => {
                             for f in x.fields {
                                 element.fields[f.name] = resolve_type_ref(f.type_ann, type_defs, tps, Option.None);
+                                if f.is_mut {
+                                    element.mut_fields.add(f.name);
+                                }
                             }
                         },
                         None => {},

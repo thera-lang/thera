@@ -1,0 +1,16 @@
+//! spec: type-mut-field
+//! mode: run
+
+type Counter = {
+    mut value: Int,
+    label: String,
+}
+
+fn main() -> Int {
+    let c = Counter { value: 0, label: 'hits' };
+    // `value` is `mut`, so it may be reassigned after construction.
+    c.value = c.value + 1;
+    c.value = c.value + 1;
+    println('${c.label}: ${c.value}');   // expect: hits: 2
+    return 0;
+}
