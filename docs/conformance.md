@@ -61,6 +61,7 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `type-map`          | Collections              | `Map<K,V>` literal, keyed access                          | ✓      |
 | `type-set`          | Collections              | `Set<T>` uniqueness via `Set.from`                        | ✓      |
 | `type-bytes`        | Types → Bytes            | `Bytes` len / `to_string` / `from_list` / `empty`         | ◐      |
+| `type-native`       | Types → Built-ins        | `native type` decl: opaque, impl-extensible, no field layout| ✓     |
 | `type-struct`       | Structs                  | `type` decl, struct literal, field access                 | ✓      |
 | `type-struct-immut` | Structs                  | struct fields immutable by default (non-`mut` assign = error)| ✓    |
 | `type-mut-field`    | Structs                  | a `mut field: T` may be reassigned after construction     | ✓      |

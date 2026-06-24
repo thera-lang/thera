@@ -5,6 +5,10 @@
 // type-preserving on either numeric type. The inherently-Double functions
 // (sqrt, floor, sin, …) live in std.math, not here.
 
+// The built-in 64-bit IEEE-754 floating-point type — an opaque,
+// runtime-represented primitive whose methods attach below.
+pub native type Double
+
 impl Double {
     // The absolute value.
     pub fn abs(self) -> Double {

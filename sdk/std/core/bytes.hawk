@@ -9,6 +9,9 @@
 // Both are runtime-backed opaque types; their methods are `native fn`s, like
 // String's.
 
+// The built-in immutable byte buffer — an opaque, runtime-represented value.
+pub native type Bytes
+
 impl Bytes {
     // The number of bytes.
     @extern('bytes_len')
@@ -42,6 +45,10 @@ impl Bytes {
     @extern('bytes_from_list')
     pub native fn from_list(_ values: List<Int>) -> Result<Bytes, Error>
 }
+
+// The built-in growable byte accumulator — an opaque, runtime-represented value
+// that `finish()`es into a `Bytes`.
+pub native type BytesBuilder
 
 impl BytesBuilder {
     // A fresh, empty accumulator.

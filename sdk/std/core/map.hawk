@@ -12,6 +12,10 @@
 // Use `.get(key)` when a missing key is a normal, expected case. See "Runtime
 // faults" and "Collections" in docs/language.md.
 
+// The built-in ordered key-value store — an opaque, runtime-represented value
+// (no struct layout); a map literal (`{k: v}`) constructs one.
+pub native type Map<K, V>
+
 impl Map<K, V> {
     // Indexing — `m[key]` and `m[key] = v` — is built-in operator syntax (lowered
     // by the compiler, not a method, so it has no declaration here). The read

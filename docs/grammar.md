@@ -143,8 +143,14 @@ param       = 'self'
             // `label name` gives a distinct external label; a single IDENT
             // means label == name.
 
-typeDecl    = 'type' IDENT typeParams? '=' '{' field (',' field)* ','? '}'
+typeDecl    = 'native'? 'type' IDENT typeParams?
+              ( '=' '{' field (',' field)* ','? '}'   // a struct: named fields
+              | /* nothing */ ';'? )                  // a `native type`: opaque, no body
 field       = 'mut'? IDENT ':' type        // `mut` allows the field to be reassigned
+              // A `native type` (`native type List<T>`) is an opaque,
+              // runtime-represented type with no field layout — a declaration site
+              // for a built-in whose representation lives in the runtime. Methods
+              // come from `impl` blocks; it cannot be built with a struct literal.
 
 enumDecl    = 'enum' IDENT typeParams? '{' variant (',' variant)* ','? '}'
 variant     = IDENT ( '(' type (',' type)* ')' )?       // positional payload

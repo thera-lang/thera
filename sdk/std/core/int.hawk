@@ -6,6 +6,10 @@
 // (double.hawk); the inherently-Double functions (sqrt, sin, …) live in
 // std.math, which an Int reaches via `n.to_double()`.
 
+// The built-in 64-bit signed integer type — an opaque, runtime-represented
+// primitive whose methods attach below; an integer literal constructs one.
+pub native type Int
+
 impl Int {
     // The absolute value.
     pub fn abs(self) -> Int {

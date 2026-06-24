@@ -263,32 +263,20 @@ closed.
     before/after diffs are stable; exit non-zero iff a displayed diagnostic is an
     error. (A machine-readable JSON mode can follow — see the `hawk test` output
     modes.)
-- **`native type` declarations for the built-in types — uniformity / discovery.**
-  `Int`, `Double`, `Bool`, `String`, `List`, `Map`, `Bytes`, `BytesBuilder` have
-  method `impl` blocks in `sdk/std/core/` but **no `type` declaration** anywhere in
-  Hawk — `impl List<T>` resolves only because the front-end hardcodes the name (the
-  `builtin_type_defs()` registry in `resolver.hawk`). So these eight have no
-  definition site, no doc home, and nowhere their type parameters are written
-  down — unlike `Set`/`Option`/`Result`, which are ordinary Hawk decls. They are the
-  one category of addressable *type* not represented in source (the addressable
-  *operations* gap is the implicit operator lowerings — see Generic operators).
-  Proposal: a bodyless **`native type`** declaration (`pub native type List<T>`),
-  reusing the existing `native` keyword — symmetric with `native fn` ("the
-  representation lives in the runtime"). Semantics: an **opaque, runtime-represented**
-  type — `impl` blocks and interface impls attach as today, but it has **no field
-  layout**, so no struct-literal construction and no internal pattern-matching; it's
-  effectively SDK-only (a user-written `native type` has no runtime counterpart to
-  bind). No `@extern` is needed — unlike a native fn it binds to no single named
-  symbol; its identity is its name, and the runtime maps the built-in names
-  intrinsically (the `Type`-variant ↔ name table). Pass 1 of `build_library` would
-  register these from source like any type, so `builtin_type_defs()` shrinks to a
-  bootstrap floor for hermetic compiles — the same harmless dual-registration
-  `Set`/`Option`/`Result` already tolerate. Pure uniformity/docs/discovery, no
-  behaviour change. Surface: parser (`native` before `type`, no body →
-  `TypeDecl{is_native}`), resolver (register + mark opaque), checker (field access
-  stays an error; methods/impls unchanged), codegen (emits no representation), plus
-  the decls + docs. Whether to *also* gate `native fn`/`native type` to SDK paths is
-  an open question tracked with the `@extern` name-check item.
+- ~~**`native type` declarations for the built-in types — uniformity / discovery.**~~
+  _Done (2026-06)._ `Int`/`Double`/`Bool`/`String`/`List`/`Map`/`Bytes`/`BytesBuilder`
+  now have a bodyless **`native type`** declaration in `sdk/std/core/` (a new
+  `bool.hawk` for `Bool`), so each built-in has a definition site, a doc home, and
+  its type parameters written down — like `Set`/`Option`/`Result`. Reuses the
+  `native` keyword (symmetric with `native fn`); no `@extern` (its identity is its
+  name). It resolves as a `Builtin` type def — opaque, an attachment point for
+  `impl` blocks, **no field layout** (no struct literal) — and emits no code / no
+  runtime type-table entry, so it shadows the hardcoded `builtin_type_defs()` floor
+  with zero behaviour change (the SDK fixpoint stayed byte-identical). Spec test
+  `type-native`. Open follow-ups: whether to *gate* `native fn`/`native type` to SDK
+  paths (with the `@extern` name-check item), and the checker leniency that lets a
+  bare field access on an opaque value slip to codegen (the existing
+  `type-field-nonstruct` residual).
 - **Static-method type arguments — expressiveness gap.** No expression-level syntax
   constructs a generic type whose parameter isn't otherwise inferable:
   `Set<String>.new()` doesn't parse, and `Set.new<String>()` binds `<String>` to

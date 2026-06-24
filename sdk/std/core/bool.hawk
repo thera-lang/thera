@@ -1,0 +1,9 @@
+// std.core — the built-in Bool type (auto-imported with the prelude).
+//
+// `Bool` is the two-valued logical type (`true` / `false`). It has no methods of
+// its own — the boolean operators (`&&`, `||`, `!`) are built-in syntax — but it
+// gets a declaration site here for uniformity with the other built-in types.
+
+// The built-in boolean type — an opaque, runtime-represented primitive; a
+// `true`/`false` literal constructs one.
+pub native type Bool

@@ -6,6 +6,10 @@
 // methods. A String value is a primitive, but methods resolve through its
 // element like any other type (see docs/roadmap.md, "primitives").
 
+// The built-in Unicode string type — an opaque, runtime-represented value whose
+// methods attach below; a string literal (`'hi'`) constructs one.
+pub native type String
+
 impl String {
     // Number of Unicode code points.
     @extern('str_len')

@@ -15,6 +15,10 @@
 //
 // Still TBD (straightforward additions once needed): `first`/`last`/`sort`.
 
+// The built-in growable sequence type — an opaque, runtime-represented value
+// (no struct layout); a list literal (`[a, b, c]`) constructs one.
+pub native type List<T>
+
 impl List<T> {
     // Indexing — `xs[i]` and `xs[i] = v` — is built-in operator syntax (lowered
     // by the compiler, not a method, so it has no declaration here). The read
