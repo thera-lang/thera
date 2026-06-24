@@ -269,8 +269,11 @@ closed.
   changed. (Transport has an end-to-end smoke test in `bin/test.sh`, added after a
   line-buffered-stdout bug let only each message's header reach the client — which
   the in-process `StringWriter` `@test`s couldn't catch.)
-- **`hawk test` polish** (the runner is implemented). Per-test **source locations**
-  on failure (it reports the test name, not the failing assertion's line) — likely
+- **`hawk test` polish** (the runner is implemented; **per-test stdout capture**
+  is done — each test's output is buffered via the `test_capture_*` runtime natives
+  and shown only on failure, or always with `--show-output`). Per-test **source
+  locations** on failure (it reports the test name, not the failing assertion's
+  line) — likely
   via **caller-location metaconstants**: `__FILE__` / `__LINE__` as _default
   parameter values the compiler fills in at the call site_, à la C#'s
   `[CallerLineNumber]` / Rust's `#[track_caller]` (`fn assert_eq<T>(…, file: String

@@ -194,6 +194,8 @@ const NATIVES: &[(&str, NativeFn)] = &[
     // no `NATIVE_*` index constant is needed).
     ("eprintln", native_eprintln),
     ("eprint", native_eprint),
+    ("test_capture_begin", native_test_capture_begin),
+    ("test_capture_end", native_test_capture_end),
     ("fiber_spawn", native_fiber_spawn),
     ("fiber_join", native_fiber_join),
     ("fiber_yield", native_fiber_yield),
@@ -272,18 +274,69 @@ fn expect_one<'b>(args: &'b [Value], who: &str) -> Result<&'b Value, Trap> {
     }
 }
 
+thread_local! {
+    /// A stack of in-memory capture buffers. While the stack is non-empty, the
+    /// stdout-bound natives (`println`/`print`/`io.stdout().write`) append to the
+    /// top buffer instead of the program's real stdout. `hawk test` uses this to
+    /// buffer each test's output and reveal it only when the test fails. A stack
+    /// (rather than a single buffer) keeps nested captures composing cleanly.
+    static CAPTURE: std::cell::RefCell<Vec<Vec<u8>>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Route program stdout: append `bytes` to the active capture buffer if one is
+/// set, otherwise write them to `out` (the real stdout). The single funnel every
+/// stdout-bound native goes through, so capture is uniform.
+fn emit_stdout(out: &mut dyn Write, bytes: &[u8]) -> std::io::Result<()> {
+    let captured = CAPTURE.with(|c| match c.borrow_mut().last_mut() {
+        Some(buf) => {
+            buf.extend_from_slice(bytes);
+            true
+        }
+        None => false,
+    });
+    if captured {
+        Ok(())
+    } else {
+        out.write_all(bytes)
+    }
+}
+
 /// `println(value)` — write the value's Display form followed by a newline.
 fn native_println(out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let s = display_string(expect_one(args, "println")?)?;
-    writeln!(out, "{s}").map_err(|e| bug(format!("println: {e}")))?;
+    emit_stdout(out, format!("{s}\n").as_bytes()).map_err(|e| bug(format!("println: {e}")))?;
     Ok(Value::Unit)
 }
 
 /// `print(value)` — like `println` without the trailing newline.
 fn native_print(out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let s = display_string(expect_one(args, "print")?)?;
-    write!(out, "{s}").map_err(|e| bug(format!("print: {e}")))?;
+    emit_stdout(out, s.as_bytes()).map_err(|e| bug(format!("print: {e}")))?;
     Ok(Value::Unit)
+}
+
+/// `test_capture_begin()` — start buffering program stdout (push a fresh capture
+/// buffer). Paired with [`native_test_capture_end`]; used only by the `hawk test`
+/// driver to isolate one test's output.
+fn native_test_capture_begin(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    if !args.is_empty() {
+        return Err(bug("test_capture_begin expects 0 arguments"));
+    }
+    CAPTURE.with(|c| c.borrow_mut().push(Vec::new()));
+    Ok(Value::Unit)
+}
+
+/// `test_capture_end()` — stop buffering and return everything captured since the
+/// matching `test_capture_begin()` as a `String`.
+fn native_test_capture_end(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    if !args.is_empty() {
+        return Err(bug("test_capture_end expects 0 arguments"));
+    }
+    let buf = CAPTURE
+        .with(|c| c.borrow_mut().pop())
+        .ok_or_else(|| bug("test_capture_end: no active capture"))?;
+    Ok(Value::new_str(String::from_utf8_lossy(&buf).into_owned()))
 }
 
 /// `eprintln(value)` — like `println` but to stderr (diagnostics, errors). Flush
@@ -675,7 +728,7 @@ fn native_io_stdin_read(_out: &mut dyn Write, args: &[Value]) -> Result<Value, T
 /// newline) would otherwise sit in the buffer and never reach the consumer.
 fn native_io_stdout_write(out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let data = bytes_contents(expect_one(args, "io_stdout_write")?, "io_stdout_write")?;
-    Ok(match out.write_all(&data).and_then(|()| out.flush()) {
+    Ok(match emit_stdout(out, &data).and_then(|()| out.flush()) {
         Ok(()) => Value::ok(Value::Int(data.len() as i64)),
         Err(e) => Value::err(Value::new_str(format!("stdout: {e}"))),
     })
@@ -2127,5 +2180,27 @@ mod tests {
         ));
         assert!(yes(Value::Int(7), Value::Int(7)));
         assert!(!yes(Value::Int(7), Value::new_str("7")));
+    }
+
+    #[test]
+    fn capture_buffers_stdout_then_restores() {
+        let mut out: Vec<u8> = Vec::new();
+        // With no capture active, output flows straight to `out`.
+        native_println(&mut out, &[Value::new_str("live")]).unwrap();
+        assert_eq!(out, b"live\n");
+
+        // Begin a capture: stdout is buffered, `out` is left untouched.
+        native_test_capture_begin(&mut std::io::sink(), &[]).unwrap();
+        native_print(&mut out, &[Value::new_str("a")]).unwrap();
+        native_println(&mut out, &[Value::new_str("b")]).unwrap();
+        assert_eq!(out, b"live\n");
+
+        // End the capture: it returns exactly what was buffered.
+        let captured = native_test_capture_end(&mut std::io::sink(), &[]).unwrap();
+        assert_eq!(display_string(&captured).unwrap(), "ab\n");
+
+        // Output is live again once the capture ends.
+        native_println(&mut out, &[Value::new_str("after")]).unwrap();
+        assert_eq!(out, b"live\nafter\n");
     }
 }

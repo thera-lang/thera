@@ -64,7 +64,7 @@ pub fn run_file(_ file: String, _ program_args: List<String>, _ sdk_root: Option
 // `hawk test <file|dir>...` — discover `*_test.hawk` files under each target,
 // run their `@test` functions, and print a per-file/per-test report plus a
 // summary. Returns 0 when every file passed, 1 otherwise.
-pub fn test_paths(_ targets: List<String>, _ sdk_root: Option<String>) -> Result<Int, Error> {
+pub fn test_paths(_ targets: List<String>, _ sdk_root: Option<String>, show_output: Bool = false) -> Result<Int, Error> {
     match find_runtime_binary(sdk_root) {
         None => {
             eprintln(runtime_missing_message());
@@ -79,7 +79,7 @@ pub fn test_paths(_ targets: List<String>, _ sdk_root: Option<String>) -> Result
             let mut total_tests = 0;
             let mut failed_files = 0;
             for f in files {
-                match run_test_file(f, runtime, sdk_root) {
+                match run_test_file(f, runtime, sdk_root, show_output) {
                     Some(counts) => {
                         total_tests = total_tests + counts.total;
                         if counts.failures > 0 {
@@ -103,9 +103,10 @@ pub fn test_paths(_ targets: List<String>, _ sdk_root: Option<String>) -> Result
 }
 
 // Compile one test file with a synthesized driver and run it. Streams the file
-// header and (after the child exits) its per-test output. Returns the counts, or
-// None if the file failed to read/parse/compile (already reported).
-fn run_test_file(_ path_str: String, _ runtime: String, _ sdk_root: Option<String>) -> Option<TestCounts> {
+// header and (after the child exits) its per-test output. Each test's stdout is
+// captured and shown only on failure (or always, when `show_output`). Returns the
+// counts, or None if the file failed to read/parse/compile (already reported).
+fn run_test_file(_ path_str: String, _ runtime: String, _ sdk_root: Option<String>, _ show_output: Bool) -> Option<TestCounts> {
     let source = match fs.read_text(path_str) {
         Ok(s) => s,
         Err(e) => {
@@ -133,7 +134,7 @@ fn run_test_file(_ path_str: String, _ runtime: String, _ sdk_root: Option<Strin
     }
 
     // Recompile the source plus a synthesized driver `main` that runs each test.
-    let combined = '${source}\n${test_driver(tests)}';
+    let combined = '${source}\n${test_driver(tests, show_output)}';
     let outcome = driver.compile_source_at(combined, path_str, sdk_root);
     if outcome.diagnostics.len() > 0 {
         for d in outcome.diagnostics {
@@ -202,27 +203,54 @@ fn has_test_decorator(_ f: ast.FnDecl) -> Bool {
 // The synthesized driver: a `main` that runs each `@test` function, prints a
 // per-test `ok`/`FAIL` line (with the error on failure), and returns the number
 // of failures (which becomes the process exit code).
-fn test_driver(_ tests: List<String>) -> String {
+//
+// Each test's stdout is buffered (via the `test_capture_*` runtime natives) and
+// shown only when the test fails — keeping a green run quiet — unless
+// `show_output` is set, which reveals a passing test's output too. The capture
+// natives are declared here, not in the stdlib: they're a runner-internal
+// concern, and `native fn` is usable in any module.
+fn test_driver(_ tests: List<String>, _ show_output: Bool) -> String {
+    let show = if show_output { 'true' } else { 'false' };
     let mut s = '';
-    s = '${s}fn __hawk_pass(_ name: String) -> Int {\n';
-    s = '${s}    println(\'  ok    \${name}\');\n';
-    s = '${s}    return 0;\n';
+    // Runtime hooks: begin buffering stdout / stop and return what was buffered.
+    s = '${s}@extern(\'test_capture_begin\')\n';
+    s = '${s}native fn __hawk_capture_begin() -> Void\n';
+    s = '${s}@extern(\'test_capture_end\')\n';
+    s = '${s}native fn __hawk_capture_end() -> String\n';
+    // Print a test's captured output, each line indented under its report line.
+    s = '${s}fn __hawk_show(_ captured: String) -> Void {\n';
+    s = '${s}    if captured == \'\' { return; }\n';
+    s = '${s}    println(\'          --- output ---\');\n';
+    s = '${s}    for __hawk_line in captured.lines() {\n';
+    s = '${s}        println(\'          \' + __hawk_line);\n';
+    s = '${s}    }\n';
     s = '${s}}\n';
-    s = '${s}fn __hawk_fail(_ name: String, _ e: Error) -> Int {\n';
-    s = '${s}    println(\'  FAIL  \${name}\');\n';
+    // Report one test's outcome; return 1 on failure, 0 on success.
+    s = '${s}fn __hawk_report(_ name: String, _ r: Result<Void, Error>, _ captured: String, _ show: Bool) -> Int {\n';
+    s = '${s}    return match r {\n';
+    s = '${s}        Ok(_) => {\n';
+    s = '${s}            println(\'  ok    \' + name);\n';
+    s = '${s}            if show { __hawk_show(captured); }\n';
+    s = '${s}            0\n';
+    s = '${s}        },\n';
     // `e` is typed as the `Error` interface (not itself `Display`); render it
-    // through its `message()`.
-    s = '${s}    println(\'          \${e.message()}\');\n';
-    s = '${s}    return 1;\n';
+    // through its `message()`. A failing test always shows its captured output.
+    s = '${s}        Err(e) => {\n';
+    s = '${s}            println(\'  FAIL  \' + name);\n';
+    s = '${s}            println(\'          \' + e.message());\n';
+    s = '${s}            __hawk_show(captured);\n';
+    s = '${s}            1\n';
+    s = '${s}        },\n';
+    s = '${s}    };\n';
     s = '${s}}\n';
     s = '${s}fn __hawk_test_main() -> Int {\n';
     s = '${s}    let mut __hawk_failures = 0;\n';
     for t in tests {
-        s = '${s}    let __hawk_r_${t} = match ${t}() {\n';
-        s = '${s}        Ok(_) => __hawk_pass(\'${t}\'),\n';
-        s = '${s}        Err(e) => __hawk_fail(\'${t}\', e),\n';
-        s = '${s}    };\n';
-        s = '${s}    __hawk_failures = __hawk_failures + __hawk_r_${t};\n';
+        // Capture brackets only the test call; the report itself stays live.
+        s = '${s}    __hawk_capture_begin();\n';
+        s = '${s}    let __hawk_r_${t} = ${t}();\n';
+        s = '${s}    let __hawk_out_${t} = __hawk_capture_end();\n';
+        s = '${s}    __hawk_failures = __hawk_failures + __hawk_report(\'${t}\', __hawk_r_${t}, __hawk_out_${t}, ${show});\n';
     }
     s = '${s}    return __hawk_failures;\n';
     s = '${s}}\n';

@@ -36,6 +36,7 @@ fn build_app() -> cli.Command {
             .positional('out', help: 'the .hawkbc output path'))
         .subcommand(cli.Command.new('test')
             .about('run the @test functions in a Hawk program')
+            .flag('show-output', help: 'show captured stdout for passing tests too (failing tests always show it)')
             .positional('file', help: 'the .hawk file to test'))
         .subcommand(cli.Command.new('fmt')
             .about('format source files in place')
@@ -115,7 +116,7 @@ fn run_on_file(_ name: String, _ sub: cli.Matches) -> Result<Int, Error> {
             eprintln('hawk test: expected a <file|dir> argument');
             return Result.Ok(2);
         }
-        return runner.test_paths(positionals, loader.find_sdk_root());
+        return runner.test_paths(positionals, loader.find_sdk_root(), show_output: sub.flag('show-output'));
     }
     if name == 'check' {
         if positionals.len() == 0 {
