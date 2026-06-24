@@ -252,6 +252,23 @@ closed.
 
 ### Language features not yet built
 
+- **Disambiguate the empty `{}` (map-literal vs block).** `{}` is parsed as an
+  empty **block** (which evaluates to `Void`) unless an expected map type is in
+  scope, so an empty map literal silently becomes `Void` in "bare" positions — a
+  `match` arm (`None => {}`), a standalone `return {}`, a tail expression. The
+  failure is nasty: it type-checks (a `Void`-producing arm is lenient) and only
+  traps at **runtime** (`map.keys: expected map`). Today the workarounds are to
+  rely on expected-type inference (a `let m: Map<K,V> = {}` annotation, an
+  index-assign target, a map-typed argument) or the explicit
+  `let none: Map<…> = {}; return none;` dance — both indirect and easy to forget.
+  Want a syntax where an empty map is **unambiguous on its own**, no surrounding
+  type needed: options include a distinct empty-map token (e.g. `[:]` as in
+  Swift/Dart, or `{:}`), `Map { }` / `Map.new()`, or — narrower — letting the
+  parser/inferrer treat `{}` as a map when the contextual *return type* is a map
+  (closes the `return {}` / arm cases but not a truly standalone `{}`). Pick by the
+  **LLM lens**: one obvious way to write an empty map, and no silent `Void`. (The
+  block side is unaffected — a non-empty `{ … }` is unambiguous.)
+
 - **Syntax-elegance pass — through the LLM lens.** Several common shapes are more
   verbose than they need to be; the dominant one is the resolution cascade
   `match X { Some(v) => { …; return …; }, None => {} }` (55× in codegen, 38× in
