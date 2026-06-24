@@ -77,11 +77,6 @@ impl Value {
         heap::alloc(Obj::Map(entries))
     }
 
-    /// Construct a heap set from already-deduplicated elements.
-    pub fn new_set(elements: Vec<Value>) -> Value {
-        heap::alloc(Obj::Set(elements))
-    }
-
     /// Construct a struct value of the given type on the heap.
     pub fn new_struct(ty: u32, fields: Vec<Value>) -> Value {
         heap::alloc(Obj::Struct { ty, fields })
@@ -135,9 +130,6 @@ pub enum Obj {
     /// A key/value store. Insertion-ordered; lookups are a linear scan keyed by
     /// structural equality (simple and dependency-free for the draft).
     Map(Vec<(Value, Value)>),
-    /// A set of unique values. Insertion-ordered; like [`Obj::Map`], membership
-    /// is a linear scan by structural equality.
-    Set(Vec<Value>),
     /// A struct instance: its type id and field values (addressed by index).
     Struct {
         ty: u32,
@@ -159,11 +151,11 @@ impl Obj {
     /// Allocation-free: the mark walk visits every live object, so collecting
     /// each one's children into a throwaway `Vec` (the old `child_values`) made
     /// GC allocate proportionally to the whole live set. (Primitives in
-    /// `List`/`Map`/`Set`/fields are `Value::Int`/etc. and carry no handle.)
+    /// `List`/`Map`/fields are `Value::Int`/etc. and carry no handle.)
     pub fn for_each_child(&self, mut f: impl FnMut(Value)) {
         match self {
             Obj::Str(_) | Obj::Bytes(_) | Obj::BytesBuilder(_) => {}
-            Obj::List(items) | Obj::Set(items) => items.iter().for_each(|&v| f(v)),
+            Obj::List(items) => items.iter().for_each(|&v| f(v)),
             Obj::Map(entries) => entries.iter().for_each(|&(k, v)| {
                 f(k);
                 f(v);
@@ -193,7 +185,7 @@ impl Obj {
         let payload = match self {
             Obj::Str(s) => s.capacity(),
             Obj::Bytes(b) | Obj::BytesBuilder(b) => b.capacity(),
-            Obj::List(items) | Obj::Set(items) => items.capacity() * size_of::<Value>(),
+            Obj::List(items) => items.capacity() * size_of::<Value>(),
             Obj::Map(entries) => entries.capacity() * size_of::<(Value, Value)>(),
             Obj::Struct { fields, .. } => fields.capacity() * size_of::<Value>(),
             Obj::Enum(e) => e.fields.capacity() * size_of::<Value>(),
