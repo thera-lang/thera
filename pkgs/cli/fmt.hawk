@@ -1,0 +1,52 @@
+// The `hawk fmt` command.
+//
+// A v0 formatter that trims trailing whitespace from lines and ensures a
+// single trailing newline.
+
+import std.fs;
+import std.char;
+
+// Format a single file in place. Returns `true` if the file was modified.
+pub fn format_file(_ path: String) -> Result<Bool, Error> {
+    let source = fs.read_text(path)?;
+    let formatted = format_source(source);
+    if formatted == source {
+        return Result.Ok(false);
+    }
+    fs.write_text(path, formatted)?;
+    return Result.Ok(true);
+}
+
+// Format a string of source code.
+pub fn format_source(_ source: String) -> String {
+    let lines = source.lines();
+    let result: List<String> = [];
+    for line in lines {
+        result.push(trim_trailing(line));
+    }
+    // Ensure trailing newline
+    if result.len() > 0 {
+        return result.join('\n') + '\n';
+    }
+    return '';
+}
+
+// Trim trailing whitespace from a single line.
+fn trim_trailing(_ s: String) -> String {
+    let cps = s.chars();
+    let mut i = cps.len();
+    let mut going = true;
+    while going && i > 0 {
+        // Each `line` from `.lines()` has no `\n`, so this strips trailing spaces,
+        // tabs, and a stray `\r` (from a CRLF source).
+        if !char.is_whitespace(cps[i - 1]) {
+            going = false;
+        } else {
+            i = i - 1;
+        }
+    }
+    if i == cps.len() {
+        return s;
+    }
+    return String.from_chars(cps.slice(0, i));
+}

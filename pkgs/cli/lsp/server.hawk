@@ -15,10 +15,17 @@ import '../parser/parser'; // parse_tokens
 import '../loader';        // load_imports
 
 import 'jsonrpc';
+import 'paths';
 import 'diagnostics';
 import 'symbols';
 import 'hover';
 import 'definition';
+import 'formatting';
+import 'workspace_symbols';
+// `references`/`rename` are implemented but **not registered** — they match
+// identifiers purely lexically (any token with the same text), which is misleading
+// where an editor expects semantic results. They stay parked until they're made
+// scope-aware. See pkgs/cli/lsp/references.hawk, rename.hawk, and roadmap.md.
 
 // The server state: the set of open documents (URI -> current text) and the SDK
 // root used to resolve a document's imports.
@@ -117,6 +124,16 @@ impl Server {
                 self.definition(params.get('textDocument').get('uri').as_string(), params.get('position')));
             return true;
         }
+        if method == 'textDocument/formatting' {
+            send_response(writer, id, self.formatting(params.get('textDocument').get('uri').as_string()));
+            return true;
+        }
+        if method == 'workspace/symbol' {
+            send_response(writer, id, self.workspace_symbol(params.get('query').as_string()));
+            return true;
+        }
+        // `textDocument/references` and `textDocument/rename` are intentionally not
+        // dispatched: their implementations are lexical-only (see the import block).
         if method == 'textDocument/didClose' {
             match params.get('textDocument').get('uri').as_string() {
                 Some(uri) => {
@@ -181,6 +198,28 @@ impl Server {
         };
     }
 
+    fn formatting(self, _ uri: Option<String>) -> Json {
+        return match uri {
+            Some(u) => match self.docs.get(u) {
+                Some(text) => json.arr(formatting.format_document(text)),
+                None => json.null(),
+            },
+            None => json.null(),
+        };
+    }
+
+    fn workspace_symbol(self, _ query: Option<String>) -> Json {
+        let q = query.unwrap_or('');
+        let programs: List<Program> = [];
+        for u in self.docs.keys() {
+            let text = self.docs.get(u).unwrap_or('');
+            let program = parser.parse_tokens(lexer.tokenize(text).tokens).program;
+            program.file_path = Option.Some(paths.uri_to_path(u));
+            programs.push(program);
+        }
+        return workspace_symbols.handle_workspace_symbols(programs, q);
+    }
+
     // Parse an open document and load its import closure, resolving `position` to
     // a code-point offset — the shared setup for hover/definition. None when the
     // document isn't open. Imports are loaded so a name from an imported library
@@ -193,7 +232,7 @@ impl Server {
                         position.get('line').as_int().unwrap_or(0),
                         position.get('character').as_int().unwrap_or(0));
                     let program = parser.parse_tokens(lexer.tokenize(text).tokens).program;
-                    let path = uri_to_path(u);
+                    let path = paths.uri_to_path(u);
                     program.file_path = Option.Some(path);
                     let loaded = loader.load_imports(path, program, self.sdk_root);
                     Option.Some(DocAnalysis { program: program, imports: loaded.programs, text: text, offset: offset })
@@ -207,7 +246,7 @@ impl Server {
     fn publish(self, _ writer: Writer, _ uri: String, _ text: String) -> Void {
         send_notification(writer, 'textDocument/publishDiagnostics', json.obj({
             'uri': json.str(uri),
-            'diagnostics': diagnostics.compute_diagnostics(text, uri_to_path(uri), self.sdk_root),
+            'diagnostics': diagnostics.compute_diagnostics(text, paths.uri_to_path(uri), self.sdk_root),
         }));
     }
 }
@@ -239,6 +278,9 @@ fn initialize_result() -> Json {
             'documentSymbolProvider': json.bool(true),
             'hoverProvider': json.bool(true),
             'definitionProvider': json.bool(true),
+            'documentFormattingProvider': json.bool(true),
+            'workspaceSymbolProvider': json.bool(true),
+            // referencesProvider / renameProvider: withheld until lexical->semantic.
         }),
         'serverInfo': json.obj({
             'name': json.str('hawk'),
@@ -264,11 +306,3 @@ fn last_change_text(_ changes: Json) -> Option<String> {
     };
 }
 
-// A `file://` URI to a filesystem path. (URL-decoding of escaped characters is a
-// follow-up; ordinary paths pass through unchanged.)
-fn uri_to_path(_ uri: String) -> String {
-    if uri.starts_with('file://') {
-        return uri.slice('file://'.len(), uri.len());
-    }
-    return uri;
-}

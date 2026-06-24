@@ -16,6 +16,7 @@ import '../ast/describe';  // describe_type
 import '../lexer/token' as _;   // SourceSpan, Token, TokenKind
 import '../lexer/lexer';   // tokenize
 import 'diagnostics';      // span_to_range
+import 'paths';              // program_path
 
 // The identifier under the cursor: its name and source span.
 pub type NameRef = {
@@ -77,23 +78,16 @@ pub fn position_to_offset(_ text: String, _ line: Int, _ character: Int) -> Int 
 // primary program then its imports.
 pub fn find_decl_site(_ program: Program, _ imports: List<Program>, _ name: String) -> Option<DeclSite> {
     match find_decl_in(program, name) {
-        Some(d) => { return Option.Some(DeclSite { decl: d, file: program_path(program) }); },
+        Some(d) => { return Option.Some(DeclSite { decl: d, file: paths.program_path(program) }); },
         None => {},
     }
     for imp in imports {
         match find_decl_in(imp, name) {
-            Some(d) => { return Option.Some(DeclSite { decl: d, file: program_path(imp) }); },
+            Some(d) => { return Option.Some(DeclSite { decl: d, file: paths.program_path(imp) }); },
             None => {},
         }
     }
     return Option.None;
-}
-
-fn program_path(_ p: Program) -> String {
-    return match p.file_path {
-        Some(f) => f,
-        None => '',
-    };
 }
 
 fn find_decl_in(_ program: Program, _ name: String) -> Option<Decl> {

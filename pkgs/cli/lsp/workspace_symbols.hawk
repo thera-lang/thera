@@ -1,0 +1,57 @@
+// LSP workspace symbols: fuzzy search across all top-level declarations in the
+// open workspace.
+
+import std.json;
+
+import '../ast/ast' as _;
+import 'diagnostics';
+import 'hover';
+import 'symbols';
+import 'paths';
+
+// The LSP `SymbolInformation[]` (as JSON) matching the query string.
+pub fn handle_workspace_symbols(_ programs: List<Program>, _ query: String) -> json.Json {
+    let q = query.to_lowercase();
+    let result: List<json.Json> = [];
+
+    for program in programs {
+        let doc_uri = paths.path_to_uri(paths.program_path(program));
+        for decl in program.decls {
+            match hover.decl_name(decl) {
+                Some(name) => {
+                    if q == '' || name.to_lowercase().contains(q) {
+                        match decl_span(decl) {
+                            Some(span) => {
+                                result.push(json.obj({
+                                    'name': json.str(name),
+                                    'kind': json.int(symbols.decl_kind(decl)),
+                                    'location': json.obj({
+                                        'uri': json.str(doc_uri),
+                                        'range': diagnostics.span_to_range(span),
+                                    }),
+                                }));
+                            },
+                            None => {},
+                        }
+                    }
+                },
+                None => {},
+            }
+        }
+    }
+
+    return json.arr(result);
+}
+
+fn decl_span(_ decl: Decl) -> Option<SourceSpan> {
+    return match decl {
+        Fn(d) => Option.Some(d.name_span),
+        Type(d) => Option.Some(d.name_span),
+        Enum(d) => Option.Some(d.name_span),
+        Interface(d) => Option.Some(d.name_span),
+        Const(d) => Option.Some(d.name_span),
+        Impl(_) => Option.None,
+        Import(_) => Option.None,
+    };
+}
+

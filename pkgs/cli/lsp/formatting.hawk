@@ -1,0 +1,43 @@
+// LSP document formatting: formats a document using the built-in formatter.
+//
+// The LSP `textDocument/formatting` request returns a list of `TextEdit`s. We
+// replace the entire document content with the formatted version.
+
+import '../fmt';
+import std.json;
+
+// The LSP `TextEdit[]` for `text` (the open buffer), replacing the whole
+// document with its formatted version. If formatting makes no changes, returns
+// an empty list.
+pub fn format_document(_ text: String) -> List<json.Json> {
+    let formatted = fmt.format_source(text);
+    if formatted == text {
+        return [];
+    }
+
+    // A single edit replacing the entire document.
+    let lines = text.lines();
+    let end_line = lines.len();
+    let mut end_char = 0;
+    if end_line > 0 {
+        end_char = lines[end_line - 1].len();
+    }
+
+    let range = json.obj({
+        'start': json.obj({
+            'line': json.double(0.0),
+            'character': json.double(0.0),
+        }),
+        'end': json.obj({
+            'line': json.double(end_line.to_double()),
+            'character': json.double(end_char.to_double()),
+        }),
+    });
+
+    let edit = json.obj({
+        'range': range,
+        'newText': json.str(formatted),
+    });
+
+    return [edit];
+}

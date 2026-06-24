@@ -1,0 +1,28 @@
+// Shared LSP path/URI helpers: the conversions between filesystem paths and
+// `file://` URIs, plus a program's source path. Used by the server and the
+// per-feature modules so these one-liners aren't re-implemented in each.
+
+import '../ast/ast' as _; // Program
+
+// A filesystem path to a `file://` URI. A path is absolute, so `file://` + `/abs`
+// gives `file:///abs`.
+pub fn path_to_uri(_ path: String) -> String {
+    return 'file://${path}';
+}
+
+// A `file://` URI to a filesystem path. (URL-decoding of escaped characters is a
+// follow-up; ordinary paths pass through unchanged.)
+pub fn uri_to_path(_ uri: String) -> String {
+    if uri.starts_with('file://') {
+        return uri.slice('file://'.len(), uri.len());
+    }
+    return uri;
+}
+
+// A program's source-file path, or `''` when it has none (an anonymous buffer).
+pub fn program_path(_ p: Program) -> String {
+    return match p.file_path {
+        Some(f) => f,
+        None => '',
+    };
+}

@@ -14,31 +14,46 @@ import 'diagnostics';     // span_to_range
 //   Class=5  Method=6  Enum=10  Interface=11  Function=12  Constant=14
 //   EnumMember=22
 
+// The LSP `SymbolKind` for a top-level declaration. Shared with workspace symbols
+// so the decl→kind mapping lives in one place (`Import` has no symbol; 0 is
+// unused). See the table above.
+pub fn decl_kind(_ decl: Decl) -> Int {
+    return match decl {
+        Fn(_) => 12,
+        Type(_) => 5,
+        Enum(_) => 10,
+        Interface(_) => 11,
+        Const(_) => 14,
+        Impl(_) => 11,
+        Import(_) => 0,
+    };
+}
+
 pub fn build_symbols(_ program: Program) -> Json {
     let symbols: List<Json> = [];
     for decl in program.decls {
         match decl {
             Fn(d) => {
-                symbols.push(make_symbol(d.name, 12, d.is_pub, d.span, d.name_span, Option.None));
+                symbols.push(make_symbol(d.name, decl_kind(decl), d.is_pub, d.span, d.name_span, Option.None));
             },
             Type(d) => {
-                symbols.push(make_symbol(d.name, 5, d.is_pub, d.span, d.name_span, Option.None));
+                symbols.push(make_symbol(d.name, decl_kind(decl), d.is_pub, d.span, d.name_span, Option.None));
             },
             Const(d) => {
-                symbols.push(make_symbol(d.name, 14, d.is_pub, d.span, d.span, Option.None));
+                symbols.push(make_symbol(d.name, decl_kind(decl), d.is_pub, d.span, d.span, Option.None));
             },
             Enum(d) => {
-                symbols.push(make_symbol(d.name, 10, d.is_pub, d.span, d.name_span,
+                symbols.push(make_symbol(d.name, decl_kind(decl), d.is_pub, d.span, d.name_span,
                     Option.Some(variant_symbols(d.variants))));
             },
             Interface(d) => {
-                symbols.push(make_symbol(d.name, 11, d.is_pub, d.span, d.name_span,
+                symbols.push(make_symbol(d.name, decl_kind(decl), d.is_pub, d.span, d.name_span,
                     Option.Some(method_symbols(d.methods))));
             },
             Impl(d) => {
                 // An impl isn't `pub`-able; its name is `Iface for Type` (or just
                 // `Type` for an inherent impl), and its methods are children.
-                symbols.push(make_symbol(impl_label(d), 11, false, d.span, d.name_span,
+                symbols.push(make_symbol(impl_label(d), decl_kind(decl), false, d.span, d.name_span,
                     Option.Some(method_symbols(d.methods))));
             },
             Import(_) => {},

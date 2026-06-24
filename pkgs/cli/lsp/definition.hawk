@@ -13,6 +13,7 @@ import '../ast/ast' as _;      // Decl + the per-decl payloads
 import '../lexer/token' as _;  // SourceSpan
 import 'hover';           // name_at, find_decl_site
 import 'diagnostics';     // span_to_range
+import 'paths';             // path_to_uri
 
 // The LSP `Location` (as JSON) for the definition of the symbol at `offset`, or
 // JSON null when nothing resolves.
@@ -44,13 +45,8 @@ fn decl_name_span(_ decl: Decl) -> Option<SourceSpan> {
 
 fn location(_ file: String, _ span: SourceSpan) -> Json {
     return json.obj({
-        'uri': json.str(path_to_uri(file)),
+        'uri': json.str(paths.path_to_uri(file)),
         'range': diagnostics.span_to_range(span),
     });
 }
 
-// A filesystem path to a `file://` URI (the inverse of the server's
-// `uri_to_path`). A path is absolute, so `file://` + `/abs` gives `file:///abs`.
-fn path_to_uri(_ path: String) -> String {
-    return 'file://${path}';
-}

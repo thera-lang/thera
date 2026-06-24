@@ -15,6 +15,7 @@ import std.fs;
 import std.io;
 
 import 'driver';
+import 'fmt';
 import 'loader';
 import 'lsp/server';
 import 'runner';
@@ -36,6 +37,9 @@ fn build_app() -> cli.Command {
         .subcommand(cli.Command.new('test')
             .about('run the @test functions in a Hawk program')
             .positional('file', help: 'the .hawk file to test'))
+        .subcommand(cli.Command.new('fmt')
+            .about('format source files in place')
+            .positional('target', help: 'a .hawk file or directory to format'))
         .subcommand(cli.Command.new('lsp')
             .about('start the Hawk language server'));
 }
@@ -120,6 +124,13 @@ fn run_on_file(_ name: String, _ sub: cli.Matches) -> Result<Int, Error> {
         }
         return do_check(positionals, loader.find_sdk_root());
     }
+    if name == 'fmt' {
+        if positionals.len() == 0 {
+            eprintln('hawk fmt: expected a <file|dir> argument');
+            return Result.Ok(2);
+        }
+        return do_fmt(positionals);
+    }
     match sub.positional(0) {
         Some(file) => {
             if name == 'emit' {
@@ -196,6 +207,45 @@ fn do_check(_ targets: List<String>, _ sdk_root: Option<String>) -> Result<Int, 
     }
     if total > 0 {
         return Result.Ok(1);
+    }
+    return Result.Ok(0);
+}
+
+// `hawk fmt <file|dir>...` — format each target in place.
+fn do_fmt(_ targets: List<String>) -> Result<Int, Error> {
+    let files: List<String> = [];
+    let mut missing = false;
+    for target in targets {
+        match fs.metadata(target) {
+            Ok(meta) => {
+                match meta.kind {
+                    Dir => { runner.collect_from_dir(target, '.hawk', files); },
+                    _ => { files.push(target); },
+                }
+            },
+            Err(_) => {
+                eprintln('hawk fmt: not found: ${target}');
+                missing = true;
+            },
+        }
+    }
+    if missing {
+        return Result.Ok(2);
+    }
+
+    let mut modified = 0;
+    for file in runner.sort_dedup(files) {
+        match fmt.format_file(file) {
+            Ok(changed) => {
+                if changed {
+                    println('Formatted ${file}');
+                    modified = modified + 1;
+                }
+            },
+            Err(e) => {
+                eprintln('hawk fmt: cannot format ${file}: ${e}');
+            },
+        }
     }
     return Result.Ok(0);
 }

@@ -233,6 +233,14 @@ closed.
   fails to parse. (This was the real root of the "trailing-`;` corrupts a module"
   symptom; the parser half — `parse_block` rejecting a stray `;` after a block-form
   statement — is fixed.)
+- **Diagnostic reporter attributes errors to the entrypoint file — correctness bug.**
+  When running `hawk check app.hawk` or reporting diagnostics, the compiler
+  sometimes incorrectly attributes errors from imported files to the entrypoint file
+  itself. For example, a missing method in `helper.hawk:26` might be printed as
+  `app.hawk:26: no method`. This happens because `driver.check_source_at` or the
+  diagnostic formatter overrides or drops the actual file origin of the span. Fix:
+  ensure the reporter respects and prints the actual file path that each diagnostic
+  span originated from.
 - **Static-method type arguments — expressiveness gap.** No expression-level syntax
   constructs a generic type whose parameter isn't otherwise inferable:
   `Set<String>.new()` doesn't parse, and `Set.new<String>()` binds `<String>` to
@@ -242,6 +250,15 @@ closed.
   call). Until then the "cannot infer type argument" diagnostic shouldn't suggest
   the non-working `new<...>()` for a static method. A corner now that
   assignment-/argument-context inference covers ordinary cases.
+- **Semantic (scope-aware) references & rename.** `textDocument/references` and
+  `textDocument/rename` are implemented but **lexical only** — they match every
+  identifier token with the same text, across files, with no binding/scope
+  analysis, so they'd report (or rewrite) unrelated same-named symbols. They are
+  therefore **not registered** by the server (`pkgs/cli/lsp/references.hawk`,
+  `rename.hawk` are parked with TODOs). Making them precise needs name resolution
+  at a cursor — resolve the identifier to its *declaration* via the element model,
+  then collect only the references that bind to it (and, for rename, verify the new
+  name doesn't collide). This rides on the same inference-at-offset work as below.
 - **LSP v2 toward an incremental engine.** Inference-at-offset (hover/definition on
   locals, expressions, members), overlay-aware imports (honor unsaved edits), and
   memoizing the import-closure load. The front-end is whole-program and stateless
@@ -294,6 +311,12 @@ closed.
   Today recovery is coarse (`sync_to_decl`). A future spike: structured recovery +
   error nodes the resolver tolerates. (Keep in mind when touching the parser — the
   recent precedence-table refactor preserved the `panicking`/recovery structure.)
+  - **Dependent feature: `textDocument/completion`.** Autocomplete requires navigating
+    a mid-keystroke AST (e.g., `obj.`). Deferring until the parser can reliably build
+    an AST that doesn't drop the trailing, incomplete member access.
+  - **Dependent feature: `textDocument/signatureHelp`.** Surfaces parameter names
+    while inside a function call. Relies on the parser correctly framing an
+    unterminated call `foo(`, which current coarse recovery struggles with.
 
 ### Language features not yet built
 
