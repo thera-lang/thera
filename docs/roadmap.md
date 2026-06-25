@@ -453,6 +453,26 @@ closed.
     native — retiring those (per-type natives, a `println`-as-string-writer) plus the
     sibling `eq`/`str_concat` hardcodes is the optional Option B / operators-as-
     interfaces follow-up.
+- **Primitive vtables — scope it (runtime / generics / soundness).** A primitive
+  reached through *virtual* dispatch — `call.virtual('display'|'eq'|'debug')` from a
+  generic `<T: Display>` / interface-typed context where the runtime value is an
+  `Int`/`Double`/`Bool`/`String` — does not resolve to that primitive's method via a
+  vtable; it hits a **hardcoded fallback** in the interpreter (`virtual_fallback` in
+  `mod.rs`: `display` → `display_string`, `eq` → `==`, `debug` → `debug_value`).
+  That fallback is why `display_string` can't be fully retired even after the `Display`
+  work above (it also backs `list.join`), and it's a small soundness gap: the dispatch
+  is correct only because every primitive interface bound is one of the three built-ins,
+  not because the type actually carries the method. The task: **determine the scope** of
+  giving primitives real vtable entries (a type-id → selector → impl table for the
+  built-in primitive types), so virtual dispatch resolves `Int.display → int_to_string`
+  etc. uniformly — letting the `virtual_fallback` hardcodes and the primitive arms of
+  `display_string` retire, and removing the "primitives are special in dispatch" axiom.
+  Open questions to answer first: how primitives get a stable type-id keyed into the
+  vtable (they're unboxed `Value` variants, not heap objects); whether this composes
+  with — or should wait for — the bounded/conditional-impl and operators-as-interfaces
+  generics work (it's the same "dispatch a built-in interface on a concrete type"
+  machinery); and the cost/benefit vs. keeping a single well-documented fallback.
+  Surfaced while scoping the `Display` Option B follow-up.
 - **Bitwise operators** (`& | ^ << >>`, plus an unsigned type or
   defined-wrapping/logical-shift semantics on the signed `Int`). Blocks writing
   hashing/encoding and a modern PRNG in Hawk: `std.random`'s SplitMix64 mix is a
