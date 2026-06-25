@@ -1,0 +1,15 @@
+//! spec: iface-display
+//! mode: run
+
+type Bare = {
+    n: Int,
+}
+
+// `Bare` has no `Display` impl. Under total rendering, interpolating it is not a
+// `check` error — it renders via the auto-derived `Debug` (Debug-fallback), so
+// `${}` works for any value.
+fn main() -> Int {
+    let b = Bare { n: 1 };
+    println('${b}');   // expect: Bare { 1 }
+    return 0;
+}

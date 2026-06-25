@@ -1152,7 +1152,19 @@ impl<'a> Vm<'a> {
         let _gc = GcPause::new();
         let recv = args.first().expect("call.virtual receiver present");
         match selector {
-            "display" => Ok(Value::new_str(natives::display_string(recv)?)),
+            // Total rendering (Display-preferred, Debug-fallback). A value reaches
+            // here only when its type has no `display` impl in the vtable: a
+            // primitive/`String` renders via the built-in `display_string`;
+            // everything else falls back to the auto-derived `Debug` (which never
+            // traps), so `${x}` / `println(x)` work for any value.
+            "display" => {
+                if natives::has_builtin_display(recv) {
+                    Ok(Value::new_str(natives::display_string(recv)?))
+                } else {
+                    let s = self.debug_value(module, recv)?;
+                    Ok(Value::new_str(s))
+                }
+            }
             "debug" => {
                 let s = self.debug_value(module, recv)?;
                 Ok(Value::new_str(s))
@@ -2728,14 +2740,14 @@ mod tests {
     }
 
     #[test]
-    fn call_virtual_display_without_an_impl_is_a_bug_for_structs() {
-        // The display fallback covers primitives/String only; a struct that
-        // reaches it without an impl row is malformed bytecode (the front-end
-        // requires an explicit `impl Display`).
+    fn call_virtual_display_without_an_impl_falls_back_to_debug() {
+        // Total rendering: a struct that reaches the display fallback without an
+        // impl row renders via its auto-derived `Debug` (Debug-fallback), not a
+        // trap — so `${x}` works for any value.
         let mut m = dispatch_module();
-        m.dispatch.clear(); // no rows → nothing to dispatch to
+        m.dispatch.clear(); // no display rows → fall back to structural Debug
         let dog = Value::new_struct(0, vec![]);
-        assert!(matches!(super::run(&m, 2, &[dog]), Err(Trap::Bug(_))));
+        assert_eq!(super::run(&m, 2, &[dog]), Ok(Value::new_str("Dog {}")));
     }
 
     #[test]

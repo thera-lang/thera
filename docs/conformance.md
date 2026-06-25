@@ -120,7 +120,7 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `iface-impl`        | Interfaces               | `impl Iface for T` checked for every method               | ✓      |
 | `iface-inherent`    | Inherent methods         | `impl T { … }` inherent methods                           | ✓      |
 | `iface-static`      | Static methods           | no-`self` methods called on the type                      | ✓      |
-| `iface-display`     | Display and Debug        | `${}` requires `Display`; missing impl = error            | ✓      |
+| `iface-display`     | Display and Debug        | `${}` uses `Display` if present, else `Debug` (total)     | ✓      |
 | `iface-debug`       | Display and Debug        | structural `Debug` derive for structs                     | ◐      |
 | `iface-eq`          | Display and Debug        | `==` structural by default; explicit `impl Eq` overrides   | ✓      |
 | `iface-inherit`     | Interface inheritance    | `interface E: Display + Debug` obligations & widened set   | ✓      |
@@ -202,7 +202,9 @@ implementation detail.
 - **`type-field-nonstruct`** — a bare field access on a primitive receiver
   (`5.x`) is a `check` error.
 - **`type-string-noindex`** — `s[i]` on a `String` is rejected at `check`.
-- **`iface-display`** — interpolating a non-`Display` value is a `check` error.
+- **`iface-display`** — total rendering: `${}` / `println` use a value's
+  `Display` if it has one, else its auto-derived `Debug` (Debug-fallback), so
+  interpolation works for any value and is never a `check` error.
 - **trap messages** — faults abort with a human-readable `hawk: trap: <message>`
   (`impl Display for Trap`); `MissingKey` names the key. Pinned by `fault-*`.
 - **`Double` Display for integral values** — `1.0` renders as `1.0`, not `1`

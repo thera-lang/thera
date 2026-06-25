@@ -1292,7 +1292,11 @@ impl FnCompiler {
         match self.interface_method(ty_name, 'Display', 'display') {
             Some(display_idx) => { self.emit(Instr.Call(display_idx, 1)); },
             None => {
-                self.error('cannot interpolate ${ty_name.unwrap_or('value')} — it does not implement Display', span);
+                // Total rendering: no static `Display` impl, so dispatch `display`
+                // virtually. The runtime renders via the type's `Display` if it has
+                // one, else its auto-derived `Debug` (Debug-fallback) — so this works
+                // for any value, including an unbounded type parameter.
+                self.emit(Instr.CallVirtual('display', 1));
             },
         }
     }

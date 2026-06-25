@@ -222,6 +222,17 @@ pub fn native_name(index: u32) -> Option<&'static str> {
 /// types whose `Display` needs an interface method are out of the draft scope.
 /// (Also the `call.virtual 'display'` fallback for receivers with no impl row —
 /// the built-in `Display` of primitives/String.)
+/// Whether `v` has a built-in `Display` rendering via [display_string] — the
+/// primitives and `String`. Other heap types (lists, maps, structs, enums,
+/// closures, bytes) have no built-in Display and fall back to `Debug` under
+/// total rendering.
+pub(super) fn has_builtin_display(v: &Value) -> bool {
+    match v {
+        Value::Int(_) | Value::Double(_) | Value::Bool(_) | Value::Unit => true,
+        Value::Ref(h) => heap::with_obj(*h, |obj| matches!(obj, Obj::Str(_))),
+    }
+}
+
 pub(super) fn display_string(v: &Value) -> Result<String, Trap> {
     Ok(match v {
         Value::Int(n) => n.to_string(),

@@ -776,15 +776,12 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
         Str(_, parts) => {
             for part in parts {
                 match part {
-                    Interp(ispan, e) => {
+                    Interp(_, e) => {
+                        // Total rendering: interpolation works for any value —
+                        // its `Display` if it has one, else the auto-derived
+                        // `Debug` (which every type carries). So no Display
+                        // requirement here; just check the interpolated expression.
                         check_expr(errors, e, scope, ctx, Option.None);
-                        // Interpolation requires Display. Primitives implement it
-                        // in std.core (`impl Display for Int`, …); a struct/enum
-                        // needs its own explicit `impl Display`.
-                        let t = infer_expr(e, scope, ctx, Option.None);
-                        if !satisfies_bound(t, 'Display', ctx.library.type_defs) {
-                            add_error(errors, 'cannot interpolate ${type_to_string(t)}: it does not implement Display', ispan);
-                        }
                     },
                     Text(_, _) => {},
                 }
