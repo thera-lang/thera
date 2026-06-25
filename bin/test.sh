@@ -71,6 +71,15 @@ if printf '%s' "$att_out" | grep -q 'helper.hawk:.*frobnicate' \
 else
   echo "  FAIL diagnostic attribution (out='$att_out', code=$att_code)"; fail=1
 fi
+# A *parse* error in an imported file must be surfaced (not dropped into a
+# misleading downstream error under exit 0) and attributed to the import.
+printf 'pub fn greet(_ n: String) -> String {\n    let x = ;\n    return n;\n}\n' > "$att_dir/helper.hawk"
+pe_out="$("$HAWK" check "$att_dir/app.hawk" 2>&1)"; pe_code=$?
+if printf '%s' "$pe_out" | grep -q 'helper.hawk:2:.*unexpected token' && [ "$pe_code" -ne 0 ]; then
+  echo "  ok   imported-file parse error surfaced + attributed (exit $pe_code)"
+else
+  echo "  FAIL imported parse error (out='$pe_out', code=$pe_code)"; fail=1
+fi
 rm -rf "$att_dir"
 
 echo "==> qualified-reference guard (corpus stays at 0 bare cross-library refs)"

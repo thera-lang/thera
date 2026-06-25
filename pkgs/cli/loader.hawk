@@ -10,6 +10,7 @@
 // namespaces (alias / trailing segment -> the imported library's public surface).
 
 import 'ast/ast' as _;
+import 'lexer/token';
 import 'lexer/lexer';
 import 'parser/parser';
 import 'element/element';
@@ -18,6 +19,17 @@ import std.fs;
 import std.env;
 
 const STD_PREFIX: String = 'std.';
+
+// A lex/parse diagnostic from a file in the import closure, stamped with its
+// owning file. The loader recovers past errors (the parser yields a best-effort
+// tree) and collects them here rather than dropping the file, so an error in an
+// imported file is surfaced and attributed to that file — not swallowed into a
+// misleading downstream "undefined name" in the importer.
+pub type LoadDiagnostic = {
+    message: String,
+    span: token.SourceSpan,
+    file: String,
+}
 
 // A loaded library and the libraries its imports resolve to, keyed by the import
 // path exactly as written (so a namespace can be derived per import and barrels
@@ -34,6 +46,9 @@ pub type LibrarySource = {
 // its own table (file key -> namespace -> surface) rather than a closure-wide union.
 pub type LoadedImports = {
     programs: List<Program>,
+    // Lex/parse diagnostics from every imported file (best-effort recovery), each
+    // attributed to its file — surfaced by the driver alongside check/codegen ones.
+    diagnostics: List<LoadDiagnostic>,
     file_namespaces: Map<String, Map<String, element.LibraryNamespace>>,
     // Per-file bare-legal cross-file surface: the names that resolve *unqualified*
     // from another library — the prelude (`std.core`) plus every `import … as _`.
@@ -128,26 +143,51 @@ fn resolve_library_file(_ base: String) -> Option<String> {
     return Option.None;
 }
 
-// Lex and parse `path`, or None if it can't be read or has lex/parse errors (the
-// checker surfaces those against the primary program). Stamps the program's
-// `file_path` so cycle detection and diagnostics can key on it.
-pub fn parse_file_or_null(_ path: String) -> Option<Program> {
+// The recovered program for a file plus any lex/parse diagnostics it produced.
+type ParsedFile = {
+    program: Program,
+    diagnostics: List<LoadDiagnostic>,
+}
+
+// Read and parse `path` **best-effort**: the parser recovers past errors, so the
+// returned program is usable (its recovered decls link) even when the file has
+// lex/parse errors — which are returned alongside it, stamped with `path`, rather
+// than dropped. None only when the file can't be read. Stamps `file_path` so cycle
+// detection and diagnostics can key on it.
+fn parse_file(_ path: String) -> Option<ParsedFile> {
     match fs.read_text(path) {
         Ok(source) => {
+            let diagnostics: List<LoadDiagnostic> = [];
             let lex = lexer.tokenize(source);
-            if lex.errors.len() > 0 {
-                return Option.None;
+            for e in lex.errors {
+                diagnostics.push(LoadDiagnostic { message: e.message, span: e.span, file: path });
             }
             let parsed = parser.parse_tokens(lex.tokens);
-            if parsed.errors.len() > 0 {
-                return Option.None;
+            for e in parsed.errors {
+                diagnostics.push(LoadDiagnostic { message: e.message, span: e.span, file: path });
             }
             let prog = parsed.program;
             prog.file_path = Option.Some(path);
-            return Option.Some(prog);
+            return Option.Some(ParsedFile { program: prog, diagnostics: diagnostics });
         },
         Err(_) => { return Option.None; },
     }
+}
+
+// Lex and parse `path`, or None if it can't be read or has lex/parse errors.
+// Stamps the program's `file_path`. (A strict wrapper over [parse_file] for
+// callers that only want a clean parse.)
+pub fn parse_file_or_null(_ path: String) -> Option<Program> {
+    return match parse_file(path) {
+        Some(pf) => {
+            if pf.diagnostics.len() == 0 {
+                Option.Some(pf.program)
+            } else {
+                Option.None
+            }
+        },
+        None => Option.None,
+    };
 }
 
 // --- the loader ---
@@ -156,6 +196,7 @@ type Loader = {
     sdk_root: Option<String>,
     order: List<Program>,            // imported programs, deduped, in load order
     cache: Map<String, LibrarySource>, // resolved file -> library source
+    diagnostics: List<LoadDiagnostic>, // lex/parse errors collected across the closure
 }
 
 impl Loader {
@@ -188,12 +229,19 @@ impl Loader {
             Some(cached) => { return Option.Some(cached); },
             None => {},
         }
-        match parse_file_or_null(file) {
-            Some(prog) => {
-                let source = LibrarySource { program: prog, imports: {} };
+        // Parse best-effort: even a file with lex/parse errors yields a recovered
+        // program that we still link (its good decls resolve) — and its diagnostics
+        // are collected here so the importer surfaces them attributed to this file,
+        // rather than the broken import vanishing into a downstream "undefined name".
+        match parse_file(file) {
+            Some(pf) => {
+                for d in pf.diagnostics {
+                    self.diagnostics.push(d);
+                }
+                let source = LibrarySource { program: pf.program, imports: {} };
                 self.cache[file] = source;
-                self.link_imports(prog, dirname(file), source);
-                self.order.push(prog);
+                self.link_imports(pf.program, dirname(file), source);
+                self.order.push(pf.program);
                 return Option.Some(source);
             },
             None => { return Option.None; },
@@ -225,7 +273,7 @@ impl Loader {
 // Resolve and parse the import closure of `program` (located at `path`). `program`
 // itself is used as-is (not re-read), so in-memory edits are honored.
 pub fn load_imports(_ path: String, _ program: Program, _ sdk_root: Option<String>) -> LoadedImports {
-    let loader = Loader { sdk_root: sdk_root, order: [], cache: {} };
+    let loader = Loader { sdk_root: sdk_root, order: [], cache: {}, diagnostics: [] };
 
     // std.core is auto-imported into every program — load it so its types (Error),
     // impls (Display for Error), and the prelude methods on built-in types link.
@@ -265,6 +313,7 @@ pub fn load_imports(_ path: String, _ program: Program, _ sdk_root: Option<Strin
     }
     return LoadedImports {
         programs: loader.order,
+        diagnostics: loader.diagnostics,
         file_namespaces: file_namespaces,
         file_bare_surface: file_bare_surface,
     };

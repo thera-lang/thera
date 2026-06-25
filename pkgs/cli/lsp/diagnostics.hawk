@@ -13,10 +13,23 @@ import '../driver';      // Diagnostic, check_source_at
 // the in-memory `text`.
 pub fn compute_diagnostics(_ text: String, _ path: String, _ sdk_root: Option<String>) -> Json {
     let items: List<Json> = [];
+    // `check_source_at` now reports the whole closure (incl. imported-file
+    // errors); the LSP publishes per-URI, so keep only this document's own
+    // diagnostics — an imported file's surface when *it* is the open document.
     for d in driver.check_source_at(text, path, sdk_root) {
-        items.push(diagnostic_to_json(d));
+        if diagnostic_in_file(d, path) {
+            items.push(diagnostic_to_json(d));
+        }
     }
     return json.arr(items);
+}
+
+// Whether `d` belongs to `path` — its own file, or unattributed (the primary).
+fn diagnostic_in_file(_ d: driver.Diagnostic, _ path: String) -> Bool {
+    return match d.file {
+        Some(f) => f == path,
+        None => true,
+    };
 }
 
 fn diagnostic_to_json(_ d: driver.Diagnostic) -> Json {

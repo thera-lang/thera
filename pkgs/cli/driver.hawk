@@ -96,7 +96,13 @@ pub fn check_source_at(_ source: String, _ path: String, _ sdk_root: Option<Stri
     program.file_path = Option.Some(path);
     let loaded = loader.load_imports(path, program, sdk_root);
     let src_map = build_source_map(source, path, loaded.programs);
-    return check_diagnostics(checker.check(program, loaded.programs, loaded.file_namespaces, loaded.file_bare_surface).errors, src_map);
+    // Lex/parse errors from imported files first (root causes), then the primary
+    // program's check errors.
+    let out = load_diagnostics(loaded.diagnostics);
+    for d in check_diagnostics(checker.check(program, loaded.programs, loaded.file_namespaces, loaded.file_bare_surface).errors, src_map) {
+        out.push(d);
+    }
+    return out;
 }
 
 // Compile `source` (located at `path`) to `.hawkbc` bytes with its import closure
@@ -114,9 +120,15 @@ pub fn compile_source_at(_ source: String, _ path: String, _ sdk_root: Option<St
     program.file_path = Option.Some(path);
     let loaded = loader.load_imports(path, program, sdk_root);
     let src_map = build_source_map(source, path, loaded.programs);
+    // An imported file that failed to lex/parse leaves the closure incomplete, so
+    // its diagnostics (root causes) block codegen alongside any check errors.
+    let import_diags = load_diagnostics(loaded.diagnostics);
     let checked = checker.check(program, loaded.programs, loaded.file_namespaces, loaded.file_bare_surface);
-    if checked.errors.len() > 0 {
-        return failed(check_diagnostics(checked.errors, src_map));
+    if import_diags.len() > 0 || checked.errors.len() > 0 {
+        for d in check_diagnostics(checked.errors, src_map) {
+            import_diags.push(d);
+        }
+        return failed(import_diags);
     }
     let cg = codegen.compile_program(program, loaded.programs, loaded.file_namespaces, loaded.file_bare_surface);
     if cg.errors.len() > 0 {
@@ -190,6 +202,16 @@ fn decl_span(_ d: Decl) -> token.SourceSpan {
         Const(x) => x.span,
         Enum(x) => x.span,
     };
+}
+
+// Loader diagnostics already know their owning file (the loader stamps it while
+// parsing each import), so they convert directly.
+fn load_diagnostics(_ diags: List<loader.LoadDiagnostic>) -> List<Diagnostic> {
+    let out: List<Diagnostic> = [];
+    for d in diags {
+        out.push(Diagnostic { message: d.message, span: d.span, file: Option.Some(d.file) });
+    }
+    return out;
 }
 
 fn lex_diagnostics(_ errors: List<lexer.LexError>, _ src_to_file: Map<String, String>) -> List<Diagnostic> {
