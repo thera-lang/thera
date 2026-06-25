@@ -8,7 +8,9 @@ use std::process::ExitCode;
 use hawk::builder::FnBuilder;
 use hawk::codec::{decode_module, read_module_from_file, write_module_to_file};
 use hawk::heap;
-use hawk::interp::{NATIVE_PRINTLN, NATIVE_STR_CONCAT, NATIVE_STRINGIFY, run, set_program_args};
+use hawk::interp::{
+    NATIVE_INT_TO_STRING, NATIVE_PRINTLN, NATIVE_STR_CONCAT, run, set_program_args,
+};
 use hawk::module::Module;
 use hawk::value::{Obj, TAG_OK, TY_RESULT, Value};
 
@@ -204,13 +206,13 @@ fn cmd_emit_demo(path: Option<&String>) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// `double(x) = x * 2;  main() { println('double(21) = ' + stringify(double(21))); return 0; }`
+/// `double(x) = x * 2;  main() { println('double(21) = ' + int_to_string(double(21))); return 0; }`
 fn demo_module() -> Module {
     let mut main = FnBuilder::new("main", 0);
     main.const_str("double(21) = ");
     main.const_int(21);
     main.call(1, 1); // double(21)
-    main.call_native(NATIVE_STRINGIFY, 1);
+    main.call_native(NATIVE_INT_TO_STRING, 1);
     main.call_native(NATIVE_STR_CONCAT, 2);
     main.call_native(NATIVE_PRINTLN, 1);
     main.pop(); // discard println's Unit

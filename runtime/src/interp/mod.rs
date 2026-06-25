@@ -67,9 +67,9 @@ pub(crate) fn bug(msg: impl Into<String>) -> Trap {
 
 mod natives;
 pub use natives::{
-    NATIVE_EQ, NATIVE_LIST_GET, NATIVE_LIST_INDEX, NATIVE_LIST_LEN, NATIVE_LIST_SET,
-    NATIVE_MAP_GET, NATIVE_MAP_HAS, NATIVE_MAP_INDEX, NATIVE_MAP_LEN, NATIVE_MAP_NEW,
-    NATIVE_MAP_SET, NATIVE_PRINT, NATIVE_PRINTLN, NATIVE_STR_CONCAT, NATIVE_STRINGIFY, NativeFn,
+    NATIVE_EQ, NATIVE_INT_TO_STRING, NATIVE_LIST_GET, NATIVE_LIST_INDEX, NATIVE_LIST_LEN,
+    NATIVE_LIST_SET, NATIVE_MAP_GET, NATIVE_MAP_HAS, NATIVE_MAP_INDEX, NATIVE_MAP_LEN,
+    NATIVE_MAP_NEW, NATIVE_MAP_SET, NATIVE_PRINT, NATIVE_PRINTLN, NATIVE_STR_CONCAT, NativeFn,
     default_natives, native_index, native_name, set_program_args,
 };
 
@@ -2146,11 +2146,11 @@ mod tests {
     }
 
     #[test]
-    fn stringify_primitive() {
+    fn int_to_string_primitive() {
         let code = [
             Instr::ConstInt(42),
             Instr::CallNative {
-                native: NATIVE_STRINGIFY,
+                native: NATIVE_INT_TO_STRING,
                 argc: 1,
             },
             Instr::Return,
@@ -2194,7 +2194,7 @@ mod tests {
             Instr::ConstStr("x = ".into()),
             Instr::ConstInt(7),
             Instr::CallNative {
-                native: NATIVE_STRINGIFY,
+                native: NATIVE_INT_TO_STRING,
                 argc: 1,
             },
             Instr::CallNative {

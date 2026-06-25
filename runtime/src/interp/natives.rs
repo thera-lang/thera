@@ -22,7 +22,7 @@ pub type NativeFn = fn(out: &mut dyn Write, args: &[Value]) -> Result<Value, Tra
 // bytecode references natives by name and resolves to it on load.
 pub const NATIVE_PRINTLN: u32 = native_idx("println");
 pub const NATIVE_PRINT: u32 = native_idx("print");
-pub const NATIVE_STRINGIFY: u32 = native_idx("stringify");
+pub const NATIVE_INT_TO_STRING: u32 = native_idx("int_to_string");
 pub const NATIVE_STR_CONCAT: u32 = native_idx("str_concat");
 pub const NATIVE_LIST_INDEX: u32 = native_idx("list_index");
 pub const NATIVE_LIST_GET: u32 = native_idx("list_get");
@@ -72,7 +72,6 @@ const fn const_str_eq(a: &str, b: &str) -> bool {
 const NATIVES: &[(&str, NativeFn)] = &[
     ("println", native_println),
     ("print", native_print),
-    ("stringify", native_stringify),
     ("str_concat", native_str_concat),
     ("list_index", native_list_index),
     ("list_get", native_list_get),
@@ -294,16 +293,20 @@ fn emit_stdout(out: &mut dyn Write, bytes: &[u8]) -> std::io::Result<()> {
     }
 }
 
-/// `println(value)` — write the value's Display form followed by a newline.
+// The console-write natives. Codegen renders each `println`/`print`/`eprintln`/
+// `eprint` argument to a `String` via `Display` *before* the call (see
+// `emit_as_string`), so these are plain string writers — no rendering here.
+
+/// `println(s)` — write the string `s` followed by a newline.
 fn native_println(out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
-    let s = display_string(expect_one(args, "println")?)?;
+    let s = str_contents(expect_one(args, "println")?)?;
     emit_stdout(out, format!("{s}\n").as_bytes()).map_err(|e| bug(format!("println: {e}")))?;
     Ok(Value::Unit)
 }
 
-/// `print(value)` — like `println` without the trailing newline.
+/// `print(s)` — like `println` without the trailing newline.
 fn native_print(out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
-    let s = display_string(expect_one(args, "print")?)?;
+    let s = str_contents(expect_one(args, "print")?)?;
     emit_stdout(out, s.as_bytes()).map_err(|e| bug(format!("print: {e}")))?;
     Ok(Value::Unit)
 }
@@ -331,29 +334,21 @@ fn native_test_capture_end(_out: &mut dyn Write, args: &[Value]) -> Result<Value
     Ok(Value::new_str(String::from_utf8_lossy(&buf).into_owned()))
 }
 
-/// `eprintln(value)` — like `println` but to stderr (diagnostics, errors). Flush
+/// `eprintln(s)` — like `println` but to stderr (diagnostics, errors). Flush
 /// stdout first so the two streams stay correctly ordered.
 fn native_eprintln(out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
-    let s = display_string(expect_one(args, "eprintln")?)?;
+    let s = str_contents(expect_one(args, "eprintln")?)?;
     let _ = out.flush();
     writeln!(std::io::stderr(), "{s}").map_err(|e| bug(format!("eprintln: {e}")))?;
     Ok(Value::Unit)
 }
 
-/// `eprint(value)` — like `eprintln` without the trailing newline.
+/// `eprint(s)` — like `eprintln` without the trailing newline.
 fn native_eprint(out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
-    let s = display_string(expect_one(args, "eprint")?)?;
+    let s = str_contents(expect_one(args, "eprint")?)?;
     let _ = out.flush();
     write!(std::io::stderr(), "{s}").map_err(|e| bug(format!("eprint: {e}")))?;
     Ok(Value::Unit)
-}
-
-/// `stringify(value)` — the value's Display form, as a `String`.
-fn native_stringify(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
-    Ok(Value::new_str(display_string(expect_one(
-        args,
-        "stringify",
-    )?)?))
 }
 
 // The per-type `Display` natives behind `impl Display for Int/Double/Bool/String`.
@@ -2081,7 +2076,7 @@ mod tests {
         assert_eq!(native_index("println"), Some(NATIVE_PRINTLN));
         assert_eq!(native_index("str_concat"), Some(NATIVE_STR_CONCAT));
         assert_eq!(native_index("map_set"), Some(NATIVE_MAP_SET));
-        assert_eq!(native_name(NATIVE_STRINGIFY), Some("stringify"));
+        assert_eq!(native_name(NATIVE_INT_TO_STRING), Some("int_to_string"));
         assert_eq!(native_index("eq"), Some(NATIVE_EQ));
         assert_eq!(native_index("nope"), None);
         assert_eq!(default_natives().len(), NATIVES.len());
