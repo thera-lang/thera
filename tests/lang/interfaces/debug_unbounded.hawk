@@ -1,0 +1,22 @@
+//! spec: iface-debug
+//! mode: run
+
+type Point = {
+    x: Int,
+    y: Int,
+}
+
+// `debug` is universal: callable on an *unbounded* type parameter (no `T: Debug`
+// bound). It dispatches virtually and the runtime resolves it to the value's own
+// impl or the auto-derived structural `Debug` — the mechanism the collection
+// `Display` impls use to render their elements.
+fn render<T>(_ x: T) -> String {
+    return x.debug();
+}
+
+fn main() -> Int {
+    println(render(5));                     // expect: 5
+    println(render('hi'));                  // expect: 'hi'
+    println(render(Point { x: 1, y: 2 }));  // expect: Point { 1, 2 }
+    return 0;
+}

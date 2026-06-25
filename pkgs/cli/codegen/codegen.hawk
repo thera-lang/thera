@@ -1705,7 +1705,21 @@ impl FnCompiler {
                 self.emit(Instr.CallVirtual(field, x.args.len() + 1));
                 return true;
             },
-            None => { return false; },
+            None => {
+                // Reached only when the classifier already chose `Virtual`. With
+                // no candidate interface, this is the universal `display`/`debug`
+                // selector on an (unbounded) type parameter (total rendering):
+                // dispatch virtually and let the runtime resolve impl-or-fallback.
+                if field == 'display' || field == 'debug' {
+                    self.expr(obj);
+                    for arg in x.args {
+                        self.expr(arg.value);
+                    }
+                    self.emit(Instr.CallVirtual(field, x.args.len() + 1));
+                    return true;
+                }
+                return false;
+            },
         }
     }
 
