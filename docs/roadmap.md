@@ -39,7 +39,7 @@ call. It sees through generics (`Option<T>`/`List<T>` elements, method returns,
 match bindings, `?`/`unwrap`), does bidirectional and forward-flow inference,
 and the checker reports located diagnostics (type mismatches, bad
 calls/fields/methods, unpinnable generics). The inference-completeness arc is
-essentially closed — see [Inference](#inference--essentially-complete) below.
+**closed** — see _Completed_ at the end.
 
 **Not yet:** a broader stdlib; generic operators (`<T: Add>`); bitwise operators
 (`& | ^ << >>`); index (`[]`) operator overloading; the Cranelift JIT tier.
@@ -161,42 +161,6 @@ below.)
   and already covered by `cargo` + samply/Instruments and the
   `[profile.profiling]` / `native-stats` setup.)
 
-### Inference — essentially complete
-
-The completeness arc landed: an un-inferable type is a **clear, located
-check-time error**, never a silent `Unknown` that misfires downstream. Done (in
-`pkgs/cli/element/inference.hawk` + the checker):
-
-- **Lambda parameters** — type from an annotation or surrounding context, else a
-  "cannot infer the type of lambda parameter 'x'; add a type annotation" error
-  (the template the rest follow).
-- **Block-body lambda return** — unifies the body's `return`s.
-- **Forward-flow** for `Option.None` / empty-literal locals — `let xs = []` /
-  `let mut x = Option.None` take their element type from the first **pinning
-  use** (a `push`, an indexed assignment, a reassignment), descending into
-  `if`/`while`/`for` bodies. First use wins; a binding nothing pins stays a
-  lenient `Unknown` (the corpus showed requiring an annotation here over-fires).
-- **Call-argument checking** for every call form — free functions, methods (with
-  receiver-generic substitution), namespace functions, static methods (arity,
-  labels, types), lenient on `Unknown`/`TypeParameter`.
-- **Generic inference from context** — type parameters bind from explicit type
-  args, the arguments, **and the expected type** (a binding annotation, the
-  enclosing return type, a surrounding argument, or an **assignment target**). A
-  return-only parameter left unbound is the "cannot infer type argument" error;
-  enum construction recovers the un-built variant's parameter (`Result.Ok(x)`
-  under an expected `Result<T, Error>` infers `E = Error`).
-- **Match-arm unification** — value-producing arms must agree (Unit/`Unknown`
-  arms exempt), catching a wrong _later_ arm the old first-arm-wins missed.
-
-A spike settled the **`Unknown`-as-a-diagnosed-hole** question: a broad "reject
-`Unknown`" flip is **not viable**. Of the residual partial-`Unknown`s across the
-whole corpus, ~330 are `Result.Ok(x)` → `Result<T, Unknown>` (constructing one
-variant of a two-parameter enum can't determine the other), so leniency on
-`Unknown` is **load-bearing** — it's what lets `return Result.Ok(0)` typecheck
-in a `-> Result<Int, Error>` fn without annotating the error type. Targeted,
-origin-located diagnostics are the right model; the practical hole problem is
-closed.
-
 ### Front-end / tooling
 
 - **Resolution correctness — mostly done; a residual tech-debt tail.** The
@@ -229,54 +193,27 @@ closed.
   Related, still open: `impl` coherence / orphan rules, selective import
   (`show`/`hide`), and a "module"→"library" terminology sweep.
 
-- **Whole-closure diagnostics with per-file origin — correctness bug (mostly
-  fixed; cascade-suppression tail open).** A diagnostic used to carry only a
-  message + span, **no owning file**, so the CLI printed each against the
-  entrypoint — and an imported file's errors either vanished or misattributed.
-  - ~~**Per-file origin.**~~ _Done (2026-06)._ `Diagnostic` carries a `file`
-    origin, resolved from the span's source text via a source→file map the driver
-    builds over the closure (a span carries source *text*, not a path). The
-    `run`/`emit`/`check` misattribution is gone — an imported-file error prints
-    against *its* file, exit non-zero.
-  - ~~**Import parse errors surfaced.**~~ _Done (2026-06)._ The loader parses every
-    closure file **best-effort** (the parser recovers, so the program is still
-    linked) and collects each file's lex/parse diagnostics stamped with its path
-    (`LoadDiagnostic`); the driver surfaces them. So a parse error in an import is
-    now reported (`helper.hawk:2:13: unexpected token ";"`, exit 1) instead of
-    dropping to a misleading downstream `undefined name` under exit 0. The LSP
-    publishes per-URI, so `compute_diagnostics` filters to the open document.
-    (Pinned by the bin/test.sh attribution test.)
-  - **Still open — cascade suppression / cause-naming.** When an import fails to
-    parse, its dependent symbols may not recover (`greet`'s decl is dropped), so
-    the importer still shows a secondary `` `greet` is not a public member `` after
-    the root cause. The resolver should distinguish "undefined" from "unavailable
-    because its source file errored" and either suppress the cascade or name the
-    cause (`helper.greet is unavailable: helper.hawk failed to parse`). This rides
-    partly on **better parser recovery** (recover a decl's *signature* past a body
-    error — see the LSP parser-recovery item) so fewer decls drop in the first
-    place.
-  - **Still open — check-path closure scope.** `check app.hawk` body-checks only
-    the primary program, so an error *inside* an imported body isn't reported by a
-    single-file check (directory/project checking covers it, checking each file).
-    Defensible as request-scoping, but the eventual target is closure-wide
-    computation with request-scoped display. Format target stands:
-    `path:line:col: severity: message`, grouped by file, deterministically ordered,
-    exit non-zero iff a displayed diagnostic is an error; a machine-readable JSON
-    mode can follow.
+- **Whole-closure diagnostics — remaining tail.** (Per-file origin + surfacing
+  imported-file parse errors are done — see _Completed_.) Two pieces remain:
+  - **Cascade suppression / cause-naming.** When an import fails to parse, its
+    dependent symbols may not recover (`greet`'s decl is dropped), so the importer
+    still shows a secondary `` `greet` is not a public member `` after the root
+    cause. The resolver should distinguish "undefined" from "unavailable because
+    its source file errored" and either suppress the cascade or name the cause
+    (`helper.greet is unavailable: helper.hawk failed to parse`). Rides partly on
+    **better parser recovery** (recover a decl's *signature* past a body error —
+    see the LSP parser-recovery item) so fewer decls drop in the first place.
+  - **Check-path closure scope.** `check app.hawk` body-checks only the primary
+    program, so an error *inside* an imported body isn't reported by a single-file
+    check (directory/project checking covers it, checking each file). Defensible as
+    request-scoping, but the eventual target is closure-wide computation with
+    request-scoped display. Format target stands: `path:line:col: severity:
+    message`, grouped by file, deterministically ordered, exit non-zero iff a
+    displayed diagnostic is an error; a machine-readable JSON mode can follow.
 
-- ~~**`native type` declarations for the built-in types — uniformity /
-  discovery.**~~ _Done (2026-06)._
-  `Int`/`Double`/`Bool`/`String`/`List`/`Map`/`Bytes`/`BytesBuilder` now have a
-  bodyless **`native type`** declaration in `sdk/std/core/` (a new `bool.hawk`
-  for `Bool`), so each built-in has a definition site, a doc home, and its type
-  parameters written down — like `Set`/`Option`/`Result`. Reuses the `native`
-  keyword (symmetric with `native fn`); no `@extern` (its identity is its name).
-  It resolves as a `Builtin` type def — opaque, an attachment point for `impl`
-  blocks, **no field layout** (no struct literal) — and emits no code / no
-  runtime type-table entry, so it shadows the hardcoded `builtin_type_defs()`
-  floor with zero behaviour change (the SDK fixpoint stayed byte-identical).
-  Spec test `type-native`. Open follow-ups: whether to _gate_
-  `native fn`/`native type` to SDK paths (with the `@extern` name-check item),
+- **`native type` / `native fn` follow-ups.** (The bodyless `native type` decls
+  for the built-ins are done — see _Completed_.) Open: whether to _gate_
+  `native fn`/`native type` to SDK paths (ties to the `@extern` name-check item),
   and the checker leniency that lets a bare field access on an opaque value slip
   to codegen (the existing `type-field-nonstruct` residual).
 - **Static-method type arguments — expressiveness gap.** No expression-level
@@ -309,35 +246,20 @@ closed.
   in `bin/test.sh`, added after a line-buffered-stdout bug let only each
   message's header reach the client — which the in-process `StringWriter`
   `@test`s couldn't catch.)
-- **`hawk test` polish** (the runner is implemented; **per-test stdout capture**
-  is done — each test's output is buffered via the `test_capture_*` runtime
-  natives and shown only on failure, or always with `--show-output`). Per-test
-  **source locations** on failure (it reports the test name, not the failing
-  assertion's line) — likely via **caller-location metaconstants**: `__FILE__` /
-  `__LINE__` as _default parameter values the compiler fills in at the call
-  site_, à la C#'s `[CallerLineNumber]` / Rust's `#[track_caller]`
-  (`fn assert_eq<T>(…, file: String = __FILE__, line: Int = __LINE__)`), which
-  needs no `.hawkbc` debug info; the heavier alternative is the bytecode→line
-  table (which also serves trap locations / a future stack trace — see
-  Profiling). Also: a richer structural `debug` (struct field / enum variant
-  names) and a machine-readable output mode.
+- **`hawk test` polish.** (The runner + per-test stdout capture are done — see
+  _Completed_.) Open: per-test **source locations** on failure (it reports the
+  test name, not the failing assertion's line) — likely via **caller-location
+  metaconstants**: `__FILE__` / `__LINE__` as _default parameter values the
+  compiler fills in at the call site_, à la C#'s `[CallerLineNumber]` / Rust's
+  `#[track_caller]` (`fn assert_eq<T>(…, file: String = __FILE__, line: Int =
+  __LINE__)`), which needs no `.hawkbc` debug info; the heavier alternative is the
+  bytecode→line table (which also serves trap locations / a future stack trace —
+  see Profiling). Also: a machine-readable output mode.
 - **`@extern` name check.** Native names are written once as `@extern('…')` on
   the `native fn` decls in `sdk/std`; the Rust runtime table is the other half,
   bound by name at load. Add a test asserting every `@extern` name the front-end
   can emit is accepted by the runtime, and split the runtime table into
   per-module files (`natives_fs.rs`, `natives_string.rs`, …) as it grows.
-- ~~**Unify call/member resolution — codegen re-derives what inference
-  computes.**~~ _Done (2026-06)._ Codegen no longer carries its own callee
-  resolver: `method_call` dispatches on the element model's `infer_callee_kind`
-  — the **single source** of which kind of callee a `recv.field(...)` site is —
-  and only chooses the backend lowering per kind (a native symbol, a unit index,
-  or a virtual selector). A corpus-wide cross-check first proved codegen's old
-  `ModuleScope` cascade and the element-model classification agreed everywhere;
-  the codegen cascade was then deleted, byte-identity held by the fixpoint.
-  (Inference's type-producing `infer_call_field` is deliberately left separate —
-  its cases are coarser than codegen's emission distinctions, so routing it
-  through the same classifier would fragment a clean uniform branch.) (Surfaced
-  by the pkgs/ code review.)
 - **codegen unit-test coverage — in progress.** codegen + module_scope (~2.9k
   lines) were covered mainly end-to-end (fixpoint + examples + every suite
   running through them), so a regression surfaced as a fixpoint/example break,
@@ -432,62 +354,15 @@ closed.
   in `sdk/std`. Operators-as-interfaces (`Eq`, `Add`, and `Indexable` below) is
   what turns those into ordinary Hawk methods; revisit the exact shape then (the
   `[]` half is the _Index operator_ item).
-- ~~**`Display` for the collection/wrapper built-ins — via total rendering.**~~
-  _Done (2026-06)._ `${x}` / `println(x)` are now **total**: a value renders
-  through its `Display` impl if it has one, else its auto-derived `Debug` (which
-  every type carries). Interpolating any value — including the collection/wrapper
-  built-ins — is no longer a `check` error or a runtime trap, matching
-  Python/Go/Swift/Java; `Display` is a pure optional "pretty" override with
-  `Debug` as the guaranteed floor (the LLM-ergonomic default — `'${x}'` always
-  works). Landed in three increments:
-  - **Runtime.** `virtual_fallback` for `display` renders a primitive/`String`
-    via `display_string` and everything else via `debug_value` (Debug-fallback);
-    the `debug` arm was already total. So `CallVirtual('display')` never traps.
-  - **Front-end.** Codegen's `emit_display` emits `CallVirtual('display')` for
-    any not-statically-`Display` value (keeping the native-primitive and
-    concrete-impl shortcuts); the checker's "interpolation requires `Display`"
-    rejection is gone. `display`/`debug` are treated as **universal selectors**:
-    `infer_callee_kind` classifies a `display`/`debug` call that nothing else
-    resolves (an unbounded type parameter, an `impl`-scoped type parameter, a
-    concrete type with no explicit impl) as `Virtual`, and `emit_virtual_call`
-    dispatches it on any receiver — so the collection impls can render elements
-    via the universal `.debug()`.
-  - **Stdlib.** `List`/`Map`/`Set`/`Option`/`Result` carry `Display` impls in
-    `sdk/std/core/` that render each element via `Debug` (decision (1) below:
-    nested strings are quoted, `['a', 'b']`, matching mainstream collection
-    printing). No `where T: Display` bound — the universal renderer handles any
-    element. Pinned by `iface-display` (`display_collections`,
-    `display_fallback`) + `iface-debug` (`debug_unbounded`) conformance tests and
-    `*_test.hawk` `@test`s. Required a **bootstrap ratchet** (the snapshot must
-    compile the new `std.core` impls, so the front-end change shipped + refreshed
-    the snapshot before the std impls landed).
-
-  Deferred (was sub-decision (2)): bounded/conditional impls
-  (`impl<T: Display> Display for List<T>`) remain valuable for _other_ generic
-  soundness but were **not** needed here. Still open below — **Primitive
-  vtables** (retire the `virtual_fallback` hardcodes + `display_string`'s
-  primitive arms via real primitive vtable entries) and **richer structural
-  `Debug`** (struct field / enum variant names — today a user enum renders as
-  `variant1`, a struct positionally as `Name { 1, 2 }`).
-  - ~~**Related uniformity — make primitive `Display` explicit.**~~ _Done
-    (2026-06, Options A + B)._ `Int`/`Double`/`Bool`/`String` carry real
-    `impl Display`s, each bound to a per-type native
-    (`int_to_string`/`double_to_string`/`bool_to_string`/ `str_identity`) — the
-    catch-all `stringify` native is gone. Both front-end hardcodes were removed
-    (Option A): codegen renders via a uniform `emit_display` cascade
-    (native-instance-method / virtual / concrete-impl; `String` elided as
-    "already a `String`"), and the checker's `satisfies_bound` routes primitive
-    `Display` through declared conformance (seeded into `builtin_type_defs` as a
-    hermetic floor), keeping only `Eq`/`Debug` intrinsic. Then (Option B)
-    interpolation and all four console writers (`println`/`print`/`eprintln`/
-    `eprint`) were unified onto `emit_as_string`, so the print natives became
-    plain string writers (`str_contents`, no rendering). The front-end doesn't
-    print raw primitives, so the SDK fixpoint held byte-for-byte — no ratchet.
-    **Still hardcoded:** `display_string` remains the single built-in renderer
-    behind the per-type natives, `list.join`, and the virtual-`display` fallback
-    — fully retiring it needs _primitive vtables_ (its own roadmap item); and
-    the sibling `eq`/`str_concat` operator lowerings retire with
-    operators-as-interfaces.
+- **Richer structural `Debug`.** The auto-derived `Debug` renders a struct
+  **positionally** (`Name { 1, 2 }`, no field names) and a user enum **by tag**
+  (`variant1`; only `Result`/`Option` variants are named) — the runtime type
+  table doesn't carry field/variant names. Now user-visible: total rendering
+  renders collection elements via `Debug`, so `${someEnumList}` shows
+  `[variant1, variant0]`. Add field/variant names to the rendering — needs the
+  names threaded into the runtime type table, or the bytecode-level name table
+  the Profiling/`.hawkbc` debug-info item would add. (`Display`-for-collections
+  and total rendering are done — see _Completed_.)
 - **Primitive vtables — scope it (runtime / generics / soundness).** A primitive
   reached through _virtual_ dispatch — `call.virtual('display'|'eq'|'debug')`
   from a generic `<T: Display>` / interface-typed context where the runtime
@@ -542,3 +417,61 @@ See [architecture.md](architecture.md) for the design behind each tier.
    representation).
 4. **AOT via `cranelift-object`** later — single-binary distribution; optional,
    not on the startup-critical path.
+
+## Completed (changelog)
+
+Brief summaries of finished arcs; design details live in
+[architecture.md](architecture.md) / [language.md](language.md) and the linked
+conformance specs. Newest first.
+
+- **Total rendering — `Display`-preferred, `Debug`-fallback** (2026-06). `${x}` /
+  `println(x)` are total: a value renders via its `Display` impl if present, else
+  its auto-derived `Debug` — never a `check` error or a runtime trap (matching
+  Python/Go/Swift/Java). `List`/`Map`/`Set`/`Option`/`Result` carry `Display`
+  impls (elements rendered via `Debug`, so nested strings quote: `['a', 'b']`),
+  with no `T: Display` bound. Mechanism: the runtime `virtual_fallback` for
+  `display` falls back to `debug_value`; codegen's `emit_display` emits
+  `CallVirtual('display')` for any not-statically-`Display` value; `display` and
+  `debug` are **universal selectors** (`infer_callee_kind` → `Virtual` on any
+  unresolved receiver). Pinned by `iface-display` / `iface-debug` specs. Needed a
+  bootstrap ratchet (std impls required the front-end change first). _Open
+  follow-ons:_ Richer structural `Debug`, Primitive vtables (both above).
+- **Primitive `Display` explicit** (2026-06). `Int`/`Double`/`Bool`/`String`
+  carry real `impl Display`s bound to per-type natives
+  (`int_to_string`/`double_to_string`/`bool_to_string`/`str_identity`); the
+  catch-all `stringify` native is gone and both front-end hardcodes removed. The
+  print natives (`println`/`print`/`eprintln`/`eprint`) became plain string
+  writers. `display_string` still backs the per-type natives + `list.join` + the
+  virtual fallback — full retirement waits on Primitive vtables.
+- **`native type` declarations for the built-ins** (2026-06).
+  `Int`/`Double`/`Bool`/`String`/`List`/`Map`/`Bytes`/`BytesBuilder` have bodyless
+  `native type` decls in `sdk/std/core/` — a definition + doc site, opaque
+  `Builtin` type def, no codegen / no runtime type-table entry (shadows the
+  `builtin_type_defs()` floor byte-identically). Spec `type-native`. _Open
+  follow-ups above (`native type` / `native fn`)._
+- **Whole-closure diagnostics — per-file origin + import parse errors** (2026-06).
+  `Diagnostic` carries a `file` origin resolved from the span's source text (a
+  span carries source *text*, not a path), so an imported-file error prints
+  against its own file (exit non-zero); the loader parses every closure file
+  best-effort and surfaces each file's lex/parse diagnostics (`LoadDiagnostic`),
+  the LSP filtering per-URI. _Open tail above (cascade suppression / check-path
+  scope)._
+- **Unify call/member resolution** (2026-06). Codegen's `method_call` dispatches
+  on the element model's `infer_callee_kind` (the single source of callee kind),
+  choosing only the backend lowering per kind; the old codegen `ModuleScope`
+  cascade was deleted, byte-identity held by the fixpoint.
+- **Inference completeness** (2026-06). An un-inferable type is a clear, located
+  check-time error, never a silent `Unknown`: lambda params (annotation/context
+  or error), block-body lambda return, forward-flow for empty-literal/`None`
+  locals (typed from first pinning use), call-argument checking for every call
+  form, generic inference from context (incl. the assignment target), and
+  match-arm unification. A broad "reject `Unknown`" flip was ruled out — ~330
+  `Result.Ok(x)` → `Result<T, Unknown>` make leniency load-bearing.
+- **`hawk test` per-test stdout capture** (2026-06). Each test's output is
+  buffered via the `test_capture_*` runtime natives and shown only on failure (or
+  always with `--show-output`). _Open: per-test source locations, machine-readable
+  output (above)._
+- **Runtime tiers 0–baseline.** Tree-walker POC + bytecode IR; Tier-0 bytecode
+  interpreter + precise non-moving mark-sweep GC (see Runtime staging 1–2). Plus
+  the interpreter perf wins (unified value stack, `ListLen` opcode) noted under
+  _Interpreter performance_.
