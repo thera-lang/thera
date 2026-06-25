@@ -442,28 +442,44 @@ closed.
   in `sdk/std`. Operators-as-interfaces (`Eq`, `Add`, and `Indexable` below) is
   what turns those into ordinary Hawk methods; revisit the exact shape then (the
   `[]` half is the _Index operator_ item).
-- **`Display` for the collection/wrapper built-ins + bounded impls.** `List`,
-  `Map`, `Set`, `Option`, `Result` don't implement `Display`, so interpolating
-  one (`'${xs}'`) is a `check` error — yet these are exactly the values you most
-  want to drop into a string. They _can_ be rendered with an explicit
-  `impl Display`, and a plain `impl Display for List<T>` already works
-  end-to-end today (verified: `'${[1,2,3]}'` → `[1, 2, 3]`), because the checker
-  is lenient on the unconstrained element type and the runtime dispatches
-  `display` per element. So the ergonomic fix is just to _ship_ these five impls
-  in `sdk/std/core` (rendering `[a, b, c]` / `{k: v}` / `{a, b}` /
-  `Some(x)`·`None` / `Ok(x)`·`Err(e)`). This stays consistent with the "Display
-  is explicit, no default" rule — they're explicit stdlib impls, not an
-  auto-default; a user `struct` still writes its own.
-  - **Prerequisite — bounded / conditional impls.**
-    `impl<T: Display> Display for List<T>` doesn't parse today (no bound on an
-    impl's own type parameter). Without it, an _unconstrained_
-    `impl Display for List<T>` claims `List<anything>` is `Display`, so
-    interpolating a `List<Point>` (no `Display` on `Point`) compiles and **traps
-    at runtime** instead of erroring at `check`. The `where T: Display` bound
-    turns that back into a compile error. This is a general generics feature
-    (bounded impls), adjacent to _Generic operators_ above; ship the
-    unconstrained impls now for the ergonomic win, tighten them when bounded
-    impls land.
+- **`Display` for the collection/wrapper built-ins — via total rendering.**
+  `List`, `Map`, `Set`, `Option`, `Result` don't implement `Display`, so
+  interpolating one (`'${xs}'`) is a `check` error — yet these are exactly the
+  values you most want to drop into a string. **A 2026-06 investigation killed the
+  "just ship unconstrained `impl Display for List<T>`" plan:** rendering `${v}` for
+  an _unbounded_ element `T` only works in narrow cases (a direct `for v in self`),
+  and fails for a `for` over a local/method-call `List<T>`, a `match` binding
+  (`Option`/`Result`), and `Map`'s `${self[k]}` — codegen errors `cannot
+  interpolate T` because it can't resolve a `Display` for the bare type parameter.
+  (An explicit `T: Display` bound makes it reliable — proven — which is why this
+  looked like a bounded-impls problem.)
+
+  **Leading design — total rendering (Display-preferred, Debug fallback).** Hawk
+  already auto-derives `Debug` for _every_ type, so make rendering total: `${x}` /
+  `println(x)` use the type's `Display` if present, else its `Debug`. Interpolation
+  stops being a `check` error or a runtime trap — it works for any value, like
+  Python/Go/Swift/Java; `Display` becomes a pure optional "pretty" override with
+  `Debug` as the guaranteed floor (the LLM-ergonomic default — `'${x}'` should
+  always work). Mechanism is small: the runtime `virtual_fallback` for `display`
+  changes from "`display_string`, trap on structs" to "the type's `display` impl
+  if present, else its `debug`" (primitives keep `display_string`), making
+  `CallVirtual('display')` total; codegen emits it for any not-statically-`Display`
+  value (incl. the unbounded `T` in `impl Display for List<T>`) and shortcuts to a
+  direct `display()` when the static type is known-`Display`. **This dissolves the
+  bounds dependency for Display:** the five collection impls render each element
+  via the total renderer — any `T`, no `where T: Display`, no trap — so they become
+  shippable and sound (rendering `[a, b, c]` / `{k: v}` / `{a, b}` /
+  `Some(x)`·`None` / `Ok(x)`·`Err(e)`). Same "check-if-a-type-implements-an-
+  interface-and-dispatch" machinery as **Primitive vtables** (below) — build them
+  together.
+
+  Open sub-decisions before building: (1) **nested strings** — a collection's
+  `Display` should render elements via `Debug` (so `["a","b"]` → `["a", "b"]`,
+  quotes disambiguating, matching mainstream collection printing) rather than
+  element-`Display` (`[a, b]`); this is simpler and skips a per-element "is it
+  Display?" check. (2) Bounded/conditional impls (`impl<T: Display> Display for
+  List<T>`) remain valuable for _other_ generic soundness but are **no longer a
+  prerequisite for Display-for-collections** under total rendering.
   - ~~**Related uniformity — make primitive `Display` explicit.**~~ _Done
     (2026-06, Options A + B)._ `Int`/`Double`/`Bool`/`String` carry real
     `impl Display`s, each bound to a per-type native
