@@ -419,6 +419,39 @@ closed.
   represented in `sdk/std`. Operators-as-interfaces (`Eq`, `Add`, and `Indexable`
   below) is what turns those into ordinary Hawk methods; revisit the exact shape
   then (the `[]` half is the *Index operator* item).
+- **`Display` for the collection/wrapper built-ins + bounded impls.** `List`, `Map`,
+  `Set`, `Option`, `Result` don't implement `Display`, so interpolating one
+  (`'${xs}'`) is a `check` error — yet these are exactly the values you most want to
+  drop into a string. They *can* be rendered with an explicit `impl Display`, and a
+  plain `impl Display for List<T>` already works end-to-end today (verified:
+  `'${[1,2,3]}'` → `[1, 2, 3]`), because the checker is lenient on the unconstrained
+  element type and the runtime dispatches `display` per element. So the ergonomic
+  fix is just to *ship* these five impls in `sdk/std/core` (rendering `[a, b, c]` /
+  `{k: v}` / `{a, b}` / `Some(x)`·`None` / `Ok(x)`·`Err(e)`). This stays consistent
+  with the "Display is explicit, no default" rule — they're explicit stdlib impls,
+  not an auto-default; a user `struct` still writes its own.
+  - **Prerequisite — bounded / conditional impls.** `impl<T: Display> Display for
+    List<T>` doesn't parse today (no bound on an impl's own type parameter). Without
+    it, an *unconstrained* `impl Display for List<T>` claims `List<anything>` is
+    `Display`, so interpolating a `List<Point>` (no `Display` on `Point`) compiles
+    and **traps at runtime** instead of erroring at `check`. The `where T: Display`
+    bound turns that back into a compile error. This is a general generics feature
+    (bounded impls), adjacent to *Generic operators* above; ship the unconstrained
+    impls now for the ergonomic win, tighten them when bounded impls land.
+  - **Related uniformity — make primitive `Display` explicit.** `Int`/`Double`/
+    `Bool`/`String` `Display` is hardcoded in three places — the checker
+    (`satisfies_bound`: `Primitive ⇒ builtin interface`), codegen (interpolation
+    special-cases `Int`/`Double`/`Bool` → `stringify`, `String` → passthrough), and
+    the runtime (`stringify`/`display_string`) — with no `impl` anywhere. Replacing
+    these with real `impl Display for Int { @extern('…') native fn display(self) ->
+    String }` decls in `int.hawk` etc. (the same "make the built-in explicit in Hawk"
+    theme as `native type`) gives each primitive a visible, documented, navigable
+    `Display` and lets the hardcoded special-cases retire in favour of uniform impl
+    resolution. Largely byte-neutral if backed by the existing `stringify` native (so
+    `interface_method('Int', …)` still emits `CallNative('stringify', 1)`); `String`'s
+    identity passthrough is the one wrinkle (keep the elision, or accept one extra
+    call). Pairs naturally with the operators-as-interfaces work, which retires the
+    sibling `eq`/`str_concat` hardcodes the same way.
 - **Bitwise operators** (`& | ^ << >>`, plus an unsigned type or
   defined-wrapping/logical-shift semantics on the signed `Int`). Blocks writing
   hashing/encoding and a modern PRNG in Hawk: `std.random`'s SplitMix64 mix is a
