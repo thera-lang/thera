@@ -439,20 +439,22 @@ closed.
     (bounded impls), adjacent to *Generic operators* above; ship the unconstrained
     impls now for the ergonomic win, tighten them when bounded impls land.
   - ~~**Related uniformity — make primitive `Display` explicit.**~~ _Done (2026-06,
-    Option A)._ `Int`/`Double`/`Bool`/`String` now carry real `impl Display for … {
-    @extern('stringify') native fn display(self) -> String }` decls in their core
-    files (the same "make the built-in explicit in Hawk" theme as `native type`).
-    The two front-end hardcodes are gone: codegen interpolation (`string_piece`) now
-    renders via a uniform `emit_display` — a native-instance-method / virtual /
-    concrete-impl cascade that resolves the primitives' `display` → `stringify` like
-    any method (only `String`'s identity is elided, as "already a `String`"); and the
-    checker's `satisfies_bound` routes primitive `Display` through declared
-    conformance (seeded into `builtin_type_defs` as a hermetic floor, shadowed by the
-    real impl), keeping only `Eq`/`Debug` intrinsic. Byte-identical (SDK fixpoint held
-    byte-for-byte). The runtime `stringify`/`display_string` stay as the backing
-    native — retiring those (per-type natives, a `println`-as-string-writer) plus the
-    sibling `eq`/`str_concat` hardcodes is the optional Option B / operators-as-
-    interfaces follow-up.
+    Options A + B)._ `Int`/`Double`/`Bool`/`String` carry real `impl Display`s, each
+    bound to a per-type native (`int_to_string`/`double_to_string`/`bool_to_string`/
+    `str_identity`) — the catch-all `stringify` native is gone. Both front-end
+    hardcodes were removed (Option A): codegen renders via a uniform `emit_display`
+    cascade (native-instance-method / virtual / concrete-impl; `String` elided as
+    "already a `String`"), and the checker's `satisfies_bound` routes primitive
+    `Display` through declared conformance (seeded into `builtin_type_defs` as a
+    hermetic floor), keeping only `Eq`/`Debug` intrinsic. Then (Option B)
+    interpolation and all four console writers (`println`/`print`/`eprintln`/
+    `eprint`) were unified onto `emit_as_string`, so the print natives became plain
+    string writers (`str_contents`, no rendering). The front-end doesn't print raw
+    primitives, so the SDK fixpoint held byte-for-byte — no ratchet. **Still
+    hardcoded:** `display_string` remains the single built-in renderer behind the
+    per-type natives, `list.join`, and the virtual-`display` fallback — fully
+    retiring it needs *primitive vtables* (its own roadmap item); and the sibling
+    `eq`/`str_concat` operator lowerings retire with operators-as-interfaces.
 - **Primitive vtables — scope it (runtime / generics / soundness).** A primitive
   reached through *virtual* dispatch — `call.virtual('display'|'eq'|'debug')` from a
   generic `<T: Display>` / interface-typed context where the runtime value is an
