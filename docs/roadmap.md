@@ -229,50 +229,40 @@ closed.
   Related, still open: `impl` coherence / orphan rules, selective import
   (`show`/`hide`), and a "module"→"library" terminology sweep.
 
-- **Whole-closure diagnostics with per-file origin — correctness bug.** A
-  diagnostic today carries only a message + span, **no owning file**
-  (`Diagnostic` in `driver.hawk`, `CheckError` in `checker.hawk`); the CLI
-  prints each against whatever single path it was handed — the entrypoint. Two
-  consequences, both verified against an `app.hawk` that imports `helper.hawk`:
-  - **Import errors vanish.** The checker body-checks only the _primary_ program
-    (`check_program` iterates `program.decls`); imports supply signatures only.
-    So a check error inside an imported body (`helper.hawk`'s
-    `name.frobnicate()`) is never produced when checking `app.hawk` —
-    `check helper.hawk` reports it, `check app.hawk` reports nothing. A _parse_
-    error in an import is dropped by the loader and surfaces only as a
-    misleading downstream `undefined name: helper` in the importer — printed
-    with **exit 0** (a printed error under a success code, a bug in itself).
-    (This was the root of the "trailing-`;` corrupts a module" symptom; the
-    parser half — `parse_block` rejecting a stray `;` after a block-form
-    statement — is fixed.)
-  - **Misattribution is latent, not yet observable.** Because import diagnostics
-    never reach the reporter, nothing is _mis_-attributed today — but the moment
-    they are surfaced they'd each print with the entrypoint's path, since a
-    diagnostic has no origin of its own. Per-file origin is therefore the
-    prerequisite, not a separate fix (these two were previously tracked as two
-    items).
-
-  Target — the standard error-tolerant analyzer model:
-  - The engine computes diagnostics for the **whole import closure**, each
-    carrying its **owning file** (origin) + span. The loader recovers-and-parses
-    every file, collecting that file's diagnostics under its path and marking
-    failed imports.
-  - The **request** scopes which files' diagnostics are _displayed_ (a single
-    file vs. a directory/project — the typical case); computation stays
-    closure-wide regardless, so an importer can react to a failed dependency.
-  - **Recover and resolve:** a partially-parsed `b` still offers whatever decls
-    it recovered; an importer `a` errors only on symbols genuinely missing.
-  - **Cascade suppression / cause-naming:** the resolver distinguishes
-    "undefined" from "unavailable because its source file errored" — suppressing
-    the downstream cascade and naming the cause:
-    `helper.greet is unavailable: helper.hawk failed to parse` rather than a
-    bare `undefined name: helper`, so the reader is pointed straight at the file
-    to fix.
-  - **Format for the LLM lens:** `path:line:col: severity: message`, one per
-    line, grouped by file, deterministically ordered (file → line → col) so an
-    agent's before/after diffs are stable; exit non-zero iff a displayed
-    diagnostic is an error. (A machine-readable JSON mode can follow — see the
-    `hawk test` output modes.)
+- **Whole-closure diagnostics with per-file origin — correctness bug (mostly
+  fixed; cascade-suppression tail open).** A diagnostic used to carry only a
+  message + span, **no owning file**, so the CLI printed each against the
+  entrypoint — and an imported file's errors either vanished or misattributed.
+  - ~~**Per-file origin.**~~ _Done (2026-06)._ `Diagnostic` carries a `file`
+    origin, resolved from the span's source text via a source→file map the driver
+    builds over the closure (a span carries source *text*, not a path). The
+    `run`/`emit`/`check` misattribution is gone — an imported-file error prints
+    against *its* file, exit non-zero.
+  - ~~**Import parse errors surfaced.**~~ _Done (2026-06)._ The loader parses every
+    closure file **best-effort** (the parser recovers, so the program is still
+    linked) and collects each file's lex/parse diagnostics stamped with its path
+    (`LoadDiagnostic`); the driver surfaces them. So a parse error in an import is
+    now reported (`helper.hawk:2:13: unexpected token ";"`, exit 1) instead of
+    dropping to a misleading downstream `undefined name` under exit 0. The LSP
+    publishes per-URI, so `compute_diagnostics` filters to the open document.
+    (Pinned by the bin/test.sh attribution test.)
+  - **Still open — cascade suppression / cause-naming.** When an import fails to
+    parse, its dependent symbols may not recover (`greet`'s decl is dropped), so
+    the importer still shows a secondary `` `greet` is not a public member `` after
+    the root cause. The resolver should distinguish "undefined" from "unavailable
+    because its source file errored" and either suppress the cascade or name the
+    cause (`helper.greet is unavailable: helper.hawk failed to parse`). This rides
+    partly on **better parser recovery** (recover a decl's *signature* past a body
+    error — see the LSP parser-recovery item) so fewer decls drop in the first
+    place.
+  - **Still open — check-path closure scope.** `check app.hawk` body-checks only
+    the primary program, so an error *inside* an imported body isn't reported by a
+    single-file check (directory/project checking covers it, checking each file).
+    Defensible as request-scoping, but the eventual target is closure-wide
+    computation with request-scoped display. Format target stands:
+    `path:line:col: severity: message`, grouped by file, deterministically ordered,
+    exit non-zero iff a displayed diagnostic is an error; a machine-readable JSON
+    mode can follow.
 
 - ~~**`native type` declarations for the built-in types — uniformity /
   discovery.**~~ _Done (2026-06)._
