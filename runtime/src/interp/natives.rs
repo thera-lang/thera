@@ -184,6 +184,10 @@ const NATIVES: &[(&str, NativeFn)] = &[
     // no `NATIVE_*` index constant is needed).
     ("eprintln", native_eprintln),
     ("eprint", native_eprint),
+    ("int_to_string", native_int_to_string),
+    ("double_to_string", native_double_to_string),
+    ("bool_to_string", native_bool_to_string),
+    ("str_identity", native_str_identity),
     ("test_capture_begin", native_test_capture_begin),
     ("test_capture_end", native_test_capture_end),
     ("fiber_spawn", native_fiber_spawn),
@@ -350,6 +354,44 @@ fn native_stringify(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap>
         args,
         "stringify",
     )?)?))
+}
+
+// The per-type `Display` natives behind `impl Display for Int/Double/Bool/String`.
+// Each renders its own primitive (delegating to the shared `display_string`, the
+// single built-in renderer), so interpolation/`println` lower to a self-documenting
+// per-type call rather than the catch-all `stringify`.
+
+/// `int_to_string(n)` — an `Int`'s `Display` form.
+fn native_int_to_string(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    Ok(Value::new_str(display_string(expect_one(
+        args,
+        "int_to_string",
+    )?)?))
+}
+
+/// `double_to_string(x)` — a `Double`'s `Display` form.
+fn native_double_to_string(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    Ok(Value::new_str(display_string(expect_one(
+        args,
+        "double_to_string",
+    )?)?))
+}
+
+/// `bool_to_string(b)` — a `Bool`'s `Display` form.
+fn native_bool_to_string(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    Ok(Value::new_str(display_string(expect_one(
+        args,
+        "bool_to_string",
+    )?)?))
+}
+
+/// `str_identity(s)` — a `String`'s `Display` form is itself. Interpolation and
+/// `println` elide it (a `String` is already a `String`); an explicit
+/// `s.display()` lands here.
+fn native_str_identity(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let v = expect_one(args, "str_identity")?;
+    str_contents(v)?; // validate it is a string
+    Ok(*v)
 }
 
 /// `str_concat(s0, s1, …)` — concatenate string arguments into one `String`.
