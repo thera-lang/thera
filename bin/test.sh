@@ -55,6 +55,24 @@ else
 fi
 rm -rf "$chk_dir"
 
+echo "==> diagnostic attribution (imported-file error names the import)"
+# An error in an imported file must be attributed to *that* file, not the
+# entrypoint that triggered the compile — a diagnostic span carries source text,
+# not a path, so the reporter resolves the owning file. (See docs/roadmap.md,
+# "Whole-closure diagnostics with per-file origin".)
+att_dir="$(mktemp -d)"
+printf 'pub fn greet(_ n: String) -> String { return n.frobnicate(); }\n' > "$att_dir/helper.hawk"
+printf "import 'helper';\nfn main() -> Int { println(helper.greet('hi')); return 0; }\n" > "$att_dir/app.hawk"
+att_out="$("$HAWK" run "$att_dir/app.hawk" 2>&1)"; att_code=$?
+if printf '%s' "$att_out" | grep -q 'helper.hawk:.*frobnicate' \
+   && ! printf '%s' "$att_out" | grep -q 'app.hawk:.*frobnicate' \
+   && [ "$att_code" -ne 0 ]; then
+  echo "  ok   imported-file error attributed to the import (exit $att_code)"
+else
+  echo "  FAIL diagnostic attribution (out='$att_out', code=$att_code)"; fail=1
+fi
+rm -rf "$att_dir"
+
 echo "==> qualified-reference guard (corpus stays at 0 bare cross-library refs)"
 # The whole corpus is qualified-only: every reference to another library's public
 # name goes through `ns.name` (or an explicit `import '…' as _;`). This is now
