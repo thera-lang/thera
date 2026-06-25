@@ -246,15 +246,57 @@ below.)
   in `bin/test.sh`, added after a line-buffered-stdout bug let only each
   message's header reach the client — which the in-process `StringWriter`
   `@test`s couldn't catch.)
-- **`hawk test` polish.** (The runner + per-test stdout capture are done — see
-  _Completed_.) Open: per-test **source locations** on failure (it reports the
-  test name, not the failing assertion's line) — likely via **caller-location
-  metaconstants**: `__FILE__` / `__LINE__` as _default parameter values the
-  compiler fills in at the call site_, à la C#'s `[CallerLineNumber]` / Rust's
-  `#[track_caller]` (`fn assert_eq<T>(…, file: String = __FILE__, line: Int =
-  __LINE__)`), which needs no `.hawkbc` debug info; the heavier alternative is the
-  bytecode→line table (which also serves trap locations / a future stack trace —
-  see Profiling). Also: a machine-readable output mode.
+- **`hawk test` — source locations on failure.** (Runner + per-test stdout
+  capture are done — see _Completed_.) A failing assertion reports the test name,
+  not the failing line. **Plan: caller-location via a defaulted parameter** — the
+  cheap path, no `.hawkbc` debug info, reusing default arguments, which Hawk
+  already materializes **at the call site** (codegen `resolve_args` pushes an
+  omitted param's `default_value` into the *caller's* arg list, compiled in the
+  caller's context). So a location metaconstant in a default position naturally
+  captures the call site. Add to `std.core` a `SourceLoc { file, line, column }`
+  (with `impl Display` → `file:line:column`) and a compiler metaconstant **`#loc`**
+  (the `#` sigil is currently unused; Swift-precedented `#file`/`#line`) valid as
+  a default value. Assertions gain a defaulted `at`:
+
+  ```hawk
+  pub fn assert_eq<T: Eq + Debug>(
+      actual: T, expected: T, at: SourceLoc = #loc,
+  ) -> Result<Void, Error> {
+      if actual != expected {
+          throw error('${at}: assert_eq failed\n  actual:   ${actual.debug()}\n  expected: ${expected.debug()}');
+      }
+      return Result.Ok(void);
+  }
+  ```
+
+  Call sites are unchanged (callers omit `at`); a failure prints
+  `users_test.hawk:42:5: assert_eq failed …` — the **same `path:line:col:` shape
+  as `hawk check`**, so an agent/editor parses test failures and compiler errors
+  uniformly. The one compiler change: when a `#loc` default is expanded for a
+  call, emit a `SourceLoc` literal from the call's span (already in hand in
+  `resolve_args`) instead of compiling `#loc` literally. No calling-convention
+  change, no runtime stack walking. The metaconstant is generally available;
+  `std.testing` is the primary user.
+  - **Limitation — single hop.** It captures the *immediate* caller, so an
+    assertion wrapped in a test helper points at the helper. A helper opts into
+    transparency by **forwarding**: `fn check(u: User, at: SourceLoc = #loc)` then
+    `assert_eq(…, at: at)` — explicit and visible (Rust's `#[track_caller]`
+    auto-propagates through annotated frames; Hawk's is opt-in per hop).
+  - **Later / more general — runtime backtraces.** Full multi-frame stack
+    inspection (Python `inspect.stack`-style) needs a **bytecode→line debug
+    table** in `.hawkbc`, shared with trap locations and profiling
+    line-attribution (see Profiling). (Note Zig's `@src` is *compile-time* — same
+    family as `#loc`, not dynamic.) Once that table lands, `std.debug.stack()` +
+    trap/uncaught-error backtraces supersede the single-hop limit. A runtime arc,
+    not a testing feature — `#loc` ships first and stands alone.
+- **`hawk test` — machine-readable output: reframed, likely dropped.** The
+  premise is that the **default text output _is_ the machine interface**:
+  deterministic, `path:line:col:`-formatted (matching `hawk check`), stably
+  ordered, exit-coded — an LLM/agent consumes it directly, so a separate JSON mode
+  is upkeep + a second format to keep in sync for marginal gain. Pin those
+  properties of the text output instead. A JSON / JUnit-XML emitter stays a
+  *later, on-demand* item gated on a concrete **non-LLM** consumer (CI dashboard,
+  IDE test tree), not a roadmap default.
 - **`@extern` name check.** Native names are written once as `@extern('…')` on
   the `native fn` decls in `sdk/std`; the Rust runtime table is the other half,
   bound by name at load. Add a test asserting every `@extern` name the front-end
