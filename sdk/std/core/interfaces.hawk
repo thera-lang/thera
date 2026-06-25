@@ -8,9 +8,10 @@ pub interface Eq {
 }
 
 // User-facing string representation. Used by string interpolation (${})
-// and println. Must be implemented explicitly — there is no default.
-// Attempting to interpolate a type that does not implement Display is a
-// compile error.
+// and println. Optional: rendering is total — a value with a `Display` impl
+// renders through it, and one without falls back to its auto-derived `Debug`
+// (so `${x}` works for any value). Implement `Display` to override the default
+// `Debug` rendering with a prettier, user-facing form.
 pub interface Display {
     fn display(self) -> String;
 }

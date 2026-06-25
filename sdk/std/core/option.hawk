@@ -44,3 +44,13 @@ impl Option<T> {
         };
     }
 }
+
+impl Display for Option<T> {
+    // `Some(x)` / `None` — the contained value rendered via `Debug`.
+    fn display(self) -> String {
+        return match self {
+            Some(v) => 'Some(${v.debug()})',
+            None => 'None',
+        };
+    }
+}

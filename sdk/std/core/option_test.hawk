@@ -41,3 +41,12 @@ fn test_ok_or_none_becomes_err() -> Result<Void, Error> {
     }
     return Result.Ok(void);
 }
+
+@test
+fn test_display() -> Result<Void, Error> {
+    // `Some(x)` renders the payload via `Debug`; `None` is bare.
+    testing.assert_eq(actual: '${Option.Some(5)}', expected: 'Some(5)')?;
+    let none: Option<Int> = Option.None;
+    testing.assert_eq(actual: '${none}', expected: 'None')?;
+    return Result.Ok(void);
+}

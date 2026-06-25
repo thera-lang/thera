@@ -12,3 +12,13 @@ pub enum Result<T, E> {
     Ok(T),
     Err(E),
 }
+
+impl Display for Result<T, E> {
+    // `Ok(x)` / `Err(e)` — the contained value rendered via `Debug`.
+    fn display(self) -> String {
+        return match self {
+            Ok(v) => 'Ok(${v.debug()})',
+            Err(e) => 'Err(${e.debug()})',
+        };
+    }
+}

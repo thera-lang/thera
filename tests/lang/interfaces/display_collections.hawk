@@ -1,0 +1,25 @@
+//! spec: iface-display
+//! mode: run
+
+// The collection / wrapper built-ins implement `Display`: interpolating one
+// renders its elements (via `Debug`, so nested strings are quoted), with no
+// `T: Display` bound required — the impls render elements through the universal
+// `debug`, resolved by total rendering.
+fn main() -> Int {
+    println('${[1, 2, 3]}');                      // expect: [1, 2, 3]
+    println('${['a', 'b']}');                     // expect: ['a', 'b']
+    let m = {'x': 1, 'y': 2};
+    println('${m}');                              // expect: {'x': 1, 'y': 2}
+    println('${Set.from([1, 2, 2, 3])}');         // expect: {1, 2, 3}
+    println('${Option.Some(5)}');                 // expect: Some(5)
+    let none: Option<Int> = Option.None;
+    println('${none}');                           // expect: None
+    let ok: Result<Int, String> = Result.Ok(7);
+    println('${ok}');                             // expect: Ok(7)
+    let err: Result<Int, String> = Result.Err('boom');
+    println('${err}');                            // expect: Err('boom')
+    let empty: List<Int> = [];
+    println('${empty}');                          // expect: []
+    println('${[[1, 2], [3]]}');                  // expect: [[1, 2], [3]]
+    return 0;
+}

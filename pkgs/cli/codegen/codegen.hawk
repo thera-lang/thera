@@ -1680,47 +1680,36 @@ impl FnCompiler {
     // Dynamic dispatch: the receiver is interface-typed (`x: Display`) or a
     // generic parameter bound by an interface. The concrete type isn't known
     // here, so dispatch on the runtime type id. False (→ a "no method" error)
-    // when the selector isn't declared by any candidate interface.
+    // when the selector isn't declared by any candidate interface — except the
+    // universal `display`/`debug` selectors, which dispatch on any receiver
+    // (total rendering: the runtime resolves the value's impl or its auto-derived
+    // fallback).
     fn emit_virtual_call(self, _ x: CallExpr, _ obj: Expr, _ field: String) -> Bool {
-        match self.dispatch_interfaces(self.type_of(obj)) {
-            Some(ifaces) => {
-                let mut declares = false;
-                for i in ifaces {
-                    match self.scope.interface_methods.get(i) {
-                        Some(s) => {
-                            if s.has(field) {
-                                declares = true;
-                            }
-                        },
-                        None => {},
+        if field != 'display' && field != 'debug' {
+            // A non-universal selector must be declared by a candidate interface.
+            let declared = match self.dispatch_interfaces(self.type_of(obj)) {
+                Some(ifaces) => {
+                    let mut found = false;
+                    for i in ifaces {
+                        match self.scope.interface_methods.get(i) {
+                            Some(s) => { if s.has(field) { found = true; } },
+                            None => {},
+                        }
                     }
-                }
-                if !declares {
-                    return false;
-                }
-                self.expr(obj);
-                for arg in x.args {
-                    self.expr(arg.value);
-                }
-                self.emit(Instr.CallVirtual(field, x.args.len() + 1));
-                return true;
-            },
-            None => {
-                // Reached only when the classifier already chose `Virtual`. With
-                // no candidate interface, this is the universal `display`/`debug`
-                // selector on an (unbounded) type parameter (total rendering):
-                // dispatch virtually and let the runtime resolve impl-or-fallback.
-                if field == 'display' || field == 'debug' {
-                    self.expr(obj);
-                    for arg in x.args {
-                        self.expr(arg.value);
-                    }
-                    self.emit(Instr.CallVirtual(field, x.args.len() + 1));
-                    return true;
-                }
+                    found
+                },
+                None => false,
+            };
+            if !declared {
                 return false;
-            },
+            }
         }
+        self.expr(obj);
+        for arg in x.args {
+            self.expr(arg.value);
+        }
+        self.emit(Instr.CallVirtual(field, x.args.len() + 1));
+        return true;
     }
 
     // A function-valued struct field invoked like a method: `c.now()` where `now`

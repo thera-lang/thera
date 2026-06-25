@@ -21,3 +21,13 @@ fn test_map_filter_fold_still_work() -> Result<Void, Error> {
     testing.assert_eq(actual: xs.fold(0, (acc, n) => acc + n), expected: 10)?;
     return Result.Ok(void);
 }
+
+@test
+fn test_display() -> Result<Void, Error> {
+    // `Display` renders elements via `Debug`; nested lists recurse.
+    testing.assert_eq(actual: '${[1, 2, 3]}', expected: '[1, 2, 3]')?;
+    testing.assert_eq(actual: '${[[1], [2, 3]]}', expected: '[[1], [2, 3]]')?;
+    let empty: List<Int> = [];
+    testing.assert_eq(actual: '${empty}', expected: '[]')?;
+    return Result.Ok(void);
+}

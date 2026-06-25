@@ -819,17 +819,6 @@ pub fn infer_callee_kind(_ obj: Expr, _ field: String, _ arg_count: Int,
         return CalleeKind.Virtual;
     }
 
-    // Total rendering: `display` and `debug` are universal — every type renders
-    // via its own impl or the runtime's auto-derived fallback. So a call to one
-    // on an (unbounded) type parameter dispatches virtually, resolved at runtime,
-    // rather than being unresolvable. (A bounded `T` is already caught above.)
-    if field == 'display' || field == 'debug' {
-        match recv_type {
-            TypeParameter(_) => { return CalleeKind.Virtual; },
-            _ => {},
-        }
-    }
-
     // A method declared in an impl block on a concrete receiver.
     match type_def_for(recv_type, ctx) {
         Some(element) => {
@@ -851,6 +840,16 @@ pub fn infer_callee_kind(_ obj: Expr, _ field: String, _ arg_count: Int,
     match field_type(recv_type, field, ctx) {
         Function(_, _) => { return CalleeKind.FieldCall; },
         _ => {},
+    }
+
+    // Total rendering: `display` and `debug` are universal — every value renders
+    // via its own impl or the runtime's auto-derived fallback. So when nothing
+    // above resolved the call statically (an unbounded type parameter, a type
+    // parameter scoped to an `impl` block, or a concrete type with no explicit
+    // impl), dispatch it virtually and let the runtime resolve impl-or-fallback,
+    // rather than treating it as unresolvable.
+    if field == 'display' || field == 'debug' {
+        return CalleeKind.Virtual;
     }
 
     return CalleeKind.Unresolved;

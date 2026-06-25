@@ -59,3 +59,20 @@ impl Map<K, V> {
     @extern('map_values')
     pub native fn values(self) -> List<V>
 }
+
+impl Display for Map<K, V> {
+    // `{k: v, ...}` — keys and values rendered via `Debug`, in insertion order.
+    // (Empty map: `{}`.)
+    fn display(self) -> String {
+        let mut s = '{';
+        let mut first = true;
+        for key in self.keys() {
+            if !first {
+                s = s + ', ';
+            }
+            s = s + key.debug() + ': ' + self[key].debug();
+            first = false;
+        }
+        return s + '}';
+    }
+}

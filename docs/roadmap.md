@@ -432,44 +432,43 @@ closed.
   in `sdk/std`. Operators-as-interfaces (`Eq`, `Add`, and `Indexable` below) is
   what turns those into ordinary Hawk methods; revisit the exact shape then (the
   `[]` half is the _Index operator_ item).
-- **`Display` for the collection/wrapper built-ins — via total rendering.**
-  `List`, `Map`, `Set`, `Option`, `Result` don't implement `Display`, so
-  interpolating one (`'${xs}'`) is a `check` error — yet these are exactly the
-  values you most want to drop into a string. **A 2026-06 investigation killed the
-  "just ship unconstrained `impl Display for List<T>`" plan:** rendering `${v}` for
-  an _unbounded_ element `T` only works in narrow cases (a direct `for v in self`),
-  and fails for a `for` over a local/method-call `List<T>`, a `match` binding
-  (`Option`/`Result`), and `Map`'s `${self[k]}` — codegen errors `cannot
-  interpolate T` because it can't resolve a `Display` for the bare type parameter.
-  (An explicit `T: Display` bound makes it reliable — proven — which is why this
-  looked like a bounded-impls problem.)
+- ~~**`Display` for the collection/wrapper built-ins — via total rendering.**~~
+  _Done (2026-06)._ `${x}` / `println(x)` are now **total**: a value renders
+  through its `Display` impl if it has one, else its auto-derived `Debug` (which
+  every type carries). Interpolating any value — including the collection/wrapper
+  built-ins — is no longer a `check` error or a runtime trap, matching
+  Python/Go/Swift/Java; `Display` is a pure optional "pretty" override with
+  `Debug` as the guaranteed floor (the LLM-ergonomic default — `'${x}'` always
+  works). Landed in three increments:
+  - **Runtime.** `virtual_fallback` for `display` renders a primitive/`String`
+    via `display_string` and everything else via `debug_value` (Debug-fallback);
+    the `debug` arm was already total. So `CallVirtual('display')` never traps.
+  - **Front-end.** Codegen's `emit_display` emits `CallVirtual('display')` for
+    any not-statically-`Display` value (keeping the native-primitive and
+    concrete-impl shortcuts); the checker's "interpolation requires `Display`"
+    rejection is gone. `display`/`debug` are treated as **universal selectors**:
+    `infer_callee_kind` classifies a `display`/`debug` call that nothing else
+    resolves (an unbounded type parameter, an `impl`-scoped type parameter, a
+    concrete type with no explicit impl) as `Virtual`, and `emit_virtual_call`
+    dispatches it on any receiver — so the collection impls can render elements
+    via the universal `.debug()`.
+  - **Stdlib.** `List`/`Map`/`Set`/`Option`/`Result` carry `Display` impls in
+    `sdk/std/core/` that render each element via `Debug` (decision (1) below:
+    nested strings are quoted, `['a', 'b']`, matching mainstream collection
+    printing). No `where T: Display` bound — the universal renderer handles any
+    element. Pinned by `iface-display` (`display_collections`,
+    `display_fallback`) + `iface-debug` (`debug_unbounded`) conformance tests and
+    `*_test.hawk` `@test`s. Required a **bootstrap ratchet** (the snapshot must
+    compile the new `std.core` impls, so the front-end change shipped + refreshed
+    the snapshot before the std impls landed).
 
-  **Leading design — total rendering (Display-preferred, Debug fallback).** Hawk
-  already auto-derives `Debug` for _every_ type, so make rendering total: `${x}` /
-  `println(x)` use the type's `Display` if present, else its `Debug`. Interpolation
-  stops being a `check` error or a runtime trap — it works for any value, like
-  Python/Go/Swift/Java; `Display` becomes a pure optional "pretty" override with
-  `Debug` as the guaranteed floor (the LLM-ergonomic default — `'${x}'` should
-  always work). Mechanism is small: the runtime `virtual_fallback` for `display`
-  changes from "`display_string`, trap on structs" to "the type's `display` impl
-  if present, else its `debug`" (primitives keep `display_string`), making
-  `CallVirtual('display')` total; codegen emits it for any not-statically-`Display`
-  value (incl. the unbounded `T` in `impl Display for List<T>`) and shortcuts to a
-  direct `display()` when the static type is known-`Display`. **This dissolves the
-  bounds dependency for Display:** the five collection impls render each element
-  via the total renderer — any `T`, no `where T: Display`, no trap — so they become
-  shippable and sound (rendering `[a, b, c]` / `{k: v}` / `{a, b}` /
-  `Some(x)`·`None` / `Ok(x)`·`Err(e)`). Same "check-if-a-type-implements-an-
-  interface-and-dispatch" machinery as **Primitive vtables** (below) — build them
-  together.
-
-  Open sub-decisions before building: (1) **nested strings** — a collection's
-  `Display` should render elements via `Debug` (so `["a","b"]` → `["a", "b"]`,
-  quotes disambiguating, matching mainstream collection printing) rather than
-  element-`Display` (`[a, b]`); this is simpler and skips a per-element "is it
-  Display?" check. (2) Bounded/conditional impls (`impl<T: Display> Display for
-  List<T>`) remain valuable for _other_ generic soundness but are **no longer a
-  prerequisite for Display-for-collections** under total rendering.
+  Deferred (was sub-decision (2)): bounded/conditional impls
+  (`impl<T: Display> Display for List<T>`) remain valuable for _other_ generic
+  soundness but were **not** needed here. Still open below — **Primitive
+  vtables** (retire the `virtual_fallback` hardcodes + `display_string`'s
+  primitive arms via real primitive vtable entries) and **richer structural
+  `Debug`** (struct field / enum variant names — today a user enum renders as
+  `variant1`, a struct positionally as `Name { 1, 2 }`).
   - ~~**Related uniformity — make primitive `Display` explicit.**~~ _Done
     (2026-06, Options A + B)._ `Int`/`Double`/`Bool`/`String` carry real
     `impl Display`s, each bound to a per-type native
