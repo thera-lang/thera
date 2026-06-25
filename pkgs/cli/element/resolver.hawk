@@ -53,11 +53,14 @@ fn resolve_named(_ nt: NamedType, _ type_defs: Map<String, TypeDefElement>,
 // (the generics) and are the attachment point for `impl` blocks / static methods.
 pub fn builtin_type_defs() -> Map<String, TypeDefElement> {
     let m: Map<String, TypeDefElement> = {};
-    // Primitives — for impl/static-method attachment only.
-    m['String'] = new_builtin('String', []);
-    m['Int'] = new_builtin('Int', []);
-    m['Bool'] = new_builtin('Bool', []);
-    m['Double'] = new_builtin('Double', []);
+    // Primitives — the attachment point for impl/static methods. They implement
+    // `Display` explicitly (`impl Display for Int`, … in std.core); seed that
+    // conformance here so hermetic contexts that don't link the prelude still see
+    // it (the real impl shadows this floor entry when std.core is linked).
+    m['String'] = builtin_displayable('String');
+    m['Int'] = builtin_displayable('Int');
+    m['Bool'] = builtin_displayable('Bool');
+    m['Double'] = builtin_displayable('Double');
     // Generic built-ins.
     m['List'] = new_builtin('List', ['T']);
     m['Set'] = new_builtin('Set', ['T']);
@@ -71,6 +74,14 @@ pub fn builtin_type_defs() -> Map<String, TypeDefElement> {
     m['Error'] = new_builtin('Error', []);
     m['Args'] = new_builtin('Args', []);
     return m;
+}
+
+// A built-in type def that declares it implements `Display` — the hermetic-floor
+// stand-in for a primitive's `impl Display for …` in std.core.
+fn builtin_displayable(_ name: String) -> TypeDefElement {
+    let def = new_builtin(name, []);
+    def.interfaces.push('Display');
+    return def;
 }
 
 // --- building the library ---

@@ -1,9 +1,16 @@
 // std.core — the built-in Bool type (auto-imported with the prelude).
 //
-// `Bool` is the two-valued logical type (`true` / `false`). It has no methods of
-// its own — the boolean operators (`&&`, `||`, `!`) are built-in syntax — but it
-// gets a declaration site here for uniformity with the other built-in types.
+// `Bool` is the two-valued logical type (`true` / `false`). The boolean operators
+// (`&&`, `||`, `!`) are built-in syntax; its only method is the `Display` impl
+// below, so it interpolates / prints like the other primitives.
 
 // The built-in boolean type — an opaque, runtime-represented primitive; a
 // `true`/`false` literal constructs one.
 pub native type Bool
+
+// A Bool renders as `true` / `false`. The explicit `Display` impl is the
+// conformance behind what interpolation / `println` produce for a Bool.
+impl Display for Bool {
+    @extern('stringify')
+    pub native fn display(self) -> String
+}

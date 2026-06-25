@@ -1262,22 +1262,48 @@ impl FnCompiler {
             Interp(_, e) => {
                 let ty_name = self.type_of(e);
                 self.expr(e);
-                if ty_name == Option.Some('String') {
-                    // already a string
-                } else if ty_name == Option.Some('Int') || ty_name == Option.Some('Double') || ty_name == Option.Some('Bool') {
-                    self.emit(Instr.CallNative('stringify', 1));
-                } else if self.dispatches_via(ty_name, 'display') {
-                    self.emit(Instr.CallVirtual('display', 1));
-                } else {
-                    match self.interface_method(ty_name, 'Display', 'display') {
-                        Some(display_idx) => { self.emit(Instr.Call(display_idx, 1)); },
-                        None => {
-                            self.error('cannot interpolate ${ty_name.unwrap_or('value')} — it does not implement Display', span);
-                        },
-                    }
+                // A value already typed `String` needs no conversion; otherwise
+                // render it through its `Display.display` method.
+                if ty_name != Option.Some('String') {
+                    self.emit_display(ty_name, span);
                 }
             },
         }
+    }
+
+    // Render the value on top of the stack to a `String` via its `Display.display`
+    // method, resolved like any method call: a native instance method (the
+    // primitives' `display` → `stringify`), a virtual dispatch (an interface-typed
+    // or bounded-generic value), or a concrete impl method. Errors when the type
+    // has no `Display`.
+    fn emit_display(self, _ ty_name: Option<String>, _ span: SourceSpan) -> Void {
+        match self.native_instance_method_symbol(ty_name, 'display') {
+            Some(symbol) => { self.emit(Instr.CallNative(symbol, 1)); return; },
+            None => {},
+        }
+        if self.dispatches_via(ty_name, 'display') {
+            self.emit(Instr.CallVirtual('display', 1));
+            return;
+        }
+        match self.interface_method(ty_name, 'Display', 'display') {
+            Some(display_idx) => { self.emit(Instr.Call(display_idx, 1)); },
+            None => {
+                self.error('cannot interpolate ${ty_name.unwrap_or('value')} — it does not implement Display', span);
+            },
+        }
+    }
+
+    // The runtime native symbol backing `ty_name`'s native instance `method`, if it
+    // has one (the primitives' `display` → `stringify`); None otherwise.
+    fn native_instance_method_symbol(self, _ ty_name: Option<String>, _ method: String) -> Option<String> {
+        match ty_name {
+            Some(t) => match self.scope.native_instance_methods.get(t) {
+                Some(m) => { return m.get(method); },
+                None => {},
+            },
+            None => {},
+        }
+        return Option.None;
     }
 
     // Push a print argument rendered via its Display impl when it has one.

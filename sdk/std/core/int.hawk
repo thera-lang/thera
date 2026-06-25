@@ -50,3 +50,10 @@ impl Int {
     @extern('int_to_double')
     pub native fn to_double(self) -> Double
 }
+
+// An Int renders as its decimal form. The explicit `Display` impl is the
+// conformance behind what interpolation / `println` produce for an Int.
+impl Display for Int {
+    @extern('stringify')
+    pub native fn display(self) -> String
+}

@@ -55,3 +55,10 @@ impl Double {
     @extern('double_to_bits')
     pub native fn to_bits(self) -> Int
 }
+
+// A Double renders as its textual form. The explicit `Display` impl is the
+// conformance behind what interpolation / `println` produce for a Double.
+impl Display for Double {
+    @extern('stringify')
+    pub native fn display(self) -> String
+}

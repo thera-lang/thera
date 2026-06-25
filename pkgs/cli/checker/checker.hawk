@@ -778,8 +778,9 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
                 match part {
                     Interp(ispan, e) => {
                         check_expr(errors, e, scope, ctx, Option.None);
-                        // Interpolation requires Display. Primitives have it
-                        // built-in; a struct/enum needs an explicit `impl Display`.
+                        // Interpolation requires Display. Primitives implement it
+                        // in std.core (`impl Display for Int`, …); a struct/enum
+                        // needs its own explicit `impl Display`.
                         let t = infer_expr(e, scope, ctx, Option.None);
                         if !satisfies_bound(t, 'Display', ctx.library.type_defs) {
                             add_error(errors, 'cannot interpolate ${type_to_string(t)}: it does not implement Display', ispan);
@@ -1087,7 +1088,19 @@ fn satisfies_bound(_ t: Type, _ bound: String, _ type_defs: Map<String, TypeDefE
     match t {
         Unknown => { return true; },
         TypeParameter(_) => { return true; },
-        Primitive(_) => { return is_builtin_interface(bound); },
+        Primitive(_) => {
+            // `Eq`/`Debug` are intrinsic to every primitive; any other bound
+            // (`Display`, …) must be a declared `impl` on the primitive's type def
+            // (`impl Display for Int`, … in std.core; floor-seeded in
+            // `builtin_type_defs` for hermetic contexts).
+            if bound == 'Eq' || bound == 'Debug' {
+                return true;
+            }
+            return match type_defs.get(type_to_string(t)) {
+                Some(def) => implements_interface(def, bound),
+                None => false,
+            };
+        },
         _ => {},
     }
     // An interface-typed value satisfies a bound it *is* or transitively extends.
@@ -1114,10 +1127,6 @@ fn satisfies_bound(_ t: Type, _ bound: String, _ type_defs: Map<String, TypeDefE
         },
         _ => false,
     };
-}
-
-fn is_builtin_interface(_ bound: String) -> Bool {
-    return bound == 'Eq' || bound == 'Display' || bound == 'Debug';
 }
 
 fn param_by_label(_ params: List<ParameterElement>, _ label: String) -> Option<ParameterElement> {

@@ -438,20 +438,21 @@ closed.
     bound turns that back into a compile error. This is a general generics feature
     (bounded impls), adjacent to *Generic operators* above; ship the unconstrained
     impls now for the ergonomic win, tighten them when bounded impls land.
-  - **Related uniformity — make primitive `Display` explicit.** `Int`/`Double`/
-    `Bool`/`String` `Display` is hardcoded in three places — the checker
-    (`satisfies_bound`: `Primitive ⇒ builtin interface`), codegen (interpolation
-    special-cases `Int`/`Double`/`Bool` → `stringify`, `String` → passthrough), and
-    the runtime (`stringify`/`display_string`) — with no `impl` anywhere. Replacing
-    these with real `impl Display for Int { @extern('…') native fn display(self) ->
-    String }` decls in `int.hawk` etc. (the same "make the built-in explicit in Hawk"
-    theme as `native type`) gives each primitive a visible, documented, navigable
-    `Display` and lets the hardcoded special-cases retire in favour of uniform impl
-    resolution. Largely byte-neutral if backed by the existing `stringify` native (so
-    `interface_method('Int', …)` still emits `CallNative('stringify', 1)`); `String`'s
-    identity passthrough is the one wrinkle (keep the elision, or accept one extra
-    call). Pairs naturally with the operators-as-interfaces work, which retires the
-    sibling `eq`/`str_concat` hardcodes the same way.
+  - ~~**Related uniformity — make primitive `Display` explicit.**~~ _Done (2026-06,
+    Option A)._ `Int`/`Double`/`Bool`/`String` now carry real `impl Display for … {
+    @extern('stringify') native fn display(self) -> String }` decls in their core
+    files (the same "make the built-in explicit in Hawk" theme as `native type`).
+    The two front-end hardcodes are gone: codegen interpolation (`string_piece`) now
+    renders via a uniform `emit_display` — a native-instance-method / virtual /
+    concrete-impl cascade that resolves the primitives' `display` → `stringify` like
+    any method (only `String`'s identity is elided, as "already a `String`"); and the
+    checker's `satisfies_bound` routes primitive `Display` through declared
+    conformance (seeded into `builtin_type_defs` as a hermetic floor, shadowed by the
+    real impl), keeping only `Eq`/`Debug` intrinsic. Byte-identical (SDK fixpoint held
+    byte-for-byte). The runtime `stringify`/`display_string` stay as the backing
+    native — retiring those (per-type natives, a `println`-as-string-writer) plus the
+    sibling `eq`/`str_concat` hardcodes is the optional Option B / operators-as-
+    interfaces follow-up.
 - **Bitwise operators** (`& | ^ << >>`, plus an unsigned type or
   defined-wrapping/logical-shift semantics on the signed `Int`). Blocks writing
   hashing/encoding and a modern PRNG in Hawk: `std.random`'s SplitMix64 mix is a
