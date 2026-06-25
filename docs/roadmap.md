@@ -359,6 +359,30 @@ closed.
 
 ### Language features not yet built
 
+- **Struct-definition keyword: `type Foo = { … }` → `struct Foo { … }` (likely).**
+  Hawk is a **nominal** type system — two identically-shaped structs are distinct
+  (`Celsius` ≠ `Fahrenheit`), identity is by name, and interface conformance is an
+  explicit `impl I for T` (like Rust traits, not Go's structural interfaces). But
+  the struct *syntax* `type Foo = { … }` is the form that connotes **structural**
+  typing — it's TypeScript / Flow / Elm `type alias` / PureScript, all structural —
+  so it points an LLM at the wrong prior (the strongest read of `type X = {…}` is
+  "TypeScript → same shape interchanges", which Hawk rejects). A keyword + name +
+  braces with **no `=`** is the near-universal *nominal* record signal (Rust/Swift/
+  C#/Haskell/Go's `type … struct`). Switch structs to that form:
+  `struct Celsius { degrees: Int }`. Two wins: it stops mis-signalling the
+  discipline, and it makes structs rhyme with Hawk's other nominal declarations,
+  which already use keyword + name + `{}` with no `=` (`enum Name { … }`,
+  `interface Name { … }`) — structs are the lone outlier today. Keyword not fully
+  settled — **`struct`** is most likely (most universal, fits the Rust-adjacent
+  brace family); `record` is the runner-up (leans into immutability-by-default but a
+  weaker/mixed nominal signal). Only structs change; `enum`/`interface` stay as-is.
+  Bonus: frees `type X = Y` for *real* (transparent) aliases later, à la Elm's
+  `type` vs `type alias` split — Hawk has no aliases today, so `type` is currently
+  only the struct form and there's nothing to untangle. Scope: mechanical but broad
+  — parser, every `type … = { … }` across `sdk/std` + `pkgs/cli` + examples +
+  corpus, the docs, and the keyword drift-guard; a two-cycle bootstrap ratchet (the
+  old snapshot must still parse the new keyword before the sources use it, as with
+  `native type`). No semantic/codegen change — purely surface.
 - **Disambiguate the empty `{}` in a `match` arm (map-literal vs block).** In
   expression position `{}` is an empty **map** (`return {}`, `let m = {}`, a call
   argument, an `if`-branch tail `{ {} }` all work). The sharp edge is a **`match`
