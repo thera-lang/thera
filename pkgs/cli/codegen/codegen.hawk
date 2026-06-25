@@ -1259,23 +1259,27 @@ impl FnCompiler {
     fn string_piece(self, _ part: StringPart, _ span: SourceSpan) -> Void {
         match part {
             Text(_, text) => { self.emit(Instr.ConstStr(text)); },
-            Interp(_, e) => {
-                let ty_name = self.type_of(e);
-                self.expr(e);
-                // A value already typed `String` needs no conversion; otherwise
-                // render it through its `Display.display` method.
-                if ty_name != Option.Some('String') {
-                    self.emit_display(ty_name, span);
-                }
-            },
+            Interp(_, e) => { self.emit_as_string(e, span); },
+        }
+    }
+
+    // Evaluate `value` and leave its `String` rendering on the stack: a value
+    // already typed `String` needs no conversion; otherwise it is rendered through
+    // its `Display.display` method. The shared lowering behind both interpolation
+    // and `println`/`print`/`eprintln`/`eprint`.
+    fn emit_as_string(self, _ value: Expr, _ span: SourceSpan) -> Void {
+        let ty_name = self.type_of(value);
+        self.expr(value);
+        if ty_name != Option.Some('String') {
+            self.emit_display(ty_name, span);
         }
     }
 
     // Render the value on top of the stack to a `String` via its `Display.display`
     // method, resolved like any method call: a native instance method (the
-    // primitives' `display` → `stringify`), a virtual dispatch (an interface-typed
-    // or bounded-generic value), or a concrete impl method. Errors when the type
-    // has no `Display`.
+    // primitives' `display` → their per-type native, e.g. `int_to_string`), a
+    // virtual dispatch (an interface-typed or bounded-generic value), or a concrete
+    // impl method. Errors when the type has no `Display`.
     fn emit_display(self, _ ty_name: Option<String>, _ span: SourceSpan) -> Void {
         match self.native_instance_method_symbol(ty_name, 'display') {
             Some(symbol) => { self.emit(Instr.CallNative(symbol, 1)); return; },
@@ -1294,7 +1298,7 @@ impl FnCompiler {
     }
 
     // The runtime native symbol backing `ty_name`'s native instance `method`, if it
-    // has one (the primitives' `display` → `stringify`); None otherwise.
+    // has one (e.g. the primitives' `display` → `int_to_string`); None otherwise.
     fn native_instance_method_symbol(self, _ ty_name: Option<String>, _ method: String) -> Option<String> {
         match ty_name {
             Some(t) => match self.scope.native_instance_methods.get(t) {
@@ -1304,20 +1308,6 @@ impl FnCompiler {
             None => {},
         }
         return Option.None;
-    }
-
-    // Push a print argument rendered via its Display impl when it has one.
-    fn render_for_print(self, _ value: Expr) -> Void {
-        self.expr(value);
-        let ty_name = self.type_of(value);
-        match self.interface_method(ty_name, 'Display', 'display') {
-            Some(display_idx) => { self.emit(Instr.Call(display_idx, 1)); },
-            None => {
-                if self.dispatches_via(ty_name, 'display') {
-                    self.emit(Instr.CallVirtual('display', 1));
-                }
-            },
-        }
     }
 
     // --- structs / fields / indexing ---
@@ -1500,9 +1490,11 @@ impl FnCompiler {
                 }
                 match self.scope.native_fns.get(name) {
                     Some(native_fn) => {
-                        // `println`/`print` render their argument via Display.
-                        if (native_fn == 'println' || native_fn == 'print') && x.args.len() == 1 {
-                            self.render_for_print(x.args[0].value);
+                        // `println`/`print`/`eprintln`/`eprint` render their argument
+                        // to a `String` via `Display`, then pass it to the native
+                        // (which just writes the string).
+                        if is_print_native(native_fn) && x.args.len() == 1 {
+                            self.emit_as_string(x.args[0].value, x.span);
                             self.emit(Instr.CallNative(native_fn, 1));
                             return;
                         }
@@ -2465,6 +2457,12 @@ fn is_builtin_type_name(_ name: String) -> Bool {
 
 fn is_arithmetic(_ op: String) -> Bool {
     return op == '+' || op == '-' || op == '*' || op == '/' || op == '%';
+}
+
+// The `Display`-bounded console natives: codegen renders their argument to a
+// `String` (via `Display`) before the call, so the native is a plain writer.
+fn is_print_native(_ name: String) -> Bool {
+    return name == 'println' || name == 'print' || name == 'eprintln' || name == 'eprint';
 }
 
 fn is_comparison_op(_ op: String) -> Bool {

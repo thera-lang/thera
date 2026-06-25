@@ -59,6 +59,6 @@ impl Double {
 // A Double renders as its textual form. The explicit `Display` impl is the
 // conformance behind what interpolation / `println` produce for a Double.
 impl Display for Double {
-    @extern('stringify')
+    @extern('double_to_string')
     pub native fn display(self) -> String
 }

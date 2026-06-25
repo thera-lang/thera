@@ -169,6 +169,6 @@ fn digit_value_for(_ cp: Int) -> Int {
 // navigable and lets interpolation / `println` resolve it like any other type
 // (interpolation elides the call, since a `String` is already a `String`).
 impl Display for String {
-    @extern('stringify')
+    @extern('str_identity')
     pub native fn display(self) -> String
 }

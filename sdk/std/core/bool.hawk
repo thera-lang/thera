@@ -11,6 +11,6 @@ pub native type Bool
 // A Bool renders as `true` / `false`. The explicit `Display` impl is the
 // conformance behind what interpolation / `println` produce for a Bool.
 impl Display for Bool {
-    @extern('stringify')
+    @extern('bool_to_string')
     pub native fn display(self) -> String
 }
