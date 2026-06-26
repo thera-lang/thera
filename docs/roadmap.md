@@ -196,26 +196,29 @@ below.)
 - **Whole-closure diagnostics — remaining tail.** (Per-file origin + surfacing
   imported-file parse errors are done — see _Completed_.) Two pieces remain:
   - **Cascade suppression / cause-naming.** When an import fails to parse, its
-    dependent symbols may not recover (`greet`'s decl is dropped), so the importer
-    still shows a secondary `` `greet` is not a public member `` after the root
-    cause. The resolver should distinguish "undefined" from "unavailable because
-    its source file errored" and either suppress the cascade or name the cause
-    (`helper.greet is unavailable: helper.hawk failed to parse`). Rides partly on
-    **better parser recovery** (recover a decl's *signature* past a body error —
-    see the LSP parser-recovery item) so fewer decls drop in the first place.
+    dependent symbols may not recover (`greet`'s decl is dropped), so the
+    importer still shows a secondary `` `greet` is not a public member `` after
+    the root cause. The resolver should distinguish "undefined" from
+    "unavailable because its source file errored" and either suppress the
+    cascade or name the cause
+    (`helper.greet is unavailable: helper.hawk failed to parse`). Rides partly
+    on **better parser recovery** (recover a decl's _signature_ past a body
+    error — see the LSP parser-recovery item) so fewer decls drop in the first
+    place.
   - **Check-path closure scope.** `check app.hawk` body-checks only the primary
-    program, so an error *inside* an imported body isn't reported by a single-file
-    check (directory/project checking covers it, checking each file). Defensible as
-    request-scoping, but the eventual target is closure-wide computation with
-    request-scoped display. Format target stands: `path:line:col: severity:
-    message`, grouped by file, deterministically ordered, exit non-zero iff a
-    displayed diagnostic is an error; a machine-readable JSON mode can follow.
+    program, so an error _inside_ an imported body isn't reported by a
+    single-file check (directory/project checking covers it, checking each
+    file). Defensible as request-scoping, but the eventual target is
+    closure-wide computation with request-scoped display. Format target stands:
+    `path:line:col: severity: message`, grouped by file, deterministically
+    ordered, exit non-zero iff a displayed diagnostic is an error; a
+    machine-readable JSON mode can follow.
 
 - **`native type` / `native fn` follow-ups.** (The bodyless `native type` decls
   for the built-ins are done — see _Completed_.) Open: whether to _gate_
-  `native fn`/`native type` to SDK paths (ties to the `@extern` name-check item),
-  and the checker leniency that lets a bare field access on an opaque value slip
-  to codegen (the existing `type-field-nonstruct` residual).
+  `native fn`/`native type` to SDK paths (ties to the `@extern` name-check
+  item), and the checker leniency that lets a bare field access on an opaque
+  value slip to codegen (the existing `type-field-nonstruct` residual).
 - **Static-method type arguments — expressiveness gap.** No expression-level
   syntax constructs a generic type whose parameter isn't otherwise inferable:
   `Set<String>.new()` doesn't parse, and `Set.new<String>()` binds `<String>` to
@@ -246,30 +249,6 @@ below.)
   in `bin/test.sh`, added after a line-buffered-stdout bug let only each
   message's header reach the client — which the in-process `StringWriter`
   `@test`s couldn't catch.)
-- **Assertion source locations — remaining tail.** (The `#loc` caller-location
-  metaconstant + `std.testing` assertion locations are done — see _Completed_.)
-  Two pieces remain:
-  - **Single-hop limitation.** `#loc` captures the *immediate* caller, so an
-    assertion wrapped in a test helper points at the helper. Today a helper opts
-    into transparency by **forwarding** (`fn check(u: User, at: SourceLoc = #loc)`
-    then `assert_eq(…, at: at)`) — explicit, but manual. Rust's `#[track_caller]`
-    auto-propagates through annotated frames; an opt-in propagation marker for
-    Hawk could remove the boilerplate. Low priority (forwarding works).
-  - **Runtime backtraces — the general form.** Full multi-frame stack inspection
-    (Python `inspect.stack`-style) needs a **bytecode→line debug table** in
-    `.hawkbc`, shared with trap locations and profiling line-attribution (see
-    Profiling). (Note Zig's `@src` is *compile-time* — same family as `#loc`, not
-    dynamic.) Once that table lands, `std.debug.stack()` + trap/uncaught-error
-    backtraces supersede the single-hop limit. A runtime arc, not a testing
-    feature.
-- **`hawk test` — machine-readable output: reframed, likely dropped.** The
-  premise is that the **default text output _is_ the machine interface**:
-  deterministic, `path:line:col:`-formatted (matching `hawk check`), stably
-  ordered, exit-coded — an LLM/agent consumes it directly, so a separate JSON mode
-  is upkeep + a second format to keep in sync for marginal gain. Pin those
-  properties of the text output instead. A JSON / JUnit-XML emitter stays a
-  *later, on-demand* item gated on a concrete **non-LLM** consumer (CI dashboard,
-  IDE test tree), not a roadmap default.
 - **`@extern` name check.** Native names are written once as `@extern('…')` on
   the `native fn` decls in `sdk/std`; the Rust runtime table is the other half,
   bound by name at load. Add a test asserting every `@extern` name the front-end
@@ -440,26 +419,27 @@ Brief summaries of finished arcs; design details live in
 conformance specs. Newest first.
 
 - **`#loc` caller-location + assertion source locations** (2026-06). `#loc` is a
-  compiler metaconstant (new `#` sigil) evaluating to a `SourceLoc { file, line,
-  column }`; as a **default parameter value** it captures the call site, because
-  Hawk materializes default arguments at the call site and codegen re-stamps a
-  `#loc` default with the call's span + the caller's file. `std.testing`
-  assertions take `at: SourceLoc = #loc` and prefix failures `file:line:column:`
-  — the same shape `hawk check` prints, so test failures and compiler diagnostics
-  share one format. Pinned by `expr-loc`. _Open tail above (single-hop limit;
-  runtime backtraces)._
-- **Total rendering — `Display`-preferred, `Debug`-fallback** (2026-06). `${x}` /
-  `println(x)` are total: a value renders via its `Display` impl if present, else
-  its auto-derived `Debug` — never a `check` error or a runtime trap (matching
-  Python/Go/Swift/Java). `List`/`Map`/`Set`/`Option`/`Result` carry `Display`
-  impls (elements rendered via `Debug`, so nested strings quote: `['a', 'b']`),
-  with no `T: Display` bound. Mechanism: the runtime `virtual_fallback` for
-  `display` falls back to `debug_value`; codegen's `emit_display` emits
-  `CallVirtual('display')` for any not-statically-`Display` value; `display` and
-  `debug` are **universal selectors** (`infer_callee_kind` → `Virtual` on any
-  unresolved receiver). Pinned by `iface-display` / `iface-debug` specs. Needed a
-  bootstrap ratchet (std impls required the front-end change first). _Open
-  follow-ons:_ Richer structural `Debug`, Primitive vtables (both above).
+  compiler metaconstant (new `#` sigil) evaluating to a
+  `SourceLoc { file, line, column }`; as a **default parameter value** it
+  captures the call site, because Hawk materializes default arguments at the
+  call site and codegen re-stamps a `#loc` default with the call's span + the
+  caller's file. `std.testing` assertions take `at: SourceLoc = #loc` and prefix
+  failures `file:line:column:` — the same shape `hawk check` prints, so test
+  failures and compiler diagnostics share one format. Pinned by `expr-loc`.
+  _Open tail above (single-hop limit; runtime backtraces)._
+- **Total rendering — `Display`-preferred, `Debug`-fallback** (2026-06). `${x}`
+  / `println(x)` are total: a value renders via its `Display` impl if present,
+  else its auto-derived `Debug` — never a `check` error or a runtime trap
+  (matching Python/Go/Swift/Java). `List`/`Map`/`Set`/`Option`/`Result` carry
+  `Display` impls (elements rendered via `Debug`, so nested strings quote:
+  `['a', 'b']`), with no `T: Display` bound. Mechanism: the runtime
+  `virtual_fallback` for `display` falls back to `debug_value`; codegen's
+  `emit_display` emits `CallVirtual('display')` for any not-statically-`Display`
+  value; `display` and `debug` are **universal selectors** (`infer_callee_kind`
+  → `Virtual` on any unresolved receiver). Pinned by `iface-display` /
+  `iface-debug` specs. Needed a bootstrap ratchet (std impls required the
+  front-end change first). _Open follow-ons:_ Richer structural `Debug`,
+  Primitive vtables (both above).
 - **Primitive `Display` explicit** (2026-06). `Int`/`Double`/`Bool`/`String`
   carry real `impl Display`s bound to per-type natives
   (`int_to_string`/`double_to_string`/`bool_to_string`/`str_identity`); the
@@ -468,18 +448,18 @@ conformance specs. Newest first.
   writers. `display_string` still backs the per-type natives + `list.join` + the
   virtual fallback — full retirement waits on Primitive vtables.
 - **`native type` declarations for the built-ins** (2026-06).
-  `Int`/`Double`/`Bool`/`String`/`List`/`Map`/`Bytes`/`BytesBuilder` have bodyless
-  `native type` decls in `sdk/std/core/` — a definition + doc site, opaque
-  `Builtin` type def, no codegen / no runtime type-table entry (shadows the
-  `builtin_type_defs()` floor byte-identically). Spec `type-native`. _Open
+  `Int`/`Double`/`Bool`/`String`/`List`/`Map`/`Bytes`/`BytesBuilder` have
+  bodyless `native type` decls in `sdk/std/core/` — a definition + doc site,
+  opaque `Builtin` type def, no codegen / no runtime type-table entry (shadows
+  the `builtin_type_defs()` floor byte-identically). Spec `type-native`. _Open
   follow-ups above (`native type` / `native fn`)._
-- **Whole-closure diagnostics — per-file origin + import parse errors** (2026-06).
-  `Diagnostic` carries a `file` origin resolved from the span's source text (a
-  span carries source *text*, not a path), so an imported-file error prints
-  against its own file (exit non-zero); the loader parses every closure file
-  best-effort and surfaces each file's lex/parse diagnostics (`LoadDiagnostic`),
-  the LSP filtering per-URI. _Open tail above (cascade suppression / check-path
-  scope)._
+- **Whole-closure diagnostics — per-file origin + import parse errors**
+  (2026-06). `Diagnostic` carries a `file` origin resolved from the span's
+  source text (a span carries source _text_, not a path), so an imported-file
+  error prints against its own file (exit non-zero); the loader parses every
+  closure file best-effort and surfaces each file's lex/parse diagnostics
+  (`LoadDiagnostic`), the LSP filtering per-URI. _Open tail above (cascade
+  suppression / check-path scope)._
 - **Unify call/member resolution** (2026-06). Codegen's `method_call` dispatches
   on the element model's `infer_callee_kind` (the single source of callee kind),
   choosing only the backend lowering per kind; the old codegen `ModuleScope`
@@ -492,9 +472,9 @@ conformance specs. Newest first.
   match-arm unification. A broad "reject `Unknown`" flip was ruled out — ~330
   `Result.Ok(x)` → `Result<T, Unknown>` make leniency load-bearing.
 - **`hawk test` per-test stdout capture** (2026-06). Each test's output is
-  buffered via the `test_capture_*` runtime natives and shown only on failure (or
-  always with `--show-output`). _Open: per-test source locations, machine-readable
-  output (above)._
+  buffered via the `test_capture_*` runtime natives and shown only on failure
+  (or always with `--show-output`). _Open: per-test source locations,
+  machine-readable output (above)._
 - **Runtime tiers 0–baseline.** Tree-walker POC + bytecode IR; Tier-0 bytecode
   interpreter + precise non-moving mark-sweep GC (see Runtime staging 1–2). Plus
   the interpreter perf wins (unified value stack, `ListLen` opcode) noted under
