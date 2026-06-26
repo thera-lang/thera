@@ -1,0 +1,19 @@
+//! spec: mod-qualified-only
+//! mode: check
+
+import 'provider';
+
+// `Gadget` belongs to `provider` (imported here with a namespace). A qualified
+// `provider.Gadget` is fine; a bare `Gadget` must be qualified — the type-position
+// half of qualified-only, enforced in the resolution gate (`check_type_ref`).
+fn ok(_ g: provider.Gadget) -> Int {
+    return g.n;
+}
+
+fn bare(_ g: Gadget) -> Int {   // expect error: bare reference to `Gadget`
+    return g.n;
+}
+
+fn main() -> Int {
+    return 0;
+}
