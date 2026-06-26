@@ -35,16 +35,43 @@ pub fn file_scope(_ library: LibraryElement, _ file: Option<String>) -> FileScop
 impl FileScope {
     // --- values (free functions and consts; locals are the lexical Map) ---
 
-    // The free function `name` resolves to, same-file-first then the cross-file
-    // fallback (Phase 2e drops the fallback: a bare name reaches only this file's
-    // legal tiers).
-    pub fn resolve_function(self, _ name: String) -> Option<FunctionElement> {
-        return function_for(self.library, self.file, name);
+    // The file (key) that owns bare name `name` here: this file if it declares it,
+    // else the bare-legal owner (prelude / `as _` import) from the bare surface,
+    // else None. The per-kind lookups below then fetch the element from that file's
+    // table — so a bare value resolves to its owning library, not a flat global
+    // table (Phase 2e S4). There is no cross-file fallback: a name that is neither
+    // same-file nor bare-legal is unresolved (the checker's gate rejects it).
+    fn bare_owner(self, _ name: String) -> Option<String> {
+        if file_owns(self.library, self.file, name) {
+            return Option.Some(file_key(self.file));
+        }
+        return match self.library.file_bare_surface.get(file_key(self.file)) {
+            Some(s) => s.get(name),
+            None => Option.None,
+        };
     }
 
-    // The const `name` resolves to (currently a flat, cross-file table).
+    // The free function `name` resolves to — this file's, or a bare-legal one from
+    // the prelude / an `as _` import, fetched from the owning file's table.
+    pub fn resolve_function(self, _ name: String) -> Option<FunctionElement> {
+        return match self.bare_owner(name) {
+            Some(owner) => match self.library.file_functions.get(owner) {
+                Some(m) => m.get(name),
+                None => Option.None,
+            },
+            None => Option.None,
+        };
+    }
+
+    // The const `name` resolves to — likewise within its owning file.
     pub fn resolve_const(self, _ name: String) -> Option<ConstElement> {
-        return self.library.consts.get(name);
+        return match self.bare_owner(name) {
+            Some(owner) => match self.library.file_consts.get(owner) {
+                Some(m) => m.get(name),
+                None => Option.None,
+            },
+            None => Option.None,
+        };
     }
 
     // Whether a *bare* value name binds in this file's static tier — same-file
@@ -112,7 +139,15 @@ impl FileScope {
 
     // --- types ---
 
-    // The type definition `name` resolves to (currently a flat, cross-file table).
+    // The type definition for canonical type name `name`. Intentionally a global
+    // by-name lookup, not bare-scoped: this resolves both a bare source reference
+    // *and* an already-resolved `Type.Interface(name)` whose type may be owned by
+    // any file in the closure (a namespace-qualified receiver type, etc.) — the
+    // name is all a `Type` carries. Bare *legality* is enforced separately by the
+    // checker's `is_type_known` gate. Making type resolution owner-correct (lifting
+    // uniqueness for types too) needs `Type` to carry its origin file — a separate
+    // effort; for now type names remain globally unique while values (functions /
+    // consts) do not.
     pub fn resolve_type_def(self, _ name: String) -> Option<TypeDefElement> {
         return self.library.type_defs.get(name);
     }

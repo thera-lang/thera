@@ -280,15 +280,21 @@ pub fn load_imports(_ path: String, _ program: Program, _ sdk_root: Option<Strin
     // std.core is auto-imported into every program — load it so its types (Error),
     // impls (Display for Error), and the prelude methods on built-in types link.
     // Its public surface is bare-legal in every file (the prelude); each prelude
-    // name maps to std.core's file (key) as its owning library.
+    // name maps to the file that *declares* it (from the surface's origin map), not
+    // the barrel — a prelude name re-exported from a std.core sub-file (e.g. `error`
+    // in core/error.hawk) owns to that sub-file, where its element lives.
     let core_names: Map<String, String> = {};
     match loader.resolve('std.core', '') {
         Some(core) => {
             match loader.source_for(core) {
                 Some(core_src) => {
+                    let core_surface = public_surface_of(core_src);
                     let core_key = element.file_key(core_src.program.file_path);
-                    for n in public_surface_of(core_src).names.to_list() {
-                        core_names[n] = core_key;
+                    for n in core_surface.names.to_list() {
+                        core_names[n] = match core_surface.origin.get(n) {
+                            Some(owner) => owner,
+                            None => core_key,
+                        };
                     }
                 },
                 None => {},
@@ -343,8 +349,14 @@ fn bare_surface_for(_ root: LibrarySource, _ core_names: Map<String, String>) ->
                     Some(child) => {
                         let child_key = element.file_key(child.program.file_path);
                         if x.unqualified {
-                            for n in public_surface_of(child).names.to_list() {
-                                names[n] = child_key;
+                            // Use each name's declaring file (a barrel imported `as _`
+                            // re-exports from its sub-files), not the barrel itself.
+                            let surf = public_surface_of(child);
+                            for n in surf.names.to_list() {
+                                names[n] = match surf.origin.get(n) {
+                                    Some(owner) => owner,
+                                    None => child_key,
+                                };
                             }
                         }
                         // White-box: `foo_test.hawk` sees `foo.hawk`'s private
