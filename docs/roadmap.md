@@ -259,16 +259,18 @@ below.)
   _(Generics are **invariant by design** for now — no variance/subtyping work is
   planned; this is a deliberate simplification, not a gap.)_
 
-- **Unify inference's callee classification (tech debt).** `infer_call_field` (→
-  Type), `infer_callee_kind` (→ codegen lowering kind), `expected_arg_types` (→
-  parameter types), and the checker's `resolve_ns_or_static_call` / `resolve_method`
-  each re-walk the receiver to decide enum-ctor / static / namespace / instance-method
-  / field-fn. A single "resolve callee → descriptor" consumed by all would remove the
-  duplication (codegen's half is already routed through `infer_callee_kind`; the
-  inference/checker half isn't). _(The four return-type instantiation paths were
-  unified onto `call_bindings`/`instantiate_return_ctx` — the namespace arm is now
-  context-aware and `instantiate_return` is deleted; this callee-classification
-  duplication is the remaining piece.)_
+- **Inference callee classification — unified (tech debt, done).** The "static
+  receiver" head of a call (`(ns.)?Type.method` / `ns.fn`) is now classified once by
+  `resolve_static_receiver` (→ `StaticReceiver`), consulted by `infer_call_field`,
+  `infer_callee_kind`, and `resolve_ns_or_static_call`; `infer_call_field`'s
+  instance-method arm routes through the checker's `resolve_method`; and the four
+  return-type instantiation paths collapsed onto `call_bindings` /
+  `instantiate_return_ctx` (namespace arm now context-aware, `instantiate_return`
+  deleted). _Residual (minor, intentional):_ `expected_arg_types` still classifies
+  the namespace head inline (widening it to static methods would change bidirectional
+  arg typing), and `infer_callee_kind` keeps its own receiver-type back-half — it
+  needs the Virtual-vs-Instance distinction codegen lowers on, which the type/param
+  consumers don't.
 - **Semantic (scope-aware) references & rename.** `textDocument/references` and
   `textDocument/rename` are implemented but **lexical only** — they match every
   identifier token with the same text, across files, with no binding/scope
