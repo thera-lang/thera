@@ -179,21 +179,25 @@ below.)
   the type-side qualified-only migration had never been done — `server.hawk` used
   `Reader`/`Writer` without importing `std.io`, etc. — now fixed.)_
 
-  **Phase 2 — the `Scope` abstraction (replaces the flat tables).** The element
-  model still merges the closure into flat `functions`/`type_defs`/`consts` maps,
-  which **force global name uniqueness** across the whole import closure (two
+  **Phase 2 — the `FileScope` abstraction (replaces the flat tables).** The
+  element model still merges the closure into flat `functions`/`type_defs`/`consts`
+  maps, which **force global name uniqueness** across the whole import closure (two
   libraries can't share a top-level name — `check_duplicates` is closure-wide).
-  That's a real latent limitation, not just impurity. The fix is a `Scope` chain
-  — the clean implementation of the resolution algorithm, replacing the ad-hoc
-  lookups now scattered across checker/inference/codegen: `resolve_value`/
-  `resolve_type`/`resolve_namespace` returning the owning **element** (no global
-  table), composed per position (lexical → file top-level → bare-imports
-  (prelude + `as _`) → built-ins; a namespace binds a **library scope**, so
-  `ns.name` resolves *within that library*). Idiomatic as a Hawk `interface Scope`
-  with per-kind impls. This is correct-by-construction and lifts the
-  uniqueness limit; it has no behavioral effect on today's (clean) corpus, so it's
-  a refactor to schedule deliberately. (Subsumes the former gaps 2 and 5 in
-  [scoping.md](scoping.md).)
+  That's a real latent limitation, not just impurity. The fix is a single
+  **`FileScope`** value per file — built once, returning the owning **element** —
+  that replaces the ad-hoc lookups scattered across checker/inference/codegen:
+  `resolve_value`/`resolve_type`/`resolve_namespace`, composed per position
+  (lexical Map kept as-is → file top-level → bare-imports (prelude + `as _`) →
+  built-ins; a namespace binds the imported library's scope viewed publicly, so
+  `ns.name` resolves *within that library*). The enabler is owner-correctness in the
+  data: namespace/bare surfaces gain a `name -> defining-file` origin map, and
+  `build_library` keeps per-file element tables so resolution reaches the owning
+  file's declaration. This is correct-by-construction and lifts the uniqueness
+  limit. Steps 2a–2d (introduce `FileScope`; migrate checker, inference, codegen)
+  are behavior-preserving; 2e deletes the global flat tables, makes
+  `check_duplicates` per-file, and adds a conformance test proving two libraries can
+  share a top-level name. Full design + sequence in [scoping.md](scoping.md) →
+  _Phase 2_. (Subsumes the former gaps 2 and 5 there.)
 
   Related, still open: `impl` coherence / orphan rules, selective import
   (`show`/`hide`), and a "module"→"library" terminology sweep.

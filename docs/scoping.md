@@ -267,14 +267,78 @@ non-public member is rejected at the access site (`check_member_visible` /
   built-ins, turning a bare-but-qualifiable name into "qualify as `ns.name`" and a
   qualified non-public member into "not a public member of `ns`".
 
-**Remaining — Phase 2, the `Scope` abstraction** (subsumes gaps 2-resolution and 5):
-the element model still merges the closure into flat `functions`/`type_defs`/`consts`
-maps, so qualified `ns.name` is *surface-checked* but still *resolved* in the global
-table, not **within `ns`'s library** — and that flat table **forces global name
-uniqueness** across the whole closure (`check_duplicates` is closure-wide; two
-libraries can't share a top-level name). A `Scope` chain — `resolve_value`/
-`resolve_type`/`resolve_namespace` returning the owning element, composed per
-position, with a namespace binding a **library scope** — makes resolution
-correct-by-construction and lifts that limit. No behavioral effect on today's clean
-corpus; schedule it deliberately. See [roadmap.md](roadmap.md) → _Resolution
-correctness_.
+## Remaining — Phase 2: the `FileScope` abstraction
+
+(Subsumes gaps 2-resolution and 5.) The element model still merges the closure into
+flat `functions`/`type_defs`/`consts` maps, so a qualified `ns.name` is
+*surface-checked* but still *resolved* in the global table — not **within `ns`'s
+library** — and that flat table **forces global name uniqueness** across the whole
+closure (`check_duplicates` is closure-wide; two libraries can't share a top-level
+name like `parse`). Phase 2 replaces the flat tables with a per-file resolution
+object that returns the owning element, making resolution correct-by-construction
+and lifting the uniqueness limit.
+
+### Shape: one `FileScope` per file (not an interface zoo)
+
+The lexical tier already works — locals/params are a `Map<String, Type>` threaded
+through every consumer, consulted first. Phase 2 touches only the **static tier**
+(top-level / imports / prelude / builtins), the part backed by the flat tables. That
+tier is a single value type, **`FileScope`**, built once per file:
+
+- `resolve_value(name) -> Option<ValueElement>` — own decls → `as _`/white-box →
+  prelude → (built-in value names), first hit wins.
+- `resolve_type(name) -> Option<TypeElement>` — type-params/`Self` → built-ins → own
+  → `as _` → prelude.
+- `resolve_namespace(name) -> Option<FileScope-public-view>` — a namespace **binds
+  the imported library's scope, viewed publicly**.
+- `resolve_public_value/type(name)` — the public-surface variants, used when
+  resolving *into* a namespace.
+
+A qualified `ns.name` is then `resolve_namespace(ns)?.resolve_public_value(name)` —
+resolved **within the owning library** by construction (closes gap 2), and because
+each file's decls live in its own symbol table, `std.json.parse` and `std.toml.parse`
+never collide (lifts the uniqueness limit). The roadmap's earlier "per-kind impls
+(Local/File/Library/Prelude/Builtin)" collapse: *Local* = the existing Map (kept
+separate); *Prelude*/*Builtin* = extra tiers every `FileScope` consults; *Library* =
+another file's `FileScope` seen publicly. One type, no interface hierarchy, no
+hot-path dynamic dispatch.
+
+### The enabling data-model change (owner-correctness)
+
+Today a namespace surface is a **name set** (`LibraryNamespace { names, collisions }`)
+and elements are fetched by bare name from the global table. To resolve a public name
+*within its owning library*, the surface must remember **which file each public name
+comes from**: extend `LibraryNamespace` (and the bare/white-box surfaces) with a
+`name -> defining-file` origin map, populated by `collect_surface`/`bare_surface_for`
+in the loader (which already visit each contributing `LibrarySource`, so they have the
+`file_path`). Then `build_library` keeps **per-file symbol tables** — `file_owned`
+generalized from a name `Set` to a `Map<file_key, {types, functions, consts}>` of
+*elements* (today only `file_functions` is per-file) — and `FileScope` resolves a
+public name by going to its origin file's table. The global
+`functions`/`type_defs`/`consts` maps are deleted once every consumer is migrated.
+
+Subtlety: `impl` blocks and interface flattening attach methods to a `TypeDefElement`
+*by name*; with per-file type tables, an `impl Foo` in file B must attach to the `Foo`
+visible from B's scope (own → imports → built-ins), not a global `Foo`. This is the
+same coherence question as `impl` orphan rules; Phase 2 resolves the impl target
+through the file's scope to preserve today's behavior.
+
+### Sequence (suite-green + fixpoint-idempotent at each step)
+
+1. **2a — `FileScope` built from existing data, additive.** Introduce the type and its
+   resolution methods, constructed inside `build_library` from the current per-file
+   overlays + flat tables; unit-test it; nothing else changes yet.
+2. **2b — checker** gates call `FileScope` (behavior-preserving).
+3. **2c — inference** call sites (`infer_call_ident`, `infer_callee_kind`,
+   `type_def_for_expr`, `is_namespace`, …) call `FileScope`.
+4. **2d — codegen** resolves *which declaration* a name means through the shared
+   `FileScope`; `ModuleScope` keeps only backend artifacts (unit indices, native
+   symbols, layouts, enum tags), re-keyed by declaration identity (a `defining_file`
+   on the element) so artifacts stop colliding on bare name.
+5. **2e — lift the limit.** Add the origin maps + per-file element tables, delete the
+   global flat `functions`/`type_defs`/`consts`, switch `check_duplicates` from
+   closure-wide to per-file, and add a conformance test proving two libraries can
+   share a top-level name. (Steps 2a–2d are behavior-preserving on today's clean
+   corpus; 2e is where the uniqueness lift lands.)
+
+See [roadmap.md](roadmap.md) → _Resolution correctness_.
