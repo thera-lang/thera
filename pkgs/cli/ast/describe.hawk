@@ -36,6 +36,7 @@ pub fn describe_expr(_ e: Expr) -> String {
         If(x) => describe_if(x),
         Return(_, v) => describe_return(v),
         Throw(_, v) => 'throw ' + describe_expr(v),
+        Loc(_) => '#loc',
     };
 }
 

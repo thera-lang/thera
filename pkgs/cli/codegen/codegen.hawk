@@ -741,7 +741,31 @@ impl FnCompiler {
             Throw(_, value) => { self.emit_throw(value); },
             Lambda(x) => { self.lambda_expr(x, expected); },
             Range(span, _, _) => { self.error('a range is only valid as a for-loop iterable', span); },
+            Loc(span) => { self.emit_source_loc(span); },
         }
+    }
+
+    // Lower the `#loc` metaconstant to a `SourceLoc { file, line, column }` value.
+    // `span` is the location to report: for a `#loc` written directly, its own
+    // site; for one materialized from a default parameter, the call site (the span
+    // `resolve_args` stamps in). The file is the unit currently being compiled —
+    // which, for a default expanded at a call, is the *caller's* file.
+    fn emit_source_loc(self, _ span: SourceSpan) -> Void {
+        let file = match self.file {
+            Some(f) => f,
+            None => '',
+        };
+        let fields: List<FieldInit> = [
+            FieldInit { name: 'file', value: Expr.Str(span, [StringPart.Text(span, file)]) },
+            FieldInit { name: 'line', value: Expr.Int(span, span.line) },
+            FieldInit { name: 'column', value: Expr.Int(span, span.column) },
+        ];
+        self.struct_expr(StructExpr {
+            span: span,
+            type_name: 'SourceLoc',
+            namespace: Option.None,
+            fields: fields,
+        });
     }
 
     // Emit a block in value position: statements for effect, then the tail value
@@ -1826,7 +1850,7 @@ impl FnCompiler {
                             pi = pi + 1;
                             Option.Some(v)
                         } else {
-                            p.default_value
+                            self.relocate_loc_default(p.default_value, span)
                         }
                     },
                     Some(label) => {
@@ -1838,7 +1862,7 @@ impl FnCompiler {
                                     pi = pi + 1;
                                     Option.Some(v)
                                 } else {
-                                    p.default_value
+                                    self.relocate_loc_default(p.default_value, span)
                                 }
                             },
                         }
@@ -1851,6 +1875,22 @@ impl FnCompiler {
             }
         }
         return ordered;
+    }
+
+    // A `#loc` default value captures the *call site*, not its definition site:
+    // when an omitted parameter defaults to `#loc`, re-stamp it with the call's
+    // span so codegen reports where the call was written (the file is the caller's,
+    // since this default is emitted while compiling the calling unit).
+    fn relocate_loc_default(self, _ d: Option<Expr>, _ call_span: SourceSpan) -> Option<Expr> {
+        match d {
+            Some(e) => {
+                return match e {
+                    Loc(_) => Option.Some(Expr.Loc(call_span)),
+                    _ => Option.Some(e),
+                };
+            },
+            None => { return Option.None; },
+        }
     }
 
     // --- dispatch helpers ---
@@ -2144,6 +2184,7 @@ fn fv_visit(_ e: Expr, _ bound: Set<String>, _ free: List<String>, _ seen: Set<S
         Float(_, _) => {},
         Bool(_, _) => {},
         Unit(_) => {},
+        Loc(_) => {}, // a leaf metaconstant — no free variables
         Str(_, parts) => {
             for p in parts {
                 match p {
@@ -2307,6 +2348,7 @@ fn bml_expr(_ e: Expr, _ muts: Set<String>, _ lambdas: List<LambdaExpr>) -> Void
         Float(_, _) => {},
         Bool(_, _) => {},
         Unit(_) => {},
+        Loc(_) => {}, // a leaf metaconstant
         Str(_, parts) => {
             for p in parts {
                 match p {

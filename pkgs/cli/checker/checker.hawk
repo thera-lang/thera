@@ -827,6 +827,7 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
         Float(_, _) => {},
         Bool(_, _) => {},
         Unit(_) => {},
+        Loc(_) => {}, // `#loc` is always valid; codegen resolves it
     }
 }
 
@@ -1611,6 +1612,7 @@ fn lint_expr(_ warnings: List<CheckError>, _ expr: Expr, _ bound: Set<String>,
         Float(_, _) => {},
         Bool(_, _) => {},
         Unit(_) => {},
+        Loc(_) => {}, // `#loc` is always valid; codegen resolves it
     }
 }
 
@@ -1898,6 +1900,7 @@ fn vis_expr(_ warnings: List<CheckError>, _ expr: Expr, _ bound: Set<String>,
         Float(_, _) => {},
         Bool(_, _) => {},
         Unit(_) => {},
+        Loc(_) => {}, // `#loc` is always valid; codegen resolves it
     }
 }
 

@@ -177,10 +177,10 @@ fn test_error_unterminated_string() -> Result<Void, Error> {
 
 @test
 fn test_error_unexpected_character() -> Result<Void, Error> {
-    let r = tokenize('#');
+    let r = tokenize('`');
     testing.assert(r.has_errors())?;
     testing.assert_eq(actual: r.errors[0].message,
-        expected: 'unexpected character: #')?;
+        expected: 'unexpected character: `')?;
     return Result.Ok(void);
 }
 

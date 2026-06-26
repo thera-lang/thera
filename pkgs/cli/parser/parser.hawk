@@ -1505,6 +1505,18 @@ impl Parser {
             self.advance();
             return Expr.Unit(t.span);
         }
+        if k == TokenKind.Hash {
+            // A compiler metaconstant: `#loc` (the only one today). The `#` and the
+            // name are separate tokens; the span covers both.
+            self.advance();
+            let name_tok = self.expect(TokenKind.Identifier, 'metaconstant name after `#`');
+            let span = t.span.cover(name_tok.span);
+            if name_tok.lexeme() == 'loc' {
+                return Expr.Loc(span);
+            }
+            self.fail_at('unknown metaconstant `#${name_tok.lexeme()}` (expected `#loc`)', span);
+            return self.err_expr();
+        }
         if k == TokenKind.LParen {
             self.advance();
             if self.paren_is_lambda_params() {

@@ -57,6 +57,7 @@ pub enum TokenKind {
     FatArrow,   // =>
     Question,   // ?
     At,         // @
+    Hash,       // #  (compiler metaconstants, e.g. #loc)
     Underscore, // _  (label suppressor and wildcard pattern)
 
     // Operators

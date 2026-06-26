@@ -1,0 +1,22 @@
+// std.core — a source location, produced by the `#loc` metaconstant.
+//
+// `#loc` evaluates to the `SourceLoc` of where it is written; as a *default
+// parameter value* it captures the **call site** (default arguments are
+// materialized there), which is how `std.testing` reports the line a failing
+// assertion was called from without the caller passing anything:
+//
+//   pub fn assert_eq<T: Eq + Debug>(actual: T, expected: T, at: SourceLoc = #loc) -> ...
+//
+// Renders as `file:line:column` — the same shape `hawk check` prints — so test
+// failures and compiler diagnostics share one format.
+pub type SourceLoc = {
+    file: String,
+    line: Int,
+    column: Int,
+}
+
+impl Display for SourceLoc {
+    fn display(self) -> String {
+        return '${self.file}:${self.line}:${self.column}';
+    }
+}

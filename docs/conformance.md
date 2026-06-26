@@ -50,6 +50,7 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `expr-tail`         | language.md Tail exprs   | `if`/`match` as values (tail expression)                   | ✓      |
 | `expr-semicolon`    | language.md Tail exprs   | `;` discards a tail; bare tail only in expr position       | ◐      |
 | `expr-if-needs-else`| language.md Tail exprs   | `let x = if c { 1 }` (no else) is an error                 | ✓      |
+| `expr-loc`          | Metaconstants            | `#loc` → `SourceLoc`; as a default param, captures caller  | ✓      |
 
 ## Types & values
 

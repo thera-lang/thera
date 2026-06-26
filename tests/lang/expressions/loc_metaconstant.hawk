@@ -1,0 +1,18 @@
+//! spec: expr-loc
+//! mode: run
+
+// `#loc` evaluates to a `SourceLoc`. As a *default parameter value* it captures
+// the call site (defaults are materialized there), so two calls on consecutive
+// lines differ by one in `line`. Used directly, it is its own location.
+fn line_of(at: SourceLoc = #loc) -> Int {
+    return at.line;
+}
+
+fn main() -> Int {
+    let a = line_of();
+    let b = line_of();
+    println('${b == a + 1}');                         // expect: true
+    let here = #loc;
+    println('${here.line > 0 && here.column > 0}');   // expect: true
+    return 0;
+}

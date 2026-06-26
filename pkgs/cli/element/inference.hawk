@@ -96,6 +96,7 @@ pub fn infer_expr(_ expr: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx,
         If(x) => infer_if(x, scope, ctx, expected),
         Return(_, _) => Type.Unknown,
         Throw(_, _) => Type.Unknown,
+        Loc(_) => Type.Interface('SourceLoc', []), // the `#loc` metaconstant
     };
 }
 

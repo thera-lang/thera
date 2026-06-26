@@ -263,6 +263,10 @@ pub enum Expr {
     If(IfExpr),
     Return(SourceSpan, Option<Expr>),
     Throw(SourceSpan, Expr),
+    // The `#loc` metaconstant — the source location of this expression, resolved
+    // by codegen to a `SourceLoc` value. As a default parameter value it captures
+    // the *call site* (defaults are materialized there); elsewhere, its own site.
+    Loc(SourceSpan),
 }
 
 // A string literal's segments: literal text and `${...}` interpolations.
@@ -369,6 +373,7 @@ pub fn expr_span(_ e: Expr) -> SourceSpan {
         If(x) => x.span,
         Return(s, _) => s,
         Throw(s, _) => s,
+        Loc(s) => s,
     };
 }
 

@@ -218,6 +218,8 @@ impl Lexer {
             self.emit(TokenKind.Colon);
         } else if c == char.AT {
             self.emit(TokenKind.At);
+        } else if c == char.HASH {
+            self.emit(TokenKind.Hash);
         } else if c == char.PLUS {
             if self.match_ch(char.EQ) {
                 self.emit(TokenKind.PlusEq);
