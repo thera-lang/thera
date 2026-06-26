@@ -61,17 +61,10 @@ pub fn compile_program(_ program: Program, _ imports: List<Program>,
     _ file_namespaces: Map<String, Map<String, element.LibraryNamespace>>,
     _ file_bare_surface: Map<String, Set<String>>) -> CodegenResult {
     let library = resolver.build_library(program, imports, file_namespaces, file_bare_surface);
-    // Per-file namespace name-sets — each compiled unit resolves qualifiers against
-    // its own file's imports (no closure-wide union).
-    let file_ns_sets: Map<String, Set<String>> = {};
-    for f in file_namespaces.keys() {
-        let s: Set<String> = Set.new();
-        for k in file_namespaces[f].keys() {
-            s.add(k);
-        }
-        file_ns_sets[f] = s;
-    }
-    let scope = new_module_scope(file_ns_sets, library);
+    // Namespace resolution is the element-model FileScope's job (each unit resolves
+    // qualifiers against its own file's imports via `library.file_namespaces`) — no
+    // codegen-local copy of the per-file namespace sets.
+    let scope = new_module_scope(library);
 
     let modules: List<Program> = [];
     for ip in imports {

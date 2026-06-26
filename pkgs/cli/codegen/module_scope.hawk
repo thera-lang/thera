@@ -13,6 +13,7 @@ import '../bytecode/instr';
 import '../bytecode/module' as _;
 import '../element/types' as _;
 import '../element/element';
+import '../element/scope' as _;
 
 // Well-known enum type ids and variant tags, fixed by convention and shared with
 // the runtime (runtime/src/value.rs). Result and Option are not in the type
@@ -103,9 +104,6 @@ pub type ModuleScope = {
     interface_methods: Map<String, Set<String>>,
     pending_dispatch: List<PendingDispatch>,
     interface_supers: Map<String, List<String>>,
-    // Per-file namespace names (file key -> namespace names), so each unit resolves
-    // qualifiers against its own file's imports.
-    namespaces: Map<String, Set<String>>,
     mut next_enum_ty: Int,
     boxed_params: Map<Int, Set<String>>,
     mut cell_type: Option<Int>,
@@ -117,7 +115,7 @@ pub type ModuleScope = {
     library: element.LibraryElement,
 }
 
-pub fn new_module_scope(_ namespaces: Map<String, Set<String>>, _ library: element.LibraryElement) -> ModuleScope {
+pub fn new_module_scope(_ library: element.LibraryElement) -> ModuleScope {
     return ModuleScope {
         units: [],
         unit_names: [],
@@ -137,7 +135,6 @@ pub fn new_module_scope(_ namespaces: Map<String, Set<String>>, _ library: eleme
         interface_methods: {},
         pending_dispatch: [],
         interface_supers: {},
-        namespaces: namespaces,
         next_enum_ty: 2,
         boxed_params: {},
         cell_type: Option.None,
@@ -191,11 +188,10 @@ impl ModuleScope {
     }
 
     // Whether `name` is an import namespace visible in `file` — its own imports.
+    // Resolved through the shared element-model FileScope (the single namespace
+    // authority), not a codegen-local copy of the per-file namespace sets.
     pub fn file_has_namespace(self, _ file: Option<String>, _ name: String) -> Bool {
-        return match self.namespaces.get(element.file_key(file)) {
-            Some(s) => s.has(name),
-            None => false,
-        };
+        return file_scope(self.library, file).is_namespace(name);
     }
 
     // A top-level `native fn`: its name binds to the runtime native named by its
