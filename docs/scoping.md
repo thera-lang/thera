@@ -325,20 +325,39 @@ through the file's scope to preserve today's behavior.
 
 ### Sequence (suite-green + fixpoint-idempotent at each step)
 
-1. **2a — `FileScope` built from existing data, additive.** Introduce the type and its
-   resolution methods, constructed inside `build_library` from the current per-file
-   overlays + flat tables; unit-test it; nothing else changes yet.
-2. **2b — checker** gates call `FileScope` (behavior-preserving).
-3. **2c — inference** call sites (`infer_call_ident`, `infer_callee_kind`,
-   `type_def_for_expr`, `is_namespace`, …) call `FileScope`.
-4. **2d — codegen** resolves *which declaration* a name means through the shared
-   `FileScope`; `ModuleScope` keeps only backend artifacts (unit indices, native
-   symbols, layouts, enum tags), re-keyed by declaration identity (a `defining_file`
-   on the element) so artifacts stop colliding on bare name.
-5. **2e — lift the limit.** Add the origin maps + per-file element tables, delete the
-   global flat `functions`/`type_defs`/`consts`, switch `check_duplicates` from
-   closure-wide to per-file, and add a conformance test proving two libraries can
-   share a top-level name. (Steps 2a–2d are behavior-preserving on today's clean
-   corpus; 2e is where the uniqueness lift lands.)
+**2a–2d — done.** `FileScope` introduced (2a) and adopted as the single resolution
+authority by the checker (2b), inference (2c), and codegen's namespace resolution
+(2d). All behavior-preserving; `FileScope` is a facade over the still-flat tables.
+
+**2e — lift the limit.** The key realization: uniqueness is forced by exactly one
+enforcement point (`check_duplicates`, closure-wide). Everything else can be built
+and switched on *while names are still globally unique*, where per-file resolution
+and flat-table resolution return the same element — so each step is
+behavior-preserving and the **fixpoint is the oracle** (a different resolution
+changes the emitted bytecode and breaks it). So 2e is not one atomic change but a
+sequence ending in one tiny behavior flip:
+
+- **S1 (additive)** — per-file element tables `file_type_defs`/`file_consts` in
+  `build_library` (mirroring `file_functions`), holding *references* to the shared
+  element objects (so a cross-file `impl` still mutates the one type element).
+- **S2 (additive)** — origin maps: `LibraryNamespace.origin` (public name → owning
+  file) and `file_bare_surface` as name → owning file, populated in the loader's
+  `collect_surface`/`bare_surface_for`. Nothing reads S1/S2 yet.
+- **S3** — `FileScope.resolve_qualified_*(ns, name)` resolves within `ns`'s origin
+  file.
+- **S4** — `FileScope` bare resolution reads per-file tables + bare origins; drop
+  the global fallback.
+- **S5** — `build_library`'s own type resolution (the 3 deferred `resolve_type_ref`
+  sites) resolves through a per-file `FileScope`, not the merged map. *(Riskiest —
+  a latent cross-file-without-import reference surfaces here, as the type gate did
+  in Phase 1.)*
+- **S6** — codegen `emit_namespace_call` resolves a qualified call via the origin
+  file (`file_functions[origin][name]`), not `resolve_global_function`'s last-wins.
+- **S7 (cleanup)** — delete the now-dead global flat `functions`/`type_defs`/
+  `consts` (+ `resolve_global_function`, `function_for`'s global fallback). Deletion
+  is the proof of deadness — a remaining reader fails to compile here.
+- **S8 (the only behavior change)** — relax `check_duplicates` closure-wide →
+  per-file; add a conformance test (two libraries each `pub fn parse`, both called
+  qualified, dispatching to different functions). The uniqueness lift.
 
 See [roadmap.md](roadmap.md) → _Resolution correctness_.
