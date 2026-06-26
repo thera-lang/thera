@@ -212,7 +212,7 @@ impl Loader {
                     match std_root(root) {
                         Some(std) => {
                             let rel = import_path.slice(STD_PREFIX.len(), import_path.len()).split('.').join('/');
-                            return resolve_library_file(std + '/' + rel);
+                            return normalize_resolved(resolve_library_file(std + '/' + rel));
                         },
                         None => { return Option.None; },
                     }
@@ -220,7 +220,11 @@ impl Loader {
                 None => { return Option.None; },
             }
         }
-        return resolve_library_file(base_dir + '/' + import_path);
+        // Normalize so the same physical file reached by different `../` spellings
+        // (`codegen/../element/element` vs `element/element`) gets one canonical key
+        // — otherwise it loads (and compiles) once per spelling, and owner-correct
+        // resolution can't tell the duplicate units apart.
+        return normalize_resolved(resolve_library_file(base_dir + '/' + import_path));
     }
 
     // Resolve `file` to a library source, recursively linking its imports. Cached
@@ -542,6 +546,48 @@ fn is_dir(_ path: String) -> Bool {
     return match fs.metadata(path) {
         Ok(m) => m.kind == fs.FileKind.Dir,
         Err(_) => false,
+    };
+}
+
+// Lexically normalize a path: collapse `.` and `..` segments so the same file
+// reached by different relative spellings (`a/../b` vs `b`) maps to one canonical
+// key. Purely lexical (no filesystem), which is what de-duplicates a library
+// imported via different `../` prefixes from different directories.
+fn normalize_path(_ path: String) -> String {
+    let absolute = path.starts_with('/');
+    let stack: List<String> = [];
+    let mut n = 0;
+    for p in path.split('/') {
+        if p == '' || p == '.' {
+            // skip empty (leading `/` or `//`) and current-dir segments
+        } else if p == '..' {
+            if n > 0 && stack[n - 1] != '..' {
+                n = n - 1; // pop the preceding segment
+            } else if !absolute {
+                // a relative path may keep leading `..` (it escapes the base)
+                if n < stack.len() { stack[n] = '..'; } else { stack.push('..'); }
+                n = n + 1;
+            }
+            // an absolute path's `..` at the root is dropped
+        } else {
+            if n < stack.len() { stack[n] = p; } else { stack.push(p); }
+            n = n + 1;
+        }
+    }
+    let out: List<String> = [];
+    let mut i = 0;
+    while i < n {
+        out.push(stack[i]);
+        i = i + 1;
+    }
+    let joined = out.join('/');
+    return if absolute { '/' + joined } else { joined };
+}
+
+fn normalize_resolved(_ o: Option<String>) -> Option<String> {
+    return match o {
+        Some(f) => Option.Some(normalize_path(f)),
+        None => Option.None,
     };
 }
 
