@@ -62,24 +62,52 @@ impl FileScope {
 
     // --- qualified resolution (`ns.name`) ---
     //
-    // The member `name` reached through namespace `ns`. Today the value/type
-    // tables are flat, so these resolve to the same element as a bare reference and
-    // `ns` is not yet consulted for the lookup; Phase 2e resolves *within `ns`'s
-    // library* (owner-correct, lifting global name uniqueness). These are the
-    // lenient resolvers used by inference — visibility (`pub`) is the checker's
-    // concern (`namespace_exposes`), not enforced here. The caller has already
-    // established that `ns` is a namespace it binds.
+    // The member `name` reached through namespace `ns`, resolved **within `ns`'s
+    // library** (owner-correct): the namespace surface's origin map (Phase 2e S2)
+    // names the file that declares the member, and the per-file element tables
+    // (S1) hold its element. This is what lifts global name uniqueness — two
+    // libraries' same-named members resolve to their own files. The lenient
+    // resolvers used by inference; visibility (`pub`) is the checker's concern,
+    // and the caller has already established `ns` is a namespace it binds. A
+    // non-public or absent member has no origin entry → None (the checker reports
+    // it; on a clean program no such access reaches here).
+
+    // The file (key) that owns public member `name` of namespace `ns`, or None.
+    fn member_owner(self, _ ns: String, _ name: String) -> Option<String> {
+        return match self.namespace_surface(ns) {
+            Some(surface) => surface.origin.get(name),
+            None => Option.None,
+        };
+    }
 
     pub fn resolve_qualified_function(self, _ ns: String, _ name: String) -> Option<FunctionElement> {
-        return self.library.functions.get(name);
+        return match self.member_owner(ns, name) {
+            Some(owner) => match self.library.file_functions.get(owner) {
+                Some(m) => m.get(name),
+                None => Option.None,
+            },
+            None => Option.None,
+        };
     }
 
     pub fn resolve_qualified_const(self, _ ns: String, _ name: String) -> Option<ConstElement> {
-        return self.library.consts.get(name);
+        return match self.member_owner(ns, name) {
+            Some(owner) => match self.library.file_consts.get(owner) {
+                Some(m) => m.get(name),
+                None => Option.None,
+            },
+            None => Option.None,
+        };
     }
 
     pub fn resolve_qualified_type_def(self, _ ns: String, _ name: String) -> Option<TypeDefElement> {
-        return self.library.type_defs.get(name);
+        return match self.member_owner(ns, name) {
+            Some(owner) => match self.library.file_type_defs.get(owner) {
+                Some(m) => m.get(name),
+                None => Option.None,
+            },
+            None => Option.None,
+        };
     }
 
     // --- types ---

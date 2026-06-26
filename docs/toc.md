@@ -32,5 +32,6 @@ is"; read top-down for progressive detail.
   commands & output-stream (stdout/stderr) convention.
 - [roadmap.md](roadmap.md) — current **status**, the bootstrap arcs, deferred
   work, and remaining front-end work.
+- [parser-recovery.md](parser-recovery.md) — **parser error recovery**: resilient parsing design, AST preservation, and incremental implementation plan.
 
 (A concise orientation for agents lives in the repo-root `CLAUDE.md`.)
