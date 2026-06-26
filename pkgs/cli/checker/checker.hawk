@@ -192,7 +192,7 @@ fn check_program(_ errors: List<CheckError>, _ program: Program, _ library: Libr
     for decl in program.decls {
         match decl {
             Fn(x) => { check_fn(errors, x, library, Option.None, Set.new(), file); },
-            Type(x) => { check_type_decl(errors, x, library); },
+            Type(x) => { check_type_decl(errors, x, library, file); },
             Impl(x) => {
                 let self_type = impl_self_type(x);
                 let type_params = type_param_set(x.type_params);
@@ -204,10 +204,10 @@ fn check_program(_ errors: List<CheckError>, _ program: Program, _ library: Libr
                     None => {},
                 }
             },
-            Interface(x) => { check_interface_decl(errors, x, library); },
+            Interface(x) => { check_interface_decl(errors, x, library, file); },
             Const(x) => {
                 match x.type_ann {
-                    Some(ref) => { check_type_ref(errors, ref, library.type_defs, Set.new()); },
+                    Some(ref) => { check_type_ref(errors, ref, library, file, Set.new()); },
                     None => {},
                 }
                 let ctx = new_ctx(library);
@@ -218,7 +218,7 @@ fn check_program(_ errors: List<CheckError>, _ program: Program, _ library: Libr
                 let tps = type_param_set(x.type_params);
                 for v in x.variants {
                     for f in v.fields {
-                        check_type_ref(errors, f, library.type_defs, tps);
+                        check_type_ref(errors, f, library, file, tps);
                     }
                 }
             },
@@ -227,17 +227,18 @@ fn check_program(_ errors: List<CheckError>, _ program: Program, _ library: Libr
     }
 }
 
-fn check_type_decl(_ errors: List<CheckError>, _ decl: TypeDecl, _ library: LibraryElement) -> Void {
+fn check_type_decl(_ errors: List<CheckError>, _ decl: TypeDecl, _ library: LibraryElement,
+    _ current_file: Option<String>) -> Void {
     let tps = type_param_set(decl.type_params);
     for f in decl.fields {
-        check_type_ref(errors, f.type_ann, library.type_defs, tps);
+        check_type_ref(errors, f.type_ann, library, current_file, tps);
     }
 }
 
 fn check_fn(_ errors: List<CheckError>, _ fn_decl: FnDecl, _ library: LibraryElement,
     _ self_type: Option<Type>, _ outer_type_params: Set<String>, _ file: Option<String>) -> Void {
     let type_params = union_type_params(outer_type_params, fn_decl.type_params);
-    check_fn_sig(errors, fn_decl, library.type_defs, type_params);
+    check_fn_sig(errors, fn_decl, library, file, type_params);
 
     match fn_decl.body {
         None => { return; },
@@ -276,25 +277,26 @@ fn check_fn(_ errors: List<CheckError>, _ fn_decl: FnDecl, _ library: LibraryEle
 }
 
 fn check_fn_sig(_ errors: List<CheckError>, _ fn_decl: FnDecl,
-    _ type_defs: Map<String, TypeDefElement>, _ type_params: Set<String>) -> Void {
+    _ library: LibraryElement, _ current_file: Option<String>, _ type_params: Set<String>) -> Void {
     for p in fn_decl.params {
         match p.type_ann {
-            Some(ref) => { check_type_ref(errors, ref, type_defs, type_params); },
+            Some(ref) => { check_type_ref(errors, ref, library, current_file, type_params); },
             None => {},
         }
     }
     match fn_decl.return_type {
-        Some(ref) => { check_type_ref(errors, ref, type_defs, type_params); },
+        Some(ref) => { check_type_ref(errors, ref, library, current_file, type_params); },
         None => {},
     }
 }
 
 // ---- interface declaration / conformance ----
 
-fn check_interface_decl(_ errors: List<CheckError>, _ decl: InterfaceDecl, _ library: LibraryElement) -> Void {
+fn check_interface_decl(_ errors: List<CheckError>, _ decl: InterfaceDecl, _ library: LibraryElement,
+    _ current_file: Option<String>) -> Void {
     let iface_tps = type_param_set(decl.type_params);
     for m in decl.methods {
-        check_fn_sig(errors, m, library.type_defs, union_type_params(iface_tps, m.type_params));
+        check_fn_sig(errors, m, library, current_file, union_type_params(iface_tps, m.type_params));
     }
     for super_name in decl.super_interfaces {
         match library.type_defs.get(super_name) {
@@ -517,7 +519,7 @@ fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ stmts: List<Stmt>, _ i
     match stmt {
         Let(x) => {
             match x.type_ann {
-                Some(ref) => { check_type_ref(errors, ref, ctx.library.type_defs, ctx.type_params); },
+                Some(ref) => { check_type_ref(errors, ref, ctx.library, ctx.current_file, ctx.type_params); },
                 None => {},
             }
             let annotated = match x.type_ann {
@@ -751,6 +753,13 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
             }
         },
         Struct(x) => {
+            // The constructed type must be reachable bare from this file (a struct
+            // literal names its type with a bare identifier). Gate it like any other
+            // bare type so an unreachable/un-imported type isn't silently resolved
+            // against the closure's flat table.
+            if !name_known(x.type_name, x.namespace, ctx.library, ctx.current_file, ctx.type_params) {
+                add_error(errors, 'unknown type: ${x.type_name}', x.span);
+            }
             match ctx.library.type_defs.get(x.type_name) {
                 Some(element) => {
                     if element.kind == TypeDefKind.Struct {
@@ -840,7 +849,7 @@ fn check_lambda(_ errors: List<CheckError>, _ x: LambdaExpr, _ scope: Map<String
         let p = x.params[i];
         let pt = match p.type_ann {
             Some(ref) => {
-                check_type_ref(errors, ref, ctx.library.type_defs, ctx.type_params);
+                check_type_ref(errors, ref, ctx.library, ctx.current_file, ctx.type_params);
                 resolver.resolve_type_ref(ref, ctx.library.type_defs, ctx.type_params, ctx.self_type)
             },
             None => {
@@ -1144,28 +1153,37 @@ fn param_by_label(_ params: List<ParameterElement>, _ label: String) -> Option<P
 // ---- type reference checking ----
 
 fn check_type_ref(_ errors: List<CheckError>, _ type_ref: TypeRef,
-    _ type_defs: Map<String, TypeDefElement>, _ type_params: Set<String>) -> Void {
+    _ library: LibraryElement, _ current_file: Option<String>, _ type_params: Set<String>) -> Void {
     match type_ref {
         Named(nt) => {
-            if !name_known(nt.name, type_defs, type_params) {
+            if !name_known(nt.name, nt.namespace, library, current_file, type_params) {
                 add_error(errors, 'unknown type: ${nt.name}', nt.span);
             }
             for arg in nt.args {
-                check_type_ref(errors, arg, type_defs, type_params);
+                check_type_ref(errors, arg, library, current_file, type_params);
             }
         },
         Function(ft) => {
             for p in ft.params {
-                check_type_ref(errors, p, type_defs, type_params);
+                check_type_ref(errors, p, library, current_file, type_params);
             }
-            check_type_ref(errors, ft.return_type, type_defs, type_params);
+            check_type_ref(errors, ft.return_type, library, current_file, type_params);
         },
     }
 }
 
-// A type name is known if it resolves to something concrete — `Self`, a
-// primitive, a type parameter in scope, or a declared/built-in type.
-fn name_known(_ name: String, _ type_defs: Map<String, TypeDefElement>, _ type_params: Set<String>) -> Bool {
+// A type name is known if it resolves to something concrete and is reachable from
+// the current file — `Self`, a primitive, an in-scope type parameter, or a
+// declared type the file can see. A **bare** type is reachable only if it is
+// same-file, bare-legal (the prelude or an `as _` import), or qualifiable via an
+// import (whose "qualify as ns.T" hint qualify_lint still owns); a type owned by a
+// library this file never imported is unknown here, even though it sits in the
+// closure's flat table — the type-position mirror of the bare-value gate
+// (`is_defined_name`). A **qualified** `ns.T` resolves by name in the closure;
+// its surface/visibility is checked by visibility_lint (folded into resolution in
+// a later step).
+fn name_known(_ name: String, _ namespace: Option<String>, _ library: LibraryElement,
+    _ current_file: Option<String>, _ type_params: Set<String>) -> Bool {
     if name == 'Self' {
         return true;
     }
@@ -1176,7 +1194,20 @@ fn name_known(_ name: String, _ type_defs: Map<String, TypeDefElement>, _ type_p
     if type_params.has(name) {
         return true;
     }
-    return type_defs.has(name);
+    match namespace {
+        Some(_) => { return library.type_defs.has(name); },
+        None => {},
+    }
+    if !library.type_defs.has(name) {
+        return false;
+    }
+    // A built-in (`List`/`Map`/`Result`/…) is always in scope — and is the
+    // hermetic-floor stand-in for the prelude types when `std.core` isn't linked,
+    // so accept it like the bare-value gate does (`is_defined_name`).
+    return is_builtin_type_name(library, name)
+        || file_owns(library, current_file, name)
+        || bare_surface_has(library, current_file, name)
+        || qualifiable_in_file(name, library, current_file);
 }
 
 // ---- type-mismatch diagnostics ----
@@ -1237,14 +1268,20 @@ fn is_defined_name(_ name: String, _ scope: Map<String, Type>, _ ctx: InferCtx) 
 
 // Whether `name` is exposed by some namespace the current file imports — so a bare
 // use is a *qualify-this* case (owned by `qualify_lint`), not an undefined name.
-fn qualifiable_via_namespace(_ name: String, _ ctx: InferCtx) -> Bool {
-    let nss = namespaces_in(ctx.library, ctx.current_file);
+// Shared by the bare-value gate (`qualifiable_via_namespace`) and the bare-type
+// gate (`name_known`), which see the same per-file namespaces.
+fn qualifiable_in_file(_ name: String, _ library: LibraryElement, _ current_file: Option<String>) -> Bool {
+    let nss = namespaces_in(library, current_file);
     for ns in nss.keys() {
         if namespace_exposes(nss[ns], name) {
             return true;
         }
     }
     return false;
+}
+
+fn qualifiable_via_namespace(_ name: String, _ ctx: InferCtx) -> Bool {
+    return qualifiable_in_file(name, ctx.library, ctx.current_file);
 }
 
 // Whether `name` is a built-in type (`Int`/`List`/`Set`/…) — these are always in

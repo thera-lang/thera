@@ -8,6 +8,7 @@
 // `package:lsp_server`); here the transport is our own jsonrpc.hawk.
 
 import std.json as _;
+import std.io;             // io.Reader, io.Writer
 
 import '../ast/ast' as _;       // Program
 import '../lexer/lexer';   // tokenize
@@ -50,7 +51,7 @@ type DocAnalysis = {
 
 // Run the server: read framed messages from `reader`, dispatch each, and write
 // responses/notifications to `writer`, until `exit` (or end of input).
-pub fn serve(_ reader: Reader, _ writer: Writer, _ sdk_root: Option<String>) -> Void {
+pub fn serve(_ reader: io.Reader, _ writer: io.Writer, _ sdk_root: Option<String>) -> Void {
     let buf = jsonrpc.new_buffer();
     let server = new_server(sdk_root);
     let mut going = true;
@@ -69,7 +70,7 @@ pub fn serve(_ reader: Reader, _ writer: Writer, _ sdk_root: Option<String>) -> 
 impl Server {
     // Handle one raw message body. Returns false when the server should stop
     // (an `exit` notification).
-    pub fn handle(self, _ writer: Writer, _ body: String) -> Bool {
+    pub fn handle(self, _ writer: io.Writer, _ body: String) -> Bool {
         let msg = match json.parse(body) {
             Ok(j) => j,
             Err(_) => { return true; }, // ignore unparseable input
@@ -83,7 +84,7 @@ impl Server {
     }
 
     // `id` is a JSON Null for a notification, present for a request.
-    fn dispatch(self, _ writer: Writer, _ method: String, _ id: Json, _ params: Json) -> Bool {
+    fn dispatch(self, _ writer: io.Writer, _ method: String, _ id: Json, _ params: Json) -> Bool {
         if method == 'initialize' {
             send_response(writer, id, initialize_result());
             return true;
@@ -155,7 +156,7 @@ impl Server {
     }
 
     // Store `text` for `uri` (when both are present) and publish its diagnostics.
-    fn update_document(self, _ writer: Writer, _ uri: Option<String>, _ text: Option<String>) -> Void {
+    fn update_document(self, _ writer: io.Writer, _ uri: Option<String>, _ text: Option<String>) -> Void {
         match uri {
             Some(u) => {
                 match text {
@@ -243,7 +244,7 @@ impl Server {
         };
     }
 
-    fn publish(self, _ writer: Writer, _ uri: String, _ text: String) -> Void {
+    fn publish(self, _ writer: io.Writer, _ uri: String, _ text: String) -> Void {
         send_notification(writer, 'textDocument/publishDiagnostics', json.obj({
             'uri': json.str(uri),
             'diagnostics': diagnostics.compute_diagnostics(text, paths.uri_to_path(uri), self.sdk_root),
@@ -253,7 +254,7 @@ impl Server {
 
 // --- JSON-RPC envelope helpers ---
 
-fn send_response(_ writer: Writer, _ id: Json, _ result: Json) -> Void {
+fn send_response(_ writer: io.Writer, _ id: Json, _ result: Json) -> Void {
     jsonrpc.send_message(writer, json.obj({
         'jsonrpc': json.str('2.0'),
         'id': id,
@@ -261,7 +262,7 @@ fn send_response(_ writer: Writer, _ id: Json, _ result: Json) -> Void {
     }));
 }
 
-fn send_notification(_ writer: Writer, _ method: String, _ params: Json) -> Void {
+fn send_notification(_ writer: io.Writer, _ method: String, _ params: Json) -> Void {
     jsonrpc.send_message(writer, json.obj({
         'jsonrpc': json.str('2.0'),
         'method': json.str(method),

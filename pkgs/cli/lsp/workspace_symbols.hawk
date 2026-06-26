@@ -4,6 +4,7 @@
 import std.json;
 
 import '../ast/ast' as _;
+import '../lexer/token' as _;  // SourceSpan
 import 'diagnostics';
 import 'hover';
 import 'symbols';

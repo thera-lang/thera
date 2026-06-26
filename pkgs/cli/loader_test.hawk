@@ -5,6 +5,7 @@
 
 import std.testing;
 
+import 'ast/ast' as _;
 import 'lexer/lexer' as _;
 import 'parser/parser' as _;
 import 'loader' as _;

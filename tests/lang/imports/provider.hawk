@@ -4,3 +4,7 @@
 pub fn provide() -> Int {
     return 7;
 }
+
+pub type Gadget = {
+    n: Int,
+}
