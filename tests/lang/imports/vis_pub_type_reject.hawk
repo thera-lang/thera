@@ -1,0 +1,15 @@
+//! spec: vis-pub
+//! mode: check
+
+import 'provider';
+
+// `Hidden` is not `pub` in `provider`; reaching it qualified from another file is
+// a visibility error — the type-position half of `pub` enforcement, the same
+// check that guards qualified value access (`greeter.secret()`).
+fn use_it(_ h: provider.Hidden) -> Int {   // expect error: `Hidden` is not a public member of `provider`
+    return h.n;
+}
+
+fn main() -> Int {
+    return 0;
+}

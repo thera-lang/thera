@@ -8,3 +8,8 @@ pub fn provide() -> Int {
 pub type Gadget = {
     n: Int,
 }
+
+// Not `pub`: reaching `provider.Hidden` from another file is a visibility error.
+type Hidden = {
+    n: Int,
+}
