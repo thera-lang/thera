@@ -64,12 +64,12 @@ type NameSite = {
     primary: Bool,
 }
 
-// Flag top-level names defined more than once across the checked file and its
-// import closure. Resolution collapses each name space (type-like / function /
-// const) into a last-wins map, so a duplicate is silently resolved to one
-// definition — a cross-file `pub` hijack that otherwise surfaces only at codegen,
-// or not at all. Reported against the colliding definition in the file being
-// checked.
+// Flag top-level names defined more than once. For values (functions / consts)
+// this means a same-file redefinition: cross-file value resolution is owner-correct
+// (per-file bare, qualified within the named library), so different files may share
+// a top-level value name. Type names still resolve globally by name, so any
+// duplicate type — same-file or cross-file — collides. Reported against the
+// colliding definition in the file being checked.
 fn check_duplicates(_ errors: List<CheckError>, _ program: Program, _ imports: List<Program>) -> Void {
     let types: Map<String, List<NameSite>> = {};
     let funcs: Map<String, List<NameSite>> = {};
@@ -160,19 +160,17 @@ fn same_decl(_ a: NameSite, _ b: NameSite) -> Bool {
     return a.span.offset == b.span.offset && a.span.source == b.span.source;
 }
 
-// Whether two same-named definitions genuinely collide. Type-like names and
-// constants are global-by-bare-name, so any duplicate collides. Functions resolve
-// same-file-first, so a private helper may legitimately share a name with one in
-// another file; a cross-file collision is a hazard only when a publicly-visible
-// (`pub`) definition is involved (which cross-file callers reach by bare name).
+// Whether two same-named definitions genuinely collide. Type names are still
+// resolved globally by name (type-name uniqueness pending — see roadmap.md), so any
+// duplicate type collides. Functions and consts resolve owner-correct — bare to
+// their declaring file, qualified within the named library — so two *different*
+// files may share a top-level value name (`std.json.parse` and `std.toml.parse`),
+// even `pub`. Only a same-file redefinition collides.
 fn collides(_ a: NameSite, _ b: NameSite, _ kind: String) -> Bool {
-    if kind != 'function' {
+    if kind == 'type' {
         return true;
     }
-    if file_key(a.file) == file_key(b.file) {
-        return true;
-    }
-    return a.is_pub || b.is_pub;
+    return file_key(a.file) == file_key(b.file);
 }
 
 // ---- declaration checking ----

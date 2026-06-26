@@ -140,6 +140,7 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `mod-qualified-only`| scoping.md               | bare cross-library reference is rejected                  | ✓      |
 | `mod-ns-file-local` | scoping.md               | a namespace is file-local; qualifying with one this file didn't import is rejected | ✓ |
 | `mod-no-bare-fallback`| scoping.md             | a bare name owned by an un-imported (closure-only) library is `undefined` — no global last-wins fallback | ✓ |
+| `mod-shared-value-name`| scoping.md              | two libraries may share a top-level value name; each qualified call dispatches to its own library (value-uniqueness lift) | ✓ |
 | `vis-pub`           | Visibility               | non-`pub` top-level is file-private (enforced)            | ✓      |
 | `vis-barrel`        | Visibility               | barrel re-exports a directory library's symbols (std.cli) | ◐      |
 | `vis-whitebox-test` | Visibility / Testing     | `foo_test.hawk` sees `foo.hawk` privates (bare)           | ✓      |

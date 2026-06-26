@@ -1,0 +1,18 @@
+//! spec: mod-shared-value-name
+//! mode: run
+
+import 'libjson' as json;
+import 'libtoml' as toml;
+
+// Two libraries each define `pub fn parse`. Under owner-correct resolution they
+// coexist with no collision, and each qualified call dispatches to its own
+// library's function — the Phase 2e value-uniqueness lift, what makes
+// `std.json.parse` and `std.toml.parse` able to share a name. The flat global
+// tables this replaced forced top-level value names to be unique across the whole
+// import closure.
+fn main() -> Int {
+    println('${json.parse()}');                 // expect: 100
+    println('${toml.parse()}');                 // expect: 200
+    println('${json.parse() + toml.parse()}');  // expect: 300
+    return 0;
+}

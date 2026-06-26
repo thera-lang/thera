@@ -1,0 +1,8 @@
+// Support library: defines `parse`, the same top-level name `libtoml` also
+// defines. The two coexist because value resolution is owner-correct (Phase 2e) —
+// a qualified `json.parse()` reaches this library's function specifically.
+// No `//!` directive block, so the harness treats it as a support file.
+
+pub fn parse() -> Int {
+    return 100;
+}

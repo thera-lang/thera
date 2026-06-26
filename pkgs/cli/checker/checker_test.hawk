@@ -509,15 +509,18 @@ fn any_message_contains(_ errs: List<CheckError>, _ needle: String) -> Bool {
 }
 
 @test
-fn test_duplicate_pub_function_across_files_is_flagged() -> Result<Void, Error> {
-    // A local `helper` shadowing another file's `pub helper` in the global
-    // fallback — the cross-file hijack that previously surfaced only at codegen.
-    let lib = program_at('pub fn helper() -> Int { return 1; }', 'lib.hawk');
-    let main = program_at('fn helper() -> Int { return 2; }\n'
-        + 'fn run() -> Int { return helper(); }', 'main.hawk');
-    let errs = check(main, [lib], {}, {}).errors;
-    testing.assert(any_message_contains(errs, 'duplicate function `helper`'),
-        message: 'expected a duplicate-function diagnostic')?;
+fn test_pub_function_shared_across_files_is_allowed() -> Result<Void, Error> {
+    // Two libraries may each define a `pub` function of the same name: value
+    // resolution is owner-correct (a bare reference reaches its own file; a
+    // qualified `ns.fn` reaches within the named library), so this is no longer a
+    // collision. This is the Phase 2e value-uniqueness lift — what previously made
+    // `std.json.parse` and `std.toml.parse` impossible to coexist.
+    let a = program_at('pub fn parse() -> Int { return 1; }', 'a.hawk');
+    let b = program_at('pub fn parse() -> Int { return 2; }', 'b.hawk');
+    let main = program_at('fn run() -> Int { return 0; }', 'main.hawk');
+    let errs = check(main, [a, b], {}, {}).errors;
+    testing.assert(!any_message_contains(errs, 'duplicate function `parse`'),
+        message: 'two libraries sharing a pub function name must not collide')?;
     return Result.Ok(void);
 }
 
