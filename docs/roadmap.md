@@ -43,9 +43,9 @@ calls/fields/methods, unpinnable generics). The inference-completeness arc is
 
 **Not yet:** a broader stdlib; generic operators (`<T: Add>`); bitwise operators
 (`& | ^ << >>`); index (`[]`) operator overloading; the Cranelift JIT tier.
-(Qualified-only resolution + `pub`/privacy are now **enforced**, with a residual
-type-position / per-library-ownership tail — see _Resolution correctness_
-below.)
+(Qualified-only resolution + `pub`/privacy are now **enforced**, and value
+resolution is owner-correct; the residual is **type-name** owner-correctness — see
+_Owner-correct type resolution_ below.)
 
 ## Open work
 
@@ -180,30 +180,11 @@ below.)
   uniqueness case (two libraries' same-named *functions*, e.g. `std.json.parse` vs
   `std.toml.parse`) is handled by 2e. See [scoping.md](scoping.md) → Phase 2e S5.
 
-- **Resolution correctness — Phases 1 and 2 done (values).** Qualified-only +
-  `pub` visibility are **enforced by construction in the resolution gates**, and
-  resolution runs through a single **`FileScope`** per file (the checker, inference,
-  and codegen all consult it — no ad-hoc flat-table lookups). For **values
-  (functions / consts)** resolution is **owner-correct**: a bare name reaches its
-  own file or a bare-legal library (prelude / `as _`), a qualified `ns.name` resolves
-  *within `ns`'s library* (via the surfaces' `name -> defining-file` origin maps and
-  per-file element tables), and the flat global `functions`/`consts` tables are
-  **deleted**. This **lifts global value-name uniqueness** — two libraries may share
-  a top-level value name (`std.json.parse` / `std.toml.parse`), pinned by
-  `mod-shared-value-name`. The remaining open piece is **type-name** owner-correctness
-  (`type_defs` is still global by name) — its own item above (`Type` carries its
-  origin) + an architecture review.
-
-  _Latent issues the rework surfaced and fixed:_ the type-side qualified-only
-  migration had never been done (`server.hawk` used `Reader`/`Writer` un-imported);
-  prelude names re-exported from `std.core` sub-files were mis-attributed to the
-  barrel; and — the big one — the loader loaded the same file once per `../` path
-  spelling, **compiling every shared library 3–4×**. Canonicalizing import paths cut
-  the front-end self-compile ~11.5 s → ~4.3 s and the bootstrap bytecode 282 KB →
-  124 KB. Full design + the S1–S8 sequence in [scoping.md](scoping.md) → _Phase 2e_.
-
-  Related, still open: `impl` coherence / orphan rules, selective import
-  (`show`/`hide`), and a "module"→"library" terminology sweep.
+- **Resolution — smaller open items.** (Qualified-only + `pub` visibility
+  enforcement, the `FileScope` refactor, and owner-correct **value** resolution are
+  done — see _Completed_; type-name owner-correctness is the _Owner-correct type
+  resolution_ item above.) Remaining: `impl` coherence / orphan rules, selective
+  import (`show`/`hide`), and a "module"→"library" terminology sweep.
 
 - **Whole-closure diagnostics — remaining tail.** (Per-file origin + surfacing
   imported-file parse errors are done — see _Completed_.) Two pieces remain:
@@ -231,46 +212,13 @@ below.)
   `native fn`/`native type` to SDK paths (ties to the `@extern` name-check
   item), and the checker leniency that lets a bare field access on an opaque
   value slip to codegen (the existing `type-field-nonstruct` residual).
-- **Generic struct/enum type-parameter bounds — enforced (with a residual).** A
-  bound on a type's own parameter (`type Box<T: Display>`, `enum E<T: Eq>`) is now
-  stored on `TypeDefElement` (filled in resolver pass 1) and enforced via
-  `check_type_arg_bounds` where a concrete argument is supplied: a type annotation
-  (`Box<NoShow>`, in `check_type_ref`) and struct construction (args inferred from
-  fields). Pinned by `generic-type-bounds`. _Residual:_ enum construction with an
-  inferred (un-annotated) argument isn't bound-checked yet (annotated enum use is,
-  via the annotation site); and a bound is **not propagated** onto an enclosing
-  function's own type parameter (`fn f<U>(x: U) -> Box<U>` doesn't require `U:
-  Display`) — the lenient `TypeParameter` case, a separate well-formedness step.
-
-- **Static-method type arguments — done (Phases A and B).** A generic static method
-  (`Set.new() -> Set<T>`) now recovers its owner's `T` both from context and
-  explicitly. **Phase A:** `infer_call_field`'s static arm instantiates the return
-  type from context (binding annotation, a directly-passed argument, the return
-  position), and the "cannot infer" diagnostic stopped suggesting the non-working
-  `new<...>()` for an owner parameter (`gen-static-context`). **Phase B:** receiver
-  type args — `Set<String>.new()` binds the owner parameter on the receiver type
-  itself for the context-free case (`CallExpr.recv_type_args`; the parser accepts
-  `Ident<...>.method(...)`; a shared `static_call_bindings` seeds the owner params,
-  used by both inference and the checker; the receiver args are validated for known
-  types, arity, and bounds) (`gen-static-recv-args`). (`combined_type_params` stays —
-  it feeds the unpinnable-`T` *check* over owner params while `call_bindings` binds
-  the method's own; that split is correct, not dead code.)
-
-  _(Generics are **invariant by design** for now — no variance/subtyping work is
-  planned; this is a deliberate simplification, not a gap.)_
-
-- **Inference callee classification — unified (tech debt, done).** The "static
-  receiver" head of a call (`(ns.)?Type.method` / `ns.fn`) is now classified once by
-  `resolve_static_receiver` (→ `StaticReceiver`), consulted by `infer_call_field`,
-  `infer_callee_kind`, and `resolve_ns_or_static_call`; `infer_call_field`'s
-  instance-method arm routes through the checker's `resolve_method`; and the four
-  return-type instantiation paths collapsed onto `call_bindings` /
-  `instantiate_return_ctx` (namespace arm now context-aware, `instantiate_return`
-  deleted). _Residual (minor, intentional):_ `expected_arg_types` still classifies
-  the namespace head inline (widening it to static methods would change bidirectional
-  arg typing), and `infer_callee_kind` keeps its own receiver-type back-half — it
-  needs the Virtual-vs-Instance distinction codegen lowers on, which the type/param
-  consumers don't.
+- **Generics — residual follow-ons.** (Static-method type args, struct/enum bound
+  enforcement, and the inference-classification cleanup are done — see _Completed_.)
+  Remaining: enum construction with an *inferred* (un-annotated) argument isn't
+  bound-checked yet (annotated enum use is); a bound isn't **propagated** onto an
+  enclosing function's own type parameter (`fn f<U>(x: U) -> Box<U>` doesn't require
+  `U: Display`); and `expected_arg_types` still handles only the namespace callee
+  head inline. (Generics are **invariant by design** — no variance work planned.)
 - **Semantic (scope-aware) references & rename.** `textDocument/references` and
   `textDocument/rename` are implemented but **lexical only** — they match every
   identifier token with the same text, across files, with no binding/scope
@@ -460,6 +408,24 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **Generics: static-method type args, struct/enum bounds, inference cleanup**
+  (2026-06). Three solidifications. **Static-method owner type parameters:**
+  `Set.new() -> Set<T>` recovers `T` from call context (binding annotation,
+  directly-passed argument, return position), and `Set<String>.new()` names it
+  explicitly via **receiver type args** (`CallExpr.recv_type_args`; the parser accepts
+  `Ident<...>.method(...)`; a shared `static_call_bindings` seeds the owner params for
+  both inference and the checker) — `gen-static-context` / `gen-static-recv-args`.
+  **Generic struct/enum bounds enforced:** a bound on a type's own parameter
+  (`type Box<T: Display>`) is stored on `TypeDefElement` and checked where a concrete
+  argument is supplied (annotation, struct construction) via `check_type_arg_bounds`
+  — `generic-type-bounds`. **Inference cleanup:** the static-receiver classification
+  (`(ns.)?Type.method` / `ns.fn`) is unified in `resolve_static_receiver` (shared by
+  the three call cascades), the instance arm routes through `resolve_method`, and the
+  four return-type instantiation paths collapsed onto `call_bindings` /
+  `instantiate_return_ctx` (namespace arm now context-aware; `instantiate_return`
+  deleted). All byte-identical fixpoint except the added checks. Generics are
+  **invariant by design**. _Open follow-ons above (Generics — residual)._
 
 - **Resolution: `FileScope` + owner-correct value resolution (Phase 2)** (2026-06).
   Resolution moved off the flat global name tables onto a single **`FileScope`** per
