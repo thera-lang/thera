@@ -1080,9 +1080,16 @@ fn check_inferable_type_args(_ errors: List<CheckError>, _ fn_el: FunctionElemen
     let bindings = call_bindings(fn_el, call.type_args, arg_types, expected, ctx);
     for tp in type_params {
         if !bindings.has(tp) && type_mentions_param(fn_el.return_type, tp) {
-            add_error(errors,
-                'cannot infer type argument `${tp}` for "${fn_el.name}"; add a type annotation (e.g. `let x: ... = ...`) or type arguments (`${fn_el.name}<...>(...)`)',
-                call.span);
+            // The `name<...>()` form only pins a parameter the callee declares
+            // itself. For a static method's *owner* parameter (`Set.new()`'s `T`,
+            // not in `new`'s own list) that form binds nothing, so suggest only an
+            // annotation — until receiver-type args land (Phase B in roadmap.md).
+            let hint = if str_list_has(fn_el.type_parameters, tp) {
+                'add a type annotation (e.g. `let x: ... = ...`) or type arguments (`${fn_el.name}<...>(...)`)'
+            } else {
+                'add a type annotation (e.g. `let x: ... = ...`)'
+            };
+            add_error(errors, 'cannot infer type argument `${tp}` for "${fn_el.name}"; ${hint}', call.span);
         }
     }
 }

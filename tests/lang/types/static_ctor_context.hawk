@@ -1,0 +1,35 @@
+//! spec: gen-static-context
+//! mode: run
+
+// A generic static method (`Set.new() -> Set<T>`) recovers its owner type
+// parameter `T` from call context — a binding annotation, a directly-passed
+// argument, or the return position — without an explicit type argument. (The
+// static-call arm of inference instantiates the return type from context, like the
+// free-function path.)
+
+fn want(_ s: Set<String>) -> Int {
+    s.add('y');
+    return s.len();
+}
+
+fn make() -> Set<Int> {
+    return Set.new();   // T inferred from the return type
+}
+
+fn main() -> Int {
+    // From a binding annotation.
+    let a: Set<String> = Set.new();
+    a.add('x');
+    println('${a.len()}');              // expect: 1
+
+    // From the expected type of an argument position (Set.new() passed directly).
+    println('${want(Set.new())}');      // expect: 1
+
+    // From the return position (inferred inside `make`).
+    let c = make();
+    c.add(7);
+    c.add(7);
+    println('${c.len()}');              // expect: 1
+
+    return 0;
+}

@@ -668,12 +668,17 @@ fn infer_call_field(_ obj: Expr, _ field: String, _ arg_types: List<Type>,
         None => {},
     }
     // Static method on a (possibly namespaced) type: `(ns.)?Type.method(...)`.
+    // Instantiate the return type from context, like the free-function path — so a
+    // generic constructor's owner parameter (`Set.new() -> Set<T>`) is recovered
+    // from the argument types and the expected type rather than left unbound. No
+    // explicit type args here: they bind to the method's own parameters, which the
+    // owner's `T` is not one of (see Phase B in roadmap.md).
     match type_def_for_expr(obj, scope, ctx) {
         Some(type_def) => {
             match find_method(type_def, field) {
                 Some(method) => {
                     if method.is_static {
-                        return method.return_type;
+                        return instantiate_return_ctx(method, [], arg_types, expected, ctx);
                     };
                 },
                 None => {},
