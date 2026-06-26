@@ -341,6 +341,21 @@ is which turns on whether the command's product is an **artifact** or its
   internal trap) go to **stderr**, as does the dev launcher's build/compile
   progress (`bin/hawk.sh`).
 
+**Diagnostic format.** Every diagnostic — a `check` type error, an `emit` build
+failure, a `run`/`test` compile error — is one line: **`path:line:column:
+message`** (`users.hawk:42:5: undefined name: total`). The file is resolved to
+where the error *originates*: an error in an imported file names **that** file,
+not the entrypoint that triggered the compile (a diagnostic span carries its
+source text, and the driver maps it back to the owning file). This is the
+editor- and `grep`-friendly convention rustc/gcc/clang/eslint use, and it is the
+**same shape `hawk test` prints for a failing assertion** — `std.testing` stamps
+the call site via the `#loc` caller-location metaconstant (see
+[roadmap.md](roadmap.md)), so `assert_eq failed` is reported as
+`users_test.hawk:42:5: assert_eq failed …`. One format spans compiler errors and
+test failures, so an agent or editor parses both with a single rule. Multi-line
+messages indent continuation lines under the location; diagnostics are emitted in
+a deterministic order, and pass/fail is *also* on the exit code (above).
+
 ## Options considered and rejected
 
 - **Wasmtime as the runtime.** The Wasm sandbox fights Hawk's central use case:

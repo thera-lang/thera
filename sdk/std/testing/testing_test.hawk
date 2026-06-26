@@ -41,7 +41,18 @@ fn test_assert_true_passes_false_fails() -> Result<Void, Error> {
 @test
 fn test_assert_uses_custom_message() -> Result<Void, Error> {
     let msg = failure_message(testing.assert(false, message: 'must be positive'));
-    testing.assert_eq(actual: msg, expected: 'must be positive')?;
+    // The message carries the custom text; it is prefixed with the call location.
+    testing.assert(msg.contains('must be positive'))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_assert_failure_includes_source_location() -> Result<Void, Error> {
+    // `#loc` stamps each assertion's call site into the failure message, in the
+    // `file:line:column:` shape `hawk check` uses. The call below is in this file.
+    let msg = failure_message(testing.assert(false, message: 'boom'));
+    testing.assert(msg.contains('testing_test.hawk:'), message: 'names the source file')?;
+    testing.assert(msg.contains(': boom'), message: 'location precedes the message')?;
     return Result.Ok(void);
 }
 
