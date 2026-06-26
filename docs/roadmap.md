@@ -231,15 +231,37 @@ below.)
   `native fn`/`native type` to SDK paths (ties to the `@extern` name-check
   item), and the checker leniency that lets a bare field access on an opaque
   value slip to codegen (the existing `type-field-nonstruct` residual).
-- **Static-method type arguments — expressiveness gap.** No expression-level
-  syntax constructs a generic type whose parameter isn't otherwise inferable:
-  `Set<String>.new()` doesn't parse, and `Set.new<String>()` binds `<String>` to
-  `new`'s own (empty) parameters, not the owner `Set<T>`'s `T`. The only working
-  form is a type-annotated binding (`let s: Set<String> = Set.new()`). Consider
-  supporting `Set<String>.new()` (type args on the **receiver type** of a static
-  call). Until then the "cannot infer type argument" diagnostic shouldn't
-  suggest the non-working `new<...>()` for a static method. A corner now that
-  assignment-/argument-context inference covers ordinary cases.
+- **Generic struct/enum type-parameter bounds — parsed but not enforced.** A bound
+  on a type's own parameter (`type Box<T: Display> = { v: T }`, `enum E<T: Eq>`) is
+  parsed but **dropped**: `TypeDefElement` carries only parameter *names*, no bounds,
+  so nothing checks them — `Box { v: NoShow }` with a non-`Display` `NoShow` checks
+  clean (a real soundness hole). Fix: store the bounds on `TypeDefElement` (as
+  `FunctionElement` already does) and enforce them where a type argument is supplied
+  — struct construction, an annotated `Box<NoShow>`, enum construction — reusing the
+  checker's `satisfies_bound`. _(Concrete; planned.)_
+
+- **Static-method type arguments — context inference + a receiver-type syntax.**
+  A generic static method (`Set.new() -> Set<T>`) does not bind its owner's `T` from
+  call context: `infer_call_field`'s static arm returns the method's return type raw
+  (ignores `expected` and the argument types), unlike the free-function path
+  (`instantiate_return_ctx`) and the namespace path (`instantiate_return`). And
+  explicit type args are inert — `call_bindings` binds them to the method's *own*
+  parameters (empty for `new`), not the owner's, so `Set.new<String>()` does nothing
+  and the "cannot infer" diagnostic even suggests that non-working form.
+  - **Phase A (concrete, planned).** Route the static arm through
+    `instantiate_return_ctx` so the owner's `T` is recovered from context uniformly
+    (binding annotation, argument, return, field, element); fix the diagnostic to
+    stop suggesting `new<...>()`; clean up the now-misleading `combined_type_params`
+    (built for `StaticCall` but never used by `call_bindings`).
+  - **Phase B (follow-on, re-evaluate after A).** For the genuinely context-free
+    case, support `Set<String>.new()` — type args on the **receiver type** of a
+    static call (parser + a CallExpr/Expr place for receiver type args + owner-param
+    binding in inference). Preferred over `Set.new<String>()` (owner params on the
+    type; method-own params stay after the method, no ordering ambiguity). Scope
+    this once Phase A shows how much the context-inference fix already covers.
+
+  _(Generics are **invariant by design** for now — no variance/subtyping work is
+  planned; this is a deliberate simplification, not a gap.)_
 - **Semantic (scope-aware) references & rename.** `textDocument/references` and
   `textDocument/rename` are implemented but **lexical only** — they match every
   identifier token with the same text, across files, with no binding/scope
