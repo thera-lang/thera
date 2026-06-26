@@ -60,6 +60,28 @@ impl FileScope {
             || self.is_namespace(name);
     }
 
+    // --- qualified resolution (`ns.name`) ---
+    //
+    // The member `name` reached through namespace `ns`. Today the value/type
+    // tables are flat, so these resolve to the same element as a bare reference and
+    // `ns` is not yet consulted for the lookup; Phase 2e resolves *within `ns`'s
+    // library* (owner-correct, lifting global name uniqueness). These are the
+    // lenient resolvers used by inference — visibility (`pub`) is the checker's
+    // concern (`namespace_exposes`), not enforced here. The caller has already
+    // established that `ns` is a namespace it binds.
+
+    pub fn resolve_qualified_function(self, _ ns: String, _ name: String) -> Option<FunctionElement> {
+        return self.library.functions.get(name);
+    }
+
+    pub fn resolve_qualified_const(self, _ ns: String, _ name: String) -> Option<ConstElement> {
+        return self.library.consts.get(name);
+    }
+
+    pub fn resolve_qualified_type_def(self, _ ns: String, _ name: String) -> Option<TypeDefElement> {
+        return self.library.type_defs.get(name);
+    }
+
     // --- types ---
 
     // The type definition `name` resolves to (currently a flat, cross-file table).

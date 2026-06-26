@@ -18,6 +18,7 @@
 import '../ast/ast' as _;
 import 'types' as _;
 import 'element' as _;
+import 'scope' as _;
 import 'resolver';
 
 // The constant-per-function context: the resolved library, the generic
@@ -59,6 +60,13 @@ pub fn with_return_type(_ ctx: InferCtx, _ ret: Type) -> InferCtx {
         type_param_bounds: ctx.type_param_bounds,
         current_file: ctx.current_file,
     };
+}
+
+// The per-file resolution scope of the function being inferred — the static tier
+// (file top-level, imports, prelude, built-ins) that bare/qualified names resolve
+// against. The lexical `scope: Map<String, Type>` is consulted separately, first.
+fn ctx_scope(_ ctx: InferCtx) -> FileScope {
+    return file_scope(ctx.library, ctx.current_file);
 }
 
 // Infer an expression's type in `scope`, with no contextual expectation.
@@ -119,7 +127,7 @@ fn infer_map(_ entries: List<MapEntry>, _ scope: Map<String, Type>, _ ctx: Infer
 }
 
 fn infer_struct(_ x: StructExpr, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
-    match ctx.library.type_defs.get(x.type_name) {
+    match ctx_scope(ctx).resolve_type_def(x.type_name) {
         Some(element) => {
             if element.kind == TypeDefKind.Struct {
                 let bindings: Map<String, Type> = {};
@@ -149,7 +157,7 @@ fn infer_ident(_ name: String, _ scope: Map<String, Type>, _ ctx: InferCtx) -> T
         Some(t) => { return t; },
         None => {},
     }
-    match ctx.library.consts.get(name) {
+    match ctx_scope(ctx).resolve_const(name) {
         Some(c) => { return c.ty; },
         None => {},
     }
@@ -645,7 +653,7 @@ fn infer_call_ident(_ name: String, _ arg_types: List<Type>, _ type_args: List<T
         },
         None => {},
     }
-    match function_for(ctx.library, ctx.current_file, name) {
+    match ctx_scope(ctx).resolve_function(name) {
         Some(fn_el) => { return instantiate_return_ctx(fn_el, type_args, arg_types, expected, ctx); },
         None => {},
     }
@@ -677,7 +685,7 @@ fn infer_call_field(_ obj: Expr, _ field: String, _ arg_types: List<Type>,
     match obj {
         Ident(_, nsname) => {
             if is_namespace(nsname, scope, ctx) {
-                match ctx.library.functions.get(field) {
+                match ctx_scope(ctx).resolve_qualified_function(nsname, field) {
                     Some(fn_el) => { return instantiate_return(fn_el, arg_types); },
                     None => {},
                 }
@@ -733,7 +741,7 @@ fn infer_call_field(_ obj: Expr, _ field: String, _ arg_types: List<Type>,
             match ctx.type_param_bounds.get(tpname) {
                 Some(bounds) => {
                     for bound in bounds {
-                        match ctx.library.type_defs.get(bound) {
+                        match ctx_scope(ctx).resolve_type_def(bound) {
                             Some(bdef) => {
                                 match find_method(bdef, field) {
                                     Some(method) => { return method.return_type; },
@@ -800,8 +808,11 @@ pub fn infer_callee_kind(_ obj: Expr, _ field: String, _ arg_count: Int,
     // Namespace function: `ns.fn(...)` (free or native — both are library fns).
     match obj {
         Ident(_, nsname) => {
-            if is_namespace(nsname, scope, ctx) && ctx.library.functions.has(field) {
-                return CalleeKind.Namespace;
+            if is_namespace(nsname, scope, ctx) {
+                match ctx_scope(ctx).resolve_qualified_function(nsname, field) {
+                    Some(_) => { return CalleeKind.Namespace; },
+                    None => {},
+                }
             };
         },
         _ => {},
@@ -878,7 +889,7 @@ fn dispatches_virtually(_ recv: Type, _ ctx: InferCtx) -> Bool {
 }
 
 fn is_interface_def(_ name: String, _ ctx: InferCtx) -> Bool {
-    return match ctx.library.type_defs.get(name) {
+    return match ctx_scope(ctx).resolve_type_def(name) {
         Some(def) => def.kind == TypeDefKind.Interface,
         None => false,
     };
@@ -895,7 +906,7 @@ pub fn expected_arg_types(_ callee: Expr, _ args: List<CallArg>,
 
     match callee {
         Ident(_, name) => {
-            match function_for(ctx.library, ctx.current_file, name) {
+            match ctx_scope(ctx).resolve_function(name) {
                 Some(fn_el) => { params = Option.Some(fn_el.parameters); },
                 None => {
                     return match scope.get(name) {
@@ -913,7 +924,7 @@ pub fn expected_arg_types(_ callee: Expr, _ args: List<CallArg>,
             match obj {
                 Ident(_, nsname) => {
                     if is_namespace(nsname, scope, ctx) {
-                        match ctx.library.functions.get(field) {
+                        match ctx_scope(ctx).resolve_qualified_function(nsname, field) {
                             Some(fn_el) => { params = Option.Some(fn_el.parameters); },
                             None => {},
                         }
@@ -927,7 +938,7 @@ pub fn expected_arg_types(_ callee: Expr, _ args: List<CallArg>,
                     let recv = infer_expr(obj, scope, ctx, Option.None);
                     match recv {
                         Interface(rname, rargs) => {
-                            match ctx.library.type_defs.get(rname) {
+                            match ctx_scope(ctx).resolve_type_def(rname) {
                                 Some(rdef) => {
                                     match find_method(rdef, field) {
                                         Some(method) => {
@@ -995,7 +1006,7 @@ fn infer_field(_ object: Expr, _ field: String, _ expected: Option<Type>,
     match object {
         Ident(_, name) => {
             if is_namespace(name, scope, ctx) {
-                match ctx.library.consts.get(field) {
+                match ctx_scope(ctx).resolve_qualified_const(name, field) {
                     Some(c) => { return c.ty; },
                     None => {},
                 }
@@ -1044,7 +1055,7 @@ pub fn bind_for_pattern(_ pattern: Pattern, _ iter_type: Type,
 fn variant_field_types(_ subject: Type, _ name: String, _ ctx: InferCtx) -> List<Type> {
     match subject {
         Interface(sname, sargs) => {
-            match ctx.library.type_defs.get(sname) {
+            match ctx_scope(ctx).resolve_type_def(sname) {
                 Some(element) => {
                     if element.kind == TypeDefKind.Enum {
                         match find_variant(element, name) {
@@ -1089,7 +1100,7 @@ pub fn for_element_type(_ iter_type: Type, _ ctx: InferCtx) -> Type {
 fn iterator_element(_ t: Type, _ ctx: InferCtx) -> Option<Type> {
     match t {
         Interface(name, args) => {
-            match ctx.library.type_defs.get(name) {
+            match ctx_scope(ctx).resolve_type_def(name) {
                 Some(def) => {
                     if name != 'Iterator' && !str_list_has(def.interfaces, 'Iterator') {
                         return Option.None;
@@ -1207,7 +1218,7 @@ fn index_result(_ recv: Type) -> Type {
 fn field_type(_ recv: Type, _ field: String, _ ctx: InferCtx) -> Type {
     match recv {
         Interface(name, args) => {
-            match ctx.library.type_defs.get(name) {
+            match ctx_scope(ctx).resolve_type_def(name) {
                 Some(def) => {
                     if def.kind == TypeDefKind.Struct {
                         match def.fields.get(field) {
@@ -1229,25 +1240,26 @@ fn field_type(_ recv: Type, _ field: String, _ ctx: InferCtx) -> Type {
 // Whether `name` refers to an import namespace here (a known namespace not
 // shadowed by a local).
 fn is_namespace(_ name: String, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Bool {
-    return !scope.has(name) && namespaces_in(ctx.library, ctx.current_file).has(name);
+    return !scope.has(name) && ctx_scope(ctx).is_namespace(name);
 }
 
 // Resolve a (possibly namespace-qualified) type reference in expression position
-// — `Type` or `ns.Type` — to its element. The type table is flat, so a qualified
-// `ns.Type` resolves to the same element as bare `Type`.
+// — `Type` or `ns.Type` — to its element, through the file's scope (Phase 2e makes
+// the qualified form owner-correct; today the flat table resolves both to the same
+// element).
 fn type_def_for_expr(_ object: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx)
     -> Option<TypeDefElement> {
     match object {
         Ident(_, name) => {
             if !scope.has(name) {
-                return ctx.library.type_defs.get(name);
+                return ctx_scope(ctx).resolve_type_def(name);
             };
         },
         Field(_, inner, field) => {
             match inner {
                 Ident(_, nsname) => {
                     if is_namespace(nsname, scope, ctx) {
-                        return ctx.library.type_defs.get(field);
+                        return ctx_scope(ctx).resolve_qualified_type_def(nsname, field);
                     };
                 },
                 _ => {},
@@ -1320,9 +1332,9 @@ fn enum_expected_args(_ name: String, _ expected: Option<Type>) -> List<Type> {
 // the bridge that lets primitives host methods uniformly.
 fn type_def_for(_ ty: Type, _ ctx: InferCtx) -> Option<TypeDefElement> {
     return match ty {
-        Interface(name, _) => ctx.library.type_defs.get(name),
+        Interface(name, _) => ctx_scope(ctx).resolve_type_def(name),
         Primitive(p) => match primitive_type_name(p) {
-            Some(n) => ctx.library.type_defs.get(n),
+            Some(n) => ctx_scope(ctx).resolve_type_def(n),
             None => Option.None,
         },
         _ => Option.None,
@@ -1442,7 +1454,7 @@ pub fn resolve_ns_or_static_call(_ recv: Expr, _ field: String,
     match recv {
         Ident(_, nsname) => {
             if is_namespace(nsname, scope, ctx) {
-                match ctx.library.functions.get(field) {
+                match ctx_scope(ctx).resolve_qualified_function(nsname, field) {
                     Some(fn_el) => {
                         return Option.Some(StaticCall { fn_el: fn_el, type_params: fn_el.type_parameters });
                     },
@@ -1489,7 +1501,7 @@ fn combined_type_params(_ a: List<String>, _ b: List<String>) -> List<String> {
 
 fn is_enum_type(_ ty: Type, _ ctx: InferCtx) -> Bool {
     return match ty {
-        Interface(name, _) => match ctx.library.type_defs.get(name) {
+        Interface(name, _) => match ctx_scope(ctx).resolve_type_def(name) {
             Some(def) => def.kind == TypeDefKind.Enum,
             None => false,
         },
@@ -1501,7 +1513,7 @@ fn is_enum_type(_ ty: Type, _ ctx: InferCtx) -> Bool {
 // resolved arguments, for instantiating members.
 fn receiver_bindings(_ name: String, _ args: List<Type>, _ ctx: InferCtx) -> Map<String, Type> {
     let bindings: Map<String, Type> = {};
-    match ctx.library.type_defs.get(name) {
+    match ctx_scope(ctx).resolve_type_def(name) {
         Some(def) => {
             let params = def.type_parameters;
             let mut i = 0;
