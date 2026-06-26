@@ -100,7 +100,8 @@ impl FileScope {
     // it; on a clean program no such access reaches here).
 
     // The file (key) that owns public member `name` of namespace `ns`, or None.
-    fn member_owner(self, _ ns: String, _ name: String) -> Option<String> {
+    // Public so codegen can map a qualified call to its owning file's unit.
+    pub fn member_owner(self, _ ns: String, _ name: String) -> Option<String> {
         return match self.namespace_surface(ns) {
             Some(surface) => surface.origin.get(name),
             None => Option.None,

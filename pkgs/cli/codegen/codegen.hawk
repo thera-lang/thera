@@ -20,6 +20,7 @@ import '../bytecode/instr' as _;
 import '../bytecode/module' as _;
 import '../element/types' as _;
 import '../element/element';
+import '../element/scope' as _;
 import '../element/resolver';
 import '../element/inference' as _;
 import 'module_scope' as _;
@@ -1597,15 +1598,23 @@ impl FnCompiler {
                         },
                         None => {},
                     }
-                    match self.scope.resolve_global_function(field) {
-                        Some(fn_idx) => {
-                            let ordered = self.resolve_args(self.scope.units[fn_idx].params, x.args, x.span);
-                            // Thread expected arg types (like the bare-call path), so a
-                            // qualified call passing an un-annotated lambda types it
-                            // bidirectionally — making `ns.fn(...)` byte-identical to `fn(...)`.
-                            self.emit_ordered_args(x.callee, x.args, ordered);
-                            self.emit(Instr.Call(fn_idx, ordered.len()));
-                            return true;
+                    // Resolve the qualified function within `ns`'s owning library
+                    // (owner-correct), not a last-wins global table — so two
+                    // libraries' same-named functions emit calls to distinct units.
+                    match file_scope(self.scope.library, self.file).member_owner(ns_name, field) {
+                        Some(owner) => {
+                            match self.scope.function_in_file(owner, field) {
+                                Some(fn_idx) => {
+                                    let ordered = self.resolve_args(self.scope.units[fn_idx].params, x.args, x.span);
+                                    // Thread expected arg types (like the bare-call path), so a
+                                    // qualified call passing an un-annotated lambda types it
+                                    // bidirectionally — making `ns.fn(...)` byte-identical to `fn(...)`.
+                                    self.emit_ordered_args(x.callee, x.args, ordered);
+                                    self.emit(Instr.Call(fn_idx, ordered.len()));
+                                    return true;
+                                },
+                                None => {},
+                            }
                         },
                         None => {},
                     }

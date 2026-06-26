@@ -187,6 +187,17 @@ impl ModuleScope {
         return self.global_functions.get(name);
     }
 
+    // The unit index of free function `name` declared in file `owner` (a file key) —
+    // the owner-correct lookup behind a qualified call (`ns.fn`), where `owner` is
+    // the file the namespace's surface attributes `name` to. No global fallback, so
+    // two libraries' same-named functions resolve to distinct units.
+    pub fn function_in_file(self, _ owner: String, _ name: String) -> Option<Int> {
+        return match self.file_functions.get(owner) {
+            Some(m) => m.get(name),
+            None => Option.None,
+        };
+    }
+
     // Whether `name` is an import namespace visible in `file` — its own imports.
     // Resolved through the shared element-model FileScope (the single namespace
     // authority), not a codegen-local copy of the per-file namespace sets.
