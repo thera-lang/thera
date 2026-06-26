@@ -231,34 +231,33 @@ below.)
   `native fn`/`native type` to SDK paths (ties to the `@extern` name-check
   item), and the checker leniency that lets a bare field access on an opaque
   value slip to codegen (the existing `type-field-nonstruct` residual).
-- **Generic struct/enum type-parameter bounds — parsed but not enforced.** A bound
-  on a type's own parameter (`type Box<T: Display> = { v: T }`, `enum E<T: Eq>`) is
-  parsed but **dropped**: `TypeDefElement` carries only parameter *names*, no bounds,
-  so nothing checks them — `Box { v: NoShow }` with a non-`Display` `NoShow` checks
-  clean (a real soundness hole). Fix: store the bounds on `TypeDefElement` (as
-  `FunctionElement` already does) and enforce them where a type argument is supplied
-  — struct construction, an annotated `Box<NoShow>`, enum construction — reusing the
-  checker's `satisfies_bound`. _(Concrete; planned.)_
+- **Generic struct/enum type-parameter bounds — enforced (with a residual).** A
+  bound on a type's own parameter (`type Box<T: Display>`, `enum E<T: Eq>`) is now
+  stored on `TypeDefElement` (filled in resolver pass 1) and enforced via
+  `check_type_arg_bounds` where a concrete argument is supplied: a type annotation
+  (`Box<NoShow>`, in `check_type_ref`) and struct construction (args inferred from
+  fields). Pinned by `generic-type-bounds`. _Residual:_ enum construction with an
+  inferred (un-annotated) argument isn't bound-checked yet (annotated enum use is,
+  via the annotation site); and a bound is **not propagated** onto an enclosing
+  function's own type parameter (`fn f<U>(x: U) -> Box<U>` doesn't require `U:
+  Display`) — the lenient `TypeParameter` case, a separate well-formedness step.
 
-- **Static-method type arguments — context inference + a receiver-type syntax.**
-  A generic static method (`Set.new() -> Set<T>`) does not bind its owner's `T` from
-  call context: `infer_call_field`'s static arm returns the method's return type raw
-  (ignores `expected` and the argument types), unlike the free-function path
-  (`instantiate_return_ctx`) and the namespace path (`instantiate_return`). And
-  explicit type args are inert — `call_bindings` binds them to the method's *own*
-  parameters (empty for `new`), not the owner's, so `Set.new<String>()` does nothing
-  and the "cannot infer" diagnostic even suggests that non-working form.
-  - **Phase A (concrete, planned).** Route the static arm through
-    `instantiate_return_ctx` so the owner's `T` is recovered from context uniformly
-    (binding annotation, argument, return, field, element); fix the diagnostic to
-    stop suggesting `new<...>()`; clean up the now-misleading `combined_type_params`
-    (built for `StaticCall` but never used by `call_bindings`).
+- **Static-method type arguments — Phase A done; receiver-type syntax (Phase B)
+  remains.** A generic static method (`Set.new() -> Set<T>`) now recovers its
+  owner's `T` from call context: `infer_call_field`'s static arm instantiates the
+  return type via `instantiate_return_ctx` (like the free-function path) instead of
+  returning it raw, so a binding annotation, a directly-passed argument, or the
+  return position pins `T` (pinned by `gen-static-context`); and the "cannot infer"
+  diagnostic no longer suggests the non-working `new<...>()` for an owner parameter.
   - **Phase B (follow-on, re-evaluate after A).** For the genuinely context-free
     case, support `Set<String>.new()` — type args on the **receiver type** of a
     static call (parser + a CallExpr/Expr place for receiver type args + owner-param
     binding in inference). Preferred over `Set.new<String>()` (owner params on the
     type; method-own params stay after the method, no ordering ambiguity). Scope
-    this once Phase A shows how much the context-inference fix already covers.
+    this once Phase A shows how much the context-inference fix already covers in
+    practice. (`combined_type_params` stays — it feeds the unpinnable-`T` *check*
+    over owner params, while `call_bindings` binds the method's own; that split is
+    correct, not dead code.)
 
   _(Generics are **invariant by design** for now — no variance/subtyping work is
   planned; this is a deliberate simplification, not a gap.)_
