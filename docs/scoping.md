@@ -243,6 +243,11 @@ are the violations to address.
      imported by the file isn't an "imported name", so it isn't flagged — closing
      that needs the resolution rework below.
 
+**Status (Phases 1 and 2 done — values).** Resolution runs through a single
+`FileScope` per file; value resolution is owner-correct and global value-name
+uniqueness is lifted (gaps 2 and 5 closed for values; type-name uniqueness pending,
+see Phase 2e S5 above). The Phase 1 detail below is retained for history.
+
 **Status (Phase 1 done).** Migration (6) is **done** and guarded at 0.
 Qualified-only and `pub` visibility are now **enforced by construction in the
 resolution gates**, and the two transitional lints (`qualify_lint` /
@@ -329,13 +334,13 @@ through the file's scope to preserve today's behavior.
 authority by the checker (2b), inference (2c), and codegen's namespace resolution
 (2d). All behavior-preserving; `FileScope` is a facade over the still-flat tables.
 
-**2e — lift the limit.** The key realization: uniqueness is forced by exactly one
-enforcement point (`check_duplicates`, closure-wide). Everything else can be built
-and switched on *while names are still globally unique*, where per-file resolution
-and flat-table resolution return the same element — so each step is
-behavior-preserving and the **fixpoint is the oracle** (a different resolution
-changes the emitted bytecode and breaks it). So 2e is not one atomic change but a
-sequence ending in one tiny behavior flip:
+**2e — lift the limit (done, for values).** The key realization: uniqueness is
+forced by exactly one enforcement point (`check_duplicates`, closure-wide).
+Everything else was built and switched on *while names were still globally unique*,
+where per-file resolution and flat-table resolution return the same element — so
+each step stayed behavior-preserving with the **fixpoint as the oracle** (a different
+resolution changes the emitted bytecode and breaks it). So 2e landed not as one
+atomic change but as the sequence below, ending in one tiny behavior flip:
 
 - **S1 (additive)** — per-file element tables `file_type_defs`/`file_consts` in
   `build_library` (mirroring `file_functions`), holding *references* to the shared

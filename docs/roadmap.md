@@ -180,41 +180,27 @@ below.)
   uniqueness case (two libraries' same-named *functions*, e.g. `std.json.parse` vs
   `std.toml.parse`) is handled by 2e. See [scoping.md](scoping.md) → Phase 2e S5.
 
-- **Resolution correctness — Phase 1 done; the per-library refactor (Phase 2)
-  remains.** Qualified-only + `pub` visibility are now **enforced by construction
-  in the resolution gates** (not by transitional lints): the value gate
-  (`check_expr`'s `Ident`) and the type gate (`check_type_ref` / the shared
-  `check_named_type`, threading `current_file` through the top-level signature
-  checkers) reject a bare-but-qualifiable name ("qualify as `ns.name`"), a bare
-  name owned by an un-imported library (undefined / unknown type — **no global
-  last-wins fallback, for types as well as values now**), and a qualified
-  `ns.name` to a non-public member ("not a public member of `ns`"). The two lints
-  (`qualify_lint`/`visibility_lint`, ~620 lines) are **deleted**. Pinned by
-  `mod-qualified-only` (+ `-type-reject`), `vis-pub` (+ `-type-reject`),
-  `mod-no-bare-fallback` (+ type version), `mod-ns-file-local`,
-  `vis-whitebox-test`. _(Closing the type gate surfaced a genuine latent issue:
-  the type-side qualified-only migration had never been done — `server.hawk` used
-  `Reader`/`Writer` without importing `std.io`, etc. — now fixed.)_
+- **Resolution correctness — Phases 1 and 2 done (values).** Qualified-only +
+  `pub` visibility are **enforced by construction in the resolution gates**, and
+  resolution runs through a single **`FileScope`** per file (the checker, inference,
+  and codegen all consult it — no ad-hoc flat-table lookups). For **values
+  (functions / consts)** resolution is **owner-correct**: a bare name reaches its
+  own file or a bare-legal library (prelude / `as _`), a qualified `ns.name` resolves
+  *within `ns`'s library* (via the surfaces' `name -> defining-file` origin maps and
+  per-file element tables), and the flat global `functions`/`consts` tables are
+  **deleted**. This **lifts global value-name uniqueness** — two libraries may share
+  a top-level value name (`std.json.parse` / `std.toml.parse`), pinned by
+  `mod-shared-value-name`. The remaining open piece is **type-name** owner-correctness
+  (`type_defs` is still global by name) — its own item above (`Type` carries its
+  origin) + an architecture review.
 
-  **Phase 2 — the `FileScope` abstraction (replaces the flat tables).** The
-  element model still merges the closure into flat `functions`/`type_defs`/`consts`
-  maps, which **force global name uniqueness** across the whole import closure (two
-  libraries can't share a top-level name — `check_duplicates` is closure-wide).
-  That's a real latent limitation, not just impurity. The fix is a single
-  **`FileScope`** value per file — built once, returning the owning **element** —
-  that replaces the ad-hoc lookups scattered across checker/inference/codegen:
-  `resolve_value`/`resolve_type`/`resolve_namespace`, composed per position
-  (lexical Map kept as-is → file top-level → bare-imports (prelude + `as _`) →
-  built-ins; a namespace binds the imported library's scope viewed publicly, so
-  `ns.name` resolves *within that library*). The enabler is owner-correctness in the
-  data: namespace/bare surfaces gain a `name -> defining-file` origin map, and
-  `build_library` keeps per-file element tables so resolution reaches the owning
-  file's declaration. This is correct-by-construction and lifts the uniqueness
-  limit. Steps 2a–2d (introduce `FileScope`; migrate checker, inference, codegen)
-  are behavior-preserving; 2e deletes the global flat tables, makes
-  `check_duplicates` per-file, and adds a conformance test proving two libraries can
-  share a top-level name. Full design + sequence in [scoping.md](scoping.md) →
-  _Phase 2_. (Subsumes the former gaps 2 and 5 there.)
+  _Latent issues the rework surfaced and fixed:_ the type-side qualified-only
+  migration had never been done (`server.hawk` used `Reader`/`Writer` un-imported);
+  prelude names re-exported from `std.core` sub-files were mis-attributed to the
+  barrel; and — the big one — the loader loaded the same file once per `../` path
+  spelling, **compiling every shared library 3–4×**. Canonicalizing import paths cut
+  the front-end self-compile ~11.5 s → ~4.3 s and the bootstrap bytecode 282 KB →
+  124 KB. Full design + the S1–S8 sequence in [scoping.md](scoping.md) → _Phase 2e_.
 
   Related, still open: `impl` coherence / orphan rules, selective import
   (`show`/`hide`), and a "module"→"library" terminology sweep.
@@ -443,6 +429,20 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **Resolution: `FileScope` + owner-correct value resolution (Phase 2)** (2026-06).
+  Resolution moved off the flat global name tables onto a single **`FileScope`** per
+  file (checker, inference, codegen all consult it). Surfaces gained `name ->
+  defining-file` origin maps and `build_library` per-file element tables, so **value
+  (function / const) resolution is owner-correct** — bare to its own file, qualified
+  within the named library — and the flat `functions`/`consts` tables were deleted.
+  This **lifts global value-name uniqueness** (two libraries may share a top-level
+  value name; `mod-shared-value-name`). Landed as eight behavior-preserving steps
+  with the byte-identical fixpoint as the oracle, ending in one small `check_duplicates`
+  relaxation. Surfaced + fixed a latent **duplicate-file-loading** bug (the loader
+  compiled every shared library 3–4× under different `../` path spellings); path
+  canonicalization cut the self-compile ~11.5 s → ~4.3 s and the bootstrap 282 KB →
+  124 KB. _Open: type-name owner-correctness (above)._
 
 - **`#loc` caller-location + assertion source locations** (2026-06). `#loc` is a
   compiler metaconstant (new `#` sigil) evaluating to a
