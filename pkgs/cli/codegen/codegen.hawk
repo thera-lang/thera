@@ -59,7 +59,7 @@ pub type Fixup = {
 // resolve), then every unit is compiled.
 pub fn compile_program(_ program: Program, _ imports: List<Program>,
     _ file_namespaces: Map<String, Map<String, element.LibraryNamespace>>,
-    _ file_bare_surface: Map<String, Set<String>>) -> CodegenResult {
+    _ file_bare_surface: Map<String, Map<String, String>>) -> CodegenResult {
     let library = resolver.build_library(program, imports, file_namespaces, file_bare_surface);
     // Namespace resolution is the element-model FileScope's job (each unit resolves
     // qualifiers against its own file's imports via `library.file_namespaces`) — no

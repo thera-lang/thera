@@ -93,7 +93,7 @@ fn builtin_displayable(_ name: String) -> TypeDefElement {
 // and impl methods; pass 3 flattens the inherited interface closure.
 pub fn build_library(_ program: Program, _ imports: List<Program>,
     _ file_namespaces: Map<String, Map<String, LibraryNamespace>>,
-    _ file_bare_surface: Map<String, Set<String>>) -> LibraryElement {
+    _ file_bare_surface: Map<String, Map<String, String>>) -> LibraryElement {
     let type_defs = builtin_type_defs();
     let functions: Map<String, FunctionElement> = {};
     let file_functions: Map<String, Map<String, FunctionElement>> = {};

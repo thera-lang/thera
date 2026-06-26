@@ -52,8 +52,10 @@ pub type LoadedImports = {
     file_namespaces: Map<String, Map<String, element.LibraryNamespace>>,
     // Per-file bare-legal cross-file surface: the names that resolve *unqualified*
     // from another library — the prelude (`std.core`) plus every `import … as _`.
-    // Bare resolution is restricted to same-file names + these + built-ins.
-    file_bare_surface: Map<String, Set<String>>,
+    // Bare resolution is restricted to same-file names + these + built-ins. Each
+    // name maps to its owning file (key), so bare resolution can reach the owning
+    // element (Phase 2e); the legality check reads only the keys.
+    file_bare_surface: Map<String, Map<String, String>>,
 }
 
 // --- SDK root discovery ---
@@ -277,14 +279,16 @@ pub fn load_imports(_ path: String, _ program: Program, _ sdk_root: Option<Strin
 
     // std.core is auto-imported into every program — load it so its types (Error),
     // impls (Display for Error), and the prelude methods on built-in types link.
-    // Its public surface is bare-legal in every file (the prelude).
-    let core_names: Set<String> = Set.new();
+    // Its public surface is bare-legal in every file (the prelude); each prelude
+    // name maps to std.core's file (key) as its owning library.
+    let core_names: Map<String, String> = {};
     match loader.resolve('std.core', '') {
         Some(core) => {
             match loader.source_for(core) {
                 Some(core_src) => {
+                    let core_key = element.file_key(core_src.program.file_path);
                     for n in public_surface_of(core_src).names.to_list() {
-                        core_names.add(n);
+                        core_names[n] = core_key;
                     }
                 },
                 None => {},
@@ -304,7 +308,7 @@ pub fn load_imports(_ path: String, _ program: Program, _ sdk_root: Option<Strin
     // A module's body may itself use a namespace-qualified call, so codegen needs
     // each compiled file's own bindings. The bare-legal surface is built alongside.
     let file_namespaces: Map<String, Map<String, element.LibraryNamespace>> = {};
-    let file_bare_surface: Map<String, Set<String>> = {};
+    let file_bare_surface: Map<String, Map<String, String>> = {};
     for file in loader.cache.keys() {
         let src = loader.cache[file];
         let key = element.file_key(src.program.file_path);
@@ -323,10 +327,13 @@ pub fn load_imports(_ path: String, _ program: Program, _ sdk_root: Option<Strin
 // (`core_names`), the public surface of each `import … as _` (unqualified) import,
 // and — for a `foo_test.hawk` — the *full* surface (incl. private) of the `foo`
 // it imports (the white-box test exception; the filenames match).
-fn bare_surface_for(_ root: LibrarySource, _ core_names: Set<String>) -> Set<String> {
-    let names: Set<String> = Set.new();
-    for n in core_names.to_list() {
-        names.add(n);
+fn bare_surface_for(_ root: LibrarySource, _ core_names: Map<String, String>) -> Map<String, String> {
+    // name -> owning file (key). The prelude names own to std.core; an `as _`
+    // import's public names own to that import's file; a `foo_test.hawk`'s
+    // white-box view owns to `foo.hawk`.
+    let names: Map<String, String> = {};
+    for n in core_names.keys() {
+        names[n] = core_names[n];
     }
     let test_base = test_base_name(root.program.file_path);
     for decl in root.program.decls {
@@ -334,9 +341,10 @@ fn bare_surface_for(_ root: LibrarySource, _ core_names: Set<String>) -> Set<Str
             Import(x) => {
                 match root.imports.get(x.path) {
                     Some(child) => {
+                        let child_key = element.file_key(child.program.file_path);
                         if x.unqualified {
                             for n in public_surface_of(child).names.to_list() {
-                                names.add(n);
+                                names[n] = child_key;
                             }
                         }
                         // White-box: `foo_test.hawk` sees `foo.hawk`'s private
@@ -345,7 +353,7 @@ fn bare_surface_for(_ root: LibrarySource, _ core_names: Set<String>) -> Set<Str
                             Some(base) => {
                                 if basename_no_ext(child.program.file_path) == base {
                                     for n in all_top_names(child).to_list() {
-                                        names.add(n);
+                                        names[n] = child_key;
                                     }
                                 }
                             },
@@ -438,14 +446,15 @@ pub fn namespaces_for(_ root: LibrarySource) -> Map<String, element.LibraryNames
 pub fn public_surface_of(_ lib: LibrarySource) -> element.LibraryNamespace {
     let names: Set<String> = Set.new();
     let collisions: Set<String> = Set.new();
+    let origin: Map<String, String> = {};
     let visited: Set<String> = Set.new();
-    collect_surface(lib, names, collisions, visited);
-    return element.LibraryNamespace { names: names, collisions: collisions };
+    collect_surface(lib, names, collisions, origin, visited);
+    return element.LibraryNamespace { names: names, collisions: collisions, origin: origin };
 }
 
 // Cycle detection keys on the program's `file_path` (Hawk has no object identity).
 fn collect_surface(_ source: LibrarySource, _ names: Set<String>, _ collisions: Set<String>,
-    _ visited: Set<String>) -> Void {
+    _ origin: Map<String, String>, _ visited: Set<String>) -> Void {
     let key = match source.program.file_path {
         Some(p) => p,
         None => '',
@@ -461,6 +470,10 @@ fn collect_surface(_ source: LibrarySource, _ names: Set<String>, _ collisions: 
                     collisions.add(name);
                 } else {
                     names.add(name);
+                    // The declaring file owns this public name (a barrel re-export
+                    // owns to the re-exporting file via the recursion below). A later
+                    // collision keeps the first owner; `collisions` flags the clash.
+                    origin[name] = key;
                 }
             },
             None => {},
@@ -471,7 +484,7 @@ fn collect_surface(_ source: LibrarySource, _ names: Set<String>, _ collisions: 
             Import(x) => {
                 if x.is_pub {
                     match source.imports.get(x.path) {
-                        Some(child) => { collect_surface(child, names, collisions, visited); },
+                        Some(child) => { collect_surface(child, names, collisions, origin, visited); },
                         None => {},
                     }
                 }

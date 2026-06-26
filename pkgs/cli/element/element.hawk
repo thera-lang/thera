@@ -144,6 +144,10 @@ pub fn implements_interface(_ e: TypeDefElement, _ interface_name: String) -> Bo
 pub type LibraryNamespace = {
     names: Set<String>,
     collisions: Set<String>,
+    // Public name -> the file (key) that declares it, so a qualified `ns.name`
+    // resolves to the owning library's element rather than the flat global table
+    // (Phase 2e). Populated by the loader; unused until S3.
+    origin: Map<String, String>,
 }
 
 pub fn namespace_exposes(_ ns: LibraryNamespace, _ name: String) -> Bool {
@@ -174,8 +178,10 @@ pub type LibraryElement = {
     // Per-file bare-legal cross-file surface (prelude + `as _` imports) and the set
     // of top-level names each file declares. Together these gate bare resolution:
     // a bare name is legal only if it is same-file (`file_owned`), bare-legal from
-    // another library (`file_bare_surface`), a built-in, or in scope.
-    file_bare_surface: Map<String, Set<String>>,
+    // another library (`file_bare_surface`), a built-in, or in scope. The bare
+    // surface maps each legal name to its owning file (key), so bare resolution can
+    // reach the owning element (Phase 2e S4); `bare_surface_has` reads only the keys.
+    file_bare_surface: Map<String, Map<String, String>>,
     file_owned: Map<String, Set<String>>,
 }
 

@@ -38,7 +38,7 @@ pub fn has_errors(_ r: CheckResult) -> Bool {
 // the import-namespace surfaces. Returns the accumulated diagnostics.
 pub fn check(_ program: Program, _ imports: List<Program>,
     _ file_namespaces: Map<String, Map<String, LibraryNamespace>>,
-    _ file_bare_surface: Map<String, Set<String>>) -> CheckResult {
+    _ file_bare_surface: Map<String, Map<String, String>>) -> CheckResult {
     let errors: List<CheckError> = [];
     let library = resolver.build_library(program, imports, file_namespaces, file_bare_surface);
     check_duplicates(errors, program, imports);
