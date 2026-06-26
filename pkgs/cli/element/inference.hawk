@@ -692,7 +692,10 @@ fn infer_call_field(_ obj: Expr, _ field: String, _ arg_types: List<Type>,
         Ident(_, nsname) => {
             if is_namespace(nsname, scope, ctx) {
                 match ctx_scope(ctx).resolve_qualified_function(nsname, field) {
-                    Some(fn_el) => { return instantiate_return(fn_el, arg_types); },
+                    // Context-aware like the bare free-function path: a `ns.fn(...)`
+                    // whose type parameter appears only in the return type is pinned
+                    // by explicit type args or the expected type, not left unbound.
+                    Some(fn_el) => { return instantiate_return_ctx(fn_el, type_args, arg_types, expected, ctx); },
                     None => {},
                 }
             };
@@ -1134,18 +1137,6 @@ fn iterator_element(_ t: Type, _ ctx: InferCtx) -> Option<Type> {
     return Option.None;
 }
 
-// Instantiate a free function's return type from its argument types.
-fn instantiate_return(_ fn_el: FunctionElement, _ arg_types: List<Type>) -> Type {
-    let bindings: Map<String, Type> = {};
-    let positional = non_self_params(fn_el.parameters);
-    let mut i = 0;
-    while i < arg_types.len() && i < positional.len() {
-        unify(positional[i].ty, arg_types[i], bindings);
-        i = i + 1;
-    }
-    return substitute(fn_el.return_type, bindings);
-}
-
 // Bind a generic callee's type parameters from (in priority order) explicit type
 // arguments, the argument types, then the expected (return) type — the last lets
 // a `T` that appears only in the return be recovered from the call's context (a
@@ -1207,8 +1198,10 @@ pub fn static_call_bindings(_ method: FunctionElement, _ owner_params: List<Stri
         method, type_args, arg_types, expected, ctx);
 }
 
-// As `instantiate_return`, but context-aware: instantiates from explicit type
-// arguments and the expected type as well as the argument types.
+// Instantiate a callee's return type, context-aware: from explicit type arguments,
+// the argument types, and the expected type (so a parameter that appears only in the
+// return is still pinned). The one return-type instantiation path for free and
+// namespace functions; static methods seed owner params first (`static_call_bindings`).
 fn instantiate_return_ctx(_ fn_el: FunctionElement, _ type_args: List<TypeRef>,
     _ arg_types: List<Type>, _ expected: Option<Type>, _ ctx: InferCtx) -> Type {
     return substitute(fn_el.return_type, call_bindings(fn_el, type_args, arg_types, expected, ctx));
