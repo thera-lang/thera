@@ -668,39 +668,22 @@ fn infer_call_field(_ obj: Expr, _ field: String, _ arg_types: List<Type>,
         Some(t) => { return t; },
         None => {},
     }
-    // Static method on a (possibly namespaced) type: `(ns.)?Type.method(...)`.
-    // Instantiate the return type from receiver type args (`Set<String>.new()`),
+    // Static method (`(ns.)?Type.method`) or namespace function (`ns.fn`). The
+    // static return type is instantiated from receiver type args (`Set<String>.new()`),
     // the method's own type args, the argument types, and the expected type — so the
     // owner parameter (`Set.new() -> Set<T>`) is bound whether written explicitly or
-    // recovered from context, rather than left unbound.
-    match type_def_for_expr(obj, scope, ctx) {
-        Some(type_def) => {
-            match find_method(type_def, field) {
-                Some(method) => {
-                    if method.is_static {
-                        return substitute(method.return_type,
-                            static_call_bindings(method, type_def.type_parameters, recv_type_args, type_args, arg_types, expected, ctx));
-                    };
-                },
-                None => {},
-            }
+    // recovered from context. The namespace path is context-aware in the same way.
+    match resolve_static_receiver(obj, field, scope, ctx) {
+        Some(sr) => match sr {
+            StaticMethod(type_def, method) => {
+                return substitute(method.return_type,
+                    static_call_bindings(method, type_def.type_parameters, recv_type_args, type_args, arg_types, expected, ctx));
+            },
+            NamespaceFn(fn_el) => {
+                return instantiate_return_ctx(fn_el, type_args, arg_types, expected, ctx);
+            },
         },
         None => {},
-    }
-    // Namespace function: `ns.fn(...)`.
-    match obj {
-        Ident(_, nsname) => {
-            if is_namespace(nsname, scope, ctx) {
-                match ctx_scope(ctx).resolve_qualified_function(nsname, field) {
-                    // Context-aware like the bare free-function path: a `ns.fn(...)`
-                    // whose type parameter appears only in the return type is pinned
-                    // by explicit type args or the expected type, not left unbound.
-                    Some(fn_el) => { return instantiate_return_ctx(fn_el, type_args, arg_types, expected, ctx); },
-                    None => {},
-                }
-            };
-        },
-        _ => {},
     }
 
     let recv_type = infer_expr(obj, scope, ctx, Option.None);
@@ -711,27 +694,19 @@ fn infer_call_field(_ obj: Expr, _ field: String, _ arg_types: List<Type>,
     }
 
     // Method declared in an impl block — on a struct/enum/collection or a
-    // primitive alike: resolution looks through to the receiver's element. Bind
-    // the receiver's type parameters and the method's own type parameters
-    // recovered from the argument types.
-    match type_def_for(recv_type, ctx) {
-        Some(element) => {
-            match find_method(element, field) {
-                Some(method) => {
-                    let bindings = match recv_type {
-                        Interface(rname, rargs) => receiver_bindings(rname, rargs, ctx),
-                        _ => empty_bindings(),
-                    };
-                    let positional = non_self_params(method.parameters);
-                    let mut j = 0;
-                    while j < arg_types.len() && j < positional.len() {
-                        unify(positional[j].ty, arg_types[j], bindings);
-                        j = j + 1;
-                    }
-                    return substitute(method.return_type, bindings);
-                },
-                None => {},
+    // primitive alike: `resolve_method` looks through to the receiver's element and
+    // its generic bindings (the same resolution the checker uses); the method's own
+    // type parameters are then recovered from the argument types.
+    match resolve_method(recv_type, field, ctx) {
+        Some(res) => {
+            let bindings = res.bindings;
+            let positional = non_self_params(res.method.parameters);
+            let mut j = 0;
+            while j < arg_types.len() && j < positional.len() {
+                unify(positional[j].ty, arg_types[j], bindings);
+                j = j + 1;
             }
+            return substitute(res.method.return_type, bindings);
         },
         None => {},
     }
@@ -794,7 +769,9 @@ pub enum CalleeKind {
 // callee it is. `arg_count` distinguishes the enum `e.name()` form.
 pub fn infer_callee_kind(_ obj: Expr, _ field: String, _ arg_count: Int,
     _ scope: Map<String, Type>, _ ctx: InferCtx) -> CalleeKind {
-    // Type-name receiver: enum construction or a static method.
+    // Type-name receiver: enum construction (its type needs the payload, so it is
+    // classified directly off the variant) or a static method / namespace function
+    // (the shared static-receiver classifier).
     match type_def_for_expr(obj, scope, ctx) {
         Some(type_def) => {
             if type_def.kind == TypeDefKind.Enum {
@@ -803,28 +780,15 @@ pub fn infer_callee_kind(_ obj: Expr, _ field: String, _ arg_count: Int,
                     None => {},
                 }
             }
-            match find_method(type_def, field) {
-                Some(method) => {
-                    if method.is_static {
-                        return CalleeKind.StaticMethod;
-                    };
-                },
-                None => {},
-            }
         },
         None => {},
     }
-    // Namespace function: `ns.fn(...)` (free or native — both are library fns).
-    match obj {
-        Ident(_, nsname) => {
-            if is_namespace(nsname, scope, ctx) {
-                match ctx_scope(ctx).resolve_qualified_function(nsname, field) {
-                    Some(_) => { return CalleeKind.Namespace; },
-                    None => {},
-                }
-            };
+    match resolve_static_receiver(obj, field, scope, ctx) {
+        Some(sr) => match sr {
+            StaticMethod(_, _) => { return CalleeKind.StaticMethod; },
+            NamespaceFn(_) => { return CalleeKind.Namespace; },
         },
-        _ => {},
+        None => {},
     }
 
     let recv_type = infer_expr(obj, scope, ctx, Option.None);
@@ -1467,6 +1431,49 @@ pub fn resolve_method(_ recv: Type, _ field: String, _ ctx: InferCtx) -> Option<
     return Option.None;
 }
 
+// The "static receiver" head of a `(ns.)?recv.field(...)` call — a callee reached
+// without a value receiver: a static method on a type name, or a free/native
+// function on an import namespace. (An enum constructor is handled separately, by
+// `enum_variant_type` / a `find_variant` check, since its type needs the payload.)
+// The single classifier for this front of every call cascade — `infer_call_field`,
+// `infer_callee_kind`, and `resolve_ns_or_static_call` all consult it rather than
+// each re-walking the type-name/namespace tables.
+pub enum StaticReceiver {
+    StaticMethod(TypeDefElement, FunctionElement), // `(ns.)?Type.method` — owner + method
+    NamespaceFn(FunctionElement),                  // `ns.fn` — a namespaced free/native fn
+}
+
+pub fn resolve_static_receiver(_ obj: Expr, _ field: String, _ scope: Map<String, Type>,
+    _ ctx: InferCtx) -> Option<StaticReceiver> {
+    // A type-name receiver with a static method (`Set.new`, `provider.Type.make`).
+    match type_def_for_expr(obj, scope, ctx) {
+        Some(type_def) => {
+            match find_method(type_def, field) {
+                Some(method) => {
+                    if method.is_static {
+                        return Option.Some(StaticReceiver.StaticMethod(type_def, method));
+                    };
+                },
+                None => {},
+            }
+        },
+        None => {},
+    }
+    // A namespace receiver with a free/native function (`fs.read_text`).
+    match obj {
+        Ident(_, nsname) => {
+            if is_namespace(nsname, scope, ctx) {
+                match ctx_scope(ctx).resolve_qualified_function(nsname, field) {
+                    Some(fn_el) => { return Option.Some(StaticReceiver.NamespaceFn(fn_el)); },
+                    None => {},
+                }
+            };
+        },
+        _ => {},
+    }
+    return Option.None;
+}
+
 // A resolved free-function-style callee reached through a `recv.field(...)`
 // expression: a namespace function (`ns.fn`) or a static method (`Type.method`).
 // `type_params` are the parameters a caller must determine — the callee's own,
@@ -1483,38 +1490,19 @@ pub type StaticCall = {
 // constructor, or an unresolved callee.
 pub fn resolve_ns_or_static_call(_ recv: Expr, _ field: String,
     _ scope: Map<String, Type>, _ ctx: InferCtx) -> Option<StaticCall> {
-    // Namespace function: `ns.fn(...)`.
-    match recv {
-        Ident(_, nsname) => {
-            if is_namespace(nsname, scope, ctx) {
-                match ctx_scope(ctx).resolve_qualified_function(nsname, field) {
-                    Some(fn_el) => {
-                        return Option.Some(StaticCall { fn_el: fn_el, type_params: fn_el.type_parameters });
-                    },
-                    None => {},
-                }
-            };
+    return match resolve_static_receiver(recv, field, scope, ctx) {
+        Some(sr) => match sr {
+            StaticMethod(type_def, method) => Option.Some(StaticCall {
+                fn_el: method,
+                type_params: combined_type_params(method.type_parameters, type_def.type_parameters),
+            }),
+            NamespaceFn(fn_el) => Option.Some(StaticCall {
+                fn_el: fn_el,
+                type_params: fn_el.type_parameters,
+            }),
         },
-        _ => {},
-    }
-    // Static method: `(ns.)?Type.method(...)`.
-    match type_def_for_expr(recv, scope, ctx) {
-        Some(type_def) => {
-            match find_method(type_def, field) {
-                Some(method) => {
-                    if method.is_static {
-                        return Option.Some(StaticCall {
-                            fn_el: method,
-                            type_params: combined_type_params(method.type_parameters, type_def.type_parameters),
-                        });
-                    };
-                },
-                None => {},
-            }
-        },
-        None => {},
-    }
-    return Option.None;
+        None => Option.None,
+    };
 }
 
 // `a` followed by the members of `b` not already in `a` — the static-method
