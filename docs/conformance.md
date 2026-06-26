@@ -128,6 +128,7 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `iface-inherit`     | Interface inheritance    | `interface E: Display + Debug` obligations & widened set   | ✓      |
 | `iface-dispatch`    | Dispatch                 | dynamic dispatch for interface-typed values & bounds       | ✓      |
 | `generic-bounds`    | Interfaces / Dispatch    | `<T: Eq + Debug>` enforced at call sites                  | ✓      |
+| `generic-type-bounds`| Interfaces / Dispatch    | a bound on a generic type's own parameter (`Box<T: Display>`) is enforced on its type arguments | ✓ |
 
 ## Imports, scoping & visibility
 

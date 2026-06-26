@@ -57,6 +57,10 @@ pub type TypeDefElement = {
     name: String,
     kind: TypeDefKind,
     type_parameters: List<String>,
+    // Interface bounds on the type's own parameters (`type Box<T: Display>` ->
+    // {T: [Display]}), enforced where a concrete type argument is supplied. The
+    // analogue of `FunctionElement.type_parameter_bounds`.
+    type_parameter_bounds: Map<String, List<String>>,
     methods: List<FunctionElement>, // from impl blocks / interface decls
     interfaces: List<String>,       // `impl Interface for Type` conformances
     // Struct fields: name -> resolved type (insertion order preserved).
@@ -95,6 +99,7 @@ fn empty_def(_ name: String, _ kind: TypeDefKind, _ type_params: List<String>)
         name: name,
         kind: kind,
         type_parameters: type_params,
+        type_parameter_bounds: {},
         methods: [],
         interfaces: [],
         fields: {},

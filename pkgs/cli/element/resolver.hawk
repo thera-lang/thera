@@ -140,16 +140,19 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
                     } else {
                         new_struct(x.name, type_param_names(x.type_params))
                     };
+                    fill_type_param_bounds(el, x.type_params);
                     type_defs[x.name] = el;
                     record_file_type(file_type_defs, p.file_path, x.name, el);
                 },
                 Enum(x) => {
                     let el = new_enum(x.name, type_param_names(x.type_params));
+                    fill_type_param_bounds(el, x.type_params);
                     type_defs[x.name] = el;
                     record_file_type(file_type_defs, p.file_path, x.name, el);
                 },
                 Interface(x) => {
                     let el = new_interface(x.name, type_param_names(x.type_params));
+                    fill_type_param_bounds(el, x.type_params);
                     type_defs[x.name] = el;
                     record_file_type(file_type_defs, p.file_path, x.name, el);
                 },
@@ -429,6 +432,15 @@ fn build_params(_ decl: FnDecl, _ type_defs: Map<String, TypeDefElement>,
 
 fn type_param_names(_ tps: List<TypeParam>) -> List<String> {
     return tps.map((tp) => tp.name);
+}
+
+// Fill a type def's per-parameter interface bounds from its declared type params
+// (`type Box<T: Display>` -> {T: [Display]}). Index-assign into the (already-empty)
+// map, so the field needn't be `mut` — the same way `fields` is filled.
+fn fill_type_param_bounds(_ el: TypeDefElement, _ tps: List<TypeParam>) -> Void {
+    for tp in tps {
+        el.type_parameter_bounds[tp.name] = tp.bounds;
+    }
 }
 
 fn type_param_bounds(_ decl: FnDecl) -> Map<String, List<String>> {

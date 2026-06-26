@@ -1,0 +1,20 @@
+//! spec: generic-type-bounds
+//! mode: check
+
+// A bound on a generic *type's* own parameter (`type Box<T: Display>`) is enforced
+// where a concrete type argument is supplied — both at an annotation and at a
+// construction (where the argument is inferred from the fields). `NoShow` has no
+// `impl Display`, so it is rejected; `Int` carries one, so it is accepted.
+
+type NoShow = { n: Int }
+type Box<T: Display> = { v: T }
+
+fn use_it(_ b: Box<NoShow>) -> Int {   // expect error: does not implement `Display`
+    return b.v.n;
+}
+
+fn main() -> Int {
+    let bad = Box { v: NoShow { n: 1 } };   // expect error: does not implement `Display`
+    let ok: Box<Int> = Box { v: 5 };
+    return ok.v + bad.v.n;
+}

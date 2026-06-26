@@ -769,6 +769,13 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
                             }
                             check_expr(errors, fi.value, scope, ctx, element.fields.get(fi.name));
                         }
+                        // Enforce the struct's own parameter bounds against the type
+                        // arguments inferred from the fields (`Box<T: Display>` built
+                        // with a non-Display field value is rejected here).
+                        match infer_expr(expr, scope, ctx, expected) {
+                            Interface(_, args) => { check_type_arg_bounds(errors, element, args, x.span, ctx.library); },
+                            _ => {},
+                        }
                     } else {
                         for fi in x.fields {
                             check_expr(errors, fi.value, scope, ctx, Option.None);
@@ -1094,6 +1101,33 @@ fn check_inferable_type_args(_ errors: List<CheckError>, _ fn_el: FunctionElemen
     }
 }
 
+// Enforce a generic type's own parameter bounds (`type Box<T: Display>`) against the
+// type arguments supplied to it — at an annotation (`Box<NoShow>`) or a construction
+// (`Box { … }`, where the arguments are inferred from the fields). Lenient like
+// `satisfies_bound`: an `Unknown` or still-generic (`TypeParameter`) argument is
+// accepted — propagating a bound onto an enclosing function's own type parameter is
+// a separate, not-yet-done step (see roadmap.md).
+fn check_type_arg_bounds(_ errors: List<CheckError>, _ def: TypeDefElement,
+    _ args: List<Type>, _ span: SourceSpan, _ library: LibraryElement) -> Void {
+    let params = def.type_parameters;
+    let mut i = 0;
+    while i < args.len() && i < params.len() {
+        match def.type_parameter_bounds.get(params[i]) {
+            Some(bounds) => {
+                for b in bounds {
+                    if !satisfies_bound(args[i], b, library.type_defs) {
+                        add_error(errors,
+                            'type argument `${type_to_string(args[i])}` for `${params[i]}` does not implement `${b}` (required by `${def.name}`)',
+                            span);
+                    }
+                }
+            },
+            None => {},
+        }
+        i = i + 1;
+    }
+}
+
 // Whether `t` satisfies interface `bound`. The built-in interfaces
 // (`Eq`/`Display`/`Debug`) hold for every primitive; `Eq`/`Debug` additionally
 // hold for any struct/enum (auto-derived); any other interface needs an explicit
@@ -1192,6 +1226,14 @@ fn check_type_ref(_ errors: List<CheckError>, _ type_ref: TypeRef,
     match type_ref {
         Named(nt) => {
             check_named_type(errors, nt.name, nt.namespace, nt.span, library, current_file, type_params);
+            // The supplied arguments must satisfy the named type's parameter bounds.
+            match library.type_defs.get(nt.name) {
+                Some(def) => {
+                    let arg_types = nt.args.map((a) => resolver.resolve_type_ref(a, library.type_defs, type_params, Option.None));
+                    check_type_arg_bounds(errors, def, arg_types, nt.span, library);
+                },
+                None => {},
+            }
             for arg in nt.args {
                 check_type_ref(errors, arg, library, current_file, type_params);
             }
