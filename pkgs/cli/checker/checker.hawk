@@ -16,6 +16,7 @@ import '../ast/ast' as _;
 import '../lexer/token' as _; // SourceSpan
 import '../element/types' as _;
 import '../element/element' as _;
+import '../element/scope' as _;
 import '../element/resolver';
 import '../element/inference' as _;
 
@@ -648,7 +649,7 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
             }
             match x.callee {
                 Ident(_, name) => {
-                    match function_for(ctx.library, ctx.current_file, name) {
+                    match file_scope(ctx.library, ctx.current_file).resolve_function(name) {
                         Some(fn_el) => {
                             check_call_args(errors, fn_el, {}, x.args, x.span, scope, ctx);
                             check_inferable_type_args(errors, fn_el, fn_el.type_parameters, x, expected, scope, ctx);
@@ -1211,27 +1212,7 @@ fn check_type_ref(_ errors: List<CheckError>, _ type_ref: TypeRef,
 // `is_defined_name`).
 fn name_known(_ name: String, _ library: LibraryElement,
     _ current_file: Option<String>, _ type_params: Set<String>) -> Bool {
-    if name == 'Self' {
-        return true;
-    }
-    match primitive_type(name) {
-        Some(_) => { return true; },
-        None => {},
-    }
-    if type_params.has(name) {
-        return true;
-    }
-    if !library.type_defs.has(name) {
-        return false;
-    }
-    // A built-in (`List`/`Map`/`Result`/…) is always in scope — and is the
-    // hermetic-floor stand-in for the prelude types when `std.core` isn't linked,
-    // so accept it like the bare-value gate does (`is_defined_name`). A type that
-    // is only *qualifiable* (exposed by an import, but used bare) is **not** legal
-    // — `check_type_ref` turns it into a "qualify as `ns.T`" diagnostic.
-    return is_builtin_type_name(library, name)
-        || file_owns(library, current_file, name)
-        || bare_surface_has(library, current_file, name);
+    return file_scope(library, current_file).is_type_known(name, type_params);
 }
 
 // ---- type-mismatch diagnostics ----
@@ -1277,17 +1258,14 @@ fn check_return(_ errors: List<CheckError>, _ value: Expr, _ expected: Type,
 // ---- helpers ----
 
 fn is_defined_name(_ name: String, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Bool {
-    // A bare value name is legal only if it is in lexical scope, declared in this
-    // file, bare-legal from another library (the prelude or an `as _` import), a
-    // built-in type (used as a value for `Set.new()` / `Enum.Variant`), or an import
-    // namespace this file binds (the receiver of `ns.fn`). There is no global
-    // last-wins fallback: a name owned by a library this file never imported is
-    // unknown here, even if it sits in the closure's flat tables.
+    // A bare value name is legal only if it is in lexical scope or binds in this
+    // file's static tier — declared here, bare-legal from another library (the
+    // prelude or an `as _` import), a built-in type (used as a value for
+    // `Set.new()` / `Enum.Variant`), or an import namespace this file binds (the
+    // receiver of `ns.fn`). There is no global last-wins fallback: a name owned by
+    // a library this file never imported is unknown here.
     return scope.has(name)
-        || file_owns(ctx.library, ctx.current_file, name)
-        || bare_surface_has(ctx.library, ctx.current_file, name)
-        || is_builtin_type_name(ctx.library, name)
-        || namespaces_in(ctx.library, ctx.current_file).has(name);
+        || file_scope(ctx.library, ctx.current_file).binds_value(name);
 }
 
 // The first namespace the current file imports that exposes `name`, or None. A
@@ -1297,13 +1275,7 @@ fn is_defined_name(_ name: String, _ scope: Map<String, Type>, _ ctx: InferCtx) 
 // here; the gate accepts it first. Shared by the bare-value gate (`check_expr`'s
 // `Ident`) and the bare-type gate (`check_type_ref`).
 fn qualifying_namespace(_ name: String, _ library: LibraryElement, _ current_file: Option<String>) -> Option<String> {
-    let nss = namespaces_in(library, current_file);
-    for ns in nss.keys() {
-        if namespace_exposes(nss[ns], name) {
-            return Option.Some(ns);
-        }
-    }
-    return Option.None;
+    return file_scope(library, current_file).qualifying_namespace(name);
 }
 
 // Reject a qualified `ns.member` (a value `ns.fn`/`ns.CONST` or a type `ns.T`)
@@ -1313,7 +1285,7 @@ fn qualifying_namespace(_ name: String, _ library: LibraryElement, _ current_fil
 // against a known surface; bare/undefined cases are handled by the gates).
 fn check_member_visible(_ errors: List<CheckError>, _ ns: String, _ member: String,
     _ span: SourceSpan, _ library: LibraryElement, _ current_file: Option<String>) -> Void {
-    match namespaces_in(library, current_file).get(ns) {
+    match file_scope(library, current_file).namespace_surface(ns) {
         Some(surface) => {
             if !namespace_exposes(surface, member) {
                 add_error(errors, '`${member}` is not a public member of `${ns}`', span);
@@ -1347,22 +1319,13 @@ fn check_qualified_receiver(_ errors: List<CheckError>, _ object: Expr, _ member
 fn namespace_of_access(_ object: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Option<String> {
     return match object {
         Ident(_, name) => {
-            if !scope.has(name) && namespaces_in(ctx.library, ctx.current_file).has(name) {
+            if !scope.has(name) && file_scope(ctx.library, ctx.current_file).is_namespace(name) {
                 Option.Some(name)
             } else {
                 Option.None
             }
         },
         _ => Option.None,
-    };
-}
-
-// Whether `name` is a built-in type (`Int`/`List`/`Set`/…) — these are always in
-// scope and appear in value position for static methods and enum-style access.
-fn is_builtin_type_name(_ lib: LibraryElement, _ name: String) -> Bool {
-    return match lib.type_defs.get(name) {
-        Some(def) => def.kind == TypeDefKind.Builtin,
-        None => false,
     };
 }
 
