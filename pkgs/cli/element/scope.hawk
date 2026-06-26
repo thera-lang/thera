@@ -1,0 +1,135 @@
+// FileScope — the per-file resolution object (Phase 2 of resolution correctness;
+// see docs/scoping.md → Phase 2).
+//
+// Resolution at a syntactic position is: consult the lexical scope (a
+// `Map<String, Type>`, threaded separately by each consumer and unchanged here),
+// then the *static tier* — this file's own top-level declarations, its bare
+// imports (the prelude + `as _`), the import namespaces it binds, and the
+// built-ins. `FileScope` reifies that static tier into one value, built cheaply
+// from a `LibraryElement` and the current file, and exposes element-returning
+// `resolve_*` queries so the checker, inference, and codegen stop reaching into
+// the flat tables ad hoc.
+//
+// Today this is a thin facade over the element model's existing per-file overlays
+// (`file_owned`/`file_bare_surface`/`file_namespaces`/`file_functions`) and the
+// flat `type_defs`/`functions`/`consts` maps — so migrating a call site to it is
+// behavior-preserving. Phase 2e swaps the method *bodies* to per-file element
+// tables and deletes the flat maps, lifting global name uniqueness; consumers see
+// only this API, so that change stays localized here.
+
+import 'types' as _;
+import 'element' as _;
+
+// The static resolution context of one file: the resolved library plus the file
+// whose imports/ownership govern resolution. A real source path is never empty,
+// so `None` denotes the primary/anonymous program (see `file_key`).
+pub type FileScope = {
+    library: LibraryElement,
+    file: Option<String>,
+}
+
+pub fn file_scope(_ library: LibraryElement, _ file: Option<String>) -> FileScope {
+    return FileScope { library: library, file: file };
+}
+
+impl FileScope {
+    // --- values (free functions and consts; locals are the lexical Map) ---
+
+    // The free function `name` resolves to, same-file-first then the cross-file
+    // fallback (Phase 2e drops the fallback: a bare name reaches only this file's
+    // legal tiers).
+    pub fn resolve_function(self, _ name: String) -> Option<FunctionElement> {
+        return function_for(self.library, self.file, name);
+    }
+
+    // The const `name` resolves to (currently a flat, cross-file table).
+    pub fn resolve_const(self, _ name: String) -> Option<ConstElement> {
+        return self.library.consts.get(name);
+    }
+
+    // Whether a *bare* value name binds in this file's static tier — same-file
+    // (`file_owns`), bare-legal from another library (prelude / `as _`), a
+    // built-in type used in value position (`Set.new()` / `Enum.Variant`), or an
+    // import namespace this file binds (the receiver of `ns.fn`). The lexical
+    // `scope.has(name)` is the caller's to add — this is the non-lexical half of
+    // the old `is_defined_name`.
+    pub fn binds_value(self, _ name: String) -> Bool {
+        return file_owns(self.library, self.file, name)
+            || bare_surface_has(self.library, self.file, name)
+            || self.is_builtin_type(name)
+            || self.is_namespace(name);
+    }
+
+    // --- types ---
+
+    // The type definition `name` resolves to (currently a flat, cross-file table).
+    pub fn resolve_type_def(self, _ name: String) -> Option<TypeDefElement> {
+        return self.library.type_defs.get(name);
+    }
+
+    // Whether a *bare* type name is known and reachable from this file — `Self`, a
+    // primitive, an in-scope type parameter, a built-in, same-file, or bare-legal
+    // (prelude / `as _`). A type that is only *qualifiable* via an import is not
+    // known bare (the caller turns that into "qualify as `ns.T`"). Mirrors the old
+    // `name_known`.
+    pub fn is_type_known(self, _ name: String, _ type_params: Set<String>) -> Bool {
+        if name == 'Self' {
+            return true;
+        }
+        match primitive_type(name) {
+            Some(_) => { return true; },
+            None => {},
+        }
+        if type_params.has(name) {
+            return true;
+        }
+        if !self.library.type_defs.has(name) {
+            return false;
+        }
+        return self.is_builtin_type(name)
+            || file_owns(self.library, self.file, name)
+            || bare_surface_has(self.library, self.file, name);
+    }
+
+    // Whether `name` is a built-in type (`Int`/`List`/`Set`/…) — always in scope.
+    pub fn is_builtin_type(self, _ name: String) -> Bool {
+        return match self.library.type_defs.get(name) {
+            Some(def) => def.kind == TypeDefKind.Builtin,
+            None => false,
+        };
+    }
+
+    // --- namespaces (the `ns` in `ns.name`) ---
+
+    // Whether `name` is an import namespace this file binds.
+    pub fn is_namespace(self, _ name: String) -> Bool {
+        return namespaces_in(self.library, self.file).has(name);
+    }
+
+    // The public surface bound to namespace `ns` in this file, or None.
+    pub fn namespace_surface(self, _ ns: String) -> Option<LibraryNamespace> {
+        return namespaces_in(self.library, self.file).get(ns);
+    }
+
+    // Whether namespace `ns` (imported by this file) exposes public member `name`.
+    // False when `ns` is not a namespace of this file — the caller decides whether
+    // that is an error (an access against an unknown surface is handled elsewhere).
+    pub fn namespace_exposes(self, _ ns: String, _ name: String) -> Bool {
+        return match self.namespace_surface(ns) {
+            Some(surface) => namespace_exposes(surface, name),
+            None => false,
+        };
+    }
+
+    // The first namespace this file imports that exposes `name`, or None — so a
+    // bare-but-qualifiable name becomes the "qualify as `ns.name`" diagnostic.
+    pub fn qualifying_namespace(self, _ name: String) -> Option<String> {
+        let nss = namespaces_in(self.library, self.file);
+        for ns in nss.keys() {
+            if namespace_exposes(nss[ns], name) {
+                return Option.Some(ns);
+            }
+        }
+        return Option.None;
+    }
+}

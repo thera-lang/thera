@@ -1,0 +1,115 @@
+// Tests for FileScope — the per-file resolution facade. Build a LibraryElement
+// (optionally with crafted per-file namespace surfaces) and check that the
+// element-returning `resolve_*` queries and the bare/qualified legality predicates
+// match the resolution algorithm (docs/scoping.md).
+
+import std.testing;
+
+import '../lexer/lexer' as _;
+import '../parser/parser' as _;
+import 'types' as _;
+import 'element' as _;
+import 'resolver' as _;
+import 'scope' as _;
+
+fn lib_of(_ src: String) -> LibraryElement {
+    return build_library(parse_tokens(tokenize(src).tokens).program, [], {}, {});
+}
+
+// A LibraryElement whose anonymous file binds namespace `ns` exposing `names`.
+fn lib_with_namespace(_ src: String, _ ns: String, _ names: List<String>) -> LibraryElement {
+    let surface: Set<String> = Set.new();
+    for n in names {
+        surface.add(n);
+    }
+    let nss: Map<String, LibraryNamespace> = {};
+    nss[ns] = LibraryNamespace { names: surface, collisions: Set.new() };
+    let file_ns: Map<String, Map<String, LibraryNamespace>> = {};
+    file_ns[''] = nss;
+    return build_library(parse_tokens(tokenize(src).tokens).program, [], file_ns, {});
+}
+
+@test
+fn test_resolve_function_same_file() -> Result<Void, Error> {
+    let lib = lib_of('fn helper() -> Int { return 1; }');
+    let fs = file_scope(lib, Option.None);
+    testing.assert(match fs.resolve_function('helper') {
+        Some(f) => f.name == 'helper',
+        None => false,
+    }, message: 'helper resolves')?;
+    testing.assert_eq(actual: fs.resolve_function('absent'), expected: Option.None)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_resolve_type_def() -> Result<Void, Error> {
+    let lib = lib_of('type Point = { x: Int }');
+    let fs = file_scope(lib, Option.None);
+    testing.assert(match fs.resolve_type_def('Point') {
+        Some(d) => d.kind == TypeDefKind.Struct,
+        None => false,
+    }, message: 'Point resolves to a struct def')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_binds_value() -> Result<Void, Error> {
+    let lib = lib_of('fn helper() -> Int { return 1; }\ntype Point = { x: Int }');
+    let fs = file_scope(lib, Option.None);
+    // A same-file function binds bare; a built-in type (value position) binds; an
+    // undeclared name does not.
+    testing.assert(fs.binds_value('helper'), message: 'own fn binds')?;
+    testing.assert(fs.binds_value('List'), message: 'built-in binds in value position')?;
+    testing.assert(!fs.binds_value('nope'), message: 'unknown does not bind')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_is_type_known() -> Result<Void, Error> {
+    let lib = lib_of('type Point = { x: Int }');
+    let fs = file_scope(lib, Option.None);
+    let no_tps: Set<String> = Set.new();
+    let with_t: Set<String> = Set.new();
+    with_t.add('T');
+    testing.assert(fs.is_type_known('Point', no_tps), message: 'own type known')?;
+    testing.assert(fs.is_type_known('Int', no_tps), message: 'primitive known')?;
+    testing.assert(fs.is_type_known('Self', no_tps), message: 'Self known')?;
+    testing.assert(fs.is_type_known('List', no_tps), message: 'built-in known')?;
+    testing.assert(fs.is_type_known('T', with_t), message: 'in-scope type param known')?;
+    testing.assert(!fs.is_type_known('Nope', no_tps), message: 'undeclared type unknown')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_is_builtin_type() -> Result<Void, Error> {
+    let lib = lib_of('type Point = { x: Int }');
+    let fs = file_scope(lib, Option.None);
+    testing.assert(fs.is_builtin_type('List'), message: 'List is built-in')?;
+    testing.assert(fs.is_builtin_type('Int'), message: 'Int is built-in')?;
+    testing.assert(!fs.is_builtin_type('Point'), message: 'user struct is not built-in')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_namespace_queries() -> Result<Void, Error> {
+    let lib = lib_with_namespace('fn main() -> Int { return 0; }', 'fs', ['read_text', 'write_text']);
+    let scope = file_scope(lib, Option.None);
+    testing.assert(scope.is_namespace('fs'), message: 'fs is a namespace')?;
+    testing.assert(!scope.is_namespace('nope'), message: 'nope is not a namespace')?;
+    testing.assert(scope.namespace_exposes('fs', 'read_text'), message: 'fs exposes read_text')?;
+    testing.assert(!scope.namespace_exposes('fs', 'private'), message: 'fs does not expose private')?;
+    testing.assert(!scope.namespace_exposes('nope', 'read_text'), message: 'unknown ns exposes nothing')?;
+    testing.assert_eq(actual: scope.qualifying_namespace('read_text'), expected: Option.Some('fs'))?;
+    testing.assert_eq(actual: scope.qualifying_namespace('unexposed'), expected: Option.None)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_namespace_value_binds() -> Result<Void, Error> {
+    // The receiver of a `ns.fn(...)` qualified call — `ns` itself — binds in value
+    // position (it is the namespace, not shadowed by a local).
+    let lib = lib_with_namespace('fn main() -> Int { return 0; }', 'fs', ['read_text']);
+    let scope = file_scope(lib, Option.None);
+    testing.assert(scope.binds_value('fs'), message: 'namespace binds as a value receiver')?;
+    return Result.Ok(void);
+}
