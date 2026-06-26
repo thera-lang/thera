@@ -163,32 +163,37 @@ below.)
 
 ### Front-end / tooling
 
-- **Resolution correctness — mostly done; a residual tech-debt tail.** The
-  scoping rules ([scoping.md](scoping.md)) are now **enforced** for the common
-  cases: qualified-only and `pub` visibility (via
-  `qualify_lint`/`visibility_lint`, corpus-guarded at 0 violations); **per-file
-  namespaces** (a file can only qualify with what it imports); **bare _value_
-  resolution** restricted to same-file + prelude + `as _` + built-ins, with **no
-  global last-wins fallback** (a value owned by an un-imported library is
-  `undefined`); and the **white-box test exception** (`foo_test.hawk` sees
-  `foo.hawk`'s privates bare). Pinned by `mod-ns-file-local`,
-  `mod-no-bare-fallback`, `vis-whitebox-test`, plus the existing
-  `mod-qualified-only`/`vis-pub`. The closure-wide `modules` alias set was
-  removed; the duplicate-top-level-name diagnostic still guards same-name
-  collisions. **Residual tech debt** (architectural purity; the corpus is clean,
-  so these are not user-visible bugs today — see [scoping.md](scoping.md) →
-  _Implementation gaps_ 1/2/5):
-  - **the per-file gate for bare _type_ positions** — `check_type_ref` still
-    consults the flat `type_defs`, so the type analogue of the bare-name hole
-    remains; needs `current_file` threaded through type checking (incl.
-    top-level declaration sites that have no `InferCtx`);
-  - **surface-checked, within-library qualified resolution** (`ns.name`
-    resolving _within_ `ns`'s library rather than via the global table);
-  - **physical per-library ownership** of the still-flat
-    `functions`/`type_defs`/`consts` tables (so same-name cross-file definitions
-    are correct by construction, not by the duplicate diagnostic);
-  - once the above land, **`qualify_lint`/`visibility_lint` retire** (their
-    enforcement + the "qualify as `ns.name`" message move into the resolver).
+- **Resolution correctness — Phase 1 done; the per-library refactor (Phase 2)
+  remains.** Qualified-only + `pub` visibility are now **enforced by construction
+  in the resolution gates** (not by transitional lints): the value gate
+  (`check_expr`'s `Ident`) and the type gate (`check_type_ref` / the shared
+  `check_named_type`, threading `current_file` through the top-level signature
+  checkers) reject a bare-but-qualifiable name ("qualify as `ns.name`"), a bare
+  name owned by an un-imported library (undefined / unknown type — **no global
+  last-wins fallback, for types as well as values now**), and a qualified
+  `ns.name` to a non-public member ("not a public member of `ns`"). The two lints
+  (`qualify_lint`/`visibility_lint`, ~620 lines) are **deleted**. Pinned by
+  `mod-qualified-only` (+ `-type-reject`), `vis-pub` (+ `-type-reject`),
+  `mod-no-bare-fallback` (+ type version), `mod-ns-file-local`,
+  `vis-whitebox-test`. _(Closing the type gate surfaced a genuine latent issue:
+  the type-side qualified-only migration had never been done — `server.hawk` used
+  `Reader`/`Writer` without importing `std.io`, etc. — now fixed.)_
+
+  **Phase 2 — the `Scope` abstraction (replaces the flat tables).** The element
+  model still merges the closure into flat `functions`/`type_defs`/`consts` maps,
+  which **force global name uniqueness** across the whole import closure (two
+  libraries can't share a top-level name — `check_duplicates` is closure-wide).
+  That's a real latent limitation, not just impurity. The fix is a `Scope` chain
+  — the clean implementation of the resolution algorithm, replacing the ad-hoc
+  lookups now scattered across checker/inference/codegen: `resolve_value`/
+  `resolve_type`/`resolve_namespace` returning the owning **element** (no global
+  table), composed per position (lexical → file top-level → bare-imports
+  (prelude + `as _`) → built-ins; a namespace binds a **library scope**, so
+  `ns.name` resolves *within that library*). Idiomatic as a Hawk `interface Scope`
+  with per-kind impls. This is correct-by-construction and lifts the
+  uniqueness limit; it has no behavioral effect on today's (clean) corpus, so it's
+  a refactor to schedule deliberately. (Subsumes the former gaps 2 and 5 in
+  [scoping.md](scoping.md).)
 
   Related, still open: `impl` coherence / orphan rules, selective import
   (`show`/`hide`), and a "module"→"library" terminology sweep.

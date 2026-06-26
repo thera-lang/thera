@@ -92,12 +92,12 @@ import 'ast' as _;             // no namespace — ast's public names come in ba
   surface to attribute a bare name to it — so it's opt-in, not the default. If two
   `as _` imports expose the same name, there's no qualifier to disambiguate with;
   resolve it by importing one of them normally (qualified) instead.
-- **A *constructed* type must be reachable bare** (same-file, prelude, or via
-  `as _`): a struct/enum literal names its type with a bare identifier —
-  `Point { x: 1 }` — and `ns.Point { … }` does not parse. So a library whose types
-  you *construct* (not merely annotate with) is an `as _` import. Qualification
-  (`ns.Type`) covers type annotations, static calls (`ns.Type.method`), and enum
-  construction (`ns.Enum.Variant`), but not struct-literal construction.
+- **A *constructed* type is reachable bare or qualified.** A struct literal may
+  name its type bare — `Point { x: 1 }` (same-file, prelude, or via `as _`) — or
+  qualified — `ns.Point { x: 1 }` (which *does* parse and is used, e.g.
+  `element.LibraryNamespace { … }`); the qualified form is surface-checked like any
+  `ns.member`. Qualification (`ns.Type`) also covers type annotations, static
+  calls (`ns.Type.method`), and enum construction (`ns.Enum.Variant`).
 - The namespace's **public surface** is the imported library's own `pub`
   declarations, plus — transitively — the public surfaces of that library's
   `pub import`s (the basis of barrels). A plain `import` does not re-export.
@@ -193,11 +193,14 @@ are the violations to address.
    `functions`/`type_defs` tables are still flat (a same-named cross-file
    definition is guarded by the duplicate-name diagnostic, not yet by ownership —
    gap 5).
-2. **Qualified resolution ignores the public surface.** `ns.name` only checks
-   *that* `ns` is some namespace, then looks `name` up in the global table
-   (`namespace_exposes` is defined but never called). So `lib.helper` can bind to
-   a `helper` from another library entirely. → Qualified lookup must verify
-   `name ∈ ns`'s surface and resolve **within that library**.
+2. **Qualified resolution doesn't resolve within the owning library.** The
+   *surface* check is now done — a qualified `ns.name`/`ns.T`/`ns.Point { … }` to a
+   non-public (or absent) member is rejected (`check_member_visible` →
+   `namespace_exposes`, in the resolution gates). What remains is *resolution*:
+   `name` is still looked up in the global flat table after the surface check, not
+   resolved **within `ns`'s library**, so it isn't owner-correct by construction
+   (a same-name cross-library symbol is kept distinct only by the duplicate
+   diagnostic). → Phase 2 (the `Scope` abstraction) resolves within the library.
 3. **Namespaces are per-file.** *(Resolved.)* `is_namespace` consults the
    **current file's** own imports — the loader threads a per-file table
    (`LoadedImports.file_namespaces`, file key → namespace → surface) into both the
@@ -240,28 +243,38 @@ are the violations to address.
      imported by the file isn't an "imported name", so it isn't flagged — closing
      that needs the resolution rework below.
 
-**Status.** Migration (6) is **done** and guarded at 0. Qualified-only is
-**enforced** via the promoted `qualify_lint`, and **`pub` visibility is enforced**
-via `visibility_lint`. **Namespaces are per-file (3)**, **bare *value* resolution
-is restricted (1, partial)**, and **`value` privacy + the white-box test exception
-are enforced (4, partial)**:
+**Status (Phase 1 done).** Migration (6) is **done** and guarded at 0.
+Qualified-only and `pub` visibility are now **enforced by construction in the
+resolution gates**, and the two transitional lints (`qualify_lint` /
+`visibility_lint`) are **deleted**. Resolved: per-file namespaces (3); the bare gate
+for **values _and_ types** (1) — `check_expr`'s `Ident` and `check_named_type`
+(shared by `check_type_ref` and the `Struct` arm), with `current_file` threaded
+through the top-level signature checkers — with **no global last-wins fallback** in
+either name space; `value` privacy + the white-box test exception (4); and the
+**surface** half of qualified access (2) — a qualified `ns.name`/`ns.T` to a
+non-public member is rejected at the access site (`check_member_visible` /
+`check_qualified_receiver`). Pinned by `mod-qualified-only`(+`-type-reject`),
+`vis-pub`(+`-type-reject`), `mod-no-bare-fallback`(+type), `mod-ns-file-local`,
+`vis-whitebox-test`. (Closing the type gate also forced the type-side of migration
+(6): bare type refs to un-imported libraries — e.g. `server.hawk`'s
+`Reader`/`Writer` — were qualified.)
 
 - the loader threads per-file tables — `file_namespaces` (namespace → surface) and
   `file_bare_surface` (the prelude + `as _` imports, plus a `foo_test.hawk`'s
   white-box view of `foo.hawk`) — into the element model and codegen;
 - the element model adds `file_owned` (each file's own top-level names);
-- the checker's `is_defined_name` is now a per-file legality gate
-  (scope ∪ `file_owned` ∪ `file_bare_surface` ∪ built-ins ∪ this file's
-  namespaces) with **no global last-wins fallback**, so a value owned by an
-  un-imported library is `undefined` (`mod-ns-file-local`, `mod-no-bare-fallback`,
-  `vis-whitebox-test`). The closure-wide `modules` alias set was removed.
+- the gates check legality against scope ∪ `file_owned` ∪ `file_bare_surface` ∪
+  built-ins, turning a bare-but-qualifiable name into "qualify as `ns.name`" and a
+  qualified non-public member into "not a public member of `ns`".
 
-Remaining: **the same gate for *type* positions** (gap 1 for types —
-`check_type_ref` still consults the flat `type_defs`); **surface-checked,
-within-library qualified resolution** (gap 2); and **per-library ownership** of the
-still-flat `functions`/`type_defs`/`consts` tables (gap 5, a same-named cross-file
-definition is currently guarded by the duplicate-name diagnostic, not ownership).
-Those three together would make resolution correct-by-construction and let the two
-lints retire — `qualify_lint`'s message is, for now, still the one shown for a
-bare-but-qualifiable name (`is_defined_name` defers to it via
-`qualifiable_via_namespace`).
+**Remaining — Phase 2, the `Scope` abstraction** (subsumes gaps 2-resolution and 5):
+the element model still merges the closure into flat `functions`/`type_defs`/`consts`
+maps, so qualified `ns.name` is *surface-checked* but still *resolved* in the global
+table, not **within `ns`'s library** — and that flat table **forces global name
+uniqueness** across the whole closure (`check_duplicates` is closure-wide; two
+libraries can't share a top-level name). A `Scope` chain — `resolve_value`/
+`resolve_type`/`resolve_namespace` returning the owning element, composed per
+position, with a namespace binding a **library scope** — makes resolution
+correct-by-construction and lifts that limit. No behavioral effect on today's clean
+corpus; schedule it deliberately. See [roadmap.md](roadmap.md) → _Resolution
+correctness_.
