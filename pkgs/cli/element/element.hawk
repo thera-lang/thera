@@ -159,7 +159,14 @@ pub type LibraryElement = {
     // file's definition even when another co-loaded file declares a same-named
     // one. `functions` above is the cross-file fallback (last-wins).
     file_functions: Map<String, Map<String, FunctionElement>>,
+    // Per-file type definitions and consts (file key -> name -> element), the
+    // type/value analogues of `file_functions`. These hold *references* to the same
+    // element objects as the flat `type_defs`/`consts` (so a cross-file `impl` still
+    // mutates the one type element); they partition ownership by declaring file.
+    // Built additively ahead of per-file resolution (Phase 2e S1) — not yet read.
+    file_type_defs: Map<String, Map<String, TypeDefElement>>,
     consts: Map<String, ConstElement>,
+    file_consts: Map<String, Map<String, ConstElement>>,
     // Per-file import namespaces (file key -> namespace -> surface). A namespace
     // resolves only in the file that imported it — there is no closure-wide union.
     // (This replaced a closure-wide `modules` set of value-side namespace aliases.)

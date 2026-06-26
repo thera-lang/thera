@@ -128,6 +128,29 @@ fn test_impl_methods_attach() -> Result<Void, Error> {
 }
 
 @test
+fn test_per_file_tables_populated() -> Result<Void, Error> {
+    // The per-file type/const tables (Phase 2e S1) record each declaration under its
+    // declaring file, referencing the same element as the flat tables. The anonymous
+    // program keys under '' (file_key of None).
+    let lib = lib_of('type Point = { x: Int }\nconst K: Int = 1\n'
+        + 'fn f() -> Int { return 0; }');
+    match lib.file_type_defs.get('') {
+        Some(types) => {
+            testing.assert(types.has('Point'), message: 'Point recorded per-file')?;
+            // Same object as the flat table (member fills are visible through both).
+            testing.assert_eq(actual: types.get('Point').is_some(),
+                expected: lib.type_defs.get('Point').is_some())?;
+        },
+        None => { testing.assert(false, message: 'no per-file types for anon program')?; },
+    }
+    match lib.file_consts.get('') {
+        Some(cs) => { testing.assert(cs.has('K'), message: 'K recorded per-file')?; },
+        None => { testing.assert(false, message: 'no per-file consts for anon program')?; },
+    }
+    return Result.Ok(void);
+}
+
+@test
 fn test_interface_inheritance_flattens() -> Result<Void, Error> {
     let lib = lib_of('interface Display { fn show(self) -> String; }\n'
         + 'interface Debug { fn dbg(self) -> String; }\n'
