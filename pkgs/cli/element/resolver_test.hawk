@@ -9,6 +9,7 @@ import '../parser/parser' as _;
 import 'types' as _;
 import 'element' as _;
 import 'resolver' as _;
+import 'scope' as _;
 
 fn lib_of(_ src: String) -> LibraryElement {
     return build_library(parse_tokens(tokenize(src).tokens).program, [], {}, {});
@@ -36,7 +37,7 @@ fn test_struct_fields_resolve() -> Result<Void, Error> {
 fn test_function_signature_resolves() -> Result<Void, Error> {
     let lib = lib_of('type Point = { x: Int, y: Int }\n'
         + 'fn origin(_ p: Point) -> Int { return p.x; }');
-    match lib.functions.get('origin') {
+    match file_scope(lib, Option.None).resolve_function('origin') {
         Some(f) => {
             testing.assert_eq(actual: f.return_type,
                 expected: Type.Primitive(Primitive.Int))?;

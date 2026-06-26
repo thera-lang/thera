@@ -156,20 +156,19 @@ pub fn namespace_exposes(_ ns: LibraryNamespace, _ name: String) -> Bool {
 
 // The resolved element model for a program plus its imports.
 pub type LibraryElement = {
+    // Type definitions stay a flat by-name table: a resolved `Type.Interface(name)`
+    // (a namespace-qualified receiver type, a field's type) carries only the name,
+    // so type lookup is global by name (type-name uniqueness pending — see
+    // roadmap.md / scoping.md Phase 2e S5). Values resolve per-file (below).
     type_defs: Map<String, TypeDefElement>,
-    functions: Map<String, FunctionElement>,
-    // Per-file free functions (file key -> name -> element), so a bare function
-    // reference resolves same-file-first — a private helper resolves to its own
-    // file's definition even when another co-loaded file declares a same-named
-    // one. `functions` above is the cross-file fallback (last-wins).
+    // Per-file free functions / type definitions / consts (file key -> name ->
+    // element). Value resolution is owner-correct through these — a bare or
+    // qualified value reaches its declaring file's element, not a flat global table
+    // — which is what lets two libraries share a top-level value name. The
+    // file_type_defs entries reference the same objects as the flat `type_defs` (so
+    // a cross-file `impl` mutates the one type element).
     file_functions: Map<String, Map<String, FunctionElement>>,
-    // Per-file type definitions and consts (file key -> name -> element), the
-    // type/value analogues of `file_functions`. These hold *references* to the same
-    // element objects as the flat `type_defs`/`consts` (so a cross-file `impl` still
-    // mutates the one type element); they partition ownership by declaring file.
-    // Built additively ahead of per-file resolution (Phase 2e S1) — not yet read.
     file_type_defs: Map<String, Map<String, TypeDefElement>>,
-    consts: Map<String, ConstElement>,
     file_consts: Map<String, Map<String, ConstElement>>,
     // Per-file import namespaces (file key -> namespace -> surface). A namespace
     // resolves only in the file that imported it — there is no closure-wide union.
@@ -214,22 +213,6 @@ pub fn file_owns(_ lib: LibraryElement, _ file: Option<String>, _ name: String) 
         Some(s) => s.has(name),
         None => false,
     };
-}
-
-// Resolve free function `name` referenced from `file`: the file's own function
-// if it has one, else the cross-file fallback.
-pub fn function_for(_ lib: LibraryElement, _ file: Option<String>, _ name: String)
-    -> Option<FunctionElement> {
-    match lib.file_functions.get(file_key(file)) {
-        Some(m) => {
-            match m.get(name) {
-                Some(f) => { return Option.Some(f); },
-                None => {},
-            }
-        },
-        None => {},
-    }
-    return lib.functions.get(name);
 }
 
 // A `Map` key for an optional file path (a real path can't be empty, so `''`

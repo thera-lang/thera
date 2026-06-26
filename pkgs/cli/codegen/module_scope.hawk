@@ -181,12 +181,6 @@ impl ModuleScope {
         return self.global_functions.get(name);
     }
 
-    // The unit index of a namespace-qualified (`ns.fn(...)`) free function — the
-    // cross-file surface.
-    pub fn resolve_global_function(self, _ name: String) -> Option<Int> {
-        return self.global_functions.get(name);
-    }
-
     // The unit index of free function `name` declared in file `owner` (a file key) —
     // the owner-correct lookup behind a qualified call (`ns.fn`), where `owner` is
     // the file the namespace's surface attributes `name` to. No global fallback, so

@@ -95,10 +95,8 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
     _ file_namespaces: Map<String, Map<String, LibraryNamespace>>,
     _ file_bare_surface: Map<String, Map<String, String>>) -> LibraryElement {
     let type_defs = builtin_type_defs();
-    let functions: Map<String, FunctionElement> = {};
     let file_functions: Map<String, Map<String, FunctionElement>> = {};
     let file_type_defs: Map<String, Map<String, TypeDefElement>> = {};
-    let consts: Map<String, ConstElement> = {};
     let file_consts: Map<String, Map<String, ConstElement>> = {};
     // The top-level names each file declares — the same-file half of bare resolution.
     let file_owned: Map<String, Set<String>> = {};
@@ -194,7 +192,6 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
                 },
                 Fn(x) => {
                     let element = function_element(x, type_defs);
-                    functions[x.name] = element;
                     let key = file_key(p.file_path);
                     if !file_functions.has(key) {
                         file_functions[key] = {};
@@ -205,12 +202,10 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
                     }
                 },
                 Const(x) => {
-                    let el = ConstElement {
+                    record_file_const(file_consts, p.file_path, x.name, ConstElement {
                         name: x.name,
                         ty: resolve_opt(x.type_ann, type_defs, Set.new(), Option.None),
-                    };
-                    consts[x.name] = el;
-                    record_file_const(file_consts, p.file_path, x.name, el);
+                    });
                 },
                 Impl(x) => {
                     resolve_impl(x, type_defs);
@@ -281,10 +276,8 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
 
     return LibraryElement {
         type_defs: type_defs,
-        functions: functions,
         file_functions: file_functions,
         file_type_defs: file_type_defs,
-        consts: consts,
         file_consts: file_consts,
         file_namespaces: file_namespaces,
         file_bare_surface: file_bare_surface,
