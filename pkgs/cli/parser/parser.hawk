@@ -1361,21 +1361,45 @@ impl Parser {
                     span: expr_span(expr).cover(end),
                     callee: expr,
                     type_args: [],
+                    recv_type_args: [],
                     args: args,
                 });
             } else if self.check(TokenKind.Lt) && self.looks_like_type_arg_list() {
                 let type_args = self.parse_type_arg_list();
                 if self.check(TokenKind.LParen) {
+                    // Generic call on the callee itself: `foo<Int>(...)`.
                     let args = self.parse_call_args();
                     let end = self.prev_span();
                     expr = Expr.Call(CallExpr {
                         span: expr_span(expr).cover(end),
                         callee: expr,
                         type_args: type_args,
+                        recv_type_args: [],
+                        args: args,
+                    });
+                } else if self.check(TokenKind.Dot) {
+                    // Receiver type args on a static call: `Set<String>.new(...)`.
+                    // The `<...>` binds the receiver type's parameters; the method
+                    // name (and any method-own `<...>`) follow.
+                    self.advance(); // .
+                    let method = self.expect(TokenKind.Identifier, 'method name after `Type<...>.`');
+                    let callee = Expr.Field(expr_span(expr).cover(method.span), expr, method.lexeme());
+                    let method_type_args = if self.check(TokenKind.Lt) && self.looks_like_type_arg_list() {
+                        self.parse_type_arg_list()
+                    } else {
+                        []
+                    };
+                    let args = self.parse_call_args();
+                    let end = self.prev_span();
+                    expr = Expr.Call(CallExpr {
+                        span: expr_span(expr).cover(end),
+                        callee: callee,
+                        type_args: method_type_args,
+                        recv_type_args: type_args,
                         args: args,
                     });
                 } else {
-                    self.fail('expected ( after type argument list');
+                    self.fail('expected `(` or `.method(...)` after type argument list');
                     going = false;
                 }
             } else if self.check(TokenKind.LBracket) {

@@ -33,6 +33,7 @@
       "Bash(npm run *)",
       "Bash(npx tsc *)",
       "Bash(rm -f /tmp/*.hawk)",
+      "Bash(python3 -)",
       "Bash(runtime/target/debug/hawk *)",
       "Bash(sed *)",
       "Bash(tail *)",

@@ -299,7 +299,13 @@ pub type FieldInit = {
 pub type CallExpr = {
     span: SourceSpan,
     callee: Expr,
+    // Type arguments on the callee itself — a generic free function or method
+    // (`foo<Int>(x)`, `xs.map<U>(f)`).
     type_args: List<TypeRef>,
+    // Type arguments on the *receiver type* of a static call — `Set<String>.new()`
+    // binds the owner `Set<T>`'s `T`, which the method's own `type_args` cannot.
+    // Empty for every other call form.
+    recv_type_args: List<TypeRef>,
     args: List<CallArg>,
 }
 

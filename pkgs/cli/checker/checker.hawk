@@ -635,6 +635,9 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
                 Field(_, recv, _) => { check_expr(errors, recv, scope, ctx, Option.None); },
                 _ => { check_expr(errors, x.callee, scope, ctx, Option.None); },
             }
+            // Receiver type args on a static call (`Set<String>.new()`): validate
+            // them as types and against the receiver type's parameters.
+            check_recv_type_args(errors, x, ctx);
             let expected_params = expected_arg_types(x.callee, x.args, scope, ctx);
             let mut i = 0;
             while i < x.args.len() {
@@ -1056,6 +1059,40 @@ fn check_bounds(_ errors: List<CheckError>, _ fn_el: FunctionElement,
     }
 }
 
+// Validate the receiver type arguments of a static call (`Set<String>.new()`):
+// each must be a known type, the count must match the receiver type's parameters,
+// and each must satisfy that parameter's bounds.
+fn check_recv_type_args(_ errors: List<CheckError>, _ x: CallExpr, _ ctx: InferCtx) -> Void {
+    if x.recv_type_args.len() == 0 {
+        return;
+    }
+    for a in x.recv_type_args {
+        check_type_ref(errors, a, ctx.library, ctx.current_file, ctx.type_params);
+    }
+    // The receiver is the callee's object; its name is the type being parameterized.
+    let tname = match x.callee {
+        Field(_, recv, _) => match recv {
+            Ident(_, n) => Option.Some(n),
+            Field(_, _, n) => Option.Some(n), // `ns.Type`
+            _ => Option.None,
+        },
+        _ => Option.None,
+    };
+    match tname {
+        Some(n) => match ctx.library.type_defs.get(n) {
+            Some(def) => {
+                if x.recv_type_args.len() != def.type_parameters.len() {
+                    add_error(errors, '`${n}` takes ${def.type_parameters.len()} type argument(s), but ${x.recv_type_args.len()} were given', x.span);
+                }
+                let arg_types = x.recv_type_args.map((a) => resolver.resolve_type_ref(a, ctx.library.type_defs, ctx.type_params, ctx.self_type));
+                check_type_arg_bounds(errors, def, arg_types, x.span, ctx.library);
+            },
+            None => {},
+        },
+        None => {},
+    }
+}
+
 // Diagnose a generic call whose type can't be inferred: a callee type parameter
 // that appears in the *return* type but isn't pinned by an explicit type
 // argument, an argument, or the expected type. That `T` only shows up in the
@@ -1084,7 +1121,15 @@ fn check_inferable_type_args(_ errors: List<CheckError>, _ fn_el: FunctionElemen
         arg_types.push(infer_expr(call.args[a].value, scope, ctx, exp));
         a = a + 1;
     }
-    let bindings = call_bindings(fn_el, call.type_args, arg_types, expected, ctx);
+    // The parameters not declared by the callee itself are the owner's (a static
+    // method's `Set<T>`); receiver type args (`Set<String>.new()`) bind those.
+    let owner_params: List<String> = [];
+    for p in type_params {
+        if !str_list_has(fn_el.type_parameters, p) {
+            owner_params.push(p);
+        }
+    }
+    let bindings = static_call_bindings(fn_el, owner_params, call.recv_type_args, call.type_args, arg_types, expected, ctx);
     for tp in type_params {
         if !bindings.has(tp) && type_mentions_param(fn_el.return_type, tp) {
             // The `name<...>()` form only pins a parameter the callee declares

@@ -628,7 +628,7 @@ fn infer_call(_ x: CallExpr, _ scope: Map<String, Type>, _ ctx: InferCtx,
 
     match callee {
         Ident(_, name) => { return infer_call_ident(name, arg_types, x.type_args, expected, scope, ctx); },
-        Field(_, obj, field) => { return infer_call_field(obj, field, arg_types, expected, scope, ctx); },
+        Field(_, obj, field) => { return infer_call_field(obj, field, arg_types, x.type_args, x.recv_type_args, expected, scope, ctx); },
         _ => {},
     }
 
@@ -661,6 +661,7 @@ fn infer_call_ident(_ name: String, _ arg_types: List<Type>, _ type_args: List<T
 }
 
 fn infer_call_field(_ obj: Expr, _ field: String, _ arg_types: List<Type>,
+    _ type_args: List<TypeRef>, _ recv_type_args: List<TypeRef>,
     _ expected: Option<Type>, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
     // Enum construction: `(ns.)?Enum.Variant(payload...)`.
     match enum_variant_type(obj, field, arg_types, expected, scope, ctx) {
@@ -668,17 +669,17 @@ fn infer_call_field(_ obj: Expr, _ field: String, _ arg_types: List<Type>,
         None => {},
     }
     // Static method on a (possibly namespaced) type: `(ns.)?Type.method(...)`.
-    // Instantiate the return type from context, like the free-function path — so a
-    // generic constructor's owner parameter (`Set.new() -> Set<T>`) is recovered
-    // from the argument types and the expected type rather than left unbound. No
-    // explicit type args here: they bind to the method's own parameters, which the
-    // owner's `T` is not one of (see Phase B in roadmap.md).
+    // Instantiate the return type from receiver type args (`Set<String>.new()`),
+    // the method's own type args, the argument types, and the expected type — so the
+    // owner parameter (`Set.new() -> Set<T>`) is bound whether written explicitly or
+    // recovered from context, rather than left unbound.
     match type_def_for_expr(obj, scope, ctx) {
         Some(type_def) => {
             match find_method(type_def, field) {
                 Some(method) => {
                     if method.is_static {
-                        return instantiate_return_ctx(method, [], arg_types, expected, ctx);
+                        return substitute(method.return_type,
+                            static_call_bindings(method, type_def.type_parameters, recv_type_args, type_args, arg_types, expected, ctx));
                     };
                 },
                 None => {},
@@ -1152,7 +1153,16 @@ fn instantiate_return(_ fn_el: FunctionElement, _ arg_types: List<Type>) -> Type
 // only fills an as-yet-unbound parameter, so the priority order holds.
 pub fn call_bindings(_ fn_el: FunctionElement, _ type_args: List<TypeRef>,
     _ arg_types: List<Type>, _ expected: Option<Type>, _ ctx: InferCtx) -> Map<String, Type> {
-    let bindings: Map<String, Type> = {};
+    return call_bindings_into({}, fn_el, type_args, arg_types, expected, ctx);
+}
+
+// As `call_bindings`, but starting from an existing `bindings` map — so a static
+// call can pre-bind the owner type's parameters (from `Set<String>.new()`'s
+// receiver type args) before the method's own parameters, arguments, and expected
+// type fill in the rest. `unify` only fills an unbound parameter, so the seed wins.
+fn call_bindings_into(_ bindings: Map<String, Type>, _ fn_el: FunctionElement,
+    _ type_args: List<TypeRef>, _ arg_types: List<Type>, _ expected: Option<Type>,
+    _ ctx: InferCtx) -> Map<String, Type> {
     let tps = fn_el.type_parameters;
     let mut t = 0;
     while t < type_args.len() && t < tps.len() {
@@ -1170,6 +1180,31 @@ pub fn call_bindings(_ fn_el: FunctionElement, _ type_args: List<TypeRef>,
         None => {},
     }
     return bindings;
+}
+
+// Bind a static call's owner type parameters positionally from its receiver type
+// args (`Set<String>.new()` -> {T: String}). Excess args are ignored (the checker
+// reports an arity mismatch separately).
+fn owner_bindings_from(_ recv_type_args: List<TypeRef>, _ owner_params: List<String>,
+    _ ctx: InferCtx) -> Map<String, Type> {
+    let bindings: Map<String, Type> = {};
+    let mut i = 0;
+    while i < recv_type_args.len() && i < owner_params.len() {
+        bindings[owner_params[i]] = resolver.resolve_type_ref(recv_type_args[i], ctx.library.type_defs, ctx.type_params, ctx.self_type);
+        i = i + 1;
+    }
+    return bindings;
+}
+
+// The type-parameter bindings for a static method call: the owner type's parameters
+// first (from the receiver type args, `Set<String>.new()`), then the method's own
+// parameters / arguments / expected type. Shared by inference (to instantiate the
+// return type) and the checker (to know whether the owner parameter is pinned).
+pub fn static_call_bindings(_ method: FunctionElement, _ owner_params: List<String>,
+    _ recv_type_args: List<TypeRef>, _ type_args: List<TypeRef>, _ arg_types: List<Type>,
+    _ expected: Option<Type>, _ ctx: InferCtx) -> Map<String, Type> {
+    return call_bindings_into(owner_bindings_from(recv_type_args, owner_params, ctx),
+        method, type_args, arg_types, expected, ctx);
 }
 
 // As `instantiate_return`, but context-aware: instantiates from explicit type

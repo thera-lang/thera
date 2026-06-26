@@ -1,0 +1,22 @@
+//! spec: gen-static-recv-args
+//! mode: run
+
+// Receiver type args on a static call — `Set<String>.new()` binds the owner
+// `Set<T>`'s `T` on the receiver type itself, for the context-free case where no
+// binding annotation, argument, or return position is available to infer it from.
+// A method's own type args (if any) still follow the method name.
+
+fn main() -> Int {
+    let s = Set<String>.new();
+    s.add('a');
+    s.add('a');
+    s.add('b');
+    println('${s.len()}');          // expect: 2
+
+    // Used directly where a concrete element type matters.
+    let n = Set<Int>.new();
+    n.add(7);
+    n.add(7);
+    println('${n.len()}');          // expect: 1
+    return 0;
+}

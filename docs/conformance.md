@@ -62,6 +62,7 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `type-map`          | Collections              | `Map<K,V>` literal, keyed access                          | ✓      |
 | `type-set`          | Collections              | `Set<T>` uniqueness via `Set.from`                        | ✓      |
 | `gen-static-context`| Collections / Generics   | a generic static method (`Set.new()`) infers its owner `T` from call context | ✓ |
+| `gen-static-recv-args`| Collections / Generics   | receiver type args on a static call (`Set<String>.new()`) bind the owner parameter | ✓ |
 | `type-bytes`        | Types → Bytes            | `Bytes` len / `to_string` / `from_list` / `empty`         | ◐      |
 | `type-native`       | Types → Built-ins        | `native type` decl: opaque, impl-extensible, no field layout| ✓     |
 | `type-struct`       | Structs                  | `type` decl, struct literal, field access                 | ✓      |
