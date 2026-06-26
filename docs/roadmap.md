@@ -242,25 +242,33 @@ below.)
   function's own type parameter (`fn f<U>(x: U) -> Box<U>` doesn't require `U:
   Display`) — the lenient `TypeParameter` case, a separate well-formedness step.
 
-- **Static-method type arguments — Phase A done; receiver-type syntax (Phase B)
-  remains.** A generic static method (`Set.new() -> Set<T>`) now recovers its
-  owner's `T` from call context: `infer_call_field`'s static arm instantiates the
-  return type via `instantiate_return_ctx` (like the free-function path) instead of
-  returning it raw, so a binding annotation, a directly-passed argument, or the
-  return position pins `T` (pinned by `gen-static-context`); and the "cannot infer"
-  diagnostic no longer suggests the non-working `new<...>()` for an owner parameter.
-  - **Phase B (follow-on, re-evaluate after A).** For the genuinely context-free
-    case, support `Set<String>.new()` — type args on the **receiver type** of a
-    static call (parser + a CallExpr/Expr place for receiver type args + owner-param
-    binding in inference). Preferred over `Set.new<String>()` (owner params on the
-    type; method-own params stay after the method, no ordering ambiguity). Scope
-    this once Phase A shows how much the context-inference fix already covers in
-    practice. (`combined_type_params` stays — it feeds the unpinnable-`T` *check*
-    over owner params, while `call_bindings` binds the method's own; that split is
-    correct, not dead code.)
+- **Static-method type arguments — done (Phases A and B).** A generic static method
+  (`Set.new() -> Set<T>`) now recovers its owner's `T` both from context and
+  explicitly. **Phase A:** `infer_call_field`'s static arm instantiates the return
+  type from context (binding annotation, a directly-passed argument, the return
+  position), and the "cannot infer" diagnostic stopped suggesting the non-working
+  `new<...>()` for an owner parameter (`gen-static-context`). **Phase B:** receiver
+  type args — `Set<String>.new()` binds the owner parameter on the receiver type
+  itself for the context-free case (`CallExpr.recv_type_args`; the parser accepts
+  `Ident<...>.method(...)`; a shared `static_call_bindings` seeds the owner params,
+  used by both inference and the checker; the receiver args are validated for known
+  types, arity, and bounds) (`gen-static-recv-args`). (`combined_type_params` stays —
+  it feeds the unpinnable-`T` *check* over owner params while `call_bindings` binds
+  the method's own; that split is correct, not dead code.)
 
   _(Generics are **invariant by design** for now — no variance/subtyping work is
   planned; this is a deliberate simplification, not a gap.)_
+
+- **Unify inference's callee classification (tech debt).** `infer_call_field` (→
+  Type), `infer_callee_kind` (→ codegen lowering kind), `expected_arg_types` (→
+  parameter types), and the checker's `resolve_ns_or_static_call` / `resolve_method`
+  each re-walk the receiver to decide enum-ctor / static / namespace / instance-method
+  / field-fn. A single "resolve callee → descriptor" consumed by all would remove the
+  duplication (codegen's half is already routed through `infer_callee_kind`; the
+  inference/checker half isn't). _(The four return-type instantiation paths were
+  unified onto `call_bindings`/`instantiate_return_ctx` — the namespace arm is now
+  context-aware and `instantiate_return` is deleted; this callee-classification
+  duplication is the remaining piece.)_
 - **Semantic (scope-aware) references & rename.** `textDocument/references` and
   `textDocument/rename` are implemented but **lexical only** — they match every
   identifier token with the same text, across files, with no binding/scope
