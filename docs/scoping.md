@@ -347,17 +347,24 @@ sequence ending in one tiny behavior flip:
   file.
 - **S4** — `FileScope` bare resolution reads per-file tables + bare origins; drop
   the global fallback.
-- **S5** — `build_library`'s own type resolution (the 3 deferred `resolve_type_ref`
-  sites) resolves through a per-file `FileScope`, not the merged map. *(Riskiest —
-  a latent cross-file-without-import reference surfaces here, as the type gate did
-  in Phase 1.)*
+- **S5 — deferred (types).** S4 established that type resolution can't be made
+  owner-correct the way values can: `resolve_type_def` also serves an
+  already-resolved `Type.Interface(name)` whose type may be owned by any closure
+  file, and a `Type` carries only the **name** — so by-name lookup is unambiguous
+  only while type names are globally unique. Lifting *type-name* uniqueness needs an
+  **origin threaded into every `Type`** (inference, unification, codegen type
+  table) — a separate arc (tracked in [roadmap.md](roadmap.md)), to be done with an
+  architecture review. So 2e lifts uniqueness for **values (functions/consts)**;
+  type names stay globally unique. `resolve_type_def` and the resolver's
+  `resolve_type_ref` stay global by-name.
 - **S6** — codegen `emit_namespace_call` resolves a qualified call via the origin
   file (`file_functions[origin][name]`), not `resolve_global_function`'s last-wins.
-- **S7 (cleanup)** — delete the now-dead global flat `functions`/`type_defs`/
-  `consts` (+ `resolve_global_function`, `function_for`'s global fallback). Deletion
-  is the proof of deadness — a remaining reader fails to compile here.
-- **S8 (the only behavior change)** — relax `check_duplicates` closure-wide →
-  per-file; add a conformance test (two libraries each `pub fn parse`, both called
-  qualified, dispatching to different functions). The uniqueness lift.
+- **S7 (cleanup)** — delete the now-dead global flat `functions`/`consts` (+
+  `function_for`'s global fallback). `type_defs` stays (the global by-name type
+  lookup). Deletion is the proof of deadness — a remaining reader fails to compile.
+- **S8 (the only behavior change)** — relax `check_duplicates` for functions/consts
+  (types stay strict); add a conformance test (two libraries each `pub fn parse`,
+  both called qualified, dispatching to different functions). The value-uniqueness
+  lift.
 
 See [roadmap.md](roadmap.md) → _Resolution correctness_.

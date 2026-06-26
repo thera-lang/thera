@@ -163,6 +163,23 @@ below.)
 
 ### Front-end / tooling
 
+- **Owner-correct type resolution (`Type` carries its origin) — + an architecture
+  review.** Phase 2e makes *value* resolution (functions/consts) owner-correct and
+  lifts global name uniqueness for them, but **type names stay globally unique**:
+  `resolve_type_def` resolves a type by **name** alone, because an already-resolved
+  `Type.Interface(name)` (a namespace-qualified receiver type, a field's type, …)
+  carries no origin, so by-name lookup is unambiguous only while type names don't
+  collide across libraries. Making types owner-correct needs an **origin threaded
+  into every `Type`** — through inference, unification, and codegen's type table —
+  so `Foo` from library A and `Foo` from library B stay distinct. This is
+  foundational (a language should resolve types correctly), and the friction hit
+  while doing 2e suggests the surrounding resolution/`Type` representation is due
+  for an **architecture review** — evaluate the element-model / `Type` design before
+  (or as part of) this work, rather than bolting origin on. Not urgent: Hawk's
+  nominal types already discourage cross-library type-name clashes, and the painful
+  uniqueness case (two libraries' same-named *functions*, e.g. `std.json.parse` vs
+  `std.toml.parse`) is handled by 2e. See [scoping.md](scoping.md) → Phase 2e S5.
+
 - **Resolution correctness — Phase 1 done; the per-library refactor (Phase 2)
   remains.** Qualified-only + `pub` visibility are now **enforced by construction
   in the resolution gates** (not by transitional lints): the value gate
