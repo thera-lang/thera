@@ -24,83 +24,76 @@ import 'runner';
 fn build_app() -> cli.Command {
     return cli.Command.new('hawk')
         .about('the Hawk toolchain')
-        .details('Compile, run, test, and check Hawk programs.\n'
-            + '\n'
-            + 'Pick a command:\n'
-            + '  run / test   execute code (a program, or its @test functions)\n'
-            + '  check        type-check only — fast, no execution (CI, pre-commit)\n'
-            + '  emit         compile to a .hawkbc artifact (run later with the runtime)\n'
-            + '  fmt          rewrite source to the canonical format\n'
-            + '  lsp          editor language server (LSP over stdin/stdout)\n'
-            + '\n'
-            + 'Output convention: analysis output (diagnostics, test reports) goes to\n'
-            + 'stdout; operational errors (missing file, bad usage) go to stderr.')
+        .details('Compile, run, test, and check Hawk programs.
+
+Output convention: analysis output (diagnostics, test reports) goes to
+stdout; operational errors (missing file, bad usage) go to stderr.')
         .subcommand(cli.Command.new('run')
             .about('compile and run a Hawk program')
-            .details('Compiles <file> and executes it, forwarding any trailing arguments\n'
-                + 'to the program. The program owns stdout/stderr (they stream through).\n'
-                + '\n'
-                + 'Exit code: the program\'s own exit code; 1 if compilation fails\n'
-                + '(diagnostics to stderr) or the program traps.\n'
-                + '\n'
-                + 'Set HAWK_PROFILE=1 to write a deterministic per-function profile to\n'
-                + 'stderr at exit.\n'
-                + '\n'
-                + '  hawk run app.hawk --flag arg     # --flag and arg are passed to app')
+            .details('Compiles <file> and executes it, forwarding any trailing arguments
+to the program. The program owns stdout/stderr (they stream through).
+
+Exit code: the program\'s own exit code; 1 if compilation fails
+(diagnostics to stderr) or the program traps.
+
+Set HAWK_PROFILE=1 to write a deterministic per-function profile to
+stderr at exit.
+
+  hawk run app.hawk --flag arg     # --flag and arg are passed to app')
             .positional('file', help: 'the .hawk file to run')
             .trailing_var_arg(true))
         .subcommand(cli.Command.new('check')
             .about('type-check programs without running them')
-            .details('Type-checks each target (a .hawk file, or a directory searched for\n'
-                + '*.hawk) without executing — the analyzer for CI and pre-commit hooks.\n'
-                + '\n'
-                + 'stdout: one diagnostic per line, `path:line:col: message` (nothing when\n'
-                + 'clean). stderr: operational errors (a missing or unreadable target).\n'
-                + 'Exit code: 0 clean, 1 if any diagnostics, 2 if a target is missing.\n'
-                + '\n'
-                + '  hawk check src/                  # check every .hawk under src/')
+            .details('Type-checks each target (a .hawk file, or a directory searched for
+*.hawk) without executing — the analyzer for CI and pre-commit hooks.
+
+stdout: one diagnostic per line, `path:line:col: message` (nothing when
+clean). stderr: operational errors (a missing or unreadable target).
+Exit code: 0 clean, 1 if any diagnostics, 2 if a target is missing.
+
+  hawk check src/                  # check every .hawk under src/')
             .positional('target', help: 'a .hawk file or directory to check'))
         .subcommand(cli.Command.new('emit')
             .about('compile a Hawk program to a .hawkbc file')
-            .details('Compiles <file> ahead-of-time to a .hawkbc bytecode artifact at <out>\n'
-                + '(run it later with the runtime).\n'
-                + '\n'
-                + 'stdout: nothing. stderr: diagnostics (`path:line:col: message`) and I/O\n'
-                + 'errors. Exit code: 0 on success (artifact written), 1 on compile errors\n'
-                + '(no artifact), 2 on a read/write failure.\n'
-                + '\n'
-                + '  hawk emit app.hawk app.hawkbc')
+            .details('Compiles <file> ahead-of-time to a .hawkbc bytecode artifact at <out>
+(run it later with the runtime).
+
+stdout: nothing. stderr: diagnostics (`path:line:col: message`) and I/O
+errors. Exit code: 0 on success (artifact written), 1 on compile errors
+(no artifact), 2 on a read/write failure.
+
+  hawk emit app.hawk app.hawkbc')
             .positional('file', help: 'the .hawk file to compile')
             .positional('out', help: 'the .hawkbc output path'))
         .subcommand(cli.Command.new('test')
             .about('run the @test functions in a program')
-            .details('Compiles and runs every @test function in the targets (a file, or\n'
-                + '*_test.hawk under a directory) and prints a per-test report.\n'
-                + '\n'
-                + 'stdout: the report — a per-file path header, then `  ok <name>` /\n'
-                + '`  FAIL <name>` per test, then a summary line. stderr: operational\n'
-                + 'errors. Exit code: 0 if all tests pass, 1 if any fail or none are found.\n'
-                + '\n'
-                + '  hawk test sdk/std/path')
+            .details('Compiles and runs every @test function in the targets (a file, or
+*_test.hawk under a directory) and prints a per-test report.
+
+stdout: the report — a per-file path header, then `  ok <name>` /
+`  FAIL <name>` per test, then a summary line. stderr: operational
+errors. Exit code: 0 if all tests pass, 1 if any fail or none are found.
+
+  hawk test sdk/std/path')
             .flag('show-output', help: 'show captured stdout for passing tests too (failing tests always show it)')
             .positional('file', help: 'the .hawk file or directory to test'))
         .subcommand(cli.Command.new('fmt')
             .about('format source files in place')
-            .details('Rewrites each target (a file, or *.hawk under a directory) to the\n'
-                + 'canonical format, in place.\n'
-                + '\n'
-                + 'stdout: `Formatted <path>` for each file that changed (silent for files\n'
-                + 'already formatted). stderr: per-file errors. Exit code: 0.\n'
-                + '\n'
-                + '  hawk fmt src/')
+            .details('Rewrites each target (a file, or *.hawk under a directory) to the
+canonical format, in place.
+
+stdout: `Formatted <path>` for each file that changed (silent for files
+already formatted). stderr: per-file errors. Exit code: 0.
+
+  hawk fmt src/')
             .positional('target', help: 'a .hawk file or directory to format'))
         .subcommand(cli.Command.new('lsp')
             .about('start the Hawk language server')
-            .details('Serves the Language Server Protocol over stdin/stdout — the transport\n'
-                + 'an editor drives, not for interactive use.\n'
-                + '\n'
-                + 'stdout: framed LSP JSON-RPC (mix no other output here). stderr: server\n'
-                + 'logs. Runs until stdin closes.'));
+            .details('Serves the Language Server Protocol over stdin/stdout — the transport
+an editor drives, not for interactive use.
+
+stdout: framed LSP JSON-RPC (mix no other output here). stderr: server
+logs. Runs until stdin closes.'));
 }
 
 fn main(parameters: List<String>) -> Result<Int, Error> {
