@@ -131,7 +131,9 @@ impl Bytes {
 }
 
 // Accumulate bytes, then freeze (the binary-writer vocabulary; write_u8 masks
-// to the low 8 bits). The typed write_u16_le/be… family is a planned follow-up.
+// to the low 8 bits). The fixed little-endian + LEB128 writers are pure Hawk
+// over write_u8 + bitwise ops. The typed write_u16_le/be… family is a planned
+// follow-up.
 pub type BytesBuilder = { /* mutable */ }
 impl BytesBuilder {
     pub fn new() -> BytesBuilder;
@@ -140,6 +142,25 @@ impl BytesBuilder {
     pub fn write_str(self, _ s: String) -> Void;
     pub fn len(self) -> Int;
     pub fn finish(self) -> Bytes;
+    // Fixed little-endian + LEB128 (mirror the runtime's serialize.rs):
+    pub fn write_u32_le / write_u64_le (self, _ v: Int) -> Void;
+    pub fn write_f64_le(self, _ d: Double) -> Void;
+    pub fn write_uvarint / write_ivarint (self, _ v: Int) -> Void;
+}
+
+// Read a Bytes back — the reader counterpart to BytesBuilder. A forward cursor
+// (mut pos); each read advances and returns None at/over the end, so a truncated
+// stream is a clean None, not a trap. The integer decoders are exact inverses of
+// the writers above (a written value round-trips). Pure Hawk over Bytes.get.
+pub type BytesReader = { /* mutable cursor over a Bytes */ }
+impl BytesReader {
+    pub fn new(_ data: Bytes) -> BytesReader;
+    pub fn remaining(self) -> Int;
+    pub fn is_empty(self) -> Bool;
+    pub fn read_u8(self) -> Option<Int>;
+    pub fn read_bytes(self, _ n: Int) -> Option<Bytes>;
+    pub fn read_u32_le / read_u64_le (self) -> Option<Int>;
+    pub fn read_uvarint / read_ivarint (self) -> Option<Int>;
 }
 ```
 
@@ -236,8 +257,9 @@ impl StringWriter { fn new(); fn into_string() -> Result<String, Error>; fn into
 Deferred follow-ups: `io.lines(src) -> Iterator<String>` and `BufReader` (the
 lazy `Iterator<T>` type now exists in `std.iter`, but these also want the
 `map`/`filter` adapters, § Sequencing); streaming files (`fs.open` → a
-`File: Reader + Writer + Seek + Closer`); the typed binary `BytesReader`
-(`read_u8`/`read_u16_le`/…) pairing with `BytesBuilder`.
+`File: Reader + Writer + Seek + Closer`). (The typed binary `BytesReader`
+pairing with `BytesBuilder` now exists in the prelude — see § Core types — with
+the typed `read_u16_le`/be family still a follow-up.)
 
 ### `std.fs` — filesystem _(v1 implemented; streaming deferred)_
 
@@ -883,10 +905,10 @@ dependency graph, so future work lands in the right order:
      `std.testing` and generic combinators.
 
 2. **`Bytes` core type + `Reader`/`Writer` interfaces — done (v1).** `Bytes` +
-   `BytesBuilder` are runtime-backed prelude types, and `std.io` ships the
-   `Reader`/`Writer`/`Closer` interfaces, `read_all`/`copy`, the standard
-   streams, and `StringWriter`. Deferred: `lines`/`Iterator`, streaming files,
-   the typed binary `BytesReader`.
+   `BytesBuilder` + `BytesReader` are runtime-backed/pure-Hawk prelude types, and
+   `std.io` ships the `Reader`/`Writer`/`Closer` interfaces, `read_all`/`copy`,
+   the standard streams, and `StringWriter`. Deferred: `lines`/`Iterator`,
+   streaming files, the typed `read_u16_le`/be reader family.
 
 3. **Lazy `Iterator<T>` — done (v1).** `Iterator<T>` is a **generic interface**
    in the prelude (Hawk's first),
@@ -972,7 +994,7 @@ dependency graph, so future work lands in the right order:
 
 | Module       | Status  | Notes                                                                                                                                                                                                                               |
 | ------------ | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| prelude/core | exists  | Int/Double + String parsing; `String.slice`/`replace`/`repeat`; `List.slice`/`first`/`last`/`contains`/`index_of`/`reverse`/`sort` (comparator); `Map.get_or`; `Bytes`/`BytesBuilder`; `Set<T>` in Hawk over `Map`; `Error` is an interface + the `error(...)` constructor; `Iterator<T>` protocol; still want `Ord` (→ no-arg `sort()`) |
+| prelude/core | exists  | Int/Double + String parsing; `String.slice`/`replace`/`repeat`/`reverse`/`find`/`pad_*`/`trim_*`; `List.slice`/`first`/`last`/`contains`/`index_of`/`reverse`/`sort` (comparator); `Map.get_or`; `Bytes`/`BytesBuilder`/`BytesReader`; `Set<T>` in Hawk over `Map`; `Error` is an interface + the `error(...)` constructor; `Iterator<T>` protocol; still want `Ord` (→ no-arg `sort()`) |
 | std.io       | done    | v1: `Reader`/`Writer`/`Closer` + `IoError`, `read_all`/`copy`, stdin/stdout/stderr, `StringWriter`; `lines`/`Iterator` + streaming files deferred                                                                                   |
 | std.iter     | done    | v1: `Iterator<T>` (prelude) + `range`/`from_list` sources + `collect`/`count`; `for x in it` drives any iterator; adapters (`map`/`filter`/`take`) deferred                                                                         |
 | std.fs       | done    | v1: read/write text+bytes, exists, metadata, list_dir, create_dir(\_all), remove(\_dir_all), rename, copy, temp_dir; classified `FsError`; streaming `File`/`open`/`walk`/`temp_file` deferred to v2                                |

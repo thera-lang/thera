@@ -146,3 +146,59 @@ fn test_double_to_bits() -> Result<Void, Error> {
     testing.assert_eq(actual: (-2.0).to_bits(), expected: 0xC000000000000000)?;
     return Result.Ok(void);
 }
+
+@test
+fn test_bytes_is_empty() -> Result<Void, Error> {
+    testing.assert(Bytes.empty().is_empty())?;
+    let b = Bytes.from_list([1, 2, 3])?;
+    testing.assert(!b.is_empty())?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_reader_u8_and_bytes() -> Result<Void, Error> {
+    let data = Bytes.from_list([10, 20, 30])?;
+    let r = BytesReader.new(data);
+    testing.assert_eq(actual: r.remaining(), expected: 3)?;
+    testing.assert_eq(actual: r.read_u8(), expected: Option.Some(10))?;
+    let chunk = r.read_bytes(2);
+    testing.assert(chunk.is_some())?;
+    testing.assert_eq(actual: chunk.unwrap_or(Bytes.empty()).to_list(),
+        expected: [20, 30])?;
+    testing.assert(r.is_empty())?;
+    testing.assert_eq(actual: r.read_u8(), expected: Option.None)?; // exhausted
+    testing.assert_eq(actual: r.read_bytes(1), expected: Option.None)?; // not enough left
+    return Result.Ok(void);
+}
+
+@test
+fn test_reader_fixed_le_roundtrip() -> Result<Void, Error> {
+    let bb = BytesBuilder.new();
+    bb.write_u32_le(0xDEADBEEF);
+    bb.write_u64_le(0x0123456789ABCDEF);
+    let r = BytesReader.new(bb.finish());
+    testing.assert_eq(actual: r.read_u32_le(), expected: Option.Some(0xDEADBEEF))?;
+    testing.assert_eq(actual: r.read_u64_le(), expected: Option.Some(0x0123456789ABCDEF))?;
+    testing.assert_eq(actual: r.read_u32_le(), expected: Option.None)?; // nothing left
+    return Result.Ok(void);
+}
+
+@test
+fn test_reader_varint_roundtrip() -> Result<Void, Error> {
+    let bb = BytesBuilder.new();
+    bb.write_uvarint(0);
+    bb.write_uvarint(300);
+    bb.write_uvarint(127);
+    bb.write_ivarint(-1);
+    bb.write_ivarint(-128);
+    bb.write_ivarint(63);
+    let r = BytesReader.new(bb.finish());
+    testing.assert_eq(actual: r.read_uvarint(), expected: Option.Some(0))?;
+    testing.assert_eq(actual: r.read_uvarint(), expected: Option.Some(300))?;
+    testing.assert_eq(actual: r.read_uvarint(), expected: Option.Some(127))?;
+    testing.assert_eq(actual: r.read_ivarint(), expected: Option.Some(-1))?;
+    testing.assert_eq(actual: r.read_ivarint(), expected: Option.Some(-128))?;
+    testing.assert_eq(actual: r.read_ivarint(), expected: Option.Some(63))?;
+    testing.assert(r.is_empty())?;
+    return Result.Ok(void);
+}

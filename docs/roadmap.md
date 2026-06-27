@@ -55,13 +55,16 @@ _Owner-correct type resolution_ below.)
   and
   `std.cli`/`std.fs`/`std.process`/`std.random`/`std.time`/`std.json`/`std.io`
   exist; `List.map`/`filter`/`fold` are written in Hawk over closures. The
-  collection/string staples are now in (all pure Hawk over the existing
-  primitives): `List.first`/`last`/`is_empty`/`contains`/`index_of`/`reverse`/
-  `sort` (comparator-based — a no-arg `sort()` waits on an `Ord` interface),
-  `String.replace`/`repeat`, `Map.get_or` (`slice` on both was already there).
-  Remaining: more `String` (`trim_start`/`trim_end`, `pad_*`, `find` —
-  need natives or pure-Hawk scans), the `Ord` interface (unlocks `sort()`/`min`/
-  `max`/sorted `Set`/`Map`), and the rest of the "batteries included" goal.
+  collection/string/bytes staples are now in (pure Hawk over the existing
+  primitives, except the two `trim_*` natives): `List.first`/`last`/`is_empty`/
+  `contains`/`index_of`/`reverse`/`sort` (comparator-based — a no-arg `sort()`
+  waits on an `Ord` interface); `String.replace`/`repeat`/`reverse`/`find`/
+  `pad_start`/`pad_end`/`trim_start`/`trim_end`; `Map.get_or`; `Bytes.is_empty`
+  and a `BytesReader` (the reader counterpart to `BytesBuilder`:
+  `read_u8`/`read_bytes`/`read_u32_le`/`read_u64_le`/`read_uvarint`/`read_ivarint`,
+  pure Hawk, round-trips the writer). (`slice` on `String`/`List`/`Bytes` was
+  already there.) Remaining: the `Ord` interface (unlocks `sort()`/`min`/`max`/
+  sorted `Set`/`Map`), and the rest of the "batteries included" goal.
 - **Fibers — phases 3–4.** Phases 0–2 are done (scheduler-drivable `run_loop`;
   `spawn`/`join`/`yield` with GC roots across every fiber; buffered
   `Channel<T>`). Design in [architecture.md](architecture.md) §Concurrency.

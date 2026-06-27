@@ -38,6 +38,48 @@ fn test_repeat() -> Result<Void, Error> {
 }
 
 @test
+fn test_reverse() -> Result<Void, Error> {
+    testing.assert_eq(actual: 'abc'.reverse(), expected: 'cba')?;
+    testing.assert_eq(actual: ''.reverse(), expected: '')?;
+    testing.assert_eq(actual: 'x'.reverse(), expected: 'x')?;
+    // Reversing twice is the identity (code-point order).
+    testing.assert_eq(actual: 'hello'.reverse().reverse(), expected: 'hello')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_find() -> Result<Void, Error> {
+    testing.assert_eq(actual: 'hello'.find('ll'), expected: Option.Some(2))?;
+    testing.assert_eq(actual: 'hello'.find('h'), expected: Option.Some(0))?;
+    testing.assert_eq(actual: 'hello'.find('o'), expected: Option.Some(4))?;
+    testing.assert_eq(actual: 'hello'.find('z'), expected: Option.None)?;
+    testing.assert_eq(actual: 'hello'.find(''), expected: Option.Some(0))?; // empty matches at 0
+    testing.assert_eq(actual: 'aaa'.find('aa'), expected: Option.Some(0))?; // first occurrence
+    return Result.Ok(void);
+}
+
+@test
+fn test_pad() -> Result<Void, Error> {
+    testing.assert_eq(actual: '7'.pad_start(3, '0'), expected: '007')?;
+    testing.assert_eq(actual: '7'.pad_end(3, '.'), expected: '7..')?;
+    testing.assert_eq(actual: 'abc'.pad_start(2, '0'), expected: 'abc')?;  // already wide
+    testing.assert_eq(actual: 'abc'.pad_start(3, '0'), expected: 'abc')?;  // exactly wide
+    testing.assert_eq(actual: 'x'.pad_start(5, 'ab'), expected: 'ababx')?; // multi-char pad truncates
+    testing.assert_eq(actual: 'x'.pad_end(4, 'ab'), expected: 'xaba')?;
+    testing.assert_eq(actual: 'x'.pad_start(3, ''), expected: 'x')?;       // empty pad: unchanged
+    return Result.Ok(void);
+}
+
+@test
+fn test_trim_start_end() -> Result<Void, Error> {
+    testing.assert_eq(actual: '  hi  '.trim_start(), expected: 'hi  ')?;
+    testing.assert_eq(actual: '  hi  '.trim_end(), expected: '  hi')?;
+    testing.assert_eq(actual: 'hi'.trim_start(), expected: 'hi')?;     // nothing to strip
+    testing.assert_eq(actual: '\t\nhi'.trim_start(), expected: 'hi')?; // tabs/newlines too
+    return Result.Ok(void);
+}
+
+@test
 fn test_to_double() -> Result<Void, Error> {
     testing.assert_eq(actual: '3.5'.to_double(), expected: Option.Some(3.5))?;
     testing.assert_eq(actual: '10'.to_double(), expected: Option.Some(10.0))?;

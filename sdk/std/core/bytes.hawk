@@ -17,6 +17,11 @@ impl Bytes {
     @extern('bytes_len')
     pub native fn len(self) -> Int
 
+    // True if the buffer has no bytes.
+    pub fn is_empty(self) -> Bool {
+        return self.len() == 0;
+    }
+
     // The byte (0..=255) at `i`, or None if out of range.
     @extern('bytes_get')
     pub native fn get(self, _ i: Int) -> Option<Int>
@@ -143,5 +148,129 @@ impl BytesBuilder {
                 self.write_u8(low | 0x80);
             }
         }
+    }
+}
+
+// A forward cursor over a `Bytes` — the reader counterpart to `BytesBuilder`.
+// Each read advances `pos` and returns `None` when the buffer is exhausted (or,
+// for the multi-byte reads, when fewer bytes remain than the read needs), so a
+// truncated stream is a clean `None` rather than a trap. The integer decoders
+// are the exact inverses of `BytesBuilder`'s writers, so a value written there
+// round-trips through here. Pure Hawk over `Bytes.get` + bitwise ops.
+pub type BytesReader = {
+    data: Bytes,
+    mut pos: Int,
+}
+
+impl BytesReader {
+    // A reader positioned at the start of `data`.
+    pub fn new(_ data: Bytes) -> BytesReader {
+        return BytesReader { data: data, pos: 0 };
+    }
+
+    // The number of bytes not yet read.
+    pub fn remaining(self) -> Int {
+        return self.data.len() - self.pos;
+    }
+
+    // True once every byte has been read.
+    pub fn is_empty(self) -> Bool {
+        return self.remaining() <= 0;
+    }
+
+    // The next byte (0..=255) and advance, or None at end of input.
+    pub fn read_u8(self) -> Option<Int> {
+        match self.data.get(self.pos) {
+            Some(b) => {
+                self.pos = self.pos + 1;
+                return Option.Some(b);
+            },
+            None => { return Option.None; },
+        }
+    }
+
+    // The next `n` bytes as a `Bytes` and advance, or None if fewer than `n`
+    // remain (or `n` is negative).
+    pub fn read_bytes(self, _ n: Int) -> Option<Bytes> {
+        if n < 0 || self.remaining() < n {
+            return Option.None;
+        }
+        let out = self.data.slice(self.pos, self.pos + n);
+        self.pos = self.pos + n;
+        return Option.Some(out);
+    }
+
+    // Fixed little-endian integers — the inverses of `write_u32_le`/
+    // `write_u64_le`. The result is the raw bit pattern (`read_u64_le`
+    // round-trips the full 64-bit range, sign included).
+    pub fn read_u32_le(self) -> Option<Int> {
+        return self.read_le(4);
+    }
+
+    pub fn read_u64_le(self) -> Option<Int> {
+        return self.read_le(8);
+    }
+
+    // Assemble the next `n` little-endian bytes into an Int, or None if fewer
+    // than `n` remain.
+    fn read_le(self, _ n: Int) -> Option<Int> {
+        match self.read_bytes(n) {
+            Some(b) => {
+                let mut result = 0;
+                let mut i = 0;
+                while i < n {
+                    result = result | (b.get(i).unwrap_or(0) << (i * 8));
+                    i = i + 1;
+                }
+                return Option.Some(result);
+            },
+            None => { return Option.None; },
+        }
+    }
+
+    // Unsigned LEB128 — the inverse of `write_uvarint`. None if the stream ends
+    // mid-varint.
+    pub fn read_uvarint(self) -> Option<Int> {
+        let mut result = 0;
+        let mut shift = 0;
+        let mut more = true;
+        while more {
+            match self.read_u8() {
+                Some(byte) => {
+                    result = result | ((byte & 0x7F) << shift);
+                    if (byte & 0x80) == 0 {
+                        more = false;
+                    } else {
+                        shift = shift + 7;
+                    }
+                },
+                None => { return Option.None; },
+            }
+        }
+        return Option.Some(result);
+    }
+
+    // Signed LEB128 — the inverse of `write_ivarint`. The final group's sign bit
+    // (0x40) sign-extends the high bits. None if the stream ends mid-varint.
+    pub fn read_ivarint(self) -> Option<Int> {
+        let mut result = 0;
+        let mut shift = 0;
+        let mut more = true;
+        while more {
+            match self.read_u8() {
+                Some(byte) => {
+                    result = result | ((byte & 0x7F) << shift);
+                    shift = shift + 7;
+                    if (byte & 0x80) == 0 {
+                        if shift < 64 && (byte & 0x40) != 0 {
+                            result = result | (-1 << shift);
+                        }
+                        more = false;
+                    }
+                },
+                None => { return Option.None; },
+            }
+        }
+        return Option.Some(result);
     }
 }

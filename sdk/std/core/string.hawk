@@ -37,6 +37,14 @@ impl String {
     @extern('str_trim')
     pub native fn trim(self) -> String
 
+    // A copy with leading / trailing whitespace removed (the one-sided
+    // counterparts to `trim`; same Unicode whitespace definition).
+    @extern('str_trim_start')
+    pub native fn trim_start(self) -> String
+
+    @extern('str_trim_end')
+    pub native fn trim_end(self) -> String
+
     // Substring / prefix / suffix tests.
     @extern('str_contains')
     pub native fn contains(self, _ needle: String) -> Bool
@@ -89,6 +97,72 @@ impl String {
             i = i + 1;
         }
         return s;
+    }
+
+    // A copy with the code points in reverse order.
+    //
+    //   'abc'.reverse()   // 'cba'
+    pub fn reverse(self) -> String {
+        return String.from_chars(self.chars().reverse());
+    }
+
+    // The code-point index of the first occurrence of `needle`, or None if it
+    // does not occur. An empty `needle` matches at 0 (as `contains('')` is true).
+    //
+    //   'hello'.find('ll')   // Some(2)
+    //   'hello'.find('z')    // None
+    pub fn find(self, _ needle: String) -> Option<Int> {
+        let hay = self.chars();
+        let pat = needle.chars();
+        let n = hay.len();
+        let m = pat.len();
+        if m == 0 {
+            return Option.Some(0);
+        }
+        let mut i = 0;
+        while i + m <= n {
+            let mut j = 0;
+            while j < m && hay[i + j] == pat[j] {
+                j = j + 1;
+            }
+            if j == m {
+                return Option.Some(i);
+            }
+            i = i + 1;
+        }
+        return Option.None;
+    }
+
+    // `self` left-padded with `pad` to at least `width` code points (the pad is
+    // truncated to land exactly on `width`). A string already that wide, an empty
+    // `pad`, or a non-positive `width` returns `self` unchanged.
+    //
+    //   '7'.pad_start(3, '0')   // '007'
+    pub fn pad_start(self, _ width: Int, _ pad: String) -> String {
+        let fill = self.padding(width, pad);
+        return fill + self;
+    }
+
+    // `self` right-padded with `pad` to at least `width` code points.
+    //
+    //   '7'.pad_end(3, '.')   // '7..'
+    pub fn pad_end(self, _ width: Int, _ pad: String) -> String {
+        let fill = self.padding(width, pad);
+        return self + fill;
+    }
+
+    // The padding string needed to bring `self` up to `width` code points using
+    // `pad` (repeated then truncated); empty when no padding is needed.
+    fn padding(self, _ width: Int, _ pad: String) -> String {
+        let deficit = width - self.len();
+        if deficit <= 0 || pad.is_empty() {
+            return '';
+        }
+        let mut p = '';
+        while p.len() < deficit {
+            p = p + pad;
+        }
+        return p.slice(0, deficit);
     }
 
     // The Unicode scalar values (code points) of the string, as Int. The

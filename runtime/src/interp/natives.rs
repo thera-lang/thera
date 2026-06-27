@@ -87,6 +87,8 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("str_len", native_str_len),
     ("str_byte_len", native_str_byte_len),
     ("str_trim", native_str_trim),
+    ("str_trim_start", native_str_trim_start),
+    ("str_trim_end", native_str_trim_end),
     ("str_contains", native_str_contains),
     ("str_starts_with", native_str_starts_with),
     ("str_ends_with", native_str_ends_with),
@@ -449,6 +451,18 @@ fn native_str_byte_len(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Tr
 fn native_str_trim(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let s = str_contents(expect_one(args, "str_trim")?)?;
     Ok(Value::new_str(s.trim()))
+}
+
+/// `s.trim_start()` — strip leading whitespace.
+fn native_str_trim_start(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let s = str_contents(expect_one(args, "str_trim_start")?)?;
+    Ok(Value::new_str(s.trim_start()))
+}
+
+/// `s.trim_end()` — strip trailing whitespace.
+fn native_str_trim_end(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let s = str_contents(expect_one(args, "str_trim_end")?)?;
+    Ok(Value::new_str(s.trim_end()))
 }
 
 /// `s.contains(sub)`.
