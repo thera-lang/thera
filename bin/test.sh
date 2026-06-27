@@ -97,6 +97,23 @@ else
   fail=1
 fi
 
+echo "==> inference-context oracle (codegen and checker build identical InferCtx)"
+# A divergence between the inference context codegen builds and the one the
+# checker builds is the root of the bug class where the two stages infer the same
+# expression to different types. The oracle (HAWK_INFER_ORACLE, in codegen)
+# compares them per unit; this guard asserts the whole front-end stays at zero
+# divergences. See docs/roadmap.md (Owner-correct ... / the oracle commit).
+oracle_tmp="$(mktemp)"
+oracle_diverged="$(HAWK_INFER_ORACLE=1 "$HAWK" emit pkgs/cli/main.hawk "$oracle_tmp" 2>&1 \
+  | grep -oE '[0-9]+/[0-9]+ non-lambda' | head -1 | cut -d/ -f1)"
+rm -f "$oracle_tmp"
+if [ "${oracle_diverged:-1}" -eq 0 ]; then
+  echo "  ok   0 units with divergent inference context"
+else
+  echo "  FAIL $oracle_diverged unit(s) diverge; run: HAWK_INFER_ORACLE=1 hawk emit pkgs/cli/main.hawk /tmp/x.hawkbc"
+  fail=1
+fi
+
 echo "==> language conformance (tests/lang)"
 # Spec-conformance tests: each tests/lang/**/*.hawk pins a documented language
 # feature via embedded `//!` directives + `// expect…` comments. The harness

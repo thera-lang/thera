@@ -438,6 +438,26 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **Unified checker/codegen inference context + a differential oracle**
+  (2026-06). Inference is one pure `infer_expr` query, but the checker and codegen
+  built its `InferCtx` independently, and the fields that differed were the root of
+  a bug class where the two stages inferred the same expression to different types
+  (the `for_element_type` miscompile that trapped at runtime; the lambda-bounds
+  spurious rejection). A **differential oracle** (`HAWK_INFER_ORACLE`, in codegen)
+  maps the divergence: it found 28/855 front-end units diverged, every one a method
+  on a generic type, every divergence the identical pattern — codegen dropped the
+  receiver's type arguments (`self_type` `List` vs `List<T>`) and omitted the owner
+  type parameters. **Fix:** codegen now builds the receiver type with its parameters
+  applied (from the type definition) and adds those to the in-scope set, matching the
+  checker; the chosen `self_type` is recorded so the oracle *observes* (not models)
+  what codegen built. The oracle now reports **0** and is a permanent assert-zero
+  guard in `bin/test.sh`. Byte-identical fixpoint (the correction is principled but
+  the front-end's own lowerings were already `Unknown`-tolerant). _Remaining: extend
+  the lambda-unit context snapshot to `self_type`/`type_params` (only bounds today)
+  and bring the 34 lambda units into the oracle; a per-expression oracle; and a
+  targeted "unexpected-Unknown" audit for inference incompleteness (distinct from
+  this divergence pass — a blanket Unknown-reject is ~330 false positives)._
+
 - **`Ord` interface + `std.sort`** (2026-06). Total ordering, modeled on
   `Eq`/`Display`: `interface Ord { fn compare(self, other: Self) -> Ordering }`
   with `enum Ordering { Less, Equal, Greater }` (a third runtime-blessed enum

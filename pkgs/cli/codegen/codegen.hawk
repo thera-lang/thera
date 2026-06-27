@@ -218,15 +218,29 @@ impl FnCompiler {
             None => {},
         }
 
-        // Build the inference context for this unit.
+        // Build the inference context for this unit, matching the checker's: the
+        // receiver type carries its parameters (`List<T>`, not bare `List`) and
+        // those owner parameters join the in-scope type-parameter set, so codegen
+        // and the checker infer every expression in the body to the same type.
+        // (The unit table holds only the receiver's name; its parameters come from
+        // the type definition.) The chosen `self_type` is recorded for the oracle.
+        let self_type = match self.scope.unit_self_types[index] {
+            Some(name) => Option.Some(named_self_type(name, self.scope.library)),
+            None => Option.None,
+        };
+        self.scope.unit_ctx_self[index] = self_type;
         let type_params: Set<String> = Set.new();
+        match self_type {
+            Some(st) => {
+                for n in self_type_param_names(st) {
+                    type_params.add(n);
+                }
+            },
+            None => {},
+        }
         for tp in fn_decl.type_params {
             type_params.add(tp.name);
         }
-        let self_type = match self.scope.unit_self_types[index] {
-            Some(name) => Option.Some(self_type_of(name)),
-            None => Option.None,
-        };
         let return_type = match fn_decl.return_type {
             Some(ref) => Option.Some(
                 resolver.resolve_type_ref(ref, self.scope.library.type_defs, type_params, self_type)),
@@ -2067,35 +2081,51 @@ fn sorted_keys(_ cases: Map<Int, MatchArm>) -> List<Int> {
 
 // --- free helpers ---
 
-// The self type a method receiver denotes (primitive, or the bare interface
-// type — generic args aren't needed for codegen's name-keyed dispatch).
-fn self_type_of(_ name: String) -> Type {
+// The receiver type a method's `self` denotes: a primitive, or the named type
+// with its declared parameters applied (`List` -> `List<T>`). This is codegen's
+// inference-context construction; it matches the checker's `impl_self_type` so
+// the two infer a method body identically.
+fn named_self_type(_ name: String, _ library: element.LibraryElement) -> Type {
     return match primitive_type(name) {
         Some(p) => p,
-        None => Type.Interface(name, []),
+        None => match library.type_defs.get(name) {
+            Some(def) => Type.Interface(name, def.type_parameters.map((p) => Type.TypeParameter(p))),
+            None => Type.Interface(name, []),
+        },
     };
+}
+
+// The type-parameter names of a receiver type (`List<T>` -> `[T]`) — the owner
+// parameters that join a method unit's in-scope type-parameter set.
+fn self_type_param_names(_ t: Type) -> List<String> {
+    let out = [];
+    match t {
+        Interface(_, args) => {
+            for a in args {
+                match a {
+                    TypeParameter(n) => { out.push(n); },
+                    _ => {},
+                }
+            }
+        },
+        _ => {},
+    }
+    return out;
 }
 
 // --- differential inference oracle ---
 //
 // Inference is one pure `infer_expr` query, but the checker and codegen build its
-// `InferCtx` independently — and the fields that differ (the receiver's
-// `self_type`, the `type_params` in scope) are the root of the bugs where the two
-// stages infer the same expression to different types. This pass reports every
-// non-lambda unit whose codegen context diverges from the checker-correct one, so
-// the divergences can be mapped before (and verified gone after) unifying the
-// construction. Opt-in via `HAWK_INFER_ORACLE`; prints to stderr.
+// `InferCtx` independently. This pass observes the `self_type` codegen actually
+// recorded for each unit (`unit_ctx_self`) and compares it to an independently
+// computed checker reference (`checker_self_type`, mirroring the checker's
+// `impl_self_type`) — a real differential, since the two are built by separate
+// code. A mismatch is a place the two stages could infer the same expression to
+// different types; once the construction is unified this reports zero. Opt-in via
+// `HAWK_INFER_ORACLE`; prints to stderr.
 
-// The self type codegen builds for a receiver name (bare — generic args dropped).
-fn cg_self_type(_ self_name: Option<String>) -> Option<Type> {
-    return match self_name {
-        Some(n) => Option.Some(self_type_of(n)),
-        None => Option.None,
-    };
-}
-
-// The self type the checker builds: the named type with its own parameters
-// applied (`List` -> `List<T>`), mirroring the checker's `impl_self_type`.
+// The checker's receiver type for a unit — the oracle's reference, kept separate
+// from codegen's `named_self_type` so the comparison is a genuine differential.
 fn checker_self_type(_ self_name: Option<String>, _ library: element.LibraryElement) -> Option<Type> {
     return match self_name {
         Some(n) => match primitive_type(n) {
@@ -2117,35 +2147,12 @@ fn describe_self(_ t: Option<Type>) -> String {
     };
 }
 
-// The type parameters codegen puts in scope for a unit (its own only) vs the
-// owner type's parameters the checker additionally includes.
-fn owner_tp_names(_ self_name: Option<String>, _ library: element.LibraryElement) -> List<String> {
-    return match self_name {
-        Some(n) => match library.type_defs.get(n) {
-            Some(def) => def.type_parameters,
-            None => [],
-        },
-        None => [],
+// The `self_type` codegen recorded for unit `i` (None if it never compiled it).
+fn recorded_self(_ scope: ModuleScope, _ i: Int) -> Option<Type> {
+    return match scope.unit_ctx_self.get(i) {
+        Some(t) => t,
+        None => Option.None,
     };
-}
-
-fn union_tps(_ owner: List<String>, _ own: List<String>) -> List<String> {
-    let out = [];
-    for x in owner {
-        out.push(x);
-    }
-    for x in own {
-        if !owner.contains(x) {
-            out.push(x);
-        }
-    }
-    return out;
-}
-
-// A stable, sorted, comma-joined rendering of a type-parameter set (so the
-// comparison and the printout don't depend on insertion order).
-fn tp_label(_ names: List<String>) -> String {
-    return names.sort((a, b) => a.compare(b).is_lt()).join(',');
 }
 
 fn run_infer_oracle(_ scope: ModuleScope) -> Void {
@@ -2161,22 +2168,14 @@ fn run_infer_oracle(_ scope: ModuleScope) -> Void {
             lambdas = lambdas + 1;
         } else {
             checked = checked + 1;
-            let decl = scope.units[i];
-            let self_name = scope.unit_self_types[i];
-            let cg_self = describe_self(cg_self_type(self_name));
-            let ck_self = describe_self(checker_self_type(self_name, library));
-            let own_tps = decl.type_params.map((tp) => tp.name);
-            let cg_tps = tp_label(own_tps);
-            let ck_tps = tp_label(union_tps(owner_tp_names(self_name, library), own_tps));
-            if cg_self != ck_self || cg_tps != ck_tps {
+            // What codegen actually built (recorded during compilation) vs the
+            // independent checker reference.
+            let cg = describe_self(recorded_self(scope, i));
+            let ck = describe_self(checker_self_type(scope.unit_self_types[i], library));
+            if cg != ck {
                 diverged = diverged + 1;
                 eprintln('  ${name}  [${file_label(scope.unit_files[i])}]');
-                if cg_self != ck_self {
-                    eprintln('      self_type:   codegen=${cg_self}   checker=${ck_self}');
-                }
-                if cg_tps != ck_tps {
-                    eprintln('      type_params: codegen=[${cg_tps}]   checker=[${ck_tps}]');
-                }
+                eprintln('      self_type:   codegen=${cg}   checker=${ck}');
             }
         }
         i = i + 1;

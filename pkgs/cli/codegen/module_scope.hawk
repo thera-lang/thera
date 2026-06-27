@@ -117,6 +117,10 @@ pub type ModuleScope = {
     // type `T` inside the lambda still resolves through its bound when the lambda
     // is compiled as its own (type-parameter-less) unit.
     lambda_bounds: Map<Int, Map<String, List<String>>>,
+    // The `self_type` codegen actually put in each unit's inference context,
+    // recorded during compilation so the differential oracle can observe (not
+    // model) what codegen built and compare it to the checker-correct value.
+    unit_ctx_self: Map<Int, Option<Type>>,
     // The resolved element model, for building an `InferCtx` per unit.
     library: element.LibraryElement,
 }
@@ -146,6 +150,7 @@ pub fn new_module_scope(_ library: element.LibraryElement) -> ModuleScope {
         cell_type: Option.None,
         lambda_param_types: {},
         lambda_bounds: {},
+        unit_ctx_self: {},
         library: library,
     };
 }
