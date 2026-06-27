@@ -276,6 +276,29 @@ _Owner-correct type resolution_ below.)
     names while inside a function call. Relies on the parser correctly framing
     an unterminated call `foo(`, which current coarse recovery struggles with.
 
+- **Formatter (`hawk fmt`) — design stub.** Today's `fmt` is v0 (trailing-whitespace
+  trim + final newline). The real formatter should be **canonical** (one obvious
+  output; expect ~all Hawk code to use it), **near-zero config**, and **idempotent**
+  (formatting a formatted file is a no-op). It *mostly* normalizes layout — fix
+  indentation, normalize inter-token whitespace (`fn  foo( name:String )` →
+  `fn foo(name: String)`) — to eliminate ~99% of format discussion, **not** fully
+  canonicalize. **Deliberately out of scope (for now): automatic line breaking /
+  re-joining** — the usual source of formatter complexity; instead rely on manual
+  conventions for where to break and see how far that gets. A first cut can be
+  **token-only** (walk the token stream with brace/paren depth, no AST).
+  - **Prerequisite + sequencing.** The lexer currently *discards* comments and
+    whitespace (`skip_whitespace_and_comments`; no comment token kind / no trivia on
+    `Token`), so the one real prerequisite is surfacing comments + blank-line
+    structure as a **parser-invisible side channel** — trivia on tokens, or a
+    positioned comment list re-associated by span (gofmt's model) — **not** in-stream
+    comment tokens (which would force `advance`/`expect` to skip them, the same
+    surface parser recovery rewrites). Kept that way, the compile path stays
+    byte-identical (fixpoint-clean) and the formatter is **orthogonal to parser
+    recovery** — sequence by priority, not coupling. Holds as long as we **only
+    format syntactically-valid files** (so the formatter never consumes recovery
+    output); revisit if format-through-errors is ever wanted. Hardest design call
+    when we dig in: **comment attachment** (leading / trailing / dangling).
+
 ### Language features not yet built
 
 - **Struct-definition keyword: `type Foo = { … }` → `struct Foo { … }`
