@@ -457,6 +457,14 @@ conformance specs. Newest first.
   and bring the 34 lambda units into the oracle; a per-expression oracle; and a
   targeted "unexpected-Unknown" audit for inference incompleteness (distinct from
   this divergence pass — a blanket Unknown-reject is ~330 false positives)._
+  **Note (lambda extension, attempted + reverted):** giving lifted lambdas the full
+  inherited `self_type`/`type_params` (not just bounds) is correct on small inputs
+  but made `hawk check pkgs/cli` hang — a compile-time blowup (98% CPU, no output)
+  that the per-file closure recompilation in `check` exposes but a single `emit`
+  and the minimal repro do not (lambdas already resolve `self`/`T` via captures, so
+  the richer context is redundant *and* expensive). Redo it perf-aware: profile the
+  blowup first (likely repeated work over the inherited generic context across many
+  nested lambdas), or narrow what lambdas inherit.
 
 - **`Ord` interface + `std.sort`** (2026-06). Total ordering, modeled on
   `Eq`/`Display`: `interface Ord { fn compare(self, other: Self) -> Ordering }`
