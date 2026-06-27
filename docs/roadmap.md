@@ -260,10 +260,14 @@ _Owner-correct type resolution_ below.)
 - **Parser error recovery for the LSP.** The LSP's normal input is
   _syntactically broken_ code mid-edit; the parser should synthesize a
   best-effort tree (recover past the error) so semantic resolution still runs
-  and offers completions/hover. Today recovery is coarse (`sync_to_decl`). A
-  future spike: structured recovery + error nodes the resolver tolerates. (Keep
-  in mind when touching the parser — the recent precedence-table refactor
-  preserved the `panicking`/recovery structure.)
+  and offers completions/hover. Today recovery is coarse (`sync_to_decl` — a
+  single declaration-level recovery point). **Design + staged plan in
+  [parser-recovery.md](parser-recovery.md):** non-fatal `expect` (fill known holes
+  in place so the leaf node survives for completion) + an `Expr.Error` placeholder
+  the resolver/checker analyze leniently (no semantic cascade) + finer recovery
+  points (statement/block) + signature-past-body. (Keep in mind when touching the
+  parser — the recent precedence-table refactor preserved the `panicking`/recovery
+  structure.)
   - **Dependent feature: `textDocument/completion`.** Autocomplete requires
     navigating a mid-keystroke AST (e.g., `obj.`). Deferring until the parser
     can reliably build an AST that doesn't drop the trailing, incomplete member
