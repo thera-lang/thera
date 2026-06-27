@@ -1051,12 +1051,15 @@ fn variant_field_types(_ subject: Type, _ name: String, _ ctx: InferCtx) -> List
 // --- type helpers ---
 
 // The element type of a for-loop iterable: a `List<T>`'s element, an
-// `Iterator<T>`'s yield, else `Int` (a range).
+// `Iterator<T>`'s yield, else `Int` (a range). A `List` whose type args are
+// absent (e.g. the receiver of a generic `List` method, which codegen types as
+// a bare `List`) yields `Unknown`, mirroring `index_result` — only a genuinely
+// unknown iterable (a range, inferred as `Unknown`) falls back to `Int`.
 pub fn for_element_type(_ iter_type: Type, _ ctx: InferCtx) -> Type {
     match iter_type {
         Interface(name, args) => {
-            if name == 'List' && args.len() > 0 {
-                return args[0];
+            if name == 'List' {
+                return arg_at(args, 0);
             };
         },
         _ => {},

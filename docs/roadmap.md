@@ -54,9 +54,14 @@ _Owner-correct type resolution_ below.)
 - **Stdlib breadth.** `String.*`/`List.*`/`Map.*`/`Option.*` (native + Hawk),
   and
   `std.cli`/`std.fs`/`std.process`/`std.random`/`std.time`/`std.json`/`std.io`
-  exist; `List.map`/`filter`/`fold` are written in Hawk over closures.
-  Remaining: `first`/`last`/`slice`/`sort`, more `String`/`Map`, and the rest of
-  the "batteries included" goal.
+  exist; `List.map`/`filter`/`fold` are written in Hawk over closures. The
+  collection/string staples are now in (all pure Hawk over the existing
+  primitives): `List.first`/`last`/`is_empty`/`contains`/`index_of`/`reverse`/
+  `sort` (comparator-based — a no-arg `sort()` waits on an `Ord` interface),
+  `String.replace`/`repeat`, `Map.get_or` (`slice` on both was already there).
+  Remaining: more `String` (`trim_start`/`trim_end`, `pad_*`, `find` —
+  need natives or pure-Hawk scans), the `Ord` interface (unlocks `sort()`/`min`/
+  `max`/sorted `Set`/`Map`), and the rest of the "batteries included" goal.
 - **Fibers — phases 3–4.** Phases 0–2 are done (scheduler-drivable `run_loop`;
   `spawn`/`join`/`yield` with GC roots across every fiber; buffered
   `Channel<T>`). Design in [architecture.md](architecture.md) §Concurrency.

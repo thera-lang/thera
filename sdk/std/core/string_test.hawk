@@ -19,6 +19,25 @@ fn test_to_int() -> Result<Void, Error> {
 }
 
 @test
+fn test_replace() -> Result<Void, Error> {
+    testing.assert_eq(actual: 'a-b-c'.replace('-', '_'), expected: 'a_b_c')?;
+    testing.assert_eq(actual: 'hello'.replace('l', 'L'), expected: 'heLLo')?;
+    testing.assert_eq(actual: 'abc'.replace('x', 'y'), expected: 'abc')?; // no match
+    testing.assert_eq(actual: 'foofoo'.replace('foo', 'bar'), expected: 'barbar')?;
+    testing.assert_eq(actual: 'abc'.replace('', 'x'), expected: 'abc')?; // empty from: no-op
+    return Result.Ok(void);
+}
+
+@test
+fn test_repeat() -> Result<Void, Error> {
+    testing.assert_eq(actual: 'ab'.repeat(3), expected: 'ababab')?;
+    testing.assert_eq(actual: 'x'.repeat(0), expected: '')?;
+    testing.assert_eq(actual: 'x'.repeat(-1), expected: '')?; // non-positive -> empty
+    testing.assert_eq(actual: '-'.repeat(5), expected: '-----')?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_to_double() -> Result<Void, Error> {
     testing.assert_eq(actual: '3.5'.to_double(), expected: Option.Some(3.5))?;
     testing.assert_eq(actual: '10'.to_double(), expected: Option.Some(10.0))?;

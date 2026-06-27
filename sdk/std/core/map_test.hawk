@@ -48,6 +48,14 @@ fn test_remove() -> Result<Void, Error> {
 }
 
 @test
+fn test_get_or() -> Result<Void, Error> {
+    let m = {'a': 1, 'b': 2};
+    testing.assert_eq(actual: m.get_or('a', 0), expected: 1)?;
+    testing.assert_eq(actual: m.get_or('z', 0), expected: 0)?; // absent -> default
+    return Result.Ok(void);
+}
+
+@test
 fn test_keys_values_keep_insertion_order() -> Result<Void, Error> {
     let m = {'first': 10, 'second': 20, 'third': 30};
     testing.assert_eq(actual: m.keys(),

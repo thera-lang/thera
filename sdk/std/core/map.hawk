@@ -48,6 +48,17 @@ impl Map<K, V> {
     @extern('map_get')
     pub native fn get(self, _ key: K) -> Option<V>
 
+    // Value for `key`, or `default` if absent — the unwrap-with-fallback form of
+    // `get`, so a missing key needs no `match`.
+    //
+    //   counts.get_or('x', 0)
+    pub fn get_or(self, _ key: K, _ default: V) -> V {
+        match self.get(key) {
+            Some(v) => { return v; }
+            None => { return default; }
+        }
+    }
+
     // Remove `key`, returning its previous value if it was present.
     @extern('map_remove')
     pub native fn remove(self, _ key: K) -> Option<V>

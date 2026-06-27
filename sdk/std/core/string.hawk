@@ -66,6 +66,31 @@ impl String {
     @extern('str_split')
     pub native fn split(self, _ sep: String) -> List<String>
 
+    // A copy with every occurrence of `from` replaced by `to`. An empty `from`
+    // matches nothing (the string is returned unchanged) rather than splitting
+    // between every code point.
+    //
+    //   'a-b-c'.replace('-', '_')   // 'a_b_c'
+    pub fn replace(self, _ from: String, _ to: String) -> String {
+        if from.is_empty() {
+            return self;
+        }
+        return self.split(from).join(to);
+    }
+
+    // The string repeated `count` times (empty when `count <= 0`).
+    //
+    //   'ab'.repeat(3)   // 'ababab'
+    pub fn repeat(self, _ count: Int) -> String {
+        let mut s = '';
+        let mut i = 0;
+        while i < count {
+            s = s + self;
+            i = i + 1;
+        }
+        return s;
+    }
+
     // The Unicode scalar values (code points) of the string, as Int. The
     // inverse of `String.from_chars`:
     //

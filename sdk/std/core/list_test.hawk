@@ -23,6 +23,53 @@ fn test_map_filter_fold_still_work() -> Result<Void, Error> {
 }
 
 @test
+fn test_first_last_is_empty() -> Result<Void, Error> {
+    testing.assert_eq(actual: [10, 20, 30].first(), expected: Option.Some(10))?;
+    testing.assert_eq(actual: [10, 20, 30].last(), expected: Option.Some(30))?;
+    let empty: List<Int> = [];
+    testing.assert_eq(actual: empty.first(), expected: Option.None)?;
+    testing.assert_eq(actual: empty.last(), expected: Option.None)?;
+    testing.assert(empty.is_empty())?;
+    testing.assert(![1].is_empty())?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_contains_index_of() -> Result<Void, Error> {
+    let xs = [10, 20, 30, 20];
+    testing.assert(xs.contains(20))?;
+    testing.assert(!xs.contains(99))?;
+    testing.assert_eq(actual: xs.index_of(20), expected: Option.Some(1))?; // first
+    testing.assert_eq(actual: xs.index_of(99), expected: Option.None)?;
+    testing.assert(['a', 'b'].contains('b'))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_reverse() -> Result<Void, Error> {
+    testing.assert_eq(actual: [1, 2, 3].reverse(), expected: [3, 2, 1])?;
+    let empty: List<Int> = [];
+    testing.assert_eq(actual: empty.reverse(), expected: empty)?;
+    testing.assert_eq(actual: [7].reverse(), expected: [7])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_sort() -> Result<Void, Error> {
+    testing.assert_eq(actual: [3, 1, 2].sort((a, b) => a < b), expected: [1, 2, 3])?;
+    testing.assert_eq(actual: [3, 1, 2].sort((a, b) => b < a), expected: [3, 2, 1])?;
+    let empty: List<Int> = [];
+    testing.assert_eq(actual: empty.sort((a, b) => a < b), expected: empty)?;
+    testing.assert_eq(actual: [5, 4, 3, 2, 1].sort((a, b) => a < b),
+        expected: [1, 2, 3, 4, 5])?;
+    // Stable: equal keys (by first tuple element) keep input order.
+    let pairs = [[2, 1], [1, 1], [2, 2], [1, 2]];
+    testing.assert_eq(actual: pairs.sort((a, b) => a[0] < b[0]),
+        expected: [[1, 1], [1, 2], [2, 1], [2, 2]])?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_display() -> Result<Void, Error> {
     // `Display` renders elements via `Debug`; nested lists recurse.
     testing.assert_eq(actual: '${[1, 2, 3]}', expected: '[1, 2, 3]')?;
