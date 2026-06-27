@@ -89,6 +89,7 @@ thread_local! {
 /// ([`maybe_collect`]) — so a handle handed back here is always live. It does
 /// account the new bytes and arm `GC_PENDING` once the heap crosses threshold.
 pub fn alloc(obj: Obj) -> Value {
+    crate::profile::on_alloc();
     HEAP.with(|h| {
         let mut heap = h.borrow_mut();
         heap.heap_bytes += obj.heap_bytes();

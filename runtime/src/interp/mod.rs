@@ -134,6 +134,7 @@ pub fn run(module: &Module, func: usize, args: &[Value]) -> Result<Value, Trap> 
     let mut out = std::io::stdout();
     let result = Vm::new(&mut out).run(module, func, args);
     dump_native_stats();
+    crate::profile::dump(module);
     result
 }
 
@@ -675,6 +676,13 @@ impl<'a> Vm<'a> {
         let mut vstack = std::mem::take(&mut self.vstack);
         let mut frames = std::mem::take(&mut self.frames);
 
+        // Profiling is read once here; every per-instruction/frame hook below is
+        // gated on this local, so a non-profiled run pays one predictable branch.
+        let profiling = crate::profile::enabled();
+        if profiling {
+            crate::profile::set_current(frame.func);
+        }
+
         macro_rules! poll_gc {
             () => {
                 // Gather roots only when a collection will actually run. Every slot
@@ -702,6 +710,17 @@ impl<'a> Vm<'a> {
         }
 
         loop {
+            // Instruction-budget sampling: at each interval, record the live
+            // frame stack (running frame -> self, every frame -> inclusive).
+            if profiling && crate::profile::on_instr() {
+                crate::profile::sample(
+                    frame.func,
+                    frames
+                        .iter()
+                        .map(|f| f.func)
+                        .chain(std::iter::once(frame.func)),
+                );
+            }
             let instr = code
                 .get(frame.pc)
                 .ok_or_else(|| bug("pc ran off the end of the instruction stream"))?;
@@ -869,6 +888,9 @@ impl<'a> Vm<'a> {
                         Self::enter_frame(&mut vstack, module, *func as usize, *argc as usize)?;
                     frames.push(std::mem::replace(&mut frame, callee));
                     code = &module.functions[frame.func].code;
+                    if profiling {
+                        crate::profile::on_call(frame.func);
+                    }
                 }
                 Instr::CallNative { native, argc } => {
                     poll_gc!();
@@ -929,6 +951,9 @@ impl<'a> Vm<'a> {
                     let callee = Self::enter_frame(&mut vstack, module, func as usize, total)?;
                     frames.push(std::mem::replace(&mut frame, callee));
                     code = &module.functions[frame.func].code;
+                    if profiling {
+                        crate::profile::on_call(frame.func);
+                    }
                 }
                 Instr::CallVirtual { selector, argc } => {
                     poll_gc!();
@@ -951,6 +976,9 @@ impl<'a> Vm<'a> {
                                 Self::enter_frame(&mut vstack, module, func as usize, argc)?;
                             frames.push(std::mem::replace(&mut frame, callee));
                             code = &module.functions[frame.func].code;
+                            if profiling {
+                                crate::profile::on_call(frame.func);
+                            }
                         }
                         // The fallback may re-enter the interpreter (a nested
                         // `debug`), which takes `self.vstack`/`self.frames` again —
@@ -1128,6 +1156,9 @@ impl<'a> Vm<'a> {
                     frame = frames.pop().unwrap();
                     code = &module.functions[frame.func].code;
                     vstack.push(value);
+                    if profiling {
+                        crate::profile::set_current(frame.func);
+                    }
                 }
             }
         }

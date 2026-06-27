@@ -8,5 +8,6 @@ pub mod heap;
 pub mod instr;
 pub mod interp;
 pub mod module;
+pub mod profile;
 pub mod serialize;
 pub mod value;

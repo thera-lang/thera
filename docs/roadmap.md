@@ -147,15 +147,23 @@ _Owner-correct type resolution_ below.)
   (cProfile/py-spy), Ruby (stackprof/rbspy), and Lua do. The primary audience is
   **coding agents**, which shifts the design toward _deterministic,
   function-level, flat text_ over flame-graph SVGs and line-level precision.
-  1. **`hawk run --profile` — in-VM, no `.hawkbc` change.** Exact per-function
-     **call counts** + per-call-site **allocation counts**, plus a self-time
-     distribution from **instruction-budget sampling** (snapshot the frame stack
-     every K bytecode instructions at the **GC safepoint already at the top of
-     `run_loop`**) — deterministic and cross-platform, so runs are
-     _reproducible_, what an agent's before/after comparison needs. A frame
-     already knows its function, so v1 needs nothing new in the bytecode; output
-     is a flat table sorted by cost. The sampler ships in v1 too (counts alone
-     miss "few calls, each slow").
+  1. **In-VM profiler — done (v1).** Implemented as an always-shipping runtime
+     feature gated by the **`HAWK_PROFILE`** env var (not a compile-time feature
+     like `native-stats`; `run_loop` reads it once into a local, so a non-profiled
+     run pays one predictable branch — `src/profile.rs`). Per Hawk function: exact
+     **call counts**, **self + inclusive time** via **instruction-budget sampling**
+     (every `HAWK_PROFILE_INTERVAL`=1000 instructions, sample the live frame stack
+     at the loop top), and **allocations** attributed via the single `heap::alloc`
+     chokepoint. Output is a flat table to stderr at run end, sorted by self-time;
+     **deterministic** (instruction-keyed, not wall-clock — two runs are
+     byte-identical, what an agent's before/after needs), guarded by a presence +
+     determinism smoke in `bin/test.sh`. Because the env var propagates to the
+     child runtime and the front-end is itself a Hawk program, it profiles both a
+     user program (`HAWK_PROFILE=1 hawk run x.hawk`) and the front-end's own
+     compilation (`HAWK_PROFILE=1 hawk check pkgs/cli` — which already shows the
+     lexer at ~50% self-time and ~55M allocations, the data for the check-perf
+     work). A `hawk run --profile` flag is thin sugar to add later; line/allocation
+     call-site precision is #2 below.
   2. **Line attribution — enhancement.** A bytecode→source-line table in
      `.hawkbc` (debug info) so a sample/counter resolves to a Hawk line. Demoted
      from a v1 prerequisite once we accepted function-level is enough for

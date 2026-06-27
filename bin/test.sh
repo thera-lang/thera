@@ -38,6 +38,23 @@ else
   echo "  FAIL lsp initialize: no framed response body received"; fail=1
 fi
 
+echo "==> profiler (HAWK_PROFILE: deterministic, present)"
+# The in-VM profiler is an always-shipping runtime feature, gated by the
+# HAWK_PROFILE env var, that prints a per-function table to stderr at run end.
+# Its headline property for agents is *determinism* — instruction-budget
+# sampling, not wall-clock — so two runs of the same program must produce a
+# byte-identical profile. (See docs/roadmap.md, "Profiling Hawk code".)
+prof_dir="$(mktemp -d)"
+printf 'fn main() -> Int { let mut s = 0; let mut i = 0; while i < 5000 { s = s + i; i = i + 1; } return s; }\n' > "$prof_dir/p.hawk"
+prof1="$(HAWK_PROFILE=1 "$HAWK" run "$prof_dir/p.hawk" 2>&1 1>/dev/null)"
+prof2="$(HAWK_PROFILE=1 "$HAWK" run "$prof_dir/p.hawk" 2>&1 1>/dev/null)"
+if printf '%s' "$prof1" | grep -q 'hawk profile' && [ "$prof1" = "$prof2" ]; then
+  echo "  ok   profile emitted and byte-identical across runs"
+else
+  echo "  FAIL profiler (present=$(printf '%s' "$prof1" | grep -c 'hawk profile'), deterministic=$([ "$prof1" = "$prof2" ] && echo y || echo n))"; fail=1
+fi
+rm -rf "$prof_dir"
+
 echo "==> check diagnostics stream (stdout, not stderr)"
 # `hawk check`'s product is its diagnostics (it emits no artifact), so they go to
 # stdout — like `hawk test` and like linters (eslint/ruff/mypy). Assert that a
