@@ -24,6 +24,7 @@ import '../element/scope' as _;
 import '../element/resolver';
 import '../element/inference' as _;
 import 'module_scope' as _;
+import std.env;   // the differential inference oracle (HAWK_INFER_ORACLE) reads a flag
 
 // A construct codegen does not yet handle (or an invariant a checked program
 // should already guarantee). Collected rather than thrown — Hawk has no
@@ -86,6 +87,14 @@ pub fn compile_program(_ program: Program, _ imports: List<Program>,
         functions.push(new_fn_compiler(scope, errors).compile(i));
         i = i + 1;
     }
+    // Differential inference oracle (opt-in via HAWK_INFER_ORACLE): report units
+    // whose codegen inference context diverges from the checker-correct one — the
+    // root of the checker/codegen inference-disagreement bug class.
+    match env.get('HAWK_INFER_ORACLE') {
+        Some(_) => { run_infer_oracle(scope); },
+        None => {},
+    }
+
     return CodegenResult {
         module: Module {
             functions: functions,
@@ -2064,6 +2073,122 @@ fn self_type_of(_ name: String) -> Type {
     return match primitive_type(name) {
         Some(p) => p,
         None => Type.Interface(name, []),
+    };
+}
+
+// --- differential inference oracle ---
+//
+// Inference is one pure `infer_expr` query, but the checker and codegen build its
+// `InferCtx` independently — and the fields that differ (the receiver's
+// `self_type`, the `type_params` in scope) are the root of the bugs where the two
+// stages infer the same expression to different types. This pass reports every
+// non-lambda unit whose codegen context diverges from the checker-correct one, so
+// the divergences can be mapped before (and verified gone after) unifying the
+// construction. Opt-in via `HAWK_INFER_ORACLE`; prints to stderr.
+
+// The self type codegen builds for a receiver name (bare — generic args dropped).
+fn cg_self_type(_ self_name: Option<String>) -> Option<Type> {
+    return match self_name {
+        Some(n) => Option.Some(self_type_of(n)),
+        None => Option.None,
+    };
+}
+
+// The self type the checker builds: the named type with its own parameters
+// applied (`List` -> `List<T>`), mirroring the checker's `impl_self_type`.
+fn checker_self_type(_ self_name: Option<String>, _ library: element.LibraryElement) -> Option<Type> {
+    return match self_name {
+        Some(n) => match primitive_type(n) {
+            Some(p) => Option.Some(p),
+            None => match library.type_defs.get(n) {
+                Some(def) => Option.Some(
+                    Type.Interface(n, def.type_parameters.map((p) => Type.TypeParameter(p)))),
+                None => Option.Some(Type.Interface(n, [])),
+            },
+        },
+        None => Option.None,
+    };
+}
+
+fn describe_self(_ t: Option<Type>) -> String {
+    return match t {
+        Some(ty) => type_to_string(ty),
+        None => '(none)',
+    };
+}
+
+// The type parameters codegen puts in scope for a unit (its own only) vs the
+// owner type's parameters the checker additionally includes.
+fn owner_tp_names(_ self_name: Option<String>, _ library: element.LibraryElement) -> List<String> {
+    return match self_name {
+        Some(n) => match library.type_defs.get(n) {
+            Some(def) => def.type_parameters,
+            None => [],
+        },
+        None => [],
+    };
+}
+
+fn union_tps(_ owner: List<String>, _ own: List<String>) -> List<String> {
+    let out = [];
+    for x in owner {
+        out.push(x);
+    }
+    for x in own {
+        if !owner.contains(x) {
+            out.push(x);
+        }
+    }
+    return out;
+}
+
+// A stable, sorted, comma-joined rendering of a type-parameter set (so the
+// comparison and the printout don't depend on insertion order).
+fn tp_label(_ names: List<String>) -> String {
+    return names.sort((a, b) => a.compare(b).is_lt()).join(',');
+}
+
+fn run_infer_oracle(_ scope: ModuleScope) -> Void {
+    let library = scope.library;
+    let mut diverged = 0;
+    let mut checked = 0;
+    let mut lambdas = 0;
+    eprintln('infer-oracle: checker/codegen inference-context divergence');
+    let mut i = 0;
+    while i < scope.units.len() {
+        let name = scope.unit_names[i];
+        if name.starts_with('__lambda_') {
+            lambdas = lambdas + 1;
+        } else {
+            checked = checked + 1;
+            let decl = scope.units[i];
+            let self_name = scope.unit_self_types[i];
+            let cg_self = describe_self(cg_self_type(self_name));
+            let ck_self = describe_self(checker_self_type(self_name, library));
+            let own_tps = decl.type_params.map((tp) => tp.name);
+            let cg_tps = tp_label(own_tps);
+            let ck_tps = tp_label(union_tps(owner_tp_names(self_name, library), own_tps));
+            if cg_self != ck_self || cg_tps != ck_tps {
+                diverged = diverged + 1;
+                eprintln('  ${name}  [${file_label(scope.unit_files[i])}]');
+                if cg_self != ck_self {
+                    eprintln('      self_type:   codegen=${cg_self}   checker=${ck_self}');
+                }
+                if cg_tps != ck_tps {
+                    eprintln('      type_params: codegen=[${cg_tps}]   checker=[${ck_tps}]');
+                }
+            }
+        }
+        i = i + 1;
+    }
+    eprintln('infer-oracle: ${diverged}/${checked} non-lambda unit(s) diverge; '
+        + '${lambdas} lambda unit(s) skipped (context inherited via snapshot)');
+}
+
+fn file_label(_ f: Option<String>) -> String {
+    return match f {
+        Some(p) => p,
+        None => '(no file)',
     };
 }
 
