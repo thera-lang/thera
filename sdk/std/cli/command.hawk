@@ -76,6 +76,10 @@ pub type Positional = {
 pub type Command = {
     name: String,
     mut about_text: String,
+    // A longer description, shown only in this command's own `--help` (not in a
+    // parent's command list) — progressive disclosure: the one-line `about` for
+    // the at-a-glance view, the `details` block when you ask for the command.
+    mut details_text: String,
     flags: List<Flag>,
     options: List<Opt>,
     positionals: List<Positional>,
@@ -131,6 +135,7 @@ impl Command {
         let c = Command {
             name: name,
             about_text: '',
+            details_text: '',
             flags: [],
             options: [],
             positionals: [],
@@ -147,9 +152,16 @@ impl Command {
         return c;
     }
 
-    // A one-line description, shown in `help()`.
+    // A one-line description, shown in `help()` and in a parent's command list.
     pub fn about(self, _ text: String) -> Command {
         self.about_text = text;
+        return self;
+    }
+
+    // A longer description for this command's own `help()` — shown after the
+    // one-line `about` (progressive disclosure). May span multiple lines.
+    pub fn details(self, _ text: String) -> Command {
+        self.details_text = text;
         return self;
     }
 
@@ -339,6 +351,13 @@ impl Command {
             lines.push('${self.name} - ${self.about_text}');
         }
         lines.push('');
+
+        // Progressive disclosure: the longer description sits between the one-line
+        // summary and the mechanical usage/argument sections.
+        if self.details_text != '' {
+            lines.push(self.details_text);
+            lines.push('');
+        }
 
         let mut usage = 'Usage: ${self.name}';
         if self.flags.len() > 0 || self.options.len() > 0 {

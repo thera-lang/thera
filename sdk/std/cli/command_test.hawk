@@ -148,6 +148,24 @@ fn test_help_text() -> Result<Void, Error> {
 }
 
 @test
+fn test_details_progressive_disclosure() -> Result<Void, Error> {
+    let leaf = Command.new('do')
+        .about('do the thing')
+        .details('Long form.\nExit code: 0 on success, 1 otherwise.');
+    let leaf_help = leaf.help();
+    // The command's own help shows both the one-line about and the details.
+    testing.assert(leaf_help.contains('do the thing'), message: 'about in own help')?;
+    testing.assert(leaf_help.contains('Exit code: 0 on success'), message: 'details in own help')?;
+
+    // A parent's command list shows only the one-line about, never the details.
+    let parent = Command.new('tool').subcommand(leaf);
+    let parent_help = parent.help();
+    testing.assert(parent_help.contains('do the thing'), message: 'about in parent list')?;
+    testing.assert(!parent_help.contains('Exit code'), message: 'details hidden in parent list')?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_trailing_var_arg() -> Result<Void, Error> {
     let cmd = Command.new('run')
         .positional('file')
