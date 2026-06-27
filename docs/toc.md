@@ -3,9 +3,9 @@
 The entry point to Hawk's design docs. Each doc opens with a one-line "what this
 is"; read top-down for progressive detail.
 
-- [overview.md](overview.md) — the **why**: an external-facing whitepaper on what
-  Hawk is, the LLM-native design rationale, the CLI-tooling target domain, the
-  runtime, and the key design trade-offs.
+- [overview.md](overview.md) — the **why**: an external-facing whitepaper on
+  what Hawk is, the LLM-native design rationale, the CLI-tooling target domain,
+  the runtime, and the key design trade-offs.
 - [language.md](language.md) — the language **reference**: syntax and semantics
   (types, functions, control flow, tail expressions, error handling, interfaces,
   visibility & libraries), the standard `hawk` tool, the SDK layout, and open
@@ -14,8 +14,8 @@ is"; read top-down for progressive detail.
   operator/precedence table, every production, and a parser-completeness
   checklist of what's not yet in the syntax.
 - [scoping.md](scoping.md) — **name resolution & scoping**: lexical/file scope,
-  the prelude, qualified-only cross-library access, the resolution algorithm, and
-  the gaps where the implementation still diverges.
+  the prelude, qualified-only cross-library access, the resolution algorithm,
+  and the gaps where the implementation still diverges.
 - [conformance.md](conformance.md) — the **conformance coverage map**: every
   testable unit of the spec, its stable logical ID, and its language-test status
   (the index behind `tests/lang/`).
@@ -32,6 +32,8 @@ is"; read top-down for progressive detail.
   commands & output-stream (stdout/stderr) convention.
 - [roadmap.md](roadmap.md) — current **status**, the bootstrap arcs, deferred
   work, and remaining front-end work.
-- [parser-recovery.md](parser-recovery.md) — **parser error recovery**: resilient parsing design, AST preservation, and incremental implementation plan.
+- [parser-recovery.md](parser-recovery.md) — **parser error recovery**:
+  resilient parsing design, AST preservation, and incremental implementation
+  plan.
 
 (A concise orientation for agents lives in the repo-root `CLAUDE.md`.)
