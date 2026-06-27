@@ -87,6 +87,7 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("str_len", native_str_len),
     ("str_byte_len", native_str_byte_len),
     ("str_trim", native_str_trim),
+    ("str_compare", native_str_compare),
     ("str_trim_start", native_str_trim_start),
     ("str_trim_end", native_str_trim_end),
     ("str_contains", native_str_contains),
@@ -255,7 +256,7 @@ pub(super) fn display_string(v: &Value) -> Result<String, Trap> {
 }
 
 /// Extract the contents of a heap string, or fault.
-fn str_contents(v: &Value) -> Result<String, Trap> {
+pub(crate) fn str_contents(v: &Value) -> Result<String, Trap> {
     match v {
         Value::Ref(h) => heap::with_obj(*h, |obj| match obj {
             Obj::Str(s) => Ok(s.clone()),
@@ -451,6 +452,15 @@ fn native_str_byte_len(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Tr
 fn native_str_trim(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let s = str_contents(expect_one(args, "str_trim")?)?;
     Ok(Value::new_str(s.trim()))
+}
+
+/// `a.compare(b)` for String — the static `impl Ord for String` (lexicographic
+/// by Unicode scalar / UTF-8 byte order). Returns the built-in `Ordering` enum.
+fn native_str_compare(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (a, b) = args2(args, "str_compare")?;
+    Ok(crate::value::ordering(
+        str_contents(a)?.cmp(&str_contents(b)?),
+    ))
 }
 
 /// `s.trim_start()` — strip leading whitespace.

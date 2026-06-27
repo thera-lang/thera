@@ -271,3 +271,11 @@ impl Display for String {
     @extern('str_identity')
     pub native fn display(self) -> String
 }
+
+// String is ordered lexicographically by Unicode scalar / UTF-8 byte order (a
+// native, like its other methods; the generic/virtual path uses the same
+// comparison via the runtime fallback).
+impl Ord for String {
+    @extern('str_compare')
+    pub native fn compare(self, _ other: String) -> Ordering
+}

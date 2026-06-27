@@ -62,3 +62,17 @@ impl Display for Double {
     @extern('double_to_string')
     pub native fn display(self) -> String
 }
+
+// Double has a total order (the generic/virtual path uses the runtime's total
+// comparison, so `NaN` sorts consistently rather than trapping).
+impl Ord for Double {
+    fn compare(self, _ other: Double) -> Ordering {
+        if self < other {
+            return Ordering.Less;
+        }
+        if self > other {
+            return Ordering.Greater;
+        }
+        return Ordering.Equal;
+    }
+}

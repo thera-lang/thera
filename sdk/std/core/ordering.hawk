@@ -1,0 +1,67 @@
+// std.core — total ordering: the `Ordering` enum and the `Ord` interface.
+//
+// `Ord` is the comparison counterpart to `Eq`: where `Eq` answers "equal?",
+// `Ord` answers "which comes first?" via `compare`, returning an `Ordering`. The
+// primitives implement it (in their own files, beside their `Display` impl); a
+// user type implements it to be sortable / comparable through `std.sort`. The
+// comparison operators (`< <= > >=`) stay Int/Double-only for now — use
+// `a.compare(b)` (or `std.sort`) for strings and user types.
+
+// The result of comparing two values. The variant order is significant: it fixes
+// the runtime tags (Less = 0, Equal = 1, Greater = 2) shared with the runtime's
+// built-in `compare` fallback for primitives — do not reorder.
+pub enum Ordering {
+    Less,
+    Equal,
+    Greater,
+}
+
+impl Ordering {
+    // Discriminators, named like the operators they stand in for.
+    pub fn is_lt(self) -> Bool {
+        return match self { Less => true, _ => false };
+    }
+    pub fn is_le(self) -> Bool {
+        return match self { Greater => false, _ => true };
+    }
+    pub fn is_eq(self) -> Bool {
+        return match self { Equal => true, _ => false };
+    }
+    pub fn is_ne(self) -> Bool {
+        return match self { Equal => false, _ => true };
+    }
+    pub fn is_gt(self) -> Bool {
+        return match self { Greater => true, _ => false };
+    }
+    pub fn is_ge(self) -> Bool {
+        return match self { Less => false, _ => true };
+    }
+
+    // The reverse ordering (`Less` <-> `Greater`); `Equal` is unchanged. Handy
+    // for a descending sort: `xs.sort((a, b) => a.compare(b).reverse().is_lt())`.
+    pub fn reverse(self) -> Ordering {
+        return match self {
+            Less => Ordering.Greater,
+            Equal => Ordering.Equal,
+            Greater => Ordering.Less,
+        };
+    }
+}
+
+impl Display for Ordering {
+    fn display(self) -> String {
+        return match self {
+            Less => 'Less',
+            Equal => 'Equal',
+            Greater => 'Greater',
+        };
+    }
+}
+
+// Total ordering. `compare(self, other)` reports how `self` orders relative to
+// `other` (`Less` if `self` comes first). Implemented for the primitives
+// (`Int`/`Double`/`Bool`/`String`) and by any type that wants to be sorted or
+// compared through `std.sort`.
+pub interface Ord {
+    fn compare(self, _ other: Self) -> Ordering;
+}

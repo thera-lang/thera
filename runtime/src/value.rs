@@ -210,9 +210,23 @@ pub struct EnumObj {
 // fixed conventions shared by the runtime and bytecode producers).
 pub const TY_RESULT: u32 = 0;
 pub const TY_OPTION: u32 = 1;
+pub const TY_ORDERING: u32 = 2;
 
 // Fixed variant tags shared by all bytecode producers (docs/bytecode.md).
 pub const TAG_OK: u16 = 0;
 pub const TAG_ERR: u16 = 1;
 pub const TAG_SOME: u16 = 0;
 pub const TAG_NONE: u16 = 1;
+pub const TAG_LESS: u16 = 0;
+pub const TAG_EQUAL: u16 = 1;
+pub const TAG_GREATER: u16 = 2;
+
+/// Build the built-in `Ordering` enum value from a Rust comparison result.
+pub fn ordering(o: std::cmp::Ordering) -> Value {
+    let tag = match o {
+        std::cmp::Ordering::Less => TAG_LESS,
+        std::cmp::Ordering::Equal => TAG_EQUAL,
+        std::cmp::Ordering::Greater => TAG_GREATER,
+    };
+    Value::new_enum(TY_ORDERING, tag, vec![])
+}

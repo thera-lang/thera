@@ -126,6 +126,7 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `iface-display`     | Display and Debug        | `${}` uses `Display` if present, else `Debug` (total)     | ✓      |
 | `iface-debug`       | Display and Debug        | structural `Debug` derive for structs                     | ◐      |
 | `iface-eq`          | Display and Debug        | `==` structural by default; explicit `impl Eq` overrides   | ✓      |
+| `iface-ord`         | Interfaces / Dispatch    | `Ord.compare` → `Ordering`; primitives + user `impl Ord`; `<T: Ord>` dispatches dynamically | ✓ |
 | `iface-inherit`     | Interface inheritance    | `interface E: Display + Debug` obligations & widened set   | ✓      |
 | `iface-dispatch`    | Dispatch                 | dynamic dispatch for interface-typed values & bounds       | ✓      |
 | `generic-bounds`    | Interfaces / Dispatch    | `<T: Eq + Debug>` enforced at call sites                  | ✓      |

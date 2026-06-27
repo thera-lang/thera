@@ -57,3 +57,18 @@ impl Display for Int {
     @extern('int_to_string')
     pub native fn display(self) -> String
 }
+
+// Int has a natural total order. The explicit `impl Ord` is the conformance
+// behind `std.sort` and any `<T: Ord>` use; the generic/virtual path resolves to
+// the runtime's built-in comparison.
+impl Ord for Int {
+    fn compare(self, _ other: Int) -> Ordering {
+        if self < other {
+            return Ordering.Less;
+        }
+        if self > other {
+            return Ordering.Greater;
+        }
+        return Ordering.Equal;
+    }
+}

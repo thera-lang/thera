@@ -1173,6 +1173,14 @@ impl<'a> Vm<'a> {
                 [a, b] => Ok(Value::Bool(a == b)),
                 _ => Err(bug("call.virtual eq: expected 2 args")),
             },
+            // `Ord.compare` on a primitive reached through a generic `<T: Ord>` /
+            // interface-typed context (static `impl Ord for Int/...` calls go
+            // direct). The four primitives carry a built-in ordering; anything
+            // else here is a compile-time-prevented missing-`Ord` bug.
+            "compare" => match args {
+                [a, b] => primitive_ordering(a, b),
+                _ => Err(bug("call.virtual compare: expected 2 args")),
+            },
             _ => Err(bug(format!(
                 "call.virtual: no impl of '{selector}' for the receiver's type"
             ))),
@@ -1358,6 +1366,25 @@ fn closure_parts(v: &Value) -> Result<(u32, Vec<Value>), Trap> {
             "call.indirect: expected a closure, found {v:?}"
         ))),
     }
+}
+
+/// Order two primitives for the built-in `Ord` fallback. Strings compare
+/// lexicographically; doubles use a total order (so NaN sorts consistently);
+/// `false < true`. A non-primitive — or two different primitive kinds — reaching
+/// here is a missing-`Ord` impl, which the checker prevents.
+fn primitive_ordering(a: &Value, b: &Value) -> Result<Value, Trap> {
+    let ord = match (a, b) {
+        (Value::Int(x), Value::Int(y)) => x.cmp(y),
+        (Value::Double(x), Value::Double(y)) => x.total_cmp(y),
+        (Value::Bool(x), Value::Bool(y)) => x.cmp(y),
+        (Value::Ref(_), Value::Ref(_)) => natives::str_contents(a)?.cmp(&natives::str_contents(b)?),
+        _ => {
+            return Err(bug(
+                "call.virtual compare: no Ord impl for the receiver's type",
+            ));
+        }
+    };
+    Ok(crate::value::ordering(ord))
 }
 
 /// The dispatch-table type id of a `call.virtual` receiver — a struct's `ty`

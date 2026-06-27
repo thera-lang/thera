@@ -557,12 +557,10 @@ impl Rng {
 
 Notes: an `Rng` value, not a global, per principle 7 (no hidden state) — the
 whole state is a visible `Int` field, so `seeded(n)` is fully reproducible.
-Algorithm: **SplitMix64**. The state advances in Hawk (a wrapping add of the
-golden-ratio constant); the bit-mixing is a Rust native (`random_mix`) because
-Hawk has no bitwise operators yet (see [roadmap.md](roadmap.md)). The mixer is
-hand-rolled std-only Rust to keep the runtime dependency-free; a crate could
-replace it behind the same natives. Not cryptographically secure. A higher-
-quality / pure-Hawk generator waits on the bitwise-operators arc.
+Algorithm: **SplitMix64**, now **pure Hawk** — both the state advance (a wrapping
+add of the golden-ratio constant) and the bit-mixing finalizer (`^` / `>>>` over
+the bitwise operators, which have since landed). Only `from_entropy`'s seed is a
+native (it reads the system clock). Not cryptographically secure.
 
 ### `std.json` — JSON _(implemented, pure Hawk; the flagship data format)_
 
@@ -994,7 +992,7 @@ dependency graph, so future work lands in the right order:
 
 | Module       | Status  | Notes                                                                                                                                                                                                                               |
 | ------------ | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| prelude/core | exists  | Int/Double + String parsing; `String.slice`/`replace`/`repeat`/`reverse`/`find`/`pad_*`/`trim_*`; `List.slice`/`first`/`last`/`contains`/`index_of`/`reverse`/`sort` (comparator); `Map.get_or`; `Bytes`/`BytesBuilder`/`BytesReader`; `Set<T>` in Hawk over `Map`; `Error` is an interface + the `error(...)` constructor; `Iterator<T>` protocol; still want `Ord` (→ no-arg `sort()`) |
+| prelude/core | exists  | Int/Double + String parsing; `String.slice`/`replace`/`repeat`/`reverse`/`find`/`pad_*`/`trim_*`; `List.slice`/`first`/`last`/`contains`/`index_of`/`reverse`/`sort` (comparator); `Map.get_or`; `Bytes`/`BytesBuilder`/`BytesReader`; `Set<T>` in Hawk over `Map`; `Error`/`Eq`/`Display`/`Debug`/`Ord` interfaces + the `error(...)` constructor; `Iterator<T>` protocol |
 | std.io       | done    | v1: `Reader`/`Writer`/`Closer` + `IoError`, `read_all`/`copy`, stdin/stdout/stderr, `StringWriter`; `lines`/`Iterator` + streaming files deferred                                                                                   |
 | std.iter     | done    | v1: `Iterator<T>` (prelude) + `range`/`from_list` sources + `collect`/`count`; `for x in it` drives any iterator; adapters (`map`/`filter`/`take`) deferred                                                                         |
 | std.fs       | done    | v1: read/write text+bytes, exists, metadata, list_dir, create_dir(\_all), remove(\_dir_all), rename, copy, temp_dir; classified `FsError`; streaming `File`/`open`/`walk`/`temp_file` deferred to v2                                |
@@ -1004,7 +1002,8 @@ dependency graph, so future work lands in the right order:
 | std.time     | done    | wall + monotonic clocks, `Duration`/`Instant` (nanos), `DateTime` (Unix ms UTC) + RFC 3339 format/parse, `sleep`; `Clock` capability + `testing.fixed_clock`                                                                        |
 | std.fiber    | partial | cooperative scheduler: `spawn`/`join`/`yield` + buffered `Channel<T>` (send/receive/close) over a FIFO run-queue, GC roots across fibers and channel buffers; parking on real I/O + 0-capacity rendezvous deferred                    |
 | std.math     | done    | Double fns + constants; abs/min/max/clamp + to_double/to_int are Int/Double methods                                                                                                                                                 |
-| std.random   | done    | SplitMix64; state is a visible Int; mix via native (bitops gap)                                                                                                                                                                     |
+| std.random   | done    | SplitMix64; state is a visible Int; mix is pure Hawk (bitwise ops landed); only the entropy seed is native                                                                                                                          |
+| std.sort     | done    | pure Hawk over `Ord`: `sorted`/`sorted_desc`/`min`/`max` (`<T: Ord>`); `Ord`/`Ordering` live in the prelude                                                                                                                         |
 | std.json     | done    | pure Hawk; structural `Json` + constructors, parse/stringify, navigation; Int/Double split; auto-boxing + typed decode later                                                                                                        |
 | std.encoding | new     |                                                                                                                                                                                                                                     |
 | std.hash     | new     | runtime native                                                                                                                                                                                                                      |

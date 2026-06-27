@@ -41,8 +41,8 @@ and the checker reports located diagnostics (type mismatches, bad
 calls/fields/methods, unpinnable generics). The inference-completeness arc is
 **closed** — see _Completed_ at the end.
 
-**Not yet:** a broader stdlib; generic operators (`<T: Add>`); bitwise operators
-(`& | ^ << >>`); index (`[]`) operator overloading; the Cranelift JIT tier.
+**Not yet:** a broader stdlib; generic operators (`<T: Add>`); index (`[]`)
+operator overloading; the Cranelift JIT tier.
 (Qualified-only resolution + `pub`/privacy are now **enforced**, and value
 resolution is owner-correct; the residual is **type-name** owner-correctness — see
 _Owner-correct type resolution_ below.)
@@ -63,8 +63,10 @@ _Owner-correct type resolution_ below.)
   and a `BytesReader` (the reader counterpart to `BytesBuilder`:
   `read_u8`/`read_bytes`/`read_u32_le`/`read_u64_le`/`read_uvarint`/`read_ivarint`,
   pure Hawk, round-trips the writer). (`slice` on `String`/`List`/`Bytes` was
-  already there.) Remaining: the `Ord` interface (unlocks `sort()`/`min`/`max`/
-  sorted `Set`/`Map`), and the rest of the "batteries included" goal.
+  already there.) The `Ord` interface + `std.sort` (`sorted`/`min`/`max`) are now
+  in — see _Completed_. Remaining: the rest of the "batteries included" goal
+  (`std.encoding`, `std.hash`, `std.log`, `std.term`, a `std.regex` rebuild), and
+  sorted/`Ord`-keyed `Set`/`Map` variants.
 - **Fibers — phases 3–4.** Phases 0–2 are done (scheduler-drivable `run_loop`;
   `spawn`/`join`/`yield` with GC roots across every fiber; buffered
   `Channel<T>`). Design in [architecture.md](architecture.md) §Concurrency.
@@ -405,14 +407,6 @@ _Owner-correct type resolution_ below.)
   work (it's the same "dispatch a built-in interface on a concrete type"
   machinery); and the cost/benefit vs. keeping a single well-documented
   fallback. Surfaced while scoping the `Display` Option B follow-up.
-- **Bitwise operators** (`& | ^ << >>`, plus an unsigned type or
-  defined-wrapping/logical-shift semantics on the signed `Int`). Blocks writing
-  hashing/encoding and a modern PRNG in Hawk: `std.random`'s SplitMix64 mix is a
-  Rust native (`random_mix`) precisely because it needs shifts/xor, and
-  `std.hash`/`std.encoding` will hit the same wall. Self-contained arc — lexer
-  tokens, parser precedence, checker (Int-only), codegen, runtime opcodes (the
-  runtime already does wrapping i64 arithmetic) — that lets these libraries move
-  from natives into Hawk.
 - **Index operator (`[]`) overloading.** `a[i]` / `a[i] = v` are hardcoded in
   codegen to the built-in `List`/`Map` natives by static type; any other
   receiver is a compile error (`pkgs/cli/codegen/codegen.hawk`). Small–medium,
@@ -443,6 +437,31 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **`Ord` interface + `std.sort`** (2026-06). Total ordering, modeled on
+  `Eq`/`Display`: `interface Ord { fn compare(self, other: Self) -> Ordering }`
+  with `enum Ordering { Less, Equal, Greater }` (a third runtime-blessed enum
+  alongside `Option`/`Result`, reserved type-id `TY_ORDERING`). The primitives
+  carry explicit `impl Ord` (Int/Double/Bool in Hawk via `<`; String a native);
+  a generic `<T: Ord>` calling `.compare()` dispatches dynamically, backed by a
+  `compare` arm in the runtime `virtual_fallback` that orders the four primitives
+  and returns an `Ordering` — the same explicit-impl-for-static /
+  fallback-for-virtual split as `Display`. `std.sort` (qualified module) ships
+  `sorted`/`sorted_desc`/`min`/`max` over `<T: Ord>` (free functions, since a
+  `List<T>` *method* can't add a `T: Ord` bound). Comparison operators
+  (`< <= > >=`) stay Int/Double-only — wiring them through `Ord` is left to the
+  _Generic operators_ arc. Spec `iface-ord`. Fixed a latent codegen gap on the
+  way: a lambda inside a generic `<T: Bound>` function lost the enclosing bounds
+  when compiled as its own unit, so a bound method on a `T`-typed param failed
+  (`Display` hit it too) — lifted lambdas now inherit their enclosing function's
+  `type_param_bounds`.
+
+- **Bitwise operators** (2026-06). `& | ^ << >> >>> ~` on `Int`: `<<`/`>>`
+  (arithmetic) / `>>>` (logical) shifts, AND/OR/XOR, and unary NOT — lexer →
+  parser precedence → checker (Int-only) → runtime opcodes (wrapping i64). Specs
+  `expr-bitwise` / `expr-shift`. This let `std.random`'s SplitMix64 mix and
+  `BytesBuilder`/`BytesReader`'s LEB128 / little-endian codecs move into pure
+  Hawk (the `random_mix` native is gone; only the entropy seed stays native).
 
 - **Generics: static-method type args, struct/enum bounds, inference cleanup**
   (2026-06). Three solidifications. **Static-method owner type parameters:**

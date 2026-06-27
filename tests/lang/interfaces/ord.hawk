@@ -1,0 +1,45 @@
+//! spec: iface-ord
+//! mode: run
+
+// Ord: total ordering via `compare`, returning an `Ordering`. The primitives
+// implement it; a user type implements it explicitly; a generic `<T: Ord>`
+// dispatches `compare` dynamically (the same path `std.sort` uses).
+
+type Version = { major: Int, minor: Int }
+
+impl Ord for Version {
+    fn compare(self, _ other: Version) -> Ordering {
+        let m = self.major.compare(other.major);
+        if m.is_ne() {
+            return m;
+        }
+        return self.minor.compare(other.minor);
+    }
+}
+
+// A generic over `Ord`: `compare` resolves through the bound and dispatches
+// dynamically, so this works for any `Ord` type (primitive or user).
+fn min2<T: Ord>(_ a: T, _ b: T) -> T {
+    if a.compare(b).is_le() {
+        return a;
+    }
+    return b;
+}
+
+fn main() -> Int {
+    // Primitive compare (static dispatch).
+    println('${(3).compare(5)}');               // expect: Less
+    println('${'b'.compare('a')}');             // expect: Greater
+    println('${true.compare(true)}');           // expect: Equal
+
+    // Ordering discriminators and reverse.
+    println('${(3).compare(5).is_lt()}');       // expect: true
+    println('${Ordering.Greater.reverse()}');   // expect: Less
+
+    // Generic `<T: Ord>` via dynamic dispatch — a primitive and a user type.
+    println('${min2(9, 4)}');                   // expect: 4
+    let a = Version { major: 1, minor: 2 };
+    let b = Version { major: 1, minor: 5 };
+    println('${min2(a, b).minor}');             // expect: 2
+    return 0;
+}

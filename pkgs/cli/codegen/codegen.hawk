@@ -197,6 +197,17 @@ impl FnCompiler {
         for tp in fn_decl.type_params {
             self.type_param_bounds[tp.name] = tp.bounds;
         }
+        // A lifted lambda has no type params of its own, but inherits its
+        // enclosing function's bounds (stashed at lift time) so a bound method on
+        // a `T`-typed param resolves when the lambda is compiled as its own unit.
+        match self.scope.lambda_bounds.get(index) {
+            Some(b) => {
+                for k in b.keys() {
+                    self.type_param_bounds[k] = b[k];
+                }
+            },
+            None => {},
+        }
 
         // Build the inference context for this unit.
         let type_params: Set<String> = Set.new();
@@ -849,8 +860,11 @@ impl FnCompiler {
         }
 
         let lifted = lift_lambda(x, captures);
-        // The lifted unit resolves bare names in the enclosing unit's file.
-        let index = self.scope.add_lambda(lifted, boxed_captures, stash, self.file);
+        // The lifted unit resolves bare names in the enclosing unit's file, and
+        // inherits the enclosing function's type-parameter bounds so a bound
+        // method on a `T`-typed param still resolves inside the lambda.
+        let index = self.scope.add_lambda(lifted, boxed_captures, stash,
+            self.type_param_bounds, self.file);
         // Push the captured values (in capture order), then bundle the closure. A
         // boxed capture pushes the cell itself (Load, no field.get) so it's shared.
         for name in captures {

@@ -1,0 +1,65 @@
+// Tests for std.sort (Ord-driven sorting and extrema).
+
+import std.testing;
+import std.sort;
+
+@test
+fn test_sorted_primitives() -> Result<Void, Error> {
+    testing.assert_eq(actual: sort.sorted([3, 1, 2]), expected: [1, 2, 3])?;
+    testing.assert_eq(actual: sort.sorted(['banana', 'apple', 'cherry']),
+        expected: ['apple', 'banana', 'cherry'])?;
+    testing.assert_eq(actual: sort.sorted([2.5, 1.5, 2.0]), expected: [1.5, 2.0, 2.5])?;
+    testing.assert_eq(actual: sort.sorted([true, false, true]),
+        expected: [false, true, true])?;
+    let empty: List<Int> = [];
+    testing.assert_eq(actual: sort.sorted(empty), expected: empty)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_sorted_desc() -> Result<Void, Error> {
+    testing.assert_eq(actual: sort.sorted_desc([3, 1, 2]), expected: [3, 2, 1])?;
+    testing.assert_eq(actual: sort.sorted_desc(['a', 'c', 'b']),
+        expected: ['c', 'b', 'a'])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_min_max() -> Result<Void, Error> {
+    testing.assert_eq(actual: sort.min([3, 1, 2]), expected: Option.Some(1))?;
+    testing.assert_eq(actual: sort.max([3, 1, 2]), expected: Option.Some(3))?;
+    testing.assert_eq(actual: sort.min(['banana', 'apple']), expected: Option.Some('apple'))?;
+    testing.assert_eq(actual: sort.max(['banana', 'apple']), expected: Option.Some('banana'))?;
+    let empty: List<Int> = [];
+    testing.assert_eq(actual: sort.min(empty), expected: Option.None)?;
+    testing.assert_eq(actual: sort.max(empty), expected: Option.None)?;
+    return Result.Ok(void);
+}
+
+// A user type with an `impl Ord` sorts and compares like a primitive.
+type Version = { major: Int, minor: Int }
+
+impl Ord for Version {
+    fn compare(self, _ other: Version) -> Ordering {
+        let m = self.major.compare(other.major);
+        if m.is_ne() {
+            return m;
+        }
+        return self.minor.compare(other.minor);
+    }
+}
+
+@test
+fn test_sorted_user_type() -> Result<Void, Error> {
+    let vs = [
+        Version { major: 1, minor: 5 },
+        Version { major: 1, minor: 2 },
+        Version { major: 0, minor: 9 },
+    ];
+    let s = sort.sorted(vs);
+    testing.assert_eq(actual: s[0], expected: Version { major: 0, minor: 9 })?;
+    testing.assert_eq(actual: s[1], expected: Version { major: 1, minor: 2 })?;
+    testing.assert_eq(actual: s[2], expected: Version { major: 1, minor: 5 })?;
+    testing.assert_eq(actual: sort.max(vs), expected: Option.Some(Version { major: 1, minor: 5 }))?;
+    return Result.Ok(void);
+}

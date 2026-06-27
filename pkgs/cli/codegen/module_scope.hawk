@@ -20,6 +20,7 @@ import '../element/scope' as _;
 // table — `enum.new` carries its field count inline.
 pub const TY_RESULT: Int = 0;
 pub const TY_OPTION: Int = 1;
+pub const TY_ORDERING: Int = 2;
 pub const TAG_OK: Int = 0;
 pub const TAG_ERR: Int = 1;
 pub const TAG_NONE: Int = 1; // Option.None (Some = 0); see sdk/std/core/option.hawk
@@ -111,6 +112,11 @@ pub type ModuleScope = {
     // params), so the lambda's body can be typed when compiled as its own unit
     // — the pure-inference analogue of the Dart inferrer's annotation.
     lambda_param_types: Map<Int, Map<String, Type>>,
+    // Lifted-lambda units also carry the enclosing function's type-parameter
+    // bounds (e.g. `T: Ord`), so a bound method called on a captured/own param of
+    // type `T` inside the lambda still resolves through its bound when the lambda
+    // is compiled as its own (type-parameter-less) unit.
+    lambda_bounds: Map<Int, Map<String, List<String>>>,
     // The resolved element model, for building an `InferCtx` per unit.
     library: element.LibraryElement,
 }
@@ -135,10 +141,11 @@ pub fn new_module_scope(_ library: element.LibraryElement) -> ModuleScope {
         interface_methods: {},
         pending_dispatch: [],
         interface_supers: {},
-        next_enum_ty: 2,
+        next_enum_ty: 3,
         boxed_params: {},
         cell_type: Option.None,
         lambda_param_types: {},
+        lambda_bounds: {},
         library: library,
     };
 }
@@ -219,6 +226,8 @@ impl ModuleScope {
             TY_RESULT
         } else if decl.name == 'Option' {
             TY_OPTION
+        } else if decl.name == 'Ordering' {
+            TY_ORDERING
         } else {
             let t = self.next_enum_ty;
             self.next_enum_ty = self.next_enum_ty + 1;
@@ -297,13 +306,17 @@ impl ModuleScope {
     // that hold a boxed cell; `param_types` types every parameter so the lambda
     // body can be inferred when compiled.
     pub fn add_lambda(self, _ decl: FnDecl, _ boxed: Set<String>,
-        _ param_types: Map<String, Type>, _ file: Option<String>) -> Int {
+        _ param_types: Map<String, Type>, _ bounds: Map<String, List<String>>,
+        _ file: Option<String>) -> Int {
         let index = self.units.len();
         self.add_unit(decl, '__lambda_${index}', Option.None, file);
         if boxed.len() > 0 {
             self.boxed_params[index] = boxed;
         }
         self.lambda_param_types[index] = param_types;
+        if bounds.len() > 0 {
+            self.lambda_bounds[index] = bounds;
+        }
         return index;
     }
 
