@@ -83,7 +83,8 @@ pub fn compile_source(_ source: String) -> CompileOutcome {
 // Type-check `source` (located at `path`) with its full import closure resolved
 // from `sdk_root` (`std.core` auto-loaded, `import`s linked). The loader-backed
 // counterpart to `check_source` — this is what the CLI uses on a real file.
-pub fn check_source_at(_ source: String, _ path: String, _ sdk_root: Option<String>) -> List<Diagnostic> {
+pub fn check_source_at(_ source: String, _ path: String, _ sdk_root: Option<String>,
+    parse_cache: Map<String, loader.ParsedFile> = {}) -> List<Diagnostic> {
     let lex = lexer.tokenize(source);
     if lex.errors.len() > 0 {
         return lex_diagnostics(lex.errors, build_source_map(source, path, []));
@@ -94,7 +95,7 @@ pub fn check_source_at(_ source: String, _ path: String, _ sdk_root: Option<Stri
     }
     let program = parsed.program;
     program.file_path = Option.Some(path);
-    let loaded = loader.load_imports(path, program, sdk_root);
+    let loaded = loader.load_imports(path, program, sdk_root, parse_cache: parse_cache);
     let src_map = build_source_map(source, path, loaded.programs);
     // Lex/parse errors from imported files first (root causes), then the primary
     // program's check errors.

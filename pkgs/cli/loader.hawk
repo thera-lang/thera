@@ -146,7 +146,13 @@ fn resolve_library_file(_ base: String) -> Option<String> {
 }
 
 // The recovered program for a file plus any lex/parse diagnostics it produced.
-type ParsedFile = {
+// `pub` so a caller checking many files (`check <dir>`) can hold a cross-file
+// parse cache (`Map<path, ParsedFile>`) and hand it to `load_imports` — the
+// shared import closure (the `std.core` prelude above all) is then lexed and
+// parsed once per run instead of once per file. The AST is immutable after parse
+// (the element model is built *from* it; inference is pure), so sharing a parsed
+// program across files is safe — as the loader already does within one closure.
+pub type ParsedFile = {
     program: Program,
     diagnostics: List<LoadDiagnostic>,
 }
@@ -197,8 +203,12 @@ pub fn parse_file_or_null(_ path: String) -> Option<Program> {
 type Loader = {
     sdk_root: Option<String>,
     order: List<Program>,            // imported programs, deduped, in load order
-    cache: Map<String, LibrarySource>, // resolved file -> library source
+    cache: Map<String, LibrarySource>, // resolved file -> library source (per call)
     diagnostics: List<LoadDiagnostic>, // lex/parse errors collected across the closure
+    // Cross-call parse cache (resolved file -> ParsedFile), supplied by the caller.
+    // A library reached from many files' closures is read+lexed+parsed once, not
+    // once per importing file. Empty (fresh) by default → no cross-call sharing.
+    parse_cache: Map<String, ParsedFile>,
 }
 
 impl Loader {
@@ -239,7 +249,7 @@ impl Loader {
         // program that we still link (its good decls resolve) — and its diagnostics
         // are collected here so the importer surfaces them attributed to this file,
         // rather than the broken import vanishing into a downstream "undefined name".
-        match parse_file(file) {
+        match self.parsed_file(file) {
             Some(pf) => {
                 for d in pf.diagnostics {
                     self.diagnostics.push(d);
@@ -249,6 +259,23 @@ impl Loader {
                 self.link_imports(pf.program, dirname(file), source);
                 self.order.push(pf.program);
                 return Option.Some(source);
+            },
+            None => { return Option.None; },
+        }
+    }
+
+    // Parse `file`, consulting the cross-call cache first so a file shared by many
+    // closures (the prelude) is lexed+parsed once per run. A cache miss parses and
+    // stores; the cached `ParsedFile` is reused as-is (the AST is immutable).
+    fn parsed_file(self, _ file: String) -> Option<ParsedFile> {
+        match self.parse_cache.get(file) {
+            Some(cached) => { return Option.Some(cached); },
+            None => {},
+        }
+        match parse_file(file) {
+            Some(pf) => {
+                self.parse_cache[file] = pf;
+                return Option.Some(pf);
             },
             None => { return Option.None; },
         }
@@ -278,8 +305,15 @@ impl Loader {
 
 // Resolve and parse the import closure of `program` (located at `path`). `program`
 // itself is used as-is (not re-read), so in-memory edits are honored.
-pub fn load_imports(_ path: String, _ program: Program, _ sdk_root: Option<String>) -> LoadedImports {
-    let loader = Loader { sdk_root: sdk_root, order: [], cache: {}, diagnostics: [] };
+pub fn load_imports(_ path: String, _ program: Program, _ sdk_root: Option<String>,
+    parse_cache: Map<String, ParsedFile> = {}) -> LoadedImports {
+    let loader = Loader {
+        sdk_root: sdk_root,
+        order: [],
+        cache: {},
+        diagnostics: [],
+        parse_cache: parse_cache,
+    };
 
     // std.core is auto-imported into every program — load it so its types (Error),
     // impls (Display for Error), and the prelude methods on built-in types link.

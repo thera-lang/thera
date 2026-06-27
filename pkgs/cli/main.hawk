@@ -236,6 +236,10 @@ fn do_check(_ targets: List<String>, _ sdk_root: Option<String>) -> Result<Int, 
         return Result.Ok(2);
     }
 
+    // One parse cache shared across all targets: every file imports the `std.core`
+    // prelude (and most share internal imports), so without this the closure is
+    // re-lexed and re-parsed once per file. Reused, it is parsed once per run.
+    let parse_cache: Map<String, loader.ParsedFile> = {};
     let mut total = 0;
     for file in runner.sort_dedup(files) {
         match fs.read_text(file) {
@@ -245,7 +249,7 @@ fn do_check(_ targets: List<String>, _ sdk_root: Option<String>) -> Result<Int, 
                 // analyzers it resembles (eslint, ruff, mypy). stderr is reserved
                 // for operational failures (below) and `emit`, which is a compiler
                 // whose product is the `.hawkbc`. (See docs/architecture.md.)
-                let diags = driver.check_source_at(source, file, sdk_root);
+                let diags = driver.check_source_at(source, file, sdk_root, parse_cache: parse_cache);
                 for d in diags {
                     println(driver.format_diagnostic(d, file));
                 }
