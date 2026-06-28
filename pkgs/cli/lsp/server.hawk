@@ -37,11 +37,22 @@ pub type Server = {
     docs: Map<String, String>,
     sdk_root: Option<String>,
     parse_cache: Map<String, loader.ParsedFile>,
+    // Documents edited since the last diagnostics flush. Recomputing diagnostics
+    // is the expensive step, so an edit only marks its document dirty; the actual
+    // re-check is deferred to `flush`, which lets a burst of keystrokes collapse
+    // into a single re-check per document (see `serve`).
+    mut dirty: Set<String>,
     mut shutdown_received: Bool,
 }
 
 pub fn new_server(_ sdk_root: Option<String>) -> Server {
-    return Server { docs: {}, sdk_root: sdk_root, parse_cache: {}, shutdown_received: false };
+    return Server {
+        docs: {},
+        sdk_root: sdk_root,
+        parse_cache: {},
+        dirty: Set.new(),
+        shutdown_received: false,
+    };
 }
 
 // A parsed open document plus its import closure and the cursor offset — the
@@ -62,7 +73,25 @@ pub fn serve(_ reader: io.Reader, _ writer: io.Writer, _ sdk_root: Option<String
     while going {
         match buf.read_message(reader) {
             Some(body) => {
-                going = server.handle(writer, body);
+                going = server.ingest(writer, body);
+                // Drain any messages that already arrived in the same read — a
+                // burst of keystrokes — applying their state but deferring
+                // diagnostics, so a backlog of edits collapses into one re-check
+                // per document. The busier the server, the bigger each read's
+                // batch, so coalescing scales with load.
+                let mut more = going;
+                while more {
+                    match buf.try_message() {
+                        Some(extra) => {
+                            going = server.ingest(writer, extra);
+                            more = going;
+                        },
+                        None => { more = false; },
+                    }
+                }
+                if going {
+                    server.flush(writer);
+                }
             },
             None => {
                 going = false;
@@ -72,9 +101,21 @@ pub fn serve(_ reader: io.Reader, _ writer: io.Writer, _ sdk_root: Option<String
 }
 
 impl Server {
-    // Handle one raw message body. Returns false when the server should stop
-    // (an `exit` notification).
+    // Handle one raw message body and publish any diagnostics it dirtied. This is
+    // the per-message entry point (used directly for one-shot requests); `serve`
+    // instead batches with `ingest` + `flush` to coalesce a burst of edits.
+    // Returns false when the server should stop (an `exit` notification).
     pub fn handle(self, _ writer: io.Writer, _ body: String) -> Bool {
+        let going = self.ingest(writer, body);
+        self.flush(writer);
+        return going;
+    }
+
+    // Dispatch one message, applying its state and marking any edited document
+    // dirty, but **deferring** diagnostics to the next `flush`. Returns false on
+    // `exit`. (Requests like hover still answer inline — only the diagnostics
+    // publish is deferred.)
+    fn ingest(self, _ writer: io.Writer, _ body: String) -> Bool {
         let msg = match json.parse(body) {
             Ok(j) => j,
             Err(_) => { return true; }, // ignore unparseable input
@@ -106,13 +147,13 @@ impl Server {
         }
         if method == 'textDocument/didOpen' {
             let doc = params.get('textDocument');
-            self.update_document(writer, doc.get('uri').as_string(), doc.get('text').as_string());
+            self.update_document(doc.get('uri').as_string(), doc.get('text').as_string());
             return true;
         }
         if method == 'textDocument/didChange' {
             // Full sync: the last content change carries the whole document.
             let uri = params.get('textDocument').get('uri').as_string();
-            self.update_document(writer, uri, last_change_text(params.get('contentChanges')));
+            self.update_document(uri, last_change_text(params.get('contentChanges')));
             return true;
         }
         if method == 'textDocument/documentSymbol' {
@@ -159,8 +200,10 @@ impl Server {
         return true;
     }
 
-    // Store `text` for `uri` (when both are present) and publish its diagnostics.
-    fn update_document(self, _ writer: io.Writer, _ uri: Option<String>, _ text: Option<String>) -> Void {
+    // Store `text` for `uri` (when both are present) and mark it dirty so the
+    // next `flush` re-checks it. The publish is deferred (not done here) so a
+    // burst of edits coalesces into one re-check.
+    fn update_document(self, _ uri: Option<String>, _ text: Option<String>) -> Void {
         match uri {
             Some(u) => {
                 match text {
@@ -170,7 +213,7 @@ impl Server {
                         // another open document, whose next check must see the change.
                         // (The primary itself is parsed from `t`, not the cache.)
                         self.invalidate(u);
-                        self.publish(writer, u, t);
+                        self.dirty.add(u);
                     },
                     None => {},
                 }
@@ -258,6 +301,19 @@ impl Server {
             },
             None => Option.None,
         };
+    }
+
+    // Publish diagnostics for every document dirtied since the last flush, then
+    // reset the set. A document edited several times in one batch is re-checked
+    // once; one closed before the flush is skipped (no stale publish).
+    fn flush(self, _ writer: io.Writer) -> Void {
+        for uri in self.dirty.to_list() {
+            match self.docs.get(uri) {
+                Some(text) => { self.publish(writer, uri, text); },
+                None => {},
+            }
+        }
+        self.dirty = Set.new();
     }
 
     fn publish(self, _ writer: io.Writer, _ uri: String, _ text: String) -> Void {

@@ -6,10 +6,43 @@ import std.testing;
 import std.io;
 
 import 'server' as _;
+import 'jsonrpc';
 import 'paths';
 import '../loader';
 import '../lexer/lexer';
 import '../parser/parser';
+
+// A one-shot in-memory `Reader`: hands out `data` in `max`-sized chunks, then
+// EOF — so `serve`'s read loop can be driven without a real stream.
+type BurstReader = { data: Bytes, mut pos: Int }
+impl Reader for BurstReader {
+    pub fn read(self, max: Int) -> Result<Bytes, Error> {
+        let end = (self.pos + max).min(self.data.len());
+        let chunk = self.data.slice(self.pos, end);
+        self.pos = end;
+        return Result.Ok(chunk);
+    }
+}
+
+// Count non-overlapping occurrences of `needle` in `haystack`.
+fn count_substr(_ haystack: String, _ needle: String) -> Int {
+    if needle.is_empty() {
+        return 0;
+    }
+    let mut count = 0;
+    let mut hay = haystack;
+    let mut going = true;
+    while going {
+        match hay.find(needle) {
+            Some(i) => {
+                count = count + 1;
+                hay = hay.slice(i + needle.len(), hay.len());
+            },
+            None => { going = false; },
+        }
+    }
+    return count;
+}
 
 // Run one message through a fresh server and return everything it wrote.
 fn handled(_ body: String) -> String {
@@ -228,6 +261,32 @@ fn test_exit_stops_the_serve_loop() -> Result<Void, Error> {
     let out = io.StringWriter.new();
     let keep_going = server.handle(out, '{"jsonrpc":"2.0","method":"exit"}');
     testing.assert(!keep_going, message: 'exit stops serving')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_serve_coalesces_a_burst_of_edits() -> Result<Void, Error> {
+    // A didOpen plus five didChange for one document, all delivered in a single
+    // read. `serve` drains the whole burst, applying each edit but deferring
+    // diagnostics, then publishes once — not once per message.
+    let uri = 'file:///burst.hawk';
+    let mut stream = jsonrpc.frame('{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"' + uri + '","text":"fn f() -> Int { return 0; }"}}}');
+    let mut i = 1;
+    while i <= 5 {
+        stream = stream + jsonrpc.frame('{"jsonrpc":"2.0","method":"textDocument/didChange","params":'
+            + '{"textDocument":{"uri":"' + uri + '"},'
+            + '"contentChanges":[{"text":"fn f() -> Int { return ${i}; }"}]}}');
+        i = i + 1;
+    }
+    let reader = BurstReader { data: stream.bytes(), pos: 0 };
+    let out = io.StringWriter.new();
+    serve(reader, out, Option.None);
+    let text = match out.into_string() {
+        Ok(s) => s,
+        Err(_) => '',
+    };
+    testing.assert_eq(actual: count_substr(text, 'textDocument/publishDiagnostics'), expected: 1)?;
     return Result.Ok(void);
 }
 

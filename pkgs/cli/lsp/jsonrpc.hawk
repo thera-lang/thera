@@ -49,6 +49,20 @@ impl MsgBuffer {
         }
         return Option.None; // unreachable: the loop only exits via `return`
     }
+
+    // The next message already buffered in `pending`, or None when none is fully
+    // buffered — **without** reading from `reader`, so it never blocks. Lets a
+    // caller drain a burst of already-arrived messages (e.g. a flurry of edits)
+    // before doing expensive per-batch work.
+    pub fn try_message(self) -> Option<String> {
+        return match extract_message(self.pending) {
+            Some(framed) => {
+                self.pending = framed.rest;
+                Option.Some(framed.body)
+            },
+            None => Option.None,
+        };
+    }
 }
 
 // One extracted message and the bytes that follow it (the start of the next).
