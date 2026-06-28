@@ -258,6 +258,16 @@ _Owner-correct type resolution_ below.)
   in `bin/test.sh`, added after a line-buffered-stdout bug let only each
   message's header reach the client — which the in-process `StringWriter`
   `@test`s couldn't catch.)
+  - **Partial down-payment landed — cross-file parse cache.** `hawk check <dir>`
+    now shares one parse cache (`Map<path, ParsedFile>`) across all checked
+    files, so the import closure (the prelude above all) is lexed+parsed once per
+    run instead of once per file — `hawk check pkgs/cli` 80s → ~10s (see
+    _Completed_). The remaining duplication this item targets: a file checked as a
+    primary *and* imported by a sibling is still parsed ~twice (share the primary
+    parse forward — small, with an overlay-correctness note for the LSP path); and
+    the per-file `build_library` still rebuilds the prelude's **element model**
+    every file (the larger, invalidation-bearing piece). Back-port these into the
+    incremental engine rather than bolting more caches onto the stateless path.
 - **`@extern` name check.** Native names are written once as `@extern('…')` on
   the `native fn` decls in `sdk/std`; the Rust runtime table is the other half,
   bound by name at load. Add a test asserting every `@extern` name the front-end
@@ -445,6 +455,21 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **In-VM profiler + `hawk check` made ~7.7× faster** (2026-06). A deterministic,
+  instruction-budget profiler (`HAWK_PROFILE`, see _Profiling_ above) drove a
+  pure measure-then-fix pass on `hawk check pkgs/cli` (80s): (1) a **cross-file
+  parse cache** — `check <dir>` re-lexed+re-parsed the whole import closure once
+  per file, so the `std.core` prelude was parsed 46× — now shared across files
+  (80s → 10.8s; 2.1B → 310M instructions; 55.6M → 9.1M allocations); (2) **string
+  constant interning** — `const.str` allocated a fresh heap string per execution
+  (a 24-arm keyword `match` allocated ~23 strings/call); interned constants are
+  allocation-free after first use and permanent GC roots (9.1M → 6.3M
+  allocations). Net 80s → ~10.4s, byte-identical fixpoint (both are runtime/
+  loader-only). Notable Hawk constraint surfaced: a top-level `const` keyword map
+  can't replace the `match` — with no load-time init, `const` inlines its
+  initializer, rebuilding the map per call; interning was the right lever.
+  _Further check-dedup is part of the LSP incremental engine (above)._
 
 - **Unified checker/codegen inference context + a differential oracle**
   (2026-06). Inference is one pure `infer_expr` query, but the checker and codegen
