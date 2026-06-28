@@ -28,16 +28,20 @@ import 'workspace_symbols';
 // where an editor expects semantic results. They stay parked until they're made
 // scope-aware. See pkgs/cli/lsp/references.hawk, rename.hawk, and roadmap.md.
 
-// The server state: the set of open documents (URI -> current text) and the SDK
-// root used to resolve a document's imports.
+// The server state: the set of open documents (URI -> current text), the SDK
+// root used to resolve a document's imports, and a cross-request parse cache so
+// the import closure (the `std.core` prelude above all) is lexed and parsed once
+// and reused — not re-parsed on every keystroke. Keyed by resolved file path;
+// an edited document's entry is dropped on change (see `update_document`).
 pub type Server = {
     docs: Map<String, String>,
     sdk_root: Option<String>,
+    parse_cache: Map<String, loader.ParsedFile>,
     mut shutdown_received: Bool,
 }
 
 pub fn new_server(_ sdk_root: Option<String>) -> Server {
-    return Server { docs: {}, sdk_root: sdk_root, shutdown_received: false };
+    return Server { docs: {}, sdk_root: sdk_root, parse_cache: {}, shutdown_received: false };
 }
 
 // A parsed open document plus its import closure and the cursor offset — the
@@ -162,11 +166,23 @@ impl Server {
                 match text {
                     Some(t) => {
                         self.docs[u] = t;
+                        // Drop the edited file's cached parse: it may be an import of
+                        // another open document, whose next check must see the change.
+                        // (The primary itself is parsed from `t`, not the cache.)
+                        self.invalidate(u);
                         self.publish(writer, u, t);
                     },
                     None => {},
                 }
             },
+            None => {},
+        }
+    }
+
+    // Evict `uri`'s parsed AST from the cross-request cache (a no-op when absent).
+    fn invalidate(self, _ uri: String) -> Void {
+        match self.parse_cache.remove(paths.uri_to_path(uri)) {
+            Some(_) => {},
             None => {},
         }
     }
@@ -235,7 +251,7 @@ impl Server {
                     let program = parser.parse_tokens(lexer.tokenize(text).tokens).program;
                     let path = paths.uri_to_path(u);
                     program.file_path = Option.Some(path);
-                    let loaded = loader.load_imports(path, program, self.sdk_root);
+                    let loaded = loader.load_imports(path, program, self.sdk_root, parse_cache: self.parse_cache);
                     Option.Some(DocAnalysis { program: program, imports: loaded.programs, text: text, offset: offset })
                 },
                 None => Option.None,
@@ -247,7 +263,8 @@ impl Server {
     fn publish(self, _ writer: io.Writer, _ uri: String, _ text: String) -> Void {
         send_notification(writer, 'textDocument/publishDiagnostics', json.obj({
             'uri': json.str(uri),
-            'diagnostics': diagnostics.compute_diagnostics(text, paths.uri_to_path(uri), self.sdk_root),
+            'diagnostics': diagnostics.compute_diagnostics(text, paths.uri_to_path(uri), self.sdk_root,
+                parse_cache: self.parse_cache),
         }));
     }
 }

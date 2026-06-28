@@ -6,6 +6,10 @@ import std.testing;
 import std.io;
 
 import 'server' as _;
+import 'paths';
+import '../loader';
+import '../lexer/lexer';
+import '../parser/parser';
 
 // Run one message through a fresh server and return everything it wrote.
 fn handled(_ body: String) -> String {
@@ -224,6 +228,26 @@ fn test_exit_stops_the_serve_loop() -> Result<Void, Error> {
     let out = io.StringWriter.new();
     let keep_going = server.handle(out, '{"jsonrpc":"2.0","method":"exit"}');
     testing.assert(!keep_going, message: 'exit stops serving')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_did_change_evicts_the_parse_cache() -> Result<Void, Error> {
+    // The cross-request parse cache keeps imported files parsed across keystrokes,
+    // but an edited file's entry must be dropped so a later check (where the file
+    // is someone's import) sees the change. Seed the cache as if `c.hawk` had been
+    // loaded as an import, then edit it and confirm the entry is gone.
+    let server = new_server(Option.None);
+    let path = paths.uri_to_path('file:///c.hawk');
+    let prog = parser.parse_tokens(lexer.tokenize('fn g() -> Int { return 1; }').tokens).program;
+    server.parse_cache[path] = loader.ParsedFile { program: prog, diagnostics: [] };
+    testing.assert(server.parse_cache.get(path).is_some(), message: 'seed is cached')?;
+
+    server.handle(io.StringWriter.new(),
+        '{"jsonrpc":"2.0","method":"textDocument/didChange","params":'
+        + '{"textDocument":{"uri":"file:///c.hawk"},'
+        + '"contentChanges":[{"text":"fn h() -> Int { return 2; }"}]}}');
+    testing.assert(server.parse_cache.get(path).is_none(), message: 'edit evicts the cache entry')?;
     return Result.Ok(void);
 }
 

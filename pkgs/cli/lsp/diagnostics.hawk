@@ -7,16 +7,20 @@ import std.json as _;
 
 import '../lexer/token' as _; // SourceSpan
 import '../driver';      // Diagnostic, check_source_at
+import '../loader';      // ParsedFile (the cross-request parse cache)
 
 // The LSP `Diagnostic[]` for `text` (the open buffer, located at `path`), as a
 // JSON array. Imports resolve from `sdk_root`; the primary file is checked from
-// the in-memory `text`.
-pub fn compute_diagnostics(_ text: String, _ path: String, _ sdk_root: Option<String>) -> Json {
+// the in-memory `text`. `parse_cache` (server-lived, keyed by resolved path) lets
+// the import closure — the `std.core` prelude above all — be lexed and parsed
+// once and reused across keystrokes instead of re-parsed on every change.
+pub fn compute_diagnostics(_ text: String, _ path: String, _ sdk_root: Option<String>,
+    parse_cache: Map<String, loader.ParsedFile> = {}) -> Json {
     let items: List<Json> = [];
     // `check_source_at` now reports the whole closure (incl. imported-file
     // errors); the LSP publishes per-URI, so keep only this document's own
     // diagnostics — an imported file's surface when *it* is the open document.
-    for d in driver.check_source_at(text, path, sdk_root) {
+    for d in driver.check_source_at(text, path, sdk_root, parse_cache: parse_cache) {
         if diagnostic_in_file(d, path) {
             items.push(diagnostic_to_json(d));
         }
