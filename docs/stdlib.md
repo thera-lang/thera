@@ -98,7 +98,7 @@ enough to reduce hallucination.
 | ------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | **Prelude**   | none (auto)     | primitives, `List`/`Map`/`Set`, `Option`/`Result`, `Error` + `Eq`/`Display`/`Debug`/`Ord`, `println`/`print`/`eprintln`/`eprint`, `String` methods |
 | **Core std**  | `import std.x`  | `io fs path env process time fiber math random json encoding hash http log cli term regex testing`                             |
-| **Ecosystem** | package manager | databases, YAML/TOML/CSV, HTTP server, raw sockets, compression, full crypto/TLS, UUID, templating, …                          |
+| **Ecosystem** | package manager | databases, YAML/TOML/CSV, HTTP server *frameworks* (a simple server is core), raw sockets, compression, full crypto/TLS, UUID, templating, …                          |
 
 The line between core and ecosystem: core covers what a typical CLI tool or
 agent script needs **in almost every project**. The ecosystem covers the
@@ -660,16 +660,25 @@ pub fn crc32(_ data: Bytes) -> Int;
 Notes: enough for checksums and content addressing (common agent tasks). Full
 crypto (signing, TLS primitives, AEAD) is ecosystem.
 
-### `std.http` — HTTP client _(new)_
+### `std.http` / `std.http.server` — HTTP client + simple server _(new)_
 
-Purpose: make HTTP requests. **Client first** in core; raw sockets stay
-ecosystem. A **simple HTTP server** is under consideration for core — either in
-`std.http` or a sibling `std.http.server` — because lightweight servers
-(webhooks, a local endpoint, a health check) are common enough in agent/CLI
-tooling to be worth a built-in answer; full server *frameworks* (routing DSLs,
-middleware stacks) stay ecosystem. Both client and server depend on `std.fiber`
-for concurrent, blocking-looking I/O (see § `std.fiber` and § Sequencing), so
-this lands after the scheduler.
+Purpose: make HTTP requests (the client) and answer them (a simple server). Both
+are **core**; raw sockets and full server *frameworks* stay ecosystem. Both
+depend on `std.fiber` for concurrent, blocking-looking I/O (see § `std.fiber` and
+§ Sequencing), so this lands after the scheduler.
+
+The **client** lives in `std.http`; the **simple server** is a sibling,
+`std.http.server` (sharing `Request`/`Response`/`HttpError`, a separate import so
+"the server is its own surface" stays explicit). Lightweight servers — a webhook
+receiver, a local endpoint, a health check — are common enough in agent/CLI
+tooling to deserve a built-in answer. **The line: bind + handle (a handler
+function, plus a tiny built-in path matcher) is core; routing DSLs, middleware
+stacks, and enterprise servers are ecosystem.** The server can land
+**plaintext-HTTP/1.1 first** — a simple server's TLS is usually terminated
+upstream (a reverse proxy), so it is _not_ gated on the client's TLS native and
+can ship alongside or ahead of it. Its accept loop is also one of the real I/O
+clients that should **drive** the `std.fiber` API design before that surface is
+frozen (see § `std.fiber`).
 
 ```
 pub type Request = { method: String, url: String,
@@ -691,7 +700,38 @@ pub enum HttpError { Connect(String), Timeout, Status(Int), Body(String) } // im
 Notes: TLS is provided by a runtime native (not reimplemented in Hawk).
 Streaming bodies use `std.io.Reader`.
 
-### `std.log` — leveled logging _(new)_
+**The simple server (`std.http.server`).** One fiber per connection over the
+scheduler; the handler is an ordinary function returning a `Response`. Errors are
+values — return a 4xx/5xx `Response`, or propagate an `Error` the server renders
+as 500.
+
+```
+pub type Handler = (Request) -> Result<Response, Error>;
+
+pub fn serve(_ addr: String, _ handler: Handler) -> Result<Void, HttpError>;  // blocks; accept loop
+
+// Response constructors for the common cases. Free functions, since the client's
+// `Response.text()`/`.json()` are *readers* (Hawk has no overloading), so
+// building a Response is named distinctly from reading one.
+pub fn text(_ status: Int, _ body: String) -> Response;
+pub fn json(_ status: Int, _ value: Json) -> Response;
+
+// A tiny built-in matcher (method + path) so a webhook / health-check needs no
+// third-party router. Anything richer (path params, middleware) is ecosystem.
+pub type Router = { /* method+path table */ }
+impl Router {
+    pub fn new() -> Router;
+    pub fn route(self, _ method: String, _ path: String, _ handler: Handler) -> Router;
+    pub fn into_handler(self) -> Handler;     // fold the table into one Handler for `serve`
+}
+```
+
+Notes: depends on `std.fiber` (accept loop + one fiber per connection) and the
+same socket natives as the client; plaintext-HTTP/1.1 first (TLS terminated
+upstream), with a TLS-terminating variant a later add. The accept loop is a named
+driver for the fiber API (§ `std.fiber`).
+
+### `std.log` — leveled logging _(new — design pass needed)_
 
 ```
 pub enum Level { Debug, Info, Warn, Error }
@@ -700,8 +740,27 @@ pub fn set_level(_ level: Level) -> Void;
 pub fn set_output(_ w: Writer) -> Void;    // default: stderr
 ```
 
-Notes: simple, structured-friendly, writes to stderr by default (stdout stays
-clean for program output — a CLI convention).
+> **Design pass needed before building.** The sketch above is the *conventional*
+> shape, but its `set_level`/`set_output` are **mutable module globals** — exactly
+> the hidden, swappable global state principle 7 avoids, and there is no
+> load-time init to seed them (§ Sequencing #8). Decide the model by **working
+> backwards from real logging consumers** — a CLI emitting progress, a library
+> that wants to log without dictating its host's configuration, a test that
+> captures log output — rather than picking a shape up front. The two candidates:
+> - **(a) A configured global singleton.** Familiar and ergonomic
+>   (`log.info('…')` with no plumbing), but in tension with principle 7 / "no
+>   global state", and it needs a *sanctioned* mechanism for module-mutable state
+>   or load-time init. We don't have one today, but aren't opposed to speccing and
+>   implementing it — that mechanism is the real prerequisite, and it would also
+>   serve other ambient config (see [roadmap.md](roadmap.md), "no load-time init").
+> - **(b) A `Logger` value you hold and pass.** The capability style, consistent
+>   with `time.Clock` / `env.Env` / `random.Rng`: no hidden state, testable
+>   without a global override, at the cost of threading it through call sites.
+>
+> Writes to stderr by default either way (stdout stays clean for program output —
+> the CLI convention). Likely both can coexist (a default ambient logger backed by
+> a `Logger` capability), as `std.time`/`std.env` do — but that is the call to
+> make from the consumer needs, not assume.
 
 ### `std.cli` — argument parsing _(implemented, pure Hawk)_
 
@@ -875,7 +934,10 @@ So the boundary is explicit (and so an agent knows where to look):
   is common enough for CLI/tool config that it's the first candidate to promote
   into core if real use cases pile up. Pivot when the demand is demonstrated, not
   speculatively.
-- **HTTP server, raw TCP/UDP sockets** → ecosystem (HTTP client is core).
+- **HTTP server *frameworks* (routing DSLs, middleware stacks), raw TCP/UDP
+  sockets** → ecosystem. The HTTP *client* and a *simple* server (`std.http` /
+  `std.http.server` — bind + handle + a tiny path matcher) **are core**; see
+  § `std.http`.
 - **Databases / SQLite** → ecosystem.
 - **Full cryptography / TLS primitives, signing** → ecosystem (digests +
   randomness are core; TLS for `http` is a runtime native).
@@ -969,12 +1031,12 @@ dependency graph, so future work lands in the right order:
    `std.random` (entropy), `std.http` (sockets + TLS), `std.hash`, and
    `std.fiber` (the scheduler). These are independent of the front-end arcs and
    can proceed in parallel — **except** that the **IO-heavy libraries depend on
-   `std.fiber`**: `std.http` (client and the candidate server) wants
-   concurrent, blocking-looking I/O, which is only "invisible" once the
-   scheduler parks fibers (principle #5). So sequence `std.fiber` **before**
-   `std.http`, and let real IO clients (a concurrent fetch, a server accept loop)
-   drive the fiber API's design rather than fixing it up front (see
-   § `std.fiber`).
+   `std.fiber`**: `std.http` (the client and the simple server, both now
+   committed to core) wants concurrent, blocking-looking I/O, which is only
+   "invisible" once the scheduler parks fibers (principle #5). So sequence
+   `std.fiber` **before** `std.http`, and let real IO clients (a concurrent
+   fetch, a server accept loop) drive the fiber API's design rather than fixing it
+   up front (see § `std.fiber`).
 
 7. **Visibility enforcement** ([language.md](language.md)). Some modules
    (e.g. `std.process`) have native bindings that should be module-private;
@@ -1007,8 +1069,8 @@ dependency graph, so future work lands in the right order:
 | std.json     | done    | pure Hawk; structural `Json` + constructors, parse/stringify, navigation; Int/Double split; auto-boxing + typed decode later                                                                                                        |
 | std.encoding | new     |                                                                                                                                                                                                                                     |
 | std.hash     | new     | runtime native                                                                                                                                                                                                                      |
-| std.http     | new     | client only; runtime sockets + TLS                                                                                                                                                                                                  |
-| std.log      | new     |                                                                                                                                                                                                                                     |
+| std.http     | new     | client (`std.http`) + simple server (`std.http.server`, plaintext-first; bind + handle + tiny matcher, frameworks stay ecosystem); runtime sockets + TLS; gated on `std.fiber` I/O parking                                                                                                                                                                                                  |
+| std.log      | new     | **design pass needed**: global singleton vs `Logger` value (capability). The specced `set_level`/`set_output` globals clash with principle 7 / no load-time init; decide from consumer needs (§ std.log)                                                                                                                                                                                                                                     |
 | std.cli      | done    | pure Hawk; declarative `Command`/`Matches`/`CliError` + `--help`, abbrs, negation; `Args` is the raw escape hatch. v2: entry adapter, selected-subcommand help, required positionals, command-path errors (§ std.cli)               |
 | std.term     | new     |                                                                                                                                                                                                                                     |
 | std.char     | done    | pure Hawk; `pub` API + ASCII scope; `is_hex_digit` added, ident predicates removed                                                                                                                                                  |
