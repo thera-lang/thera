@@ -337,8 +337,10 @@ _Owner-correct type resolution_ below.)
   side-channel the formatter needs (comments are currently discarded), so sequence
   it alongside `fmt`; (2) **LSP hover** surfaces the item/file doc; (3) a **doc
   generator** extracts a package's `pub` surface + barrel `//!` into an index for
-  agent navigation; (4) **fmt/lint awareness** — a lint for `pub` symbols whose
-  doc only restates the signature, and normalization of doc layout; (5) **migrate
+  agent navigation; (4) **reference resolution + lint** — resolve `[Symbol]`
+  references (link them in hover/doc-gen, flag ones that no longer resolve), plus a
+  lint for `pub` symbols whose doc only restates the signature, and normalization
+  of doc layout; (5) **migrate
   `sdk/std/`** from the current `//` headers to `///`/`//!` (a behavior-neutral
   source change, fixpoint-clean).
 

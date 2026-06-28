@@ -750,8 +750,17 @@ lead with the result as a noun phrase ("The substring of code points in
 Doc comments are Markdown, restricted to a small, predictable subset (anything
 outside it is treated as plain text):
 
-- **Inline:** `` `code` ``, `**bold**`, and `[text](path)` links (used to
-  cross-reference other docs and symbols).
+- **Inline:** `` `code` `` and `**bold**`.
+- **Links & references:** `[text](path)` is an ordinary Markdown link, used to
+  cross-reference other docs. `[Symbol]` (no trailing `(…)`) is a **resolvable
+  symbol reference** — a shorthand naming a declared symbol the way code does
+  (`[Display]`, `[String.slice]`, `[fs.read_text]`), resolved from the documented
+  file's scope. The two are not interchangeable: `` `code` `` is **inert text**
+  the tooling never checks, whereas `[Symbol]` is a **checked, navigable
+  reference** — doc tooling links it, and a lint flags a `[Symbol]` that no longer
+  resolves (doc-rot protection). Use `[Symbol]` when you want a reference to be
+  navigable and verified; use backticks for any other code-shaped text. Backticks
+  always work, so the bracket form is a pure opt-in upgrade, never required.
 - **Lists:** `-` bullets and `1.` ordered lists.
 - **Code blocks:** fenced only, tagged with the language —
   ```` ```hawk ````. Indented code blocks are **not** supported (they force an
@@ -769,7 +778,7 @@ its title. When a longer doc genuinely needs sections, use a small fixed set of
 | `**Errors:**` | the conditions under which a `Result` returns `Err` |
 | `**Traps:**` | the conditions under which the call traps (see [Runtime faults](#runtime-faults)) |
 | `**Note:**` | a caveat or non-obvious consequence |
-| `**See:**` | a cross-reference to a related symbol or doc |
+| `**See:**` | a cross-reference to a related symbol (`[Symbol]`) or doc |
 
 ```hawk
 /// The element at `index`, or `None` if `index` is out of range.
