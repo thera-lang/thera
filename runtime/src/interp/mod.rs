@@ -734,7 +734,10 @@ impl<'a> Vm<'a> {
                 Instr::ConstUnit => vstack.push(Value::Unit),
                 Instr::ConstStr(s) => {
                     poll_gc!();
-                    vstack.push(Value::new_str(s.clone()));
+                    // A string literal is interned: allocated once, then reused
+                    // allocation-free on every later execution (a `match` over the
+                    // 24 keyword literals, say, no longer allocates per call).
+                    vstack.push(heap::intern_str(s));
                 }
 
                 // --- locals (slots `[base, base + local_count)` of the vstack) ---

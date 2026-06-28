@@ -84,6 +84,31 @@ thread_local! {
     static GC_PAUSED: Cell<usize> = const { Cell::new(0) };
 }
 
+thread_local! {
+    /// Interned string *constants* (the `const.str` opcode): content -> the one
+    /// heap string for it. Permanent GC roots ([`collect`] marks them), so a
+    /// literal is allocated once and every later use of it is allocation-free.
+    static INTERN: RefCell<std::collections::HashMap<String, Value>> =
+        RefCell::new(std::collections::HashMap::new());
+}
+
+/// The interned heap string for constant `s`: allocate-and-remember on first use,
+/// return the cached handle thereafter. For program *constants* only — strings
+/// are immutable, so sharing one handle across every use of a literal is safe,
+/// and the bounded set of literals stays permanently live without bloating the
+/// heap with a fresh copy per execution. (Transient strings — concatenation,
+/// interpolation — go through [`Value::new_str`] and are collected normally.)
+pub fn intern_str(s: &str) -> Value {
+    if let Some(v) = INTERN.with(|i| i.borrow().get(s).copied()) {
+        return v;
+    }
+    let v = Value::new_str(s.to_string());
+    INTERN.with(|i| {
+        i.borrow_mut().insert(s.to_string(), v);
+    });
+    v
+}
+
 /// Allocate `obj` and return a handle to it, reusing a free hole when one is
 /// available. Allocation never collects — that is the safepoint's job
 /// ([`maybe_collect`]) — so a handle handed back here is always live. It does
@@ -223,6 +248,12 @@ pub fn collect(roots: impl Iterator<Item = Value>) {
         for v in roots {
             mark(&mut marked, &mut worklist, v);
         }
+        // Interned string constants are permanent roots — never swept.
+        INTERN.with(|i| {
+            for v in i.borrow().values() {
+                mark(&mut marked, &mut worklist, *v);
+            }
+        });
         let mut live_bytes = 0usize;
         while let Some(handle) = worklist.pop() {
             if let Some(obj) = &heap.slots[handle as usize] {
