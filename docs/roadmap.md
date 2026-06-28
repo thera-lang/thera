@@ -361,6 +361,29 @@ _Owner-correct type resolution_ below.)
 
 ### Language features not yet built
 
+- **Module initializers — computed-once immutable globals.** Full design:
+  [module_init.md](module_init.md). Today top-level `const` **inlines** its
+  initializer at every use site (codegen has no global storage), so a computed
+  `const TABLE = build()` rebuilds the table per reference, and there is "no
+  load-time init." Add an **immutable** top-level `let NAME = expr;` that is
+  computed **once** at load into a stored global slot. Mechanics: a globals
+  vector (new `global_count` in the module header), `global.get`/`global.set`
+  opcodes, and a single linker-emitted **program-init thunk** run before `main`
+  in **topological** order (`std.core` first); an initializer-**dependency**
+  cycle is a compile error (distinct from an import cycle), which keeps global
+  access a plain slot read — no per-access init guard. The globals vector becomes
+  a GC root. **Immutable only** (no top-level `let mut` — swappable config stays a
+  capability value, so this doesn't reintroduce the "no hidden global state"
+  anti-pattern; see module_init.md §Tension), and initializers must be **pure** —
+  a small denylist rejects time-varying natives (`time`/`fs`/sockets) from
+  initializer position (Hawk has no effect system to enforce purity precisely).
+  Codegen change → two-cycle fixpoint reconverge. **Phase 1 unblocks** lookup
+  tables for `std.encoding`/`std.hash` (CRC32/base64), `std.math`
+  `INFINITY`/`NAN`, `std.path`'s platform separator, derived constants, and a
+  top-level keyword map in the front-end (the `keyword_kind` dogfood). It is the
+  principled replacement for the recurring "no load-time init" blocker called out
+  across [stdlib.md](stdlib.md).
+
 - **Struct-definition keyword: `type Foo = { … }` → `struct Foo { … }`
   (likely).** Hawk is a **nominal** type system — two identically-shaped structs
   are distinct (`Celsius` ≠ `Fahrenheit`), identity is by name, and interface
@@ -512,7 +535,9 @@ conformance specs. Newest first.
   allocations). Net 80s → ~10.4s, byte-identical fixpoint (both are runtime/
   loader-only). Notable Hawk constraint surfaced: a top-level `const` keyword map
   can't replace the `match` — with no load-time init, `const` inlines its
-  initializer, rebuilding the map per call; interning was the right lever.
+  initializer, rebuilding the map per call; interning was the right lever. (A
+  computed-once **module `let`** would lift this constraint — see _Module
+  initializers_ under _Language features not yet built_.)
   _Further check-dedup is part of the LSP incremental engine (above)._
 
 - **Unified checker/codegen inference context + a differential oracle**

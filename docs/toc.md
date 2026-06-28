@@ -24,6 +24,10 @@ is"; read top-down for progressive detail.
 - [testability.md](testability.md) — the **ambient-capability** design: an
   ambient free function + opt-in capability interface (`Clock`/`FileSystem`),
   where test doubles live, and why there's no global override.
+- [module_init.md](module_init.md) — **module initializers**: immutable
+  top-level `let` computed once at load into a global slot, eager topological
+  init, and how it stays clear of "no hidden global state". The principled
+  replacement for "no load-time init".
 - [bytecode.md](bytecode.md) — the bytecode **spec**: value model, instruction
   set, the Tier-0 interpreter, and the serialized `.hawkbc` format.
 - [architecture.md](architecture.md) — the runtime **architecture**: the tiered

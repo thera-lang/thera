@@ -328,8 +328,9 @@ pub fn with_extension(_ path: String, _ ext: String) -> String;
 
 Slash-based (POSIX-style, like Go's `path`): `'/'` is always the separator. OS
 -aware handling — Windows `\`, drive letters, and a platform separator (which
-can't be a compile-time `const`; it needs native backing) — is a deliberate
-future task. Also deferred: `normalize` (collapse `./` `../`), `relative`, and a
+can't be a compile-time `const`; it needs native backing plus a **module
+initializer** to compute it once, [module_init.md](module_init.md)) — is a
+deliberate future task. Also deferred: `normalize` (collapse `./` `../`), `relative`, and a
 variadic `join`.
 
 ### `std.env` — environment & process info _(implemented)_
@@ -358,8 +359,8 @@ pub fn system_env() -> Env;
 ```
 
 Note: `OS` is a function (`os()`), not a `const` — it is a runtime/platform
-value, and Hawk has no load-time init to materialize a `const` from one (see
-[roadmap.md](roadmap.md)). `exit` is typed `Void` until a `Never` type lands.
+value, and Hawk has no load-time init to materialize a `const` from one (planned:
+[module_init.md](module_init.md) would let `os()` be captured once into a global). `exit` is typed `Void` until a `Never` type lands.
 `Env` is the second instance of the ambient-capability pattern after
 `time.Clock` (see [testability.md](testability.md)).
 
@@ -537,8 +538,9 @@ Notes: feed an `Int` to a `std.math` function via `n.to_double()`; rounding
 returns `Double` (chain `.to_int()` for an `Int`). Numeric parsing is on
 `String` (prelude): `s.to_int() -> Option<Int>`,
 `s.to_double() -> Option<Double>` (strict — the whole string must be the
-number). Deferred: `INFINITY`/`NAN` (no literal form, and no load-time init —
-would need natives).
+number). Deferred: `INFINITY`/`NAN` (no literal form; needs natives plus a place
+to compute-and-store them once — a **module initializer**,
+[module_init.md](module_init.md)).
 
 ### `std.random` — randomness _(implemented)_
 
@@ -749,10 +751,11 @@ pub fn set_output(_ w: Writer) -> Void;    // default: stderr
 > captures log output — rather than picking a shape up front. The two candidates:
 > - **(a) A configured global singleton.** Familiar and ergonomic
 >   (`log.info('…')` with no plumbing), but in tension with principle 7 / "no
->   global state", and it needs a *sanctioned* mechanism for module-mutable state
->   or load-time init. We don't have one today, but aren't opposed to speccing and
->   implementing it — that mechanism is the real prerequisite, and it would also
->   serve other ambient config (see [roadmap.md](roadmap.md), "no load-time init").
+>   global state". The **module initializer** ([module_init.md](module_init.md))
+>   supplies immutable computed globals but **deliberately not mutable** ones, so a
+>   swappable level/output singleton still needs its own sanctioned
+>   module-mutable-state mechanism — which module-init declines on purpose. That
+>   tension is exactly why module-init steers logging toward (b).
 > - **(b) A `Logger` value you hold and pass.** The capability style, consistent
 >   with `time.Clock` / `env.Env` / `random.Rng`: no hidden state, testable
 >   without a global override, at the cost of threading it through call sites.
@@ -1048,7 +1051,9 @@ dependency graph, so future work lands in the right order:
    `std.char`'s constants and `std.math`'s `PI`/`E`. (Note: a _platform_ value
    like a path separator is **not** a fit for `const` — it's compile-time
    inlined — so std.path stays slash-based and a native-backed separator waits
-   for OS-aware paths. There is no load-time static-initializer mechanism yet.)
+   for OS-aware paths. A load-time static-initializer mechanism — the **module
+   initializer** ([module_init.md](module_init.md)) — is specced but not yet
+   built; it is the home for a computed-once separator.)
 
 ## Status summary
 
