@@ -268,6 +268,21 @@ _Owner-correct type resolution_ below.)
     the per-file `build_library` still rebuilds the prelude's **element model**
     every file (the larger, invalidation-bearing piece). Back-port these into the
     incremental engine rather than bolting more caches onto the stateless path.
+  - **LSP server perf landed — server-lived parse cache + edit coalescing.** The
+    server now persists the parse cache across requests (keyed by path, evicted on
+    edit), so the import closure is parsed once and reused per keystroke instead of
+    re-parsed every change: a doc importing std.cli + std.json went 186 → 8.3
+    ms/edit (~22×). And the `serve` loop drains a whole buffered burst of edits
+    (non-blocking `MsgBuffer.try_message`) before a single diagnostics flush, so a
+    backlog collapses to one re-check per document (100 bunched edits ≈ the cost of
+    1). **Still on the table here:** (a) the per-flush re-check still rebuilds the
+    closure's **element model** and re-runs the checker — the big remaining lever,
+    and exactly the resolved-library caching this item is about; (b) *time-based*
+    debounce for edits that arrive just apart (needs a timeout/non-blocking read
+    native — small runtime add) — low priority now that warm latency (~8 ms) keeps
+    pace with typing; (c) incremental `textDocumentSync` — still low ROI (the
+    re-check, not the JSON, dominates) and carries UTF-16 offset risk. Profile a
+    warm flush before picking (a) up, to confirm the checker pass is the cost.
 - **`@extern` name check.** Native names are written once as `@extern('…')` on
   the `native fn` decls in `sdk/std`; the Rust runtime table is the other half,
   bound by name at load. Add a test asserting every `@extern` name the front-end
@@ -472,6 +487,18 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **LSP keystroke latency — parse cache + edit coalescing** (2026-06). Two
+  pure-front-end wins (no runtime change), targeting the per-keystroke backlog.
+  (1) A **server-lived parse cache** (the same lever as the `hawk check` win),
+  keyed by resolved path and evicted on edit, so the import closure is parsed once
+  and reused across keystrokes instead of re-read+re-parsed from disk every change:
+  a doc importing std.cli + std.json went **186 → 8.3 ms/edit (~22×)**. (2) **Edit
+  coalescing** — the `serve` loop drains a whole buffered burst (a non-blocking
+  `MsgBuffer.try_message`), applying each edit but deferring diagnostics to a single
+  `flush`, so a backlog collapses to one re-check per document (**100 bunched edits
+  ≈ the cost of 1**). Next lever is caching the resolved/element-model closure (the
+  incremental-engine work); see the LSP item under _Front-end / tooling_.
 
 - **In-VM profiler + `hawk check` made ~7.7× faster** (2026-06). A deterministic,
   instruction-budget profiler (`HAWK_PROFILE`, see _Profiling_ above) drove a
