@@ -327,6 +327,21 @@ _Owner-correct type resolution_ below.)
     output); revisit if format-through-errors is ever wanted. Hardest design call
     when we dig in: **comment attachment** (leading / trailing / dangling).
 
+- **Doc-comment tooling — convention specced, machinery pending.** The doc
+  conventions are defined ([language.md](language.md#documentation)): `///` item
+  docs, `//!` file/package docs, plain `//` never extracted; a summary-first
+  sentence; a small Markdown subset (fenced code only, no headers, bold-label
+  sections); prose params. Source can adopt them **today** — the lexer already
+  skips `///`/`//!` as ordinary comments, so the compile path is unaffected. The
+  follow-on work: (1) **attach docs to AST nodes** — shares the same trivia
+  side-channel the formatter needs (comments are currently discarded), so sequence
+  it alongside `fmt`; (2) **LSP hover** surfaces the item/file doc; (3) a **doc
+  generator** extracts a package's `pub` surface + barrel `//!` into an index for
+  agent navigation; (4) **fmt/lint awareness** — a lint for `pub` symbols whose
+  doc only restates the signature, and normalization of doc layout; (5) **migrate
+  `sdk/std/`** from the current `//` headers to `///`/`//!` (a behavior-neutral
+  source change, fixpoint-clean).
+
 ### Language features not yet built
 
 - **Struct-definition keyword: `type Foo = { … }` → `struct Foo { … }`

@@ -36,11 +36,17 @@ EBNF, W3C-style:
 ### Comments & whitespace
 
 ```
-comment    = '//' (any char except newline)*       // line comments only
+comment    = ordinary | item_doc | file_doc        // line comments only
+ordinary   = '//'  (any char except newline)*       // not '///' or '//!'
+item_doc   = '///' (any char except newline)*       // documents the next item
+file_doc   = '//!' (any char except newline)*       // documents the file
 whitespace = ' ' | '\t' | '\r' | '\n'
 ```
 
-There are **no block comments** (`/* … */`) and no distinct doc-comment form.
+There are **no block comments** (`/* … */`). The `///` and `//!` forms are
+**doc comments** — lexically still line comments, but carrying documentation
+that tooling extracts; see [language.md](language.md#documentation) for the
+conventions. `//` is an ordinary comment and is never extracted.
 
 ### Keywords
 

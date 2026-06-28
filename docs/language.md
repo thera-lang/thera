@@ -681,6 +681,132 @@ references, plus per-library ownership of the symbol tables — is tracked in
 
 ---
 
+## Documentation
+
+Documentation is written for an audience of LLMs and coding agents first. The
+guiding principle is **progressive disclosure**: a reader should be able to grasp
+a file, then a symbol, by reading as little as possible — one summary sentence —
+and descend into detail only when they need it.
+
+### Three comment forms
+
+Hawk distinguishes documentation from ordinary comments lexically, so tooling can
+extract one without scraping the other:
+
+| Form  | Role | Attaches to |
+| ----- | ---- | ----------- |
+| `///` | **item doc** | the declaration immediately below it |
+| `//!` | **file doc** | the enclosing file (sits at the top, above the first declaration) |
+| `//`  | ordinary comment | nothing — an internal aside, never extracted |
+
+```hawk
+//! std.fs — filesystem access: read and write files, list directories,
+//! query metadata. All paths are POSIX (forward-slash) regardless of host.
+//!
+//! Import as: import std.fs;
+
+/// The contents of the file at `path`, decoded as UTF-8.
+///
+/// **Errors:** returns `Err` if the file does not exist or is unreadable.
+@extern('fs_read_text')
+pub native fn read_text(_ path: String) -> Result<String, Error>
+
+// internal: the native validates UTF-8 and maps errno → FsError  ← not a doc
+```
+
+A declaration's doc is the contiguous run of `///` lines directly above it; a
+blank line or an ordinary `//` line ends the run. Because `//` is never
+extracted, an internal note may sit directly above a declaration without becoming
+its documentation — the disambiguation a position-only rule (Go's "the comment
+above the symbol") cannot provide.
+
+A directory library's **barrel** `//!` header is the **package doc** — the single
+thing an agent reads to understand a whole library. A recommended `Import as:`
+line gives the exact import to copy. (This is the only doc convention above the
+symbol level; directory overviews and generated indexes are deferred.)
+
+### The summary sentence
+
+The **first sentence** of any doc (through the first `.`) is its summary. It must:
+
+- **stand alone** — it appears by itself in one-line contexts (a symbol index,
+  editor hover, a package's table of contents), with no further lines for support;
+- **add information beyond the name** — if the name and signature already say
+  everything, write no doc at all rather than restate them. A doc that only echoes
+  the signature (`/// Returns the length.` on `len(self) -> Int`) is worse than
+  none.
+
+A blank `///` line separates the summary from any further paragraphs. Functions
+lead with the result as a noun phrase ("The substring of code points in
+`[start, end)`."), not "This function returns…".
+
+> **When to document.** Every `pub` symbol should carry a doc comment *unless its
+> name and signature are fully self-describing*. Private symbols are documented
+> only where the intent is non-obvious. Brevity is a feature: the goal is the
+> shortest doc that adds something a reader couldn't get from the signature.
+
+### Markdown
+
+Doc comments are Markdown, restricted to a small, predictable subset (anything
+outside it is treated as plain text):
+
+- **Inline:** `` `code` ``, `**bold**`, and `[text](path)` links (used to
+  cross-reference other docs and symbols).
+- **Lists:** `-` bullets and `1.` ordered lists.
+- **Code blocks:** fenced only, tagged with the language —
+  ```` ```hawk ````. Indented code blocks are **not** supported (they force an
+  ambiguous indent-width rule under the `///` prefix); a fence is delimited, needs
+  no measuring, and is the form LLMs read and emit most reliably.
+
+There are **no ATX headers** (`#`, `##`) in doc comments — `#` would invite long,
+sectioned docs that cut against the brevity goal, and a symbol's name is already
+its title. When a longer doc genuinely needs sections, use a small fixed set of
+**bold-label paragraphs** instead:
+
+| Label | Use |
+| ----- | --- |
+| `**Example:**` | a usage example (usually a fenced `hawk` block) |
+| `**Errors:**` | the conditions under which a `Result` returns `Err` |
+| `**Traps:**` | the conditions under which the call traps (see [Runtime faults](#runtime-faults)) |
+| `**Note:**` | a caveat or non-obvious consequence |
+| `**See:**` | a cross-reference to a related symbol or doc |
+
+```hawk
+/// The element at `index`, or `None` if `index` is out of range.
+///
+/// **Example:**
+/// ```hawk
+/// let xs = [10, 20, 30];
+/// xs.get(1);    // Some(20)
+/// xs.get(9);    // None
+/// ```
+pub fn get(self, _ index: Int) -> Option<T> { ... }
+```
+
+### Parameters
+
+Document parameters **in prose**, naming them in backticks (`` `index` ``) — there
+is no `@param` tag vocabulary. Document a parameter only when its name and type do
+not already convey its role: units, valid ranges, edge behavior, or how it relates
+to another parameter. The return value is described in the summary, not in a
+separate tag.
+
+```hawk
+/// The substring of code points in the half-open range `[start, end)`.
+/// Indices are clamped to the string's length, so a reversed or out-of-range
+/// range yields a shorter or empty string.
+pub fn slice(self, _ start: Int, _ end: Int) -> String { ... }
+```
+
+> **Enforcement status.** The conventions above are adoptable in source today: the
+> lexer skips every `//…` line, so `///` and `//!` already lex cleanly as
+> comments. The supporting *machinery* — attaching docs to AST nodes, surfacing
+> them in LSP hover, a doc generator, formatter and lint awareness, and migrating
+> the existing `//` headers in `sdk/std/` — is tracked in
+> [roadmap.md](roadmap.md).
+
+---
+
 ## Native bindings (FFI)
 
 `native fn` declares a function implemented in native code (e.g. a C library
