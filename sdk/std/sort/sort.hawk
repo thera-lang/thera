@@ -1,31 +1,33 @@
-// std.sort — sorting and extrema over the `Ord` interface.
-//
-// Import as: import std.sort
-// Usage:     sort.sorted([3, 1, 2])   // [1, 2, 3]
-//            sort.min(scores)          // Option<T>
-//
-// These are the `Ord`-driven counterparts to `List.sort(less)` (which takes an
-// explicit comparator): they work for any element type that implements `Ord`
-// (the primitives, and any user type with an `impl Ord`). Implemented in Hawk
-// over `List.sort` and `Ord.compare` — they live in their own module (not the
-// prelude) so the common names `sorted`/`min`/`max` stay qualified.
+//! std.sort — sorting and extrema over the `Ord` interface.
+//!
+//! Import as: import std.sort
+//! Usage:     sort.sorted([3, 1, 2])   // [1, 2, 3]
+//!            sort.min(scores)          // Option<T>
+//!
+//! These are the `Ord`-driven counterparts to `List.sort(less)` (which takes an
+//! explicit comparator): they work for any element type that implements `Ord`
+//! (the primitives, and any user type with an `impl Ord`). Implemented in Hawk
+//! over `List.sort` and `Ord.compare` — they live in their own module (not the
+//! prelude) so the common names `sorted`/`min`/`max` stay qualified.
 
-// A new list with `xs`'s elements in ascending order. Stable (equal elements
-// keep their input order — `List.sort` is a stable merge sort).
-//
-//   sort.sorted([3, 1, 2])        // [1, 2, 3]
-//   sort.sorted(['b', 'a', 'c'])  // ['a', 'b', 'c']
+/// A new list with `xs`'s elements in ascending order. Stable (equal elements
+/// keep their input order — `List.sort` is a stable merge sort).
+///
+/// ```hawk
+/// sort.sorted([3, 1, 2])        // [1, 2, 3]
+/// sort.sorted(['b', 'a', 'c'])  // ['a', 'b', 'c']
+/// ```
 pub fn sorted<T: Ord>(_ xs: List<T>) -> List<T> {
     return xs.sort((a, b) => a.compare(b).is_lt());
 }
 
-// A new list in descending order (the reverse of `sorted`).
+/// A new list in descending order (the reverse of `sorted`).
 pub fn sorted_desc<T: Ord>(_ xs: List<T>) -> List<T> {
     return xs.sort((a, b) => a.compare(b).is_gt());
 }
 
-// The smallest element, or None if `xs` is empty. Ties go to the earlier
-// element (so `min`/`max` over the same list pick opposite ends of a tie).
+/// The smallest element, or None if `xs` is empty. Ties go to the earlier
+/// element (so `min`/`max` over the same list pick opposite ends of a tie).
 pub fn min<T: Ord>(_ xs: List<T>) -> Option<T> {
     if xs.is_empty() {
         return Option.None;
@@ -39,7 +41,7 @@ pub fn min<T: Ord>(_ xs: List<T>) -> Option<T> {
     return Option.Some(best);
 }
 
-// The largest element, or None if `xs` is empty.
+/// The largest element, or None if `xs` is empty.
 pub fn max<T: Ord>(_ xs: List<T>) -> Option<T> {
     if xs.is_empty() {
         return Option.None;

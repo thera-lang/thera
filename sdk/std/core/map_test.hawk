@@ -1,5 +1,5 @@
-// Tests for the built-in Map<K, V> type. Map is in the prelude (always in
-// scope), so it's used unqualified — no sibling import.
+//! Tests for the built-in Map<K, V> type. Map is in the prelude (always in
+//! scope), so it's used unqualified — no sibling import.
 
 import std.testing;
 

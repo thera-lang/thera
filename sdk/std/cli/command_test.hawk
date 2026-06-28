@@ -1,10 +1,10 @@
-// Tests for std.cli's declarative Command parser.
+//! Tests for std.cli's declarative Command parser.
 
 import std.testing;
 
 import 'command' as _;
 
-// A representative command reused across the parsing tests.
+/// A representative command reused across the parsing tests.
 fn sample() -> Command {
     return Command.new('tool')
         .about('frobs the widgets')
@@ -131,7 +131,7 @@ fn test_clierror_implements_error() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// Returns the common Error interface, constructed from a concrete CliError.
+/// Returns the common Error interface, constructed from a concrete CliError.
 fn boundary() -> Result<Int, Error> {
     return Result.Err(CliError.MissingValue('out'));
 }

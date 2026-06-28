@@ -1,265 +1,265 @@
-// Conformance tests over the classic JSON.org json_checker suite
-// (https://www.json.org/JSON_checker/). Each .json file is embedded verbatim
-// as a string literal: the three pass* inputs must parse, the fail* inputs
-// must be rejected.
-//
-// The original suite targets RFC 4627; two of its fail cases are valid under
-// the current JSON spec (RFC 8259) and are accepted here by design — see
-// test_fail1_bare_string and test_fail18_deep_nesting.
+//! Conformance tests over the classic JSON.org json_checker suite
+//! (https://www.json.org/JSON_checker/). Each .json file is embedded verbatim
+//! as a string literal: the three pass* inputs must parse, the fail* inputs
+//! must be rejected.
+//!
+//! The original suite targets RFC 4627; two of its fail cases are valid under
+//! the current JSON spec (RFC 8259) and are accepted here by design — see
+//! test_fail1_bare_string and test_fail18_deep_nesting.
 
 import std.testing;
 import std.json;
 
-// [\n    "JSON Test Pattern pass1",\n    {"object with 1 member":["...
+/// [\n    "JSON Test Pattern pass1",\n    {"object with 1 member":["...
 @test
 fn test_pass1() -> Result<Void, Error> {
     testing.assert_ok(json.parse('[\n    "JSON Test Pattern pass1",\n    {"object with 1 member":["array with 1 element"]},\n    {},\n    [],\n    -42,\n    true,\n    false,\n    null,\n    {\n        "integer": 1234567890,\n        "real": -9876.543210,\n        "e": 0.123456789e-12,\n        "E": 1.234567890E+34,\n        "":  23456789012E66,\n        "zero": 0,\n        "one": 1,\n        "space": " ",\n        "quote": "\\"",\n        "backslash": "\\\\",\n        "controls": "\\b\\f\\n\\r\\t",\n        "slash": "/ & \\/",\n        "alpha": "abcdefghijklmnopqrstuvwyz",\n        "ALPHA": "ABCDEFGHIJKLMNOPQRSTUVWYZ",\n        "digit": "0123456789",\n        "0123456789": "digit",\n        "special": "`1~!@#\$%^&*()_+-={\':[,]}|;.</>?",\n        "hex": "\\u0123\\u4567\\u89AB\\uCDEF\\uabcd\\uef4A",\n        "true": true,\n        "false": false,\n        "null": null,\n        "array":[  ],\n        "object":{  },\n        "address": "50 St. James Street",\n        "url": "http://www.JSON.org/",\n        "comment": "// /* <!-- --",\n        "# -- --> */": " ",\n        " s p a c e d " :[1,2 , 3\n\n,\n\n4 , 5        ,          6           ,7        ],"compact":[1,2,3,4,5,6,7],\n        "jsontext": "{\\"object with 1 member\\":[\\"array with 1 element\\"]}",\n        "quotes": "&#34; \\u0022 %22 0x22 034 &#x22;",\n        "\\/\\\\\\"\\uCAFE\\uBABE\\uAB98\\uFCDE\\ubcda\\uef4A\\b\\f\\n\\r\\t`1~!@#\$%^&*()_+-=[]{}|;:\',./<>?"\n: "A key can be any string"\n    },\n    0.5 ,98.6\n,\n99.44\n,\n\n1066,\n1e1,\n0.1e1,\n1e-1,\n1e00,2e+00,2e-00\n,"rosebud"]'))?;
     return Result.Ok(void);
 }
 
-// [[[[[[[[[[[[[[[[[[["Not too deep"]]]]]]]]]]]]]]]]]]]
+/// [[[[[[[[[[[[[[[[[[["Not too deep"]]]]]]]]]]]]]]]]]]]
 @test
 fn test_pass2() -> Result<Void, Error> {
     testing.assert_ok(json.parse('[[[[[[[[[[[[[[[[[[["Not too deep"]]]]]]]]]]]]]]]]]]]'))?;
     return Result.Ok(void);
 }
 
-// {\n    "JSON Test Pattern pass3": {\n        "The outermost value...
+/// {\n    "JSON Test Pattern pass3": {\n        "The outermost value...
 @test
 fn test_pass3() -> Result<Void, Error> {
     testing.assert_ok(json.parse('{\n    "JSON Test Pattern pass3": {\n        "The outermost value": "must be an object or array.",\n        "In this test": "It is an object."\n    }\n}\n'))?;
     return Result.Ok(void);
 }
 
-// "A JSON payload should be an object or array, not a string."
-// Deviation: json_checker (RFC 4627) requires an object/array at the top
-// level; RFC 8259 allows any value, so a bare string parses cleanly here.
+/// "A JSON payload should be an object or array, not a string."
+/// Deviation: json_checker (RFC 4627) requires an object/array at the top
+/// level; RFC 8259 allows any value, so a bare string parses cleanly here.
 @test
 fn test_fail1_bare_string_accepted() -> Result<Void, Error> {
     testing.assert_ok(json.parse('"A JSON payload should be an object or array, not a string."'))?;
     return Result.Ok(void);
 }
 
-// ["Unclosed array"
+/// ["Unclosed array"
 @test
 fn test_fail2() -> Result<Void, Error> {
     testing.assert_err(json.parse('["Unclosed array"'))?;
     return Result.Ok(void);
 }
 
-// {unquoted_key: "keys must be quoted"}
+/// {unquoted_key: "keys must be quoted"}
 @test
 fn test_fail3() -> Result<Void, Error> {
     testing.assert_err(json.parse('{unquoted_key: "keys must be quoted"}'))?;
     return Result.Ok(void);
 }
 
-// ["extra comma",]
+/// ["extra comma",]
 @test
 fn test_fail4() -> Result<Void, Error> {
     testing.assert_err(json.parse('["extra comma",]'))?;
     return Result.Ok(void);
 }
 
-// ["double extra comma",,]
+/// ["double extra comma",,]
 @test
 fn test_fail5() -> Result<Void, Error> {
     testing.assert_err(json.parse('["double extra comma",,]'))?;
     return Result.Ok(void);
 }
 
-// [   , "<-- missing value"]
+/// [   , "<-- missing value"]
 @test
 fn test_fail6() -> Result<Void, Error> {
     testing.assert_err(json.parse('[   , "<-- missing value"]'))?;
     return Result.Ok(void);
 }
 
-// ["Comma after the close"],
+/// ["Comma after the close"],
 @test
 fn test_fail7() -> Result<Void, Error> {
     testing.assert_err(json.parse('["Comma after the close"],'))?;
     return Result.Ok(void);
 }
 
-// ["Extra close"]]
+/// ["Extra close"]]
 @test
 fn test_fail8() -> Result<Void, Error> {
     testing.assert_err(json.parse('["Extra close"]]'))?;
     return Result.Ok(void);
 }
 
-// {"Extra comma": true,}
+/// {"Extra comma": true,}
 @test
 fn test_fail9() -> Result<Void, Error> {
     testing.assert_err(json.parse('{"Extra comma": true,}'))?;
     return Result.Ok(void);
 }
 
-// {"Extra value after close": true} "misplaced quoted value"
+/// {"Extra value after close": true} "misplaced quoted value"
 @test
 fn test_fail10() -> Result<Void, Error> {
     testing.assert_err(json.parse('{"Extra value after close": true} "misplaced quoted value"'))?;
     return Result.Ok(void);
 }
 
-// {"Illegal expression": 1 + 2}
+/// {"Illegal expression": 1 + 2}
 @test
 fn test_fail11() -> Result<Void, Error> {
     testing.assert_err(json.parse('{"Illegal expression": 1 + 2}'))?;
     return Result.Ok(void);
 }
 
-// {"Illegal invocation": alert()}
+/// {"Illegal invocation": alert()}
 @test
 fn test_fail12() -> Result<Void, Error> {
     testing.assert_err(json.parse('{"Illegal invocation": alert()}'))?;
     return Result.Ok(void);
 }
 
-// {"Numbers cannot have leading zeroes": 013}
+/// {"Numbers cannot have leading zeroes": 013}
 @test
 fn test_fail13() -> Result<Void, Error> {
     testing.assert_err(json.parse('{"Numbers cannot have leading zeroes": 013}'))?;
     return Result.Ok(void);
 }
 
-// {"Numbers cannot be hex": 0x14}
+/// {"Numbers cannot be hex": 0x14}
 @test
 fn test_fail14() -> Result<Void, Error> {
     testing.assert_err(json.parse('{"Numbers cannot be hex": 0x14}'))?;
     return Result.Ok(void);
 }
 
-// ["Illegal backslash escape: \x15"]
+/// ["Illegal backslash escape: \x15"]
 @test
 fn test_fail15() -> Result<Void, Error> {
     testing.assert_err(json.parse('["Illegal backslash escape: \\x15"]'))?;
     return Result.Ok(void);
 }
 
-// [\naked]
+/// [\naked]
 @test
 fn test_fail16() -> Result<Void, Error> {
     testing.assert_err(json.parse('[\\naked]'))?;
     return Result.Ok(void);
 }
 
-// ["Illegal backslash escape: \017"]
+/// ["Illegal backslash escape: \017"]
 @test
 fn test_fail17() -> Result<Void, Error> {
     testing.assert_err(json.parse('["Illegal backslash escape: \\017"]'))?;
     return Result.Ok(void);
 }
 
-// [[[[[[[[[[[[[[[[[[[["Too deep"]]]]]]]]]]]]]]]]]]]]
-// Deviation: json_checker caps nesting at 19 levels; that is an
-// implementation limit, not a JSON rule, so this 20-deep input parses.
+/// [[[[[[[[[[[[[[[[[[[["Too deep"]]]]]]]]]]]]]]]]]]]]
+/// Deviation: json_checker caps nesting at 19 levels; that is an
+/// implementation limit, not a JSON rule, so this 20-deep input parses.
 @test
 fn test_fail18_deep_nesting_accepted() -> Result<Void, Error> {
     testing.assert_ok(json.parse('[[[[[[[[[[[[[[[[[[[["Too deep"]]]]]]]]]]]]]]]]]]]]'))?;
     return Result.Ok(void);
 }
 
-// {"Missing colon" null}
+/// {"Missing colon" null}
 @test
 fn test_fail19() -> Result<Void, Error> {
     testing.assert_err(json.parse('{"Missing colon" null}'))?;
     return Result.Ok(void);
 }
 
-// {"Double colon":: null}
+/// {"Double colon":: null}
 @test
 fn test_fail20() -> Result<Void, Error> {
     testing.assert_err(json.parse('{"Double colon":: null}'))?;
     return Result.Ok(void);
 }
 
-// {"Comma instead of colon", null}
+/// {"Comma instead of colon", null}
 @test
 fn test_fail21() -> Result<Void, Error> {
     testing.assert_err(json.parse('{"Comma instead of colon", null}'))?;
     return Result.Ok(void);
 }
 
-// ["Colon instead of comma": false]
+/// ["Colon instead of comma": false]
 @test
 fn test_fail22() -> Result<Void, Error> {
     testing.assert_err(json.parse('["Colon instead of comma": false]'))?;
     return Result.Ok(void);
 }
 
-// ["Bad value", truth]
+/// ["Bad value", truth]
 @test
 fn test_fail23() -> Result<Void, Error> {
     testing.assert_err(json.parse('["Bad value", truth]'))?;
     return Result.Ok(void);
 }
 
-// ['single quote']
+/// ['single quote']
 @test
 fn test_fail24() -> Result<Void, Error> {
     testing.assert_err(json.parse('[\'single quote\']'))?;
     return Result.Ok(void);
 }
 
-// ["\ttab\tcharacter\tin\tstring\t"]
+/// ["\ttab\tcharacter\tin\tstring\t"]
 @test
 fn test_fail25() -> Result<Void, Error> {
     testing.assert_err(json.parse('["\ttab\tcharacter\tin\tstring\t"]'))?;
     return Result.Ok(void);
 }
 
-// ["tab\   character\   in\  string\  "]
+/// ["tab\   character\   in\  string\  "]
 @test
 fn test_fail26() -> Result<Void, Error> {
     testing.assert_err(json.parse('["tab\\   character\\   in\\  string\\  "]'))?;
     return Result.Ok(void);
 }
 
-// ["line\nbreak"]
+/// ["line\nbreak"]
 @test
 fn test_fail27() -> Result<Void, Error> {
     testing.assert_err(json.parse('["line\nbreak"]'))?;
     return Result.Ok(void);
 }
 
-// ["line\\nbreak"]
+/// ["line\\nbreak"]
 @test
 fn test_fail28() -> Result<Void, Error> {
     testing.assert_err(json.parse('["line\\\nbreak"]'))?;
     return Result.Ok(void);
 }
 
-// [0e]
+/// [0e]
 @test
 fn test_fail29() -> Result<Void, Error> {
     testing.assert_err(json.parse('[0e]'))?;
     return Result.Ok(void);
 }
 
-// [0e+]
+/// [0e+]
 @test
 fn test_fail30() -> Result<Void, Error> {
     testing.assert_err(json.parse('[0e+]'))?;
     return Result.Ok(void);
 }
 
-// [0e+-1]
+/// [0e+-1]
 @test
 fn test_fail31() -> Result<Void, Error> {
     testing.assert_err(json.parse('[0e+-1]'))?;
     return Result.Ok(void);
 }
 
-// {"Comma instead if closing brace": true,
+/// {"Comma instead if closing brace": true,
 @test
 fn test_fail32() -> Result<Void, Error> {
     testing.assert_err(json.parse('{"Comma instead if closing brace": true,'))?;
     return Result.Ok(void);
 }
 
-// ["mismatch"}
+/// ["mismatch"}
 @test
 fn test_fail33() -> Result<Void, Error> {
     testing.assert_err(json.parse('["mismatch"}'))?;

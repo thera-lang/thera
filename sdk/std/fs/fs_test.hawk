@@ -1,13 +1,13 @@
-// Tests for std.fs. These touch the real filesystem under a unique workspace
-// directory inside the system temp dir, cleaning up as they go.
+//! Tests for std.fs. These touch the real filesystem under a unique workspace
+//! directory inside the system temp dir, cleaning up as they go.
 
 import std.testing;
 import std.path;
 
 import 'fs' as _;
 
-// A fresh, empty workspace directory under the system temp dir. Pre-cleans any
-// leftovers from an earlier run.
+/// A fresh, empty workspace directory under the system temp dir. Pre-cleans any
+/// leftovers from an earlier run.
 fn workspace(_ name: String) -> Result<String, Error> {
     let dir = path.join(fs.temp_dir(), name);
     match fs.remove_dir_all(dir) {

@@ -1,8 +1,8 @@
-// Tests for the built-in String methods.
-//
-// Written ahead of the `@test` runner (see docs/roadmap.md); they type-check
-// today (`hawk check`). String's methods are in the auto-imported core prelude,
-// so they're used unqualified — no sibling import needed.
+//! Tests for the built-in String methods.
+//!
+//! Written ahead of the `@test` runner (see docs/roadmap.md); they type-check
+//! today (`hawk check`). String's methods are in the auto-imported core prelude,
+//! so they're used unqualified — no sibling import needed.
 
 import std.testing;
 

@@ -1,10 +1,10 @@
-// Tests for std.time — the ambient clock and the `Clock` capability.
+//! Tests for std.time — the ambient clock and the `Clock` capability.
 
 import std.time;
 import std.testing;
 
-// A slice of logic that depends on the current time. Real code passes the
-// ambient `time.system_clock()`; tests pass a deterministic `fixed_clock`.
+/// A slice of logic that depends on the current time. Real code passes the
+/// ambient `time.system_clock()`; tests pass a deterministic `fixed_clock`.
 fn deadline_passed(_ clock: time.Clock, _ deadline_millis: Int) -> Bool {
     return clock.now_millis() >= deadline_millis;
 }

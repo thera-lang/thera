@@ -1,19 +1,19 @@
-// std.core — the Option type.
-//
-// `Option<T>` represents an optional value: `Some(T)` when present, `None` when
-// absent. It is one of the two language-blessed enums (the `?` operator and the
-// built-in helper methods know it by name), but it is otherwise an ordinary
-// enum defined here in Hawk.
-//
-// The variant order is significant: it fixes the runtime tags (Some = 0,
-// None = 1) shared with the bytecode runtime — do not reorder.
+//! std.core — the Option type.
+//!
+//! `Option<T>` represents an optional value: `Some(T)` when present, `None` when
+//! absent. It is one of the two language-blessed enums (the `?` operator and the
+//! built-in helper methods know it by name), but it is otherwise an ordinary
+//! enum defined here in Hawk.
+//!
+//! The variant order is significant: it fixes the runtime tags (Some = 0,
+//! None = 1) shared with the bytecode runtime — do not reorder.
 pub enum Option<T> {
     Some(T),
     None,
 }
 
 impl Option<T> {
-    // Convert to a Result, using `err` for the None case.
+    /// Convert to a Result, using `err` for the None case.
     pub fn ok_or<E>(self, _ err: E) -> Result<T, E> {
         return match self {
             Some(v) => Result.Ok(v),
@@ -21,7 +21,7 @@ impl Option<T> {
         };
     }
 
-    // The contained value if Some, else `fallback`.
+    /// The contained value if Some, else `fallback`.
     pub fn unwrap_or(self, _ fallback: T) -> T {
         return match self {
             Some(v) => v,
@@ -29,7 +29,7 @@ impl Option<T> {
         };
     }
 
-    // Discriminators.
+    /// Discriminators.
     pub fn is_some(self) -> Bool {
         return match self {
             Some(_) => true,
@@ -46,7 +46,7 @@ impl Option<T> {
 }
 
 impl Display for Option<T> {
-    // `Some(x)` / `None` — the contained value rendered via `Debug`.
+    /// `Some(x)` / `None` — the contained value rendered via `Debug`.
     fn display(self) -> String {
         return match self {
             Some(v) => 'Some(${v.debug()})',

@@ -2,7 +2,7 @@ import std.testing;
 
 import std.fiber;
 
-// A spawned fiber runs and `join` returns its result.
+/// A spawned fiber runs and `join` returns its result.
 @test
 fn test_spawn_join_returns_value() -> Result<Void, Error> {
     let f = fiber.spawn(() => 6 * 7);
@@ -10,7 +10,7 @@ fn test_spawn_join_returns_value() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// Several fibers run; each `join` blocks until that fiber finishes.
+/// Several fibers run; each `join` blocks until that fiber finishes.
 @test
 fn test_many_fibers_each_join() -> Result<Void, Error> {
     let a = fiber.spawn(() => 1);
@@ -20,8 +20,8 @@ fn test_many_fibers_each_join() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// `yield` cedes the thread, so two fibers interleave — and the cooperative,
-// FIFO scheduling makes the interleaving deterministic.
+/// `yield` cedes the thread, so two fibers interleave — and the cooperative,
+/// FIFO scheduling makes the interleaving deterministic.
 @test
 fn test_yield_interleaves_deterministically() -> Result<Void, Error> {
     let log: List<String> = [];
@@ -42,8 +42,8 @@ fn test_yield_interleaves_deterministically() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// A fiber can spawn and join another fiber (the scheduler is re-entrant across
-// fibers, not just the main one).
+/// A fiber can spawn and join another fiber (the scheduler is re-entrant across
+/// fibers, not just the main one).
 @test
 fn test_fiber_spawns_fiber() -> Result<Void, Error> {
     let outer = fiber.spawn(() => fiber.spawn(() => 10).join() + 5);
@@ -51,8 +51,8 @@ fn test_fiber_spawns_fiber() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// A buffered channel preserves FIFO order; a closed channel drains its buffer
-// then yields `None`.
+/// A buffered channel preserves FIFO order; a closed channel drains its buffer
+/// then yields `None`.
 @test
 fn test_channel_buffer_and_drain() -> Result<Void, Error> {
     let ch: fiber.Channel<Int> = fiber.channel(8);
@@ -72,8 +72,8 @@ fn test_channel_buffer_and_drain() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// A producer fiber and the consumer hand off through a small buffer: the sender
-// blocks when the buffer is full, the receiver blocks when it is empty.
+/// A producer fiber and the consumer hand off through a small buffer: the sender
+/// blocks when the buffer is full, the receiver blocks when it is empty.
 @test
 fn test_channel_producer_consumer() -> Result<Void, Error> {
     let ch: fiber.Channel<Int> = fiber.channel(2);

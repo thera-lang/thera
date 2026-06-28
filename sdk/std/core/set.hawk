@@ -1,22 +1,24 @@
-// std.core — the Set type.
-//
-// `Set<T>` is a collection of unique values. It is implemented in Hawk over
-// `Map<T, Bool>`: membership is a present key (the Bool value is unused but
-// keeps the backing a plain map). Iteration order is insertion order, matching
-// the backing map.
+//! std.core — the Set type.
+//!
+//! `Set<T>` is a collection of unique values. It is implemented in Hawk over
+//! `Map<T, Bool>`: membership is a present key (the Bool value is unused but
+//! keeps the backing a plain map). Iteration order is insertion order, matching
+//! the backing map.
 pub type Set<T> = {
     items: Map<T, Bool>,
 }
 
 impl Set<T> {
-    // An empty set.
+    /// An empty set.
     pub fn new() -> Set<T> {
         return Set { items: {} };
     }
 
-    // A set of the elements of `items`; duplicates collapse.
-    //
-    //   let s = Set.from([1, 2, 2, 3]);   // {1, 2, 3}
+    /// A set of the elements of `items`; duplicates collapse.
+    ///
+    /// ```hawk
+    /// let s = Set.from([1, 2, 2, 3]);   // {1, 2, 3}
+    /// ```
     pub fn from(_ items: List<T>) -> Set<T> {
         let result = Set { items: {} };
         for item in items {
@@ -25,40 +27,40 @@ impl Set<T> {
         return result;
     }
 
-    // Add `value` (no-op if already present).
+    /// Add `value` (no-op if already present).
     pub fn add(self, _ value: T) -> Void {
         self.items[value] = true;
     }
 
-    // True if `value` is a member.
+    /// True if `value` is a member.
     pub fn has(self, _ value: T) -> Bool {
         return self.items.has(value);
     }
 
-    // Remove `value`; returns whether it was present.
+    /// Remove `value`; returns whether it was present.
     pub fn remove(self, _ value: T) -> Bool {
         return self.items.remove(value).is_some();
     }
 
-    // Number of elements.
+    /// Number of elements.
     pub fn len(self) -> Int {
         return self.items.len();
     }
 
-    // True if there are no elements.
+    /// True if there are no elements.
     pub fn is_empty(self) -> Bool {
         return self.items.is_empty();
     }
 
-    // The elements as a list, in insertion order.
+    /// The elements as a list, in insertion order.
     pub fn to_list(self) -> List<T> {
         return self.items.keys();
     }
 }
 
 impl Display for Set<T> {
-    // `{a, b, c}` — elements rendered via `Debug`, in insertion order. (Empty
-    // set: `{}`.)
+    /// `{a, b, c}` — elements rendered via `Debug`, in insertion order. (Empty
+    /// set: `{}`.)
     fn display(self) -> String {
         let mut s = '{';
         let mut first = true;

@@ -1,16 +1,16 @@
-// std.char — ASCII code point constants and predicates.
-//
-// Import as: import std.char
-// Usage:     char.is_digit(cp)   char.SPACE   char.LF
-//
-// Code points are Unicode scalar values held as `Int` (get them from a string
-// with `s.chars()`). The constants below name
-// the ASCII range so it never has to be rewritten from memory (their main
-// value); the predicates and case conversions classify/transform the ASCII
-// range only (U+0000..U+007F) and pass any other code point through unchanged.
-//
-// Full Unicode classification and locale-aware, multi-code-point case folding
-// belong to a dedicated Unicode/ICU package, not the core stdlib.
+//! std.char — ASCII code point constants and predicates.
+//!
+//! Import as: import std.char
+//! Usage:     char.is_digit(cp)   char.SPACE   char.LF
+//!
+//! Code points are Unicode scalar values held as `Int` (get them from a string
+//! with `s.chars()`). The constants below name
+//! the ASCII range so it never has to be rewritten from memory (their main
+//! value); the predicates and case conversions classify/transform the ASCII
+//! range only (U+0000..U+007F) and pass any other code point through unchanged.
+//!
+//! Full Unicode classification and locale-aware, multi-code-point case folding
+//! belong to a dedicated Unicode/ICU package, not the core stdlib.
 
 // --- ASCII control characters ---
 
@@ -65,12 +65,12 @@ pub const DEL: Int = 127;
 
 // --- Predicates (ASCII only; pure Hawk — no native fn required) ---
 
-// True for an ASCII decimal digit, 0-9.
+/// True for an ASCII decimal digit, 0-9.
 pub fn is_digit(_ cp: Int) -> Bool {
     return cp >= DIGIT_0 && cp <= DIGIT_9;
 }
 
-// True for an ASCII hexadecimal digit: 0-9, a-f, or A-F.
+/// True for an ASCII hexadecimal digit: 0-9, a-f, or A-F.
 pub fn is_hex_digit(_ cp: Int) -> Bool {
     if is_digit(cp) {
         return true;
@@ -79,32 +79,32 @@ pub fn is_hex_digit(_ cp: Int) -> Bool {
     return lower >= LOWER_A && lower <= LOWER_A + 5; // a..f
 }
 
-// True for an ASCII uppercase letter, A-Z.
+/// True for an ASCII uppercase letter, A-Z.
 pub fn is_upper(_ cp: Int) -> Bool {
     return cp >= UPPER_A && cp <= UPPER_Z;
 }
 
-// True for an ASCII lowercase letter, a-z.
+/// True for an ASCII lowercase letter, a-z.
 pub fn is_lower(_ cp: Int) -> Bool {
     return cp >= LOWER_A && cp <= LOWER_Z;
 }
 
-// True for an ASCII letter, A-Z or a-z.
+/// True for an ASCII letter, A-Z or a-z.
 pub fn is_alpha(_ cp: Int) -> Bool {
     return is_upper(cp) || is_lower(cp);
 }
 
-// True for an ASCII letter or digit.
+/// True for an ASCII letter or digit.
 pub fn is_alphanumeric(_ cp: Int) -> Bool {
     return is_alpha(cp) || is_digit(cp);
 }
 
-// True for ASCII whitespace: space, tab, newline, or carriage return.
+/// True for ASCII whitespace: space, tab, newline, or carriage return.
 pub fn is_whitespace(_ cp: Int) -> Bool {
     return cp == SPACE || cp == TAB || cp == LF || cp == CR;
 }
 
-// Return the numeric value of an ASCII decimal digit, or None if not a digit.
+/// Return the numeric value of an ASCII decimal digit, or None if not a digit.
 pub fn digit_value(_ cp: Int) -> Option<Int> {
     if is_digit(cp) {
         return Option.Some(cp - DIGIT_0);
@@ -112,7 +112,7 @@ pub fn digit_value(_ cp: Int) -> Option<Int> {
     return Option.None;
 }
 
-// Return the value 0..15 of an ASCII hex digit (0-9, a-f, A-F), or None.
+/// Return the value 0..15 of an ASCII hex digit (0-9, a-f, A-F), or None.
 pub fn hex_digit_value(_ cp: Int) -> Option<Int> {
     if is_digit(cp) {
         return Option.Some(cp - DIGIT_0);
@@ -126,8 +126,8 @@ pub fn hex_digit_value(_ cp: Int) -> Option<Int> {
     return Option.None;
 }
 
-// Return the lowercase equivalent of an uppercase ASCII letter; other code
-// points are returned unchanged.
+/// Return the lowercase equivalent of an uppercase ASCII letter; other code
+/// points are returned unchanged.
 pub fn to_lower(_ cp: Int) -> Int {
     if is_upper(cp) {
         return cp + 32;
@@ -135,8 +135,8 @@ pub fn to_lower(_ cp: Int) -> Int {
     return cp;
 }
 
-// Return the uppercase equivalent of a lowercase ASCII letter; other code
-// points are returned unchanged.
+/// Return the uppercase equivalent of a lowercase ASCII letter; other code
+/// points are returned unchanged.
 pub fn to_upper(_ cp: Int) -> Int {
     if is_lower(cp) {
         return cp - 32;

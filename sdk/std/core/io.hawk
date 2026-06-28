@@ -1,25 +1,25 @@
-// std.core I/O — console output. Auto-imported via the core barrel, so these
-// names are available unqualified everywhere.
-//
-// Each binds to a runtime native (see runtime/src/interp/natives.rs). The
-// `Display` bound documents the contract — the value is rendered via its
-// Display form; the runtime currently renders primitives and built-ins
-// directly, so the bound is not yet enforced (bounds checking is a front-end
-// gap, see docs/roadmap.md).
+//! std.core I/O — console output. Auto-imported via the core barrel, so these
+//! names are available unqualified everywhere.
+//!
+//! Each binds to a runtime native (see runtime/src/interp/natives.rs). The
+//! `Display` bound documents the contract — the value is rendered via its
+//! Display form; the runtime currently renders primitives and built-ins
+//! directly, so the bound is not yet enforced (bounds checking is a front-end
+//! gap, see docs/roadmap.md).
 
-// Write `value`'s Display form followed by a newline to stdout.
+/// Write `value`'s Display form followed by a newline to stdout.
 @extern('println')
 pub native fn println<T: Display>(_ value: T) -> Void
 
-// Like `println`, but without the trailing newline.
+/// Like `println`, but without the trailing newline.
 @extern('print')
 pub native fn print<T: Display>(_ value: T) -> Void
 
-// Write `value`'s Display form followed by a newline to stderr — for
-// diagnostics and errors, keeping stdout clean for program output.
+/// Write `value`'s Display form followed by a newline to stderr — for
+/// diagnostics and errors, keeping stdout clean for program output.
 @extern('eprintln')
 pub native fn eprintln<T: Display>(_ value: T) -> Void
 
-// Like `eprintln`, but without the trailing newline.
+/// Like `eprintln`, but without the trailing newline.
 @extern('eprint')
 pub native fn eprint<T: Display>(_ value: T) -> Void

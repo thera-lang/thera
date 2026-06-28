@@ -765,7 +765,10 @@ outside it is treated as plain text):
 - **Code blocks:** fenced only, tagged with the language —
   ```` ```hawk ````. Indented code blocks are **not** supported (they force an
   ambiguous indent-width rule under the `///` prefix); a fence is delimited, needs
-  no measuring, and is the form LLMs read and emit most reliably.
+  no measuring, and is the form LLMs read and emit most reliably. A fence may be
+  left **untagged** when its content is preformatted text that is *not* Hawk code
+  — a syntax table, a grammar fragment, or sample program output — so the `hawk`
+  tag never falsely implies something is runnable.
 
 There are **no ATX headers** (`#`, `##`) in doc comments — `#` would invite long,
 sectioned docs that cut against the brevity goal, and a symbol's name is already

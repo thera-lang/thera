@@ -1,25 +1,27 @@
-// std.path — path string manipulation utilities.
-//
-// Import as: import std.path
-// Usage:     path.join('src', 'main.hawk')
-//
-// No filesystem operations are performed by any function in this module — every
-// function operates purely on strings. The whole module is implemented in Hawk
-// on top of the built-in String/List methods (no runtime natives), so it serves
-// as a worked example of stdlib-in-Hawk.
-//
-// Paths are slash-based (POSIX-style, like Go's `path` package): '/' is always
-// the separator. OS-aware handling (Windows '\' and drive letters) is a future
-// task — and a platform separator can't be a `const` (those are compile-time
-// inlined), so it will need native backing when std.path becomes OS-aware.
+//! std.path — path string manipulation utilities.
+//!
+//! Import as: import std.path
+//! Usage:     path.join('src', 'main.hawk')
+//!
+//! No filesystem operations are performed by any function in this module — every
+//! function operates purely on strings. The whole module is implemented in Hawk
+//! on top of the built-in String/List methods (no runtime natives), so it serves
+//! as a worked example of stdlib-in-Hawk.
+//!
+//! Paths are slash-based (POSIX-style, like Go's `path` package): '/' is always
+//! the separator. OS-aware handling (Windows '\' and drive letters) is a future
+//! task — and a platform separator can't be a `const` (those are compile-time
+//! inlined), so it will need native backing when std.path becomes OS-aware.
 
-// Split a path into its components on '/'. A leading '/' is preserved as a
-// leading empty component (the root marker); interior and trailing empty
-// components (from '//' or a trailing '/') are dropped.
-//
-//   path.components('src/main.hawk')  // ['src', 'main.hawk']
-//   path.components('/usr/bin')       // ['', 'usr', 'bin']
-//   path.components('a//b/')          // ['a', 'b']
+/// Split a path into its components on '/'. A leading '/' is preserved as a
+/// leading empty component (the root marker); interior and trailing empty
+/// components (from '//' or a trailing '/') are dropped.
+///
+/// ```hawk
+/// path.components('src/main.hawk')  // ['src', 'main.hawk']
+/// path.components('/usr/bin')       // ['', 'usr', 'bin']
+/// path.components('a//b/')          // ['a', 'b']
+/// ```
 pub fn components(_ path: String) -> List<String> {
     let raw = path.split('/');
     let result: List<String> = [];
@@ -35,12 +37,14 @@ pub fn components(_ path: String) -> List<String> {
     return result;
 }
 
-// Join two path components, inserting a separator as needed. An absolute
-// `part` (one beginning with '/') replaces `base` entirely.
-//
-//   path.join('src', 'main.hawk')   // 'src/main.hawk'
-//   path.join('src/', 'main.hawk')  // 'src/main.hawk'
-//   path.join('', 'main.hawk')      // 'main.hawk'
+/// Join two path components, inserting a separator as needed. An absolute
+/// `part` (one beginning with '/') replaces `base` entirely.
+///
+/// ```hawk
+/// path.join('src', 'main.hawk')   // 'src/main.hawk'
+/// path.join('src/', 'main.hawk')  // 'src/main.hawk'
+/// path.join('', 'main.hawk')      // 'main.hawk'
+/// ```
 pub fn join(_ base: String, _ part: String) -> String {
     if base.is_empty() {
         return part;
@@ -57,13 +61,15 @@ pub fn join(_ base: String, _ part: String) -> String {
     return '${base}/${part}';
 }
 
-// Return the directory portion of a path (all components except the last).
-// Returns '.' for paths with no directory component, and '/' for a root child.
-//
-//   path.dirname('src/main.hawk')  // 'src'
-//   path.dirname('main.hawk')      // '.'
-//   path.dirname('/usr/bin/hawk')  // '/usr/bin'
-//   path.dirname('/file')          // '/'
+/// Return the directory portion of a path (all components except the last).
+/// Returns '.' for paths with no directory component, and '/' for a root child.
+///
+/// ```hawk
+/// path.dirname('src/main.hawk')  // 'src'
+/// path.dirname('main.hawk')      // '.'
+/// path.dirname('/usr/bin/hawk')  // '/usr/bin'
+/// path.dirname('/file')          // '/'
+/// ```
 pub fn dirname(_ path: String) -> String {
     let parts = components(path);
     if parts.len() <= 1 {
@@ -86,11 +92,13 @@ pub fn dirname(_ path: String) -> String {
     return prefix.join('/');
 }
 
-// Return the final component of a path (with extension). Returns '/' for the
-// root path.
-//
-//   path.basename('src/main.hawk')  // 'main.hawk'
-//   path.basename('/usr/bin/hawk')  // 'hawk'
+/// Return the final component of a path (with extension). Returns '/' for the
+/// root path.
+///
+/// ```hawk
+/// path.basename('src/main.hawk')  // 'main.hawk'
+/// path.basename('/usr/bin/hawk')  // 'hawk'
+/// ```
 pub fn basename(_ path: String) -> String {
     let parts = components(path);
     if parts.len() == 0 {
@@ -103,14 +111,16 @@ pub fn basename(_ path: String) -> String {
     return last;
 }
 
-// Return the extension of the path, including the leading dot. Returns an empty
-// string when the file has no extension; a leading-dot name (e.g. '.bashrc') is
-// treated as having no extension, not as an all-extension name.
-//
-//   path.extension('src/main.hawk')  // '.hawk'
-//   path.extension('archive.tar.gz') // '.gz'
-//   path.extension('Makefile')       // ''
-//   path.extension('.bashrc')        // ''
+/// Return the extension of the path, including the leading dot. Returns an empty
+/// string when the file has no extension; a leading-dot name (e.g. '.bashrc') is
+/// treated as having no extension, not as an all-extension name.
+///
+/// ```hawk
+/// path.extension('src/main.hawk')  // '.hawk'
+/// path.extension('archive.tar.gz') // '.gz'
+/// path.extension('Makefile')       // ''
+/// path.extension('.bashrc')        // ''
+/// ```
 pub fn extension(_ path: String) -> String {
     let name = basename(path);
     let parts = name.split('.');
@@ -124,11 +134,13 @@ pub fn extension(_ path: String) -> String {
     return '.${parts[parts.len() - 1]}';
 }
 
-// Return the final component of a path without its extension.
-//
-//   path.stem('src/main.hawk')   // 'main'
-//   path.stem('archive.tar.gz')  // 'archive.tar'
-//   path.stem('Makefile')        // 'Makefile'
+/// Return the final component of a path without its extension.
+///
+/// ```hawk
+/// path.stem('src/main.hawk')   // 'main'
+/// path.stem('archive.tar.gz')  // 'archive.tar'
+/// path.stem('Makefile')        // 'Makefile'
+/// ```
 pub fn stem(_ path: String) -> String {
     let name = basename(path);
     if extension(name).is_empty() {
@@ -145,13 +157,15 @@ pub fn stem(_ path: String) -> String {
     return keep.join('.');
 }
 
-// Return a copy of the path with its extension replaced by `ext`. A leading dot
-// on `ext` is optional; an empty `ext` removes the extension. The directory
-// portion is preserved.
-//
-//   path.with_extension('src/main.hawk', 'md')   // 'src/main.md'
-//   path.with_extension('main.hawk', '.txt')     // 'main.txt'
-//   path.with_extension('main.hawk', '')         // 'main'
+/// Return a copy of the path with its extension replaced by `ext`. A leading dot
+/// on `ext` is optional; an empty `ext` removes the extension. The directory
+/// portion is preserved.
+///
+/// ```hawk
+/// path.with_extension('src/main.hawk', 'md')   // 'src/main.md'
+/// path.with_extension('main.hawk', '.txt')     // 'main.txt'
+/// path.with_extension('main.hawk', '')         // 'main'
+/// ```
 pub fn with_extension(_ path: String, _ ext: String) -> String {
     let mut dot_ext = ext;
     if !ext.is_empty() && !ext.starts_with('.') {
@@ -165,10 +179,12 @@ pub fn with_extension(_ path: String, _ ext: String) -> String {
     return join(dir, name);
 }
 
-// Return true if the path is absolute (begins with '/').
-//
-//   path.is_absolute('/usr/bin')  // true
-//   path.is_absolute('src/main')  // false
+/// Return true if the path is absolute (begins with '/').
+///
+/// ```hawk
+/// path.is_absolute('/usr/bin')  // true
+/// path.is_absolute('src/main')  // false
+/// ```
 pub fn is_absolute(_ path: String) -> Bool {
     return path.starts_with('/');
 }

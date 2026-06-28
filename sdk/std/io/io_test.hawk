@@ -1,12 +1,12 @@
-// Tests for std.io. The standard streams need real file descriptors, so these
-// exercise the protocol against an in-memory Reader and StringWriter.
+//! Tests for std.io. The standard streams need real file descriptors, so these
+//! exercise the protocol against an in-memory Reader and StringWriter.
 
 import std.testing;
 
 import 'io' as _;
 
-// A Reader over an in-memory buffer that hands out at most `chunk` bytes per
-// read — so the combinators' read-until-EOF loops are exercised across chunks.
+/// A Reader over an in-memory buffer that hands out at most `chunk` bytes per
+/// read — so the combinators' read-until-EOF loops are exercised across chunks.
 type MemReader = {
     data: Bytes,
     mut pos: Int,

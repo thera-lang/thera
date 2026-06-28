@@ -331,18 +331,18 @@ _Owner-correct type resolution_ below.)
   conventions are defined ([language.md](language.md#documentation)): `///` item
   docs, `//!` file/package docs, plain `//` never extracted; a summary-first
   sentence; a small Markdown subset (fenced code only, no headers, bold-label
-  sections); prose params. Source can adopt them **today** — the lexer already
-  skips `///`/`//!` as ordinary comments, so the compile path is unaffected. The
-  follow-on work: (1) **attach docs to AST nodes** — shares the same trivia
-  side-channel the formatter needs (comments are currently discarded), so sequence
-  it alongside `fmt`; (2) **LSP hover** surfaces the item/file doc; (3) a **doc
-  generator** extracts a package's `pub` surface + barrel `//!` into an index for
-  agent navigation; (4) **reference resolution + lint** — resolve `[Symbol]`
-  references (link them in hover/doc-gen, flag ones that no longer resolve), plus a
-  lint for `pub` symbols whose doc only restates the signature, and normalization
-  of doc layout; (5) **migrate
-  `sdk/std/`** from the current `//` headers to `///`/`//!` (a behavior-neutral
-  source change, fixpoint-clean).
+  sections); prose params. **`sdk/std/` is migrated** to `///`/`//!` (all 61
+  files; a behavior-neutral source change — the lexer skips `///`/`//!` as
+  ordinary comments, so it stayed fixpoint-clean). The remaining work is tooling:
+  (1) **attach docs to AST nodes** — shares the same trivia side-channel the
+  formatter needs (comments are currently discarded), so sequence it alongside
+  `fmt`; (2) **LSP hover** surfaces the item/file doc; (3) a **doc generator**
+  extracts a package's `pub` surface + barrel `//!` into an index for agent
+  navigation; (4) **reference resolution + lint** — resolve `[Symbol]` references
+  (link them in hover/doc-gen, flag ones that no longer resolve), plus a lint for
+  `pub` symbols whose doc only restates the signature, and normalization of doc
+  layout. (Not yet migrated: `pkgs/cli/` and `examples/`, deliberately deferred —
+  the public API surface was the priority.)
 
 ### Language features not yet built
 

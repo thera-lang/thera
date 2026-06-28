@@ -1,26 +1,26 @@
-// std.random — pseudo-random number generation.
-//
-// Import as: import std.random
-//
-// `Rng` is a seedable generator whose entire state is a plain value you hold
-// and pass — there is no hidden global RNG, per the stdlib's no-hidden-state
-// principle (see docs/stdlib.md §7 and docs/testability.md). Seed it explicitly
-// with `seeded` for reproducible runs (tests, simulations), or with
-// `from_entropy` for an unpredictable sequence. Not cryptographically secure.
-//
-// Algorithm: SplitMix64, in pure Hawk: the state advances by a wrapping add of
-// the golden-ratio constant, the mixing finalizer scrambles it into a uniform
-// draw (bitwise ops + wrapping multiply), and a 53-bit slice maps to a Double.
-// Only the entropy seed is a native (it reads the system clock).
+//! std.random — pseudo-random number generation.
+//!
+//! Import as: import std.random
+//!
+//! `Rng` is a seedable generator whose entire state is a plain value you hold
+//! and pass — there is no hidden global RNG, per the stdlib's no-hidden-state
+//! principle (see docs/stdlib.md §7 and docs/testability.md). Seed it explicitly
+//! with `seeded` for reproducible runs (tests, simulations), or with
+//! `from_entropy` for an unpredictable sequence. Not cryptographically secure.
+//!
+//! Algorithm: SplitMix64, in pure Hawk: the state advances by a wrapping add of
+//! the golden-ratio constant, the mixing finalizer scrambles it into a uniform
+//! draw (bitwise ops + wrapping multiply), and a 53-bit slice maps to a Double.
+//! Only the entropy seed is a native (it reads the system clock).
 
-// The golden-ratio increment that advances the state on each draw. Exceeds the
-// signed range, so it reads as a negative Int; addition wraps.
+/// The golden-ratio increment that advances the state on each draw. Exceeds the
+/// signed range, so it reads as a negative Int; addition wraps.
 const GAMMA: Int = 0x9E3779B97F4A7C15;
 
-// SplitMix64 finalizing mix: scramble a state value into a uniformly distributed
-// 64-bit pattern. `>>>` is the logical (zero-fill) right shift, and `*` wraps on
-// overflow — so this is bit-for-bit the reference SplitMix64 over the Int's
-// two's-complement bits.
+/// SplitMix64 finalizing mix: scramble a state value into a uniformly distributed
+/// 64-bit pattern. `>>>` is the logical (zero-fill) right shift, and `*` wraps on
+/// overflow — so this is bit-for-bit the reference SplitMix64 over the Int's
+/// two's-complement bits.
 fn mix(_ state: Int) -> Int {
     let mut z = state;
     z = (z ^ (z >>> 30)) * 0xBF58476D1CE4E5B9;
@@ -28,55 +28,61 @@ fn mix(_ state: Int) -> Int {
     return z ^ (z >>> 31);
 }
 
-// Map a uniform 64-bit pattern to a Double in [0, 1) using its top 53 bits (the
-// f64 mantissa width). `>>> 11` zero-fills, so the result is in `[0, 2^53)` and
-// converts to a Double exactly.
+/// Map a uniform 64-bit pattern to a Double in [0, 1) using its top 53 bits (the
+/// f64 mantissa width). `>>> 11` zero-fills, so the result is in `[0, 2^53)` and
+/// converts to a Double exactly.
 fn to_unit(_ bits: Int) -> Double {
     return (bits >>> 11).to_double() / 9007199254740992.0; // 2^53
 }
 
-// A fresh system-entropy seed, for `from_entropy` (reads the system clock — a
-// genuine system effect, so it stays a native).
+/// A fresh system-entropy seed, for `from_entropy` (reads the system clock — a
+/// genuine system effect, so it stays a native).
 @extern('random_seed_entropy')
 native fn seed_entropy() -> Int
 
-// A seedable pseudo-random generator. Hold one and draw from it; each draw
-// advances its state in place.
+/// A seedable pseudo-random generator. Hold one and draw from it; each draw
+/// advances its state in place.
 pub type Rng = {
     mut state: Int,
 }
 
-// A generator seeded deterministically: the same seed always yields the same
-// sequence. Use for reproducible tests and simulations.
-//
-//   let rng = random.seeded(42);
+/// A generator seeded deterministically: the same seed always yields the same
+/// sequence. Use for reproducible tests and simulations.
+///
+/// ```hawk
+/// let rng = random.seeded(42);
+/// ```
 pub fn seeded(_ seed: Int) -> Rng {
     return Rng { state: seed };
 }
 
-// A generator seeded from system entropy: each call yields an unpredictable
-// sequence. Use when you want different results every run.
-//
-//   let rng = random.from_entropy();
+/// A generator seeded from system entropy: each call yields an unpredictable
+/// sequence. Use when you want different results every run.
+///
+/// ```hawk
+/// let rng = random.from_entropy();
+/// ```
 pub fn from_entropy() -> Rng {
     return Rng { state: seed_entropy() };
 }
 
 impl Rng {
-    // Advance the state and return the next raw draw (full Int range).
+    /// Advance the state and return the next raw draw (full Int range).
     fn next(self) -> Int {
         self.state += GAMMA;
         return mix(self.state);
     }
 
-    // A uniform Double in [0, 1).
+    /// A uniform Double in [0, 1).
     pub fn double(self) -> Double {
         return to_unit(self.next());
     }
 
-    // A uniform Int in [low, high). Returns `low` when the range is empty.
-    //
-    //   let dice = rng.int(1, 7);   // 1..=6
+    /// A uniform Int in [low, high). Returns `low` when the range is empty.
+    ///
+    /// ```hawk
+    /// let dice = rng.int(1, 7);   // 1..=6
+    /// ```
     pub fn int(self, low: Int, high: Int) -> Int {
         if high <= low {
             return low;
@@ -85,14 +91,16 @@ impl Rng {
         return low + (self.double() * span.to_double()).to_int();
     }
 
-    // A uniform Bool.
+    /// A uniform Bool.
     pub fn bool(self) -> Bool {
         return self.double() < 0.5;
     }
 
-    // A uniformly chosen element, or None if the list is empty.
-    //
-    //   let pick = rng.choice(['rock', 'paper', 'scissors']);
+    /// A uniformly chosen element, or None if the list is empty.
+    ///
+    /// ```hawk
+    /// let pick = rng.choice(['rock', 'paper', 'scissors']);
+    /// ```
     pub fn choice<T>(self, _ items: List<T>) -> Option<T> {
         let n = items.len();
         if n == 0 {
@@ -101,8 +109,8 @@ impl Rng {
         return items.get(self.int(0, n));
     }
 
-    // A new list with the elements of `items` in a uniformly random order
-    // (Fisher-Yates). The input list is not modified.
+    /// A new list with the elements of `items` in a uniformly random order
+    /// (Fisher-Yates). The input list is not modified.
     pub fn shuffle<T>(self, _ items: List<T>) -> List<T> {
         let result = items.map((x) => x);
         let mut i = result.len() - 1;

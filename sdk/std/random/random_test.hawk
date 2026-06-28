@@ -1,4 +1,4 @@
-// Tests for std.random — the SplitMix64 Rng.
+//! Tests for std.random — the SplitMix64 Rng.
 
 import std.random;
 import std.testing;

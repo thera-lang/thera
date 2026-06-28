@@ -1,16 +1,16 @@
-// std.core — the built-in Double type's methods (auto-imported with the
-// prelude).
-//
-// Mirrors the magnitude/ordering methods on Int (int.hawk) so they're
-// type-preserving on either numeric type. The inherently-Double functions
-// (sqrt, floor, sin, …) live in std.math, not here.
+//! std.core — the built-in Double type's methods (auto-imported with the
+//! prelude).
+//!
+//! Mirrors the magnitude/ordering methods on Int (int.hawk) so they're
+//! type-preserving on either numeric type. The inherently-Double functions
+//! (sqrt, floor, sin, …) live in std.math, not here.
 
-// The built-in 64-bit IEEE-754 floating-point type — an opaque,
-// runtime-represented primitive whose methods attach below.
+/// The built-in 64-bit IEEE-754 floating-point type — an opaque,
+/// runtime-represented primitive whose methods attach below.
 pub native type Double
 
 impl Double {
-    // The absolute value.
+    /// The absolute value.
     pub fn abs(self) -> Double {
         if self < 0.0 {
             return -self;
@@ -18,7 +18,7 @@ impl Double {
         return self;
     }
 
-    // The smaller of `self` and `other`.
+    /// The smaller of `self` and `other`.
     pub fn min(self, _ other: Double) -> Double {
         if self < other {
             return self;
@@ -26,7 +26,7 @@ impl Double {
         return other;
     }
 
-    // The larger of `self` and `other`.
+    /// The larger of `self` and `other`.
     pub fn max(self, _ other: Double) -> Double {
         if self > other {
             return self;
@@ -34,7 +34,7 @@ impl Double {
         return other;
     }
 
-    // Constrain to the inclusive range [low, high]. Assumes low <= high.
+    /// Constrain to the inclusive range [low, high]. Assumes low <= high.
     pub fn clamp(self, _ low: Double, _ high: Double) -> Double {
         if self < low {
             return low;
@@ -45,26 +45,26 @@ impl Double {
         return self;
     }
 
-    // Truncate toward zero to an Int (drops any fractional part).
+    /// Truncate toward zero to an Int (drops any fractional part).
     @extern('double_to_int')
     pub native fn to_int(self) -> Int
 
-    // The raw IEEE-754 bit pattern of this Double, reinterpreted as an Int (the
-    // 64 bits, not a numeric conversion). For hashing, serialization, and exact
-    // bit inspection; e.g. `(1.0).to_bits()` is 0x3FF0000000000000.
+    /// The raw IEEE-754 bit pattern of this Double, reinterpreted as an Int (the
+    /// 64 bits, not a numeric conversion). For hashing, serialization, and exact
+    /// bit inspection; e.g. `(1.0).to_bits()` is 0x3FF0000000000000.
     @extern('double_to_bits')
     pub native fn to_bits(self) -> Int
 }
 
-// A Double renders as its textual form. The explicit `Display` impl is the
-// conformance behind what interpolation / `println` produce for a Double.
+/// A Double renders as its textual form. The explicit `Display` impl is the
+/// conformance behind what interpolation / `println` produce for a Double.
 impl Display for Double {
     @extern('double_to_string')
     pub native fn display(self) -> String
 }
 
-// Double has a total order (the generic/virtual path uses the runtime's total
-// comparison, so `NaN` sorts consistently rather than trapping).
+/// Double has a total order (the generic/virtual path uses the runtime's total
+/// comparison, so `NaN` sorts consistently rather than trapping).
 impl Ord for Double {
     fn compare(self, _ other: Double) -> Ordering {
         if self < other {

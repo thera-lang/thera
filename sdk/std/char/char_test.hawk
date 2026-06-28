@@ -1,8 +1,8 @@
-// Tests for std.char.
-//
-// Written ahead of the `@test` runner (see docs/roadmap.md); they type-check
-// today (`hawk check`). A sibling `_test.hawk` with white-box access to its
-// library — constants and functions are referenced unqualified.
+//! Tests for std.char.
+//!
+//! Written ahead of the `@test` runner (see docs/roadmap.md); they type-check
+//! today (`hawk check`). A sibling `_test.hawk` with white-box access to its
+//! library — constants and functions are referenced unqualified.
 
 import std.testing;
 

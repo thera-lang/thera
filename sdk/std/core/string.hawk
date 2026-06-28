@@ -1,51 +1,53 @@
-// std.core — the built-in String type's methods (auto-imported with the
-// prelude).
-//
-// Methods on string *values* (len, trim, split, …) are declared here as
-// `native fn`s backed by runtime natives, plus named constructors as static
-// methods. A String value is a primitive, but methods resolve through its
-// element like any other type (see docs/roadmap.md, "primitives").
+//! std.core — the built-in String type's methods (auto-imported with the
+//! prelude).
+//!
+//! Methods on string *values* (len, trim, split, …) are declared here as
+//! `native fn`s backed by runtime natives, plus named constructors as static
+//! methods. A String value is a primitive, but methods resolve through its
+//! element like any other type (see docs/roadmap.md, "primitives").
 
-// The built-in Unicode string type — an opaque, runtime-represented value whose
-// methods attach below; a string literal (`'hi'`) constructs one.
+/// The built-in Unicode string type — an opaque, runtime-represented value whose
+/// methods attach below; a string literal (`'hi'`) constructs one.
 pub native type String
 
 impl String {
-    // Number of Unicode code points.
+    /// Number of Unicode code points.
     @extern('str_len')
     pub native fn len(self) -> Int
 
-    // Number of UTF-8 bytes.
+    /// Number of UTF-8 bytes.
     @extern('str_byte_len')
     pub native fn byte_len(self) -> Int
 
-    // True if the string is empty.
+    /// True if the string is empty.
     pub fn is_empty(self) -> Bool {
         return self.len() == 0;
     }
 
-    // The substring of the code points in the half-open range `[start, end)`,
-    // by code-point index (not byte offset). Indices are clamped to the string's
-    // length, so out-of-range or reversed ranges yield a shorter or empty string.
-    //
-    //   'hello'.slice(1, 4)   // 'ell'
+    /// The substring of the code points in the half-open range `[start, end)`,
+    /// by code-point index (not byte offset). Indices are clamped to the string's
+    /// length, so out-of-range or reversed ranges yield a shorter or empty string.
+    ///
+    /// ```hawk
+    /// 'hello'.slice(1, 4)   // 'ell'
+    /// ```
     pub fn slice(self, _ start: Int, _ end: Int) -> String {
         return String.from_chars(self.chars().slice(start, end));
     }
 
-    // A copy with leading and trailing whitespace removed.
+    /// A copy with leading and trailing whitespace removed.
     @extern('str_trim')
     pub native fn trim(self) -> String
 
-    // A copy with leading / trailing whitespace removed (the one-sided
-    // counterparts to `trim`; same Unicode whitespace definition).
+    /// A copy with leading / trailing whitespace removed (the one-sided
+    /// counterparts to `trim`; same Unicode whitespace definition).
     @extern('str_trim_start')
     pub native fn trim_start(self) -> String
 
     @extern('str_trim_end')
     pub native fn trim_end(self) -> String
 
-    // Substring / prefix / suffix tests.
+    /// Substring / prefix / suffix tests.
     @extern('str_contains')
     pub native fn contains(self, _ needle: String) -> Bool
 
@@ -55,30 +57,32 @@ impl String {
     @extern('str_ends_with')
     pub native fn ends_with(self, _ suffix: String) -> Bool
 
-    // Case conversion.
+    /// Case conversion.
     @extern('str_to_uppercase')
     pub native fn to_uppercase(self) -> String
 
     @extern('str_to_lowercase')
     pub native fn to_lowercase(self) -> String
 
-    // Split into lines (on '\n', dropping a trailing empty line).
+    /// Split into lines (on '\n', dropping a trailing empty line).
     @extern('str_lines')
     pub native fn lines(self) -> List<String>
 
-    // Split on runs of whitespace, dropping empty pieces.
+    /// Split on runs of whitespace, dropping empty pieces.
     @extern('str_split_whitespace')
     pub native fn split_whitespace(self) -> List<String>
 
-    // Split on each occurrence of `sep`.
+    /// Split on each occurrence of `sep`.
     @extern('str_split')
     pub native fn split(self, _ sep: String) -> List<String>
 
-    // A copy with every occurrence of `from` replaced by `to`. An empty `from`
-    // matches nothing (the string is returned unchanged) rather than splitting
-    // between every code point.
-    //
-    //   'a-b-c'.replace('-', '_')   // 'a_b_c'
+    /// A copy with every occurrence of `from` replaced by `to`. An empty `from`
+    /// matches nothing (the string is returned unchanged) rather than splitting
+    /// between every code point.
+    ///
+    /// ```hawk
+    /// 'a-b-c'.replace('-', '_')   // 'a_b_c'
+    /// ```
     pub fn replace(self, _ from: String, _ to: String) -> String {
         if from.is_empty() {
             return self;
@@ -86,9 +90,11 @@ impl String {
         return self.split(from).join(to);
     }
 
-    // The string repeated `count` times (empty when `count <= 0`).
-    //
-    //   'ab'.repeat(3)   // 'ababab'
+    /// The string repeated `count` times (empty when `count <= 0`).
+    ///
+    /// ```hawk
+    /// 'ab'.repeat(3)   // 'ababab'
+    /// ```
     pub fn repeat(self, _ count: Int) -> String {
         let mut s = '';
         let mut i = 0;
@@ -99,18 +105,22 @@ impl String {
         return s;
     }
 
-    // A copy with the code points in reverse order.
-    //
-    //   'abc'.reverse()   // 'cba'
+    /// A copy with the code points in reverse order.
+    ///
+    /// ```hawk
+    /// 'abc'.reverse()   // 'cba'
+    /// ```
     pub fn reverse(self) -> String {
         return String.from_chars(self.chars().reverse());
     }
 
-    // The code-point index of the first occurrence of `needle`, or None if it
-    // does not occur. An empty `needle` matches at 0 (as `contains('')` is true).
-    //
-    //   'hello'.find('ll')   // Some(2)
-    //   'hello'.find('z')    // None
+    /// The code-point index of the first occurrence of `needle`, or None if it
+    /// does not occur. An empty `needle` matches at 0 (as `contains('')` is true).
+    ///
+    /// ```hawk
+    /// 'hello'.find('ll')   // Some(2)
+    /// 'hello'.find('z')    // None
+    /// ```
     pub fn find(self, _ needle: String) -> Option<Int> {
         let hay = self.chars();
         let pat = needle.chars();
@@ -133,26 +143,30 @@ impl String {
         return Option.None;
     }
 
-    // `self` left-padded with `pad` to at least `width` code points (the pad is
-    // truncated to land exactly on `width`). A string already that wide, an empty
-    // `pad`, or a non-positive `width` returns `self` unchanged.
-    //
-    //   '7'.pad_start(3, '0')   // '007'
+    /// `self` left-padded with `pad` to at least `width` code points (the pad is
+    /// truncated to land exactly on `width`). A string already that wide, an empty
+    /// `pad`, or a non-positive `width` returns `self` unchanged.
+    ///
+    /// ```hawk
+    /// '7'.pad_start(3, '0')   // '007'
+    /// ```
     pub fn pad_start(self, _ width: Int, _ pad: String) -> String {
         let fill = self.padding(width, pad);
         return fill + self;
     }
 
-    // `self` right-padded with `pad` to at least `width` code points.
-    //
-    //   '7'.pad_end(3, '.')   // '7..'
+    /// `self` right-padded with `pad` to at least `width` code points.
+    ///
+    /// ```hawk
+    /// '7'.pad_end(3, '.')   // '7..'
+    /// ```
     pub fn pad_end(self, _ width: Int, _ pad: String) -> String {
         let fill = self.padding(width, pad);
         return self + fill;
     }
 
-    // The padding string needed to bring `self` up to `width` code points using
-    // `pad` (repeated then truncated); empty when no padding is needed.
+    /// The padding string needed to bring `self` up to `width` code points using
+    /// `pad` (repeated then truncated); empty when no padding is needed.
     fn padding(self, _ width: Int, _ pad: String) -> String {
         let deficit = width - self.len();
         if deficit <= 0 || pad.is_empty() {
@@ -165,42 +179,48 @@ impl String {
         return p.slice(0, deficit);
     }
 
-    // The Unicode scalar values (code points) of the string, as Int. The
-    // inverse of `String.from_chars`:
-    //
-    //   let cps = source.chars();
-    //   let same = String.from_chars(cps);
+    /// The Unicode scalar values (code points) of the string, as Int. The
+    /// inverse of `String.from_chars`:
+    ///
+    /// ```hawk
+    /// let cps = source.chars();
+    /// let same = String.from_chars(cps);
+    /// ```
     @extern('str_chars')
     pub native fn chars(self) -> List<Int>
 
-    // The string's UTF-8 encoding as a `Bytes` buffer — for hashing, transport,
-    // or byte-level work. Use `s.bytes().to_list()` for the raw byte values.
+    /// The string's UTF-8 encoding as a `Bytes` buffer — for hashing, transport,
+    /// or byte-level work. Use `s.bytes().to_list()` for the raw byte values.
     @extern('str_bytes')
     pub native fn bytes(self) -> Bytes
 
-    // Parse the whole string as a base-10 Int, or None if it isn't one. The
-    // entire string must be the number (no surrounding whitespace) — call
-    // `s.trim()` first if needed.
-    //
-    //   '42'.to_int()    // Some(42)
-    //   'x'.to_int()     // None
+    /// Parse the whole string as a base-10 Int, or None if it isn't one. The
+    /// entire string must be the number (no surrounding whitespace) — call
+    /// `s.trim()` first if needed.
+    ///
+    /// ```hawk
+    /// '42'.to_int()    // Some(42)
+    /// 'x'.to_int()     // None
+    /// ```
     @extern('str_to_int')
     pub native fn to_int(self) -> Option<Int>
 
-    // Parse the whole string as a Double, or None if it isn't one.
-    //
-    //   '3.14'.to_double()   // Some(3.14)
+    /// Parse the whole string as a Double, or None if it isn't one.
+    ///
+    /// ```hawk
+    /// '3.14'.to_double()   // Some(3.14)
+    /// ```
     @extern('str_to_double')
     pub native fn to_double(self) -> Option<Double>
 
-    // Parse the whole string as an integer in `radix` (2..=16), or None if it
-    // isn't a valid numeral in that radix (bad digit, empty, or a lone `-`). An
-    // optional leading `-` is allowed; letters a-f / A-F are digits 10..15.
-    // Overflow wraps two's-complement to 64 bits (matching `Int` arithmetic), so
-    // a full-width pattern like `'9E3779B97F4A7C15'.to_int_radix(16)` yields its
-    // signed value — mirroring the front-end's `0x…` literal handling. Pure Hawk
-    // over wrapping `*`/`+`; the ASCII digit ranges are inlined to avoid a
-    // std.core → std.char dependency.
+    /// Parse the whole string as an integer in `radix` (2..=16), or None if it
+    /// isn't a valid numeral in that radix (bad digit, empty, or a lone `-`). An
+    /// optional leading `-` is allowed; letters a-f / A-F are digits 10..15.
+    /// Overflow wraps two's-complement to 64 bits (matching `Int` arithmetic), so
+    /// a full-width pattern like `'9E3779B97F4A7C15'.to_int_radix(16)` yields its
+    /// signed value — mirroring the front-end's `0x…` literal handling. Pure Hawk
+    /// over wrapping `*`/`+`; the ASCII digit ranges are inlined to avoid a
+    /// std.core → std.char dependency.
     pub fn to_int_radix(self, _ radix: Int) -> Option<Int> {
         let cps = self.chars();
         let n = cps.len();
@@ -231,26 +251,28 @@ impl String {
         return Option.Some(acc);
     }
 
-    // Construct a String from a list of Unicode code points (as Int). The
-    // inverse of `s.chars()`. This is total: a value that is not a valid Unicode
-    // scalar (a surrogate, out of range, or negative) becomes U+FFFD (�). Use
-    // `try_from_chars` to reject such input instead.
+    /// Construct a String from a list of Unicode code points (as Int). The
+    /// inverse of `s.chars()`. This is total: a value that is not a valid Unicode
+    /// scalar (a surrogate, out of range, or negative) becomes U+FFFD (�). Use
+    /// `try_from_chars` to reject such input instead.
     @extern('str_from_chars')
     pub native fn from_chars(_ cps: List<Int>) -> String
 
-    // Like `from_chars`, but returns None if any element is not a valid Unicode
-    // scalar value — for callers that must reject malformed input rather than
-    // substitute the replacement character.
-    //
-    //   String.try_from_chars([72, 105])    // Some('Hi')
-    //   String.try_from_chars([0xD800])     // None (a lone surrogate)
+    /// Like `from_chars`, but returns None if any element is not a valid Unicode
+    /// scalar value — for callers that must reject malformed input rather than
+    /// substitute the replacement character.
+    ///
+    /// ```hawk
+    /// String.try_from_chars([72, 105])    // Some('Hi')
+    /// String.try_from_chars([0xD800])     // None (a lone surrogate)
+    /// ```
     @extern('str_try_from_chars')
     pub native fn try_from_chars(_ cps: List<Int>) -> Option<String>
 }
 
-// The value 0..35 of an ASCII alphanumeric code point (`0-9`, `a-z`, `A-Z`), or
-// -1 for anything else. Used by `to_int_radix`; the caller checks the value
-// against the radix. Inlined ASCII ranges keep std.core independent of std.char.
+/// The value 0..35 of an ASCII alphanumeric code point (`0-9`, `a-z`, `A-Z`), or
+/// -1 for anything else. Used by `to_int_radix`; the caller checks the value
+/// against the radix. Inlined ASCII ranges keep std.core independent of std.char.
 fn digit_value_for(_ cp: Int) -> Int {
     if cp >= 48 && cp <= 57 { // '0'..'9'
         return cp - 48;
@@ -264,17 +286,17 @@ fn digit_value_for(_ cp: Int) -> Int {
     return -1;
 }
 
-// A String renders as itself. The explicit `Display` impl makes the conformance
-// navigable and lets interpolation / `println` resolve it like any other type
-// (interpolation elides the call, since a `String` is already a `String`).
+/// A String renders as itself. The explicit `Display` impl makes the conformance
+/// navigable and lets interpolation / `println` resolve it like any other type
+/// (interpolation elides the call, since a `String` is already a `String`).
 impl Display for String {
     @extern('str_identity')
     pub native fn display(self) -> String
 }
 
-// String is ordered lexicographically by Unicode scalar / UTF-8 byte order (a
-// native, like its other methods; the generic/virtual path uses the same
-// comparison via the runtime fallback).
+/// String is ordered lexicographically by Unicode scalar / UTF-8 byte order (a
+/// native, like its other methods; the generic/virtual path uses the same
+/// comparison via the runtime fallback).
 impl Ord for String {
     @extern('str_compare')
     pub native fn compare(self, _ other: String) -> Ordering

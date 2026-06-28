@@ -1,4 +1,4 @@
-// Tests for std.iter — the Iterator<T> protocol, its sources, and consumers.
+//! Tests for std.iter — the Iterator<T> protocol, its sources, and consumers.
 
 import std.testing;
 
@@ -68,8 +68,8 @@ fn test_for_loop_over_list_iter() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// A user-defined iterator, looped over by its *concrete* type (not the
-// Iterator interface) — exercises the concrete-conformer dispatch path.
+/// A user-defined iterator, looped over by its *concrete* type (not the
+/// Iterator interface) — exercises the concrete-conformer dispatch path.
 type Doubler = {
     mut next_val: Int,
     limit: Int,

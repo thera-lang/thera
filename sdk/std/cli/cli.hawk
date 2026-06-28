@@ -1,4 +1,4 @@
-// std.cli — command-line tooling. A barrel that re-exports the CLI libraries.
+//! std.cli — command-line tooling. A barrel that re-exports the CLI libraries.
 
 pub import 'args';      // Args — raw, undeclared access to the argument list
 pub import 'command';   // Command/Matches/CliError — declarative parsing + --help

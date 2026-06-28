@@ -1,28 +1,30 @@
-// std.args — command-line argument parsing over the raw argument list.
-//
-// `main` receives its arguments as a `List<String>`; wrap them in `Args` for
-// positional/flag access:
-//
-//   import std.args;
-//
-//   fn main(parameters: List<String>) -> Result<Int, Error> {
-//       let args = Args.new(parameters);
-//       let path = args.positional(0).ok_or(error('usage: tool <path>'))?;
-//       let verbose = args.flag('--verbose', default: false);
-//       ...
-//   }
+//! std.args — command-line argument parsing over the raw argument list.
+//!
+//! `main` receives its arguments as a `List<String>`; wrap them in `Args` for
+//! positional/flag access:
+//!
+//! ```hawk
+//! import std.args;
+//!
+//! fn main(parameters: List<String>) -> Result<Int, Error> {
+//!     let args = Args.new(parameters);
+//!     let path = args.positional(0).ok_or(error('usage: tool <path>'))?;
+//!     let verbose = args.flag('--verbose', default: false);
+//!     ...
+//! }
+//! ```
 
 pub type Args = {
     parameters: List<String>,
 }
 
 impl Args {
-    // Wrap the raw program arguments.
+    /// Wrap the raw program arguments.
     pub fn new(_ parameters: List<String>) -> Args {
         return Args { parameters: parameters };
     }
 
-    // The positional argument at `index`, or None if out of range.
+    /// The positional argument at `index`, or None if out of range.
     pub fn positional(self, _ index: Int) -> Option<String> {
         if index < self.parameters.len() {
             return Option.Some(self.parameters[index]);
@@ -30,12 +32,12 @@ impl Args {
         return Option.None;
     }
 
-    // All arguments, in order.
+    /// All arguments, in order.
     pub fn positionals(self) -> List<String> {
         return self.parameters;
     }
 
-    // True if `name` (e.g. '--verbose') appears in the arguments.
+    /// True if `name` (e.g. '--verbose') appears in the arguments.
     pub fn has(self, _ name: String) -> Bool {
         for p in self.parameters {
             if p == name {
@@ -45,10 +47,10 @@ impl Args {
         return false;
     }
 
-    // A boolean flag: true if `name` is present, else `value`.
-    //
-    // TODO: support negation — `--no-<name>` should yield false — so a flag can
-    // be explicitly disabled, not just defaulted.
+    /// A boolean flag: true if `name` is present, else `value`.
+    ///
+    /// TODO: support negation — `--no-<name>` should yield false — so a flag can
+    /// be explicitly disabled, not just defaulted.
     pub fn flag(self, _ name: String, default value: Bool) -> Bool {
         if self.has(name) {
             return true;
@@ -56,10 +58,10 @@ impl Args {
         return value;
     }
 
-    // The value following a `--name` token, or None.
-    //
-    // TODO: also accept the `--name=value` form (today only the space-separated
-    // `--name value` form is recognized).
+    /// The value following a `--name` token, or None.
+    ///
+    /// TODO: also accept the `--name=value` form (today only the space-separated
+    /// `--name value` form is recognized).
     pub fn option(self, _ name: String) -> Option<String> {
         let mut i = 0;
         while i < self.parameters.len() {

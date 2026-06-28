@@ -1,4 +1,4 @@
-// Tests for std.sort (Ord-driven sorting and extrema).
+//! Tests for std.sort (Ord-driven sorting and extrema).
 
 import std.testing;
 import std.sort;
@@ -36,7 +36,7 @@ fn test_min_max() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// A user type with an `impl Ord` sorts and compares like a primitive.
+/// A user type with an `impl Ord` sorts and compares like a primitive.
 type Version = { major: Int, minor: Int }
 
 impl Ord for Version {

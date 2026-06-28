@@ -1,15 +1,15 @@
-// Tests for std.math and the Int/Double numeric methods.
-//
-// Written ahead of the `@test` runner (see docs/roadmap.md); they type-check
-// today (`hawk check`). The math functions are reached white-box (sibling
-// import); the abs/min/max/clamp methods come from the auto-imported core
-// prelude. Inexact (transcendental) results are checked within a tolerance.
+//! Tests for std.math and the Int/Double numeric methods.
+//!
+//! Written ahead of the `@test` runner (see docs/roadmap.md); they type-check
+//! today (`hawk check`). The math functions are reached white-box (sibling
+//! import); the abs/min/max/clamp methods come from the auto-imported core
+//! prelude. Inexact (transcendental) results are checked within a tolerance.
 
 import std.testing;
 
 import 'math' as _;
 
-// Within `eps` of each other (floats rarely compare exactly equal).
+/// Within `eps` of each other (floats rarely compare exactly equal).
 fn close(_ a: Double, _ b: Double) -> Bool {
     return (a - b).abs() < 0.000001;
 }

@@ -1,5 +1,5 @@
-// Tests for std.process. These spawn small, ubiquitous Unix programs
-// (echo / sh / cat), so they assume a POSIX environment.
+//! Tests for std.process. These spawn small, ubiquitous Unix programs
+//! (echo / sh / cat), so they assume a POSIX environment.
 
 import std.testing;
 import std.io;

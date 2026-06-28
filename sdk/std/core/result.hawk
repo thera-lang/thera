@@ -1,20 +1,20 @@
-// std.core — the Result type.
-//
-// `Result<T, E>` represents a fallible outcome: `Ok(T)` on success, `Err(E)` on
-// failure. `Result<T, Error>` is the conventional fallible signature throughout
-// Hawk. It is one of the two language-blessed enums (the `?` operator, and the
-// program entry point's exit-code convention, know it by name), but it is
-// otherwise an ordinary enum defined here in Hawk.
-//
-// The variant order is significant: it fixes the runtime tags (Ok = 0,
-// Err = 1) shared with the bytecode runtime — do not reorder.
+//! std.core — the Result type.
+//!
+//! `Result<T, E>` represents a fallible outcome: `Ok(T)` on success, `Err(E)` on
+//! failure. `Result<T, Error>` is the conventional fallible signature throughout
+//! Hawk. It is one of the two language-blessed enums (the `?` operator, and the
+//! program entry point's exit-code convention, know it by name), but it is
+//! otherwise an ordinary enum defined here in Hawk.
+//!
+//! The variant order is significant: it fixes the runtime tags (Ok = 0,
+//! Err = 1) shared with the bytecode runtime — do not reorder.
 pub enum Result<T, E> {
     Ok(T),
     Err(E),
 }
 
 impl Display for Result<T, E> {
-    // `Ok(x)` / `Err(e)` — the contained value rendered via `Debug`.
+    /// `Ok(x)` / `Err(e)` — the contained value rendered via `Debug`.
     fn display(self) -> String {
         return match self {
             Ok(v) => 'Ok(${v.debug()})',

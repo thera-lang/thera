@@ -1,4 +1,4 @@
-// Tests for std.cli's `Args` — raw, undeclared access to the argument list.
+//! Tests for std.cli's `Args` — raw, undeclared access to the argument list.
 
 import std.testing;
 

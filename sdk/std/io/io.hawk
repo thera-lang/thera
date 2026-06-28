@@ -1,41 +1,43 @@
-// std.io — streaming I/O: the Reader/Writer/Closer protocol, the standard
-// streams, and in-memory helpers.
-//
-// Import as: import std.io
-//
-// Everything streams as `Bytes`. The combinators (`read_all`, `copy`) work
-// against any `Reader`/`Writer`, so files, pipes, sockets, and in-memory
-// buffers compose uniformly.
-//
-//   import std.io;
-//
-//   fn main() -> Result<Int, Error> {
-//       let all = io.read_all(io.stdin())?;        // drain stdin
-//       io.stdout().write(all)?;                    // echo it back
-//       return Result.Ok(0);
-//   }
-//
-// (`lines`/`Iterator`, the typed `write_u16…`/`BytesReader` binary family, and
-// streaming files are planned follow-ups; see docs/stdlib.md.)
+//! std.io — streaming I/O: the Reader/Writer/Closer protocol, the standard
+//! streams, and in-memory helpers.
+//!
+//! Import as: import std.io
+//!
+//! Everything streams as `Bytes`. The combinators (`read_all`, `copy`) work
+//! against any `Reader`/`Writer`, so files, pipes, sockets, and in-memory
+//! buffers compose uniformly.
+//!
+//! ```hawk
+//! import std.io;
+//!
+//! fn main() -> Result<Int, Error> {
+//!     let all = io.read_all(io.stdin())?;        // drain stdin
+//!     io.stdout().write(all)?;                    // echo it back
+//!     return Result.Ok(0);
+//! }
+//! ```
+//!
+//! (`lines`/`Iterator`, the typed `write_u16…`/`BytesReader` binary family, and
+//! streaming files are planned follow-ups; see docs/stdlib.md.)
 
 // --- the streaming protocol ---
 
-// A source of bytes. `read` returns up to `max` bytes; an empty result is EOF.
+/// A source of bytes. `read` returns up to `max` bytes; an empty result is EOF.
 pub interface Reader {
     fn read(self, max: Int) -> Result<Bytes, Error>;
 }
 
-// A sink for bytes. `write` consumes all of `data` and returns the count.
+/// A sink for bytes. `write` consumes all of `data` and returns the count.
 pub interface Writer {
     fn write(self, _ data: Bytes) -> Result<Int, Error>;
 }
 
-// A closable resource (files, sockets). The standard streams don't close.
+/// A closable resource (files, sockets). The standard streams don't close.
 pub interface Closer {
     fn close(self) -> Result<Void, Error>;
 }
 
-// I/O failures. A domain error: implements the common `Error`.
+/// I/O failures. A domain error: implements the common `Error`.
 pub enum IoError {
     Eof,             // an unexpected end of stream (e.g. a future read_exact)
     Other(String),   // any other I/O failure, with the OS message
@@ -58,7 +60,7 @@ impl Display for IoError {
 
 // --- combinators (over any Reader/Writer) ---
 
-// Read `src` to end-of-stream, returning everything as one `Bytes`.
+/// Read `src` to end-of-stream, returning everything as one `Bytes`.
 pub fn read_all(_ src: Reader) -> Result<Bytes, Error> {
     let acc = BytesBuilder.new();
     let mut going = true;
@@ -73,7 +75,7 @@ pub fn read_all(_ src: Reader) -> Result<Bytes, Error> {
     return Result.Ok(acc.finish());
 }
 
-// Copy `src` to `dst` until EOF; returns the number of bytes copied.
+/// Copy `src` to `dst` until EOF; returns the number of bytes copied.
 pub fn copy(to dst: Writer, from src: Reader) -> Result<Int, Error> {
     let mut total = 0;
     let mut going = true;
@@ -129,25 +131,25 @@ impl Writer for Stderr {
     }
 }
 
-// Standard input as a Reader.
+/// Standard input as a Reader.
 pub fn stdin() -> Reader {
     return Stdin {};
 }
 
-// Standard output as a Writer.
+/// Standard output as a Writer.
 pub fn stdout() -> Writer {
     return Stdout {};
 }
 
-// Standard error as a Writer.
+/// Standard error as a Writer.
 pub fn stderr() -> Writer {
     return Stderr {};
 }
 
 // --- in-memory ---
 
-// A Writer that captures everything written, for building a string via the
-// Writer protocol — and the test double for any code that takes a `Writer`.
+/// A Writer that captures everything written, for building a string via the
+/// Writer protocol — and the test double for any code that takes a `Writer`.
 pub type StringWriter = {
     builder: BytesBuilder,
 }
@@ -157,12 +159,12 @@ impl StringWriter {
         return StringWriter { builder: BytesBuilder.new() };
     }
 
-    // The captured bytes decoded as UTF-8 (errs if they aren't valid UTF-8).
+    /// The captured bytes decoded as UTF-8 (errs if they aren't valid UTF-8).
     pub fn into_string(self) -> Result<String, Error> {
         return self.builder.finish().to_string();
     }
 
-    // The captured bytes, verbatim.
+    /// The captured bytes, verbatim.
     pub fn into_bytes(self) -> Bytes {
         return self.builder.finish();
     }

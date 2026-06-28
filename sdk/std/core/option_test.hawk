@@ -1,4 +1,4 @@
-// Tests for Option's helper methods (implemented in Hawk over `match`).
+//! Tests for Option's helper methods (implemented in Hawk over `match`).
 
 import std.testing;
 

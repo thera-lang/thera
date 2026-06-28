@@ -1,64 +1,64 @@
-// std.fiber — cooperative concurrency on the single thread.
-//
-// Spawn work as a fiber and join its result. Fibers are scheduled cooperatively:
-// a fiber runs until it blocks (a `join` on an unfinished fiber) or `yield`s,
-// then the scheduler runs the next runnable one. Single-threaded, so there are
-// no data races and no locks needed. The runtime design (fibers as stackless
-// coroutines over the interpreter's frame stack) is in docs/architecture.md
-// §Concurrency.
+//! std.fiber — cooperative concurrency on the single thread.
+//!
+//! Spawn work as a fiber and join its result. Fibers are scheduled cooperatively:
+//! a fiber runs until it blocks (a `join` on an unfinished fiber) or `yield`s,
+//! then the scheduler runs the next runnable one. Single-threaded, so there are
+//! no data races and no locks needed. The runtime design (fibers as stackless
+//! coroutines over the interpreter's frame stack) is in docs/architecture.md
+//! §Concurrency.
 
-// A handle to a spawned fiber computing a `T`.
+/// A handle to a spawned fiber computing a `T`.
 pub type Fiber<T> = {
     id: Int,
 }
 
-// Schedule `work` to run as a new fiber; returns a handle to it. The fiber makes
-// progress cooperatively — when the current fiber blocks or yields.
+/// Schedule `work` to run as a new fiber; returns a handle to it. The fiber makes
+/// progress cooperatively — when the current fiber blocks or yields.
 pub fn spawn<T>(_ work: () -> T) -> Fiber<T> {
     return Fiber { id: _spawn<T>(work) };
 }
 
 impl Fiber<T> {
-    // The fiber's result, blocking the caller until the fiber has finished. This
-    // is the only way to get a value out of a fiber.
+    /// The fiber's result, blocking the caller until the fiber has finished. This
+    /// is the only way to get a value out of a fiber.
     pub fn join(self) -> T {
         return _join<T>(self.id);
     }
 }
 
-// Cede the thread to the scheduler; this fiber stays runnable and resumes later.
-// Useful to let other fibers make progress in a compute loop.
+/// Cede the thread to the scheduler; this fiber stays runnable and resumes later.
+/// Useful to let other fibers make progress in a compute loop.
 pub fn yield() -> Void {
     _yield();
 }
 
-// A channel carrying values of type `T` between fibers, over a bounded buffer.
+/// A channel carrying values of type `T` between fibers, over a bounded buffer.
 pub type Channel<T> = {
     id: Int,
 }
 
-// Create a channel buffering up to `capacity` values (clamped to at least 1). A
-// `send` blocks while the buffer is full; a `receive` blocks while it is empty.
+/// Create a channel buffering up to `capacity` values (clamped to at least 1). A
+/// `send` blocks while the buffer is full; a `receive` blocks while it is empty.
 pub fn channel<T>(capacity: Int = 1) -> Channel<T> {
     return Channel { id: _chan_new(capacity) };
 }
 
 impl Channel<T> {
-    // Send a value, blocking the caller while the buffer is full. Traps if the
-    // channel has been closed.
+    /// Send a value, blocking the caller while the buffer is full. Traps if the
+    /// channel has been closed.
     pub fn send(self, _ value: T) -> Void {
         _chan_send<T>(self.id, value);
     }
 
-    // Receive the next value, blocking while the buffer is empty. Returns `None`
-    // once the channel is closed and drained — so `while let Some(v) = ...` (via
-    // `match`) drains a closed channel cleanly.
+    /// Receive the next value, blocking while the buffer is empty. Returns `None`
+    /// once the channel is closed and drained — so `while let Some(v) = ...` (via
+    /// `match`) drains a closed channel cleanly.
     pub fn receive(self) -> Option<T> {
         return _chan_receive<T>(self.id);
     }
 
-    // Close the channel: no further sends (a later `send` traps); receivers drain
-    // the remaining buffer and then receive `None`.
+    /// Close the channel: no further sends (a later `send` traps); receivers drain
+    /// the remaining buffer and then receive `None`.
     pub fn close(self) -> Void {
         _chan_close(self.id);
     }

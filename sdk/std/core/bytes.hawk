@@ -1,82 +1,82 @@
-// std.core — the built-in `Bytes` and `BytesBuilder` types (auto-imported with
-// the prelude).
-//
-// `Bytes` is an immutable buffer of raw bytes (each 0..=255); it is what binary
-// I/O (`std.io`, `fs`, `hash`, `encoding`) reads and writes, and what
-// `String.bytes()` returns. `BytesBuilder` accumulates bytes and freezes into a
-// `Bytes` with `finish()`.
-//
-// Both are runtime-backed opaque types; their methods are `native fn`s, like
-// String's.
+//! std.core — the built-in `Bytes` and `BytesBuilder` types (auto-imported with
+//! the prelude).
+//!
+//! `Bytes` is an immutable buffer of raw bytes (each 0..=255); it is what binary
+//! I/O (`std.io`, `fs`, `hash`, `encoding`) reads and writes, and what
+//! `String.bytes()` returns. `BytesBuilder` accumulates bytes and freezes into a
+//! `Bytes` with `finish()`.
+//!
+//! Both are runtime-backed opaque types; their methods are `native fn`s, like
+//! String's.
 
-// The built-in immutable byte buffer — an opaque, runtime-represented value.
+/// The built-in immutable byte buffer — an opaque, runtime-represented value.
 pub native type Bytes
 
 impl Bytes {
-    // The number of bytes.
+    /// The number of bytes.
     @extern('bytes_len')
     pub native fn len(self) -> Int
 
-    // True if the buffer has no bytes.
+    /// True if the buffer has no bytes.
     pub fn is_empty(self) -> Bool {
         return self.len() == 0;
     }
 
-    // The byte (0..=255) at `i`, or None if out of range.
+    /// The byte (0..=255) at `i`, or None if out of range.
     @extern('bytes_get')
     pub native fn get(self, _ i: Int) -> Option<Int>
 
-    // The sub-buffer `[start, end)`, clamped to the valid range.
+    /// The sub-buffer `[start, end)`, clamped to the valid range.
     @extern('bytes_slice')
     pub native fn slice(self, _ start: Int, _ end: Int) -> Bytes
 
-    // This buffer followed by `other`.
+    /// This buffer followed by `other`.
     @extern('bytes_concat')
     pub native fn concat(self, _ other: Bytes) -> Bytes
 
-    // Decode as UTF-8 text. Errs if the bytes are not valid UTF-8.
+    /// Decode as UTF-8 text. Errs if the bytes are not valid UTF-8.
     @extern('bytes_to_string')
     pub native fn to_string(self) -> Result<String, Error>
 
-    // The byte values (each 0..=255) as a list.
+    /// The byte values (each 0..=255) as a list.
     @extern('bytes_to_list')
     pub native fn to_list(self) -> List<Int>
 
-    // An empty buffer.
+    /// An empty buffer.
     @extern('bytes_empty')
     pub native fn empty() -> Bytes
 
-    // Build from byte values; errs if any value is outside 0..=255.
+    /// Build from byte values; errs if any value is outside 0..=255.
     @extern('bytes_from_list')
     pub native fn from_list(_ values: List<Int>) -> Result<Bytes, Error>
 }
 
-// The built-in growable byte accumulator — an opaque, runtime-represented value
-// that `finish()`es into a `Bytes`.
+/// The built-in growable byte accumulator — an opaque, runtime-represented value
+/// that `finish()`es into a `Bytes`.
 pub native type BytesBuilder
 
 impl BytesBuilder {
-    // A fresh, empty accumulator.
+    /// A fresh, empty accumulator.
     @extern('bytesbuilder_new')
     pub native fn new() -> BytesBuilder
 
-    // Append a single byte (the low 8 bits of `byte`).
+    /// Append a single byte (the low 8 bits of `byte`).
     @extern('bytesbuilder_write_u8')
     pub native fn write_u8(self, _ byte: Int) -> Void
 
-    // Append a `Bytes`.
+    /// Append a `Bytes`.
     @extern('bytesbuilder_write_bytes')
     pub native fn write_bytes(self, _ data: Bytes) -> Void
 
-    // Append a string's UTF-8 encoding.
+    /// Append a string's UTF-8 encoding.
     @extern('bytesbuilder_write_str')
     pub native fn write_str(self, _ s: String) -> Void
 
-    // The number of bytes accumulated so far.
+    /// The number of bytes accumulated so far.
     @extern('bytesbuilder_len')
     pub native fn len(self) -> Int
 
-    // Freeze the accumulated bytes into a `Bytes` (the builder stays usable).
+    /// Freeze the accumulated bytes into a `Bytes` (the builder stays usable).
     @extern('bytesbuilder_finish')
     pub native fn finish(self) -> Bytes
 
@@ -86,7 +86,7 @@ impl BytesBuilder {
     // writer can be expressed in Hawk. `>>>` (logical shift) extracts each byte
     // of the raw bit pattern regardless of sign.
 
-    // The low 32 bits of `v`, little-endian (4 bytes).
+    /// The low 32 bits of `v`, little-endian (4 bytes).
     pub fn write_u32_le(self, _ v: Int) -> Void {
         self.write_u8(v);
         self.write_u8(v >>> 8);
@@ -94,7 +94,7 @@ impl BytesBuilder {
         self.write_u8(v >>> 24);
     }
 
-    // All 64 bits of `v`, little-endian (8 bytes).
+    /// All 64 bits of `v`, little-endian (8 bytes).
     pub fn write_u64_le(self, _ v: Int) -> Void {
         self.write_u8(v);
         self.write_u8(v >>> 8);
@@ -106,15 +106,15 @@ impl BytesBuilder {
         self.write_u8(v >>> 56);
     }
 
-    // The 8 IEEE-754 bytes of `d`, little-endian.
+    /// The 8 IEEE-754 bytes of `d`, little-endian.
     pub fn write_f64_le(self, _ d: Double) -> Void {
         self.write_u64_le(d.to_bits());
     }
 
     // --- LEB128 varints ---
 
-    // Unsigned LEB128 of `v`'s 64-bit pattern (the encoding used for lengths and
-    // indices). `>>>` treats `v` as unsigned, so the full range round-trips.
+    /// Unsigned LEB128 of `v`'s 64-bit pattern (the encoding used for lengths and
+    /// indices). `>>>` treats `v` as unsigned, so the full range round-trips.
     pub fn write_uvarint(self, _ v: Int) -> Void {
         let mut x = v;
         let mut more = true;
@@ -130,9 +130,9 @@ impl BytesBuilder {
         }
     }
 
-    // Signed LEB128 of `v` (the encoding used for `Int` immediates). `>>` is
-    // arithmetic, so the sign extends; the high bit of the final group encodes
-    // the sign.
+    /// Signed LEB128 of `v` (the encoding used for `Int` immediates). `>>` is
+    /// arithmetic, so the sign extends; the high bit of the final group encodes
+    /// the sign.
     pub fn write_ivarint(self, _ v: Int) -> Void {
         let mut x = v;
         let mut more = true;
@@ -151,34 +151,34 @@ impl BytesBuilder {
     }
 }
 
-// A forward cursor over a `Bytes` — the reader counterpart to `BytesBuilder`.
-// Each read advances `pos` and returns `None` when the buffer is exhausted (or,
-// for the multi-byte reads, when fewer bytes remain than the read needs), so a
-// truncated stream is a clean `None` rather than a trap. The integer decoders
-// are the exact inverses of `BytesBuilder`'s writers, so a value written there
-// round-trips through here. Pure Hawk over `Bytes.get` + bitwise ops.
+/// A forward cursor over a `Bytes` — the reader counterpart to `BytesBuilder`.
+/// Each read advances `pos` and returns `None` when the buffer is exhausted (or,
+/// for the multi-byte reads, when fewer bytes remain than the read needs), so a
+/// truncated stream is a clean `None` rather than a trap. The integer decoders
+/// are the exact inverses of `BytesBuilder`'s writers, so a value written there
+/// round-trips through here. Pure Hawk over `Bytes.get` + bitwise ops.
 pub type BytesReader = {
     data: Bytes,
     mut pos: Int,
 }
 
 impl BytesReader {
-    // A reader positioned at the start of `data`.
+    /// A reader positioned at the start of `data`.
     pub fn new(_ data: Bytes) -> BytesReader {
         return BytesReader { data: data, pos: 0 };
     }
 
-    // The number of bytes not yet read.
+    /// The number of bytes not yet read.
     pub fn remaining(self) -> Int {
         return self.data.len() - self.pos;
     }
 
-    // True once every byte has been read.
+    /// True once every byte has been read.
     pub fn is_empty(self) -> Bool {
         return self.remaining() <= 0;
     }
 
-    // The next byte (0..=255) and advance, or None at end of input.
+    /// The next byte (0..=255) and advance, or None at end of input.
     pub fn read_u8(self) -> Option<Int> {
         match self.data.get(self.pos) {
             Some(b) => {
@@ -189,8 +189,8 @@ impl BytesReader {
         }
     }
 
-    // The next `n` bytes as a `Bytes` and advance, or None if fewer than `n`
-    // remain (or `n` is negative).
+    /// The next `n` bytes as a `Bytes` and advance, or None if fewer than `n`
+    /// remain (or `n` is negative).
     pub fn read_bytes(self, _ n: Int) -> Option<Bytes> {
         if n < 0 || self.remaining() < n {
             return Option.None;
@@ -200,9 +200,9 @@ impl BytesReader {
         return Option.Some(out);
     }
 
-    // Fixed little-endian integers — the inverses of `write_u32_le`/
-    // `write_u64_le`. The result is the raw bit pattern (`read_u64_le`
-    // round-trips the full 64-bit range, sign included).
+    /// Fixed little-endian integers — the inverses of `write_u32_le`/
+    /// `write_u64_le`. The result is the raw bit pattern (`read_u64_le`
+    /// round-trips the full 64-bit range, sign included).
     pub fn read_u32_le(self) -> Option<Int> {
         return self.read_le(4);
     }
@@ -211,8 +211,8 @@ impl BytesReader {
         return self.read_le(8);
     }
 
-    // Assemble the next `n` little-endian bytes into an Int, or None if fewer
-    // than `n` remain.
+    /// Assemble the next `n` little-endian bytes into an Int, or None if fewer
+    /// than `n` remain.
     fn read_le(self, _ n: Int) -> Option<Int> {
         match self.read_bytes(n) {
             Some(b) => {
@@ -228,8 +228,8 @@ impl BytesReader {
         }
     }
 
-    // Unsigned LEB128 — the inverse of `write_uvarint`. None if the stream ends
-    // mid-varint.
+    /// Unsigned LEB128 — the inverse of `write_uvarint`. None if the stream ends
+    /// mid-varint.
     pub fn read_uvarint(self) -> Option<Int> {
         let mut result = 0;
         let mut shift = 0;
@@ -250,8 +250,8 @@ impl BytesReader {
         return Option.Some(result);
     }
 
-    // Signed LEB128 — the inverse of `write_ivarint`. The final group's sign bit
-    // (0x40) sign-extends the high bits. None if the stream ends mid-varint.
+    /// Signed LEB128 — the inverse of `write_ivarint`. The final group's sign bit
+    /// (0x40) sign-extends the high bits. None if the stream ends mid-varint.
     pub fn read_ivarint(self) -> Option<Int> {
         let mut result = 0;
         let mut shift = 0;

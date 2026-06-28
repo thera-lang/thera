@@ -1,19 +1,21 @@
-// std.core — the built-in Map<K, V> type.
-//
-// Map<K, V> is an ordered key-value store (insertion order is preserved). It is
-// a built-in type: always in scope, never explicitly imported (there is no
-// `import std.map`). Build one with a map literal: `{k1: v1, k2: v2}`.
-//
-// Indexing:
-//
-//   let v = scores[key];   // → V; traps if key is absent
-//   scores[key] = v;       // insert / update (the binding must be `mut`)
-//
-// Use `.get(key)` when a missing key is a normal, expected case. See "Runtime
-// faults" and "Collections" in docs/language.md.
+//! std.core — the built-in Map<K, V> type.
+//!
+//! Map<K, V> is an ordered key-value store (insertion order is preserved). It is
+//! a built-in type: always in scope, never explicitly imported (there is no
+//! `import std.map`). Build one with a map literal: `{k1: v1, k2: v2}`.
+//!
+//! Indexing:
+//!
+//! ```hawk
+//! let v = scores[key];   // → V; traps if key is absent
+//! scores[key] = v;       // insert / update (the binding must be `mut`)
+//! ```
+//!
+//! Use `.get(key)` when a missing key is a normal, expected case. See "Runtime
+//! faults" and "Collections" in docs/language.md.
 
-// The built-in ordered key-value store — an opaque, runtime-represented value
-// (no struct layout); a map literal (`{k: v}`) constructs one.
+/// The built-in ordered key-value store — an opaque, runtime-represented value
+/// (no struct layout); a map literal (`{k: v}`) constructs one.
 pub native type Map<K, V>
 
 impl Map<K, V> {
@@ -31,27 +33,29 @@ impl Map<K, V> {
     // `mut`). (Indexing isn't an overloadable interface yet; this documents the
     // contract the compiler implements for `Map`.)
 
-    // Number of entries.
+    /// Number of entries.
     @extern('map_len')
     pub native fn len(self) -> Int
 
-    // True if there are no entries.
+    /// True if there are no entries.
     pub fn is_empty(self) -> Bool {
         return self.len() == 0;
     }
 
-    // True if `key` is present.
+    /// True if `key` is present.
     @extern('map_has')
     pub native fn has(self, _ key: K) -> Bool
 
-    // Value for `key`, or None if absent — the checked alternative to indexing.
+    /// Value for `key`, or None if absent — the checked alternative to indexing.
     @extern('map_get')
     pub native fn get(self, _ key: K) -> Option<V>
 
-    // Value for `key`, or `default` if absent — the unwrap-with-fallback form of
-    // `get`, so a missing key needs no `match`.
-    //
-    //   counts.get_or('x', 0)
+    /// Value for `key`, or `default` if absent — the unwrap-with-fallback form of
+    /// `get`, so a missing key needs no `match`.
+    ///
+    /// ```hawk
+    /// counts.get_or('x', 0)
+    /// ```
     pub fn get_or(self, _ key: K, _ default: V) -> V {
         match self.get(key) {
             Some(v) => { return v; }
@@ -59,11 +63,11 @@ impl Map<K, V> {
         }
     }
 
-    // Remove `key`, returning its previous value if it was present.
+    /// Remove `key`, returning its previous value if it was present.
     @extern('map_remove')
     pub native fn remove(self, _ key: K) -> Option<V>
 
-    // Keys / values, in insertion order.
+    /// Keys / values, in insertion order.
     @extern('map_keys')
     pub native fn keys(self) -> List<K>
 
@@ -72,8 +76,8 @@ impl Map<K, V> {
 }
 
 impl Display for Map<K, V> {
-    // `{k: v, ...}` — keys and values rendered via `Debug`, in insertion order.
-    // (Empty map: `{}`.)
+    /// `{k: v, ...}` — keys and values rendered via `Debug`, in insertion order.
+    /// (Empty map: `{}`.)
     fn display(self) -> String {
         let mut s = '{';
         let mut first = true;

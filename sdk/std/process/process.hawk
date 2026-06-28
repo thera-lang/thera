@@ -1,30 +1,34 @@
-// std.process — spawn and control subprocesses.
-//
-// Import as: import std.process
-//
-// Run a command to completion, capturing its output:
-//
-//   let result = process.run('git', args: ['status', '--short'])?;
-//   println(result.stdout);
-//
-// Or start one and stream its pipes through the std.io Reader/Writer protocol:
-//
-//   import std.io;
-//   let child = process.start('grep', args: ['hawk'])?;
-//   child.stdin().write('hawk\nrust\n'.bytes())?;   // stdin(): Writer
-//   let out = io.read_all(child.stdout())?;          // stdout(): Reader
-//   let code = child.wait()?;
+//! std.process — spawn and control subprocesses.
+//!
+//! Import as: import std.process
+//!
+//! Run a command to completion, capturing its output:
+//!
+//! ```hawk
+//! let result = process.run('git', args: ['status', '--short'])?;
+//! println(result.stdout);
+//! ```
+//!
+//! Or start one and stream its pipes through the std.io Reader/Writer protocol:
+//!
+//! ```hawk
+//! import std.io;
+//! let child = process.start('grep', args: ['hawk'])?;
+//! child.stdin().write('hawk\nrust\n'.bytes())?;   // stdin(): Writer
+//! let out = io.read_all(child.stdout())?;          // stdout(): Reader
+//! let code = child.wait()?;
+//! ```
 
 import std.io;
 
-// The result of running a command to completion.
+/// The result of running a command to completion.
 pub type ProcessResult = {
     exit_code: Int,
     stdout: String,
     stderr: String,
 }
 
-// A handle to a spawned child process.
+/// A handle to a spawned child process.
 pub type Process = {
     id: Int,
 }
@@ -51,7 +55,7 @@ impl Display for ProcessError {
     }
 }
 
-// Native errors arrive as "<kind>\u{1}<message>"; map the kind to a variant.
+/// Native errors arrive as "<kind>\u{1}<message>"; map the kind to a variant.
 fn to_process_error(_ raw: String) -> ProcessError {
     let parts = raw.split('\u{1}');
     let kind = parts.get(0).unwrap_or('io');
@@ -108,7 +112,7 @@ native fn _stderr_read(_ id: Int, _ max: Int) -> Result<Bytes, String>
 
 // --- child pipes as std.io streams ---
 
-// A child's stdin, as a `Writer`. Each write is flushed.
+/// A child's stdin, as a `Writer`. Each write is flushed.
 type ProcessStdin = { id: Int }
 impl Writer for ProcessStdin {
     pub fn write(self, _ data: Bytes) -> Result<Int, Error> {
@@ -119,7 +123,7 @@ impl Writer for ProcessStdin {
     }
 }
 
-// A child's stdout, as a `Reader`. An empty read is EOF.
+/// A child's stdout, as a `Reader`. An empty read is EOF.
 type ProcessStdout = { id: Int }
 impl Reader for ProcessStdout {
     pub fn read(self, max: Int) -> Result<Bytes, Error> {
@@ -130,7 +134,7 @@ impl Reader for ProcessStdout {
     }
 }
 
-// A child's stderr, as a `Reader`. An empty read is EOF.
+/// A child's stderr, as a `Reader`. An empty read is EOF.
 type ProcessStderr = { id: Int }
 impl Reader for ProcessStderr {
     pub fn read(self, max: Int) -> Result<Bytes, Error> {
@@ -142,24 +146,24 @@ impl Reader for ProcessStderr {
 }
 
 impl Process {
-    // The child's standard input as a `Writer`.
+    /// The child's standard input as a `Writer`.
     pub fn stdin(self) -> io.Writer {
         return ProcessStdin { id: self.id };
     }
 
-    // The child's standard output as a `Reader` (compose with `io.read_all`).
+    /// The child's standard output as a `Reader` (compose with `io.read_all`).
     pub fn stdout(self) -> io.Reader {
         return ProcessStdout { id: self.id };
     }
 
-    // The child's standard error as a `Reader`.
+    /// The child's standard error as a `Reader`.
     pub fn stderr(self) -> io.Reader {
         return ProcessStderr { id: self.id };
     }
 
-    // Close the child's stdin, signalling end-of-input. Required before reading
-    // the output of a filter (e.g. `cat`, `grep`), which otherwise blocks
-    // waiting for more input.
+    /// Close the child's stdin, signalling end-of-input. Required before reading
+    /// the output of a filter (e.g. `cat`, `grep`), which otherwise blocks
+    /// waiting for more input.
     pub fn close_stdin(self) -> Result<Void, ProcessError> {
         return match _stdin_close(self.id) {
             Ok(_) => Result.Ok(void),
@@ -167,7 +171,7 @@ impl Process {
         };
     }
 
-    // Wait for the child to exit, returning its exit code.
+    /// Wait for the child to exit, returning its exit code.
     pub fn wait(self) -> Result<Int, ProcessError> {
         return match _wait(self) {
             Ok(code) => Result.Ok(code),
@@ -175,7 +179,7 @@ impl Process {
         };
     }
 
-    // Terminate the child (SIGKILL or platform equivalent) and reap it.
+    /// Terminate the child (SIGKILL or platform equivalent) and reap it.
     pub fn kill(self) -> Result<Void, ProcessError> {
         return match _kill(self) {
             Ok(_) => Result.Ok(void),
@@ -186,12 +190,12 @@ impl Process {
 
 // --- spawning ---
 
-// Run a command to completion, capturing stdout/stderr and the exit code.
-//
-//   `command`: the executable (e.g. 'git', 'python3').
-//   `args`: its arguments.
-//   `working_dir`: directory to run in (defaults to the current one).
-//   `env`: environment variables (defaults to the parent's).
+/// Run a command to completion, capturing stdout/stderr and the exit code.
+///
+/// - `command`: the executable (e.g. 'git', 'python3').
+/// - `args`: its arguments.
+/// - `working_dir`: directory to run in (defaults to the current one).
+/// - `env`: environment variables (defaults to the parent's).
 pub fn run(
     _ command: String,
     args: List<String> = [],
@@ -204,11 +208,11 @@ pub fn run(
     };
 }
 
-// Run a command that *inherits* this process's stdin/stdout/stderr, so its
-// output streams live to the terminal and it can read interactive input.
-// Returns the child's exit code. Unlike `run`, nothing is captured — use this
-// to launch a child whose console you want to share (a REPL, a pager, a
-// subcommand whose output should appear as it happens). Same arguments as `run`.
+/// Run a command that *inherits* this process's stdin/stdout/stderr, so its
+/// output streams live to the terminal and it can read interactive input.
+/// Returns the child's exit code. Unlike `run`, nothing is captured — use this
+/// to launch a child whose console you want to share (a REPL, a pager, a
+/// subcommand whose output should appear as it happens). Same arguments as `run`.
 pub fn exec(
     _ command: String,
     args: List<String> = [],
@@ -221,8 +225,8 @@ pub fn exec(
     };
 }
 
-// Start a command, returning a `Process` handle immediately (stdin/stdout/stderr
-// are piped). Same arguments as `run`.
+/// Start a command, returning a `Process` handle immediately (stdin/stdout/stderr
+/// are piped). Same arguments as `run`.
 pub fn start(
     _ command: String,
     args: List<String> = [],

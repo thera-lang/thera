@@ -1,55 +1,59 @@
-// std.cli — declarative command-line parsing: typed flags, options,
-// positionals, subcommands, and a generated `--help`.
-//
-// Import as: import std.cli
-//
-// Declare a command with a fluent builder, then parse the program arguments
-// (the `List<String>` `main` receives, or `env.args()`). Names are declared
-// **bare** — `flag('verbose')`, not `flag('--verbose')`; the parser owns the
-// dash conventions and accepts:
-//
-//   --name             a long flag            (foo --verbose)
-//   -n                 its abbreviation       (foo -v)
-//   --name value       a long option + value  (foo --out result.txt)
-//   --name=value       the joined form        (foo --out=result.txt)
-//   -n value / -n=value  an option by abbr
-//   --no-name          a negated flag         (foo --no-color)   [if negatable]
-//
-// A `--help` / `-h` flag is registered automatically. Parsing never exits on
-// its own — you decide when to show help:
-//
-//   import std.cli;
-//
-//   fn main(argv: List<String>) -> Result<Int, cli.CliError> {
-//       let cmd = cli.Command.new('greet')
-//           .about('greet someone by name')
-//           .flag('loud', abbr: 'l', help: 'shout the greeting')
-//           .option('name', abbr: 'n', help: 'who to greet');
-//
-//       let m = cmd.parse(argv)?;
-//       if m.flag('help') {
-//           println(cmd.help());
-//           return Result.Ok(0);
-//       }
-//
-//       let who = m.option('name').unwrap_or('world');
-//       let greeting = 'Hello, ${who}!';
-//       if m.flag('loud') {
-//           println(greeting.to_uppercase());
-//       } else {
-//           println(greeting);
-//       }
-//       return Result.Ok(0);
-//   }
-//
-// For raw, undeclared access to the argument list, see `std.cli/args` (the
-// low-level escape hatch); `Command` is the declarative layer on the same idea.
+//! std.cli — declarative command-line parsing: typed flags, options,
+//! positionals, subcommands, and a generated `--help`.
+//!
+//! Import as: import std.cli
+//!
+//! Declare a command with a fluent builder, then parse the program arguments
+//! (the `List<String>` `main` receives, or `env.args()`). Names are declared
+//! **bare** — `flag('verbose')`, not `flag('--verbose')`; the parser owns the
+//! dash conventions and accepts:
+//!
+//! ```
+//! --name             a long flag            (foo --verbose)
+//! -n                 its abbreviation       (foo -v)
+//! --name value       a long option + value  (foo --out result.txt)
+//! --name=value       the joined form        (foo --out=result.txt)
+//! -n value / -n=value  an option by abbr
+//! --no-name          a negated flag         (foo --no-color)   [if negatable]
+//! ```
+//!
+//! A `--help` / `-h` flag is registered automatically. Parsing never exits on
+//! its own — you decide when to show help:
+//!
+//! ```hawk
+//! import std.cli;
+//!
+//! fn main(argv: List<String>) -> Result<Int, cli.CliError> {
+//!     let cmd = cli.Command.new('greet')
+//!         .about('greet someone by name')
+//!         .flag('loud', abbr: 'l', help: 'shout the greeting')
+//!         .option('name', abbr: 'n', help: 'who to greet');
+//!
+//!     let m = cmd.parse(argv)?;
+//!     if m.flag('help') {
+//!         println(cmd.help());
+//!         return Result.Ok(0);
+//!     }
+//!
+//!     let who = m.option('name').unwrap_or('world');
+//!     let greeting = 'Hello, ${who}!';
+//!     if m.flag('loud') {
+//!         println(greeting.to_uppercase());
+//!     } else {
+//!         println(greeting);
+//!     }
+//!     return Result.Ok(0);
+//! }
+//! ```
+//!
+//! For raw, undeclared access to the argument list, see `std.cli/args` (the
+//! low-level escape hatch); `Command` is the declarative layer on the same idea.
 
 // --- declarations ---
 
-// A boolean flag. `fallback` is the value reported when the flag is absent
-// (the `default:` builder argument); a `negatable` flag also accepts
-// `--no-<name>`, which reports false.
+/// A boolean flag. `fallback` is the value reported when the flag is absent
+/// (the `default:` builder argument); a `negatable` flag also accepts
+/// `--no-<name>`, which reports false.
 pub type Flag = {
     name: String,
     help: String,
@@ -58,41 +62,41 @@ pub type Flag = {
     fallback: Bool,
 }
 
-// A `--name value` option (carries a string value).
+/// A `--name value` option (carries a string value).
 pub type Opt = {
     name: String,
     help: String,
     abbr: String,
 }
 
-// A positional argument (named for `--help`; read back by index).
+/// A positional argument (named for `--help`; read back by index).
 pub type Positional = {
     name: String,
     help: String,
 }
 
-// A command: its declared flags/options/positionals and any subcommands. Build
-// one with the fluent `Command.new(...).flag(...).option(...)` builder.
+/// A command: its declared flags/options/positionals and any subcommands. Build
+/// one with the fluent `Command.new(...).flag(...).option(...)` builder.
 pub type Command = {
     name: String,
     mut about_text: String,
-    // A longer description, shown only in this command's own `--help` (not in a
-    // parent's command list) — progressive disclosure: the one-line `about` for
-    // the at-a-glance view, the `details` block when you ask for the command.
+    /// A longer description, shown only in this command's own `--help` (not in a
+    /// parent's command list) — progressive disclosure: the one-line `about` for
+    /// the at-a-glance view, the `details` block when you ask for the command.
     mut details_text: String,
     flags: List<Flag>,
     options: List<Opt>,
     positionals: List<Positional>,
     subcommands: List<Command>,
-    // When true, the first positional token (and everything after it, flags
-    // included) is captured verbatim as positionals — for a launcher command
-    // that forwards a trailing argv to a wrapped program (`run <file> [args]`).
+    /// When true, the first positional token (and everything after it, flags
+    /// included) is captured verbatim as positionals — for a launcher command
+    /// that forwards a trailing argv to a wrapped program (`run <file> [args]`).
     mut trailing_var_arg: Bool,
 }
 
-// What `parse` can reject. Implements the common `Error` interface, so a
-// `CliError` can be returned as `Result<_, Error>` at a boundary while callers
-// who want the cause still `match` on it.
+/// What `parse` can reject. Implements the common `Error` interface, so a
+/// `CliError` can be returned as `Result<_, Error>` at a boundary while callers
+/// who want the cause still `match` on it.
 pub enum CliError {
     UnknownFlag(String),        // an undeclared --flag / -x
     MissingValue(String),       // an option given with no value
@@ -111,16 +115,16 @@ impl Error for CliError {
     }
 }
 
-// A concrete `CliError` renders as its message under interpolation / println.
+/// A concrete `CliError` renders as its message under interpolation / println.
 impl Display for CliError {
     pub fn display(self) -> String {
         return self.message();
     }
 }
 
-// The result of a successful parse: resolved flag values, option values,
-// positionals, and (if one was selected) the chosen subcommand and its own
-// `Matches`.
+/// The result of a successful parse: resolved flag values, option values,
+/// positionals, and (if one was selected) the chosen subcommand and its own
+/// `Matches`.
 pub type Matches = {
     flag_values: Map<String, Bool>,
     option_values: Map<String, String>,
@@ -130,7 +134,7 @@ pub type Matches = {
 }
 
 impl Command {
-    // A new command named `name`, with a `--help` / `-h` flag already declared.
+    /// A new command named `name`, with a `--help` / `-h` flag already declared.
     pub fn new(_ name: String) -> Command {
         let c = Command {
             name: name,
@@ -152,22 +156,22 @@ impl Command {
         return c;
     }
 
-    // A one-line description, shown in `help()` and in a parent's command list.
+    /// A one-line description, shown in `help()` and in a parent's command list.
     pub fn about(self, _ text: String) -> Command {
         self.about_text = text;
         return self;
     }
 
-    // A longer description for this command's own `help()` — shown after the
-    // one-line `about` (progressive disclosure). May span multiple lines.
+    /// A longer description for this command's own `help()` — shown after the
+    /// one-line `about` (progressive disclosure). May span multiple lines.
     pub fn details(self, _ text: String) -> Command {
         self.details_text = text;
         return self;
     }
 
-    // Declare a boolean flag (present → true). `abbr` is a single-character
-    // short form (`-a`); `negatable` also accepts `--no-<name>`; `default` is
-    // the value when the flag is absent.
+    /// Declare a boolean flag (present → true). `abbr` is a single-character
+    /// short form (`-a`); `negatable` also accepts `--no-<name>`; `default` is
+    /// the value when the flag is absent.
     pub fn flag(
         self,
         _ name: String,
@@ -186,37 +190,37 @@ impl Command {
         return self;
     }
 
-    // Declare a `--name value` option.
+    /// Declare a `--name value` option.
     pub fn option(self, _ name: String, help: String = '', abbr: String = '') -> Command {
         self.options.push(Opt { name: name, help: help, abbr: abbr });
         return self;
     }
 
-    // Declare a positional argument (named only for `--help`).
+    /// Declare a positional argument (named only for `--help`).
     pub fn positional(self, _ name: String, help: String = '') -> Command {
         self.positionals.push(Positional { name: name, help: help });
         return self;
     }
 
-    // Capture a trailing argv verbatim: once the first positional token is seen,
-    // it and every token after it (including `--flag` / `-x` forms) are collected
-    // as positionals with no further parsing. For a launcher that forwards args to
-    // a wrapped program — `hawk run <file> --flag` passes `--flag` to `<file>`,
-    // no `--` separator needed. The command's own flags must precede the first
-    // positional.
+    /// Capture a trailing argv verbatim: once the first positional token is seen,
+    /// it and every token after it (including `--flag` / `-x` forms) are collected
+    /// as positionals with no further parsing. For a launcher that forwards args to
+    /// a wrapped program — `hawk run <file> --flag` passes `--flag` to `<file>`,
+    /// no `--` separator needed. The command's own flags must precede the first
+    /// positional.
     pub fn trailing_var_arg(self, _ enabled: Bool) -> Command {
         self.trailing_var_arg = enabled;
         return self;
     }
 
-    // Attach a subcommand. When the command has subcommands, the first bare
-    // token selects one and the remaining arguments are parsed under it.
+    /// Attach a subcommand. When the command has subcommands, the first bare
+    /// token selects one and the remaining arguments are parsed under it.
     pub fn subcommand(self, _ cmd: Command) -> Command {
         self.subcommands.push(cmd);
         return self;
     }
 
-    // Parse `args` against this command's declarations.
+    /// Parse `args` against this command's declarations.
     pub fn parse(self, _ args: List<String>) -> Result<Matches, CliError> {
         let m = Matches {
             flag_values: {},
@@ -342,7 +346,7 @@ impl Command {
         return Result.Ok(m);
     }
 
-    // Generate usage text: a header, a usage line, and a section per group.
+    /// Generate usage text: a header, a usage line, and a section per group.
     pub fn help(self) -> String {
         let mut lines: List<String> = [];
         if self.about_text == '' {
@@ -420,8 +424,8 @@ impl Command {
 }
 
 impl Matches {
-    // Whether `name` resolved to true (positive form present, or its default;
-    // a negated `--no-name` and absence both yield the false/default value).
+    /// Whether `name` resolved to true (positive form present, or its default;
+    /// a negated `--no-name` and absence both yield the false/default value).
     pub fn flag(self, _ name: String) -> Bool {
         return match self.flag_values.get(name) {
             Some(v) => v,
@@ -429,27 +433,27 @@ impl Matches {
         };
     }
 
-    // The value given for option `name`, if any.
+    /// The value given for option `name`, if any.
     pub fn option(self, _ name: String) -> Option<String> {
         return self.option_values.get(name);
     }
 
-    // The positional at `index`, if present.
+    /// The positional at `index`, if present.
     pub fn positional(self, _ index: Int) -> Option<String> {
         return self.positional_values.get(index);
     }
 
-    // All positionals, in order.
+    /// All positionals, in order.
     pub fn positionals(self) -> List<String> {
         return self.positional_values;
     }
 
-    // The selected subcommand's name, if one matched.
+    /// The selected subcommand's name, if one matched.
     pub fn subcommand(self) -> Option<String> {
         return self.sub_name;
     }
 
-    // The selected subcommand's own parsed `Matches`, if one matched.
+    /// The selected subcommand's own parsed `Matches`, if one matched.
     pub fn matches(self) -> Option<Matches> {
         return self.sub;
     }
@@ -457,7 +461,7 @@ impl Matches {
 
 // --- internal helpers ---
 
-// `head`, plus `help` padded onto the same line when non-empty.
+/// `head`, plus `help` padded onto the same line when non-empty.
 fn describe(_ head: String, _ help: String) -> String {
     if help == '' {
         return head;
@@ -465,7 +469,7 @@ fn describe(_ head: String, _ help: String) -> String {
     return '${head}    ${help}';
 }
 
-// Index of the flag/option/subcommand named `name`, or -1.
+/// Index of the flag/option/subcommand named `name`, or -1.
 fn flag_index(_ flags: List<Flag>, _ name: String) -> Int {
     let mut i = 0;
     while i < flags.len() {
@@ -499,7 +503,7 @@ fn cmd_index(_ cmds: List<Command>, _ name: String) -> Int {
     return -1;
 }
 
-// Index of the flag/option with abbreviation `abbr` (never the empty abbr).
+/// Index of the flag/option with abbreviation `abbr` (never the empty abbr).
 fn flag_abbr_index(_ flags: List<Flag>, _ abbr: String) -> Int {
     if abbr == '' {
         return -1;

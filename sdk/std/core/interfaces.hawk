@@ -1,24 +1,24 @@
-// std.core interfaces — the fundamental, auto-imported interfaces.
+//! std.core interfaces — the fundamental, auto-imported interfaces.
 
-// Equality comparison. Implemented automatically for all primitive types
-// and derived automatically for structs whose fields all implement Eq.
-// Powers the == and != operators.
+/// Equality comparison. Implemented automatically for all primitive types
+/// and derived automatically for structs whose fields all implement Eq.
+/// Powers the == and != operators.
 pub interface Eq {
     fn eq(self, other: Self) -> Bool;
 }
 
-// User-facing string representation. Used by string interpolation (${})
-// and println. Optional: rendering is total — a value with a `Display` impl
-// renders through it, and one without falls back to its auto-derived `Debug`
-// (so `${x}` works for any value). Implement `Display` to override the default
-// `Debug` rendering with a prettier, user-facing form.
+/// User-facing string representation. Used by string interpolation (${})
+/// and println. Optional: rendering is total — a value with a `Display` impl
+/// renders through it, and one without falls back to its auto-derived `Debug`
+/// (so `${x}` works for any value). Implement `Display` to override the default
+/// `Debug` rendering with a prettier, user-facing form.
 pub interface Display {
     fn display(self) -> String;
 }
 
-// Developer-facing string representation. Used by assertion failure
-// messages, logging, and diagnostic output. Auto-derived for structs;
-// the default shows all field names and values. Can be overridden.
+/// Developer-facing string representation. Used by assertion failure
+/// messages, logging, and diagnostic output. Auto-derived for structs;
+/// the default shows all field names and values. Can be overridden.
 pub interface Debug {
     fn debug(self) -> String;
 }

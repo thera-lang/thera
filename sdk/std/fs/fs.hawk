@@ -1,16 +1,18 @@
-// std.fs — filesystem access: whole-value reads/writes, directory listing, and
-// metadata. Streaming files (`open`/`create` → a `File: Reader+Writer+Seek+
-// Closer`), recursive `walk`, and `temp_file` are a planned v2 (see
-// docs/stdlib.md).
-//
-// Import as: import std.fs
-//
-//   let text = fs.read_text('config.json')?;
-//   for name in fs.list_dir('.')? { ... }
-//
-// Paths are plain `String`s (compose with `std.path`); directory entries are
-// basenames. Every fallible call returns `Result<_, FsError>`, a per-domain
-// error you can `match` on (and which implements the common `Error`).
+//! std.fs — filesystem access: whole-value reads/writes, directory listing, and
+//! metadata. Streaming files (`open`/`create` → a `File: Reader+Writer+Seek+
+//! Closer`), recursive `walk`, and `temp_file` are a planned v2 (see
+//! docs/stdlib.md).
+//!
+//! Import as: import std.fs
+//!
+//! ```hawk
+//! let text = fs.read_text('config.json')?;
+//! for name in fs.list_dir('.')? { ... }
+//! ```
+//!
+//! Paths are plain `String`s (compose with `std.path`); directory entries are
+//! basenames. Every fallible call returns `Result<_, FsError>`, a per-domain
+//! error you can `match` on (and which implements the common `Error`).
 
 // --- errors ---
 
@@ -127,7 +129,7 @@ native fn _rename(_ src: String, _ dst: String) -> Result<Void, String>
 @extern('fs_copy')
 native fn _copy(_ src: String, _ dst: String) -> Result<Void, String>
 
-// These two never fail.
+/// These two never fail.
 @extern('fs_exists')
 pub native fn exists(_ path: String) -> Bool
 
@@ -136,7 +138,7 @@ pub native fn temp_dir() -> String
 
 // --- whole-value reads & writes ---
 
-// Read an entire file as a UTF-8 string.
+/// Read an entire file as a UTF-8 string.
 pub fn read_text(_ path: String) -> Result<String, FsError> {
     return match _read_text(path) {
         Ok(s) => Result.Ok(s),
@@ -144,7 +146,7 @@ pub fn read_text(_ path: String) -> Result<String, FsError> {
     };
 }
 
-// Write `text` to a file, creating it or replacing its contents.
+/// Write `text` to a file, creating it or replacing its contents.
 pub fn write_text(_ path: String, _ text: String) -> Result<Void, FsError> {
     return match _write_text(path, text) {
         Ok(_) => Result.Ok(void),
@@ -152,7 +154,7 @@ pub fn write_text(_ path: String, _ text: String) -> Result<Void, FsError> {
     };
 }
 
-// Read an entire file as raw bytes.
+/// Read an entire file as raw bytes.
 pub fn read_bytes(_ path: String) -> Result<Bytes, FsError> {
     return match _read_bytes(path) {
         Ok(b) => Result.Ok(b),
@@ -160,7 +162,7 @@ pub fn read_bytes(_ path: String) -> Result<Bytes, FsError> {
     };
 }
 
-// Write raw bytes to a file, creating it or replacing its contents.
+/// Write raw bytes to a file, creating it or replacing its contents.
 pub fn write_bytes(_ path: String, _ data: Bytes) -> Result<Void, FsError> {
     return match _write_bytes(path, data) {
         Ok(_) => Result.Ok(void),
@@ -170,7 +172,7 @@ pub fn write_bytes(_ path: String, _ data: Bytes) -> Result<Void, FsError> {
 
 // --- metadata & directories ---
 
-// Metadata for the file or directory at `path` (follows symlinks).
+/// Metadata for the file or directory at `path` (follows symlinks).
 pub fn metadata(_ path: String) -> Result<Metadata, FsError> {
     return match _metadata(path) {
         Ok(fields) => Result.Ok(Metadata {
@@ -182,8 +184,8 @@ pub fn metadata(_ path: String) -> Result<Metadata, FsError> {
     };
 }
 
-// The entry basenames within a directory (not full paths, in no guaranteed
-// order). Join with `path.join(dir, name)` to descend.
+/// The entry basenames within a directory (not full paths, in no guaranteed
+/// order). Join with `path.join(dir, name)` to descend.
 pub fn list_dir(_ path: String) -> Result<List<String>, FsError> {
     return match _list_dir(path) {
         Ok(names) => Result.Ok(names),
@@ -191,7 +193,7 @@ pub fn list_dir(_ path: String) -> Result<List<String>, FsError> {
     };
 }
 
-// Create a single directory; the parent must already exist.
+/// Create a single directory; the parent must already exist.
 pub fn create_dir(_ path: String) -> Result<Void, FsError> {
     return match _create_dir(path) {
         Ok(_) => Result.Ok(void),
@@ -199,7 +201,7 @@ pub fn create_dir(_ path: String) -> Result<Void, FsError> {
     };
 }
 
-// Create a directory and any missing parents (like `mkdir -p`).
+/// Create a directory and any missing parents (like `mkdir -p`).
 pub fn create_dir_all(_ path: String) -> Result<Void, FsError> {
     return match _create_dir_all(path) {
         Ok(_) => Result.Ok(void),
@@ -209,7 +211,7 @@ pub fn create_dir_all(_ path: String) -> Result<Void, FsError> {
 
 // --- mutations ---
 
-// Remove a file or an empty directory. Use `remove_dir_all` for a non-empty one.
+/// Remove a file or an empty directory. Use `remove_dir_all` for a non-empty one.
 pub fn remove(_ path: String) -> Result<Void, FsError> {
     return match _remove(path) {
         Ok(_) => Result.Ok(void),
@@ -217,7 +219,7 @@ pub fn remove(_ path: String) -> Result<Void, FsError> {
     };
 }
 
-// Remove a directory and everything inside it, recursively.
+/// Remove a directory and everything inside it, recursively.
 pub fn remove_dir_all(_ path: String) -> Result<Void, FsError> {
     return match _remove_dir_all(path) {
         Ok(_) => Result.Ok(void),
@@ -225,7 +227,7 @@ pub fn remove_dir_all(_ path: String) -> Result<Void, FsError> {
     };
 }
 
-// Rename (move) a file or directory.
+/// Rename (move) a file or directory.
 pub fn rename(from src: String, to dst: String) -> Result<Void, FsError> {
     return match _rename(src, dst) {
         Ok(_) => Result.Ok(void),
@@ -233,7 +235,7 @@ pub fn rename(from src: String, to dst: String) -> Result<Void, FsError> {
     };
 }
 
-// Copy a file's contents to a new path.
+/// Copy a file's contents to a new path.
 pub fn copy(from src: String, to dst: String) -> Result<Void, FsError> {
     return match _copy(src, dst) {
         Ok(_) => Result.Ok(void),

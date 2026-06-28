@@ -1,8 +1,8 @@
-// std.core — the prelude, automatically imported into every file. Its public
-// symbols are available unqualified everywhere.
-//
-// This is a barrel: it only re-exports its sibling files (see
-// docs/language.md), it defines no symbols of its own.
+//! std.core — the prelude, automatically imported into every file. Its public
+//! symbols are available unqualified everywhere.
+//!
+//! This is a barrel: it only re-exports its sibling files (see
+//! docs/language.md), it defines no symbols of its own.
 
 pub import 'interfaces';   // Eq, Display, Debug
 pub import 'ordering';     // Ordering, Ord (total ordering)

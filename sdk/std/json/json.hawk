@@ -1,30 +1,32 @@
-// std.json — parse and serialize JSON.
-//
-// Import as: import std.json
-//
-// The structural `Json` value models any JSON document; `parse` reads text into
-// one and `stringify` writes it back. A typed `decode<T>`/`encode<T>` (struct ↔
-// JSON) awaits the reflection arc — until then, `Json` plus the lowercase
-// constructors (`json.obj`, `json.int`, …) are how you build values.
-//
-//   // Decode + navigate:
-//   let root = json.parse(text)?;
-//   let name = root.get('user').get('name').as_string().unwrap_or('?');
-//
-//   // Encode (each leaf wrapped — Hawk has no heterogeneous literal):
-//   let doc = json.obj({
-//       'name': json.str('build'),
-//       'tags': json.arr([json.str('a'), json.str('b')]),
-//       'count': json.int(3),
-//   });
-//   let text = json.stringify(doc, pretty: true);
-//
-// Implementation: a hand-written scanner + recursive-descent parser, pure Hawk.
+//! std.json — parse and serialize JSON.
+//!
+//! Import as: import std.json
+//!
+//! The structural `Json` value models any JSON document; `parse` reads text into
+//! one and `stringify` writes it back. A typed `decode<T>`/`encode<T>` (struct ↔
+//! JSON) awaits the reflection arc — until then, `Json` plus the lowercase
+//! constructors (`json.obj`, `json.int`, …) are how you build values.
+//!
+//! ```hawk
+//! // Decode + navigate:
+//! let root = json.parse(text)?;
+//! let name = root.get('user').get('name').as_string().unwrap_or('?');
+//!
+//! // Encode (each leaf wrapped — Hawk has no heterogeneous literal):
+//! let doc = json.obj({
+//!     'name': json.str('build'),
+//!     'tags': json.arr([json.str('a'), json.str('b')]),
+//!     'count': json.int(3),
+//! });
+//! let text = json.stringify(doc, pretty: true);
+//! ```
+//!
+//! Implementation: a hand-written scanner + recursive-descent parser, pure Hawk.
 
 import std.char;
 
-// The structural JSON value. `Int` and `Double` are split (rather than a single
-// number) so integers round-trip exactly and construct cleanly as `json.int(n)`.
+/// The structural JSON value. `Int` and `Double` are split (rather than a single
+/// number) so integers round-trip exactly and construct cleanly as `json.int(n)`.
 pub enum Json {
     Null,
     Bool(Bool),
@@ -35,7 +37,7 @@ pub enum Json {
     Object(Map<String, Json>),    // insertion-ordered → stringify is stable
 }
 
-// What `parse` can reject. A domain error: implements the common `Error`.
+/// What `parse` can reject. A domain error: implements the common `Error`.
 pub enum JsonError {
     Syntax(String),    // a message including the offending line/column
 }
@@ -87,8 +89,8 @@ pub fn obj(_ fields: Map<String, Json>) -> Json {
 // --- accessors ---
 
 impl Json {
-    // An object field by key (Null if not an object or the key is absent). Null
-    // -on-miss keeps navigation chainable: `j.get('a').get('b').as_int()`.
+    /// An object field by key (Null if not an object or the key is absent). Null
+    /// -on-miss keeps navigation chainable: `j.get('a').get('b').as_int()`.
     pub fn get(self, _ key: String) -> Json {
         return match self {
             Object(m) => match m.get(key) {
@@ -99,7 +101,7 @@ impl Json {
         };
     }
 
-    // An array element by index (Null if not an array or out of range).
+    /// An array element by index (Null if not an array or out of range).
     pub fn at(self, _ index: Int) -> Json {
         return match self {
             Array(items) => match items.get(index) {
@@ -117,7 +119,7 @@ impl Json {
         };
     }
 
-    // The number as an Int — for an `Int`, or a `Double` with no fractional part.
+    /// The number as an Int — for an `Int`, or a `Double` with no fractional part.
     pub fn as_int(self) -> Option<Int> {
         return match self {
             Int(n) => Option.Some(n),
@@ -126,7 +128,7 @@ impl Json {
         };
     }
 
-    // The number as a Double — for a `Double`, or an `Int` widened.
+    /// The number as a Double — for a `Double`, or an `Int` widened.
     pub fn as_double(self) -> Option<Double> {
         return match self {
             Double(x) => Option.Some(x),
@@ -171,7 +173,7 @@ fn int_if_integral(_ x: Double) -> Option<Int> {
 
 // --- parsing ---
 
-// A cursor over the input's code points.
+/// A cursor over the input's code points.
 type Scanner = {
     chars: List<Int>,
     mut pos: Int,
@@ -190,7 +192,7 @@ pub fn parse(_ text: String) -> Result<Json, JsonError> {
 }
 
 impl Scanner {
-    // The current code point, or -1 at end of input.
+    /// The current code point, or -1 at end of input.
     fn peek(self) -> Int {
         if self.pos >= self.len {
             return -1;
@@ -210,7 +212,7 @@ impl Scanner {
         return void;
     }
 
-    // Advance past a run of ASCII digits.
+    /// Advance past a run of ASCII digits.
     fn skip_digits(self) -> Void {
         let mut going = true;
         while going {
@@ -227,7 +229,7 @@ impl Scanner {
         return JsonError.Syntax('${msg} at ${self.position()}');
     }
 
-    // A human-readable line/column for the current position.
+    /// A human-readable line/column for the current position.
     fn position(self) -> String {
         let mut line = 1;
         let mut col = 1;
@@ -244,7 +246,7 @@ impl Scanner {
         return 'line ${line} col ${col}';
     }
 
-    // True (and consumes) if the upcoming code points spell `lit`.
+    /// True (and consumes) if the upcoming code points spell `lit`.
     fn match_literal(self, _ lit: String) -> Bool {
         let want = lit.chars();
         let mut i = 0;
@@ -354,7 +356,7 @@ impl Scanner {
         return Result.Ok(Json.Object(fields));
     }
 
-    // The current char is the opening quote.
+    /// The current char is the opening quote.
     fn parse_string(self) -> Result<String, JsonError> {
         self.pos = self.pos + 1; // consume opening '"'
         let mut out: List<Int> = [];
@@ -380,7 +382,7 @@ impl Scanner {
         return Result.Ok(String.from_chars(out));
     }
 
-    // Decode one escape sequence (the '\' is already consumed) into `out`.
+    /// Decode one escape sequence (the '\' is already consumed) into `out`.
     fn parse_escape(self, _ out: List<Int>) -> Result<Void, JsonError> {
         if self.pos >= self.len {
             return Result.Err(self.syntax('unterminated escape'));
@@ -412,8 +414,8 @@ impl Scanner {
         return Result.Ok(void);
     }
 
-    // A `\uXXXX` (the `\u` already consumed), combining a surrogate pair into a
-    // single astral code point when one follows.
+    /// A `\uXXXX` (the `\u` already consumed), combining a surrogate pair into a
+    /// single astral code point when one follows.
     fn parse_unicode_escape(self) -> Result<Int, JsonError> {
         let hi = self.parse_hex4()?;
         // A high surrogate (U+D800..U+DBFF) must pair with a low surrogate.
@@ -457,8 +459,8 @@ impl Scanner {
         return Result.Ok(value);
     }
 
-    // number = '-'? int frac? exp?  (RFC 8259); leading zeros are rejected, as
-    // are a bare '.'/'e' without the digits the grammar requires.
+    /// number = '-'? int frac? exp?  (RFC 8259); leading zeros are rejected, as
+    /// are a bare '.'/'e' without the digits the grammar requires.
     fn parse_number(self) -> Result<Json, JsonError> {
         let start = self.pos;
         let mut is_double = false;
@@ -521,7 +523,7 @@ impl Scanner {
     }
 }
 
-// The hex value of an ASCII hex digit, or -1.
+/// The hex value of an ASCII hex digit, or -1.
 fn hex_value(_ c: Int) -> Int {
     if char.is_digit(c) {
         return c - char.DIGIT_0;
@@ -616,7 +618,7 @@ fn write_object(_ fields: Map<String, Json>, _ pretty: Bool, _ indent: Int, _ ou
     return void;
 }
 
-// A JSON string literal: `s` escaped and double-quoted.
+/// A JSON string literal: `s` escaped and double-quoted.
 fn quote(_ s: String) -> String {
     let cps = s.chars();
     let mut out: List<Int> = [];
@@ -662,7 +664,7 @@ fn quote(_ s: String) -> String {
     return String.from_chars(out);
 }
 
-// The ASCII code of the hex digit for 0..15.
+/// The ASCII code of the hex digit for 0..15.
 fn hex_char(_ n: Int) -> Int {
     if n < 10 {
         return char.DIGIT_0 + n;

@@ -1,23 +1,25 @@
-// std.core — the built-in List<T> type's higher-order methods, written in Hawk.
-//
-// List<T> is a built-in, growable sequence: always in scope, never explicitly
-// imported (there is no `import std.list`). It is not constructed via a struct
-// literal — build one with a list literal, `[a, b, c]`.
-//
-// `.len()`, `.get(i)`, `.push(v)`, and `.join(sep)` are declared below as
-// `native fn`s backed by runtime natives; indexing (`xs[i]`) is built-in syntax.
-// The transforms further down are ordinary Hawk methods that take a closure and
-// are compiled like any other code — the payoff of closures (see
-// examples/closures.hawk, docs/bytecode.md).
-//
-//   let evens = [1, 2, 3, 4].filter(n => n % 2 == 0);   // [2, 4]
-//   let names = users.map(u => u.name);
-//
-// `sort` takes an explicit comparator (`less`); a no-argument `sort()` keyed on
-// a built-in `Ord` interface waits on that interface landing.
+//! std.core — the built-in List<T> type's higher-order methods, written in Hawk.
+//!
+//! List<T> is a built-in, growable sequence: always in scope, never explicitly
+//! imported (there is no `import std.list`). It is not constructed via a struct
+//! literal — build one with a list literal, `[a, b, c]`.
+//!
+//! `.len()`, `.get(i)`, `.push(v)`, and `.join(sep)` are declared below as
+//! `native fn`s backed by runtime natives; indexing (`xs[i]`) is built-in syntax.
+//! The transforms further down are ordinary Hawk methods that take a closure and
+//! are compiled like any other code — the payoff of closures (see
+//! examples/closures.hawk, docs/bytecode.md).
+//!
+//! ```hawk
+//! let evens = [1, 2, 3, 4].filter(n => n % 2 == 0);   // [2, 4]
+//! let names = users.map(u => u.name);
+//! ```
+//!
+//! `sort` takes an explicit comparator (`less`); a no-argument `sort()` keyed on
+//! a built-in `Ord` interface waits on that interface landing.
 
-// The built-in growable sequence type — an opaque, runtime-represented value
-// (no struct layout); a list literal (`[a, b, c]`) constructs one.
+/// The built-in growable sequence type — an opaque, runtime-represented value
+/// (no struct layout); a list literal (`[a, b, c]`) constructs one.
 pub native type List<T>
 
 impl List<T> {
@@ -35,30 +37,30 @@ impl List<T> {
     // out-of-range index traps. (Indexing isn't an overloadable interface yet;
     // this documents the contract the compiler implements for `List`.)
 
-    // Number of elements.
+    /// Number of elements.
     @extern('list_len')
     pub native fn len(self) -> Int
 
-    // The element at `i`, or None if out of range — the checked alternative to
-    // indexing with `[]`.
+    /// The element at `i`, or None if out of range — the checked alternative to
+    /// indexing with `[]`.
     @extern('list_get')
     pub native fn get(self, _ i: Int) -> Option<T>
 
-    // Join the elements (rendered via Display) with `sep` between them.
+    /// Join the elements (rendered via Display) with `sep` between them.
     @extern('list_join')
     pub native fn join(self, _ sep: String) -> String
 
-    // Append `item` to the end, in place.
+    /// Append `item` to the end, in place.
     @extern('list_push')
     pub native fn push(self, _ item: T) -> Void
 
-    // True if the list has no elements.
+    /// True if the list has no elements.
     pub fn is_empty(self) -> Bool {
         return self.len() == 0;
     }
 
-    // The first / last element, or None if the list is empty — the checked
-    // alternative to `xs[0]` / `xs[xs.len() - 1]`.
+    /// The first / last element, or None if the list is empty — the checked
+    /// alternative to `xs[0]` / `xs[xs.len() - 1]`.
     pub fn first(self) -> Option<T> {
         return self.get(0);
     }
@@ -67,7 +69,7 @@ impl List<T> {
         return self.get(self.len() - 1);
     }
 
-    // True if `item` is equal (`==`) to some element.
+    /// True if `item` is equal (`==`) to some element.
     pub fn contains(self, _ item: T) -> Bool {
         for x in self {
             if x == item {
@@ -77,7 +79,7 @@ impl List<T> {
         return false;
     }
 
-    // The index of the first element equal to `item`, or None if absent.
+    /// The index of the first element equal to `item`, or None if absent.
     pub fn index_of(self, _ item: T) -> Option<Int> {
         let mut i = 0;
         let n = self.len();
@@ -90,7 +92,7 @@ impl List<T> {
         return Option.None;
     }
 
-    // A new list with the elements in reverse order.
+    /// A new list with the elements in reverse order.
     pub fn reverse(self) -> List<T> {
         let result = [];
         let mut i = self.len() - 1;
@@ -101,13 +103,15 @@ impl List<T> {
         return result;
     }
 
-    // A new list with the elements ordered by `less` — `less(a, b)` is true when
-    // `a` should come before `b`. The sort is **stable** (equal elements keep
-    // their input order) and runs in O(n log n) via a bottom-up merge.
-    //
-    //   names.sort((a, b) => a < b);          // ascending
-    //   nums.sort((a, b) => b < a);           // descending
-    //   people.sort((a, b) => a.age < b.age); // by a field
+    /// A new list with the elements ordered by `less` — `less(a, b)` is true when
+    /// `a` should come before `b`. The sort is **stable** (equal elements keep
+    /// their input order) and runs in O(n log n) via a bottom-up merge.
+    ///
+    /// ```hawk
+    /// names.sort((a, b) => a < b);          // ascending
+    /// nums.sort((a, b) => b < a);           // descending
+    /// people.sort((a, b) => a.age < b.age); // by a field
+    /// ```
     pub fn sort(self, _ less: (T, T) -> Bool) -> List<T> {
         // Bottom-up merge sort over a working copy; `less` decides order and a
         // `!less(right, left)` tie-break (take the left first) keeps it stable.
@@ -148,7 +152,7 @@ impl List<T> {
         return src;
     }
 
-    // A new list with `f` applied to each element, in order.
+    /// A new list with `f` applied to each element, in order.
     pub fn map<U>(self, _ f: (T) -> U) -> List<U> {
         let result = [];
         for item in self {
@@ -157,7 +161,7 @@ impl List<T> {
         return result;
     }
 
-    // A new list of the elements for which `keep` returns true, in order.
+    /// A new list of the elements for which `keep` returns true, in order.
     pub fn filter(self, _ keep: (T) -> Bool) -> List<T> {
         let result = [];
         for item in self {
@@ -168,10 +172,12 @@ impl List<T> {
         return result;
     }
 
-    // Reduce the list to a single value: start from `initial` and fold each
-    // element in with `combine`, left to right.
-    //
-    //   let sum = nums.fold(0, (acc, n) => acc + n);
+    /// Reduce the list to a single value: start from `initial` and fold each
+    /// element in with `combine`, left to right.
+    ///
+    /// ```hawk
+    /// let sum = nums.fold(0, (acc, n) => acc + n);
+    /// ```
     pub fn fold<A>(self, _ initial: A, _ combine: (A, T) -> A) -> A {
         let mut acc = initial;
         for item in self {
@@ -180,11 +186,13 @@ impl List<T> {
         return acc;
     }
 
-    // A new list of the elements in the half-open range `[start, end)`. Indices
-    // are clamped to the list's bounds, so out-of-range or reversed ranges yield
-    // a shorter or empty list rather than an error.
-    //
-    //   [10, 20, 30, 40].slice(1, 3)   // [20, 30]
+    /// A new list of the elements in the half-open range `[start, end)`. Indices
+    /// are clamped to the list's bounds, so out-of-range or reversed ranges yield
+    /// a shorter or empty list rather than an error.
+    ///
+    /// ```hawk
+    /// [10, 20, 30, 40].slice(1, 3)   // [20, 30]
+    /// ```
     pub fn slice(self, _ start: Int, _ end: Int) -> List<T> {
         let lo = start.clamp(0, self.len());
         let hi = end.clamp(0, self.len());
@@ -199,9 +207,9 @@ impl List<T> {
 }
 
 impl Display for List<T> {
-    // `[a, b, c]` — each element rendered via `Debug`, so nested strings are
-    // quoted (`["a", "b"]`), matching mainstream collection printing. (Empty
-    // list: `[]`.)
+    /// `[a, b, c]` — each element rendered via `Debug`, so nested strings are
+    /// quoted (`["a", "b"]`), matching mainstream collection printing. (Empty
+    /// list: `[]`.)
     fn display(self) -> String {
         let mut s = '[';
         let mut first = true;

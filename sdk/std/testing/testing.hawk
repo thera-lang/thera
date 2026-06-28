@@ -1,9 +1,9 @@
-// std.testing — assertions and test doubles for *_test.hawk files.
-//
-// Import as: import std.testing
-//
-// This is a barrel: it only re-exports its sibling files (see
-// docs/language.md), it defines no symbols of its own.
+//! std.testing — assertions and test doubles for *_test.hawk files.
+//!
+//! Import as: import std.testing
+//!
+//! This is a barrel: it only re-exports its sibling files (see
+//! docs/language.md), it defines no symbols of its own.
 
 pub import 'assert';   // assert, assert_eq, assert_ne, assert_ok, assert_err
 pub import 'clock';    // fixed_clock — a deterministic time.Clock double
