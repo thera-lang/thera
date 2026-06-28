@@ -154,8 +154,10 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("map_keys", native_map_keys),
     ("map_values", native_map_values),
     ("map_remove", native_map_remove),
+    ("map_clear", native_map_clear),
     ("list_join", native_list_join),
     ("list_push", native_list_push),
+    ("list_clear", native_list_clear),
     ("process_run", native_process_run),
     ("process_exec", native_process_exec),
     ("process_start", native_process_start),
@@ -827,6 +829,14 @@ fn native_map_remove(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap
             Some(pos) => Ok(Value::some(entries.remove(pos).1)),
             None => Ok(Value::none()),
         }
+    })
+}
+
+/// `map.clear()` — remove every entry, in place. Returns Unit.
+fn native_map_clear(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    with_map_mut(expect_one(args, "map.clear")?, "map.clear", |entries| {
+        entries.clear();
+        Ok(Value::Unit)
     })
 }
 
@@ -1626,6 +1636,14 @@ fn native_list_push(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap>
     let (list, val) = args2(args, "list push")?;
     with_list_mut(list, "list push", |items| {
         items.push(*val);
+        Ok(Value::Unit)
+    })
+}
+
+/// `list.clear()` — remove every element, in place. Returns Unit.
+fn native_list_clear(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    with_list_mut(expect_one(args, "list.clear")?, "list.clear", |items| {
+        items.clear();
         Ok(Value::Unit)
     })
 }

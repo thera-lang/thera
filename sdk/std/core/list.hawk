@@ -54,6 +54,10 @@ impl List<T> {
     @extern('list_push')
     pub native fn push(self, _ item: T) -> Void
 
+    /// Remove every element, in place (the list becomes empty; same reference).
+    @extern('list_clear')
+    pub native fn clear(self) -> Void
+
     /// True if the list has no elements.
     pub fn is_empty(self) -> Bool {
         return self.len() == 0;

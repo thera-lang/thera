@@ -63,3 +63,17 @@ fn test_keys_values_keep_insertion_order() -> Result<Void, Error> {
     testing.assert_eq(actual: m.values(), expected: [10, 20, 30])?;
     return Result.Ok(void);
 }
+
+@test
+fn test_clear_empties_in_place() -> Result<Void, Error> {
+    let mut m = {'a': 1, 'b': 2, 'c': 3};
+    let alias = m;            // same underlying map (reference type)
+    m.clear();
+    testing.assert(m.is_empty())?;
+    testing.assert_eq(actual: m.len(), expected: 0)?;
+    testing.assert(!m.has('a'))?;
+    testing.assert(alias.is_empty(), message: 'clear is observed through an alias')?;
+    m['x'] = 9;              // still usable after clearing
+    testing.assert_eq(actual: m.get('x'), expected: Option.Some(9))?;
+    return Result.Ok(void);
+}

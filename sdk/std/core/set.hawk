@@ -42,6 +42,11 @@ impl Set<T> {
         return self.items.remove(value).is_some();
     }
 
+    /// Remove every element, in place (the set becomes empty; same reference).
+    pub fn clear(self) -> Void {
+        self.items.clear();
+    }
+
     /// Number of elements.
     pub fn len(self) -> Int {
         return self.items.len();

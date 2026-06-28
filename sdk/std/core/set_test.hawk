@@ -63,3 +63,17 @@ fn test_works_with_strings() -> Result<Void, Error> {
     testing.assert(seen.has('y'))?;
     return Result.Ok(void);
 }
+
+@test
+fn test_clear_empties_in_place() -> Result<Void, Error> {
+    let s = Set.from([1, 2, 3]);
+    let alias = s;            // same underlying set (reference type)
+    s.clear();
+    testing.assert(s.is_empty())?;
+    testing.assert_eq(actual: s.len(), expected: 0)?;
+    testing.assert(!s.has(1))?;
+    testing.assert(alias.is_empty(), message: 'clear is observed through an alias')?;
+    s.add(8);                // still usable after clearing
+    testing.assert(s.has(8))?;
+    return Result.Ok(void);
+}

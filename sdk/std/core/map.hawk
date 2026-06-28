@@ -67,6 +67,10 @@ impl Map<K, V> {
     @extern('map_remove')
     pub native fn remove(self, _ key: K) -> Option<V>
 
+    /// Remove every entry, in place (the map becomes empty; same reference).
+    @extern('map_clear')
+    pub native fn clear(self) -> Void
+
     /// Keys / values, in insertion order.
     @extern('map_keys')
     pub native fn keys(self) -> List<K>
