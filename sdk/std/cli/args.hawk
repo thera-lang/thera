@@ -4,7 +4,7 @@
 //! positional/flag access:
 //!
 //! ```hawk
-//! import std.args;
+//! import std.cli;
 //!
 //! fn main(parameters: List<String>) -> Result<Int, Error> {
 //!     let args = Args.new(parameters);
