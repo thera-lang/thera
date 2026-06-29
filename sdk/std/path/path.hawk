@@ -188,3 +188,116 @@ pub fn with_extension(_ path: String, _ ext: String) -> String {
 pub fn is_absolute(_ path: String) -> Bool {
     return path.starts_with('/');
 }
+
+/// Lexically clean a path: collapse repeated `/`, drop `.`, and resolve each `..`
+/// against the preceding component — **purely on the string**, so symlinks are
+/// not followed and the filesystem is never consulted. A leading `/` is
+/// preserved; a `..` at the root of an absolute path is dropped (you cannot climb
+/// above `/`), while a leading `..` in a relative path is kept. A path that
+/// reduces to nothing (including the empty path) normalizes to `.`.
+///
+/// ```hawk
+/// path.normalize('a/./b/../c')   // 'a/c'
+/// path.normalize('/usr/../bin')  // '/bin'
+/// path.normalize('a/../../b')    // '../b'
+/// path.normalize('/..')          // '/'
+/// path.normalize('')             // '.'
+/// ```
+pub fn normalize(_ path: String) -> String {
+    let is_abs = is_absolute(path);
+    let parts = components(path);
+    let mut stack: List<String> = [];
+    let mut i = 0;
+    while i < parts.len() {
+        let part = parts[i];
+        i = i + 1;
+        if part.is_empty() || part == '.' {
+            // Root marker or current-dir element — drop (the root is re-added below).
+        } else if part == '..' {
+            if stack.len() > 0 && stack[stack.len() - 1] != '..' {
+                // Cancel the preceding real component.
+                stack = stack.slice(0, stack.len() - 1);
+            } else if !is_abs {
+                // Relative path: a `..` with nothing to cancel is kept as-is.
+                stack.push('..');
+            }
+            // Absolute path with nothing to cancel: drop (cannot climb above '/').
+        } else {
+            stack.push(part);
+        }
+    }
+    let body = stack.join('/');
+    if is_abs {
+        return '/${body}';   // '' body → '/', the root
+    }
+    if body.is_empty() {
+        return '.';
+    }
+    return body;
+}
+
+/// The relative path that, joined onto `from`, names the same location as `to`
+/// (both are [normalize]d first; no filesystem access). Returns `.` when they are
+/// the same location, and emits `..` segments to climb out of `from` as needed.
+///
+/// **Errors:** returns `Err` when the two cannot be related lexically — one is
+/// absolute and the other relative, or `from` keeps a leading `..` that `to` does
+/// not share (so the climb-out is undefined).
+///
+/// ```hawk
+/// path.relative(from: '/a/b', to: '/a/c')     // Ok('../c')
+/// path.relative(from: '/a', to: '/a/b/c')     // Ok('b/c')
+/// path.relative(from: 'x/y', to: 'x/y')       // Ok('.')
+/// ```
+pub fn relative(from base: String, to target: String) -> Result<String, Error> {
+    let b = normalize(base);
+    let t = normalize(target);
+    if b == t {
+        return Result.Ok('.');
+    }
+    if is_absolute(b) != is_absolute(t) {
+        return Result.Err(error('cannot make `${target}` relative to `${base}`: '
+            + 'one is absolute, the other relative'));
+    }
+    let bc = path_parts(b);
+    let tc = path_parts(t);
+    // Walk past the shared leading components.
+    let mut i = 0;
+    while i < bc.len() && i < tc.len() && bc[i] == tc[i] {
+        i = i + 1;
+    }
+    // A `..` remaining in `from` at the point of divergence can't be backed out of
+    // (we don't know what it referred to).
+    if i < bc.len() && bc[i] == '..' {
+        return Result.Err(error('cannot make `${target}` relative to `${base}`'));
+    }
+    // One `..` per remaining `from` component, then the remaining `to` components.
+    let out: List<String> = [];
+    let mut j = i;
+    while j < bc.len() {
+        out.push('..');
+        j = j + 1;
+    }
+    let mut k = i;
+    while k < tc.len() {
+        out.push(tc[k]);
+        k = k + 1;
+    }
+    if out.len() == 0 {
+        return Result.Ok('.');
+    }
+    return Result.Ok(out.join('/'));
+}
+
+/// A normalized path's components without the absolute-root marker, and with a
+/// lone `.` treated as no components — the form [relative] diffs.
+fn path_parts(_ p: String) -> List<String> {
+    if p == '.' {
+        return [];
+    }
+    let cs = components(p);
+    if cs.len() > 0 && cs[0].is_empty() {
+        return cs.slice(1, cs.len());
+    }
+    return cs;
+}

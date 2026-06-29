@@ -323,6 +323,8 @@ and `with_extension`.
 pub fn join(_ base: String, _ part: String) -> String;  // absolute `part` wins
 pub fn components(_ path: String) -> List<String>;
 pub fn with_extension(_ path: String, _ ext: String) -> String;
+pub fn normalize(_ path: String) -> String;             // lexical clean (`.`/`..`/`//`)
+pub fn relative(from base: String, to target: String) -> Result<String, Error>;
 // + dirname / basename / stem / extension / is_absolute
 ```
 
@@ -330,8 +332,9 @@ Slash-based (POSIX-style, like Go's `path`): `'/'` is always the separator. OS
 -aware handling — Windows `\`, drive letters, and a platform separator (which
 can't be a compile-time `const`; it needs native backing plus a **module
 initializer** to compute it once, [module_init.md](module_init.md)) — is a
-deliberate future task. Also deferred: `normalize` (collapse `./` `../`), `relative`, and a
-variadic `join`.
+deliberate future task. `normalize` (Go `path.Clean`) and `relative` (Go
+`filepath.Rel`; `Result`, since mixed absolute/relative inputs can't be related)
+are in; a variadic `join` is the remaining deferred item.
 
 ### `std.env` — environment & process info _(implemented)_
 
@@ -1063,7 +1066,7 @@ dependency graph, so future work lands in the right order:
 | std.io       | done    | v1: `Reader`/`Writer`/`Closer` + `IoError`, `read_all`/`copy`, stdin/stdout/stderr, `StringWriter`; `lines`/`Iterator` + streaming files deferred                                                                                   |
 | std.iter     | done    | v1: `Iterator<T>` (prelude) + `range`/`from_list` sources + `collect`/`count`; `for x in it` drives any iterator; adapters (`map`/`filter`/`take`) deferred                                                                         |
 | std.fs       | done    | v1: read/write text+bytes, exists, metadata, list_dir, create_dir(\_all), remove(\_dir_all), rename, copy, temp_dir; classified `FsError`; streaming `File`/`open`/`walk`/`temp_file` deferred to v2                                |
-| std.path     | done    | pure Hawk; `components`/`with_extension` added; normalize/relative deferred                                                                                                                                                         |
+| std.path     | done    | pure Hawk; `components`/`with_extension`/`normalize`/`relative` in (lexical, slash-based); variadic `join` + OS-aware separator deferred                                                                                              |
 | std.env      | done    | vars/args/cwd/os/exit + `Env` capability + `testing.fixed_env`; `OS`→`os()`                                                                                                                                                         |
 | std.process  | done    | `run` (capture) / `exec` (inherit stdio, exit code) / `start`; pipes are `std.io` `Reader`/`Writer` (+ `close_stdin`); classified `ProcessError`                                                                                     |
 | std.time     | done    | wall + monotonic clocks, `Duration`/`Instant` (nanos), `DateTime` (Unix ms UTC) + RFC 3339 format/parse, `sleep`; `Clock` capability + `testing.fixed_clock`                                                                        |

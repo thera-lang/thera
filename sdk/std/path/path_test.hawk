@@ -72,6 +72,50 @@ fn test_is_absolute() -> Result<Void, Error> {
 }
 
 @test
+fn test_normalize() -> Result<Void, Error> {
+    // Drop `.`, collapse `//`, resolve `..`.
+    testing.assert_eq(actual: normalize('a/./b/../c'), expected: 'a/c')?;
+    testing.assert_eq(actual: normalize('a//b/'), expected: 'a/b')?;
+    testing.assert_eq(actual: normalize('/usr/../bin'), expected: '/bin')?;
+    // Leading `..` is kept in a relative path; an absolute `..` at root is dropped.
+    testing.assert_eq(actual: normalize('a/../../b'), expected: '../b')?;
+    testing.assert_eq(actual: normalize('../a'), expected: '../a')?;
+    testing.assert_eq(actual: normalize('/..'), expected: '/')?;
+    testing.assert_eq(actual: normalize('/a/../..'), expected: '/')?;
+    // Reductions to nothing become '.'; the roots are fixpoints.
+    testing.assert_eq(actual: normalize(''), expected: '.')?;
+    testing.assert_eq(actual: normalize('.'), expected: '.')?;
+    testing.assert_eq(actual: normalize('a/..'), expected: '.')?;
+    testing.assert_eq(actual: normalize('/'), expected: '/')?;
+    testing.assert_eq(actual: normalize('./a/b'), expected: 'a/b')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_relative() -> Result<Void, Error> {
+    // Sibling, descend, ascend, and same-location.
+    testing.assert_eq(actual: relative(from: '/a/b', to: '/a/c'), expected: Result.Ok('../c'))?;
+    testing.assert_eq(actual: relative(from: '/a', to: '/a/b/c'), expected: Result.Ok('b/c'))?;
+    testing.assert_eq(actual: relative(from: '/a/b/c', to: '/a/b'), expected: Result.Ok('..'))?;
+    testing.assert_eq(actual: relative(from: '/a/b', to: '/c/d'), expected: Result.Ok('../../c/d'))?;
+    testing.assert_eq(actual: relative(from: '/a/b', to: '/a/b'), expected: Result.Ok('.'))?;
+    // Relative inputs work too; the result joins back onto `from`.
+    testing.assert_eq(actual: relative(from: 'x/y', to: 'x/z'), expected: Result.Ok('../z'))?;
+    // Normalizes its inputs first.
+    testing.assert_eq(actual: relative(from: '/a/./b', to: '/a/c/../d'), expected: Result.Ok('../d'))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_relative_incomparable() -> Result<Void, Error> {
+    // Mixed absolute/relative cannot be related.
+    testing.assert_err(relative(from: '/abs', to: 'rel'))?;
+    // A leading `..` in `from` that `to` does not share is undefined.
+    testing.assert_err(relative(from: '..', to: 'a'))?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_components() -> Result<Void, Error> {
     testing.assert_eq(actual: components('src/main.hawk').join(','), expected: 'src,main.hawk')?;
     // A leading '/' is preserved as an empty root component.
