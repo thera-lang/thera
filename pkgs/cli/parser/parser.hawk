@@ -287,6 +287,13 @@ impl Parser {
         if k == TokenKind.KwFn {
             return Decl.Fn(self.parse_fn_decl(decorators, false, is_pub, start));
         }
+        if k == TokenKind.KwStruct {
+            if decorators.len() != 0 {
+                self.fail('decorators are not allowed on struct declarations');
+                return self.err_decl();
+            }
+            return self.parse_struct_decl(is_pub, start);
+        }
         if k == TokenKind.KwType {
             if decorators.len() != 0 {
                 self.fail('decorators are not allowed on type declarations');
@@ -567,6 +574,43 @@ impl Parser {
         }
         self.expect(TokenKind.Eq, '=');
         self.expect(TokenKind.LBrace, '{');
+        let fields = self.parse_struct_fields();
+        let rbrace = self.expect(TokenKind.RBrace, '}');
+        return Decl.Type(TypeDecl {
+            span: start.cover(rbrace.span),
+            is_pub: is_pub,
+            is_native: false,
+            name: name_tok.lexeme(),
+            name_span: name_tok.span,
+            type_params: type_params,
+            fields: fields,
+        });
+    }
+
+    // `struct Name<params> { field, … }` — a nominal record. Produces the same
+    // `TypeDecl` as the legacy `type Name = { … }` form (which still parses, for
+    // the migration window); the only surface difference is the keyword and the
+    // dropped `=`.
+    fn parse_struct_decl(self, _ is_pub: Bool, _ start: SourceSpan) -> Decl {
+        self.advance(); // 'struct'
+        let name_tok = self.expect(TokenKind.Identifier, 'struct name');
+        let type_params = self.parse_type_params();
+        self.expect(TokenKind.LBrace, '{');
+        let fields = self.parse_struct_fields();
+        let rbrace = self.expect(TokenKind.RBrace, '}');
+        return Decl.Type(TypeDecl {
+            span: start.cover(rbrace.span),
+            is_pub: is_pub,
+            is_native: false,
+            name: name_tok.lexeme(),
+            name_span: name_tok.span,
+            type_params: type_params,
+            fields: fields,
+        });
+    }
+
+    // The `{ field, … }` body shared by `struct` and the legacy `type … = { … }`.
+    fn parse_struct_fields(self) -> List<FieldDef> {
         let fields: List<FieldDef> = [];
         let mut going = true;
         while going && !self.panicking && !self.check(TokenKind.RBrace) && !self.at_end() {
@@ -579,16 +623,7 @@ impl Parser {
                 going = false;
             }
         }
-        let rbrace = self.expect(TokenKind.RBrace, '}');
-        return Decl.Type(TypeDecl {
-            span: start.cover(rbrace.span),
-            is_pub: is_pub,
-            is_native: false,
-            name: name_tok.lexeme(),
-            name_span: name_tok.span,
-            type_params: type_params,
-            fields: fields,
-        });
+        return fields;
     }
 
     // A possibly-qualified type/interface name (`Clock` or `time.Clock`); the

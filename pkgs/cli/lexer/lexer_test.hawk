@@ -34,6 +34,8 @@ fn test_every_keyword_lexes_as_its_kind() -> Result<Void, Error> {
         expected: [TokenKind.KwMatch, TokenKind.Eof])?;
     testing.assert_eq(actual: kinds('matches'),
         expected: [TokenKind.Identifier, TokenKind.Eof])?;
+    testing.assert_eq(actual: kinds('struct'),
+        expected: [TokenKind.KwStruct, TokenKind.Eof])?;
     return Result.Ok(void);
 }
 
