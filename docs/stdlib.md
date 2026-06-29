@@ -908,27 +908,23 @@ Notes: ASCII only (U+0000..U+007F). Full Unicode classification and locale-aware
 case folding belong to a Unicode/ICU package, not core. Identifier predicates
 (`is_ident_start`/`continue`) were removed as too source-parser-specific.
 
-### `std.regex` — regular expressions _(removed → rebuild)_
+### `std.regex` — regular expressions _(implemented)_
 
-> **Status: removed.** An early version existed in pure Hawk over `re2_*`
-> natives, but those natives did not survive the Rust-runtime migration (they
-> were bound by bare name and now exist nowhere), so the module was
-> non-functional and has been deleted. The design below is the target for a
-> rebuild. **The blocker is the engine:** the runtime keeps dependencies few and
-> deliberate, so backing this needs either a hand-rolled engine in Rust or a
-> decision to take the `regex` crate (RE2-derived). That precedent is now set —
-> `std.hash` added the runtime's first external crates (RustCrypto digests) for
-> a best-of-breed case — so this is the same "take a vetted crate" call rather
-> than a first-of-its-kind one; still a deliberate policy decision when picked
-> back up.
+> **Status: implemented** (the runtime's **2nd deliberate dependency**, after
+> `std.hash`). Backed by the Rust team's `regex` crate (RE2-derived) — the same
+> "take a vetted, best-of-breed crate" call. A compiled pattern lives in a
+> runtime-held registry (the `std.process` handle pattern); Hawk holds an opaque
+> `Int` handle inside `Regex`. The earlier pure-Hawk version over `re2_*` natives
+> that didn't survive the runtime migration has been replaced wholesale.
 
-Purpose: compile a pattern once, then match / find / capture / replace against
-Unicode text. RE2 syntax (linear-time, no backtracking / lookaround) — see
+Compile a pattern once, then match / find / capture / replace against Unicode
+text. RE2 syntax (linear-time, no backtracking / lookaround) — see
 <https://github.com/google/re2/wiki/Syntax>. Offsets in `Match` are **UTF-8 byte
-positions** (matching the string-offset convention in principle 8).
+positions** (the string-offset convention, principle 8); slice them out with the
+companion `String.byte_slice`.
 
 ```
-pub struct Regex { /* opaque compiled pattern */ }
+pub struct Regex { /* opaque handle to the compiled pattern */ }
 impl Regex {
     pub fn compile(_ pattern: String) -> Result<Regex, RegexError>;  // invalid pattern -> Err
     pub fn is_match(self, _ text: String) -> Bool;
@@ -943,20 +939,22 @@ pub struct Match { text: String, start: Int, end: Int }   // start inclusive, en
 
 pub struct Captures { /* groups: List<Option<String>> */ }
 impl Captures {
-    pub fn text(self) -> Option<String>;          // group 0 (the whole match)
+    pub fn text(self) -> Option<String>;                 // group 0 (the whole match)
     pub fn group(self, _ index: Int) -> Option<String>;  // None if absent / didn't participate
+    pub fn len(self) -> Int;                             // group count, including group 0
 }
 
 pub enum RegexError { Syntax(String) }   // implements Error + Display (mirrors JsonError)
 ```
 
-Notes for the rebuild: group 0 is the full match, `1..` the numbered subgroups;
-a group that did not participate in the match is `None`. `$1` / `${name}` expand
-capture references in replacements. The `re2_*` native bindings and the compiled
-handle stay module-private (once visibility enforcement lands). The original
-`compile` returned `Result<_, Error>` with the raw native message; the rebuild
-should wrap it in a proper `RegexError.Syntax` (principle 4), as `std.json`
-does.
+Group 0 is the full match, `1..` the numbered subgroups; a group that did not
+participate is `None`. Replacements expand `$1` / `$name`; **note** the braced
+`${1}` form collides with Hawk's own `${…}` string interpolation, so use the bare
+`$1` form in a Hawk literal. A compile syntax error is a `RegexError.Syntax`
+(principle 4), as `std.json` does. The compiled handle is module-private. (The
+ABI: natives return byte-offset `List<Int>`s and the Hawk layer assembles
+`Match`/`Captures` via `String.byte_slice` — so the natives never hardcode a
+struct type-id.)
 
 ### `std.testing` — assertions _(implemented)_
 
@@ -1117,5 +1115,5 @@ dependency graph, so future work lands in the right order:
 | std.cli      | done    | pure Hawk; declarative `Command`/`Matches`/`CliError` + `--help`, abbrs, negation; `Args` is the raw escape hatch. v2: entry adapter, selected-subcommand help, required positionals, command-path errors (§ std.cli)                                                                                                                                                      |
 | std.term     | new     |                                                                                                                                                                                                                                                                                                                                                                            |
 | std.char     | done    | pure Hawk; `pub` API + ASCII scope; `is_hex_digit` added, ident predicates removed                                                                                                                                                                                                                                                                                         |
-| std.regex    | removed | was pure Hawk over `re2_*` natives that didn't survive the runtime migration; deleted as non-functional — design captured above for a rebuild (needs a runtime engine: hand-rolled or the `regex` crate)                                                                                                                                                                   |
+| std.regex    | done    | RE2 syntax over the Rust `regex` crate (the runtime's 2nd deliberate dependency); `compile`/`is_match`/`find`/`find_all`/`captures`/`replace`/`replace_all`, byte-offset `Match`; compiled patterns held in a runtime registry behind an `Int` handle; self-tested                                                                                                          |
 | std.testing  | done    | `assert`/`assert_eq`/`assert_ne`/`assert_ok`/`assert_err` + `fixed_clock`/`fixed_env` doubles; self-tested                                                                                                                                                                                                                                                                 |

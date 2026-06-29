@@ -35,6 +35,17 @@ impl String {
         return String.from_chars(self.chars().slice(start, end));
     }
 
+    /// The substring in the half-open **UTF-8 byte** range `[start, end)` — the
+    /// byte-offset counterpart to [slice], for callers that work in byte
+    /// positions (e.g. `byte_len`, `std.regex` match offsets). Offsets are clamped
+    /// to the string; a range whose ends fall mid-code-point yields `''`.
+    ///
+    /// ```hawk
+    /// 'héllo'.byte_slice(0, 1)   // 'h'  ('é' is 2 bytes, so byte 3 ends it)
+    /// ```
+    @extern('str_byte_slice')
+    pub native fn byte_slice(self, _ start: Int, _ end: Int) -> String
+
     /// A copy with leading and trailing whitespace removed.
     @extern('str_trim')
     pub native fn trim(self) -> String

@@ -1,0 +1,117 @@
+//! Tests for std.regex.
+
+import std.testing;
+
+import 'regex' as _;
+
+// Compile a pattern for a test, surfacing an unexpected compile failure as the
+// test's own error (so a typo in a test pattern is reported, not silently true).
+fn compiled(_ pattern: String) -> Result<Regex, Error> {
+    return match Regex.compile(pattern) {
+        Ok(r) => Result.Ok(r),
+        Err(e) => Result.Err(error('unexpected compile error: ${e.message()}')),
+    };
+}
+
+@test
+fn test_is_match() -> Result<Void, Error> {
+    let re = compiled('\\d+')?;
+    testing.assert(re.is_match('abc123'))?;
+    testing.assert(!re.is_match('abcdef'))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_find() -> Result<Void, Error> {
+    let re = compiled('\\d+')?;
+    match re.find('a12b345') {
+        Some(m) => {
+            testing.assert_eq(actual: m.text, expected: '12')?;
+            testing.assert_eq(actual: m.start, expected: 1)?;
+            testing.assert_eq(actual: m.end, expected: 3)?;
+        },
+        None => { return Result.Err(error('expected a match')); },
+    }
+    // No match -> None.
+    match re.find('xyz') {
+        Some(_) => { return Result.Err(error('expected no match')); },
+        None => {},
+    }
+    return Result.Ok(void);
+}
+
+@test
+fn test_find_all() -> Result<Void, Error> {
+    let re = compiled('\\d+')?;
+    let ms = re.find_all('a12b345c6');
+    testing.assert_eq(actual: ms.len(), expected: 3)?;
+    testing.assert_eq(actual: ms[0].text, expected: '12')?;
+    testing.assert_eq(actual: ms[1].text, expected: '345')?;
+    testing.assert_eq(actual: ms[2].text, expected: '6')?;
+    testing.assert_eq(actual: ms[1].start, expected: 4)?;
+    testing.assert_eq(actual: ms[1].end, expected: 7)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_captures() -> Result<Void, Error> {
+    let re = compiled('(\\w+)@(\\w+)')?;
+    match re.captures('a@b') {
+        Some(c) => {
+            testing.assert_eq(actual: c.len(), expected: 3)?;        // group 0 + two subgroups
+            testing.assert_eq(actual: c.text(), expected: Option.Some('a@b'))?;
+            testing.assert_eq(actual: c.group(1), expected: Option.Some('a'))?;
+            testing.assert_eq(actual: c.group(2), expected: Option.Some('b'))?;
+            testing.assert_eq(actual: c.group(3), expected: Option.None)?;   // out of range
+        },
+        None => { return Result.Err(error('expected captures')); },
+    }
+    return Result.Ok(void);
+}
+
+@test
+fn test_captures_optional_group() -> Result<Void, Error> {
+    // The second group is optional and does not participate -> None.
+    let re = compiled('(a)(b)?')?;
+    match re.captures('a') {
+        Some(c) => {
+            testing.assert_eq(actual: c.group(1), expected: Option.Some('a'))?;
+            testing.assert_eq(actual: c.group(2), expected: Option.None)?;
+        },
+        None => { return Result.Err(error('expected captures')); },
+    }
+    return Result.Ok(void);
+}
+
+@test
+fn test_replace() -> Result<Void, Error> {
+    let re = compiled('(\\w+)@(\\w+)')?;
+    // Bare `$1`/`$2` are literal in a Hawk string, group refs in the engine.
+    testing.assert_eq(actual: re.replace('x@y and p@q', with: '$2-$1'), expected: 'y-x and p@q')?;
+    testing.assert_eq(actual: re.replace_all('x@y and p@q', with: '$2-$1'), expected: 'y-x and q-p')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_compile_error_is_a_regex_error() -> Result<Void, Error> {
+    match Regex.compile('(unclosed') {
+        Ok(_) => { return Result.Err(error('expected a syntax error')); },
+        Err(e) => { testing.assert(!e.message().is_empty())?; },
+    }
+    return Result.Ok(void);
+}
+
+@test
+fn test_utf8_byte_offsets() -> Result<Void, Error> {
+    // 'é' is two UTF-8 bytes, so the 'll' run begins at byte 3, not code point 3.
+    let re = compiled('l+')?;
+    match re.find('héllo') {
+        Some(m) => {
+            testing.assert_eq(actual: m.text, expected: 'll')?;
+            testing.assert_eq(actual: m.start, expected: 3)?;
+            testing.assert_eq(actual: m.end, expected: 5)?;
+        },
+        None => { return Result.Err(error('expected a match')); },
+    }
+    return Result.Ok(void);
+}

@@ -205,6 +205,14 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("hash_sha1", native_hash_sha1),
     ("hash_md5", native_hash_md5),
     ("hash_crc32", native_hash_crc32),
+    ("str_byte_slice", native_str_byte_slice),
+    ("regex_compile", native_regex_compile),
+    ("regex_is_match", native_regex_is_match),
+    ("regex_find", native_regex_find),
+    ("regex_find_all", native_regex_find_all),
+    ("regex_captures", native_regex_captures),
+    ("regex_replace", native_regex_replace),
+    ("regex_replace_all", native_regex_replace_all),
 ];
 
 /// The native functions the runtime ships with, in index order.
@@ -2161,6 +2169,153 @@ fn native_process_stderr_read(_out: &mut dyn Write, args: &[Value]) -> Result<Va
     }
 }
 
+// --- string byte-offset slice (companion to `str_byte_len`) ---
+
+/// The substring in the half-open **UTF-8 byte** range `[start, end)`. The
+/// byte-offset counterpart to the code-point `String.slice`, for callers that
+/// work in byte positions (regex matches, `byte_len`). Offsets are clamped to the
+/// string; a range whose ends don't fall on char boundaries yields `''`.
+fn native_str_byte_slice(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (sv, startv, endv) = args3(args, "str_byte_slice")?;
+    let s = str_contents(sv)?;
+    let start = as_int(startv, "str_byte_slice")?;
+    let end = as_int(endv, "str_byte_slice")?;
+    let len = s.len() as i64;
+    let a = start.clamp(0, len) as usize;
+    let b = (end.clamp(0, len) as usize).max(a);
+    Ok(Value::new_str(s.get(a..b).unwrap_or("").to_string()))
+}
+
+// --- std.regex: compiled patterns held in a registry, referenced by Int handle ---
+//
+// A compiled `regex::Regex` lives in a process-global registry (the same shape as
+// std.process's child table); Hawk holds an opaque `Int` handle and never sees the
+// compiled object. Match offsets are UTF-8 **byte** positions (docs/stdlib.md
+// principle 8); the Hawk layer slices substrings out with `String.byte_slice`.
+// Replacement (`$1` / `${name}` expansion) is performed here by the crate.
+//
+// Compiled patterns are not freed (compile-once / match-many), like the process
+// table — acceptable for the typical "compile a handful at startup" usage.
+
+static NEXT_REGEX_ID: AtomicI64 = AtomicI64::new(1);
+
+fn regex_registry() -> &'static Mutex<HashMap<i64, regex::Regex>> {
+    static REGISTRY: OnceLock<Mutex<HashMap<i64, regex::Regex>>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Run `f` with the compiled regex for `handle`. An unknown handle is a bug —
+/// Hawk only ever passes a handle it received from `regex_compile`.
+fn with_regex<R>(handle: i64, who: &str, f: impl FnOnce(&regex::Regex) -> R) -> Result<R, Trap> {
+    let reg = regex_registry().lock().unwrap();
+    match reg.get(&handle) {
+        Some(re) => Ok(f(re)),
+        None => Err(bug(format!("{who}: unknown regex handle {handle}"))),
+    }
+}
+
+/// Compile a pattern -> `Result<Int handle, String error>`. A syntax error is a
+/// value, not a trap (the Hawk layer wraps it in `RegexError.Syntax`).
+fn native_regex_compile(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let pattern = str_contents(expect_one(args, "regex_compile")?)?;
+    match regex::Regex::new(&pattern) {
+        Ok(re) => {
+            let id = NEXT_REGEX_ID.fetch_add(1, Ordering::SeqCst);
+            regex_registry().lock().unwrap().insert(id, re);
+            Ok(Value::ok(Value::Int(id)))
+        }
+        Err(e) => Ok(Value::err(Value::new_str(e.to_string()))),
+    }
+}
+
+fn native_regex_is_match(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (hv, tv) = args2(args, "regex_is_match")?;
+    let handle = as_int(hv, "regex_is_match")?;
+    let text = str_contents(tv)?;
+    with_regex(handle, "regex_is_match", |re| {
+        Value::Bool(re.is_match(&text))
+    })
+}
+
+/// First match as `[start, end]` byte offsets, or `[]` for no match.
+fn native_regex_find(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (hv, tv) = args2(args, "regex_find")?;
+    let handle = as_int(hv, "regex_find")?;
+    let text = str_contents(tv)?;
+    with_regex(handle, "regex_find", |re| match re.find(&text) {
+        Some(m) => Value::new_list(vec![
+            Value::Int(m.start() as i64),
+            Value::Int(m.end() as i64),
+        ]),
+        None => Value::new_list(vec![]),
+    })
+}
+
+/// All non-overlapping matches as a flat `[s0, e0, s1, e1, ...]` of byte offsets.
+fn native_regex_find_all(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (hv, tv) = args2(args, "regex_find_all")?;
+    let handle = as_int(hv, "regex_find_all")?;
+    let text = str_contents(tv)?;
+    with_regex(handle, "regex_find_all", |re| {
+        let mut out = Vec::new();
+        for m in re.find_iter(&text) {
+            out.push(Value::Int(m.start() as i64));
+            out.push(Value::Int(m.end() as i64));
+        }
+        Value::new_list(out)
+    })
+}
+
+/// First match's capture groups as a flat `[s0, e0, s1, e1, ...]` of byte offsets
+/// (group 0 is the whole match); a group that did not participate is `-1, -1`.
+/// `[]` means no match.
+fn native_regex_captures(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (hv, tv) = args2(args, "regex_captures")?;
+    let handle = as_int(hv, "regex_captures")?;
+    let text = str_contents(tv)?;
+    with_regex(handle, "regex_captures", |re| match re.captures(&text) {
+        Some(caps) => {
+            let mut out = Vec::new();
+            for i in 0..caps.len() {
+                match caps.get(i) {
+                    Some(m) => {
+                        out.push(Value::Int(m.start() as i64));
+                        out.push(Value::Int(m.end() as i64));
+                    }
+                    None => {
+                        out.push(Value::Int(-1));
+                        out.push(Value::Int(-1));
+                    }
+                }
+            }
+            Value::new_list(out)
+        }
+        None => Value::new_list(vec![]),
+    })
+}
+
+/// Replace the first match; `replacement` may reference groups with `$1`/`${name}`.
+fn native_regex_replace(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (hv, tv, rv) = args3(args, "regex_replace")?;
+    let handle = as_int(hv, "regex_replace")?;
+    let text = str_contents(tv)?;
+    let repl = str_contents(rv)?;
+    with_regex(handle, "regex_replace", |re| {
+        Value::new_str(re.replace(&text, repl.as_str()).into_owned())
+    })
+}
+
+/// Replace all non-overlapping matches; `replacement` may reference groups.
+fn native_regex_replace_all(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (hv, tv, rv) = args3(args, "regex_replace_all")?;
+    let handle = as_int(hv, "regex_replace_all")?;
+    let text = str_contents(tv)?;
+    let repl = str_contents(rv)?;
+    with_regex(handle, "regex_replace_all", |re| {
+        Value::new_str(re.replace_all(&text, repl.as_str()).into_owned())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2222,5 +2377,121 @@ mod tests {
         // Output is live again once the capture ends.
         native_println(&mut out, &[Value::new_str("after")]).unwrap();
         assert_eq!(out, b"live\nafter\n");
+    }
+
+    // --- regex + str_byte_slice ---
+
+    fn int_list(v: &Value) -> Vec<i64> {
+        match v {
+            Value::Ref(h) => heap::with_obj(*h, |o| match o {
+                Obj::List(items) => items
+                    .iter()
+                    .map(|x| match x {
+                        Value::Int(n) => *n,
+                        other => panic!("non-int in list: {other:?}"),
+                    })
+                    .collect(),
+                other => panic!("not a list: {other:?}"),
+            }),
+            other => panic!("not a ref: {other:?}"),
+        }
+    }
+
+    fn ok_int(v: &Value) -> i64 {
+        match v {
+            Value::Ref(h) => heap::with_obj(*h, |o| match o {
+                Obj::Enum(e) => match e.fields[0] {
+                    Value::Int(n) => n,
+                    other => panic!("ok payload not int: {other:?}"),
+                },
+                other => panic!("not an enum: {other:?}"),
+            }),
+            other => panic!("not a ref: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn str_byte_slice_clamps_and_respects_char_boundaries() {
+        let s = Value::new_str("héllo"); // 'é' is 2 UTF-8 bytes → byte_len 6
+        let mut sink = std::io::sink();
+        let mut slice = |a: i64, b: i64| {
+            display_string(
+                &native_str_byte_slice(&mut sink, &[s, Value::Int(a), Value::Int(b)]).unwrap(),
+            )
+            .unwrap()
+        };
+        assert_eq!(slice(0, 1), "h");
+        assert_eq!(slice(1, 3), "é"); // the two bytes of 'é'
+        assert_eq!(slice(0, 100), "héllo"); // end clamped to the string
+        assert_eq!(slice(3, 1), ""); // end < start
+        assert_eq!(slice(1, 2), ""); // mid-codepoint cut → not a boundary → ''
+    }
+
+    #[test]
+    fn regex_natives_compile_match_find_replace() {
+        let mut sink = std::io::sink();
+        let compiled = native_regex_compile(&mut sink, &[Value::new_str(r"(\w+)@(\w+)")]).unwrap();
+        let h = ok_int(&compiled);
+        let text = Value::new_str("a@b and c@d");
+
+        assert_eq!(
+            native_regex_is_match(&mut sink, &[Value::Int(h), text]).unwrap(),
+            Value::Bool(true)
+        );
+        // First match offsets ("a@b"), then both matches flattened.
+        assert_eq!(
+            int_list(&native_regex_find(&mut sink, &[Value::Int(h), text]).unwrap()),
+            vec![0, 3]
+        );
+        assert_eq!(
+            int_list(&native_regex_find_all(&mut sink, &[Value::Int(h), text]).unwrap()),
+            vec![0, 3, 8, 11]
+        );
+        // Captures: group 0 (whole), then the two subgroups, as offset pairs.
+        assert_eq!(
+            int_list(
+                &native_regex_captures(&mut sink, &[Value::Int(h), Value::new_str("a@b")]).unwrap()
+            ),
+            vec![0, 3, 0, 1, 2, 3]
+        );
+        // Replacement expands `$1`/`$2`.
+        assert_eq!(
+            display_string(
+                &native_regex_replace_all(
+                    &mut sink,
+                    &[
+                        Value::Int(h),
+                        Value::new_str("a@b"),
+                        Value::new_str("$2.$1")
+                    ],
+                )
+                .unwrap()
+            )
+            .unwrap(),
+            "b.a"
+        );
+    }
+
+    #[test]
+    fn regex_no_match_returns_empty_and_bad_pattern_is_a_value() {
+        let mut sink = std::io::sink();
+        let h = ok_int(&native_regex_compile(&mut sink, &[Value::new_str(r"\d+")]).unwrap());
+        assert!(
+            int_list(
+                &native_regex_find(&mut sink, &[Value::Int(h), Value::new_str("abc")]).unwrap()
+            )
+            .is_empty()
+        );
+
+        // An invalid pattern is an Err value (TAG_ERR), not a trap.
+        let bad = native_regex_compile(&mut sink, &[Value::new_str("(")]).unwrap();
+        let is_err = match bad {
+            Value::Ref(hh) => heap::with_obj(
+                hh,
+                |o| matches!(o, Obj::Enum(e) if e.variant == crate::value::TAG_ERR),
+            ),
+            _ => false,
+        };
+        assert!(is_err, "an invalid pattern should compile to Err, not trap");
     }
 }

@@ -1,0 +1,178 @@
+//! std.regex — regular expressions.
+//!
+//! Import as: import std.regex
+//! Usage:     let re = regex.Regex.compile('\\d+')?;
+//!
+//! Compile a pattern once, then match / find / capture / replace against text.
+//! Backed by the Rust `regex` crate — RE2 syntax, **linear-time** (no
+//! backtracking or lookaround); see <https://github.com/google/re2/wiki/Syntax>.
+//!
+//! Offsets in a [Match] are **UTF-8 byte positions** (the string-offset
+//! convention; slice them out of the original text with `String.byte_slice`).
+//! A compiled [Regex] holds a runtime handle to the compiled pattern; compile it
+//! once and reuse it.
+
+// --- native engine bindings (the compiled pattern is a runtime-held handle) ---
+
+@extern('regex_compile')
+native fn _compile(_ pattern: String) -> Result<Int, String>
+
+@extern('regex_is_match')
+native fn _is_match(_ handle: Int, _ text: String) -> Bool
+
+@extern('regex_find')
+native fn _find(_ handle: Int, _ text: String) -> List<Int>
+
+@extern('regex_find_all')
+native fn _find_all(_ handle: Int, _ text: String) -> List<Int>
+
+@extern('regex_captures')
+native fn _captures(_ handle: Int, _ text: String) -> List<Int>
+
+@extern('regex_replace')
+native fn _replace(_ handle: Int, _ text: String, _ replacement: String) -> String
+
+@extern('regex_replace_all')
+native fn _replace_all(_ handle: Int, _ text: String, _ replacement: String) -> String
+
+/// A pattern that failed to compile.
+pub enum RegexError {
+    Syntax(String),   // the engine's message for the offending pattern
+}
+
+impl Error for RegexError {
+    pub fn message(self) -> String {
+        return match self {
+            Syntax(msg) => msg,
+        };
+    }
+}
+
+impl Display for RegexError {
+    pub fn display(self) -> String {
+        return self.message();
+    }
+}
+
+/// A single match: the matched substring and its half-open byte range
+/// `[start, end)` in the searched text.
+pub struct Match {
+    text: String,
+    start: Int,
+    end: Int,
+}
+
+/// The capture groups of one match. Group 0 is the whole match; `1..` are the
+/// numbered subgroups in order. A group that did not participate is `None`.
+pub struct Captures {
+    groups: List<Option<String>>,
+}
+
+impl Captures {
+    /// The whole match (group 0).
+    pub fn text(self) -> Option<String> {
+        return self.group(0);
+    }
+
+    /// The `index`-th group, or `None` if it is out of range or did not
+    /// participate in the match.
+    pub fn group(self, _ index: Int) -> Option<String> {
+        if index < 0 || index >= self.groups.len() {
+            return Option.None;
+        }
+        return self.groups[index];
+    }
+
+    /// The number of groups, including group 0 (the whole match).
+    pub fn len(self) -> Int {
+        return self.groups.len();
+    }
+}
+
+/// A compiled regular expression. Construct with [compile], then match against
+/// text. Cheap to copy (it is a handle to the runtime's compiled pattern).
+pub struct Regex {
+    handle: Int,
+}
+
+impl Regex {
+    /// Compile `pattern`. An invalid pattern is a `RegexError.Syntax`.
+    ///
+    /// ```hawk
+    /// let re = regex.Regex.compile('(\\w+)@(\\w+)')?;
+    /// ```
+    pub fn compile(_ pattern: String) -> Result<Regex, RegexError> {
+        return match _compile(pattern) {
+            Ok(h) => Result.Ok(Regex { handle: h }),
+            Err(msg) => Result.Err(RegexError.Syntax(msg)),
+        };
+    }
+
+    /// True if the pattern matches anywhere in `text`.
+    pub fn is_match(self, _ text: String) -> Bool {
+        return _is_match(self.handle, text);
+    }
+
+    /// The first match in `text`, or `None`.
+    pub fn find(self, _ text: String) -> Option<Match> {
+        let span = _find(self.handle, text);
+        if span.len() < 2 {
+            return Option.None;
+        }
+        return Option.Some(match_at(text, span[0], span[1]));
+    }
+
+    /// Every non-overlapping match in `text`, left to right.
+    pub fn find_all(self, _ text: String) -> List<Match> {
+        let spans = _find_all(self.handle, text);
+        let result: List<Match> = [];
+        let mut i = 0;
+        while i + 1 < spans.len() {
+            result.push(match_at(text, spans[i], spans[i + 1]));
+            i = i + 2;
+        }
+        return result;
+    }
+
+    /// The first match's capture groups, or `None` if there is no match.
+    pub fn captures(self, _ text: String) -> Option<Captures> {
+        let spans = _captures(self.handle, text);
+        if spans.len() == 0 {
+            return Option.None;
+        }
+        let groups: List<Option<String>> = [];
+        let mut i = 0;
+        while i + 1 < spans.len() {
+            let start = spans[i];
+            let end = spans[i + 1];
+            if start < 0 {
+                groups.push(Option.None);   // group did not participate
+            } else {
+                groups.push(Option.Some(text.byte_slice(start, end)));
+            }
+            i = i + 2;
+        }
+        return Option.Some(Captures { groups: groups });
+    }
+
+    /// Replace the first match in `text`. `replacement` may reference capture
+    /// groups with `$1` / `$name` (a literal `$` is `$$`).
+    ///
+    /// Note: the braced group form `${1}` collides with Hawk's own `${…}` string
+    /// interpolation, so prefer the bare `$1` form in a Hawk string literal (use a
+    /// non-word character after a numbered group when text follows it, e.g.
+    /// `'$1-$2'`).
+    pub fn replace(self, _ text: String, with replacement: String) -> String {
+        return _replace(self.handle, text, replacement);
+    }
+
+    /// Replace every non-overlapping match in `text`.
+    pub fn replace_all(self, _ text: String, with replacement: String) -> String {
+        return _replace_all(self.handle, text, replacement);
+    }
+}
+
+/// Build a [Match] for the byte span `[start, end)` of `text`.
+fn match_at(_ text: String, _ start: Int, _ end: Int) -> Match {
+    return Match { text: text.byte_slice(start, end), start: start, end: end };
+}

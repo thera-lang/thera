@@ -64,10 +64,10 @@ _Owner-correct type resolution_ below.)
   `read_u8`/`read_bytes`/`read_u32_le`/`read_u64_le`/`read_uvarint`/`read_ivarint`,
   pure Hawk, round-trips the writer). (`slice` on `String`/`List`/`Bytes` was
   already there.) The `Ord` interface + `std.sort` (`sorted`/`min`/`max`) are now
-  in — see _Completed_. `std.encoding` (base64/hex/url, pure Hawk) and `std.hash`
-  (native digests) are in too. Remaining: the rest of the "batteries included"
-  goal (`std.log`, `std.term`, a `std.regex` rebuild), and sorted/`Ord`-keyed
-  `Set`/`Map` variants.
+  in — see _Completed_. `std.encoding` (base64/hex/url, pure Hawk), `std.hash`
+  (native digests), and `std.regex` (the `regex` crate) are in too. Remaining: the
+  rest of the "batteries included" goal (`std.log`, `std.term`), and
+  sorted/`Ord`-keyed `Set`/`Map` variants.
 - **Fibers — phases 3–4.** Phases 0–2 are done (scheduler-drivable `run_loop`;
   `spawn`/`join`/`yield` with GC roots across every fiber; buffered
   `Channel<T>`). Design in [architecture.md](architecture.md) §Concurrency.
@@ -478,6 +478,16 @@ conformance specs. Newest first.
   `INFINITY`/`NAN`; the lookup-table/keyword-map motivations proved moot
   (native/arithmetic/`match`). Full design: [module_init.md](module_init.md);
   conformance `module-let*`, `const-manifest`.
+- **`std.regex` — RE2 regular expressions over the `regex` crate** (2026-06). The
+  runtime's **2nd deliberate dependency** (after `std.hash`): the Rust team's
+  `regex` crate, RE2-derived and linear-time. `compile`/`is_match`/`find`/
+  `find_all`/`captures`/`replace`/`replace_all`, byte-offset `Match`, a
+  `RegexError.Syntax` on a bad pattern. A compiled pattern lives in a runtime
+  registry behind an `Int` handle (the `std.process` pattern); natives return
+  byte-offset `List<Int>`s and the Hawk layer assembles `Match`/`Captures` via a
+  new `String.byte_slice` (the byte-offset companion to `slice`), so natives never
+  hardcode a struct type-id. Replaces the pure-Hawk `re2_*` version that didn't
+  survive the runtime migration. Full design: [stdlib.md](stdlib.md) §std.regex.
 - **`std.hash` — native digests + the runtime's first external dependencies**
   (2026-06). `sha256`/`sha1`/`md5` (digests as `Bytes`) and `crc32` (IEEE 802.3,
   as `Int`), thin `native fn` wrappers over **audited Rust crates** rather than
