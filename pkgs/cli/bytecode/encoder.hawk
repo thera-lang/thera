@@ -20,6 +20,9 @@ const SECTION_FUNCTIONS: Int = 1;
 const SECTION_CONSTANTS: Int = 2;
 const SECTION_TYPES: Int = 3;
 const SECTION_DISPATCH: Int = 4;
+// The module-global count (a single uvarint); omitted when zero, so global-free
+// modules stay byte-identical to before the feature. See docs/module_init.md.
+const SECTION_GLOBALS: Int = 5;
 
 // Collects and deduplicates strings during encoding, preserving first-seen order
 // so the encoded pool matches the runtime's. A linear scan keeps the port free
@@ -127,6 +130,13 @@ pub fn encode_module(_ m: module.Module) -> Bytes {
     if m.dispatch.len() != 0 {
         write_section(w, SECTION_DISPATCH, dispatch.finish());
     }
+    // Globals section (just the slot count): omitted when zero, matching the
+    // runtime's codec so global-free modules are byte-identical.
+    if m.global_count > 0 {
+        let globals = BytesBuilder.new();
+        globals.write_uvarint(m.global_count);
+        write_section(w, SECTION_GLOBALS, globals.finish());
+    }
     return w.finish();
 }
 
@@ -181,6 +191,14 @@ fn encode_instr(_ w: BytesBuilder, _ instr: Instr, _ pool: StringPool) -> Void {
         },
         Store(slot) => {
             w.write_u8(Op.Store.byte());
+            w.write_uvarint(slot);
+        },
+        GlobalGet(slot) => {
+            w.write_u8(Op.GlobalGet.byte());
+            w.write_uvarint(slot);
+        },
+        GlobalSet(slot) => {
+            w.write_u8(Op.GlobalSet.byte());
             w.write_uvarint(slot);
         },
         Call(func, argc) => {

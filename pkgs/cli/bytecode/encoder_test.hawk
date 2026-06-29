@@ -44,7 +44,7 @@ fn demo_module() -> Module {
             Instr.Simple(Op.Return),
         ],
     };
-    return Module { functions: [main_fn, double_fn], types: [], dispatch: [] };
+    return Module { functions: [main_fn, double_fn], types: [], dispatch: [], global_count: 0 };
 }
 
 @test
@@ -80,6 +80,7 @@ fn test_types_and_dispatch_sections() -> Result<Void, Error> {
         functions: [f],
         types: [TypeDef { name: 'Point', field_count: 2 }],
         dispatch: [DispatchEntry { type_id: 0, selector: 'show', func: 0 }],
+        global_count: 0,
     };
     let expected = [
         72, 65, 87, 75, 1, 0, 0, 0,
@@ -110,7 +111,7 @@ fn test_double_bool_and_negative_int() -> Result<Void, Error> {
             Instr.Simple(Op.Return),
         ],
     };
-    let m = Module { functions: [g], types: [], dispatch: [] };
+    let m = Module { functions: [g], types: [], dispatch: [], global_count: 0 };
     let expected = [
         72, 65, 87, 75, 1, 0, 0, 0,
         2, 1, 0, // no pooled strings

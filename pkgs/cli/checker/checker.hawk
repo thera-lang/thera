@@ -203,14 +203,16 @@ fn check_program(_ errors: List<CheckError>, _ program: Program, _ library: Libr
                 check_expr(errors, x.value, empty_scope(), ctx, Option.None);
             },
             Let(x) => {
-                // Module-level `let` (computed-once globals) is parsed but its
-                // resolver/codegen support isn't built yet — reject it for now,
-                // pointing at `const`. See docs/module_init.md.
-                errors.push(CheckError {
-                    message: 'module-level `let` is not yet implemented; '
-                        + 'use `const` for a compile-time constant',
-                    span: x.name_span,
-                });
+                // Module-level `let` (computed-once global; docs/module_init.md).
+                // Type-checked like a `const` initializer — unlike `const`, the
+                // initializer may be computed (it runs once at load, not inlined).
+                match x.type_ann {
+                    Some(ref) => { check_type_ref(errors, ref, library, file, Set.new()); },
+                    None => {},
+                }
+                let ctx = new_ctx(library);
+                ctx.current_file = file;
+                check_expr(errors, x.value, empty_scope(), ctx, Option.None);
             },
             Enum(x) => {
                 let tps = type_param_set(x.type_params);

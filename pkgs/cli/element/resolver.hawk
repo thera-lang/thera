@@ -210,9 +210,16 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
                         ty: resolve_opt(x.type_ann, type_defs, Set.new(), Option.None),
                     });
                 },
-                // Module-level `let` (top-level globals) is parsed but not yet
-                // resolved/codegen'd; the checker reports it. See docs/module_init.md.
-                Let(x) => {},
+                // Module-level `let` (top-level globals; docs/module_init.md). For
+                // type resolution it behaves exactly like a `const` — a named
+                // binding with a type — so it shares the const element table; only
+                // codegen distinguishes them (a stored slot vs. inlining).
+                Let(x) => {
+                    record_file_const(file_consts, p.file_path, x.name, ConstElement {
+                        name: x.name,
+                        ty: resolve_opt(x.type_ann, type_defs, Set.new(), Option.None),
+                    });
+                },
                 Impl(x) => {
                     resolve_impl(x, type_defs);
                 },

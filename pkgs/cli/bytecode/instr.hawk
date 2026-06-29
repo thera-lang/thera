@@ -71,6 +71,9 @@ pub enum Op {
     ShrI64,  // arithmetic (sign-preserving) right shift
     UShrI64, // logical (zero-fill) right shift
     ListLen, // pop a list, push its length (the `list.len()` read)
+    // Module globals (top-level `let`); see docs/module_init.md.
+    GlobalGet, // push the module global at <slot>
+    GlobalSet, // pop into the module global at <slot> (init thunk only)
 }
 
 impl Op {
@@ -138,6 +141,8 @@ impl Op {
             ShrI64 => 59,
             UShrI64 => 60,
             ListLen => 61,
+            GlobalGet => 62,
+            GlobalSet => 63,
         };
     }
 }
@@ -155,6 +160,8 @@ pub enum Instr {
     ConstStr(String),
     Load(Int),                  // slot
     Store(Int),                 // slot
+    GlobalGet(Int),             // global slot
+    GlobalSet(Int),             // global slot
     Call(Int, Int),             // func index, argc
     CallNative(String, Int),    // native name, argc
     EnumNew(Int, Int, Int),     // type, variant, field count

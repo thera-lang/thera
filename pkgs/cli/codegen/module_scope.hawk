@@ -32,6 +32,15 @@ pub struct StructInfo {
     field_names: List<String>,
 }
 
+// A module-global initializer to run in the `<init>` thunk: the slot it fills,
+// the initializer expression, and the file it was declared in (so bare/qualified
+// references inside the initializer resolve against the right scope).
+pub struct GlobalInit {
+    slot: Int,
+    value: Expr,
+    file: Option<String>,
+}
+
 pub fn field_index_of(_ info: StructInfo, _ name: String) -> Int {
     let mut i = 0;
     while i < info.field_names.len() {
@@ -98,6 +107,11 @@ pub struct ModuleScope {
     enums: Map<String, EnumInfo>,
     types: List<TypeDef>,
     consts: Map<String, Expr>,
+    // Module globals (top-level `let`; see docs/module_init.md): name -> slot for
+    // reference emission, plus the initializers to run in the `<init>` thunk.
+    globals: Map<String, Int>,
+    global_inits: List<GlobalInit>,
+    mut next_global_slot: Int,
     native_fns: Map<String, String>,
     native_static_methods: Map<String, Map<String, String>>,
     native_instance_methods: Map<String, Map<String, String>>,
@@ -138,6 +152,9 @@ pub fn new_module_scope(_ library: element.LibraryElement) -> ModuleScope {
         enums: {},
         types: [],
         consts: {},
+        globals: {},
+        global_inits: [],
+        next_global_slot: 0,
         native_fns: {},
         native_static_methods: {},
         native_instance_methods: {},
@@ -243,6 +260,15 @@ impl ModuleScope {
 
     pub fn add_const(self, _ decl: ConstDecl) -> Void {
         self.consts[decl.name] = decl.value;
+    }
+
+    // Assign a module global its slot and record its initializer for the `<init>`
+    // thunk. Declaration order for now; a later pass reorders by dependency.
+    pub fn add_global(self, _ decl: LetDecl, _ file: Option<String>) -> Void {
+        let slot = self.next_global_slot;
+        self.next_global_slot = slot + 1;
+        self.globals[decl.name] = slot;
+        self.global_inits.push(GlobalInit { slot: slot, value: decl.value, file: file });
     }
 
     pub fn add_native_static_method(self, _ type_name: String, _ method: FnDecl) -> Void {

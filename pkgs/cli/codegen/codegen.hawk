@@ -87,6 +87,25 @@ pub fn compile_program(_ program: Program, _ imports: List<Program>,
         functions.push(new_fn_compiler(scope, errors).compile(i));
         i = i + 1;
     }
+
+    // The program-init thunk (module-global initializers; see docs/module_init.md)
+    // is synthesized after the real units and appended LAST, so it never shifts
+    // the unit -> function-index mapping. Synthesizing it may itself lift lambda
+    // units (an initializer containing a lambda); drain those into the table
+    // before appending the thunk so their `closure.new` indices stay correct.
+    let init_thunk = if scope.global_inits.len() != 0 {
+        Option.Some(new_fn_compiler(scope, errors).compile_init_thunk())
+    } else {
+        Option.None
+    };
+    while i < scope.units.len() {
+        functions.push(new_fn_compiler(scope, errors).compile(i));
+        i = i + 1;
+    }
+    match init_thunk {
+        Some(f) => { functions.push(f); },
+        None => {},
+    }
     // Differential inference oracle (opt-in via HAWK_INFER_ORACLE): report units
     // whose codegen inference context diverges from the checker-correct one — the
     // root of the checker/codegen inference-disagreement bug class.
@@ -100,10 +119,16 @@ pub fn compile_program(_ program: Program, _ imports: List<Program>,
             functions: functions,
             types: scope.types,
             dispatch: scope.build_dispatch(),
+            global_count: scope.next_global_slot,
         },
         errors: errors,
     };
 }
+
+// The reserved name of the program-init thunk the runtime runs once before the
+// entry (see docs/module_init.md). Angle-bracketed so it can't collide with a
+// user identifier. Must match the runtime's `interp::INIT_THUNK`.
+const INIT_THUNK_NAME: String = '<init>';
 
 // Register one module's declarations into the shared scope.
 fn register_module(_ scope: ModuleScope, _ program: Program) -> Void {
@@ -122,9 +147,9 @@ fn register_module(_ scope: ModuleScope, _ program: Program) -> Void {
             Type(x) => { if !x.is_native { scope.add_struct(x); } },
             Enum(x) => { scope.add_enum(x); },
             Const(x) => { scope.add_const(x); },
-            // Module-level `let` (globals) isn't emitted yet; the checker blocks
-            // any program that uses it, so codegen never reaches a real one.
-            Let(x) => {},
+            // Module-level `let`: a global slot computed once in the `<init>`
+            // thunk (see docs/module_init.md).
+            Let(x) => { scope.add_global(x, file); },
             Interface(x) => { scope.add_interface(x); },
             Impl(x) => {
                 match x.interface_name {
@@ -315,6 +340,28 @@ impl FnCompiler {
         };
     }
 
+    // Synthesize the `<init>` thunk: evaluate each module-global initializer and
+    // `global.set` its slot, in `global_inits` order, then return Unit. Each
+    // initializer is compiled in its declaring file's scope (so its references
+    // resolve same-file-first, like a normal unit). See docs/module_init.md.
+    pub fn compile_init_thunk(self) -> FuncDef {
+        for init in self.scope.global_inits {
+            self.file = init.file;
+            self.ctx.current_file = init.file;
+            self.expr(init.value);
+            self.emit(Instr.GlobalSet(init.slot));
+        }
+        self.emit(Instr.Simple(Op.ConstUnit));
+        self.emit(Instr.Simple(Op.Return));
+        self.resolve_jumps();
+        return FuncDef {
+            name: INIT_THUNK_NAME,
+            param_count: 0,
+            local_count: self.local_count,
+            code: self.code,
+        };
+    }
+
     // --- low-level emit / labels / slots ---
 
     fn emit(self, _ instr: Instr) -> Void {
@@ -389,10 +436,20 @@ impl FnCompiler {
             None => {
                 if self.scope.consts.has(name) {
                     self.emit_const(name, span);
+                } else if self.scope.globals.has(name) {
+                    self.emit_global(name);
                 } else {
                     self.error('not a local variable: ${name}', span);
                 }
             },
+        }
+    }
+
+    // Load a module global (top-level `let`) by its slot.
+    fn emit_global(self, _ name: String) -> Void {
+        match self.scope.globals.get(name) {
+            Some(slot) => { self.emit(Instr.GlobalGet(slot)); },
+            None => {},
         }
     }
 
@@ -1400,12 +1457,19 @@ impl FnCompiler {
     }
 
     fn field_expr(self, _ object: Expr, _ field: String, _ span: SourceSpan) -> Void {
-        // A namespace-qualified constant: `ns.NAME` → inline its initializer.
+        // A namespace-qualified constant or global: `ns.NAME` → inline the const
+        // initializer, or load the global slot.
         match object {
             Ident(_, ns_name) => {
-                if self.is_namespace(ns_name) && self.scope.consts.has(field) {
-                    self.emit_const(field, span);
-                    return;
+                if self.is_namespace(ns_name) {
+                    if self.scope.consts.has(field) {
+                        self.emit_const(field, span);
+                        return;
+                    }
+                    if self.scope.globals.has(field) {
+                        self.emit_global(field);
+                        return;
+                    }
                 }
             },
             _ => {},

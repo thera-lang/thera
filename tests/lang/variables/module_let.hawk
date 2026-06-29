@@ -1,11 +1,10 @@
 //! spec: module-let
 //! mode: run
-//! xfail: module-level `let` parsed but not yet implemented (docs/module_init.md, Phasing)
 
 // A module-level `let` is computed once at load into a stored global slot;
-// referencing it reads the stored value. Spec ahead of impl: today the parser
-// accepts top-level `let` but the checker rejects it (use `const` for now).
-let ANSWER: Int = 6 * 7;
+// referencing it reads the stored value (a computed initializer, unlike `const`).
+let BASE: Int = 6;
+let ANSWER: Int = BASE * 7;   // a later global may reference an earlier one
 
 fn main() -> Int {
     println('${ANSWER}');   // expect: 42
