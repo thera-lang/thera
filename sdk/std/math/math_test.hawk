@@ -80,3 +80,16 @@ fn test_inverse_trig() -> Result<Void, Error> {
     testing.assert(close(hypot(3.0, 4.0), 5.0))?;
     return Result.Ok(void);
 }
+
+// INFINITY/NAN are module-level `let`s (no literal form). These exercise the
+// stored globals via their defining properties rather than a magnitude literal
+// (Hawk has no float-exponent literals).
+@test
+fn test_infinity_and_nan() -> Result<Void, Error> {
+    testing.assert(INFINITY > 1000000.0)?;
+    testing.assert(INFINITY + 1.0 == INFINITY)?;   // adding to infinity stays infinity
+    testing.assert(1.0 / INFINITY == 0.0)?;
+    testing.assert(-INFINITY < 0.0)?;
+    testing.assert(NAN != NAN)?;                    // NaN is unequal to itself
+    return Result.Ok(void);
+}

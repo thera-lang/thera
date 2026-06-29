@@ -362,28 +362,9 @@ _Owner-correct type resolution_ below.)
 
 ### Language features not yet built
 
-- **Module initializers — computed-once immutable globals.** Full design:
-  [module_init.md](module_init.md). Today top-level `const` **inlines** its
-  initializer at every use site (codegen has no global storage), so a computed
-  `const TABLE = build()` rebuilds the table per reference, and there is "no
-  load-time init." Add an **immutable** top-level `let NAME = expr;` that is
-  computed **once** at load into a stored global slot. Mechanics: a globals
-  vector (new `global_count` in the module header), `global.get`/`global.set`
-  opcodes, and a single linker-emitted **program-init thunk** run before `main`
-  in **topological** order (`std.core` first); an initializer-**dependency**
-  cycle is a compile error (distinct from an import cycle), which keeps global
-  access a plain slot read — no per-access init guard. The globals vector becomes
-  a GC root. **Immutable only** (no top-level `let mut` — swappable config stays a
-  capability value, so this doesn't reintroduce the "no hidden global state"
-  anti-pattern; see module_init.md §Tension), and initializers must be **pure** —
-  a small denylist rejects time-varying natives (`time`/`fs`/sockets) from
-  initializer position (Hawk has no effect system to enforce purity precisely).
-  Codegen change → two-cycle fixpoint reconverge. **Phase 1 unblocks** lookup
-  tables for `std.encoding`/`std.hash` (CRC32/base64), `std.math`
-  `INFINITY`/`NAN`, `std.path`'s platform separator, derived constants, and a
-  top-level keyword map in the front-end (the `keyword_kind` dogfood). It is the
-  principled replacement for the recurring "no load-time init" blocker called out
-  across [stdlib.md](stdlib.md).
+- ~~**Module initializers — computed-once immutable globals.**~~ _Done (Phase 1)_
+  — see the changelog below and [module_init.md](module_init.md). Phase 2
+  (process-stable ambient natives, e.g. the path separator) remains.
 
 - **Disambiguate the empty `{}` in a `match` arm (map-literal vs block).** In
   expression position `{}` is an empty **map** (`return {}`, `let m = {}`, a
@@ -486,6 +467,17 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **Module initializers — computed-once immutable globals** (2026-06). Top-level
+  `let NAME[: T] = expr;` computed once at load into a stored global slot. Runtime
+  gained `global.get`/`global.set`, a `global_count` header field, a per-run
+  globals vector (a GC root), and a reserved `<init>` thunk run before the entry.
+  Front-end: typed globals + slot codegen, dependency-topological init with cycle
+  detection, an effectful-native denylist in initializer position, and `const`
+  tightened to manifest constants (a computed `const` now points at `let`).
+  **Immutable only** (no top-level `let mut`). First use: `std.math`
+  `INFINITY`/`NAN`; the lookup-table/keyword-map motivations proved moot
+  (native/arithmetic/`match`). Full design: [module_init.md](module_init.md);
+  conformance `module-let*`, `const-manifest`.
 - **`std.hash` — native digests + the runtime's first external dependencies**
   (2026-06). `sha256`/`sha1`/`md5` (digests as `Bytes`) and `crc32` (IEEE 802.3,
   as `Int`), thin `native fn` wrappers over **audited Rust crates** rather than

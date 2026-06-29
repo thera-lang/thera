@@ -8,19 +8,19 @@ the language surface see [language.md](language.md); for the stdlib items this
 unblocks see [stdlib.md](stdlib.md); for the runtime/bytecode mechanics see
 [bytecode.md](bytecode.md).
 
-> **Status: design; runtime mechanism landed.** The **runtime side is done** —
-> `global.get`/`global.set` opcodes, a `global_count` module-header field, a
-> per-run globals vector (a permanent GC root), and load-order wiring that
-> allocates the vector and runs a reserved `<init>` program-init thunk before the
-> entry (see [bytecode.md](bytecode.md)). It is inert until the front-end emits
-> globals: a module with no top-level `let` encodes byte-for-byte as before. The
-> **front-end side is in progress** — the **parser surface has landed** (top-level
-> `let` parses; `let mut` is rejected), but the checker still rejects any
-> module-level `let` ("not yet implemented; use `const`") because the
-> resolver/codegen aren't built. So today top-level `const` **inlines** its
-> initializer at every use site (codegen has no global storage), so a computed
-> `const TABLE = build()` rebuilds the table per reference. Tracked in
-> [roadmap.md](roadmap.md).
+> **Status: implemented (Phase 1).** Module-level `let` works end-to-end:
+> top-level `let NAME[: T] = expr;` is parsed, type-checked, and compiled to a
+> stored global slot; references emit `global.get`; a synthesized `<init>` thunk
+> evaluates initializers in dependency order and `global.set`s each slot before
+> the entry runs (`let mut` is rejected, immutable only). Initializer cycles and
+> time-varying/IO natives in initializer position are compile errors, and `const`
+> is tightened to manifest constants (a computed `const` now points at `let`).
+> First real use: `std.math` `INFINITY`/`NAN` (no literal form, so they can't be
+> consts). The lookup-table and keyword-map motivations below turned out moot —
+> `std.encoding` maps arithmetically, `std.hash` is native, and the lexer's
+> `keyword_kind` is already a `match` (no inlining footgun) — so they were not
+> migrated. Process-stable ambient natives (the path separator) remain Phase 2.
+> Tracked in [roadmap.md](roadmap.md).
 
 ## Motivation
 
@@ -179,10 +179,12 @@ value.**
 
 ## Phasing
 
-- **Phase 1.** Immutable module `let`, pure initializers (Hawk functions + pure
-  natives), eager topo init, dependency-cycle = compile error, tighten `const` to
-  manifest constants. Unlocks tables (`std.encoding`/`std.hash`),
-  `INFINITY`/`NAN`, derived constants, the keyword map.
+- **Phase 1 — done.** Immutable module `let`, computed initializers, eager topo
+  init, dependency-cycle = compile error, effectful-native denylist, and `const`
+  tightened to manifest constants. Realized win: `INFINITY`/`NAN`. The other
+  motivations turned out moot (see Status): `std.encoding`/`std.hash` have no
+  Hawk-level tables, derived literal consts like `TAU` have no recomputation
+  footgun, and `keyword_kind` is a `match`, not a const.
 - **Phase 2 (if needed).** A narrow, deliberate allowance for process-stable
   ambient natives (the path separator), provided as pure-per-run natives.
 - **Out of scope, by design.** Mutable module globals — swappable config stays

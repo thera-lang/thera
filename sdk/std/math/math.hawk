@@ -15,6 +15,13 @@ pub const PI: Double = 3.141592653589793;
 pub const E: Double = 2.718281828459045;
 pub const TAU: Double = 6.283185307179586; // 2 * PI
 
+// Floating-point infinity and not-a-number. These have no literal form, so they
+// are module-level `let`s — computed once at load and stored — rather than
+// consts. The first stdlib values that module initializers unblock; see
+// docs/module_init.md.
+pub let INFINITY: Double = 1.0 / 0.0;
+pub let NAN: Double = 0.0 / 0.0;
+
 // --- Roots and powers ---
 
 /// The square root of `x`.
