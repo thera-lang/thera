@@ -201,6 +201,10 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("channel_send", native_channel_send),
     ("channel_receive", native_channel_receive),
     ("channel_close", native_channel_close),
+    ("hash_sha256", native_hash_sha256),
+    ("hash_sha1", native_hash_sha1),
+    ("hash_md5", native_hash_md5),
+    ("hash_crc32", native_hash_crc32),
 ];
 
 /// The native functions the runtime ships with, in index order.
@@ -696,6 +700,43 @@ fn native_bytes_from_list(_out: &mut dyn Write, args: &[Value]) -> Result<Value,
         Ok(bytes) => Value::ok(Value::new_bytes(bytes)),
         Err(msg) => Value::err(Value::new_str(msg)),
     })
+}
+
+// --- std.hash digests (backed by battle-tested RustCrypto / crc32fast) ---
+
+/// `hash.sha256(data)` — the SHA-256 digest (32 bytes).
+fn native_hash_sha256(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    use sha2::{Digest, Sha256};
+    let digest = with_bytes(expect_one(args, "hash.sha256")?, "hash.sha256", |b| {
+        Sha256::digest(b).to_vec()
+    })?;
+    Ok(Value::new_bytes(digest))
+}
+
+/// `hash.sha1(data)` — the SHA-1 digest (20 bytes).
+fn native_hash_sha1(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    use sha1::{Digest, Sha1};
+    let digest = with_bytes(expect_one(args, "hash.sha1")?, "hash.sha1", |b| {
+        Sha1::digest(b).to_vec()
+    })?;
+    Ok(Value::new_bytes(digest))
+}
+
+/// `hash.md5(data)` — the MD5 digest (16 bytes).
+fn native_hash_md5(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    use md5::{Digest, Md5};
+    let digest = with_bytes(expect_one(args, "hash.md5")?, "hash.md5", |b| {
+        Md5::digest(b).to_vec()
+    })?;
+    Ok(Value::new_bytes(digest))
+}
+
+/// `hash.crc32(data)` — the CRC-32 (IEEE 802.3) checksum, as a 0..=2^32-1 `Int`.
+fn native_hash_crc32(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let checksum = with_bytes(expect_one(args, "hash.crc32")?, "hash.crc32", |b| {
+        crc32fast::hash(b) as i64
+    })?;
+    Ok(Value::Int(checksum))
 }
 
 // --- bytes-builder natives ---

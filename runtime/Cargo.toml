@@ -16,6 +16,12 @@ path = "src/main.rs"
 native-stats = []
 
 [dependencies]
+# std.hash digests — best-of-breed, battle-tested implementations (the runtime's
+# first external dependencies, added deliberately; see docs/stdlib.md §std.hash).
+sha2 = "0.10"       # SHA-256 (RustCrypto)
+sha1 = "0.10"       # SHA-1 (RustCrypto)
+md-5 = "0.10"       # MD5 (RustCrypto)
+crc32fast = "1.4"   # CRC-32 (IEEE 802.3)
 
 [profile.dev]
 # This makes the debug interpreter loop closer to the performance of the release

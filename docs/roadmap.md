@@ -64,9 +64,10 @@ _Owner-correct type resolution_ below.)
   `read_u8`/`read_bytes`/`read_u32_le`/`read_u64_le`/`read_uvarint`/`read_ivarint`,
   pure Hawk, round-trips the writer). (`slice` on `String`/`List`/`Bytes` was
   already there.) The `Ord` interface + `std.sort` (`sorted`/`min`/`max`) are now
-  in — see _Completed_. `std.encoding` (base64/hex/url, pure Hawk) is in too.
-  Remaining: the rest of the "batteries included" goal (`std.hash`, `std.log`,
-  `std.term`, a `std.regex` rebuild), and sorted/`Ord`-keyed `Set`/`Map` variants.
+  in — see _Completed_. `std.encoding` (base64/hex/url, pure Hawk) and `std.hash`
+  (native digests) are in too. Remaining: the rest of the "batteries included"
+  goal (`std.log`, `std.term`, a `std.regex` rebuild), and sorted/`Ord`-keyed
+  `Set`/`Map` variants.
 - **Fibers — phases 3–4.** Phases 0–2 are done (scheduler-drivable `run_loop`;
   `spawn`/`join`/`yield` with GC roots across every fiber; buffered
   `Channel<T>`). Design in [architecture.md](architecture.md) §Concurrency.
@@ -484,6 +485,17 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **`std.hash` — native digests + the runtime's first external dependencies**
+  (2026-06). `sha256`/`sha1`/`md5` (digests as `Bytes`) and `crc32` (IEEE 802.3,
+  as `Int`), thin `native fn` wrappers over **audited Rust crates** rather than
+  reimplemented in Hawk — hashing is crypto-adjacent and wants battle-tested code.
+  This adds the runtime's **first external dependencies** (previously zero),
+  deliberately: the RustCrypto `sha2`/`sha1`/`md-5` crates and `crc32fast`, each
+  named in its function's doc comment. The native ABI is the existing
+  `with_bytes` reader + `Value::new_bytes`/`Value::Int`. Checked against published
+  test vectors; pairs with `std.encoding` to render a digest. (Precedent for the
+  deliberate-dependency policy the `std.regex` rebuild will revisit.)
 
 - **`std.encoding` — base64 / hex / url** (2026-06). Flat module (`import
   std.encoding`): `base64_encode`/`decode` (RFC 4648, `+/`, `=`-padded),

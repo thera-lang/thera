@@ -285,8 +285,11 @@ no Hawk code) and it needs no event loop, so it unblocks `std.fiber`/`std.http`
 soonest. (2) The scaling goal is readiness-based non-blocking I/O via
 `kqueue`/`epoll` in the scheduler's poller, so thousands of fibers park on one
 thread. Both preserve the "blocking-looking, never blocks the thread" contract.
-This is also where the first real runtime-dependency question lands — a poller
-crate (`mio`) vs. hand-rolled `kqueue`/`epoll` to stay dependency-free.
+This is also a runtime-dependency question — a poller crate (`mio`) vs.
+hand-rolled `kqueue`/`epoll` to keep dependencies minimal. (The runtime is no
+longer strictly dependency-free: `std.hash` took the first external crates —
+RustCrypto digests — as a deliberate best-of-breed call; new dependencies stay
+few and deliberate.)
 
 This design is the reason the [language.md](language.md) `async`/`await` fallback
 should stay a fallback: the stackless-fiber model delivers the same

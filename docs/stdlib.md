@@ -665,17 +665,27 @@ everything else is `%XX` (uppercase) of the UTF-8 bytes, so a space is `%20`
 (**not** `+`); `url_decode` treats `+` literally (its inverse) and validates the
 result is UTF-8. A URL-safe base64 (`-_`) variant is a candidate addition.
 
-### `std.hash` — non-cryptographic + common digests _(new)_
+### `std.hash` — common digests + checksum _(implemented, native)_
 
 ```
-pub fn sha256(_ data: Bytes) -> Bytes;
-pub fn sha1(_ data: Bytes) -> Bytes;
-pub fn md5(_ data: Bytes) -> Bytes;
-pub fn crc32(_ data: Bytes) -> Int;
+pub fn sha256(_ data: Bytes) -> Bytes;   // 32 bytes; the secure default
+pub fn sha1(_ data: Bytes) -> Bytes;     // 20 bytes; legacy/checksum only
+pub fn md5(_ data: Bytes) -> Bytes;      // 16 bytes; legacy/checksum only
+pub fn crc32(_ data: Bytes) -> Int;      // CRC-32 (IEEE 802.3), 0..=2^32-1
 ```
 
-Notes: enough for checksums and content addressing (common agent tasks). Full
-crypto (signing, TLS primitives, AEAD) is ecosystem.
+Notes: enough for checksums and content addressing (common agent tasks); render a
+digest with `std.encoding` (`hex_encode`/`base64_encode`). Full crypto (signing,
+TLS primitives, AEAD) stays ecosystem.
+
+**Backed by audited Rust crates, not reimplemented in Hawk** — hashing is
+crypto-adjacent and wants battle-tested code: the RustCrypto `sha2` / `sha1` /
+`md-5` crates and `crc32fast` (IEEE 802.3, the zip/gzip/PNG variant). These are
+the **runtime's first external dependencies**, taken deliberately for this
+best-of-breed case; the crate backing each function is named in its doc comment.
+**Security:** `sha256` is the secure default; `sha1` and `md5` are broken for
+collision resistance (checksums / legacy interop only); `crc32` is an integrity
+checksum, not a hash.
 
 ### `std.http` / `std.http.server` — HTTP client + simple server _(new)_
 
@@ -892,10 +902,12 @@ case folding belong to a Unicode/ICU package, not core. Identifier predicates
 > natives, but those natives did not survive the Rust-runtime migration (they
 > were bound by bare name and now exist nowhere), so the module was
 > non-functional and has been deleted. The design below is the target for a
-> rebuild. **The blocker is the engine:** the runtime is deliberately
-> dependency-free, so backing this needs either a hand-rolled engine in Rust or
-> a deliberate decision to take the `regex` crate (RE2-derived) as the runtime's
-> first dependency — a policy call to make when this is picked back up.
+> rebuild. **The blocker is the engine:** the runtime keeps dependencies few and
+> deliberate, so backing this needs either a hand-rolled engine in Rust or a
+> decision to take the `regex` crate (RE2-derived). That precedent is now set —
+> `std.hash` added the runtime's first external crates (RustCrypto digests) for a
+> best-of-breed case — so this is the same "take a vetted crate" call rather than
+> a first-of-its-kind one; still a deliberate policy decision when picked back up.
 
 Purpose: compile a pattern once, then match / find / capture / replace against
 Unicode text. RE2 syntax (linear-time, no backtracking / lookaround) — see
@@ -1088,7 +1100,7 @@ dependency graph, so future work lands in the right order:
 | std.sort     | done    | pure Hawk over `Ord`: `sorted`/`sorted_desc`/`min`/`max` (`<T: Ord>`); `Ord`/`Ordering` live in the prelude                                                                                                                         |
 | std.json     | done    | pure Hawk; structural `Json` + constructors, parse/stringify, navigation; Int/Double split; auto-boxing + typed decode later                                                                                                        |
 | std.encoding | done    | pure Hawk (no natives): base64 (RFC 4648), hex, percent/URL (RFC 3986); decode is fallible; arithmetic char mapping, no lookup tables                                                                                                                                                                                                                                     |
-| std.hash     | new     | runtime native                                                                                                                                                                                                                      |
+| std.hash     | done    | native: sha256/sha1/md5 + crc32 (IEEE), backed by RustCrypto + crc32fast — the runtime's first external deps; checked against published vectors                                                                                       |
 | std.http     | new     | client (`std.http`) + simple server (`std.http.server`, plaintext-first; bind + handle + tiny matcher, frameworks stay ecosystem); runtime sockets + TLS; gated on `std.fiber` I/O parking                                                                                                                                                                                                  |
 | std.log      | new     | **design pass needed**: global singleton vs `Logger` value (capability). The specced `set_level`/`set_output` globals clash with principle 7 / no load-time init; decide from consumer needs (§ std.log)                                                                                                                                                                                                                                     |
 | std.cli      | done    | pure Hawk; declarative `Command`/`Matches`/`CliError` + `--help`, abbrs, negation; `Args` is the raw escape hatch. v2: entry adapter, selected-subcommand help, required positionals, command-path errors (§ std.cli)               |

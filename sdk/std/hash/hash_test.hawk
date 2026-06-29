@@ -1,0 +1,55 @@
+//! Tests for std.hash (digests checked against published test vectors).
+
+import std.testing;
+import std.encoding;
+
+import 'hash' as _;
+
+// Render a digest as lowercase hex, the form test vectors are published in.
+fn hex_of(_ data: Bytes) -> String {
+    return encoding.hex_encode(data);
+}
+
+@test
+fn test_sha256() -> Result<Void, Error> {
+    testing.assert_eq(actual: hex_of(sha256(''.bytes())),
+        expected: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855')?;
+    testing.assert_eq(actual: hex_of(sha256('abc'.bytes())),
+        expected: 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_sha1() -> Result<Void, Error> {
+    testing.assert_eq(actual: hex_of(sha1(''.bytes())),
+        expected: 'da39a3ee5e6b4b0d3255bfef95601890afd80709')?;
+    testing.assert_eq(actual: hex_of(sha1('abc'.bytes())),
+        expected: 'a9993e364706816aba3e25717850c26c9cd0d89d')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_md5() -> Result<Void, Error> {
+    testing.assert_eq(actual: hex_of(md5(''.bytes())),
+        expected: 'd41d8cd98f00b204e9800998ecf8427e')?;
+    testing.assert_eq(actual: hex_of(md5('abc'.bytes())),
+        expected: '900150983cd24fb0d6963f7d28e17f72')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_crc32() -> Result<Void, Error> {
+    testing.assert_eq(actual: crc32(''.bytes()), expected: 0)?;
+    testing.assert_eq(actual: crc32('abc'.bytes()), expected: 891568578)?;       // 0x352441C2
+    testing.assert_eq(actual: crc32('The quick brown fox jumps over the lazy dog'.bytes()),
+        expected: 1095738169)?;                                                   // 0x414FA339
+    return Result.Ok(void);
+}
+
+@test
+fn test_digest_lengths() -> Result<Void, Error> {
+    testing.assert_eq(actual: sha256('x'.bytes()).len(), expected: 32)?;
+    testing.assert_eq(actual: sha1('x'.bytes()).len(), expected: 20)?;
+    testing.assert_eq(actual: md5('x'.bytes()).len(), expected: 16)?;
+    return Result.Ok(void);
+}
