@@ -17,9 +17,9 @@ remove a decision: there should be one obvious way to read a file, parse JSON,
 spawn a process, or make an HTTP request, and it should be in `std`.
 
 The bar: **solid, self-consistent, and reasonably complete** for CLI tooling and
-agent automation (the target domain, see [overview.md](overview.md)). The
-long tail — databases, exotic formats, GUI — belongs to the package ecosystem,
-but every _common_ task must have an answer in core.
+agent automation (the target domain, see [overview.md](overview.md)). The long
+tail — databases, exotic formats, GUI — belongs to the package ecosystem, but
+every _common_ task must have an answer in core.
 
 ## Cross-cutting principles
 
@@ -55,8 +55,7 @@ enough to reduce hallucination.
    (`FsError`, `JsonError`, `HttpError`) so callers can `match` on the cause;
    all of them implement the common `Error` interface (`§ Error`), which is the
    uniform currency at boundaries and the conventional `E` in library-agnostic
-   code. No exceptions, no hidden control flow (see
-   [overview.md](overview.md)).
+   code. No exceptions, no hidden control flow (see [overview.md](overview.md)).
 
 5. **Concurrency is invisible.** Hawk uses single-threaded cooperative fibers
    ([language.md](language.md) §Concurrency): I/O parks the calling fiber and
@@ -80,9 +79,8 @@ enough to reduce hallucination.
    system implementation. Some capabilities make the value-you-hold form the
    default instead (`random.Rng` has no ambient form, since reproducibility is
    the common case). This keeps the functional core pure, quarantines effects to
-   the shell ([overview.md](overview.md)), and makes the test seam
-   explicit rather than a global override. Full design:
-   [testability.md](testability.md).
+   the shell ([overview.md](overview.md)), and makes the test seam explicit
+   rather than a global override. Full design: [testability.md](testability.md).
 
 8. **Text is UTF-8; bytes are `Bytes`.** `String` is validated UTF-8; raw binary
    is the `Bytes` type (§ Core types). Conversions are explicit: `s.chars()`
@@ -94,11 +92,11 @@ enough to reduce hallucination.
 
 ## The tiers
 
-| Tier          | Import          | Contents                                                                                                                       |
-| ------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Tier          | Import          | Contents                                                                                                                                           |
+| ------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Prelude**   | none (auto)     | primitives, `List`/`Map`/`Set`, `Option`/`Result`, `Error` + `Eq`/`Display`/`Debug`/`Ord`, `println`/`print`/`eprintln`/`eprint`, `String` methods |
-| **Core std**  | `import std.x`  | `io fs path env process time fiber math random json encoding hash http log cli term regex testing`                             |
-| **Ecosystem** | package manager | databases, YAML/TOML/CSV, HTTP server *frameworks* (a simple server is core), raw sockets, compression, full crypto/TLS, UUID, templating, …                          |
+| **Core std**  | `import std.x`  | `io fs path env process time fiber math random json encoding hash http log cli term regex testing`                                                 |
+| **Ecosystem** | package manager | databases, YAML/TOML/CSV, HTTP server _frameworks_ (a simple server is core), raw sockets, compression, full crypto/TLS, UUID, templating, …       |
 
 The line between core and ecosystem: core covers what a typical CLI tool or
 agent script needs **in almost every project**. The ecosystem covers the
@@ -314,8 +312,8 @@ file-handle natives; `walk` is then a thin `Iterator` over `list_dir`.
 ### `std.path` — pure path manipulation _(implemented, pure Hawk)_
 
 Purpose: string-only path operations, no filesystem access. **Implemented
-entirely in Hawk** (the worked example of stdlib-in-Hawk; one native, `env.os()`,
-backs the separator). Provides
+entirely in Hawk** (the worked example of stdlib-in-Hawk; one native,
+`env.os()`, backs the separator). Provides
 `join`/`join_all`/`dirname`/`basename`/`stem`/`extension`/`is_absolute` plus
 `components`, `with_extension`, and the OS boundary (`separator`/`to_native`/
 `from_native`).
@@ -335,15 +333,16 @@ pub fn from_native(_ p: String) -> String;  // host form -> slash
 ```
 
 Slash-based (POSIX-style, like Go's `path`): `'/'` is always the separator, so
-manipulation is **deterministic on every platform**. The OS boundary is explicit,
-not implicit: `separator` is the host path separator — a **module initializer**
-(it can't be a compile-time `const`; [module_init.md](module_init.md)) computed
-once from `env.os()` — and `to_native`/`from_native` translate at a display or
-interop boundary (the filesystem natives accept `/` everywhere, so most code
-never needs them). Full OS-native path *parsing* (Windows drive letters, UNC) is
-deliberately out of scope — keep application logic in slash form. `normalize` (Go
-`path.Clean`), `relative` (Go `filepath.Rel`), and the n-ary `join_all` (Hawk has
-no variadics) are all in.
+manipulation is **deterministic on every platform**. The OS boundary is
+explicit, not implicit: `separator` is the host path separator — a **module
+initializer** (it can't be a compile-time `const`;
+[module_init.md](module_init.md)) computed once from `env.os()` — and
+`to_native`/`from_native` translate at a display or interop boundary (the
+filesystem natives accept `/` everywhere, so most code never needs them). Full
+OS-native path _parsing_ (Windows drive letters, UNC) is deliberately out of
+scope — keep application logic in slash form. `normalize` (Go `path.Clean`),
+`relative` (Go `filepath.Rel`), and the n-ary `join_all` (Hawk has no variadics)
+are all in.
 
 ### `std.env` — environment & process info _(implemented)_
 
@@ -371,10 +370,11 @@ pub fn system_env() -> Env;
 ```
 
 Note: `OS` is a function (`os()`), not a `const` — it is a runtime/platform
-value, and Hawk has no load-time init to materialize a `const` from one (planned:
-[module_init.md](module_init.md) would let `os()` be captured once into a global). `exit` is typed `Void` until a `Never` type lands.
-`Env` is the second instance of the ambient-capability pattern after
-`time.Clock` (see [testability.md](testability.md)).
+value, and Hawk has no load-time init to materialize a `const` from one
+(planned: [module_init.md](module_init.md) would let `os()` be captured once
+into a global). `exit` is typed `Void` until a `Never` type lands. `Env` is the
+second instance of the ambient-capability pattern after `time.Clock` (see
+[testability.md](testability.md)).
 
 ### `std.process` — subprocess spawning _(implemented)_
 
@@ -415,12 +415,11 @@ whose output should stream as it happens); it's how the Hawk CLI's `run`/`test`
 drive the runtime. `run` pipes and captures; `exec` shares the parent fds and
 returns only the exit code. Pipes stream `Bytes` (the `Reader`/`Writer`
 currency), so writing text is `child.stdin().write(s.bytes())`. `close_stdin()`
-is the explicit EOF signal a
-write-then-read filter (`cat`, `grep`, `sort`) needs — without it `read_all`
-deadlocks waiting on a child that's waiting on more input. `ProcessError` is
-classified: a missing executable is `NotFound` (matchable), everything else is
-`Io`. Errors come back from the natives kind-tagged and a private helper maps
-them — the same pattern as `std.fs`.
+is the explicit EOF signal a write-then-read filter (`cat`, `grep`, `sort`)
+needs — without it `read_all` deadlocks waiting on a child that's waiting on
+more input. `ProcessError` is classified: a missing executable is `NotFound`
+(matchable), everything else is `Io`. Errors come back from the natives
+kind-tagged and a private helper maps them — the same pattern as `std.fs`.
 
 ### `std.time` — clocks, durations, dates _(implemented)_
 
@@ -491,14 +490,14 @@ impl Channel<T> {
 ```
 
 **Status:** `spawn`/`join`/`yield` and **channels** run on a cooperative FIFO
-scheduler — a fiber runs until it blocks (`join` on an unfinished fiber,
-`send` on a full channel, `receive` on an empty one) or `yield`s, then the next
-ready fiber runs; `join` is the only way to get a fiber's result out.
-Deterministic scheduling, and GC keeps parked fibers' and channels' values alive.
-Channels are **buffered** (capacity ≥ 1, FIFO; a closed channel drains then gives
-`None`; `send` after `close` traps); true 0-capacity rendezvous is a later
-refinement. Deferred: parking on real I/O — today only fiber/channel ops park
-(see the I/O staging in the design).
+scheduler — a fiber runs until it blocks (`join` on an unfinished fiber, `send`
+on a full channel, `receive` on an empty one) or `yield`s, then the next ready
+fiber runs; `join` is the only way to get a fiber's result out. Deterministic
+scheduling, and GC keeps parked fibers' and channels' values alive. Channels are
+**buffered** (capacity ≥ 1, FIFO; a closed channel drains then gives `None`;
+`send` after `close` traps); true 0-capacity rendezvous is a later refinement.
+Deferred: parking on real I/O — today only fiber/channel ops park (see the I/O
+staging in the design).
 
 Notes: no mutexes/atomics — single-threaded means no data races
 ([language.md](language.md) §Concurrency). `select` over channels is a candidate
@@ -513,10 +512,10 @@ becomes real once the scheduler lands, so `std.http` and any other library that
 wants concurrent, blocking-looking I/O depends on `std.fiber` first; the two
 should be sequenced together (see § Sequencing). And because the fiber API is
 load-bearing for that whole tier, its design should be driven by **iterative
-feedback from real IO use cases** (a concurrent HTTP fetch, a server accept loop,
-piping between processes) rather than fixed up front — prototype against those
-clients and let them shape `spawn`/`join`/channels (and whether `select` is
-needed) before freezing the surface.
+feedback from real IO use cases** (a concurrent HTTP fetch, a server accept
+loop, piping between processes) rather than fixed up front — prototype against
+those clients and let them shape `spawn`/`join`/channels (and whether `select`
+is needed) before freezing the surface.
 
 ### `std.math` — numeric functions _(implemented)_
 
@@ -571,10 +570,11 @@ impl Rng {
 
 Notes: an `Rng` value, not a global, per principle 7 (no hidden state) — the
 whole state is a visible `Int` field, so `seeded(n)` is fully reproducible.
-Algorithm: **SplitMix64**, now **pure Hawk** — both the state advance (a wrapping
-add of the golden-ratio constant) and the bit-mixing finalizer (`^` / `>>>` over
-the bitwise operators, which have since landed). Only `from_entropy`'s seed is a
-native (it reads the system clock). Not cryptographically secure.
+Algorithm: **SplitMix64**, now **pure Hawk** — both the state advance (a
+wrapping add of the golden-ratio constant) and the bit-mixing finalizer (`^` /
+`>>>` over the bitwise operators, which have since landed). Only
+`from_entropy`'s seed is a native (it reads the system clock). Not
+cryptographically secure.
 
 ### `std.json` — JSON _(implemented, pure Hawk; the flagship data format)_
 
@@ -668,11 +668,12 @@ pub fn url_decode(_ s: String) -> Result<String, Error>;
 Notes: pure Hawk over `Bytes`/`String` + the bitwise operators (no natives, no
 lookup tables — an arithmetic char mapping keeps each codec self-contained).
 base64 is the standard `+/` alphabet with `=` padding (decode rejects a bad
-length, non-alphabet character, or misplaced padding). `url_encode` uses RFC 3986
-*component* encoding — the unreserved set `A-Z a-z 0-9 - _ . ~` passes through,
-everything else is `%XX` (uppercase) of the UTF-8 bytes, so a space is `%20`
-(**not** `+`); `url_decode` treats `+` literally (its inverse) and validates the
-result is UTF-8. A URL-safe base64 (`-_`) variant is a candidate addition.
+length, non-alphabet character, or misplaced padding). `url_encode` uses RFC
+3986 _component_ encoding — the unreserved set `A-Z a-z 0-9 - _ . ~` passes
+through, everything else is `%XX` (uppercase) of the UTF-8 bytes, so a space is
+`%20` (**not** `+`); `url_decode` treats `+` literally (its inverse) and
+validates the result is UTF-8. A URL-safe base64 (`-_`) variant is a candidate
+addition.
 
 ### `std.hash` — common digests + checksum _(implemented, native)_
 
@@ -683,9 +684,9 @@ pub fn md5(_ data: Bytes) -> Bytes;      // 16 bytes; legacy/checksum only
 pub fn crc32(_ data: Bytes) -> Int;      // CRC-32 (IEEE 802.3), 0..=2^32-1
 ```
 
-Notes: enough for checksums and content addressing (common agent tasks); render a
-digest with `std.encoding` (`hex_encode`/`base64_encode`). Full crypto (signing,
-TLS primitives, AEAD) stays ecosystem.
+Notes: enough for checksums and content addressing (common agent tasks); render
+a digest with `std.encoding` (`hex_encode`/`base64_encode`). Full crypto
+(signing, TLS primitives, AEAD) stays ecosystem.
 
 **Backed by audited Rust crates, not reimplemented in Hawk** — hashing is
 crypto-adjacent and wants battle-tested code: the RustCrypto `sha2` / `sha1` /
@@ -699,17 +700,17 @@ checksum, not a hash.
 ### `std.http` / `std.http.server` — HTTP client + simple server _(new)_
 
 Purpose: make HTTP requests (the client) and answer them (a simple server). Both
-are **core**; raw sockets and full server *frameworks* stay ecosystem. Both
-depend on `std.fiber` for concurrent, blocking-looking I/O (see § `std.fiber` and
-§ Sequencing), so this lands after the scheduler.
+are **core**; raw sockets and full server _frameworks_ stay ecosystem. Both
+depend on `std.fiber` for concurrent, blocking-looking I/O (see § `std.fiber`
+and § Sequencing), so this lands after the scheduler.
 
 The **client** lives in `std.http`; the **simple server** is a sibling,
-`std.http.server` (sharing `Request`/`Response`/`HttpError`, a separate import so
-"the server is its own surface" stays explicit). Lightweight servers — a webhook
-receiver, a local endpoint, a health check — are common enough in agent/CLI
-tooling to deserve a built-in answer. **The line: bind + handle (a handler
-function, plus a tiny built-in path matcher) is core; routing DSLs, middleware
-stacks, and enterprise servers are ecosystem.** The server can land
+`std.http.server` (sharing `Request`/`Response`/`HttpError`, a separate import
+so "the server is its own surface" stays explicit). Lightweight servers — a
+webhook receiver, a local endpoint, a health check — are common enough in
+agent/CLI tooling to deserve a built-in answer. **The line: bind + handle (a
+handler function, plus a tiny built-in path matcher) is core; routing DSLs,
+middleware stacks, and enterprise servers are ecosystem.** The server can land
 **plaintext-HTTP/1.1 first** — a simple server's TLS is usually terminated
 upstream (a reverse proxy), so it is _not_ gated on the client's TLS native and
 can ship alongside or ahead of it. Its accept loop is also one of the real I/O
@@ -737,9 +738,9 @@ Notes: TLS is provided by a runtime native (not reimplemented in Hawk).
 Streaming bodies use `std.io.Reader`.
 
 **The simple server (`std.http.server`).** One fiber per connection over the
-scheduler; the handler is an ordinary function returning a `Response`. Errors are
-values — return a 4xx/5xx `Response`, or propagate an `Error` the server renders
-as 500.
+scheduler; the handler is an ordinary function returning a `Response`. Errors
+are values — return a 4xx/5xx `Response`, or propagate an `Error` the server
+renders as 500.
 
 ```
 pub type Handler = (Request) -> Result<Response, Error>;
@@ -764,8 +765,8 @@ impl Router {
 
 Notes: depends on `std.fiber` (accept loop + one fiber per connection) and the
 same socket natives as the client; plaintext-HTTP/1.1 first (TLS terminated
-upstream), with a TLS-terminating variant a later add. The accept loop is a named
-driver for the fiber API (§ `std.fiber`).
+upstream), with a TLS-terminating variant a later add. The accept loop is a
+named driver for the fiber API (§ `std.fiber`).
 
 ### `std.log` — leveled logging _(new — design pass needed)_
 
@@ -776,28 +777,30 @@ pub fn set_level(_ level: Level) -> Void;
 pub fn set_output(_ w: Writer) -> Void;    // default: stderr
 ```
 
-> **Design pass needed before building.** The sketch above is the *conventional*
-> shape, but its `set_level`/`set_output` are **mutable module globals** — exactly
-> the hidden, swappable global state principle 7 avoids, and there is no
+> **Design pass needed before building.** The sketch above is the _conventional_
+> shape, but its `set_level`/`set_output` are **mutable module globals** —
+> exactly the hidden, swappable global state principle 7 avoids, and there is no
 > load-time init to seed them (§ Sequencing #8). Decide the model by **working
 > backwards from real logging consumers** — a CLI emitting progress, a library
 > that wants to log without dictating its host's configuration, a test that
-> captures log output — rather than picking a shape up front. The two candidates:
+> captures log output — rather than picking a shape up front. The two
+> candidates:
+>
 > - **(a) A configured global singleton.** Familiar and ergonomic
 >   (`log.info('…')` with no plumbing), but in tension with principle 7 / "no
 >   global state". The **module initializer** ([module_init.md](module_init.md))
->   supplies immutable computed globals but **deliberately not mutable** ones, so a
->   swappable level/output singleton still needs its own sanctioned
+>   supplies immutable computed globals but **deliberately not mutable** ones,
+>   so a swappable level/output singleton still needs its own sanctioned
 >   module-mutable-state mechanism — which module-init declines on purpose. That
 >   tension is exactly why module-init steers logging toward (b).
 > - **(b) A `Logger` value you hold and pass.** The capability style, consistent
 >   with `time.Clock` / `env.Env` / `random.Rng`: no hidden state, testable
 >   without a global override, at the cost of threading it through call sites.
 >
-> Writes to stderr by default either way (stdout stays clean for program output —
-> the CLI convention). Likely both can coexist (a default ambient logger backed by
-> a `Logger` capability), as `std.time`/`std.env` do — but that is the call to
-> make from the consumer needs, not assume.
+> Writes to stderr by default either way (stdout stays clean for program output
+> — the CLI convention). Likely both can coexist (a default ambient logger
+> backed by a `Logger` capability), as `std.time`/`std.env` do — but that is the
+> call to make from the consumer needs, not assume.
 
 ### `std.cli` — argument parsing _(implemented, pure Hawk)_
 
@@ -914,9 +917,10 @@ case folding belong to a Unicode/ICU package, not core. Identifier predicates
 > rebuild. **The blocker is the engine:** the runtime keeps dependencies few and
 > deliberate, so backing this needs either a hand-rolled engine in Rust or a
 > decision to take the `regex` crate (RE2-derived). That precedent is now set —
-> `std.hash` added the runtime's first external crates (RustCrypto digests) for a
-> best-of-breed case — so this is the same "take a vetted crate" call rather than
-> a first-of-its-kind one; still a deliberate policy decision when picked back up.
+> `std.hash` added the runtime's first external crates (RustCrypto digests) for
+> a best-of-breed case — so this is the same "take a vetted crate" call rather
+> than a first-of-its-kind one; still a deliberate policy decision when picked
+> back up.
 
 Purpose: compile a pattern once, then match / find / capture / replace against
 Unicode text. RE2 syntax (linear-time, no backtracking / lookaround) — see
@@ -971,12 +975,12 @@ So the boundary is explicit (and so an agent knows where to look):
 - **Other config formats** — YAML, TOML, CSV → ecosystem (JSON is core).
   Deferred deliberately, but **revisit with usage feedback**: TOML in particular
   is common enough for CLI/tool config that it's the first candidate to promote
-  into core if real use cases pile up. Pivot when the demand is demonstrated, not
-  speculatively.
-- **HTTP server *frameworks* (routing DSLs, middleware stacks), raw TCP/UDP
-  sockets** → ecosystem. The HTTP *client* and a *simple* server (`std.http` /
-  `std.http.server` — bind + handle + a tiny path matcher) **are core**; see
-  § `std.http`.
+  into core if real use cases pile up. Pivot when the demand is demonstrated,
+  not speculatively.
+- **HTTP server _frameworks_ (routing DSLs, middleware stacks), raw TCP/UDP
+  sockets** → ecosystem. The HTTP _client_ and a _simple_ server (`std.http` /
+  `std.http.server` — bind + handle + a tiny path matcher) **are core**; see §
+  `std.http`.
 - **Databases / SQLite** → ecosystem.
 - **Full cryptography / TLS primitives, signing** → ecosystem (digests +
   randomness are core; TLS for `http` is a runtime native).
@@ -990,8 +994,8 @@ This design leans on language features not all of which exist yet. The
 dependency graph, so future work lands in the right order:
 
 1. **Generics arc (biggest unblocker).** Interface-typed values + dynamic
-   dispatch ([language.md](language.md), "Deferred") are a prerequisite for
-   the library's two core abstractions:
+   dispatch ([language.md](language.md), "Deferred") are a prerequisite for the
+   library's two core abstractions:
    - `io.copy(dst: Writer, src: Reader)` and any function taking a `Reader`/
      `Writer` parameter — these are interface-typed.
    - The common `Error` **interface** as a return type (`Result<T, Error>` where
@@ -1004,10 +1008,11 @@ dependency graph, so future work lands in the right order:
      `std.testing` and generic combinators.
 
 2. **`Bytes` core type + `Reader`/`Writer` interfaces — done (v1).** `Bytes` +
-   `BytesBuilder` + `BytesReader` are runtime-backed/pure-Hawk prelude types, and
-   `std.io` ships the `Reader`/`Writer`/`Closer` interfaces, `read_all`/`copy`,
-   the standard streams, and `StringWriter`. Deferred: `lines`/`Iterator`,
-   streaming files, the typed `read_u16_le`/be reader family.
+   `BytesBuilder` + `BytesReader` are runtime-backed/pure-Hawk prelude types,
+   and `std.io` ships the `Reader`/`Writer`/`Closer` interfaces,
+   `read_all`/`copy`, the standard streams, and `StringWriter`. Deferred:
+   `lines`/`Iterator`, streaming files, the typed `read_u16_le`/be reader
+   family.
 
 3. **Lazy `Iterator<T>` — done (v1).** `Iterator<T>` is a **generic interface**
    in the prelude (Hawk's first),
@@ -1021,9 +1026,9 @@ dependency graph, so future work lands in the right order:
    receiver-arg inference reused from the collection types) and filled a codegen
    gap: block-bodied match arms (`Some(v) => { … }`) compile. (Such a block then
    yielded `Unit`; expression-position **tail expressions** now make its final
-   expression the value — see [language.md](language.md).)
-   Deferred: `map`/`filter`/`take`/`enumerate` adapters and a fluent `Iter<T>`
-   wrapper; these unblock `fs.walk`, `io.lines`, and `BufReader`.
+   expression the value — see [language.md](language.md).) Deferred:
+   `map`/`filter`/`take`/`enumerate` adapters and a fluent `Iter<T>` wrapper;
+   these unblock `fs.walk`, `io.lines`, and `BufReader`.
 
 4. **`Error` interface migration — done.** `std.core/error.hawk`'s `Error` is
    now an interface with a `Message` struct; `throw`/`?`/implicit-`Ok` needed no
@@ -1074,46 +1079,43 @@ dependency graph, so future work lands in the right order:
    committed to core) wants concurrent, blocking-looking I/O, which is only
    "invisible" once the scheduler parks fibers (principle #5). So sequence
    `std.fiber` **before** `std.http`, and let real IO clients (a concurrent
-   fetch, a server accept loop) drive the fiber API's design rather than fixing it
-   up front (see § `std.fiber`).
+   fetch, a server accept loop) drive the fiber API's design rather than fixing
+   it up front (see § `std.fiber`).
 
-7. **Visibility enforcement** ([language.md](language.md)). Some modules
-   (e.g. `std.process`) have native bindings that should be module-private;
-   today the language can't enforce it. Tighten when visibility lands.
+7. **Visibility enforcement** ([language.md](language.md)). Some modules (e.g.
+   `std.process`) have native bindings that should be module-private; today the
+   language can't enforce it. Tighten when visibility lands.
 
 8. **Top-level `const` in codegen — done.** `const`/`pub const` now compile: a
    reference (bare or namespace-qualified `ns.NAME`) inlines its initializer
    expression at the use site (codegen has no global storage). This unblocks
    `std.char`'s constants and `std.math`'s `PI`/`E`. (Note: a _platform_ value
    like a path separator is **not** a fit for `const` — it's compile-time
-   inlined — so std.path stays slash-based and a native-backed separator waits
-   for OS-aware paths. A load-time static-initializer mechanism — the **module
-   initializer** ([module_init.md](module_init.md)) — is specced but not yet
-   built; it is the home for a computed-once separator.)
+   inlined.)
 
 ## Status summary
 
-| Module       | Status  | Notes                                                                                                                                                                                                                               |
-| ------------ | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Module       | Status  | Notes                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------ | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | prelude/core | exists  | Int/Double + String parsing; `String.slice`/`replace`/`repeat`/`reverse`/`find`/`pad_*`/`trim_*`; `List.slice`/`first`/`last`/`contains`/`index_of`/`reverse`/`sort` (comparator); `Map.get_or`; `Bytes`/`BytesBuilder`/`BytesReader`; `Set<T>` in Hawk over `Map`; `Error`/`Eq`/`Display`/`Debug`/`Ord` interfaces + the `error(...)` constructor; `Iterator<T>` protocol |
-| std.io       | done    | v1: `Reader`/`Writer`/`Closer` + `IoError`, `read_all`/`copy`, stdin/stdout/stderr, `StringWriter`; `lines`/`Iterator` + streaming files deferred                                                                                   |
-| std.iter     | done    | v1: `Iterator<T>` (prelude) + `range`/`from_list` sources + `collect`/`count`; `for x in it` drives any iterator; adapters (`map`/`filter`/`take`) deferred                                                                         |
-| std.fs       | done    | v1: read/write text+bytes, exists, metadata, list_dir, create_dir(\_all), remove(\_dir_all), rename, copy, temp_dir; classified `FsError`; streaming `File`/`open`/`walk`/`temp_file` deferred to v2                                |
-| std.path     | done    | pure Hawk; `components`/`with_extension`/`normalize`/`relative` in (lexical, slash-based); variadic `join` + OS-aware separator deferred                                                                                              |
-| std.env      | done    | vars/args/cwd/os/exit + `Env` capability + `testing.fixed_env`; `OS`→`os()`                                                                                                                                                         |
-| std.process  | done    | `run` (capture) / `exec` (inherit stdio, exit code) / `start`; pipes are `std.io` `Reader`/`Writer` (+ `close_stdin`); classified `ProcessError`                                                                                     |
-| std.time     | done    | wall + monotonic clocks, `Duration`/`Instant` (nanos), `DateTime` (Unix ms UTC) + RFC 3339 format/parse, `sleep`; `Clock` capability + `testing.fixed_clock`                                                                        |
-| std.fiber    | partial | cooperative scheduler: `spawn`/`join`/`yield` + buffered `Channel<T>` (send/receive/close) over a FIFO run-queue, GC roots across fibers and channel buffers; parking on real I/O + 0-capacity rendezvous deferred                    |
-| std.math     | done    | Double fns + constants; abs/min/max/clamp + to_double/to_int are Int/Double methods                                                                                                                                                 |
-| std.random   | done    | SplitMix64; state is a visible Int; mix is pure Hawk (bitwise ops landed); only the entropy seed is native                                                                                                                          |
-| std.sort     | done    | pure Hawk over `Ord`: `sorted`/`sorted_desc`/`min`/`max` (`<T: Ord>`); `Ord`/`Ordering` live in the prelude                                                                                                                         |
-| std.json     | done    | pure Hawk; structural `Json` + constructors, parse/stringify, navigation; Int/Double split; auto-boxing + typed decode later                                                                                                        |
-| std.encoding | done    | pure Hawk (no natives): base64 (RFC 4648), hex, percent/URL (RFC 3986); decode is fallible; arithmetic char mapping, no lookup tables                                                                                                                                                                                                                                     |
-| std.hash     | done    | native: sha256/sha1/md5 + crc32 (IEEE), backed by RustCrypto + crc32fast — the runtime's first external deps; checked against published vectors                                                                                       |
-| std.http     | new     | client (`std.http`) + simple server (`std.http.server`, plaintext-first; bind + handle + tiny matcher, frameworks stay ecosystem); runtime sockets + TLS; gated on `std.fiber` I/O parking                                                                                                                                                                                                  |
-| std.log      | new     | **design pass needed**: global singleton vs `Logger` value (capability). The specced `set_level`/`set_output` globals clash with principle 7 / no load-time init; decide from consumer needs (§ std.log)                                                                                                                                                                                                                                     |
-| std.cli      | done    | pure Hawk; declarative `Command`/`Matches`/`CliError` + `--help`, abbrs, negation; `Args` is the raw escape hatch. v2: entry adapter, selected-subcommand help, required positionals, command-path errors (§ std.cli)               |
-| std.term     | new     |                                                                                                                                                                                                                                     |
-| std.char     | done    | pure Hawk; `pub` API + ASCII scope; `is_hex_digit` added, ident predicates removed                                                                                                                                                  |
-| std.regex    | removed | was pure Hawk over `re2_*` natives that didn't survive the runtime migration; deleted as non-functional — design captured above for a rebuild (needs a runtime engine: hand-rolled or the `regex` crate)                            |
-| std.testing  | done    | `assert`/`assert_eq`/`assert_ne`/`assert_ok`/`assert_err` + `fixed_clock`/`fixed_env` doubles; self-tested                                                                                                                          |
+| std.io       | done    | v1: `Reader`/`Writer`/`Closer` + `IoError`, `read_all`/`copy`, stdin/stdout/stderr, `StringWriter`; `lines`/`Iterator` + streaming files deferred                                                                                                                                                                                                                          |
+| std.iter     | done    | v1: `Iterator<T>` (prelude) + `range`/`from_list` sources + `collect`/`count`; `for x in it` drives any iterator; adapters (`map`/`filter`/`take`) deferred                                                                                                                                                                                                                |
+| std.fs       | done    | v1: read/write text+bytes, exists, metadata, list_dir, create_dir(\_all), remove(\_dir_all), rename, copy, temp_dir; classified `FsError`; streaming `File`/`open`/`walk`/`temp_file` deferred to v2                                                                                                                                                                       |
+| std.path     | done    | pure Hawk; `components`/`with_extension`/`normalize`/`relative` in (lexical, slash-based)                                                                                                                                                                                                                                                                                  |
+| std.env      | done    | vars/args/cwd/os/exit + `Env` capability + `testing.fixed_env`; `OS`→`os()`                                                                                                                                                                                                                                                                                                |
+| std.process  | done    | `run` (capture) / `exec` (inherit stdio, exit code) / `start`; pipes are `std.io` `Reader`/`Writer` (+ `close_stdin`); classified `ProcessError`                                                                                                                                                                                                                           |
+| std.time     | done    | wall + monotonic clocks, `Duration`/`Instant` (nanos), `DateTime` (Unix ms UTC) + RFC 3339 format/parse, `sleep`; `Clock` capability + `testing.fixed_clock`                                                                                                                                                                                                               |
+| std.fiber    | partial | cooperative scheduler: `spawn`/`join`/`yield` + buffered `Channel<T>` (send/receive/close) over a FIFO run-queue, GC roots across fibers and channel buffers; parking on real I/O + 0-capacity rendezvous deferred                                                                                                                                                         |
+| std.math     | done    | Double fns + constants; abs/min/max/clamp + to_double/to_int are Int/Double methods                                                                                                                                                                                                                                                                                        |
+| std.random   | done    | SplitMix64; state is a visible Int; mix is pure Hawk (bitwise ops landed); only the entropy seed is native                                                                                                                                                                                                                                                                 |
+| std.sort     | done    | pure Hawk over `Ord`: `sorted`/`sorted_desc`/`min`/`max` (`<T: Ord>`); `Ord`/`Ordering` live in the prelude                                                                                                                                                                                                                                                                |
+| std.json     | done    | pure Hawk; structural `Json` + constructors, parse/stringify, navigation; Int/Double split; auto-boxing + typed decode later                                                                                                                                                                                                                                               |
+| std.encoding | done    | pure Hawk (no natives): base64 (RFC 4648), hex, percent/URL (RFC 3986); decode is fallible; arithmetic char mapping, no lookup tables                                                                                                                                                                                                                                      |
+| std.hash     | done    | native: sha256/sha1/md5 + crc32 (IEEE), backed by RustCrypto + crc32fast — the runtime's first external deps; checked against published vectors                                                                                                                                                                                                                            |
+| std.http     | new     | client (`std.http`) + simple server (`std.http.server`, plaintext-first; bind + handle + tiny matcher, frameworks stay ecosystem); runtime sockets + TLS; gated on `std.fiber` I/O parking                                                                                                                                                                                 |
+| std.log      | new     | **design pass needed**: global singleton vs `Logger` value (capability). The specced `set_level`/`set_output` globals clash with principle 7 / no load-time init; decide from consumer needs (§ std.log)                                                                                                                                                                   |
+| std.cli      | done    | pure Hawk; declarative `Command`/`Matches`/`CliError` + `--help`, abbrs, negation; `Args` is the raw escape hatch. v2: entry adapter, selected-subcommand help, required positionals, command-path errors (§ std.cli)                                                                                                                                                      |
+| std.term     | new     |                                                                                                                                                                                                                                                                                                                                                                            |
+| std.char     | done    | pure Hawk; `pub` API + ASCII scope; `is_hex_digit` added, ident predicates removed                                                                                                                                                                                                                                                                                         |
+| std.regex    | removed | was pure Hawk over `re2_*` natives that didn't survive the runtime migration; deleted as non-functional — design captured above for a rebuild (needs a runtime engine: hand-rolled or the `regex` crate)                                                                                                                                                                   |
+| std.testing  | done    | `assert`/`assert_eq`/`assert_ne`/`assert_ok`/`assert_err` + `fixed_clock`/`fixed_env` doubles; self-tested                                                                                                                                                                                                                                                                 |
