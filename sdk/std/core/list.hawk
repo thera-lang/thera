@@ -54,6 +54,11 @@ impl List<T> {
     @extern('list_push')
     pub native fn push(self, _ item: T) -> Void
 
+    /// Remove and return the last element, in place — `None` if the list is
+    /// empty. The mutating companion of `last()`.
+    @extern('list_pop')
+    pub native fn pop(self) -> Option<T>
+
     /// Remove every element, in place (the list becomes empty; same reference).
     @extern('list_clear')
     pub native fn clear(self) -> Void

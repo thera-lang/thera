@@ -260,18 +260,17 @@ pub fn copy(from src: String, to dst: String) -> Result<Void, FsError> {
 /// is kept for `error()`. (`metadata` follows symlinks, so a symlink cycle can
 /// loop — a future `symlink_metadata`/visited-set will guard this.)
 pub struct WalkIter {
-    pending: List<String>,  // discovered full paths; grows as directories expand
-    mut pos: Int,           // index of the next path to visit
+    stack: List<String>,  // frontier of discovered paths to visit (LIFO)
     mut err: Option<FsError>,
 }
 
 impl WalkIter {
-    // List `dir` and queue its entries as full paths; stash the first failure.
+    // List `dir` and push its entries as full paths; stash the first failure.
     fn expand(self, _ dir: String) -> Void {
         match list_dir(dir) {
             Ok(names) => {
                 for name in names {
-                    self.pending.push(path.join(dir, name));
+                    self.stack.push(path.join(dir, name));
                 }
             },
             Err(e) => {
@@ -292,27 +291,27 @@ impl WalkIter {
 
 impl Iterator<String> for WalkIter {
     pub fn next(self) -> Option<String> {
-        if self.pos >= self.pending.len() {
-            return Option.None;
-        }
-        let p = self.pending[self.pos];
-        self.pos = self.pos + 1;
-        // Descend into directories (queues their entries after `p`, so a
-        // directory is yielded before its contents).
-        match metadata(p) {
-            Ok(md) => {
-                if md.kind == FileKind.Dir {
-                    self.expand(p);
+        return match self.stack.pop() {
+            None    => Option.None,
+            Some(p) => {
+                // Descend into directories (pushes their entries, so a directory
+                // is yielded before its contents).
+                match metadata(p) {
+                    Ok(md) => {
+                        if md.kind == FileKind.Dir {
+                            self.expand(p);
+                        }
+                    },
+                    Err(e) => {
+                        match self.err {
+                            None    => { self.err = Option.Some(e); },
+                            Some(_) => {},
+                        }
+                    },
                 }
+                Option.Some(p)
             },
-            Err(e) => {
-                match self.err {
-                    None    => { self.err = Option.Some(e); },
-                    Some(_) => {},
-                }
-            },
-        }
-        return Option.Some(p);
+        };
     }
 }
 
@@ -321,7 +320,7 @@ impl Iterator<String> for WalkIter {
 /// `for p in fs.walk(root)` or an adapter chain. Check `.error()` afterwards if
 /// a directory that couldn't be read must be distinguished from an empty tree.
 pub fn walk(_ root: String) -> WalkIter {
-    let w = WalkIter { pending: [], pos: 0, err: Option.None };
+    let w = WalkIter { stack: [], err: Option.None };
     w.expand(root);
     return w;
 }

@@ -2433,6 +2433,37 @@ mod tests {
     }
 
     #[test]
+    fn list_pop_removes_last_and_returns_option() {
+        // l = [1, 2]; l.pop() → Some(2)
+        let pop = native_index("list_pop").unwrap();
+        let some = run_fn(|b| {
+            push_int_list(b, &[1, 2]);
+            b.call_native(pop, 1);
+            b.ret();
+        });
+        assert_eq!(some, Ok(Value::some(Value::Int(2))));
+        // l = [1, 2]; l.pop(); return l.len()  → 1 (mutated in place)
+        let len_after = run_fn(|b| {
+            push_int_list(b, &[1, 2]);
+            b.store(0);
+            b.load(0);
+            b.call_native(pop, 1);
+            b.pop(); // discard the popped value
+            b.load(0);
+            b.call_native(NATIVE_LIST_LEN, 1);
+            b.ret();
+        });
+        assert_eq!(len_after, Ok(Value::Int(1)));
+        // empty list → None
+        let none = run_fn(|b| {
+            push_int_list(b, &[]);
+            b.call_native(pop, 1);
+            b.ret();
+        });
+        assert_eq!(none, Ok(Value::none()));
+    }
+
+    #[test]
     fn list_get_returns_option() {
         // get(1) → Some(20)
         let some = run_fn(|b| {

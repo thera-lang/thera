@@ -91,3 +91,44 @@ fn test_clear_empties_in_place() -> Result<Void, Error> {
     testing.assert_eq(actual: xs.get(0), expected: Option.Some(7))?;
     return Result.Ok(void);
 }
+
+@test
+fn test_pop_returns_last_and_shrinks() -> Result<Void, Error> {
+    let xs = [1, 2, 3];
+    let alias = xs;           // same underlying list (reference type)
+    testing.assert_eq(actual: xs.pop(), expected: Option.Some(3))?;
+    testing.assert_eq(actual: xs.pop(), expected: Option.Some(2))?;
+    testing.assert_eq(actual: xs.len(), expected: 1)?;
+    // pop is observed through an alias (reference type)
+    testing.assert_eq(actual: alias.last(), expected: Option.Some(1))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_pop_empty_is_none() -> Result<Void, Error> {
+    let xs: List<Int> = [];
+    testing.assert_eq(actual: xs.pop(), expected: Option.None)?;
+    // Drain-to-empty then one more pop.
+    let ys = [9];
+    testing.assert_eq(actual: ys.pop(), expected: Option.Some(9))?;
+    testing.assert_eq(actual: ys.pop(), expected: Option.None)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_pop_as_stack() -> Result<Void, Error> {
+    // push/pop drive a LIFO stack — the use that motivated `pop`.
+    let stack = [];
+    stack.push('a');
+    stack.push('b');
+    let out = [];
+    let mut going = true;
+    while going {
+        match stack.pop() {
+            Some(x) => { out.push(x); },
+            None    => { going = false; },
+        }
+    }
+    testing.assert_eq(actual: out, expected: ['b', 'a'])?;
+    return Result.Ok(void);
+}

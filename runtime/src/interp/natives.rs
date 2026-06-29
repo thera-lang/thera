@@ -157,6 +157,7 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("map_clear", native_map_clear),
     ("list_join", native_list_join),
     ("list_push", native_list_push),
+    ("list_pop", native_list_pop),
     ("list_clear", native_list_clear),
     ("process_run", native_process_run),
     ("process_exec", native_process_exec),
@@ -1686,6 +1687,20 @@ fn native_list_push(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap>
     with_list_mut(list, "list push", |items| {
         items.push(*val);
         Ok(Value::Unit)
+    })
+}
+
+/// `list.pop()` — remove and return the last element, or `None` if empty.
+fn native_list_pop(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    // Remove inside the borrow, then build the `Some`/`None` wrapper after it is
+    // released — `with_list_mut` holds a heap borrow, so allocating the Option
+    // inside would re-enter the heap (cf. `with_map_ref`).
+    let popped = with_list_mut(expect_one(args, "list.pop")?, "list.pop", |items| {
+        Ok(items.pop())
+    })?;
+    Ok(match popped {
+        Some(v) => Value::some(v),
+        None => Value::none(),
     })
 }
 
