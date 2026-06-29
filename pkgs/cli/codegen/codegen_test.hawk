@@ -566,3 +566,22 @@ fn test_module_let_initializer_cycle_is_an_error() -> Result<Void, Error> {
     testing.assert(errors_of(src) > 0, message: 'an initializer cycle should be a codegen error')?;
     return Result.Ok(void);
 }
+
+@test
+fn test_module_let_rejects_effectful_native() -> Result<Void, Error> {
+    // A time-varying native (here a stand-in wired to `time_now_millis` via
+    // `@extern`) is forbidden in an initializer — it would capture a stale
+    // load-time snapshot. The denylist matches the resolved runtime symbol.
+    let bad = '@extern(\'time_now_millis\')\n'
+        + 'native fn clock() -> Int\n'
+        + 'let T: Int = clock();\n'
+        + 'fn main() -> Int { return T; }';
+    testing.assert(errors_of(bad) > 0, message: 'a time-varying native in an initializer should be rejected')?;
+    // The same native called from a normal function is fine — only initializer
+    // position is restricted.
+    let ok = '@extern(\'time_now_millis\')\n'
+        + 'native fn clock() -> Int\n'
+        + 'fn main() -> Int { return clock(); }';
+    testing.assert_eq(actual: errors_of(ok), expected: 0)?;
+    return Result.Ok(void);
+}

@@ -348,7 +348,9 @@ impl FnCompiler {
         for init in order_global_inits(self.scope, self.errors) {
             self.file = init.file;
             self.ctx.current_file = init.file;
+            let start = self.code.len();
             self.expr(init.value);
+            self.reject_effectful_natives(start, init.span);
             self.emit(Instr.GlobalSet(init.slot));
         }
         self.emit(Instr.Simple(Op.ConstUnit));
@@ -360,6 +362,26 @@ impl FnCompiler {
             local_count: self.local_count,
             code: self.code,
         };
+    }
+
+    // Reject time-varying / I/O natives called directly in a module-`let`
+    // initializer (scanning the code emitted since `start`). The result would be
+    // a stale load-time snapshot; see docs/module_init.md. A lambda *value* in an
+    // initializer is fine — its body is a separate unit, not run at load.
+    fn reject_effectful_natives(self, _ start: Int, _ span: SourceSpan) -> Void {
+        let mut i = start;
+        while i < self.code.len() {
+            match self.code[i] {
+                CallNative(name, _) => {
+                    if forbidden_in_initializer(name) {
+                        self.error('a module-level `let` initializer may not call '
+                            + '`${name}` (time-varying or I/O); see docs/module_init.md', span);
+                    }
+                },
+                _ => {},
+            }
+            i = i + 1;
+        }
     }
 
     // --- low-level emit / labels / slots ---
@@ -2553,6 +2575,20 @@ fn visit_global_init(_ g: GlobalInit, _ scope: ModuleScope, _ by_name: Map<Strin
     }
     state[g.name] = 2;
     ordered.push(g);
+}
+
+// Natives a module-`let` initializer may not call: time-varying or I/O
+// operations whose result would be a stale load-time snapshot (docs/module_init.md
+// "Which initializer expressions"). Process-stable reads (env queries, the OS,
+// the path separator) are allowed. A cheap denylist, not a purity analysis —
+// matched on the resolved runtime symbol, so namespace aliasing can't evade it.
+fn forbidden_in_initializer(_ sym: String) -> Bool {
+    return sym.starts_with('time_')
+        || sym.starts_with('fs_')
+        || sym == 'random_seed_entropy'
+        || sym == 'env_set'
+        || sym == 'env_set_current_dir'
+        || sym == 'env_exit';
 }
 
 // The module globals an initializer references directly: bare identifiers that
