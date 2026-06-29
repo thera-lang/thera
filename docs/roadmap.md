@@ -64,9 +64,9 @@ _Owner-correct type resolution_ below.)
   `read_u8`/`read_bytes`/`read_u32_le`/`read_u64_le`/`read_uvarint`/`read_ivarint`,
   pure Hawk, round-trips the writer). (`slice` on `String`/`List`/`Bytes` was
   already there.) The `Ord` interface + `std.sort` (`sorted`/`min`/`max`) are now
-  in — see _Completed_. Remaining: the rest of the "batteries included" goal
-  (`std.encoding`, `std.hash`, `std.log`, `std.term`, a `std.regex` rebuild), and
-  sorted/`Ord`-keyed `Set`/`Map` variants.
+  in — see _Completed_. `std.encoding` (base64/hex/url, pure Hawk) is in too.
+  Remaining: the rest of the "batteries included" goal (`std.hash`, `std.log`,
+  `std.term`, a `std.regex` rebuild), and sorted/`Ord`-keyed `Set`/`Map` variants.
 - **Fibers — phases 3–4.** Phases 0–2 are done (scheduler-drivable `run_loop`;
   `spawn`/`join`/`yield` with GC roots across every fiber; buffered
   `Channel<T>`). Design in [architecture.md](architecture.md) §Concurrency.
@@ -484,6 +484,18 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **`std.encoding` — base64 / hex / url** (2026-06). Flat module (`import
+  std.encoding`): `base64_encode`/`decode` (RFC 4648, `+/`, `=`-padded),
+  `hex_encode`/`decode` (lowercase out, case-insensitive in), and
+  `url_encode`/`decode` (RFC 3986 percent-encoding — unreserved `A-Z a-z 0-9 -_.~`
+  pass through, space is `%20` not `+`, `+` decodes literally). Decoding is
+  fallible (`Result`), never a trap. **Pure Hawk** over `Bytes`/`String` + the
+  bitwise operators — no natives and **no lookup tables** (an arithmetic char
+  mapping, so it's unaffected by the pending module-initializer; a precomputed
+  base64-decode table would be a marginal future tidy-up). RFC 4648 vectors +
+  binary round-trip + malformed-input cases covered. `std.path` `normalize`/
+  `relative` also landed (see status table).
 
 - **Struct-definition keyword: `type Foo = { … }` → `struct Foo { … }`**
   (2026-06). Hawk is a **nominal** type system, but `type Foo = { … }` reads as

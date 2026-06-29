@@ -1,0 +1,303 @@
+//! std.encoding — base64, hex, and percent (URL) encoding.
+//!
+//! Import as: import std.encoding
+//!
+//! Convert between `Bytes`/`String` and their textual encodings. The binary
+//! codecs (`base64`, `hex`) take and return `Bytes`; the URL codec works on text.
+//! Decoding is fallible — malformed input is a `Result.Err`, never a trap.
+//!
+//! ```hawk
+//! let tag = encoding.base64_encode('hi'.bytes());   // 'aGk='
+//! let raw = encoding.base64_decode(tag)?;            // Bytes
+//! ```
+//!
+//! Pure Hawk over `Bytes`/`String` and the bitwise operators — no runtime
+//! natives. The lookup-free arithmetic mapping keeps each codec self-contained.
+
+// --- base64 (RFC 4648, standard `+/` alphabet, `=` padding) ---
+
+/// Encode `data` as standard base64 (the `+/` alphabet, padded with `=`).
+///
+/// ```hawk
+/// encoding.base64_encode('foobar'.bytes())   // 'Zm9vYmFy'
+/// encoding.base64_encode('f'.bytes())         // 'Zg=='
+/// ```
+pub fn base64_encode(_ data: Bytes) -> String {
+    let bytes = data.to_list();
+    let n = bytes.len();
+    let cps: List<Int> = [];
+    let mut i = 0;
+    // Full 3-byte groups -> 4 characters.
+    while i + 3 <= n {
+        let triple = (bytes[i] << 16) | (bytes[i + 1] << 8) | bytes[i + 2];
+        cps.push(b64_char((triple >> 18) & 0x3F));
+        cps.push(b64_char((triple >> 12) & 0x3F));
+        cps.push(b64_char((triple >> 6) & 0x3F));
+        cps.push(b64_char(triple & 0x3F));
+        i = i + 3;
+    }
+    // Tail of 1 or 2 bytes, padded with '=' (code point 61).
+    let rem = n - i;
+    if rem == 1 {
+        let triple = bytes[i] << 16;
+        cps.push(b64_char((triple >> 18) & 0x3F));
+        cps.push(b64_char((triple >> 12) & 0x3F));
+        cps.push(61);
+        cps.push(61);
+    } else if rem == 2 {
+        let triple = (bytes[i] << 16) | (bytes[i + 1] << 8);
+        cps.push(b64_char((triple >> 18) & 0x3F));
+        cps.push(b64_char((triple >> 12) & 0x3F));
+        cps.push(b64_char((triple >> 6) & 0x3F));
+        cps.push(61);
+    }
+    return String.from_chars(cps);
+}
+
+/// Decode standard base64. Input length must be a multiple of 4 (with `=`
+/// padding); any non-alphabet character, misplaced padding, or a bad length is a
+/// `Result.Err`.
+///
+/// ```hawk
+/// encoding.base64_decode('Zm9vYmFy')?.to_string()?   // 'foobar'
+/// ```
+pub fn base64_decode(_ s: String) -> Result<Bytes, Error> {
+    let cps = s.chars();
+    let n = cps.len();
+    if n % 4 != 0 {
+        return Result.Err(error('base64_decode: length is not a multiple of 4'));
+    }
+    let bytes: List<Int> = [];
+    let mut i = 0;
+    while i < n {
+        let v0 = b64_value(cps[i]);
+        let v1 = b64_value(cps[i + 1]);
+        if v0 < 0 || v1 < 0 {
+            return Result.Err(error('base64_decode: invalid character'));
+        }
+        // '=' (61) is padding; it is legal only at the end of the final group.
+        let pad2 = cps[i + 2] == 61;
+        let pad3 = cps[i + 3] == 61;
+        if (pad2 || pad3) && i + 4 != n {
+            return Result.Err(error('base64_decode: misplaced padding'));
+        }
+        if pad2 && !pad3 {
+            return Result.Err(error('base64_decode: invalid padding'));
+        }
+        bytes.push(((v0 << 2) | (v1 >> 4)) & 0xFF);
+        if !pad2 {
+            let v2 = b64_value(cps[i + 2]);
+            if v2 < 0 {
+                return Result.Err(error('base64_decode: invalid character'));
+            }
+            bytes.push(((v1 << 4) | (v2 >> 2)) & 0xFF);
+            if !pad3 {
+                let v3 = b64_value(cps[i + 3]);
+                if v3 < 0 {
+                    return Result.Err(error('base64_decode: invalid character'));
+                }
+                bytes.push(((v2 << 6) | v3) & 0xFF);
+            }
+        }
+        i = i + 4;
+    }
+    return Bytes.from_list(bytes);
+}
+
+// --- hex (lowercase output; case-insensitive input) ---
+
+/// Encode `data` as lowercase hex (two characters per byte).
+///
+/// ```hawk
+/// encoding.hex_encode('hi'.bytes())   // '6869'
+/// ```
+pub fn hex_encode(_ data: Bytes) -> String {
+    let bytes = data.to_list();
+    let cps: List<Int> = [];
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        cps.push(hex_digit((b >> 4) & 0xF));
+        cps.push(hex_digit(b & 0xF));
+        i = i + 1;
+    }
+    return String.from_chars(cps);
+}
+
+/// Decode a hex string (upper- or lowercase). An odd length or a non-hex
+/// character is a `Result.Err`.
+///
+/// ```hawk
+/// encoding.hex_decode('6869')?.to_string()?   // 'hi'
+/// ```
+pub fn hex_decode(_ s: String) -> Result<Bytes, Error> {
+    let cps = s.chars();
+    if cps.len() % 2 != 0 {
+        return Result.Err(error('hex_decode: odd-length input'));
+    }
+    let bytes: List<Int> = [];
+    let mut i = 0;
+    while i < cps.len() {
+        let hi = hex_value(cps[i]);
+        let lo = hex_value(cps[i + 1]);
+        if hi < 0 || lo < 0 {
+            return Result.Err(error('hex_decode: invalid hex digit'));
+        }
+        bytes.push((hi << 4) | lo);
+        i = i + 2;
+    }
+    return Bytes.from_list(bytes);
+}
+
+// --- percent (URL) encoding (RFC 3986) ---
+
+/// Percent-encode `s` for use in a URL: the unreserved set
+/// (`A-Z a-z 0-9 - _ . ~`) passes through; every other byte of the UTF-8 encoding
+/// becomes `%XX` (uppercase hex). A space becomes `%20` (this is RFC 3986
+/// component encoding, not form encoding, so it is **not** `+`).
+///
+/// ```hawk
+/// encoding.url_encode('a b&c')   // 'a%20b%26c'
+/// encoding.url_encode('x-y_z')   // 'x-y_z'
+/// ```
+pub fn url_encode(_ s: String) -> String {
+    let bytes = s.bytes().to_list();
+    let cps: List<Int> = [];
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if is_unreserved(b) {
+            cps.push(b);   // an unreserved byte is ASCII; its value is its code point
+        } else {
+            cps.push(37);  // '%'
+            cps.push(hex_digit((b >> 4) & 0xF, upper: true));
+            cps.push(hex_digit(b & 0xF, upper: true));
+        }
+        i = i + 1;
+    }
+    return String.from_chars(cps);
+}
+
+/// Decode a percent-encoded string back to text (validating the result is UTF-8).
+/// `+` is treated literally (not as a space — the inverse of `url_encode`). A
+/// truncated or non-hex `%`-escape, or invalid UTF-8, is a `Result.Err`.
+///
+/// ```hawk
+/// encoding.url_decode('a%20b%26c')?   // 'a b&c'
+/// ```
+pub fn url_decode(_ s: String) -> Result<String, Error> {
+    let cps = s.chars();
+    let n = cps.len();
+    let bytes: List<Int> = [];
+    let mut i = 0;
+    while i < n {
+        let c = cps[i];
+        if c == 37 {   // '%'
+            if i + 2 >= n {
+                return Result.Err(error('url_decode: truncated percent-escape'));
+            }
+            let hi = hex_value(cps[i + 1]);
+            let lo = hex_value(cps[i + 2]);
+            if hi < 0 || lo < 0 {
+                return Result.Err(error('url_decode: invalid percent-escape'));
+            }
+            bytes.push((hi << 4) | lo);
+            i = i + 3;
+        } else if c < 128 {
+            bytes.push(c);   // a literal ASCII byte
+            i = i + 1;
+        } else {
+            // A raw non-ASCII character: contribute its UTF-8 bytes so decoding is
+            // total even on input that wasn't produced by `url_encode`.
+            let enc = String.from_chars([c]).bytes().to_list();
+            let mut j = 0;
+            while j < enc.len() {
+                bytes.push(enc[j]);
+                j = j + 1;
+            }
+            i = i + 1;
+        }
+    }
+    return Bytes.from_list(bytes)?.to_string();
+}
+
+// --- private mapping helpers (arithmetic, no lookup tables) ---
+
+/// The base64 character (code point) for a 6-bit value 0..63.
+fn b64_char(_ v: Int) -> Int {
+    if v < 26 {
+        return 65 + v;          // 'A'..'Z'
+    }
+    if v < 52 {
+        return 97 + (v - 26);   // 'a'..'z'
+    }
+    if v < 62 {
+        return 48 + (v - 52);   // '0'..'9'
+    }
+    if v == 62 {
+        return 43;              // '+'
+    }
+    return 47;                  // '/'
+}
+
+/// The 6-bit value of a base64 character (code point), or -1 if not in the
+/// alphabet (`=` padding included — it is handled by the caller).
+fn b64_value(_ cp: Int) -> Int {
+    if cp >= 65 && cp <= 90 {
+        return cp - 65;         // 'A'..'Z' -> 0..25
+    }
+    if cp >= 97 && cp <= 122 {
+        return cp - 97 + 26;    // 'a'..'z' -> 26..51
+    }
+    if cp >= 48 && cp <= 57 {
+        return cp - 48 + 52;    // '0'..'9' -> 52..61
+    }
+    if cp == 43 {
+        return 62;              // '+'
+    }
+    if cp == 47 {
+        return 63;              // '/'
+    }
+    return -1;
+}
+
+/// The hex digit (code point) for a nibble 0..15 — lowercase, or uppercase when
+/// `upper` is set.
+fn hex_digit(_ nibble: Int, upper: Bool = false) -> Int {
+    if nibble < 10 {
+        return 48 + nibble;             // '0'..'9'
+    }
+    if upper {
+        return 65 + (nibble - 10);      // 'A'..'F'
+    }
+    return 97 + (nibble - 10);          // 'a'..'f'
+}
+
+/// The value of a hex digit (code point), upper- or lowercase, or -1 if not hex.
+fn hex_value(_ cp: Int) -> Int {
+    if cp >= 48 && cp <= 57 {
+        return cp - 48;         // '0'..'9'
+    }
+    if cp >= 97 && cp <= 102 {
+        return cp - 97 + 10;    // 'a'..'f'
+    }
+    if cp >= 65 && cp <= 70 {
+        return cp - 65 + 10;    // 'A'..'F'
+    }
+    return -1;
+}
+
+/// True for the RFC 3986 unreserved bytes (`A-Z a-z 0-9 - _ . ~`), which never
+/// need percent-encoding.
+fn is_unreserved(_ b: Int) -> Bool {
+    if b >= 65 && b <= 90 {
+        return true;            // 'A'..'Z'
+    }
+    if b >= 97 && b <= 122 {
+        return true;            // 'a'..'z'
+    }
+    if b >= 48 && b <= 57 {
+        return true;            // '0'..'9'
+    }
+    return b == 45 || b == 95 || b == 46 || b == 126;   // '-' '_' '.' '~'
+}

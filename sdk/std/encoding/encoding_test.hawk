@@ -1,0 +1,104 @@
+//! Tests for std.encoding.
+
+import std.testing;
+
+import 'encoding' as _;
+
+// Decode helpers that surface the text, so tests read as round-trips.
+fn b64_text(_ s: String) -> Result<String, Error> {
+    return base64_decode(s)?.to_string();
+}
+
+fn hex_text(_ s: String) -> Result<String, Error> {
+    return hex_decode(s)?.to_string();
+}
+
+@test
+fn test_base64_encode_rfc4648_vectors() -> Result<Void, Error> {
+    // The canonical RFC 4648 §10 test vectors.
+    testing.assert_eq(actual: base64_encode(''.bytes()), expected: '')?;
+    testing.assert_eq(actual: base64_encode('f'.bytes()), expected: 'Zg==')?;
+    testing.assert_eq(actual: base64_encode('fo'.bytes()), expected: 'Zm8=')?;
+    testing.assert_eq(actual: base64_encode('foo'.bytes()), expected: 'Zm9v')?;
+    testing.assert_eq(actual: base64_encode('foob'.bytes()), expected: 'Zm9vYg==')?;
+    testing.assert_eq(actual: base64_encode('fooba'.bytes()), expected: 'Zm9vYmE=')?;
+    testing.assert_eq(actual: base64_encode('foobar'.bytes()), expected: 'Zm9vYmFy')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_base64_decode_vectors() -> Result<Void, Error> {
+    testing.assert_eq(actual: b64_text('')?, expected: '')?;
+    testing.assert_eq(actual: b64_text('Zg==')?, expected: 'f')?;
+    testing.assert_eq(actual: b64_text('Zm8=')?, expected: 'fo')?;
+    testing.assert_eq(actual: b64_text('Zm9v')?, expected: 'foo')?;
+    testing.assert_eq(actual: b64_text('Zm9vYmFy')?, expected: 'foobar')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_base64_roundtrip_binary() -> Result<Void, Error> {
+    // Bytes that aren't valid UTF-8 still round-trip through base64.
+    let raw = Bytes.from_list([0, 255, 16, 128, 1])?;
+    let back = base64_decode(base64_encode(raw))?;
+    testing.assert_eq(actual: back.to_list(), expected: [0, 255, 16, 128, 1])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_base64_decode_rejects_bad_input() -> Result<Void, Error> {
+    testing.assert_err(base64_decode('Zm9'))?;       // length not a multiple of 4
+    testing.assert_err(base64_decode('Zm9v===='))?;  // a full padding group
+    testing.assert_err(base64_decode('!@#$'))?;       // non-alphabet characters
+    testing.assert_err(base64_decode('Z=m='))?;       // misplaced padding
+    return Result.Ok(void);
+}
+
+@test
+fn test_hex_encode_decode() -> Result<Void, Error> {
+    testing.assert_eq(actual: hex_encode('hi'.bytes()), expected: '6869')?;
+    testing.assert_eq(actual: hex_encode(Bytes.from_list([222, 173, 190, 239])?),
+        expected: 'deadbeef')?;
+    testing.assert_eq(actual: hex_encode(''.bytes()), expected: '')?;
+    // Decode is case-insensitive.
+    testing.assert_eq(actual: hex_decode('DEADBEEF')?.to_list(), expected: [222, 173, 190, 239])?;
+    testing.assert_eq(actual: hex_text('6869')?, expected: 'hi')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_hex_decode_rejects_bad_input() -> Result<Void, Error> {
+    testing.assert_err(hex_decode('abc'))?;   // odd length
+    testing.assert_err(hex_decode('xy'))?;    // non-hex digit
+    return Result.Ok(void);
+}
+
+@test
+fn test_url_encode() -> Result<Void, Error> {
+    // Unreserved characters pass through; everything else is %XX (uppercase).
+    testing.assert_eq(actual: url_encode('x-y_z.~'), expected: 'x-y_z.~')?;
+    testing.assert_eq(actual: url_encode('a b&c'), expected: 'a%20b%26c')?;
+    testing.assert_eq(actual: url_encode('a+b=c'), expected: 'a%2Bb%3Dc')?;
+    // Non-ASCII is encoded as its UTF-8 bytes (é = U+00E9 = C3 A9).
+    testing.assert_eq(actual: url_encode('café'), expected: 'caf%C3%A9')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_url_decode() -> Result<Void, Error> {
+    testing.assert_eq(actual: url_decode('a%20b%26c')?, expected: 'a b&c')?;
+    testing.assert_eq(actual: url_decode('x-y_z.~')?, expected: 'x-y_z.~')?;
+    // `+` is literal, not a space.
+    testing.assert_eq(actual: url_decode('a+b')?, expected: 'a+b')?;
+    // UTF-8 round-trip.
+    testing.assert_eq(actual: url_decode('caf%C3%A9')?, expected: 'café')?;
+    testing.assert_eq(actual: url_decode(url_encode('hello, world!'))?, expected: 'hello, world!')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_url_decode_rejects_bad_input() -> Result<Void, Error> {
+    testing.assert_err(url_decode('%2'))?;    // truncated escape
+    testing.assert_err(url_decode('%zz'))?;   // non-hex escape
+    return Result.Ok(void);
+}

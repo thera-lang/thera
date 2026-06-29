@@ -641,17 +641,29 @@ JSON without manual wrapping. See § Sequencing #5.
 **YAML/TOML/CSV are ecosystem** — this is where an agent looks first and finds
 the pointer.
 
-### `std.encoding` — base64 / hex / url _(new)_
+### `std.encoding` — base64 / hex / url _(implemented, pure Hawk)_
+
+Flat functions on the one module. The binary codecs take/return `Bytes`; the URL
+codec works on text. Decoding is fallible — malformed input is a `Result.Err`,
+never a trap.
 
 ```
-// std.encoding.base64, .hex, .url — or flat functions on the barrel.
-pub fn base64_encode(_ data: Bytes) -> String;
+pub fn base64_encode(_ data: Bytes) -> String;          // RFC 4648, `+/`, `=`-padded
 pub fn base64_decode(_ s: String) -> Result<Bytes, Error>;
-pub fn hex_encode(_ data: Bytes) -> String;
-pub fn hex_decode(_ s: String) -> Result<Bytes, Error>;
-pub fn url_encode(_ s: String) -> String;
+pub fn hex_encode(_ data: Bytes) -> String;             // lowercase
+pub fn hex_decode(_ s: String) -> Result<Bytes, Error>; // case-insensitive
+pub fn url_encode(_ s: String) -> String;               // RFC 3986 percent-encoding
 pub fn url_decode(_ s: String) -> Result<String, Error>;
 ```
+
+Notes: pure Hawk over `Bytes`/`String` + the bitwise operators (no natives, no
+lookup tables — an arithmetic char mapping keeps each codec self-contained).
+base64 is the standard `+/` alphabet with `=` padding (decode rejects a bad
+length, non-alphabet character, or misplaced padding). `url_encode` uses RFC 3986
+*component* encoding — the unreserved set `A-Z a-z 0-9 - _ . ~` passes through,
+everything else is `%XX` (uppercase) of the UTF-8 bytes, so a space is `%20`
+(**not** `+`); `url_decode` treats `+` literally (its inverse) and validates the
+result is UTF-8. A URL-safe base64 (`-_`) variant is a candidate addition.
 
 ### `std.hash` — non-cryptographic + common digests _(new)_
 
@@ -1075,7 +1087,7 @@ dependency graph, so future work lands in the right order:
 | std.random   | done    | SplitMix64; state is a visible Int; mix is pure Hawk (bitwise ops landed); only the entropy seed is native                                                                                                                          |
 | std.sort     | done    | pure Hawk over `Ord`: `sorted`/`sorted_desc`/`min`/`max` (`<T: Ord>`); `Ord`/`Ordering` live in the prelude                                                                                                                         |
 | std.json     | done    | pure Hawk; structural `Json` + constructors, parse/stringify, navigation; Int/Double split; auto-boxing + typed decode later                                                                                                        |
-| std.encoding | new     |                                                                                                                                                                                                                                     |
+| std.encoding | done    | pure Hawk (no natives): base64 (RFC 4648), hex, percent/URL (RFC 3986); decode is fallible; arithmetic char mapping, no lookup tables                                                                                                                                                                                                                                     |
 | std.hash     | new     | runtime native                                                                                                                                                                                                                      |
 | std.http     | new     | client (`std.http`) + simple server (`std.http.server`, plaintext-first; bind + handle + tiny matcher, frameworks stay ecosystem); runtime sockets + TLS; gated on `std.fiber` I/O parking                                                                                                                                                                                                  |
 | std.log      | new     | **design pass needed**: global singleton vs `Logger` value (capability). The specced `set_level`/`set_output` globals clash with principle 7 / no load-time init; decide from consumer needs (§ std.log)                                                                                                                                                                                                                                     |
