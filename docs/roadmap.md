@@ -126,6 +126,43 @@ _Owner-correct type resolution_ below.)
   (fixed for `list.len`/indexing, GC marking, map reads; `list.len()` is now the
   `ListLen` opcode entirely). Prefer the borrowing accessor; clone only when a
   closure re-enters the heap to allocate/compare.
+- **Native resource finalization — GC-owned `Obj::Foreign` (Drop on sweep).**
+  Native-backed resources currently live in a process-global registry keyed by an
+  `Int` handle the Hawk wrapper holds (`std.regex` compiled patterns;
+  `std.process` children). The registry is never pruned, so a `Regex` that becomes
+  unreachable **leaks** its compiled engine — benign for the compile-a-handful-at-
+  startup norm, but unbounded for dynamic compilation (e.g. a server compiling
+  user-supplied patterns in a loop). The fix is **not** Hawk-level finalizers
+  (resurrection / ordering / latency footguns) **nor** a finalizer-closure
+  registry, but letting a Hawk object *own* the Rust resource: add an
+  `Obj::Foreign` variant that holds the resource, and the existing sweep's
+  `*slot = None` drops it — **Rust's `Drop` glue is the finalizer**, run exactly
+  when the object is collected, with no Hawk code and no resurrection. `std.regex`
+  stops using the registry/handle: the compiled engine lives in the `Foreign`
+  object the `Regex` value points at, and frees when unreachable.
+  - **Perf:** per-object free cost is **unchanged** — drop dispatch is static per
+    `Obj` variant (no "has a finalizer?" branch); only `Foreign` objects run a
+    non-trivial destructor, and they're rare. Allocation is one slab slot like any
+    object plus one `Rc` for the resource, only at `compile`. A compiled regex
+    holds no Hawk `Value`s, so it's also a GC leaf (`for_each_child` yields
+    nothing).
+  - **The one invariant:** the sweep drops objects **while holding the `HEAP`
+    `RefCell` borrow**, so a `Foreign` `Drop` must not re-enter the Hawk heap
+    (no allocating, no touching `Value`s). True for regex / files / sockets (they
+    release memory or OS handles, not Hawk objects) — document it on the variant.
+  - **Impl:** add `Obj::Foreign`; arms in `for_each_child` (none) / `heap_bytes`;
+    the `derive(Clone, PartialEq)` won't cover `dyn Any`, so a small newtype with
+    manual `Clone` (`Rc` bump) + `PartialEq` (`Rc::ptr_eq` — identity). The
+    `str_byte_slice` primitive and the Hawk `std.regex` layer are untouched.
+  - **Scope it to *pure* resources.** Collect-on-unreachable is right for a regex
+    (no external effect). It is **wrong** for `std.process` — a spawned child must
+    not be reaped/killed because a GC pass noticed its handle went out of scope;
+    explicit `wait`/`kill` stays. Files/sockets want an explicit `close()` with
+    GC-drop only as a backstop (non-deterministic close timing risks fd
+    exhaustion). So introduce `Obj::Foreign` as general infrastructure but apply
+    it only where collection-on-unreachable is the intended semantics — `std.regex`
+    being the clean first case. Not urgent (the leak is benign for typical apps);
+    the payoff is the dynamic-compile case.
 - **Cranelift JIT tier** (+ the untagged value representation and
   `f64`/large-int constant-pool entries it forces) — performance/compaction, not
   correctness-blocking. See runtime staging below and
@@ -483,9 +520,11 @@ conformance specs. Newest first.
   `regex` crate, RE2-derived and linear-time. `compile`/`is_match`/`find`/
   `find_all`/`captures`/`replace`/`replace_all`, byte-offset `Match`, a
   `RegexError.Syntax` on a bad pattern. A compiled pattern lives in a runtime
-  registry behind an `Int` handle (the `std.process` pattern); natives return
-  byte-offset `List<Int>`s and the Hawk layer assembles `Match`/`Captures` via a
-  new `String.byte_slice` (the byte-offset companion to `slice`), so natives never
+  registry behind an `Int` handle (the `std.process` pattern; compiled patterns
+  are not freed — a benign leak addressed by the planned _Native resource
+  finalization_ item under _Open work → Runtime_); natives return byte-offset
+  `List<Int>`s and the Hawk layer assembles `Match`/`Captures` via a new
+  `String.byte_slice` (the byte-offset companion to `slice`), so natives never
   hardcode a struct type-id. Replaces the pure-Hawk `re2_*` version that didn't
   survive the runtime migration. Full design: [stdlib.md](stdlib.md) §std.regex.
 - **`std.hash` — native digests + the runtime's first external dependencies**
