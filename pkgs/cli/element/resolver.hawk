@@ -210,6 +210,9 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
                         ty: resolve_opt(x.type_ann, type_defs, Set.new(), Option.None),
                     });
                 },
+                // Module-level `let` (top-level globals) is parsed but not yet
+                // resolved/codegen'd; the checker reports it. See docs/module_init.md.
+                Let(x) => {},
                 Impl(x) => {
                     resolve_impl(x, type_defs);
                 },
@@ -325,6 +328,7 @@ fn top_decl_name(_ decl: Decl) -> Option<String> {
         Enum(x) => Option.Some(x.name),
         Interface(x) => Option.Some(x.name),
         Const(x) => Option.Some(x.name),
+        Let(x) => Option.Some(x.name),
         Impl(_) => Option.None,
         Import(_) => Option.None,
     };

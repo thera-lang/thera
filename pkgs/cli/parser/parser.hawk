@@ -190,6 +190,7 @@ impl Parser {
             || k == TokenKind.KwNative
             || k == TokenKind.KwPub
             || k == TokenKind.KwConst
+            || k == TokenKind.KwLet
             || k == TokenKind.KwEnum
             || k == TokenKind.At;
     }
@@ -331,6 +332,13 @@ impl Parser {
             }
             return self.parse_const_decl(is_pub, start);
         }
+        if k == TokenKind.KwLet {
+            if decorators.len() != 0 {
+                self.fail('decorators are not allowed on let declarations');
+                return self.err_decl();
+            }
+            return self.parse_let_decl(is_pub, start);
+        }
         if k == TokenKind.KwEnum {
             if decorators.len() != 0 {
                 self.fail('decorators are not allowed on enum declarations');
@@ -340,7 +348,7 @@ impl Parser {
         }
 
         self.fail('expected a declaration '
-            + '(fn, struct, enum, interface, impl, import, const)');
+            + '(fn, struct, enum, interface, impl, import, const, let)');
         return self.err_decl();
     }
 
@@ -738,6 +746,35 @@ impl Parser {
         self.match_kind(TokenKind.Semi);
         let end = self.prev_span();
         return Decl.Const(ConstDecl {
+            span: start.cover(end),
+            is_pub: is_pub,
+            name: name_tok.lexeme(),
+            name_span: name_tok.span,
+            type_ann: type_ann,
+            value: value,
+        });
+    }
+
+    // A top-level `let NAME[: Type] = expr;` (a module global). Mirrors
+    // `parse_const_decl`, but rejects `let mut`: module-level bindings are
+    // immutable by design (see docs/module_init.md).
+    fn parse_let_decl(self, _ is_pub: Bool, _ start: SourceSpan) -> Decl {
+        self.advance(); // 'let'
+        if self.check(TokenKind.KwMut) {
+            self.fail('top-level `let mut` is not allowed; module-level bindings '
+                + 'are immutable (see docs/module_init.md)');
+            return self.err_decl();
+        }
+        let name_tok = self.expect(TokenKind.Identifier, 'binding name');
+        let mut type_ann = Option.None;
+        if self.match_kind(TokenKind.Colon) {
+            type_ann = Option.Some(self.parse_type_ref());
+        }
+        self.expect(TokenKind.Eq, '=');
+        let value = self.parse_expr();
+        self.match_kind(TokenKind.Semi);
+        let end = self.prev_span();
+        return Decl.Let(LetDecl {
             span: start.cover(end),
             is_pub: is_pub,
             name: name_tok.lexeme(),

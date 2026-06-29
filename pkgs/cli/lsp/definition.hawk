@@ -38,6 +38,7 @@ fn decl_name_span(_ decl: Decl) -> Option<SourceSpan> {
         Enum(d) => Option.Some(d.name_span),
         Interface(d) => Option.Some(d.name_span),
         Const(d) => Option.Some(d.name_span),
+        Let(d) => Option.Some(d.name_span),
         Impl(_) => Option.None,
         Import(_) => Option.None,
     };

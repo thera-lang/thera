@@ -113,6 +113,7 @@ pub fn decl_name(_ decl: Decl) -> Option<String> {
         Enum(d) => Option.Some(d.name),
         Interface(d) => Option.Some(d.name),
         Const(d) => Option.Some(d.name),
+        Let(d) => Option.Some(d.name),
         Impl(_) => Option.None,
         Import(_) => Option.None,
     };
@@ -137,6 +138,7 @@ fn describe_decl(_ decl: Decl) -> String {
         Enum(d) => describe_enum(d),
         Interface(d) => describe_interface(d),
         Const(d) => describe_const(d),
+        Let(d) => describe_let(d),
         Impl(_) => '',
         Import(_) => '',
     };
@@ -187,5 +189,12 @@ fn describe_const(_ d: ConstDecl) -> String {
     return match d.type_ann {
         Some(t) => 'const ${d.name}: ${describe.describe_type(t)} = ...',
         None => 'const ${d.name} = ...',
+    };
+}
+
+fn describe_let(_ d: LetDecl) -> String {
+    return match d.type_ann {
+        Some(t) => 'let ${d.name}: ${describe.describe_type(t)} = ...',
+        None => 'let ${d.name} = ...',
     };
 }

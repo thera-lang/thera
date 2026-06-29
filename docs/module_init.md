@@ -8,11 +8,19 @@ the language surface see [language.md](language.md); for the stdlib items this
 unblocks see [stdlib.md](stdlib.md); for the runtime/bytecode mechanics see
 [bytecode.md](bytecode.md).
 
-> **Status: design (not yet implemented).** Today top-level `const` **inlines**
-> its initializer at every use site (codegen has no global storage), so a
-> computed `const TABLE = build()` rebuilds the table per reference. There is no
-> mechanism to compute a value once and store it. This doc specifies one. Tracked
-> in [roadmap.md](roadmap.md).
+> **Status: design; runtime mechanism landed.** The **runtime side is done** —
+> `global.get`/`global.set` opcodes, a `global_count` module-header field, a
+> per-run globals vector (a permanent GC root), and load-order wiring that
+> allocates the vector and runs a reserved `<init>` program-init thunk before the
+> entry (see [bytecode.md](bytecode.md)). It is inert until the front-end emits
+> globals: a module with no top-level `let` encodes byte-for-byte as before. The
+> **front-end side is in progress** — the **parser surface has landed** (top-level
+> `let` parses; `let mut` is rejected), but the checker still rejects any
+> module-level `let` ("not yet implemented; use `const`") because the
+> resolver/codegen aren't built. So today top-level `const` **inlines** its
+> initializer at every use site (codegen has no global storage), so a computed
+> `const TABLE = build()` rebuilds the table per reference. Tracked in
+> [roadmap.md](roadmap.md).
 
 ## Motivation
 
@@ -104,8 +112,12 @@ static-init-order fiasco (the cost an unordered eager scheme like C++'s pays).
 
 ### Front-end
 
-- **Parser** — accept top-level `let NAME[: Type] = expr;` (reject top-level
-  `let mut`).
+- **Parser — implemented.** Top-level `let NAME[: Type] = expr;` parses into a
+  `LetDecl`; top-level `let mut` is rejected (module globals are immutable). The
+  binding is threaded through the name/symbol/LSP surfaces, but the **checker
+  currently rejects any module-level `let`** ("not yet implemented; use `const`")
+  until the resolver/codegen below land. (Conformance: `module-let-immutable`
+  passes; `module-let` is an `xfail` tracking the gap.)
 - **Resolver / checker** — a module-level `let` introduces a global binding
   (type from annotation or inferred from the initializer); references (bare and
   `ns.NAME`) resolve to a global slot. Reject computed `const`; reject
@@ -119,15 +131,19 @@ static-init-order fiasco (the cost an unordered eager scheme like C++'s pays).
 Because Hawk links everything into one artifact, a single program-init thunk is
 simpler than per-module init bookkeeping in the bytecode.
 
-### Runtime / bytecode
+### Runtime / bytecode — **implemented**
 
-- **A globals vector**, sized from a new `global_count` in the module header.
+- **A globals vector**, sized from a `global_count` in the module header (an
+  optional `Globals` section, omitted when zero). Held thread-local alongside the
+  interned-string constants.
 - **Two opcodes:** `global.get <u32>` and `global.set <u32>` (`set` only emitted
   inside the init thunk). See [bytecode.md](bytecode.md).
-- **Load order:** allocate the globals vector → run the program-init thunk → run
-  the entry (`main`).
-- **GC:** the globals vector is a new permanent **root set** (today the roots are
-  the frame stack).
+- **Load order:** `interp::init_module` allocates the globals vector → runs the
+  reserved `<init>` program-init thunk (if present) → then the entry (`main`)
+  runs. The init thunk is found by name, like the entry.
+- **GC:** the globals vector is a permanent **root set**, marked in `collect`
+  exactly like the interned string constants (the frame stack remains the other
+  root).
 
 ### Self-hosting
 

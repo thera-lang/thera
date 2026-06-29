@@ -202,6 +202,16 @@ fn check_program(_ errors: List<CheckError>, _ program: Program, _ library: Libr
                 ctx.current_file = file;
                 check_expr(errors, x.value, empty_scope(), ctx, Option.None);
             },
+            Let(x) => {
+                // Module-level `let` (computed-once globals) is parsed but its
+                // resolver/codegen support isn't built yet — reject it for now,
+                // pointing at `const`. See docs/module_init.md.
+                errors.push(CheckError {
+                    message: 'module-level `let` is not yet implemented; '
+                        + 'use `const` for a compile-time constant',
+                    span: x.name_span,
+                });
+            },
             Enum(x) => {
                 let tps = type_param_set(x.type_params);
                 for v in x.variants {

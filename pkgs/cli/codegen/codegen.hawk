@@ -122,6 +122,9 @@ fn register_module(_ scope: ModuleScope, _ program: Program) -> Void {
             Type(x) => { if !x.is_native { scope.add_struct(x); } },
             Enum(x) => { scope.add_enum(x); },
             Const(x) => { scope.add_const(x); },
+            // Module-level `let` (globals) isn't emitted yet; the checker blocks
+            // any program that uses it, so codegen never reaches a real one.
+            Let(x) => {},
             Interface(x) => { scope.add_interface(x); },
             Impl(x) => {
                 match x.interface_name {

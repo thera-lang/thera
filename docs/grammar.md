@@ -123,7 +123,7 @@ program     = declaration*
 
 declaration = decorator* 'pub'? decl_body
 decl_body   = importDecl | fnDecl | structDecl | nativeTypeDecl | enumDecl
-            | interfaceDecl | implDecl | constDecl
+            | interfaceDecl | implDecl | constDecl | letDecl
 
 decorator   = '@' IDENT ( '(' ( expr (',' expr)* )? ')' )?
 ```
@@ -176,6 +176,11 @@ method      = decorator* 'pub'? 'native'? fnDecl_tail   // a fn, possibly native
 qualName    = IDENT ('.' IDENT)?                          // e.g. Clock | time.Clock
 
 constDecl   = 'const' IDENT (':' type)? '=' expr ';'?
+
+letDecl     = 'let' IDENT (':' type)? '=' expr ';'?
+              // A module-level binding (a global computed once at load; see
+              // docs/module_init.md). Immutable: top-level `let mut` is rejected,
+              // unlike the local `letStmt`. Parsed today; not yet executable.
 ```
 
 A trailing `;` is optional almost everywhere it can appear.

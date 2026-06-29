@@ -24,6 +24,7 @@ pub fn decl_kind(_ decl: Decl) -> Int {
         Enum(_) => 10,
         Interface(_) => 11,
         Const(_) => 14,
+        Let(_) => 13,
         Impl(_) => 11,
         Import(_) => 0,
     };
@@ -41,6 +42,9 @@ pub fn build_symbols(_ program: Program) -> Json {
             },
             Const(d) => {
                 symbols.push(make_symbol(d.name, decl_kind(decl), d.is_pub, d.span, d.span, Option.None));
+            },
+            Let(d) => {
+                symbols.push(make_symbol(d.name, decl_kind(decl), d.is_pub, d.span, d.name_span, Option.None));
             },
             Enum(d) => {
                 symbols.push(make_symbol(d.name, decl_kind(decl), d.is_pub, d.span, d.name_span,

@@ -33,6 +33,7 @@ pub enum Decl {
     Impl(ImplDecl),
     Interface(InterfaceDecl),
     Const(ConstDecl),
+    Let(LetDecl),
     Enum(EnumDecl),
 }
 
@@ -102,6 +103,18 @@ pub struct InterfaceDecl {
 }
 
 pub struct ConstDecl {
+    span: SourceSpan,
+    is_pub: Bool,
+    name: String,
+    name_span: SourceSpan,
+    type_ann: Option<TypeRef>,
+    value: Expr,
+}
+
+// A module-level `let NAME[: Type] = expr;` — an immutable binding computed once
+// at load into a stored global slot (see docs/module_init.md). There is no
+// top-level `let mut` (the parser rejects it), so this carries no `is_mut`.
+pub struct LetDecl {
     span: SourceSpan,
     is_pub: Bool,
     name: String,

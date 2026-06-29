@@ -201,6 +201,7 @@ fn decl_span(_ d: Decl) -> token.SourceSpan {
         Impl(x) => x.span,
         Interface(x) => x.span,
         Const(x) => x.span,
+        Let(x) => x.span,
         Enum(x) => x.span,
     };
 }
