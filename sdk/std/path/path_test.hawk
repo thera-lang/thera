@@ -22,6 +22,33 @@ fn test_join() -> Result<Void, Error> {
 }
 
 @test
+fn test_join_all() -> Result<Void, Error> {
+    testing.assert_eq(actual: join_all(['usr', 'local', 'bin']), expected: 'usr/local/bin')?;
+    testing.assert_eq(actual: join_all(['a']), expected: 'a')?;
+    testing.assert_eq(actual: join_all([]), expected: '')?;
+    // Empty segments are absorbed; an absolute segment resets the path.
+    testing.assert_eq(actual: join_all(['a', '', 'b']), expected: 'a/b')?;
+    testing.assert_eq(actual: join_all(['x', '/abs', 'y']), expected: '/abs/y')?;
+    return Result.Ok(void);
+}
+
+// `separator`/`to_native`/`from_native` exercise the module initializer and the
+// OS boundary. Written platform-independently: the round-trip and the
+// separatorless cases hold on POSIX and Windows alike.
+@test
+fn test_platform_separator() -> Result<Void, Error> {
+    testing.assert(separator == '/' || separator == '\\')?;
+    // A slash path round-trips through the native form on any platform.
+    testing.assert_eq(actual: from_native(to_native('a/b/c')), expected: 'a/b/c')?;
+    // A separatorless name is unchanged either way.
+    testing.assert_eq(actual: to_native('file'), expected: 'file')?;
+    testing.assert_eq(actual: from_native('file'), expected: 'file')?;
+    // to_native places the host separator between components.
+    testing.assert_eq(actual: to_native('a/b'), expected: 'a${separator}b')?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_dirname() -> Result<Void, Error> {
     testing.assert_eq(actual: dirname('src/main.hawk'), expected: 'src')?;
     testing.assert_eq(actual: dirname('main.hawk'), expected: '.')?;

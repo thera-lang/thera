@@ -314,27 +314,36 @@ file-handle natives; `walk` is then a thin `Iterator` over `list_dir`.
 ### `std.path` — pure path manipulation _(implemented, pure Hawk)_
 
 Purpose: string-only path operations, no filesystem access. **Implemented
-entirely in Hawk** on top of the `String`/`List` methods (no runtime natives) —
-the worked example of stdlib-in-Hawk. Provides
-`join`/`dirname`/`basename`/`stem`/`extension`/`is_absolute` plus `components`
-and `with_extension`.
+entirely in Hawk** (the worked example of stdlib-in-Hawk; one native, `env.os()`,
+backs the separator). Provides
+`join`/`join_all`/`dirname`/`basename`/`stem`/`extension`/`is_absolute` plus
+`components`, `with_extension`, and the OS boundary (`separator`/`to_native`/
+`from_native`).
 
 ```
 pub fn join(_ base: String, _ part: String) -> String;  // absolute `part` wins
+pub fn join_all(_ segments: List<String>) -> String;    // n-ary join (no variadics)
 pub fn components(_ path: String) -> List<String>;
 pub fn with_extension(_ path: String, _ ext: String) -> String;
 pub fn normalize(_ path: String) -> String;             // lexical clean (`.`/`..`/`//`)
 pub fn relative(from base: String, to target: String) -> Result<String, Error>;
 // + dirname / basename / stem / extension / is_absolute
+
+pub let separator: String;                  // host separator, computed once at load
+pub fn to_native(_ p: String) -> String;    // slash -> host form (for display/interop)
+pub fn from_native(_ p: String) -> String;  // host form -> slash
 ```
 
-Slash-based (POSIX-style, like Go's `path`): `'/'` is always the separator. OS
--aware handling — Windows `\`, drive letters, and a platform separator (which
-can't be a compile-time `const`; it needs native backing plus a **module
-initializer** to compute it once, [module_init.md](module_init.md)) — is a
-deliberate future task. `normalize` (Go `path.Clean`) and `relative` (Go
-`filepath.Rel`; `Result`, since mixed absolute/relative inputs can't be related)
-are in; a variadic `join` is the remaining deferred item.
+Slash-based (POSIX-style, like Go's `path`): `'/'` is always the separator, so
+manipulation is **deterministic on every platform**. The OS boundary is explicit,
+not implicit: `separator` is the host path separator — a **module initializer**
+(it can't be a compile-time `const`; [module_init.md](module_init.md)) computed
+once from `env.os()` — and `to_native`/`from_native` translate at a display or
+interop boundary (the filesystem natives accept `/` everywhere, so most code
+never needs them). Full OS-native path *parsing* (Windows drive letters, UNC) is
+deliberately out of scope — keep application logic in slash form. `normalize` (Go
+`path.Clean`), `relative` (Go `filepath.Rel`), and the n-ary `join_all` (Hawk has
+no variadics) are all in.
 
 ### `std.env` — environment & process info _(implemented)_
 

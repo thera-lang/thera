@@ -3,15 +3,49 @@
 //! Import as: import std.path
 //! Usage:     path.join('src', 'main.hawk')
 //!
-//! No filesystem operations are performed by any function in this module — every
-//! function operates purely on strings. The whole module is implemented in Hawk
-//! on top of the built-in String/List methods (no runtime natives), so it serves
-//! as a worked example of stdlib-in-Hawk.
+//! No filesystem operations are performed by any function here — every function
+//! operates on strings. Paths are slash-based (POSIX-style, like Go's `path`
+//! package): '/' is always the separator, so manipulation is deterministic on
+//! every platform.
 //!
-//! Paths are slash-based (POSIX-style, like Go's `path` package): '/' is always
-//! the separator. OS-aware handling (Windows '\' and drive letters) is a future
-//! task — and a platform separator can't be a `const` (those are compile-time
-//! inlined), so it will need native backing when std.path becomes OS-aware.
+//! The OS boundary is explicit, not implicit: [separator] is the host path
+//! separator (computed once at load — a module initializer, since it can't be a
+//! compile-time `const`), and [to_native]/[from_native] translate between the
+//! slash form and the host form for display or interop. Full OS-native path
+//! *parsing* (Windows drive letters, UNC) is intentionally out of scope — keep
+//! application logic in slash form and convert only at the boundary.
+
+import std.env;
+
+/// The host platform's path separator: '/' on POSIX, '\' on Windows. Computed
+/// once at load from the running OS (a module initializer — it can't be a
+/// compile-time `const`). Most code should stay in slash form and only reach for
+/// this (via [to_native]/[from_native]) at a display or interop boundary.
+pub let separator: String = if env.os() == 'windows' { '\\' } else { '/' };
+
+/// Render a slash-form path in the host-native form: every '/' becomes
+/// [separator]. On POSIX this is the identity. For display or handing a path to
+/// an external, separator-sensitive tool — the filesystem natives accept '/' on
+/// every platform, so this is not needed to open files.
+///
+/// ```hawk
+/// path.to_native('src/main.hawk')  // 'src/main.hawk' (POSIX) | 'src\main.hawk' (Windows)
+/// ```
+pub fn to_native(_ p: String) -> String {
+    return p.split('/').join(separator);
+}
+
+/// Bring a possibly host-native path into slash form: every [separator] becomes
+/// '/'. On POSIX this is the identity; on Windows it turns '\' into '/' while
+/// leaving existing '/' alone. Use it to normalize external input before the
+/// slash-based functions here operate on it.
+///
+/// ```hawk
+/// path.from_native('src\\main.hawk')  // 'src/main.hawk' (Windows)
+/// ```
+pub fn from_native(_ p: String) -> String {
+    return p.split(separator).join('/');
+}
 
 /// Split a path into its components on '/'. A leading '/' is preserved as a
 /// leading empty component (the root marker); interior and trailing empty
@@ -59,6 +93,24 @@ pub fn join(_ base: String, _ part: String) -> String {
         return '${base}${part}';
     }
     return '${base}/${part}';
+}
+
+/// Join a list of components with separators, left to right — the n-ary form of
+/// [join] (Hawk has no variadics). Empty segments are absorbed, and an absolute
+/// segment (one beginning with '/') resets the accumulated path, exactly as
+/// repeated [join] calls would. An empty list yields the empty path.
+///
+/// ```hawk
+/// path.join_all(['usr', 'local', 'bin'])  // 'usr/local/bin'
+/// path.join_all(['a', '', 'b'])           // 'a/b'
+/// path.join_all(['x', '/abs', 'y'])       // '/abs/y'
+/// ```
+pub fn join_all(_ segments: List<String>) -> String {
+    let mut result = '';
+    for seg in segments {
+        result = join(result, seg);
+    }
+    return result;
 }
 
 /// Return the directory portion of a path (all components except the last).
