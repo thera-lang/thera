@@ -636,7 +636,14 @@ impl Parser {
     fn parse_impl_decl(self, _ start: SourceSpan) -> Decl {
         self.advance(); // 'impl'
         let first_tok = self.parse_qualified_type_name('type or interface name');
-        let first_params = self.parse_type_params();
+        // The `<…>` after the first name is ambiguous until we see `for`: it is
+        // either the interface's type arguments (full type refs, possibly nested
+        // — `impl Iterator<Indexed<T>> for …`) or the impl type's own parameter
+        // declarations (names with bounds — `impl Box<T: Display>`). Capture both
+        // views and choose once `for` is (or isn't) seen.
+        let first_args: List<TypeRef> = [];
+        let first_param_decls: List<TypeParam> = [];
+        self.parse_impl_generics(first_args, first_param_decls);
         let mut type_name = '';
         let mut name_span = first_tok.span;
         let mut interface_name = Option.None;
@@ -644,14 +651,7 @@ impl Parser {
         let mut interface_args: List<TypeRef> = [];
         if self.match_kind(TokenKind.KwFor) {
             interface_name = Option.Some(first_tok.lexeme());
-            for tp in first_params {
-                interface_args.push(TypeRef.Named(NamedType {
-                    span: tp.span,
-                    name: tp.name,
-                    args: [],
-                    namespace: Option.None,
-                }));
-            }
+            interface_args = first_args;
             let type_tok = self.parse_qualified_type_name('type name');
             type_name = type_tok.lexeme();
             name_span = type_tok.span;
@@ -659,7 +659,7 @@ impl Parser {
         } else {
             type_name = first_tok.lexeme();
             name_span = first_tok.span;
-            type_params = first_params;
+            type_params = first_param_decls;
         }
         self.expect(TokenKind.LBrace, '{');
         let methods: List<FnDecl> = [];
@@ -692,6 +692,52 @@ impl Parser {
             interface_args: interface_args,
             methods: methods,
         });
+    }
+
+    // Parse the `<…>` generic list following `impl Name`, filling `args` with a
+    // TypeRef per element (the interface-argument view — supports nesting and
+    // namespaces) and `param_decls` with a TypeParam per element (the
+    // type-parameter view — names with bounds). The caller selects which view
+    // applies once it knows whether this is `impl Iface<…> for T` or `impl T<…>`.
+    // A bare name (`T`) is valid as both; nesting is interface-only and bounds
+    // are param-only, but malformed mixes are someone else's invalid input.
+    fn parse_impl_generics(self, _ args: List<TypeRef>, _ param_decls: List<TypeParam>) -> Void {
+        if !self.check(TokenKind.Lt) {
+            return;
+        }
+        self.advance(); // <
+        let mut going = true;
+        while going && !self.panicking && !self.check(TokenKind.Gt) && !self.at_end() {
+            let ref = self.parse_type_ref();
+            let bounds: List<String> = [];
+            let mut end = type_span(ref);
+            if self.match_kind(TokenKind.Colon) {
+                let first = self.expect(TokenKind.Identifier, 'bound name');
+                bounds.push(first.lexeme());
+                end = first.span;
+                while !self.panicking && self.check(TokenKind.Plus) {
+                    self.advance();
+                    let nb = self.expect(TokenKind.Identifier, 'bound name');
+                    bounds.push(nb.lexeme());
+                    end = nb.span;
+                }
+            }
+            args.push(ref);
+            match ref {
+                Named(nt) => {
+                    param_decls.push(TypeParam {
+                        span: type_span(ref).cover(end),
+                        name: nt.name,
+                        bounds: bounds,
+                    });
+                },
+                Function(_) => {}, // a function type is not a type-parameter name
+            }
+            if !self.match_kind(TokenKind.Comma) {
+                going = false;
+            }
+        }
+        self.expect(TokenKind.Gt, '>');
     }
 
     fn parse_interface_decl(self, _ is_pub: Bool, _ start: SourceSpan) -> Decl {

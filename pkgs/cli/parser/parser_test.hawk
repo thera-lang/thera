@@ -213,6 +213,31 @@ fn test_parse_each_declaration_kind() -> Result<Void, Error> {
 }
 
 @test
+fn test_parse_impl_nested_interface_arg() -> Result<Void, Error> {
+    // A nested generic in an `impl` header's interface argument
+    // (`Iterator<Indexed<T>>`) — the form that gates the `enumerate` adapter.
+    let src = 'struct Indexed<T> { index: Int, value: T }\n'
+        + 'struct EnumIter<T> { mut i: Int }\n'
+        + 'impl Iterator<Indexed<T>> for EnumIter<T> {\n'
+        + '  pub fn next(self) -> Option<Indexed<T>> { return Option.None; }\n'
+        + '}';
+    let r = parse_src(src);
+    testing.assert(!r.has_errors(), message: 'nested interface arg should parse')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_parse_impl_bounded_inherent_param() -> Result<Void, Error> {
+    // The other arm of the same `<…>`: a bounded type-parameter declaration on an
+    // inherent impl must still parse (no `for`).
+    let src = 'struct Box<T> { v: T }\n'
+        + 'impl Box<T: Display> { pub fn show(self) -> String { return \'box\'; } }';
+    let r = parse_src(src);
+    testing.assert(!r.has_errors(), message: 'bounded inherent impl param should parse')?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_error_recovery_skips_to_next_decl() -> Result<Void, Error> {
     // The first declaration is malformed (no function name); the parser records
     // an error, resyncs to the next `fn`, and parses the good one.
