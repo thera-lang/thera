@@ -1,0 +1,16 @@
+//! spec: module-let-cross-module
+//! mode: run
+
+import 'module_let_lib' as lib;
+
+// A global in the entry module references an imported module's global. Imported
+// modules' initializers run first (import-topological order), so the reference
+// reads the computed value, not an uninitialized slot. See docs/module_init.md.
+let ENTRY: Int = lib.LIB_DERIVED * 2;
+
+fn main() -> Int {
+    println('${lib.LIB_BASE}');     // expect: 100
+    println('${lib.LIB_DERIVED}');  // expect: 101
+    println('${ENTRY}');            // expect: 202
+    return 0;
+}
