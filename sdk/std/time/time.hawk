@@ -37,7 +37,7 @@ pub interface Clock {
 }
 
 /// The real system clock — `now_millis()` as a `Clock` value.
-type SystemClock = {}
+struct SystemClock {}
 
 impl Clock for SystemClock {
     fn now_millis(self) -> Int {
@@ -66,7 +66,7 @@ native fn _sleep_millis(_ millis: Int) -> Void
 
 // --- Duration: a signed span, stored as nanoseconds ---
 
-pub type Duration = {
+pub struct Duration {
     nanos: Int,
 }
 
@@ -116,7 +116,7 @@ impl Duration {
 
 // --- Instant: a monotonic point in time, for measuring elapsed spans ---
 
-pub type Instant = {
+pub struct Instant {
     nanos: Int,   // monotonic, relative to an arbitrary process baseline
 }
 
@@ -146,7 +146,7 @@ pub fn sleep(_ d: Duration) -> Void {
 
 // --- DateTime: a wall-clock instant, UTC, stored as Unix milliseconds ---
 
-pub type DateTime = {
+pub struct DateTime {
     millis: Int,   // Unix epoch milliseconds, UTC
 }
 

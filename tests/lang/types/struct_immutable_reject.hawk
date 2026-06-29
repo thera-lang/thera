@@ -1,7 +1,7 @@
 //! spec: type-struct-immut
 //! mode: check
 
-type Point = {
+struct Point {
     x: Int,
     y: Int,
 }

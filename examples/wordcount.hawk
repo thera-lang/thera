@@ -1,7 +1,7 @@
 import std.cli;
 import std.fs;
 
-type Counts = {
+struct Counts {
     lines: Int,
     words: Int,
     bytes: Int,

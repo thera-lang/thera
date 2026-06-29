@@ -8,7 +8,7 @@
 //! §Concurrency.
 
 /// A handle to a spawned fiber computing a `T`.
-pub type Fiber<T> = {
+pub struct Fiber<T> {
     id: Int,
 }
 
@@ -33,7 +33,7 @@ pub fn yield() -> Void {
 }
 
 /// A channel carrying values of type `T` between fibers, over a bounded buffer.
-pub type Channel<T> = {
+pub struct Channel<T> {
     id: Int,
 }
 

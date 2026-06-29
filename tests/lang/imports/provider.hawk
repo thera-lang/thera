@@ -5,11 +5,11 @@ pub fn provide() -> Int {
     return 7;
 }
 
-pub type Gadget = {
+pub struct Gadget {
     n: Int,
 }
 
 // Not `pub`: reaching `provider.Hidden` from another file is a visibility error.
-type Hidden = {
+struct Hidden {
     n: Int,
 }

@@ -101,7 +101,7 @@ native fn write_stdout(_ data: Bytes) -> Result<Int, String>
 @extern('io_stderr_write')
 native fn write_stderr(_ data: Bytes) -> Result<Int, String>
 
-type Stdin = {}
+struct Stdin {}
 impl Reader for Stdin {
     pub fn read(self, max: Int) -> Result<Bytes, Error> {
         return match read_stdin(max) {
@@ -111,7 +111,7 @@ impl Reader for Stdin {
     }
 }
 
-type Stdout = {}
+struct Stdout {}
 impl Writer for Stdout {
     pub fn write(self, _ data: Bytes) -> Result<Int, Error> {
         return match write_stdout(data) {
@@ -121,7 +121,7 @@ impl Writer for Stdout {
     }
 }
 
-type Stderr = {}
+struct Stderr {}
 impl Writer for Stderr {
     pub fn write(self, _ data: Bytes) -> Result<Int, Error> {
         return match write_stderr(data) {
@@ -150,7 +150,7 @@ pub fn stderr() -> Writer {
 
 /// A Writer that captures everything written, for building a string via the
 /// Writer protocol — and the test double for any code that takes a `Writer`.
-pub type StringWriter = {
+pub struct StringWriter {
     builder: BytesBuilder,
 }
 

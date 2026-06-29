@@ -1,7 +1,7 @@
 //! spec: iface-static
 //! mode: run
 
-type Counter = {
+struct Counter {
     value: Int,
 }
 

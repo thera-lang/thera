@@ -22,14 +22,14 @@
 import std.io;
 
 /// The result of running a command to completion.
-pub type ProcessResult = {
+pub struct ProcessResult {
     exit_code: Int,
     stdout: String,
     stderr: String,
 }
 
 /// A handle to a spawned child process.
-pub type Process = {
+pub struct Process {
     id: Int,
 }
 
@@ -113,7 +113,7 @@ native fn _stderr_read(_ id: Int, _ max: Int) -> Result<Bytes, String>
 // --- child pipes as std.io streams ---
 
 /// A child's stdin, as a `Writer`. Each write is flushed.
-type ProcessStdin = { id: Int }
+struct ProcessStdin { id: Int }
 impl Writer for ProcessStdin {
     pub fn write(self, _ data: Bytes) -> Result<Int, Error> {
         return match _stdin_write(self.id, data) {
@@ -124,7 +124,7 @@ impl Writer for ProcessStdin {
 }
 
 /// A child's stdout, as a `Reader`. An empty read is EOF.
-type ProcessStdout = { id: Int }
+struct ProcessStdout { id: Int }
 impl Reader for ProcessStdout {
     pub fn read(self, max: Int) -> Result<Bytes, Error> {
         return match _stdout_read(self.id, max) {
@@ -135,7 +135,7 @@ impl Reader for ProcessStdout {
 }
 
 /// A child's stderr, as a `Reader`. An empty read is EOF.
-type ProcessStderr = { id: Int }
+struct ProcessStderr { id: Int }
 impl Reader for ProcessStderr {
     pub fn read(self, max: Int) -> Result<Bytes, Error> {
         return match _stderr_read(self.id, max) {

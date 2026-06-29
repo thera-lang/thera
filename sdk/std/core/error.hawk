@@ -37,7 +37,7 @@ pub fn error(_ message: String) -> Error {
 /// The carrier behind `error(...)`. Not part of the public surface — call `error`
 /// instead of constructing it — but `pub` so other `std` modules can build the
 /// simple error without each defining their own.
-pub type ErrorMessage = {
+pub struct ErrorMessage {
     text: String,
 }
 

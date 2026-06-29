@@ -25,7 +25,7 @@ import 'resolver';
 // parameters in scope (with their interface bounds), `self`'s type inside an
 // impl, and the enclosing function's return type (the expected type of a bare
 // `return`'s value).
-pub type InferCtx = {
+pub struct InferCtx {
     library: LibraryElement,
     type_params: Set<String>,
     self_type: Option<Type>,
@@ -1406,7 +1406,7 @@ pub fn method_resolves(_ recv: Type, _ field: String, _ arg_count: Int, _ ctx: I
 // checker to validate the call's arguments (substituting the bindings into the
 // method's parameter types makes receiver generics concrete, e.g. `push`'s `T`
 // becomes `Int` on a `List<Int>`).
-pub type MethodResolution = {
+pub struct MethodResolution {
     method: FunctionElement,
     bindings: Map<String, Type>,
 }
@@ -1483,7 +1483,7 @@ pub fn resolve_static_receiver(_ obj: Expr, _ field: String, _ scope: Map<String
 // plus (for a static method) the owner type's, since a static call has no
 // receiver to bind them. Used by the checker to validate arguments and to
 // diagnose a return-only type parameter that nothing pins.
-pub type StaticCall = {
+pub struct StaticCall {
     fn_el: FunctionElement,
     type_params: List<String>,
 }

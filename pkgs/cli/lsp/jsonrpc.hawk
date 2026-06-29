@@ -13,7 +13,7 @@ import std.json as _;
 // An incremental reader: it buffers bytes from a `Reader` and hands back one
 // complete message body (the JSON text) at a time. `pending` holds bytes read
 // past the last returned message (the start of the next one).
-pub type MsgBuffer = {
+pub struct MsgBuffer {
     mut pending: Bytes,
 }
 
@@ -68,7 +68,7 @@ impl MsgBuffer {
 // One extracted message and the bytes that follow it (the start of the next).
 // (Named `FramedMessage`, not `Message`: top-level type names are global across
 // the import closure, so a common noun like `Message` is collision-bait.)
-type FramedMessage = {
+struct FramedMessage {
     body: String,
     rest: Bytes,
 }

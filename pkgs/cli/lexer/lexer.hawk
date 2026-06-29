@@ -12,7 +12,7 @@ import std.char;
 import 'token' as _; // lexer produces tokens — token's types are used throughout
 
 // A lexical error: a message and the span it occurred at.
-pub type LexError = {
+pub struct LexError {
     message: String,
     span: SourceSpan,
 }
@@ -24,7 +24,7 @@ impl Display for LexError {
 }
 
 // The result of tokenizing: the tokens (always ending in `Eof`) and any errors.
-pub type LexResult = {
+pub struct LexResult {
     tokens: List<Token>,
     errors: List<LexError>,
 }
@@ -38,7 +38,7 @@ impl LexResult {
 // A cursor over the source's code points, accumulating tokens and errors. The
 // `ts_*` fields hold the start of the token currently being scanned, so `emit`
 // and `error` can form its span without threading the start through every call.
-type Lexer = {
+struct Lexer {
     source: String,
     chars: List<Int>,
     mut pos: Int,

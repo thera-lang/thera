@@ -72,7 +72,7 @@ fn to_fs_error(_ raw: String) -> FsError {
 
 pub enum FileKind { File, Dir, Symlink, Other }
 
-pub type Metadata = {
+pub struct Metadata {
     size: Int,             // size in bytes
     kind: FileKind,
     modified_millis: Int,  // last-modified time, Unix milliseconds (0 if unknown)

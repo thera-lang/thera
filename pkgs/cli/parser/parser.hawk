@@ -19,7 +19,7 @@ import '../lexer/token' as _;
 import '../lexer/lexer';
 import '../ast/ast' as _;
 
-pub type ParseError = {
+pub struct ParseError {
     message: String,
     span: SourceSpan,
 }
@@ -30,7 +30,7 @@ impl Display for ParseError {
     }
 }
 
-pub type ParseResult = {
+pub struct ParseResult {
     program: Program,
     errors: List<ParseError>,
 }
@@ -41,7 +41,7 @@ impl ParseResult {
     }
 }
 
-type Parser = {
+struct Parser {
     tokens: List<Token>,
     mut pos: Int,
     errors: List<ParseError>,

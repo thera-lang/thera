@@ -20,12 +20,12 @@ import '../element/scope' as _;
 import '../element/resolver';
 import '../element/inference' as _;
 
-pub type CheckError = {
+pub struct CheckError {
     message: String,
     span: SourceSpan,
 }
 
-pub type CheckResult = {
+pub struct CheckResult {
     errors: List<CheckError>,
 }
 
@@ -57,7 +57,7 @@ fn add_error(_ errors: List<CheckError>, _ message: String, _ span: SourceSpan) 
 // ---- duplicate top-level definition detection ----
 
 // A top-level declaration's site, for collision reporting.
-type NameSite = {
+struct NameSite {
     file: Option<String>,
     span: SourceSpan,
     is_pub: Bool,

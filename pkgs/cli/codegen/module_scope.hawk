@@ -27,7 +27,7 @@ pub const TAG_NONE: Int = 1; // Option.None (Some = 0); see sdk/std/core/option.
 
 // Layout of a struct type: its index in the module type table and its field
 // names in declaration order (which fixes the field indices).
-pub type StructInfo = {
+pub struct StructInfo {
     index: Int,
     field_names: List<String>,
 }
@@ -46,7 +46,7 @@ pub fn field_index_of(_ info: StructInfo, _ name: String) -> Int {
 // Layout of a user-defined enum: its runtime type id and its variants in
 // declaration order (which fixes the variant tags). Built-in Result/Option use
 // the fixed ids 0/1 and aren't registered here.
-pub type EnumInfo = {
+pub struct EnumInfo {
     ty: Int,
     variants: List<EnumVariant>,
 }
@@ -74,7 +74,7 @@ pub fn field_count_of(_ info: EnumInfo, _ name: String) -> Int {
 
 // A pending dynamic-dispatch row recorded from an `impl Interface for Type`
 // block, resolved into the module's dispatch table by `build_dispatch`.
-pub type PendingDispatch = {
+pub struct PendingDispatch {
     type_name: String,
     selector: String,
 }
@@ -82,7 +82,7 @@ pub type PendingDispatch = {
 // The shared codegen scope. The mutable lists/maps are filled during
 // registration; `library` backs the on-demand inference codegen consumes for
 // opcode selection (Hawk has no `Expr.resolvedType`).
-pub type ModuleScope = {
+pub struct ModuleScope {
     units: List<FnDecl>,              // index -> declaration
     unit_names: List<String>,         // index -> mangled name (e.g. Point.area)
     unit_self_types: List<Option<String>>, // index -> receiver type, if a method

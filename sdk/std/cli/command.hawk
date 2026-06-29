@@ -54,7 +54,7 @@
 /// A boolean flag. `fallback` is the value reported when the flag is absent
 /// (the `default:` builder argument); a `negatable` flag also accepts
 /// `--no-<name>`, which reports false.
-pub type Flag = {
+pub struct Flag {
     name: String,
     help: String,
     abbr: String,
@@ -63,21 +63,21 @@ pub type Flag = {
 }
 
 /// A `--name value` option (carries a string value).
-pub type Opt = {
+pub struct Opt {
     name: String,
     help: String,
     abbr: String,
 }
 
 /// A positional argument (named for `--help`; read back by index).
-pub type Positional = {
+pub struct Positional {
     name: String,
     help: String,
 }
 
 /// A command: its declared flags/options/positionals and any subcommands. Build
 /// one with the fluent `Command.new(...).flag(...).option(...)` builder.
-pub type Command = {
+pub struct Command {
     name: String,
     mut about_text: String,
     /// A longer description, shown only in this command's own `--help` (not in a
@@ -125,7 +125,7 @@ impl Display for CliError {
 /// The result of a successful parse: resolved flag values, option values,
 /// positionals, and (if one was selected) the chosen subcommand and its own
 /// `Matches`.
-pub type Matches = {
+pub struct Matches {
     flag_values: Map<String, Bool>,
     option_values: Map<String, String>,
     positional_values: List<String>,

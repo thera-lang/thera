@@ -11,7 +11,7 @@
 //!
 //! Renders as `file:line:column` — the same shape `hawk check` prints — so test
 //! failures and compiler diagnostics share one format.
-pub type SourceLoc = {
+pub struct SourceLoc {
     file: String,
     line: Int,
     column: Int,

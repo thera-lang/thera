@@ -24,7 +24,7 @@ const SECTION_DISPATCH: Int = 4;
 // Collects and deduplicates strings during encoding, preserving first-seen order
 // so the encoded pool matches the runtime's. A linear scan keeps the port free
 // of map-field mutation; the pool is small.
-type StringPool = {
+struct StringPool {
     strings: List<String>,
 }
 

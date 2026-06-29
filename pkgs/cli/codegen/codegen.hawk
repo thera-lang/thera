@@ -29,12 +29,12 @@ import std.env;   // the differential inference oracle (HAWK_INFER_ORACLE) reads
 // A construct codegen does not yet handle (or an invariant a checked program
 // should already guarantee). Collected rather than thrown — Hawk has no
 // exceptions, and a fully-ported codegen produces none for a valid program.
-pub type CodegenError = {
+pub struct CodegenError {
     message: String,
     span: SourceSpan,
 }
 
-pub type CodegenResult = {
+pub struct CodegenResult {
     module: Module,
     errors: List<CodegenError>,
 }
@@ -48,7 +48,7 @@ pub enum Jk {
 
 // A placeholder jump awaiting its target: the instruction position to patch, the
 // label it targets, and which jump opcode to emit.
-pub type Fixup = {
+pub struct Fixup {
     pos: Int,
     label: Int,
     kind: Jk,
@@ -157,7 +157,7 @@ fn register_module(_ scope: ModuleScope, _ program: Program) -> Void {
 
 // --- the per-function compiler ---
 
-pub type FnCompiler = {
+pub struct FnCompiler {
     scope: ModuleScope,
     code: List<Instr>,
     slots: Map<String, Int>,
@@ -2000,7 +2000,7 @@ impl FnCompiler {
 }
 
 // A resolved enum variant reference (its enum info and the variant's tag).
-pub type EnumVariantRef = {
+pub struct EnumVariantRef {
     info: EnumInfo,
     tag: Int,
 }
@@ -2012,7 +2012,7 @@ pub const MATCH_DISPATCH_MIN_CASES: Int = 6;
 
 // A planned binary-search dispatch: each non-final arm keyed by its variant tag,
 // plus the final catch-all arm.
-pub type DispatchPlan = {
+pub struct DispatchPlan {
     cases: Map<Int, MatchArm>,
     default_arm: MatchArm,
 }

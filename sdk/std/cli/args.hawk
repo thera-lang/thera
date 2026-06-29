@@ -14,7 +14,7 @@
 //! }
 //! ```
 
-pub type Args = {
+pub struct Args {
     parameters: List<String>,
 }
 

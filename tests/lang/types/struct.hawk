@@ -1,7 +1,7 @@
 //! spec: type-struct
 //! mode: run
 
-type Point = {
+struct Point {
     x: Int,
     y: Int,
 }

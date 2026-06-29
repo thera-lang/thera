@@ -5,7 +5,7 @@ interface Greet {
     fn greet(self) -> String;
 }
 
-type User = {
+struct User {
     name: String,
 }
 

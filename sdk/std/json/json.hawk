@@ -174,7 +174,7 @@ fn int_if_integral(_ x: Double) -> Option<Int> {
 // --- parsing ---
 
 /// A cursor over the input's code points.
-type Scanner = {
+struct Scanner {
     chars: List<Int>,
     mut pos: Int,
     len: Int,

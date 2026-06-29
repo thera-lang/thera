@@ -25,7 +25,7 @@ const STD_PREFIX: String = 'std.';
 // tree) and collects them here rather than dropping the file, so an error in an
 // imported file is surfaced and attributed to that file — not swallowed into a
 // misleading downstream "undefined name" in the importer.
-pub type LoadDiagnostic = {
+pub struct LoadDiagnostic {
     message: String,
     span: token.SourceSpan,
     file: String,
@@ -35,7 +35,7 @@ pub type LoadDiagnostic = {
 // path exactly as written (so a namespace can be derived per import and barrels
 // can be followed). `imports` is filled after construction so caching the node
 // first guards re-export cycles.
-pub type LibrarySource = {
+pub struct LibrarySource {
     program: Program,
     imports: Map<String, LibrarySource>,
 }
@@ -44,7 +44,7 @@ pub type LibrarySource = {
 // linking substrate) and the per-file import namespaces. Resolution is per-file —
 // a file may qualify only with namespaces it itself imports — so each file carries
 // its own table (file key -> namespace -> surface) rather than a closure-wide union.
-pub type LoadedImports = {
+pub struct LoadedImports {
     programs: List<Program>,
     // Lex/parse diagnostics from every imported file (best-effort recovery), each
     // attributed to its file — surfaced by the driver alongside check/codegen ones.
@@ -152,7 +152,7 @@ fn resolve_library_file(_ base: String) -> Option<String> {
 // parsed once per run instead of once per file. The AST is immutable after parse
 // (the element model is built *from* it; inference is pure), so sharing a parsed
 // program across files is safe — as the loader already does within one closure.
-pub type ParsedFile = {
+pub struct ParsedFile {
     program: Program,
     diagnostics: List<LoadDiagnostic>,
 }
@@ -200,7 +200,7 @@ pub fn parse_file_or_null(_ path: String) -> Option<Program> {
 
 // --- the loader ---
 
-type Loader = {
+struct Loader {
     sdk_root: Option<String>,
     order: List<Program>,            // imported programs, deduped, in load order
     cache: Map<String, LibrarySource>, // resolved file -> library source (per call)

@@ -1,7 +1,7 @@
 //! spec: iface-dispatch
 //! mode: run
 
-type Dog = {
+struct Dog {
     name: String,
 }
 
@@ -11,7 +11,7 @@ impl Display for Dog {
     }
 }
 
-type Cat = {
+struct Cat {
     name: String,
 }
 

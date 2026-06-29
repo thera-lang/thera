@@ -1,7 +1,7 @@
 //! spec: iface-display
 //! mode: run
 
-type Bare = {
+struct Bare {
     n: Int,
 }
 

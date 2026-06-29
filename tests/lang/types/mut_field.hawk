@@ -1,7 +1,7 @@
 //! spec: type-mut-field
 //! mode: run
 
-type Counter = {
+struct Counter {
     mut value: Int,
     label: String,
 }

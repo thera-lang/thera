@@ -4,7 +4,7 @@
 //! `Map<T, Bool>`: membership is a present key (the Bool value is unused but
 //! keeps the backing a plain map). Iteration order is insertion order, matching
 //! the backing map.
-pub type Set<T> = {
+pub struct Set<T> {
     items: Map<T, Bool>,
 }
 

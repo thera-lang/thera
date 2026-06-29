@@ -18,7 +18,7 @@ import '../lexer/token' as _; // SourceSpan, used by every node
 
 // --- Top level ---
 
-pub type Program = {
+pub struct Program {
     decls: List<Decl>,
     // Set by the loader after parsing; the parser leaves it None.
     mut file_path: Option<String>,
@@ -36,7 +36,7 @@ pub enum Decl {
     Enum(EnumDecl),
 }
 
-pub type ImportDecl = {
+pub struct ImportDecl {
     span: SourceSpan,
     path: String, // e.g. 'std.fs' or 'wordcount'
     alias: Option<String>,
@@ -46,7 +46,7 @@ pub type ImportDecl = {
     unqualified: Bool,
 }
 
-pub type FnDecl = {
+pub struct FnDecl {
     span: SourceSpan,
     decorators: List<Decorator>,
     is_pub: Bool,
@@ -59,7 +59,7 @@ pub type FnDecl = {
     body: Option<Block>, // None for a native fn
 }
 
-pub type TypeDecl = {
+pub struct TypeDecl {
     span: SourceSpan,
     is_pub: Bool,
     // A `native type` (`native type List<T>`): an opaque, runtime-represented
@@ -74,13 +74,13 @@ pub type TypeDecl = {
 }
 
 // A struct field: a name and its declared type.
-pub type FieldDef = {
+pub struct FieldDef {
     is_mut: Bool,
     name: String,
     type_ann: TypeRef,
 }
 
-pub type ImplDecl = {
+pub struct ImplDecl {
     span: SourceSpan,
     type_name: String,
     name_span: SourceSpan, // span of type_name
@@ -91,7 +91,7 @@ pub type ImplDecl = {
     methods: List<FnDecl>,
 }
 
-pub type InterfaceDecl = {
+pub struct InterfaceDecl {
     span: SourceSpan,
     is_pub: Bool,
     name: String,
@@ -101,7 +101,7 @@ pub type InterfaceDecl = {
     methods: List<FnDecl>,
 }
 
-pub type ConstDecl = {
+pub struct ConstDecl {
     span: SourceSpan,
     is_pub: Bool,
     name: String,
@@ -110,7 +110,7 @@ pub type ConstDecl = {
     value: Expr,
 }
 
-pub type EnumDecl = {
+pub struct EnumDecl {
     span: SourceSpan,
     is_pub: Bool,
     name: String,
@@ -119,7 +119,7 @@ pub type EnumDecl = {
     variants: List<EnumVariant>,
 }
 
-pub type EnumVariant = {
+pub struct EnumVariant {
     span: SourceSpan,
     name: String,
     name_span: SourceSpan,
@@ -128,19 +128,19 @@ pub type EnumVariant = {
 
 // --- Helpers attached to declarations ---
 
-pub type Decorator = {
+pub struct Decorator {
     span: SourceSpan,
     name: String,
     args: List<Expr>,
 }
 
-pub type TypeParam = {
+pub struct TypeParam {
     span: SourceSpan,
     name: String,
     bounds: List<String>, // e.g. ['Eq', 'Debug']
 }
 
-pub type Param = {
+pub struct Param {
     span: SourceSpan,
     // External label: None means suppressed (`_`); Some(name) when no separate
     // label was given (label == name); Some(other) for a distinct external label.
@@ -159,7 +159,7 @@ pub enum TypeRef {
     Function(FunctionType),
 }
 
-pub type NamedType = {
+pub struct NamedType {
     span: SourceSpan,
     name: String,
     args: List<TypeRef>,
@@ -170,7 +170,7 @@ pub type NamedType = {
 }
 
 // A function type, e.g. `(Int, String) -> Bool` or `() -> Int`.
-pub type FunctionType = {
+pub struct FunctionType {
     span: SourceSpan,
     params: List<TypeRef>,
     return_type: TypeRef,
@@ -189,7 +189,7 @@ pub enum Stmt {
     While(WhileStmt),
 }
 
-pub type LetStmt = {
+pub struct LetStmt {
     span: SourceSpan,
     is_mut: Bool,
     name: String,
@@ -198,27 +198,27 @@ pub type LetStmt = {
     value: Expr,
 }
 
-pub type IfStmt = {
+pub struct IfStmt {
     span: SourceSpan,
     condition: Expr,
     then_block: Block,
     else_block: Option<Block>,
 }
 
-pub type ForStmt = {
+pub struct ForStmt {
     span: SourceSpan,
     pattern: Pattern,
     iterable: Expr,
     body: Block,
 }
 
-pub type WhileStmt = {
+pub struct WhileStmt {
     span: SourceSpan,
     condition: Expr,
     body: Block,
 }
 
-pub type Block = {
+pub struct Block {
     start_span: SourceSpan,
     end_span: SourceSpan,
     stmts: List<Stmt>,
@@ -275,12 +275,12 @@ pub enum StringPart {
     Interp(SourceSpan, Expr),
 }
 
-pub type MapEntry = {
+pub struct MapEntry {
     key: Expr,
     value: Expr,
 }
 
-pub type StructExpr = {
+pub struct StructExpr {
     span: SourceSpan,
     type_name: String,
     // The import namespace a qualified construction was written with (`element` in
@@ -291,12 +291,12 @@ pub type StructExpr = {
 }
 
 // A struct-literal field initializer: `name: value`.
-pub type FieldInit = {
+pub struct FieldInit {
     name: String,
     value: Expr,
 }
 
-pub type CallExpr = {
+pub struct CallExpr {
     span: SourceSpan,
     callee: Expr,
     // Type arguments on the callee itself — a generic free function or method
@@ -309,19 +309,19 @@ pub type CallExpr = {
     args: List<CallArg>,
 }
 
-pub type CallArg = {
+pub struct CallArg {
     span: SourceSpan,
     label: Option<String>,
     value: Expr,
 }
 
-pub type MatchExpr = {
+pub struct MatchExpr {
     span: SourceSpan,
     subject: Expr,
     arms: List<MatchArm>,
 }
 
-pub type MatchArm = {
+pub struct MatchArm {
     span: SourceSpan,
     pattern: Pattern,
     body: Expr,
@@ -329,13 +329,13 @@ pub type MatchArm = {
 
 // A single lambda parameter: a name with an optional type annotation (None when
 // omitted, to be filled by inference from context).
-pub type LambdaParam = {
+pub struct LambdaParam {
     span: SourceSpan,
     name: String,
     type_ann: Option<TypeRef>,
 }
 
-pub type LambdaExpr = {
+pub struct LambdaExpr {
     span: SourceSpan,
     params: List<LambdaParam>,
     body: Expr,
@@ -346,7 +346,7 @@ pub type LambdaExpr = {
 // is used (enforced in the parser/checker) and optional for a discarded
 // statement `if`. An `else if` chain is the else block's tail. See
 // docs/language.md.
-pub type IfExpr = {
+pub struct IfExpr {
     span: SourceSpan,
     condition: Expr,
     then_block: Block,

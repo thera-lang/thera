@@ -23,7 +23,7 @@ import 'element' as _;
 // The static resolution context of one file: the resolved library plus the file
 // whose imports/ownership govern resolution. A real source path is never empty,
 // so `None` denotes the primary/anonymous program (see `file_key`).
-pub type FileScope = {
+pub struct FileScope {
     library: LibraryElement,
     file: Option<String>,
 }

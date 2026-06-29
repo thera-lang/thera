@@ -157,7 +157,7 @@ impl BytesBuilder {
 /// truncated stream is a clean `None` rather than a trap. The integer decoders
 /// are the exact inverses of `BytesBuilder`'s writers, so a value written there
 /// round-trips through here. Pure Hawk over `Bytes.get` + bitwise ops.
-pub type BytesReader = {
+pub struct BytesReader {
     data: Bytes,
     mut pos: Int,
 }

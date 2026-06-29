@@ -42,7 +42,7 @@ native fn seed_entropy() -> Int
 
 /// A seedable pseudo-random generator. Hold one and draw from it; each draw
 /// advances its state in place.
-pub type Rng = {
+pub struct Rng {
     mut state: Int,
 }
 

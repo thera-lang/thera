@@ -1,7 +1,7 @@
 //! spec: iface-debug
 //! mode: run
 
-type Point = {
+struct Point {
     x: Int,
     y: Int,
 }

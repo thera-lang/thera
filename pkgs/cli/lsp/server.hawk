@@ -33,7 +33,7 @@ import 'workspace_symbols';
 // the import closure (the `std.core` prelude above all) is lexed and parsed once
 // and reused — not re-parsed on every keystroke. Keyed by resolved file path;
 // an edited document's entry is dropped on change (see `update_document`).
-pub type Server = {
+pub struct Server {
     docs: Map<String, String>,
     sdk_root: Option<String>,
     parse_cache: Map<String, loader.ParsedFile>,
@@ -57,7 +57,7 @@ pub fn new_server(_ sdk_root: Option<String>) -> Server {
 
 // A parsed open document plus its import closure and the cursor offset — the
 // shared input to the position-based requests (hover, definition).
-type DocAnalysis = {
+struct DocAnalysis {
     program: Program,
     imports: List<Program>,
     text: String,

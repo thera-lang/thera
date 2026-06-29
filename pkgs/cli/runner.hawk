@@ -22,7 +22,7 @@ import 'parser/parser'; // parse
 import 'driver';       // compile_source_at, check_source_at, format_diagnostic
 
 // The per-file test tally a run produces (a `@test` count and how many failed).
-type TestCounts = {
+struct TestCounts {
     total: Int,
     failures: Int,
 }

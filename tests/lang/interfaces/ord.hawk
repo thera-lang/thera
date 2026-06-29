@@ -5,7 +5,7 @@
 // implement it; a user type implements it explicitly; a generic `<T: Ord>`
 // dispatches `compare` dynamically (the same path `std.sort` uses).
 
-type Version = { major: Int, minor: Int }
+struct Version { major: Int, minor: Int }
 
 impl Ord for Version {
     fn compare(self, _ other: Version) -> Ordering {

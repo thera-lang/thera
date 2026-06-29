@@ -26,7 +26,7 @@ import 'loader';
 // imported file is attributed to *that* file, not the entrypoint (a span carries
 // its source text, not its path). None falls back to the path the CLI prints
 // against.
-pub type Diagnostic = {
+pub struct Diagnostic {
     message: String,
     span: token.SourceSpan,
     file: Option<String>,
@@ -34,7 +34,7 @@ pub type Diagnostic = {
 
 // The outcome of compiling a source: any diagnostics, and the encoded `.hawkbc`
 // bytes when there were none.
-pub type CompileOutcome = {
+pub struct CompileOutcome {
     diagnostics: List<Diagnostic>,
     bytes: Option<Bytes>,
 }

@@ -129,7 +129,7 @@ pub fn keyword_kind(_ text: String) -> Option<TokenKind> {
 
 // A region of source: the originating text plus the code-point offset, length,
 // and the 1-based (line, column) of its start.
-pub type SourceSpan = {
+pub struct SourceSpan {
     source: String,
     offset: Int,
     length: Int,
@@ -172,7 +172,7 @@ impl Display for SourceSpan {
 
 // A lexical token: its kind, its source span, and (for string literals and
 // identifiers) its content. Other kinds carry no value — use `lexeme`/`span`.
-pub type Token = {
+pub struct Token {
     kind: TokenKind,
     span: SourceSpan,
     // String-literal content (with ${...} kept verbatim) or identifier text;

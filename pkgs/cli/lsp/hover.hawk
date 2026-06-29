@@ -19,14 +19,14 @@ import 'diagnostics';      // span_to_range
 import 'paths';              // program_path
 
 // The identifier under the cursor: its name and source span.
-pub type NameRef = {
+pub struct NameRef {
     name: String,
     span: SourceSpan,
 }
 
 // A resolved declaration together with the path of the file it lives in (the
 // primary file, or an imported library's path) — definition needs the file.
-pub type DeclSite = {
+pub struct DeclSite {
     decl: Decl,
     file: String,
 }

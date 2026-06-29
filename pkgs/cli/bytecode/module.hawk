@@ -7,14 +7,14 @@ import 'instr';
 
 // A struct/enum layout entry. For now the runtime only needs the name and the
 // field count (the type table).
-pub type TypeDef = {
+pub struct TypeDef {
     name: String,
     field_count: Int,
 }
 
 // A single function: its name, arity, local-slot count (params included), and
 // instruction stream. Locals are slots [0, local_count).
-pub type FuncDef = {
+pub struct FuncDef {
     name: String,
     param_count: Int,
     local_count: Int,
@@ -31,14 +31,14 @@ pub const ENUM_DISPATCH_BASE: Int = 1 << 31;
 // `selector` for the concrete type id `type_id` (a type-table index for a
 // struct; `ENUM_DISPATCH_BASE | ty` for an enum) is `functions[func]`.
 // `call.virtual <selector>` looks the target up by the receiver's type id.
-pub type DispatchEntry = {
+pub struct DispatchEntry {
     type_id: Int,
     selector: String,
     func: Int,
 }
 
 // A compiled module: its functions, type table, and virtual-dispatch table.
-pub type Module = {
+pub struct Module {
     functions: List<FuncDef>,
     types: List<TypeDef>,
     dispatch: List<DispatchEntry>,

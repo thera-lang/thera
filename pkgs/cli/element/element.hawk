@@ -21,12 +21,12 @@ pub enum TypeDefKind {
 }
 
 // A resolved positional payload type list lives on each variant.
-pub type EnumVariantElement = {
+pub struct EnumVariantElement {
     name: String,
     fields: List<Type>, // resolved payload types; empty = payload-free
 }
 
-pub type ParameterElement = {
+pub struct ParameterElement {
     label: Option<String>, // external label; None when suppressed (`_`)
     is_self: Bool,
     name: String,
@@ -36,7 +36,7 @@ pub type ParameterElement = {
 
 // A free function or a method. `owner` is the type name for a method (None for a
 // free function); `is_static` is a method with no `self`.
-pub type FunctionElement = {
+pub struct FunctionElement {
     name: String,
     type_parameters: List<String>,
     type_parameter_bounds: Map<String, List<String>>,
@@ -46,14 +46,14 @@ pub type FunctionElement = {
     is_static: Bool,
 }
 
-pub type ConstElement = {
+pub struct ConstElement {
     name: String,
     ty: Type,
 }
 
 // A declared (or built-in) type definition: struct, enum, interface, or built-in
 // generic. The mutable lists/maps are filled during resolution.
-pub type TypeDefElement = {
+pub struct TypeDefElement {
     name: String,
     kind: TypeDefKind,
     type_parameters: List<String>,
@@ -146,7 +146,7 @@ pub fn implements_interface(_ e: TypeDefElement, _ interface_name: String) -> Bo
 
 // The public surface a namespace exposes: its public names, plus any exposed by
 // more than one re-exported library (a barrel collision).
-pub type LibraryNamespace = {
+pub struct LibraryNamespace {
     names: Set<String>,
     collisions: Set<String>,
     // Public name -> the file (key) that declares it, so a qualified `ns.name`
@@ -160,7 +160,7 @@ pub fn namespace_exposes(_ ns: LibraryNamespace, _ name: String) -> Bool {
 }
 
 // The resolved element model for a program plus its imports.
-pub type LibraryElement = {
+pub struct LibraryElement {
     // Type definitions stay a flat by-name table: a resolved `Type.Interface(name)`
     // (a namespace-qualified receiver type, a field's type) carries only the name,
     // so type lookup is global by name (type-name uniqueness pending — see

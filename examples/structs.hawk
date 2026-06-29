@@ -1,7 +1,7 @@
 // Demonstrates struct declarations, struct literals, field access,
 // impl blocks, and nested structs.
 
-type Point = {
+struct Point {
     x: Int,
     y: Int,
 }
@@ -24,7 +24,7 @@ impl Point {
     }
 }
 
-type Rect = {
+struct Rect {
     top_left: Point,
     width: Int,
     height: Int,
