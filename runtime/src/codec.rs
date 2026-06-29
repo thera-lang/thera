@@ -69,6 +69,9 @@ mod section {
     pub const CONSTANTS: u8 = 2;
     pub const TYPES: u8 = 3;
     pub const DISPATCH: u8 = 4;
+    /// The module-global count (a single uvarint). Omitted when zero, so modules
+    /// with no top-level `let` encode byte-identically to before the feature.
+    pub const GLOBALS: u8 = 5;
 }
 
 /// Collects and deduplicates string literals during encoding. Strings are
@@ -157,6 +160,8 @@ mod op {
     pub const SHR_I64: u8 = 59;
     pub const USHR_I64: u8 = 60;
     pub const LIST_LEN: u8 = 61;
+    pub const GLOBAL_GET: u8 = 62;
+    pub const GLOBAL_SET: u8 = 63;
 }
 
 /// Encode a module to the wire format.
@@ -230,6 +235,11 @@ pub fn encode_module(m: &Module) -> Vec<u8> {
     if !m.dispatch.is_empty() {
         write_section(&mut w, section::DISPATCH, &dispatch.into_bytes());
     }
+    if m.global_count > 0 {
+        let mut globals = Writer::new();
+        globals.write_uvarint(u64::from(m.global_count));
+        write_section(&mut w, section::GLOBALS, &globals.into_bytes());
+    }
     w.into_bytes()
 }
 
@@ -249,6 +259,7 @@ pub fn decode_module(bytes: &[u8]) -> Result<Module, DecodeError> {
     let mut types_payload: Option<&[u8]> = None;
     let mut funcs_payload: Option<&[u8]> = None;
     let mut dispatch_payload: Option<&[u8]> = None;
+    let mut globals_payload: Option<&[u8]> = None;
     while !r.is_empty() {
         let id = r.read_u8()?;
         let len = r.read_uvarint()? as usize;
@@ -258,6 +269,7 @@ pub fn decode_module(bytes: &[u8]) -> Result<Module, DecodeError> {
             section::TYPES => types_payload = Some(payload),
             section::FUNCTIONS => funcs_payload = Some(payload),
             section::DISPATCH => dispatch_payload = Some(payload),
+            section::GLOBALS => globals_payload = Some(payload),
             _ => {} // unknown section: skip (payload already consumed)
         }
     }
@@ -285,6 +297,9 @@ pub fn decode_module(bytes: &[u8]) -> Result<Module, DecodeError> {
     let mut module = Module::with_types(functions, types);
     if let Some(p) = dispatch_payload {
         module.dispatch = decode_dispatch(p, &pool)?;
+    }
+    if let Some(p) = globals_payload {
+        module.global_count = Reader::new(p).read_uvarint()? as u32;
     }
     Ok(module)
 }
@@ -386,6 +401,14 @@ fn encode_instr(w: &mut Writer, instr: &Instr, pool: &StringPool) {
         Instr::Store(slot) => {
             w.write_u8(op::STORE);
             w.write_uvarint(*slot as u64);
+        }
+        Instr::GlobalGet(idx) => {
+            w.write_u8(op::GLOBAL_GET);
+            w.write_uvarint(u64::from(*idx));
+        }
+        Instr::GlobalSet(idx) => {
+            w.write_u8(op::GLOBAL_SET);
+            w.write_uvarint(u64::from(*idx));
         }
         Instr::AddI64 => w.write_u8(op::ADD_I64),
         Instr::SubI64 => w.write_u8(op::SUB_I64),
@@ -514,6 +537,8 @@ fn decode_instr(r: &mut Reader, pool: &[String]) -> Result<Instr, DecodeError> {
         }
         op::LOAD => Instr::Load(r.read_uvarint()? as u16),
         op::STORE => Instr::Store(r.read_uvarint()? as u16),
+        op::GLOBAL_GET => Instr::GlobalGet(r.read_uvarint()? as u32),
+        op::GLOBAL_SET => Instr::GlobalSet(r.read_uvarint()? as u32),
         op::ADD_I64 => Instr::AddI64,
         op::SUB_I64 => Instr::SubI64,
         op::MUL_I64 => Instr::MulI64,
@@ -662,6 +687,8 @@ mod tests {
             Instr::ConstStr("hi".into()),
             Instr::Load(3),
             Instr::Store(4),
+            Instr::GlobalGet(5),
+            Instr::GlobalSet(6),
             Instr::AddI64,
             Instr::SubI64,
             Instr::MulI64,
@@ -833,6 +860,40 @@ mod tests {
         b.ret();
         let m = Module::with_types(vec![b.finish()], vec![TypeDef::new("Point", 2)]);
         assert_eq!(decode_module(&encode_module(&m)), Ok(m));
+    }
+
+    #[test]
+    fn module_with_globals_round_trips() {
+        // A module that declares two globals, an `<init>` thunk that fills them,
+        // and a `main` that reads one back.
+        let init = Function::new(
+            "<init>",
+            0,
+            0,
+            vec![
+                Instr::ConstInt(7),
+                Instr::GlobalSet(0),
+                Instr::ConstInt(9),
+                Instr::GlobalSet(1),
+                Instr::Return,
+            ],
+        );
+        let main = Function::new("main", 0, 0, vec![Instr::GlobalGet(1), Instr::Return]);
+        let mut m = Module::new(vec![init, main]);
+        m.global_count = 2;
+        let decoded = decode_module(&encode_module(&m)).unwrap();
+        assert_eq!(decoded.global_count, 2);
+        assert_eq!(decoded, m);
+    }
+
+    #[test]
+    fn zero_globals_emit_no_section() {
+        // A module with no globals must encode byte-identically to one built
+        // before the feature existed (the section is omitted when count is 0).
+        let m = factorial_module();
+        assert_eq!(m.global_count, 0);
+        let decoded = decode_module(&encode_module(&m)).unwrap();
+        assert_eq!(decoded.global_count, 0);
     }
 
     #[test]

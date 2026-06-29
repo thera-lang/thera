@@ -49,6 +49,9 @@ fn fmt_instr(instr: &Instr, module: &Module) -> String {
         Instr::Load(slot) => with("load", slot.to_string()),
         Instr::Store(slot) => with("store", slot.to_string()),
 
+        Instr::GlobalGet(idx) => with("global.get", idx.to_string()),
+        Instr::GlobalSet(idx) => with("global.set", idx.to_string()),
+
         Instr::AddI64 => "add.i64".to_string(),
         Instr::SubI64 => "sub.i64".to_string(),
         Instr::MulI64 => "mul.i64".to_string(),

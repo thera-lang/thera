@@ -167,8 +167,19 @@ Section:  id (u8) + byte_length (varint) + payload     // unknown ids skipped
   Functions : per fn { name, param_count, local_count, max_stack, code }
   Entry     : index of main
   Constants : (later) dedup'd strings / f64 / large ints — a compaction step
+  Globals   : module-global count (a single varint) — top-level `let` slots;
+              omitted when zero, so global-free modules are byte-for-byte
+              unchanged. See docs/module_init.md.
   Debug?    : (later) source file + line table — optional, skippable
 ```
+
+**Module globals & the init thunk.** Top-level `let` bindings become slots in a
+per-run **globals vector**, sized by the Globals section's count. The front-end
+emits a reserved **program-init thunk** function named `<init>` that evaluates
+each initializer in dependency order and `global.set`s its slot; the runtime runs
+it once, after allocating the vector and before the entry. Globals are a
+permanent GC root set. The angle-bracketed name can't collide with a user
+identifier. See docs/module_init.md.
 
 **Instruction encoding.**
 
@@ -207,6 +218,17 @@ each is a distinct opcode.
 
 `load`/`store` move 64 bits regardless of type — no suffix needed. The slot's
 ref-ness is recorded in the function's stackmap, not the opcode.
+
+### Module globals
+
+| Op           | Operands   | Stack | Notes                                  |
+| ------------ | ---------- | ----- | -------------------------------------- |
+| `global.get` | `idx: u32` | `→ v` | read a top-level `let` slot            |
+| `global.set` | `idx: u32` | `v →` | only inside the `<init>` thunk         |
+
+A plain slot read/write into the per-run globals vector — init order is fixed at
+link time, so `global.get` needs **no** "is it initialized yet" guard. `global.set`
+is emitted only by the program-init thunk. See docs/module_init.md.
 
 > **Captures: implemented — closure conversion.** The frontend does _closure
 > conversion_: each lambda lowers to a plain top-level function whose **leading

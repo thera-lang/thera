@@ -88,6 +88,10 @@ pub struct Module {
     /// The virtual-dispatch table consulted by `call.virtual` (empty until the
     /// front-end emits interface dispatch).
     pub dispatch: Vec<DispatchEntry>,
+    /// Number of module-global slots (top-level `let` bindings). The runtime
+    /// allocates a vector this size before running the program-init thunk; both
+    /// `global.get`/`global.set` index into it. See docs/module_init.md.
+    pub global_count: u32,
 }
 
 impl Module {
@@ -97,6 +101,7 @@ impl Module {
             functions,
             types: Vec::new(),
             dispatch: Vec::new(),
+            global_count: 0,
         }
     }
 
@@ -105,6 +110,7 @@ impl Module {
             functions,
             types,
             dispatch: Vec::new(),
+            global_count: 0,
         }
     }
 

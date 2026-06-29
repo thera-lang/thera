@@ -90,6 +90,42 @@ thread_local! {
     /// literal is allocated once and every later use of it is allocation-free.
     static INTERN: RefCell<std::collections::HashMap<String, Value>> =
         RefCell::new(std::collections::HashMap::new());
+
+    /// Module globals (top-level `let` slots; see docs/module_init.md), indexed
+    /// by `global.get`/`global.set`. A permanent GC root set ([`collect`] marks
+    /// every slot), so a global's value lives for the run regardless of what is
+    /// on any frame stack. Sized once by [`set_globals`] before the program-init
+    /// thunk runs.
+    static GLOBALS: RefCell<Vec<Value>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Allocate the module-globals vector with `count` slots, each `Unit`. Called
+/// once at load, before the program-init thunk fills the slots via `global.set`.
+/// Resets any vector from a prior run on this thread.
+pub fn set_globals(count: usize) {
+    GLOBALS.with(|g| {
+        let mut g = g.borrow_mut();
+        g.clear();
+        g.resize(count, Value::Unit);
+    });
+}
+
+/// Read the module global at `idx` (the `global.get` opcode). `None` if `idx` is
+/// out of range — a malformed-bytecode condition the interpreter turns into a
+/// trap rather than a panic.
+pub fn global_get(idx: u32) -> Option<Value> {
+    GLOBALS.with(|g| g.borrow().get(idx as usize).copied())
+}
+
+/// Write the module global at `idx` (the `global.set` opcode). `None` (a no-op)
+/// if `idx` is out of range; see [`global_get`].
+pub fn global_set(idx: u32, v: Value) -> Option<()> {
+    GLOBALS.with(|g| {
+        let mut g = g.borrow_mut();
+        let slot = g.get_mut(idx as usize)?;
+        *slot = v;
+        Some(())
+    })
 }
 
 /// The interned heap string for constant `s`: allocate-and-remember on first use,
@@ -251,6 +287,12 @@ pub fn collect(roots: impl Iterator<Item = Value>) {
         // Interned string constants are permanent roots — never swept.
         INTERN.with(|i| {
             for v in i.borrow().values() {
+                mark(&mut marked, &mut worklist, *v);
+            }
+        });
+        // Module globals are permanent roots too (see docs/module_init.md).
+        GLOBALS.with(|g| {
+            for v in g.borrow().iter() {
                 mark(&mut marked, &mut worklist, *v);
             }
         });
@@ -432,6 +474,32 @@ mod tests {
         assert_eq!(next_threshold(1000, 10, 1024), 1024);
         // A first collection of an empty heap stays at the floor.
         assert_eq!(next_threshold(0, 0, 1024), 1024);
+    }
+
+    #[test]
+    fn globals_are_permanent_roots() {
+        // A value reachable only through a module-global slot survives a
+        // collection whose explicit root set is empty.
+        set_globals(2);
+        let kept = Value::new_list(vec![Value::new_str("alive")]);
+        assert!(global_set(0, kept).is_some());
+        let _garbage = Value::new_str("dead");
+
+        collect(std::iter::empty()); // only INTERN + GLOBALS root the survivors
+
+        let g = global_get(0).expect("slot 0");
+        if let Value::Ref(h) = g {
+            let children = with_obj(h, |o| o.child_values());
+            assert_eq!(children.len(), 1);
+            assert!(values_eq(children[0], Value::new_str("alive")));
+        } else {
+            panic!("global slot 0 should still hold a list");
+        }
+        // Out-of-range access is reported, not a panic.
+        assert!(global_get(99).is_none());
+        assert!(global_set(99, Value::Unit).is_none());
+
+        set_globals(0); // tidy up for later work on this thread
     }
 
     #[test]

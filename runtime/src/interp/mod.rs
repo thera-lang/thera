@@ -128,6 +128,25 @@ impl Drop for GcPause {
     }
 }
 
+/// The reserved name of the program-init thunk: the function that evaluates
+/// every module-`let` initializer in dependency order and `global.set`s its
+/// slot. Run once, before the entry. The angle brackets keep it from colliding
+/// with any user identifier. See docs/module_init.md.
+pub const INIT_THUNK: &str = "<init>";
+
+/// Prepare `module`'s globals before its entry runs: allocate the globals vector
+/// (sized by `module.global_count`) and, if the module carries a program-init
+/// thunk ([`INIT_THUNK`]), run it so every top-level `let` is initialized. A
+/// no-op for modules with no globals. Output goes to stdout, like [`run`].
+pub fn init_module(module: &Module) -> Result<(), Trap> {
+    heap::set_globals(module.global_count as usize);
+    if let Some(idx) = module.function_index(INIT_THUNK) {
+        let mut out = std::io::stdout();
+        Vm::new(&mut out).run(module, idx, &[])?;
+    }
+    Ok(())
+}
+
 /// Run `module`'s function at index `func` with `args`, writing output to
 /// stdout. Convenience over [`Vm`].
 pub fn run(module: &Module, func: usize, args: &[Value]) -> Result<Value, Trap> {
@@ -752,6 +771,17 @@ impl<'a> Vm<'a> {
                     *vstack
                         .get_mut(frame.base + *slot as usize)
                         .ok_or_else(|| bug(format!("store: slot {slot} out of range")))? = v;
+                }
+
+                Instr::GlobalGet(idx) => {
+                    let v = heap::global_get(*idx)
+                        .ok_or_else(|| bug(format!("global.get: slot {idx} out of range")))?;
+                    vstack.push(v);
+                }
+                Instr::GlobalSet(idx) => {
+                    let v = pop(&mut vstack)?;
+                    heap::global_set(*idx, v)
+                        .ok_or_else(|| bug(format!("global.set: slot {idx} out of range")))?;
                 }
 
                 // --- integer arithmetic (wrapping) ---
@@ -1543,6 +1573,32 @@ mod tests {
     #[test]
     fn empty_return_is_unit() {
         assert_eq!(run(&[Instr::Return]), Ok(Value::Unit));
+    }
+
+    #[test]
+    fn init_thunk_fills_globals_before_entry() {
+        // The `<init>` thunk computes 40 + 2 into global slot 0; a *separate*
+        // run of `main` reads it back, proving the value persists across runs
+        // (the globals vector outlives any one frame stack).
+        let init = Function::new(
+            "<init>",
+            0,
+            0,
+            vec![
+                Instr::ConstInt(40),
+                Instr::ConstInt(2),
+                Instr::AddI64,
+                Instr::GlobalSet(0),
+                Instr::Return,
+            ],
+        );
+        let main = Function::new("main", 0, 0, vec![Instr::GlobalGet(0), Instr::Return]);
+        let mut m = Module::new(vec![init, main]);
+        m.global_count = 1;
+        super::init_module(&m).unwrap();
+        let entry = m.function_index("main").unwrap();
+        assert_eq!(super::run(&m, entry, &[]), Ok(Value::Int(42)));
+        crate::heap::set_globals(0); // tidy up for later tests on this thread
     }
 
     #[test]

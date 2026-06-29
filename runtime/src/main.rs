@@ -9,7 +9,7 @@ use hawk::builder::FnBuilder;
 use hawk::codec::{decode_module, read_module_from_file, write_module_to_file};
 use hawk::heap;
 use hawk::interp::{
-    NATIVE_INT_TO_STRING, NATIVE_PRINTLN, NATIVE_STR_CONCAT, run, set_program_args,
+    NATIVE_INT_TO_STRING, NATIVE_PRINTLN, NATIVE_STR_CONCAT, init_module, run, set_program_args,
 };
 use hawk::module::Module;
 use hawk::value::{Obj, TAG_OK, TY_RESULT, Value};
@@ -85,6 +85,11 @@ fn cmd_frontend(args: &[String]) -> ExitCode {
         }
     };
 
+    if let Err(trap) = init_module(&module) {
+        eprintln!("hawk: trap: {trap}");
+        return ExitCode::FAILURE;
+    }
+
     match run(&module, entry, &call_args) {
         Ok(v) => exit_code(&v),
         Err(trap) => {
@@ -142,6 +147,13 @@ fn cmd_run(args: &[String]) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+
+    // Initialize module globals (top-level `let`) before the entry runs:
+    // allocate the globals vector and run the program-init thunk, if any.
+    if let Err(trap) = init_module(&module) {
+        eprintln!("hawk: trap: {trap}");
+        return ExitCode::FAILURE;
+    }
 
     match run(&module, entry, &call_args) {
         Ok(v) => exit_code(&v),
