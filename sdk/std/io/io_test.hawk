@@ -69,3 +69,115 @@ fn test_io_error_message() -> Result<Void, Error> {
     testing.assert_eq(actual: IoError.Other('disk full').message(), expected: 'disk full')?;
     return Result.Ok(void);
 }
+
+// --- lines / BufReader ---
+
+@test
+fn test_lines_lf() -> Result<Void, Error> {
+    let got = lines(from_string('a\nb\nc')).collect();
+    testing.assert_eq(actual: got, expected: ['a', 'b', 'c'])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_lines_trailing_newline_no_empty_tail() -> Result<Void, Error> {
+    // A terminating newline ends the last line; it does not add an empty one.
+    let got = lines(from_string('a\nb\n')).collect();
+    testing.assert_eq(actual: got, expected: ['a', 'b'])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_lines_no_trailing_newline_yields_last() -> Result<Void, Error> {
+    let got = lines(from_string('a\nb')).collect();
+    testing.assert_eq(actual: got, expected: ['a', 'b'])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_lines_crlf_stripped() -> Result<Void, Error> {
+    let got = lines(from_string('a\r\nb\r\nc\r\n')).collect();
+    testing.assert_eq(actual: got, expected: ['a', 'b', 'c'])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_lines_blank_lines_preserved() -> Result<Void, Error> {
+    let got = lines(from_string('a\n\nb\n')).collect();
+    testing.assert_eq(actual: got, expected: ['a', '', 'b'])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_lines_empty_input() -> Result<Void, Error> {
+    let got = lines(from_string('')).collect();
+    testing.assert_eq(actual: got, expected: [])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_lines_span_chunk_boundaries() -> Result<Void, Error> {
+    // 2 bytes per underlying read: lines (and the CRLF pair) straddle chunks.
+    let got = lines(mem_reader('line1\r\nline2\nlast', 2)).collect();
+    testing.assert_eq(actual: got, expected: ['line1', 'line2', 'last'])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_lines_for_loop() -> Result<Void, Error> {
+    let out = [];
+    for line in lines(from_string('x\ny\nz')) {
+        out.push(line);
+    }
+    testing.assert_eq(actual: out, expected: ['x', 'y', 'z'])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_lines_adapter_chain() -> Result<Void, Error> {
+    // Comment/blank stripping over lines, the canonical use.
+    let kept = lines(from_string('# title\n\nalpha\n# note\nbeta\n'))
+        .filter((s) => s.len() > 0 && !s.starts_with('#'))
+        .collect();
+    testing.assert_eq(actual: kept, expected: ['alpha', 'beta'])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_read_line_primitive() -> Result<Void, Error> {
+    let r = lines(from_string('one\ntwo'));
+    testing.assert_eq(actual: r.read_line()?, expected: Option.Some('one'))?;
+    testing.assert_eq(actual: r.read_line()?, expected: Option.Some('two'))?;
+    testing.assert_eq(actual: r.read_line()?, expected: Option.None)?;
+    return Result.Ok(void);
+}
+
+/// A Reader that always fails — to exercise error handling.
+struct FailReader {}
+
+impl Reader for FailReader {
+    pub fn read(self, max: Int) -> Result<Bytes, Error> {
+        return Result.Err(IoError.Other('boom'));
+    }
+}
+
+@test
+fn test_read_line_surfaces_error() -> Result<Void, Error> {
+    let r = lines(FailReader {});
+    testing.assert_err(r.read_line())?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_lines_iteration_defers_error() -> Result<Void, Error> {
+    // The Iterator impl treats a read error as end-of-stream and stashes it.
+    let r = lines(FailReader {});
+    let got = r.collect();
+    testing.assert_eq(actual: got, expected: [])?;
+    let msg = match r.error() {
+        Some(e) => e.message(),
+        None    => 'no error',
+    };
+    testing.assert_eq(actual: msg, expected: 'boom')?;
+    return Result.Ok(void);
+}

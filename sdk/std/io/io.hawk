@@ -17,8 +17,19 @@
 //! }
 //! ```
 //!
-//! (`lines`/`Iterator`, the typed `write_u16…`/`BytesReader` binary family, and
-//! streaming files are planned follow-ups; see docs/stdlib.md.)
+//! Read a source line by line with `lines`, which returns a `BufReader` — an
+//! `Iterator<String>`, so a `for` loop and the iterator adapters both drive it:
+//!
+//! ```hawk
+//! for line in io.lines(io.stdin()) { println(line); }
+//!
+//! let nonblank = io.lines(io.from_string(text))
+//!     .filter((s) => s.len() > 0)
+//!     .collect();
+//! ```
+//!
+//! (The typed `write_u16…`/`BytesReader` binary family and streaming files are
+//! planned follow-ups; see docs/stdlib.md.)
 
 // --- the streaming protocol ---
 
@@ -175,4 +186,158 @@ impl Writer for StringWriter {
         self.builder.write_bytes(data);
         return Result.Ok(data.len());
     }
+}
+
+/// A Reader over an in-memory buffer — the read-side double for any `Reader`,
+/// and a way to run line/stream code over a literal string.
+struct InMemReader {
+    data: Bytes,
+    mut pos: Int,
+}
+
+impl Reader for InMemReader {
+    pub fn read(self, max: Int) -> Result<Bytes, Error> {
+        let n = self.data.len();
+        if self.pos >= n {
+            return Result.Ok(Bytes.empty()); // EOF
+        }
+        let end = (self.pos + max).min(n);
+        let chunk = self.data.slice(self.pos, end);
+        self.pos = end;
+        return Result.Ok(chunk);
+    }
+}
+
+/// A Reader that yields the bytes of `data`.
+pub fn from_bytes(_ data: Bytes) -> Reader {
+    return InMemReader { data: data, pos: 0 };
+}
+
+/// A Reader that yields the UTF-8 bytes of `s`.
+pub fn from_string(_ s: String) -> Reader {
+    return InMemReader { data: s.bytes(), pos: 0 };
+}
+
+// --- buffered line reading ---
+
+const LF: Int = 10; // '\n'
+const CR: Int = 13; // '\r'
+
+/// Index of the first `\n` in `b` at or after `from`, or `None`.
+fn index_of_lf(_ b: Bytes, _ from: Int) -> Option<Int> {
+    let n = b.len();
+    let mut i = from;
+    while i < n {
+        match b.get(i) {
+            Some(c) => { if c == LF { return Option.Some(i); } },
+            None    => {},
+        }
+        i = i + 1;
+    }
+    return Option.None;
+}
+
+/// `b` without a single trailing `\r` (so a `\r\n` line strips to its content).
+fn strip_cr(_ b: Bytes) -> Bytes {
+    let n = b.len();
+    if n > 0 {
+        match b.get(n - 1) {
+            Some(c) => { if c == CR { return b.slice(0, n - 1); } },
+            None    => {},
+        }
+    }
+    return b;
+}
+
+/// A `Reader` adapted into lines. `read_line` is the honest primitive (an I/O or
+/// decode failure surfaces as `Err`); the `Iterator<String>` impl is the
+/// ergonomic form — a `for` loop or an adapter chain (`map`/`filter`/…) drives
+/// it, treating a read error as end-of-stream and stashing it for `error()`.
+/// Lines are split on `\n`; a trailing `\r` (CRLF) is stripped, and a final line
+/// without a newline is still yielded.
+pub struct BufReader {
+    source: Reader,
+    mut buf: Bytes,      // bytes read from `source` but not yet returned
+    mut scanned: Int,    // length of `buf` already scanned for `\n` (none below)
+    mut eof: Bool,       // `source` is exhausted
+    mut err: Option<Error>,
+    chunk: Int,          // bytes requested per underlying read
+}
+
+impl BufReader {
+    /// Wrap `source` to read it line by line.
+    pub fn new(_ source: Reader) -> BufReader {
+        return BufReader {
+            source: source,
+            buf: Bytes.empty(),
+            scanned: 0,
+            eof: false,
+            err: Option.None,
+            chunk: 4096,
+        };
+    }
+
+    /// The next line (without its terminator), `Ok(None)` at end of input, or
+    /// `Err` on an I/O or UTF-8 decode failure.
+    pub fn read_line(self) -> Result<Option<String>, Error> {
+        let mut going = true;
+        while going {
+            match index_of_lf(self.buf, self.scanned) {
+                Some(i) => {
+                    let line = strip_cr(self.buf.slice(0, i));
+                    self.buf = self.buf.slice(i + 1, self.buf.len());
+                    self.scanned = 0;
+                    return Result.Ok(Option.Some(line.to_string()?));
+                },
+                None => {
+                    // No newline in the buffer yet: pull another chunk.
+                    self.scanned = self.buf.len();
+                    if self.eof {
+                        going = false;
+                    } else {
+                        let chunk = self.source.read(max: self.chunk)?;
+                        if chunk.len() == 0 {
+                            self.eof = true;
+                        } else {
+                            self.buf = self.buf.concat(chunk);
+                        }
+                    }
+                },
+            }
+        }
+        // End of input: yield any trailing partial line (no terminator).
+        if self.buf.len() > 0 {
+            let line = strip_cr(self.buf);
+            self.buf = Bytes.empty();
+            self.scanned = 0;
+            return Result.Ok(Option.Some(line.to_string()?));
+        }
+        return Result.Ok(Option.None);
+    }
+
+    /// The error that ended iteration, if a read/decode failed mid-stream. Only
+    /// meaningful after iterating (the `Iterator` impl defers errors here).
+    pub fn error(self) -> Option<Error> {
+        return self.err;
+    }
+}
+
+impl Iterator<String> for BufReader {
+    pub fn next(self) -> Option<String> {
+        return match self.read_line() {
+            Ok(line) => line,
+            Err(e)   => {
+                self.err = Option.Some(e);
+                Option.None
+            },
+        };
+    }
+}
+
+/// Read `src` line by line. The result is a `BufReader`, which is an
+/// `Iterator<String>`: drive it with `for line in io.lines(src)` or an adapter
+/// chain. Use `BufReader.read_line` (or check `.error()` afterwards) when a
+/// mid-stream I/O error must be handled rather than treated as end-of-input.
+pub fn lines(_ src: Reader) -> BufReader {
+    return BufReader.new(src);
 }

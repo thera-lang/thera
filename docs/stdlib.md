@@ -252,12 +252,18 @@ pub struct StringWriter { /* wraps a BytesBuilder */ }
 impl StringWriter { fn new(); fn into_string() -> Result<String, Error>; fn into_bytes() -> Bytes; }
 ```
 
-Deferred follow-ups: `io.lines(src) -> Iterator<String>` and `BufReader`. These
-are now **unblocked** — `Iterator<T>` exists with its `map`/`filter`/`take`
-adapters (default methods, § Sequencing) — and are the next increment: `lines`
-is a `BufReader` (a `Reader` wrapper that buffers and yields `Option<String>`
-per `next`), and `for line in io.lines(f)` / `io.lines(f).map(...).collect()`
-follow for free. Also deferred: streaming files (`fs.open` → a
+`io.lines` and `BufReader` are **done**: `lines(src)` returns a `BufReader` — a
+`Reader` wrapper that buffers and yields a line per `next`, so it is an
+`Iterator<String>`. `for line in io.lines(f)` and `io.lines(f).filter(…)
+.map(…).collect()` both drive it; `read_line() -> Result<Option<String>, Error>`
+is the honest primitive (iteration treats a read error as end-of-stream and
+stashes it for `.error()`). Lines split on `\n`, a trailing `\r` (CRLF) strips,
+and a final unterminated line is still yielded. `io.from_string`/`from_bytes`
+provide an in-memory `Reader` (the read-side double, symmetric with
+`StringWriter`).
+
+Deferred follow-ups: `fs.walk` (a recursive-directory `Iterator<String>`, now
+also unblocked) and streaming files (`fs.open` → a
 `File: Reader + Writer + Seek + Closer`). (The typed binary `BytesReader`
 pairing with `BytesBuilder` now exists in the prelude — see § Core types — with
 the typed `read_u16_le`/be family still a follow-up.)
@@ -1115,7 +1121,7 @@ dependency graph, so future work lands in the right order:
 | Module       | Status  | Notes                                                                                                                                                                                                                                                                                                                                                                      |
 | ------------ | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | prelude/core | exists  | Int/Double + String parsing; `String.slice`/`replace`/`repeat`/`reverse`/`find`/`pad_*`/`trim_*`; `List.slice`/`first`/`last`/`contains`/`index_of`/`reverse`/`sort` (comparator); `Map.get_or`; `Bytes`/`BytesBuilder`/`BytesReader`; `Set<T>` in Hawk over `Map`; `Error`/`Eq`/`Display`/`Debug`/`Ord` interfaces + the `error(...)` constructor; `Iterator<T>` protocol + its `map`/`filter`/`take`/`collect`/`count` default methods; **interface default methods** generally |
-| std.io       | done    | v1: `Reader`/`Writer`/`Closer` + `IoError`, `read_all`/`copy`, stdin/stdout/stderr, `StringWriter`; `lines`/`BufReader` now unblocked (Iterator adapters landed) + streaming files deferred                                                                                                                                                                                |
+| std.io       | done    | v1: `Reader`/`Writer`/`Closer` + `IoError`, `read_all`/`copy`, stdin/stdout/stderr, `StringWriter`, `from_string`/`from_bytes`; `lines`/`BufReader` (Iterator<String>, `read_line` primitive); streaming files deferred                                                                                                                                                     |
 | std.iter     | done    | v2: `Iterator<T>` (prelude) with `map`/`filter`/`take` adapters + `collect`/`count` consumers as **default methods** (fluent, import-free); `std.iter` holds the `range`/`from_list` sources; `for x in it` drives any iterator; `enumerate` deferred on nested-impl-generic parsing                                                                                        |
 | std.fs       | done    | v1: read/write text+bytes, exists, metadata, list_dir, create_dir(\_all), remove(\_dir_all), rename, copy, temp_dir; classified `FsError`; streaming `File`/`open`/`walk`/`temp_file` deferred to v2                                                                                                                                                                       |
 | std.path     | done    | pure Hawk; `components`/`with_extension`/`normalize`/`relative` in (lexical, slash-based)                                                                                                                                                                                                                                                                                  |
