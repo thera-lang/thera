@@ -1,6 +1,6 @@
-//! std.fs — filesystem access: whole-value reads/writes, directory listing, and
-//! metadata. Streaming files (`open`/`create` → a `File: Reader+Writer+Seek+
-//! Closer`), recursive `walk`, and `temp_file` are a planned v2 (see
+//! std.fs — filesystem access: whole-value reads/writes, directory listing,
+//! metadata, and recursive `walk`. Streaming files (`open`/`create` → a
+//! `File: Reader+Writer+Seek+Closer`) and `temp_file` are a planned v2 (see
 //! docs/stdlib.md).
 //!
 //! Import as: import std.fs
@@ -8,11 +8,16 @@
 //! ```hawk
 //! let text = fs.read_text('config.json')?;
 //! for name in fs.list_dir('.')? { ... }
+//!
+//! // every .hawk file under src/, recursively
+//! let sources = fs.walk('src').filter((p) => p.ends_with('.hawk')).collect();
 //! ```
 //!
 //! Paths are plain `String`s (compose with `std.path`); directory entries are
 //! basenames. Every fallible call returns `Result<_, FsError>`, a per-domain
 //! error you can `match` on (and which implements the common `Error`).
+
+import std.path;
 
 // --- errors ---
 
@@ -241,4 +246,82 @@ pub fn copy(from src: String, to dst: String) -> Result<Void, FsError> {
         Ok(_) => Result.Ok(void),
         Err(e) => Result.Err(to_fs_error(e)),
     };
+}
+
+// --- recursive traversal ---
+
+/// A recursive directory walk. Yields the full path of every descendant of the
+/// root — files and directories, each directory before its contents. It is an
+/// `Iterator<String>`, so a `for` loop and the iterator adapters both drive it
+/// (`fs.walk(dir).filter((p) => p.ends_with('.hawk'))`).
+///
+/// Traversal is resilient: a directory that can't be listed (e.g. permission
+/// denied) is skipped rather than aborting the walk, and the first such failure
+/// is kept for `error()`. (`metadata` follows symlinks, so a symlink cycle can
+/// loop — a future `symlink_metadata`/visited-set will guard this.)
+pub struct WalkIter {
+    pending: List<String>,  // discovered full paths; grows as directories expand
+    mut pos: Int,           // index of the next path to visit
+    mut err: Option<FsError>,
+}
+
+impl WalkIter {
+    // List `dir` and queue its entries as full paths; stash the first failure.
+    fn expand(self, _ dir: String) -> Void {
+        match list_dir(dir) {
+            Ok(names) => {
+                for name in names {
+                    self.pending.push(path.join(dir, name));
+                }
+            },
+            Err(e) => {
+                match self.err {
+                    None    => { self.err = Option.Some(e); },
+                    Some(_) => {},
+                }
+            },
+        }
+    }
+
+    /// The first traversal failure, if any directory could not be read. Only
+    /// meaningful once iteration has reached (or passed) that directory.
+    pub fn error(self) -> Option<FsError> {
+        return self.err;
+    }
+}
+
+impl Iterator<String> for WalkIter {
+    pub fn next(self) -> Option<String> {
+        if self.pos >= self.pending.len() {
+            return Option.None;
+        }
+        let p = self.pending[self.pos];
+        self.pos = self.pos + 1;
+        // Descend into directories (queues their entries after `p`, so a
+        // directory is yielded before its contents).
+        match metadata(p) {
+            Ok(md) => {
+                if md.kind == FileKind.Dir {
+                    self.expand(p);
+                }
+            },
+            Err(e) => {
+                match self.err {
+                    None    => { self.err = Option.Some(e); },
+                    Some(_) => {},
+                }
+            },
+        }
+        return Option.Some(p);
+    }
+}
+
+/// Walk the directory tree rooted at `root`, recursively. The result is a
+/// `WalkIter` — an `Iterator<String>` of full descendant paths; drive it with
+/// `for p in fs.walk(root)` or an adapter chain. Check `.error()` afterwards if
+/// a directory that couldn't be read must be distinguished from an empty tree.
+pub fn walk(_ root: String) -> WalkIter {
+    let w = WalkIter { pending: [], pos: 0, err: Option.None };
+    w.expand(root);
+    return w;
 }

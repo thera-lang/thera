@@ -132,3 +132,76 @@ fn test_copy() -> Result<Void, Error> {
     fs.remove_dir_all(dir)?;
     return Result.Ok(void);
 }
+
+// --- walk ---
+
+// Build dir/{a.txt, sub/{b.txt, deep/c.txt}} and return the dir.
+fn build_tree(_ name: String) -> Result<String, Error> {
+    let dir = workspace(name)?;
+    let sub = path.join(dir, 'sub');
+    let deep = path.join(sub, 'deep');
+    fs.create_dir_all(deep)?;
+    fs.write_text(path.join(dir, 'a.txt'), 'a')?;
+    fs.write_text(path.join(sub, 'b.txt'), 'b')?;
+    fs.write_text(path.join(deep, 'c.txt'), 'c')?;
+    return Result.Ok(dir);
+}
+
+@test
+fn test_walk_recurses_files_and_dirs() -> Result<Void, Error> {
+    let dir = build_tree('hawk_fs_walk_all')?;
+    let got = fs.walk(dir).collect(); // order is unspecified — check membership
+    let sub = path.join(dir, 'sub');
+    let deep = path.join(sub, 'deep');
+    testing.assert_eq(actual: got.len(), expected: 5)?;
+    testing.assert(got.contains(path.join(dir, 'a.txt')), message: 'missing a.txt')?;
+    testing.assert(got.contains(sub), message: 'missing sub')?;
+    testing.assert(got.contains(path.join(sub, 'b.txt')), message: 'missing sub/b.txt')?;
+    testing.assert(got.contains(deep), message: 'missing sub/deep')?;
+    testing.assert(got.contains(path.join(deep, 'c.txt')), message: 'missing sub/deep/c.txt')?;
+    fs.remove_dir_all(dir)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_walk_filter_to_files() -> Result<Void, Error> {
+    let dir = build_tree('hawk_fs_walk_files')?;
+    let files = fs.walk(dir).filter((p) => p.ends_with('.txt')).collect();
+    testing.assert_eq(actual: files.len(), expected: 3)?;
+    fs.remove_dir_all(dir)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_walk_empty_dir() -> Result<Void, Error> {
+    let dir = workspace('hawk_fs_walk_empty')?;
+    testing.assert_eq(actual: fs.walk(dir).count(), expected: 0)?;
+    fs.remove_dir_all(dir)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_walk_for_loop() -> Result<Void, Error> {
+    let dir = build_tree('hawk_fs_walk_for')?;
+    let mut n = 0;
+    for _ in fs.walk(dir) {
+        n = n + 1;
+    }
+    testing.assert_eq(actual: n, expected: 5)?;
+    fs.remove_dir_all(dir)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_walk_missing_root_records_error() -> Result<Void, Error> {
+    let dir = workspace('hawk_fs_walk_missing')?;
+    let w = fs.walk(path.join(dir, 'does_not_exist'));
+    testing.assert_eq(actual: w.collect().len(), expected: 0)?;
+    let is_nf = match w.error() {
+        Some(e) => is_not_found(e),
+        None    => false,
+    };
+    testing.assert(is_nf, message: 'expected a NotFound error from walking a missing root')?;
+    fs.remove_dir_all(dir)?;
+    return Result.Ok(void);
+}

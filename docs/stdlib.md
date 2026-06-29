@@ -302,10 +302,12 @@ pub enum FsError {                          // implements Error + Display
     NotADirectory(String), IsADirectory(String), Other(String),
 }
 
-// Streaming & recursion — deferred to v2.
+// Recursive traversal — implemented.
+pub fn walk(_ path: String) -> WalkIter;   // WalkIter: Iterator<String> of full descendant paths
+
+// Streaming — deferred to v2.
 pub fn open(_ path: String) -> Result<File, FsError>;   // File: Reader+Writer+Seek+Closer
 pub fn create(_ path: String) -> Result<File, FsError>;
-pub fn walk(_ path: String) -> Iterator<String>;        // recursive
 pub fn temp_file(prefix: String = 'tmp') -> Result<File, FsError>;
 ```
 
@@ -315,8 +317,11 @@ error with its kind and a private helper maps it to the variant, so callers get
 symlinks (so `kind` reports the target; `FileKind.Symlink` awaits a future
 `symlink_metadata`). `modified_millis` is Unix milliseconds, `0` when the
 platform can't report it (it becomes a `DateTime` once `std.time` grows one).
-The v2 streaming layer needs a `Seek` interface added to `std.io` plus
-file-handle natives; `walk` is then a thin `Iterator` over `list_dir`.
+`walk` is a thin `Iterator` over `list_dir`/`metadata` (a lazy `WalkIter`
+yielding every descendant path, directories before their contents; an unreadable
+directory is skipped and the first failure kept for `.error()`). The remaining
+v2 streaming layer needs a `Seek` interface added to `std.io` plus file-handle
+natives.
 
 ### `std.path` — pure path manipulation _(implemented, pure Hawk)_
 
@@ -1123,7 +1128,7 @@ dependency graph, so future work lands in the right order:
 | prelude/core | exists  | Int/Double + String parsing; `String.slice`/`replace`/`repeat`/`reverse`/`find`/`pad_*`/`trim_*`; `List.slice`/`first`/`last`/`contains`/`index_of`/`reverse`/`sort` (comparator); `Map.get_or`; `Bytes`/`BytesBuilder`/`BytesReader`; `Set<T>` in Hawk over `Map`; `Error`/`Eq`/`Display`/`Debug`/`Ord` interfaces + the `error(...)` constructor; `Iterator<T>` protocol + its `map`/`filter`/`take`/`collect`/`count` default methods; **interface default methods** generally |
 | std.io       | done    | v1: `Reader`/`Writer`/`Closer` + `IoError`, `read_all`/`copy`, stdin/stdout/stderr, `StringWriter`, `from_string`/`from_bytes`; `lines`/`BufReader` (Iterator<String>, `read_line` primitive); streaming files deferred                                                                                                                                                     |
 | std.iter     | done    | v2: `Iterator<T>` (prelude) with `map`/`filter`/`take` adapters + `collect`/`count` consumers as **default methods** (fluent, import-free); `std.iter` holds the `range`/`from_list` sources; `for x in it` drives any iterator; `enumerate` deferred on nested-impl-generic parsing                                                                                        |
-| std.fs       | done    | v1: read/write text+bytes, exists, metadata, list_dir, create_dir(\_all), remove(\_dir_all), rename, copy, temp_dir; classified `FsError`; streaming `File`/`open`/`walk`/`temp_file` deferred to v2                                                                                                                                                                       |
+| std.fs       | done    | read/write text+bytes, exists, metadata, list_dir, create_dir(\_all), remove(\_dir_all), rename, copy, temp_dir; recursive `walk` (Iterator<String>); classified `FsError`; streaming `File`/`open`/`create`/`temp_file` deferred to v2                                                                                                                                    |
 | std.path     | done    | pure Hawk; `components`/`with_extension`/`normalize`/`relative` in (lexical, slash-based)                                                                                                                                                                                                                                                                                  |
 | std.env      | done    | vars/args/cwd/os/exit + `Env` capability + `testing.fixed_env`; `OS`→`os()`                                                                                                                                                                                                                                                                                                |
 | std.process  | done    | `run` (capture) / `exec` (inherit stdio, exit code) / `start`; pipes are `std.io` `Reader`/`Writer` (+ `close_stdin`); classified `ProcessError`                                                                                                                                                                                                                           |
