@@ -234,6 +234,9 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
                                 x.type_params.map((tp) => Type.TypeParameter(tp.name)));
                             for m in x.methods {
                                 element.own_methods.push(m.name);
+                                if m.body.is_some() {
+                                    element.default_methods.push(m.name);
+                                }
                                 element.methods.push(method_element(m, x.name, type_defs, tps, Option.Some(self_type)));
                             }
                         },
@@ -274,6 +277,11 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
                                         Some(_) => {},
                                         None => {
                                             def.methods.push(m);
+                                            // A defaulted super method stays
+                                            // defaulted in the sub-interface.
+                                            if is_default_method(super_def, m.name) {
+                                                def.default_methods.push(m.name);
+                                            }
                                         },
                                     }
                                 }
@@ -345,14 +353,6 @@ fn resolve_impl(_ decl: ImplDecl, _ type_defs: Map<String, TypeDefElement>) -> V
     match type_defs.get(decl.type_name) {
         None => {}, // unknown target type; the checker reports it
         Some(owner) => {
-            match decl.interface_name {
-                Some(iface) => {
-                    if !implements_interface(owner, iface) {
-                        owner.interfaces.push(iface);
-                    }
-                },
-                None => {},
-            }
             let impl_params = type_param_set(decl.type_params);
             // For an `impl Int`/`String`/… the receiver's type is the primitive
             // itself, not an interface wrapper.
@@ -361,6 +361,19 @@ fn resolve_impl(_ decl: ImplDecl, _ type_defs: Map<String, TypeDefElement>) -> V
                 None => Type.Interface(decl.type_name,
                     decl.type_params.map((tp) => Type.TypeParameter(tp.name))),
             };
+            match decl.interface_name {
+                Some(iface) => {
+                    if !implements_interface(owner, iface) {
+                        owner.interfaces.push(iface);
+                    }
+                    // Record the conformance's resolved type arguments, so a
+                    // default method called on a concrete receiver can bind the
+                    // interface's type parameters (`impl Iterator<Int>` -> [Int]).
+                    owner.interface_args[iface] = decl.interface_args.map((a) =>
+                        resolve_type_ref(a, type_defs, impl_params, Option.Some(self_type)));
+                },
+                None => {},
+            }
             for m in decl.methods {
                 owner.methods.push(method_element(m, decl.type_name, type_defs, impl_params, Option.Some(self_type)));
             }

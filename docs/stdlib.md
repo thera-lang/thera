@@ -252,9 +252,12 @@ pub struct StringWriter { /* wraps a BytesBuilder */ }
 impl StringWriter { fn new(); fn into_string() -> Result<String, Error>; fn into_bytes() -> Bytes; }
 ```
 
-Deferred follow-ups: `io.lines(src) -> Iterator<String>` and `BufReader` (the
-lazy `Iterator<T>` type now exists in `std.iter`, but these also want the
-`map`/`filter` adapters, § Sequencing); streaming files (`fs.open` → a
+Deferred follow-ups: `io.lines(src) -> Iterator<String>` and `BufReader`. These
+are now **unblocked** — `Iterator<T>` exists with its `map`/`filter`/`take`
+adapters (default methods, § Sequencing) — and are the next increment: `lines`
+is a `BufReader` (a `Reader` wrapper that buffers and yields `Option<String>`
+per `next`), and `for line in io.lines(f)` / `io.lines(f).map(...).collect()`
+follow for free. Also deferred: streaming files (`fs.open` → a
 `File: Reader + Writer + Seek + Closer`). (The typed binary `BytesReader`
 pairing with `BytesBuilder` now exists in the prelude — see § Core types — with
 the typed `read_u16_le`/be family still a follow-up.)
@@ -1024,9 +1027,25 @@ dependency graph, so future work lands in the right order:
    receiver-arg inference reused from the collection types) and filled a codegen
    gap: block-bodied match arms (`Some(v) => { … }`) compile. (Such a block then
    yielded `Unit`; expression-position **tail expressions** now make its final
-   expression the value — see [language.md](language.md).) Deferred:
-   `map`/`filter`/`take`/`enumerate` adapters and a fluent `Iter<T>` wrapper;
-   these unblock `fs.walk`, `io.lines`, and `BufReader`.
+   expression the value — see [language.md](language.md).)
+
+   **Adapters + consumers — done (v2).** `map`/`filter`/`take` (lazy adapters)
+   and `collect`/`count` (eager consumers) now ship as **default methods on the
+   `Iterator` interface** (the language gained interface default methods to make
+   this clean — see [language.md](language.md) § Default methods), so any
+   iterator is fluent without an import and without each implementer re-spelling
+   them: `iter.range(0, 10).filter((n) => n % 2 == 0).map((n) => n * n)
+   .collect()`. The adapter structs live (private) in the prelude beside
+   `Iterator`; `std.iter` keeps the `range`/`from_list` sources. **No** separate
+   `Iter<T>` wrapper — the protocol *is* the fluent type (the wrapper would
+   duplicate `Iterator` and was rejected as a worse fit for an LLM-first
+   language). This unblocks `io.lines`, `fs.walk`, and `BufReader` (above /
+   below). Deferred: `enumerate` — it returns `Iterator<Indexed<T>>`, and a
+   **nested generic interface argument in an `impl` header**
+   (`impl Iterator<Indexed<T>> for …`) is not yet parsed; that small parser
+   extension (impl-header interface args as full type refs, not just
+   type-parameter names) is the gate, and lands `enumerate` plus future wrapped
+   adapters like `zip`/`flat_map`/`chain`.
 
 4. **`Error` interface migration — done.** `std.core/error.hawk`'s `Error` is
    now an interface with a `Message` struct; `throw`/`?`/implicit-`Ok` needed no
@@ -1095,9 +1114,9 @@ dependency graph, so future work lands in the right order:
 
 | Module       | Status  | Notes                                                                                                                                                                                                                                                                                                                                                                      |
 | ------------ | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| prelude/core | exists  | Int/Double + String parsing; `String.slice`/`replace`/`repeat`/`reverse`/`find`/`pad_*`/`trim_*`; `List.slice`/`first`/`last`/`contains`/`index_of`/`reverse`/`sort` (comparator); `Map.get_or`; `Bytes`/`BytesBuilder`/`BytesReader`; `Set<T>` in Hawk over `Map`; `Error`/`Eq`/`Display`/`Debug`/`Ord` interfaces + the `error(...)` constructor; `Iterator<T>` protocol |
-| std.io       | done    | v1: `Reader`/`Writer`/`Closer` + `IoError`, `read_all`/`copy`, stdin/stdout/stderr, `StringWriter`; `lines`/`Iterator` + streaming files deferred                                                                                                                                                                                                                          |
-| std.iter     | done    | v1: `Iterator<T>` (prelude) + `range`/`from_list` sources + `collect`/`count`; `for x in it` drives any iterator; adapters (`map`/`filter`/`take`) deferred                                                                                                                                                                                                                |
+| prelude/core | exists  | Int/Double + String parsing; `String.slice`/`replace`/`repeat`/`reverse`/`find`/`pad_*`/`trim_*`; `List.slice`/`first`/`last`/`contains`/`index_of`/`reverse`/`sort` (comparator); `Map.get_or`; `Bytes`/`BytesBuilder`/`BytesReader`; `Set<T>` in Hawk over `Map`; `Error`/`Eq`/`Display`/`Debug`/`Ord` interfaces + the `error(...)` constructor; `Iterator<T>` protocol + its `map`/`filter`/`take`/`collect`/`count` default methods; **interface default methods** generally |
+| std.io       | done    | v1: `Reader`/`Writer`/`Closer` + `IoError`, `read_all`/`copy`, stdin/stdout/stderr, `StringWriter`; `lines`/`BufReader` now unblocked (Iterator adapters landed) + streaming files deferred                                                                                                                                                                                |
+| std.iter     | done    | v2: `Iterator<T>` (prelude) with `map`/`filter`/`take` adapters + `collect`/`count` consumers as **default methods** (fluent, import-free); `std.iter` holds the `range`/`from_list` sources; `for x in it` drives any iterator; `enumerate` deferred on nested-impl-generic parsing                                                                                        |
 | std.fs       | done    | v1: read/write text+bytes, exists, metadata, list_dir, create_dir(\_all), remove(\_dir_all), rename, copy, temp_dir; classified `FsError`; streaming `File`/`open`/`walk`/`temp_file` deferred to v2                                                                                                                                                                       |
 | std.path     | done    | pure Hawk; `components`/`with_extension`/`normalize`/`relative` in (lexical, slash-based)                                                                                                                                                                                                                                                                                  |
 | std.env      | done    | vars/args/cwd/os/exit + `Env` capability + `testing.fixed_env`; `OS`→`os()`                                                                                                                                                                                                                                                                                                |

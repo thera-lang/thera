@@ -1,0 +1,111 @@
+//! spec: iface-default
+//! mode: run
+
+// An interface method may carry a body — a *default method*. An `impl` need not
+// provide it (the interface supplies it), but may override it. The default is
+// built on the interface's required methods, dispatched dynamically.
+
+interface Animal {
+    fn name(self) -> String;
+    // default method, built on the required `name`
+    fn greet(self) -> String {
+        return 'Hi, I am ${self.name()}';
+    }
+}
+
+struct Dog {
+    nick: String,
+}
+
+impl Animal for Dog {
+    fn name(self) -> String {
+        return self.nick;
+    }
+    // greet is inherited from the interface
+}
+
+struct Cat {}
+
+impl Animal for Cat {
+    fn name(self) -> String {
+        return 'a cat';
+    }
+    // override the default
+    fn greet(self) -> String {
+        return 'meow';
+    }
+}
+
+// interface-typed receiver → virtual dispatch to the default (or its override)
+fn announce(_ a: Animal) -> String {
+    return a.greet();
+}
+
+// A generic interface with a default *adapter* (the Iterator pattern): a default
+// method that returns a freshly-constructed implementer, and a default consumer.
+interface Seq<T> {
+    fn next(self) -> Option<T>;
+
+    fn map<U>(self, _ f: (T) -> U) -> Seq<U> {
+        return MapSeq { source: self, transform: f };
+    }
+
+    fn collect(self) -> List<T> {
+        let out = [];
+        let mut going = true;
+        while going {
+            match self.next() {
+                None    => { going = false; },
+                Some(v) => { out.push(v); },
+            }
+        }
+        return out;
+    }
+}
+
+struct RangeSeq {
+    mut current: Int,
+    end: Int,
+}
+
+impl Seq<Int> for RangeSeq {
+    fn next(self) -> Option<Int> {
+        if self.current >= self.end {
+            return Option.None;
+        }
+        let value = self.current;
+        self.current = self.current + 1;
+        return Option.Some(value);
+    }
+}
+
+struct MapSeq<T, U> {
+    source: Seq<T>,
+    transform: (T) -> U,
+}
+
+impl Seq<U> for MapSeq<T, U> {
+    fn next(self) -> Option<U> {
+        return match self.source.next() {
+            None    => Option.None,
+            Some(v) => Option.Some((self.transform)(v)),
+        };
+    }
+}
+
+fn range(_ start: Int, _ end: Int) -> Seq<Int> {
+    return RangeSeq { current: start, end: end };
+}
+
+fn main() -> Int {
+    let d = Dog { nick: 'Rex' };
+    // concrete receiver calling a default; interface-typed default; override
+    println(d.greet());          // expect: Hi, I am Rex
+    println(announce(d));        // expect: Hi, I am Rex
+    println(announce(Cat {}));   // expect: meow
+
+    // generic default adapter + consumer, with an un-annotated lambda param
+    let doubled = range(0, 4).map((x) => x * 2).collect();
+    println('${doubled}');       // expect: [0, 2, 4, 6]
+    return 0;
+}

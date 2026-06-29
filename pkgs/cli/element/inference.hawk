@@ -817,6 +817,13 @@ pub fn infer_callee_kind(_ obj: Expr, _ field: String, _ arg_count: Int,
                 },
                 None => {},
             }
+            // A default method inherited from an implemented interface: codegen
+            // wires the concrete type's dispatch to the interface's shared unit,
+            // so it lowers like an ordinary instance method.
+            match find_default_method(element, field, ctx) {
+                Some(_) => { return CalleeKind.InstanceMethod; },
+                None => {},
+            }
         },
         None => {},
     }
@@ -918,7 +925,19 @@ pub fn expected_arg_types(_ callee: Expr, _ args: List<CallArg>,
                                             params = Option.Some(method.parameters);
                                             merge_into(bindings, receiver_bindings(rname, rargs, ctx));
                                         },
-                                        None => {},
+                                        None => {
+                                            // A default method inherited from an
+                                            // implemented interface (concrete
+                                            // receiver): use the conformance's
+                                            // bindings so a lambda arg instantiates.
+                                            match find_default_method(rdef, field, ctx) {
+                                                Some(res) => {
+                                                    params = Option.Some(res.method.parameters);
+                                                    merge_into(bindings, res.bindings);
+                                                },
+                                                None => {},
+                                            }
+                                        },
                                     }
                                 },
                                 None => {},
@@ -1390,6 +1409,12 @@ pub fn method_resolves(_ recv: Type, _ field: String, _ arg_count: Int, _ ctx: I
                 Some(_) => { return true; },
                 None => {},
             }
+            // A default method inherited from an implemented interface (see
+            // `resolve_method`).
+            match find_default_method(element, field, ctx) {
+                Some(_) => { return true; },
+                None => {},
+            }
             if field == 'name' && arg_count == 0 && element.kind == TypeDefKind.Enum {
                 return true;
             }
@@ -1415,6 +1440,52 @@ pub struct MethodResolution {
 // `field` isn't an impl method on a known element (the enum `name()`, a
 // function-valued field, or an unresolved/lenient receiver) — cases the checker
 // leaves un-arg-checked, mirroring `method_resolves`' conservatism.
+// Bindings mapping interface `iface_def`'s type parameters to the receiver
+// element's recorded conformance arguments (`impl Iterator<Int>` -> {T: Int}).
+fn default_method_bindings(_ element: TypeDefElement, _ iface_name: String,
+    _ iface_def: TypeDefElement) -> Map<String, Type> {
+    let bindings: Map<String, Type> = {};
+    match element.interface_args.get(iface_name) {
+        Some(args) => {
+            let params = iface_def.type_parameters;
+            let mut i = 0;
+            while i < params.len() && i < args.len() {
+                bindings[params[i]] = args[i];
+                i = i + 1;
+            }
+        },
+        None => {},
+    }
+    return bindings;
+}
+
+// A default interface method reachable from a receiver `element` that doesn't
+// itself declare `field` — the case of a *concrete* receiver whose `impl` omits
+// a defaulted method. The bindings map the providing interface's type parameters
+// to this conformance's arguments, so the method's signature instantiates.
+fn find_default_method(_ element: TypeDefElement, _ field: String, _ ctx: InferCtx)
+    -> Option<MethodResolution> {
+    for iface_name in element.interfaces {
+        match ctx_scope(ctx).resolve_type_def(iface_name) {
+            Some(iface_def) => {
+                if is_default_method(iface_def, field) {
+                    match find_method(iface_def, field) {
+                        Some(method) => {
+                            return Option.Some(MethodResolution {
+                                method: method,
+                                bindings: default_method_bindings(element, iface_name, iface_def),
+                            });
+                        },
+                        None => {},
+                    }
+                }
+            },
+            None => {},
+        }
+    }
+    return Option.None;
+}
+
 pub fn resolve_method(_ recv: Type, _ field: String, _ ctx: InferCtx) -> Option<MethodResolution> {
     match type_def_for(recv, ctx) {
         Some(element) => {
@@ -1426,6 +1497,14 @@ pub fn resolve_method(_ recv: Type, _ field: String, _ ctx: InferCtx) -> Option<
                     };
                     return Option.Some(MethodResolution { method: method, bindings: bindings });
                 },
+                None => {},
+            }
+            // A default method inherited from an interface the receiver
+            // implements. (When `recv` is itself the interface type, `find_method`
+            // already found it; this covers a concrete receiver whose own impl
+            // omits the defaulted method.)
+            match find_default_method(element, field, ctx) {
+                Some(res) => { return Option.Some(res); },
                 None => {},
             }
         },

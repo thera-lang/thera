@@ -911,6 +911,48 @@ impl Greet for User {
 }
 ```
 
+### Default methods
+
+An interface method may carry a body — a **default method**. An `impl` need not
+provide it (the interface supplies the implementation), but may override it. A
+default is written in terms of the interface's required methods, so one required
+method can unlock a whole API:
+
+```hawk
+interface Animal {
+    fn name(self) -> String;             // required
+
+    fn greet(self) -> String {           // default, built on `name`
+        return 'Hi, I am ${self.name()}';
+    }
+}
+
+struct Dog { nick: String }
+
+impl Animal for Dog {
+    fn name(self) -> String { return self.nick; }
+    // greet is inherited from the interface
+}
+
+struct Cat {}
+
+impl Animal for Cat {
+    fn name(self) -> String { return 'a cat'; }
+    fn greet(self) -> String { return 'meow'; }   // overrides the default
+}
+```
+
+Defaults dispatch dynamically, like any interface method: a call resolves to the
+type's override if it has one, otherwise the interface's default. The default's
+own calls to required methods (`self.name()` above) dispatch on the concrete
+value at runtime. This works on both interface-typed receivers (`fn f(a: Animal)`
+→ `a.greet()`) and concrete ones (`Dog { … }.greet()`).
+
+The standard `Iterator<T>` uses this: its only required method is `next`, and the
+adapters (`map`/`filter`/`take`) and consumers (`collect`/`count`) are all
+default methods — so every iterator is fluent without each implementer
+re-spelling them. See [stdlib.md](stdlib.md).
+
 ### Inherent methods
 
 Methods that belong to a type but do not implement an interface are defined in a

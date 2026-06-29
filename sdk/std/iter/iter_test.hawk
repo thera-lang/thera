@@ -1,4 +1,5 @@
-//! Tests for std.iter — the Iterator<T> protocol, its sources, and consumers.
+//! Tests for std.iter — the Iterator<T> sources, plus the prelude's adapters
+//! and consumers (default methods on Iterator).
 
 import std.testing;
 
@@ -18,33 +19,91 @@ fn test_range_next_then_exhausts() -> Result<Void, Error> {
 
 @test
 fn test_range_empty() -> Result<Void, Error> {
-    testing.assert_eq(actual: iter.count(iter.range(5, 5)), expected: 0)?;
+    testing.assert_eq(actual: iter.range(5, 5).count(), expected: 0)?;
     return Result.Ok(void);
 }
 
 @test
 fn test_collect_range() -> Result<Void, Error> {
-    testing.assert_eq(actual: iter.collect(iter.range(1, 4)), expected: [1, 2, 3])?;
+    testing.assert_eq(actual: iter.range(1, 4).collect(), expected: [1, 2, 3])?;
     return Result.Ok(void);
 }
 
 @test
 fn test_collect_from_list_roundtrips() -> Result<Void, Error> {
     let xs = ['a', 'b', 'c'];
-    testing.assert_eq(actual: iter.collect(iter.from_list(xs)), expected: xs)?;
+    testing.assert_eq(actual: iter.from_list(xs).collect(), expected: xs)?;
     return Result.Ok(void);
 }
 
 @test
 fn test_from_list_empty() -> Result<Void, Error> {
-    let empty = [];
-    testing.assert_eq(actual: iter.count(iter.from_list(empty)), expected: 0)?;
+    let empty: List<Int> = [];
+    testing.assert_eq(actual: iter.from_list(empty).count(), expected: 0)?;
     return Result.Ok(void);
 }
 
 @test
 fn test_count_drains() -> Result<Void, Error> {
-    testing.assert_eq(actual: iter.count(iter.range(0, 10)), expected: 10)?;
+    testing.assert_eq(actual: iter.range(0, 10).count(), expected: 10)?;
+    return Result.Ok(void);
+}
+
+// --- adapters (default methods on Iterator) ---
+
+@test
+fn test_map_squares() -> Result<Void, Error> {
+    let out = iter.range(1, 5).map((n) => n * n).collect();
+    testing.assert_eq(actual: out, expected: [1, 4, 9, 16])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_map_changes_element_type() -> Result<Void, Error> {
+    let out = iter.range(0, 3).map((n) => 'n${n}').collect();
+    testing.assert_eq(actual: out, expected: ['n0', 'n1', 'n2'])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_filter_keeps_matching() -> Result<Void, Error> {
+    let out = iter.range(0, 10).filter((n) => n % 2 == 0).collect();
+    testing.assert_eq(actual: out, expected: [0, 2, 4, 6, 8])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_take_limits() -> Result<Void, Error> {
+    let out = iter.range(0, 100).take(3).collect();
+    testing.assert_eq(actual: out, expected: [0, 1, 2])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_take_more_than_available() -> Result<Void, Error> {
+    let out = iter.range(0, 2).take(5).collect();
+    testing.assert_eq(actual: out, expected: [0, 1])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_chained_filter_map_take() -> Result<Void, Error> {
+    // evens -> squared -> first 3
+    let out = iter.range(0, 100)
+        .filter((n) => n % 2 == 0)
+        .map((n) => n * n)
+        .take(3)
+        .collect();
+    testing.assert_eq(actual: out, expected: [0, 4, 16])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_adapters_are_lazy() -> Result<Void, Error> {
+    // `take(4)` over a huge range only pulls what it needs — eager evaluation
+    // would be ruinous. That it terminates quickly *is* the laziness assertion.
+    let n = iter.range(0, 1000000).take(4).count();
+    testing.assert_eq(actual: n, expected: 4)?;
     return Result.Ok(void);
 }
 
@@ -55,6 +114,16 @@ fn test_for_loop_over_range() -> Result<Void, Error> {
         sum = sum + n;
     }
     testing.assert_eq(actual: sum, expected: 10)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_for_loop_over_adapter() -> Result<Void, Error> {
+    let out = [];
+    for n in iter.range(0, 6).filter((n) => n % 2 == 1) {
+        out.push(n);
+    }
+    testing.assert_eq(actual: out, expected: [1, 3, 5])?;
     return Result.Ok(void);
 }
 
@@ -94,6 +163,15 @@ fn test_for_loop_over_concrete_iterator() -> Result<Void, Error> {
         out.push(v);
     }
     testing.assert_eq(actual: out, expected: [1, 2, 4, 8, 16])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_concrete_iterator_uses_default_adapters() -> Result<Void, Error> {
+    // A user iterator gets `map`/`collect` for free from the interface default.
+    let d = Doubler { next_val: 1, limit: 20 };
+    let out = d.map((n) => n + 1).collect();
+    testing.assert_eq(actual: out, expected: [2, 3, 5, 9, 17])?;
     return Result.Ok(void);
 }
 

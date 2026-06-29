@@ -210,6 +210,32 @@ fn test_conformance_missing_method() -> Result<Void, Error> {
 }
 
 @test
+fn test_default_method_optional() -> Result<Void, Error> {
+    // A defaulted interface method (a body in the interface) need not be
+    // provided by an impl — the interface supplies it.
+    let errs = errors_of('interface Show { fn id(self) -> Int; '
+        + 'fn show(self) -> Int { return self.id(); } }\n'
+        + 'struct P { v: Int }\n'
+        + 'impl Show for P { fn id(self) -> Int { return self.v; } }');
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_default_method_override_signature_checked() -> Result<Void, Error> {
+    // An impl may override a default, but the override's signature must match.
+    let errs = errors_of('interface Show { fn id(self) -> Int; '
+        + 'fn show(self) -> Int { return self.id(); } }\n'
+        + 'struct P { v: Int }\n'
+        + 'impl Show for P { fn id(self) -> Int { return self.v; } '
+        + 'fn show(self) -> String { return \'x\'; } }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs),
+        expected: 'method \'show\' does not match its declaration in interface \'Show\'')?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_generic_bound_violation() -> Result<Void, Error> {
     let errs = errors_of('interface Show { fn show(self) -> String; }\n'
         + 'struct P { v: Int }\n'

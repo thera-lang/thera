@@ -135,6 +135,7 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `iface-ord`         | Interfaces / Dispatch    | `Ord.compare` → `Ordering`; primitives + user `impl Ord`; `<T: Ord>` dispatches dynamically | ✓ |
 | `iface-inherit`     | Interface inheritance    | `interface E: Display + Debug` obligations & widened set   | ✓      |
 | `iface-dispatch`    | Dispatch                 | dynamic dispatch for interface-typed values & bounds       | ✓      |
+| `iface-default`     | Interfaces               | default methods (interface method bodies); optional in an `impl`, overridable, dispatched dynamically | ✓ |
 | `generic-bounds`    | Interfaces / Dispatch    | `<T: Eq + Debug>` enforced at call sites                  | ✓      |
 | `generic-type-bounds`| Interfaces / Dispatch    | a bound on a generic type's own parameter (`Box<T: Display>`) is enforced on its type arguments | ✓ |
 

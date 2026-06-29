@@ -422,6 +422,67 @@ impl ModuleScope {
         }
     }
 
+    // Wire interface default-method bodies into each implementing type's
+    // dispatch. A type that implements an interface but does not override one of
+    // its defaulted methods dispatches to the interface's shared default unit.
+    // Walks the transitive super-interface closure so an inherited default is
+    // wired too. Run after every module registers, before `build_dispatch`.
+    pub fn wire_default_methods(self) -> Void {
+        for type_name in self.interface_impls.keys() {
+            let seen: Set<String> = Set.new();
+            let queue: List<String> = [];
+            match self.interface_impls.get(type_name) {
+                Some(s) => { for d in s.to_list() { queue.push(d); } },
+                None => {},
+            }
+            let mut qi = 0;
+            while qi < queue.len() {
+                let iface = queue[qi];
+                qi = qi + 1;
+                if !seen.has(iface) {
+                    seen.add(iface);
+                    match self.interface_supers.get(iface) {
+                        Some(supers) => { for s in supers { queue.push(s); } },
+                        None => {},
+                    }
+                    // The defaulted methods of `iface` are exactly those
+                    // registered under its name in the method table (only bodied
+                    // interface methods are added there).
+                    match self.method_table.get(iface) {
+                        Some(defaults) => {
+                            for m in defaults.keys() {
+                                self.wire_one_default(type_name, m, defaults.get(m));
+                            }
+                        },
+                        None => {},
+                    }
+                }
+            }
+        }
+    }
+
+    // Point `type_name`'s dispatch for `method` at the shared default `unit`,
+    // unless the type already provides (overrides) that method.
+    fn wire_one_default(self, _ type_name: String, _ method: String, _ unit: Option<Int>) -> Void {
+        match unit {
+            Some(idx) => {
+                if !self.method_table.has(type_name) {
+                    self.method_table[type_name] = {};
+                }
+                match self.method_table.get(type_name) {
+                    Some(tm) => {
+                        if !tm.has(method) {
+                            tm[method] = idx;
+                            self.add_dispatch(type_name, method);
+                        }
+                    },
+                    None => {},
+                }
+            },
+            None => {},
+        }
+    }
+
     // Resolve the pending dispatch rows into the module's dispatch table.
     pub fn build_dispatch(self) -> List<DispatchEntry> {
         let entries: List<DispatchEntry> = [];

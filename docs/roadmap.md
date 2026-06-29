@@ -431,6 +431,16 @@ _Owner-correct type resolution_ below.)
   question). A general pass, not a single feature. (Surfaced by the pkgs/ code
   review.)
 
+- **Nested generic args in `impl` headers** (small, well-scoped). An `impl`'s
+  interface arguments are parsed as type-parameter *names*
+  ([parser.hawk](../pkgs/cli/parser/parser.hawk) `parse_impl_decl` →
+  `parse_type_params`), so a nested generic — `impl Iterator<Indexed<T>> for …`
+  — doesn't parse. Parse them as full type refs instead (the corpus has no
+  bounded *inherent*-impl params, the one ambiguity, so the conversion is safe).
+  This gates the iterator `enumerate` adapter (`-> Iterator<Indexed<T>>`) and
+  future wrapped adapters (`zip`/`flat_map`/`chain`); needs the standard
+  snapshot ratchet (land parser change → refresh → use it in `std.core`).
+
 - **Generic operators** (`<T: Add>`, operators-as-traits) — the remaining piece
   of the generics arc (bound enforcement + `call.virtual` dispatch on `T` are
   done). This is also where the language's **implicit operator/literal
@@ -503,6 +513,21 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **Interface default methods + Iterator adapters** (2026-06). Interface methods
+  may carry a body — a *default* an `impl` inherits (and may override). Compiled
+  once as a shared unit with `self` typed as the interface; each implementing
+  type's dispatch row is wired to it unless it overrides (no runtime change —
+  same `call.virtual`). Resolution falls back to an implemented interface's
+  default for concrete receivers, binding the interface's type params from the
+  recorded conformance args (`impl Iterator<Int>` → `T=Int`). First use:
+  `Iterator<T>` gained `map`/`filter`/`take` (lazy adapters) + `collect`/`count`
+  (consumers) as defaults, so every iterator is fluent without an import and no
+  `Iter<T>` wrapper is needed; `std.iter` keeps the `range`/`from_list` sources.
+  Also fixed a latent bug: a lambda arg to a *virtual* call (interface-typed
+  receiver) now gets its expected param type, so `it.map((x) => …)` infers `x`.
+  Spec `iface-default`; unblocks `io.lines`/`fs.walk`/`BufReader`. Deferred:
+  `enumerate` (needs nested generic args in `impl` headers — see below).
 
 - **Module initializers — computed-once immutable globals** (2026-06). Top-level
   `let NAME[: T] = expr;` computed once at load into a stored global slot. Runtime

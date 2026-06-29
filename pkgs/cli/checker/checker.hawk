@@ -423,13 +423,21 @@ fn check_conformance(_ errors: List<CheckError>, _ decl: ImplDecl, _ library: Li
             }
             // Only the interface's *own* methods are required here; inherited
             // super-interface methods are satisfied by implementing the super.
+            // A method with a default body is optional — the interface supplies
+            // it — though an `impl` may still override it (checked below).
             for im in iface_def.methods {
                 if str_list_has(iface_def.own_methods, im.name) {
                     if !provided.has(im.name) {
-                        add_error(errors,
-                            'missing method \'${im.name}\' required by interface \'${iface_name}\'',
-                            decl.name_span);
+                        // A defaulted method is optional: the interface body
+                        // supplies it. Otherwise the impl must provide it.
+                        if !is_default_method(iface_def, im.name) {
+                            add_error(errors,
+                                'missing method \'${im.name}\' required by interface \'${iface_name}\'',
+                                decl.name_span);
+                        }
                     } else {
+                        // Provided — possibly an override of a default. Either
+                        // way its signature must match the interface's.
                         match find_method(owner, im.name) {
                             Some(om) => {
                                 if !signatures_match(im, om, self_type, impl_type, iface_bindings, library.type_defs) {

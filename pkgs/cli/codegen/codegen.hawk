@@ -77,6 +77,11 @@ pub fn compile_program(_ program: Program, _ imports: List<Program>,
         register_module(scope, m);
     }
     scope.flatten_interfaces();
+    // Point each implementing type's dispatch at the interface's default-method
+    // units (for methods it doesn't override). Done before unit compilation so a
+    // concrete-receiver call to a default resolves to the shared unit, and before
+    // `build_dispatch` so the rows are in the table.
+    scope.wire_default_methods();
 
     let errors: List<CodegenError> = [];
     let functions: List<FuncDef> = [];
@@ -150,7 +155,18 @@ fn register_module(_ scope: ModuleScope, _ program: Program) -> Void {
             // Module-level `let`: a global slot computed once in the `<init>`
             // thunk (see docs/module_init.md).
             Let(x) => { scope.add_global(x, file); },
-            Interface(x) => { scope.add_interface(x); },
+            Interface(x) => {
+                scope.add_interface(x);
+                // A default method (interface method with a body) compiles once
+                // as a shared unit with `self` typed as the interface; each
+                // implementing type that doesn't override it dispatches here
+                // (wired by `wire_default_methods`).
+                for method in x.methods {
+                    if !method.is_native && has_self_param(method.params) && method.body.is_some() {
+                        scope.add_method(x.name, method, file);
+                    }
+                }
+            },
             Impl(x) => {
                 match x.interface_name {
                     Some(iface) => { scope.add_interface_impl(x.type_name, iface); },
@@ -1857,8 +1873,20 @@ impl FnCompiler {
             }
         }
         self.expr(obj);
-        for arg in x.args {
-            self.expr(arg.value);
+        // Thread each argument's expected type (the interface method's parameter
+        // types, instantiated with the receiver's type args) so a lambda argument
+        // types its un-annotated parameters bidirectionally — matching the
+        // instance-method path. Without this, a lambda passed to a virtual call
+        // (e.g. `it.map((x) => …)`) would lose its param type in codegen.
+        let expected = expected_arg_types(x.callee, x.args, self.type_scope, self.ctx);
+        let mut ai = 0;
+        while ai < x.args.len() {
+            let exp = match expected {
+                Some(eps) => if ai < eps.len() { Option.Some(eps[ai]) } else { Option.None },
+                None => Option.None,
+            };
+            self.expr_expecting(x.args[ai].value, exp);
+            ai = ai + 1;
         }
         self.emit(Instr.CallVirtual(field, x.args.len() + 1));
         return true;

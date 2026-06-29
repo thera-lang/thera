@@ -63,6 +63,11 @@ pub struct TypeDefElement {
     type_parameter_bounds: Map<String, List<String>>,
     methods: List<FunctionElement>, // from impl blocks / interface decls
     interfaces: List<String>,       // `impl Interface for Type` conformances
+    // For each implemented interface, the resolved type arguments of the
+    // conformance (`impl Iterator<Int> for T` -> {Iterator: [Int]}). Lets a
+    // default method called on a *concrete* receiver bind the interface's type
+    // parameters (the receiver itself doesn't carry them).
+    interface_args: Map<String, List<Type>>,
     // Struct fields: name -> resolved type (insertion order preserved).
     fields: Map<String, Type>,
     // The subset of `fields` declared `mut` (reassignable after construction).
@@ -73,6 +78,10 @@ pub struct TypeDefElement {
     // names declared directly on this interface (conformance needs only these).
     mut super_interfaces: List<String>,
     own_methods: List<String>,
+    // Interface: the subset of methods that carry a default body, so an `impl`
+    // need not provide them (conformance skips these). Includes defaults
+    // inherited from super-interfaces after the pass-3 flatten.
+    default_methods: List<String>,
 }
 
 // --- constructors for skeleton elements (resolver pass 1) ---
@@ -102,12 +111,20 @@ fn empty_def(_ name: String, _ kind: TypeDefKind, _ type_params: List<String>)
         type_parameter_bounds: {},
         methods: [],
         interfaces: [],
+        interface_args: {},
         fields: {},
         mut_fields: Set.new(),
         variants: [],
         super_interfaces: [],
         own_methods: [],
+        default_methods: [],
     };
+}
+
+// Whether interface method `name` carries a default body (so an `impl` of the
+// interface may omit it).
+pub fn is_default_method(_ e: TypeDefElement, _ name: String) -> Bool {
+    return str_list_has(e.default_methods, name);
 }
 
 // Whether field `name` on `e` is declared `mut` (so it may be reassigned).
