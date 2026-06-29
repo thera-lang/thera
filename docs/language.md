@@ -949,8 +949,8 @@ value at runtime. This works on both interface-typed receivers (`fn f(a: Animal)
 → `a.greet()`) and concrete ones (`Dog { … }.greet()`).
 
 The standard `Iterator<T>` uses this: its only required method is `next`, and the
-adapters (`map`/`filter`/`take`) and consumers (`collect`/`count`) are all
-default methods — so every iterator is fluent without each implementer
+adapters (`map`/`filter`/`take`/`enumerate`) and consumers (`collect`/`count`)
+are all default methods — so every iterator is fluent without each implementer
 re-spelling them. See [stdlib.md](stdlib.md).
 
 ### Inherent methods

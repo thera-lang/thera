@@ -431,16 +431,6 @@ _Owner-correct type resolution_ below.)
   question). A general pass, not a single feature. (Surfaced by the pkgs/ code
   review.)
 
-- **Nested generic args in `impl` headers** (small, well-scoped). An `impl`'s
-  interface arguments are parsed as type-parameter *names*
-  ([parser.hawk](../pkgs/cli/parser/parser.hawk) `parse_impl_decl` →
-  `parse_type_params`), so a nested generic — `impl Iterator<Indexed<T>> for …`
-  — doesn't parse. Parse them as full type refs instead (the corpus has no
-  bounded *inherent*-impl params, the one ambiguity, so the conversion is safe).
-  This gates the iterator `enumerate` adapter (`-> Iterator<Indexed<T>>`) and
-  future wrapped adapters (`zip`/`flat_map`/`chain`); needs the standard
-  snapshot ratchet (land parser change → refresh → use it in `std.core`).
-
 - **Generic operators** (`<T: Add>`, operators-as-traits) — the remaining piece
   of the generics arc (bound enforcement + `call.virtual` dispatch on `T` are
   done). This is also where the language's **implicit operator/literal
@@ -526,8 +516,18 @@ conformance specs. Newest first.
   `Iter<T>` wrapper is needed; `std.iter` keeps the `range`/`from_list` sources.
   Also fixed a latent bug: a lambda arg to a *virtual* call (interface-typed
   receiver) now gets its expected param type, so `it.map((x) => …)` infers `x`.
-  Spec `iface-default`; unblocks `io.lines`/`fs.walk`/`BufReader`. Deferred:
-  `enumerate` (needs nested generic args in `impl` headers — see below).
+  Spec `iface-default`; unblocks `io.lines`/`fs.walk`/`BufReader`. (`enumerate`
+  followed once `impl` headers accepted nested generic args — next entry.)
+
+- **Nested generic args in `impl` headers → `enumerate`** (2026-06). An `impl`
+  header's `<…>` parsed type-parameter *names* only, so a nested interface arg
+  (`impl Iterator<Indexed<T>> for …`) didn't parse. `parse_impl_generics` now
+  parses each element once and keeps both views — a TypeRef (interface arg,
+  nestable) and a TypeParam (the type's own param, with bounds) — choosing by
+  whether `for` follows, so nesting works and bounded inherent params (`impl
+  Box<T: Display>`) still parse. With it, `Iterator` gained the `enumerate`
+  adapter (`-> Iterator<Indexed<T>>`, pairing each element with its index); the
+  same parser extension opens future wrapped adapters (`zip`/`flat_map`/`chain`).
 
 - **Module initializers — computed-once immutable globals** (2026-06). Top-level
   `let NAME[: T] = expr;` computed once at load into a stored global slot. Runtime

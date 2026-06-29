@@ -87,6 +87,35 @@ fn test_take_more_than_available() -> Result<Void, Error> {
 }
 
 @test
+fn test_enumerate_pairs_index_and_value() -> Result<Void, Error> {
+    let pairs = iter.from_list(['a', 'b', 'c']).enumerate().collect();
+    testing.assert_eq(actual: pairs.len(), expected: 3)?;
+    testing.assert_eq(actual: pairs[0].index, expected: 0)?;
+    testing.assert_eq(actual: pairs[0].value, expected: 'a')?;
+    testing.assert_eq(actual: pairs[2].index, expected: 2)?;
+    testing.assert_eq(actual: pairs[2].value, expected: 'c')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_enumerate_empty() -> Result<Void, Error> {
+    testing.assert_eq(actual: iter.range(0, 0).enumerate().count(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_enumerate_composes_with_adapters() -> Result<Void, Error> {
+    // index every element, keep the even-indexed ones, project to the value.
+    let out = iter.from_list(['a', 'b', 'c', 'd'])
+        .enumerate()
+        .filter((p) => p.index % 2 == 0)
+        .map((p) => p.value)
+        .collect();
+    testing.assert_eq(actual: out, expected: ['a', 'c'])?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_chained_filter_map_take() -> Result<Void, Error> {
     // evens -> squared -> first 3
     let out = iter.range(0, 100)

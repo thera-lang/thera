@@ -1040,23 +1040,22 @@ dependency graph, so future work lands in the right order:
    yielded `Unit`; expression-position **tail expressions** now make its final
    expression the value — see [language.md](language.md).)
 
-   **Adapters + consumers — done (v2).** `map`/`filter`/`take` (lazy adapters)
-   and `collect`/`count` (eager consumers) now ship as **default methods on the
-   `Iterator` interface** (the language gained interface default methods to make
-   this clean — see [language.md](language.md) § Default methods), so any
-   iterator is fluent without an import and without each implementer re-spelling
-   them: `iter.range(0, 10).filter((n) => n % 2 == 0).map((n) => n * n)
-   .collect()`. The adapter structs live (private) in the prelude beside
-   `Iterator`; `std.iter` keeps the `range`/`from_list` sources. **No** separate
+   **Adapters + consumers — done (v2).** `map`/`filter`/`take`/`enumerate` (lazy
+   adapters) and `collect`/`count` (eager consumers) now ship as **default
+   methods on the `Iterator` interface** (the language gained interface default
+   methods to make this clean — see [language.md](language.md) § Default
+   methods), so any iterator is fluent without an import and without each
+   implementer re-spelling them: `iter.range(0, 10).filter((n) => n % 2 == 0)
+   .map((n) => n * n).collect()`. The adapter structs live (private) in the
+   prelude beside `Iterator` (with the public `Indexed<T>` that `enumerate`
+   yields); `std.iter` keeps the `range`/`from_list` sources. **No** separate
    `Iter<T>` wrapper — the protocol *is* the fluent type (the wrapper would
    duplicate `Iterator` and was rejected as a worse fit for an LLM-first
-   language). This unblocks `io.lines`, `fs.walk`, and `BufReader` (above /
-   below). Deferred: `enumerate` — it returns `Iterator<Indexed<T>>`, and a
-   **nested generic interface argument in an `impl` header**
-   (`impl Iterator<Indexed<T>> for …`) is not yet parsed; that small parser
-   extension (impl-header interface args as full type refs, not just
-   type-parameter names) is the gate, and lands `enumerate` plus future wrapped
-   adapters like `zip`/`flat_map`/`chain`.
+   language). `enumerate` returns `Iterator<Indexed<T>>`, which needed the parser
+   to accept a nested generic in an `impl` header (`impl Iterator<Indexed<T>>
+   for …`) — now done, and the same extension opens future wrapped adapters
+   (`zip`/`flat_map`/`chain`). This unblocks `io.lines`, `fs.walk`, and
+   `BufReader` (above / below).
 
 4. **`Error` interface migration — done.** `std.core/error.hawk`'s `Error` is
    now an interface with a `Message` struct; `throw`/`?`/implicit-`Ok` needed no
@@ -1125,9 +1124,9 @@ dependency graph, so future work lands in the right order:
 
 | Module       | Status  | Notes                                                                                                                                                                                                                                                                                                                                                                      |
 | ------------ | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| prelude/core | exists  | Int/Double + String parsing; `String.slice`/`replace`/`repeat`/`reverse`/`find`/`pad_*`/`trim_*`; `List.slice`/`first`/`last`/`contains`/`index_of`/`reverse`/`sort` (comparator)/`push`/`pop`; `Map.get_or`; `Bytes`/`BytesBuilder`/`BytesReader`; `Set<T>` in Hawk over `Map`; `Error`/`Eq`/`Display`/`Debug`/`Ord` interfaces + the `error(...)` constructor; `Iterator<T>` protocol + its `map`/`filter`/`take`/`collect`/`count` default methods; **interface default methods** generally |
+| prelude/core | exists  | Int/Double + String parsing; `String.slice`/`replace`/`repeat`/`reverse`/`find`/`pad_*`/`trim_*`; `List.slice`/`first`/`last`/`contains`/`index_of`/`reverse`/`sort` (comparator)/`push`/`pop`; `Map.get_or`; `Bytes`/`BytesBuilder`/`BytesReader`; `Set<T>` in Hawk over `Map`; `Error`/`Eq`/`Display`/`Debug`/`Ord` interfaces + the `error(...)` constructor; `Iterator<T>` protocol + its `map`/`filter`/`take`/`enumerate`/`collect`/`count` default methods; **interface default methods** generally |
 | std.io       | done    | v1: `Reader`/`Writer`/`Closer` + `IoError`, `read_all`/`copy`, stdin/stdout/stderr, `StringWriter`, `from_string`/`from_bytes`; `lines`/`BufReader` (Iterator<String>, `read_line` primitive); streaming files deferred                                                                                                                                                     |
-| std.iter     | done    | v2: `Iterator<T>` (prelude) with `map`/`filter`/`take` adapters + `collect`/`count` consumers as **default methods** (fluent, import-free); `std.iter` holds the `range`/`from_list` sources; `for x in it` drives any iterator; `enumerate` deferred on nested-impl-generic parsing                                                                                        |
+| std.iter     | done    | v2: `Iterator<T>` (prelude) with `map`/`filter`/`take`/`enumerate` adapters + `collect`/`count` consumers as **default methods** (fluent, import-free); `std.iter` holds the `range`/`from_list` sources; `for x in it` drives any iterator                                                                                                                                  |
 | std.fs       | done    | read/write text+bytes, exists, metadata, list_dir, create_dir(\_all), remove(\_dir_all), rename, copy, temp_dir; recursive `walk` (Iterator<String>); classified `FsError`; streaming `File`/`open`/`create`/`temp_file` deferred to v2                                                                                                                                    |
 | std.path     | done    | pure Hawk; `components`/`with_extension`/`normalize`/`relative` in (lexical, slash-based)                                                                                                                                                                                                                                                                                  |
 | std.env      | done    | vars/args/cwd/os/exit + `Env` capability + `testing.fixed_env`; `OS`→`os()`                                                                                                                                                                                                                                                                                                |
