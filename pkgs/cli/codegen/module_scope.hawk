@@ -9,6 +9,7 @@
 // and `self.list.push(…)` both persist), mirroring the Dart class's mutation.
 
 import '../ast/ast' as _;
+import '../lexer/token' as _; // SourceSpan
 import '../bytecode/instr';
 import '../bytecode/module' as _;
 import '../element/types' as _;
@@ -33,10 +34,13 @@ pub struct StructInfo {
 }
 
 // A module-global initializer to run in the `<init>` thunk: the slot it fills,
-// the initializer expression, and the file it was declared in (so bare/qualified
-// references inside the initializer resolve against the right scope).
+// the binding's name and span (for dependency ordering + cycle diagnostics), the
+// initializer expression, and the file it was declared in (so references inside
+// the initializer resolve against the right scope).
 pub struct GlobalInit {
     slot: Int,
+    name: String,
+    span: SourceSpan,
     value: Expr,
     file: Option<String>,
 }
@@ -268,7 +272,13 @@ impl ModuleScope {
         let slot = self.next_global_slot;
         self.next_global_slot = slot + 1;
         self.globals[decl.name] = slot;
-        self.global_inits.push(GlobalInit { slot: slot, value: decl.value, file: file });
+        self.global_inits.push(GlobalInit {
+            slot: slot,
+            name: decl.name,
+            span: decl.name_span,
+            value: decl.value,
+            file: file,
+        });
     }
 
     pub fn add_native_static_method(self, _ type_name: String, _ method: FnDecl) -> Void {

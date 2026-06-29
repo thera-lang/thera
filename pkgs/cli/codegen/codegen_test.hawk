@@ -71,6 +71,8 @@ fn instr_tag(_ i: Instr) -> String {
         FieldSet(_) => 'field_set',
         StructNew(_) => 'struct_new',
         ClosureNew(_, _) => 'closure_new',
+        GlobalGet(_) => 'global_get',
+        GlobalSet(_) => 'global_set',
         _ => 'other',
     };
 }
@@ -535,5 +537,32 @@ fn test_lowering_mut_capture_boxes_into_a_cell() -> Result<Void, Error> {
     let body = lambda_code(src);
     testing.assert(count_tag(body, 'field_get') >= 1, message: 'expected a boxed read')?;
     testing.assert(count_tag(body, 'field_set') >= 1, message: 'expected a boxed write')?;
+    return Result.Ok(void);
+}
+
+// --- module-level `let` (globals; docs/module_init.md) ---
+
+@test
+fn test_module_let_emits_init_thunk_and_global_count() -> Result<Void, Error> {
+    // Two globals -> global_count 2, an `<init>` thunk that sets both slots, and a
+    // `main` that reads the global from its slot (not by inlining the initializer).
+    let src = 'let A: Int = 10;\n'
+        + 'let B: Int = A + 5;\n'
+        + 'fn main() -> Int { return B; }';
+    testing.assert_eq(actual: errors_of(src), expected: 0)?;
+    testing.assert_eq(actual: module_of(src).global_count, expected: 2)?;
+    testing.assert_eq(actual: count_tag(code_of(src, 'main'), 'global_get'), expected: 1)?;
+    testing.assert_eq(actual: count_tag(code_of(src, '<init>'), 'global_set'), expected: 2)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_module_let_initializer_cycle_is_an_error() -> Result<Void, Error> {
+    // A.init references B and B.init references A — a dependency cycle, reported
+    // as a located codegen error (cf. the cyclic-`const` guard).
+    let src = 'let A: Int = B + 1;\n'
+        + 'let B: Int = A + 1;\n'
+        + 'fn main() -> Int { return 0; }';
+    testing.assert(errors_of(src) > 0, message: 'an initializer cycle should be a codegen error')?;
     return Result.Ok(void);
 }

@@ -345,7 +345,7 @@ impl FnCompiler {
     // initializer is compiled in its declaring file's scope (so its references
     // resolve same-file-first, like a normal unit). See docs/module_init.md.
     pub fn compile_init_thunk(self) -> FuncDef {
-        for init in self.scope.global_inits {
+        for init in order_global_inits(self.scope, self.errors) {
             self.file = init.file;
             self.ctx.current_file = init.file;
             self.expr(init.value);
@@ -2508,6 +2508,69 @@ fn fv_stmt(_ s: Stmt, _ bound: Set<String>, _ free: List<String>, _ seen: Set<St
             fv_visit_block(x.body, loop_bound, free, seen);
         },
     }
+}
+
+// --- module-global initialization order (docs/module_init.md) ---
+
+// Order the module globals so each initializer runs after the globals it
+// references: a depth-first post-order over the reference graph. A back edge is
+// an initializer cycle — a located compile error (cf. the cyclic-`const` guard).
+// Cross-module order falls out of registration order (imports before importers),
+// which the post-order preserves for globals with no edge between them.
+fn order_global_inits(_ scope: ModuleScope, _ errors: List<CodegenError>) -> List<GlobalInit> {
+    let ordered: List<GlobalInit> = [];
+    let state: Map<String, Int> = {}; // 1 = visiting, 2 = done
+    let by_name: Map<String, GlobalInit> = {};
+    for g in scope.global_inits {
+        by_name[g.name] = g;
+    }
+    for g in scope.global_inits {
+        visit_global_init(g, scope, by_name, state, ordered, errors);
+    }
+    return ordered;
+}
+
+fn visit_global_init(_ g: GlobalInit, _ scope: ModuleScope, _ by_name: Map<String, GlobalInit>,
+    _ state: Map<String, Int>, _ ordered: List<GlobalInit>, _ errors: List<CodegenError>) -> Void {
+    match state.get(g.name) {
+        Some(s) => {
+            if s == 1 {
+                errors.push(CodegenError {
+                    message: 'module-level `let` initializer cycle through `${g.name}`',
+                    span: g.span,
+                });
+            }
+            return; // already done, or a cycle just reported
+        },
+        None => {},
+    }
+    state[g.name] = 1;
+    for dep in global_init_deps(g.value, scope) {
+        match by_name.get(dep) {
+            Some(dg) => { visit_global_init(dg, scope, by_name, state, ordered, errors); },
+            None => {},
+        }
+    }
+    state[g.name] = 2;
+    ordered.push(g);
+}
+
+// The module globals an initializer references directly: bare identifiers that
+// name a global. Names bound inside the initializer (lambda params, block lets,
+// match/for patterns) are excluded by the free-variable walk. Indirect
+// dependencies through a called function's body are not tracked — initializers
+// should reference their dependencies directly.
+fn global_init_deps(_ value: Expr, _ scope: ModuleScope) -> List<String> {
+    let free: List<String> = [];
+    let seen: Set<String> = Set.new();
+    fv_visit(value, Set.new(), free, seen);
+    let deps: List<String> = [];
+    for n in free {
+        if scope.globals.has(n) {
+            deps.push(n);
+        }
+    }
+    return deps;
 }
 
 // The `mut` locals of the function with body `body` that are captured by a
