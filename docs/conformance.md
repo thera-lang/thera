@@ -65,7 +65,8 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `gen-static-recv-args`| Collections / Generics   | receiver type args on a static call (`Set<String>.new()`) bind the owner parameter | ✓ |
 | `type-bytes`        | Types → Bytes            | `Bytes` len / `to_string` / `from_list` / `empty`         | ◐      |
 | `type-native`       | Types → Built-ins        | `native type` decl: opaque, impl-extensible, no field layout| ✓     |
-| `type-struct`       | Structs                  | `type` decl, struct literal, field access                 | ✓      |
+| `type-struct`       | Structs                  | `struct` decl, struct literal, field access               | ✓      |
+| `type-struct-keyword` | Structs                | the removed `type Name = { … }` form is a parse error      | ✓     |
 | `type-struct-immut` | Structs                  | struct fields immutable by default (non-`mut` assign = error)| ✓    |
 | `type-mut-field`    | Structs                  | a `mut field: T` may be reassigned after construction     | ✓      |
 | `type-field-nonstruct`| Structs                | a bare field access on a non-struct value is rejected     | ✓      |

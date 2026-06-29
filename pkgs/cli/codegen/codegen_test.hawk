@@ -321,7 +321,7 @@ fn test_method_calls_dispatch_byte_identical() -> Result<Void, Error> {
     // with self), a static method (`Point.origin()`), `call.virtual` on an
     // interface-typed receiver (`g.greet()`), and a function-valued struct field
     // invoked like a method (`b.run()` → `call.indirect`).
-    let src = 'type Point = { x: Int, y: Int }\n'
+    let src = 'struct Point { x: Int, y: Int }\n'
         + 'impl Point {\n'
         + '    fn sum(self) -> Int { return self.x + self.y; }\n'
         + '    fn origin() -> Point { return Point { x: 0, y: 0 }; }\n'
@@ -330,7 +330,7 @@ fn test_method_calls_dispatch_byte_identical() -> Result<Void, Error> {
         + 'fn make() -> Point { return Point.origin(); }\n'
         + 'interface Greeter { fn greet(self) -> Int; }\n'
         + 'fn dispatch(_ g: Greeter) -> Int { return g.greet(); }\n'
-        + 'type Box = { run: () -> Int }\n'
+        + 'struct Box { run: () -> Int }\n'
         + 'fn call_it(_ b: Box) -> Int { return b.run(); }';
     testing.assert_eq(actual: errors_of(src), expected: 0)?;
     testing.assert_eq(actual: emit_bytes(src), expected: [
@@ -425,7 +425,7 @@ fn test_lowering_enum_name_hoists_one_tag() -> Result<Void, Error> {
 
 @test
 fn test_lowering_user_static_method_emits_receiverless_call() -> Result<Void, Error> {
-    let src = 'type Box = { v: Int }\n'
+    let src = 'struct Box { v: Int }\n'
         + 'impl Box { fn zero() -> Box { return Box { v: 0 }; } }\n'
         + 'fn make() -> Box { return Box.zero(); }';
     testing.assert_eq(actual: errors_of(src), expected: 0)?;
@@ -437,7 +437,7 @@ fn test_lowering_user_static_method_emits_receiverless_call() -> Result<Void, Er
 
 @test
 fn test_lowering_user_instance_method_pushes_self() -> Result<Void, Error> {
-    let src = 'type Box = { v: Int }\n'
+    let src = 'struct Box { v: Int }\n'
         + 'impl Box { fn get(self) -> Int { return self.v; } }\n'
         + 'fn read(_ b: Box) -> Int { return b.get(); }';
     testing.assert_eq(actual: errors_of(src), expected: 0)?;
@@ -449,7 +449,7 @@ fn test_lowering_user_instance_method_pushes_self() -> Result<Void, Error> {
 
 @test
 fn test_lowering_native_instance_method_emits_call_native() -> Result<Void, Error> {
-    let src = 'type Buf = { n: Int }\n'
+    let src = 'struct Buf { n: Int }\n'
         + 'impl Buf { native fn size(self) -> Int; }\n'
         + 'fn go(_ b: Buf) -> Int { return b.size(); }';
     testing.assert_eq(actual: errors_of(src), expected: 0)?;
@@ -459,7 +459,7 @@ fn test_lowering_native_instance_method_emits_call_native() -> Result<Void, Erro
 
 @test
 fn test_lowering_native_static_method_emits_call_native() -> Result<Void, Error> {
-    let src = 'type Reg = { n: Int }\n'
+    let src = 'struct Reg { n: Int }\n'
         + 'impl Reg { native fn fresh() -> Int; }\n'
         + 'fn go() -> Int { return Reg.fresh(); }';
     testing.assert_eq(actual: errors_of(src), expected: 0)?;
@@ -478,7 +478,7 @@ fn test_lowering_free_native_fn_emits_call_native() -> Result<Void, Error> {
 
 @test
 fn test_lowering_field_call_emits_field_get_and_call_indirect() -> Result<Void, Error> {
-    let src = 'type Holder = { f: () -> Int }\n'
+    let src = 'struct Holder { f: () -> Int }\n'
         + 'fn go(_ h: Holder) -> Int { return h.f(); }';
     testing.assert_eq(actual: errors_of(src), expected: 0)?;
     let code = code_of(src, 'go');

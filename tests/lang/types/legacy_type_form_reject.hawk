@@ -1,0 +1,13 @@
+//! spec: type-struct-keyword
+//! mode: check
+
+// Structs use the `struct` keyword; the old `type Name = { … }` form is removed
+// (it now points at the new syntax rather than parsing as a struct).
+type Point = {   // expect error: struct definitions use
+    x: Int,
+    y: Int,
+}
+
+fn main() -> Int {
+    return 0;
+}

@@ -23,7 +23,7 @@ fn prog_of(_ src: String, _ path: String) -> Program {
 fn test_public_surface_collects_only_pub_decls() -> Result<Void, Error> {
     let prog = prog_of('pub fn a() { }\n'
         + 'fn b() { }\n'
-        + 'pub type T = { x: Int }\n'
+        + 'pub struct T { x: Int }\n'
         + 'pub const C: Int = 1;\n'
         + 'const D: Int = 2;', 'lib.hawk');
     let surface = public_surface_of(LibrarySource { program: prog, imports: {} });

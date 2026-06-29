@@ -117,7 +117,7 @@ Runtime-backed opaque types in the prelude (`std.core/bytes.hawk`);
 `String.bytes()` returns `Bytes` (use `.to_list()` for the raw byte values).
 
 ```
-pub type Bytes = { /* opaque, runtime-backed */ }
+pub struct Bytes { /* opaque, runtime-backed */ }
 
 impl Bytes {
     pub fn len(self) -> Int;
@@ -134,7 +134,7 @@ impl Bytes {
 // to the low 8 bits). The fixed little-endian + LEB128 writers are pure Hawk
 // over write_u8 + bitwise ops. The typed write_u16_le/be… family is a planned
 // follow-up.
-pub type BytesBuilder = { /* mutable */ }
+pub struct BytesBuilder { /* mutable */ }
 impl BytesBuilder {
     pub fn new() -> BytesBuilder;
     pub fn write_u8(self, _ byte: Int) -> Void;
@@ -152,7 +152,7 @@ impl BytesBuilder {
 // (mut pos); each read advances and returns None at/over the end, so a truncated
 // stream is a clean None, not a trap. The integer decoders are exact inverses of
 // the writers above (a written value round-trips). Pure Hawk over Bytes.get.
-pub type BytesReader = { /* mutable cursor over a Bytes */ }
+pub struct BytesReader { /* mutable cursor over a Bytes */ }
 impl BytesReader {
     pub fn new(_ data: Bytes) -> BytesReader;
     pub fn remaining(self) -> Int;
@@ -250,7 +250,7 @@ pub fn read_all(_ src: Reader) -> Result<Bytes, Error>;
 pub fn copy(to dst: Writer, from src: Reader) -> Result<Int, Error>;
 
 // In-memory Writer that captures output (and the test double for any Writer).
-pub type StringWriter = { /* wraps a BytesBuilder */ }
+pub struct StringWriter { /* wraps a BytesBuilder */ }
 impl StringWriter { fn new(); fn into_string() -> Result<String, Error>; fn into_bytes() -> Bytes; }
 ```
 
@@ -288,7 +288,7 @@ pub fn copy(from src: String, to dst: String) -> Result<Void, FsError>;   // fil
 pub fn temp_dir() -> String;
 
 pub enum FileKind { File, Dir, Symlink, Other }
-pub type Metadata = { size: Int, kind: FileKind, modified_millis: Int }  // Unix mtime ms
+pub struct Metadata { size: Int, kind: FileKind, modified_millis: Int }  // Unix mtime ms
 
 pub enum FsError {                          // implements Error + Display
     NotFound(String), PermissionDenied(String), AlreadyExists(String),
@@ -382,8 +382,8 @@ pub fn exec(...) -> Result<Int, ProcessError>;            // same args; inherits
 
 pub fn start(...) -> Result<Process, ProcessError>;       // same args; pipes are piped
 
-pub type ProcessResult = { exit_code: Int, stdout: String, stderr: String }
-pub type Process = { id: Int }
+pub struct ProcessResult { exit_code: Int, stdout: String, stderr: String }
+pub struct Process { id: Int }
 
 impl Process {
     pub fn stdin(self) -> Writer;     // child stdin, as a Writer
@@ -419,9 +419,9 @@ math and the RFC 3339 format/parse are pure Hawk; only the monotonic clock and
 `sleep` need a native.
 
 ```
-pub type Duration = { /* nanoseconds */ }
-pub type Instant  = { /* monotonic nanos, relative to a process baseline */ }
-pub type DateTime = { /* Unix milliseconds, UTC */ }
+pub struct Duration { /* nanoseconds */ }
+pub struct Instant { /* monotonic nanos, relative to a process baseline */ }
+pub struct DateTime { /* Unix milliseconds, UTC */ }
 
 pub fn now_millis() -> Int;          // ambient wall clock, Unix millis
 pub fn now() -> DateTime;            // wall clock (UTC)
@@ -462,14 +462,14 @@ blocks the thread until cooperative fibers arrive.
 Purpose: explicit concurrency on the single thread.
 
 ```
-pub type Fiber<T> = { /* handle */ }            // implemented
+pub struct Fiber<T> { /* handle */ }            // implemented
 pub fn spawn<T>(_ work: () -> T) -> Fiber<T>;    // implemented
 pub fn yield() -> Void;                          // implemented — cede the thread
 
 impl Fiber<T> { pub fn join(self) -> T; }   // implemented — the only way to get the result out
 
 // Channels for fiber-to-fiber handoff — implemented (buffered).
-pub type Channel<T> = { /* handle */ }
+pub struct Channel<T> { /* handle */ }
 pub fn channel<T>(capacity: Int = 1) -> Channel<T>;   // buffer size, clamped to >= 1
 impl Channel<T> {
     pub fn send(self, _ value: T) -> Void;     // blocks while full; traps if closed
@@ -545,7 +545,7 @@ to compute-and-store them once — a **module initializer**,
 ### `std.random` — randomness _(implemented)_
 
 ```
-pub type Rng = { state: Int }   // seedable, state is a visible value
+pub struct Rng { state: Int }   // seedable, state is a visible value
 pub fn seeded(_ seed: Int) -> Rng;
 pub fn from_entropy() -> Rng;
 impl Rng {
@@ -683,9 +683,9 @@ clients that should **drive** the `std.fiber` API design before that surface is
 frozen (see § `std.fiber`).
 
 ```
-pub type Request = { method: String, url: String,
+pub struct Request { method: String, url: String,
                      headers: Map<String, String>, body: Bytes }
-pub type Response = { status: Int, headers: Map<String, String>, body: Bytes }
+pub struct Response { status: Int, headers: Map<String, String>, body: Bytes }
 
 pub fn get(_ url: String, headers: Map<String, String> = {}) -> Result<Response, HttpError>;
 pub fn post(_ url: String, body: Bytes, headers: Map<String, String> = {}) -> Result<Response, HttpError>;
@@ -720,7 +720,7 @@ pub fn json(_ status: Int, _ value: Json) -> Response;
 
 // A tiny built-in matcher (method + path) so a webhook / health-check needs no
 // third-party router. Anything richer (path params, middleware) is ecosystem.
-pub type Router = { /* method+path table */ }
+pub struct Router { /* method+path table */ }
 impl Router {
     pub fn new() -> Router;
     pub fn route(self, _ method: String, _ path: String, _ handler: Handler) -> Router;
@@ -773,7 +773,7 @@ generated `--help`. The richer `Command` builder sits alongside the thin
 Hawk** (`sdk/std/cli/command.hawk`).
 
 ```
-pub type Command = { name, about, flags, options, positionals, subcommands }
+pub struct Command { name, about, flags, options, positionals, subcommands }
 impl Command {
     pub fn new(_ name: String) -> Command;                  // auto-registers --help/-h
     pub fn about(self, _ text: String) -> Command;
@@ -785,7 +785,7 @@ impl Command {
     pub fn parse(self, _ args: List<String>) -> Result<Matches, CliError>;
     pub fn help(self) -> String;                            // generated usage text
 }
-pub type Matches = { /* typed accessors */ }
+pub struct Matches { /* typed accessors */ }
 impl Matches {
     pub fn flag(self, _ name: String) -> Bool;              // resolves negation + default
     pub fn option(self, _ name: String) -> Option<String>;
@@ -888,7 +888,7 @@ Unicode text. RE2 syntax (linear-time, no backtracking / lookaround) — see
 positions** (matching the string-offset convention in principle 8).
 
 ```
-pub type Regex = { /* opaque compiled pattern */ }
+pub struct Regex { /* opaque compiled pattern */ }
 impl Regex {
     pub fn compile(_ pattern: String) -> Result<Regex, RegexError>;  // invalid pattern -> Err
     pub fn is_match(self, _ text: String) -> Bool;
@@ -899,9 +899,9 @@ impl Regex {
     pub fn replace_all(self, _ text: String, with replacement: String) -> String; // all
 }
 
-pub type Match = { text: String, start: Int, end: Int }   // start inclusive, end exclusive (bytes)
+pub struct Match { text: String, start: Int, end: Int }   // start inclusive, end exclusive (bytes)
 
-pub type Captures = { /* groups: List<Option<String>> */ }
+pub struct Captures { /* groups: List<Option<String>> */ }
 impl Captures {
     pub fn text(self) -> Option<String>;          // group 0 (the whole match)
     pub fn group(self, _ index: Int) -> Option<String>;  // None if absent / didn't participate

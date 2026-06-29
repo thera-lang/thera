@@ -183,7 +183,7 @@ impl Parser {
 
     fn starts_decl(self, _ k: TokenKind) -> Bool {
         return k == TokenKind.KwFn
-            || k == TokenKind.KwType
+            || k == TokenKind.KwStruct
             || k == TokenKind.KwImpl
             || k == TokenKind.KwInterface
             || k == TokenKind.KwImport
@@ -280,7 +280,7 @@ impl Parser {
                     return self.err_decl();
                 }
                 self.advance(); // 'native'
-                return self.parse_type_decl(is_pub, start, true);
+                return self.parse_native_type_decl(is_pub, start);
             }
             return Decl.Fn(self.parse_fn_decl(decorators, true, is_pub, start));
         }
@@ -295,11 +295,15 @@ impl Parser {
             return self.parse_struct_decl(is_pub, start);
         }
         if k == TokenKind.KwType {
-            if decorators.len() != 0 {
-                self.fail('decorators are not allowed on type declarations');
-                return self.err_decl();
-            }
-            return self.parse_type_decl(is_pub, start, false);
+            // The old struct form `type Name = { … }` is gone — structs are now
+            // `struct Name { … }`. (`native type` is handled above; a transparent
+            // `type X = Y` alias may take this branch later.)
+            self.fail('struct definitions use `struct Name { … }`, '
+                + 'not `type Name = { … }`');
+            // Recovery (`parse_decl_or_recover` → `sync_to_decl`) skips past this
+            // `type` — it is no longer a decl-sync point (see `starts_decl`), so
+            // there is no risk of re-entering this branch in a loop.
+            return self.err_decl();
         }
         if k == TokenKind.KwImpl {
             if decorators.len() != 0 {
@@ -336,7 +340,7 @@ impl Parser {
         }
 
         self.fail('expected a declaration '
-            + '(fn, type, impl, interface, import, const, enum)');
+            + '(fn, struct, enum, interface, impl, import, const)');
         return self.err_decl();
     }
 
@@ -554,43 +558,28 @@ impl Parser {
         };
     }
 
-    fn parse_type_decl(self, _ is_pub: Bool, _ start: SourceSpan, _ is_native: Bool) -> Decl {
+    // `native type Name<params>` — a bodyless opaque type whose representation
+    // lives in the runtime; an optional trailing `;` closes it. (The struct form
+    // is `parse_struct_decl`; a plain `type Name = …` is no longer a struct.)
+    fn parse_native_type_decl(self, _ is_pub: Bool, _ start: SourceSpan) -> Decl {
         self.advance(); // 'type'
         let name_tok = self.expect(TokenKind.Identifier, 'type name');
         let type_params = self.parse_type_params();
-        // A `native type` has no `= { fields }` body — its representation lives in
-        // the runtime; an optional trailing `;` closes it.
-        if is_native {
-            self.match_kind(TokenKind.Semi);
-            return Decl.Type(TypeDecl {
-                span: start.cover(self.prev_span()),
-                is_pub: is_pub,
-                is_native: true,
-                name: name_tok.lexeme(),
-                name_span: name_tok.span,
-                type_params: type_params,
-                fields: [],
-            });
-        }
-        self.expect(TokenKind.Eq, '=');
-        self.expect(TokenKind.LBrace, '{');
-        let fields = self.parse_struct_fields();
-        let rbrace = self.expect(TokenKind.RBrace, '}');
+        self.match_kind(TokenKind.Semi);
         return Decl.Type(TypeDecl {
-            span: start.cover(rbrace.span),
+            span: start.cover(self.prev_span()),
             is_pub: is_pub,
-            is_native: false,
+            is_native: true,
             name: name_tok.lexeme(),
             name_span: name_tok.span,
             type_params: type_params,
-            fields: fields,
+            fields: [],
         });
     }
 
     // `struct Name<params> { field, … }` — a nominal record. Produces the same
-    // `TypeDecl` as the legacy `type Name = { … }` form (which still parses, for
-    // the migration window); the only surface difference is the keyword and the
-    // dropped `=`.
+    // `TypeDecl` an opaque `native type` / the (now-removed) `type Name = { … }`
+    // form produced; the surface is the `struct` keyword and a brace body, no `=`.
     fn parse_struct_decl(self, _ is_pub: Bool, _ start: SourceSpan) -> Decl {
         self.advance(); // 'struct'
         let name_tok = self.expect(TokenKind.Identifier, 'struct name');

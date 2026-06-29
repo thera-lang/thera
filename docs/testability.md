@@ -121,7 +121,7 @@ pub interface Clock {                       // the capability
     fn now_millis(self) -> Int
 }
 
-type SystemClock = {}
+struct SystemClock {}
 impl Clock for SystemClock {
     fn now_millis(self) -> Int { return now_millis(); }
 }
@@ -130,7 +130,7 @@ pub fn system_clock() -> Clock { return SystemClock {}; }
 
 ```hawk
 // std.testing — the test double (test-only, so it lives here)
-type FixedClock = { millis: Int }
+struct FixedClock { millis: Int }
 impl Clock for FixedClock {
     fn now_millis(self) -> Int { return self.millis; }
 }

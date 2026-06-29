@@ -200,7 +200,7 @@ fn test_parse_function_program() -> Result<Void, Error> {
 fn test_parse_each_declaration_kind() -> Result<Void, Error> {
     let src = 'import std.io;\n'
         + 'pub const MAX: Int = 10;\n'
-        + 'type Point = { x: Int, y: Int }\n'
+        + 'struct Point { x: Int, y: Int }\n'
         + 'enum Color { Red, Green, Blue }\n'
         + 'interface Shape { fn area(self) -> Double; }\n'
         + 'fn area(_ s: Shape) -> Double { return s.area(); }\n'

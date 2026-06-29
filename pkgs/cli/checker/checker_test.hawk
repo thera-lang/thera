@@ -47,7 +47,7 @@ fn test_unknown_type() -> Result<Void, Error> {
 
 @test
 fn test_unknown_field() -> Result<Void, Error> {
-    let errs = errors_of('type P = { x: Int }\n'
+    let errs = errors_of('struct P { x: Int }\n'
         + 'fn f() -> P { return P { x: 1, y: 2 }; }');
     testing.assert_eq(actual: errs.len(), expected: 1)?;
     testing.assert_eq(actual: first_message(errs),
@@ -57,7 +57,7 @@ fn test_unknown_field() -> Result<Void, Error> {
 
 @test
 fn test_field_access_missing_field() -> Result<Void, Error> {
-    let errs = errors_of('type P = { x: Int }\n'
+    let errs = errors_of('struct P { x: Int }\n'
         + 'fn f() { let p = P { x: 1 }; let q = p.z; }');
     testing.assert_eq(actual: errs.len(), expected: 1)?;
     testing.assert_eq(actual: first_message(errs),
@@ -67,7 +67,7 @@ fn test_field_access_missing_field() -> Result<Void, Error> {
 
 @test
 fn test_field_access_valid() -> Result<Void, Error> {
-    let errs = errors_of('type P = { x: Int }\n'
+    let errs = errors_of('struct P { x: Int }\n'
         + 'fn f() -> Int { let p = P { x: 1 }; return p.x; }');
     testing.assert_eq(actual: errs.len(), expected: 0)?;
     return Result.Ok(void);
@@ -75,7 +75,7 @@ fn test_field_access_valid() -> Result<Void, Error> {
 
 @test
 fn test_method_call_missing() -> Result<Void, Error> {
-    let errs = errors_of('type B = { v: Int }\n'
+    let errs = errors_of('struct B { v: Int }\n'
         + 'impl B { fn get(self) -> Int { return self.v; } }\n'
         + 'fn f() { let b = B { v: 1 }; let r = b.missing(); }');
     testing.assert_eq(actual: errs.len(), expected: 1)?;
@@ -86,7 +86,7 @@ fn test_method_call_missing() -> Result<Void, Error> {
 
 @test
 fn test_method_call_valid() -> Result<Void, Error> {
-    let errs = errors_of('type B = { v: Int }\n'
+    let errs = errors_of('struct B { v: Int }\n'
         + 'impl B { fn get(self) -> Int { return self.v; } }\n'
         + 'fn f() -> Int { let b = B { v: 1 }; return b.get(); }');
     testing.assert_eq(actual: errs.len(), expected: 0)?;
@@ -201,7 +201,7 @@ fn test_unknown_super_interface() -> Result<Void, Error> {
 @test
 fn test_conformance_missing_method() -> Result<Void, Error> {
     let errs = errors_of('interface Show { fn show(self) -> String; }\n'
-        + 'type P = { v: Int }\n'
+        + 'struct P { v: Int }\n'
         + 'impl Show for P { }');
     testing.assert_eq(actual: errs.len(), expected: 1)?;
     testing.assert_eq(actual: first_message(errs),
@@ -212,7 +212,7 @@ fn test_conformance_missing_method() -> Result<Void, Error> {
 @test
 fn test_generic_bound_violation() -> Result<Void, Error> {
     let errs = errors_of('interface Show { fn show(self) -> String; }\n'
-        + 'type P = { v: Int }\n'
+        + 'struct P { v: Int }\n'
         + 'fn need<T: Show>(_ x: T) { }\n'
         + 'fn f() { need(P { v: 1 }); }');
     testing.assert_eq(actual: errs.len(), expected: 1)?;
@@ -228,7 +228,7 @@ fn test_rich_generic_program_is_clean() -> Result<Void, Error> {
     // generic function whose lambda argument is typed bidirectionally from the
     // (recovered) type arguments — all of which must check cleanly.
     let errs = errors_of('enum Opt<T> { Some(T), Nope }\n'
-        + 'type Box<T> = { value: T }\n'
+        + 'struct Box<T> { value: T }\n'
         + 'impl Box<T> { fn get(self) -> T { return self.value; } }\n'
         + 'fn map_opt<T, U>(_ o: Opt<T>, _ f: (T) -> U) -> Opt<U> {\n'
         + '  return match o { Some(v) => Opt.Some(f(v)), Nope => Opt.Nope };\n'
@@ -255,7 +255,7 @@ fn test_generic_bound_satisfied_by_primitive_is_clean() -> Result<Void, Error> {
 
 @test
 fn test_method_arg_type_mismatch() -> Result<Void, Error> {
-    let errs = errors_of('type Counter = { n: Int }\n'
+    let errs = errors_of('struct Counter { n: Int }\n'
         + 'impl Counter { fn bump(self, _ by: Int) -> Int { return self.n + by; } }\n'
         + 'fn f() -> Int { let c = Counter { n: 0 }; return c.bump(\'x\'); }');
     testing.assert_eq(actual: errs.len(), expected: 1)?;
@@ -266,7 +266,7 @@ fn test_method_arg_type_mismatch() -> Result<Void, Error> {
 
 @test
 fn test_method_arg_valid_is_clean() -> Result<Void, Error> {
-    let errs = errors_of('type Counter = { n: Int }\n'
+    let errs = errors_of('struct Counter { n: Int }\n'
         + 'impl Counter { fn bump(self, _ by: Int) -> Int { return self.n + by; } }\n'
         + 'fn f() -> Int { let c = Counter { n: 0 }; return c.bump(5); }');
     testing.assert_eq(actual: errs.len(), expected: 0)?;
@@ -275,7 +275,7 @@ fn test_method_arg_valid_is_clean() -> Result<Void, Error> {
 
 @test
 fn test_method_wrong_arity() -> Result<Void, Error> {
-    let errs = errors_of('type Counter = { n: Int }\n'
+    let errs = errors_of('struct Counter { n: Int }\n'
         + 'impl Counter { fn bump(self, _ by: Int) -> Int { return self.n + by; } }\n'
         + 'fn f() -> Int { let c = Counter { n: 0 }; return c.bump(1, 2); }');
     testing.assert_eq(actual: errs.len(), expected: 1)?;
@@ -288,7 +288,7 @@ fn test_method_wrong_arity() -> Result<Void, Error> {
 fn test_generic_method_arg_substitutes_receiver() -> Result<Void, Error> {
     // `put`'s parameter is the receiver's `T`; on a `Box<Int>` a `String`
     // argument is a mismatch (receiver generics are made concrete first).
-    let errs = errors_of('type Box<T> = { value: T }\n'
+    let errs = errors_of('struct Box<T> { value: T }\n'
         + 'impl Box<T> { fn put(self, _ v: T) -> T { return v; } }\n'
         + 'fn f() -> Int { let b = Box { value: 1 }; return b.put(\'x\'); }');
     testing.assert_eq(actual: errs.len(), expected: 1)?;
@@ -299,7 +299,7 @@ fn test_generic_method_arg_substitutes_receiver() -> Result<Void, Error> {
 
 @test
 fn test_generic_method_arg_matching_is_clean() -> Result<Void, Error> {
-    let errs = errors_of('type Box<T> = { value: T }\n'
+    let errs = errors_of('struct Box<T> { value: T }\n'
         + 'impl Box<T> { fn put(self, _ v: T) -> T { return v; } }\n'
         + 'fn f() -> Int { let b = Box { value: 1 }; return b.put(7); }');
     testing.assert_eq(actual: errs.len(), expected: 0)?;
@@ -436,7 +436,7 @@ fn test_generic_call_pinned_by_surrounding_argument_is_clean() -> Result<Void, E
 
 @test
 fn test_static_method_wrong_arity() -> Result<Void, Error> {
-    let errs = errors_of('type Box<T> = { value: T }\n'
+    let errs = errors_of('struct Box<T> { value: T }\n'
         + 'impl Box<T> { fn empty() -> Int { return 0; } }\n'
         + 'fn f() -> Int { return Box.empty(1, 2); }');
     testing.assert_eq(actual: errs.len(), expected: 1)?;
@@ -448,7 +448,7 @@ fn test_static_method_wrong_arity() -> Result<Void, Error> {
 fn test_static_method_generic_unpinnable_is_diagnosed() -> Result<Void, Error> {
     // `T` is the owner's parameter and shows up only in the static method's
     // return — unannotated, it can't be inferred.
-    let errs = errors_of('type Box<T> = { value: T }\n'
+    let errs = errors_of('struct Box<T> { value: T }\n'
         + 'impl Box<T> { fn make() -> Box<T> { return Box { value: 0 }; } }\n'
         + 'fn f() { let b = Box.make(); }');
     testing.assert_eq(actual: errs.len(), expected: 1)?;
@@ -459,7 +459,7 @@ fn test_static_method_generic_unpinnable_is_diagnosed() -> Result<Void, Error> {
 
 @test
 fn test_static_method_generic_pinned_by_annotation_is_clean() -> Result<Void, Error> {
-    let errs = errors_of('type Box<T> = { value: T }\n'
+    let errs = errors_of('struct Box<T> { value: T }\n'
         + 'impl Box<T> { fn make() -> Box<T> { return Box { value: 0 }; } }\n'
         + 'fn f() { let b: Box<Int> = Box.make(); }');
     testing.assert_eq(actual: errs.len(), expected: 0)?;
@@ -472,7 +472,7 @@ fn test_static_method_generic_pinned_by_annotation_is_clean() -> Result<Void, Er
 fn test_reassignment_target_pins_generic() -> Result<Void, Error> {
     // `b`'s declared type is the expected type for the RHS, so the unannotated
     // `Box.make()` is pinned — not flagged as an uninferable generic.
-    let errs = errors_of('type Box<T> = { value: T }\n'
+    let errs = errors_of('struct Box<T> { value: T }\n'
         + 'impl Box<T> { fn make() -> Box<T> { return Box { value: 0 }; } }\n'
         + 'fn f() { let mut b: Box<Int> = Box.make(); b = Box.make(); }');
     testing.assert_eq(actual: errs.len(), expected: 0)?;
@@ -483,7 +483,7 @@ fn test_reassignment_target_pins_generic() -> Result<Void, Error> {
 fn test_index_assignment_target_pins_generic() -> Result<Void, Error> {
     // The map's value type (`Box<Int>`) is the expected type for `m[k] = ...`,
     // pinning the constructor's parameter (the module_scope.hawk:245 shape).
-    let errs = errors_of('type Box<T> = { value: T }\n'
+    let errs = errors_of('struct Box<T> { value: T }\n'
         + 'impl Box<T> { fn make() -> Box<T> { return Box { value: 0 }; } }\n'
         + 'fn f() { let m: Map<String, Box<Int>> = {}; m[\'a\'] = Box.make(); }');
     testing.assert_eq(actual: errs.len(), expected: 0)?;
@@ -539,8 +539,8 @@ fn test_private_function_collision_across_files_is_allowed() -> Result<Void, Err
 @test
 fn test_duplicate_type_across_files_is_flagged() -> Result<Void, Error> {
     // Type-like names are global-by-bare-name, so any duplicate collides.
-    let lib = program_at('pub type Point = { x: Int }', 'lib.hawk');
-    let main = program_at('type Point = { y: Int }\n'
+    let lib = program_at('pub struct Point { x: Int }', 'lib.hawk');
+    let main = program_at('struct Point { y: Int }\n'
         + 'fn run() -> Int { return 0; }', 'main.hawk');
     let errs = check(main, [lib], {}, {}).errors;
     testing.assert(any_message_contains(errs, 'duplicate type `Point`'),

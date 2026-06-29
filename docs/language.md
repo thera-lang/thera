@@ -135,12 +135,14 @@ unqualified.
 
 ## Structs
 
-Structs are nominal types. Fields are immutable by default; mark a field `mut` to
-allow reassigning it after construction (the field-level analogue of `let` vs
-`let mut`).
+Structs are nominal types, declared with the `struct` keyword and a brace body
+(no `=`) — like `enum` and `interface`, and like Rust/Swift/Go, a deliberately
+*nominal* signal (two identically-shaped structs are distinct types). Fields are
+immutable by default; mark a field `mut` to allow reassigning it after
+construction (the field-level analogue of `let` vs `let mut`).
 
 ```hawk
-type Point = {
+struct Point {
     x: Double,
     y: Double,
 }
@@ -149,7 +151,7 @@ let p = Point { x: 1.0, y: 2.0 };
 println('${p.x}, ${p.y}');
 p.x = 3.0;            // error: `x` is not `mut`
 
-type Cursor = {
+struct Cursor {
     mut offset: Int,   // reassignable
     source: String,    // immutable
 }
@@ -371,7 +373,7 @@ Like `Result`, `Option` is an ordinary prelude enum, constructed qualified:
 `Option.Some(value)`, `Option.None`.
 
 ```hawk
-type Config = {
+struct Config {
     host:    String,
     port:    Int,
     log_dir: Option<String>,   // may be absent
@@ -842,7 +844,7 @@ An opaque type wraps a native handle whose internal layout is managed by the
 runtime. Declare it as an empty struct:
 
 ```hawk
-type NativeHandle = {}   // opaque; not constructed directly in Hawk
+struct NativeHandle {}   // opaque; not constructed directly in Hawk
 ```
 
 ---
@@ -915,7 +917,7 @@ Methods that belong to a type but do not implement an interface are defined in a
 plain `impl TypeName` block:
 
 ```hawk
-type Counter = {
+struct Counter {
     value: Int,
 }
 
@@ -971,7 +973,7 @@ fields; `Display` must be implemented explicitly.
 // auto-derived Debug for a struct prints all fields:
 //   Point { x: 1.0, y: 2.0 }
 
-type Point = {
+struct Point {
     x: Double,
     y: Double,
 }

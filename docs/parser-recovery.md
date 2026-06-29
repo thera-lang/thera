@@ -179,7 +179,7 @@ cursor**) *and* that the well-formed counterpart is unchanged.
 
 **Declarations**
 - Incomplete function: `fn foo(a: Int` (missing `)`/body); `fn foo() {` (missing `}`).
-- Incomplete type/enum: `type User = { name:` (missing type and `}`).
+- Incomplete struct/enum: `struct User { name:` (missing type and `}`).
 - Mid-`impl` edit: a half-typed `fn bar(` between two valid methods.
 - **Signature-past-body:** `fn f() -> Int { <garbage> }` keeps `f`'s signature.
 

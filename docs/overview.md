@@ -72,7 +72,7 @@ implementation of a word counting tool:
 import std.fs;
 import std.cli;
 
-type Counts = {
+struct Counts {
     lines: Int,
     words: Int,
     bytes: Int,
@@ -106,7 +106,7 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
   namespaces. In Hawk, imports are path-based. The trailing segment of the path
   (e.g., `fs` or `cli`) automatically becomes the namespace used to qualify
   public members.
-- **Lines 4–8:** `type Counts = { ... }` declares a nominal struct. Struct
+- **Lines 4–8:** `struct Counts { ... }` declares a nominal struct. Struct
   fields in Hawk are immutable by default, preventing unexpected side-effects.
 - **Line 10:** `fn count(_ text: String) -> Counts` defines a function. The
   leading underscore `_` in the parameter signature suppresses the call-site

@@ -384,32 +384,6 @@ _Owner-correct type resolution_ below.)
   principled replacement for the recurring "no load-time init" blocker called out
   across [stdlib.md](stdlib.md).
 
-- **Struct-definition keyword: `type Foo = { … }` → `struct Foo { … }`
-  (likely).** Hawk is a **nominal** type system — two identically-shaped structs
-  are distinct (`Celsius` ≠ `Fahrenheit`), identity is by name, and interface
-  conformance is an explicit `impl I for T` (like Rust traits, not Go's
-  structural interfaces). But the struct _syntax_ `type Foo = { … }` is the form
-  that connotes **structural** typing — it's TypeScript / Flow / Elm
-  `type alias` / PureScript, all structural — so it points an LLM at the wrong
-  prior (the strongest read of `type X = {…}` is "TypeScript → same shape
-  interchanges", which Hawk rejects). A keyword + name + braces with **no `=`**
-  is the near-universal _nominal_ record signal (Rust/Swift/ C#/Haskell/Go's
-  `type … struct`). Switch structs to that form:
-  `struct Celsius { degrees: Int }`. Two wins: it stops mis-signalling the
-  discipline, and it makes structs rhyme with Hawk's other nominal declarations,
-  which already use keyword + name + `{}` with no `=` (`enum Name { … }`,
-  `interface Name { … }`) — structs are the lone outlier today. Keyword not
-  fully settled — **`struct`** is most likely (most universal, fits the
-  Rust-adjacent brace family); `record` is the runner-up (leans into
-  immutability-by-default but a weaker/mixed nominal signal). Only structs
-  change; `enum`/`interface` stay as-is. Bonus: frees `type X = Y` for _real_
-  (transparent) aliases later, à la Elm's `type` vs `type alias` split — Hawk
-  has no aliases today, so `type` is currently only the struct form and there's
-  nothing to untangle. Scope: mechanical but broad — parser, every
-  `type … = { … }` across `sdk/std` + `pkgs/cli` + examples + corpus, the docs,
-  and the keyword drift-guard; a two-cycle bootstrap ratchet (the old snapshot
-  must still parse the new keyword before the sources use it, as with
-  `native type`). No semantic/codegen change — purely surface.
 - **Disambiguate the empty `{}` in a `match` arm (map-literal vs block).** In
   expression position `{}` is an empty **map** (`return {}`, `let m = {}`, a
   call argument, an `if`-branch tail `{ {} }` all work). The sharp edge is a
@@ -510,6 +484,23 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **Struct-definition keyword: `type Foo = { … }` → `struct Foo { … }`**
+  (2026-06). Hawk is a **nominal** type system, but `type Foo = { … }` reads as
+  the *structural* `type alias` of TypeScript/Flow/Elm — the wrong prior. Structs
+  now use the near-universal nominal signal (keyword + name + braces, no `=`),
+  rhyming with `enum`/`interface`: `struct Celsius { degrees: Int }`. Purely
+  surface — the parser produces the **same `TypeDecl` AST**, so checker/codegen
+  are untouched and the migrated front-end re-emits **byte-identically** (the
+  bootstrap snapshot didn't even change). `native type` (opaque built-ins) is
+  unchanged; the removed `type Foo = { … }` form now errors with a hint, freeing
+  `type X = Y` for transparent aliases later. Landed as a **three-cycle ratchet**:
+  (1) additive parser accepting both forms + snapshot refresh (so the snapshot
+  groks `struct` before any source uses it, as with `native type`); (2)
+  mechanically migrate all 145 sites across `sdk/std` + `pkgs/cli` + examples +
+  `tests/lang`; (3) remove the legacy form + grammar/language docs + the keyword
+  test. Full suite green at each step (front-end, stdlib, 93 lang conformance,
+  examples).
 
 - **LSP keystroke latency — parse cache + edit coalescing** (2026-06). Two
   pure-front-end wins (no runtime change), targeting the per-keystroke backlog.

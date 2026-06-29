@@ -54,7 +54,7 @@ All reserved; none may be used as identifiers:
 
 ```
 as  const  else  enum  false  fn  for  if  impl  import  in  interface
-let  match  mut  native  pub  return  self  throw  true  type  void  while
+let  match  mut  native  pub  return  self  struct  throw  true  type  void  while
 ```
 
 (`true`, `false`, `void`, `self` are keywords that appear in expression
@@ -122,7 +122,7 @@ absent (increment/decrement, casts, …).
 program     = declaration*
 
 declaration = decorator* 'pub'? decl_body
-decl_body   = importDecl | fnDecl | typeDecl | enumDecl
+decl_body   = importDecl | fnDecl | structDecl | nativeTypeDecl | enumDecl
             | interfaceDecl | implDecl | constDecl
 
 decorator   = '@' IDENT ( '(' ( expr (',' expr)* )? ')' )?
@@ -149,14 +149,18 @@ param       = 'self'
             // `label name` gives a distinct external label; a single IDENT
             // means label == name.
 
-typeDecl    = 'native'? 'type' IDENT typeParams?
-              ( '=' '{' field (',' field)* ','? '}'   // a struct: named fields
-              | /* nothing */ ';'? )                  // a `native type`: opaque, no body
+structDecl  = 'struct' IDENT typeParams? '{' field (',' field)* ','? '}'
 field       = 'mut'? IDENT ':' type        // `mut` allows the field to be reassigned
-              // A `native type` (`native type List<T>`) is an opaque,
-              // runtime-represented type with no field layout — a declaration site
-              // for a built-in whose representation lives in the runtime. Methods
-              // come from `impl` blocks; it cannot be built with a struct literal.
+              // A nominal record: `struct Point { x: Int, y: Int }`. Constructed
+              // with a struct literal `Point { x: 1, y: 2 }`; methods come from
+              // `impl` blocks. (There is no `=`: `struct Name { … }`, not
+              // `type Name = { … }` — the latter form was removed.)
+
+nativeTypeDecl = 'native' 'type' IDENT typeParams? ';'?
+              // An opaque, runtime-represented type with no field layout
+              // (`native type List<T>`) — a declaration site for a built-in whose
+              // representation lives in the runtime. Methods come from `impl`
+              // blocks; it cannot be built with a struct literal.
 
 enumDecl    = 'enum' IDENT typeParams? '{' variant (',' variant)* ','? '}'
 variant     = IDENT ( '(' type (',' type)* ')' )?       // positional payload
