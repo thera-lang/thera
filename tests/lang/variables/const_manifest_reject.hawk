@@ -1,0 +1,16 @@
+//! spec: const-manifest
+//! mode: check
+
+fn build() -> Int { return 42; }
+
+// A `const` is a manifest constant, inlined at every use site, so its initializer
+// must be compile-time evaluable. A computed initializer is an error that points
+// at a top-level `let` (computed once at load). See docs/module_init.md.
+const BAD: Int = build();   // expect error: compile-time constant
+
+// Manifest forms stay legal: literals, arithmetic, and references to other consts.
+const OK: Int = (1 << 16) - 1;
+
+fn main() -> Int {
+    return OK;
+}

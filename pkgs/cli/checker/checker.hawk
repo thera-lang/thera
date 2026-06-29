@@ -84,6 +84,40 @@ fn check_duplicates(_ errors: List<CheckError>, _ program: Program, _ imports: L
     report_dups(errors, consts, 'constant');
 }
 
+// A `const` initializer must be *manifest* — a compile-time constant safe to
+// inline at every use site: literals, arithmetic on them, and references to other
+// consts. Computed initializers (calls, collections, control flow) belong in a
+// top-level `let`, computed once and stored. See docs/module_init.md.
+fn is_manifest_const(_ e: Expr) -> Bool {
+    return match e {
+        Int(_, _) => true,
+        Float(_, _) => true,
+        Bool(_, _) => true,
+        Unit(_) => true,
+        Str(_, parts) => manifest_string(parts),
+        Binary(_, l, _, r) => is_manifest_const(l) && is_manifest_const(r),
+        Unary(_, _, operand) => is_manifest_const(operand),
+        Ident(_, _) => true, // a reference to another const
+        Field(_, obj, _) => match obj { // a qualified const reference `ns.NAME`
+            Ident(_, _) => true,
+            _ => false,
+        },
+        _ => false,
+    };
+}
+
+// A string literal with no interpolation — interpolation would re-run a
+// concatenation at each inlined use site.
+fn manifest_string(_ parts: List<StringPart>) -> Bool {
+    for p in parts {
+        match p {
+            Interp(_, _) => { return false; },
+            Text(_, _) => {},
+        }
+    }
+    return true;
+}
+
 fn collect_names(_ p: Program, _ primary: Bool, _ types: Map<String, List<NameSite>>,
     _ funcs: Map<String, List<NameSite>>, _ consts: Map<String, List<NameSite>>) -> Void {
     for decl in p.decls {
@@ -201,6 +235,17 @@ fn check_program(_ errors: List<CheckError>, _ program: Program, _ library: Libr
                 let ctx = new_ctx(library);
                 ctx.current_file = file;
                 check_expr(errors, x.value, empty_scope(), ctx, Option.None);
+                // A `const` is a manifest constant, inlined at every use site; a
+                // computed initializer belongs in a top-level `let` (computed once
+                // and stored). See docs/module_init.md.
+                if !is_manifest_const(x.value) {
+                    errors.push(CheckError {
+                        message: 'a `const` initializer must be a compile-time constant '
+                            + '(literals, arithmetic, or another `const`); use a top-level '
+                            + '`let` for a value computed once at load',
+                        span: expr_span(x.value),
+                    });
+                }
             },
             Let(x) => {
                 // Module-level `let` (computed-once global; docs/module_init.md).

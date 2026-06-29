@@ -82,6 +82,7 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `module-let`        | module_init.md           | top-level `let` computed once into a stored global slot     | ✓      |
 | `module-let-order`  | module_init.md           | initializers run in dependency order; a cycle is an error   | ◐      |
 | `module-let-cross-module` | module_init.md     | imported globals initialize before an importer's that use them | ✓   |
+| `const-manifest`    | module_init.md           | `const` must be compile-time evaluable; computed -> use `let`  | ✓      |
 
 ## Functions
 
