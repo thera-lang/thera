@@ -74,6 +74,16 @@ resolution_ below.)
     `fs.open`/`create` → `File` (`Reader`/`Writer`/`Seek`/`Closer`); `List.pop`
     also landed. Remaining: the rest of the "batteries included" goal
     (`std.log`, `std.term`), and sorted/`Ord`-keyed `Set`/`Map` variants.
+  - **`zip` iterator adapter** (and `flat_map`/`chain`, the other wrapped
+    adapters the `enumerate` parser extension opened). `zip(a, b)` pairs two
+    iterators; the **design dependency** is what it yields — Hawk has no tuple,
+    so it needs a blessed `Pair<A, B>` (the way `enumerate` yields `Indexed<T>`)
+    or settling the deferred `Tuple` open question (see
+    [language.md](language.md) → Types → Open questions). Motivated by the
+    `while i < xs.len()` parallel-index loops the ergonomics review found
+    ([ergonomics.md](ergonomics.md) → Secondary observations) — e.g.
+    `signatures_match`'s `i_params[i]` vs `o_params[i]`. Deferred with that
+    migration (no consumer until then); decide `Pair` vs `Tuple` first.
 - **Fibers — phases 3–4.** Phases 0–2 are done (scheduler-drivable `run_loop`;
   `spawn`/`join`/`yield` with GC roots across every fiber; buffered
   `Channel<T>`). Design in [architecture.md](architecture.md) §Concurrency.
@@ -445,6 +455,35 @@ resolution_ below.)
     `if let` desugars to an indistinguishable `match` — the `match → if let`
     suggester must not re-fire on already-`if let` code; mark the synthesized
     `MatchExpr` when the suggester is built). Sequence after `fmt`'s trivia work.
+  - **First step — a read-only count.** Before building any rewriter, a
+    diagnostic-only pass that *tallies* convertible sites per pattern (and
+    locates them) answers the open question the dogfooding raised: how many wins
+    actually remain? The `if let`/`let … else` migrations showed clean sites are
+    **sparser than expected**, so the count decides whether a full codemod is
+    worth it or whether opportunistic hand-migration suffices. Cheap (it reuses
+    the same AST shape-matching the suggester needs) and the natural MVP.
+  - **Ecosystem payoff.** These aren't one-off cleanups: the same
+    shape-matching + located-suggestion + auto-fix machinery is what a Hawk
+    `lint` / `hawk fix` is built from, and what the LSP surfaces as code actions.
+    Investing here (diagnostics that flag non-idiomatic code, with a mechanical
+    fix) pays off for every future idiom, not just this batch — so lean into it
+    rather than hand-editing files. Migration of existing code is **opportunistic
+    until then** (touch a file, modernize it); the standing guard is the lint.
+
+- **Idioms & best-practices guidance (agent-facing).** The language now has a
+  canonical form for each common shape (the _Choosing a form_ table in
+  [language.md](language.md), and the per-combinator "reach for it when…" docs),
+  but that is reference material. The open piece is **prescriptive guidance an
+  agent loads** — "write Hawk this way": prefer `if let`/`let … else`/`?`/
+  combinators over `match`-as-guard, `for`/`enumerate` over `while i <`, the
+  doc-comment conventions, etc. Surfaced by the ergonomics sprint, which found
+  that a lot of **existing** code predates these features and doesn't use them —
+  so idiomatic Hawk has to be written down somewhere consulted, not just implied.
+  Open question is **where**: (a) a section in [language.md](language.md), (b) a
+  separate `docs/idioms.md` (best-practices doc), or (c) a **skill / rules file**
+  an agent auto-loads (the most actionable for the LLM-native goal). Likely (c)
+  backed by (b). Pairs with _Tools — refactorings_: the doc says what's
+  idiomatic, the lint enforces it mechanically.
 
 ### Language features not yet built
 

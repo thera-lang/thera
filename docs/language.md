@@ -552,6 +552,24 @@ the present case and fall through otherwise.
 > statement (one that diverges only through nested branches isn't yet
 > recognized).
 
+### Choosing a form
+
+`Option` and `Result` can be handled several ways. Reach for the one that fits
+the shape — there is **one obvious choice per situation**:
+
+| situation                                  | use                                          |
+| ------------------------------------------ | -------------------------------------------- |
+| act on a present value (one variant)       | [`if let`](#if-let)                          |
+| bind for the rest of the block, else exit  | [`let … else`](#let--else)                   |
+| propagate the failure to the caller        | [`?`](#error-handling)                       |
+| transform or default a value inline        | a combinator — `map` / `and_then` / `unwrap_or` / `ok_or` / … |
+| genuinely choosing among ≥2 variants       | `match`                                      |
+
+Use `match` when you are truly branching on multiple variants. If you find
+yourself writing a `_ => {}` or `None => {}` catch-all only to satisfy
+exhaustiveness, one of the other forms is the better fit — that catch-all is the
+tell.
+
 ---
 
 ## Tail expressions

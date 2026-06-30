@@ -235,11 +235,9 @@ Note: even pre-existing combinators are underused (e.g.
 `unwrap_or` already covers), which argues for a `fmt`/lint nudge — folded into
 the _Tools — refactorings_ backlog (`match → combinator`).
 
-### The one-obvious-way guardrail
+### The one-obvious-way guardrail — ◐ docs done; agent rules/skill file open
 
-Once the paths above exist, **reinforce the canonical choice in the language
-docs**, and later capture concrete, prescriptive guidance for LLMs in a skill or
-rules file. The canonical choice per shape:
+The canonical choice per shape:
 
 | situation                            | canonical form                       |
 | ------------------------------------ | ------------------------------------ |
@@ -252,6 +250,18 @@ rules file. The canonical choice per shape:
 This guardrail is the point of the whole exercise: each addition only helps the
 LLM-native goal if it comes with a clear rule for _when_ to reach for it.
 
+**Status:** the table is now **inlined in [language.md](language.md)** (Control
+flow → _Choosing a form_), and each combinator carries a `///` "reach for it
+when…" doc, so the guidance lives where both humans and the LSP see it. The open
+piece is the **prescriptive, agent-facing version** — a best-practices / idioms
+doc or a rules/skill file that an agent loads — tracked as its own roadmap item
+(_Idioms & best-practices guidance_). It needs to cover not just these five
+forms but the broader observation the sprint surfaced: a lot of **existing** code
+predates these features and doesn't use them yet (the `while i < xs.len()`
+loops, the `match`-as-guard cascades), so "idiomatic Hawk" has to be written
+down somewhere an agent will actually consult, then enforced mechanically (see
+_Tools — refactorings_).
+
 ## Secondary observations (tracked, not yet scheduled)
 
 Lower-priority contributors to verbosity. Worth recording; address
@@ -261,7 +271,9 @@ opportunistically.
   parallel-index iteration (`i_params[i]` vs `o_params[i]` in
   [`signatures_match`](../pkgs/cli/checker/checker.hawk)) that wants a `zip`
   adapter; others just need an index and `enumerate()` (already exists) would
-  do. A `zip` iterator adapter would retire a chunk of these.
+  do. A `zip` iterator adapter would retire a chunk of these — **tracked** on
+  [roadmap.md](roadmap.md) (it has a `Pair`/tuple design dependency, since
+  Hawk has no tuple to yield pairs into).
 - **`return match … { … };` as a whole function body** (~214×). The
   most-repeated boilerplate after the Option arms. This follows from the
   deliberate decision that function bodies are _not_ expression position (so a
