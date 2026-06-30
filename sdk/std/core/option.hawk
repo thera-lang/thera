@@ -7,6 +7,13 @@
 //!
 //! The variant order is significant: it fixes the runtime tags (Some = 0,
 //! None = 1) shared with the bytecode runtime — do not reorder.
+//!
+//! Reaching for the right tool (see also `if let` / `let … else` in
+//! language.md): `if let` to act on a present value, `let … else` to bind or
+//! bail, and these combinators to transform or default a value inline —
+//! `map`/`and_then` to carry a computation through, `unwrap_or`/`unwrap_or_else`
+//! to exit with a default, `ok_or` to turn absence into a `Result`. Reserve
+//! `match` for genuinely choosing among variants.
 pub enum Option<T> {
     Some(T),
     None,
@@ -41,6 +48,48 @@ impl Option<T> {
         return match self {
             Some(_) => false,
             None => true,
+        };
+    }
+
+    /// Transform the contained value; `None` is unchanged — `Some(x)` becomes
+    /// `Some(f(x))`. Reach for it over a `match` to apply a pure function inline,
+    /// keeping the optional shape.
+    ///
+    /// ```hawk
+    /// let initial = name.map((s) => s.slice(0, 1));   // Option<String>
+    /// ```
+    pub fn map<U>(self, _ f: (T) -> U) -> Option<U> {
+        return match self {
+            Some(v) => Option.Some(f(v)),
+            None => Option.None,
+        };
+    }
+
+    /// Chain a fallible step: apply `f` (itself returning an `Option`) when
+    /// present, flattening the result. Reach for it over nested `match`/`map`
+    /// when the next step can also be absent.
+    ///
+    /// ```hawk
+    /// let port = config.get('port').and_then((s) => s.to_int());   // Option<Int>
+    /// ```
+    pub fn and_then<U>(self, _ f: (T) -> Option<U>) -> Option<U> {
+        return match self {
+            Some(v) => f(v),
+            None => Option.None,
+        };
+    }
+
+    /// The contained value if present, else the result of calling `f`. Reach for
+    /// it over `unwrap_or` when the fallback is expensive or has a side effect —
+    /// `f` runs only on `None`.
+    ///
+    /// ```hawk
+    /// let conf = cached.unwrap_or_else(() => load_config());
+    /// ```
+    pub fn unwrap_or_else(self, _ f: () -> T) -> T {
+        return match self {
+            Some(v) => v,
+            None => f(),
         };
     }
 }

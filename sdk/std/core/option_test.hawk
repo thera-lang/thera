@@ -43,6 +43,36 @@ fn test_ok_or_none_becomes_err() -> Result<Void, Error> {
 }
 
 @test
+fn test_map() -> Result<Void, Error> {
+    let some = Option.Some(5);
+    let none: Option<Int> = Option.None;
+    testing.assert_eq(actual: some.map((n) => n * 2).unwrap_or(0), expected: 10)?;
+    testing.assert_eq(actual: none.map((n) => n * 2).unwrap_or(-1), expected: -1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_and_then() -> Result<Void, Error> {
+    let some = Option.Some(5);
+    let none: Option<Int> = Option.None;
+    // Chains only when present; the step itself may yield None.
+    testing.assert_eq(actual: some.and_then((n) => Option.Some(n + 1)).unwrap_or(0), expected: 6)?;
+    let dropped: Option<Int> = some.and_then((_n) => Option.None);
+    testing.assert(dropped.is_none())?;
+    testing.assert(none.and_then((n) => Option.Some(n + 1)).is_none())?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_unwrap_or_else() -> Result<Void, Error> {
+    let some = Option.Some(7);
+    let none: Option<Int> = Option.None;
+    testing.assert_eq(actual: some.unwrap_or_else(() => 99), expected: 7)?;
+    testing.assert_eq(actual: none.unwrap_or_else(() => 99), expected: 99)?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_display() -> Result<Void, Error> {
     // `Some(x)` renders the payload via `Debug`; `None` is bare.
     testing.assert_eq(actual: '${Option.Some(5)}', expected: 'Some(5)')?;

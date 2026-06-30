@@ -1,0 +1,70 @@
+//! Tests for Result's combinator methods (implemented in Hawk over `match`).
+
+import std.testing;
+
+@test
+fn test_is_ok_and_is_err() -> Result<Void, Error> {
+    let ok: Result<Int, String> = Result.Ok(1);
+    let err: Result<Int, String> = Result.Err('boom');
+    testing.assert(ok.is_ok())?;
+    testing.assert(!ok.is_err())?;
+    testing.assert(err.is_err())?;
+    testing.assert(!err.is_ok())?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_map() -> Result<Void, Error> {
+    let ok: Result<Int, String> = Result.Ok(3);
+    let err: Result<Int, String> = Result.Err('boom');
+    // map transforms Ok, leaves Err untouched.
+    testing.assert_eq(actual: ok.map((n) => n + 10).unwrap_or(0), expected: 13)?;
+    testing.assert_eq(actual: err.map((n) => n + 10).unwrap_or(-1), expected: -1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_map_err() -> Result<Void, Error> {
+    let err: Result<Int, String> = Result.Err('boom');
+    let wrapped = err.map_err((e) => 'wrapped: ${e}');
+    match wrapped {
+        Ok(_) => throw error('Err should stay Err'),
+        Err(e) => testing.assert_eq(actual: e, expected: 'wrapped: boom')?,
+    }
+    // Ok is untouched by map_err.
+    let ok: Result<Int, String> = Result.Ok(5);
+    testing.assert_eq(actual: ok.map_err((e) => 'x: ${e}').unwrap_or(0), expected: 5)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_and_then() -> Result<Void, Error> {
+    let ok: Result<Int, String> = Result.Ok(3);
+    let err: Result<Int, String> = Result.Err('boom');
+    testing.assert_eq(actual: ok.and_then((n) => Result.Ok(n * n)).unwrap_or(0), expected: 9)?;
+    // Short-circuits on Err without calling f.
+    testing.assert_eq(actual: err.and_then((n) => Result.Ok(n * n)).unwrap_or(-1), expected: -1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_unwrap_or_and_else() -> Result<Void, Error> {
+    let ok: Result<Int, String> = Result.Ok(3);
+    let err: Result<Int, String> = Result.Err('boom');
+    testing.assert_eq(actual: ok.unwrap_or(-1), expected: 3)?;
+    testing.assert_eq(actual: err.unwrap_or(-1), expected: -1)?;
+    // unwrap_or_else sees the error.
+    testing.assert_eq(actual: ok.unwrap_or_else((e) => e.len()), expected: 3)?;
+    testing.assert_eq(actual: err.unwrap_or_else((e) => e.len()), expected: 4)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_ok_conversion() -> Result<Void, Error> {
+    let ok: Result<Int, String> = Result.Ok(7);
+    let err: Result<Int, String> = Result.Err('boom');
+    testing.assert(ok.ok().is_some())?;
+    testing.assert_eq(actual: ok.ok().unwrap_or(0), expected: 7)?;
+    testing.assert(err.ok().is_none())?;
+    return Result.Ok(void);
+}

@@ -200,21 +200,31 @@ interaction with `Result`-returning functions:
 Lean toward option 1 (one obvious way; `?` propagates the _same_ type, and
 cross-type conversions stay explicit), but settle it during design.
 
-### P2 — round out the Option/Result combinators
+### P2 — round out the Option/Result combinators — ✅ landed
 
 Handles the value-transforming cases that neither `if let` nor `let … else`
-address, and chains well (json navigation already wants this). Keep the set
-**small and deliberate** — do _not_ port all of Rust's surface. Candidate set:
+address, and chains well (json navigation already wants this). The set was kept
+**small and deliberate** — _not_ a port of all of Rust's surface.
 
-- `Option`: `map`, `and_then`, `unwrap_or_else` (have
-  `ok_or`/`unwrap_or`/`is_some`/`is_none`).
-- `Result`: `is_ok`, `is_err`, `map`, `map_err`, `and_then`, `unwrap_or`,
-  `unwrap_or_else`, `ok` (→ `Option`). Result has zero methods today.
+**Status:** shipped (the **Curated** set), pure Hawk over `match`:
 
-Note: even existing combinators are underused (e.g.
+- `Option` (added): `map`, `and_then`, `unwrap_or_else` — keeping
+  `is_some`/`is_none`/`unwrap_or`/`ok_or`.
+- `Result` (added, it had none): `is_ok`, `is_err`, `map`, `map_err`,
+  `and_then`, `unwrap_or`, `unwrap_or_else`, `ok` (→ `Option`).
+
+Each carries a `///` doc with a **summary + "reach for it when…" clause + a
+one-line example**, so the choice between combinator / `if let` / `let … else` /
+`?` / `match` is documented at the call site; the module `//!` docs of
+[option.hawk](../sdk/std/core/option.hawk) / [result.hawk](../sdk/std/core/result.hawk)
+add the same canonical-choice framing. Tests in `core/option_test.hawk` /
+`core/result_test.hawk`. Deliberately deferred (add only if real code asks):
+`Option.or_else`/`filter`/`map_or`, `Result.err`/`or_else`.
+
+Note: even pre-existing combinators are underused (e.g.
 [json `write_object`](../sdk/std/json/json.hawk) hand-writes a `match` that
-`unwrap_or` already covers), which argues for a `fmt`/lint nudge alongside the
-new methods.
+`unwrap_or` already covers), which argues for a `fmt`/lint nudge — folded into
+the _Tools — refactorings_ backlog (`match → combinator`).
 
 ### The one-obvious-way guardrail
 

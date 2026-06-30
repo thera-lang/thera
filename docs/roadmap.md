@@ -470,14 +470,18 @@ resolution_ below.)
   `match X { Some(v) => { …; return …; }, None => {} }` (~323 sites corpus-wide;
   ~279 noise `None => {}` arms) — "look up, act-and-return, else fall through."
   **Full analysis + prioritized plan in [ergonomics.md](ergonomics.md):** P0
-  `if let` and P1 `let … else` are **landed** (both parser desugars to `match`;
-  specs `cf-if-let` / `cf-let-else`). Remaining: P2 `?`-on-`Option` (needs
-  `Result`-interaction design) and a curated combinator set, governed by a
-  one-obvious-way guardrail (a canonical form per shape, reinforced in the docs).
-  Evaluate by what's best for **LLMs** — terseness, expressiveness, and _one_
-  obvious way to do a thing. (Surfaced by the pkgs/ code review.) The
-  cascade-cleanup refactorings these unlock are tracked under _Front-end /
-  tooling → Tools — refactorings_.
+  `if let`, P1 `let … else` (both parser desugars to `match`; specs `cf-if-let` /
+  `cf-let-else`), and the P2 **curated combinator set** (Option `map`/`and_then`/
+  `unwrap_or_else`; Result `is_ok`/`is_err`/`map`/`map_err`/`and_then`/
+  `unwrap_or`/`unwrap_or_else`/`ok`, each with when-to-use docs) are **landed**.
+  Remaining: P2 `?`-on-`Option` (needs `Result`-interaction design), governed by
+  a one-obvious-way guardrail (a canonical form per shape, reinforced in the
+  docs). Evaluate by what's best for **LLMs** — terseness, expressiveness, and
+  _one_ obvious way to do a thing. (Surfaced by the pkgs/ code review.) The
+  cascade-cleanup refactorings these unlock — now the **highest-value remaining
+  item**, since the `if let`/`let … else` dogfooding showed convertible sites are
+  sparse and only a count will tell us how many remain — are tracked under
+  _Front-end / tooling → Tools — refactorings_.
 
 - **Generic operators** (`<T: Add>`, operators-as-traits) — the remaining piece
   of the generics arc (bound enforcement + `call.virtual` dispatch on `T` are

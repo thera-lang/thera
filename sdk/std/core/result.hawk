@@ -8,9 +8,122 @@
 //!
 //! The variant order is significant: it fixes the runtime tags (Ok = 0,
 //! Err = 1) shared with the bytecode runtime — do not reorder.
+//!
+//! Reaching for the right tool: `?` to propagate a failure to the caller (the
+//! usual move in a `Result`-returning function); the combinators below to work
+//! with a result inline — `map` to adapt the success, `map_err` to wrap the
+//! error before propagating, `and_then` to chain another fallible step,
+//! `unwrap_or`/`unwrap_or_else` to exit with a default, `ok` to drop the error
+//! to an `Option`. Reserve `match` for handling both arms at a boundary.
 pub enum Result<T, E> {
     Ok(T),
     Err(E),
+}
+
+impl Result<T, E> {
+    /// Whether this is `Ok`. (To use the value, prefer `?` or `match`; this is
+    /// for a plain boolean check.)
+    ///
+    /// ```hawk
+    /// if parse(s).is_ok() { … }
+    /// ```
+    pub fn is_ok(self) -> Bool {
+        return match self {
+            Ok(_) => true,
+            Err(_) => false,
+        };
+    }
+
+    /// Whether this is `Err`.
+    ///
+    /// ```hawk
+    /// if parse(s).is_err() { … }
+    /// ```
+    pub fn is_err(self) -> Bool {
+        return match self {
+            Ok(_) => false,
+            Err(_) => true,
+        };
+    }
+
+    /// Transform the `Ok` value, leaving an `Err` unchanged. Reach for it to
+    /// adapt a success value without unwrapping or touching the error.
+    ///
+    /// ```hawk
+    /// let doubled = parse(s).map((n) => n * 2);   // Result<Int, E>
+    /// ```
+    pub fn map<U>(self, _ f: (T) -> U) -> Result<U, E> {
+        return match self {
+            Ok(v) => Result.Ok(f(v)),
+            Err(e) => Result.Err(e),
+        };
+    }
+
+    /// Transform the `Err` value, leaving an `Ok` unchanged. Reach for it to wrap
+    /// a low-level error in a domain error before propagating with `?`.
+    ///
+    /// ```hawk
+    /// let n = read(path).map_err((e) => ConfigError.Io(e))?;
+    /// ```
+    pub fn map_err<F>(self, _ f: (E) -> F) -> Result<T, F> {
+        return match self {
+            Ok(v) => Result.Ok(v),
+            Err(e) => Result.Err(f(e)),
+        };
+    }
+
+    /// Chain a fallible step: apply `f` (itself returning a `Result`) on `Ok`,
+    /// flattening; short-circuits on `Err`. In a `Result`-returning function `?`
+    /// is usually clearer — reach for `and_then` in expression position.
+    ///
+    /// ```hawk
+    /// let v = parse(s).and_then((n) => in_range(n));   // Result<Int, E>
+    /// ```
+    pub fn and_then<U>(self, _ f: (T) -> Result<U, E>) -> Result<U, E> {
+        return match self {
+            Ok(v) => f(v),
+            Err(e) => Result.Err(e),
+        };
+    }
+
+    /// The `Ok` value, or `fallback` on `Err`. Reach for it to supply a default
+    /// and discard the error.
+    ///
+    /// ```hawk
+    /// let port = parse(s).unwrap_or(8080);
+    /// ```
+    pub fn unwrap_or(self, _ fallback: T) -> T {
+        return match self {
+            Ok(v) => v,
+            Err(_) => fallback,
+        };
+    }
+
+    /// The `Ok` value, or the result of `f` applied to the error. Reach for it
+    /// over `unwrap_or` when the fallback depends on the error (or is expensive).
+    ///
+    /// ```hawk
+    /// let n = parse(s).unwrap_or_else((e) => default_for(e));
+    /// ```
+    pub fn unwrap_or_else(self, _ f: (E) -> T) -> T {
+        return match self {
+            Ok(v) => v,
+            Err(e) => f(e),
+        };
+    }
+
+    /// Discard the error, converting to an `Option`: `Ok(v)` → `Some(v)`,
+    /// `Err(_)` → `None`. Reach for it when only presence matters, not the error.
+    ///
+    /// ```hawk
+    /// let maybe = parse(s).ok();   // Option<Int>
+    /// ```
+    pub fn ok(self) -> Option<T> {
+        return match self {
+            Ok(v) => Option.Some(v),
+            Err(_) => Option.None,
+        };
+    }
 }
 
 impl Display for Result<T, E> {
