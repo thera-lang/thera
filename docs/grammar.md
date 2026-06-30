@@ -214,6 +214,9 @@ statement = letStmt | constStmt | returnStmt | throwStmt
           | ifStmt | forStmt | whileStmt | assignOrExpr
 
 letStmt   = 'let' 'mut'? IDENT (':' type)? '=' expr ';'
+          | 'let' pattern '=' expr 'else' block ';'?      // `let … else` guard;
+            // refutable (uppercase) pattern, `else` must diverge; desugars to
+            // `match`. v1: binds ≤1 variable.
 constStmt = 'const' IDENT (':' type)? '=' expr ';'       // a local immutable binding
 returnStmt= 'return' expr? ';'
 throwStmt = 'throw' expr ';'

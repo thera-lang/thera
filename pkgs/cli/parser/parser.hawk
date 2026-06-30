@@ -1139,6 +1139,12 @@ impl Parser {
 
     fn parse_let_stmt(self) -> Stmt {
         let start = self.advance(); // 'let'
+        // `let PATTERN = e else { … }` — bind a refutable (constructor) pattern,
+        // running the `else` (which must diverge) when it doesn't match. Triggered
+        // by an uppercase binding target; a lowercase name is an ordinary binding.
+        if self.at_refutable_let() {
+            return self.parse_let_else(start);
+        }
         let is_mut = self.match_kind(TokenKind.KwMut);
         let name_tok = self.expect(TokenKind.Identifier, 'variable name');
         let mut type_ann = Option.None;
@@ -1156,6 +1162,85 @@ impl Parser {
             name_span: name_tok.span,
             type_ann: type_ann,
             value: value,
+        });
+    }
+
+    // Whether the binding target after `let` is a refutable (constructor)
+    // pattern — an uppercase identifier — marking a `let … else`. A lowercase
+    // name is an ordinary irrefutable binding (the normal `let`).
+    fn at_refutable_let(self) -> Bool {
+        if !self.check(TokenKind.Identifier) {
+            return false;
+        }
+        let cs = self.current().lexeme().chars();
+        return cs.len() > 0 && char.is_upper(cs[0]);
+    }
+
+    // `let PATTERN = SUBJECT else { … }` — desugars to a `match` that binds the
+    // pattern (the success arm) or runs the `else` (the wildcard arm). The `else`
+    // must diverge (`return`/`throw`) so the binding is guaranteed in the rest of
+    // the block — this flattens the "bind-or-bail" guard cascade. A single-variable
+    // pattern yields `let v = match …`; a no-binding pattern (an assertion, e.g.
+    // `let Ok(_) = r else …`) yields a bare `match` statement. (v1: at most one
+    // binding; use `match` for multiple.) `start` is the consumed `let` token.
+    fn parse_let_else(self, _ start: Token) -> Stmt {
+        let pattern = self.parse_pattern();
+        self.expect(TokenKind.Eq, '=');
+        let subject = self.parse_expr();
+        self.expect(TokenKind.KwElse, 'else');
+        let else_block = self.parse_block();
+        self.match_kind(TokenKind.Semi); // tolerate a trailing ';'
+        if !block_diverges(else_block) {
+            self.fail_at(
+                'the `else` of a `let … else` must exit the block (end in `return` or `throw`)',
+                block_span(else_block));
+        }
+        let span = start.span.cover(block_span(else_block));
+        let else_arm = MatchArm {
+            span: block_span(else_block),
+            pattern: Pattern.Wildcard(span),
+            body: Expr.Block(block_span(else_block), else_block),
+        };
+        let binds: List<Pattern> = [];
+        collect_binding_idents(pattern, binds);
+        if binds.len() > 1 {
+            self.fail_at(
+                '`let … else` binds a single variable; use `match` for multiple bindings',
+                span);
+        }
+        if binds.len() == 0 {
+            // Assertion form: refute-or-diverge, binding nothing.
+            let ok_arm = MatchArm {
+                span: pattern_span(pattern),
+                pattern: pattern,
+                body: Expr.Block(span, Block {
+                    start_span: span, end_span: span, stmts: [], tail: Option.None,
+                }),
+            };
+            return Stmt.Expr(span, Expr.Match(MatchExpr {
+                span: span, subject: subject, arms: [ok_arm, else_arm],
+            }));
+        }
+        // Single binding: `let v = match subject { PATTERN => v, _ => { else } };`
+        let name = match binds[0] {
+            Ident(_, n) => n,
+            _ => '_',
+        };
+        let name_span = pattern_span(binds[0]);
+        let ok_arm = MatchArm {
+            span: pattern_span(pattern),
+            pattern: pattern,
+            body: Expr.Ident(name_span, name),
+        };
+        return Stmt.Let(LetStmt {
+            span: span,
+            is_mut: false,
+            name: name,
+            name_span: name_span,
+            type_ann: Option.None,
+            value: Expr.Match(MatchExpr {
+                span: span, subject: subject, arms: [ok_arm, else_arm],
+            }),
         });
     }
 
@@ -2046,6 +2131,37 @@ fn is_block_terminated(_ e: Expr) -> Bool {
     return match e {
         Match(_) => true,
         If(_) => true,
+        _ => false,
+    };
+}
+
+// Collect a pattern's binding (Ident) leaves — the variables it introduces.
+// Constructor args recurse; wildcards, literals, and zero-arg constructors bind
+// nothing. Used by `let … else` to find the single bound variable.
+fn collect_binding_idents(_ p: Pattern, _ out: List<Pattern>) -> Void {
+    match p {
+        Ident(_, _) => { out.push(p); },
+        Constructor(_, _, args) => {
+            for a in args {
+                collect_binding_idents(a, out);
+            }
+        },
+        Wildcard(_) => {},
+        Literal(_, _) => {},
+    }
+}
+
+// Whether a statement block is guaranteed to exit — its last statement is a
+// `return` or `throw`. Conservative: a block that diverges only through nested
+// branches isn't recognized (end the `else` in `return`/`throw`). Backs the
+// `let … else` requirement that the `else` diverge.
+fn block_diverges(_ b: Block) -> Bool {
+    if b.stmts.len() == 0 {
+        return false;
+    }
+    return match b.stmts[b.stmts.len() - 1] {
+        Return(_, _) => true,
+        Throw(_, _) => true,
         _ => false,
     };
 }

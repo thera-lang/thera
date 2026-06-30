@@ -151,10 +151,22 @@ Generalizes to any enum, not just `Option`, so it stays _one mechanism_.
 Patterns stay bare (`Some(ref)`), consistent with `match`. An `else` clause
 makes it a full conditional (`if let … { } else { }`).
 
-### P1 — `let … else` (guard / bind-or-diverge)
+### P1 — `let … else` (guard / bind-or-diverge) — ✅ landed
 
 Flattens the sequential-guard cascade and — important for LLMs — _linearizes_
 it: the happy path stays un-indented, no nesting to track.
+
+**Status:** shipped. Like `if let`, a **parser desugar** to `match` (the success
+arm binds; the wildcard arm runs the `else`), so no new checker/inference/codegen
+node. The `else` must diverge (`return`/`throw`), enforced at parse time, which
+keeps the binding guaranteed below. Triggered by a refutable (uppercase)
+pattern, so `let x = …` is untouched. Spec `cf-let-else` / `cf-let-else-diverge`;
+documented in [language.md](language.md) (Control flow → `let … else`) and
+[grammar.md](grammar.md). **v1 limitations** (noted for follow-up): binds at most
+one variable (no tuples → use `match` for several), and the divergence check is
+syntactic (last statement is `return`/`throw`; nested-branch divergence isn't
+recognized). The guard-cascade **migration** (38× in inference, 28× in checker)
+is deferred to the codemod — see _Tools — refactorings_ in [roadmap.md](roadmap.md).
 
 ```hawk
 let Some(iface_name) = decl.interface_name else { return; };

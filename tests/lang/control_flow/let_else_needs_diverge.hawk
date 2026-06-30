@@ -1,0 +1,11 @@
+//! spec: cf-let-else-diverge
+//! mode: check
+
+fn f(_ o: Option<Int>) -> Int {
+    // The `else` of a `let … else` must diverge (end in `return` or `throw`), so
+    // the binding is guaranteed below — a non-diverging `else` is rejected.
+    let Some(n) = o else {   // expect error: must exit the block
+        println('nope');
+    };
+    return n;
+}

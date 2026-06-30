@@ -1,0 +1,48 @@
+//! spec: cf-let-else
+//! mode: run
+
+// `let PATTERN = SUBJECT else { … }` binds the pattern for the rest of the block,
+// running the `else` (which must diverge) when the subject doesn't match — the
+// "bind-or-bail" guard. Single binding, sequential guards, `throw`-diverge, and
+// the no-binding assertion form.
+
+fn need(_ o: Option<Int>) -> Int {
+    let Some(n) = o else {
+        return -1;
+    };
+    return n * 2;
+}
+
+// Sequential guards keep the happy path un-indented.
+fn two(_ a: Option<Int>, _ b: Option<Int>) -> Int {
+    let Some(x) = a else { return 100; };
+    let Some(y) = b else { return 200; };
+    return x + y;
+}
+
+// A Result pattern, diverging with `throw`.
+fn checked(_ o: Option<Int>) -> Result<Int, Error> {
+    let Some(n) = o else {
+        throw error('absent');
+    };
+    return n + 1;
+}
+
+// The no-binding assertion form: refute-or-diverge, binds nothing.
+fn assert_ok(_ r: Result<Int, Error>) -> String {
+    let Ok(_) = r else {
+        return 'err';
+    };
+    return 'ok';
+}
+
+fn main() -> Int {
+    println('${need(Option.Some(21))}');                // expect: 42
+    println('${need(Option.None)}');                    // expect: -1
+    println('${two(Option.Some(3), Option.Some(4))}');  // expect: 7
+    println('${two(Option.Some(3), Option.None)}');     // expect: 200
+    println('${checked(Option.Some(41))?}');            // expect: 42
+    println(assert_ok(Result.Ok(1)));                   // expect: ok
+    println(assert_ok(Result.Err(error('x'))));         // expect: err
+    return 0;
+}

@@ -494,6 +494,39 @@ used). Reach for `if let` over `match` when you care about **one** variant and
 would otherwise write a `_ => {}` catch-all; reach for `match` when you are
 genuinely choosing among several variants.
 
+### `let … else`
+
+`let PATTERN = SUBJECT else { … }` binds the pattern's variable for the **rest of
+the block** when the subject matches, and runs the `else` block when it doesn't.
+The `else` must **diverge** (end in `return` or `throw`) — that is what
+guarantees the binding is available below. It is the **bind-or-bail guard**: the
+way to pull a value out of an `Option`/`Result` and handle absence up front,
+keeping the happy path un-indented.
+
+```hawk
+fn read_port(args: Args) -> Result<Int, Error> {
+    let Some(arg) = args.positional(0) else {
+        throw error('usage: serve <port>');
+    };
+    let Some(port) = arg.to_int() else {
+        throw error('port must be a number');
+    };
+    return port;
+}
+```
+
+A no-binding pattern is allowed as a pure assertion (`let Ok(_) = r else { … };`).
+The binding target is a refutable (constructor) pattern — an uppercase
+`Some`/`Ok`/… — which is how it is told apart from an ordinary `let x = …`.
+Reach for `let … else` over `if let` when the match should bind for the rest of
+the function and the failure case exits; reach for `if let` when you act only in
+the present case and fall through otherwise.
+
+> v1 limitations: the pattern binds **at most one** variable (use `match` for
+> several), and the `else` block must end in a literal `return`/`throw`
+> statement (one that diverges only through nested branches isn't yet
+> recognized).
+
 ---
 
 ## Tail expressions
