@@ -44,9 +44,9 @@ enough to reduce hallucination.
    barrel) — with Hawk tests beside it as `<name>_test.hawk`.
 
 3. **I/O is `Reader`/`Writer` underneath, whole-value on top.** Streaming is one
-   protocol — the `Reader` / `Writer` / `Closer` interfaces in `std.io` (§ Core
-   types). Files, process pipes, sockets, and in-memory buffers all implement
-   them, so `io.copy`, `io.read_all`, and line iteration work against any
+   protocol — the `Reader` / `Writer` / `Closer` / `Seek` interfaces in `std.io`
+   (§ Core types). Files, process pipes, sockets, and in-memory buffers all
+   implement them, so `io.copy`, `io.read_all`, and `io.lines` work against any
    source. Whole-value conveniences (`fs.read_text`, `fs.write_text`) are thin
    wrappers for the common case. **There is exactly one streaming abstraction.**
 
@@ -226,28 +226,32 @@ even per-namespace resolution can't disambiguate). `Error` is an interface
 Each entry: **purpose**, **key types**, **representative API** (illustrative,
 not exhaustive), and **status** (`exists` / `partial` / `new`).
 
-### `std.io` — streaming I/O foundation _(v1 implemented, pure Hawk)_
+### `std.io` — streaming I/O foundation _(implemented, pure Hawk)_
 
-Purpose: the `Reader`/`Writer`/`Closer` interfaces, the standard streams, and
-the generic combinators every other I/O module builds on. Everything streams as
-`Bytes`. Implemented in pure Hawk over the interface-dispatch arc (the
-combinators take interface-typed parameters); three small stream natives back
-stdin/stdout/stderr.
+Purpose: the `Reader`/`Writer`/`Closer`/`Seek` interfaces, the standard streams,
+line iteration, and the generic combinators every other I/O module builds on.
+Everything streams as `Bytes`. Implemented in pure Hawk over the
+interface-dispatch arc (the combinators take interface-typed parameters); small
+stream natives back stdin/stdout/stderr.
 
 ```
 pub interface Reader { fn read(self, max: Int) -> Result<Bytes, Error>; }   // empty = EOF
 pub interface Writer { fn write(self, _ data: Bytes) -> Result<Int, Error>; }
 pub interface Closer { fn close(self) -> Result<Void, Error>; }
+pub enum SeekFrom { Start(Int), Current(Int), End(Int) }
+pub interface Seek { fn seek(self, _ to: SeekFrom) -> Result<Int, Error>; }   // new offset
 pub enum IoError { Eof, Other(String) }                       // implements Error
 
 // Standard streams (stdin: Reader, stdout/stderr: Writer).
 pub fn stdin() -> Reader;  pub fn stdout() -> Writer;  pub fn stderr() -> Writer;
 
-// Combinators over any Reader/Writer.
+// Combinators over any Reader/Writer; line iteration over any Reader.
 pub fn read_all(_ src: Reader) -> Result<Bytes, Error>;
 pub fn copy(to dst: Writer, from src: Reader) -> Result<Int, Error>;
+pub fn lines(_ src: Reader) -> BufReader;   // BufReader: Iterator<String> (+ read_line/error)
 
-// In-memory Writer that captures output (and the test double for any Writer).
+// In-memory Reader/Writer (test doubles for any Reader/Writer).
+pub fn from_string(_ s: String) -> Reader;  pub fn from_bytes(_ data: Bytes) -> Reader;
 pub struct StringWriter { /* wraps a BytesBuilder */ }
 impl StringWriter { fn new(); fn into_string() -> Result<String, Error>; fn into_bytes() -> Bytes; }
 ```
@@ -271,9 +275,10 @@ a follow-up.)
 ### `std.fs` — filesystem _(implemented, incl. streaming files)_
 
 Purpose: files and directories. Whole-value reads for the common case; streaming
-`open` is a planned v2. Paths are plain `String`s (compose with `std.path`);
-directory entries are basenames (join with `path.join(dir, name)` to descend).
-Every fallible call returns a per-domain `FsError` you can `match` on.
+`open`/`create` for line-by-line or large files. Paths are plain `String`s
+(compose with `std.path`); directory entries are basenames (join with
+`path.join(dir, name)` to descend). Every fallible call returns a per-domain
+`FsError` you can `match` on.
 
 ```
 // Whole-value (conveniences) — implemented.
@@ -391,9 +396,10 @@ pub fn system_env() -> Env;
 ```
 
 Note: `OS` is a function (`os()`), not a `const` — it is a runtime/platform
-value, and Hawk has no load-time init to materialize a `const` from one
-(planned: [module_init.md](module_init.md) would let `os()` be captured once
-into a global). `exit` is typed `Void` until a `Never` type lands. `Env` is the
+value. Module initializers now exist ([module_init.md](module_init.md)), but an
+*effectful* native like `os()` is excluded from initializer position, so
+capturing it once into a global awaits the process-stable-ambient-native phase
+(see the roadmap). `exit` is typed `Void` until a `Never` type lands. `Env` is the
 second instance of the ambient-capability pattern after `time.Clock` (see
 [testability.md](testability.md)).
 
@@ -1026,12 +1032,12 @@ dependency graph, so future work lands in the right order:
    - Generic bound enforcement (`<T: Display>`, `<T: Eq + Debug>`) used by
      `std.testing` and generic combinators.
 
-2. **`Bytes` core type + `Reader`/`Writer` interfaces — done (v1).** `Bytes` +
-   `BytesBuilder` + `BytesReader` are runtime-backed/pure-Hawk prelude types,
-   and `std.io` ships the `Reader`/`Writer`/`Closer` interfaces,
-   `read_all`/`copy`, the standard streams, and `StringWriter`. Deferred:
-   `lines`/`Iterator`, streaming files, the typed `read_u16_le`/be reader
-   family.
+2. **`Bytes` core type + `Reader`/`Writer`/`Seek` interfaces — done.** `Bytes` +
+   `BytesBuilder` + `BytesReader` are runtime-backed/pure-Hawk prelude types, and
+   `std.io` ships the `Reader`/`Writer`/`Closer`/`Seek` interfaces,
+   `read_all`/`copy`, the standard streams, `StringWriter`, `from_string`/
+   `from_bytes`, and `lines`/`BufReader`; `fs.open`/`create` give a streaming
+   `File`. Deferred: the typed `read_u16_le`/be reader family.
 
 3. **Lazy `Iterator<T>` — done (v1).** `Iterator<T>` is a **generic interface**
    in the prelude (Hawk's first),

@@ -27,7 +27,8 @@ functions + recursion, **closures**, enums (`Result`/`Option` as ordinary
 `std.core` enums, with `?`/`match`/implicit-`Ok`), structs + a type table,
 `List`/`Map`/`Set`, and **interface dispatch** — static on concrete types,
 dynamic (`call.virtual` + a type-id-keyed table) for interface-typed values and
-bounded generics, with bounds enforced at call sites. Natives are bound by name
+bounded generics, with bounds enforced at call sites and **default methods** on
+interfaces. Natives are bound by name
 at load (the native ABI). Bytecode serializes to `.hawkbc` (header + sections,
 LEB128, string constant pool). A first cut of **cooperative fibers**
 (`std.fiber`) is in: `spawn`/`join`/`yield` + buffered channels.
@@ -65,9 +66,13 @@ _Owner-correct type resolution_ below.)
   pure Hawk, round-trips the writer). (`slice` on `String`/`List`/`Bytes` was
   already there.) The `Ord` interface + `std.sort` (`sorted`/`min`/`max`) are now
   in — see _Completed_. `std.encoding` (base64/hex/url, pure Hawk), `std.hash`
-  (native digests), and `std.regex` (the `regex` crate) are in too. Remaining: the
-  rest of the "batteries included" goal (`std.log`, `std.term`), and
-  sorted/`Ord`-keyed `Set`/`Map` variants.
+  (native digests), and `std.regex` (the `regex` crate) are in too. The **lazy
+  iteration arc** has landed: `Iterator<T>` with `map`/`filter`/`take`/`enumerate`
+  + `collect`/`count` as **interface default methods**, the `std.iter` sources,
+  and its first consumers — `io.lines`/`BufReader`, `fs.walk`, and streaming
+  `fs.open`/`create` → `File` (`Reader`/`Writer`/`Seek`/`Closer`); `List.pop` also
+  landed. Remaining: the rest of the "batteries included" goal (`std.log`,
+  `std.term`), and sorted/`Ord`-keyed `Set`/`Map` variants.
 - **Fibers — phases 3–4.** Phases 0–2 are done (scheduler-drivable `run_loop`;
   `spawn`/`join`/`yield` with GC roots across every fiber; buffered
   `Channel<T>`). Design in [architecture.md](architecture.md) §Concurrency.
@@ -129,10 +134,13 @@ _Owner-correct type resolution_ below.)
 - **Native resource finalization — GC-owned `Obj::Foreign` (Drop on sweep).**
   Native-backed resources currently live in a process-global registry keyed by an
   `Int` handle the Hawk wrapper holds (`std.regex` compiled patterns;
-  `std.process` children). The registry is never pruned, so a `Regex` that becomes
-  unreachable **leaks** its compiled engine — benign for the compile-a-handful-at-
-  startup norm, but unbounded for dynamic compilation (e.g. a server compiling
-  user-supplied patterns in a loop). The fix is **not** Hawk-level finalizers
+  `std.process` children; `std.fs` open `File`s). The registry is never pruned, so
+  a `Regex` that becomes unreachable **leaks** its compiled engine — benign for the
+  compile-a-handful-at-startup norm, but unbounded for dynamic compilation (e.g. a
+  server compiling user-supplied patterns in a loop). `std.fs.File` already
+  follows the guidance below (explicit `close()` frees its fd; an unclosed file
+  leaks until exit) — the GC-drop **backstop** is the part still missing. The fix
+  is **not** Hawk-level finalizers
   (resurrection / ordering / latency footguns) **nor** a finalizer-closure
   registry, but letting a Hawk object *own* the Rust resource: add an
   `Obj::Foreign` variant that holds the resource, and the existing sweep's
@@ -539,6 +547,16 @@ conformance specs. Newest first.
   Box<T: Display>`) still parse. With it, `Iterator` gained the `enumerate`
   adapter (`-> Iterator<Indexed<T>>`, pairing each element with its index); the
   same parser extension opens future wrapped adapters (`zip`/`flat_map`/`chain`).
+
+- **Iterator-backed stdlib — `io.lines`/`BufReader`, `fs.walk`, `List.pop`**
+  (2026-06). The first consumers of the new adapters. `io.lines(src)` returns a
+  `BufReader` (a `Reader` wrapper yielding one line per `next`, so an
+  `Iterator<String>`; `read_line` is the explicit-error primitive); plus an
+  in-memory `io.from_string`/`from_bytes` Reader. `fs.walk(root)` is a lazy
+  recursive `Iterator<String>` of descendant paths (unreadable dirs skipped,
+  first failure kept for `.error()`). `List.pop() -> Option<T>` (a `list_pop`
+  native) — the mutating companion of `last()`, chosen `Option` for consistency
+  with `get`/`first`/`last`.
 
 - **Module initializers — computed-once immutable globals** (2026-06). Top-level
   `let NAME[: T] = expr;` computed once at load into a stored global slot. Runtime
