@@ -28,10 +28,10 @@ functions + recursion, **closures**, enums (`Result`/`Option` as ordinary
 `List`/`Map`/`Set`, and **interface dispatch** — static on concrete types,
 dynamic (`call.virtual` + a type-id-keyed table) for interface-typed values and
 bounded generics, with bounds enforced at call sites and **default methods** on
-interfaces. Natives are bound by name
-at load (the native ABI). Bytecode serializes to `.hawkbc` (header + sections,
-LEB128, string constant pool). A first cut of **cooperative fibers**
-(`std.fiber`) is in: `spawn`/`join`/`yield` + buffered channels.
+interfaces. Natives are bound by name at load (the native ABI). Bytecode
+serializes to `.hawkbc` (header + sections, LEB128, string constant pool). A
+first cut of **cooperative fibers** (`std.fiber`) is in:
+`spawn`/`join`/`yield` + buffered channels.
 
 **Inference.** The front-end carries a semantic `Type`/element model
 (`pkgs/cli/element/`) built by a resolution stage; inference is a **pure,
@@ -43,10 +43,10 @@ calls/fields/methods, unpinnable generics). The inference-completeness arc is
 **closed** — see _Completed_ at the end.
 
 **Not yet:** a broader stdlib; generic operators (`<T: Add>`); index (`[]`)
-operator overloading; the Cranelift JIT tier.
-(Qualified-only resolution + `pub`/privacy are now **enforced**, and value
-resolution is owner-correct; the residual is **type-name** owner-correctness — see
-_Owner-correct type resolution_ below.)
+operator overloading; the Cranelift JIT tier. (Qualified-only resolution +
+`pub`/privacy are now **enforced**, and value resolution is owner-correct; the
+residual is **type-name** owner-correctness — see _Owner-correct type
+resolution_ below.)
 
 ## Open work
 
@@ -64,15 +64,16 @@ _Owner-correct type resolution_ below.)
   and a `BytesReader` (the reader counterpart to `BytesBuilder`:
   `read_u8`/`read_bytes`/`read_u32_le`/`read_u64_le`/`read_uvarint`/`read_ivarint`,
   pure Hawk, round-trips the writer). (`slice` on `String`/`List`/`Bytes` was
-  already there.) The `Ord` interface + `std.sort` (`sorted`/`min`/`max`) are now
-  in — see _Completed_. `std.encoding` (base64/hex/url, pure Hawk), `std.hash`
-  (native digests), and `std.regex` (the `regex` crate) are in too. The **lazy
-  iteration arc** has landed: `Iterator<T>` with `map`/`filter`/`take`/`enumerate`
-  + `collect`/`count` as **interface default methods**, the `std.iter` sources,
-  and its first consumers — `io.lines`/`BufReader`, `fs.walk`, and streaming
-  `fs.open`/`create` → `File` (`Reader`/`Writer`/`Seek`/`Closer`); `List.pop` also
-  landed. Remaining: the rest of the "batteries included" goal (`std.log`,
-  `std.term`), and sorted/`Ord`-keyed `Set`/`Map` variants.
+  already there.) The `Ord` interface + `std.sort` (`sorted`/`min`/`max`) are
+  now in — see _Completed_. `std.encoding` (base64/hex/url, pure Hawk),
+  `std.hash` (native digests), and `std.regex` (the `regex` crate) are in too.
+  The **lazy iteration arc** has landed: `Iterator<T>` with
+  `map`/`filter`/`take`/`enumerate`
+  - `collect`/`count` as **interface default methods**, the `std.iter` sources,
+    and its first consumers — `io.lines`/`BufReader`, `fs.walk`, and streaming
+    `fs.open`/`create` → `File` (`Reader`/`Writer`/`Seek`/`Closer`); `List.pop`
+    also landed. Remaining: the rest of the "batteries included" goal
+    (`std.log`, `std.term`), and sorted/`Ord`-keyed `Set`/`Map` variants.
 - **Fibers — phases 3–4.** Phases 0–2 are done (scheduler-drivable `run_loop`;
   `spawn`/`join`/`yield` with GC roots across every fiber; buffered
   `Channel<T>`). Design in [architecture.md](architecture.md) §Concurrency.
@@ -132,45 +133,47 @@ _Owner-correct type resolution_ below.)
   `ListLen` opcode entirely). Prefer the borrowing accessor; clone only when a
   closure re-enters the heap to allocate/compare.
 - **Native resource finalization — GC-owned `Obj::Foreign` (Drop on sweep).**
-  Native-backed resources currently live in a process-global registry keyed by an
-  `Int` handle the Hawk wrapper holds (`std.regex` compiled patterns;
-  `std.process` children; `std.fs` open `File`s). The registry is never pruned, so
-  a `Regex` that becomes unreachable **leaks** its compiled engine — benign for the
-  compile-a-handful-at-startup norm, but unbounded for dynamic compilation (e.g. a
-  server compiling user-supplied patterns in a loop). `std.fs.File` already
-  follows the guidance below (explicit `close()` frees its fd; an unclosed file
-  leaks until exit) — the GC-drop **backstop** is the part still missing. The fix
-  is **not** Hawk-level finalizers
-  (resurrection / ordering / latency footguns) **nor** a finalizer-closure
-  registry, but letting a Hawk object *own* the Rust resource: add an
-  `Obj::Foreign` variant that holds the resource, and the existing sweep's
-  `*slot = None` drops it — **Rust's `Drop` glue is the finalizer**, run exactly
-  when the object is collected, with no Hawk code and no resurrection. `std.regex`
-  stops using the registry/handle: the compiled engine lives in the `Foreign`
-  object the `Regex` value points at, and frees when unreachable.
-  - **Perf:** per-object free cost is **unchanged** — drop dispatch is static per
-    `Obj` variant (no "has a finalizer?" branch); only `Foreign` objects run a
-    non-trivial destructor, and they're rare. Allocation is one slab slot like any
-    object plus one `Rc` for the resource, only at `compile`. A compiled regex
-    holds no Hawk `Value`s, so it's also a GC leaf (`for_each_child` yields
-    nothing).
+  Native-backed resources currently live in a process-global registry keyed by
+  an `Int` handle the Hawk wrapper holds (`std.regex` compiled patterns;
+  `std.process` children; `std.fs` open `File`s). The registry is never pruned,
+  so a `Regex` that becomes unreachable **leaks** its compiled engine — benign
+  for the compile-a-handful-at-startup norm, but unbounded for dynamic
+  compilation (e.g. a server compiling user-supplied patterns in a loop).
+  `std.fs.File` already follows the guidance below (explicit `close()` frees its
+  fd; an unclosed file leaks until exit) — the GC-drop **backstop** is the part
+  still missing. The fix is **not** Hawk-level finalizers (resurrection /
+  ordering / latency footguns) **nor** a finalizer-closure registry, but letting
+  a Hawk object _own_ the Rust resource: add an `Obj::Foreign` variant that
+  holds the resource, and the existing sweep's `*slot = None` drops it —
+  **Rust's `Drop` glue is the finalizer**, run exactly when the object is
+  collected, with no Hawk code and no resurrection. `std.regex` stops using the
+  registry/handle: the compiled engine lives in the `Foreign` object the `Regex`
+  value points at, and frees when unreachable.
+  - **Perf:** per-object free cost is **unchanged** — drop dispatch is static
+    per `Obj` variant (no "has a finalizer?" branch); only `Foreign` objects run
+    a non-trivial destructor, and they're rare. Allocation is one slab slot like
+    any object plus one `Rc` for the resource, only at `compile`. A compiled
+    regex holds no Hawk `Value`s, so it's also a GC leaf (`for_each_child`
+    yields nothing).
   - **The one invariant:** the sweep drops objects **while holding the `HEAP`
     `RefCell` borrow**, so a `Foreign` `Drop` must not re-enter the Hawk heap
-    (no allocating, no touching `Value`s). True for regex / files / sockets (they
-    release memory or OS handles, not Hawk objects) — document it on the variant.
-  - **Impl:** add `Obj::Foreign`; arms in `for_each_child` (none) / `heap_bytes`;
-    the `derive(Clone, PartialEq)` won't cover `dyn Any`, so a small newtype with
-    manual `Clone` (`Rc` bump) + `PartialEq` (`Rc::ptr_eq` — identity). The
-    `str_byte_slice` primitive and the Hawk `std.regex` layer are untouched.
-  - **Scope it to *pure* resources.** Collect-on-unreachable is right for a regex
-    (no external effect). It is **wrong** for `std.process` — a spawned child must
-    not be reaped/killed because a GC pass noticed its handle went out of scope;
-    explicit `wait`/`kill` stays. Files/sockets want an explicit `close()` with
-    GC-drop only as a backstop (non-deterministic close timing risks fd
-    exhaustion). So introduce `Obj::Foreign` as general infrastructure but apply
-    it only where collection-on-unreachable is the intended semantics — `std.regex`
-    being the clean first case. Not urgent (the leak is benign for typical apps);
-    the payoff is the dynamic-compile case.
+    (no allocating, no touching `Value`s). True for regex / files / sockets
+    (they release memory or OS handles, not Hawk objects) — document it on the
+    variant.
+  - **Impl:** add `Obj::Foreign`; arms in `for_each_child` (none) /
+    `heap_bytes`; the `derive(Clone, PartialEq)` won't cover `dyn Any`, so a
+    small newtype with manual `Clone` (`Rc` bump) + `PartialEq` (`Rc::ptr_eq` —
+    identity). The `str_byte_slice` primitive and the Hawk `std.regex` layer are
+    untouched.
+  - **Scope it to _pure_ resources.** Collect-on-unreachable is right for a
+    regex (no external effect). It is **wrong** for `std.process` — a spawned
+    child must not be reaped/killed because a GC pass noticed its handle went
+    out of scope; explicit `wait`/`kill` stays. Files/sockets want an explicit
+    `close()` with GC-drop only as a backstop (non-deterministic close timing
+    risks fd exhaustion). So introduce `Obj::Foreign` as general infrastructure
+    but apply it only where collection-on-unreachable is the intended semantics
+    — `std.regex` being the clean first case. Not urgent (the leak is benign for
+    typical apps); the payoff is the dynamic-compile case.
 - **Cranelift JIT tier** (+ the untagged value representation and
   `f64`/large-int constant-pool entries it forces) — performance/compaction, not
   correctness-blocking. See runtime staging below and
@@ -195,21 +198,22 @@ _Owner-correct type resolution_ below.)
   function-level, flat text_ over flame-graph SVGs and line-level precision.
   1. **In-VM profiler — done (v1).** Implemented as an always-shipping runtime
      feature gated by the **`HAWK_PROFILE`** env var (not a compile-time feature
-     like `native-stats`; `run_loop` reads it once into a local, so a non-profiled
-     run pays one predictable branch — `src/profile.rs`). Per Hawk function: exact
-     **call counts**, **self + inclusive time** via **instruction-budget sampling**
-     (every `HAWK_PROFILE_INTERVAL`=1000 instructions, sample the live frame stack
-     at the loop top), and **allocations** attributed via the single `heap::alloc`
-     chokepoint. Output is a flat table to stderr at run end, sorted by self-time;
+     like `native-stats`; `run_loop` reads it once into a local, so a
+     non-profiled run pays one predictable branch — `src/profile.rs`). Per Hawk
+     function: exact **call counts**, **self + inclusive time** via
+     **instruction-budget sampling** (every `HAWK_PROFILE_INTERVAL`=1000
+     instructions, sample the live frame stack at the loop top), and
+     **allocations** attributed via the single `heap::alloc` chokepoint. Output
+     is a flat table to stderr at run end, sorted by self-time;
      **deterministic** (instruction-keyed, not wall-clock — two runs are
-     byte-identical, what an agent's before/after needs), guarded by a presence +
-     determinism smoke in `bin/test.sh`. Because the env var propagates to the
-     child runtime and the front-end is itself a Hawk program, it profiles both a
-     user program (`HAWK_PROFILE=1 hawk run x.hawk`) and the front-end's own
-     compilation (`HAWK_PROFILE=1 hawk check pkgs/cli` — which already shows the
-     lexer at ~50% self-time and ~55M allocations, the data for the check-perf
-     work). A `hawk run --profile` flag is thin sugar to add later; line/allocation
-     call-site precision is #2 below.
+     byte-identical, what an agent's before/after needs), guarded by a
+     presence + determinism smoke in `bin/test.sh`. Because the env var
+     propagates to the child runtime and the front-end is itself a Hawk program,
+     it profiles both a user program (`HAWK_PROFILE=1 hawk run x.hawk`) and the
+     front-end's own compilation (`HAWK_PROFILE=1 hawk check pkgs/cli` — which
+     already shows the lexer at ~50% self-time and ~55M allocations, the data
+     for the check-perf work). A `hawk run --profile` flag is thin sugar to add
+     later; line/allocation call-site precision is #2 below.
   2. **Line attribution — enhancement.** A bytecode→source-line table in
      `.hawkbc` (debug info) so a sample/counter resolves to a Hawk line. Demoted
      from a v1 prerequisite once we accepted function-level is enough for
@@ -227,28 +231,30 @@ _Owner-correct type resolution_ below.)
 
 ### Front-end / tooling
 
-- **Owner-correct type resolution (`Type` carries its origin) — + an architecture
-  review.** Phase 2e makes *value* resolution (functions/consts) owner-correct and
-  lifts global name uniqueness for them, but **type names stay globally unique**:
-  `resolve_type_def` resolves a type by **name** alone, because an already-resolved
-  `Type.Interface(name)` (a namespace-qualified receiver type, a field's type, …)
-  carries no origin, so by-name lookup is unambiguous only while type names don't
-  collide across libraries. Making types owner-correct needs an **origin threaded
-  into every `Type`** — through inference, unification, and codegen's type table —
-  so `Foo` from library A and `Foo` from library B stay distinct. This is
-  foundational (a language should resolve types correctly), and the friction hit
-  while doing 2e suggests the surrounding resolution/`Type` representation is due
-  for an **architecture review** — evaluate the element-model / `Type` design before
-  (or as part of) this work, rather than bolting origin on. Not urgent: Hawk's
-  nominal types already discourage cross-library type-name clashes, and the painful
-  uniqueness case (two libraries' same-named *functions*, e.g. `std.json.parse` vs
-  `std.toml.parse`) is handled by 2e. See [scoping.md](scoping.md) → Phase 2e S5.
+- **Owner-correct type resolution (`Type` carries its origin) — + an
+  architecture review.** Phase 2e makes _value_ resolution (functions/consts)
+  owner-correct and lifts global name uniqueness for them, but **type names stay
+  globally unique**: `resolve_type_def` resolves a type by **name** alone,
+  because an already-resolved `Type.Interface(name)` (a namespace-qualified
+  receiver type, a field's type, …) carries no origin, so by-name lookup is
+  unambiguous only while type names don't collide across libraries. Making types
+  owner-correct needs an **origin threaded into every `Type`** — through
+  inference, unification, and codegen's type table — so `Foo` from library A and
+  `Foo` from library B stay distinct. This is foundational (a language should
+  resolve types correctly), and the friction hit while doing 2e suggests the
+  surrounding resolution/`Type` representation is due for an **architecture
+  review** — evaluate the element-model / `Type` design before (or as part of)
+  this work, rather than bolting origin on. Not urgent: Hawk's nominal types
+  already discourage cross-library type-name clashes, and the painful uniqueness
+  case (two libraries' same-named _functions_, e.g. `std.json.parse` vs
+  `std.toml.parse`) is handled by 2e. See [scoping.md](scoping.md) → Phase 2e
+  S5.
 
 - **Resolution — smaller open items.** (Qualified-only + `pub` visibility
-  enforcement, the `FileScope` refactor, and owner-correct **value** resolution are
-  done — see _Completed_; type-name owner-correctness is the _Owner-correct type
-  resolution_ item above.) Remaining: `impl` coherence / orphan rules, selective
-  import (`show`/`hide`), and a "module"→"library" terminology sweep.
+  enforcement, the `FileScope` refactor, and owner-correct **value** resolution
+  are done — see _Completed_; type-name owner-correctness is the _Owner-correct
+  type resolution_ item above.) Remaining: `impl` coherence / orphan rules,
+  selective import (`show`/`hide`), and a "module"→"library" terminology sweep.
 
 - **Whole-closure diagnostics — remaining tail.** (Per-file origin + surfacing
   imported-file parse errors are done — see _Completed_.) Two pieces remain:
@@ -276,13 +282,14 @@ _Owner-correct type resolution_ below.)
   `native fn`/`native type` to SDK paths (ties to the `@extern` name-check
   item), and the checker leniency that lets a bare field access on an opaque
   value slip to codegen (the existing `type-field-nonstruct` residual).
-- **Generics — residual follow-ons.** (Static-method type args, struct/enum bound
-  enforcement, and the inference-classification cleanup are done — see _Completed_.)
-  Remaining: enum construction with an *inferred* (un-annotated) argument isn't
-  bound-checked yet (annotated enum use is); a bound isn't **propagated** onto an
-  enclosing function's own type parameter (`fn f<U>(x: U) -> Box<U>` doesn't require
-  `U: Display`); and `expected_arg_types` still handles only the namespace callee
-  head inline. (Generics are **invariant by design** — no variance work planned.)
+- **Generics — residual follow-ons.** (Static-method type args, struct/enum
+  bound enforcement, and the inference-classification cleanup are done — see
+  _Completed_.) Remaining: enum construction with an _inferred_ (un-annotated)
+  argument isn't bound-checked yet (annotated enum use is); a bound isn't
+  **propagated** onto an enclosing function's own type parameter
+  (`fn f<U>(x: U) -> Box<U>` doesn't require `U: Display`); and
+  `expected_arg_types` still handles only the namespace callee head inline.
+  (Generics are **invariant by design** — no variance work planned.)
 - **Semantic (scope-aware) references & rename.** `textDocument/references` and
   `textDocument/rename` are implemented but **lexical only** — they match every
   identifier token with the same text, across files, with no binding/scope
@@ -306,29 +313,31 @@ _Owner-correct type resolution_ below.)
   `@test`s couldn't catch.)
   - **Partial down-payment landed — cross-file parse cache.** `hawk check <dir>`
     now shares one parse cache (`Map<path, ParsedFile>`) across all checked
-    files, so the import closure (the prelude above all) is lexed+parsed once per
-    run instead of once per file — `hawk check pkgs/cli` 80s → ~10s (see
-    _Completed_). The remaining duplication this item targets: a file checked as a
-    primary *and* imported by a sibling is still parsed ~twice (share the primary
-    parse forward — small, with an overlay-correctness note for the LSP path); and
-    the per-file `build_library` still rebuilds the prelude's **element model**
-    every file (the larger, invalidation-bearing piece). Back-port these into the
-    incremental engine rather than bolting more caches onto the stateless path.
+    files, so the import closure (the prelude above all) is lexed+parsed once
+    per run instead of once per file — `hawk check pkgs/cli` 80s → ~10s (see
+    _Completed_). The remaining duplication this item targets: a file checked as
+    a primary _and_ imported by a sibling is still parsed ~twice (share the
+    primary parse forward — small, with an overlay-correctness note for the LSP
+    path); and the per-file `build_library` still rebuilds the prelude's
+    **element model** every file (the larger, invalidation-bearing piece).
+    Back-port these into the incremental engine rather than bolting more caches
+    onto the stateless path.
   - **LSP server perf landed — server-lived parse cache + edit coalescing.** The
-    server now persists the parse cache across requests (keyed by path, evicted on
-    edit), so the import closure is parsed once and reused per keystroke instead of
-    re-parsed every change: a doc importing std.cli + std.json went 186 → 8.3
-    ms/edit (~22×). And the `serve` loop drains a whole buffered burst of edits
-    (non-blocking `MsgBuffer.try_message`) before a single diagnostics flush, so a
-    backlog collapses to one re-check per document (100 bunched edits ≈ the cost of
-    1). **Still on the table here:** (a) the per-flush re-check still rebuilds the
-    closure's **element model** and re-runs the checker — the big remaining lever,
-    and exactly the resolved-library caching this item is about; (b) *time-based*
-    debounce for edits that arrive just apart (needs a timeout/non-blocking read
-    native — small runtime add) — low priority now that warm latency (~8 ms) keeps
-    pace with typing; (c) incremental `textDocumentSync` — still low ROI (the
-    re-check, not the JSON, dominates) and carries UTF-16 offset risk. Profile a
-    warm flush before picking (a) up, to confirm the checker pass is the cost.
+    server now persists the parse cache across requests (keyed by path, evicted
+    on edit), so the import closure is parsed once and reused per keystroke
+    instead of re-parsed every change: a doc importing std.cli + std.json went
+    186 → 8.3 ms/edit (~22×). And the `serve` loop drains a whole buffered burst
+    of edits (non-blocking `MsgBuffer.try_message`) before a single diagnostics
+    flush, so a backlog collapses to one re-check per document (100 bunched
+    edits ≈ the cost of 1). **Still on the table here:** (a) the per-flush
+    re-check still rebuilds the closure's **element model** and re-runs the
+    checker — the big remaining lever, and exactly the resolved-library caching
+    this item is about; (b) _time-based_ debounce for edits that arrive just
+    apart (needs a timeout/non-blocking read native — small runtime add) — low
+    priority now that warm latency (~8 ms) keeps pace with typing; (c)
+    incremental `textDocumentSync` — still low ROI (the re-check, not the JSON,
+    dominates) and carries UTF-16 offset risk. Profile a warm flush before
+    picking (a) up, to confirm the checker pass is the cost.
 - **`@extern` name check.** Native names are written once as `@extern('…')` on
   the `native fn` decls in `sdk/std`; the Rust runtime table is the other half,
   bound by name at load. Add a test asserting every `@extern` name the front-end
@@ -351,12 +360,12 @@ _Owner-correct type resolution_ below.)
   best-effort tree (recover past the error) so semantic resolution still runs
   and offers completions/hover. Today recovery is coarse (`sync_to_decl` — a
   single declaration-level recovery point). **Design + staged plan in
-  [parser-recovery.md](parser-recovery.md):** non-fatal `expect` (fill known holes
-  in place so the leaf node survives for completion) + an `Expr.Error` placeholder
-  the resolver/checker analyze leniently (no semantic cascade) + finer recovery
-  points (statement/block) + signature-past-body. (Keep in mind when touching the
-  parser — the recent precedence-table refactor preserved the `panicking`/recovery
-  structure.)
+  [parser-recovery.md](parser-recovery.md):** non-fatal `expect` (fill known
+  holes in place so the leaf node survives for completion) + an `Expr.Error`
+  placeholder the resolver/checker analyze leniently (no semantic cascade) +
+  finer recovery points (statement/block) + signature-past-body. (Keep in mind
+  when touching the parser — the recent precedence-table refactor preserved the
+  `panicking`/recovery structure.)
   - **Dependent feature: `textDocument/completion`.** Autocomplete requires
     navigating a mid-keystroke AST (e.g., `obj.`). Deferring until the parser
     can reliably build an AST that doesn't drop the trailing, incomplete member
@@ -365,28 +374,30 @@ _Owner-correct type resolution_ below.)
     names while inside a function call. Relies on the parser correctly framing
     an unterminated call `foo(`, which current coarse recovery struggles with.
 
-- **Formatter (`hawk fmt`) — design stub.** Today's `fmt` is v0 (trailing-whitespace
-  trim + final newline). The real formatter should be **canonical** (one obvious
-  output; expect ~all Hawk code to use it), **near-zero config**, and **idempotent**
-  (formatting a formatted file is a no-op). It *mostly* normalizes layout — fix
-  indentation, normalize inter-token whitespace (`fn  foo( name:String )` →
-  `fn foo(name: String)`) — to eliminate ~99% of format discussion, **not** fully
-  canonicalize. **Deliberately out of scope (for now): automatic line breaking /
-  re-joining** — the usual source of formatter complexity; instead rely on manual
-  conventions for where to break and see how far that gets. A first cut can be
-  **token-only** (walk the token stream with brace/paren depth, no AST).
-  - **Prerequisite + sequencing.** The lexer currently *discards* comments and
-    whitespace (`skip_whitespace_and_comments`; no comment token kind / no trivia on
-    `Token`), so the one real prerequisite is surfacing comments + blank-line
-    structure as a **parser-invisible side channel** — trivia on tokens, or a
-    positioned comment list re-associated by span (gofmt's model) — **not** in-stream
-    comment tokens (which would force `advance`/`expect` to skip them, the same
-    surface parser recovery rewrites). Kept that way, the compile path stays
-    byte-identical (fixpoint-clean) and the formatter is **orthogonal to parser
-    recovery** — sequence by priority, not coupling. Holds as long as we **only
-    format syntactically-valid files** (so the formatter never consumes recovery
-    output); revisit if format-through-errors is ever wanted. Hardest design call
-    when we dig in: **comment attachment** (leading / trailing / dangling).
+- **Formatter (`hawk fmt`) — design stub.** Today's `fmt` is v0
+  (trailing-whitespace trim + final newline). The real formatter should be
+  **canonical** (one obvious output; expect ~all Hawk code to use it),
+  **near-zero config**, and **idempotent** (formatting a formatted file is a
+  no-op). It _mostly_ normalizes layout — fix indentation, normalize inter-token
+  whitespace (`fn  foo( name:String )` → `fn foo(name: String)`) — to eliminate
+  ~99% of format discussion, **not** fully canonicalize. **Deliberately out of
+  scope (for now): automatic line breaking / re-joining** — the usual source of
+  formatter complexity; instead rely on manual conventions for where to break
+  and see how far that gets. A first cut can be **token-only** (walk the token
+  stream with brace/paren depth, no AST).
+  - **Prerequisite + sequencing.** The lexer currently _discards_ comments and
+    whitespace (`skip_whitespace_and_comments`; no comment token kind / no
+    trivia on `Token`), so the one real prerequisite is surfacing comments +
+    blank-line structure as a **parser-invisible side channel** — trivia on
+    tokens, or a positioned comment list re-associated by span (gofmt's model) —
+    **not** in-stream comment tokens (which would force `advance`/`expect` to
+    skip them, the same surface parser recovery rewrites). Kept that way, the
+    compile path stays byte-identical (fixpoint-clean) and the formatter is
+    **orthogonal to parser recovery** — sequence by priority, not coupling.
+    Holds as long as we **only format syntactically-valid files** (so the
+    formatter never consumes recovery output); revisit if format-through-errors
+    is ever wanted. Hardest design call when we dig in: **comment attachment**
+    (leading / trailing / dangling).
 
 - **Doc-comment tooling — convention specced, machinery pending.** The doc
   conventions are defined ([language.md](language.md#documentation)): `///` item
@@ -394,22 +405,18 @@ _Owner-correct type resolution_ below.)
   sentence; a small Markdown subset (fenced code only, no headers, bold-label
   sections); prose params. **`sdk/std/` is migrated** to `///`/`//!` (all 61
   files; a behavior-neutral source change — the lexer skips `///`/`//!` as
-  ordinary comments, so it stayed fixpoint-clean). The remaining work is tooling:
-  (1) **attach docs to AST nodes** — shares the same trivia side-channel the
-  formatter needs (comments are currently discarded), so sequence it alongside
-  `fmt`; (2) **LSP hover** surfaces the item/file doc; (3) a **doc generator**
-  extracts a package's `pub` surface + barrel `//!` into an index for agent
-  navigation; (4) **reference resolution + lint** — resolve `[Symbol]` references
-  (link them in hover/doc-gen, flag ones that no longer resolve), plus a lint for
-  `pub` symbols whose doc only restates the signature, and normalization of doc
-  layout. (Not yet migrated: `pkgs/cli/` and `examples/`, deliberately deferred —
-  the public API surface was the priority.)
+  ordinary comments, so it stayed fixpoint-clean). The remaining work is
+  tooling: (1) **attach docs to AST nodes** — shares the same trivia
+  side-channel the formatter needs (comments are currently discarded), so
+  sequence it alongside `fmt`; (2) **LSP hover** surfaces the item/file doc; (3)
+  a **doc generator** extracts a package's `pub` surface + barrel `//!` into an
+  index for agent navigation; (4) **reference resolution + lint** — resolve
+  `[Symbol]` references (link them in hover/doc-gen, flag ones that no longer
+  resolve), plus a lint for `pub` symbols whose doc only restates the signature,
+  and normalization of doc layout. (Not yet migrated: `pkgs/cli/` and
+  `examples/`, deliberately deferred — the public API surface was the priority.)
 
 ### Language features not yet built
-
-- ~~**Module initializers — computed-once immutable globals.**~~ _Done (Phase 1)_
-  — see the changelog below and [module_init.md](module_init.md). Phase 2
-  (process-stable ambient natives, e.g. the path separator) remains.
 
 - **Disambiguate the empty `{}` in a `match` arm (map-literal vs block).** In
   expression position `{}` is an empty **map** (`return {}`, `let m = {}`, a
@@ -524,7 +531,7 @@ conformance specs. Newest first.
   lands. Deferred: `temp_file`, append/read-write `open_options`.
 
 - **Interface default methods + Iterator adapters** (2026-06). Interface methods
-  may carry a body — a *default* an `impl` inherits (and may override). Compiled
+  may carry a body — a _default_ an `impl` inherits (and may override). Compiled
   once as a shared unit with `self` typed as the interface; each implementing
   type's dispatch row is wired to it unless it overrides (no runtime change —
   same `call.virtual`). Resolution falls back to an implemented interface's
@@ -533,20 +540,21 @@ conformance specs. Newest first.
   `Iterator<T>` gained `map`/`filter`/`take` (lazy adapters) + `collect`/`count`
   (consumers) as defaults, so every iterator is fluent without an import and no
   `Iter<T>` wrapper is needed; `std.iter` keeps the `range`/`from_list` sources.
-  Also fixed a latent bug: a lambda arg to a *virtual* call (interface-typed
+  Also fixed a latent bug: a lambda arg to a _virtual_ call (interface-typed
   receiver) now gets its expected param type, so `it.map((x) => …)` infers `x`.
   Spec `iface-default`; unblocks `io.lines`/`fs.walk`/`BufReader`. (`enumerate`
   followed once `impl` headers accepted nested generic args — next entry.)
 
 - **Nested generic args in `impl` headers → `enumerate`** (2026-06). An `impl`
-  header's `<…>` parsed type-parameter *names* only, so a nested interface arg
+  header's `<…>` parsed type-parameter _names_ only, so a nested interface arg
   (`impl Iterator<Indexed<T>> for …`) didn't parse. `parse_impl_generics` now
   parses each element once and keeps both views — a TypeRef (interface arg,
   nestable) and a TypeParam (the type's own param, with bounds) — choosing by
-  whether `for` follows, so nesting works and bounded inherent params (`impl
-  Box<T: Display>`) still parse. With it, `Iterator` gained the `enumerate`
-  adapter (`-> Iterator<Indexed<T>>`, pairing each element with its index); the
-  same parser extension opens future wrapped adapters (`zip`/`flat_map`/`chain`).
+  whether `for` follows, so nesting works and bounded inherent params
+  (`impl Box<T: Display>`) still parse. With it, `Iterator` gained the
+  `enumerate` adapter (`-> Iterator<Indexed<T>>`, pairing each element with its
+  index); the same parser extension opens future wrapped adapters
+  (`zip`/`flat_map`/`chain`).
 
 - **Iterator-backed stdlib — `io.lines`/`BufReader`, `fs.walk`, `List.pop`**
   (2026-06). The first consumers of the new adapters. `io.lines(src)` returns a
@@ -559,124 +567,129 @@ conformance specs. Newest first.
   with `get`/`first`/`last`.
 
 - **Module initializers — computed-once immutable globals** (2026-06). Top-level
-  `let NAME[: T] = expr;` computed once at load into a stored global slot. Runtime
-  gained `global.get`/`global.set`, a `global_count` header field, a per-run
-  globals vector (a GC root), and a reserved `<init>` thunk run before the entry.
-  Front-end: typed globals + slot codegen, dependency-topological init with cycle
-  detection, an effectful-native denylist in initializer position, and `const`
-  tightened to manifest constants (a computed `const` now points at `let`).
-  **Immutable only** (no top-level `let mut`). First use: `std.math`
-  `INFINITY`/`NAN`; the lookup-table/keyword-map motivations proved moot
-  (native/arithmetic/`match`). Full design: [module_init.md](module_init.md);
-  conformance `module-let*`, `const-manifest`.
-- **`std.regex` — RE2 regular expressions over the `regex` crate** (2026-06). The
-  runtime's **2nd deliberate dependency** (after `std.hash`): the Rust team's
-  `regex` crate, RE2-derived and linear-time. `compile`/`is_match`/`find`/
-  `find_all`/`captures`/`replace`/`replace_all`, byte-offset `Match`, a
-  `RegexError.Syntax` on a bad pattern. A compiled pattern lives in a runtime
-  registry behind an `Int` handle (the `std.process` pattern; compiled patterns
-  are not freed — a benign leak addressed by the planned _Native resource
-  finalization_ item under _Open work → Runtime_); natives return byte-offset
-  `List<Int>`s and the Hawk layer assembles `Match`/`Captures` via a new
-  `String.byte_slice` (the byte-offset companion to `slice`), so natives never
-  hardcode a struct type-id. Replaces the pure-Hawk `re2_*` version that didn't
-  survive the runtime migration. Full design: [stdlib.md](stdlib.md) §std.regex.
+  `let NAME[: T] = expr;` computed once at load into a stored global slot.
+  Runtime gained `global.get`/`global.set`, a `global_count` header field, a
+  per-run globals vector (a GC root), and a reserved `<init>` thunk run before
+  the entry. Front-end: typed globals + slot codegen, dependency-topological
+  init with cycle detection, an effectful-native denylist in initializer
+  position, and `const` tightened to manifest constants (a computed `const` now
+  points at `let`). **Immutable only** (no top-level `let mut`). First use:
+  `std.math` `INFINITY`/`NAN`; the lookup-table/keyword-map motivations proved
+  moot (native/arithmetic/`match`). Full design:
+  [module_init.md](module_init.md); conformance `module-let*`, `const-manifest`.
+- **`std.regex` — RE2 regular expressions over the `regex` crate** (2026-06).
+  The runtime's **2nd deliberate dependency** (after `std.hash`): the Rust
+  team's `regex` crate, RE2-derived and linear-time.
+  `compile`/`is_match`/`find`/ `find_all`/`captures`/`replace`/`replace_all`,
+  byte-offset `Match`, a `RegexError.Syntax` on a bad pattern. A compiled
+  pattern lives in a runtime registry behind an `Int` handle (the `std.process`
+  pattern; compiled patterns are not freed — a benign leak addressed by the
+  planned _Native resource finalization_ item under _Open work → Runtime_);
+  natives return byte-offset `List<Int>`s and the Hawk layer assembles
+  `Match`/`Captures` via a new `String.byte_slice` (the byte-offset companion to
+  `slice`), so natives never hardcode a struct type-id. Replaces the pure-Hawk
+  `re2_*` version that didn't survive the runtime migration. Full design:
+  [stdlib.md](stdlib.md) §std.regex.
 - **`std.hash` — native digests + the runtime's first external dependencies**
   (2026-06). `sha256`/`sha1`/`md5` (digests as `Bytes`) and `crc32` (IEEE 802.3,
   as `Int`), thin `native fn` wrappers over **audited Rust crates** rather than
-  reimplemented in Hawk — hashing is crypto-adjacent and wants battle-tested code.
-  This adds the runtime's **first external dependencies** (previously zero),
-  deliberately: the RustCrypto `sha2`/`sha1`/`md-5` crates and `crc32fast`, each
-  named in its function's doc comment. The native ABI is the existing
-  `with_bytes` reader + `Value::new_bytes`/`Value::Int`. Checked against published
-  test vectors; pairs with `std.encoding` to render a digest. (Precedent for the
-  deliberate-dependency policy the `std.regex` rebuild will revisit.)
+  reimplemented in Hawk — hashing is crypto-adjacent and wants battle-tested
+  code. This adds the runtime's **first external dependencies** (previously
+  zero), deliberately: the RustCrypto `sha2`/`sha1`/`md-5` crates and
+  `crc32fast`, each named in its function's doc comment. The native ABI is the
+  existing `with_bytes` reader + `Value::new_bytes`/`Value::Int`. Checked
+  against published test vectors; pairs with `std.encoding` to render a digest.
+  (Precedent for the deliberate-dependency policy the `std.regex` rebuild will
+  revisit.)
 
-- **`std.encoding` — base64 / hex / url** (2026-06). Flat module (`import
-  std.encoding`): `base64_encode`/`decode` (RFC 4648, `+/`, `=`-padded),
-  `hex_encode`/`decode` (lowercase out, case-insensitive in), and
-  `url_encode`/`decode` (RFC 3986 percent-encoding — unreserved `A-Z a-z 0-9 -_.~`
-  pass through, space is `%20` not `+`, `+` decodes literally). Decoding is
-  fallible (`Result`), never a trap. **Pure Hawk** over `Bytes`/`String` + the
-  bitwise operators — no natives and **no lookup tables** (an arithmetic char
-  mapping, so it's unaffected by the pending module-initializer; a precomputed
-  base64-decode table would be a marginal future tidy-up). RFC 4648 vectors +
-  binary round-trip + malformed-input cases covered. `std.path` `normalize`/
-  `relative` also landed (see status table).
+- **`std.encoding` — base64 / hex / url** (2026-06). Flat module
+  (`import std.encoding`): `base64_encode`/`decode` (RFC 4648, `+/`,
+  `=`-padded), `hex_encode`/`decode` (lowercase out, case-insensitive in), and
+  `url_encode`/`decode` (RFC 3986 percent-encoding — unreserved
+  `A-Z a-z 0-9 -_.~` pass through, space is `%20` not `+`, `+` decodes
+  literally). Decoding is fallible (`Result`), never a trap. **Pure Hawk** over
+  `Bytes`/`String` + the bitwise operators — no natives and **no lookup tables**
+  (an arithmetic char mapping, so it's unaffected by the pending
+  module-initializer; a precomputed base64-decode table would be a marginal
+  future tidy-up). RFC 4648 vectors + binary round-trip + malformed-input cases
+  covered. `std.path` `normalize`/ `relative` also landed (see status table).
 
 - **Struct-definition keyword: `type Foo = { … }` → `struct Foo { … }`**
   (2026-06). Hawk is a **nominal** type system, but `type Foo = { … }` reads as
-  the *structural* `type alias` of TypeScript/Flow/Elm — the wrong prior. Structs
-  now use the near-universal nominal signal (keyword + name + braces, no `=`),
-  rhyming with `enum`/`interface`: `struct Celsius { degrees: Int }`. Purely
-  surface — the parser produces the **same `TypeDecl` AST**, so checker/codegen
-  are untouched and the migrated front-end re-emits **byte-identically** (the
-  bootstrap snapshot didn't even change). `native type` (opaque built-ins) is
-  unchanged; the removed `type Foo = { … }` form now errors with a hint, freeing
-  `type X = Y` for transparent aliases later. Landed as a **three-cycle ratchet**:
-  (1) additive parser accepting both forms + snapshot refresh (so the snapshot
-  groks `struct` before any source uses it, as with `native type`); (2)
-  mechanically migrate all 145 sites across `sdk/std` + `pkgs/cli` + examples +
-  `tests/lang`; (3) remove the legacy form + grammar/language docs + the keyword
-  test. Full suite green at each step (front-end, stdlib, 93 lang conformance,
-  examples).
+  the _structural_ `type alias` of TypeScript/Flow/Elm — the wrong prior.
+  Structs now use the near-universal nominal signal (keyword + name + braces, no
+  `=`), rhyming with `enum`/`interface`: `struct Celsius { degrees: Int }`.
+  Purely surface — the parser produces the **same `TypeDecl` AST**, so
+  checker/codegen are untouched and the migrated front-end re-emits
+  **byte-identically** (the bootstrap snapshot didn't even change).
+  `native type` (opaque built-ins) is unchanged; the removed `type Foo = { … }`
+  form now errors with a hint, freeing `type X = Y` for transparent aliases
+  later. Landed as a **three-cycle ratchet**: (1) additive parser accepting both
+  forms + snapshot refresh (so the snapshot groks `struct` before any source
+  uses it, as with `native type`); (2) mechanically migrate all 145 sites across
+  `sdk/std` + `pkgs/cli` + examples + `tests/lang`; (3) remove the legacy form +
+  grammar/language docs + the keyword test. Full suite green at each step
+  (front-end, stdlib, 93 lang conformance, examples).
 
 - **LSP keystroke latency — parse cache + edit coalescing** (2026-06). Two
   pure-front-end wins (no runtime change), targeting the per-keystroke backlog.
   (1) A **server-lived parse cache** (the same lever as the `hawk check` win),
-  keyed by resolved path and evicted on edit, so the import closure is parsed once
-  and reused across keystrokes instead of re-read+re-parsed from disk every change:
-  a doc importing std.cli + std.json went **186 → 8.3 ms/edit (~22×)**. (2) **Edit
-  coalescing** — the `serve` loop drains a whole buffered burst (a non-blocking
-  `MsgBuffer.try_message`), applying each edit but deferring diagnostics to a single
-  `flush`, so a backlog collapses to one re-check per document (**100 bunched edits
-  ≈ the cost of 1**). Next lever is caching the resolved/element-model closure (the
-  incremental-engine work); see the LSP item under _Front-end / tooling_.
+  keyed by resolved path and evicted on edit, so the import closure is parsed
+  once and reused across keystrokes instead of re-read+re-parsed from disk every
+  change: a doc importing std.cli + std.json went **186 → 8.3 ms/edit (~22×)**.
+  (2) **Edit coalescing** — the `serve` loop drains a whole buffered burst (a
+  non-blocking `MsgBuffer.try_message`), applying each edit but deferring
+  diagnostics to a single `flush`, so a backlog collapses to one re-check per
+  document (**100 bunched edits ≈ the cost of 1**). Next lever is caching the
+  resolved/element-model closure (the incremental-engine work); see the LSP item
+  under _Front-end / tooling_.
 
-- **In-VM profiler + `hawk check` made ~7.7× faster** (2026-06). A deterministic,
-  instruction-budget profiler (`HAWK_PROFILE`, see _Profiling_ above) drove a
-  pure measure-then-fix pass on `hawk check pkgs/cli` (80s): (1) a **cross-file
-  parse cache** — `check <dir>` re-lexed+re-parsed the whole import closure once
-  per file, so the `std.core` prelude was parsed 46× — now shared across files
-  (80s → 10.8s; 2.1B → 310M instructions; 55.6M → 9.1M allocations); (2) **string
-  constant interning** — `const.str` allocated a fresh heap string per execution
-  (a 24-arm keyword `match` allocated ~23 strings/call); interned constants are
-  allocation-free after first use and permanent GC roots (9.1M → 6.3M
-  allocations). Net 80s → ~10.4s, byte-identical fixpoint (both are runtime/
-  loader-only). Notable Hawk constraint surfaced: a top-level `const` keyword map
-  can't replace the `match` — with no load-time init, `const` inlines its
-  initializer, rebuilding the map per call; interning was the right lever. (A
-  computed-once **module `let`** would lift this constraint — see _Module
-  initializers_ under _Language features not yet built_.)
-  _Further check-dedup is part of the LSP incremental engine (above)._
+- **In-VM profiler + `hawk check` made ~7.7× faster** (2026-06). A
+  deterministic, instruction-budget profiler (`HAWK_PROFILE`, see _Profiling_
+  above) drove a pure measure-then-fix pass on `hawk check pkgs/cli` (80s): (1)
+  a **cross-file parse cache** — `check <dir>` re-lexed+re-parsed the whole
+  import closure once per file, so the `std.core` prelude was parsed 46× — now
+  shared across files (80s → 10.8s; 2.1B → 310M instructions; 55.6M → 9.1M
+  allocations); (2) **string constant interning** — `const.str` allocated a
+  fresh heap string per execution (a 24-arm keyword `match` allocated ~23
+  strings/call); interned constants are allocation-free after first use and
+  permanent GC roots (9.1M → 6.3M allocations). Net 80s → ~10.4s, byte-identical
+  fixpoint (both are runtime/ loader-only). Notable Hawk constraint surfaced: a
+  top-level `const` keyword map can't replace the `match` — with no load-time
+  init, `const` inlines its initializer, rebuilding the map per call; interning
+  was the right lever. (A computed-once **module `let`** would lift this
+  constraint — see _Module initializers_ under _Language features not yet
+  built_.) _Further check-dedup is part of the LSP incremental engine (above)._
 
 - **Unified checker/codegen inference context + a differential oracle**
-  (2026-06). Inference is one pure `infer_expr` query, but the checker and codegen
-  built its `InferCtx` independently, and the fields that differed were the root of
-  a bug class where the two stages inferred the same expression to different types
-  (the `for_element_type` miscompile that trapped at runtime; the lambda-bounds
-  spurious rejection). A **differential oracle** (`HAWK_INFER_ORACLE`, in codegen)
-  maps the divergence: it found 28/855 front-end units diverged, every one a method
-  on a generic type, every divergence the identical pattern — codegen dropped the
-  receiver's type arguments (`self_type` `List` vs `List<T>`) and omitted the owner
-  type parameters. **Fix:** codegen now builds the receiver type with its parameters
-  applied (from the type definition) and adds those to the in-scope set, matching the
-  checker; the chosen `self_type` is recorded so the oracle *observes* (not models)
-  what codegen built. The oracle now reports **0** and is a permanent assert-zero
-  guard in `bin/test.sh`. Byte-identical fixpoint (the correction is principled but
-  the front-end's own lowerings were already `Unknown`-tolerant). _Remaining: extend
-  the lambda-unit context snapshot to `self_type`/`type_params` (only bounds today)
-  and bring the 34 lambda units into the oracle; a per-expression oracle; and a
-  targeted "unexpected-Unknown" audit for inference incompleteness (distinct from
-  this divergence pass — a blanket Unknown-reject is ~330 false positives)._
-  **Note (lambda extension, attempted + reverted):** giving lifted lambdas the full
-  inherited `self_type`/`type_params` (not just bounds) is correct on small inputs
-  but made `hawk check pkgs/cli` hang — a compile-time blowup (98% CPU, no output)
+  (2026-06). Inference is one pure `infer_expr` query, but the checker and
+  codegen built its `InferCtx` independently, and the fields that differed were
+  the root of a bug class where the two stages inferred the same expression to
+  different types (the `for_element_type` miscompile that trapped at runtime;
+  the lambda-bounds spurious rejection). A **differential oracle**
+  (`HAWK_INFER_ORACLE`, in codegen) maps the divergence: it found 28/855
+  front-end units diverged, every one a method on a generic type, every
+  divergence the identical pattern — codegen dropped the receiver's type
+  arguments (`self_type` `List` vs `List<T>`) and omitted the owner type
+  parameters. **Fix:** codegen now builds the receiver type with its parameters
+  applied (from the type definition) and adds those to the in-scope set,
+  matching the checker; the chosen `self_type` is recorded so the oracle
+  _observes_ (not models) what codegen built. The oracle now reports **0** and
+  is a permanent assert-zero guard in `bin/test.sh`. Byte-identical fixpoint
+  (the correction is principled but the front-end's own lowerings were already
+  `Unknown`-tolerant). _Remaining: extend the lambda-unit context snapshot to
+  `self_type`/`type_params` (only bounds today) and bring the 34 lambda units
+  into the oracle; a per-expression oracle; and a targeted "unexpected-Unknown"
+  audit for inference incompleteness (distinct from this divergence pass — a
+  blanket Unknown-reject is ~330 false positives)._ **Note (lambda extension,
+  attempted + reverted):** giving lifted lambdas the full inherited
+  `self_type`/`type_params` (not just bounds) is correct on small inputs but
+  made `hawk check pkgs/cli` hang — a compile-time blowup (98% CPU, no output)
   that the per-file closure recompilation in `check` exposes but a single `emit`
-  and the minimal repro do not (lambdas already resolve `self`/`T` via captures, so
-  the richer context is redundant *and* expensive). Redo it perf-aware: profile the
-  blowup first (likely repeated work over the inherited generic context across many
-  nested lambdas), or narrow what lambdas inherit.
+  and the minimal repro do not (lambdas already resolve `self`/`T` via captures,
+  so the richer context is redundant _and_ expensive). Redo it perf-aware:
+  profile the blowup first (likely repeated work over the inherited generic
+  context across many nested lambdas), or narrow what lambdas inherit.
 
 - **`Ord` interface + `std.sort`** (2026-06). Total ordering, modeled on
   `Eq`/`Display`: `interface Ord { fn compare(self, other: Self) -> Ordering }`
@@ -684,11 +697,11 @@ conformance specs. Newest first.
   alongside `Option`/`Result`, reserved type-id `TY_ORDERING`). The primitives
   carry explicit `impl Ord` (Int/Double/Bool in Hawk via `<`; String a native);
   a generic `<T: Ord>` calling `.compare()` dispatches dynamically, backed by a
-  `compare` arm in the runtime `virtual_fallback` that orders the four primitives
-  and returns an `Ordering` — the same explicit-impl-for-static /
+  `compare` arm in the runtime `virtual_fallback` that orders the four
+  primitives and returns an `Ordering` — the same explicit-impl-for-static /
   fallback-for-virtual split as `Display`. `std.sort` (qualified module) ships
   `sorted`/`sorted_desc`/`min`/`max` over `<T: Ord>` (free functions, since a
-  `List<T>` *method* can't add a `T: Ord` bound). Comparison operators
+  `List<T>` _method_ can't add a `T: Ord` bound). Comparison operators
   (`< <= > >=`) stay Int/Double-only — wiring them through `Ord` is left to the
   _Generic operators_ arc. Spec `iface-ord`. Fixed a latent codegen gap on the
   way: a lambda inside a generic `<T: Bound>` function lost the enclosing bounds
@@ -707,33 +720,35 @@ conformance specs. Newest first.
   (2026-06). Three solidifications. **Static-method owner type parameters:**
   `Set.new() -> Set<T>` recovers `T` from call context (binding annotation,
   directly-passed argument, return position), and `Set<String>.new()` names it
-  explicitly via **receiver type args** (`CallExpr.recv_type_args`; the parser accepts
-  `Ident<...>.method(...)`; a shared `static_call_bindings` seeds the owner params for
-  both inference and the checker) — `gen-static-context` / `gen-static-recv-args`.
-  **Generic struct/enum bounds enforced:** a bound on a type's own parameter
-  (`type Box<T: Display>`) is stored on `TypeDefElement` and checked where a concrete
-  argument is supplied (annotation, struct construction) via `check_type_arg_bounds`
-  — `generic-type-bounds`. **Inference cleanup:** the static-receiver classification
-  (`(ns.)?Type.method` / `ns.fn`) is unified in `resolve_static_receiver` (shared by
-  the three call cascades), the instance arm routes through `resolve_method`, and the
-  four return-type instantiation paths collapsed onto `call_bindings` /
-  `instantiate_return_ctx` (namespace arm now context-aware; `instantiate_return`
-  deleted). All byte-identical fixpoint except the added checks. Generics are
-  **invariant by design**. _Open follow-ons above (Generics — residual)._
+  explicitly via **receiver type args** (`CallExpr.recv_type_args`; the parser
+  accepts `Ident<...>.method(...)`; a shared `static_call_bindings` seeds the
+  owner params for both inference and the checker) — `gen-static-context` /
+  `gen-static-recv-args`. **Generic struct/enum bounds enforced:** a bound on a
+  type's own parameter (`type Box<T: Display>`) is stored on `TypeDefElement`
+  and checked where a concrete argument is supplied (annotation, struct
+  construction) via `check_type_arg_bounds` — `generic-type-bounds`. **Inference
+  cleanup:** the static-receiver classification (`(ns.)?Type.method` / `ns.fn`)
+  is unified in `resolve_static_receiver` (shared by the three call cascades),
+  the instance arm routes through `resolve_method`, and the four return-type
+  instantiation paths collapsed onto `call_bindings` / `instantiate_return_ctx`
+  (namespace arm now context-aware; `instantiate_return` deleted). All
+  byte-identical fixpoint except the added checks. Generics are **invariant by
+  design**. _Open follow-ons above (Generics — residual)._
 
-- **Resolution: `FileScope` + owner-correct value resolution (Phase 2)** (2026-06).
-  Resolution moved off the flat global name tables onto a single **`FileScope`** per
-  file (checker, inference, codegen all consult it). Surfaces gained `name ->
-  defining-file` origin maps and `build_library` per-file element tables, so **value
-  (function / const) resolution is owner-correct** — bare to its own file, qualified
-  within the named library — and the flat `functions`/`consts` tables were deleted.
-  This **lifts global value-name uniqueness** (two libraries may share a top-level
-  value name; `mod-shared-value-name`). Landed as eight behavior-preserving steps
-  with the byte-identical fixpoint as the oracle, ending in one small `check_duplicates`
-  relaxation. Surfaced + fixed a latent **duplicate-file-loading** bug (the loader
-  compiled every shared library 3–4× under different `../` path spellings); path
-  canonicalization cut the self-compile ~11.5 s → ~4.3 s and the bootstrap 282 KB →
-  124 KB. _Open: type-name owner-correctness (above)._
+- **Resolution: `FileScope` + owner-correct value resolution (Phase 2)**
+  (2026-06). Resolution moved off the flat global name tables onto a single
+  **`FileScope`** per file (checker, inference, codegen all consult it).
+  Surfaces gained `name -> defining-file` origin maps and `build_library`
+  per-file element tables, so **value (function / const) resolution is
+  owner-correct** — bare to its own file, qualified within the named library —
+  and the flat `functions`/`consts` tables were deleted. This **lifts global
+  value-name uniqueness** (two libraries may share a top-level value name;
+  `mod-shared-value-name`). Landed as eight behavior-preserving steps with the
+  byte-identical fixpoint as the oracle, ending in one small `check_duplicates`
+  relaxation. Surfaced + fixed a latent **duplicate-file-loading** bug (the
+  loader compiled every shared library 3–4× under different `../` path
+  spellings); path canonicalization cut the self-compile ~11.5 s → ~4.3 s and
+  the bootstrap 282 KB → 124 KB. _Open: type-name owner-correctness (above)._
 
 - **`#loc` caller-location + assertion source locations** (2026-06). `#loc` is a
   compiler metaconstant (new `#` sigil) evaluating to a
