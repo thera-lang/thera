@@ -40,6 +40,26 @@ fn decl_has(_ r: ParseResult, _ name: String) -> Bool {
     return false;
 }
 
+// Parse every token-prefix of `src` (each re-terminated with the EOF token),
+// returning the count. The point is that each parse *returns*: a non-advancing
+// recovery loop would hang (or a stray index would trap) instead — exactly the
+// mid-edit input the LSP feeds the parser on every keystroke. In-process, so a
+// few hundred prefixes cost microseconds.
+fn parse_all_prefixes(_ src: String) -> Int {
+    let toks = tokenize(src).tokens;
+    let eof = toks[toks.len() - 1]; // tokenize always ends with an EOF token
+    let mut count = 0;
+    let mut n = 1;
+    while n < toks.len() {
+        let prefix = toks.slice(0, n);
+        prefix.push(eof);
+        let _r = parse_tokens(prefix);
+        count = count + 1;
+        n = n + 1;
+    }
+    return count;
+}
+
 @test
 fn test_arithmetic_precedence() -> Result<Void, Error> {
     testing.assert_eq(actual: expr_str('1 + 2 * 3'), expected: '(1 + (2 * 3))')?;
@@ -276,6 +296,34 @@ fn test_recovery_terminates_on_unfinished_let() -> Result<Void, Error> {
     let r3 = parse_src('fn f() -> Int { let x throw 1; } fn good() -> Int { return 2; }');
     testing.assert(r3.has_errors(), message: 'expected a parse error (throw)')?;
     testing.assert(decl_has(r3, 'good'), message: 'should recover (throw)')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_token_prefixes_terminate() -> Result<Void, Error> {
+    // Standing guard against non-advancing recovery loops: every token-prefix of
+    // each snippet must parse to completion. The LSP parses such mid-edit
+    // fragments on every keystroke, so a hang here is a hang there. Snippets
+    // exercise the constructs whose recovery is easiest to get wrong — a
+    // `return`/`throw` operand, an unfinished `let`, `if let`/`let … else` heads,
+    // `?`, match arms, lambdas, and nested blocks. Add a snippet when adding a
+    // construct. A regression hangs or traps this test rather than returning.
+    let samples: List<String> = [
+        'fn f() -> Int { let x return 1; }',
+        'fn f() -> Int { let x: Int = g(a, b); return x; }',
+        'fn f() -> Int { if let Some(x) = a { return x; } else { return 0; } }',
+        'fn f() -> Int { let Some(x) = a else { return 0; } return x; }',
+        'fn f() -> Result<Int, Error> { let y = a? + b; throw err }',
+        'fn f() -> Int { return match x { Some(v) => v, None => { throw e } }; }',
+        'fn f() -> Int { let g = (z) => z + 1; return g(2); }',
+        'fn f() -> Int { while c { if d { return 1; } } return 0; }',
+        'struct P { x: Int, mut y: Int } fn f() -> Int { let p = P { x: 1, y: 2 }; return p.x; }',
+    ];
+    let mut total = 0;
+    for s in samples {
+        total = total + parse_all_prefixes(s);
+    }
+    testing.assert(total > 0, message: 'expected token-prefixes to be parsed')?;
     return Result.Ok(void);
 }
 
