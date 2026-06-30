@@ -1,0 +1,11 @@
+//! spec: cf-if-let-needs-else
+//! mode: check
+
+fn main() -> Int {
+    let o = Option.Some(1);
+    // An `if let` whose value is consumed must have an `else` branch, exactly
+    // like a value `if` — the conditional-binding form is else-less only when
+    // used for effect (as a statement).
+    let x = if let Some(n) = o { n };   // expect error: needs an `else`
+    return x;
+}

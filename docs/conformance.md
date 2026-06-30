@@ -101,6 +101,8 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | ID                  | Spec                     | Pins                                                        | Status |
 | ------------------- | ------------------------ | ---------------------------------------------------------- | ------ |
 | `cf-if`             | Control flow             | `if`/`else` statement form                                | ✓      |
+| `cf-if-let`         | Control flow             | `if let PAT = e { … }` conditional binding (statement/value/`else if let`/nested) | ✓      |
+| `cf-if-let-needs-else` | Control flow          | value `if let` with no `else` is an error                  | ✓      |
 | `cf-for`            | Control flow             | `for x in` over lists and ranges                          | ✓      |
 | `cf-while`          | grammar.md Statements    | `while` loop                                              | ✓      |
 | `cf-match`          | grammar.md Patterns      | match dispatch; exhaustiveness assumption                  | ✓      |

@@ -191,9 +191,8 @@ impl ModuleScope {
         if !self.file_functions.has(key) {
             self.file_functions[key] = {};
         }
-        match self.file_functions.get(key) {
-            Some(m) => { m[decl.name] = index; },
-            None => {},
+        if let Some(m) = self.file_functions.get(key) {
+            m[decl.name] = index;
         }
         self.global_functions[decl.name] = index;
         self.add_unit(decl, decl.name, Option.None, file);
@@ -202,14 +201,10 @@ impl ModuleScope {
     // The unit index of free function `name` referenced from `file` — the file's
     // own function if it has one, else the cross-file fallback.
     pub fn resolve_function(self, _ file: Option<String>, _ name: String) -> Option<Int> {
-        match self.file_functions.get(element.file_key(file)) {
-            Some(m) => {
-                match m.get(name) {
-                    Some(i) => { return Option.Some(i); },
-                    None => {},
-                }
-            },
-            None => {},
+        if let Some(m) = self.file_functions.get(element.file_key(file)) {
+            if let Some(i) = m.get(name) {
+                return Option.Some(i);
+            }
         }
         return self.global_functions.get(name);
     }
@@ -285,9 +280,8 @@ impl ModuleScope {
         if !self.native_static_methods.has(type_name) {
             self.native_static_methods[type_name] = {};
         }
-        match self.native_static_methods.get(type_name) {
-            Some(m) => { m[method.name] = extern_symbol(method); },
-            None => {},
+        if let Some(m) = self.native_static_methods.get(type_name) {
+            m[method.name] = extern_symbol(method);
         }
     }
 
@@ -295,9 +289,8 @@ impl ModuleScope {
         if !self.native_instance_methods.has(type_name) {
             self.native_instance_methods[type_name] = {};
         }
-        match self.native_instance_methods.get(type_name) {
-            Some(m) => { m[method.name] = extern_symbol(method); },
-            None => {},
+        if let Some(m) = self.native_instance_methods.get(type_name) {
+            m[method.name] = extern_symbol(method);
         }
     }
 
@@ -305,9 +298,8 @@ impl ModuleScope {
         if !self.interface_impls.has(type_name) {
             self.interface_impls[type_name] = Set.new();
         }
-        match self.interface_impls.get(type_name) {
-            Some(s) => { s.add(interface_name); },
-            None => {},
+        if let Some(s) = self.interface_impls.get(type_name) {
+            s.add(interface_name);
         }
     }
 
@@ -320,9 +312,8 @@ impl ModuleScope {
         if !self.method_table.has(type_name) {
             self.method_table[type_name] = {};
         }
-        match self.method_table.get(type_name) {
-            Some(m) => { m[method.name] = self.units.len(); },
-            None => {},
+        if let Some(m) = self.method_table.get(type_name) {
+            m[method.name] = self.units.len();
         }
         self.add_unit(method, type_name + '.' + method.name, self_type, file);
     }
@@ -364,9 +355,8 @@ impl ModuleScope {
     // The type-table index of the one-field cell struct used to box captured
     // `mut` locals, created on first use.
     pub fn cell_type_index(self) -> Int {
-        match self.cell_type {
-            Some(i) => { return i; },
-            None => {},
+        if let Some(i) = self.cell_type {
+            return i;
         }
         let i = self.types.len();
         self.types.push(TypeDef { name: '<cell>', field_count: 1 });
@@ -379,45 +369,33 @@ impl ModuleScope {
     // registered.
     pub fn flatten_interfaces(self) -> Void {
         for name in self.interface_methods.keys() {
-            match self.interface_methods.get(name) {
-                Some(methods) => {
-                    let seen: Set<String> = Set.new();
-                    seen.add(name);
-                    let queue: List<String> = [];
-                    match self.interface_supers.get(name) {
-                        Some(supers) => {
-                            for s in supers {
-                                queue.push(s);
-                            }
-                        },
-                        None => {},
+            if let Some(methods) = self.interface_methods.get(name) {
+                let seen: Set<String> = Set.new();
+                seen.add(name);
+                let queue: List<String> = [];
+                if let Some(supers) = self.interface_supers.get(name) {
+                    for s in supers {
+                        queue.push(s);
                     }
-                    let mut qi = 0;
-                    while qi < queue.len() {
-                        let s = queue[qi];
-                        qi = qi + 1;
-                        if !seen.has(s) {
-                            seen.add(s);
-                            match self.interface_methods.get(s) {
-                                Some(super_methods) => {
-                                    for sm in super_methods.to_list() {
-                                        methods.add(sm);
-                                    }
-                                },
-                                None => {},
+                }
+                let mut qi = 0;
+                while qi < queue.len() {
+                    let s = queue[qi];
+                    qi = qi + 1;
+                    if !seen.has(s) {
+                        seen.add(s);
+                        if let Some(super_methods) = self.interface_methods.get(s) {
+                            for sm in super_methods.to_list() {
+                                methods.add(sm);
                             }
-                            match self.interface_supers.get(s) {
-                                Some(more) => {
-                                    for m in more {
-                                        queue.push(m);
-                                    }
-                                },
-                                None => {},
+                        }
+                        if let Some(more) = self.interface_supers.get(s) {
+                            for m in more {
+                                queue.push(m);
                             }
                         }
                     }
-                },
-                None => {},
+                }
             }
         }
     }
@@ -431,9 +409,8 @@ impl ModuleScope {
         for type_name in self.interface_impls.keys() {
             let seen: Set<String> = Set.new();
             let queue: List<String> = [];
-            match self.interface_impls.get(type_name) {
-                Some(s) => { for d in s.to_list() { queue.push(d); } },
-                None => {},
+            if let Some(s) = self.interface_impls.get(type_name) {
+                for d in s.to_list() { queue.push(d); }
             }
             let mut qi = 0;
             while qi < queue.len() {
@@ -441,20 +418,16 @@ impl ModuleScope {
                 qi = qi + 1;
                 if !seen.has(iface) {
                     seen.add(iface);
-                    match self.interface_supers.get(iface) {
-                        Some(supers) => { for s in supers { queue.push(s); } },
-                        None => {},
+                    if let Some(supers) = self.interface_supers.get(iface) {
+                        for s in supers { queue.push(s); }
                     }
                     // The defaulted methods of `iface` are exactly those
                     // registered under its name in the method table (only bodied
                     // interface methods are added there).
-                    match self.method_table.get(iface) {
-                        Some(defaults) => {
-                            for m in defaults.keys() {
-                                self.wire_one_default(type_name, m, defaults.get(m));
-                            }
-                        },
-                        None => {},
+                    if let Some(defaults) = self.method_table.get(iface) {
+                        for m in defaults.keys() {
+                            self.wire_one_default(type_name, m, defaults.get(m));
+                        }
                     }
                 }
             }
@@ -464,22 +437,16 @@ impl ModuleScope {
     // Point `type_name`'s dispatch for `method` at the shared default `unit`,
     // unless the type already provides (overrides) that method.
     fn wire_one_default(self, _ type_name: String, _ method: String, _ unit: Option<Int>) -> Void {
-        match unit {
-            Some(idx) => {
-                if !self.method_table.has(type_name) {
-                    self.method_table[type_name] = {};
+        if let Some(idx) = unit {
+            if !self.method_table.has(type_name) {
+                self.method_table[type_name] = {};
+            }
+            if let Some(tm) = self.method_table.get(type_name) {
+                if !tm.has(method) {
+                    tm[method] = idx;
+                    self.add_dispatch(type_name, method);
                 }
-                match self.method_table.get(type_name) {
-                    Some(tm) => {
-                        if !tm.has(method) {
-                            tm[method] = idx;
-                            self.add_dispatch(type_name, method);
-                        }
-                    },
-                    None => {},
-                }
-            },
-            None => {},
+            }
         }
     }
 
@@ -498,16 +465,10 @@ impl ModuleScope {
                     None => Option.None,
                 },
             };
-            match func {
-                Some(f) => {
-                    match type_id {
-                        Some(tid) => {
-                            entries.push(DispatchEntry { type_id: tid, selector: row.selector, func: f });
-                        },
-                        None => {},
-                    }
-                },
-                None => {},
+            if let Some(f) = func {
+                if let Some(tid) = type_id {
+                    entries.push(DispatchEntry { type_id: tid, selector: row.selector, func: f });
+                }
             }
         }
         return entries;
@@ -521,9 +482,8 @@ impl ModuleScope {
 pub fn extern_symbol(_ decl: FnDecl) -> String {
     for d in decl.decorators {
         if d.name == 'extern' && d.args.len() > 0 {
-            match string_literal(d.args[0]) {
-                Some(s) => { return s; },
-                None => {},
+            if let Some(s) = string_literal(d.args[0]) {
+                return s;
             }
         }
     }

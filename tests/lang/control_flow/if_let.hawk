@@ -1,0 +1,66 @@
+//! spec: cf-if-let
+//! mode: run
+
+// `if let PATTERN = SUBJECT { … }` binds the pattern and runs the block when the
+// subject matches — the conditional-binding form (desugars to a `match` with a
+// wildcard else arm). Works as a statement, with `else`, as a value, in an
+// `else if let` chain, and with nested constructor patterns.
+
+enum Pair {
+    Both(Int, Int),
+    One(Int),
+}
+
+// Statement form, no else: the block runs only on a match.
+fn describe(_ o: Option<Int>) -> String {
+    if let Some(n) = o {
+        return 'got ${n}';
+    }
+    return 'nothing';
+}
+
+// With an `else` branch.
+fn classify(_ o: Option<Int>) -> String {
+    if let Some(n) = o {
+        return 'present ${n}';
+    } else {
+        return 'absent';
+    }
+}
+
+// Value position (requires `else`): the chosen branch's value.
+fn or_default(_ o: Option<Int>) -> Int {
+    return if let Some(n) = o { n } else { -1 };
+}
+
+// `else if let` chain.
+fn first_of(_ a: Option<Int>, _ b: Option<Int>) -> String {
+    if let Some(n) = a {
+        return 'a=${n}';
+    } else if let Some(m) = b {
+        return 'b=${m}';
+    } else {
+        return 'neither';
+    }
+}
+
+// Nested constructor pattern binds at the leaves.
+fn sum(_ p: Pair) -> Int {
+    if let Both(x, y) = p {
+        return x + y;
+    }
+    return 0;
+}
+
+fn main() -> Int {
+    println(describe(Option.Some(5)));        // expect: got 5
+    println(describe(Option.None));           // expect: nothing
+    println(classify(Option.Some(9)));        // expect: present 9
+    println(classify(Option.None));           // expect: absent
+    println('${or_default(Option.Some(42))}'); // expect: 42
+    println('${or_default(Option.None)}');    // expect: -1
+    println(first_of(Option.None, Option.Some(7))); // expect: b=7
+    println(first_of(Option.None, Option.None));    // expect: neither
+    println('${sum(Pair.Both(3, 4))}');       // expect: 7
+    return 0;
+}

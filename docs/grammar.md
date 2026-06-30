@@ -217,7 +217,8 @@ letStmt   = 'let' 'mut'? IDENT (':' type)? '=' expr ';'
 constStmt = 'const' IDENT (':' type)? '=' expr ';'       // a local immutable binding
 returnStmt= 'return' expr? ';'
 throwStmt = 'throw' expr ';'
-ifStmt    = 'if' exprNB block ( 'else' ( ifStmt | block ) )?
+ifStmt    = 'if' ( exprNB | 'let' pattern '=' exprNB )    // `if let` = cond. binding
+            block ( 'else' ( ifStmt | block ) )?         //   (desugars to `match`)
 forStmt   = 'for' pattern 'in' exprNB block
 whileStmt = 'while' exprNB block
 
@@ -238,7 +239,7 @@ restructuring or `return`).
 
 ### Patterns
 
-Used by `for` and `match`:
+Used by `for`, `match`, and `if let`:
 
 ```
 pattern = '_'                                            // wildcard

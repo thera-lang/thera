@@ -380,10 +380,17 @@ struct Config {
 }
 ```
 
-Use `match` to unwrap, or `.ok_or()` to convert to a `Result` when absence
-should be treated as an error:
+Use [`if let`](#if-let) to act on a present value, `match` to handle both cases,
+or `.ok_or()` to convert to a `Result` when absence should be treated as an
+error:
 
 ```hawk
+// act on the present case (the common one)
+if let Some(dir) = config.log_dir {
+    println('logging to ${dir}');
+}
+
+// handle both cases
 match config.log_dir {
     Some(dir) => println('logging to ${dir}'),
     None      => println('logging disabled'),
@@ -456,6 +463,36 @@ for i in 0..10 {
     println('${i}');
 }
 ```
+
+### `if let`
+
+`if let PATTERN = SUBJECT { … }` runs the block — binding the pattern's variables
+in it — only when `SUBJECT` matches `PATTERN`. It is the **conditional-binding**
+form: the canonical way to act on a present `Option` (or any single enum variant)
+without a full `match`.
+
+```hawk
+// act on a present value (no `else` needed — runs for effect)
+if let Some(dir) = config.log_dir {
+    println('logging to ${dir}');
+}
+
+// with an else, and as a value (the value form requires `else`, like `if`)
+let port = if let Some(p) = parsed { p } else { 8080 };
+
+// else-if-let chains, and nested patterns bind at the leaves
+if let Ok(n) = parse(a) {
+    use(n);
+} else if let Ok(m) = parse(b) {
+    use(m);
+}
+```
+
+It is exactly an `if` whose condition is a pattern binding: the same rules apply
+(no `else` for a statement run for effect; an `else` required where the value is
+used). Reach for `if let` over `match` when you care about **one** variant and
+would otherwise write a `_ => {}` catch-all; reach for `match` when you are
+genuinely choosing among several variants.
 
 ---
 

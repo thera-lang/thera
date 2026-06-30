@@ -416,6 +416,36 @@ resolution_ below.)
   and normalization of doc layout. (Not yet migrated: `pkgs/cli/` and
   `examples/`, deliberately deferred — the public API surface was the priority.)
 
+- **Tools — refactorings (suggestion diagnostics + code actions).** Once the
+  ergonomics features land (see [ergonomics.md](ergonomics.md)), the common
+  verbose shapes they replace become **mechanically detectable**, so the
+  front-end can suggest (and a `hawk fix` / LSP code action can apply) the
+  rewrite. These are tracked here but **decoupled from the language work** —
+  shipping `if let` does not require building its suggester. The candidate
+  refactorings, roughly highest-value first:
+  - **`match` → `if let`.** A two-arm `match` whose other arm is a `_ => {}` /
+    `None => {}` catch-all (`match X { Some(v) => { … }, None => {} }`) →
+    `if let Some(v) = X { … }`. The dominant cascade (~323 sites; ~279 noise
+    arms) — the highest-leverage cleanup.
+  - **`match` → `let … else`.** `let x = match opt { Some(v) => v, None => { …diverge… } };`
+    → `let Some(x) = opt else { …diverge… };` (once `let … else` lands).
+  - **`match` → `?`.** A `match r { Ok(v) => v, Err(e) => return Result.Err(e) }`
+    (or the `Option` analogue, once `?`-on-`Option` lands) → `r?`.
+  - **`match` → combinator.** `match opt { Some(v) => f(v), None => None }` →
+    `opt.map(f)`; `match opt { Some(v) => v, None => d }` → `opt.unwrap_or(d)`
+    (already underused — e.g. json `write_object` — so this lints existing code
+    too).
+  - **`while i < xs.len()` → `for`/`enumerate`/`zip`.** A manual index loop that
+    only reads `xs[i]` → `for x in xs`; one that needs the index →
+    `for (i, x) in xs.enumerate()`; a parallel two-list index loop → a `zip`
+    adapter (when one exists — see the iterator note under _Stdlib breadth_).
+  - **Shared machinery.** All of these need the **trivia/comment side-channel**
+    (so a rewrite preserves comments) the formatter + doc tooling also need, and
+    benefit from a distinguishing marker on parser-desugared nodes (today
+    `if let` desugars to an indistinguishable `match` — the `match → if let`
+    suggester must not re-fire on already-`if let` code; mark the synthesized
+    `MatchExpr` when the suggester is built). Sequence after `fmt`'s trivia work.
+
 ### Language features not yet built
 
 - **Disambiguate the empty `{}` in a `match` arm (map-literal vs block).** In
@@ -439,12 +469,15 @@ resolution_ below.)
   more verbose than they need to be; the dominant one is the resolution cascade
   `match X { Some(v) => { …; return …; }, None => {} }` (~323 sites corpus-wide;
   ~279 noise `None => {}` arms) — "look up, act-and-return, else fall through."
-  **Full analysis + prioritized plan now in [ergonomics.md](ergonomics.md):** P0
-  `if let`, P1 `let … else`, P2 `?`-on-`Option` (needs `Result`-interaction
-  design) and a curated combinator set, governed by a one-obvious-way guardrail
-  (a canonical form per shape, reinforced in the docs). Evaluate by what's best
-  for **LLMs** — terseness, expressiveness, and _one_ obvious way to do a thing.
-  (Surfaced by the pkgs/ code review.)
+  **Full analysis + prioritized plan in [ergonomics.md](ergonomics.md):** P0
+  `if let` is **landed** (parser desugar to `match`; statement/value/`else if
+  let`/nested forms; spec `cf-if-let`). Remaining: P1 `let … else`, P2
+  `?`-on-`Option` (needs `Result`-interaction design) and a curated combinator
+  set, governed by a one-obvious-way guardrail (a canonical form per shape,
+  reinforced in the docs). Evaluate by what's best for **LLMs** — terseness,
+  expressiveness, and _one_ obvious way to do a thing. (Surfaced by the pkgs/
+  code review.) The cascade-cleanup refactorings these unlock are tracked under
+  _Front-end / tooling → Tools — refactorings_.
 
 - **Generic operators** (`<T: Add>`, operators-as-traits) — the remaining piece
   of the generics arc (bound enforcement + `call.virtual` dispatch on `T` are

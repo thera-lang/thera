@@ -120,11 +120,24 @@ the canonical way for its shape.** One obvious choice per situation.
 
 ## Prioritized improvements
 
-### P0 — `if let` (conditional binding)
+### P0 — `if let` (conditional binding) — ✅ landed
 
 The single highest-leverage change. Collapses the ~279 noise arms and the
 dominant act-and-return cascade, and removes the exhaustiveness obligation for
 the conditional case (no more compile-breaking missing arm).
+
+**Status:** shipped. Implemented as a **parser desugar** to an equivalent
+`match` (a wildcard `_` else arm), so the checker, inference, and codegen needed
+no new node and the front-end re-emits byte-for-byte. Supports the statement
+form, an `else` branch, value position (a missing `else` is the same error a
+value `if` raises), `else if let` chains, and nested constructor patterns.
+Spec `cf-if-let` / `cf-if-let-needs-else`; documented in
+[language.md](language.md) (Control flow → `if let`) and [grammar.md](grammar.md).
+The bulk **migration** of the ~323 existing cascade sites is deferred to a
+suggester/codemod — see _Tools — refactorings_ in [roadmap.md](roadmap.md). One
+known limitation the migration tooling must handle: a desugared `if let` is an
+indistinguishable `MatchExpr`, so a future "`match` → `if let`" lint needs a
+marker to avoid re-firing on already-`if let` code.
 
 ```hawk
 // before                                   // after

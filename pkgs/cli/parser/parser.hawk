@@ -1189,6 +1189,10 @@ impl Parser {
 
     fn parse_if_stmt(self) -> Stmt {
         let start = self.advance(); // 'if'
+        if self.check(TokenKind.KwLet) {
+            let e = self.parse_if_let(start, false);
+            return Stmt.Expr(expr_span(e), e);
+        }
         let condition = self.parse_expr_no_brace();
         let then_block = self.parse_block();
         let mut else_block = Option.None;
@@ -1223,6 +1227,9 @@ impl Parser {
     // parse error; cleared where the `if` may be a discarded statement.
     fn parse_if_expr(self, _ require_else: Bool) -> Expr {
         let start = self.advance(); // 'if'
+        if self.check(TokenKind.KwLet) {
+            return self.parse_if_let(start, require_else);
+        }
         let condition = self.parse_expr_no_brace();
         let then_block = self.parse_expr_block();
         let mut else_block = Option.None;
@@ -1253,6 +1260,69 @@ impl Parser {
             condition: condition,
             then_block: then_block,
             else_block: else_block,
+        });
+    }
+
+    // Desugar `if let PATTERN = SUBJECT { … } [else …]` into the equivalent
+    // `match` — pattern binding reuses the one mechanism, so the checker, inference,
+    // and codegen need no new node. The pattern is the then-arm; a wildcard arm is
+    // the `else` (an empty Unit block when omitted, like a statement `if` with no
+    // `else`). `require_else` (value position) makes a missing `else` the same
+    // error a value `if` raises. `start` is the already-consumed `if` token.
+    fn parse_if_let(self, _ start: Token, _ require_else: Bool) -> Expr {
+        self.advance(); // 'let'
+        let pattern = self.parse_pattern();
+        self.expect(TokenKind.Eq, '=');
+        let subject = self.parse_expr_no_brace();
+        let then_block = self.parse_expr_block();
+        let then_expr = Expr.Block(block_span(then_block), then_block);
+        let mut end = block_span(then_block);
+        let mut else_expr: Option<Expr> = Option.None;
+        if self.match_kind(TokenKind.KwElse) {
+            if self.check(TokenKind.KwIf) {
+                // An `else if` (or `else if let`) chain: the whole `if` is the
+                // wildcard arm's body.
+                let inner = self.parse_if_expr(require_else);
+                end = expr_span(inner);
+                else_expr = Option.Some(inner);
+            } else {
+                let eb = self.parse_expr_block();
+                end = block_span(eb);
+                else_expr = Option.Some(Expr.Block(block_span(eb), eb));
+            }
+        } else if require_else {
+            self.fail_at('an `if` used as a value needs an `else` branch',
+                block_span(then_block));
+            return self.err_expr();
+        }
+        let span = start.span.cover(end);
+        // No `else`: an empty Unit wildcard arm, so a statement `if let` with no
+        // `else` has type Unit (its then-branch runs for effect), like `if`.
+        let else_body = match else_expr {
+            Some(e) => e,
+            None => Expr.Block(span, Block {
+                start_span: span,
+                end_span: span,
+                stmts: [],
+                tail: Option.None,
+            }),
+        };
+        let arms: List<MatchArm> = [
+            MatchArm {
+                span: pattern_span(pattern).cover(expr_span(then_expr)),
+                pattern: pattern,
+                body: then_expr,
+            },
+            MatchArm {
+                span: expr_span(else_body),
+                pattern: Pattern.Wildcard(span),
+                body: else_body,
+            },
+        ];
+        return Expr.Match(MatchExpr {
+            span: span,
+            subject: subject,
+            arms: arms,
         });
     }
 
