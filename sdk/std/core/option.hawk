@@ -1,26 +1,31 @@
-//! std.core — the Option type.
-//!
-//! `Option<T>` represents an optional value: `Some(T)` when present, `None` when
-//! absent. It is one of the two language-blessed enums (the `?` operator and the
-//! built-in helper methods know it by name), but it is otherwise an ordinary
-//! enum defined here in Hawk.
-//!
-//! The variant order is significant: it fixes the runtime tags (Some = 0,
-//! None = 1) shared with the bytecode runtime — do not reorder.
-//!
-//! Reaching for the right tool (see also `if let` / `let … else` in
-//! language.md): `if let` to act on a present value, `let … else` to bind or
-//! bail, and these combinators to transform or default a value inline —
-//! `map`/`and_then` to carry a computation through, `unwrap_or`/`unwrap_or_else`
-//! to exit with a default, `ok_or` to turn absence into a `Result`. Reserve
-//! `match` for genuinely choosing among variants.
+/// std.core — the Option type.
+///
+/// `Option<T>` represents an optional value: `Some(T)` when present, `None` when
+/// absent. It is one of the two language-blessed enums (the `?` operator and the
+/// built-in helper methods know it by name), but it is otherwise an ordinary
+/// enum defined here in Hawk.
+///
+/// The variant order is significant: it fixes the runtime tags (Some = 0,
+/// None = 1) shared with the bytecode runtime — do not reorder.
+///
+/// Reaching for the right tool (see also `if let` / `let … else` in
+/// language.md): `if let` to act on a present value, `let … else` to bind or
+/// bail, and these combinators to transform or default a value inline —
+/// `map`/`and_then` to carry a computation through, `unwrap_or`/`unwrap_or_else`
+/// to exit with a default, `ok_or` to turn absence into a `Result`. Reserve
+/// `match` for genuinely choosing among variants.
 pub enum Option<T> {
     Some(T),
     None,
 }
 
 impl Option<T> {
-    /// Convert to a Result, using `err` for the None case.
+    /// Convert to a `Result`, treating `None` as the error `err`. Reach for it to
+    /// turn an absent value into a failure you can propagate with `?`.
+    ///
+    /// ```hawk
+    /// let port = config.port.ok_or(error('port is required'))?;
+    /// ```
     pub fn ok_or<E>(self, _ err: E) -> Result<T, E> {
         return match self {
             Some(v) => Result.Ok(v),
@@ -28,7 +33,13 @@ impl Option<T> {
         };
     }
 
-    /// The contained value if Some, else `fallback`.
+    /// The contained value if present, else `fallback`. Reach for it to exit with
+    /// a default when the fallback is a cheap, already-computed value (use
+    /// `unwrap_or_else` if it is expensive).
+    ///
+    /// ```hawk
+    /// let port = config.port.unwrap_or(8080);
+    /// ```
     pub fn unwrap_or(self, _ fallback: T) -> T {
         return match self {
             Some(v) => v,
@@ -36,7 +47,12 @@ impl Option<T> {
         };
     }
 
-    /// Discriminators.
+    /// Whether a value is present. (To use the value, prefer `if let` / `?`; this
+    /// is for a plain boolean check.)
+    ///
+    /// ```hawk
+    /// if config.port.is_some() { … }
+    /// ```
     pub fn is_some(self) -> Bool {
         return match self {
             Some(_) => true,
@@ -44,6 +60,11 @@ impl Option<T> {
         };
     }
 
+    /// Whether a value is absent.
+    ///
+    /// ```hawk
+    /// if config.port.is_none() { … }
+    /// ```
     pub fn is_none(self) -> Bool {
         return match self {
             Some(_) => false,
