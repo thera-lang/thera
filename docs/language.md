@@ -222,8 +222,15 @@ captured `mut` locals into a heap cell and closes over the cell (see
 
 ### Named parameters
 
-Parameters are named at call sites by default. The parameter name in the
-definition becomes the external label:
+By design, **the function author chooses each parameter's call form, and the
+call site has exactly one valid form** — there is no caller-side choice, so every
+call to a given function looks the same. That consistency matters for readers
+(human and LLM), while still letting the author put labels where they aid
+readability and drop them where they are noise.
+
+A parameter is **labeled by default**: its name becomes the call-site label and
+callers must write it. Labels make calls self-documenting — especially for
+booleans and several same-typed arguments:
 
 ```hawk
 fn greet(name: String, times: Int) { ... }
@@ -231,18 +238,27 @@ fn greet(name: String, times: Int) { ... }
 greet(name: 'alice', times: 3);
 ```
 
-Use `_` before the parameter name to suppress the label at the call site. This
-is appropriate when the type or context makes the argument's role obvious:
+Mark a parameter **positional** with a leading `_` (read it as "the external
+label is _none_"). The label is then *forbidden* and the argument is passed by
+position — for when the call already reads unambiguously without it:
 
 ```hawk
 fn println(_ msg: String) { ... }
 
-println('hello');   // no label — reads naturally
+println('hello');          // positional — reads naturally
+// println(msg: 'hello');  // error — this parameter has no label
 ```
 
+**Style.** Default to labeled; reach for `_` only when the label would be
+redundant — typically the single "subject" argument of a call (`log(msg)`,
+`read_text(path)`, `insert(item, at: index)`). Keep labels for booleans, for
+multiple same-typed arguments whose order is otherwise unclear, and for any role
+the name and value don't already make obvious.
+
 Use `external internal` to give a parameter a different external label from its
-internal identifier. This is useful when the natural label is a keyword or reads
-awkwardly as a variable name inside the function body:
+internal identifier — useful when the natural label is a keyword or reads
+awkwardly inside the body (`_` is just the case where the external label is
+none):
 
 ```hawk
 fn flag(_ name: String, default value: Bool) -> Bool { ... }
@@ -252,6 +268,14 @@ args.flag('--verbose', default: false);
 
 Here `default` is the label at the call site; `value` is the name used inside
 the function body (avoiding a clash with a potential `default` keyword).
+
+> **Enforcement status.** The single-call-form model above is the design intent;
+> the checker is currently **more permissive** than it. Today a labeled parameter
+> may *also* be passed positionally, and labeled arguments may be reordered — so
+> more than one call form compiles for the same function. Tightening to one
+> canonical form (a labeled parameter's label is required; positional is
+> forbidden for it), migrating the call sites that rely on the looseness, and the
+> style guidance above are tracked in [roadmap.md](roadmap.md).
 
 ---
 

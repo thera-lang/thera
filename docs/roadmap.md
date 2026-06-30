@@ -487,6 +487,46 @@ resolution_ below.)
 
 ### Language features not yet built
 
+- **Calling convention — one canonical call form (tighten + enforce).** The
+  decided model (see [language.md](language.md) → Named parameters): the author
+  chooses each parameter's call form and the call site has exactly **one** —
+  **labeled by default**, **positional via `_`** (label forbidden). This
+  eliminates caller choice, so every call to a function reads the same (the
+  consistency the LLM-native goal wants), while the author still gets terse,
+  self-documenting call sites where each is warranted. The checker is currently
+  **permissive** (a labeled parameter also accepts a positional argument, and
+  labeled arguments may be reordered), so the model ships with an
+  enforcement-status caveat in the docs. Sequencing:
+  1. **Clarify the docs** — _done_ (language.md Named parameters + style rule).
+  2. **Fix existing code** — migrate call sites that pass a labeled parameter
+     positionally (or rely on reordering) to the canonical form, and add `_` to
+     the parameters that should be positional (the obvious "subject" args). This
+     is a corpus-wide sweep; it pairs with the _Tools — refactorings_ machinery
+     (a located diagnostic for "positional argument to a labeled parameter" is
+     the natural lint, with a mechanical fix).
+  3. **Enforce** — the checker requires a labeled parameter's label and forbids a
+     positional argument for it. Flip after the sweep so the corpus stays green.
+  - **Open sub-decision:** whether to also require **source order** for labeled
+    arguments (forbid `f(b: 2, a: 1)`). The same one-form principle argues yes;
+    it's a separable call from the positional-vs-labeled tightening. Decide
+    during step 3.
+  - The style rule (`_` for the single obvious "subject" arg; labels for
+    booleans / multiple same-typed / non-obvious roles) belongs in the
+    agent-facing idioms guidance (see _Idioms & best-practices guidance_).
+  - **Longer-term — first-arg-positional default (investigate, not scheduled).**
+    If `_`-on-every-first-parameter proves a frequent irritant once the
+    convention tightens, reconsider making the **first ("subject") parameter
+    positional by default and the rest labeled**, with explicit overrides both
+    ways. It makes the common case need no marker, at the cost of
+    position-dependence and a two-way override (less "simple, one rule"). **Not
+    an immediate goal.** Measure first — count how often `_` would land on the
+    first parameter **under the tightened convention** (not today's permissive
+    usage); that frequency is the input to the flat-`_` vs first-arg-positional
+    call. (Keyword markers like `pos`/`positional` were considered and declined:
+    too verbose at this frequency, and `pos` collides with the ubiquitous `pos`
+    variable; `_` reads as "external label = none", consistent with the
+    `external internal` slot.)
+
 - **Disambiguate the empty `{}` in a `match` arm (map-literal vs block).** In
   expression position `{}` is an empty **map** (`return {}`, `let m = {}`, a
   call argument, an `if`-branch tail `{ {} }` all work). The sharp edge is a
