@@ -214,18 +214,14 @@ impl BytesReader {
     /// Assemble the next `n` little-endian bytes into an Int, or None if fewer
     /// than `n` remain.
     fn read_le(self, _ n: Int) -> Option<Int> {
-        match self.read_bytes(n) {
-            Some(b) => {
-                let mut result = 0;
-                let mut i = 0;
-                while i < n {
-                    result = result | (b.get(i).unwrap_or(0) << (i * 8));
-                    i = i + 1;
-                }
-                return Option.Some(result);
-            },
-            None => { return Option.None; },
+        let b = self.read_bytes(n)?;
+        let mut result = 0;
+        let mut i = 0;
+        while i < n {
+            result = result | (b.get(i).unwrap_or(0) << (i * 8));
+            i = i + 1;
         }
+        return Option.Some(result);
     }
 
     /// Unsigned LEB128 — the inverse of `write_uvarint`. None if the stream ends
@@ -235,16 +231,12 @@ impl BytesReader {
         let mut shift = 0;
         let mut more = true;
         while more {
-            match self.read_u8() {
-                Some(byte) => {
-                    result = result | ((byte & 0x7F) << shift);
-                    if (byte & 0x80) == 0 {
-                        more = false;
-                    } else {
-                        shift = shift + 7;
-                    }
-                },
-                None => { return Option.None; },
+            let byte = self.read_u8()?;
+            result = result | ((byte & 0x7F) << shift);
+            if (byte & 0x80) == 0 {
+                more = false;
+            } else {
+                shift = shift + 7;
             }
         }
         return Option.Some(result);
@@ -257,18 +249,14 @@ impl BytesReader {
         let mut shift = 0;
         let mut more = true;
         while more {
-            match self.read_u8() {
-                Some(byte) => {
-                    result = result | ((byte & 0x7F) << shift);
-                    shift = shift + 7;
-                    if (byte & 0x80) == 0 {
-                        if shift < 64 && (byte & 0x40) != 0 {
-                            result = result | (-1 << shift);
-                        }
-                        more = false;
-                    }
-                },
-                None => { return Option.None; },
+            let byte = self.read_u8()?;
+            result = result | ((byte & 0x7F) << shift);
+            shift = shift + 7;
+            if (byte & 0x80) == 0 {
+                if shift < 64 && (byte & 0x40) != 0 {
+                    result = result | (-1 << shift);
+                }
+                more = false;
             }
         }
         return Option.Some(result);

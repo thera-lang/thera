@@ -181,24 +181,33 @@ present case," `let … else` is "bind for the rest of the function, or bail." T
 `else` block must diverge (`return` / `throw` / `continue` / `break`) — same
 rule as Rust/Swift, easy to check and easy for a model to get right.
 
-### P2 — `?` on `Option`
+### P2 — `?` on `Option` — ✅ landed
 
-Lower-effort than it looks (inference and the runtime already accept `Option`;
-the gap is checker policy), and it would drain a large share of the remaining
-cascades. **Needs design effort before implementing** — specifically the
-interaction with `Result`-returning functions:
+**Status:** shipped. `?` propagates **within one enum family**, decided by the
+enclosing function's return type:
 
-- In an `Option`-returning function, `opt?` → propagate `None`. Clear.
-- In a `Result`-returning function, what does `opt?` mean? Options:
-  1. **Disallow** — require the explicit `.ok_or(err)?` so a `None`→`Err`
-     conversion always names its error. (Conservative; keeps `?` meaning
-     "propagate the same enum.")
-  2. **Allow with a required error** somehow — less obvious, risks a second way
-     to spell the same thing.
-- Symmetric question: `result?` inside an `Option`-returning function.
+- In an `Option`-returning function, `opt?` → `Some(v)` unwraps, `None`
+  early-returns `None`.
+- In a `Result`-returning function, `res?` → `Ok(v)` unwraps, `Err(e)`
+  early-returns (unchanged).
+- **Cross-family is a compile error with a fix-it** (the chosen design — reject,
+  don't auto-convert, since `None`→`Err` needs an error value `?` can't invent):
+  an `Option` `?` in a `Result` function says _"convert the absence to an error
+  with `.ok_or(<error>)?`"_; a `Result` `?` in an `Option` function says
+  _"discard the error with `.ok()?`"_.
 
-Lean toward option 1 (one obvious way; `?` propagates the _same_ type, and
-cross-type conversions stay explicit), but settle it during design.
+This matched reality more than expected: the happy path (`opt?` in an `Option`
+fn) **already worked** — runtime `?` is tag-based and `None`/`Err` share tag 1,
+and `infer_propagate` already accepted both. The checker did **no** validation,
+so the cross-family case compiled silently and **trapped at runtime**. So the
+work was almost entirely a **checker** addition (`check_propagate`): bless +
+document the valid case, and turn the footgun into a located error. Lenient on
+undetermined types; family-only (no error-type strictness → no regression to
+existing `Result` `?`). Found one latent cross-family `?` in the test corpus
+(fixed). Spec `err-propagate-option` / `err-propagate-cross`; documented in
+[language.md](language.md). Dogfooded in `core/bytes.hawk`'s `BytesReader`
+(`read_le`/`read_uvarint`/`read_ivarint`). This is also the canonical answer for
+the `Err`-payload guards `let … else` couldn't take: `r.map_err(...)?`.
 
 ### P2 — round out the Option/Result combinators — ✅ landed
 

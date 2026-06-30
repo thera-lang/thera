@@ -804,8 +804,9 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
         Unary(_, _, operand) => {
             check_expr(errors, operand, scope, ctx, Option.None);
         },
-        Propagate(_, inner) => {
+        Propagate(span, inner) => {
             check_expr(errors, inner, scope, ctx, Option.None);
+            check_propagate(errors, inner, span, scope, ctx);
         },
         Range(_, start, end) => {
             check_expr(errors, start, scope, ctx, Option.None);
@@ -1410,6 +1411,81 @@ fn check_return(_ errors: List<CheckError>, _ value: Expr, _ expected: Type,
         _ => {},
     }
     add_error(errors, 'return type mismatch: expected ${type_to_string(expected)}, found ${type_to_string(actual)}', span);
+}
+
+// Validate `expr?`. `?` propagates a failure (an `Err`/`None`) to the caller, so
+// the operand's enum family must match the enclosing function's return type:
+// an `Option` `?` belongs in an `Option`-returning function, a `Result` `?` in a
+// `Result`-returning one. Cross-family use is rejected with a fix-it (the absence
+// → error conversion is `.ok_or(<error>)?`; the error → absence conversion is
+// `.ok()?`). The happy path otherwise lowers structurally (codegen is tag-based
+// and `Some`/`Ok` share tag 0, `None`/`Err` tag 1). Lenient when a type is
+// undetermined — a separate diagnostic already explains that.
+fn check_propagate(_ errors: List<CheckError>, _ inner: Expr, _ span: SourceSpan,
+    _ scope: Map<String, Type>, _ ctx: InferCtx) -> Void {
+    let inner_ty = infer_expr(inner, scope, ctx, Option.None);
+    if is_uncertain_type(inner_ty) {
+        return; // an unresolved operand already has its own diagnostic
+    }
+    let fam = match enum_family(inner_ty) {
+        Some(f) => f,
+        None => {
+            add_error(errors,
+                '`?` can only be used on a `Result` or `Option` (found ${type_to_string(inner_ty)})',
+                span);
+            return;
+        },
+    };
+    let art = if fam == 'Option' { 'an' } else { 'a' };
+    let rt = match ctx.return_type {
+        Some(t) => t,
+        None => { return; }, // no declared return type — be lenient
+    };
+    if is_uncertain_type(rt) {
+        return;
+    }
+    match enum_family(rt) {
+        Some(rfam) => {
+            if fam != rfam {
+                let hint = if fam == 'Option' {
+                    'convert the absence to an error with `.ok_or(<error>)?`'
+                } else {
+                    'discard the error with `.ok()?`'
+                };
+                add_error(errors,
+                    'cannot use `?` on ${art} `${fam}` in a function returning `${rfam}`; ${hint}',
+                    span);
+            }
+        },
+        None => {
+            add_error(errors,
+                '`?` on ${art} `${fam}` requires the function to return `${fam}` (returns ${type_to_string(rt)})',
+                span);
+        },
+    }
+}
+
+// The enum family of a type for `?` purposes: `Option`, `Result`, or None for
+// anything else.
+fn enum_family(_ t: Type) -> Option<String> {
+    return match t {
+        Interface(name, _) => if name == 'Option' || name == 'Result' {
+            Option.Some(name)
+        } else {
+            Option.None
+        },
+        _ => Option.None,
+    };
+}
+
+// Whether a type is too undetermined to check a `?` against (so we stay lenient
+// rather than report a false mismatch).
+fn is_uncertain_type(_ t: Type) -> Bool {
+    return match t {
+        Unknown => true,
+        TypeParameter(_) => true,
+        _ => false,
+    };
 }
 
 // ---- helpers ----

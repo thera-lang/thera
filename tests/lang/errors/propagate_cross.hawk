@@ -1,0 +1,10 @@
+//! spec: err-propagate-cross
+//! mode: check
+
+// `?` propagates within one enum family: an `Option` `?` belongs in an
+// `Option`-returning function. Using it in a `Result`-returning function is
+// rejected — the absence must be converted to an error first (`.ok_or(...)?`).
+fn f(_ xs: List<Int>) -> Result<Int, Error> {
+    let head = xs.first()?;   // expect error: cannot use `?` on an `Option`
+    return Result.Ok(head);
+}

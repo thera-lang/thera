@@ -36,7 +36,7 @@ fn assert_ok(_ r: Result<Int, Error>) -> String {
     return 'ok';
 }
 
-fn main() -> Int {
+fn main() -> Result<Int, Error> {
     println('${need(Option.Some(21))}');                // expect: 42
     println('${need(Option.None)}');                    // expect: -1
     println('${two(Option.Some(3), Option.Some(4))}');  // expect: 7
@@ -44,5 +44,5 @@ fn main() -> Int {
     println('${checked(Option.Some(41))?}');            // expect: 42
     println(assert_ok(Result.Ok(1)));                   // expect: ok
     println(assert_ok(Result.Err(error('x'))));         // expect: err
-    return 0;
+    return Result.Ok(0);
 }

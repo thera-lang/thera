@@ -118,6 +118,8 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | ------------------- | ------------------------ | ---------------------------------------------------------- | ------ |
 | `err-result-option` | Error handling / Option  | `Result`/`Option` as qualified-constructed prelude enums   | ✓      |
 | `err-propagate`     | Error handling           | `?` propagates `Err` to the caller                        | ✓      |
+| `err-propagate-option` | Error handling / Option | `?` on an `Option` propagates `None` (Option-returning fn) | ✓      |
+| `err-propagate-cross` | Error handling          | cross-family `?` (Option `?` in a Result fn) is rejected    | ✓      |
 | `err-throw`         | Error handling → throw   | `throw e` ≡ `return Result.Err(e)`                        | ✓      |
 | `err-constructor`   | Error handling           | `error('…') -> Error` (lowercase) builds the simple error  | ✓      |
 | `err-implicit-ok`   | Error handling → throw   | `return n` implicitly `Result.Ok(n)`                      | ✓      |

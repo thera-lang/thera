@@ -335,13 +335,38 @@ variants `Ok(T)` and `Err(E)`. It is constructed like any enum — qualified:
 `Result.Ok(value)`, `Result.Err(e)`. The `?` operator and the implicit-`Ok`
 wrapping below know it by name, but it is otherwise not special.
 
-`?` propagates an `Error` to the caller. `match` handles results at a boundary
-(match patterns stay unqualified):
+`?` propagates a failure to the caller: `expr?` unwraps the success case
+(`Ok(v)` → `v`) or returns the failure (`Err(e)`) from the enclosing function.
+`match` handles results at a boundary (match patterns stay unqualified):
 
 ```hawk
 match read_port(args) {
     Ok(port) => println('listening on ${port}'),
     Err(e)   => println('error: ${e.message}'),
+}
+```
+
+**`?` works on `Option` too**, by the same rule — `Some(v)` → `v`, `None`
+early-returns `None`:
+
+```hawk
+fn first_word(_ line: String) -> Option<String> {
+    let word = line.split(' ').first()?;   // None short-circuits the function
+    return Option.Some(word);
+}
+```
+
+`?` propagates **within one enum family**: an `Option` `?` is valid only in an
+`Option`-returning function, a `Result` `?` only in a `Result`-returning one.
+Mixing them is a compile error, because converting one to the other needs a
+choice the `?` can't make for you — turn an absence into an error explicitly with
+`.ok_or(<error>)?`, or drop an error to an absence with `.ok()?`:
+
+```hawk
+fn load(args: Args) -> Result<Int, Error> {
+    // args.first() is an Option; name the error, then propagate it
+    let raw = args.first().ok_or(error('missing argument'))?;
+    return raw.to_int().ok_or(error('not a number'));
 }
 ```
 

@@ -1,0 +1,18 @@
+//! spec: err-propagate-option
+//! mode: run
+
+// `?` on an `Option` propagates `None` to the caller (the Option analogue of
+// propagating `Err`). Valid in an `Option`-returning function: `Some(v)` unwraps
+// to `v`, `None` early-returns `None`.
+
+fn first_plus(_ xs: List<Int>, _ n: Int) -> Option<Int> {
+    let head = xs.first()?;      // Option<Int> -> Int, else return None
+    return Option.Some(head + n);
+}
+
+fn main() -> Int {
+    println('${first_plus([10, 20], 5)}');   // expect: Some(15)
+    let empty: List<Int> = [];
+    println('${first_plus(empty, 5)}');      // expect: None
+    return 0;
+}

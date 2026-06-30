@@ -469,19 +469,19 @@ resolution_ below.)
   more verbose than they need to be; the dominant one is the resolution cascade
   `match X { Some(v) => { …; return …; }, None => {} }` (~323 sites corpus-wide;
   ~279 noise `None => {}` arms) — "look up, act-and-return, else fall through."
-  **Full analysis + prioritized plan in [ergonomics.md](ergonomics.md):** P0
-  `if let`, P1 `let … else` (both parser desugars to `match`; specs `cf-if-let` /
-  `cf-let-else`), and the P2 **curated combinator set** (Option `map`/`and_then`/
-  `unwrap_or_else`; Result `is_ok`/`is_err`/`map`/`map_err`/`and_then`/
-  `unwrap_or`/`unwrap_or_else`/`ok`, each with when-to-use docs) are **landed**.
-  Remaining: P2 `?`-on-`Option` (needs `Result`-interaction design), governed by
-  a one-obvious-way guardrail (a canonical form per shape, reinforced in the
-  docs). Evaluate by what's best for **LLMs** — terseness, expressiveness, and
-  _one_ obvious way to do a thing. (Surfaced by the pkgs/ code review.) The
-  cascade-cleanup refactorings these unlock — now the **highest-value remaining
-  item**, since the `if let`/`let … else` dogfooding showed convertible sites are
-  sparse and only a count will tell us how many remain — are tracked under
-  _Front-end / tooling → Tools — refactorings_.
+  **Full analysis + prioritized plan in [ergonomics.md](ergonomics.md):** the
+  language features are **all landed** — P0 `if let`, P1 `let … else` (parser
+  desugars to `match`; specs `cf-if-let`/`cf-let-else`), the P2 **curated
+  combinator set** (Option `map`/`and_then`/`unwrap_or_else`; Result
+  `is_ok`/`is_err`/`map`/`map_err`/`and_then`/`unwrap_or`/`unwrap_or_else`/`ok`),
+  and P2 **`?`-on-`Option`** (same-enum-family rule, cross-family rejected with a
+  fix-it; specs `err-propagate-option`/`err-propagate-cross`). Remaining: the
+  one-obvious-way guardrail (a canonical form per shape — partly in the docs
+  already; a prescriptive LLM rules/skill file is the open piece), and the
+  cascade-cleanup refactorings. Those refactorings are now the **highest-value
+  remaining item** — the dogfooding showed convertible sites are sparse, so a
+  count is the way to know how many wins remain; tracked under _Front-end /
+  tooling → Tools — refactorings_.
 
 - **Generic operators** (`<T: Add>`, operators-as-traits) — the remaining piece
   of the generics arc (bound enforcement + `call.virtual` dispatch on `T` are
