@@ -437,14 +437,14 @@ resolution_ below.)
 
 - **Syntax-elegance pass — through the LLM lens.** Several common shapes are
   more verbose than they need to be; the dominant one is the resolution cascade
-  `match X { Some(v) => { …; return …; }, None => {} }` (55× in codegen, 38× in
-  inference, 28× in checker) — "look up, act-and-return, else fall through."
-  Sugar could collapse it: an `if let Some(v) = X { … }`, `?` working on
-  `Option` in a fallthrough/`-> Void` position, or a `guard`-style early return.
-  Evaluate options by what's best for **LLMs** — terseness, expressiveness, and
-  _one_ obvious way to do a thing (the same lens as the ternary-for-`if`
-  question). A general pass, not a single feature. (Surfaced by the pkgs/ code
-  review.)
+  `match X { Some(v) => { …; return …; }, None => {} }` (~323 sites corpus-wide;
+  ~279 noise `None => {}` arms) — "look up, act-and-return, else fall through."
+  **Full analysis + prioritized plan now in [ergonomics.md](ergonomics.md):** P0
+  `if let`, P1 `let … else`, P2 `?`-on-`Option` (needs `Result`-interaction
+  design) and a curated combinator set, governed by a one-obvious-way guardrail
+  (a canonical form per shape, reinforced in the docs). Evaluate by what's best
+  for **LLMs** — terseness, expressiveness, and _one_ obvious way to do a thing.
+  (Surfaced by the pkgs/ code review.)
 
 - **Generic operators** (`<T: Add>`, operators-as-traits) — the remaining piece
   of the generics arc (bound enforcement + `call.virtual` dispatch on `T` are

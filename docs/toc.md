@@ -36,6 +36,10 @@ is"; read top-down for progressive detail.
   commands & output-stream (stdout/stderr) convention.
 - [roadmap.md](roadmap.md) — current **status**, the bootstrap arcs, deferred
   work, and remaining front-end work.
+- [ergonomics.md](ergonomics.md) — the **syntax-elegance review**: where common
+  code shapes are too verbose (the `Option`/`match` resolution cascade), why it
+  matters for the LLM-native goal, and the prioritized fixes (`if let`,
+  `let … else`, `?`-on-`Option`, combinators) plus a tracked backlog.
 - [parser-recovery.md](parser-recovery.md) — **parser error recovery**:
   resilient parsing design, AST preservation, and incremental implementation
   plan.
