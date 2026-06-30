@@ -31,6 +31,15 @@ fn decl_name(_ d: Decl) -> String {
     };
 }
 
+fn decl_has(_ r: ParseResult, _ name: String) -> Bool {
+    for d in r.program.decls {
+        if decl_name(d) == name {
+            return true;
+        }
+    }
+    return false;
+}
+
 @test
 fn test_arithmetic_precedence() -> Result<Void, Error> {
     testing.assert_eq(actual: expr_str('1 + 2 * 3'), expected: '(1 + (2 * 3))')?;
@@ -245,6 +254,28 @@ fn test_error_recovery_skips_to_next_decl() -> Result<Void, Error> {
     testing.assert(r.has_errors(), message: 'expected a parse error')?;
     testing.assert_eq(actual: r.program.decls.len(), expected: 1)?;
     testing.assert_eq(actual: decl_name(r.program.decls[0]), expected: 'good')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_recovery_terminates_on_unfinished_let() -> Result<Void, Error> {
+    // Regression: a `let` with no `=` before a `return`/`throw` once looped
+    // forever — in recovery the cursor is frozen, and `parse_primary` for
+    // `return`/`throw` recursed into `parse_expr` with no progress. Each parse
+    // must terminate (this test would otherwise hang), record an error, and
+    // recover to the next declaration. Covers normal `let`, the uppercase
+    // `let … else` head, and `throw`.
+    let r1 = parse_src('fn f() -> Int { let x return 1; } fn good() -> Int { return 2; }');
+    testing.assert(r1.has_errors(), message: 'expected a parse error')?;
+    testing.assert(decl_has(r1, 'good'), message: 'should recover to the next decl')?;
+
+    let r2 = parse_src('fn f() -> Int { let Foo return 1; } fn good() -> Int { return 2; }');
+    testing.assert(r2.has_errors(), message: 'expected a parse error (let-else head)')?;
+    testing.assert(decl_has(r2, 'good'), message: 'should recover (let-else head)')?;
+
+    let r3 = parse_src('fn f() -> Int { let x throw 1; } fn good() -> Int { return 2; }');
+    testing.assert(r3.has_errors(), message: 'expected a parse error (throw)')?;
+    testing.assert(decl_has(r3, 'good'), message: 'should recover (throw)')?;
     return Result.Ok(void);
 }
 

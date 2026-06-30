@@ -1752,6 +1752,14 @@ impl Parser {
     }
 
     fn parse_primary(self, _ allow_struct: Bool) -> Expr {
+        // During error recovery the cursor is frozen — `advance` consumes nothing
+        // until `sync_to_decl` clears `panicking`. A primary that recurses into
+        // `parse_expr` (e.g. `return`/`throw`, which parse an operand) would then
+        // spin forever with no progress (e.g. `let x` with no `=` before a
+        // `return`). Stop producing nodes until recovery resyncs.
+        if self.panicking {
+            return self.err_expr();
+        }
         let t = self.current();
         let k = t.kind;
 
