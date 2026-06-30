@@ -504,6 +504,17 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **Streaming files — `fs.open`/`fs.create` + `Seek`** (2026-06). `std.io`
+  gained a `Seek` interface (+ `SeekFrom` enum); `std.fs` gained `File` — a
+  handle implementing `Reader`/`Writer`/`Seek`/`Closer` over an OS file (a
+  runtime registry keyed by an `Int`, the regex/process pattern). `open` is a
+  read handle, `create` a write handle; the OS enforces the mode. So
+  `io.lines(fs.open(p)?)` streams a file line by line without `read_all`, and
+  `seek` moves the cursor. No GC finalizers → `close()` is the caller's job
+  (documented). Independent of the fiber I/O-parking work: a blocking file read
+  just blocks the thread today and will transparently park the fiber once that
+  lands. Deferred: `temp_file`, append/read-write `open_options`.
+
 - **Interface default methods + Iterator adapters** (2026-06). Interface methods
   may carry a body — a *default* an `impl` inherits (and may override). Compiled
   once as a shared unit with `self` typed as the interface; each implementing

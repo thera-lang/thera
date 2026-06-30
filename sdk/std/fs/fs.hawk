@@ -1,6 +1,6 @@
 //! std.fs — filesystem access: whole-value reads/writes, directory listing,
-//! metadata, and recursive `walk`. Streaming files (`open`/`create` → a
-//! `File: Reader+Writer+Seek+Closer`) and `temp_file` are a planned v2 (see
+//! metadata, recursive `walk`, and streaming files (`open`/`create` → a
+//! `File: Reader+Writer+Seek+Closer`). `temp_file` is a planned follow-up (see
 //! docs/stdlib.md).
 //!
 //! Import as: import std.fs
@@ -11,6 +11,11 @@
 //!
 //! // every .hawk file under src/, recursively
 //! let sources = fs.walk('src').filter((p) => p.ends_with('.hawk')).collect();
+//!
+//! // stream a file line by line without loading it whole
+//! let f = fs.open('big.log')?;
+//! for line in io.lines(f) { ... }
+//! f.close()?;
 //! ```
 //!
 //! Paths are plain `String`s (compose with `std.path`); directory entries are
@@ -18,6 +23,7 @@
 //! error you can `match` on (and which implements the common `Error`).
 
 import std.path;
+import std.io;
 
 // --- errors ---
 
@@ -244,6 +250,93 @@ pub fn rename(from src: String, to dst: String) -> Result<Void, FsError> {
 pub fn copy(from src: String, to dst: String) -> Result<Void, FsError> {
     return match _copy(src, dst) {
         Ok(_) => Result.Ok(void),
+        Err(e) => Result.Err(to_fs_error(e)),
+    };
+}
+
+// --- streaming files ---
+
+/// An open file: a streaming `Reader` + `Writer` + `Seek` + `Closer` over a
+/// runtime file handle. `open` gives a read handle and `create` a write handle;
+/// the OS enforces the mode (writing to a read handle, or reading a write one,
+/// is an error). **Close it when done** — an unclosed file leaks its descriptor
+/// until the process exits.
+pub struct File {
+    handle: Int,
+}
+
+@extern('fs_open')
+native fn _open(_ path: String) -> Result<Int, String>
+
+@extern('fs_create')
+native fn _create(_ path: String) -> Result<Int, String>
+
+@extern('file_read')
+native fn _file_read(_ handle: Int, _ max: Int) -> Result<Bytes, String>
+
+@extern('file_write')
+native fn _file_write(_ handle: Int, _ data: Bytes) -> Result<Int, String>
+
+@extern('file_seek')
+native fn _file_seek(_ handle: Int, _ whence: Int, _ offset: Int) -> Result<Int, String>
+
+@extern('file_close')
+native fn _file_close(_ handle: Int) -> Result<Void, String>
+
+impl Reader for File {
+    pub fn read(self, max: Int) -> Result<Bytes, Error> {
+        return match _file_read(self.handle, max) {
+            Ok(b) => Result.Ok(b),
+            Err(e) => Result.Err(to_fs_error(e)),
+        };
+    }
+}
+
+impl Writer for File {
+    pub fn write(self, _ data: Bytes) -> Result<Int, Error> {
+        return match _file_write(self.handle, data) {
+            Ok(n) => Result.Ok(n),
+            Err(e) => Result.Err(to_fs_error(e)),
+        };
+    }
+}
+
+impl Seek for File {
+    pub fn seek(self, _ to: io.SeekFrom) -> Result<Int, Error> {
+        // Decode `SeekFrom` into the native's (whence, offset) pair (0/1/2).
+        let raw = match to {
+            Start(n)   => _file_seek(self.handle, 0, n),
+            Current(n) => _file_seek(self.handle, 1, n),
+            End(n)     => _file_seek(self.handle, 2, n),
+        };
+        return match raw {
+            Ok(pos) => Result.Ok(pos),
+            Err(e) => Result.Err(to_fs_error(e)),
+        };
+    }
+}
+
+impl Closer for File {
+    pub fn close(self) -> Result<Void, Error> {
+        return match _file_close(self.handle) {
+            Ok(_) => Result.Ok(void),
+            Err(e) => Result.Err(to_fs_error(e)),
+        };
+    }
+}
+
+/// Open an existing file for reading (its cursor starts at the beginning).
+pub fn open(_ path: String) -> Result<File, FsError> {
+    return match _open(path) {
+        Ok(h) => Result.Ok(File { handle: h }),
+        Err(e) => Result.Err(to_fs_error(e)),
+    };
+}
+
+/// Create a file (or truncate an existing one) for writing.
+pub fn create(_ path: String) -> Result<File, FsError> {
+    return match _create(path) {
+        Ok(h) => Result.Ok(File { handle: h }),
         Err(e) => Result.Err(to_fs_error(e)),
     };
 }

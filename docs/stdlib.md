@@ -162,7 +162,7 @@ impl BytesReader {
 }
 ```
 
-### `Reader` / `Writer` / `Closer` — the streaming protocol _(new, std.io)_
+### `Reader` / `Writer` / `Closer` / `Seek` — the streaming protocol _(std.io)_
 
 ```
 // Read up to `max` bytes. An empty `Bytes` result means end-of-stream (EOF).
@@ -262,13 +262,13 @@ and a final unterminated line is still yielded. `io.from_string`/`from_bytes`
 provide an in-memory `Reader` (the read-side double, symmetric with
 `StringWriter`).
 
-Deferred follow-ups: `fs.walk` (a recursive-directory `Iterator<String>`, now
-also unblocked) and streaming files (`fs.open` → a
-`File: Reader + Writer + Seek + Closer`). (The typed binary `BytesReader`
-pairing with `BytesBuilder` now exists in the prelude — see § Core types — with
-the typed `read_u16_le`/be family still a follow-up.)
+`fs.walk` and streaming files (`fs.open`/`fs.create` → a
+`File: Reader + Writer + Seek + Closer`) both landed on the back of this — see
+§ `std.fs`. (The typed binary `BytesReader` pairing with `BytesBuilder` now
+exists in the prelude — see § Core types — with the typed `read_u16_le`/be family
+still a follow-up.)
 
-### `std.fs` — filesystem _(v1 implemented; streaming deferred)_
+### `std.fs` — filesystem _(implemented, incl. streaming files)_
 
 Purpose: files and directories. Whole-value reads for the common case; streaming
 `open` is a planned v2. Paths are plain `String`s (compose with `std.path`);
@@ -305,9 +305,12 @@ pub enum FsError {                          // implements Error + Display
 // Recursive traversal — implemented.
 pub fn walk(_ path: String) -> WalkIter;   // WalkIter: Iterator<String> of full descendant paths
 
-// Streaming — deferred to v2.
-pub fn open(_ path: String) -> Result<File, FsError>;   // File: Reader+Writer+Seek+Closer
-pub fn create(_ path: String) -> Result<File, FsError>;
+// Streaming files — implemented.
+pub fn open(_ path: String) -> Result<File, FsError>;     // read handle
+pub fn create(_ path: String) -> Result<File, FsError>;   // write handle (truncates)
+// File: Reader + Writer + Seek + Closer over a runtime handle; close it when done.
+
+// Deferred.
 pub fn temp_file(prefix: String = 'tmp') -> Result<File, FsError>;
 ```
 
@@ -319,9 +322,13 @@ symlinks (so `kind` reports the target; `FileKind.Symlink` awaits a future
 platform can't report it (it becomes a `DateTime` once `std.time` grows one).
 `walk` is a thin `Iterator` over `list_dir`/`metadata` (a lazy `WalkIter`
 yielding every descendant path, directories before their contents; an unreadable
-directory is skipped and the first failure kept for `.error()`). The remaining
-v2 streaming layer needs a `Seek` interface added to `std.io` plus file-handle
-natives.
+directory is skipped and the first failure kept for `.error()`). `open`/`create`
+return a `File` — a handle implementing `std.io`'s `Reader`/`Writer`/`Seek`/
+`Closer` — so `io.lines(fs.open(p)?)` streams a file line by line without loading
+it whole, and `seek` (via `io.SeekFrom`) moves the cursor. `open` is read-only,
+`create` write-only-truncating; the OS enforces the mode. The handle lives in a
+runtime registry; **`close()` when done** — there are no GC finalizers, so an
+unclosed file leaks its descriptor until the process exits.
 
 ### `std.path` — pure path manipulation _(implemented, pure Hawk)_
 
@@ -1125,9 +1132,9 @@ dependency graph, so future work lands in the right order:
 | Module       | Status  | Notes                                                                                                                                                                                                                                                                                                                                                                      |
 | ------------ | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | prelude/core | exists  | Int/Double + String parsing; `String.slice`/`replace`/`repeat`/`reverse`/`find`/`pad_*`/`trim_*`; `List.slice`/`first`/`last`/`contains`/`index_of`/`reverse`/`sort` (comparator)/`push`/`pop`; `Map.get_or`; `Bytes`/`BytesBuilder`/`BytesReader`; `Set<T>` in Hawk over `Map`; `Error`/`Eq`/`Display`/`Debug`/`Ord` interfaces + the `error(...)` constructor; `Iterator<T>` protocol + its `map`/`filter`/`take`/`enumerate`/`collect`/`count` default methods; **interface default methods** generally |
-| std.io       | done    | v1: `Reader`/`Writer`/`Closer` + `IoError`, `read_all`/`copy`, stdin/stdout/stderr, `StringWriter`, `from_string`/`from_bytes`; `lines`/`BufReader` (Iterator<String>, `read_line` primitive); streaming files deferred                                                                                                                                                     |
+| std.io       | done    | `Reader`/`Writer`/`Closer`/`Seek` (+ `SeekFrom`) + `IoError`, `read_all`/`copy`, stdin/stdout/stderr, `StringWriter`, `from_string`/`from_bytes`; `lines`/`BufReader` (Iterator<String>, `read_line` primitive)                                                                                                                                                            |
 | std.iter     | done    | v2: `Iterator<T>` (prelude) with `map`/`filter`/`take`/`enumerate` adapters + `collect`/`count` consumers as **default methods** (fluent, import-free); `std.iter` holds the `range`/`from_list` sources; `for x in it` drives any iterator                                                                                                                                  |
-| std.fs       | done    | read/write text+bytes, exists, metadata, list_dir, create_dir(\_all), remove(\_dir_all), rename, copy, temp_dir; recursive `walk` (Iterator<String>); classified `FsError`; streaming `File`/`open`/`create`/`temp_file` deferred to v2                                                                                                                                    |
+| std.fs       | done    | read/write text+bytes, exists, metadata, list_dir, create_dir(\_all), remove(\_dir_all), rename, copy, temp_dir; recursive `walk` (Iterator<String>); streaming `open`/`create` → `File: Reader+Writer+Seek+Closer`; classified `FsError`; `temp_file` deferred                                                                                                          |
 | std.path     | done    | pure Hawk; `components`/`with_extension`/`normalize`/`relative` in (lexical, slash-based)                                                                                                                                                                                                                                                                                  |
 | std.env      | done    | vars/args/cwd/os/exit + `Env` capability + `testing.fixed_env`; `OS`→`os()`                                                                                                                                                                                                                                                                                                |
 | std.process  | done    | `run` (capture) / `exec` (inherit stdio, exit code) / `start`; pipes are `std.io` `Reader`/`Writer` (+ `close_stdin`); classified `ProcessError`                                                                                                                                                                                                                           |

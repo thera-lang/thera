@@ -3,6 +3,7 @@
 
 import std.testing;
 import std.path;
+import std.io;
 
 import 'fs' as _;
 
@@ -129,6 +130,75 @@ fn test_copy() -> Result<Void, Error> {
     fs.copy(from: a, to: b)?;
     testing.assert_eq(actual: fs.read_text(a)?, expected: 'duplicate')?;
     testing.assert_eq(actual: fs.read_text(b)?, expected: 'duplicate')?;
+    fs.remove_dir_all(dir)?;
+    return Result.Ok(void);
+}
+
+// --- streaming files ---
+
+@test
+fn test_file_write_read_roundtrip() -> Result<Void, Error> {
+    let dir = workspace('hawk_fs_file_rw')?;
+    let p = path.join(dir, 'data.txt');
+    let w = fs.create(p)?;
+    let n = w.write('hello, file'.bytes())?;
+    w.close()?;
+    testing.assert_eq(actual: n, expected: 11)?;
+    let f = fs.open(p)?;
+    let content = io.read_all(f)?;
+    f.close()?;
+    testing.assert_eq(actual: content.to_string()?, expected: 'hello, file')?;
+    fs.remove_dir_all(dir)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_file_lines_streamed() -> Result<Void, Error> {
+    let dir = workspace('hawk_fs_file_lines')?;
+    let p = path.join(dir, 'lines.txt');
+    fs.write_text(p, 'a\nb\nc\n')?;
+    let f = fs.open(p)?;
+    let got = io.lines(f).collect(); // streams the real file handle, no read-all
+    testing.assert_eq(actual: got, expected: ['a', 'b', 'c'])?;
+    fs.remove_dir_all(dir)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_file_seek() -> Result<Void, Error> {
+    let dir = workspace('hawk_fs_file_seek')?;
+    let p = path.join(dir, 'seek.txt');
+    fs.write_text(p, '0123456789')?;
+    let f = fs.open(p)?;
+    testing.assert_eq(actual: f.seek(io.SeekFrom.Start(4))?, expected: 4)?;
+    testing.assert_eq(actual: f.read(max: 3)?.to_string()?, expected: '456')?;
+    testing.assert_eq(actual: f.seek(io.SeekFrom.End(-2))?, expected: 8)?;
+    testing.assert_eq(actual: f.read(max: 10)?.to_string()?, expected: '89')?;
+    f.close()?;
+    fs.remove_dir_all(dir)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_file_use_after_close_errors() -> Result<Void, Error> {
+    let dir = workspace('hawk_fs_file_closed')?;
+    let p = path.join(dir, 'c.txt');
+    fs.write_text(p, 'x')?;
+    let f = fs.open(p)?;
+    f.close()?;
+    testing.assert_err(f.read(max: 1))?; // reading a closed handle is an error
+    fs.remove_dir_all(dir)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_open_missing_is_not_found() -> Result<Void, Error> {
+    let dir = workspace('hawk_fs_open_missing')?;
+    let is_nf = match fs.open(path.join(dir, 'nope.txt')) {
+        Ok(_)  => false,
+        Err(e) => is_not_found(e),
+    };
+    testing.assert(is_nf, message: 'opening a missing file should be NotFound')?;
     fs.remove_dir_all(dir)?;
     return Result.Ok(void);
 }

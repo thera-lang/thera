@@ -48,6 +48,21 @@ pub interface Closer {
     fn close(self) -> Result<Void, Error>;
 }
 
+/// Where a `seek` measures its offset from.
+pub enum SeekFrom {
+    Start(Int),    // an absolute offset from the beginning (>= 0)
+    Current(Int),  // relative to the current position (may be negative)
+    End(Int),      // relative to the end (usually <= 0)
+}
+
+/// A resource with a movable read/write cursor (files; not pipes or the standard
+/// streams).
+pub interface Seek {
+    /// Move the cursor as `to` describes; returns the new absolute offset from
+    /// the start.
+    fn seek(self, _ to: SeekFrom) -> Result<Int, Error>;
+}
+
 /// I/O failures. A domain error: implements the common `Error`.
 pub enum IoError {
     Eof,             // an unexpected end of stream (e.g. a future read_exact)

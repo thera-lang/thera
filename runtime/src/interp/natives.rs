@@ -138,6 +138,12 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("fs_rename", native_fs_rename),
     ("fs_copy", native_fs_copy),
     ("fs_temp_dir", native_fs_temp_dir),
+    ("fs_open", native_fs_open),
+    ("fs_create", native_fs_create),
+    ("file_read", native_file_read),
+    ("file_write", native_file_write),
+    ("file_seek", native_file_seek),
+    ("file_close", native_file_close),
     ("time_now_millis", native_time_now_millis),
     ("time_monotonic_nanos", native_time_monotonic_nanos),
     ("time_sleep_millis", native_time_sleep_millis),
@@ -1097,6 +1103,127 @@ fn native_fs_temp_dir(_out: &mut dyn Write, _args: &[Value]) -> Result<Value, Tr
     Ok(Value::new_str(
         std::env::temp_dir().to_string_lossy().into_owned(),
     ))
+}
+
+// --- streaming file handles (fs.open / fs.create -> File) ---
+//
+// An open file lives in a registry keyed by an `Int` handle (the regex/process
+// pattern). Hawk's `File` carries the handle and dispatches its
+// Reader/Writer/Seek/Closer methods to the natives below. Dropping a `File`
+// without `close()` leaks the fd until the process exits — there are no
+// finalizers in this GC — so the docs tell callers to close their files.
+
+static NEXT_FILE_ID: AtomicI64 = AtomicI64::new(1);
+
+fn file_registry() -> &'static Mutex<HashMap<i64, std::fs::File>> {
+    static REGISTRY: OnceLock<Mutex<HashMap<i64, std::fs::File>>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Register an open file and hand back its `Int` handle (wrapped in `Ok`).
+fn register_file(file: std::fs::File) -> Value {
+    let id = NEXT_FILE_ID.fetch_add(1, Ordering::SeqCst);
+    file_registry().lock().unwrap().insert(id, file);
+    Value::ok(Value::Int(id))
+}
+
+/// A use-after-close / unknown-handle error, classified like the fs natives so
+/// the Hawk side maps it to `FsError.Other`.
+fn file_closed_err() -> Value {
+    Value::err(Value::new_str("other\u{1}file is closed".to_string()))
+}
+
+/// `fs.open(path)` — open an existing file for reading. Returns an `Int` handle.
+fn native_fs_open(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let path = str_contents(expect_one(args, "fs_open")?)?;
+    Ok(match std::fs::File::open(&path) {
+        Ok(f) => register_file(f),
+        Err(e) => fs_err(&path, &e),
+    })
+}
+
+/// `fs.create(path)` — create or truncate a file for writing. Returns a handle.
+fn native_fs_create(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let path = str_contents(expect_one(args, "fs_create")?)?;
+    Ok(match std::fs::File::create(&path) {
+        Ok(f) => register_file(f),
+        Err(e) => fs_err(&path, &e),
+    })
+}
+
+/// `file.read(handle, max)` — up to `max` bytes; an empty result is EOF.
+fn native_file_read(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (hv, maxv) = args2(args, "file_read")?;
+    let handle = as_int(hv, "file_read")?;
+    let max = as_int(maxv, "file_read")?.max(0) as usize;
+    if max == 0 {
+        return Ok(Value::ok(Value::new_bytes(Vec::new())));
+    }
+    let mut registry = file_registry().lock().unwrap();
+    let file = match registry.get_mut(&handle) {
+        Some(f) => f,
+        None => return Ok(file_closed_err()),
+    };
+    let mut buf = vec![0u8; max.min(1 << 20)];
+    Ok(match file.read(&mut buf) {
+        Ok(n) => {
+            buf.truncate(n);
+            Value::ok(Value::new_bytes(buf))
+        }
+        Err(e) => fs_err("<file>", &e),
+    })
+}
+
+/// `file.write(handle, data)` — write all of `data`; returns the byte count.
+fn native_file_write(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (hv, dv) = args2(args, "file_write")?;
+    let handle = as_int(hv, "file_write")?;
+    let data = bytes_contents(dv, "file_write")?;
+    let mut registry = file_registry().lock().unwrap();
+    let file = match registry.get_mut(&handle) {
+        Some(f) => f,
+        None => return Ok(file_closed_err()),
+    };
+    Ok(match file.write_all(&data).and_then(|()| file.flush()) {
+        Ok(()) => Value::ok(Value::Int(data.len() as i64)),
+        Err(e) => fs_err("<file>", &e),
+    })
+}
+
+/// `file.seek(handle, whence, offset)` — `whence` is 0=Start, 1=Current, 2=End;
+/// returns the new absolute offset from the start.
+fn native_file_seek(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    use std::io::Seek;
+    let (hv, wv, ov) = args3(args, "file_seek")?;
+    let handle = as_int(hv, "file_seek")?;
+    let whence = as_int(wv, "file_seek")?;
+    let offset = as_int(ov, "file_seek")?;
+    let target = match whence {
+        0 => std::io::SeekFrom::Start(offset.max(0) as u64),
+        1 => std::io::SeekFrom::Current(offset),
+        2 => std::io::SeekFrom::End(offset),
+        _ => return Err(bug(format!("file_seek: invalid whence {whence}"))),
+    };
+    let mut registry = file_registry().lock().unwrap();
+    let file = match registry.get_mut(&handle) {
+        Some(f) => f,
+        None => return Ok(file_closed_err()),
+    };
+    Ok(match file.seek(target) {
+        Ok(pos) => Value::ok(Value::Int(pos as i64)),
+        Err(e) => fs_err("<file>", &e),
+    })
+}
+
+/// `file.close(handle)` — drop the file (closing the fd). A closed/unknown
+/// handle is an error.
+fn native_file_close(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let handle = as_int(expect_one(args, "file_close")?, "file_close")?;
+    let mut registry = file_registry().lock().unwrap();
+    Ok(match registry.remove(&handle) {
+        Some(_) => Value::ok(Value::Unit), // dropping the File closes the fd
+        None => file_closed_err(),
+    })
 }
 
 // --- time natives ---
