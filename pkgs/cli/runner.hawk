@@ -294,18 +294,31 @@ fn run_bytecode(_ runtime: String, _ bytes: Bytes, _ entry: Option<String>, _ pr
 // launcher (`bin/hawk`) *is* the runtime, so we hand back our own executable —
 // invoked on a `.hawkbc` it runs it directly. None if neither resolves.
 pub fn find_runtime_binary(_ sdk_root: Option<String>) -> Option<String> {
+    // The runtime already executing us runs a `.hawkbc` path directly (see the
+    // runtime CLI), so it is the right binary to run compiled tests on — and it
+    // matches our own build profile, whether the dev front-end (release/debug via
+    // bin/hawk.sh) or the distributed SDK binary. No hardcoded profile.
+    if let Some(exe) = env.current_exe() {
+        return Option.Some(exe);
+    }
+    // Fallback when the current executable is unavailable: the repo's built
+    // runtime (prefer release, then debug).
     if let Some(root) = sdk_root {
-        let bin = path.join(path.join(path.join(path.join(root, 'runtime'), 'target'), 'debug'), 'hawkrt');
-        if fs.exists(bin) {
-            return Option.Some(bin);
+        let target = path.join(path.join(root, 'runtime'), 'target');
+        let release = path.join(path.join(target, 'release'), 'hawkrt');
+        if fs.exists(release) {
+            return Option.Some(release);
+        }
+        let debug = path.join(path.join(target, 'debug'), 'hawkrt');
+        if fs.exists(debug) {
+            return Option.Some(debug);
         }
     }
-    // Distributed SDK: re-invoke ourselves as the runtime.
-    return env.current_exe();
+    return Option.None;
 }
 
 fn runtime_missing_message() -> String {
-    return 'hawk: the Rust runtime was not found at runtime/target/debug/hawkrt. Build it first: run `cargo build` in the runtime/ directory.';
+    return 'hawk: the Rust runtime was not found. Build it first: run `cargo build --release` in the runtime/ directory.';
 }
 
 // --- compile helper ---

@@ -31,6 +31,11 @@ regex = "1"
 # interpreter (4x slower instead of 15x).
 opt-level = 1 # Basic optimizations.
 
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1
+
 # Release performance with line tables, so a sampling profiler can map the
 # inlined `run_loop` back to source lines. Build with `--profile profiling`.
 [profile.profiling]
