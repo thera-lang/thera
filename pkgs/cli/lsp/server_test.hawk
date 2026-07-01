@@ -322,3 +322,35 @@ fn test_unknown_request_gets_null_reply() -> Result<Void, Error> {
     testing.assert_eq(actual: dropped, expected: '')?;
     return Result.Ok(void);
 }
+
+@test
+fn test_code_action_offers_if_let() -> Result<Void, Error> {
+    // A convertible `match` in the range yields a `refactor.rewrite` code action
+    // whose workspace edit rewrites it to `if let`.
+    let server = new_server(Option.None);
+    let _opened = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"file:///a.hawk","text":'
+        + '"fn f(_ o: Option<Int>) { match o { Some(v) => { g(v); }, None => {} } }"}}}');
+    let out = capture(server, '{"jsonrpc":"2.0","id":20,"method":"textDocument/codeAction","params":'
+        + '{"textDocument":{"uri":"file:///a.hawk"},'
+        + '"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":80}},'
+        + '"context":{"diagnostics":[]}}}');
+    testing.assert(out.contains('Convert `match` to `if let`'), message: 'offers the rewrite')?;
+    testing.assert(out.contains('refactor.rewrite'), message: 'is a rewrite action')?;
+    testing.assert(out.contains('if let Some(v) = o'), message: 'edit rewrites to if let')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_code_action_empty_when_nothing_convertible() -> Result<Void, Error> {
+    let server = new_server(Option.None);
+    let _opened = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"file:///b.hawk","text":"fn f() -> Int { return 1; }"}}}');
+    let out = capture(server, '{"jsonrpc":"2.0","id":21,"method":"textDocument/codeAction","params":'
+        + '{"textDocument":{"uri":"file:///b.hawk"},'
+        + '"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":20}},'
+        + '"context":{"diagnostics":[]}}}');
+    testing.assert(out.contains('"result":[]') || out.contains('"result": []'),
+        message: 'no actions offered')?;
+    return Result.Ok(void);
+}

@@ -22,6 +22,7 @@ import 'symbols';
 import 'hover';
 import 'definition';
 import 'formatting';
+import 'code_action';
 import 'workspace_symbols';
 // `references`/`rename` are implemented but **not registered** — they match
 // identifiers purely lexically (any token with the same text), which is misleading
@@ -174,6 +175,11 @@ impl Server {
             send_response(writer, id, self.formatting(params.get('textDocument').get('uri').as_string()));
             return true;
         }
+        if method == 'textDocument/codeAction' {
+            send_response(writer, id,
+                self.code_action(params.get('textDocument').get('uri').as_string(), params.get('range')));
+            return true;
+        }
         if method == 'workspace/symbol' {
             send_response(writer, id, self.workspace_symbol(params.get('query').as_string()));
             return true;
@@ -268,6 +274,20 @@ impl Server {
         };
     }
 
+    // Code actions at a range: the idiomatic-rewrite refactorings (`match → if
+    // let`). Purely syntactic, so it parses the buffer directly (no import
+    // closure). An empty array when the document isn't open or offers no rewrites.
+    fn code_action(self, _ uri: Option<String>, _ range: Json) -> Json {
+        return match uri {
+            Some(u) => match self.docs.get(u) {
+                Some(text) => code_action.handle_code_action(u,
+                    parser.parse_tokens(lexer.tokenize(text).tokens).program, text, range),
+                None => json.arr([]),
+            },
+            None => json.arr([]),
+        };
+    }
+
     fn workspace_symbol(self, _ query: Option<String>) -> Json {
         let q = query.unwrap_or('');
         let programs: List<Program> = [];
@@ -353,6 +373,7 @@ fn initialize_result() -> Json {
             'hoverProvider': json.bool(true),
             'definitionProvider': json.bool(true),
             'documentFormattingProvider': json.bool(true),
+            'codeActionProvider': json.bool(true),
             'workspaceSymbolProvider': json.bool(true),
             // referencesProvider / renameProvider: withheld until lexical->semantic.
         }),

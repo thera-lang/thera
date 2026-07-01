@@ -503,6 +503,16 @@ resolution_ below.)
     from the rewritten source with the SDK fixpoint byte-identical and the suite
     green. The rest of the corpus is deliberately left for the **LSP code action**
     to dogfood.
+  - **LSP code action — _landed (V1: `match → if let`)._**
+    `textDocument/codeAction` (`pkgs/cli/lsp/code_action.hawk`, registered in the
+    server capabilities) offers a `refactor.rewrite` action for each convertible
+    `match` overlapping the request range, driving the same `fix.if_let_sites` +
+    `if_let_edit`. The `WorkspaceEdit` is the localized, self-formatted replacement
+    (via `format_fragment`), so applying it touches only that span — no
+    document-wide reformat. Purely syntactic (parses the open buffer, no import
+    closure). In-process JSON-RPC tests cover offer + empty cases. This is the
+    per-site vehicle for dogfooding the rest of the corpus. (Not yet: honoring
+    `context.only` kind filters — currently returns the rewrite regardless.)
   - **First step — a read-only count — _landed._** `hawk lint <file|dir>`
     (`pkgs/cli/lint/lint.hawk`) walks the parsed AST — purely syntactic, no import
     closure — and reports + per-rule tallies convertible sites. Source `match`es
