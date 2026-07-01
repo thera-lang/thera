@@ -99,6 +99,26 @@ fn is_a_minimal_edit_leaving_the_rest_untouched() -> Result<Void, Error> {
 }
 
 @test
+fn handles_nested_convertible_matches() -> Result<Void, Error> {
+    // An outer match whose kept arm contains another convertible match — the edits
+    // would overlap, so they are applied across passes (outer first, then inner).
+    let src = 'fn f(_ o: Option<Option<Int>>) -> Int {\n'
+        + '    match o {\n'
+        + '        Some(inner) => {\n'
+        + '            match inner { Some(v) => { return v; }, None => {} }\n'
+        + '        },\n'
+        + '        None => {},\n'
+        + '    }\n'
+        + '    return 0;\n}\n';
+    let want = 'fn f(_ o: Option<Option<Int>>) -> Int {\n'
+        + '    if let Some(inner) = o {\n'
+        + '        if let Some(v) = inner { return v; }\n'
+        + '    }\n'
+        + '    return 0;\n}\n';
+    return check(src, want);
+}
+
+@test
 fn handles_a_complex_subject() -> Result<Void, Error> {
     // The scrutinee is sliced verbatim, however complex.
     return check(

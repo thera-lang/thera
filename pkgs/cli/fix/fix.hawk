@@ -77,8 +77,38 @@ pub fn fix_edits(_ source: String) -> List<edit.TextEdit> {
 // edit is self-formatted (see `if_let_edit`), so the result is a **minimal**
 // change — only the rewritten spans differ, everything else is byte-identical
 // (fmt is the separate, whole-file concern).
+//
+// Nested convertible matches produce *overlapping* edits (an inner match sits
+// inside the outer's span), which can't be applied together. So each pass applies
+// a non-overlapping batch and repeats: rewriting the outer match leaves the inner
+// one verbatim in the result, where the next pass converts it. This converges —
+// every pass turns a `Source` match into an `IfLet`, which never re-fires.
 pub fn fix_source(_ source: String) -> String {
-    return edit.apply_edits(source, fix_edits(source));
+    let mut cur = source;
+    let mut guard = 0;
+    while guard < 1000 {
+        let edits = non_overlapping(fix_edits(cur));
+        if edits.len() == 0 {
+            return cur;
+        }
+        cur = edit.apply_edits(cur, edits);
+        guard = guard + 1;
+    }
+    return cur;
+}
+
+// Greedily drop edits that overlap an earlier-start (outer) one; the dropped
+// (nested) edits are applied on a later `fix_source` pass.
+fn non_overlapping(_ edits: List<edit.TextEdit>) -> List<edit.TextEdit> {
+    let out: List<edit.TextEdit> = [];
+    let mut last_end = -1;
+    for e in edits.sort((a, b) => a.start < b.start) {
+        if e.start >= last_end {
+            out.push(e);
+            last_end = e.end;
+        }
+    }
+    return out;
 }
 
 // A fix's location and label, for previewing what `hawk fix` would change.
