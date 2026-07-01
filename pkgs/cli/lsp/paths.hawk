@@ -21,8 +21,5 @@ pub fn uri_to_path(_ uri: String) -> String {
 
 // A program's source-file path, or `''` when it has none (an anonymous buffer).
 pub fn program_path(_ p: Program) -> String {
-    return match p.file_path {
-        Some(f) => f,
-        None => '',
-    };
+    return p.file_path.unwrap_or('');
 }

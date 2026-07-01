@@ -138,3 +138,77 @@ fn rewrites_every_site() -> Result<Void, Error> {
         + '    if let Some(w) = b { return w; }\n'
         + '    return 0;\n}\n');
 }
+
+// --- unwrap_or / unwrap_or_else ---
+
+@test
+fn unwrap_or_eager_for_a_cheap_fallback() -> Result<Void, Error> {
+    // A literal / qualified-variant fallback is pure, so `unwrap_or` (eager) is
+    // behavior-preserving.
+    return check(
+        'fn f(_ o: Option<Int>) -> Int {\n    return match o { Some(v) => v, None => 0 };\n}\n',
+        'fn f(_ o: Option<Int>) -> Int {\n    return o.unwrap_or(0);\n}\n');
+}
+
+@test
+fn unwrap_or_else_for_a_computed_fallback() -> Result<Void, Error> {
+    // A call fallback must stay lazy — the `match` only evaluated it in the `None`
+    // case — so it becomes `unwrap_or_else`.
+    return check(
+        'fn f(_ o: Option<Int>) -> Int {\n    return match o { Some(v) => v, None => compute() };\n}\n',
+        'fn f(_ o: Option<Int>) -> Int {\n    return o.unwrap_or_else(() => compute());\n}\n');
+}
+
+@test
+fn unwrap_or_else_threads_the_error_binding() -> Result<Void, Error> {
+    // `Result`'s `unwrap_or_else` closure receives the error, so an `Err(e)` arm
+    // that uses `e` carries it through.
+    return check(
+        'fn f(_ r: Result<Int, Error>) -> Int {\n    return match r { Ok(v) => v, Err(e) => recover(e) };\n}\n',
+        'fn f(_ r: Result<Int, Error>) -> Int {\n    return r.unwrap_or_else((e) => recover(e));\n}\n');
+}
+
+@test
+fn unwrap_or_eager_for_a_discarded_result_error() -> Result<Void, Error> {
+    return check(
+        'fn f(_ r: Result<Int, Error>) -> Int {\n    return match r { Ok(v) => v, Err(_) => fallback };\n}\n',
+        'fn f(_ r: Result<Int, Error>) -> Int {\n    return r.unwrap_or(fallback);\n}\n');
+}
+
+// --- map ---
+
+@test
+fn rewrites_a_some_rewrap_to_map() -> Result<Void, Error> {
+    return check(
+        'fn f(_ o: Option<Int>) -> Option<Int> {\n    return match o { Some(v) => Option.Some(v + 1), None => Option.None };\n}\n',
+        'fn f(_ o: Option<Int>) -> Option<Int> {\n    return o.map((v) => v + 1);\n}\n');
+}
+
+// --- let … else ---
+
+@test
+fn rewrites_a_let_bound_match_to_let_else() -> Result<Void, Error> {
+    return check(
+        'fn f(_ o: Option<Int>) -> Int {\n    let x = match o { Some(v) => v, None => { return 0; } };\n    return x;\n}\n',
+        'fn f(_ o: Option<Int>) -> Int {\n    let Some(x) = o else { return 0; };\n    return x;\n}\n');
+}
+
+@test
+fn let_else_reindents_a_multiline_else() -> Result<Void, Error> {
+    let src = 'fn f(_ o: Option<Int>) -> Int {\n'
+        + '    let x = match o {\n'
+        + '        Some(v) => v,\n'
+        + '        None => {\n'
+        + '            log(msg);\n'
+        + '            return 0;\n'
+        + '        },\n'
+        + '    };\n'
+        + '    return x;\n}\n';
+    let want = 'fn f(_ o: Option<Int>) -> Int {\n'
+        + '    let Some(x) = o else {\n'
+        + '        log(msg);\n'
+        + '        return 0;\n'
+        + '    };\n'
+        + '    return x;\n}\n';
+    return check(src, want);
+}

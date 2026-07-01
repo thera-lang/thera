@@ -297,10 +297,7 @@ pub fn load_imports(_ path: String, _ program: Program, _ sdk_root: Option<Strin
             let core_surface = public_surface_of(core_src);
             let core_key = element.file_key(core_src.program.file_path);
             for n in core_surface.names.to_list() {
-                core_names[n] = match core_surface.origin.get(n) {
-                    Some(owner) => owner,
-                    None => core_key,
-                };
+                core_names[n] = core_surface.origin.get(n).unwrap_or(core_key);
             }
         }
     }
@@ -353,10 +350,7 @@ fn bare_surface_for(_ root: LibrarySource, _ core_names: Map<String, String>) ->
                     // re-exports from its sub-files), not the barrel itself.
                     let surf = public_surface_of(child);
                     for n in surf.names.to_list() {
-                        names[n] = match surf.origin.get(n) {
-                            Some(owner) => owner,
-                            None => child_key,
-                        };
+                        names[n] = surf.origin.get(n).unwrap_or(child_key);
                     }
                 }
                 // White-box: `foo_test.hawk` sees `foo.hawk`'s private
@@ -387,10 +381,7 @@ fn test_base_name(_ file: Option<String>) -> Option<String> {
 
 // A source file's basename without its `.hawk` extension.
 fn basename_no_ext(_ file: Option<String>) -> String {
-    let path = match file {
-        Some(p) => p,
-        None => '',
-    };
+    let path = file.unwrap_or('');
     let seg = last_segment(path, '/');
     let ext = '.hawk';
     if seg.len() > ext.len() && seg.slice(seg.len() - ext.len(), seg.len()) == ext {
@@ -452,10 +443,7 @@ pub fn public_surface_of(_ lib: LibrarySource) -> element.LibraryNamespace {
 // Cycle detection keys on the program's `file_path` (Hawk has no object identity).
 fn collect_surface(_ source: LibrarySource, _ names: Set<String>, _ collisions: Set<String>,
     _ origin: Map<String, String>, _ visited: Set<String>) -> Void {
-    let key = match source.program.file_path {
-        Some(p) => p,
-        None => '',
-    };
+    let key = source.program.file_path.unwrap_or('');
     if visited.has(key) {
         return;
     }
@@ -485,10 +473,7 @@ fn collect_surface(_ source: LibrarySource, _ names: Set<String>, _ collisions: 
 // The namespace an import binds: its explicit alias, or the trailing segment of
 // its path (`std.fs` -> `fs`, `util/strings` -> `strings`).
 fn namespace_of(_ decl: ImportDecl) -> String {
-    return match decl.alias {
-        Some(a) => a,
-        None => last_segment(last_segment(decl.path, '/'), '.'),
-    };
+    return decl.alias.unwrap_or_else(() => last_segment(last_segment(decl.path, '/'), '.'));
 }
 
 // The public top-level name a declaration contributes, or None when private or
@@ -558,10 +543,7 @@ fn normalize_path(_ path: String) -> String {
 }
 
 fn normalize_resolved(_ o: Option<String>) -> Option<String> {
-    return match o {
-        Some(f) => Option.Some(normalize_path(f)),
-        None => Option.None,
-    };
+    return o.map((f) => normalize_path(f));
 }
 
 // The directory portion of `path` — everything before the last `/`.

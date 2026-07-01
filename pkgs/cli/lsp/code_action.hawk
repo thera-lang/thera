@@ -1,15 +1,15 @@
 // LSP `textDocument/codeAction`: offers the idiomatic-rewrite refactorings (the
 // same ones `hawk lint`/`hawk fix` surface) as editor code actions, driving the
-// shared transform machinery in `fix`. V1 offers `match → if let`.
+// shared transform machinery in `fix` (`match → if let`/`unwrap_or`/`map`/
+// `let … else`).
 //
 // An action is offered when the request range (the cursor, or a selection)
-// overlaps a convertible `match`; its `WorkspaceEdit` is the localized,
-// self-formatted replacement (see `fix.if_let_edit`), so applying it changes only
-// that span — the editor never reformats the rest of the document.
+// overlaps a rewrite site; its `WorkspaceEdit` is the localized, self-formatted
+// replacement, so applying it changes only that span — the editor never reformats
+// the rest of the document.
 
 import '../ast/ast' as _; // Program
-import '../fix/fix';
-import '../lint/lint'; // IfLetMatch
+import '../fix/fix'; // FixSite
 import 'hover'; // position_to_offset
 import 'diagnostics'; // span_to_range
 import std.json;
@@ -20,29 +20,28 @@ pub fn handle_code_action(_ uri: String, _ program: Program, _ text: String, _ r
     let start_off = pos_offset(text, range.get('start'));
     let end_off = pos_offset(text, range.get('end'));
     let actions: List<json.Json> = [];
-    for site in fix.if_let_sites(program) {
-        let s = site.match_span.offset;
-        let e = s + site.match_span.length;
-        // Offer the action when the request range overlaps the `match` (a bare
-        // cursor inside it counts — inclusive of the boundaries).
+    for site in fix.fix_sites(program) {
+        let s = site.span.offset;
+        let e = s + site.span.length;
+        // Offer the action when the request range overlaps the site (a bare cursor
+        // inside it counts — inclusive of the boundaries).
         if s <= end_off && start_off <= e {
-            actions.push(if_let_action(uri, site));
+            actions.push(rewrite_action(uri, site));
         }
     }
     return json.arr(actions);
 }
 
-// A `refactor.rewrite` action wrapping `fix.if_let_edit` as a WorkspaceEdit.
-fn if_let_action(_ uri: String, _ site: lint.IfLetMatch) -> json.Json {
-    let te = fix.if_let_edit(site);
+// A `refactor.rewrite` action wrapping a `FixSite`'s edit as a WorkspaceEdit.
+fn rewrite_action(_ uri: String, _ site: fix.FixSite) -> json.Json {
     let text_edit = json.obj({
-        'range': diagnostics.span_to_range(site.match_span),
-        'newText': json.str(te.new_text),
+        'range': diagnostics.span_to_range(site.span),
+        'newText': json.str(site.edit.new_text),
     });
     let changes: Map<String, json.Json> = {};
     changes[uri] = json.arr([text_edit]);
     return json.obj({
-        'title': json.str('Convert `match` to `if let`'),
+        'title': json.str(site.title),
         'kind': json.str('refactor.rewrite'),
         'edit': json.obj({
             'changes': json.obj(changes),

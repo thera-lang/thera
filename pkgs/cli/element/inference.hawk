@@ -136,10 +136,7 @@ fn infer_struct(_ x: StructExpr, _ scope: Map<String, Type>, _ ctx: InferCtx) ->
                 let value_type = infer_expr(fi.value, scope, ctx, declared);
                 if let Some(d) = declared { unify(d, value_type, bindings); }
             }
-            let args = element.type_parameters.map((tp) => match bindings.get(tp) {
-                Some(t) => t,
-                None => Type.Unknown,
-            });
+            let args = element.type_parameters.map((tp) => bindings.get(tp).unwrap_or(Type.Unknown));
             return Type.Interface(x.type_name, args);
         };
     }
@@ -373,16 +370,9 @@ fn infer_stmt_fwd(_ stmt: Stmt, _ stmts: List<Stmt>, _ index: Int,
 pub fn let_bound_type(_ x: LetStmt, _ stmts: List<Stmt>, _ start: Int,
     _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
     // A type annotation on the binding is the expected type for its value.
-    let annotated = match x.type_ann {
-        Some(ref) => Option.Some(
-            resolver.resolve_type_ref(ref, ctx.library.type_defs, ctx.type_params, ctx.self_type)),
-        None => Option.None,
-    };
+    let annotated = x.type_ann.map((ref) => resolver.resolve_type_ref(ref, ctx.library.type_defs, ctx.type_params, ctx.self_type));
     let inferred = infer_expr(x.value, scope, ctx, annotated);
-    return match annotated {
-        Some(a) => a,
-        None => refine_binding_type(x.name, inferred, stmts, start, scope, ctx),
-    };
+    return annotated.unwrap_or_else(() => refine_binding_type(x.name, inferred, stmts, start, scope, ctx));
 }
 
 // --- forward-flow inference ---
@@ -957,10 +947,7 @@ pub fn for_element_type(_ iter_type: Type, _ ctx: InferCtx) -> Type {
             return arg_at(args, 0);
         };
     }
-    return match iterator_element(iter_type, ctx) {
-        Some(e) => e,
-        None => Type.Primitive(Primitive.Int),
-    };
+    return iterator_element(iter_type, ctx).unwrap_or_else(() => Type.Primitive(Primitive.Int));
 }
 
 // The element type of an iterable that is (or conforms to) `Iterator<T>`: the
@@ -1162,10 +1149,7 @@ fn enum_variant_type(_ object: Expr, _ variant: String, _ arg_types: List<Type>,
                     let mut k = 0;
                     while k < element.type_parameters.len() {
                         let tp = element.type_parameters[k];
-                        args.push(match bindings.get(tp) {
-                            Some(t) => t,
-                            None => arg_at(expected_args, k),
-                        });
+                        args.push(bindings.get(tp).unwrap_or_else(() => arg_at(expected_args, k)));
                         k = k + 1;
                     }
                     return Option.Some(Type.Interface(element.name, args));

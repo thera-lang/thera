@@ -461,14 +461,16 @@ resolution_ below.)
     `None => {}` catch-all (`match X { Some(v) => { … }, None => {} }`) →
     `if let Some(v) = X { … }`. The dominant cascade (~323 sites; ~279 noise
     arms) — the highest-leverage cleanup.
-  - **`match` → `let … else`.** `let x = match opt { Some(v) => v, None => { …diverge… } };`
-    → `let Some(x) = opt else { …diverge… };` (once `let … else` lands).
+  - **`match` → `let … else`. _Rewriter landed._** `let x = match opt { Some(v) => v, None => { …diverge… } };`
+    → `let Some(x) = opt else { …diverge… };`. Fires on a plain, unannotated `let`
+    whose diverging arm binds nothing (the `else` binds nothing).
   - **`match` → `?`.** A `match r { Ok(v) => v, Err(e) => return Result.Err(e) }`
-    (or the `Option` analogue, once `?`-on-`Option` lands) → `r?`.
-  - **`match` → combinator.** `match opt { Some(v) => f(v), None => None }` →
-    `opt.map(f)`; `match opt { Some(v) => v, None => d }` → `opt.unwrap_or(d)`
-    (already underused — e.g. json `write_object` — so this lints existing code
-    too).
+    (or the `Option` analogue, once `?`-on-`Option` lands) → `r?`. Reporter only —
+    no rewriter yet.
+  - **`match` → combinator. _Rewriter landed._** `match opt { Some(v) => Option.Some(f(v)), None => Option.None }` →
+    `opt.map((v) => f(v))`; `match opt { Some(v) => v, None => d }` →
+    `opt.unwrap_or(d)` / `.unwrap_or_else(…)` (already underused — e.g. json
+    `write_object` — so this rewrites existing code too).
   - **`while i < xs.len()` → `for`/`enumerate`/`zip`.** A manual index loop that
     only reads `xs[i]` → `for x in xs`; one that needs the index →
     `for (i, x) in xs.enumerate()`; a parallel two-list index loop → a `zip`
@@ -490,29 +492,37 @@ resolution_ below.)
     `pkgs/cli/fix/fix.hawk` — `if_let_edit` + `fix_source` (parse → collect →
     per-edit format → apply), directly unit-tested (incl. comment preservation, a
     reindent-the-spliced-region case, and a minimal-edit-leaves-the-rest-untouched
-    case). The transforms are vehicle-independent; a `hawk fix` CLI and an LSP code
-    action both drive them.
-  - **`hawk fix` CLI — _landed (V1: `match → if let`)._** `hawk fix <file|dir>…`
-    (main.hawk) drives the machinery: previews by default (one `path:line:col`
-    per fix), `--write` applies. UX is flagged provisional in `--help` (the LSP
-    code action is the primary per-site vehicle). `fix_source` loops
-    non-overlapping edit batches to a fixpoint so **nested** convertible matches
-    converge (an inner match becomes visible once its enclosing match is
-    rewritten — a bug the dogfooding surfaced). **Dogfooded** on 5 front-end files
-    (14 sites across driver/runner/element/lsp); the front-end compiles itself
-    from the rewritten source with the SDK fixpoint byte-identical and the suite
-    green. The rest of the corpus is deliberately left for the **LSP code action**
-    to dogfood.
-  - **LSP code action — _landed (V1: `match → if let`)._**
+    case). Each rule adds a structured `lint.match_*` site + a `fix.*_edit`; a
+    single `fix.fix_sites` walk emits at most one rewrite per `match` (the rules
+    partition) plus `let … else` at the enclosing `let`. The transforms are
+    vehicle-independent; a `hawk fix` CLI and an LSP code action both drive them.
+  - **`hawk fix` CLI — _landed (`if let`, `unwrap_or`, `map`, `let … else`)._**
+    `hawk fix <file|dir>…` (main.hawk) drives the machinery: previews by default
+    (one `path:line:col: match → …` per fix), `--write` applies. UX is flagged
+    provisional in `--help` (the LSP code action is the primary per-site vehicle).
+    `fix_source` loops non-overlapping edit batches to a fixpoint so **nested**
+    convertible matches converge (an inner match becomes visible once its enclosing
+    match is rewritten — a bug the dogfooding surfaced). Rewrites are conservative
+    (precision over recall — the `lint` reporters flag a broader set than `fix`
+    safely rewrites): a block-bodied arm is left to a human, since moving it into a
+    closure/`else` could drop statements or `return` out of the enclosing fn.
+    `unwrap_or` stays eager only for a **cheap** fallback (literal/ident/field);
+    a computed one becomes `unwrap_or_else`, threading the `Err(e)` binding into
+    `Result`'s closure. **Dogfooded** on 8 front-end files (26 sites across
+    driver/runner/element/lsp/loader/inference); the front-end compiles itself from
+    the rewritten source with the SDK fixpoint byte-identical and the suite green.
+    Some of the corpus is deliberately left for the **LSP code action** to dogfood.
+  - **LSP code action — _landed (`if let`, `unwrap_or`, `map`, `let … else`)._**
     `textDocument/codeAction` (`pkgs/cli/lsp/code_action.hawk`, registered in the
-    server capabilities) offers a `refactor.rewrite` action for each convertible
-    `match` overlapping the request range, driving the same `fix.if_let_sites` +
-    `if_let_edit`. The `WorkspaceEdit` is the localized, self-formatted replacement
-    (via `format_fragment`), so applying it touches only that span — no
+    server capabilities) offers a `refactor.rewrite` action for each rewrite site
+    overlapping the request range, driving the same `fix.fix_sites` (each site
+    carries its edit + title). The `WorkspaceEdit` is the localized, self-formatted
+    replacement (via `format_fragment`), so applying it touches only that span — no
     document-wide reformat. Purely syntactic (parses the open buffer, no import
-    closure). In-process JSON-RPC tests cover offer + empty cases. This is the
-    per-site vehicle for dogfooding the rest of the corpus. (Not yet: honoring
-    `context.only` kind filters — currently returns the rewrite regardless.)
+    closure). In-process JSON-RPC tests cover offer (`if let` + `unwrap_or`) + empty
+    cases. This is the per-site vehicle for dogfooding the rest of the corpus.
+    (Not yet: honoring `context.only` kind filters — currently returns the rewrite
+    regardless; `match → ?` and `while → for` rewriters.)
   - **First step — a read-only count — _landed._** `hawk lint <file|dir>`
     (`pkgs/cli/lint/lint.hawk`) walks the parsed AST — purely syntactic, no import
     closure — and reports + per-rule tallies convertible sites. Source `match`es

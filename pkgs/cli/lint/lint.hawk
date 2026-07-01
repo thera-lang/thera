@@ -46,6 +46,36 @@ pub struct IfLetMatch {
     keep_body: Expr,
 }
 
+// A `match` convertible to `.unwrap_or(…)` / `.unwrap_or_else(…)`. `fallback` is
+// the fallback arm's value; `err_binding` is the `Err(e)` binding (`Ok`/`Result`
+// only), which the rewrite threads into `unwrap_or_else`'s closure.
+pub struct UnwrapOrMatch {
+    match_span: SourceSpan,
+    subject: Expr,
+    is_result: Bool,
+    fallback: Expr,
+    err_binding: Option<String>,
+}
+
+// A `match` convertible to `.map(…)`: the payload binding and the mapped
+// expression from the `Some(v) => Option.Some(EXPR)` arm.
+pub struct MapMatch {
+    match_span: SourceSpan,
+    subject: Expr,
+    bind: String,
+    mapped: Expr,
+}
+
+// A `let x = match … { … }` convertible to `let CTOR(x) = SUBJ else { … }`. The
+// whole `let` statement is replaced, so the site carries its span and binding.
+pub struct LetElseMatch {
+    let_span: SourceSpan,
+    name: String,
+    ctor: String,
+    subject: Expr,
+    else_body: Expr,
+}
+
 // `match X { Some(v) => { … }, None => {} }` → `if let Some(v) = X { … }`.
 //
 // A source two-arm `match` with exactly one empty-bodied arm whose *kept* arm
@@ -181,6 +211,164 @@ fn detect_while_index(_ w: WhileStmt) -> Option<Suggestion> {
         },
         _ => Option.None,
     };
+}
+
+// --- Fix-able sites ---
+//
+// The strict, structured counterparts of the `detect_*` reporters above: they
+// return the pieces a rewrite needs, and only for shapes a mechanical fix can
+// safely handle (precision over recall — the reporters flag a broader set). A
+// block-bodied arm is left to a human, since it may drop statements or `return`
+// out of the enclosing fn when moved into a closure or `else`.
+
+// `match SUBJ { Some(v) => v, None => FB }` → `SUBJ.unwrap_or(FB)`, or
+// `.unwrap_or_else(…)` when the fallback isn't a cheap value (the fix decides).
+// The fallback must be a bare value; the catch-all must bind nothing (`Some`) or
+// be an `Err(e)`/`Err(_)`/`_` whose binding the closure can carry (`Ok`).
+pub fn match_unwrap_or(_ m: MatchExpr) -> Option<UnwrapOrMatch> {
+    if !is_source_match(m) || m.arms.len() != 2 {
+        return Option.None;
+    }
+    return match unwrap_or_site(m, m.arms[0], m.arms[1]) {
+        Some(s) => Option.Some(s),
+        None => unwrap_or_site(m, m.arms[1], m.arms[0]),
+    };
+}
+
+fn unwrap_or_site(_ m: MatchExpr, _ a: MatchArm, _ b: MatchArm) -> Option<UnwrapOrMatch> {
+    let aname = match ctor_name(a.pattern) {
+        Some(n) => n,
+        None => return Option.None,
+    };
+    if aname != 'Some' && aname != 'Ok' {
+        return Option.None;
+    }
+    let vname = match ctor_binding(a.pattern) {
+        Some(n) => n,
+        None => return Option.None,
+    };
+    if !body_yields_var(a.body, vname) {
+        return Option.None;
+    }
+    let fb = match simple_value_expr(b.body) {
+        Some(e) => e,
+        None => return Option.None,
+    };
+    let is_result = aname == 'Ok';
+    let err_binding = if is_result {
+        if !is_result_fallback_pat(b.pattern) {
+            return Option.None;
+        }
+        result_err_binding(b.pattern)
+    } else {
+        if !pattern_binds_nothing(b.pattern) {
+            return Option.None;
+        }
+        Option.None
+    };
+    return Option.Some(UnwrapOrMatch {
+        match_span: m.span,
+        subject: m.subject,
+        is_result: is_result,
+        fallback: fb,
+        err_binding: err_binding,
+    });
+}
+
+// `match SUBJ { Some(v) => Option.Some(EXPR), None => Option.None }` →
+// `SUBJ.map((v) => EXPR)`. Both arms must be bare re-wraps (no dropped statements).
+pub fn match_map(_ m: MatchExpr) -> Option<MapMatch> {
+    if !is_source_match(m) || m.arms.len() != 2 {
+        return Option.None;
+    }
+    return match map_site(m, m.arms[0], m.arms[1]) {
+        Some(s) => Option.Some(s),
+        None => map_site(m, m.arms[1], m.arms[0]),
+    };
+}
+
+fn map_site(_ m: MatchExpr, _ a: MatchArm, _ b: MatchArm) -> Option<MapMatch> {
+    if !ctor_name_is(a.pattern, 'Some') || !ctor_name_is(b.pattern, 'None') {
+        return Option.None;
+    }
+    let bind = match ctor_binding(a.pattern) {
+        Some(n) => n,
+        None => return Option.None,
+    };
+    let aval = match simple_value_expr(a.body) {
+        Some(e) => e,
+        None => return Option.None,
+    };
+    let mapped = match aval {
+        Call(c) => if is_qual_field(c.callee, 'Option', 'Some') && c.args.len() == 1 {
+            simple_value_expr(c.args[0].value)
+        } else {
+            Option.None
+        },
+        _ => Option.None,
+    };
+    let mapped_expr = match mapped {
+        Some(e) => e,
+        None => return Option.None,
+    };
+    let bval = match simple_value_expr(b.body) {
+        Some(e) => e,
+        None => return Option.None,
+    };
+    if !is_qual_field(bval, 'Option', 'None') {
+        return Option.None;
+    }
+    return Option.Some(MapMatch {
+        match_span: m.span,
+        subject: m.subject,
+        bind: bind,
+        mapped: mapped_expr,
+    });
+}
+
+// `let x = match SUBJ { Some(v) => v, None => { …diverge… } }` →
+// `let Some(x) = SUBJ else { …diverge… }`. The `let` must be a plain, unannotated
+// binding, and the diverging arm must bind nothing (the `else` binds nothing).
+pub fn match_let_else(_ l: LetStmt) -> Option<LetElseMatch> {
+    if l.is_mut {
+        return Option.None;
+    }
+    match l.type_ann {
+        Some(_) => return Option.None,
+        None => {},
+    }
+    let m = match l.value {
+        Match(mm) => mm,
+        _ => return Option.None,
+    };
+    if !is_source_match(m) || m.arms.len() != 2 || is_question_shape(m) {
+        return Option.None;
+    }
+    return match let_else_site(l, m, m.arms[0], m.arms[1]) {
+        Some(s) => Option.Some(s),
+        None => let_else_site(l, m, m.arms[1], m.arms[0]),
+    };
+}
+
+fn let_else_site(_ l: LetStmt, _ m: MatchExpr, _ a: MatchArm, _ b: MatchArm) -> Option<LetElseMatch> {
+    let ctor = match ctor_name(a.pattern) {
+        Some(n) => n,
+        None => return Option.None,
+    };
+    let v = match ctor_binding(a.pattern) {
+        Some(n) => n,
+        None => return Option.None,
+    };
+    if !body_yields_var(a.body, v) || !body_diverges(b.body) || !pattern_binds_nothing(b.pattern) {
+        return Option.None;
+    }
+    return Option.Some(LetElseMatch {
+        let_span: l.span,
+        name: l.name,
+        ctor: ctor,
+        subject: m.subject,
+        else_body: b.body,
+    });
 }
 
 // --- Rule predicates ---
@@ -372,6 +560,20 @@ fn block_single_return(_ b: Block) -> Option<Expr> {
     };
 }
 
+// The value a body produces *without dropping anything* — a bare expression, or a
+// block that is a pure wrapper (no statements) around a tail. None for a block with
+// statements (moving it into a closure/`else` would drop them), or a diverging or
+// empty body. Stricter than `body_value_expr`; used by the fix-able sites.
+fn simple_value_expr(_ e: Expr) -> Option<Expr> {
+    return match e {
+        Block(_, b) => if b.stmts.len() == 0 { b.tail } else { Option.None },
+        Return(_, _) => Option.None,
+        Throw(_, _) => Option.None,
+        Unit(_) => Option.None,
+        _ => Option.Some(e),
+    };
+}
+
 // The value expression a body produces (a bare expr, or a block's tail); None for
 // an empty or diverging body.
 fn body_value_expr(_ e: Expr) -> Option<Expr> {
@@ -439,6 +641,67 @@ fn ctor_name_is(_ p: Pattern, _ name: String) -> Bool {
     return match p {
         Constructor(_, n, _) => n == name,
         _ => false,
+    };
+}
+
+// Whether a pattern introduces no bindings — a wildcard, a literal, or a
+// constructor all of whose sub-patterns bind nothing (`None`, `Err(_)`). An
+// identifier binds, so it does not. Used where the "other" arm's binding cannot be
+// carried into the rewrite (the `else` of a `let … else`, or `Some`'s catch-all).
+fn pattern_binds_nothing(_ p: Pattern) -> Bool {
+    return match p {
+        Wildcard(_) => true,
+        Literal(_, _) => true,
+        Ident(_, _) => false,
+        Constructor(_, _, subs) => {
+            for s in subs {
+                if !pattern_binds_nothing(s) {
+                    return false;
+                }
+            }
+            true
+        },
+    };
+}
+
+// A fallback pattern the `Ok`/`unwrap_or_else` rewrite can carry: `_`, or an `Err`
+// whose sub-patterns are each a bare binding or wildcard (`Err(e)`, `Err(_)`). The
+// error binding, if any, is threaded into the closure by `result_err_binding`.
+fn is_result_fallback_pat(_ p: Pattern) -> Bool {
+    return match p {
+        Wildcard(_) => true,
+        Constructor(_, n, subs) => n == 'Err' && all_simple_binders(subs),
+        _ => false,
+    };
+}
+
+fn all_simple_binders(_ subs: List<Pattern>) -> Bool {
+    for s in subs {
+        let ok = match s {
+            Ident(_, _) => true,
+            Wildcard(_) => true,
+            _ => false,
+        };
+        if !ok {
+            return false;
+        }
+    }
+    return true;
+}
+
+// The single variable an `Err(e)` fallback binds (for `unwrap_or_else((e) => …)`);
+// None for `Err(_)`, `_`, or a multi-field `Err`.
+fn result_err_binding(_ p: Pattern) -> Option<String> {
+    return match p {
+        Constructor(_, _, subs) => if subs.len() == 1 {
+            match subs[0] {
+                Ident(_, n) => Option.Some(n),
+                _ => Option.None,
+            }
+        } else {
+            Option.None
+        },
+        _ => Option.None,
     };
 }
 

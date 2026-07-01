@@ -354,3 +354,19 @@ fn test_code_action_empty_when_nothing_convertible() -> Result<Void, Error> {
         message: 'no actions offered')?;
     return Result.Ok(void);
 }
+
+@test
+fn test_code_action_offers_unwrap_or() -> Result<Void, Error> {
+    // A value-fallback `match` yields an `unwrap_or` rewrite.
+    let server = new_server(Option.None);
+    let _opened = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"file:///c.hawk","text":'
+        + '"fn f(_ o: Option<Int>) -> Int { return match o { Some(v) => v, None => 0 }; }"}}}');
+    let out = capture(server, '{"jsonrpc":"2.0","id":22,"method":"textDocument/codeAction","params":'
+        + '{"textDocument":{"uri":"file:///c.hawk"},'
+        + '"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":80}},'
+        + '"context":{"diagnostics":[]}}}');
+    testing.assert(out.contains('Convert `match` to `unwrap_or`'), message: 'offers unwrap_or')?;
+    testing.assert(out.contains('o.unwrap_or(0)'), message: 'edit rewrites to unwrap_or')?;
+    return Result.Ok(void);
+}

@@ -11,6 +11,7 @@
 // and an LSP code action both drive.
 
 import '../ast/ast' as _; // Program/Decl/Stmt/Expr + span accessors
+import '../lexer/token' as _; // SourceSpan
 import '../lexer/lexer';
 import '../parser/parser';
 import '../edit/edit';
@@ -41,20 +42,122 @@ fn if_let_body_text(_ body: Expr) -> String {
     };
 }
 
-// Every `match → if let` site in a program, in source order.
-pub fn if_let_sites(_ p: Program) -> List<lint.IfLetMatch> {
-    let out: List<lint.IfLetMatch> = [];
-    for m in all_matches(p) {
-        if let Some(site) = lint.match_if_let(m) { out.push(site); }
+// --- match → unwrap_or / unwrap_or_else ---
+
+// A cheap fallback (a literal, an identifier, or a field chain over one) can be
+// evaluated eagerly by `unwrap_or`; anything else — a call, an index, arithmetic —
+// must stay lazy via `unwrap_or_else`, which the `match` only evaluated in the
+// fallback case. Threads the `Err(e)` binding into the closure when present.
+pub fn unwrap_or_edit(_ s: lint.UnwrapOrMatch) -> edit.TextEdit {
+    let subj = expr_span(s.subject).text();
+    let fb = expr_span(s.fallback).text();
+    let raw = if is_cheap_expr(s.fallback) && s.err_binding == Option.None {
+        '${subj}.unwrap_or(${fb})'
+    } else if s.is_result {
+        let bind = match s.err_binding {
+            Some(n) => n,
+            None => '_',
+        };
+        '${subj}.unwrap_or_else((${bind}) => ${fb})'
+    } else {
+        '${subj}.unwrap_or_else(() => ${fb})'
+    };
+    let indent = edit.line_indent_at(s.match_span.source, s.match_span.offset);
+    return edit.span_edit(s.match_span, fmt.format_fragment(raw, indent));
+}
+
+// A fallback that `unwrap_or` may evaluate eagerly with no observable difference: a
+// literal, an identifier, or a field access over such (`Option.None`, `self.x`).
+fn is_cheap_expr(_ e: Expr) -> Bool {
+    return match e {
+        Int(_, _) => true,
+        Float(_, _) => true,
+        Bool(_, _) => true,
+        Unit(_) => true,
+        Ident(_, _) => true,
+        Str(_, parts) => str_is_literal(parts),
+        Field(_, obj, _) => is_cheap_expr(obj),
+        _ => false,
+    };
+}
+
+fn str_is_literal(_ parts: List<StringPart>) -> Bool {
+    for p in parts {
+        let text = match p {
+            Text(_, _) => true,
+            Interp(_, _) => false,
+        };
+        if !text {
+            return false;
+        }
     }
-    return out;
+    return true;
+}
+
+// --- match → map ---
+
+pub fn map_edit(_ s: lint.MapMatch) -> edit.TextEdit {
+    let subj = expr_span(s.subject).text();
+    let mapped = expr_span(s.mapped).text();
+    let raw = '${subj}.map((${s.bind}) => ${mapped})';
+    let indent = edit.line_indent_at(s.match_span.source, s.match_span.offset);
+    return edit.span_edit(s.match_span, fmt.format_fragment(raw, indent));
+}
+
+// --- match → let … else ---
+
+// Replaces the whole `let` statement (its span covers the trailing `;`). The
+// diverging arm's body becomes the `else` block, sliced verbatim (a bare diverge is
+// wrapped in braces).
+pub fn let_else_edit(_ s: lint.LetElseMatch) -> edit.TextEdit {
+    let subj = expr_span(s.subject).text();
+    let els = let_else_body_text(s.else_body);
+    let raw = 'let ${s.ctor}(${s.name}) = ${subj} else ${els};';
+    let indent = edit.line_indent_at(s.let_span.source, s.let_span.offset);
+    return edit.span_edit(s.let_span, fmt.format_fragment(raw, indent));
+}
+
+fn let_else_body_text(_ e: Expr) -> String {
+    return match e {
+        Block(_, _) => expr_span(e).text(),
+        _ => '{ ${expr_span(e).text()}; }',
+    };
 }
 
 // --- driving edits ---
 
-// The edits every available rewrite would make to `source` (V1: `match → if let`),
-// in source order. Empty for unparseable source — fixes require a valid tree.
+// A located, ready-to-apply rewrite: the anchor `span` (for overlap tests / code
+// actions), the `edit`, a human `title` (the code-action label), and a short
+// `message` (the `hawk fix` preview line).
+pub struct FixSite {
+    span: SourceSpan,
+    edit: edit.TextEdit,
+    title: String,
+    message: String,
+}
+
+// Every available rewrite in `program`, in source order. At most one per `match`
+// (the rules partition — see `lint`); `let … else` anchors on its whole `let`.
+pub fn fix_sites(_ p: Program) -> List<FixSite> {
+    let out: List<FixSite> = [];
+    for d in p.decls {
+        fs_decl(d, out);
+    }
+    return out;
+}
+
+// The edits every available rewrite would make to `source`, in source order. Empty
+// for unparseable source — fixes require a valid tree.
 pub fn fix_edits(_ source: String) -> List<edit.TextEdit> {
+    let edits: List<edit.TextEdit> = [];
+    for site in parse_fix_sites(source) {
+        edits.push(site.edit);
+    }
+    return edits;
+}
+
+// Parse `source` and collect its fix sites; empty on any lex/parse error.
+pub fn parse_fix_sites(_ source: String) -> List<FixSite> {
     let lex = lexer.tokenize(source);
     if lex.errors.len() > 0 {
         return [];
@@ -63,11 +166,7 @@ pub fn fix_edits(_ source: String) -> List<edit.TextEdit> {
     if parsed.errors.len() > 0 {
         return [];
     }
-    let edits: List<edit.TextEdit> = [];
-    for site in if_let_sites(parsed.program) {
-        edits.push(if_let_edit(site));
-    }
-    return edits;
+    return fix_sites(parsed.program);
 }
 
 // Apply every available rewrite to `source` and return the rewritten text. Each
@@ -118,152 +217,187 @@ pub struct FixLocation {
 // The located fixes in `source` (parallel to `fix_edits`), for preview output.
 pub fn fix_locations(_ source: String) -> List<FixLocation> {
     let out: List<FixLocation> = [];
-    for e in fix_edits(source) {
-        let pos = edit.offset_to_line_col(source, e.start);
+    for site in parse_fix_sites(source) {
+        let pos = edit.offset_to_line_col(source, site.edit.start);
         out.push(FixLocation {
             line: pos.line,
             column: pos.column,
-            message: 'match → if let',
+            message: site.message,
         });
     }
     return out;
 }
 
-// --- AST walk: collect every `match` expression ---
+// --- AST walk: collect every fix site ---
 //
 // A focused traversal (separate from lint's suggestion walk, which also handles
 // `let`/`while` rules). A shared AST visitor would let both drop their bespoke
-// walks — a future consolidation.
+// walks — a future consolidation. At each `match` the applicable rewrite (at most
+// one) is emitted; `let … else` is emitted at the `let` and anchors on it.
+//
+// A converted site's sub-expressions are still visited: a nested convertible
+// `match` (e.g. inside a `let … else` body) yields an overlapping edit that
+// `non_overlapping` defers to a later pass, so the walk need not prune.
 
-fn all_matches(_ p: Program) -> List<MatchExpr> {
-    let out: List<MatchExpr> = [];
-    for d in p.decls {
-        cm_decl(d, out);
-    }
-    return out;
-}
-
-fn cm_decl(_ d: Decl, _ out: List<MatchExpr>) -> Void {
+fn fs_decl(_ d: Decl, _ out: List<FixSite>) -> Void {
     match d {
-        Fn(f) => { cm_fn(f, out); },
+        Fn(f) => { fs_fn(f, out); },
         Impl(i) => {
             for m in i.methods {
-                cm_fn(m, out);
+                fs_fn(m, out);
             }
         },
         Interface(it) => {
             for m in it.methods {
-                cm_fn(m, out);
+                fs_fn(m, out);
             }
         },
-        Const(c) => { cm_expr(c.value, out); },
-        Let(l) => { cm_expr(l.value, out); },
+        Const(c) => { fs_expr(c.value, out); },
+        Let(l) => { fs_expr(l.value, out); },
         Import(_) => {},
         Type(_) => {},
         Enum(_) => {},
     }
 }
 
-fn cm_fn(_ f: FnDecl, _ out: List<MatchExpr>) -> Void {
+fn fs_fn(_ f: FnDecl, _ out: List<FixSite>) -> Void {
     for p in f.params {
-        if let Some(e) = p.default_value { cm_expr(e, out); }
+        if let Some(e) = p.default_value { fs_expr(e, out); }
     }
-    if let Some(b) = f.body { cm_block(b, out); }
+    if let Some(b) = f.body { fs_block(b, out); }
 }
 
-fn cm_block(_ b: Block, _ out: List<MatchExpr>) -> Void {
+fn fs_block(_ b: Block, _ out: List<FixSite>) -> Void {
     for s in b.stmts {
-        cm_stmt(s, out);
+        fs_stmt(s, out);
     }
-    if let Some(e) = b.tail { cm_expr(e, out); }
+    if let Some(e) = b.tail { fs_expr(e, out); }
 }
 
-fn cm_stmt(_ s: Stmt, _ out: List<MatchExpr>) -> Void {
+fn fs_stmt(_ s: Stmt, _ out: List<FixSite>) -> Void {
     match s {
-        Let(l) => { cm_expr(l.value, out); },
-        Return(_, v) => { cm_opt_expr(v, out); },
-        Throw(_, e) => { cm_expr(e, out); },
-        Expr(_, e) => { cm_expr(e, out); },
+        Let(l) => {
+            if let Some(site) = lint.match_let_else(l) {
+                out.push(FixSite {
+                    span: site.let_span,
+                    edit: let_else_edit(site),
+                    title: 'Convert `match` to `let … else`',
+                    message: 'match → let … else',
+                });
+            }
+            fs_expr(l.value, out);
+        },
+        Return(_, v) => { fs_opt_expr(v, out); },
+        Throw(_, e) => { fs_expr(e, out); },
+        Expr(_, e) => { fs_expr(e, out); },
         Assign(_, target, value) => {
-            cm_expr(target, out);
-            cm_expr(value, out);
+            fs_expr(target, out);
+            fs_expr(value, out);
         },
         If(i) => {
-            cm_expr(i.condition, out);
-            cm_block(i.then_block, out);
-            cm_opt_block(i.else_block, out);
+            fs_expr(i.condition, out);
+            fs_block(i.then_block, out);
+            fs_opt_block(i.else_block, out);
         },
         For(f) => {
-            cm_expr(f.iterable, out);
-            cm_block(f.body, out);
+            fs_expr(f.iterable, out);
+            fs_block(f.body, out);
         },
         While(w) => {
-            cm_expr(w.condition, out);
-            cm_block(w.body, out);
+            fs_expr(w.condition, out);
+            fs_block(w.body, out);
         },
     }
 }
 
-fn cm_expr(_ e: Expr, _ out: List<MatchExpr>) -> Void {
+// The applicable rewrite for a `match` (at most one — the rules partition), or
+// nothing. `let … else` is handled at the `let` (it needs the binding), so a
+// diverging-arm match here matches no rule.
+fn fs_match(_ m: MatchExpr, _ out: List<FixSite>) -> Void {
+    if let Some(site) = lint.match_if_let(m) {
+        out.push(FixSite {
+            span: m.span,
+            edit: if_let_edit(site),
+            title: 'Convert `match` to `if let`',
+            message: 'match → if let',
+        });
+    } else if let Some(site) = lint.match_unwrap_or(m) {
+        out.push(FixSite {
+            span: m.span,
+            edit: unwrap_or_edit(site),
+            title: 'Convert `match` to `unwrap_or`',
+            message: 'match → unwrap_or',
+        });
+    } else if let Some(site) = lint.match_map(m) {
+        out.push(FixSite {
+            span: m.span,
+            edit: map_edit(site),
+            title: 'Convert `match` to `map`',
+            message: 'match → map',
+        });
+    }
+}
+
+fn fs_expr(_ e: Expr, _ out: List<FixSite>) -> Void {
     match e {
         Str(_, parts) => {
             for part in parts {
-                if let Interp(_, inner) = part { cm_expr(inner, out); }
+                if let Interp(_, inner) = part { fs_expr(inner, out); }
             }
         },
         ListLit(_, items) => {
             for item in items {
-                cm_expr(item, out);
+                fs_expr(item, out);
             }
         },
         MapLit(_, entries) => {
             for entry in entries {
-                cm_expr(entry.key, out);
-                cm_expr(entry.value, out);
+                fs_expr(entry.key, out);
+                fs_expr(entry.value, out);
             }
         },
         Struct(x) => {
             for fi in x.fields {
-                cm_expr(fi.value, out);
+                fs_expr(fi.value, out);
             }
         },
         Call(x) => {
-            cm_expr(x.callee, out);
+            fs_expr(x.callee, out);
             for arg in x.args {
-                cm_expr(arg.value, out);
+                fs_expr(arg.value, out);
             }
         },
-        Field(_, obj, _) => { cm_expr(obj, out); },
+        Field(_, obj, _) => { fs_expr(obj, out); },
         Index(_, obj, idx) => {
-            cm_expr(obj, out);
-            cm_expr(idx, out);
+            fs_expr(obj, out);
+            fs_expr(idx, out);
         },
         Binary(_, l, _, r) => {
-            cm_expr(l, out);
-            cm_expr(r, out);
+            fs_expr(l, out);
+            fs_expr(r, out);
         },
-        Unary(_, _, operand) => { cm_expr(operand, out); },
-        Propagate(_, inner) => { cm_expr(inner, out); },
+        Unary(_, _, operand) => { fs_expr(operand, out); },
+        Propagate(_, inner) => { fs_expr(inner, out); },
         Range(_, lo, hi) => {
-            cm_expr(lo, out);
-            cm_expr(hi, out);
+            fs_expr(lo, out);
+            fs_expr(hi, out);
         },
         Match(x) => {
-            out.push(x);
-            cm_expr(x.subject, out);
+            fs_match(x, out);
+            fs_expr(x.subject, out);
             for arm in x.arms {
-                cm_expr(arm.body, out);
+                fs_expr(arm.body, out);
             }
         },
-        Lambda(x) => { cm_expr(x.body, out); },
-        Block(_, b) => { cm_block(b, out); },
+        Lambda(x) => { fs_expr(x.body, out); },
+        Block(_, b) => { fs_block(b, out); },
         If(x) => {
-            cm_expr(x.condition, out);
-            cm_block(x.then_block, out);
-            cm_opt_block(x.else_block, out);
+            fs_expr(x.condition, out);
+            fs_block(x.then_block, out);
+            fs_opt_block(x.else_block, out);
         },
-        Return(_, v) => { cm_opt_expr(v, out); },
-        Throw(_, inner) => { cm_expr(inner, out); },
+        Return(_, v) => { fs_opt_expr(v, out); },
+        Throw(_, inner) => { fs_expr(inner, out); },
         Int(_, _) => {},
         Float(_, _) => {},
         Bool(_, _) => {},
@@ -273,10 +407,10 @@ fn cm_expr(_ e: Expr, _ out: List<MatchExpr>) -> Void {
     }
 }
 
-fn cm_opt_expr(_ e: Option<Expr>, _ out: List<MatchExpr>) -> Void {
-    if let Some(inner) = e { cm_expr(inner, out); }
+fn fs_opt_expr(_ e: Option<Expr>, _ out: List<FixSite>) -> Void {
+    if let Some(inner) = e { fs_expr(inner, out); }
 }
 
-fn cm_opt_block(_ b: Option<Block>, _ out: List<MatchExpr>) -> Void {
-    if let Some(inner) = b { cm_block(inner, out); }
+fn fs_opt_block(_ b: Option<Block>, _ out: List<FixSite>) -> Void {
+    if let Some(inner) = b { fs_block(inner, out); }
 }
