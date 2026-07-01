@@ -379,4 +379,3 @@ fn last_change_text(_ changes: Json) -> Option<String> {
         None => Option.None,
     };
 }
-

@@ -21,7 +21,7 @@
 fn main() -> Result<Int, Error> {
     let mut pass = 0;
     let mut total_iter = 0;
-    
+
     while pass < 50 {
         let mut y = 0;
         while y < 100 {
@@ -48,7 +48,7 @@ fn main() -> Result<Int, Error> {
         }
         pass += 1;
     }
-    
+
     println('Done! Total iterations computed: ${total_iter}');
 
     return Result.Ok(0);

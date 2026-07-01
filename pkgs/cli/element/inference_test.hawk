@@ -56,7 +56,7 @@ fn test_map_literal_is_map_of_key_value() -> Result<Void, Error> {
         expected: Type.Interface('Map', [
             Type.Primitive(Primitive.Int),
             Type.Primitive(Primitive.Bool),
-        ]))?;
+    ]))?;
     return Result.Ok(void);
 }
 

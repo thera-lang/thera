@@ -56,4 +56,3 @@ fn decl_span(_ decl: Decl) -> Option<SourceSpan> {
         Import(_) => Option.None,
     };
 }
-

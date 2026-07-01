@@ -164,7 +164,7 @@ fn test_lambda_param_not_inferable() -> Result<Void, Error> {
     testing.assert_eq(actual: errs.len(), expected: 1)?;
     testing.assert_eq(actual: first_message(errs),
         expected: 'cannot infer the type of lambda parameter \'x\'; '
-            + 'add a type annotation, e.g. (x: Int) => ...')?;
+        + 'add a type annotation, e.g. (x: Int) => ...')?;
     return Result.Ok(void);
 }
 
@@ -244,7 +244,7 @@ fn test_generic_bound_violation() -> Result<Void, Error> {
     testing.assert_eq(actual: errs.len(), expected: 1)?;
     testing.assert_eq(actual: first_message(errs),
         expected: 'type argument `P` for `T` does not implement `Show` '
-            + '(required by "need")')?;
+        + '(required by "need")')?;
     return Result.Ok(void);
 }
 
@@ -583,4 +583,3 @@ fn test_redefinition_in_same_file_is_flagged() -> Result<Void, Error> {
         message: 'expected a same-file redefinition diagnostic')?;
     return Result.Ok(void);
 }
-

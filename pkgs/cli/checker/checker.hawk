@@ -1606,4 +1606,3 @@ fn produces_value(_ t: Type) -> Bool {
         _ => true,
     };
 }
-

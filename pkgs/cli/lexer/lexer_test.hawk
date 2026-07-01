@@ -64,7 +64,7 @@ fn test_operators_single_and_multi_char() -> Result<Void, Error> {
             TokenKind.PipePipe, TokenKind.Bang, TokenKind.Amp, TokenKind.Pipe,
             TokenKind.Caret, TokenKind.Tilde, TokenKind.Arrow, TokenKind.FatArrow,
             TokenKind.DotDot, TokenKind.Eof,
-        ])?;
+    ])?;
     return Result.Ok(void);
 }
 

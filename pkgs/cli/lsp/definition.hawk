@@ -50,4 +50,3 @@ fn location(_ file: String, _ span: SourceSpan) -> Json {
         'range': diagnostics.span_to_range(span),
     });
 }
-

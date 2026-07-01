@@ -70,7 +70,7 @@ fn test_env_is_passed() -> Result<Void, Error> {
     let env = {};
     env['HAWK_GREETING'] = 'hi-there';
     let r = process.run('sh', args: ['-c', 'printf %s "$HAWK_GREETING"'],
-                        env: Option.Some(env))?;
+        env: Option.Some(env))?;
     testing.assert_eq(actual: r.stdout, expected: 'hi-there')?;
     return Result.Ok(void);
 }
