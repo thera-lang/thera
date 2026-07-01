@@ -6,6 +6,8 @@
 //   hawk emit  <file> <out>  compile a program to a .hawkbc artifact
 //   hawk test  <file|dir>…   run @test functions
 //   hawk fmt   <file|dir>…   format source files in place
+//   hawk lint  <file|dir>…   report non-idiomatic shapes with a known rewrite
+//   hawk fix   <file|dir>…   apply those rewrites (UX provisional)
 //   hawk lsp                 start the language server
 //
 // Per-command help (`hawk <command> --help`) documents each command's stdout/
@@ -16,6 +18,7 @@ import std.fs;
 import std.io;
 
 import 'driver';
+import 'fix/fix';
 import 'fmt';
 import 'loader';
 import 'lsp/server';
@@ -117,6 +120,26 @@ Exit code: 0.
 
   hawk lint pkgs/cli              # tally convertible sites under a tree')
             .positional('target', help: 'a .hawk file or directory to lint'))
+        .subcommand(cli.Command.new('fix')
+            .about('apply idiomatic-rewrite fixes (UX is provisional)')
+            .details(
+'Applies the mechanical rewrites `hawk lint` reports (V1: a two-arm `match` with an
+empty catch-all arm -> `if let`). Each fix is a localized, self-formatted edit —
+only the rewritten span changes, the rest of the file is untouched.
+
+NOTE: this command\'s UX is still TBD. It previews by default (writes nothing);
+pass --write to modify files in place. The LSP code action is the primary,
+per-site way to apply these; `hawk fix` is the batch counterpart.
+
+stdout: with --write, `Fixed <path>` per changed file; otherwise one
+  `path:line:col:` per fix that would be applied. A summary line closes.
+stderr: per-file read/write errors.
+Exit code: 0 (2 on a missing target).
+
+  hawk fix src/                   # preview fixes (writes nothing)
+  hawk fix --write src/           # apply them in place')
+            .flag('write', help: 'modify files in place instead of previewing')
+            .positional('target', help: 'a .hawk file or directory to fix'))
         .subcommand(cli.Command.new('lsp')
             .about('start the Hawk language server')
             .details(
@@ -222,6 +245,13 @@ fn run_on_file(_ name: String, _ sub: cli.Matches) -> Result<Int, Error> {
             return Result.Ok(2);
         }
         return do_lint(positionals);
+    }
+    if name == 'fix' {
+        if positionals.len() == 0 {
+            eprintln('hawk fix: expected a <file|dir> argument');
+            return Result.Ok(2);
+        }
+        return do_fix(positionals, write: sub.flag('write'));
     }
     match sub.positional(0) {
         Some(file) => {
@@ -419,6 +449,67 @@ fn do_lint(_ targets: List<String>) -> Result<Int, Error> {
         }
     }
     println('${total} suggestion(s)');
+    return Result.Ok(0);
+}
+
+// `hawk fix <file|dir>...` — apply idiomatic-rewrite fixes, or (by default)
+// preview them. UX is provisional (see the subcommand help). Read-only unless
+// `write`; exits 0 (advisory — fixes are opportunistic, not a gate).
+fn do_fix(_ targets: List<String>, write: Bool = false) -> Result<Int, Error> {
+    let files: List<String> = [];
+    let mut missing = false;
+    for target in targets {
+        match fs.metadata(target) {
+            Ok(meta) => {
+                match meta.kind {
+                    Dir => { runner.collect_from_dir(target, '.hawk', files); },
+                    _ => { files.push(target); },
+                }
+            },
+            Err(_) => {
+                eprintln('hawk fix: not found: ${target}');
+                missing = true;
+            },
+        }
+    }
+    if missing {
+        return Result.Ok(2);
+    }
+
+    let mut total = 0;
+    let mut changed = 0;
+    for file in runner.sort_dedup(files) {
+        match fs.read_text(file) {
+            Ok(source) => {
+                let locs = fix.fix_locations(source);
+                if locs.len() > 0 {
+                    total = total + locs.len();
+                    changed = changed + 1;
+                    if write {
+                        match fs.write_text(file, fix.fix_source(source)) {
+                            Ok(_) => { println('Fixed ${file} (${locs.len()})'); },
+                            Err(e) => { eprintln('hawk fix: cannot write ${file}: ${e}'); },
+                        }
+                    } else {
+                        for loc in locs {
+                            println('${file}:${loc.line}:${loc.column}: ${loc.message}');
+                        }
+                    }
+                }
+            },
+            Err(e) => {
+                eprintln('hawk fix: cannot read ${file}: ${e}');
+            },
+        }
+    }
+
+    if total == 0 {
+        println('no fixes available');
+    } else if write {
+        println('Applied ${total} fix(es) in ${changed} file(s)');
+    } else {
+        println('${total} fix(es) in ${changed} file(s); rerun with --write to apply');
+    }
     return Result.Ok(0);
 }
 

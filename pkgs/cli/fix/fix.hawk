@@ -55,29 +55,51 @@ pub fn if_let_sites(_ p: Program) -> List<lint.IfLetMatch> {
 
 // --- driving edits ---
 
-// Apply every available rewrite to `source` and return the rewritten text (V1:
-// `match → if let`). Each edit is self-formatted (see `if_let_edit`), so the
-// result is a **minimal** change — only the rewritten spans differ, everything
-// else is byte-identical (fmt is the separate, whole-file concern). Unparseable
-// source is returned untouched — fixes require a valid tree. This is the
-// end-to-end unit the `hawk fix` command wraps with file I/O and preview.
-pub fn fix_source(_ source: String) -> String {
+// The edits every available rewrite would make to `source` (V1: `match → if let`),
+// in source order. Empty for unparseable source — fixes require a valid tree.
+pub fn fix_edits(_ source: String) -> List<edit.TextEdit> {
     let lex = lexer.tokenize(source);
     if lex.errors.len() > 0 {
-        return source;
+        return [];
     }
     let parsed = parser.parse_tokens(lex.tokens);
     if parsed.errors.len() > 0 {
-        return source;
+        return [];
     }
     let edits: List<edit.TextEdit> = [];
     for site in if_let_sites(parsed.program) {
         edits.push(if_let_edit(site));
     }
-    if edits.len() == 0 {
-        return source;
+    return edits;
+}
+
+// Apply every available rewrite to `source` and return the rewritten text. Each
+// edit is self-formatted (see `if_let_edit`), so the result is a **minimal**
+// change — only the rewritten spans differ, everything else is byte-identical
+// (fmt is the separate, whole-file concern).
+pub fn fix_source(_ source: String) -> String {
+    return edit.apply_edits(source, fix_edits(source));
+}
+
+// A fix's location and label, for previewing what `hawk fix` would change.
+pub struct FixLocation {
+    line: Int,
+    column: Int,
+    message: String,
+}
+
+// The located fixes in `source` (parallel to `fix_edits`), for preview output.
+pub fn fix_locations(_ source: String) -> List<FixLocation> {
+    let out: List<FixLocation> = [];
+    for e in fix_edits(source) {
+        let pos = edit.offset_to_line_col(source, e.start);
+        out.push(FixLocation {
+            line: pos.line,
+            column: pos.column,
+            message: 'match → if let',
+        });
     }
-    return edit.apply_edits(source, edits);
+    return out;
 }
 
 // --- AST walk: collect every `match` expression ---
