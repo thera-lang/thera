@@ -328,8 +328,20 @@ pub struct CallArg {
     value: Expr,
 }
 
+// How a `MatchExpr` came to be: written as a `match`, or synthesized by the
+// parser desugaring `if let` / `let … else` (which lower to a match — see
+// `parse_if_let`/`parse_let_else`). Tooling that suggests rewriting a `match`
+// (e.g. `match → if let`) keys off `Source` so it never re-fires on its own
+// desugared output. Codegen ignores it — the lowering is identical.
+pub enum MatchOrigin {
+    Source,
+    IfLet,
+    LetElse,
+}
+
 pub struct MatchExpr {
     span: SourceSpan,
+    origin: MatchOrigin,
     subject: Expr,
     arms: List<MatchArm>,
 }

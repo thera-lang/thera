@@ -36,13 +36,24 @@ pub fn lint_program(_ p: Program) -> List<Suggestion> {
 
 // --- The rules ---
 
+// A `match` convertible to `if let`, with the structured pieces a rewrite needs:
+// the scrutinee, the kept binding pattern, and the kept arm's body. Shared by the
+// diagnostic (below) and the `fix` transform.
+pub struct IfLetMatch {
+    match_span: SourceSpan,
+    subject: Expr,
+    keep_pattern: Pattern,
+    keep_body: Expr,
+}
+
 // `match X { Some(v) => { … }, None => {} }` → `if let Some(v) = X { … }`.
 //
 // A source two-arm `match` with exactly one empty-bodied arm whose *kept* arm
 // binds a constructor pattern. The dropped arm may be `_`, an identifier, a
 // nullary variant (`None`), or any arm whose body is empty — all collapse to the
-// omitted `else` of an `if let`.
-fn detect_match_to_if_let(_ m: MatchExpr) -> Option<Suggestion> {
+// omitted `else` of an `if let`. Returns the pieces, or None if the shape doesn't
+// match.
+pub fn match_if_let(_ m: MatchExpr) -> Option<IfLetMatch> {
     if !is_source_match(m) || m.arms.len() != 2 {
         return Option.None;
     }
@@ -60,11 +71,23 @@ fn detect_match_to_if_let(_ m: MatchExpr) -> Option<Suggestion> {
     if !is_binding_ctor(keep.pattern) {
         return Option.None;
     }
-    return Option.Some(Suggestion {
-        rule: 'match-to-if-let',
-        span: m.span,
-        message: 'two-arm `match` with an empty catch-all arm could be `if let`',
+    return Option.Some(IfLetMatch {
+        match_span: m.span,
+        subject: m.subject,
+        keep_pattern: keep.pattern,
+        keep_body: keep.body,
     });
+}
+
+fn detect_match_to_if_let(_ m: MatchExpr) -> Option<Suggestion> {
+    return match match_if_let(m) {
+        Some(_) => Option.Some(Suggestion {
+            rule: 'match-to-if-let',
+            span: m.span,
+            message: 'two-arm `match` with an empty catch-all arm could be `if let`',
+        }),
+        None => Option.None,
+    };
 }
 
 // `match r { Ok(v) => v, Err(e) => return Result.Err(e) }` → `r?` (and the
@@ -162,12 +185,14 @@ fn detect_while_index(_ w: WhileStmt) -> Option<Suggestion> {
 
 // --- Rule predicates ---
 
-// A real `match` (not a desugared `if let`/`let … else`, which is an
-// indistinguishable `MatchExpr`): told apart by the keyword its span starts at (a
-// source `match` begins at `match`, the desugared forms at `if`/`let`). Cheap,
-// and avoids marking the AST until the rewriter needs it.
+// A real `match` (not a desugared `if let`/`let … else`, which lower to an
+// otherwise-indistinguishable `MatchExpr`), told apart by the parser's origin
+// marker — so a suggester never re-fires on its own desugared output.
 fn is_source_match(_ m: MatchExpr) -> Bool {
-    return m.span.text().starts_with('match');
+    return match m.origin {
+        Source => true,
+        _ => false,
+    };
 }
 
 // Both orderings of the error-propagation shape (the success arm may be first or

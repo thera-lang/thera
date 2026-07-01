@@ -1,0 +1,75 @@
+// Source edits — the currency of code fixes (`hawk fix`) and LSP code actions.
+// An edit replaces a code-point range of the source with new text; applying a
+// batch of non-overlapping edits reassembles the source.
+//
+// Edits are representation-only (code-point offsets, not line/col) so they
+// compose directly with the AST's `SourceSpan`s; line/column conversion is
+// provided separately for the LSP protocol boundary.
+
+import '../lexer/token' as _; // SourceSpan
+import std.char;
+
+// Replace `source[start, end)` (code-point offsets, `end` exclusive) with
+// `new_text`. `start == end` is a pure insertion.
+pub struct TextEdit {
+    start: Int,
+    end: Int,
+    new_text: String,
+}
+
+// The edit that replaces the text a span covers with `new_text`.
+pub fn span_edit(_ span: SourceSpan, _ new_text: String) -> TextEdit {
+    return TextEdit {
+        start: span.offset,
+        end: span.offset + span.length,
+        new_text: new_text,
+    };
+}
+
+// Apply non-overlapping edits to `source`, returning the rewritten text. Edits are
+// applied back-to-front (highest offset first) so each splice leaves the offsets
+// of the not-yet-applied edits valid. Overlapping edits are unsupported (the
+// caller serializes/dedupes first).
+pub fn apply_edits(_ source: String, _ edits: List<TextEdit>) -> String {
+    let ordered = edits.sort((a, b) => a.start > b.start);
+    let mut result = source;
+    for e in ordered {
+        result = result.slice(0, e.start) + e.new_text + result.slice(e.end, result.len());
+    }
+    return result;
+}
+
+// --- line/column conversion (for the LSP boundary) ---
+
+// A 1-based (line, column) source position, matching `SourceSpan` (code points,
+// a `\n` ends a line). LSP positions are 0-based UTF-16 — that conversion belongs
+// to the LSP layer; this is the code-point view the front-end works in.
+pub struct Position {
+    line: Int,
+    column: Int,
+}
+
+// The (line, column) of a code-point `offset` in `source`, clamped to its length.
+pub fn offset_to_line_col(_ source: String, _ offset: Int) -> Position {
+    let chars = source.chars();
+    let limit = if offset < chars.len() { offset } else { chars.len() };
+    let mut line = 1;
+    let mut col = 1;
+    let mut i = 0;
+    while i < limit {
+        if chars[i] == char.LF {
+            line = line + 1;
+            col = 1;
+        } else {
+            col = col + 1;
+        }
+        i = i + 1;
+    }
+    return Position { line: line, column: col };
+}
+
+// The position just past the end of a span (its exclusive end), for building an
+// LSP range `{start, end}` from a `SourceSpan` (which carries only its start).
+pub fn span_end_position(_ source: String, _ span: SourceSpan) -> Position {
+    return offset_to_line_col(source, span.offset + span.length);
+}

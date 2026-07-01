@@ -1,0 +1,102 @@
+// Tests for the refactoring transforms, driven end-to-end through `fix_source`
+// (detect → source-slice edit → apply → format). Each case pins the rewritten
+// text, so it exercises the whole pipeline including the formatter's reindent of
+// the spliced region and the desugar marker that stops a rewrite re-firing.
+
+import std.testing;
+
+import 'fix' as _;
+
+// Assert `fix_source(src)` equals `want`, and that the result is a fixpoint (a
+// second pass is a no-op — the emitted `if let` must not re-fire).
+fn check(_ src: String, _ want: String) -> Result<Void, Error> {
+    let once = fix_source(src);
+    testing.assert_eq(actual: once, expected: want)?;
+    testing.assert_eq(actual: fix_source(once), expected: want)?;
+    return Result.Ok(void);
+}
+
+@test
+fn rewrites_some_none_on_one_line() -> Result<Void, Error> {
+    return check(
+        'fn f(_ o: Option<Int>) -> Int {\n    match o { Some(v) => { return v; }, None => {} }\n    return 0;\n}\n',
+        'fn f(_ o: Option<Int>) -> Int {\n    if let Some(v) = o { return v; }\n    return 0;\n}\n');
+}
+
+@test
+fn reindents_a_multiline_body() -> Result<Void, Error> {
+    // The Some-arm block is sliced verbatim (at its arm indent) and the formatter
+    // pass corrects the indentation of the rewritten region.
+    let src = 'fn f(_ o: Option<Int>) -> Int {\n'
+        + '    match o {\n'
+        + '        Some(v) => {\n'
+        + '            return v;\n'
+        + '        },\n'
+        + '        None => {},\n'
+        + '    }\n'
+        + '    return 0;\n}\n';
+    let want = 'fn f(_ o: Option<Int>) -> Int {\n'
+        + '    if let Some(v) = o {\n'
+        + '        return v;\n'
+        + '    }\n'
+        + '    return 0;\n}\n';
+    return check(src, want);
+}
+
+@test
+fn wraps_a_bare_body_in_braces() -> Result<Void, Error> {
+    // `if let` needs a block; a bare-expression arm is wrapped.
+    return check(
+        'fn f(_ o: Option<Int>) -> Int {\n    match o { Some(v) => process(v), _ => {} }\n    return 0;\n}\n',
+        'fn f(_ o: Option<Int>) -> Int {\n    if let Some(v) = o { process(v) }\n    return 0;\n}\n');
+}
+
+@test
+fn leaves_non_convertible_match_untouched() -> Result<Void, Error> {
+    // Both arms act — not the empty-catch-all shape.
+    let src = 'fn f(_ o: Option<Int>) -> Int {\n    match o { Some(v) => { return v; }, None => { return 0; } }\n}\n';
+    testing.assert_eq(actual: fix_source(src), expected: src)?;
+    return Result.Ok(void);
+}
+
+@test
+fn preserves_a_comment_in_the_body() -> Result<Void, Error> {
+    // Source-slicing keeps the body verbatim, comments and all.
+    let src = 'fn f(_ o: Option<Int>) -> Int {\n'
+        + '    match o {\n'
+        + '        Some(v) => {\n'
+        + '            // keep me\n'
+        + '            return v;\n'
+        + '        },\n'
+        + '        None => {},\n'
+        + '    }\n'
+        + '    return 0;\n}\n';
+    let want = 'fn f(_ o: Option<Int>) -> Int {\n'
+        + '    if let Some(v) = o {\n'
+        + '        // keep me\n'
+        + '        return v;\n'
+        + '    }\n'
+        + '    return 0;\n}\n';
+    return check(src, want);
+}
+
+@test
+fn handles_a_complex_subject() -> Result<Void, Error> {
+    // The scrutinee is sliced verbatim, however complex.
+    return check(
+        'fn f(_ m: Map<String, Int>) -> Int {\n    match m.get(name) { Some(v) => { return v; }, None => {} }\n    return 0;\n}\n',
+        'fn f(_ m: Map<String, Int>) -> Int {\n    if let Some(v) = m.get(name) { return v; }\n    return 0;\n}\n');
+}
+
+@test
+fn rewrites_every_site() -> Result<Void, Error> {
+    return check(
+        'fn f(_ a: Option<Int>, _ b: Option<Int>) -> Int {\n'
+        + '    match a { Some(v) => { return v; }, None => {} }\n'
+        + '    match b { Some(w) => { return w; }, None => {} }\n'
+        + '    return 0;\n}\n',
+        'fn f(_ a: Option<Int>, _ b: Option<Int>) -> Int {\n'
+        + '    if let Some(v) = a { return v; }\n'
+        + '    if let Some(w) = b { return w; }\n'
+        + '    return 0;\n}\n');
+}

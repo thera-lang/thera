@@ -1218,7 +1218,7 @@ impl Parser {
                 }),
             };
             return Stmt.Expr(span, Expr.Match(MatchExpr {
-                span: span, subject: subject, arms: [ok_arm, else_arm],
+                span: span, origin: MatchOrigin.LetElse, subject: subject, arms: [ok_arm, else_arm],
             }));
         }
         // Single binding: `let v = match subject { PATTERN => v, _ => { else } };`
@@ -1239,7 +1239,7 @@ impl Parser {
             name_span: name_span,
             type_ann: Option.None,
             value: Expr.Match(MatchExpr {
-                span: span, subject: subject, arms: [ok_arm, else_arm],
+                span: span, origin: MatchOrigin.LetElse, subject: subject, arms: [ok_arm, else_arm],
             }),
         });
     }
@@ -1406,6 +1406,7 @@ impl Parser {
         ];
         return Expr.Match(MatchExpr {
             span: span,
+            origin: MatchOrigin.IfLet,
             subject: subject,
             arms: arms,
         });
@@ -2030,6 +2031,7 @@ impl Parser {
         let rbrace = self.expect(TokenKind.RBrace, '}');
         return Expr.Match(MatchExpr {
             span: start.span.cover(rbrace.span),
+            origin: MatchOrigin.Source,
             subject: subject,
             arms: arms,
         });

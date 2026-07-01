@@ -1,0 +1,52 @@
+// Tests for the source-edit primitives: applying non-overlapping edits (in any
+// order) and code-point → line/column conversion.
+
+import std.testing;
+
+import '../lexer/token' as _;
+import 'edit' as _;
+
+@test
+fn applies_a_single_replacement() -> Result<Void, Error> {
+    let out = apply_edits('hello world', [TextEdit { start: 6, end: 11, new_text: 'there' }]);
+    testing.assert_eq(actual: out, expected: 'hello there')?;
+    return Result.Ok(void);
+}
+
+@test
+fn applies_multiple_edits_regardless_of_order() -> Result<Void, Error> {
+    // Given ascending, they must still compose (apply_edits orders back-to-front).
+    let out = apply_edits('abcdef', [
+        TextEdit { start: 0, end: 1, new_text: 'X' },
+        TextEdit { start: 4, end: 5, new_text: 'Y' },
+    ]);
+    testing.assert_eq(actual: out, expected: 'XbcdYf')?;
+    return Result.Ok(void);
+}
+
+@test
+fn insertion_is_an_empty_range() -> Result<Void, Error> {
+    let out = apply_edits('ac', [TextEdit { start: 1, end: 1, new_text: 'b' }]);
+    testing.assert_eq(actual: out, expected: 'abc')?;
+    return Result.Ok(void);
+}
+
+@test
+fn span_edit_targets_the_span() -> Result<Void, Error> {
+    let span = SourceSpan { source: 'let x = 1;', offset: 4, length: 1, line: 1, column: 5 };
+    let out = apply_edits(span.source, [span_edit(span, 'y')]);
+    testing.assert_eq(actual: out, expected: 'let y = 1;')?;
+    return Result.Ok(void);
+}
+
+@test
+fn offset_to_line_col_tracks_newlines() -> Result<Void, Error> {
+    let src = 'ab\ncd';
+    testing.assert_eq(actual: offset_to_line_col(src, 0).line, expected: 1)?;
+    testing.assert_eq(actual: offset_to_line_col(src, 0).column, expected: 1)?;
+    // Offset 3 is 'c' — first column of line 2.
+    testing.assert_eq(actual: offset_to_line_col(src, 3).line, expected: 2)?;
+    testing.assert_eq(actual: offset_to_line_col(src, 3).column, expected: 1)?;
+    testing.assert_eq(actual: offset_to_line_col(src, 4).column, expected: 2)?;
+    return Result.Ok(void);
+}

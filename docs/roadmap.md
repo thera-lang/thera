@@ -433,16 +433,22 @@ resolution_ below.)
   sentence; a small Markdown subset (fenced code only, no headers, bold-label
   sections); prose params. **`sdk/std/` is migrated** to `///`/`//!` (all 61
   files; a behavior-neutral source change — the lexer skips `///`/`//!` as
-  ordinary comments, so it stayed fixpoint-clean). The remaining work is
-  tooling: (1) **attach docs to AST nodes** — shares the same trivia
-  side-channel the formatter needs (comments are currently discarded), so
-  sequence it alongside `fmt`; (2) **LSP hover** surfaces the item/file doc; (3)
-  a **doc generator** extracts a package's `pub` surface + barrel `//!` into an
-  index for agent navigation; (4) **reference resolution + lint** — resolve
-  `[Symbol]` references (link them in hover/doc-gen, flag ones that no longer
-  resolve), plus a lint for `pub` symbols whose doc only restates the signature,
-  and normalization of doc layout. (Not yet migrated: `pkgs/cli/` and
-  `examples/`, deliberately deferred — the public API surface was the priority.)
+  ordinary comments, so it stayed fixpoint-clean). The **trivia side-channel
+  prerequisite is now landed** — the lexer surfaces comments (incl. `///`/`//!`,
+  classified) on `LexResult.comments` (see the formatter prerequisite above), so
+  they are no longer discarded — but every downstream consumer remains **pending**
+  (the side channel is collected, then dropped: each `parse_tokens` call site
+  passes only `lex.tokens`). The remaining tooling: (1) **attach docs to AST
+  nodes** — a pass re-associating each `///`/`//!` comment to the decl it precedes
+  by span, threaded onto the AST (or a side table) — the one piece the side
+  channel directly unblocks; (2) **LSP hover** surfaces the item/file doc (today
+  `hover.hawk` shows the signature only); (3) a **doc generator** extracts a
+  package's `pub` surface + barrel `//!` into an index for agent navigation (no
+  `doc` subcommand yet); (4) **reference resolution + lint** — resolve `[Symbol]`
+  references (link them in hover/doc-gen, flag ones that no longer resolve), plus
+  a lint for `pub` symbols whose doc only restates the signature, and
+  normalization of doc layout. (Not yet migrated: `pkgs/cli/` and `examples/`,
+  deliberately deferred — the public API surface was the priority.)
 
 - **Tools — refactorings (suggestion diagnostics + code actions).** Once the
   ergonomics features land (see [ergonomics.md](ergonomics.md)), the common
@@ -467,12 +473,20 @@ resolution_ below.)
     only reads `xs[i]` → `for x in xs`; one that needs the index →
     `for (i, x) in xs.enumerate()`; a parallel two-list index loop → a `zip`
     adapter (when one exists — see the iterator note under _Stdlib breadth_).
-  - **Shared machinery.** All of these need the **trivia/comment side-channel**
-    (so a rewrite preserves comments) the formatter + doc tooling also need, and
-    benefit from a distinguishing marker on parser-desugared nodes (today
-    `if let` desugars to an indistinguishable `match` — the `match → if let`
-    suggester must not re-fire on already-`if let` code; mark the synthesized
-    `MatchExpr` when the suggester is built). Sequence after `fmt`'s trivia work.
+  - **Shared machinery — _edit toolkit landed._** Edits are created by
+    **AST-guided source-slice reassembly**, not AST pretty-printing: the kept
+    sub-expressions (scrutinee/pattern/body) are sliced verbatim from source via
+    their spans (comments and all), only the connective scaffolding is generated,
+    and the result is run through `fmt` to fix indentation (apply-then-format).
+    This avoids needing a faithful unparser — the kept regions carry arbitrary
+    code. Landed: `pkgs/cli/edit/edit.hawk` (`TextEdit` + `apply_edits` +
+    offset↔line/col), the `MatchExpr.origin` marker (`Source`/`IfLet`/`LetElse`,
+    retiring the `span.text()` heuristic — a desugared node never re-fires),
+    `lint.match_if_let` (structured site: scrutinee/pattern/body), and
+    `pkgs/cli/fix/fix.hawk` — `if_let_edit` + `fix_source` (parse → collect →
+    edit → format), directly unit-tested (incl. comment preservation and a
+    reindent-the-spliced-region case). The transforms are vehicle-independent; a
+    `hawk fix` CLI and an LSP code action both drive them.
   - **First step — a read-only count — _landed._** `hawk lint <file|dir>`
     (`pkgs/cli/lint/lint.hawk`) walks the parsed AST — purely syntactic, no import
     closure — and reports + per-rule tallies convertible sites. Source `match`es

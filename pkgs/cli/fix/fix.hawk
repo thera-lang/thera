@@ -1,0 +1,252 @@
+// Refactoring transforms — turn a detected lint site into a source edit, and
+// apply a batch. The strategy is AST-guided **source-slice reassembly**: the kept
+// sub-expressions (scrutinee, pattern, body) are sliced verbatim from the source
+// via their spans, only the connective scaffolding is generated, and the result
+// is run through the formatter to fix indentation (see docs/roadmap.md → Tools —
+// refactorings). No full AST pretty-printer is needed — the kept regions carry
+// arbitrary code and comments that slicing preserves as-is.
+//
+// V1 implements `match → if let`; other rules plug in the same way (a structured
+// site from `lint`, an edit here). This is the shared machinery a `hawk fix` CLI
+// and an LSP code action both drive.
+
+import '../ast/ast' as _; // Program/Decl/Stmt/Expr + span accessors
+import '../lexer/lexer';
+import '../parser/parser';
+import '../edit/edit';
+import '../lint/lint';
+import '../fmt';
+
+// --- match → if let ---
+
+// The edit rewriting one `match → if let` site to `if let PAT = SUBJ BODY`. The
+// pattern, scrutinee, and body come verbatim from the source (spans carry it); a
+// non-block arm body is wrapped in braces since `if let` requires a block.
+pub fn if_let_edit(_ site: lint.IfLetMatch) -> edit.TextEdit {
+    let pat = pattern_span(site.keep_pattern).text();
+    let subj = expr_span(site.subject).text();
+    let body = if_let_body_text(site.keep_body);
+    return edit.span_edit(site.match_span, 'if let ${pat} = ${subj} ${body}');
+}
+
+fn if_let_body_text(_ body: Expr) -> String {
+    return match body {
+        Block(_, _) => expr_span(body).text(),
+        _ => '{ ${expr_span(body).text()} }',
+    };
+}
+
+// Every `match → if let` site in a program, in source order.
+pub fn if_let_sites(_ p: Program) -> List<lint.IfLetMatch> {
+    let out: List<lint.IfLetMatch> = [];
+    for m in all_matches(p) {
+        match lint.match_if_let(m) {
+            Some(site) => { out.push(site); },
+            None => {},
+        }
+    }
+    return out;
+}
+
+// --- driving edits ---
+
+// Apply a batch of edits, then format the result — the transform emits rough line
+// structure (verbatim slices at their original indent) and the formatter, which
+// is idempotent and line-preserving, corrects the indentation of the rewritten
+// region.
+pub fn apply_and_format(_ source: String, _ edits: List<edit.TextEdit>) -> String {
+    return fmt.format_source(edit.apply_edits(source, edits));
+}
+
+// Apply every available rewrite to `source` and return the rewritten text (V1:
+// `match → if let`). Unparseable source is returned untouched — fixes require a
+// valid tree. This is the end-to-end unit the `hawk fix` command wraps with file
+// I/O and preview.
+pub fn fix_source(_ source: String) -> String {
+    let lex = lexer.tokenize(source);
+    if lex.errors.len() > 0 {
+        return source;
+    }
+    let parsed = parser.parse_tokens(lex.tokens);
+    if parsed.errors.len() > 0 {
+        return source;
+    }
+    let edits: List<edit.TextEdit> = [];
+    for site in if_let_sites(parsed.program) {
+        edits.push(if_let_edit(site));
+    }
+    if edits.len() == 0 {
+        return source;
+    }
+    return apply_and_format(source, edits);
+}
+
+// --- AST walk: collect every `match` expression ---
+//
+// A focused traversal (separate from lint's suggestion walk, which also handles
+// `let`/`while` rules). A shared AST visitor would let both drop their bespoke
+// walks — a future consolidation.
+
+fn all_matches(_ p: Program) -> List<MatchExpr> {
+    let out: List<MatchExpr> = [];
+    for d in p.decls {
+        cm_decl(d, out);
+    }
+    return out;
+}
+
+fn cm_decl(_ d: Decl, _ out: List<MatchExpr>) -> Void {
+    match d {
+        Fn(f) => { cm_fn(f, out); },
+        Impl(i) => {
+            for m in i.methods {
+                cm_fn(m, out);
+            }
+        },
+        Interface(it) => {
+            for m in it.methods {
+                cm_fn(m, out);
+            }
+        },
+        Const(c) => { cm_expr(c.value, out); },
+        Let(l) => { cm_expr(l.value, out); },
+        Import(_) => {},
+        Type(_) => {},
+        Enum(_) => {},
+    }
+}
+
+fn cm_fn(_ f: FnDecl, _ out: List<MatchExpr>) -> Void {
+    for p in f.params {
+        match p.default_value {
+            Some(e) => { cm_expr(e, out); },
+            None => {},
+        }
+    }
+    match f.body {
+        Some(b) => { cm_block(b, out); },
+        None => {},
+    }
+}
+
+fn cm_block(_ b: Block, _ out: List<MatchExpr>) -> Void {
+    for s in b.stmts {
+        cm_stmt(s, out);
+    }
+    match b.tail {
+        Some(e) => { cm_expr(e, out); },
+        None => {},
+    }
+}
+
+fn cm_stmt(_ s: Stmt, _ out: List<MatchExpr>) -> Void {
+    match s {
+        Let(l) => { cm_expr(l.value, out); },
+        Return(_, v) => { cm_opt_expr(v, out); },
+        Throw(_, e) => { cm_expr(e, out); },
+        Expr(_, e) => { cm_expr(e, out); },
+        Assign(_, target, value) => {
+            cm_expr(target, out);
+            cm_expr(value, out);
+        },
+        If(i) => {
+            cm_expr(i.condition, out);
+            cm_block(i.then_block, out);
+            cm_opt_block(i.else_block, out);
+        },
+        For(f) => {
+            cm_expr(f.iterable, out);
+            cm_block(f.body, out);
+        },
+        While(w) => {
+            cm_expr(w.condition, out);
+            cm_block(w.body, out);
+        },
+    }
+}
+
+fn cm_expr(_ e: Expr, _ out: List<MatchExpr>) -> Void {
+    match e {
+        Str(_, parts) => {
+            for part in parts {
+                match part {
+                    Interp(_, inner) => { cm_expr(inner, out); },
+                    Text(_, _) => {},
+                }
+            }
+        },
+        ListLit(_, items) => {
+            for item in items {
+                cm_expr(item, out);
+            }
+        },
+        MapLit(_, entries) => {
+            for entry in entries {
+                cm_expr(entry.key, out);
+                cm_expr(entry.value, out);
+            }
+        },
+        Struct(x) => {
+            for fi in x.fields {
+                cm_expr(fi.value, out);
+            }
+        },
+        Call(x) => {
+            cm_expr(x.callee, out);
+            for arg in x.args {
+                cm_expr(arg.value, out);
+            }
+        },
+        Field(_, obj, _) => { cm_expr(obj, out); },
+        Index(_, obj, idx) => {
+            cm_expr(obj, out);
+            cm_expr(idx, out);
+        },
+        Binary(_, l, _, r) => {
+            cm_expr(l, out);
+            cm_expr(r, out);
+        },
+        Unary(_, _, operand) => { cm_expr(operand, out); },
+        Propagate(_, inner) => { cm_expr(inner, out); },
+        Range(_, lo, hi) => {
+            cm_expr(lo, out);
+            cm_expr(hi, out);
+        },
+        Match(x) => {
+            out.push(x);
+            cm_expr(x.subject, out);
+            for arm in x.arms {
+                cm_expr(arm.body, out);
+            }
+        },
+        Lambda(x) => { cm_expr(x.body, out); },
+        Block(_, b) => { cm_block(b, out); },
+        If(x) => {
+            cm_expr(x.condition, out);
+            cm_block(x.then_block, out);
+            cm_opt_block(x.else_block, out);
+        },
+        Return(_, v) => { cm_opt_expr(v, out); },
+        Throw(_, inner) => { cm_expr(inner, out); },
+        Int(_, _) => {},
+        Float(_, _) => {},
+        Bool(_, _) => {},
+        Unit(_) => {},
+        Ident(_, _) => {},
+        Loc(_) => {},
+    }
+}
+
+fn cm_opt_expr(_ e: Option<Expr>, _ out: List<MatchExpr>) -> Void {
+    match e {
+        Some(inner) => { cm_expr(inner, out); },
+        None => {},
+    }
+}
+
+fn cm_opt_block(_ b: Option<Block>, _ out: List<MatchExpr>) -> Void {
+    match b {
+        Some(inner) => { cm_block(inner, out); },
+        None => {},
+    }
+}
