@@ -267,12 +267,9 @@ fn test_driver(_ tests: List<String>, _ show_output: Bool) -> String {
 fn run_bytecode(_ runtime: String, _ bytes: Bytes, _ entry: Option<String>, _ program_args: List<String>) -> Result<Int, Error> {
     let dir = temp_dir_unique('hawk');
     let out = path.join(dir, 'out.hawkbc');
-    match fs.write_bytes(out, bytes) {
-        Ok(_) => {},
-        Err(e) => {
-            cleanup_dir(dir);
-            return Result.Err(e);
-        },
+    if let Err(e) = fs.write_bytes(out, bytes) {
+        cleanup_dir(dir);
+        return Result.Err(e);
     }
     // The runtime runs a `.hawkbc` directly: `[--entry NAME] <file> [args]`.
     let args: List<String> = [];
@@ -360,28 +357,22 @@ fn collect_test_files(_ targets: List<String>) -> List<String> {
 // `found` (descending into subdirectories). Shared by `test` (`_test.hawk`) and
 // `check` (`.hawk`).
 pub fn collect_from_dir(_ dir: String, _ suffix: String, _ found: List<String>) -> Void {
-    match fs.list_dir(dir) {
-        Ok(names) => {
-            for name in names {
-                let full = path.join(dir, name);
-                match fs.metadata(full) {
-                    Ok(meta) => {
-                        match meta.kind {
-                            Dir => {
-                                collect_from_dir(full, suffix, found);
-                            },
-                            _ => {
-                                if name.ends_with(suffix) {
-                                    found.push(full);
-                                }
-                            },
+    if let Ok(names) = fs.list_dir(dir) {
+        for name in names {
+            let full = path.join(dir, name);
+            if let Ok(meta) = fs.metadata(full) {
+                match meta.kind {
+                    Dir => {
+                        collect_from_dir(full, suffix, found);
+                    },
+                    _ => {
+                        if name.ends_with(suffix) {
+                            found.push(full);
                         }
                     },
-                    Err(_) => {},
                 }
             }
-        },
-        Err(_) => {},
+        }
     }
 }
 

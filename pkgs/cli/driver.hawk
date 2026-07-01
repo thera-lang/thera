@@ -187,14 +187,8 @@ fn build_source_map(_ source: String, _ path: String, _ programs: List<Program>)
     let m: Map<String, String> = {};
     m[source] = path;
     for p in programs {
-        match program_source(p) {
-            Some(src) => {
-                match p.file_path {
-                    Some(f) => { m[src] = f; },
-                    None => {},
-                }
-            },
-            None => {},
+        if let Some(src) = program_source(p) {
+            if let Some(f) = p.file_path { m[src] = f; }
         }
     }
     return m;

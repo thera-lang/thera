@@ -112,29 +112,20 @@ pub fn is_assignable(_ source: Type, _ target: Type,
     // A concrete type is assignable to an interface it implements, and a
     // sub-interface value where one of its (transitively closed) supers is
     // expected. See docs/language.md.
-    match target {
-        Interface(tname, _) => {
-            if is_interface_def(type_defs, tname) {
-                match source {
-                    Interface(sname, _) => {
-                        match map_get_def(type_defs, sname) {
-                            Some(sdef) => {
-                                if implements_interface(sdef, tname) {
-                                    return true;
-                                }
-                                if sdef.kind == TypeDefKind.Interface
-                                    && str_list_has(sdef.super_interfaces, tname) {
-                                    return true;
-                                }
-                            },
-                            None => {},
-                        }
-                    },
-                    _ => {},
+    if let Interface(tname, _) = target {
+        if is_interface_def(type_defs, tname) {
+            if let Interface(sname, _) = source {
+                if let Some(sdef) = map_get_def(type_defs, sname) {
+                    if implements_interface(sdef, tname) {
+                        return true;
+                    }
+                    if sdef.kind == TypeDefKind.Interface
+                        && str_list_has(sdef.super_interfaces, tname) {
+                        return true;
+                    }
                 }
             }
-        },
-        _ => {},
+        }
     }
     // Same-element generics: assignable element with pairwise-assignable args.
     match source {
@@ -235,32 +226,26 @@ pub fn unify(_ param: Type, _ actual: Type, _ bindings: Map<String, Type>) -> Vo
             }
         },
         Interface(_, pargs) => {
-            match actual {
-                Interface(_, aargs) => {
-                    if aargs.len() == pargs.len() {
-                        let mut i = 0;
-                        while i < pargs.len() {
-                            unify(pargs[i], aargs[i], bindings);
-                            i = i + 1;
-                        }
+            if let Interface(_, aargs) = actual {
+                if aargs.len() == pargs.len() {
+                    let mut i = 0;
+                    while i < pargs.len() {
+                        unify(pargs[i], aargs[i], bindings);
+                        i = i + 1;
                     }
-                },
-                _ => {},
+                }
             }
         },
         Function(pparams, pret) => {
-            match actual {
-                Function(aparams, aret) => {
-                    if aparams.len() == pparams.len() {
-                        let mut i = 0;
-                        while i < pparams.len() {
-                            unify(pparams[i], aparams[i], bindings);
-                            i = i + 1;
-                        }
-                        unify(pret, aret, bindings);
+            if let Function(aparams, aret) = actual {
+                if aparams.len() == pparams.len() {
+                    let mut i = 0;
+                    while i < pparams.len() {
+                        unify(pparams[i], aparams[i], bindings);
+                        i = i + 1;
                     }
-                },
-                _ => {},
+                    unify(pret, aret, bindings);
+                }
             }
         },
         Primitive(_) => {},

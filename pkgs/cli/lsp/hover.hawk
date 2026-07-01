@@ -77,28 +77,19 @@ pub fn position_to_offset(_ text: String, _ line: Int, _ character: Int) -> Int 
 // The first top-level declaration named `name` (with its file), searching the
 // primary program then its imports.
 pub fn find_decl_site(_ program: Program, _ imports: List<Program>, _ name: String) -> Option<DeclSite> {
-    match find_decl_in(program, name) {
-        Some(d) => { return Option.Some(DeclSite { decl: d, file: paths.program_path(program) }); },
-        None => {},
-    }
+    if let Some(d) = find_decl_in(program, name) { return Option.Some(DeclSite { decl: d, file: paths.program_path(program) }); }
     for imp in imports {
-        match find_decl_in(imp, name) {
-            Some(d) => { return Option.Some(DeclSite { decl: d, file: paths.program_path(imp) }); },
-            None => {},
-        }
+        if let Some(d) = find_decl_in(imp, name) { return Option.Some(DeclSite { decl: d, file: paths.program_path(imp) }); }
     }
     return Option.None;
 }
 
 fn find_decl_in(_ program: Program, _ name: String) -> Option<Decl> {
     for decl in program.decls {
-        match decl_name(decl) {
-            Some(n) => {
-                if n == name {
-                    return Option.Some(decl);
-                }
-            },
-            None => {},
+        if let Some(n) = decl_name(decl) {
+            if n == name {
+                return Option.Some(decl);
+            }
         }
     }
     return Option.None;
