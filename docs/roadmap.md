@@ -492,6 +492,17 @@ resolution_ below.)
     reindent-the-spliced-region case, and a minimal-edit-leaves-the-rest-untouched
     case). The transforms are vehicle-independent; a `hawk fix` CLI and an LSP code
     action both drive them.
+  - **`hawk fix` CLI — _landed (V1: `match → if let`)._** `hawk fix <file|dir>…`
+    (main.hawk) drives the machinery: previews by default (one `path:line:col`
+    per fix), `--write` applies. UX is flagged provisional in `--help` (the LSP
+    code action is the primary per-site vehicle). `fix_source` loops
+    non-overlapping edit batches to a fixpoint so **nested** convertible matches
+    converge (an inner match becomes visible once its enclosing match is
+    rewritten — a bug the dogfooding surfaced). **Dogfooded** on 5 front-end files
+    (14 sites across driver/runner/element/lsp); the front-end compiles itself
+    from the rewritten source with the SDK fixpoint byte-identical and the suite
+    green. The rest of the corpus is deliberately left for the **LSP code action**
+    to dogfood.
   - **First step — a read-only count — _landed._** `hawk lint <file|dir>`
     (`pkgs/cli/lint/lint.hawk`) walks the parsed AST — purely syntactic, no import
     closure — and reports + per-rule tallies convertible sites. Source `match`es
