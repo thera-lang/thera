@@ -56,6 +56,30 @@ pub fn format_source(_ source: String) -> String {
     return emit(lines, scan_lines(source, n));
 }
 
+// Format `text` as a standalone fragment and re-indent it to sit at `indent` (a
+// leading-whitespace prefix). The fragment is formatted at base level (canonical
+// internal layout, derived from bracket depth), then every line *after the first*
+// is prefixed with `indent`; the first line inherits the surrounding indentation
+// already present at the splice point (a code fix replaces a construct mid-line,
+// e.g. starting at its `match` keyword). Blank lines are left un-prefixed. Lets a
+// code fix produce a localized, well-formatted replacement without reformatting
+// the rest of the file.
+pub fn format_fragment(_ text: String, _ indent: String) -> String {
+    let out: List<String> = [];
+    let mut first = true;
+    for line in format_source(text).lines() {
+        if first {
+            out.push(line);
+            first = false;
+        } else if line == '' {
+            out.push('');
+        } else {
+            out.push(indent + line);
+        }
+    }
+    return out.join('\n');
+}
+
 // Per-line facts gathered from the token stream, indexed 0-based by line.
 struct LineInfo {
     indent: List<Int>,    // indent level to render the line at

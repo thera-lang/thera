@@ -477,16 +477,21 @@ resolution_ below.)
     **AST-guided source-slice reassembly**, not AST pretty-printing: the kept
     sub-expressions (scrutinee/pattern/body) are sliced verbatim from source via
     their spans (comments and all), only the connective scaffolding is generated,
-    and the result is run through `fmt` to fix indentation (apply-then-format).
+    and each replacement is formatted **as a fragment at the site's own
+    indentation** (`fmt.format_fragment(text, indent)` — format at base level, then
+    re-indent) so the edit is **localized**: only the rewritten span changes, the
+    rest of the file is byte-identical (fmt stays a separate, whole-file concern).
     This avoids needing a faithful unparser — the kept regions carry arbitrary
     code. Landed: `pkgs/cli/edit/edit.hawk` (`TextEdit` + `apply_edits` +
-    offset↔line/col), the `MatchExpr.origin` marker (`Source`/`IfLet`/`LetElse`,
-    retiring the `span.text()` heuristic — a desugared node never re-fires),
+    `span_edit` + offset↔line/col + `line_indent_at`), `fmt.format_fragment`, the
+    `MatchExpr.origin` marker (`Source`/`IfLet`/`LetElse`, retiring the
+    `span.text()` heuristic — a desugared node never re-fires),
     `lint.match_if_let` (structured site: scrutinee/pattern/body), and
     `pkgs/cli/fix/fix.hawk` — `if_let_edit` + `fix_source` (parse → collect →
-    edit → format), directly unit-tested (incl. comment preservation and a
-    reindent-the-spliced-region case). The transforms are vehicle-independent; a
-    `hawk fix` CLI and an LSP code action both drive them.
+    per-edit format → apply), directly unit-tested (incl. comment preservation, a
+    reindent-the-spliced-region case, and a minimal-edit-leaves-the-rest-untouched
+    case). The transforms are vehicle-independent; a `hawk fix` CLI and an LSP code
+    action both drive them.
   - **First step — a read-only count — _landed._** `hawk lint <file|dir>`
     (`pkgs/cli/lint/lint.hawk`) walks the parsed AST — purely syntactic, no import
     closure — and reports + per-rule tallies convertible sites. Source `match`es

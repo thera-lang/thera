@@ -73,3 +73,21 @@ pub fn offset_to_line_col(_ source: String, _ offset: Int) -> Position {
 pub fn span_end_position(_ source: String, _ span: SourceSpan) -> Position {
     return offset_to_line_col(source, span.offset + span.length);
 }
+
+// The leading-whitespace prefix of the line containing `offset` — the indentation
+// of that line's first token, which a fragment spliced onto the line should hang
+// from (see `fmt.format_fragment`).
+pub fn line_indent_at(_ source: String, _ offset: Int) -> String {
+    let chars = source.chars();
+    let n = chars.len();
+    let start = if offset < n { offset } else { n };
+    let mut s = start;
+    while s > 0 && chars[s - 1] != char.LF {
+        s = s - 1;
+    }
+    let mut e = s;
+    while e < n && (chars[e] == char.SPACE || chars[e] == char.TAB) {
+        e = e + 1;
+    }
+    return String.from_chars(chars.slice(s, e));
+}

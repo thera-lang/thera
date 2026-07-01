@@ -21,12 +21,17 @@ import '../fmt';
 
 // The edit rewriting one `match → if let` site to `if let PAT = SUBJ BODY`. The
 // pattern, scrutinee, and body come verbatim from the source (spans carry it); a
-// non-block arm body is wrapped in braces since `if let` requires a block.
+// non-block arm body is wrapped in braces since `if let` requires a block. The
+// replacement is formatted as a fragment at the match's own indentation, so the
+// edit is **localized** — only the rewritten span changes, the rest of the file
+// is untouched (no whole-file reformat).
 pub fn if_let_edit(_ site: lint.IfLetMatch) -> edit.TextEdit {
     let pat = pattern_span(site.keep_pattern).text();
     let subj = expr_span(site.subject).text();
     let body = if_let_body_text(site.keep_body);
-    return edit.span_edit(site.match_span, 'if let ${pat} = ${subj} ${body}');
+    let raw = 'if let ${pat} = ${subj} ${body}';
+    let indent = edit.line_indent_at(site.match_span.source, site.match_span.offset);
+    return edit.span_edit(site.match_span, fmt.format_fragment(raw, indent));
 }
 
 fn if_let_body_text(_ body: Expr) -> String {
@@ -50,18 +55,12 @@ pub fn if_let_sites(_ p: Program) -> List<lint.IfLetMatch> {
 
 // --- driving edits ---
 
-// Apply a batch of edits, then format the result — the transform emits rough line
-// structure (verbatim slices at their original indent) and the formatter, which
-// is idempotent and line-preserving, corrects the indentation of the rewritten
-// region.
-pub fn apply_and_format(_ source: String, _ edits: List<edit.TextEdit>) -> String {
-    return fmt.format_source(edit.apply_edits(source, edits));
-}
-
 // Apply every available rewrite to `source` and return the rewritten text (V1:
-// `match → if let`). Unparseable source is returned untouched — fixes require a
-// valid tree. This is the end-to-end unit the `hawk fix` command wraps with file
-// I/O and preview.
+// `match → if let`). Each edit is self-formatted (see `if_let_edit`), so the
+// result is a **minimal** change — only the rewritten spans differ, everything
+// else is byte-identical (fmt is the separate, whole-file concern). Unparseable
+// source is returned untouched — fixes require a valid tree. This is the
+// end-to-end unit the `hawk fix` command wraps with file I/O and preview.
 pub fn fix_source(_ source: String) -> String {
     let lex = lexer.tokenize(source);
     if lex.errors.len() > 0 {
@@ -78,7 +77,7 @@ pub fn fix_source(_ source: String) -> String {
     if edits.len() == 0 {
         return source;
     }
-    return apply_and_format(source, edits);
+    return edit.apply_edits(source, edits);
 }
 
 // --- AST walk: collect every `match` expression ---

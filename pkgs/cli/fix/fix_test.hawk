@@ -81,6 +81,24 @@ fn preserves_a_comment_in_the_body() -> Result<Void, Error> {
 }
 
 @test
+fn is_a_minimal_edit_leaving_the_rest_untouched() -> Result<Void, Error> {
+    // Only the rewritten span changes; formatting drift elsewhere (a blank-line
+    // run a whole-file format would collapse) survives — fixing is not formatting.
+    let src = 'fn f(_ o: Option<Int>) -> Int {\n'
+        + '    match o { Some(v) => { return v; }, None => {} }\n'
+        + '\n'
+        + '\n'
+        + '    return 0;\n}\n';
+    let want = 'fn f(_ o: Option<Int>) -> Int {\n'
+        + '    if let Some(v) = o { return v; }\n'
+        + '\n'
+        + '\n'
+        + '    return 0;\n}\n';
+    testing.assert_eq(actual: fix_source(src), expected: want)?;
+    return Result.Ok(void);
+}
+
+@test
 fn handles_a_complex_subject() -> Result<Void, Error> {
     // The scrutinee is sliced verbatim, however complex.
     return check(
