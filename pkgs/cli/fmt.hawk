@@ -1,10 +1,31 @@
 // The `hawk fmt` command.
 //
-// A v0 formatter that trims trailing whitespace from lines and ensures a
-// single trailing newline.
+// A line-preserving formatter: it keeps every line break the author chose (no
+// automatic line breaking or joining — see docs/roadmap.md) and normalizes the
+// vertical layout — re-indents each line, collapses runs of blank lines to one,
+// trims trailing whitespace, and ensures a single final newline.
+//
+// Indentation uses a stack of **content-indent levels**, one per open bracket. A
+// `{` block indents its body one level past the statement it belongs to; a `(` or
+// `[` indents its content one past the *visual* column of the line the bracket
+// opened on — so a method-chain argument (`.sub(x)\n    .a()\n    .b()`) hangs
+// under its opener. On top of that a *continuation* line — one leading with `.`/an
+// operator/`->`, or following a line ending with a binary operator — gets one
+// extra level, except inside `(`/`[` where the bracket already provides the hang.
+// Multi-line string literals are emitted verbatim so their contents are untouched.
+//
+// Intra-line spacing (`fn  foo( a:Int )` → `fn foo(a: Int)`) is deliberately NOT
+// yet normalized: token adjacency alone can't tell generics (`List<Int>`) from
+// comparison (`a < b`), nor unary from binary `-`, so that step waits on
+// AST-aware spacing. Moving only whole lines stays correct without it.
 
 import std.fs;
 import std.char;
+
+import 'lexer/lexer';
+import 'lexer/token' as _;
+
+const INDENT: String = '    ';
 
 // Format a single file in place. Returns `true` if the file was modified.
 pub fn format_file(_ path: String) -> Result<Bool, Error> {
@@ -17,36 +38,305 @@ pub fn format_file(_ path: String) -> Result<Bool, Error> {
     return Result.Ok(true);
 }
 
-// Format a string of source code.
+// Format a string of source code. Idempotent: formatting formatted source is a
+// no-op.
 pub fn format_source(_ source: String) -> String {
     let lines = source.lines();
-    let result: List<String> = [];
-    for line in lines {
-        result.push(trim_trailing(line));
+    let n = lines.len();
+    if n == 0 {
+        return '';
     }
-    // Ensure trailing newline
-    if result.len() > 0 {
-        return result.join('\n') + '\n';
-    }
-    return '';
+    return emit(lines, scan_lines(source, n));
 }
 
-// Trim trailing whitespace from a single line.
-fn trim_trailing(_ s: String) -> String {
-    let cps = s.chars();
-    let mut i = cps.len();
-    let mut going = true;
-    while going && i > 0 {
-        // Each `line` from `.lines()` has no `\n`, so this strips trailing spaces,
-        // tabs, and a stray `\r` (from a CRLF source).
-        if !char.is_whitespace(cps[i - 1]) {
-            going = false;
-        } else {
-            i = i - 1;
+// Per-line facts gathered from the token stream, indexed 0-based by line.
+struct LineInfo {
+    indent: List<Int>,    // indent level to render the line at
+    verbatim: List<Bool>, // line is part of a multi-line string literal
+}
+
+// Walk the tokens, grouped by line, maintaining a stack of *anchors* — one per
+// open bracket — to compute each line's indent. A bracket's anchor is the level
+// its closer aligns to; its content is one level past. A `{` anchors at the
+// statement base; a `(`/`[` at the line's visual column. Both drop when a closer
+// closes a bracket opened on a previous line.
+fn scan_lines(_ source: String, _ n: Int) -> LineInfo {
+    let toks_by_line: List<List<Token>> = [];
+    let verbatim: List<Bool> = filled_bool(n, false);
+    let mut i = 0;
+    while i < n {
+        let row: List<Token> = [];
+        toks_by_line.push(row);
+        i = i + 1;
+    }
+    for tok in lexer.tokenize(source).tokens {
+        if tok.kind != TokenKind.Eof {
+            let idx = tok.span.line - 1;
+            if idx >= 0 && idx < n {
+                toks_by_line[idx].push(tok);
+                // Only a multi-line string pins its lines verbatim; a single-line
+                // string (nl == 0) is just a token and its line formats normally.
+                if tok.kind == TokenKind.StringLiteral {
+                    let nl = count_newlines(tok.span.text());
+                    if nl > 0 {
+                        let mut k = 0;
+                        while k <= nl {
+                            let m = idx + k;
+                            if m < n {
+                                verbatim[m] = true;
+                            }
+                            k = k + 1;
+                        }
+                    }
+                }
+            }
         }
     }
-    if i == cps.len() {
-        return s;
+
+    let indent: List<Int> = filled_int(n, 0);
+    let levels: List<Int> = []; // anchors: closer aligns here, content is +1
+    let kinds: List<TokenKind> = []; // parallel: each open bracket's kind
+    let mut prev_last: Option<TokenKind> = Option.None;
+    let mut li = 0;
+    while li < n {
+        let row = toks_by_line[li];
+        // Leading closers pop back to their openers; the line aligns to the
+        // outermost one's anchor.
+        let mut j = 0;
+        let mut aligned = -1;
+        while j < row.len() && is_closer(row[j].kind) {
+            aligned = pop_or_zero(levels);
+            pop_kind(kinds);
+            j = j + 1;
+        }
+        let base = if levels.len() > 0 {
+            levels[levels.len() - 1] + 1
+        } else {
+            0
+        };
+
+        // The displayed indent: a leading-closer line aligns to the popped anchor;
+        // otherwise the statement base, plus one level for a continuation (leading
+        // `.`/operator, or following a line ending with a binary operator) unless
+        // the enclosing bracket is `(`/`[` (which already hangs its content).
+        let mut disp = base;
+        if aligned >= 0 {
+            disp = aligned;
+        } else {
+            let lead = if row.len() > 0 {
+                is_cont_lead(row[0].kind)
+            } else {
+                false
+            };
+            let prev_c = match prev_last {
+                Some(k) => is_cont_prev(k),
+                None => false,
+            };
+            let hangs = if kinds.len() > 0 {
+                is_hang_bracket(kinds[kinds.len() - 1])
+            } else {
+                false
+            };
+            if (lead || prev_c) && !hangs {
+                disp = base + 1;
+            }
+        }
+        indent[li] = disp;
+
+        // Push anchors for the line's openers. A `{` anchors at the statement base
+        // (so `fn f(...)\n -> T {` puts the body one past the `fn`); `(`/`[` anchor
+        // at the visual column (so a wrapped method chain hangs under its opener).
+        // Both drop when a closer closes a bracket opened on a previous line.
+        let mut stmt_base = base;
+        let mut hang = disp;
+        let mut floor = levels.len();
+        while j < row.len() {
+            let k = row[j].kind;
+            if is_opener(k) {
+                let anchor = if k == TokenKind.LBrace {
+                    stmt_base
+                } else {
+                    hang
+                };
+                levels.push(anchor);
+                kinds.push(k);
+            } else if is_closer(k) {
+                pop_or_zero(levels);
+                pop_kind(kinds);
+                if levels.len() < floor {
+                    let t = if levels.len() > 0 {
+                        levels[levels.len() - 1] + 1
+                    } else {
+                        0
+                    };
+                    stmt_base = t;
+                    hang = t;
+                    floor = levels.len();
+                }
+            }
+            j = j + 1;
+        }
+        if row.len() > 0 {
+            prev_last = Option.Some(row[row.len() - 1].kind);
+        }
+        li = li + 1;
     }
-    return String.from_chars(cps.slice(0, i));
+    return LineInfo { indent: indent, verbatim: verbatim };
+}
+
+// Re-emit each line at its computed indent, collapsing blank runs and dropping
+// trailing blanks, with a single final newline.
+fn emit(_ lines: List<String>, _ info: LineInfo) -> String {
+    let out: List<String> = [];
+    let mut prev_blank = false;
+    let n = lines.len();
+    let mut i = 0;
+    while i < n {
+        let line = lines[i];
+        if info.verbatim[i] {
+            out.push(line);
+            prev_blank = false;
+        } else {
+            let trimmed = line.trim();
+            if trimmed == '' {
+                // Collapse a run of blank lines to one; never lead with a blank.
+                if out.len() > 0 && !prev_blank {
+                    out.push('');
+                    prev_blank = true;
+                }
+            } else {
+                prev_blank = false;
+                let mut level = info.indent[i];
+                if level < 0 {
+                    level = 0;
+                }
+                out.push(INDENT.repeat(level) + trimmed);
+            }
+        }
+        i = i + 1;
+    }
+
+    while out.len() > 0 && out[out.len() - 1] == '' {
+        out.pop();
+    }
+    if out.len() == 0 {
+        return '';
+    }
+    return out.join('\n') + '\n';
+}
+
+// --- token classification ---
+
+fn is_opener(_ k: TokenKind) -> Bool {
+    return match k {
+        LBrace => true,
+        LBracket => true,
+        LParen => true,
+        _ => false,
+    };
+}
+
+fn is_closer(_ k: TokenKind) -> Bool {
+    return match k {
+        RBrace => true,
+        RBracket => true,
+        RParen => true,
+        _ => false,
+    };
+}
+
+// Brackets that already hang their content, so a continuation bonus inside them
+// would double the indent.
+fn is_hang_bracket(_ k: TokenKind) -> Bool {
+    return match k {
+        LParen => true,
+        LBracket => true,
+        _ => false,
+    };
+}
+
+// A line whose first token continues the previous line: a method-chain `.`, a
+// wrapped return type `->`, or a binary operator the author put at the line
+// start. Kept deliberately narrow — `-`/`*` are excluded (unary, or a leading
+// `-1` collection element).
+fn is_cont_lead(_ k: TokenKind) -> Bool {
+    return match k {
+        Dot => true,
+        Arrow => true,
+        Plus => true,
+        AmpAmp => true,
+        PipePipe => true,
+        EqEq => true,
+        BangEq => true,
+        _ => false,
+    };
+}
+
+// A line that *ends* with one of these carries onto the next line (a wrapped
+// binary expression, an assignment or arrow whose value is on the next line). A
+// trailing `,`/`;`/opener is excluded — those are handled by bracket depth.
+fn is_cont_prev(_ k: TokenKind) -> Bool {
+    return match k {
+        Plus => true,
+        Minus => true,
+        Star => true,
+        Slash => true,
+        Percent => true,
+        EqEq => true,
+        BangEq => true,
+        AmpAmp => true,
+        PipePipe => true,
+        Eq => true,
+        PlusEq => true,
+        MinusEq => true,
+        StarEq => true,
+        SlashEq => true,
+        PercentEq => true,
+        Arrow => true,
+        FatArrow => true,
+        _ => false,
+    };
+}
+
+// --- small helpers ---
+
+fn pop_or_zero(_ stack: List<Int>) -> Int {
+    return match stack.pop() {
+        Some(v) => v,
+        None => 0,
+    };
+}
+
+fn pop_kind(_ kinds: List<TokenKind>) -> Void {
+    kinds.pop();
+}
+
+fn count_newlines(_ s: String) -> Int {
+    let mut c = 0;
+    for cp in s.chars() {
+        if cp == char.LF {
+            c = c + 1;
+        }
+    }
+    return c;
+}
+
+fn filled_int(_ n: Int, _ v: Int) -> List<Int> {
+    let xs: List<Int> = [];
+    let mut i = 0;
+    while i < n {
+        xs.push(v);
+        i = i + 1;
+    }
+    return xs;
+}
+
+fn filled_bool(_ n: Int, _ v: Bool) -> List<Bool> {
+    let xs: List<Bool> = [];
+    let mut i = 0;
+    while i < n {
+        xs.push(v);
+        i = i + 1;
+    }
+    return xs;
 }

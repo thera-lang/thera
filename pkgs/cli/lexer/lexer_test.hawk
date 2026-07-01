@@ -148,6 +148,46 @@ fn test_comments_and_whitespace_skipped() -> Result<Void, Error> {
 }
 
 @test
+fn test_comments_captured_on_side_channel() -> Result<Void, Error> {
+    // Comments stay out of the token stream but are captured, in source order,
+    // with their verbatim text (no trailing newline).
+    let res = tokenize('fn  // a comment\n  x // trailing');
+    testing.assert_eq(actual: res.comments.len(), expected: 2)?;
+    testing.assert_eq(actual: res.comments[0].span.text(), expected: '// a comment')?;
+    testing.assert_eq(actual: res.comments[1].span.text(), expected: '// trailing')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_comment_kinds() -> Result<Void, Error> {
+    let res = tokenize('// plain\n/// item doc\n//! module doc\n//// divider\nx');
+    testing.assert_eq(actual: res.comments.map((c) => c.kind), expected: [
+        CommentKind.Line, CommentKind.Doc, CommentKind.ModuleDoc, CommentKind.Line,
+    ])?;
+    // The token stream is just the trailing identifier + Eof.
+    testing.assert_eq(actual: res.tokens.map((t) => t.kind),
+        expected: [TokenKind.Identifier, TokenKind.Eof])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_comment_span_position() -> Result<Void, Error> {
+    // The span points at the `//`, on the right line/column.
+    let res = tokenize('let x = 1;\n    // second line\n');
+    testing.assert_eq(actual: res.comments.len(), expected: 1)?;
+    testing.assert_eq(actual: res.comments[0].span.line, expected: 2)?;
+    testing.assert_eq(actual: res.comments[0].span.column, expected: 5)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_no_comments_empty_list() -> Result<Void, Error> {
+    testing.assert_eq(actual: tokenize('fn f() -> Int { return 0; }').comments.len(),
+        expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_line_and_column_tracking() -> Result<Void, Error> {
     // 'a' on line 1 col 1; 'b' on line 2 col 3 (after two spaces of indent).
     let toks = tokenize('a\n  b').tokens;

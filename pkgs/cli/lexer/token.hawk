@@ -170,6 +170,35 @@ impl Display for SourceSpan {
     }
 }
 
+// A source comment, captured on a side channel the parser never sees (comments
+// are not tokens, so the compile path stays byte-identical). The formatter and
+// doc tooling re-associate comments with AST nodes by span (gofmt's model). The
+// span covers the `//` through the end of the line, not the trailing newline; its
+// `.text()` is the comment verbatim.
+pub enum CommentKind {
+    Line,      // `//` — an ordinary comment, never extracted
+    Doc,       // `///` — an item doc comment
+    ModuleDoc, // `//!` — a file/package doc comment
+}
+
+pub struct Comment {
+    kind: CommentKind,
+    span: SourceSpan,
+}
+
+// Classify a line comment by its marker. `text` is the comment verbatim (starting
+// at `//`). `////`+ is an ordinary comment, not a doc (matching Rust) — a run of
+// slashes is a common divider.
+pub fn classify_comment(_ text: String) -> CommentKind {
+    if text.starts_with('//!') {
+        return CommentKind.ModuleDoc;
+    }
+    if text.starts_with('///') && !text.starts_with('////') {
+        return CommentKind.Doc;
+    }
+    return CommentKind.Line;
+}
+
 // A lexical token: its kind, its source span, and (for string literals and
 // identifiers) its content. Other kinds carry no value — use `lexeme`/`span`.
 pub struct Token {

@@ -1,0 +1,75 @@
+// Tests for the line-preserving formatter. Each case pins the reindented output
+// for a representative shape, plus the cross-cutting properties: multi-line
+// strings are untouched, blank runs collapse, and formatting is idempotent.
+
+import std.testing;
+
+import 'fmt' as _;
+
+// Format twice and assert the result equals `want` *and* is idempotent.
+fn check(_ src: String, _ want: String) -> Result<Void, Error> {
+    let once = format_source(src);
+    testing.assert_eq(actual: once, expected: want)?;
+    testing.assert_eq(actual: format_source(once), expected: want)?;
+    return Result.Ok(void);
+}
+
+@test
+fn reindents_a_block() -> Result<Void, Error> {
+    return check(
+        'fn f() {\nx();\ny();\n}\n',
+        'fn f() {\n    x();\n    y();\n}\n');
+}
+
+@test
+fn reindents_nested_blocks() -> Result<Void, Error> {
+    return check(
+        'fn f() {\nif a {\nb();\n} else {\nc();\n}\n}\n',
+        'fn f() {\n    if a {\n        b();\n    } else {\n        c();\n    }\n}\n');
+}
+
+@test
+fn hanging_indent_for_multi_open_line() -> Result<Void, Error> {
+    // `push(Foo {` opens two brackets but the body indents just once, and the
+    // closer dedents back to the opening line.
+    return check(
+        'fn f() {\nxs.push(Foo {\na: 1,\n});\n}\n',
+        'fn f() {\n    xs.push(Foo {\n        a: 1,\n    });\n}\n');
+}
+
+@test
+fn continuation_indent_for_method_chain() -> Result<Void, Error> {
+    return check(
+        'fn f() {\nlet x = a\n.b()\n.c();\n}\n',
+        'fn f() {\n    let x = a\n        .b()\n        .c();\n}\n');
+}
+
+@test
+fn wrapped_return_type_then_body() -> Result<Void, Error> {
+    // The `-> T {` continuation is indented, but the body hangs from the `fn`.
+    return check(
+        'fn f(_ x: Int)\n-> Int {\nreturn x;\n}\n',
+        'fn f(_ x: Int)\n    -> Int {\n    return x;\n}\n');
+}
+
+@test
+fn preserves_multiline_string() -> Result<Void, Error> {
+    // Every line touched by a multi-line string is emitted verbatim — its interior
+    // content and the opening line's layout are never disturbed (reindenting them
+    // would corrupt the string value or its deliberate column-0 convention). So an
+    // already-laid-out multi-line string is a fixpoint.
+    let src = 'fn f() {\n    let s = \'line one\n  indented content\nline three\';\n}\n';
+    return check(src, src);
+}
+
+@test
+fn collapses_blank_runs_and_trailing() -> Result<Void, Error> {
+    return check(
+        'fn f() {\n\n\n\nx();\n}\n\n\n',
+        'fn f() {\n\n    x();\n}\n');
+}
+
+@test
+fn trims_trailing_whitespace() -> Result<Void, Error> {
+    return check('fn f() {   \n    x();  \n}\n', 'fn f() {\n    x();\n}\n');
+}

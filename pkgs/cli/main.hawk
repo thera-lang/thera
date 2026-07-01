@@ -97,6 +97,20 @@ Exit code: 0.
 
   hawk fmt src/')
             .positional('target', help: 'a .hawk file or directory to format'))
+        .subcommand(cli.Command.new('lint')
+            .about('report non-idiomatic code shapes with a known rewrite')
+            .details(
+'Scans each target (a file, or *.hawk under a directory) for code shapes that
+have a more idiomatic, mechanical rewrite (e.g. a two-arm `match` with an empty
+catch-all arm that could be `if let`). Read-only — it reports and tallies sites;
+it does not modify files.
+
+stdout: one `path:line:col: message` per site, then a per-rule tally.
+stderr: per-file read errors.
+Exit code: 0.
+
+  hawk lint pkgs/cli              # tally convertible sites under a tree')
+            .positional('target', help: 'a .hawk file or directory to lint'))
         .subcommand(cli.Command.new('lsp')
             .about('start the Hawk language server')
             .details(
@@ -195,6 +209,13 @@ fn run_on_file(_ name: String, _ sub: cli.Matches) -> Result<Int, Error> {
             return Result.Ok(2);
         }
         return do_fmt(positionals);
+    }
+    if name == 'lint' {
+        if positionals.len() == 0 {
+            eprintln('hawk lint: expected a <file|dir> argument');
+            return Result.Ok(2);
+        }
+        return do_lint(positionals);
     }
     match sub.positional(0) {
         Some(file) => {
@@ -316,6 +337,59 @@ fn do_fmt(_ targets: List<String>) -> Result<Int, Error> {
             },
         }
     }
+    return Result.Ok(0);
+}
+
+// `hawk lint <file|dir>...` — report idiomatic-rewrite suggestions, with a
+// per-rule tally. Read-only and purely syntactic (no import closure); exits 0
+// regardless of how many sites it finds (it's advice, not an error).
+fn do_lint(_ targets: List<String>) -> Result<Int, Error> {
+    let files: List<String> = [];
+    let mut missing = false;
+    for target in targets {
+        match fs.metadata(target) {
+            Ok(meta) => {
+                match meta.kind {
+                    Dir => { runner.collect_from_dir(target, '.hawk', files); },
+                    _ => { files.push(target); },
+                }
+            },
+            Err(_) => {
+                eprintln('hawk lint: not found: ${target}');
+                missing = true;
+            },
+        }
+    }
+    if missing {
+        return Result.Ok(2);
+    }
+
+    let tally: Map<String, Int> = {};
+    let mut total = 0;
+    for file in runner.sort_dedup(files) {
+        match fs.read_text(file) {
+            Ok(source) => {
+                for s in driver.lint_source(source) {
+                    println('${file}:${s.span}: ${s.message}');
+                    tally[s.rule] = tally.get_or(s.rule, 0) + 1;
+                    total = total + 1;
+                }
+            },
+            Err(e) => {
+                eprintln('hawk lint: cannot read ${file}: ${e}');
+            },
+        }
+    }
+
+    // A per-rule tally so the dominant rewrite stands out — the read-only count
+    // that decides whether each rewrite is worth a codemod.
+    if total > 0 {
+        println('');
+        for rule in tally.keys() {
+            println('  ${rule}: ${tally.get_or(rule, 0)}');
+        }
+    }
+    println('${total} suggestion(s)');
     return Result.Ok(0);
 }
 

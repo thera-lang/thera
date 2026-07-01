@@ -384,30 +384,48 @@ resolution_ below.)
     names while inside a function call. Relies on the parser correctly framing
     an unterminated call `foo(`, which current coarse recovery struggles with.
 
-- **Formatter (`hawk fmt`) — design stub.** Today's `fmt` is v0
-  (trailing-whitespace trim + final newline). The real formatter should be
-  **canonical** (one obvious output; expect ~all Hawk code to use it),
-  **near-zero config**, and **idempotent** (formatting a formatted file is a
-  no-op). It _mostly_ normalizes layout — fix indentation, normalize inter-token
-  whitespace (`fn  foo( name:String )` → `fn foo(name: String)`) — to eliminate
-  ~99% of format discussion, **not** fully canonicalize. **Deliberately out of
-  scope (for now): automatic line breaking / re-joining** — the usual source of
-  formatter complexity; instead rely on manual conventions for where to break
-  and see how far that gets. A first cut can be **token-only** (walk the token
-  stream with brace/paren depth, no AST).
-  - **Prerequisite + sequencing.** The lexer currently _discards_ comments and
-    whitespace (`skip_whitespace_and_comments`; no comment token kind / no
-    trivia on `Token`), so the one real prerequisite is surfacing comments +
-    blank-line structure as a **parser-invisible side channel** — trivia on
-    tokens, or a positioned comment list re-associated by span (gofmt's model) —
-    **not** in-stream comment tokens (which would force `advance`/`expect` to
-    skip them, the same surface parser recovery rewrites). Kept that way, the
-    compile path stays byte-identical (fixpoint-clean) and the formatter is
-    **orthogonal to parser recovery** — sequence by priority, not coupling.
-    Holds as long as we **only format syntactically-valid files** (so the
-    formatter never consumes recovery output); revisit if format-through-errors
-    is ever wanted. Hardest design call when we dig in: **comment attachment**
-    (leading / trailing / dangling).
+- **Formatter (`hawk fmt`) — _v1 landed (indentation); intra-line spacing still
+  open._** `fmt` was v0 (trailing-whitespace trim + final newline); it is now a
+  **line-preserving indentation formatter** (`pkgs/cli/fmt.hawk`). It keeps every
+  line break the author chose (no automatic line breaking / re-joining — the
+  deliberately-deferred source of formatter complexity) and normalizes the
+  vertical layout: re-indents each line, collapses blank runs to one, trims
+  trailing whitespace, single final newline. Indentation is a **token-only** pass
+  over a stack of per-bracket *anchors* — a `{` block hangs from the statement
+  base, a `(`/`[` from its opener line's visual column, several opens on one line
+  indent the body just once (`push(Foo {`), a continuation line (leading `.`/
+  operator/`->`, or after a line ending in a binary operator) gets one extra
+  level, and multi-line string literals are emitted **verbatim**. Validated by
+  formatting the whole corpus: a **no-op except legit blank/whitespace cleanups**,
+  save ~4 lines in test files where the author used open-paren *alignment* or a
+  paren-relative value-continuation — styles the canonical hanging-indent form
+  deliberately replaces. Idempotent (re-formatting is a fixpoint); moves only
+  whole lines, so tokens are preserved and it can never break a compile.
+  - **Still open — intra-line spacing** (`fn  foo( name:String )` →
+    `fn foo(name: String)`). Deferred because token adjacency alone can't tell
+    generics (`List<Int>`) from comparison (`a < b`), nor unary from binary `-`;
+    doing it safely wants **AST-aware** spacing, not the token-only pass. This is
+    the remaining piece of the "eliminate ~99% of format discussion" goal.
+  - **Follow-up — format the corpus.** Dogfood `hawk fmt` over `pkgs/cli`/
+    `sdk/std`/`examples` in one sweep so the tree is a fmt fixpoint (safe:
+    whitespace-only, fixpoint-clean); pairs with a CI `fmt --check`.
+  - **Prerequisite + sequencing — _side channel landed._** The lexer used to
+    _discard_ comments; it now captures them on a **parser-invisible side
+    channel** — the positioned-comment-list (gofmt) model, chosen over trivia on
+    `Token`. `lexer.tokenize` returns `LexResult.comments`: a source-ordered
+    `List<Comment>` (`{kind, span}`; `CommentKind` = `Line`/`Doc` `///`/
+    `ModuleDoc` `//!`, classified by marker, `////`+ = `Line`), each span the
+    `//`-through-end-of-line text. Comments are **not** tokens, so the parser
+    stays comment-blind and the compile path is **byte-identical** (fixpoint
+    holds). **Blank-line structure is derived**, not stored — every token and
+    comment carries a start line, so a blank between two elements is a
+    line-number gap (a multi-line token counts newlines in its own text); no
+    redundant tracking added. This keeps the formatter **orthogonal to parser
+    recovery** and holds as long as we **only format syntactically-valid files**.
+    Remaining for the formatter proper: **comment attachment** (leading /
+    trailing / dangling) — re-associating the positioned list to AST nodes by
+    span — the hardest design call, deferred to `fmt` itself. The same side
+    channel is what doc-comment tooling (attach `///` to AST nodes) consumes.
 
 - **Doc-comment tooling — convention specced, machinery pending.** The doc
   conventions are defined ([language.md](language.md#documentation)): `///` item
@@ -455,13 +473,32 @@ resolution_ below.)
     `if let` desugars to an indistinguishable `match` — the `match → if let`
     suggester must not re-fire on already-`if let` code; mark the synthesized
     `MatchExpr` when the suggester is built). Sequence after `fmt`'s trivia work.
-  - **First step — a read-only count.** Before building any rewriter, a
-    diagnostic-only pass that *tallies* convertible sites per pattern (and
-    locates them) answers the open question the dogfooding raised: how many wins
-    actually remain? The `if let`/`let … else` migrations showed clean sites are
-    **sparser than expected**, so the count decides whether a full codemod is
-    worth it or whether opportunistic hand-migration suffices. Cheap (it reuses
-    the same AST shape-matching the suggester needs) and the natural MVP.
+  - **First step — a read-only count — _landed._** `hawk lint <file|dir>`
+    (`pkgs/cli/lint/lint.hawk`) walks the parsed AST — purely syntactic, no import
+    closure — and reports + per-rule tallies convertible sites. Source `match`es
+    are told from desugared `if let`/`let … else` (an indistinguishable
+    `MatchExpr`) by the keyword the span starts at — no AST marker yet. The rules
+    partition (a `match` fires at most one): empty arm → `if let`;
+    error-propagating arm → `?`; diverging arm in a `let` initializer →
+    `let … else`; value-returning fallback → `unwrap_or`; both arms re-wrap →
+    `map`. Precision over recall, so each tally is a **floor**. **The count, this
+    corpus** (`pkgs/cli` / `sdk/std`; `examples` is 0 throughout):
+
+    | rule | pkgs/cli | sdk/std | note |
+    | --- | --- | --- | --- |
+    | `match → if let` | 255 | 3 | the dominant cleanup, as predicted |
+    | `while i < len → for` | 43 | 21 | locates candidates; some need `enumerate`/`zip` or don't convert (index lookahead) |
+    | `match → unwrap_or` | 38 | 11 | high precision; `unwrap_or` *or* `unwrap_or_else` |
+    | `match → let … else` | 14 | 0 | |
+    | `match → map` | 11 | 4 | textbook `Some(f(v))`/`None` re-wraps |
+    | `match → ?` | **0** | **0** | the codebase already uses `?` everywhere — **no payload** |
+
+    Takeaways: `match → if let` (258) decisively justifies a codemod; `unwrap_or`
+    (49) and `while i <` (64, with caveats) are worthwhile; `let … else`/`map` are
+    modest; **`match → ?` has zero sites, so skip it.** Spot-checked for precision
+    (true positives across all rules). Rules plug into one rule-agnostic walker;
+    the calling-convention lint (positional arg → labeled param) is the next one
+    but needs resolution, not just AST shape.
   - **Ecosystem payoff.** These aren't one-off cleanups: the same
     shape-matching + located-suggestion + auto-fix machinery is what a Hawk
     `lint` / `hawk fix` is built from, and what the LSP surfaces as code actions.

@@ -1,0 +1,207 @@
+// Tests for the suggestion-diagnostic pass. Each case parses a real snippet (so
+// the span-based source-`match` discriminator is exercised, not bypassed by
+// hand-built spans) and asserts which rules fire.
+
+import std.testing;
+
+import '../lexer/lexer';
+import '../parser/parser';
+import 'lint' as _;
+
+// Parse `src` and collect its suggestions. (A parse error yields no tokens-level
+// failure here — the per-test count assertions catch a snippet that didn't parse,
+// since it would produce zero suggestions.)
+fn lint(_ src: String) -> List<Suggestion> {
+    let lex = lexer.tokenize(src);
+    let parsed = parser.parse_tokens(lex.tokens);
+    return lint_program(parsed.program);
+}
+
+// How many fired suggestions carry `rule`.
+fn count_rule(_ sugs: List<Suggestion>, _ rule: String) -> Int {
+    let mut n = 0;
+    for s in sugs {
+        if s.rule == rule {
+            n = n + 1;
+        }
+    }
+    return n;
+}
+
+fn wrap(_ body: String) -> String {
+    return 'fn f(_ o: Option<Int>) -> Int {\n${body}\n    return 0;\n}\n';
+}
+
+@test
+fn flags_some_none_empty_catch_all() -> Result<Void, Error> {
+    let sugs = lint(wrap('    match o { Some(v) => { return v; }, None => {} }'));
+    testing.assert_eq(actual: count_rule(sugs, 'match-to-if-let'), expected: 1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn flags_wildcard_empty_catch_all() -> Result<Void, Error> {
+    let sugs = lint(wrap('    match o { Some(v) => { return v; }, _ => {} }'));
+    testing.assert_eq(actual: count_rule(sugs, 'match-to-if-let'), expected: 1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn flags_when_binding_arm_is_second() -> Result<Void, Error> {
+    // Order-independent: the empty arm may come first.
+    let sugs = lint(wrap('    match o { None => {}, Some(v) => { return v; } }'));
+    testing.assert_eq(actual: count_rule(sugs, 'match-to-if-let'), expected: 1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn ignores_when_both_arms_act() -> Result<Void, Error> {
+    // A genuine two-way match — neither arm is an empty catch-all.
+    let sugs = lint(wrap('    match o { Some(v) => { return v; }, None => { return 0; } }'));
+    testing.assert_eq(actual: count_rule(sugs, 'match-to-if-let'), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn ignores_three_arm_match() -> Result<Void, Error> {
+    let src = 'fn g(_ r: Result<Int, Int>) -> Int {\n'
+        + '    match r { Ok(v) => { return v; }, Err(e) => { return e; }, _ => {} }\n'
+        + '    return 0;\n}\n';
+    let sugs = lint(src);
+    testing.assert_eq(actual: count_rule(sugs, 'match-to-if-let'), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn ignores_kept_arm_without_payload() -> Result<Void, Error> {
+    // The kept (non-empty) arm binds no constructor payload, so there is no
+    // `if let` pattern to lift.
+    let sugs = lint(wrap('    match o { None => { return 1; }, _ => {} }'));
+    testing.assert_eq(actual: count_rule(sugs, 'match-to-if-let'), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn does_not_refire_on_desugared_if_let() -> Result<Void, Error> {
+    // `if let` desugars to a MatchExpr; the suggester must not flag its own target.
+    let sugs = lint(wrap('    if let Some(v) = o { return v; }'));
+    testing.assert_eq(actual: count_rule(sugs, 'match-to-if-let'), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn flags_nested_match() -> Result<Void, Error> {
+    // A convertible match nested inside another expression is still found.
+    let src = 'fn h(_ o: Option<Int>) -> Int {\n'
+        + '    let x = match o { Some(v) => { v }, None => {} };\n'
+        + '    return 0;\n}\n';
+    let sugs = lint(src);
+    testing.assert_eq(actual: count_rule(sugs, 'match-to-if-let'), expected: 1)?;
+    return Result.Ok(void);
+}
+
+// --- match → ? ---
+
+fn wrap_res(_ body: String) -> String {
+    return 'fn f(_ r: Result<Int, Error>) -> Result<Int, Error> {\n${body}\n    return Result.Ok(0);\n}\n';
+}
+
+@test
+fn flags_result_propagation() -> Result<Void, Error> {
+    let sugs = lint(wrap_res('    let x = match r { Ok(v) => v, Err(e) => return Result.Err(e) };'));
+    testing.assert_eq(actual: count_rule(sugs, 'match-to-question'), expected: 1)?;
+    // The `?` shape must take precedence over `let … else`, not both.
+    testing.assert_eq(actual: count_rule(sugs, 'match-to-let-else'), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn flags_option_propagation() -> Result<Void, Error> {
+    let src = 'fn f(_ o: Option<Int>) -> Option<Int> {\n'
+        + '    let x = match o { Some(v) => v, None => return Option.None };\n'
+        + '    return Option.Some(x);\n}\n';
+    let sugs = lint(src);
+    testing.assert_eq(actual: count_rule(sugs, 'match-to-question'), expected: 1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn ignores_propagation_with_mismatched_error() -> Result<Void, Error> {
+    // The error arm re-raises a *different* value, so it is not a `?`.
+    let sugs = lint(wrap_res('    let x = match r { Ok(v) => v, Err(e) => return Result.Err(other) };'));
+    testing.assert_eq(actual: count_rule(sugs, 'match-to-question'), expected: 0)?;
+    return Result.Ok(void);
+}
+
+// --- match → let … else ---
+
+@test
+fn flags_let_else() -> Result<Void, Error> {
+    // The diverging arm does something other than re-raise, so it is `let … else`.
+    let sugs = lint(wrap_res('    let x = match r { Ok(v) => v, Err(e) => return Result.Ok(0) };'));
+    testing.assert_eq(actual: count_rule(sugs, 'match-to-let-else'), expected: 1)?;
+    testing.assert_eq(actual: count_rule(sugs, 'match-to-question'), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn ignores_let_else_when_not_in_let() -> Result<Void, Error> {
+    // A diverging match not bound to a `let` is not a `let … else` site.
+    let src = 'fn f(_ o: Option<Int>) -> Int {\n'
+        + '    match o { Some(v) => { return v; }, None => { return 0; } }\n'
+        + '    return 0;\n}\n';
+    let sugs = lint(src);
+    testing.assert_eq(actual: count_rule(sugs, 'match-to-let-else'), expected: 0)?;
+    return Result.Ok(void);
+}
+
+// --- match → unwrap_or ---
+
+@test
+fn flags_unwrap_or() -> Result<Void, Error> {
+    let sugs = lint(wrap('    let x = match o { Some(v) => v, None => 0 };'));
+    testing.assert_eq(actual: count_rule(sugs, 'match-to-unwrap-or'), expected: 1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn ignores_unwrap_or_when_fallback_empty() -> Result<Void, Error> {
+    // Empty fallback → `if let`, not `unwrap_or`.
+    let sugs = lint(wrap('    let x = match o { Some(v) => { v }, None => {} };'));
+    testing.assert_eq(actual: count_rule(sugs, 'match-to-unwrap-or'), expected: 0)?;
+    testing.assert_eq(actual: count_rule(sugs, 'match-to-if-let'), expected: 1)?;
+    return Result.Ok(void);
+}
+
+// --- match → map ---
+
+@test
+fn flags_map() -> Result<Void, Error> {
+    let sugs = lint(wrap('    let x = match o { Some(v) => Option.Some(v), None => Option.None };'));
+    testing.assert_eq(actual: count_rule(sugs, 'match-to-map'), expected: 1)?;
+    return Result.Ok(void);
+}
+
+// --- while i < xs.len() ---
+
+@test
+fn flags_while_index() -> Result<Void, Error> {
+    let src = 'fn f(_ xs: List<Int>) -> Int {\n'
+        + '    let mut i = 0;\n'
+        + '    while i < xs.len() {\n        i = i + 1;\n    }\n'
+        + '    return i;\n}\n';
+    let sugs = lint(src);
+    testing.assert_eq(actual: count_rule(sugs, 'while-index-loop'), expected: 1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn ignores_while_non_index() -> Result<Void, Error> {
+    let src = 'fn f(_ n: Int) -> Int {\n'
+        + '    let mut i = 0;\n'
+        + '    while i < n {\n        i = i + 1;\n    }\n'
+        + '    return i;\n}\n';
+    let sugs = lint(src);
+    testing.assert_eq(actual: count_rule(sugs, 'while-index-loop'), expected: 0)?;
+    return Result.Ok(void);
+}

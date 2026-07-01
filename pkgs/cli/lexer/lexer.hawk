@@ -23,9 +23,12 @@ impl Display for LexError {
     }
 }
 
-// The result of tokenizing: the tokens (always ending in `Eof`) and any errors.
+// The result of tokenizing: the tokens (always ending in `Eof`), the comments
+// captured on the side channel (in source order; never in the token stream), and
+// any errors.
 pub struct LexResult {
     tokens: List<Token>,
+    comments: List<Comment>,
     errors: List<LexError>,
 }
 
@@ -45,6 +48,7 @@ struct Lexer {
     mut line: Int,
     mut col: Int,
     tokens: List<Token>,
+    comments: List<Comment>,
     errors: List<LexError>,
     mut ts_offset: Int,
     mut ts_line: Int,
@@ -60,6 +64,7 @@ pub fn tokenize(_ source: String) -> LexResult {
         line: 1,
         col: 1,
         tokens: [],
+        comments: [],
         errors: [],
         ts_offset: 0,
         ts_line: 1,
@@ -81,7 +86,7 @@ impl Lexer {
             span: self.span_at(self.pos, 0),
             value: Option.None,
         });
-        return LexResult { tokens: self.tokens, errors: self.errors };
+        return LexResult { tokens: self.tokens, comments: self.comments, errors: self.errors };
     }
 
     // --- cursor ---
@@ -183,13 +188,29 @@ impl Lexer {
             if char.is_whitespace(c) {
                 self.advance();
             } else if c == char.SLASH && self.peek() == char.SLASH {
-                while !self.at_end() && self.ch() != char.LF {
-                    self.advance();
-                }
+                self.scan_comment();
             } else {
                 going = false;
             }
         }
+    }
+
+    // Consume a `//` line comment (to the end of the line, not the newline) and
+    // record it on the side channel. Comments never enter the token stream — the
+    // parser stays comment-blind and the compile path byte-identical — but the
+    // formatter and doc tooling read them back by span.
+    fn scan_comment(self) -> Void {
+        let start = self.pos;
+        let start_line = self.line;
+        let start_col = self.col;
+        while !self.at_end() && self.ch() != char.LF {
+            self.advance();
+        }
+        let span = self.span_from(start, start_line, start_col);
+        self.comments.push(Comment {
+            kind: classify_comment(span.text()),
+            span: span,
+        });
     }
 
     fn scan_token(self) -> Void {

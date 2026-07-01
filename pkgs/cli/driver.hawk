@@ -18,6 +18,7 @@ import 'parser/parser';
 import 'checker/checker';
 import 'codegen/codegen';
 import 'bytecode/encoder';
+import 'lint/lint';
 import 'loader';
 
 // A uniform diagnostic across the phases (each phase's error type is structurally
@@ -139,6 +140,22 @@ pub fn compile_source_at(_ source: String, _ path: String, _ sdk_root: Option<St
         diagnostics: [],
         bytes: Option.Some(encoder.encode_module(cg.module)),
     };
+}
+
+// Collect the suggestion diagnostics for `source` — non-idiomatic shapes with a
+// mechanical rewrite (read-only; see `lint/lint`). Purely syntactic, so it needs
+// no import closure: a single-file lex + parse. A file that doesn't lex/parse has
+// no suggestions (the analyzer reports the syntax error, not a rewrite).
+pub fn lint_source(_ source: String) -> List<lint.Suggestion> {
+    let lex = lexer.tokenize(source);
+    if lex.errors.len() > 0 {
+        return [];
+    }
+    let parsed = parser.parse_tokens(lex.tokens);
+    if parsed.errors.len() > 0 {
+        return [];
+    }
+    return lint.lint_program(parsed.program);
 }
 
 // `file:line:column: message` — the diagnostic line the CLI prints. Uses the

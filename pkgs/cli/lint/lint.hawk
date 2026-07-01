@@ -1,0 +1,647 @@
+// Suggestion diagnostics — a read-only pass that locates non-idiomatic code
+// shapes that have a mechanical, more-idiomatic rewrite (e.g. a two-arm `match`
+// with an empty catch-all arm → `if let`). This is the shared shape-matching the
+// future `hawk fix` / LSP code actions are built from; for now it only *reports*
+// (and the CLI tallies) convertible sites, to measure how many wins each rewrite
+// would actually yield before any rewriter is built.
+//
+// Purely syntactic: it walks the parsed AST and needs no resolution or types, so
+// `hawk lint` parses each file in isolation (no import closure). A site is only
+// flagged when the shape is unambiguous — precision over recall, so each tally is
+// a floor. The rules partition: a given `match` matches at most one of them (an
+// empty arm → `if let`; an error-propagating arm → `?`; a diverging arm in a
+// `let` initializer → `let … else`; a value-returning fallback → `unwrap_or`).
+
+import '../lexer/token' as _; // SourceSpan
+import '../ast/ast' as _;
+
+// One located suggestion: which rule fired, where, and a human-readable message.
+// `rule` is a stable kebab-case id the CLI tallies by (and a code action would
+// key off).
+pub struct Suggestion {
+    rule: String,
+    span: SourceSpan,
+    message: String,
+}
+
+// Walk a whole program, collecting every suggestion. The entry point the CLI and
+// (later) the LSP call.
+pub fn lint_program(_ p: Program) -> List<Suggestion> {
+    let out: List<Suggestion> = [];
+    for d in p.decls {
+        walk_decl(d, out);
+    }
+    return out;
+}
+
+// --- The rules ---
+
+// `match X { Some(v) => { … }, None => {} }` → `if let Some(v) = X { … }`.
+//
+// A source two-arm `match` with exactly one empty-bodied arm whose *kept* arm
+// binds a constructor pattern. The dropped arm may be `_`, an identifier, a
+// nullary variant (`None`), or any arm whose body is empty — all collapse to the
+// omitted `else` of an `if let`.
+fn detect_match_to_if_let(_ m: MatchExpr) -> Option<Suggestion> {
+    if !is_source_match(m) || m.arms.len() != 2 {
+        return Option.None;
+    }
+    let a0 = m.arms[0];
+    let a1 = m.arms[1];
+    let empty0 = is_empty_body(a0.body);
+    let empty1 = is_empty_body(a1.body);
+    // Exactly one arm empty: the other is the unambiguous kept arm. Both empty
+    // (dead match) or neither (a real two-way match / combinator candidate) don't
+    // map to a plain `if let`.
+    if empty0 == empty1 {
+        return Option.None;
+    }
+    let keep = if empty0 { a1 } else { a0 };
+    if !is_binding_ctor(keep.pattern) {
+        return Option.None;
+    }
+    return Option.Some(Suggestion {
+        rule: 'match-to-if-let',
+        span: m.span,
+        message: 'two-arm `match` with an empty catch-all arm could be `if let`',
+    });
+}
+
+// `match r { Ok(v) => v, Err(e) => return Result.Err(e) }` → `r?` (and the
+// `Some(v)`/`None => return Option.None` analogue). The success arm binds and
+// yields its value; the error arm returns the same error re-wrapped.
+fn detect_match_to_question(_ m: MatchExpr) -> Option<Suggestion> {
+    if !is_source_match(m) || m.arms.len() != 2 {
+        return Option.None;
+    }
+    if is_question_shape(m) {
+        return Option.Some(Suggestion {
+            rule: 'match-to-question',
+            span: m.span,
+            message: 'match that propagates the error could be `?`',
+        });
+    }
+    return Option.None;
+}
+
+// `let x = match opt { Some(v) => v, None => { …diverge… } };`
+// → `let Some(x) = opt else { …diverge… };`. Fires on a `let` whose initializer
+// is a source two-arm match: one arm binds a constructor and yields its binding,
+// the other diverges (return/throw). Excludes the `?` shape (that is
+// match-to-question's, the more specific rewrite).
+fn detect_match_to_let_else(_ l: LetStmt) -> Option<Suggestion> {
+    return match l.value {
+        Match(m) => {
+            if !is_source_match(m) || m.arms.len() != 2 || is_question_shape(m) {
+                Option.None
+            } else if let_else_pair(m.arms[0], m.arms[1]) || let_else_pair(m.arms[1], m.arms[0]) {
+                Option.Some(Suggestion {
+                    rule: 'match-to-let-else',
+                    span: m.span,
+                    message: '`let` bound from a match with a diverging arm could be `let … else`',
+                })
+            } else {
+                Option.None
+            }
+        },
+        _ => Option.None,
+    };
+}
+
+// `match opt { Some(v) => v, None => d }` → `opt.unwrap_or(d)` /
+// `.unwrap_or_else(…)`. The success arm binds and yields its value; the other arm
+// is any catch-all whose body is a (non-empty, non-diverging) fallback value.
+fn detect_match_to_unwrap_or(_ m: MatchExpr) -> Option<Suggestion> {
+    if !is_source_match(m) || m.arms.len() != 2 {
+        return Option.None;
+    }
+    if unwrap_or_pair(m.arms[0], m.arms[1]) || unwrap_or_pair(m.arms[1], m.arms[0]) {
+        return Option.Some(Suggestion {
+            rule: 'match-to-unwrap-or',
+            span: m.span,
+            message: 'match returning a fallback could be `.unwrap_or(…)` / `.unwrap_or_else(…)`',
+        });
+    }
+    return Option.None;
+}
+
+// `match opt { Some(v) => Option.Some(f(v)), None => Option.None }` →
+// `opt.map(…)`. Both arms re-wrap into the same enum, mapping only the payload.
+fn detect_match_to_map(_ m: MatchExpr) -> Option<Suggestion> {
+    if !is_source_match(m) || m.arms.len() != 2 {
+        return Option.None;
+    }
+    if map_pair(m.arms[0], m.arms[1]) || map_pair(m.arms[1], m.arms[0]) {
+        return Option.Some(Suggestion {
+            rule: 'match-to-map',
+            span: m.span,
+            message: 'match that re-wraps the `Some` case could be `.map(…)`',
+        });
+    }
+    return Option.None;
+}
+
+// `while i < xs.len() { … }` → a `for` loop. Flags the manual-index condition
+// shape (`<ident> < <recv>.len()`); the body is left to the reader/rewriter.
+fn detect_while_index(_ w: WhileStmt) -> Option<Suggestion> {
+    return match w.condition {
+        Binary(_, lhs, op, rhs) => {
+            if op != '<' || !is_ident_expr(lhs) || !is_len_call(rhs) {
+                Option.None
+            } else {
+                Option.Some(Suggestion {
+                    rule: 'while-index-loop',
+                    span: expr_span(w.condition),
+                    message: 'manual index loop (`i < xs.len()`) could be a `for` loop',
+                })
+            }
+        },
+        _ => Option.None,
+    };
+}
+
+// --- Rule predicates ---
+
+// A real `match` (not a desugared `if let`/`let … else`, which is an
+// indistinguishable `MatchExpr`): told apart by the keyword its span starts at (a
+// source `match` begins at `match`, the desugared forms at `if`/`let`). Cheap,
+// and avoids marking the AST until the rewriter needs it.
+fn is_source_match(_ m: MatchExpr) -> Bool {
+    return m.span.text().starts_with('match');
+}
+
+// Both orderings of the error-propagation shape (the success arm may be first or
+// second). Callers must have already checked there are two arms.
+fn is_question_shape(_ m: MatchExpr) -> Bool {
+    return question_pair(m.arms[0], m.arms[1]) || question_pair(m.arms[1], m.arms[0]);
+}
+
+// `a` is `Ok(v)`/`Some(v)` yielding `v`; `b` re-raises the same error
+// (`Err(e) => return Result.Err(e)` or `None => return Option.None`).
+fn question_pair(_ a: MatchArm, _ b: MatchArm) -> Bool {
+    let vname = match ctor_binding(a.pattern) {
+        Some(n) => n,
+        None => return false,
+    };
+    if !body_yields_var(a.body, vname) {
+        return false;
+    }
+    let aname = match ctor_name(a.pattern) {
+        Some(n) => n,
+        None => return false,
+    };
+    let retv = match body_single_return(b.body) {
+        Some(r) => r,
+        None => return false,
+    };
+    if aname == 'Ok' {
+        let ename = match ctor_binding(b.pattern) {
+            Some(n) => n,
+            None => return false,
+        };
+        return ctor_name_is(b.pattern, 'Err') && is_qual_call1(retv, 'Result', 'Err', ename);
+    }
+    if aname == 'Some' {
+        return ctor_name_is(b.pattern, 'None') && is_qual_field(retv, 'Option', 'None');
+    }
+    return false;
+}
+
+// `a` binds a constructor and yields its binding; `b` diverges (return/throw).
+fn let_else_pair(_ a: MatchArm, _ b: MatchArm) -> Bool {
+    return match ctor_binding(a.pattern) {
+        Some(v) => body_yields_var(a.body, v) && body_diverges(b.body),
+        None => false,
+    };
+}
+
+// `a` is `Ok(v)`/`Some(v)` yielding `v`; `b` is a catch-all returning a plain
+// fallback value (not empty, not diverging — those are `if let` / `let … else`).
+fn unwrap_or_pair(_ a: MatchArm, _ b: MatchArm) -> Bool {
+    let vname = match ctor_binding(a.pattern) {
+        Some(n) => n,
+        None => return false,
+    };
+    let aname = match ctor_name(a.pattern) {
+        Some(n) => n,
+        None => return false,
+    };
+    if aname != 'Some' && aname != 'Ok' {
+        return false;
+    }
+    if !body_yields_var(a.body, vname) {
+        return false;
+    }
+    return is_catch_all_pattern(b.pattern) && is_value_body(b.body);
+}
+
+// `a` is `Some(…) => Option.Some(…)`; `b` is `None => Option.None`.
+fn map_pair(_ a: MatchArm, _ b: MatchArm) -> Bool {
+    if !ctor_name_is(a.pattern, 'Some') || !ctor_name_is(b.pattern, 'None') {
+        return false;
+    }
+    let avalue = match body_value_expr(a.body) {
+        Some(v) => v,
+        None => return false,
+    };
+    let wraps_some = match avalue {
+        Call(c) => is_qual_field(c.callee, 'Option', 'Some'),
+        _ => false,
+    };
+    if !wraps_some {
+        return false;
+    }
+    return match body_value_expr(b.body) {
+        Some(v) => is_qual_field(v, 'Option', 'None'),
+        None => false,
+    };
+}
+
+// --- Shape helpers ---
+
+// A match-arm body that produces no value and runs no statements: an empty block
+// `{}` (which parses as a Void block) or the literal `void`.
+fn is_empty_body(_ e: Expr) -> Bool {
+    return match e {
+        Block(_, b) => block_is_empty(b),
+        Unit(_) => true,
+        _ => false,
+    };
+}
+
+fn block_is_empty(_ b: Block) -> Bool {
+    if b.stmts.len() != 0 {
+        return false;
+    }
+    return match b.tail {
+        None => true,
+        Some(_) => false,
+    };
+}
+
+// A body that yields a value (has a value expression), as opposed to an empty
+// block or a bare divergence.
+fn is_value_body(_ e: Expr) -> Bool {
+    return match e {
+        Block(_, b) => match b.tail {
+            Some(_) => true,
+            None => false,
+        },
+        Return(_, _) => false,
+        Throw(_, _) => false,
+        Unit(_) => false,
+        _ => true,
+    };
+}
+
+// A body that exits the enclosing block: `return`/`throw`, bare or as a block's
+// last statement (or tail).
+fn body_diverges(_ e: Expr) -> Bool {
+    return match e {
+        Return(_, _) => true,
+        Throw(_, _) => true,
+        Block(_, b) => block_diverges(b),
+        _ => false,
+    };
+}
+
+fn block_diverges(_ b: Block) -> Bool {
+    return match b.tail {
+        Some(t) => body_diverges(t),
+        None => if b.stmts.len() == 0 {
+            false
+        } else {
+            match b.stmts[b.stmts.len() - 1] {
+                Return(_, _) => true,
+                Throw(_, _) => true,
+                _ => false,
+            }
+        },
+    };
+}
+
+// Whether a body is exactly `return X` (bare or `{ return X; }`); yields the
+// returned value `X`. None for any other body or a bare `return;`.
+fn body_single_return(_ e: Expr) -> Option<Expr> {
+    return match e {
+        Return(_, v) => v,
+        Block(_, b) => block_single_return(b),
+        _ => Option.None,
+    };
+}
+
+fn block_single_return(_ b: Block) -> Option<Expr> {
+    return match b.tail {
+        Some(t) => match t {
+            Return(_, v) => v,
+            _ => Option.None,
+        },
+        None => if b.stmts.len() == 1 {
+            match b.stmts[0] {
+                Return(_, v) => v,
+                _ => Option.None,
+            }
+        } else {
+            Option.None
+        },
+    };
+}
+
+// The value expression a body produces (a bare expr, or a block's tail); None for
+// an empty or diverging body.
+fn body_value_expr(_ e: Expr) -> Option<Expr> {
+    return match e {
+        Block(_, b) => b.tail,
+        Return(_, _) => Option.None,
+        Throw(_, _) => Option.None,
+        Unit(_) => Option.None,
+        _ => Option.Some(e),
+    };
+}
+
+// Whether a body is exactly the variable `name` (bare `=> v` or `=> { v }`).
+fn body_yields_var(_ e: Expr, _ name: String) -> Bool {
+    return match e {
+        Ident(_, n) => n == name,
+        Block(_, b) => b.stmts.len() == 0 && match b.tail {
+            Some(t) => match t {
+                Ident(_, n) => n == name,
+                _ => false,
+            },
+            None => false,
+        },
+        _ => false,
+    };
+}
+
+// --- Pattern helpers ---
+
+// A constructor pattern that carries a payload (`Some(v)`, `Ok(_)`, `Err(e)`) —
+// the refutable, binding shape that becomes an `if let` pattern. A bare variant
+// (`None`), a wildcard, or an identifier is not.
+fn is_binding_ctor(_ p: Pattern) -> Bool {
+    return match p {
+        Constructor(_, _, subs) => subs.len() > 0,
+        _ => false,
+    };
+}
+
+// The single variable a one-field constructor pattern binds (`Some(v)` → `v`);
+// None for a wildcard sub-pattern, a multi-field or nullary constructor, or a
+// non-constructor pattern.
+fn ctor_binding(_ p: Pattern) -> Option<String> {
+    return match p {
+        Constructor(_, _, subs) => if subs.len() == 1 {
+            match subs[0] {
+                Ident(_, n) => Option.Some(n),
+                _ => Option.None,
+            }
+        } else {
+            Option.None
+        },
+        _ => Option.None,
+    };
+}
+
+fn ctor_name(_ p: Pattern) -> Option<String> {
+    return match p {
+        Constructor(_, n, _) => Option.Some(n),
+        _ => Option.None,
+    };
+}
+
+fn ctor_name_is(_ p: Pattern, _ name: String) -> Bool {
+    return match p {
+        Constructor(_, n, _) => n == name,
+        _ => false,
+    };
+}
+
+// An irrefutable / complement arm pattern (`_`, an identifier, or a variant like
+// `None`/`Err(_)`) — the "other case" of a two-arm match. A literal pattern is
+// not (it matches only one value).
+fn is_catch_all_pattern(_ p: Pattern) -> Bool {
+    return match p {
+        Literal(_, _) => false,
+        _ => true,
+    };
+}
+
+// --- Expression helpers ---
+
+// `ns.member` as a field access (`Option.None`).
+fn is_qual_field(_ e: Expr, _ ns: String, _ member: String) -> Bool {
+    return match e {
+        Field(_, obj, m) => m == member && match obj {
+            Ident(_, n) => n == ns,
+            _ => false,
+        },
+        _ => false,
+    };
+}
+
+// `ns.member(arg)` as a one-argument call (`Result.Err(e)`).
+fn is_qual_call1(_ e: Expr, _ ns: String, _ member: String, _ arg: String) -> Bool {
+    return match e {
+        Call(c) => is_qual_field(c.callee, ns, member) && c.args.len() == 1 && match c.args[0].value {
+            Ident(_, n) => n == arg,
+            _ => false,
+        },
+        _ => false,
+    };
+}
+
+fn is_ident_expr(_ e: Expr) -> Bool {
+    return match e {
+        Ident(_, _) => true,
+        _ => false,
+    };
+}
+
+// A no-argument `.len()` call (`xs.len()`, `self.items.len()`); the receiver is
+// unconstrained.
+fn is_len_call(_ e: Expr) -> Bool {
+    return match e {
+        Call(c) => c.args.len() == 0 && match c.callee {
+            Field(_, _, name) => name == 'len',
+            _ => false,
+        },
+        _ => false,
+    };
+}
+
+// --- AST walk ---
+//
+// A plain recursive descent collecting suggestions into `out`. It visits every
+// expression so a rule fires no matter how deeply a shape is nested; the
+// traversal itself is rule-agnostic.
+
+fn push_opt(_ s: Option<Suggestion>, _ out: List<Suggestion>) -> Void {
+    match s {
+        Some(sug) => { out.push(sug); },
+        None => {},
+    }
+}
+
+fn walk_decl(_ d: Decl, _ out: List<Suggestion>) -> Void {
+    match d {
+        Fn(f) => { walk_fn(f, out); },
+        Impl(i) => {
+            for m in i.methods {
+                walk_fn(m, out);
+            }
+        },
+        Interface(it) => {
+            for m in it.methods {
+                walk_fn(m, out);
+            }
+        },
+        Const(c) => { walk_expr(c.value, out); },
+        Let(l) => { walk_expr(l.value, out); },
+        Import(_) => {},
+        Type(_) => {},
+        Enum(_) => {},
+    }
+}
+
+fn walk_fn(_ f: FnDecl, _ out: List<Suggestion>) -> Void {
+    for p in f.params {
+        match p.default_value {
+            Some(e) => { walk_expr(e, out); },
+            None => {},
+        }
+    }
+    match f.body {
+        Some(b) => { walk_block(b, out); },
+        None => {},
+    }
+}
+
+fn walk_block(_ b: Block, _ out: List<Suggestion>) -> Void {
+    for s in b.stmts {
+        walk_stmt(s, out);
+    }
+    match b.tail {
+        Some(e) => { walk_expr(e, out); },
+        None => {},
+    }
+}
+
+fn walk_stmt(_ s: Stmt, _ out: List<Suggestion>) -> Void {
+    match s {
+        Let(l) => {
+            push_opt(detect_match_to_let_else(l), out);
+            walk_expr(l.value, out);
+        },
+        Return(_, v) => { walk_opt_expr(v, out); },
+        Throw(_, e) => { walk_expr(e, out); },
+        Expr(_, e) => { walk_expr(e, out); },
+        Assign(_, target, value) => {
+            walk_expr(target, out);
+            walk_expr(value, out);
+        },
+        If(i) => {
+            walk_expr(i.condition, out);
+            walk_block(i.then_block, out);
+            walk_opt_block(i.else_block, out);
+        },
+        For(f) => {
+            walk_expr(f.iterable, out);
+            walk_block(f.body, out);
+        },
+        While(w) => {
+            push_opt(detect_while_index(w), out);
+            walk_expr(w.condition, out);
+            walk_block(w.body, out);
+        },
+    }
+}
+
+fn walk_expr(_ e: Expr, _ out: List<Suggestion>) -> Void {
+    match e {
+        Str(_, parts) => {
+            for part in parts {
+                match part {
+                    Interp(_, inner) => { walk_expr(inner, out); },
+                    Text(_, _) => {},
+                }
+            }
+        },
+        ListLit(_, items) => {
+            for item in items {
+                walk_expr(item, out);
+            }
+        },
+        MapLit(_, entries) => {
+            for entry in entries {
+                walk_expr(entry.key, out);
+                walk_expr(entry.value, out);
+            }
+        },
+        Struct(x) => {
+            for fi in x.fields {
+                walk_expr(fi.value, out);
+            }
+        },
+        Call(x) => {
+            walk_expr(x.callee, out);
+            for arg in x.args {
+                walk_expr(arg.value, out);
+            }
+        },
+        Field(_, obj, _) => { walk_expr(obj, out); },
+        Index(_, obj, idx) => {
+            walk_expr(obj, out);
+            walk_expr(idx, out);
+        },
+        Binary(_, l, _, r) => {
+            walk_expr(l, out);
+            walk_expr(r, out);
+        },
+        Unary(_, _, operand) => { walk_expr(operand, out); },
+        Propagate(_, inner) => { walk_expr(inner, out); },
+        Range(_, lo, hi) => {
+            walk_expr(lo, out);
+            walk_expr(hi, out);
+        },
+        Match(x) => {
+            push_opt(detect_match_to_if_let(x), out);
+            push_opt(detect_match_to_question(x), out);
+            push_opt(detect_match_to_unwrap_or(x), out);
+            push_opt(detect_match_to_map(x), out);
+            walk_expr(x.subject, out);
+            for arm in x.arms {
+                walk_expr(arm.body, out);
+            }
+        },
+        Lambda(x) => { walk_expr(x.body, out); },
+        Block(_, b) => { walk_block(b, out); },
+        If(x) => {
+            walk_expr(x.condition, out);
+            walk_block(x.then_block, out);
+            walk_opt_block(x.else_block, out);
+        },
+        Return(_, v) => { walk_opt_expr(v, out); },
+        Throw(_, inner) => { walk_expr(inner, out); },
+        Int(_, _) => {},
+        Float(_, _) => {},
+        Bool(_, _) => {},
+        Unit(_) => {},
+        Ident(_, _) => {},
+        Loc(_) => {},
+    }
+}
+
+fn walk_opt_expr(_ e: Option<Expr>, _ out: List<Suggestion>) -> Void {
+    match e {
+        Some(inner) => { walk_expr(inner, out); },
+        None => {},
+    }
+}
+
+fn walk_opt_block(_ b: Option<Block>, _ out: List<Suggestion>) -> Void {
+    match b {
+        Some(inner) => { walk_block(inner, out); },
+        None => {},
+    }
+}
