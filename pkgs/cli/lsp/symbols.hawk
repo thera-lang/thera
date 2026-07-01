@@ -102,9 +102,6 @@ fn make_symbol(_ name: String, _ kind: Int, _ is_pub: Bool, _ range_span: Source
     if is_pub {
         m['detail'] = json.str('pub');
     }
-    match children {
-        Some(c) => { m['children'] = json.arr(c); },
-        None => {},
-    }
+    if let Some(c) = children { m['children'] = json.arr(c); }
     return json.obj(m);
 }

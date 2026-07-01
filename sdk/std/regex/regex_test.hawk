@@ -33,9 +33,8 @@ fn test_find() -> Result<Void, Error> {
         None => { return Result.Err(error('expected a match')); },
     }
     // No match -> None.
-    match re.find('xyz') {
-        Some(_) => { return Result.Err(error('expected no match')); },
-        None => {},
+    if let Some(_) = re.find('xyz') {
+        return Result.Err(error('expected no match'));
     }
     return Result.Ok(void);
 }

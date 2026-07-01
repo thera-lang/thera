@@ -208,10 +208,7 @@ pub struct LibraryElement {
 
 // The namespaces visible in `file` — the import bindings of that file alone.
 pub fn namespaces_in(_ lib: LibraryElement, _ file: Option<String>) -> Map<String, LibraryNamespace> {
-    match lib.file_namespaces.get(file_key(file)) {
-        Some(m) => { return m; },
-        None => {},
-    }
+    if let Some(m) = lib.file_namespaces.get(file_key(file)) { return m; }
     // A file absent from the table (e.g. an in-process build with no closure) has
     // no namespaces — an empty map. (`{}` here as a bare arm would be a block, so
     // bind it with a type annotation to get a map literal.)

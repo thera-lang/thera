@@ -45,10 +45,7 @@ fn if_let_body_text(_ body: Expr) -> String {
 pub fn if_let_sites(_ p: Program) -> List<lint.IfLetMatch> {
     let out: List<lint.IfLetMatch> = [];
     for m in all_matches(p) {
-        match lint.match_if_let(m) {
-            Some(site) => { out.push(site); },
-            None => {},
-        }
+        if let Some(site) = lint.match_if_let(m) { out.push(site); }
     }
     return out;
 }
@@ -169,25 +166,16 @@ fn cm_decl(_ d: Decl, _ out: List<MatchExpr>) -> Void {
 
 fn cm_fn(_ f: FnDecl, _ out: List<MatchExpr>) -> Void {
     for p in f.params {
-        match p.default_value {
-            Some(e) => { cm_expr(e, out); },
-            None => {},
-        }
+        if let Some(e) = p.default_value { cm_expr(e, out); }
     }
-    match f.body {
-        Some(b) => { cm_block(b, out); },
-        None => {},
-    }
+    if let Some(b) = f.body { cm_block(b, out); }
 }
 
 fn cm_block(_ b: Block, _ out: List<MatchExpr>) -> Void {
     for s in b.stmts {
         cm_stmt(s, out);
     }
-    match b.tail {
-        Some(e) => { cm_expr(e, out); },
-        None => {},
-    }
+    if let Some(e) = b.tail { cm_expr(e, out); }
 }
 
 fn cm_stmt(_ s: Stmt, _ out: List<MatchExpr>) -> Void {
@@ -220,10 +208,7 @@ fn cm_expr(_ e: Expr, _ out: List<MatchExpr>) -> Void {
     match e {
         Str(_, parts) => {
             for part in parts {
-                match part {
-                    Interp(_, inner) => { cm_expr(inner, out); },
-                    Text(_, _) => {},
-                }
+                if let Interp(_, inner) = part { cm_expr(inner, out); }
             }
         },
         ListLit(_, items) => {
@@ -289,15 +274,9 @@ fn cm_expr(_ e: Expr, _ out: List<MatchExpr>) -> Void {
 }
 
 fn cm_opt_expr(_ e: Option<Expr>, _ out: List<MatchExpr>) -> Void {
-    match e {
-        Some(inner) => { cm_expr(inner, out); },
-        None => {},
-    }
+    if let Some(inner) = e { cm_expr(inner, out); }
 }
 
 fn cm_opt_block(_ b: Option<Block>, _ out: List<MatchExpr>) -> Void {
-    match b {
-        Some(inner) => { cm_block(inner, out); },
-        None => {},
-    }
+    if let Some(inner) = b { cm_block(inner, out); }
 }

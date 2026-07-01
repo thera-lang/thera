@@ -30,11 +30,8 @@ pub fn resolve_type_ref(_ ref: TypeRef, _ type_defs: Map<String, TypeDefElement>
 
 fn resolve_named(_ nt: NamedType, _ type_defs: Map<String, TypeDefElement>,
     _ type_params: Set<String>, _ self_type: Option<Type>) -> Type {
-    match primitive_type(nt.name) {
-        Some(p) => {
-            return p;
-        },
-        None => {},
+    if let Some(p) = primitive_type(nt.name) {
+        return p;
     }
     if nt.name == 'Self' {
         return self_type.unwrap_or(Type.Unknown);
@@ -114,16 +111,10 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
         if !file_owned.has(key) {
             file_owned[key] = Set.new();
         }
-        match file_owned.get(key) {
-            Some(owned) => {
-                for decl in p.decls {
-                    match top_decl_name(decl) {
-                        Some(n) => { owned.add(n); },
-                        None => {},
-                    }
-                }
-            },
-            None => {},
+        if let Some(owned) = file_owned.get(key) {
+            for decl in p.decls {
+                if let Some(n) = top_decl_name(decl) { owned.add(n); }
+            }
         }
     }
 
@@ -167,30 +158,24 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
             match decl {
                 Type(x) => {
                     let tps = type_param_set(x.type_params);
-                    match type_defs.get(x.name) {
-                        Some(element) => {
-                            for f in x.fields {
-                                element.fields[f.name] = resolve_type_ref(f.type_ann, type_defs, tps, Option.None);
-                                if f.is_mut {
-                                    element.mut_fields.add(f.name);
-                                }
+                    if let Some(element) = type_defs.get(x.name) {
+                        for f in x.fields {
+                            element.fields[f.name] = resolve_type_ref(f.type_ann, type_defs, tps, Option.None);
+                            if f.is_mut {
+                                element.mut_fields.add(f.name);
                             }
-                        },
-                        None => {},
+                        }
                     }
                 },
                 Enum(x) => {
                     let tps = type_param_set(x.type_params);
-                    match type_defs.get(x.name) {
-                        Some(element) => {
-                            for v in x.variants {
-                                element.variants.push(EnumVariantElement {
-                                    name: v.name,
-                                    fields: v.fields.map((f) => resolve_type_ref(f, type_defs, tps, Option.None)),
-                                });
-                            }
-                        },
-                        None => {},
+                    if let Some(element) = type_defs.get(x.name) {
+                        for v in x.variants {
+                            element.variants.push(EnumVariantElement {
+                                name: v.name,
+                                fields: v.fields.map((f) => resolve_type_ref(f, type_defs, tps, Option.None)),
+                            });
+                        }
                     }
                 },
                 Fn(x) => {
@@ -199,10 +184,7 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
                     if !file_functions.has(key) {
                         file_functions[key] = {};
                     }
-                    match file_functions.get(key) {
-                        Some(m) => { m[x.name] = element; },
-                        None => {},
-                    }
+                    if let Some(m) = file_functions.get(key) { m[x.name] = element; }
                 },
                 Const(x) => {
                     record_file_const(file_consts, p.file_path, x.name, ConstElement {
@@ -224,23 +206,20 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
                     resolve_impl(x, type_defs);
                 },
                 Interface(x) => {
-                    match type_defs.get(x.name) {
-                        Some(element) => {
-                            for s in x.super_interfaces {
-                                element.super_interfaces.push(s);
+                    if let Some(element) = type_defs.get(x.name) {
+                        for s in x.super_interfaces {
+                            element.super_interfaces.push(s);
+                        }
+                        let tps = type_param_set(x.type_params);
+                        let self_type = Type.Interface(x.name,
+                            x.type_params.map((tp) => Type.TypeParameter(tp.name)));
+                        for m in x.methods {
+                            element.own_methods.push(m.name);
+                            if m.body.is_some() {
+                                element.default_methods.push(m.name);
                             }
-                            let tps = type_param_set(x.type_params);
-                            let self_type = Type.Interface(x.name,
-                                x.type_params.map((tp) => Type.TypeParameter(tp.name)));
-                            for m in x.methods {
-                                element.own_methods.push(m.name);
-                                if m.body.is_some() {
-                                    element.default_methods.push(m.name);
-                                }
-                                element.methods.push(method_element(m, x.name, type_defs, tps, Option.Some(self_type)));
-                            }
-                        },
-                        None => {},
+                            element.methods.push(method_element(m, x.name, type_defs, tps, Option.Some(self_type)));
+                        }
                     }
                 },
                 Import(x) => {},
@@ -266,28 +245,25 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
                 qi = qi + 1;
                 if super_name != def.name && !closure.has(super_name) {
                     closure.add(super_name);
-                    match type_defs.get(super_name) {
-                        Some(super_def) => {
-                            if super_def.kind == TypeDefKind.Interface {
-                                for s in super_def.super_interfaces {
-                                    queue.push(s);
-                                }
-                                for m in super_def.methods {
-                                    match find_method(def, m.name) {
-                                        Some(_) => {},
-                                        None => {
-                                            def.methods.push(m);
-                                            // A defaulted super method stays
-                                            // defaulted in the sub-interface.
-                                            if is_default_method(super_def, m.name) {
-                                                def.default_methods.push(m.name);
-                                            }
-                                        },
-                                    }
+                    if let Some(super_def) = type_defs.get(super_name) {
+                        if super_def.kind == TypeDefKind.Interface {
+                            for s in super_def.super_interfaces {
+                                queue.push(s);
+                            }
+                            for m in super_def.methods {
+                                match find_method(def, m.name) {
+                                    Some(_) => {},
+                                    None => {
+                                        def.methods.push(m);
+                                        // A defaulted super method stays
+                                        // defaulted in the sub-interface.
+                                        if is_default_method(super_def, m.name) {
+                                            def.default_methods.push(m.name);
+                                        }
+                                    },
                                 }
                             }
-                        },
-                        None => {},
+                        }
                     }
                 }
             }
@@ -316,10 +292,7 @@ fn record_file_type(_ tbl: Map<String, Map<String, TypeDefElement>>, _ file: Opt
     if !tbl.has(key) {
         tbl[key] = {};
     }
-    match tbl.get(key) {
-        Some(m) => { m[name] = el; },
-        None => {},
-    }
+    if let Some(m) = tbl.get(key) { m[name] = el; }
 }
 
 fn record_file_const(_ tbl: Map<String, Map<String, ConstElement>>, _ file: Option<String>,
@@ -328,10 +301,7 @@ fn record_file_const(_ tbl: Map<String, Map<String, ConstElement>>, _ file: Opti
     if !tbl.has(key) {
         tbl[key] = {};
     }
-    match tbl.get(key) {
-        Some(m) => { m[name] = el; },
-        None => {},
-    }
+    if let Some(m) = tbl.get(key) { m[name] = el; }
 }
 
 // The top-level name a declaration introduces into its file's scope, or None for
@@ -350,34 +320,28 @@ fn top_decl_name(_ decl: Decl) -> Option<String> {
 }
 
 fn resolve_impl(_ decl: ImplDecl, _ type_defs: Map<String, TypeDefElement>) -> Void {
-    match type_defs.get(decl.type_name) {
-        None => {}, // unknown target type; the checker reports it
-        Some(owner) => {
-            let impl_params = type_param_set(decl.type_params);
-            // For an `impl Int`/`String`/… the receiver's type is the primitive
-            // itself, not an interface wrapper.
-            let self_type = match primitive_type(decl.type_name) {
-                Some(p) => p,
-                None => Type.Interface(decl.type_name,
-                    decl.type_params.map((tp) => Type.TypeParameter(tp.name))),
-            };
-            match decl.interface_name {
-                Some(iface) => {
-                    if !implements_interface(owner, iface) {
-                        owner.interfaces.push(iface);
-                    }
-                    // Record the conformance's resolved type arguments, so a
-                    // default method called on a concrete receiver can bind the
-                    // interface's type parameters (`impl Iterator<Int>` -> [Int]).
-                    owner.interface_args[iface] = decl.interface_args.map((a) =>
-                        resolve_type_ref(a, type_defs, impl_params, Option.Some(self_type)));
-                },
-                None => {},
+    if let Some(owner) = type_defs.get(decl.type_name) {
+        let impl_params = type_param_set(decl.type_params);
+        // For an `impl Int`/`String`/… the receiver's type is the primitive
+        // itself, not an interface wrapper.
+        let self_type = match primitive_type(decl.type_name) {
+            Some(p) => p,
+            None => Type.Interface(decl.type_name,
+                decl.type_params.map((tp) => Type.TypeParameter(tp.name))),
+        };
+        if let Some(iface) = decl.interface_name {
+            if !implements_interface(owner, iface) {
+                owner.interfaces.push(iface);
             }
-            for m in decl.methods {
-                owner.methods.push(method_element(m, decl.type_name, type_defs, impl_params, Option.Some(self_type)));
-            }
-        },
+            // Record the conformance's resolved type arguments, so a
+            // default method called on a concrete receiver can bind the
+            // interface's type parameters (`impl Iterator<Int>` -> [Int]).
+            owner.interface_args[iface] = decl.interface_args.map((a) =>
+                resolve_type_ref(a, type_defs, impl_params, Option.Some(self_type)));
+        }
+        for m in decl.methods {
+            owner.methods.push(method_element(m, decl.type_name, type_defs, impl_params, Option.Some(self_type)));
+        }
     }
 }
 

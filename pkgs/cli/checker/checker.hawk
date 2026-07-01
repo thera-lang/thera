@@ -110,10 +110,7 @@ fn is_manifest_const(_ e: Expr) -> Bool {
 // concatenation at each inlined use site.
 fn manifest_string(_ parts: List<StringPart>) -> Bool {
     for p in parts {
-        match p {
-            Interp(_, _) => { return false; },
-            Text(_, _) => {},
-        }
+        if let Interp(_, _) = p { return false; }
     }
     return true;
 }
@@ -136,23 +133,17 @@ fn add_name(_ m: Map<String, List<NameSite>>, _ name: String, _ site: NameSite) 
     if !m.has(name) {
         m[name] = [];
     }
-    match m.get(name) {
-        Some(list) => { list.push(site); },
-        None => {},
-    }
+    if let Some(list) = m.get(name) { list.push(site); }
 }
 
 // Report each primary-file definition that collides with another definition of
 // the same name (in the same name space).
 fn report_dups(_ errors: List<CheckError>, _ m: Map<String, List<NameSite>>, _ kind: String) -> Void {
     for name in m.keys() {
-        match m.get(name) {
-            Some(sites) => {
-                if sites.len() >= 2 {
-                    report_name(errors, name, kind, sites);
-                }
-            },
-            None => {},
+        if let Some(sites) = m.get(name) {
+            if sites.len() >= 2 {
+                report_name(errors, name, kind, sites);
+            }
         }
     }
 }
@@ -221,17 +212,11 @@ fn check_program(_ errors: List<CheckError>, _ program: Program, _ library: Libr
                 for m in x.methods {
                     check_fn(errors, m, library, Option.Some(self_type), type_params, file);
                 }
-                match x.interface_name {
-                    Some(_) => { check_conformance(errors, x, library); },
-                    None => {},
-                }
+                if let Some(_) = x.interface_name { check_conformance(errors, x, library); }
             },
             Interface(x) => { check_interface_decl(errors, x, library, file); },
             Const(x) => {
-                match x.type_ann {
-                    Some(ref) => { check_type_ref(errors, ref, library, file, Set.new()); },
-                    None => {},
-                }
+                if let Some(ref) = x.type_ann { check_type_ref(errors, ref, library, file, Set.new()); }
                 let ctx = new_ctx(library);
                 ctx.current_file = file;
                 check_expr(errors, x.value, empty_scope(), ctx, Option.None);
@@ -251,10 +236,7 @@ fn check_program(_ errors: List<CheckError>, _ program: Program, _ library: Libr
                 // Module-level `let` (computed-once global; docs/module_init.md).
                 // Type-checked like a `const` initializer — unlike `const`, the
                 // initializer may be computed (it runs once at load, not inlined).
-                match x.type_ann {
-                    Some(ref) => { check_type_ref(errors, ref, library, file, Set.new()); },
-                    None => {},
-                }
+                if let Some(ref) = x.type_ann { check_type_ref(errors, ref, library, file, Set.new()); }
                 let ctx = new_ctx(library);
                 ctx.current_file = file;
                 check_expr(errors, x.value, empty_scope(), ctx, Option.None);
@@ -307,10 +289,7 @@ fn check_fn(_ errors: List<CheckError>, _ fn_decl: FnDecl, _ library: LibraryEle
             let muts: Map<String, Bool> = {};
             for p in fn_decl.params {
                 if p.is_self {
-                    match self_type {
-                        Some(st) => { scope['self'] = st; },
-                        None => {},
-                    }
+                    if let Some(st) = self_type { scope['self'] = st; }
                 } else {
                     scope[p.name] = resolver.resolve_opt(p.type_ann, library.type_defs, type_params, self_type);
                     muts[p.name] = false;
@@ -324,15 +303,9 @@ fn check_fn(_ errors: List<CheckError>, _ fn_decl: FnDecl, _ library: LibraryEle
 fn check_fn_sig(_ errors: List<CheckError>, _ fn_decl: FnDecl,
     _ library: LibraryElement, _ current_file: Option<String>, _ type_params: Set<String>) -> Void {
     for p in fn_decl.params {
-        match p.type_ann {
-            Some(ref) => { check_type_ref(errors, ref, library, current_file, type_params); },
-            None => {},
-        }
+        if let Some(ref) = p.type_ann { check_type_ref(errors, ref, library, current_file, type_params); }
     }
-    match fn_decl.return_type {
-        Some(ref) => { check_type_ref(errors, ref, library, current_file, type_params); },
-        None => {},
-    }
+    if let Some(ref) = fn_decl.return_type { check_type_ref(errors, ref, library, current_file, type_params); }
 }
 
 // ---- interface declaration / conformance ----
@@ -361,22 +334,16 @@ fn check_interface_decl(_ errors: List<CheckError>, _ decl: InterfaceDecl, _ lib
 // Whether interface `name` participates in a mutual/longer inheritance cycle —
 // reachable as a super of one of its own (transitive) supers.
 fn extends_cycle(_ name: String, _ library: LibraryElement) -> Bool {
-    match library.type_defs.get(name) {
-        Some(start) => {
-            if start.kind == TypeDefKind.Interface {
-                for s in start.super_interfaces {
-                    match library.type_defs.get(s) {
-                        Some(sd) => {
-                            if sd.kind == TypeDefKind.Interface && str_list_has(sd.super_interfaces, name) {
-                                return true;
-                            };
-                        },
-                        None => {},
-                    }
+    if let Some(start) = library.type_defs.get(name) {
+        if start.kind == TypeDefKind.Interface {
+            for s in start.super_interfaces {
+                if let Some(sd) = library.type_defs.get(s) {
+                    if sd.kind == TypeDefKind.Interface && str_list_has(sd.super_interfaces, name) {
+                        return true;
+                    };
                 }
-            };
-        },
-        None => {},
+            }
+        };
     }
     return false;
 }
@@ -438,15 +405,12 @@ fn check_conformance(_ errors: List<CheckError>, _ decl: ImplDecl, _ library: Li
                     } else {
                         // Provided — possibly an override of a default. Either
                         // way its signature must match the interface's.
-                        match find_method(owner, im.name) {
-                            Some(om) => {
-                                if !signatures_match(im, om, self_type, impl_type, iface_bindings, library.type_defs) {
-                                    add_error(errors,
-                                        'method \'${im.name}\' does not match its declaration in interface \'${iface_name}\'',
-                                        decl.name_span);
-                                };
-                            },
-                            None => {},
+                        if let Some(om) = find_method(owner, im.name) {
+                            if !signatures_match(im, om, self_type, impl_type, iface_bindings, library.type_defs) {
+                                add_error(errors,
+                                    'method \'${im.name}\' does not match its declaration in interface \'${iface_name}\'',
+                                    decl.name_span);
+                            };
                         }
                     }
                 }
@@ -523,10 +487,7 @@ fn type_matches(_ a: Type, _ b: Type) -> Bool {
 fn copy_muts(_ m: Map<String, Bool>) -> Map<String, Bool> {
     let out: Map<String, Bool> = {};
     for k in m.keys() {
-        match m.get(k) {
-            Some(v) => { out[k] = v; },
-            None => {},
-        }
+        if let Some(v) = m.get(k) { out[k] = v; }
     }
     return out;
 }
@@ -542,28 +503,22 @@ fn check_block(_ errors: List<CheckError>, _ block: Block, _ outer: Map<String, 
         check_stmt(errors, block.stmts[i], block.stmts, i, scope, ctx, block_muts);
         i = i + 1;
     }
-    match block.tail {
-        Some(tail) => {
-            // An else-less `if` tail has type Unit (its then-branch runs for
-            // effect). That's only an error when the then-branch actually
-            // produces a value the missing `else` couldn't supply; a
-            // side-effecting `if cond { … }` whose block is Unit is a fine tail.
-            match tail {
-                If(ix) => {
-                    match ix.else_block {
-                        None => {
-                            if produces_value(infer_block(ix.then_block, scope, ctx, Option.None)) {
-                                add_error(errors, 'an `if` used as a value needs an `else` branch', ix.span);
-                            };
-                        },
-                        Some(_) => {},
-                    }
+    if let Some(tail) = block.tail {
+        // An else-less `if` tail has type Unit (its then-branch runs for
+        // effect). That's only an error when the then-branch actually
+        // produces a value the missing `else` couldn't supply; a
+        // side-effecting `if cond { … }` whose block is Unit is a fine tail.
+        if let If(ix) = tail {
+            match ix.else_block {
+                None => {
+                    if produces_value(infer_block(ix.then_block, scope, ctx, Option.None)) {
+                        add_error(errors, 'an `if` used as a value needs an `else` branch', ix.span);
+                    };
                 },
-                _ => {},
+                Some(_) => {},
             }
-            check_expr(errors, tail, scope, ctx, Option.None);
-        },
-        None => {},
+        }
+        check_expr(errors, tail, scope, ctx, Option.None);
     }
 }
 
@@ -571,10 +526,7 @@ fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ stmts: List<Stmt>, _ i
     _ scope: Map<String, Type>, _ ctx: InferCtx, _ muts: Map<String, Bool>) -> Void {
     match stmt {
         Let(x) => {
-            match x.type_ann {
-                Some(ref) => { check_type_ref(errors, ref, ctx.library, ctx.current_file, ctx.type_params); },
-                None => {},
-            }
+            if let Some(ref) = x.type_ann { check_type_ref(errors, ref, ctx.library, ctx.current_file, ctx.type_params); }
             let annotated = match x.type_ann {
                 Some(ref) => Option.Some(
                     resolver.resolve_type_ref(ref, ctx.library.type_defs, ctx.type_params, ctx.self_type)),
@@ -589,21 +541,12 @@ fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ stmts: List<Stmt>, _ i
                 None => refine_binding_type(x.name, actual, stmts, index + 1, scope, ctx),
             };
             muts[x.name] = x.is_mut;
-            match annotated {
-                Some(a) => { expect_type(errors, actual, a, 'binding \'${x.name}\'', x.span, ctx.library.type_defs); },
-                None => {},
-            }
+            if let Some(a) = annotated { expect_type(errors, actual, a, 'binding \'${x.name}\'', x.span, ctx.library.type_defs); }
         },
         Return(span, value) => {
-            match value {
-                Some(v) => {
-                    check_expr(errors, v, scope, ctx, ctx.return_type);
-                    match ctx.return_type {
-                        Some(rt) => { check_return(errors, v, rt, span, scope, ctx); },
-                        None => {},
-                    }
-                },
-                None => {},
+            if let Some(v) = value {
+                check_expr(errors, v, scope, ctx, ctx.return_type);
+                if let Some(rt) = ctx.return_type { check_return(errors, v, rt, span, scope, ctx); }
             }
         },
         Assign(_, target, value) => {
@@ -615,13 +558,10 @@ fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ stmts: List<Stmt>, _ i
             // binding, so it is not checked here.
             match target {
                 Ident(ispan, name) => {
-                    match muts.get(name) {
-                        Some(is_mut) => {
-                            if !is_mut {
-                                add_error(errors, 'cannot assign to `${name}`: it is not declared `mut`', ispan);
-                            }
-                        },
-                        None => {},
+                    if let Some(is_mut) = muts.get(name) {
+                        if !is_mut {
+                            add_error(errors, 'cannot assign to `${name}`: it is not declared `mut`', ispan);
+                        }
                     }
                 },
                 Field(fspan, obj, field) => {
@@ -652,10 +592,7 @@ fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ stmts: List<Stmt>, _ i
             check_expr(errors, x.condition, scope, ctx, Option.None);
             check_condition(errors, x.condition, scope, ctx);
             check_block(errors, x.then_block, scope, ctx, muts);
-            match x.else_block {
-                Some(eb) => { check_block(errors, eb, scope, ctx, muts); },
-                None => {},
-            }
+            if let Some(eb) = x.else_block { check_block(errors, eb, scope, ctx, muts); }
         },
         For(x) => {
             check_expr(errors, x.iterable, scope, ctx, Option.None);
@@ -715,12 +652,9 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
             }
             match x.callee {
                 Ident(_, name) => {
-                    match file_scope(ctx.library, ctx.current_file).resolve_function(name) {
-                        Some(fn_el) => {
-                            check_call_args(errors, fn_el, {}, x.args, x.span, scope, ctx);
-                            check_inferable_type_args(errors, fn_el, fn_el.type_parameters, x, expected, scope, ctx);
-                        },
-                        None => {},
+                    if let Some(fn_el) = file_scope(ctx.library, ctx.current_file).resolve_function(name) {
+                        check_call_args(errors, fn_el, {}, x.args, x.span, scope, ctx);
+                        check_inferable_type_args(errors, fn_el, fn_el.type_parameters, x, expected, scope, ctx);
                     }
                 },
                 Field(_, recv, field) => {
@@ -743,11 +677,8 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
                             } else {
                                 // The method resolved — validate its arguments
                                 // (arity, labels, types) against the signature.
-                                match resolve_method(recv_type, field, ctx) {
-                                    Some(res) => {
-                                        check_call_args(errors, res.method, res.bindings, x.args, x.span, scope, ctx);
-                                    },
-                                    None => {},
+                                if let Some(res) = resolve_method(recv_type, field, ctx) {
+                                    check_call_args(errors, res.method, res.bindings, x.args, x.span, scope, ctx);
                                 }
                             };
                         },
@@ -775,11 +706,8 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
                         // primitives have methods, not fields. A method call like
                         // `5.to_double()` is a `Call` (handled above), not this
                         // bare-Field case, so it is unaffected.
-                        match recv {
-                            Primitive(_) => {
-                                add_error(errors, 'field access on a non-struct value: ${type_to_string(recv)} has no field "${field}"', span);
-                            },
-                            _ => {},
+                        if let Primitive(_) = recv {
+                            add_error(errors, 'field access on a non-struct value: ${type_to_string(recv)} has no field "${field}"', span);
                         }
                     };
                 },
@@ -790,11 +718,8 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
             check_expr(errors, index, scope, ctx, Option.None);
             // A String is UTF-8 and not integer-indexable (it could split a
             // multi-byte character). Reject `s[i]` at check, not only at codegen.
-            match infer_expr(object, scope, ctx, Option.None) {
-                Primitive(Str) => {
-                    add_error(errors, 'indexing on String is not supported (use `.chars()` or `.graphemes()`)', span);
-                },
-                _ => {},
+            if let Primitive(Str) = infer_expr(object, scope, ctx, Option.None) {
+                add_error(errors, 'indexing on String is not supported (use `.chars()` or `.graphemes()`)', span);
             }
         },
         Binary(_, left, _, right) => {
@@ -841,10 +766,7 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
                         // Enforce the struct's own parameter bounds against the type
                         // arguments inferred from the fields (`Box<T: Display>` built
                         // with a non-Display field value is rejected here).
-                        match infer_expr(expr, scope, ctx, expected) {
-                            Interface(_, args) => { check_type_arg_bounds(errors, element, args, x.span, ctx.library); },
-                            _ => {},
-                        }
+                        if let Interface(_, args) = infer_expr(expr, scope, ctx, expected) { check_type_arg_bounds(errors, element, args, x.span, ctx.library); }
                     } else {
                         for fi in x.fields {
                             check_expr(errors, fi.value, scope, ctx, Option.None);
@@ -860,15 +782,12 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
         },
         Str(_, parts) => {
             for part in parts {
-                match part {
-                    Interp(_, e) => {
-                        // Total rendering: interpolation works for any value —
-                        // its `Display` if it has one, else the auto-derived
-                        // `Debug` (which every type carries). So no Display
-                        // requirement here; just check the interpolated expression.
-                        check_expr(errors, e, scope, ctx, Option.None);
-                    },
-                    Text(_, _) => {},
+                if let Interp(_, e) = part {
+                    // Total rendering: interpolation works for any value —
+                    // its `Display` if it has one, else the auto-derived
+                    // `Debug` (which every type carries). So no Display
+                    // requirement here; just check the interpolated expression.
+                    check_expr(errors, e, scope, ctx, Option.None);
                 }
             }
         },
@@ -888,21 +807,12 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
             check_expr(errors, x.condition, scope, ctx, Option.None);
             check_condition(errors, x.condition, scope, ctx);
             check_block(errors, x.then_block, scope, ctx, {});
-            match x.else_block {
-                Some(eb) => { check_block(errors, eb, scope, ctx, {}); },
-                None => {},
-            }
+            if let Some(eb) = x.else_block { check_block(errors, eb, scope, ctx, {}); }
         },
         Return(span, value) => {
-            match value {
-                Some(v) => {
-                    check_expr(errors, v, scope, ctx, ctx.return_type);
-                    match ctx.return_type {
-                        Some(rt) => { check_return(errors, v, rt, span, scope, ctx); },
-                        None => {},
-                    }
-                },
-                None => {},
+            if let Some(v) = value {
+                check_expr(errors, v, scope, ctx, ctx.return_type);
+                if let Some(rt) = ctx.return_type { check_return(errors, v, rt, span, scope, ctx); }
             }
         },
         Throw(_, value) => {
@@ -1018,20 +928,14 @@ fn check_call_args(_ errors: List<CheckError>, _ fn_el: FunctionElement,
     // Every named argument label must be a declared parameter label.
     let valid_labels: Set<String> = Set.new();
     for p in params {
-        match p.label {
-            Some(l) => { valid_labels.add(l); },
-            None => {},
-        }
+        if let Some(l) = p.label { valid_labels.add(l); }
     }
     for arg in args {
-        match arg.label {
-            Some(l) => {
-                if !valid_labels.has(l) {
-                    add_error(errors, 'unknown argument label "${l}" for "${fn_el.name}"', span);
-                    return;
-                };
-            },
-            None => {},
+        if let Some(l) = arg.label {
+            if !valid_labels.has(l) {
+                add_error(errors, 'unknown argument label "${l}" for "${fn_el.name}"', span);
+                return;
+            };
         }
     }
 
@@ -1059,16 +963,13 @@ fn check_call_args(_ errors: List<CheckError>, _ fn_el: FunctionElement,
             Some(l) => param_by_label(params, l),
             None => if i < params.len() { Option.Some(params[i]) } else { Option.None },
         };
-        match param {
-            Some(p) => {
-                // Receiver generics make the parameter concrete (a method's `T`
-                // becomes the receiver's element); for a free function `bindings`
-                // is empty and this is a no-op.
-                let pty = substitute(p.ty, bindings);
-                let actual = infer_expr(arg.value, scope, ctx, Option.Some(pty));
-                expect_type(errors, actual, pty, 'argument to "${fn_el.name}"', span, ctx.library.type_defs);
-            },
-            None => {},
+        if let Some(p) = param {
+            // Receiver generics make the parameter concrete (a method's `T`
+            // becomes the receiver's element); for a free function `bindings`
+            // is empty and this is a no-op.
+            let pty = substitute(p.ty, bindings);
+            let actual = infer_expr(arg.value, scope, ctx, Option.Some(pty));
+            expect_type(errors, actual, pty, 'argument to "${fn_el.name}"', span, ctx.library.type_defs);
         }
         i = i + 1;
     }
@@ -1093,34 +994,27 @@ fn check_bounds(_ errors: List<CheckError>, _ fn_el: FunctionElement,
             Some(l) => param_by_label(params, l),
             None => if i < params.len() { Option.Some(params[i]) } else { Option.None },
         };
-        match param {
-            Some(p) => {
-                // Make receiver generics concrete first, so unification recovers
-                // only the callee's *own* type parameters (those carrying bounds).
-                let actual = infer_expr(args[i].value, scope, ctx, Option.None);
-                unify(substitute(p.ty, recv_bindings), actual, bindings);
-            },
-            None => {},
+        if let Some(p) = param {
+            // Make receiver generics concrete first, so unification recovers
+            // only the callee's *own* type parameters (those carrying bounds).
+            let actual = infer_expr(args[i].value, scope, ctx, Option.None);
+            unify(substitute(p.ty, recv_bindings), actual, bindings);
         }
         i = i + 1;
     }
     for tp in fn_el.type_parameter_bounds.keys() {
-        match bindings.get(tp) {
-            Some(arg) => {
-                match fn_el.type_parameter_bounds.get(tp) {
-                    Some(bounds) => {
-                        for bound in bounds {
-                            if !satisfies_bound(arg, bound, ctx.library.type_defs) {
-                                add_error(errors,
-                                    'type argument `${type_to_string(arg)}` for `${tp}` does not implement `${bound}` (required by "${fn_el.name}")',
-                                    span);
-                            }
-                        }
-                    },
-                    None => {},
+        if let Some(arg) = bindings.get(tp) {
+            if let Some(bounds) = fn_el.type_parameter_bounds.get(tp) {
+                for bound in bounds {
+                    if !satisfies_bound(arg, bound, ctx.library.type_defs) {
+                        add_error(
+                            errors,
+                            'type argument `${type_to_string(arg)}` for `${tp}` does not implement `${bound}` (required by "${fn_el.name}")',
+                            span
+                        );
+                    }
                 }
-            },
-            None => {}, // unconstrained here — nothing to check
+            }
         }
     }
 }
@@ -1144,19 +1038,13 @@ fn check_recv_type_args(_ errors: List<CheckError>, _ x: CallExpr, _ ctx: InferC
         },
         _ => Option.None,
     };
-    match tname {
-        Some(n) => match ctx.library.type_defs.get(n) {
-            Some(def) => {
-                if x.recv_type_args.len() != def.type_parameters.len() {
-                    add_error(errors, '`${n}` takes ${def.type_parameters.len()} type argument(s), but ${x.recv_type_args.len()} were given', x.span);
-                }
-                let arg_types = x.recv_type_args.map((a) => resolver.resolve_type_ref(a, ctx.library.type_defs, ctx.type_params, ctx.self_type));
-                check_type_arg_bounds(errors, def, arg_types, x.span, ctx.library);
-            },
-            None => {},
-        },
-        None => {},
-    }
+    if let Some(n) = tname { if let Some(def) = ctx.library.type_defs.get(n) {
+        if x.recv_type_args.len() != def.type_parameters.len() {
+            add_error(errors, '`${n}` takes ${def.type_parameters.len()} type argument(s), but ${x.recv_type_args.len()} were given', x.span);
+        }
+        let arg_types = x.recv_type_args.map((a) => resolver.resolve_type_ref(a, ctx.library.type_defs, ctx.type_params, ctx.self_type));
+        check_type_arg_bounds(errors, def, arg_types, x.span, ctx.library);
+    } }
 }
 
 // Diagnose a generic call whose type can't be inferred: a callee type parameter
@@ -1223,17 +1111,14 @@ fn check_type_arg_bounds(_ errors: List<CheckError>, _ def: TypeDefElement,
     let params = def.type_parameters;
     let mut i = 0;
     while i < args.len() && i < params.len() {
-        match def.type_parameter_bounds.get(params[i]) {
-            Some(bounds) => {
-                for b in bounds {
-                    if !satisfies_bound(args[i], b, library.type_defs) {
-                        add_error(errors,
-                            'type argument `${type_to_string(args[i])}` for `${params[i]}` does not implement `${b}` (required by `${def.name}`)',
-                            span);
-                    }
+        if let Some(bounds) = def.type_parameter_bounds.get(params[i]) {
+            for b in bounds {
+                if !satisfies_bound(args[i], b, library.type_defs) {
+                    add_error(errors,
+                        'type argument `${type_to_string(args[i])}` for `${params[i]}` does not implement `${b}` (required by `${def.name}`)',
+                        span);
                 }
-            },
-            None => {},
+            }
         }
         i = i + 1;
     }
@@ -1263,18 +1148,12 @@ fn satisfies_bound(_ t: Type, _ bound: String, _ type_defs: Map<String, TypeDefE
         _ => {},
     }
     // An interface-typed value satisfies a bound it *is* or transitively extends.
-    match t {
-        Interface(name, _) => {
-            match type_defs.get(name) {
-                Some(def) => {
-                    if def.kind == TypeDefKind.Interface {
-                        return name == bound || str_list_has(def.super_interfaces, bound);
-                    };
-                },
-                None => {},
-            }
-        },
-        _ => {},
+    if let Interface(name, _) = t {
+        if let Some(def) = type_defs.get(name) {
+            if def.kind == TypeDefKind.Interface {
+                return name == bound || str_list_has(def.super_interfaces, bound);
+            };
+        }
     }
     if bound == 'Eq' || bound == 'Debug' {
         return true; // structural derive
@@ -1290,13 +1169,10 @@ fn satisfies_bound(_ t: Type, _ bound: String, _ type_defs: Map<String, TypeDefE
 
 fn param_by_label(_ params: List<ParameterElement>, _ label: String) -> Option<ParameterElement> {
     for p in params {
-        match p.label {
-            Some(l) => {
-                if l == label {
-                    return Option.Some(p);
-                };
-            },
-            None => {},
+        if let Some(l) = p.label {
+            if l == label {
+                return Option.Some(p);
+            };
         }
     }
     return Option.None;
@@ -1338,12 +1214,9 @@ fn check_type_ref(_ errors: List<CheckError>, _ type_ref: TypeRef,
         Named(nt) => {
             check_named_type(errors, nt.name, nt.namespace, nt.span, library, current_file, type_params);
             // The supplied arguments must satisfy the named type's parameter bounds.
-            match library.type_defs.get(nt.name) {
-                Some(def) => {
-                    let arg_types = nt.args.map((a) => resolver.resolve_type_ref(a, library.type_defs, type_params, Option.None));
-                    check_type_arg_bounds(errors, def, arg_types, nt.span, library);
-                },
-                None => {},
+            if let Some(def) = library.type_defs.get(nt.name) {
+                let arg_types = nt.args.map((a) => resolver.resolve_type_ref(a, library.type_defs, type_params, Option.None));
+                check_type_arg_bounds(errors, def, arg_types, nt.span, library);
             }
             for arg in nt.args {
                 check_type_ref(errors, arg, library, current_file, type_params);
@@ -1402,13 +1275,10 @@ fn check_return(_ errors: List<CheckError>, _ value: Expr, _ expected: Type,
     if is_assignable(actual, expected, ctx.library.type_defs) {
         return;
     }
-    match expected {
-        Interface(name, args) => {
-            if name == 'Result' && args.len() > 0 && is_assignable(actual, args[0], ctx.library.type_defs) {
-                return; // implicit Ok(value)
-            };
-        },
-        _ => {},
+    if let Interface(name, args) = expected {
+        if name == 'Result' && args.len() > 0 && is_assignable(actual, args[0], ctx.library.type_defs) {
+            return; // implicit Ok(value)
+        };
     }
     add_error(errors, 'return type mismatch: expected ${type_to_string(expected)}, found ${type_to_string(actual)}', span);
 }
@@ -1518,13 +1388,10 @@ fn qualifying_namespace(_ name: String, _ library: LibraryElement, _ current_fil
 // against a known surface; bare/undefined cases are handled by the gates).
 fn check_member_visible(_ errors: List<CheckError>, _ ns: String, _ member: String,
     _ span: SourceSpan, _ library: LibraryElement, _ current_file: Option<String>) -> Void {
-    match file_scope(library, current_file).namespace_surface(ns) {
-        Some(surface) => {
-            if !namespace_exposes(surface, member) {
-                add_error(errors, '`${member}` is not a public member of `${ns}`', span);
-            }
-        },
-        None => {},
+    if let Some(surface) = file_scope(library, current_file).namespace_surface(ns) {
+        if !namespace_exposes(surface, member) {
+            add_error(errors, '`${member}` is not a public member of `${ns}`', span);
+        }
     }
 }
 
@@ -1538,10 +1405,7 @@ fn check_qualified_receiver(_ errors: List<CheckError>, _ object: Expr, _ member
     match namespace_of_access(object, scope, ctx) {
         Some(ns) => { check_member_visible(errors, ns, member, span, ctx.library, ctx.current_file); },
         None => {
-            match object {
-                Field(fspan, inner, name) => { check_qualified_receiver(errors, inner, name, fspan, scope, ctx); },
-                _ => {},
-            }
+            if let Field(fspan, inner, name) = object { check_qualified_receiver(errors, inner, name, fspan, scope, ctx); }
         },
     }
 }

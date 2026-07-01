@@ -27,12 +27,9 @@ impl MsgBuffer {
     pub fn read_message(self, _ reader: io.Reader) -> Option<String> {
         let mut going = true;
         while going {
-            match extract_message(self.pending) {
-                Some(framed) => {
-                    self.pending = framed.rest;
-                    return Option.Some(framed.body);
-                },
-                None => {},
+            if let Some(framed) = extract_message(self.pending) {
+                self.pending = framed.rest;
+                return Option.Some(framed.body);
             }
             // Need more bytes before a full message is available.
             match reader.read(8192) {

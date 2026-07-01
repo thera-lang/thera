@@ -502,10 +502,7 @@ fn is_len_call(_ e: Expr) -> Bool {
 // traversal itself is rule-agnostic.
 
 fn push_opt(_ s: Option<Suggestion>, _ out: List<Suggestion>) -> Void {
-    match s {
-        Some(sug) => { out.push(sug); },
-        None => {},
-    }
+    if let Some(sug) = s { out.push(sug); }
 }
 
 fn walk_decl(_ d: Decl, _ out: List<Suggestion>) -> Void {
@@ -531,25 +528,16 @@ fn walk_decl(_ d: Decl, _ out: List<Suggestion>) -> Void {
 
 fn walk_fn(_ f: FnDecl, _ out: List<Suggestion>) -> Void {
     for p in f.params {
-        match p.default_value {
-            Some(e) => { walk_expr(e, out); },
-            None => {},
-        }
+        if let Some(e) = p.default_value { walk_expr(e, out); }
     }
-    match f.body {
-        Some(b) => { walk_block(b, out); },
-        None => {},
-    }
+    if let Some(b) = f.body { walk_block(b, out); }
 }
 
 fn walk_block(_ b: Block, _ out: List<Suggestion>) -> Void {
     for s in b.stmts {
         walk_stmt(s, out);
     }
-    match b.tail {
-        Some(e) => { walk_expr(e, out); },
-        None => {},
-    }
+    if let Some(e) = b.tail { walk_expr(e, out); }
 }
 
 fn walk_stmt(_ s: Stmt, _ out: List<Suggestion>) -> Void {
@@ -586,10 +574,7 @@ fn walk_expr(_ e: Expr, _ out: List<Suggestion>) -> Void {
     match e {
         Str(_, parts) => {
             for part in parts {
-                match part {
-                    Interp(_, inner) => { walk_expr(inner, out); },
-                    Text(_, _) => {},
-                }
+                if let Interp(_, inner) = part { walk_expr(inner, out); }
             }
         },
         ListLit(_, items) => {
@@ -658,15 +643,9 @@ fn walk_expr(_ e: Expr, _ out: List<Suggestion>) -> Void {
 }
 
 fn walk_opt_expr(_ e: Option<Expr>, _ out: List<Suggestion>) -> Void {
-    match e {
-        Some(inner) => { walk_expr(inner, out); },
-        None => {},
-    }
+    if let Some(inner) = e { walk_expr(inner, out); }
 }
 
 fn walk_opt_block(_ b: Option<Block>, _ out: List<Suggestion>) -> Void {
-    match b {
-        Some(inner) => { walk_block(inner, out); },
-        None => {},
-    }
+    if let Some(inner) = b { walk_block(inner, out); }
 }

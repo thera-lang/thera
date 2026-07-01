@@ -85,23 +85,11 @@ pub fn std_root(_ root: String) -> Option<String> {
 // invoked from. The current-directory walk is a fallback for a front-end whose
 // executable doesn't sit near an SDK.
 pub fn find_sdk_root() -> Option<String> {
-    match env.current_exe() {
-        Some(exe) => {
-            match walk_up_for_std(dirname(exe)) {
-                Some(root) => { return Option.Some(root); },
-                None => {},
-            }
-        },
-        None => {},
+    if let Some(exe) = env.current_exe() {
+        if let Some(root) = walk_up_for_std(dirname(exe)) { return Option.Some(root); }
     }
-    match env.current_dir() {
-        Ok(start) => {
-            match walk_up_for_std(start) {
-                Some(root) => { return Option.Some(root); },
-                None => {},
-            }
-        },
-        Err(_) => {},
+    if let Ok(start) = env.current_dir() {
+        if let Some(root) = walk_up_for_std(start) { return Option.Some(root); }
     }
     return Option.None;
 }
@@ -113,10 +101,7 @@ fn walk_up_for_std(_ start: String) -> Option<String> {
     let mut dir = start;
     let mut i = 0;
     while i < 12 {
-        match std_root(dir) {
-            Some(_) => { return Option.Some(dir); },
-            None => {},
-        }
+        if let Some(_) = std_root(dir) { return Option.Some(dir); }
         let parent = dirname(dir);
         if parent == '' || parent == dir {
             return Option.None;
@@ -241,10 +226,7 @@ impl Loader {
     // before recursing (to terminate cycles); each program is added to the flat
     // list exactly once.
     fn source_for(self, _ file: String) -> Option<LibrarySource> {
-        match self.cache.get(file) {
-            Some(cached) => { return Option.Some(cached); },
-            None => {},
-        }
+        if let Some(cached) = self.cache.get(file) { return Option.Some(cached); }
         // Parse best-effort: even a file with lex/parse errors yields a recovered
         // program that we still link (its good decls resolve) — and its diagnostics
         // are collected here so the importer surfaces them attributed to this file,
@@ -268,10 +250,7 @@ impl Loader {
     // closures (the prelude) is lexed+parsed once per run. A cache miss parses and
     // stores; the cached `ParsedFile` is reused as-is (the AST is immutable).
     fn parsed_file(self, _ file: String) -> Option<ParsedFile> {
-        match self.parse_cache.get(file) {
-            Some(cached) => { return Option.Some(cached); },
-            None => {},
-        }
+        if let Some(cached) = self.parse_cache.get(file) { return Option.Some(cached); }
         match parse_file(file) {
             Some(pf) => {
                 self.parse_cache[file] = pf;
@@ -285,19 +264,10 @@ impl Loader {
     // import path on `into`.
     fn link_imports(self, _ prog: Program, _ base_dir: String, _ into: LibrarySource) -> Void {
         for decl in prog.decls {
-            match decl {
-                Import(x) => {
-                    match self.resolve(x.path, base_dir) {
-                        Some(file) => {
-                            match self.source_for(file) {
-                                Some(child) => { into.imports[x.path] = child; },
-                                None => {},
-                            }
-                        },
-                        None => {},
-                    }
-                },
-                _ => {},
+            if let Import(x) = decl {
+                if let Some(file) = self.resolve(x.path, base_dir) {
+                    if let Some(child) = self.source_for(file) { into.imports[x.path] = child; }
+                }
             }
         }
     }
@@ -322,23 +292,17 @@ pub fn load_imports(_ path: String, _ program: Program, _ sdk_root: Option<Strin
     // the barrel — a prelude name re-exported from a std.core sub-file (e.g. `error`
     // in core/error.hawk) owns to that sub-file, where its element lives.
     let core_names: Map<String, String> = {};
-    match loader.resolve('std.core', '') {
-        Some(core) => {
-            match loader.source_for(core) {
-                Some(core_src) => {
-                    let core_surface = public_surface_of(core_src);
-                    let core_key = element.file_key(core_src.program.file_path);
-                    for n in core_surface.names.to_list() {
-                        core_names[n] = match core_surface.origin.get(n) {
-                            Some(owner) => owner,
-                            None => core_key,
-                        };
-                    }
-                },
-                None => {},
+    if let Some(core) = loader.resolve('std.core', '') {
+        if let Some(core_src) = loader.source_for(core) {
+            let core_surface = public_surface_of(core_src);
+            let core_key = element.file_key(core_src.program.file_path);
+            for n in core_surface.names.to_list() {
+                core_names[n] = match core_surface.origin.get(n) {
+                    Some(owner) => owner,
+                    None => core_key,
+                };
             }
-        },
-        None => {},
+        }
     }
 
     // The primary program is already parsed; link its imports so its namespaces
@@ -381,39 +345,30 @@ fn bare_surface_for(_ root: LibrarySource, _ core_names: Map<String, String>) ->
     }
     let test_base = test_base_name(root.program.file_path);
     for decl in root.program.decls {
-        match decl {
-            Import(x) => {
-                match root.imports.get(x.path) {
-                    Some(child) => {
-                        let child_key = element.file_key(child.program.file_path);
-                        if x.unqualified {
-                            // Use each name's declaring file (a barrel imported `as _`
-                            // re-exports from its sub-files), not the barrel itself.
-                            let surf = public_surface_of(child);
-                            for n in surf.names.to_list() {
-                                names[n] = match surf.origin.get(n) {
-                                    Some(owner) => owner,
-                                    None => child_key,
-                                };
-                            }
-                        }
-                        // White-box: `foo_test.hawk` sees `foo.hawk`'s private
-                        // top-level names bare, in addition to its public surface.
-                        match test_base {
-                            Some(base) => {
-                                if basename_no_ext(child.program.file_path) == base {
-                                    for n in all_top_names(child).to_list() {
-                                        names[n] = child_key;
-                                    }
-                                }
-                            },
-                            None => {},
-                        }
-                    },
-                    None => {},
+        if let Import(x) = decl {
+            if let Some(child) = root.imports.get(x.path) {
+                let child_key = element.file_key(child.program.file_path);
+                if x.unqualified {
+                    // Use each name's declaring file (a barrel imported `as _`
+                    // re-exports from its sub-files), not the barrel itself.
+                    let surf = public_surface_of(child);
+                    for n in surf.names.to_list() {
+                        names[n] = match surf.origin.get(n) {
+                            Some(owner) => owner,
+                            None => child_key,
+                        };
+                    }
                 }
-            },
-            _ => {},
+                // White-box: `foo_test.hawk` sees `foo.hawk`'s private
+                // top-level names bare, in addition to its public surface.
+                if let Some(base) = test_base {
+                    if basename_no_ext(child.program.file_path) == base {
+                        for n in all_top_names(child).to_list() {
+                            names[n] = child_key;
+                        }
+                    }
+                }
+            }
         }
     }
     return names;
@@ -449,10 +404,7 @@ fn basename_no_ext(_ file: Option<String>) -> String {
 fn all_top_names(_ source: LibrarySource) -> Set<String> {
     let names: Set<String> = Set.new();
     for decl in source.program.decls {
-        match any_top_name(decl) {
-            Some(n) => { names.add(n); },
-            None => {},
-        }
+        if let Some(n) = any_top_name(decl) { names.add(n); }
     }
     return names;
 }
@@ -479,14 +431,8 @@ fn any_top_name(_ decl: Decl) -> Option<String> {
 pub fn namespaces_for(_ root: LibrarySource) -> Map<String, element.LibraryNamespace> {
     let result: Map<String, element.LibraryNamespace> = {};
     for decl in root.program.decls {
-        match decl {
-            Import(x) => {
-                match root.imports.get(x.path) {
-                    Some(child) => { result[namespace_of(x)] = public_surface_of(child); },
-                    None => {},
-                }
-            },
-            _ => {},
+        if let Import(x) = decl {
+            if let Some(child) = root.imports.get(x.path) { result[namespace_of(x)] = public_surface_of(child); }
         }
     }
     return result;
@@ -515,32 +461,23 @@ fn collect_surface(_ source: LibrarySource, _ names: Set<String>, _ collisions: 
     }
     visited.add(key);
     for decl in source.program.decls {
-        match public_name(decl) {
-            Some(name) => {
-                if names.has(name) {
-                    collisions.add(name);
-                } else {
-                    names.add(name);
-                    // The declaring file owns this public name (a barrel re-export
-                    // owns to the re-exporting file via the recursion below). A later
-                    // collision keeps the first owner; `collisions` flags the clash.
-                    origin[name] = key;
-                }
-            },
-            None => {},
+        if let Some(name) = public_name(decl) {
+            if names.has(name) {
+                collisions.add(name);
+            } else {
+                names.add(name);
+                // The declaring file owns this public name (a barrel re-export
+                // owns to the re-exporting file via the recursion below). A later
+                // collision keeps the first owner; `collisions` flags the clash.
+                origin[name] = key;
+            }
         }
     }
     for decl in source.program.decls {
-        match decl {
-            Import(x) => {
-                if x.is_pub {
-                    match source.imports.get(x.path) {
-                        Some(child) => { collect_surface(child, names, collisions, origin, visited); },
-                        None => {},
-                    }
-                }
-            },
-            _ => {},
+        if let Import(x) = decl {
+            if x.is_pub {
+                if let Some(child) = source.imports.get(x.path) { collect_surface(child, names, collisions, origin, visited); }
+            }
         }
     }
 }

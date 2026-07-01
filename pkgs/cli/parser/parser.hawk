@@ -67,11 +67,8 @@ impl Parser {
     fn parse_program(self) -> ParseResult {
         let decls: List<Decl> = [];
         while !self.at_end() {
-            match self.parse_decl_or_recover() {
-                Some(d) => {
-                    decls.push(d);
-                },
-                None => {},
+            if let Some(d) = self.parse_decl_or_recover() {
+                decls.push(d);
             }
         }
         return ParseResult {
@@ -547,11 +544,8 @@ impl Parser {
             end = expr_span(dv);
             default_value = Option.Some(dv);
         } else {
-            match type_ann {
-                Some(t) => {
-                    end = type_span(t);
-                },
-                None => {},
+            if let Some(t) = type_ann {
+                end = type_span(t);
             }
         }
 
@@ -723,15 +717,12 @@ impl Parser {
                 }
             }
             args.push(ref);
-            match ref {
-                Named(nt) => {
-                    param_decls.push(TypeParam {
-                        span: type_span(ref).cover(end),
-                        name: nt.name,
-                        bounds: bounds,
-                    });
-                },
-                Function(_) => {}, // a function type is not a type-parameter name
+            if let Named(nt) = ref {
+                param_decls.push(TypeParam {
+                    span: type_span(ref).cover(end),
+                    name: nt.name,
+                    bounds: bounds,
+                });
             }
             if !self.match_kind(TokenKind.Comma) {
                 going = false;

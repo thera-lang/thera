@@ -25,11 +25,8 @@ pub fn handle_references(_ program: Program, _ imports: List<Program>, _ text: S
             for imp in imports {
                 let path = paths.program_path(imp);
                 if path != '' {
-                    match fs.read_text(path) {
-                        Ok(imp_text) => {
-                            find_in_text(path, imp_text, ref.name, locations);
-                        },
-                        Err(_) => {},
+                    if let Ok(imp_text) = fs.read_text(path) {
+                        find_in_text(path, imp_text, ref.name, locations);
                     }
                 }
             }

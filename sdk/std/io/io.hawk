@@ -243,9 +243,8 @@ fn index_of_lf(_ b: Bytes, _ from: Int) -> Option<Int> {
     let n = b.len();
     let mut i = from;
     while i < n {
-        match b.get(i) {
-            Some(c) => { if c == LF { return Option.Some(i); } },
-            None    => {},
+        if let Some(c) = b.get(i) {
+            if c == LF { return Option.Some(i); }
         }
         i = i + 1;
     }
@@ -256,9 +255,8 @@ fn index_of_lf(_ b: Bytes, _ from: Int) -> Option<Int> {
 fn strip_cr(_ b: Bytes) -> Bytes {
     let n = b.len();
     if n > 0 {
-        match b.get(n - 1) {
-            Some(c) => { if c == CR { return b.slice(0, n - 1); } },
-            None    => {},
+        if let Some(c) = b.get(n - 1) {
+            if c == CR { return b.slice(0, n - 1); }
         }
     }
     return b;

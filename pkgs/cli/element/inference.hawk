@@ -127,40 +127,28 @@ fn infer_map(_ entries: List<MapEntry>, _ scope: Map<String, Type>, _ ctx: Infer
 }
 
 fn infer_struct(_ x: StructExpr, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
-    match ctx_scope(ctx).resolve_type_def(x.type_name) {
-        Some(element) => {
-            if element.kind == TypeDefKind.Struct {
-                let bindings: Map<String, Type> = {};
-                for fi in x.fields {
-                    // The field's declared type is the expected type for its value.
-                    let declared = element.fields.get(fi.name);
-                    let value_type = infer_expr(fi.value, scope, ctx, declared);
-                    match declared {
-                        Some(d) => { unify(d, value_type, bindings); },
-                        None => {},
-                    }
-                }
-                let args = element.type_parameters.map((tp) => match bindings.get(tp) {
-                    Some(t) => t,
-                    None => Type.Unknown,
-                });
-                return Type.Interface(x.type_name, args);
-            };
-        },
-        None => {},
+    if let Some(element) = ctx_scope(ctx).resolve_type_def(x.type_name) {
+        if element.kind == TypeDefKind.Struct {
+            let bindings: Map<String, Type> = {};
+            for fi in x.fields {
+                // The field's declared type is the expected type for its value.
+                let declared = element.fields.get(fi.name);
+                let value_type = infer_expr(fi.value, scope, ctx, declared);
+                if let Some(d) = declared { unify(d, value_type, bindings); }
+            }
+            let args = element.type_parameters.map((tp) => match bindings.get(tp) {
+                Some(t) => t,
+                None => Type.Unknown,
+            });
+            return Type.Interface(x.type_name, args);
+        };
     }
     return Type.Unknown;
 }
 
 fn infer_ident(_ name: String, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
-    match scope.get(name) {
-        Some(t) => { return t; },
-        None => {},
-    }
-    match ctx_scope(ctx).resolve_const(name) {
-        Some(c) => { return c.ty; },
-        None => {},
-    }
+    if let Some(t) = scope.get(name) { return t; }
+    if let Some(c) = ctx_scope(ctx).resolve_const(name) { return c.ty; }
     return Type.Unknown;
 }
 
@@ -369,20 +357,14 @@ pub fn infer_block(_ block: Block, _ outer: Map<String, Type>, _ ctx: InferCtx,
 // directly, so inference skips it here. (No forward-flow context — used where a
 // statement is processed in isolation; block walkers use `infer_stmt_fwd`.)
 fn infer_stmt(_ stmt: Stmt, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Void {
-    match stmt {
-        Let(x) => { scope[x.name] = let_bound_type(x, [], 0, scope, ctx); },
-        _ => {},
-    }
+    if let Let(x) = stmt { scope[x.name] = let_bound_type(x, [], 0, scope, ctx); }
 }
 
 // As `infer_stmt`, but with the binding's block context (`stmts[index]` is this
 // statement) so a `let` can refine an underdetermined type by forward-flow.
 fn infer_stmt_fwd(_ stmt: Stmt, _ stmts: List<Stmt>, _ index: Int,
     _ scope: Map<String, Type>, _ ctx: InferCtx) -> Void {
-    match stmt {
-        Let(x) => { scope[x.name] = let_bound_type(x, stmts, index + 1, scope, ctx); },
-        _ => {},
-    }
+    if let Let(x) = stmt { scope[x.name] = let_bound_type(x, stmts, index + 1, scope, ctx); }
 }
 
 // The type a `let` binding takes in `scope`: its annotation when present, else
@@ -425,15 +407,12 @@ pub fn refine_binding_type(_ name: String, _ inferred: Type, _ stmts: List<Stmt>
     let mut i = start;
     while i < stmts.len() {
         let stmt = stmts[i];
-        match pinning_candidate(name, stmt, inferred, s, ctx) {
-            Some(cand) => {
-                let merged = merge_known(inferred, cand);
-                // The first use that actually fills an `Unknown` wins.
-                if !(merged == inferred) {
-                    return merged;
-                };
-            },
-            None => {},
+        if let Some(cand) = pinning_candidate(name, stmt, inferred, s, ctx) {
+            let merged = merge_known(inferred, cand);
+            // The first use that actually fills an `Unknown` wins.
+            if !(merged == inferred) {
+                return merged;
+            };
         }
         infer_stmt(stmt, s, ctx); // grow the scope an intervening `let` introduces
         i = i + 1;
@@ -511,10 +490,7 @@ fn pinning_in_block(_ name: String, _ block: Block, _ current: Type,
     let mut i = 0;
     while i < block.stmts.len() {
         let stmt = block.stmts[i];
-        match pinning_candidate(name, stmt, current, s, ctx) {
-            Some(t) => { return Option.Some(t); },
-            None => {},
-        }
+        if let Some(t) = pinning_candidate(name, stmt, current, s, ctx) { return Option.Some(t); }
         infer_stmt(stmt, s, ctx);
         i = i + 1;
     }
@@ -541,18 +517,12 @@ fn indexed_assign_candidate(_ current: Type, _ key: Expr, _ value: Expr,
 // `name.push(v)` as a `List<typeof(v)>` candidate. None otherwise.
 fn push_candidate(_ name: String, _ call: CallExpr,
     _ scope: Map<String, Type>, _ ctx: InferCtx) -> Option<Type> {
-    match call.callee {
-        Field(_, obj, method) => match obj {
-            Ident(_, n) => {
-                if n == name && method == 'push' && call.args.len() == 1 {
-                    return Option.Some(Type.Interface('List',
-                        [infer_expr(call.args[0].value, scope, ctx, Option.None)]));
-                };
-            },
-            _ => {},
-        },
-        _ => {},
-    }
+    if let Field(_, obj, method) = call.callee { if let Ident(_, n) = obj {
+        if n == name && method == 'push' && call.args.len() == 1 {
+            return Option.Some(Type.Interface('List',
+                [infer_expr(call.args[0].value, scope, ctx, Option.None)]));
+        };
+    } }
     return Option.None;
 }
 
@@ -644,19 +614,10 @@ fn infer_call(_ x: CallExpr, _ scope: Map<String, Type>, _ ctx: InferCtx,
 fn infer_call_ident(_ name: String, _ arg_types: List<Type>, _ type_args: List<TypeRef>,
     _ expected: Option<Type>, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
     // A function-typed local/parameter called directly: `f(x)`.
-    match scope.get(name) {
-        Some(local) => {
-            match local {
-                Function(_, ret) => { return ret; },
-                _ => {},
-            }
-        },
-        None => {},
+    if let Some(local) = scope.get(name) {
+        if let Function(_, ret) = local { return ret; }
     }
-    match ctx_scope(ctx).resolve_function(name) {
-        Some(fn_el) => { return instantiate_return_ctx(fn_el, type_args, arg_types, expected, ctx); },
-        None => {},
-    }
+    if let Some(fn_el) = ctx_scope(ctx).resolve_function(name) { return instantiate_return_ctx(fn_el, type_args, arg_types, expected, ctx); }
     return Type.Unknown;
 }
 
@@ -664,27 +625,21 @@ fn infer_call_field(_ obj: Expr, _ field: String, _ arg_types: List<Type>,
     _ type_args: List<TypeRef>, _ recv_type_args: List<TypeRef>,
     _ expected: Option<Type>, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
     // Enum construction: `(ns.)?Enum.Variant(payload...)`.
-    match enum_variant_type(obj, field, arg_types, expected, scope, ctx) {
-        Some(t) => { return t; },
-        None => {},
-    }
+    if let Some(t) = enum_variant_type(obj, field, arg_types, expected, scope, ctx) { return t; }
     // Static method (`(ns.)?Type.method`) or namespace function (`ns.fn`). The
     // static return type is instantiated from receiver type args (`Set<String>.new()`),
     // the method's own type args, the argument types, and the expected type — so the
     // owner parameter (`Set.new() -> Set<T>`) is bound whether written explicitly or
     // recovered from context. The namespace path is context-aware in the same way.
-    match resolve_static_receiver(obj, field, scope, ctx) {
-        Some(sr) => match sr {
-            StaticMethod(type_def, method) => {
-                return substitute(method.return_type,
-                    static_call_bindings(method, type_def.type_parameters, recv_type_args, type_args, arg_types, expected, ctx));
-            },
-            NamespaceFn(fn_el) => {
-                return instantiate_return_ctx(fn_el, type_args, arg_types, expected, ctx);
-            },
+    if let Some(sr) = resolve_static_receiver(obj, field, scope, ctx) { match sr {
+        StaticMethod(type_def, method) => {
+            return substitute(method.return_type,
+                static_call_bindings(method, type_def.type_parameters, recv_type_args, type_args, arg_types, expected, ctx));
         },
-        None => {},
-    }
+        NamespaceFn(fn_el) => {
+            return instantiate_return_ctx(fn_el, type_args, arg_types, expected, ctx);
+        },
+    } }
 
     let recv_type = infer_expr(obj, scope, ctx, Option.None);
 
@@ -697,49 +652,31 @@ fn infer_call_field(_ obj: Expr, _ field: String, _ arg_types: List<Type>,
     // primitive alike: `resolve_method` looks through to the receiver's element and
     // its generic bindings (the same resolution the checker uses); the method's own
     // type parameters are then recovered from the argument types.
-    match resolve_method(recv_type, field, ctx) {
-        Some(res) => {
-            let bindings = res.bindings;
-            let positional = non_self_params(res.method.parameters);
-            let mut j = 0;
-            while j < arg_types.len() && j < positional.len() {
-                unify(positional[j].ty, arg_types[j], bindings);
-                j = j + 1;
-            }
-            return substitute(res.method.return_type, bindings);
-        },
-        None => {},
+    if let Some(res) = resolve_method(recv_type, field, ctx) {
+        let bindings = res.bindings;
+        let positional = non_self_params(res.method.parameters);
+        let mut j = 0;
+        while j < arg_types.len() && j < positional.len() {
+            unify(positional[j].ty, arg_types[j], bindings);
+            j = j + 1;
+        }
+        return substitute(res.method.return_type, bindings);
     }
 
     // A function-valued field invoked like a method: `c.now()` where `now` is a
     // struct field of function type. The call yields the field's return type.
-    match field_type(recv_type, field, ctx) {
-        Function(_, ret) => { return ret; },
-        _ => {},
-    }
+    if let Function(_, ret) = field_type(recv_type, field, ctx) { return ret; }
 
     // A method on a generic parameter bound by an interface (`x: T`, `T: Display`):
     // resolve against the bound's methods (dynamic dispatch).
-    match recv_type {
-        TypeParameter(tpname) => {
-            match ctx.type_param_bounds.get(tpname) {
-                Some(bounds) => {
-                    for bound in bounds {
-                        match ctx_scope(ctx).resolve_type_def(bound) {
-                            Some(bdef) => {
-                                match find_method(bdef, field) {
-                                    Some(method) => { return method.return_type; },
-                                    None => {},
-                                }
-                            },
-                            None => {},
-                        }
-                    }
-                },
-                None => {},
+    if let TypeParameter(tpname) = recv_type {
+        if let Some(bounds) = ctx.type_param_bounds.get(tpname) {
+            for bound in bounds {
+                if let Some(bdef) = ctx_scope(ctx).resolve_type_def(bound) {
+                    if let Some(method) = find_method(bdef, field) { return method.return_type; }
+                }
             }
-        },
-        _ => {},
+        }
     }
 
     return Type.Unknown;
@@ -772,24 +709,15 @@ pub fn infer_callee_kind(_ obj: Expr, _ field: String, _ arg_count: Int,
     // Type-name receiver: enum construction (its type needs the payload, so it is
     // classified directly off the variant) or a static method / namespace function
     // (the shared static-receiver classifier).
-    match type_def_for_expr(obj, scope, ctx) {
-        Some(type_def) => {
-            if type_def.kind == TypeDefKind.Enum {
-                match find_variant(type_def, field) {
-                    Some(_) => { return CalleeKind.EnumCtor; },
-                    None => {},
-                }
-            }
-        },
-        None => {},
+    if let Some(type_def) = type_def_for_expr(obj, scope, ctx) {
+        if type_def.kind == TypeDefKind.Enum {
+            if let Some(_) = find_variant(type_def, field) { return CalleeKind.EnumCtor; }
+        }
     }
-    match resolve_static_receiver(obj, field, scope, ctx) {
-        Some(sr) => match sr {
-            StaticMethod(_, _) => { return CalleeKind.StaticMethod; },
-            NamespaceFn(_) => { return CalleeKind.Namespace; },
-        },
-        None => {},
-    }
+    if let Some(sr) = resolve_static_receiver(obj, field, scope, ctx) { match sr {
+        StaticMethod(_, _) => { return CalleeKind.StaticMethod; },
+        NamespaceFn(_) => { return CalleeKind.Namespace; },
+    } }
 
     let recv_type = infer_expr(obj, scope, ctx, Option.None);
 
@@ -805,34 +733,22 @@ pub fn infer_callee_kind(_ obj: Expr, _ field: String, _ arg_count: Int,
     }
 
     // A method declared in an impl block on a concrete receiver.
-    match type_def_for(recv_type, ctx) {
-        Some(element) => {
-            match find_method(element, field) {
-                Some(method) => {
-                    return if method.is_static {
-                        CalleeKind.StaticMethod
-                    } else {
-                        CalleeKind.InstanceMethod
-                    };
-                },
-                None => {},
-            }
-            // A default method inherited from an implemented interface: codegen
-            // wires the concrete type's dispatch to the interface's shared unit,
-            // so it lowers like an ordinary instance method.
-            match find_default_method(element, field, ctx) {
-                Some(_) => { return CalleeKind.InstanceMethod; },
-                None => {},
-            }
-        },
-        None => {},
+    if let Some(element) = type_def_for(recv_type, ctx) {
+        if let Some(method) = find_method(element, field) {
+            return if method.is_static {
+                CalleeKind.StaticMethod
+            } else {
+                CalleeKind.InstanceMethod
+            };
+        }
+        // A default method inherited from an implemented interface: codegen
+        // wires the concrete type's dispatch to the interface's shared unit,
+        // so it lowers like an ordinary instance method.
+        if let Some(_) = find_default_method(element, field, ctx) { return CalleeKind.InstanceMethod; }
     }
 
     // A function-valued field invoked like a method.
-    match field_type(recv_type, field, ctx) {
-        Function(_, _) => { return CalleeKind.FieldCall; },
-        _ => {},
-    }
+    if let Function(_, _) = field_type(recv_type, field, ctx) { return CalleeKind.FieldCall; }
 
     // Total rendering: `display` and `debug` are universal — every value renders
     // via its own impl or the runtime's auto-derived fallback. So when nothing
@@ -901,57 +817,39 @@ pub fn expected_arg_types(_ callee: Expr, _ args: List<CallArg>,
         },
         Field(_, obj, field) => {
             // Namespace-qualified free function: `ns.fn(...)`.
-            match obj {
-                Ident(_, nsname) => {
-                    if is_namespace(nsname, scope, ctx) {
-                        match ctx_scope(ctx).resolve_qualified_function(nsname, field) {
-                            Some(fn_el) => { params = Option.Some(fn_el.parameters); },
-                            None => {},
-                        }
-                    };
-                },
-                _ => {},
+            if let Ident(_, nsname) = obj {
+                if is_namespace(nsname, scope, ctx) {
+                    if let Some(fn_el) = ctx_scope(ctx).resolve_qualified_function(nsname, field) { params = Option.Some(fn_el.parameters); }
+                };
             }
             // User method on the receiver's type, instantiated with its type args.
             match params {
                 None => {
                     let recv = infer_expr(obj, scope, ctx, Option.None);
-                    match recv {
-                        Interface(rname, rargs) => {
-                            match ctx_scope(ctx).resolve_type_def(rname) {
-                                Some(rdef) => {
-                                    match find_method(rdef, field) {
-                                        Some(method) => {
-                                            params = Option.Some(method.parameters);
-                                            merge_into(bindings, receiver_bindings(rname, rargs, ctx));
-                                        },
-                                        None => {
-                                            // A default method inherited from an
-                                            // implemented interface (concrete
-                                            // receiver): use the conformance's
-                                            // bindings so a lambda arg instantiates.
-                                            match find_default_method(rdef, field, ctx) {
-                                                Some(res) => {
-                                                    params = Option.Some(res.method.parameters);
-                                                    merge_into(bindings, res.bindings);
-                                                },
-                                                None => {},
-                                            }
-                                        },
+                    if let Interface(rname, rargs) = recv {
+                        if let Some(rdef) = ctx_scope(ctx).resolve_type_def(rname) {
+                            match find_method(rdef, field) {
+                                Some(method) => {
+                                    params = Option.Some(method.parameters);
+                                    merge_into(bindings, receiver_bindings(rname, rargs, ctx));
+                                },
+                                None => {
+                                    // A default method inherited from an
+                                    // implemented interface (concrete
+                                    // receiver): use the conformance's
+                                    // bindings so a lambda arg instantiates.
+                                    if let Some(res) = find_default_method(rdef, field, ctx) {
+                                        params = Option.Some(res.method.parameters);
+                                        merge_into(bindings, res.bindings);
                                     }
                                 },
-                                None => {},
                             }
-                        },
-                        _ => {},
+                        }
                     }
                     // A function-valued field (`c.run(x)`): the field's params.
                     match params {
                         None => {
-                            match field_type(recv, field, ctx) {
-                                Function(ps, _) => { return Option.Some(ps); },
-                                _ => {},
-                            }
+                            if let Function(ps, _) = field_type(recv, field, ctx) { return Option.Some(ps); }
                         },
                         Some(_) => {},
                     }
@@ -990,21 +888,12 @@ pub fn expected_arg_types(_ callee: Expr, _ args: List<CallArg>,
 fn infer_field(_ object: Expr, _ field: String, _ expected: Option<Type>,
     _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
     // Bare enum variant: `(ns.)?Enum.Variant` (no payload).
-    match enum_variant_type(object, field, [], expected, scope, ctx) {
-        Some(t) => { return t; },
-        None => {},
-    }
+    if let Some(t) = enum_variant_type(object, field, [], expected, scope, ctx) { return t; }
     // Namespace member: `ns.CONST`.
-    match object {
-        Ident(_, name) => {
-            if is_namespace(name, scope, ctx) {
-                match ctx_scope(ctx).resolve_qualified_const(name, field) {
-                    Some(c) => { return c.ty; },
-                    None => {},
-                }
-            };
-        },
-        _ => {},
+    if let Ident(_, name) = object {
+        if is_namespace(name, scope, ctx) {
+            if let Some(c) = ctx_scope(ctx).resolve_qualified_const(name, field) { return c.ty; }
+        };
     }
     let recv = infer_expr(object, scope, ctx, Option.None);
     return field_type(recv, field, ctx);
@@ -1036,33 +925,21 @@ pub fn bind_match_pattern(_ pattern: Pattern, _ subject: Type,
 pub fn bind_for_pattern(_ pattern: Pattern, _ iter_type: Type,
     _ scope: Map<String, Type>, _ ctx: InferCtx) -> Void {
     let element = for_element_type(iter_type, ctx);
-    match pattern {
-        Ident(_, name) => { scope[name] = element; },
-        _ => {},
-    }
+    if let Ident(_, name) = pattern { scope[name] = element; }
 }
 
 // The payload field types of variant `name` for a value of type `subject`.
 // Result/Option are ordinary enums here, handled by this generic path.
 fn variant_field_types(_ subject: Type, _ name: String, _ ctx: InferCtx) -> List<Type> {
-    match subject {
-        Interface(sname, sargs) => {
-            match ctx_scope(ctx).resolve_type_def(sname) {
-                Some(element) => {
-                    if element.kind == TypeDefKind.Enum {
-                        match find_variant(element, name) {
-                            Some(variant) => {
-                                let bindings = receiver_bindings(sname, sargs, ctx);
-                                return variant.fields.map((f) => substitute(f, bindings));
-                            },
-                            None => {},
-                        }
-                    };
-                },
-                None => {},
-            }
-        },
-        _ => {},
+    if let Interface(sname, sargs) = subject {
+        if let Some(element) = ctx_scope(ctx).resolve_type_def(sname) {
+            if element.kind == TypeDefKind.Enum {
+                if let Some(variant) = find_variant(element, name) {
+                    let bindings = receiver_bindings(sname, sargs, ctx);
+                    return variant.fields.map((f) => substitute(f, bindings));
+                }
+            };
+        }
     }
     return [];
 }
@@ -1075,13 +952,10 @@ fn variant_field_types(_ subject: Type, _ name: String, _ ctx: InferCtx) -> List
 // a bare `List`) yields `Unknown`, mirroring `index_result` — only a genuinely
 // unknown iterable (a range, inferred as `Unknown`) falls back to `Int`.
 pub fn for_element_type(_ iter_type: Type, _ ctx: InferCtx) -> Type {
-    match iter_type {
-        Interface(name, args) => {
-            if name == 'List' {
-                return arg_at(args, 0);
-            };
-        },
-        _ => {},
+    if let Interface(name, args) = iter_type {
+        if name == 'List' {
+            return arg_at(args, 0);
+        };
     }
     return match iterator_element(iter_type, ctx) {
         Some(e) => e,
@@ -1093,32 +967,20 @@ pub fn for_element_type(_ iter_type: Type, _ ctx: InferCtx) -> Type {
 // payload of its `next()` method's `Option` return, with the receiver's type
 // arguments applied. None if not an iterator.
 fn iterator_element(_ t: Type, _ ctx: InferCtx) -> Option<Type> {
-    match t {
-        Interface(name, args) => {
-            match ctx_scope(ctx).resolve_type_def(name) {
-                Some(def) => {
-                    if name != 'Iterator' && !str_list_has(def.interfaces, 'Iterator') {
-                        return Option.None;
-                    }
-                    match find_method(def, 'next') {
-                        Some(next) => {
-                            let ret = substitute(next.return_type, receiver_bindings(name, args, ctx));
-                            match ret {
-                                Interface(rname, rargs) => {
-                                    if rname == 'Option' && rargs.len() > 0 {
-                                        return Option.Some(rargs[0]);
-                                    };
-                                },
-                                _ => {},
-                            }
-                        },
-                        None => {},
-                    }
-                },
-                None => {},
+    if let Interface(name, args) = t {
+        if let Some(def) = ctx_scope(ctx).resolve_type_def(name) {
+            if name != 'Iterator' && !str_list_has(def.interfaces, 'Iterator') {
+                return Option.None;
             }
-        },
-        _ => {},
+            if let Some(next) = find_method(def, 'next') {
+                let ret = substitute(next.return_type, receiver_bindings(name, args, ctx));
+                if let Interface(rname, rargs) = ret {
+                    if rname == 'Option' && rargs.len() > 0 {
+                        return Option.Some(rargs[0]);
+                    };
+                }
+            }
+        }
     }
     return Option.None;
 }
@@ -1152,10 +1014,7 @@ fn call_bindings_into(_ bindings: Map<String, Type>, _ fn_el: FunctionElement,
         unify(positional[i].ty, arg_types[i], bindings);
         i = i + 1;
     }
-    match expected {
-        Some(e) => { unify(fn_el.return_type, e, bindings); },
-        None => {},
-    }
+    if let Some(e) = expected { unify(fn_el.return_type, e, bindings); }
     return bindings;
 }
 
@@ -1219,39 +1078,27 @@ pub fn type_mentions_param(_ ty: Type, _ name: String) -> Bool {
 
 // Result of `object[index]`: a `List<T>`'s element, a `Map<K, V>`'s value.
 fn index_result(_ recv: Type) -> Type {
-    match recv {
-        Interface(name, args) => {
-            if name == 'List' {
-                return arg_at(args, 0);
-            }
-            if name == 'Map' {
-                return arg_at(args, 1);
-            };
-        },
-        _ => {},
+    if let Interface(name, args) = recv {
+        if name == 'List' {
+            return arg_at(args, 0);
+        }
+        if name == 'Map' {
+            return arg_at(args, 1);
+        };
     }
     return Type.Unknown;
 }
 
 // Type of `recv.field` for a struct receiver (with generic args applied).
 fn field_type(_ recv: Type, _ field: String, _ ctx: InferCtx) -> Type {
-    match recv {
-        Interface(name, args) => {
-            match ctx_scope(ctx).resolve_type_def(name) {
-                Some(def) => {
-                    if def.kind == TypeDefKind.Struct {
-                        match def.fields.get(field) {
-                            Some(declared) => {
-                                return substitute(declared, receiver_bindings(name, args, ctx));
-                            },
-                            None => {},
-                        }
-                    };
-                },
-                None => {},
-            }
-        },
-        _ => {},
+    if let Interface(name, args) = recv {
+        if let Some(def) = ctx_scope(ctx).resolve_type_def(name) {
+            if def.kind == TypeDefKind.Struct {
+                if let Some(declared) = def.fields.get(field) {
+                    return substitute(declared, receiver_bindings(name, args, ctx));
+                }
+            };
+        }
     }
     return Type.Unknown;
 }
@@ -1275,13 +1122,10 @@ fn type_def_for_expr(_ object: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx
             };
         },
         Field(_, inner, field) => {
-            match inner {
-                Ident(_, nsname) => {
-                    if is_namespace(nsname, scope, ctx) {
-                        return ctx_scope(ctx).resolve_qualified_type_def(nsname, field);
-                    };
-                },
-                _ => {},
+            if let Ident(_, nsname) = inner {
+                if is_namespace(nsname, scope, ctx) {
+                    return ctx_scope(ctx).resolve_qualified_type_def(nsname, field);
+                };
             }
         },
         _ => {},
@@ -1405,16 +1249,10 @@ pub fn struct_field_immutable(_ recv: Type, _ field: String, _ ctx: InferCtx) ->
 pub fn method_resolves(_ recv: Type, _ field: String, _ arg_count: Int, _ ctx: InferCtx) -> Bool {
     match type_def_for(recv, ctx) {
         Some(element) => {
-            match find_method(element, field) {
-                Some(_) => { return true; },
-                None => {},
-            }
+            if let Some(_) = find_method(element, field) { return true; }
             // A default method inherited from an implemented interface (see
             // `resolve_method`).
-            match find_default_method(element, field, ctx) {
-                Some(_) => { return true; },
-                None => {},
-            }
+            if let Some(_) = find_default_method(element, field, ctx) { return true; }
             if field == 'name' && arg_count == 0 && element.kind == TypeDefKind.Enum {
                 return true;
             }
@@ -1445,16 +1283,13 @@ pub struct MethodResolution {
 fn default_method_bindings(_ element: TypeDefElement, _ iface_name: String,
     _ iface_def: TypeDefElement) -> Map<String, Type> {
     let bindings: Map<String, Type> = {};
-    match element.interface_args.get(iface_name) {
-        Some(args) => {
-            let params = iface_def.type_parameters;
-            let mut i = 0;
-            while i < params.len() && i < args.len() {
-                bindings[params[i]] = args[i];
-                i = i + 1;
-            }
-        },
-        None => {},
+    if let Some(args) = element.interface_args.get(iface_name) {
+        let params = iface_def.type_parameters;
+        let mut i = 0;
+        while i < params.len() && i < args.len() {
+            bindings[params[i]] = args[i];
+            i = i + 1;
+        }
     }
     return bindings;
 }
@@ -1466,49 +1301,34 @@ fn default_method_bindings(_ element: TypeDefElement, _ iface_name: String,
 fn find_default_method(_ element: TypeDefElement, _ field: String, _ ctx: InferCtx)
     -> Option<MethodResolution> {
     for iface_name in element.interfaces {
-        match ctx_scope(ctx).resolve_type_def(iface_name) {
-            Some(iface_def) => {
-                if is_default_method(iface_def, field) {
-                    match find_method(iface_def, field) {
-                        Some(method) => {
-                            return Option.Some(MethodResolution {
-                                method: method,
-                                bindings: default_method_bindings(element, iface_name, iface_def),
-                            });
-                        },
-                        None => {},
-                    }
+        if let Some(iface_def) = ctx_scope(ctx).resolve_type_def(iface_name) {
+            if is_default_method(iface_def, field) {
+                if let Some(method) = find_method(iface_def, field) {
+                    return Option.Some(MethodResolution {
+                        method: method,
+                        bindings: default_method_bindings(element, iface_name, iface_def),
+                    });
                 }
-            },
-            None => {},
+            }
         }
     }
     return Option.None;
 }
 
 pub fn resolve_method(_ recv: Type, _ field: String, _ ctx: InferCtx) -> Option<MethodResolution> {
-    match type_def_for(recv, ctx) {
-        Some(element) => {
-            match find_method(element, field) {
-                Some(method) => {
-                    let bindings = match recv {
-                        Interface(rname, rargs) => receiver_bindings(rname, rargs, ctx),
-                        _ => empty_bindings(),
-                    };
-                    return Option.Some(MethodResolution { method: method, bindings: bindings });
-                },
-                None => {},
-            }
-            // A default method inherited from an interface the receiver
-            // implements. (When `recv` is itself the interface type, `find_method`
-            // already found it; this covers a concrete receiver whose own impl
-            // omits the defaulted method.)
-            match find_default_method(element, field, ctx) {
-                Some(res) => { return Option.Some(res); },
-                None => {},
-            }
-        },
-        None => {},
+    if let Some(element) = type_def_for(recv, ctx) {
+        if let Some(method) = find_method(element, field) {
+            let bindings = match recv {
+                Interface(rname, rargs) => receiver_bindings(rname, rargs, ctx),
+                _ => empty_bindings(),
+            };
+            return Option.Some(MethodResolution { method: method, bindings: bindings });
+        }
+        // A default method inherited from an interface the receiver
+        // implements. (When `recv` is itself the interface type, `find_method`
+        // already found it; this covers a concrete receiver whose own impl
+        // omits the defaulted method.)
+        if let Some(res) = find_default_method(element, field, ctx) { return Option.Some(res); }
     }
     return Option.None;
 }
@@ -1528,30 +1348,18 @@ pub enum StaticReceiver {
 pub fn resolve_static_receiver(_ obj: Expr, _ field: String, _ scope: Map<String, Type>,
     _ ctx: InferCtx) -> Option<StaticReceiver> {
     // A type-name receiver with a static method (`Set.new`, `provider.Type.make`).
-    match type_def_for_expr(obj, scope, ctx) {
-        Some(type_def) => {
-            match find_method(type_def, field) {
-                Some(method) => {
-                    if method.is_static {
-                        return Option.Some(StaticReceiver.StaticMethod(type_def, method));
-                    };
-                },
-                None => {},
-            }
-        },
-        None => {},
+    if let Some(type_def) = type_def_for_expr(obj, scope, ctx) {
+        if let Some(method) = find_method(type_def, field) {
+            if method.is_static {
+                return Option.Some(StaticReceiver.StaticMethod(type_def, method));
+            };
+        }
     }
     // A namespace receiver with a free/native function (`fs.read_text`).
-    match obj {
-        Ident(_, nsname) => {
-            if is_namespace(nsname, scope, ctx) {
-                match ctx_scope(ctx).resolve_qualified_function(nsname, field) {
-                    Some(fn_el) => { return Option.Some(StaticReceiver.NamespaceFn(fn_el)); },
-                    None => {},
-                }
-            };
-        },
-        _ => {},
+    if let Ident(_, nsname) = obj {
+        if is_namespace(nsname, scope, ctx) {
+            if let Some(fn_el) = ctx_scope(ctx).resolve_qualified_function(nsname, field) { return Option.Some(StaticReceiver.NamespaceFn(fn_el)); }
+        };
     }
     return Option.None;
 }
@@ -1616,16 +1424,13 @@ fn is_enum_type(_ ty: Type, _ ctx: InferCtx) -> Bool {
 // resolved arguments, for instantiating members.
 fn receiver_bindings(_ name: String, _ args: List<Type>, _ ctx: InferCtx) -> Map<String, Type> {
     let bindings: Map<String, Type> = {};
-    match ctx_scope(ctx).resolve_type_def(name) {
-        Some(def) => {
-            let params = def.type_parameters;
-            let mut i = 0;
-            while i < params.len() && i < args.len() {
-                bindings[params[i]] = args[i];
-                i = i + 1;
-            }
-        },
-        None => {},
+    if let Some(def) = ctx_scope(ctx).resolve_type_def(name) {
+        let params = def.type_parameters;
+        let mut i = 0;
+        while i < params.len() && i < args.len() {
+            bindings[params[i]] = args[i];
+            i = i + 1;
+        }
     }
     return bindings;
 }
@@ -1660,20 +1465,14 @@ fn empty_bindings() -> Map<String, Type> {
 
 fn merge_into(_ dst: Map<String, Type>, _ src: Map<String, Type>) -> Void {
     for k in src.keys() {
-        match src.get(k) {
-            Some(v) => { dst[k] = v; },
-            None => {},
-        }
+        if let Some(v) = src.get(k) { dst[k] = v; }
     }
 }
 
 pub fn copy_scope(_ m: Map<String, Type>) -> Map<String, Type> {
     let out: Map<String, Type> = {};
     for k in m.keys() {
-        match m.get(k) {
-            Some(v) => { out[k] = v; },
-            None => {},
-        }
+        if let Some(v) = m.get(k) { out[k] = v; }
     }
     return out;
 }

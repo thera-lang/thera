@@ -18,25 +18,19 @@ pub fn handle_workspace_symbols(_ programs: List<Program>, _ query: String) -> j
     for program in programs {
         let doc_uri = paths.path_to_uri(paths.program_path(program));
         for decl in program.decls {
-            match hover.decl_name(decl) {
-                Some(name) => {
-                    if q == '' || name.to_lowercase().contains(q) {
-                        match decl_span(decl) {
-                            Some(span) => {
-                                result.push(json.obj({
-                                    'name': json.str(name),
-                                    'kind': json.int(symbols.decl_kind(decl)),
-                                    'location': json.obj({
-                                        'uri': json.str(doc_uri),
-                                        'range': diagnostics.span_to_range(span),
-                                    }),
-                                }));
-                            },
-                            None => {},
-                        }
+            if let Some(name) = hover.decl_name(decl) {
+                if q == '' || name.to_lowercase().contains(q) {
+                    if let Some(span) = decl_span(decl) {
+                        result.push(json.obj({
+                            'name': json.str(name),
+                            'kind': json.int(symbols.decl_kind(decl)),
+                            'location': json.obj({
+                                'uri': json.str(doc_uri),
+                                'range': diagnostics.span_to_range(span),
+                            }),
+                        }));
                     }
-                },
-                None => {},
+                }
             }
         }
     }

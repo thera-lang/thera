@@ -92,10 +92,7 @@ fn count_tag(_ code: List<Instr>, _ tag: String) -> Int {
 // static one of the same shape.
 fn first_call_argc(_ code: List<Instr>) -> Int {
     for i in code {
-        match i {
-            Call(_, argc) => { return argc; },
-            _ => {},
-        }
+        if let Call(_, argc) = i { return argc; }
     }
     return -1;
 }

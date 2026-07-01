@@ -187,14 +187,11 @@ impl Server {
         // `textDocument/references` and `textDocument/rename` are intentionally not
         // dispatched: their implementations are lexical-only (see the import block).
         if method == 'textDocument/didClose' {
-            match params.get('textDocument').get('uri').as_string() {
-                Some(uri) => {
-                    match self.docs.remove(uri) {
-                        Some(_) => {},
-                        None => {},
-                    }
-                },
-                None => {},
+            if let Some(uri) = params.get('textDocument').get('uri').as_string() {
+                match self.docs.remove(uri) {
+                    Some(_) => {},
+                    None => {},
+                }
             }
             return true;
         }
@@ -210,21 +207,15 @@ impl Server {
     // next `flush` re-checks it. The publish is deferred (not done here) so a
     // burst of edits coalesces into one re-check.
     fn update_document(self, _ uri: Option<String>, _ text: Option<String>) -> Void {
-        match uri {
-            Some(u) => {
-                match text {
-                    Some(t) => {
-                        self.docs[u] = t;
-                        // Drop the edited file's cached parse: it may be an import of
-                        // another open document, whose next check must see the change.
-                        // (The primary itself is parsed from `t`, not the cache.)
-                        self.invalidate(u);
-                        self.dirty.add(u);
-                    },
-                    None => {},
-                }
-            },
-            None => {},
+        if let Some(u) = uri {
+            if let Some(t) = text {
+                self.docs[u] = t;
+                // Drop the edited file's cached parse: it may be an import of
+                // another open document, whose next check must see the change.
+                // (The primary itself is parsed from `t`, not the cache.)
+                self.invalidate(u);
+                self.dirty.add(u);
+            }
         }
     }
 
@@ -328,10 +319,7 @@ impl Server {
     // once; one closed before the flush is skipped (no stale publish).
     fn flush(self, _ writer: io.Writer) -> Void {
         for uri in self.dirty.to_list() {
-            match self.docs.get(uri) {
-                Some(text) => { self.publish(writer, uri, text); },
-                None => {},
-            }
+            if let Some(text) = self.docs.get(uri) { self.publish(writer, uri, text); }
         }
         self.dirty.clear();
     }

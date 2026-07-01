@@ -107,17 +107,11 @@ pub fn compile_program(_ program: Program, _ imports: List<Program>,
         functions.push(new_fn_compiler(scope, errors).compile(i));
         i = i + 1;
     }
-    match init_thunk {
-        Some(f) => { functions.push(f); },
-        None => {},
-    }
+    if let Some(f) = init_thunk { functions.push(f); }
     // Differential inference oracle (opt-in via HAWK_INFER_ORACLE): report units
     // whose codegen inference context diverges from the checker-correct one — the
     // root of the checker/codegen inference-disagreement bug class.
-    match env.get('HAWK_INFER_ORACLE') {
-        Some(_) => { run_infer_oracle(scope); },
-        None => {},
-    }
+    if let Some(_) = env.get('HAWK_INFER_ORACLE') { run_infer_oracle(scope); }
 
     return CodegenResult {
         module: Module {
@@ -168,10 +162,7 @@ fn register_module(_ scope: ModuleScope, _ program: Program) -> Void {
                 }
             },
             Impl(x) => {
-                match x.interface_name {
-                    Some(iface) => { scope.add_interface_impl(x.type_name, iface); },
-                    None => {},
-                }
+                if let Some(iface) = x.interface_name { scope.add_interface_impl(x.type_name, iface); }
                 for method in x.methods {
                     let is_static = !has_self_param(method.params);
                     if method.is_native && is_static {
@@ -179,18 +170,12 @@ fn register_module(_ scope: ModuleScope, _ program: Program) -> Void {
                     } else if method.is_native {
                         scope.add_native_instance_method(x.type_name, method);
                     } else {
-                        match method.body {
-                            Some(_) => { scope.add_method(x.type_name, method, file); },
-                            None => {},
-                        }
+                        if let Some(_) = method.body { scope.add_method(x.type_name, method, file); }
                     }
-                    match x.interface_name {
-                        Some(_) => {
-                            if !is_static && !method.is_native {
-                                scope.add_dispatch(x.type_name, method.name);
-                            }
-                        },
-                        None => {},
+                    if let Some(_) = x.interface_name {
+                        if !is_static && !method.is_native {
+                            scope.add_dispatch(x.type_name, method.name);
+                        }
                     }
                 }
             },
@@ -253,13 +238,10 @@ impl FnCompiler {
         // A lifted lambda has no type params of its own, but inherits its
         // enclosing function's bounds (stashed at lift time) so a bound method on
         // a `T`-typed param resolves when the lambda is compiled as its own unit.
-        match self.scope.lambda_bounds.get(index) {
-            Some(b) => {
-                for k in b.keys() {
-                    self.type_param_bounds[k] = b[k];
-                }
-            },
-            None => {},
+        if let Some(b) = self.scope.lambda_bounds.get(index) {
+            for k in b.keys() {
+                self.type_param_bounds[k] = b[k];
+            }
         }
 
         // Build the inference context for this unit, matching the checker's: the
@@ -274,13 +256,10 @@ impl FnCompiler {
         };
         self.scope.unit_ctx_self[index] = self_type;
         let type_params: Set<String> = Set.new();
-        match self_type {
-            Some(st) => {
-                for n in self_type_param_names(st) {
-                    type_params.add(n);
-                }
-            },
-            None => {},
+        if let Some(st) = self_type {
+            for n in self_type_param_names(st) {
+                type_params.add(n);
+            }
         }
         for tp in fn_decl.type_params {
             type_params.add(tp.name);
@@ -301,21 +280,15 @@ impl FnCompiler {
 
         // Boxed cells: capture params arriving boxed, plus this function's own
         // `mut` locals that some lambda captures — both read/written through a cell.
-        match self.scope.boxed_params.get(index) {
-            Some(bp) => {
-                for b in bp.to_list() {
-                    self.boxed_locals.add(b);
-                }
-            },
-            None => {},
+        if let Some(bp) = self.scope.boxed_params.get(index) {
+            for b in bp.to_list() {
+                self.boxed_locals.add(b);
+            }
         }
-        match fn_decl.body {
-            Some(body) => {
-                for b in boxed_mut_locals(body).to_list() {
-                    self.boxed_locals.add(b);
-                }
-            },
-            None => {},
+        if let Some(body) = fn_decl.body {
+            for b in boxed_mut_locals(body).to_list() {
+                self.boxed_locals.add(b);
+            }
         }
 
         // Seed the type scope: a lifted lambda uses its stashed param types; a
@@ -338,10 +311,7 @@ impl FnCompiler {
             self.type_scope[p.name] = pt;
         }
 
-        match fn_decl.body {
-            Some(body) => { self.block(body); },
-            None => {},
-        }
+        if let Some(body) = fn_decl.body { self.block(body); }
         // Guarantee the stream ends with a return (a Void fall-through returns Unit).
         if self.code.len() == 0 || !self.ends_in_return() {
             self.emit(Instr.Simple(Op.ConstUnit));
@@ -387,14 +357,11 @@ impl FnCompiler {
     fn reject_effectful_natives(self, _ start: Int, _ span: SourceSpan) -> Void {
         let mut i = start;
         while i < self.code.len() {
-            match self.code[i] {
-                CallNative(name, _) => {
-                    if forbidden_in_initializer(name) {
-                        self.error('a module-level `let` initializer may not call '
-                            + '`${name}` (time-varying or I/O); see docs/module_init.md', span);
-                    }
-                },
-                _ => {},
+            if let CallNative(name, _) = self.code[i] {
+                if forbidden_in_initializer(name) {
+                    self.error('a module-level `let` initializer may not call '
+                        + '`${name}` (time-varying or I/O); see docs/module_init.md', span);
+                }
             }
             i = i + 1;
         }
@@ -485,10 +452,7 @@ impl FnCompiler {
 
     // Load a module global (top-level `let`) by its slot.
     fn emit_global(self, _ name: String) -> Void {
-        match self.scope.globals.get(name) {
-            Some(slot) => { self.emit(Instr.GlobalGet(slot)); },
-            None => {},
-        }
+        if let Some(slot) = self.scope.globals.get(name) { self.emit(Instr.GlobalGet(slot)); }
     }
 
     // Inline a top-level constant by compiling its initializer at the use site.
@@ -498,10 +462,7 @@ impl FnCompiler {
             return;
         }
         self.consts_in_progress.add(name);
-        match self.scope.consts.get(name) {
-            Some(e) => { self.expr(e); },
-            None => {},
-        }
+        if let Some(e) = self.scope.consts.get(name) { self.expr(e); }
         self.consts_in_progress.remove(name);
     }
 
@@ -617,13 +578,10 @@ impl FnCompiler {
                 }
             },
             Field(_, object, field) => {
-                match self.struct_of(object, span) {
-                    Some(info) => {
-                        self.expr(object);
-                        self.expr(value);
-                        self.emit(Instr.FieldSet(self.field_index(info, field, span)));
-                    },
-                    None => {},
+                if let Some(info) = self.struct_of(object, span) {
+                    self.expr(object);
+                    self.expr(value);
+                    self.emit(Instr.FieldSet(self.field_index(info, field, span)));
                 }
             },
             Index(_, object, index) => {
@@ -728,37 +686,34 @@ impl FnCompiler {
     }
 
     fn range_for(self, _ var_name: Option<String>, _ range: Expr, _ body: Block) -> Void {
-        match range {
-            Range(_, start_e, end_e) => {
-                self.expr(start_e);
-                let counter = match var_name {
-                    Some(name) => {
-                        self.type_scope[name] = Type.Primitive(Primitive.Int);
-                        self.declare_local(name)
-                    },
-                    None => self.fresh_slot(),
-                };
-                self.emit(Instr.Store(counter));
-                self.expr(end_e);
-                let limit = self.fresh_slot();
-                self.emit(Instr.Store(limit));
+        if let Range(_, start_e, end_e) = range {
+            self.expr(start_e);
+            let counter = match var_name {
+                Some(name) => {
+                    self.type_scope[name] = Type.Primitive(Primitive.Int);
+                    self.declare_local(name)
+                },
+                None => self.fresh_slot(),
+            };
+            self.emit(Instr.Store(counter));
+            self.expr(end_e);
+            let limit = self.fresh_slot();
+            self.emit(Instr.Store(limit));
 
-                let start = self.new_label();
-                let end = self.new_label();
-                self.bind(start);
-                self.emit(Instr.Load(counter));
-                self.emit(Instr.Load(limit));
-                self.emit(Instr.Simple(Op.LtI64));
-                self.emit_jump(Jk.IfFalse, end);
-                self.block(body);
-                self.emit(Instr.Load(counter));
-                self.emit(Instr.ConstInt(1));
-                self.emit(Instr.Simple(Op.AddI64));
-                self.emit(Instr.Store(counter));
-                self.emit_jump(Jk.Jump, start);
-                self.bind(end);
-            },
-            _ => {},
+            let start = self.new_label();
+            let end = self.new_label();
+            self.bind(start);
+            self.emit(Instr.Load(counter));
+            self.emit(Instr.Load(limit));
+            self.emit(Instr.Simple(Op.LtI64));
+            self.emit_jump(Jk.IfFalse, end);
+            self.block(body);
+            self.emit(Instr.Load(counter));
+            self.emit(Instr.ConstInt(1));
+            self.emit(Instr.Simple(Op.AddI64));
+            self.emit(Instr.Store(counter));
+            self.emit_jump(Jk.Jump, start);
+            self.bind(end);
         }
     }
 
@@ -1034,13 +989,10 @@ impl FnCompiler {
             Option.None
         };
 
-        match dispatch {
-            Some(plan) => {
-                self.emit_dispatch(plan, subject, subject_ty, subject_type, tag_slot.unwrap_or(0), end);
-                self.bind(end);
-                return;
-            },
-            None => {},
+        if let Some(plan) = dispatch {
+            self.emit_dispatch(plan, subject, subject_ty, subject_type, tag_slot.unwrap_or(0), end);
+            self.bind(end);
+            return;
         }
 
         let mut i = 0;
@@ -1080,41 +1032,38 @@ impl FnCompiler {
             Some(t) => self.scope.enums.get(t),
             None => Option.None,
         };
-        match info {
-            Some(ei) => {
-                if e.arms.len() - 1 < MATCH_DISPATCH_MIN_CASES {
-                    return Option.None;
-                }
-                let cases: Map<Int, MatchArm> = {};
-                let mut i = 0;
-                let mut ok = true;
-                while ok && i < e.arms.len() - 1 {
-                    match e.arms[i].pattern {
-                        Constructor(_, name, args) => {
-                            if !all_irrefutable_args(args) {
-                                ok = false; // a nested refutable sub-pattern needs the chain
+        if let Some(ei) = info {
+            if e.arms.len() - 1 < MATCH_DISPATCH_MIN_CASES {
+                return Option.None;
+            }
+            let cases: Map<Int, MatchArm> = {};
+            let mut i = 0;
+            let mut ok = true;
+            while ok && i < e.arms.len() - 1 {
+                match e.arms[i].pattern {
+                    Constructor(_, name, args) => {
+                        if !all_irrefutable_args(args) {
+                            ok = false; // a nested refutable sub-pattern needs the chain
+                        } else {
+                            let tag = tag_of(ei, name);
+                            if tag < 0 || cases.has(tag) {
+                                ok = false; // unknown / duplicate
                             } else {
-                                let tag = tag_of(ei, name);
-                                if tag < 0 || cases.has(tag) {
-                                    ok = false; // unknown / duplicate
-                                } else {
-                                    cases[tag] = e.arms[i];
-                                }
+                                cases[tag] = e.arms[i];
                             }
-                        },
-                        _ => { ok = false; }, // literal / wildcard mid-match
-                    }
-                    i = i + 1;
+                        }
+                    },
+                    _ => { ok = false; }, // literal / wildcard mid-match
                 }
-                if !ok {
-                    return Option.None;
-                }
-                return Option.Some(DispatchPlan {
-                    cases: cases,
-                    default_arm: e.arms[e.arms.len() - 1],
-                });
-            },
-            None => {},
+                i = i + 1;
+            }
+            if !ok {
+                return Option.None;
+            }
+            return Option.Some(DispatchPlan {
+                cases: cases,
+                default_arm: e.arms[e.arms.len() - 1],
+            });
         }
         return Option.None;
     }
@@ -1190,14 +1139,11 @@ impl FnCompiler {
             Wildcard(_) => {}, // matches anything, binds nothing
             Ident(_, name) => { self.slots[name] = value_slot; }, // bind the whole value
             Literal(_, literal) => {
-                match fail {
-                    Some(f) => {
-                        self.emit(Instr.Load(value_slot));
-                        self.expr(literal);
-                        self.emit(Instr.CallNative('eq', 2)); // structural equality
-                        self.emit_jump(Jk.IfFalse, f);
-                    },
-                    None => {},
+                if let Some(f) = fail {
+                    self.emit(Instr.Load(value_slot));
+                    self.expr(literal);
+                    self.emit(Instr.CallNative('eq', 2)); // structural equality
+                    self.emit_jump(Jk.IfFalse, f);
                 }
             },
             Constructor(span, name, args) => {
@@ -1209,20 +1155,17 @@ impl FnCompiler {
                     Some(ei) => tag_of(ei, name),
                     None => -1,
                 };
-                match fail {
-                    Some(f) => {
-                        match tag_slot {
-                            Some(ts) => { self.emit(Instr.Load(ts)); }, // reuse the hoisted tag
-                            None => {
-                                self.emit(Instr.Load(value_slot));
-                                self.emit(Instr.Simple(Op.EnumTag));
-                            },
-                        }
-                        self.emit(Instr.ConstInt(self.variant_tag(value_type, name, span)));
-                        self.emit(Instr.Simple(Op.EqI64));
-                        self.emit_jump(Jk.IfFalse, f);
-                    },
-                    None => {},
+                if let Some(f) = fail {
+                    match tag_slot {
+                        Some(ts) => { self.emit(Instr.Load(ts)); }, // reuse the hoisted tag
+                        None => {
+                            self.emit(Instr.Load(value_slot));
+                            self.emit(Instr.Simple(Op.EnumTag));
+                        },
+                    }
+                    self.emit(Instr.ConstInt(self.variant_tag(value_type, name, span)));
+                    self.emit(Instr.Simple(Op.EqI64));
+                    self.emit_jump(Jk.IfFalse, f);
                 }
                 let mut k = 0;
                 while k < args.len() {
@@ -1310,17 +1253,14 @@ impl FnCompiler {
                 }
                 return;
             }
-            match self.interface_method(operand_type, 'Eq', 'eq') {
-                Some(eq_idx) => {
-                    self.expr(left);
-                    self.expr(right);
-                    self.emit(Instr.Call(eq_idx, 2));
-                    if op == '!=' {
-                        self.emit(Instr.Simple(Op.Not));
-                    }
-                    return;
-                },
-                None => {},
+            if let Some(eq_idx) = self.interface_method(operand_type, 'Eq', 'eq') {
+                self.expr(left);
+                self.expr(right);
+                self.emit(Instr.Call(eq_idx, 2));
+                if op == '!=' {
+                    self.emit(Instr.Simple(Op.Not));
+                }
+                return;
             }
             // Non-primitives use the structural `eq` native; so does Bool, which
             // the runtime keeps distinct from Int (the `eqI64` opcode rejects it).
@@ -1391,21 +1331,18 @@ impl FnCompiler {
     // --- strings ---
 
     fn string_expr(self, _ e: Expr) -> Void {
-        match e {
-            Str(span, parts) => {
-                if parts.len() == 0 {
-                    self.emit(Instr.ConstStr(''));
-                    return;
-                }
-                self.string_piece(parts[0], span);
-                let mut i = 1;
-                while i < parts.len() {
-                    self.string_piece(parts[i], span);
-                    self.emit(Instr.CallNative('str_concat', 2));
-                    i = i + 1;
-                }
-            },
-            _ => {},
+        if let Str(span, parts) = e {
+            if parts.len() == 0 {
+                self.emit(Instr.ConstStr(''));
+                return;
+            }
+            self.string_piece(parts[0], span);
+            let mut i = 1;
+            while i < parts.len() {
+                self.string_piece(parts[i], span);
+                self.emit(Instr.CallNative('str_concat', 2));
+                i = i + 1;
+            }
         }
     }
 
@@ -1434,10 +1371,7 @@ impl FnCompiler {
     // virtual dispatch (an interface-typed or bounded-generic value), or a concrete
     // impl method. Errors when the type has no `Display`.
     fn emit_display(self, _ ty_name: Option<String>, _ span: SourceSpan) -> Void {
-        match self.native_instance_method_symbol(ty_name, 'display') {
-            Some(symbol) => { self.emit(Instr.CallNative(symbol, 1)); return; },
-            None => {},
-        }
+        if let Some(symbol) = self.native_instance_method_symbol(ty_name, 'display') { self.emit(Instr.CallNative(symbol, 1)); return; }
         if self.dispatches_via(ty_name, 'display') {
             self.emit(Instr.CallVirtual('display', 1));
             return;
@@ -1457,13 +1391,7 @@ impl FnCompiler {
     // The runtime native symbol backing `ty_name`'s native instance `method`, if it
     // has one (e.g. the primitives' `display` → `int_to_string`); None otherwise.
     fn native_instance_method_symbol(self, _ ty_name: Option<String>, _ method: String) -> Option<String> {
-        match ty_name {
-            Some(t) => match self.scope.native_instance_methods.get(t) {
-                Some(m) => { return m.get(method); },
-                None => {},
-            },
-            None => {},
-        }
+        if let Some(t) = ty_name { if let Some(m) = self.scope.native_instance_methods.get(t) { return m.get(method); } }
         return Option.None;
     }
 
@@ -1497,20 +1425,17 @@ impl FnCompiler {
     fn field_expr(self, _ object: Expr, _ field: String, _ span: SourceSpan) -> Void {
         // A namespace-qualified constant or global: `ns.NAME` → inline the const
         // initializer, or load the global slot.
-        match object {
-            Ident(_, ns_name) => {
-                if self.is_namespace(ns_name) {
-                    if self.scope.consts.has(field) {
-                        self.emit_const(field, span);
-                        return;
-                    }
-                    if self.scope.globals.has(field) {
-                        self.emit_global(field);
-                        return;
-                    }
+        if let Ident(_, ns_name) = object {
+            if self.is_namespace(ns_name) {
+                if self.scope.consts.has(field) {
+                    self.emit_const(field, span);
+                    return;
                 }
-            },
-            _ => {},
+                if self.scope.globals.has(field) {
+                    self.emit_global(field);
+                    return;
+                }
+            }
         }
         // A bare `Enum.Variant` is a zero-field enum constructor.
         match self.enum_variant(object, field) {
@@ -1522,26 +1447,17 @@ impl FnCompiler {
                 }
             },
             None => {
-                match self.struct_of(object, span) {
-                    Some(info) => {
-                        self.expr(object);
-                        self.emit(Instr.FieldGet(self.field_index(info, field, span)));
-                    },
-                    None => {},
+                if let Some(info) = self.struct_of(object, span) {
+                    self.expr(object);
+                    self.emit(Instr.FieldGet(self.field_index(info, field, span)));
                 }
             },
         }
     }
 
     fn struct_of(self, _ object: Expr, _ span: SourceSpan) -> Option<StructInfo> {
-        match self.type_of(object) {
-            Some(name) => {
-                match self.scope.structs.get(name) {
-                    Some(info) => { return Option.Some(info); },
-                    None => {},
-                }
-            },
-            None => {},
+        if let Some(name) = self.type_of(object) {
+            if let Some(info) = self.scope.structs.get(name) { return Option.Some(info); }
         }
         self.error('field access on non-struct value', span);
         return Option.None;
@@ -1575,20 +1491,14 @@ impl FnCompiler {
     // If `object` names a user enum (Enum or ns.Enum, not a local) and `name` is
     // one of its variants, the enum info and the variant's tag.
     fn enum_variant(self, _ object: Expr, _ name: String) -> Option<EnumVariantRef> {
-        match self.static_type_name(object) {
-            Some(type_name) => {
-                match self.scope.enums.get(type_name) {
-                    Some(info) => {
-                        let tag = tag_of(info, name);
-                        if tag < 0 {
-                            return Option.None;
-                        }
-                        return Option.Some(EnumVariantRef { info: info, tag: tag });
-                    },
-                    None => {},
+        if let Some(type_name) = self.static_type_name(object) {
+            if let Some(info) = self.scope.enums.get(type_name) {
+                let tag = tag_of(info, name);
+                if tag < 0 {
+                    return Option.None;
                 }
-            },
-            None => {},
+                return Option.Some(EnumVariantRef { info: info, tag: tag });
+            }
         }
         return Option.None;
     }
@@ -1603,13 +1513,10 @@ impl FnCompiler {
                 }
             },
             Field(_, inner, field) => {
-                match inner {
-                    Ident(_, ns_name) => {
-                        if self.is_namespace(ns_name) && self.is_type_name(field) {
-                            return Option.Some(field);
-                        }
-                    },
-                    _ => {},
+                if let Ident(_, ns_name) = inner {
+                    if self.is_namespace(ns_name) && self.is_type_name(field) {
+                        return Option.Some(field);
+                    }
                 }
             },
             _ => {},
@@ -1643,32 +1550,26 @@ impl FnCompiler {
                     self.emit(Instr.CallIndirect(x.args.len()));
                     return;
                 }
-                match self.scope.resolve_function(self.file, name) {
-                    Some(fn_index) => {
-                        let ordered = self.resolve_args(self.scope.units[fn_index].params, x.args, x.span);
-                        self.emit_ordered_args(x.callee, x.args, ordered);
-                        self.emit(Instr.Call(fn_index, ordered.len()));
-                        return;
-                    },
-                    None => {},
+                if let Some(fn_index) = self.scope.resolve_function(self.file, name) {
+                    let ordered = self.resolve_args(self.scope.units[fn_index].params, x.args, x.span);
+                    self.emit_ordered_args(x.callee, x.args, ordered);
+                    self.emit(Instr.Call(fn_index, ordered.len()));
+                    return;
                 }
-                match self.scope.native_fns.get(name) {
-                    Some(native_fn) => {
-                        // `println`/`print`/`eprintln`/`eprint` render their argument
-                        // to a `String` via `Display`, then pass it to the native
-                        // (which just writes the string).
-                        if is_print_native(native_fn) && x.args.len() == 1 {
-                            self.emit_as_string(x.args[0].value, x.span);
-                            self.emit(Instr.CallNative(native_fn, 1));
-                            return;
-                        }
-                        for arg in x.args {
-                            self.expr(arg.value);
-                        }
-                        self.emit(Instr.CallNative(native_fn, x.args.len()));
+                if let Some(native_fn) = self.scope.native_fns.get(name) {
+                    // `println`/`print`/`eprintln`/`eprint` render their argument
+                    // to a `String` via `Display`, then pass it to the native
+                    // (which just writes the string).
+                    if is_print_native(native_fn) && x.args.len() == 1 {
+                        self.emit_as_string(x.args[0].value, x.span);
+                        self.emit(Instr.CallNative(native_fn, 1));
                         return;
-                    },
-                    None => {},
+                    }
+                    for arg in x.args {
+                        self.expr(arg.value);
+                    }
+                    self.emit(Instr.CallNative(native_fn, x.args.len()));
+                    return;
                 }
                 self.error('unknown function: ${name}', x.span);
             },
@@ -1727,42 +1628,30 @@ impl FnCompiler {
     // Namespace-qualified call: `ns.fn(...)`. A `native fn` lowers to a receiver-
     // less native; an ordinary free function to a direct call.
     fn emit_namespace_call(self, _ x: CallExpr, _ obj: Expr, _ field: String) -> Bool {
-        match obj {
-            Ident(_, ns_name) => {
-                if self.is_namespace(ns_name) {
-                    match self.scope.native_fns.get(field) {
-                        Some(native_sym) => {
-                            for arg in x.args {
-                                self.expr(arg.value);
-                            }
-                            self.emit(Instr.CallNative(native_sym, x.args.len()));
-                            return true;
-                        },
-                        None => {},
+        if let Ident(_, ns_name) = obj {
+            if self.is_namespace(ns_name) {
+                if let Some(native_sym) = self.scope.native_fns.get(field) {
+                    for arg in x.args {
+                        self.expr(arg.value);
                     }
-                    // Resolve the qualified function within `ns`'s owning library
-                    // (owner-correct), not a last-wins global table — so two
-                    // libraries' same-named functions emit calls to distinct units.
-                    match file_scope(self.scope.library, self.file).member_owner(ns_name, field) {
-                        Some(owner) => {
-                            match self.scope.function_in_file(owner, field) {
-                                Some(fn_idx) => {
-                                    let ordered = self.resolve_args(self.scope.units[fn_idx].params, x.args, x.span);
-                                    // Thread expected arg types (like the bare-call path), so a
-                                    // qualified call passing an un-annotated lambda types it
-                                    // bidirectionally — making `ns.fn(...)` byte-identical to `fn(...)`.
-                                    self.emit_ordered_args(x.callee, x.args, ordered);
-                                    self.emit(Instr.Call(fn_idx, ordered.len()));
-                                    return true;
-                                },
-                                None => {},
-                            }
-                        },
-                        None => {},
+                    self.emit(Instr.CallNative(native_sym, x.args.len()));
+                    return true;
+                }
+                // Resolve the qualified function within `ns`'s owning library
+                // (owner-correct), not a last-wins global table — so two
+                // libraries' same-named functions emit calls to distinct units.
+                if let Some(owner) = file_scope(self.scope.library, self.file).member_owner(ns_name, field) {
+                    if let Some(fn_idx) = self.scope.function_in_file(owner, field) {
+                        let ordered = self.resolve_args(self.scope.units[fn_idx].params, x.args, x.span);
+                        // Thread expected arg types (like the bare-call path), so a
+                        // qualified call passing an un-annotated lambda types it
+                        // bidirectionally — making `ns.fn(...)` byte-identical to `fn(...)`.
+                        self.emit_ordered_args(x.callee, x.args, ordered);
+                        self.emit(Instr.Call(fn_idx, ordered.len()));
+                        return true;
                     }
                 }
-            },
-            _ => {},
+            }
         }
         return false;
     }
@@ -1770,25 +1659,16 @@ impl FnCompiler {
     // Static method on a type: `String.from_chars(...)` (a runtime native) or a
     // user `fn` with no `self` (a direct call, no receiver pushed).
     fn emit_static_method_call(self, _ x: CallExpr, _ obj: Expr, _ field: String) -> Bool {
-        match self.static_type_name(obj) {
-            Some(static_type) => {
-                match self.scope.native_static_methods.get(static_type) {
-                    Some(m) => {
-                        match m.get(field) {
-                            Some(native_sym) => {
-                                for arg in x.args {
-                                    self.expr(arg.value);
-                                }
-                                self.emit(Instr.CallNative(native_sym, x.args.len()));
-                                return true;
-                            },
-                            None => {},
-                        }
-                    },
-                    None => {},
+        if let Some(static_type) = self.static_type_name(obj) {
+            if let Some(m) = self.scope.native_static_methods.get(static_type) {
+                if let Some(native_sym) = m.get(field) {
+                    for arg in x.args {
+                        self.expr(arg.value);
+                    }
+                    self.emit(Instr.CallNative(native_sym, x.args.len()));
+                    return true;
                 }
-            },
-            None => {},
+            }
         }
         match self.resolve_method(obj, field) {
             Some(idx) => {
@@ -1804,34 +1684,25 @@ impl FnCompiler {
     // Instance method on a concrete receiver: a built-in `native fn` (the receiver
     // is the native's first argument) or a user method (self pushed first).
     fn emit_instance_method_call(self, _ x: CallExpr, _ obj: Expr, _ field: String) -> Bool {
-        match self.type_of(obj) {
-            Some(t) => {
-                match self.scope.native_instance_methods.get(t) {
-                    Some(m) => {
-                        match m.get(field) {
-                            Some(instance_native) => {
-                                self.expr(obj);
-                                for arg in x.args {
-                                    self.expr(arg.value);
-                                }
-                                // `list.len()` lowers to the `ListLen` primitive
-                                // (the receiver is on the stack) rather than a
-                                // native round-trip — it is by far the hottest
-                                // native. Other instance natives stay `call.native`.
-                                if instance_native == 'list_len' {
-                                    self.emit(Instr.Simple(Op.ListLen));
-                                } else {
-                                    self.emit(Instr.CallNative(instance_native, x.args.len() + 1));
-                                }
-                                return true;
-                            },
-                            None => {},
-                        }
-                    },
-                    None => {},
+        if let Some(t) = self.type_of(obj) {
+            if let Some(m) = self.scope.native_instance_methods.get(t) {
+                if let Some(instance_native) = m.get(field) {
+                    self.expr(obj);
+                    for arg in x.args {
+                        self.expr(arg.value);
+                    }
+                    // `list.len()` lowers to the `ListLen` primitive
+                    // (the receiver is on the stack) rather than a
+                    // native round-trip — it is by far the hottest
+                    // native. Other instance natives stay `call.native`.
+                    if instance_native == 'list_len' {
+                        self.emit(Instr.Simple(Op.ListLen));
+                    } else {
+                        self.emit(Instr.CallNative(instance_native, x.args.len() + 1));
+                    }
+                    return true;
                 }
-            },
-            None => {},
+            }
         }
         match self.resolve_method(obj, field) {
             Some(idx) => {
@@ -1859,10 +1730,7 @@ impl FnCompiler {
                 Some(ifaces) => {
                     let mut found = false;
                     for i in ifaces {
-                        match self.scope.interface_methods.get(i) {
-                            Some(s) => { if s.has(field) { found = true; } },
-                            None => {},
-                        }
+                        if let Some(s) = self.scope.interface_methods.get(i) { if s.has(field) { found = true; } }
                     }
                     found
                 },
@@ -1895,25 +1763,19 @@ impl FnCompiler {
     // A function-valued struct field invoked like a method: `c.now()` where `now`
     // is a field holding a closure (no method by that name).
     fn emit_field_call(self, _ x: CallExpr, _ obj: Expr, _ field: String) -> Bool {
-        match self.type_of(obj) {
-            Some(obj_type) => {
-                match self.scope.structs.get(obj_type) {
-                    Some(struct_info) => {
-                        let fi = field_index_of(struct_info, field);
-                        if fi >= 0 {
-                            self.expr(obj);
-                            self.emit(Instr.FieldGet(fi));
-                            for arg in x.args {
-                                self.expr(arg.value);
-                            }
-                            self.emit(Instr.CallIndirect(x.args.len()));
-                            return true;
-                        }
-                    },
-                    None => {},
+        if let Some(obj_type) = self.type_of(obj) {
+            if let Some(struct_info) = self.scope.structs.get(obj_type) {
+                let fi = field_index_of(struct_info, field);
+                if fi >= 0 {
+                    self.expr(obj);
+                    self.emit(Instr.FieldGet(fi));
+                    for arg in x.args {
+                        self.expr(arg.value);
+                    }
+                    self.emit(Instr.CallIndirect(x.args.len()));
+                    return true;
                 }
-            },
-            None => {},
+            }
         }
         return false;
     }
@@ -1926,14 +1788,8 @@ impl FnCompiler {
             Some(t) => Option.Some(t),
             None => self.type_of(receiver),
         };
-        match ty {
-            Some(t) => {
-                match self.scope.method_table.get(t) {
-                    Some(m) => { return m.get(name); },
-                    None => {},
-                }
-            },
-            None => {},
+        if let Some(t) = ty {
+            if let Some(m) = self.scope.method_table.get(t) { return m.get(name); }
         }
         return Option.None;
     }
@@ -2052,65 +1908,47 @@ impl FnCompiler {
     // --- dispatch helpers ---
 
     fn interface_method(self, _ ty_name: Option<String>, _ interface_name: String, _ method: String) -> Option<Int> {
-        match ty_name {
-            Some(t) => {
-                let implements = match self.scope.interface_impls.get(t) {
-                    Some(s) => s.has(interface_name),
-                    None => false,
-                };
-                if implements {
-                    match self.scope.method_table.get(t) {
-                        Some(m) => { return m.get(method); },
-                        None => {},
-                    }
-                }
-            },
-            None => {},
+        if let Some(t) = ty_name {
+            let implements = match self.scope.interface_impls.get(t) {
+                Some(s) => s.has(interface_name),
+                None => false,
+            };
+            if implements {
+                if let Some(m) = self.scope.method_table.get(t) { return m.get(method); }
+            }
         }
         return Option.None;
     }
 
     fn dispatch_interfaces(self, _ name: Option<String>) -> Option<List<String>> {
-        match name {
-            Some(n) => {
-                if self.scope.interface_methods.has(n) {
-                    return Option.Some([n]);
+        if let Some(n) = name {
+            if self.scope.interface_methods.has(n) {
+                return Option.Some([n]);
+            }
+            if let Some(bounds) = self.type_param_bounds.get(n) {
+                let ifaces: List<String> = [];
+                for b in bounds {
+                    if self.scope.interface_methods.has(b) {
+                        ifaces.push(b);
+                    }
                 }
-                match self.type_param_bounds.get(n) {
-                    Some(bounds) => {
-                        let ifaces: List<String> = [];
-                        for b in bounds {
-                            if self.scope.interface_methods.has(b) {
-                                ifaces.push(b);
-                            }
-                        }
-                        if ifaces.len() > 0 {
-                            return Option.Some(ifaces);
-                        }
-                    },
-                    None => {},
+                if ifaces.len() > 0 {
+                    return Option.Some(ifaces);
                 }
-            },
-            None => {},
+            }
         }
         return Option.None;
     }
 
     fn dispatches_via(self, _ ty_name: Option<String>, _ method: String) -> Bool {
-        match self.dispatch_interfaces(ty_name) {
-            Some(ifaces) => {
-                for i in ifaces {
-                    match self.scope.interface_methods.get(i) {
-                        Some(s) => {
-                            if s.has(method) {
-                                return true;
-                            }
-                        },
-                        None => {},
+        if let Some(ifaces) = self.dispatch_interfaces(ty_name) {
+            for i in ifaces {
+                if let Some(s) = self.scope.interface_methods.get(i) {
+                    if s.has(method) {
+                        return true;
                     }
                 }
-            },
-            None => {},
+            }
         }
         return false;
     }
@@ -2140,10 +1978,7 @@ fn top_level_tag_tests(_ e: MatchExpr) -> Int {
     let mut n = 0;
     let mut i = 0;
     while i < e.arms.len() - 1 {
-        match e.arms[i].pattern {
-            Constructor(_, _, _) => { n = n + 1; },
-            _ => {},
-        }
+        if let Constructor(_, _, _) = e.arms[i].pattern { n = n + 1; }
         i = i + 1;
     }
     return n;
@@ -2184,12 +2019,9 @@ fn sorted_keys(_ cases: Map<Int, MatchArm>) -> List<Int> {
                 }
             }
         }
-        match best {
-            Some(b) => {
-                sorted.push(b);
-                used.add(b);
-            },
-            None => {},
+        if let Some(b) = best {
+            sorted.push(b);
+            used.add(b);
         }
         count = count + 1;
     }
@@ -2216,16 +2048,10 @@ fn named_self_type(_ name: String, _ library: element.LibraryElement) -> Type {
 // parameters that join a method unit's in-scope type-parameter set.
 fn self_type_param_names(_ t: Type) -> List<String> {
     let out = [];
-    match t {
-        Interface(_, args) => {
-            for a in args {
-                match a {
-                    TypeParameter(n) => { out.push(n); },
-                    _ => {},
-                }
-            }
-        },
-        _ => {},
+    if let Interface(_, args) = t {
+        for a in args {
+            if let TypeParameter(n) = a { out.push(n); }
+        }
     }
     return out;
 }
@@ -2428,10 +2254,7 @@ fn fv_visit_block(_ b: Block, _ bound: Set<String>, _ free: List<String>, _ seen
     for s in b.stmts {
         fv_stmt(s, local, free, seen);
     }
-    match b.tail {
-        Some(t) => { fv_visit(t, local, free, seen); },
-        None => {},
-    }
+    if let Some(t) = b.tail { fv_visit(t, local, free, seen); }
 }
 
 fn fv_visit(_ e: Expr, _ bound: Set<String>, _ free: List<String>, _ seen: Set<String>) -> Void {
@@ -2444,10 +2267,7 @@ fn fv_visit(_ e: Expr, _ bound: Set<String>, _ free: List<String>, _ seen: Set<S
         Loc(_) => {}, // a leaf metaconstant — no free variables
         Str(_, parts) => {
             for p in parts {
-                match p {
-                    Interp(_, ie) => { fv_visit(ie, bound, free, seen); },
-                    Text(_, _) => {},
-                }
+                if let Interp(_, ie) = p { fv_visit(ie, bound, free, seen); }
             }
         },
         ListLit(_, items) => {
@@ -2506,16 +2326,10 @@ fn fv_visit(_ e: Expr, _ bound: Set<String>, _ free: List<String>, _ seen: Set<S
         If(x) => {
             fv_visit(x.condition, bound, free, seen);
             fv_visit_block(x.then_block, bound, free, seen);
-            match x.else_block {
-                Some(eb) => { fv_visit_block(eb, bound, free, seen); },
-                None => {},
-            }
+            if let Some(eb) = x.else_block { fv_visit_block(eb, bound, free, seen); }
         },
         Return(_, value) => {
-            match value {
-                Some(v) => { fv_visit(v, bound, free, seen); },
-                None => {},
-            }
+            if let Some(v) = value { fv_visit(v, bound, free, seen); }
         },
         Throw(_, value) => { fv_visit(value, bound, free, seen); },
     }
@@ -2533,19 +2347,13 @@ fn fv_stmt(_ s: Stmt, _ bound: Set<String>, _ free: List<String>, _ seen: Set<St
         },
         Expr(_, e) => { fv_visit(e, bound, free, seen); },
         Return(_, value) => {
-            match value {
-                Some(v) => { fv_visit(v, bound, free, seen); },
-                None => {},
-            }
+            if let Some(v) = value { fv_visit(v, bound, free, seen); }
         },
         Throw(_, value) => { fv_visit(value, bound, free, seen); },
         If(x) => {
             fv_visit(x.condition, bound, free, seen);
             fv_visit_block(x.then_block, bound, free, seen);
-            match x.else_block {
-                Some(eb) => { fv_visit_block(eb, bound, free, seen); },
-                None => {},
-            }
+            if let Some(eb) = x.else_block { fv_visit_block(eb, bound, free, seen); }
         },
         While(x) => {
             fv_visit(x.condition, bound, free, seen);
@@ -2582,24 +2390,18 @@ fn order_global_inits(_ scope: ModuleScope, _ errors: List<CodegenError>) -> Lis
 
 fn visit_global_init(_ g: GlobalInit, _ scope: ModuleScope, _ by_name: Map<String, GlobalInit>,
     _ state: Map<String, Int>, _ ordered: List<GlobalInit>, _ errors: List<CodegenError>) -> Void {
-    match state.get(g.name) {
-        Some(s) => {
-            if s == 1 {
-                errors.push(CodegenError {
-                    message: 'module-level `let` initializer cycle through `${g.name}`',
-                    span: g.span,
-                });
-            }
-            return; // already done, or a cycle just reported
-        },
-        None => {},
+    if let Some(s) = state.get(g.name) {
+        if s == 1 {
+            errors.push(CodegenError {
+                message: 'module-level `let` initializer cycle through `${g.name}`',
+                span: g.span,
+            });
+        }
+        return; // already done, or a cycle just reported
     }
     state[g.name] = 1;
     for dep in global_init_deps(g.value, scope) {
-        match by_name.get(dep) {
-            Some(dg) => { visit_global_init(dg, scope, by_name, state, ordered, errors); },
-            None => {},
-        }
+        if let Some(dg) = by_name.get(dep) { visit_global_init(dg, scope, by_name, state, ordered, errors); }
     }
     state[g.name] = 2;
     ordered.push(g);
@@ -2668,10 +2470,7 @@ fn bml_block(_ b: Block, _ muts: Set<String>, _ lambdas: List<LambdaExpr>) -> Vo
     for s in b.stmts {
         bml_stmt(s, muts, lambdas);
     }
-    match b.tail {
-        Some(t) => { bml_expr(t, muts, lambdas); },
-        None => {},
-    }
+    if let Some(t) = b.tail { bml_expr(t, muts, lambdas); }
 }
 
 fn bml_expr(_ e: Expr, _ muts: Set<String>, _ lambdas: List<LambdaExpr>) -> Void {
@@ -2685,10 +2484,7 @@ fn bml_expr(_ e: Expr, _ muts: Set<String>, _ lambdas: List<LambdaExpr>) -> Void
         Loc(_) => {}, // a leaf metaconstant
         Str(_, parts) => {
             for p in parts {
-                match p {
-                    Interp(_, ie) => { bml_expr(ie, muts, lambdas); },
-                    Text(_, _) => {},
-                }
+                if let Interp(_, ie) = p { bml_expr(ie, muts, lambdas); }
             }
         },
         ListLit(_, items) => {
@@ -2738,16 +2534,10 @@ fn bml_expr(_ e: Expr, _ muts: Set<String>, _ lambdas: List<LambdaExpr>) -> Void
         If(x) => {
             bml_expr(x.condition, muts, lambdas);
             bml_block(x.then_block, muts, lambdas);
-            match x.else_block {
-                Some(eb) => { bml_block(eb, muts, lambdas); },
-                None => {},
-            }
+            if let Some(eb) = x.else_block { bml_block(eb, muts, lambdas); }
         },
         Return(_, value) => {
-            match value {
-                Some(v) => { bml_expr(v, muts, lambdas); },
-                None => {},
-            }
+            if let Some(v) = value { bml_expr(v, muts, lambdas); }
         },
         Throw(_, value) => { bml_expr(value, muts, lambdas); },
     }
@@ -2767,19 +2557,13 @@ fn bml_stmt(_ s: Stmt, _ muts: Set<String>, _ lambdas: List<LambdaExpr>) -> Void
         },
         Expr(_, e) => { bml_expr(e, muts, lambdas); },
         Return(_, value) => {
-            match value {
-                Some(v) => { bml_expr(v, muts, lambdas); },
-                None => {},
-            }
+            if let Some(v) = value { bml_expr(v, muts, lambdas); }
         },
         Throw(_, value) => { bml_expr(value, muts, lambdas); },
         If(x) => {
             bml_expr(x.condition, muts, lambdas);
             bml_block(x.then_block, muts, lambdas);
-            match x.else_block {
-                Some(eb) => { bml_block(eb, muts, lambdas); },
-                None => {},
-            }
+            if let Some(eb) = x.else_block { bml_block(eb, muts, lambdas); }
         },
         While(x) => {
             bml_expr(x.condition, muts, lambdas);
@@ -2805,19 +2589,16 @@ fn is_irrefutable(_ p: Pattern) -> Bool {
 // The type name of field `k` of variant `tag` in enum `info` — the enum to match
 // a nested constructor pattern against — or None if not resolvable.
 fn enum_field_type_name(_ info: Option<EnumInfo>, _ tag: Int, _ k: Int) -> Option<String> {
-    match info {
-        Some(ei) => {
-            if tag >= 0 && tag < ei.variants.len() {
-                let fields = ei.variants[tag].fields;
-                if k < fields.len() {
-                    return match fields[k] {
-                        Named(nt) => Option.Some(nt.name),
-                        Function(_) => Option.None,
-                    };
-                }
+    if let Some(ei) = info {
+        if tag >= 0 && tag < ei.variants.len() {
+            let fields = ei.variants[tag].fields;
+            if k < fields.len() {
+                return match fields[k] {
+                    Named(nt) => Option.Some(nt.name),
+                    Function(_) => Option.None,
+                };
             }
-        },
-        None => {},
+        }
     }
     return Option.None;
 }
