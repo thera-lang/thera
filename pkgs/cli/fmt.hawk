@@ -38,6 +38,13 @@ pub fn format_file(_ path: String) -> Result<Bool, Error> {
     return Result.Ok(true);
 }
 
+// Whether `path` needs formatting — `true` if `format_source` would change it.
+// The read-only counterpart to `format_file` (writes nothing), for `fmt --check`.
+pub fn check_file(_ path: String) -> Result<Bool, Error> {
+    let source = fs.read_text(path)?;
+    return Result.Ok(format_source(source) != source);
+}
+
 // Format a string of source code. Idempotent: formatting formatted source is a
 // no-op.
 pub fn format_source(_ source: String) -> String {

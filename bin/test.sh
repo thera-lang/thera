@@ -72,6 +72,25 @@ else
 fi
 rm -rf "$chk_dir"
 
+echo "==> fmt --check (read-only; lists unformatted files, exit 1)"
+# `hawk fmt --check` must not modify files, list the ones needing formatting on
+# stdout, and exit 0 (all formatted) / 1 (some need formatting) — the CI /
+# pre-commit contract. (See docs/roadmap.md, "Formatter (hawk fmt)".)
+fmt_dir="$(mktemp -d)"
+printf 'fn f() {\n    x();\n}\n' > "$fmt_dir/clean.hawk"
+printf 'fn g() {\ny();\n}\n' > "$fmt_dir/dirty.hawk"
+cp "$fmt_dir/dirty.hawk" "$fmt_dir/dirty.orig"
+"$HAWK" fmt --check "$fmt_dir/clean.hawk" >/dev/null 2>&1; clean_code=$?
+dirty_out="$("$HAWK" fmt --check "$fmt_dir/dirty.hawk" 2>/dev/null)"; dirty_code=$?
+if [ "$clean_code" -eq 0 ] && [ "$dirty_code" -eq 1 ] \
+   && printf '%s' "$dirty_out" | grep -q 'dirty.hawk' \
+   && diff -q "$fmt_dir/dirty.hawk" "$fmt_dir/dirty.orig" >/dev/null; then
+  echo "  ok   fmt --check: clean=0, dirty=1 (listed), file untouched"
+else
+  echo "  FAIL fmt --check (clean=$clean_code dirty=$dirty_code out='$dirty_out')"; fail=1
+fi
+rm -rf "$fmt_dir"
+
 echo "==> diagnostic attribution (imported-file error names the import)"
 # An error in an imported file must be attributed to *that* file, not the
 # entrypoint that triggered the compile — a diagnostic span carries source text,
@@ -111,6 +130,19 @@ if [ "$bare_refs" -eq 0 ]; then
   echo "  ok   0 bare cross-library references"
 else
   echo "  FAIL $bare_refs bare cross-library reference(s); run: hawk check pkgs/cli sdk/std examples"
+  fail=1
+fi
+
+echo "==> fmt guard (corpus stays canonically formatted)"
+# The whole corpus is kept formatted; `hawk fmt --check` lists any file that would
+# change and exits non-zero. A drift fails the build with the fix command. See
+# docs/roadmap.md, "Formatter (hawk fmt)".
+unformatted="$("$HAWK" fmt --check pkgs/cli sdk/std examples 2>/dev/null)"; fmt_code=$?
+if [ "$fmt_code" -eq 0 ]; then
+  echo "  ok   corpus is formatted"
+else
+  echo "  FAIL these files need formatting; run: hawk fmt pkgs/cli sdk/std examples"
+  printf '%s\n' "$unformatted" | sed 's/^/         /'
   fail=1
 fi
 

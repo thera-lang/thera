@@ -90,12 +90,18 @@ Exit code: 0 if all tests pass, 1 if any fail or none are found.
 'Rewrites each target (a file, or *.hawk under a directory) to the canonical
 format, in place.
 
-stdout: `Formatted <path>` for each file that changed (silent for files already
-  formatted).
-stderr: per-file errors.
-Exit code: 0.
+With --check, no file is modified: the unformatted files are listed instead, one
+per line, and the exit code reports whether any were found (for CI / pre-commit).
 
-  hawk fmt src/')
+stdout: `Formatted <path>` for each file that changed (silent for files already
+  formatted); with --check, the path of each file that needs formatting.
+stderr: per-file errors.
+Exit code: 0 (or, with --check, 0 when all files are formatted, 1 when some need
+  formatting, 2 on a read/target error).
+
+  hawk fmt src/                    # format in place
+  hawk fmt --check src/           # list files needing formatting, exit 1 if any')
+            .flag('check', help: 'do not write; list files that need formatting and exit non-zero if any')
             .positional('target', help: 'a .hawk file or directory to format'))
         .subcommand(cli.Command.new('lint')
             .about('report non-idiomatic code shapes with a known rewrite')
@@ -208,7 +214,7 @@ fn run_on_file(_ name: String, _ sub: cli.Matches) -> Result<Int, Error> {
             eprintln('hawk fmt: expected a <file|dir> argument');
             return Result.Ok(2);
         }
-        return do_fmt(positionals);
+        return do_fmt(positionals, check: sub.flag('check'));
     }
     if name == 'lint' {
         if positionals.len() == 0 {
@@ -301,8 +307,9 @@ fn do_check(_ targets: List<String>, _ sdk_root: Option<String>) -> Result<Int, 
     return Result.Ok(0);
 }
 
-// `hawk fmt <file|dir>...` — format each target in place.
-fn do_fmt(_ targets: List<String>) -> Result<Int, Error> {
+// `hawk fmt <file|dir>...` — format each target in place, or (with `check`) list
+// the unformatted files without touching them.
+fn do_fmt(_ targets: List<String>, check: Bool = false) -> Result<Int, Error> {
     let files: List<String> = [];
     let mut missing = false;
     for target in targets {
@@ -323,13 +330,35 @@ fn do_fmt(_ targets: List<String>) -> Result<Int, Error> {
         return Result.Ok(2);
     }
 
-    let mut modified = 0;
+    if check {
+        // Read-only: report the files that would change, exit 1 if any do. An
+        // unreadable file is an operational failure (exit 2), not "unformatted".
+        let mut unformatted = 0;
+        for file in runner.sort_dedup(files) {
+            match fmt.check_file(file) {
+                Ok(needs) => {
+                    if needs {
+                        println(file);
+                        unformatted = unformatted + 1;
+                    }
+                },
+                Err(e) => {
+                    eprintln('hawk fmt: cannot read ${file}: ${e}');
+                    return Result.Ok(2);
+                },
+            }
+        }
+        if unformatted > 0 {
+            return Result.Ok(1);
+        }
+        return Result.Ok(0);
+    }
+
     for file in runner.sort_dedup(files) {
         match fmt.format_file(file) {
             Ok(changed) => {
                 if changed {
                     println('Formatted ${file}');
-                    modified = modified + 1;
                 }
             },
             Err(e) => {
