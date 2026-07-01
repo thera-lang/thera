@@ -66,6 +66,13 @@ pub struct MapMatch {
     mapped: Expr,
 }
 
+// A `match` convertible to `?`: the error-propagating shape reduces to the
+// scrutinee with a trailing `?`, so the site needs only its span and subject.
+pub struct QuestionMatch {
+    match_span: SourceSpan,
+    subject: Expr,
+}
+
 // A `let x = match … { … }` convertible to `let CTOR(x) = SUBJ else { … }`. The
 // whole `let` statement is replaced, so the site carries its span and binding.
 pub struct LetElseMatch {
@@ -124,17 +131,14 @@ fn detect_match_to_if_let(_ m: MatchExpr) -> Option<Suggestion> {
 // `Some(v)`/`None => return Option.None` analogue). The success arm binds and
 // yields its value; the error arm returns the same error re-wrapped.
 fn detect_match_to_question(_ m: MatchExpr) -> Option<Suggestion> {
-    if !is_source_match(m) || m.arms.len() != 2 {
-        return Option.None;
-    }
-    if is_question_shape(m) {
-        return Option.Some(Suggestion {
+    return match match_question(m) {
+        Some(_) => Option.Some(Suggestion {
             rule: 'match-to-question',
             span: m.span,
             message: 'match that propagates the error could be `?`',
-        });
-    }
-    return Option.None;
+        }),
+        None => Option.None,
+    };
 }
 
 // `let x = match opt { Some(v) => v, None => { …diverge… } };`
@@ -221,6 +225,22 @@ fn detect_while_index(_ w: WhileStmt) -> Option<Suggestion> {
 // block-bodied arm is left to a human, since it may drop statements or `return`
 // out of the enclosing fn when moved into a closure or `else`.
 
+// `match r { Ok(v) => v, Err(e) => return Result.Err(e) }` → `r?` (and the
+// `Some(v)`/`None => return Option.None` analogue). Behavior-preserving: the `?`
+// operator desugars to exactly this match, and the error is re-raised unchanged.
+pub fn match_question(_ m: MatchExpr) -> Option<QuestionMatch> {
+    if !is_source_match(m) || m.arms.len() != 2 {
+        return Option.None;
+    }
+    if is_question_shape(m) {
+        return Option.Some(QuestionMatch {
+            match_span: m.span,
+            subject: m.subject,
+        });
+    }
+    return Option.None;
+}
+
 // `match SUBJ { Some(v) => v, None => FB }` → `SUBJ.unwrap_or(FB)`, or
 // `.unwrap_or_else(…)` when the fallback isn't a cheap value (the fix decides).
 // The fallback must be a bare value; the catch-all must bind nothing (`Some`) or
@@ -236,24 +256,15 @@ pub fn match_unwrap_or(_ m: MatchExpr) -> Option<UnwrapOrMatch> {
 }
 
 fn unwrap_or_site(_ m: MatchExpr, _ a: MatchArm, _ b: MatchArm) -> Option<UnwrapOrMatch> {
-    let aname = match ctor_name(a.pattern) {
-        Some(n) => n,
-        None => return Option.None,
-    };
+    let aname = ctor_name(a.pattern)?;
     if aname != 'Some' && aname != 'Ok' {
         return Option.None;
     }
-    let vname = match ctor_binding(a.pattern) {
-        Some(n) => n,
-        None => return Option.None,
-    };
+    let vname = ctor_binding(a.pattern)?;
     if !body_yields_var(a.body, vname) {
         return Option.None;
     }
-    let fb = match simple_value_expr(b.body) {
-        Some(e) => e,
-        None => return Option.None,
-    };
+    let fb = simple_value_expr(b.body)?;
     let is_result = aname == 'Ok';
     let err_binding = if is_result {
         if !is_result_fallback_pat(b.pattern) {
@@ -291,14 +302,8 @@ fn map_site(_ m: MatchExpr, _ a: MatchArm, _ b: MatchArm) -> Option<MapMatch> {
     if !ctor_name_is(a.pattern, 'Some') || !ctor_name_is(b.pattern, 'None') {
         return Option.None;
     }
-    let bind = match ctor_binding(a.pattern) {
-        Some(n) => n,
-        None => return Option.None,
-    };
-    let aval = match simple_value_expr(a.body) {
-        Some(e) => e,
-        None => return Option.None,
-    };
+    let bind = ctor_binding(a.pattern)?;
+    let aval = simple_value_expr(a.body)?;
     let mapped = match aval {
         Call(c) => if is_qual_field(c.callee, 'Option', 'Some') && c.args.len() == 1 {
             simple_value_expr(c.args[0].value)
@@ -307,14 +312,8 @@ fn map_site(_ m: MatchExpr, _ a: MatchArm, _ b: MatchArm) -> Option<MapMatch> {
         },
         _ => Option.None,
     };
-    let mapped_expr = match mapped {
-        Some(e) => e,
-        None => return Option.None,
-    };
-    let bval = match simple_value_expr(b.body) {
-        Some(e) => e,
-        None => return Option.None,
-    };
+    let mapped_expr = mapped?;
+    let bval = simple_value_expr(b.body)?;
     if !is_qual_field(bval, 'Option', 'None') {
         return Option.None;
     }
@@ -333,14 +332,8 @@ pub fn match_let_else(_ l: LetStmt) -> Option<LetElseMatch> {
     if l.is_mut {
         return Option.None;
     }
-    match l.type_ann {
-        Some(_) => return Option.None,
-        None => {},
-    }
-    let m = match l.value {
-        Match(mm) => mm,
-        _ => return Option.None,
-    };
+    if let Some(_) = l.type_ann { return Option.None; }
+    let Match(m) = l.value else { return Option.None; };
     if !is_source_match(m) || m.arms.len() != 2 || is_question_shape(m) {
         return Option.None;
     }
@@ -351,14 +344,8 @@ pub fn match_let_else(_ l: LetStmt) -> Option<LetElseMatch> {
 }
 
 fn let_else_site(_ l: LetStmt, _ m: MatchExpr, _ a: MatchArm, _ b: MatchArm) -> Option<LetElseMatch> {
-    let ctor = match ctor_name(a.pattern) {
-        Some(n) => n,
-        None => return Option.None,
-    };
-    let v = match ctor_binding(a.pattern) {
-        Some(n) => n,
-        None => return Option.None,
-    };
+    let ctor = ctor_name(a.pattern)?;
+    let v = ctor_binding(a.pattern)?;
     if !body_yields_var(a.body, v) || !body_diverges(b.body) || !pattern_binds_nothing(b.pattern) {
         return Option.None;
     }
@@ -392,26 +379,14 @@ fn is_question_shape(_ m: MatchExpr) -> Bool {
 // `a` is `Ok(v)`/`Some(v)` yielding `v`; `b` re-raises the same error
 // (`Err(e) => return Result.Err(e)` or `None => return Option.None`).
 fn question_pair(_ a: MatchArm, _ b: MatchArm) -> Bool {
-    let vname = match ctor_binding(a.pattern) {
-        Some(n) => n,
-        None => return false,
-    };
+    let Some(vname) = ctor_binding(a.pattern) else { return false; };
     if !body_yields_var(a.body, vname) {
         return false;
     }
-    let aname = match ctor_name(a.pattern) {
-        Some(n) => n,
-        None => return false,
-    };
-    let retv = match body_single_return(b.body) {
-        Some(r) => r,
-        None => return false,
-    };
+    let Some(aname) = ctor_name(a.pattern) else { return false; };
+    let Some(retv) = body_single_return(b.body) else { return false; };
     if aname == 'Ok' {
-        let ename = match ctor_binding(b.pattern) {
-            Some(n) => n,
-            None => return false,
-        };
+        let Some(ename) = ctor_binding(b.pattern) else { return false; };
         return ctor_name_is(b.pattern, 'Err') && is_qual_call1(retv, 'Result', 'Err', ename);
     }
     if aname == 'Some' {
@@ -431,14 +406,8 @@ fn let_else_pair(_ a: MatchArm, _ b: MatchArm) -> Bool {
 // `a` is `Ok(v)`/`Some(v)` yielding `v`; `b` is a catch-all returning a plain
 // fallback value (not empty, not diverging — those are `if let` / `let … else`).
 fn unwrap_or_pair(_ a: MatchArm, _ b: MatchArm) -> Bool {
-    let vname = match ctor_binding(a.pattern) {
-        Some(n) => n,
-        None => return false,
-    };
-    let aname = match ctor_name(a.pattern) {
-        Some(n) => n,
-        None => return false,
-    };
+    let Some(vname) = ctor_binding(a.pattern) else { return false; };
+    let Some(aname) = ctor_name(a.pattern) else { return false; };
     if aname != 'Some' && aname != 'Ok' {
         return false;
     }
@@ -453,10 +422,7 @@ fn map_pair(_ a: MatchArm, _ b: MatchArm) -> Bool {
     if !ctor_name_is(a.pattern, 'Some') || !ctor_name_is(b.pattern, 'None') {
         return false;
     }
-    let avalue = match body_value_expr(a.body) {
-        Some(v) => v,
-        None => return false,
-    };
+    let Some(avalue) = body_value_expr(a.body) else { return false; };
     let wraps_some = match avalue {
         Call(c) => is_qual_field(c.callee, 'Option', 'Some'),
         _ => false,

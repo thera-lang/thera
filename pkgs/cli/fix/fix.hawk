@@ -38,6 +38,11 @@ pub fn if_let_edit(_ site: lint.IfLetMatch) -> edit.TextEdit {
 fn if_let_body_text(_ body: Expr) -> String {
     return match body {
         Block(_, _) => expr_span(body).text(),
+        // A bare *diverging* body must be a statement in the block (`{ return x; }`);
+        // a `return`/`throw` can't be a block's tail expression. A value body can
+        // (`{ f(x) }`).
+        Return(_, _) => '{ ${expr_span(body).text()}; }',
+        Throw(_, _) => '{ ${expr_span(body).text()}; }',
         _ => '{ ${expr_span(body).text()} }',
     };
 }
@@ -54,10 +59,7 @@ pub fn unwrap_or_edit(_ s: lint.UnwrapOrMatch) -> edit.TextEdit {
     let raw = if is_cheap_expr(s.fallback) && s.err_binding == Option.None {
         '${subj}.unwrap_or(${fb})'
     } else if s.is_result {
-        let bind = match s.err_binding {
-            Some(n) => n,
-            None => '_',
-        };
+        let bind = s.err_binding.unwrap_or('_');
         '${subj}.unwrap_or_else((${bind}) => ${fb})'
     } else {
         '${subj}.unwrap_or_else(() => ${fb})'
@@ -92,6 +94,31 @@ fn str_is_literal(_ parts: List<StringPart>) -> Bool {
         }
     }
     return true;
+}
+
+// --- match → ? ---
+
+// The scrutinee with a trailing `?`. `?` is a postfix operator (tighter than any
+// binary/unary), so a lower-precedence subject (`a + b`) is parenthesized to keep
+// the `?` applying to the whole thing.
+pub fn question_edit(_ s: lint.QuestionMatch) -> edit.TextEdit {
+    let inner = expr_span(s.subject).text();
+    let subj = if question_needs_parens(s.subject) { '(${inner})' } else { inner };
+    let indent = edit.line_indent_at(s.match_span.source, s.match_span.offset);
+    return edit.span_edit(s.match_span, fmt.format_fragment('${subj}?', indent));
+}
+
+// A subject `?` can follow directly: a primary or a postfix chain (`r`, `f()`,
+// `x.y`, `xs[i]`, `r?`). Anything looser (`a + b`, `-x`, `a..b`) needs parens.
+fn question_needs_parens(_ e: Expr) -> Bool {
+    return match e {
+        Ident(_, _) => false,
+        Call(_) => false,
+        Field(_, _, _) => false,
+        Index(_, _, _) => false,
+        Propagate(_, _) => false,
+        _ => true,
+    };
 }
 
 // --- match → map ---
@@ -320,6 +347,13 @@ fn fs_match(_ m: MatchExpr, _ out: List<FixSite>) -> Void {
             edit: if_let_edit(site),
             title: 'Convert `match` to `if let`',
             message: 'match → if let',
+        });
+    } else if let Some(site) = lint.match_question(m) {
+        out.push(FixSite {
+            span: m.span,
+            edit: question_edit(site),
+            title: 'Convert `match` to `?`',
+            message: 'match → ?',
         });
     } else if let Some(site) = lint.match_unwrap_or(m) {
         out.push(FixSite {

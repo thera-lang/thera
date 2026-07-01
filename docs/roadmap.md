@@ -464,9 +464,12 @@ resolution_ below.)
   - **`match` → `let … else`. _Rewriter landed._** `let x = match opt { Some(v) => v, None => { …diverge… } };`
     → `let Some(x) = opt else { …diverge… };`. Fires on a plain, unannotated `let`
     whose diverging arm binds nothing (the `else` binds nothing).
-  - **`match` → `?`.** A `match r { Ok(v) => v, Err(e) => return Result.Err(e) }`
-    (or the `Option` analogue, once `?`-on-`Option` lands) → `r?`. Reporter only —
-    no rewriter yet.
+  - **`match` → `?`. _Rewriter landed._** A `match r { Ok(v) => v, Err(e) => return Result.Err(e) }`
+    (or the `Some(v)`/`None => return Option.None` analogue) → `r?`. Parenthesizes a
+    low-precedence subject (`match a + b {…}` → `(a + b)?`), since `?` is postfix.
+    The corpus had 0 sites (already idiomatic) — but the rule's own verbose
+    extractors were the first dogfood: `let x = match f() { Some(n) => n, None => return Option.None }`
+    → `let x = f()?`.
   - **`match` → combinator. _Rewriter landed._** `match opt { Some(v) => Option.Some(f(v)), None => Option.None }` →
     `opt.map((v) => f(v))`; `match opt { Some(v) => v, None => d }` →
     `opt.unwrap_or(d)` / `.unwrap_or_else(…)` (already underused — e.g. json
@@ -496,7 +499,7 @@ resolution_ below.)
     single `fix.fix_sites` walk emits at most one rewrite per `match` (the rules
     partition) plus `let … else` at the enclosing `let`. The transforms are
     vehicle-independent; a `hawk fix` CLI and an LSP code action both drive them.
-  - **`hawk fix` CLI — _landed (`if let`, `unwrap_or`, `map`, `let … else`)._**
+  - **`hawk fix` CLI — _landed (`if let`, `?`, `unwrap_or`, `map`, `let … else`)._**
     `hawk fix <file|dir>…` (main.hawk) drives the machinery: previews by default
     (one `path:line:col: match → …` per fix), `--write` applies. UX is flagged
     provisional in `--help` (the LSP code action is the primary per-site vehicle).
@@ -509,10 +512,15 @@ resolution_ below.)
     `unwrap_or` stays eager only for a **cheap** fallback (literal/ident/field);
     a computed one becomes `unwrap_or_else`, threading the `Err(e)` binding into
     `Result`'s closure. **Dogfooded** on 8 front-end files (26 sites across
-    driver/runner/element/lsp/loader/inference); the front-end compiles itself from
-    the rewritten source with the SDK fixpoint byte-identical and the suite green.
-    Some of the corpus is deliberately left for the **LSP code action** to dogfood.
-  - **LSP code action — _landed (`if let`, `unwrap_or`, `map`, `let … else`)._**
+    driver/runner/element/lsp/loader/inference), plus the rule set applied to its
+    own fresh `lint`/`fix` code (19 sites — the only `?` sites in the tree). That
+    self-dogfood surfaced a latent `if_let_body_text` bug: a bare *diverging* arm
+    body (`Some(_) => return …`) was wrapped as `{ return … }`, but a `return`
+    can't be a block tail — now emitted as `{ return …; }`. The front-end compiles
+    itself from all the rewritten source with the SDK fixpoint byte-identical and
+    the suite green. Some of the corpus is deliberately left for the **LSP code
+    action** to dogfood.
+  - **LSP code action — _landed (`if let`, `?`, `unwrap_or`, `map`, `let … else`)._**
     `textDocument/codeAction` (`pkgs/cli/lsp/code_action.hawk`, registered in the
     server capabilities) offers a `refactor.rewrite` action for each rewrite site
     overlapping the request range, driving the same `fix.fix_sites` (each site
@@ -522,7 +530,7 @@ resolution_ below.)
     closure). In-process JSON-RPC tests cover offer (`if let` + `unwrap_or`) + empty
     cases. This is the per-site vehicle for dogfooding the rest of the corpus.
     (Not yet: honoring `context.only` kind filters — currently returns the rewrite
-    regardless; `match → ?` and `while → for` rewriters.)
+    regardless; the `while → for` rewriter, which needs a loop-body rewrite.)
   - **First step — a read-only count — _landed._** `hawk lint <file|dir>`
     (`pkgs/cli/lint/lint.hawk`) walks the parsed AST — purely syntactic, no import
     closure — and reports + per-rule tallies convertible sites. Source `match`es

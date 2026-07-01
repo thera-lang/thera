@@ -52,6 +52,15 @@ fn wraps_a_bare_body_in_braces() -> Result<Void, Error> {
 }
 
 @test
+fn wraps_a_bare_return_body_as_a_statement() -> Result<Void, Error> {
+    // A bare *diverging* arm body needs a `;` inside the block — a `return` can't be
+    // a block's tail expression (unlike a value body, which can).
+    return check(
+        'fn f(_ o: Option<Int>) -> Int {\n    match o { Some(v) => return v, None => {} }\n    return 0;\n}\n',
+        'fn f(_ o: Option<Int>) -> Int {\n    if let Some(v) = o { return v; }\n    return 0;\n}\n');
+}
+
+@test
 fn leaves_non_convertible_match_untouched() -> Result<Void, Error> {
     // Both arms act — not the empty-catch-all shape.
     let src = 'fn f(_ o: Option<Int>) -> Int {\n    match o { Some(v) => { return v; }, None => { return 0; } }\n}\n';
@@ -173,6 +182,40 @@ fn unwrap_or_eager_for_a_discarded_result_error() -> Result<Void, Error> {
     return check(
         'fn f(_ r: Result<Int, Error>) -> Int {\n    return match r { Ok(v) => v, Err(_) => fallback };\n}\n',
         'fn f(_ r: Result<Int, Error>) -> Int {\n    return r.unwrap_or(fallback);\n}\n');
+}
+
+// --- ? (error propagation) ---
+
+@test
+fn rewrites_result_propagation_to_question() -> Result<Void, Error> {
+    return check(
+        'fn f(_ r: Result<Int, Error>) -> Result<Int, Error> {\n'
+        + '    let v = match r { Ok(x) => x, Err(e) => return Result.Err(e) };\n'
+        + '    return Result.Ok(v);\n}\n',
+        'fn f(_ r: Result<Int, Error>) -> Result<Int, Error> {\n'
+        + '    let v = r?;\n'
+        + '    return Result.Ok(v);\n}\n');
+}
+
+@test
+fn rewrites_option_propagation_to_question() -> Result<Void, Error> {
+    return check(
+        'fn f(_ o: Option<Int>) -> Option<Int> {\n'
+        + '    let v = match o { Some(x) => x, None => return Option.None };\n'
+        + '    return Option.Some(v);\n}\n',
+        'fn f(_ o: Option<Int>) -> Option<Int> {\n'
+        + '    let v = o?;\n'
+        + '    return Option.Some(v);\n}\n');
+}
+
+@test
+fn question_parenthesizes_a_loose_subject() -> Result<Void, Error> {
+    // `?` is postfix, so a binary subject is wrapped to keep it applying to the sum.
+    return check(
+        'fn f(_ a: Result<Int, Error>) -> Result<Int, Error> {\n'
+        + '    return match a + b { Ok(x) => x, Err(e) => return Result.Err(e) };\n}\n',
+        'fn f(_ a: Result<Int, Error>) -> Result<Int, Error> {\n'
+        + '    return (a + b)?;\n}\n');
 }
 
 // --- map ---
