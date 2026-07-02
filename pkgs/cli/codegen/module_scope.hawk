@@ -103,8 +103,13 @@ pub struct ModuleScope {
     // Mirrors the element model's `FileScope.bare_owner`.
     file_functions: Map<String, Map<String, Int>>,
     method_table: Map<String, Map<String, Int>>, // type -> method -> idx
-    structs: Map<String, StructInfo>,
-    enums: Map<String, EnumInfo>,
+    // Type tables keyed by **owning file** then name (owner-correct, Phase 1 T3):
+    // a `Type`'s `TypeId` resolves to its runtime layout via `owner`, so two
+    // libraries' same-named types stay distinct. No global by-name fallback — a
+    // wrong owner misses (and the SDK fixpoint would break), the same discipline
+    // that validates values (`file_functions`) and the element model (T2).
+    structs: Map<String, Map<String, StructInfo>>, // owner -> name -> info
+    enums: Map<String, Map<String, EnumInfo>>,     // owner -> name -> info
     types: List<TypeDef>,
     consts: Map<String, Expr>,
     // Module globals (top-level `let`; see docs/module_init.md): name -> slot for
@@ -236,16 +241,23 @@ impl ModuleScope {
         self.native_fns[decl.name] = extern_symbol(decl);
     }
 
-    pub fn add_struct(self, _ decl: TypeDecl) -> Void {
+    pub fn add_struct(self, _ decl: TypeDecl, _ file: Option<String>) -> Void {
+        let owner = element.file_key(file);
         let field_names = decl.fields.map((f) => f.name);
-        self.structs[decl.name] = StructInfo {
-            index: self.types.len(),
-            field_names: field_names,
-        };
+        if !self.structs.has(owner) {
+            self.structs[owner] = {};
+        }
+        if let Some(m) = self.structs.get(owner) {
+            m[decl.name] = StructInfo {
+                index: self.types.len(),
+                field_names: field_names,
+            };
+        }
         self.types.push(TypeDef { name: decl.name, field_count: decl.fields.len() });
     }
 
-    pub fn add_enum(self, _ decl: EnumDecl) -> Void {
+    pub fn add_enum(self, _ decl: EnumDecl, _ file: Option<String>) -> Void {
+        let owner = element.file_key(file);
         let ty = if decl.name == 'Result' {
             TY_RESULT
         } else if decl.name == 'Option' {
@@ -257,7 +269,60 @@ impl ModuleScope {
             self.next_enum_ty = self.next_enum_ty + 1;
             t
         };
-        self.enums[decl.name] = EnumInfo { ty: ty, variants: decl.variants };
+        if !self.enums.has(owner) {
+            self.enums[owner] = {};
+        }
+        if let Some(m) = self.enums.get(owner) {
+            m[decl.name] = EnumInfo { ty: ty, variants: decl.variants };
+        }
+    }
+
+    // The struct/enum layout for an owner-qualified type id — the runtime analogue
+    // of `FileScope.resolve_type_def`. No global fallback: a wrong owner misses.
+    pub fn resolve_struct(self, _ owner: String, _ name: String) -> Option<StructInfo> {
+        return match self.structs.get(owner) {
+            Some(m) => m.get(name),
+            None => Option.None,
+        };
+    }
+
+    pub fn resolve_enum(self, _ owner: String, _ name: String) -> Option<EnumInfo> {
+        return match self.enums.get(owner) {
+            Some(m) => m.get(name),
+            None => Option.None,
+        };
+    }
+
+    // The owning file (key) of type `name`, read from the element registry —
+    // correct while type names are globally unique (scope-aware source resolution
+    // is T4). Used to owner-qualify a *source* type name (a struct literal, a
+    // static `Enum.Variant`) whose owner isn't already carried on a resolved `Type`.
+    pub fn type_owner(self, _ name: String) -> String {
+        return match self.library.type_defs.get(name) {
+            Some(d) => d.owner_file,
+            None => '',
+        };
+    }
+
+    // `name` owner-qualified via the registry — the `TypeId` for a bare source name.
+    pub fn type_id_for(self, _ name: String) -> TypeId {
+        return TypeId { owner: self.type_owner(name), name: name };
+    }
+
+    // Whether `name` is a registered user struct or enum, in any library — the
+    // existence half of type-name recognition (built-ins handled separately).
+    pub fn has_struct_or_enum(self, _ name: String) -> Bool {
+        for owner in self.structs.keys() {
+            if self.structs[owner].has(name) {
+                return true;
+            }
+        }
+        for owner in self.enums.keys() {
+            if self.enums[owner].has(name) {
+                return true;
+            }
+        }
+        return false;
     }
 
     pub fn add_const(self, _ decl: ConstDecl) -> Void {
@@ -461,9 +526,10 @@ impl ModuleScope {
                 Some(m) => m.get(row.selector),
                 None => Option.None,
             };
-            let type_id = match self.structs.get(row.type_name) {
+            let owner = self.type_owner(row.type_name);
+            let type_id = match self.resolve_struct(owner, row.type_name) {
                 Some(si) => Option.Some(si.index),
-                None => self.enums.get(row.type_name).map((ei) => ENUM_DISPATCH_BASE | ei.ty),
+                None => self.resolve_enum(owner, row.type_name).map((ei) => ENUM_DISPATCH_BASE | ei.ty),
             };
             if let Some(f) = func {
                 if let Some(tid) = type_id {

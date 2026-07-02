@@ -143,8 +143,8 @@ fn register_module(_ scope: ModuleScope, _ program: Program) -> Void {
             },
             // A `native type` has no struct layout / runtime type-table entry — its
             // representation lives in the runtime. Methods come from `impl` blocks.
-            Type(x) => { if !x.is_native { scope.add_struct(x); } },
-            Enum(x) => { scope.add_enum(x); },
+            Type(x) => { if !x.is_native { scope.add_struct(x, file); } },
+            Enum(x) => { scope.add_enum(x, file); },
             Const(x) => { scope.add_const(x); },
             // Module-level `let`: a global slot computed once in the `<init>`
             // thunk (see docs/module_init.md).
@@ -457,6 +457,13 @@ impl FnCompiler {
     // None for Unit and anything without a usable concrete name.
     fn type_of(self, _ e: Expr) -> Option<String> {
         return name_of_type(infer_expr(e, self.type_scope, self.ctx, Option.None));
+    }
+
+    // The owner-qualified identity of `e`'s inferred type, when it names a
+    // struct/enum — so a field/variant/method lookup keys the codegen type table
+    // by the type's *owner*, not its bare name (Phase 1 T3).
+    fn type_id_of(self, _ e: Expr) -> Option<TypeId> {
+        return type_id_of_type(infer_expr(e, self.type_scope, self.ctx, Option.None));
     }
 
     // --- statements ---
@@ -930,14 +937,16 @@ impl FnCompiler {
     // once) via a balanced binary search instead of the linear chain.
     fn match_expr(self, _ e: MatchExpr) -> Void {
         let subject_ty = infer_expr(e.subject, self.type_scope, self.ctx, Option.None);
-        let subject_type = name_of_type(subject_ty);
+        // Owner-qualified: enum dispatch resolves the codegen type table by the
+        // subject's owning library, not its bare name (T3).
+        let subject_type = type_id_of_type(subject_ty);
         self.expr(e.subject);
         let subject = self.fresh_slot();
         self.emit(Instr.Store(subject));
         let end = self.new_label();
 
         let is_enum = match subject_type {
-            Some(t) => self.scope.enums.has(t),
+            Some(t) => self.scope.resolve_enum(t.owner, t.name).is_some(),
             None => false,
         };
         let dispatch = if is_enum {
@@ -1000,9 +1009,9 @@ impl FnCompiler {
     // literal/irrefutable mid-arm, or a duplicate or unknown tag. Every non-final
     // arm must be a constructor whose arguments are all irrefutable, so the tag
     // alone decides the arm. The final arm is the catch-all default.
-    fn plan_dispatch(self, _ e: MatchExpr, _ enum_type: Option<String>) -> Option<DispatchPlan> {
+    fn plan_dispatch(self, _ e: MatchExpr, _ enum_type: Option<TypeId>) -> Option<DispatchPlan> {
         let info = match enum_type {
-            Some(t) => self.scope.enums.get(t),
+            Some(t) => self.scope.resolve_enum(t.owner, t.name),
             None => Option.None,
         };
         if let Some(ei) = info {
@@ -1044,7 +1053,7 @@ impl FnCompiler {
     // Emit a balanced binary search over the (distinct, sorted) case tags, with
     // every miss routed to a single shared default.
     fn emit_dispatch(self, _ plan: DispatchPlan, _ subject: Int, _ subject_ty: Type,
-        _ subject_type: Option<String>, _ tag_slot: Int, _ end: Int) -> Void {
+        _ subject_type: Option<TypeId>, _ tag_slot: Int, _ end: Int) -> Void {
         let tags = sorted_keys(plan.cases);
         let default_label = self.new_label();
         self.emit_bisect(0, tags.len() - 1, tags, plan.cases, default_label,
@@ -1054,7 +1063,7 @@ impl FnCompiler {
     }
 
     fn emit_bisect(self, _ lo: Int, _ hi: Int, _ tags: List<Int>, _ cases: Map<Int, MatchArm>,
-        _ default_label: Int, _ subject: Int, _ subject_ty: Type, _ subject_type: Option<String>,
+        _ default_label: Int, _ subject: Int, _ subject_ty: Type, _ subject_type: Option<TypeId>,
         _ tag_slot: Int, _ end: Int) -> Void {
         let mid = (lo + hi) / 2;
         let t = tags[mid];
@@ -1095,7 +1104,7 @@ impl FnCompiler {
     // The tag is already known at a leaf, so only bind fields (fail = None), then
     // run the body.
     fn emit_leaf(self, _ arm: MatchArm, _ subject: Int, _ subject_ty: Type,
-        _ subject_type: Option<String>, _ end: Int, _ jump_to_end: Bool) -> Void {
+        _ subject_type: Option<TypeId>, _ end: Int, _ jump_to_end: Bool) -> Void {
         bind_match_pattern(arm.pattern, subject_ty, self.type_scope, self.ctx);
         self.emit_pattern(arm.pattern, subject, subject_type, Option.None, Option.None);
         self.arm_body(arm.body, end, jump_to_end);
@@ -1106,7 +1115,7 @@ impl FnCompiler {
     // `fail` is set, any mismatch jumps there; when None the pattern is taken to
     // match (only bindings are emitted). `tag_slot`, when set, holds a precomputed
     // `enum.tag` reused at this level instead of recomputing.
-    fn emit_pattern(self, _ pattern: Pattern, _ value_slot: Int, _ value_type: Option<String>,
+    fn emit_pattern(self, _ pattern: Pattern, _ value_slot: Int, _ value_type: Option<TypeId>,
         _ fail: Option<Int>, _ tag_slot: Option<Int>) -> Void {
         match pattern {
             Wildcard(_) => {}, // matches anything, binds nothing
@@ -1121,7 +1130,7 @@ impl FnCompiler {
             },
             Constructor(span, name, args) => {
                 let info = match value_type {
-                    Some(t) => self.scope.enums.get(t),
+                    Some(t) => self.scope.resolve_enum(t.owner, t.name),
                     None => Option.None,
                 };
                 let tag = match info {
@@ -1149,7 +1158,7 @@ impl FnCompiler {
                             self.emit(Instr.Load(value_slot));
                             self.emit(Instr.EnumGet(p.index));
                             self.emit(Instr.Store(field_slot));
-                            self.emit_pattern(arg, field_slot, enum_field_type_name(info, tag, p.index), fail, Option.None);
+                            self.emit_pattern(arg, field_slot, enum_field_type_id(self.scope, info, tag, p.index), fail, Option.None);
                         },
                     }
                 }
@@ -1173,9 +1182,9 @@ impl FnCompiler {
     }
 
     // The variant tag for a constructor `name` within enum `enum_type`.
-    fn variant_tag(self, _ enum_type: Option<String>, _ name: String, _ span: SourceSpan) -> Int {
+    fn variant_tag(self, _ enum_type: Option<TypeId>, _ name: String, _ span: SourceSpan) -> Int {
         let tag = match enum_type {
-            Some(t) => match self.scope.enums.get(t) {
+            Some(t) => match self.scope.resolve_enum(t.owner, t.name) {
                 Some(ei) => tag_of(ei, name),
                 None => -1,
             },
@@ -1369,7 +1378,7 @@ impl FnCompiler {
     // --- structs / fields / indexing ---
 
     fn struct_expr(self, _ x: StructExpr) -> Void {
-        match self.scope.structs.get(x.type_name) {
+        match self.scope.resolve_struct(self.scope.type_owner(x.type_name), x.type_name) {
             Some(info) => {
                 let declared = self.scope.library.type_defs.get(x.type_name).map((def) => def.fields);
                 for field_name in info.field_names {
@@ -1424,8 +1433,8 @@ impl FnCompiler {
     }
 
     fn struct_of(self, _ object: Expr, _ span: SourceSpan) -> Option<StructInfo> {
-        if let Some(name) = self.type_of(object) {
-            if let Some(info) = self.scope.structs.get(name) { return Option.Some(info); }
+        if let Some(id) = self.type_id_of(object) {
+            if let Some(info) = self.scope.resolve_struct(id.owner, id.name) { return Option.Some(info); }
         }
         self.error('field access on non-struct value', span);
         return Option.None;
@@ -1460,7 +1469,7 @@ impl FnCompiler {
     // one of its variants, the enum info and the variant's tag.
     fn enum_variant(self, _ object: Expr, _ name: String) -> Option<EnumVariantRef> {
         if let Some(type_name) = self.static_type_name(object) {
-            if let Some(info) = self.scope.enums.get(type_name) {
+            if let Some(info) = self.scope.resolve_enum(self.scope.type_owner(type_name), type_name) {
                 let tag = tag_of(info, name);
                 if tag < 0 {
                     return Option.None;
@@ -1493,8 +1502,7 @@ impl FnCompiler {
     }
 
     fn is_type_name(self, _ name: String) -> Bool {
-        return self.scope.structs.has(name)
-            || self.scope.enums.has(name)
+        return self.scope.has_struct_or_enum(name)
             || is_builtin_type_name(name);
     }
 
@@ -1582,9 +1590,9 @@ impl FnCompiler {
 
     // `e.name()` on an enum value → the variant name (from its tag).
     fn emit_enum_name_call(self, _ x: CallExpr, _ obj: Expr) -> Bool {
-        match self.type_of(obj) {
-            Some(t) => {
-                match self.scope.enums.get(t) {
+        match self.type_id_of(obj) {
+            Some(id) => {
+                match self.scope.resolve_enum(id.owner, id.name) {
                     Some(info) => { self.enum_name(obj, info); return true; },
                     None => { return false; },
                 }
@@ -1729,8 +1737,8 @@ impl FnCompiler {
     // A function-valued struct field invoked like a method: `c.now()` where `now`
     // is a field holding a closure (no method by that name).
     fn emit_field_call(self, _ x: CallExpr, _ obj: Expr, _ field: String) -> Bool {
-        if let Some(obj_type) = self.type_of(obj) {
-            if let Some(struct_info) = self.scope.structs.get(obj_type) {
+        if let Some(id) = self.type_id_of(obj) {
+            if let Some(struct_info) = self.scope.resolve_struct(id.owner, id.name) {
                 let fi = field_index_of(struct_info, field);
                 if fi >= 0 {
                     self.expr(obj);
@@ -2106,6 +2114,16 @@ fn name_of_type(_ t: Type) -> Option<String> {
         },
         Interface(name, _) => Option.Some(name.name),
         TypeParameter(name) => Option.Some(name),
+        _ => Option.None,
+    };
+}
+
+// The `TypeId` of an interface (struct/enum) type, or None for primitives / type
+// parameters / unknowns — the owner-carrying analogue of `name_of_type` used to
+// key the codegen type table.
+fn type_id_of_type(_ t: Type) -> Option<TypeId> {
+    return match t {
+        Interface(id, _) => Option.Some(id),
         _ => Option.None,
     };
 }
@@ -2537,15 +2555,17 @@ fn is_irrefutable(_ p: Pattern) -> Bool {
     };
 }
 
-// The type name of field `k` of variant `tag` in enum `info` — the enum to match
-// a nested constructor pattern against — or None if not resolvable.
-fn enum_field_type_name(_ info: Option<EnumInfo>, _ tag: Int, _ k: Int) -> Option<String> {
+// The type id of field `k` of variant `tag` in enum `info` — the enum to match a
+// nested constructor pattern against — or None if not resolvable. The field's
+// source type name is owner-qualified through the registry (T3); scope-aware
+// source resolution is T4.
+fn enum_field_type_id(_ scope: ModuleScope, _ info: Option<EnumInfo>, _ tag: Int, _ k: Int) -> Option<TypeId> {
     if let Some(ei) = info {
         if tag >= 0 && tag < ei.variants.len() {
             let fields = ei.variants[tag].fields;
             if k < fields.len() {
                 return match fields[k] {
-                    Named(nt) => Option.Some(nt.name),
+                    Named(nt) => Option.Some(scope.type_id_for(nt.name)),
                     Function(_) => Option.None,
                 };
             }

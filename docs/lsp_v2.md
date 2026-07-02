@@ -162,9 +162,20 @@ sites resolve an *inferred* `Type` — which needs the owner on `Type` (T1) anyw
   T4). Because a wrong owner would miss the per-file table → broken build, **the
   byte-identical SDK fixpoint validates T1's owner stamping here.** (The checker's
   raw `type_defs.get(name)` sites stay name-based — migrated in T4.)
-- **T3 — codegen type table.** Per-file `file_structs`/`file_enums`; resolve a
-  `Type` to its runtime id via its `owner` (covers both construction sites and
-  inferred-`Type` sites). Fixpoint holds.
+- **T3 — codegen type table. _Done._** `ModuleScope.structs`/`enums` are keyed
+  `owner → name → info` (no global by-name fallback); `add_struct`/`add_enum` take
+  the declaring file. Lookups resolve the owner two ways: an **inferred-`Type`**
+  site takes the owner straight off the type's `TypeId` (`type_id_of` /
+  `type_id_of_type`, the owner-carrying analogue of `type_of`/`name_of_type`) — the
+  enum-dispatch chain (`plan_dispatch`→`emit_dispatch`→`emit_bisect`→`emit_leaf`→
+  `emit_pattern`→`variant_tag`) now threads `Option<TypeId>` instead of the bare
+  name, and `struct_of`/`emit_field_call`/`emit_enum_name_call` use `type_id_of`;
+  a **source-name** site (a `Foo {}` literal, a static `Enum.Variant`, an enum
+  field's declared type, a dispatch row's impl type) owner-qualifies via the
+  registry (`type_owner`/`type_id_for`), correct under uniqueness (scope-aware
+  source resolution is T4). Because a wrong owner misses the per-owner table →
+  broken build, **the byte-identical SDK fixpoint validates the codegen owner
+  keying** (as T2 did for the element model).
 - **T4 — the flip (one behavior change).** Interface equality includes owner;
   `resolve_named` uses `FileScope` for scope-aware type resolution; relax
   `check_duplicates` for types; conformance test (two libraries, same-named type).
