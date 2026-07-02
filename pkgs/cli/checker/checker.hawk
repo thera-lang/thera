@@ -270,11 +270,7 @@ fn check_fn(_ errors: List<CheckError>, _ fn_decl: FnDecl, _ library: LibraryEle
     match fn_decl.body {
         None => { return; },
         Some(body) => {
-            let return_type = match fn_decl.return_type {
-                Some(ref) => Option.Some(
-                    resolver.resolve_type_ref(ref, library.type_defs, type_params, self_type)),
-                None => Option.None,
-            };
+            let return_type = fn_decl.return_type.map((ref) => resolver.resolve_type_ref(ref, library.type_defs, type_params, self_type));
             let ctx = InferCtx {
                 library: library,
                 type_params: type_params,
@@ -349,16 +345,10 @@ fn extends_cycle(_ name: String, _ library: LibraryElement) -> Bool {
 }
 
 fn check_conformance(_ errors: List<CheckError>, _ decl: ImplDecl, _ library: LibraryElement) -> Void {
-    let iface_name = match decl.interface_name {
-        Some(n) => n,
-        None => { return; },
-    };
-    let iface_def = match library.type_defs.get(iface_name) {
-        Some(d) => d,
-        None => {
-            add_error(errors, 'unknown interface: ${iface_name}', decl.name_span);
-            return;
-        },
+    let Some(iface_name) = decl.interface_name else { return; };
+    let Some(iface_def) = library.type_defs.get(iface_name) else {
+        add_error(errors, 'unknown interface: ${iface_name}', decl.name_span);
+        return;
     };
     if iface_def.kind != TypeDefKind.Interface {
         add_error(errors, '\'${iface_name}\' is not an interface', decl.name_span);
@@ -527,19 +517,12 @@ fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ stmts: List<Stmt>, _ i
     match stmt {
         Let(x) => {
             if let Some(ref) = x.type_ann { check_type_ref(errors, ref, ctx.library, ctx.current_file, ctx.type_params); }
-            let annotated = match x.type_ann {
-                Some(ref) => Option.Some(
-                    resolver.resolve_type_ref(ref, ctx.library.type_defs, ctx.type_params, ctx.self_type)),
-                None => Option.None,
-            };
+            let annotated = x.type_ann.map((ref) => resolver.resolve_type_ref(ref, ctx.library.type_defs, ctx.type_params, ctx.self_type));
             check_expr(errors, x.value, scope, ctx, annotated);
             let actual = infer_expr(x.value, scope, ctx, annotated);
             // Forward-flow: an underdetermined binding (`let xs = []`) takes its
             // element type from its first pinning use later in the block.
-            scope[x.name] = match annotated {
-                Some(a) => a,
-                None => refine_binding_type(x.name, actual, stmts, index + 1, scope, ctx),
-            };
+            scope[x.name] = annotated.unwrap_or_else(() => refine_binding_type(x.name, actual, stmts, index + 1, scope, ctx));
             muts[x.name] = x.is_mut;
             if let Some(a) = annotated { expect_type(errors, actual, a, 'binding \'${x.name}\'', x.span, ctx.library.type_defs); }
         },
@@ -878,10 +861,7 @@ fn check_match(_ errors: List<CheckError>, _ x: MatchExpr, _ scope: Map<String, 
     _ ctx: InferCtx, _ expected: Option<Type>) -> Void {
     check_expr(errors, x.subject, scope, ctx, Option.None);
     let subject_type = infer_expr(x.subject, scope, ctx, Option.None);
-    let mut reference: Type = match expected {
-        Some(e) => e,
-        None => Type.Unknown,
-    };
+    let mut reference: Type = expected.unwrap_or(Type.Unknown);
     for arm in x.arms {
         let arm_scope = copy_scope(scope);
         bind_match_pattern(arm.pattern, subject_type, arm_scope, ctx);
@@ -1297,20 +1277,14 @@ fn check_propagate(_ errors: List<CheckError>, _ inner: Expr, _ span: SourceSpan
     if is_uncertain_type(inner_ty) {
         return; // an unresolved operand already has its own diagnostic
     }
-    let fam = match enum_family(inner_ty) {
-        Some(f) => f,
-        None => {
-            add_error(errors,
-                '`?` can only be used on a `Result` or `Option` (found ${type_to_string(inner_ty)})',
-                span);
-            return;
-        },
+    let Some(fam) = enum_family(inner_ty) else {
+        add_error(errors,
+            '`?` can only be used on a `Result` or `Option` (found ${type_to_string(inner_ty)})',
+            span);
+        return;
     };
     let art = if fam == 'Option' { 'an' } else { 'a' };
-    let rt = match ctx.return_type {
-        Some(t) => t,
-        None => { return; }, // no declared return type — be lenient
-    };
+    let Some(rt) = ctx.return_type else { return; };
     if is_uncertain_type(rt) {
         return;
     }
@@ -1427,11 +1401,8 @@ fn namespace_of_access(_ object: Expr, _ scope: Map<String, Type>, _ ctx: InferC
 }
 
 fn impl_self_type(_ decl: ImplDecl) -> Type {
-    return match primitive_type(decl.type_name) {
-        Some(p) => p,
-        None => Type.Interface(decl.type_name,
-            decl.type_params.map((tp) => Type.TypeParameter(tp.name))),
-    };
+    return primitive_type(decl.type_name).unwrap_or_else(() => Type.Interface(decl.type_name,
+        decl.type_params.map((tp) => Type.TypeParameter(tp.name))));
 }
 
 fn union_type_params(_ outer: Set<String>, _ own: List<TypeParam>) -> Set<String> {

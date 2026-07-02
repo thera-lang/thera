@@ -237,10 +237,7 @@ pub fn file_owns(_ lib: LibraryElement, _ file: Option<String>, _ name: String) 
 // A `Map` key for an optional file path (a real path can't be empty, so `''`
 // safely denotes "no declaring file" — the primary/anonymous program).
 pub fn file_key(_ file: Option<String>) -> String {
-    return match file {
-        Some(p) => p,
-        None => '',
-    };
+    return file.unwrap_or('');
 }
 
 // --- small helpers (List<String> has no `contains` yet — audit gap) ---

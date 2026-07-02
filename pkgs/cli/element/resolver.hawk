@@ -324,11 +324,8 @@ fn resolve_impl(_ decl: ImplDecl, _ type_defs: Map<String, TypeDefElement>) -> V
         let impl_params = type_param_set(decl.type_params);
         // For an `impl Int`/`String`/… the receiver's type is the primitive
         // itself, not an interface wrapper.
-        let self_type = match primitive_type(decl.type_name) {
-            Some(p) => p,
-            None => Type.Interface(decl.type_name,
-                decl.type_params.map((tp) => Type.TypeParameter(tp.name))),
-        };
+        let self_type = primitive_type(decl.type_name).unwrap_or_else(() => Type.Interface(decl.type_name,
+            decl.type_params.map((tp) => Type.TypeParameter(tp.name))));
         if let Some(iface) = decl.interface_name {
             if !implements_interface(owner, iface) {
                 owner.interfaces.push(iface);

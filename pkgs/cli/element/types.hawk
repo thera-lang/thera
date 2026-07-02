@@ -194,10 +194,7 @@ fn map_get_def(_ type_defs: Map<String, TypeDefElement>, _ name: String)
 // instantiate a generic member (substituting `{T: Int}` into `List<T>`).
 pub fn substitute(_ ty: Type, _ bindings: Map<String, Type>) -> Type {
     return match ty {
-        TypeParameter(name) => match bindings.get(name) {
-            Some(t) => t,
-            None => ty,
-        },
+        TypeParameter(name) => bindings.get(name).unwrap_or(ty),
         Interface(name, args) => if args.len() == 0 {
             ty
         } else {

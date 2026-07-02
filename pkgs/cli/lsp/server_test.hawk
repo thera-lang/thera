@@ -49,10 +49,7 @@ fn handled(_ body: String) -> String {
     let server = new_server(Option.None);
     let out = io.StringWriter.new();
     server.handle(out, body);
-    return match out.into_string() {
-        Ok(s) => s,
-        Err(_) => '',
-    };
+    return out.into_string().unwrap_or('');
 }
 
 @test
@@ -101,10 +98,7 @@ fn test_document_symbol_outline() -> Result<Void, Error> {
     let asked = io.StringWriter.new();
     server.handle(asked, '{"jsonrpc":"2.0","id":3,"method":"textDocument/documentSymbol","params":'
         + '{"textDocument":{"uri":"file:///s.hawk"}}}');
-    let out = match asked.into_string() {
-        Ok(s) => s,
-        Err(_) => '',
-    };
+    let out = asked.into_string().unwrap_or('');
     testing.assert(out.contains('selectionRange'), message: 'is a symbol response')?;
     testing.assert(out.contains('"greet"'), message: 'has the function')?;
     testing.assert(out.contains('"Color"'), message: 'has the enum')?;
@@ -133,10 +127,7 @@ fn test_hover_shows_declaration_signature() -> Result<Void, Error> {
     let asked = io.StringWriter.new();
     server.handle(asked, '{"jsonrpc":"2.0","id":5,"method":"textDocument/hover","params":'
         + '{"textDocument":{"uri":"file:///h.hawk"},"position":{"line":0,"character":8}}}');
-    let out = match asked.into_string() {
-        Ok(s) => s,
-        Err(_) => '',
-    };
+    let out = asked.into_string().unwrap_or('');
     testing.assert(out.contains('fn greet'), message: 'shows the signature')?;
     testing.assert(out.contains('String'), message: 'shows the types')?;
     return Result.Ok(void);
@@ -153,10 +144,7 @@ fn test_hover_on_a_keyword_is_null() -> Result<Void, Error> {
     let asked = io.StringWriter.new();
     server.handle(asked, '{"jsonrpc":"2.0","id":6,"method":"textDocument/hover","params":'
         + '{"textDocument":{"uri":"file:///h.hawk"},"position":{"line":0,"character":0}}}');
-    let out = match asked.into_string() {
-        Ok(s) => s,
-        Err(_) => '',
-    };
+    let out = asked.into_string().unwrap_or('');
     testing.assert(out.contains('"result":null') || out.contains('"result": null'),
         message: 'no hover on a keyword')?;
     return Result.Ok(void);
@@ -175,10 +163,7 @@ fn test_definition_jumps_to_declaration() -> Result<Void, Error> {
     let asked = io.StringWriter.new();
     server.handle(asked, '{"jsonrpc":"2.0","id":7,"method":"textDocument/definition","params":'
         + '{"textDocument":{"uri":"file:///d.hawk"},"position":{"line":1,"character":28}}}');
-    let out = match asked.into_string() {
-        Ok(s) => s,
-        Err(_) => '',
-    };
+    let out = asked.into_string().unwrap_or('');
     testing.assert(out.contains('file:///d.hawk'), message: 'returns a location in the file')?;
     testing.assert(out.contains('"line":0') || out.contains('"line": 0'),
         message: 'points at the declaration on line 0')?;
@@ -195,10 +180,7 @@ fn test_definition_on_unknown_is_null() -> Result<Void, Error> {
     let asked = io.StringWriter.new();
     server.handle(asked, '{"jsonrpc":"2.0","id":8,"method":"textDocument/definition","params":'
         + '{"textDocument":{"uri":"file:///d.hawk"},"position":{"line":0,"character":0}}}');
-    let out = match asked.into_string() {
-        Ok(s) => s,
-        Err(_) => '',
-    };
+    let out = asked.into_string().unwrap_or('');
     testing.assert(out.contains('"result":null') || out.contains('"result": null'),
         message: 'no definition for a keyword')?;
     return Result.Ok(void);
@@ -217,10 +199,7 @@ fn test_shutdown_responds_null() -> Result<Void, Error> {
 fn capture(_ server: Server, _ body: String) -> String {
     let out = io.StringWriter.new();
     server.handle(out, body);
-    return match out.into_string() {
-        Ok(s) => s,
-        Err(_) => '',
-    };
+    return out.into_string().unwrap_or('');
 }
 
 @test
@@ -282,10 +261,7 @@ fn test_serve_coalesces_a_burst_of_edits() -> Result<Void, Error> {
     let reader = BurstReader { data: stream.bytes(), pos: 0 };
     let out = io.StringWriter.new();
     serve(reader, out, Option.None);
-    let text = match out.into_string() {
-        Ok(s) => s,
-        Err(_) => '',
-    };
+    let text = out.into_string().unwrap_or('');
     testing.assert_eq(actual: count_substr(text, 'textDocument/publishDiagnostics'), expected: 1)?;
     return Result.Ok(void);
 }

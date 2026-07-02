@@ -332,10 +332,7 @@ fn is_cont_prev(_ k: TokenKind) -> Bool {
 // --- small helpers ---
 
 fn pop_or_zero(_ stack: List<Int>) -> Int {
-    return match stack.pop() {
-        Some(v) => v,
-        None => 0,
-    };
+    return stack.pop().unwrap_or(0);
 }
 
 fn pop_kind(_ kinds: List<TokenKind>) -> Void {

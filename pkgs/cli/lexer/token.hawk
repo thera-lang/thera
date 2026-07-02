@@ -213,10 +213,7 @@ impl Token {
     // The token's text: its stored value, or the spanned source for kinds that
     // carry none.
     pub fn lexeme(self) -> String {
-        return match self.value {
-            Some(v) => v,
-            None => self.span.text(),
-        };
+        return self.value.unwrap_or_else(() => self.span.text());
     }
 
     pub fn is_eof(self) -> Bool {

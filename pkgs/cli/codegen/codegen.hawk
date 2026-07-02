@@ -250,10 +250,7 @@ impl FnCompiler {
         // and the checker infer every expression in the body to the same type.
         // (The unit table holds only the receiver's name; its parameters come from
         // the type definition.) The chosen `self_type` is recorded for the oracle.
-        let self_type = match self.scope.unit_self_types[index] {
-            Some(name) => Option.Some(named_self_type(name, self.scope.library)),
-            None => Option.None,
-        };
+        let self_type = self.scope.unit_self_types[index].map((name) => named_self_type(name, self.scope.library));
         self.scope.unit_ctx_self[index] = self_type;
         let type_params: Set<String> = Set.new();
         if let Some(st) = self_type {
@@ -264,11 +261,7 @@ impl FnCompiler {
         for tp in fn_decl.type_params {
             type_params.add(tp.name);
         }
-        let return_type = match fn_decl.return_type {
-            Some(ref) => Option.Some(
-                resolver.resolve_type_ref(ref, self.scope.library.type_defs, type_params, self_type)),
-            None => Option.None,
-        };
+        let return_type = fn_decl.return_type.map((ref) => resolver.resolve_type_ref(ref, self.scope.library.type_defs, type_params, self_type));
         self.ctx = InferCtx {
             library: self.scope.library,
             type_params: type_params,
@@ -301,10 +294,7 @@ impl FnCompiler {
                 self_type.unwrap_or(Type.Unknown)
             } else {
                 match lambda_types {
-                    Some(lt) => match lt.get(p.name) {
-                        Some(t) => t,
-                        None => Type.Unknown,
-                    },
+                    Some(lt) => lt.get(p.name).unwrap_or(Type.Unknown),
                     None => resolver.resolve_opt(p.type_ann, self.scope.library.type_defs, type_params, self_type),
                 }
             };
@@ -393,10 +383,7 @@ impl FnCompiler {
 
     fn resolve_jumps(self) -> Void {
         for f in self.fixups {
-            let target = match self.labels[f.label] {
-                Some(t) => t,
-                None => 0,
-            };
+            let target = self.labels[f.label].unwrap_or(0);
             self.code[f.pos] = match f.kind {
                 Jump => Instr.Jump(target),
                 IfTrue => Instr.JumpIfTrue(target),
@@ -487,20 +474,13 @@ impl FnCompiler {
             Let(x) => {
                 // Evaluate before declaring, so the initializer can't see the
                 // not-yet-bound name. A captured `mut` local is boxed.
-                let annotated = match x.type_ann {
-                    Some(ref) => Option.Some(
-                        resolver.resolve_type_ref(ref, self.scope.library.type_defs, self.ctx.type_params, self.ctx.self_type)),
-                    None => Option.None,
-                };
+                let annotated = x.type_ann.map((ref) => resolver.resolve_type_ref(ref, self.scope.library.type_defs, self.ctx.type_params, self.ctx.self_type));
                 self.expr_expecting(x.value, annotated);
                 // An explicit annotation is the binding's type (matching the
                 // inference engine); fall back to the initializer's inferred type.
-                let ty = match annotated {
-                    Some(a) => a,
-                    None => refine_binding_type(x.name,
-                        infer_expr(x.value, self.type_scope, self.ctx, Option.None),
-                        stmts, index + 1, self.type_scope, self.ctx),
-                };
+                let ty = annotated.unwrap_or_else(() => refine_binding_type(x.name,
+                    infer_expr(x.value, self.type_scope, self.ctx, Option.None),
+                    stmts, index + 1, self.type_scope, self.ctx));
                 if self.boxed_locals.has(x.name) {
                     self.emit(Instr.StructNew(self.scope.cell_type_index()));
                 }
@@ -832,10 +812,7 @@ impl FnCompiler {
     // `resolve_args` stamps in). The file is the unit currently being compiled —
     // which, for a default expanded at a call, is the *caller's* file.
     fn emit_source_loc(self, _ span: SourceSpan) -> Void {
-        let file = match self.file {
-            Some(f) => f,
-            None => '',
-        };
+        let file = self.file.unwrap_or('');
         let fields: List<FieldInit> = [
             FieldInit { name: 'file', value: Expr.Str(span, [StringPart.Text(span, file)]) },
             FieldInit { name: 'line', value: Expr.Int(span, span.line) },
@@ -1400,10 +1377,7 @@ impl FnCompiler {
     fn struct_expr(self, _ x: StructExpr) -> Void {
         match self.scope.structs.get(x.type_name) {
             Some(info) => {
-                let declared = match self.scope.library.type_defs.get(x.type_name) {
-                    Some(def) => Option.Some(def.fields),
-                    None => Option.None,
-                };
+                let declared = self.scope.library.type_defs.get(x.type_name).map((def) => def.fields);
                 for field_name in info.field_names {
                     match find_field_init(x.fields, field_name) {
                         Some(value) => {
@@ -2035,13 +2009,10 @@ fn sorted_keys(_ cases: Map<Int, MatchArm>) -> List<Int> {
 // inference-context construction; it matches the checker's `impl_self_type` so
 // the two infer a method body identically.
 fn named_self_type(_ name: String, _ library: element.LibraryElement) -> Type {
-    return match primitive_type(name) {
-        Some(p) => p,
-        None => match library.type_defs.get(name) {
-            Some(def) => Type.Interface(name, def.type_parameters.map((p) => Type.TypeParameter(p))),
-            None => Type.Interface(name, []),
-        },
-    };
+    return primitive_type(name).unwrap_or_else(() => match library.type_defs.get(name) {
+        Some(def) => Type.Interface(name, def.type_parameters.map((p) => Type.TypeParameter(p))),
+        None => Type.Interface(name, []),
+    });
 }
 
 // The type-parameter names of a receiver type (`List<T>` -> `[T]`) — the owner
@@ -2092,10 +2063,7 @@ fn describe_self(_ t: Option<Type>) -> String {
 
 // The `self_type` codegen recorded for unit `i` (None if it never compiled it).
 fn recorded_self(_ scope: ModuleScope, _ i: Int) -> Option<Type> {
-    return match scope.unit_ctx_self.get(i) {
-        Some(t) => t,
-        None => Option.None,
-    };
+    return scope.unit_ctx_self.get(i).unwrap_or(Option.None);
 }
 
 fn run_infer_oracle(_ scope: ModuleScope) -> Void {
@@ -2128,10 +2096,7 @@ fn run_infer_oracle(_ scope: ModuleScope) -> Void {
 }
 
 fn file_label(_ f: Option<String>) -> String {
-    return match f {
-        Some(p) => p,
-        None => '(no file)',
-    };
+    return f.unwrap_or('(no file)');
 }
 
 fn type_ref_name(_ t: Option<TypeRef>) -> Option<String> {

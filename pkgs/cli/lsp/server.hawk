@@ -117,10 +117,7 @@ impl Server {
     // `exit`. (Requests like hover still answer inline — only the diagnostics
     // publish is deferred.)
     fn ingest(self, _ writer: io.Writer, _ body: String) -> Bool {
-        let msg = match json.parse(body) {
-            Ok(j) => j,
-            Err(_) => { return true; }, // ignore unparseable input
-        };
+        let Ok(msg) = json.parse(body) else { return true; };
         // A request has both `method` and `id`; a notification has `method` and
         // no `id`; a response (no `method`) we ignore — we send no requests.
         return match msg.get('method').as_string() {

@@ -1374,15 +1374,12 @@ impl Parser {
         let span = start.span.cover(end);
         // No `else`: an empty Unit wildcard arm, so a statement `if let` with no
         // `else` has type Unit (its then-branch runs for effect), like `if`.
-        let else_body = match else_expr {
-            Some(e) => e,
-            None => Expr.Block(span, Block {
-                start_span: span,
-                end_span: span,
-                stmts: [],
-                tail: Option.None,
-            }),
-        };
+        let else_body = else_expr.unwrap_or_else(() => Expr.Block(span, Block {
+            start_span: span,
+            end_span: span,
+            stmts: [],
+            tail: Option.None,
+        }));
         let arms: List<MatchArm> = [
             MatchArm {
                 span: pattern_span(pattern).cover(expr_span(then_expr)),
@@ -2031,10 +2028,7 @@ impl Parser {
     // The string-literal content captured by the lexer (None defensively maps to
     // empty, though string tokens always carry a value).
     fn value_of(self, _ t: Token) -> String {
-        return match t.value {
-            Some(v) => v,
-            None => '',
-        };
+        return t.value.unwrap_or('');
     }
 
     // --- string interpolation splitting ---

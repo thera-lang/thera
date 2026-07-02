@@ -145,15 +145,9 @@ fn write_all(_ writer: io.Writer, _ data: Bytes) -> Void {
 // --- helpers ---
 
 fn byte_at(_ buf: Bytes, _ i: Int) -> Int {
-    return match buf.get(i) {
-        Some(b) => b,
-        None => -1,
-    };
+    return buf.get(i).unwrap_or_else(() => -1);
 }
 
 fn bytes_to_string(_ b: Bytes) -> String {
-    return match b.to_string() {
-        Ok(s) => s,
-        Err(_) => '',
-    };
+    return b.to_string().unwrap_or('');
 }

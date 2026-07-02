@@ -460,10 +460,7 @@ impl ModuleScope {
             };
             let type_id = match self.structs.get(row.type_name) {
                 Some(si) => Option.Some(si.index),
-                None => match self.enums.get(row.type_name) {
-                    Some(ei) => Option.Some(ENUM_DISPATCH_BASE | ei.ty),
-                    None => Option.None,
-                },
+                None => self.enums.get(row.type_name).map((ei) => ENUM_DISPATCH_BASE | ei.ty),
             };
             if let Some(f) = func {
                 if let Some(tid) = type_id {

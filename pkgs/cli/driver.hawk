@@ -161,10 +161,7 @@ pub fn lint_source(_ source: String) -> List<lint.Suggestion> {
 // `file:line:column: message` — the diagnostic line the CLI prints. Uses the
 // diagnostic's own `file` when known (an imported file), else `file_path`.
 pub fn format_diagnostic(_ d: Diagnostic, _ file_path: String) -> String {
-    let file = match d.file {
-        Some(f) => f,
-        None => file_path,
-    };
+    let file = d.file.unwrap_or(file_path);
     return '${file}:${d.span}: ${d.message}';
 }
 

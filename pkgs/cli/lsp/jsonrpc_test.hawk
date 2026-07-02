@@ -34,10 +34,7 @@ fn test_find_header_end_locates_body() -> Result<Void, Error> {
     let buf = 'Content-Length: 5\r\n\r\nhello'.bytes();
     match find_header_end(buf) {
         Some(pos) => {
-            let body = match buf.slice(pos, buf.len()).to_string() {
-                Ok(s) => s,
-                Err(_) => '',
-            };
+            let body = buf.slice(pos, buf.len()).to_string().unwrap_or('');
             testing.assert_eq(actual: body, expected: 'hello')?;
         },
         None => {
