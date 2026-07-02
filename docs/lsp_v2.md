@@ -136,24 +136,30 @@ positional owner (bundling encapsulates the identity). Cost: ~80–100 edit site
 the type core (~7 files) + codegen; practical urgency is low (nominal types
 discourage clashes) but it is foundational and the chosen correctness-first path.
 
-Staged (fixpoint-idempotent until the final flip — the Phase 2e playbook):
+Staged (fixpoint-idempotent until the final flip — the Phase 2e playbook). The
+standalone codegen pull-out was **folded into T3**: on investigation it couldn't
+be validated ahead of T4 (type-name uniqueness is still enforced, so no
+two-same-named-types conformance test is constructible yet), and its interesting
+sites resolve an *inferred* `Type` — which needs the owner on `Type` (T1) anyway.
 
-- **Pull-out (early, ahead of T1): codegen type-name owner-correctness.** Make
-  codegen resolve a type name *at a construction/annotation site* (`Foo {…}`,
-  `Foo.Bar`) owner-correctly from the current file — like the `global_functions`
-  fix, and *without* the `Type` change (the site has the file in hand). Closes the
-  latent struct/enum miscompile; fixpoint-provable alone.
-- **T1 — representation.** Introduce `TypeId`; `Interface(String)`→`Interface(TypeId)`;
-  capture owner in `resolve_named` (thread `FileScope` through `resolve_type_ref`);
-  `.name`→`.id.name` everywhere. Equality still ignores owner (names unique →
-  behavior-preserving). The big mechanical step.
-- **T2 — element model.** `resolve_type_def` owner-keyed via `file_type_defs`;
-  migrate the raw-map helper sites. Same elements → fixpoint holds.
-- **T3 — codegen type table.** Resolve a *resolved* `Type` to its runtime id via
-  owner (the part the early pull-out couldn't cover). Fixpoint holds.
+- **T1 — representation.** Add `owner_file` to `TypeDefElement`; introduce `TypeId`;
+  `Interface(String)`→`Interface(TypeId)`. Capture owner cheaply in T1 by reading
+  the resolved element's `owner_file` (correct under uniqueness — the scope-aware
+  `FileScope` resolution that *picks among* same-named types is only needed once
+  uniqueness lifts, T4). `.name`→`.id.name` everywhere; route synthetic
+  constructions through a `named_type(type_defs, name, args)` helper. Equality
+  stays name-based (owner carried, not yet compared) → behavior-preserving. The
+  big mechanical step.
+- **T2 — element model.** `resolve_type_def` owner-keyed via `file_type_defs`
+  (a wrong owner → miss in the per-file table → broken build, so the **fixpoint
+  validates owner-correctness here**). Migrate the raw-map helper sites.
+- **T3 — codegen type table.** Per-file `file_structs`/`file_enums`; resolve a
+  `Type` to its runtime id via its `owner` (covers both construction sites and
+  inferred-`Type` sites). Fixpoint holds.
 - **T4 — the flip (one behavior change).** Interface equality includes owner;
-  relax `check_duplicates` for types; conformance test (two libraries, same-named
-  type). Type-name uniqueness lifted; enforce type visibility.
+  `resolve_named` uses `FileScope` for scope-aware type resolution; relax
+  `check_duplicates` for types; conformance test (two libraries, same-named type).
+  Type-name uniqueness lifted; enforce type visibility.
 
 ### Phase 2 — incremental engine (medium scale)
 
