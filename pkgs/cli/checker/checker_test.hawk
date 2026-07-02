@@ -563,14 +563,29 @@ fn test_private_function_collision_across_files_is_allowed() -> Result<Void, Err
 }
 
 @test
-fn test_duplicate_type_across_files_is_flagged() -> Result<Void, Error> {
-    // Type-like names are global-by-bare-name, so any duplicate collides.
+fn test_duplicate_type_across_files_is_allowed() -> Result<Void, Error> {
+    // Two libraries may each define `Point`: type resolution is owner-correct (a
+    // `Type` carries its owning-library `TypeId`), so a qualified `ns.Point`
+    // reaches its own library's type and the two coexist. This is the Phase 1
+    // type-uniqueness lift, the type-side analogue of the value lift above.
     let lib = program_at('pub struct Point { x: Int }', 'lib.hawk');
     let main = program_at('struct Point { y: Int }\n'
         + 'fn run() -> Int { return 0; }', 'main.hawk');
     let errs = check(main, [lib], {}, {}).errors;
+    testing.assert(!any_message_contains(errs, 'duplicate type `Point`'),
+        message: 'two libraries sharing a type name must not collide')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_duplicate_type_same_file_is_flagged() -> Result<Void, Error> {
+    // A same-file redefinition is still a collision — scope can't tell the two
+    // `Point`s apart within one file.
+    let errs = errors_of('struct Point { x: Int }\n'
+        + 'struct Point { y: Int }\n'
+        + 'fn run() -> Int { return 0; }');
     testing.assert(any_message_contains(errs, 'duplicate type `Point`'),
-        message: 'expected a duplicate-type diagnostic')?;
+        message: 'expected a same-file duplicate-type diagnostic')?;
     return Result.Ok(void);
 }
 

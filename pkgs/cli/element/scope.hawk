@@ -167,6 +167,37 @@ impl FileScope {
         return self.library.type_defs.get(name);
     }
 
+    // The owning file (key) of a *source* type reference as seen from this file —
+    // the scope-aware owner used to stamp a resolved `Type`'s `TypeId` (T4). A
+    // qualified `ns.Foo` owns to the file `ns`'s surface attributes it to; a bare
+    // `Foo` to this file (if it declares it), else its bare surface (prelude /
+    // `as _`), else the `<builtin>` floor. Anything the scope can't place falls
+    // back to the flat registry's owner — so under type-name uniqueness this
+    // returns exactly the owner the global stamping did (the SDK fixpoint checks
+    // it), while a lifted-uniqueness collision resolves to the in-scope type.
+    pub fn resolve_type_owner(self, _ name: String, _ namespace: Option<String>) -> String {
+        if let Some(ns) = namespace {
+            if let Some(owner) = self.member_owner(ns, name) {
+                return owner;
+            }
+        }
+        if file_owns(self.library, self.file, name) {
+            return file_key(self.file);
+        }
+        if let Some(s) = self.library.file_bare_surface.get(file_key(self.file)) {
+            if let Some(owner) = s.get(name) {
+                return owner;
+            }
+        }
+        if self.is_builtin_type(name) {
+            return '<builtin>';
+        }
+        return match self.library.type_defs.get(name) {
+            Some(d) => d.owner_file,
+            None => '',
+        };
+    }
+
     // Whether a *bare* type name is known and reachable from this file — `Self`, a
     // primitive, an in-scope type parameter, a built-in, same-file, or bare-legal
     // (prelude / `as _`). A type that is only *qualifiable* via an import is not

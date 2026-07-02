@@ -176,10 +176,36 @@ sites resolve an *inferred* `Type` — which needs the owner on `Type` (T1) anyw
   source resolution is T4). Because a wrong owner misses the per-owner table →
   broken build, **the byte-identical SDK fixpoint validates the codegen owner
   keying** (as T2 did for the element model).
-- **T4 — the flip (one behavior change).** Interface equality includes owner;
-  `resolve_named` uses `FileScope` for scope-aware type resolution; relax
-  `check_duplicates` for types; conformance test (two libraries, same-named type).
-  Type-name uniqueness lifted; enforce type visibility.
+- **T4 — the flip. _Done._** Type-name uniqueness is lifted: two libraries may
+  each define `Point`. Staged in two fixpoint-idempotent halves plus the flip:
+  - **T4a (scope-aware resolution).** New `FileScope.resolve_type_owner(name,
+    namespace)` picks a source type name's owner from *this file's* scope (a
+    `ns.T` qualifier → the namespace's owner; else own file → bare surface →
+    `<builtin>` → flat-registry fallback). New `resolver.resolve_type_ref_in` /
+    `resolve_opt_in` stamp that owner; the main annotation/expression paths
+    (inference, `check_fn`, codegen — all of which have the current file) use
+    them. The flat `resolve_type_ref` stays for `build_library`'s own passes
+    (they run before a `FileScope` exists). Behaviour-preserving under
+    uniqueness → the byte-identical fixpoint validated it.
+  - **construction + registry owner-keying.** `infer_struct`, the checker's
+    struct-literal field check, and codegen's `struct_expr` resolve the owner
+    scope-aware (honoring `ns.Point`) and fetch the def via `resolve_type_def`.
+    Crucially, `build_library`'s pass-2 field/variant/interface filling now
+    mutates the **per-file** element (`file_type_def`) instead of the flat
+    last-wins entry — the flat `type_defs[name]` clobbers on collision, so the
+    two `Point`s' fields were landing on one element.
+  - **the flip.** `collides` for types now mirrors values (only a same-file
+    redefinition collides); type equality already included owner (T1). Conformance
+    test `mod-shared-type-name` (two libraries, disjoint `Point` field sets,
+    qualified construction + field access) proves distinct resolution end to end;
+    the same-file duplicate is still flagged. Type visibility was already enforced
+    (`vis-pub`/`vis-pub-type-reject`).
+
+  _Remaining flat-path (owner-unaware) sites, latent only under a collision the
+  corpus doesn't have — follow-ups:_ `resolve_impl` (a method impl on a collided
+  type attaches to the last-wins element); the deep subtype/conformance helpers in
+  the checker (`is_assignable`/`satisfies_bound` `type_defs.get`); and pass-2 field
+  *type* resolution (a struct field whose declared type is itself a collided name).
 
 ### Phase 2 — incremental engine (medium scale)
 

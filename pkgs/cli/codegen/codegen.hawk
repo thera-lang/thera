@@ -261,7 +261,7 @@ impl FnCompiler {
         for tp in fn_decl.type_params {
             type_params.add(tp.name);
         }
-        let return_type = fn_decl.return_type.map((ref) => resolver.resolve_type_ref(ref, self.scope.library.type_defs, type_params, self_type));
+        let return_type = fn_decl.return_type.map((ref) => resolver.resolve_type_ref_in(ref, file_scope(self.scope.library, self.file), type_params, self_type));
         self.ctx = InferCtx {
             library: self.scope.library,
             type_params: type_params,
@@ -295,7 +295,7 @@ impl FnCompiler {
             } else {
                 match lambda_types {
                     Some(lt) => lt.get(p.name).unwrap_or(Type.Unknown),
-                    None => resolver.resolve_opt(p.type_ann, self.scope.library.type_defs, type_params, self_type),
+                    None => resolver.resolve_opt_in(p.type_ann, file_scope(self.scope.library, self.file), type_params, self_type),
                 }
             };
             self.type_scope[p.name] = pt;
@@ -479,7 +479,7 @@ impl FnCompiler {
             Let(x) => {
                 // Evaluate before declaring, so the initializer can't see the
                 // not-yet-bound name. A captured `mut` local is boxed.
-                let annotated = x.type_ann.map((ref) => resolver.resolve_type_ref(ref, self.scope.library.type_defs, self.ctx.type_params, self.ctx.self_type));
+                let annotated = x.type_ann.map((ref) => resolver.resolve_type_ref_in(ref, file_scope(self.scope.library, self.file), self.ctx.type_params, self.ctx.self_type));
                 self.expr_expecting(x.value, annotated);
                 // An explicit annotation is the binding's type (matching the
                 // inference engine); fall back to the initializer's inferred type.
@@ -1378,9 +1378,14 @@ impl FnCompiler {
     // --- structs / fields / indexing ---
 
     fn struct_expr(self, _ x: StructExpr) -> Void {
-        match self.scope.resolve_struct(self.scope.type_owner(x.type_name), x.type_name) {
+        // Owner-correct (Phase 1 T4): resolve the constructed type's owner from this
+        // file's scope, honoring a `ns.Point` qualifier, so two libraries' same-named
+        // structs get their own layout and field defaults.
+        let fs = file_scope(self.scope.library, self.file);
+        let owner = fs.resolve_type_owner(x.type_name, x.namespace);
+        match self.scope.resolve_struct(owner, x.type_name) {
             Some(info) => {
-                let declared = self.scope.library.type_defs.get(x.type_name).map((def) => def.fields);
+                let declared = fs.resolve_type_def(TypeId { owner: owner, name: x.type_name }).map((def) => def.fields);
                 for field_name in info.field_names {
                     match find_field_init(x.fields, field_name) {
                         Some(value) => {

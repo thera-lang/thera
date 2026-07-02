@@ -64,12 +64,12 @@ struct NameSite {
     primary: Bool,
 }
 
-// Flag top-level names defined more than once. For values (functions / consts)
-// this means a same-file redefinition: cross-file value resolution is owner-correct
-// (per-file bare, qualified within the named library), so different files may share
-// a top-level value name. Type names still resolve globally by name, so any
-// duplicate type — same-file or cross-file — collides. Reported against the
-// colliding definition in the file being checked.
+// Flag top-level names defined more than once. Only a same-file redefinition
+// collides: cross-file resolution is owner-correct for all three name spaces —
+// values (per-file bare, qualified within the named library) and, since Phase 1,
+// types (a `Type` carries its owning-library `TypeId`) — so different files may
+// share a top-level name. Reported against the colliding definition in the file
+// being checked.
 fn check_duplicates(_ errors: List<CheckError>, _ program: Program, _ imports: List<Program>) -> Void {
     let types: Map<String, List<NameSite>> = {};
     let funcs: Map<String, List<NameSite>> = {};
@@ -183,16 +183,13 @@ fn same_decl(_ a: NameSite, _ b: NameSite) -> Bool {
     return a.span.offset == b.span.offset && a.span.source == b.span.source;
 }
 
-// Whether two same-named definitions genuinely collide. Type names are still
-// resolved globally by name (type-name uniqueness pending — see roadmap.md), so any
-// duplicate type collides. Functions and consts resolve owner-correct — bare to
-// their declaring file, qualified within the named library — so two *different*
-// files may share a top-level value name (`std.json.parse` and `std.toml.parse`),
-// even `pub`. Only a same-file redefinition collides.
+// Whether two same-named definitions genuinely collide. All three name spaces now
+// resolve owner-correct — values bare to their declaring file / qualified within
+// the named library (Phase 2e), and types likewise via a `Type`'s owning-library
+// `TypeId` (Phase 1) — so two *different* files may share a top-level name
+// (`std.json.parse` and `std.toml.parse`; two libraries' `Point`), even `pub`.
+// Only a same-file redefinition, where scope can't tell the two apart, collides.
 fn collides(_ a: NameSite, _ b: NameSite, _ kind: String) -> Bool {
-    if kind == 'type' {
-        return true;
-    }
     return file_key(a.file) == file_key(b.file);
 }
 
@@ -268,7 +265,7 @@ fn check_fn(_ errors: List<CheckError>, _ fn_decl: FnDecl, _ library: LibraryEle
     match fn_decl.body {
         None => { return; },
         Some(body) => {
-            let return_type = fn_decl.return_type.map((ref) => resolver.resolve_type_ref(ref, library.type_defs, type_params, self_type));
+            let return_type = fn_decl.return_type.map((ref) => resolver.resolve_type_ref_in(ref, file_scope(library, file), type_params, self_type));
             let ctx = InferCtx {
                 library: library,
                 type_params: type_params,
@@ -285,7 +282,7 @@ fn check_fn(_ errors: List<CheckError>, _ fn_decl: FnDecl, _ library: LibraryEle
                 if p.is_self {
                     if let Some(st) = self_type { scope['self'] = st; }
                 } else {
-                    scope[p.name] = resolver.resolve_opt(p.type_ann, library.type_defs, type_params, self_type);
+                    scope[p.name] = resolver.resolve_opt_in(p.type_ann, file_scope(library, file), type_params, self_type);
                     muts[p.name] = false;
                 }
             }
@@ -509,7 +506,7 @@ fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ stmts: List<Stmt>, _ i
     match stmt {
         Let(x) => {
             if let Some(ref) = x.type_ann { check_type_ref(errors, ref, ctx.library, ctx.current_file, ctx.type_params); }
-            let annotated = x.type_ann.map((ref) => resolver.resolve_type_ref(ref, ctx.library.type_defs, ctx.type_params, ctx.self_type));
+            let annotated = x.type_ann.map((ref) => resolver.resolve_type_ref_in(ref, file_scope(ctx.library, ctx.current_file), ctx.type_params, ctx.self_type));
             check_expr(errors, x.value, scope, ctx, annotated);
             let actual = infer_expr(x.value, scope, ctx, annotated);
             // Forward-flow: an underdetermined binding (`let xs = []`) takes its
@@ -727,7 +724,12 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
             // of `ns`. Gate it like any other named type so an unreachable/un-
             // imported type isn't silently resolved against the closure's flat table.
             check_named_type(errors, x.type_name, x.namespace, x.span, ctx.library, ctx.current_file, ctx.type_params);
-            match ctx.library.type_defs.get(x.type_name) {
+            // Owner-correct (Phase 1 T4): validate the literal's fields against the
+            // definition in its *owning* library (scope picks it, honoring a
+            // `ns.Point` qualifier), so two libraries' same-named structs don't
+            // cross-check.
+            let struct_scope = file_scope(ctx.library, ctx.current_file);
+            match struct_scope.resolve_type_def(TypeId { owner: struct_scope.resolve_type_owner(x.type_name, x.namespace), name: x.type_name }) {
                 Some(element) => {
                     if element.kind == TypeDefKind.Struct {
                         for fi in x.fields {
@@ -808,7 +810,7 @@ fn check_lambda(_ errors: List<CheckError>, _ x: LambdaExpr, _ scope: Map<String
         let pt = match p.type_ann {
             Some(ref) => {
                 check_type_ref(errors, ref, ctx.library, ctx.current_file, ctx.type_params);
-                resolver.resolve_type_ref(ref, ctx.library.type_defs, ctx.type_params, ctx.self_type)
+                resolver.resolve_type_ref_in(ref, file_scope(ctx.library, ctx.current_file), ctx.type_params, ctx.self_type)
             },
             None => {
                 let from_ctx = match expected_params {
@@ -1006,7 +1008,7 @@ fn check_recv_type_args(_ errors: List<CheckError>, _ x: CallExpr, _ ctx: InferC
         if x.recv_type_args.len() != def.type_parameters.len() {
             add_error(errors, '`${n}` takes ${def.type_parameters.len()} type argument(s), but ${x.recv_type_args.len()} were given', x.span);
         }
-        let arg_types = x.recv_type_args.map((a) => resolver.resolve_type_ref(a, ctx.library.type_defs, ctx.type_params, ctx.self_type));
+        let arg_types = x.recv_type_args.map((a) => resolver.resolve_type_ref_in(a, file_scope(ctx.library, ctx.current_file), ctx.type_params, ctx.self_type));
         check_type_arg_bounds(errors, def, arg_types, x.span, ctx.library);
     } }
 }

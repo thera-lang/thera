@@ -133,7 +133,12 @@ fn infer_map(_ entries: List<MapEntry>, _ scope: Map<String, Type>, _ ctx: Infer
 }
 
 fn infer_struct(_ x: StructExpr, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
-    if let Some(element) = ctx_scope(ctx).resolve_type_def_by_name(x.type_name) {
+    // Owner-correct (Phase 1 T4): pick the constructed type's owning library from
+    // this file's scope (honoring a `ns.Point` qualifier), then fetch the def from
+    // that owner's table — so `a.Point` and `b.Point` construct distinct types.
+    let fs = ctx_scope(ctx);
+    let owner = fs.resolve_type_owner(x.type_name, x.namespace);
+    if let Some(element) = fs.resolve_type_def(TypeId { owner: owner, name: x.type_name }) {
         if element.kind == TypeDefKind.Struct {
             let bindings: Map<String, Type> = {};
             for fi in x.fields {
@@ -143,7 +148,7 @@ fn infer_struct(_ x: StructExpr, _ scope: Map<String, Type>, _ ctx: InferCtx) ->
                 if let Some(d) = declared { unify(d, value_type, bindings); }
             }
             let args = element.type_parameters.map((tp) => bindings.get(tp).unwrap_or(Type.Unknown));
-            return Type.Interface(TypeId { owner: element.owner_file, name: x.type_name }, args);
+            return Type.Interface(TypeId { owner: owner, name: x.type_name }, args);
         };
     }
     return Type.Unknown;
@@ -212,7 +217,7 @@ fn infer_lambda(_ x: LambdaExpr, _ scope: Map<String, Type>, _ ctx: InferCtx,
     for ip in x.params.enumerate() {
         let p = ip.value;
         let pt = match p.type_ann {
-            Some(ref) => resolver.resolve_type_ref(ref, ctx.library.type_defs, ctx.type_params, ctx.self_type),
+            Some(ref) => resolver.resolve_type_ref_in(ref, ctx_scope(ctx), ctx.type_params, ctx.self_type),
             None => match expected_params {
                 Some(eps) => if ip.index < eps.len() { eps[ip.index] } else { Type.Unknown },
                 None => Type.Unknown,
@@ -370,7 +375,7 @@ fn infer_stmt_fwd(_ stmt: Stmt, _ stmts: List<Stmt>, _ index: Int,
 pub fn let_bound_type(_ x: LetStmt, _ stmts: List<Stmt>, _ start: Int,
     _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
     // A type annotation on the binding is the expected type for its value.
-    let annotated = x.type_ann.map((ref) => resolver.resolve_type_ref(ref, ctx.library.type_defs, ctx.type_params, ctx.self_type));
+    let annotated = x.type_ann.map((ref) => resolver.resolve_type_ref_in(ref, ctx_scope(ctx), ctx.type_params, ctx.self_type));
     let inferred = infer_expr(x.value, scope, ctx, annotated);
     return annotated.unwrap_or_else(() => refine_binding_type(x.name, inferred, stmts, start, scope, ctx));
 }
@@ -984,7 +989,7 @@ fn call_bindings_into(_ bindings: Map<String, Type>, _ fn_el: FunctionElement,
     let tps = fn_el.type_parameters;
     let mut t = 0;
     while t < type_args.len() && t < tps.len() {
-        bindings[tps[t]] = resolver.resolve_type_ref(type_args[t], ctx.library.type_defs, ctx.type_params, ctx.self_type);
+        bindings[tps[t]] = resolver.resolve_type_ref_in(type_args[t], ctx_scope(ctx), ctx.type_params, ctx.self_type);
         t = t + 1;
     }
     let positional = non_self_params(fn_el.parameters);
@@ -1005,7 +1010,7 @@ fn owner_bindings_from(_ recv_type_args: List<TypeRef>, _ owner_params: List<Str
     let bindings: Map<String, Type> = {};
     let mut i = 0;
     while i < recv_type_args.len() && i < owner_params.len() {
-        bindings[owner_params[i]] = resolver.resolve_type_ref(recv_type_args[i], ctx.library.type_defs, ctx.type_params, ctx.self_type);
+        bindings[owner_params[i]] = resolver.resolve_type_ref_in(recv_type_args[i], ctx_scope(ctx), ctx.type_params, ctx.self_type);
         i = i + 1;
     }
     return bindings;

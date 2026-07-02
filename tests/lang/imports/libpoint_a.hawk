@@ -1,0 +1,18 @@
+// Support library: defines `pub struct Point` (fields x/y) — the same type name
+// libpoint_b also defines, with different fields. Owner-correct type resolution
+// (Phase 1) lets the two coexist; a qualified `a.Point` reaches this one. Its
+// helpers construct and read *this* Point in same-file scope. No `//!` block, so
+// the harness treats it as a support file.
+
+pub struct Point {
+    x: Int,
+    y: Int,
+}
+
+pub fn origin() -> Point {
+    return Point { x: 0, y: 0 };
+}
+
+pub fn sum(_ p: Point) -> Int {
+    return p.x + p.y;
+}

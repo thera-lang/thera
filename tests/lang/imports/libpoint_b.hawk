@@ -1,0 +1,17 @@
+// Support library: defines `pub struct Point` with a *different* field set
+// (lat/lng) than libpoint_a's (x/y). A qualified `b.Point` reaches this one; the
+// disjoint fields prove resolution picks the right owning library — a wrong owner
+// would fail to find `lat`/`lng` (or would find `x`/`y`).
+
+pub struct Point {
+    lat: Int,
+    lng: Int,
+}
+
+pub fn make(_ lat: Int, _ lng: Int) -> Point {
+    return Point { lat: lat, lng: lng };
+}
+
+pub fn total(_ p: Point) -> Int {
+    return p.lat + p.lng;
+}

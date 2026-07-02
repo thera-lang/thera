@@ -1,0 +1,36 @@
+//! spec: mod-shared-type-name
+//! mode: run
+
+import 'libpoint_a' as a;
+import 'libpoint_b' as b;
+
+// Two libraries each define `pub struct Point`, with *different* fields (x/y vs
+// lat/lng). Under owner-correct type resolution (Phase 1) they coexist with no
+// collision: a qualified `a.Point` / `b.Point` resolves to — and constructs — its
+// own library's type, and the two are distinct types (an `Interface`'s identity
+// includes its owning library). The flat by-name type table this replaced forced
+// type names globally unique across the whole import closure.
+//
+// Each helper here takes a qualified param type and reads the fields of *that*
+// library's Point; the libraries' own helpers (`origin`/`make`) construct and read
+// their Point in same-file scope. A wrong owner anywhere would look for the other
+// library's field set and fail to compile or read.
+fn diff_a(_ p: a.Point) -> Int {
+    return p.x - p.y;
+}
+
+fn diff_b(_ p: b.Point) -> Int {
+    return p.lat - p.lng;
+}
+
+fn main() -> Int {
+    let pa = a.Point { x: 30, y: 4 };
+    let pb = b.Point { lat: 10, lng: 25 };
+    println('${a.sum(pa)}');          // expect: 34
+    println('${b.total(pb)}');        // expect: 35
+    println('${diff_a(pa)}');         // expect: 26
+    println('${diff_b(pb)}');         // expect: -15
+    println('${a.sum(a.origin())}');  // expect: 0
+    println('${b.total(b.make(1, 2))}'); // expect: 3
+    return 0;
+}

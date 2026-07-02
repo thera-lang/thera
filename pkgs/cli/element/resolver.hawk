@@ -5,6 +5,7 @@
 import '../ast/ast' as _;
 import 'types' as _;
 import 'element' as _;
+import 'scope' as _;
 
 // --- TypeRef -> Type resolution ---
 
@@ -44,6 +45,53 @@ fn resolve_named(_ nt: NamedType, _ type_defs: Map<String, TypeDefElement>,
     }
     let args = nt.args.map((a) => resolve_type_ref(a, type_defs, type_params, self_type));
     return named_type(type_defs, nt.name, args);
+}
+
+// --- scope-aware resolution (Phase 1 T4) ---
+//
+// The same `TypeRef` -> `Type` resolution as above, but the owner stamped on a
+// named type is chosen by the current file's `FileScope` (own declarations ->
+// bare surface -> built-ins -> flat registry), so two libraries' same-named types
+// resolve distinctly once type-name uniqueness is lifted. Callers that have the
+// current file (inference / `check_fn` / codegen) use these; the flat entry points
+// above stay for `build_library`'s own signature/field resolution, which runs
+// before the library — and thus a `FileScope` — exists. Under uniqueness a scoped
+// resolve stamps the same owner the flat one does, which the SDK fixpoint checks.
+pub fn resolve_opt_in(_ ref: Option<TypeRef>, _ scope: FileScope,
+    _ type_params: Set<String>, _ self_type: Option<Type>) -> Type {
+    return match ref {
+        Some(r) => resolve_type_ref_in(r, scope, type_params, self_type),
+        None => Type.Unknown,
+    };
+}
+
+pub fn resolve_type_ref_in(_ ref: TypeRef, _ scope: FileScope,
+    _ type_params: Set<String>, _ self_type: Option<Type>) -> Type {
+    return match ref {
+        Named(nt) => resolve_named_in(nt, scope, type_params, self_type),
+        Function(ft) => Type.Function(
+            ft.params.map((p) => resolve_type_ref_in(p, scope, type_params, self_type)),
+            resolve_type_ref_in(ft.return_type, scope, type_params, self_type)),
+    };
+}
+
+fn resolve_named_in(_ nt: NamedType, _ scope: FileScope,
+    _ type_params: Set<String>, _ self_type: Option<Type>) -> Type {
+    if let Some(p) = primitive_type(nt.name) {
+        return p;
+    }
+    if nt.name == 'Self' {
+        return self_type.unwrap_or(Type.Unknown);
+    }
+    if type_params.has(nt.name) {
+        return Type.TypeParameter(nt.name);
+    }
+    if !scope.library.type_defs.has(nt.name) {
+        return Type.Unknown;
+    }
+    let args = nt.args.map((a) => resolve_type_ref_in(a, scope, type_params, self_type));
+    let owner = scope.resolve_type_owner(nt.name, nt.namespace);
+    return Type.Interface(TypeId { owner: owner, name: nt.name }, args);
 }
 
 // The built-in type-definition elements, by name. These back an InterfaceType
@@ -164,7 +212,7 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
             match decl {
                 Type(x) => {
                     let tps = type_param_set(x.type_params);
-                    if let Some(element) = type_defs.get(x.name) {
+                    if let Some(element) = file_type_def(file_type_defs, p.file_path, x.name) {
                         for f in x.fields {
                             element.fields[f.name] = resolve_type_ref(f.type_ann, type_defs, tps, Option.None);
                             if f.is_mut {
@@ -175,7 +223,7 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
                 },
                 Enum(x) => {
                     let tps = type_param_set(x.type_params);
-                    if let Some(element) = type_defs.get(x.name) {
+                    if let Some(element) = file_type_def(file_type_defs, p.file_path, x.name) {
                         for v in x.variants {
                             element.variants.push(EnumVariantElement {
                                 name: v.name,
@@ -212,7 +260,7 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
                     resolve_impl(x, type_defs);
                 },
                 Interface(x) => {
-                    if let Some(element) = type_defs.get(x.name) {
+                    if let Some(element) = file_type_def(file_type_defs, p.file_path, x.name) {
                         for s in x.super_interfaces {
                             element.super_interfaces.push(s);
                         }
@@ -299,6 +347,19 @@ fn record_file_type(_ tbl: Map<String, Map<String, TypeDefElement>>, _ file: Opt
         tbl[key] = {};
     }
     if let Some(m) = tbl.get(key) { m[name] = el; }
+}
+
+// The type element declared as `name` in `file` — the *owner-correct* element,
+// fetched from the per-file table rather than the flat `type_defs` (whose entry is
+// last-wins under a same-name collision). `build_library`'s later passes mutate the
+// element they resolved, so they must reach the one their own file declared; under
+// type-name uniqueness this is the same object the flat lookup returns.
+fn file_type_def(_ tbl: Map<String, Map<String, TypeDefElement>>, _ file: Option<String>,
+    _ name: String) -> Option<TypeDefElement> {
+    return match tbl.get(file_key(file)) {
+        Some(m) => m.get(name),
+        None => Option.None,
+    };
 }
 
 fn record_file_const(_ tbl: Map<String, Map<String, ConstElement>>, _ file: Option<String>,
