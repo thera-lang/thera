@@ -89,13 +89,19 @@ behavior-preserving refactors.
 
 ### Phase 0 — pull-outs (independent, start now, de-risk the rest)
 
-- **A. Codegen bare-call owner-correctness.** Make `ModuleScope.resolve_function`
-  consult bare-owner origin like the checker; delete `global_functions`. Fixes the
-  collision class + a latent miscompile; provable by fixpoint. *Small, no design
-  dependency — the first commit.*
-- **B. Shared `resolve.hawk` query seam.** Extract hover's context-aware resolution
-  into a shared resolver returning a `Resolved` target; migrate hover + definition
-  onto it. Immediately upgrades go-to-definition to `self.method`/fields/params.
+- **A. Codegen bare-call owner-correctness. _Done._** `ModuleScope.resolve_function`
+  now resolves the bare path via the file's bare surface (prelude / `as _`) to the
+  owning file's table, like the checker's `FileScope`; `global_functions` deleted.
+  Removed a latent miscompile (two libraries' same-named free functions);
+  fixpoint-proved; regression test added.
+- **B. Shared `resolve.hawk` query seam. _Done._** Hover's context-aware resolution
+  is extracted into `resolve.hawk` (`resolve_at` → a `Resolved` carrying both the
+  hover render *and* the definition location: file + name span). `hover.hawk` and
+  `definition.hawk` are thin renderers over it; `references`/`rename`/
+  `workspace_symbols`/`code_action`/`server` consume the shared primitives.
+  Go-to-definition now navigates to `self`'s type, `self.method`s, parameters, and
+  `Enum.Variant`s (not just top-level names); `self.field` renders but isn't
+  navigable (a field carries no name span). Unit + end-to-end (`hawk lsp`) tested.
 - **C. Analysis-session struct.** Fold the server's `docs`/`parse_cache` into one
   `Analysis` object — pure refactor, establishes the seam the incremental cache
   later slots into.

@@ -6,7 +6,7 @@ import std.json;
 import '../ast/ast' as _;
 import '../lexer/token' as _;  // SourceSpan
 import 'diagnostics';
-import 'hover';
+import 'resolve';
 import 'symbols';
 import 'paths';
 
@@ -18,7 +18,7 @@ pub fn handle_workspace_symbols(_ programs: List<Program>, _ query: String) -> j
     for program in programs {
         let doc_uri = paths.path_to_uri(paths.program_path(program));
         for decl in program.decls {
-            if let Some(name) = hover.decl_name(decl) {
+            if let Some(name) = resolve.decl_name(decl) {
                 if q == '' || name.to_lowercase().contains(q) {
                     if let Some(span) = decl_span(decl) {
                         result.push(json.obj({

@@ -1,0 +1,87 @@
+// Tests for the shared cursor resolver (resolve.hawk) — specifically the
+// navigation half (`def_span`/`def_file`) that go-to-definition renders. Hover's
+// render half is covered by hover_test.hawk. Each case resolves at a *use* site
+// and asserts the definition span lands on the *declaration*.
+
+import std.testing;
+
+import '../ast/ast' as _; // Program
+import '../lexer/lexer';
+import '../parser/parser';
+import 'resolve' as _;
+
+fn program_of(_ src: String) -> Program {
+    let p = parser.parse_tokens(lexer.tokenize(src).tokens).program;
+    p.file_path = Option.Some('t.hawk');
+    return p;
+}
+
+// The offset `delta` code points past the first occurrence of `marker`.
+fn at(_ src: String, _ marker: String, _ delta: Int) -> Int {
+    return src.find(marker).unwrap_or(0) + delta;
+}
+
+// The def-span offset resolved at `use_offset`, or -1 when nothing navigable.
+fn def_offset(_ src: String, _ use_offset: Int) -> Int {
+    let program = program_of(src);
+    let imports: List<Program> = [];
+    return match resolve.resolve_at(program, imports, src, use_offset) {
+        Some(r) => match r.def_span {
+            Some(s) => s.offset,
+            None => -1,
+        },
+        None => -1,
+    };
+}
+
+const SRC: String = 'struct S { count: Int }\n'
+    + 'impl S {\n'
+    + '    fn helper(self, _ n: Int) -> Int { return self.count + n; }\n'
+    + '    fn go(self) -> Int { return self.helper(self.count); }\n'
+    + '}\n'
+    + 'enum Color { Red, Green(Int) }\n'
+    + 'fn paint() -> Color { return Color.Green(1); }\n';
+
+@test
+fn test_definition_of_self_method() -> Result<Void, Error> {
+    // `self.helper(...)` navigates to the `helper` method declaration.
+    let use_off = at(SRC, 'self.helper(self', 5);
+    let decl_off = at(SRC, 'fn helper', 3);
+    testing.assert_eq(actual: def_offset(SRC, use_off), expected: decl_off)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_definition_of_parameter() -> Result<Void, Error> {
+    // `n` used in the body navigates to its parameter declaration.
+    let use_off = at(SRC, 'self.count + n', 13);
+    let decl_off = at(SRC, '_ n: Int', 2);
+    testing.assert_eq(actual: def_offset(SRC, use_off), expected: decl_off)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_definition_of_enum_variant() -> Result<Void, Error> {
+    // `Color.Green(1)` navigates to the `Green` variant declaration.
+    let use_off = at(SRC, 'Color.Green(1)', 6);
+    let decl_off = at(SRC, 'Red, Green', 5);
+    testing.assert_eq(actual: def_offset(SRC, use_off), expected: decl_off)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_definition_of_self_type() -> Result<Void, Error> {
+    // `self` navigates to the enclosing type's declaration.
+    let use_off = at(SRC, 'return self.helper', 7);
+    let decl_off = at(SRC, 'struct S', 7);
+    testing.assert_eq(actual: def_offset(SRC, use_off), expected: decl_off)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_field_access_is_not_navigable() -> Result<Void, Error> {
+    // A struct field carries no name span — renderable (hover) but not navigable.
+    let use_off = at(SRC, 'self.count + n', 5);
+    testing.assert_eq(actual: def_offset(SRC, use_off), expected: -1)?;
+    return Result.Ok(void);
+}

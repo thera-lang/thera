@@ -19,6 +19,7 @@ import 'jsonrpc';
 import 'paths';
 import 'diagnostics';
 import 'symbols';
+import 'resolve';
 import 'hover';
 import 'definition';
 import 'formatting';
@@ -297,7 +298,7 @@ impl Server {
         return match uri {
             Some(u) => match self.docs.get(u) {
                 Some(text) => {
-                    let offset = hover.position_to_offset(text,
+                    let offset = resolve.position_to_offset(text,
                         position.get('line').as_int().unwrap_or(0),
                         position.get('character').as_int().unwrap_or(0));
                     let program = parser.parse_tokens(lexer.tokenize(text).tokens).program;

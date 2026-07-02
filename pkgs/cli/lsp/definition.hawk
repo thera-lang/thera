@@ -1,46 +1,31 @@
-// LSP go-to-definition: the identifier under the cursor, resolved to a top-level
-// declaration whose location (file + name range) is returned. Reuses hover's
-// token-at-offset + declaration lookup; the only addition is the declaration's
-// file, so the jump can cross into an imported library.
-//
-// Ported from the Dart `lsp/definition.dart`, scoped (like hover) to top-level
-// names — local variables/parameters and field/method members need scope or
-// receiver-type inference at the offset and are a follow-up.
+// LSP go-to-definition — a thin renderer over the shared cursor resolver
+// (`resolve.hawk`): resolve the name under the cursor to a target and return its
+// declaration `Location` (file + name range), or null when the target has no
+// navigable declaration. Because it shares `resolve_at` with hover, it now
+// navigates to `self`'s type, `self.method`s, parameters, and `Enum.Variant`s —
+// not just top-level names. (A struct field carries no name span, so a
+// `self.field` access resolves for hover but is not navigable yet.)
 
 import std.json as _;
 
-import '../ast/ast' as _;      // Decl + the per-decl payloads
+import '../ast/ast' as _;      // Program
 import '../lexer/token' as _;  // SourceSpan
-import 'hover';           // name_at, find_decl_site
+import 'resolve';         // resolve_at
 import 'diagnostics';     // span_to_range
 import 'paths';             // path_to_uri
 
 // The LSP `Location` (as JSON) for the definition of the symbol at `offset`, or
-// JSON null when nothing resolves.
+// JSON null when nothing resolves to a navigable declaration.
 pub fn handle_definition(_ program: Program, _ imports: List<Program>, _ text: String, _ offset: Int) -> Json {
-    return match hover.name_at(text, offset) {
-        Some(ref) => match hover.find_decl_site(program, imports, ref.name) {
-            Some(site) => match decl_name_span(site.decl) {
-                Some(span) => location(site.file, span),
+    return match resolve.resolve_at(program, imports, text, offset) {
+        Some(r) => match r.def_span {
+            Some(span) => match r.def_file {
+                Some(file) => location(file, span),
                 None => json.null(),
             },
             None => json.null(),
         },
         None => json.null(),
-    };
-}
-
-// The span of a declaration's own name — where go-to-definition lands.
-fn decl_name_span(_ decl: Decl) -> Option<SourceSpan> {
-    return match decl {
-        Fn(d) => Option.Some(d.name_span),
-        Type(d) => Option.Some(d.name_span),
-        Enum(d) => Option.Some(d.name_span),
-        Interface(d) => Option.Some(d.name_span),
-        Const(d) => Option.Some(d.name_span),
-        Let(d) => Option.Some(d.name_span),
-        Impl(_) => Option.None,
-        Import(_) => Option.None,
     };
 }
 

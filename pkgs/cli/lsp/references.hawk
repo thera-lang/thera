@@ -14,11 +14,11 @@ import '../ast/ast' as _;
 import '../lexer/lexer';
 import '../lexer/token' as _;
 import 'diagnostics';
-import 'hover';
+import 'resolve';
 import 'paths';
 
 pub fn handle_references(_ program: Program, _ imports: List<Program>, _ text: String, _ offset: Int) -> json.Json {
-    return match hover.name_at(text, offset) {
+    return match resolve.name_at(text, offset) {
         Some(ref) => {
             let locations: List<json.Json> = [];
             find_in_text(paths.program_path(program), text, ref.name, locations);

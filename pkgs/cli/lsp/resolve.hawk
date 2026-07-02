@@ -1,0 +1,487 @@
+// Shared cursor resolution for the LSP. The identifier (or `self`) token at an
+// offset is resolved — against the enclosing method/impl and the file's
+// declarations — to a `Resolved` target that carries both its **hover render**
+// (signature/type) and its **definition location** (file + name span). The
+// feature handlers (`hover`, `definition`, …) are thin renderers over `resolve_at`.
+//
+// Resolution is context-aware without a full inference pass:
+//
+//   - `self`                   -> the enclosing impl/interface's type
+//   - `self.method` / `.field` -> that type's method signature / field type
+//   - a parameter              -> the enclosing function's parameter type
+//   - `Enum.Variant`           -> the variant (with its payload types)
+//   - otherwise                -> a top-level declaration
+//
+// Still deferred (needs scope-reconstruction inference at an offset): the
+// *inferred* type of a local `let`/loop variable, and members of a non-`self`
+// receiver (`xs.foo()` where `xs`'s type isn't written down).
+
+import '../ast/ast' as _;       // Program, Decl, the per-decl payloads
+import '../ast/describe';  // describe_type
+import '../lexer/token' as _;   // SourceSpan, Token, TokenKind
+import '../lexer/lexer';   // tokenize
+import 'paths';              // program_path
+
+// The identifier under the cursor: its name and source span.
+pub struct NameRef {
+    name: String,
+    span: SourceSpan,
+}
+
+// A resolved declaration together with the path of the file it lives in.
+pub struct DeclSite {
+    decl: Decl,
+    file: String,
+}
+
+// A resolved target at the cursor: enough to render a hover *and* to navigate to
+// its definition. `def_span`/`def_file` are None when the target has no navigable
+// declaration site (a struct field carries no name span; a builtin has no source).
+pub struct Resolved {
+    ref_span: SourceSpan,
+    render: String,
+    def_file: Option<String>,
+    def_span: Option<SourceSpan>,
+}
+
+// The target the name at `offset` resolves to, or None. The single resolution
+// authority behind hover and definition.
+pub fn resolve_at(_ program: Program, _ imports: List<Program>, _ text: String, _ offset: Int) -> Option<Resolved> {
+    let ref = match name_at(text, offset) {
+        Some(r) => r,
+        None => return Option.None,
+    };
+    let ctx = enclosing_ctx(program, offset);
+    // `self` — the enclosing impl/interface's type (navigates to its declaration).
+    if ref.name == 'self' {
+        return match ctx.self_type {
+            Some(t) => Option.Some(self_resolved(program, imports, ref, t)),
+            None => Option.None,
+        };
+    }
+    // A member access `RECEIVER.name`.
+    if let Some(receiver) = member_receiver_at(text, offset) {
+        if receiver == 'self' {
+            return match ctx.self_type {
+                Some(t) => member_resolved(program, imports, ref, bare_type(t)),
+                None => Option.None,
+            };
+        }
+        // `Enum.Variant` when the receiver names an enum; else a member of some
+        // other receiver, which needs the receiver's type (inference) — don't
+        // guess against unrelated top-level names.
+        return variant_resolved(program, imports, ref, receiver);
+    }
+    // A parameter of the enclosing function.
+    if let Some(fn_decl) = ctx.fn_decl {
+        if let Some(res) = param_resolved(program, ref, fn_decl) {
+            return Option.Some(res);
+        }
+    }
+    // A top-level declaration (function / type / enum / interface / const / let).
+    return match find_decl_site(program, imports, ref.name) {
+        Some(site) => Option.Some(Resolved {
+            ref_span: ref.span,
+            render: describe_decl(site.decl),
+            def_file: Option.Some(site.file),
+            def_span: decl_name_span(site.decl),
+        }),
+        None => Option.None,
+    };
+}
+
+// The identifier (or `self`) token whose span covers `offset`, if any.
+pub fn name_at(_ text: String, _ offset: Int) -> Option<NameRef> {
+    for tok in lexer.tokenize(text).tokens {
+        if tok.kind == TokenKind.Identifier || tok.kind == TokenKind.KwSelf {
+            let s = tok.span;
+            if offset >= s.offset && offset <= s.offset + s.length {
+                return Option.Some(NameRef { name: tok.lexeme(), span: s });
+            }
+        }
+    }
+    return Option.None;
+}
+
+// The 0-based (line, character) LSP position as a code-point offset into `text`.
+pub fn position_to_offset(_ text: String, _ line: Int, _ character: Int) -> Int {
+    let lines = text.split('\n');
+    let mut offset = 0;
+    let mut i = 0;
+    while i < line && i < lines.len() {
+        offset = offset + lines[i].len() + 1; // +1 for the '\n'
+        i = i + 1;
+    }
+    if line < lines.len() {
+        let line_text = lines[line];
+        offset = offset + (if character < line_text.len() { character } else { line_text.len() });
+    }
+    return offset;
+}
+
+// The receiver name of a `RECEIVER.name` access at `offset` (the token there is
+// the member, preceded by `.` and an identifier or `self`), or None.
+pub fn member_receiver_at(_ text: String, _ offset: Int) -> Option<String> {
+    let toks = lexer.tokenize(text).tokens;
+    for p in toks.enumerate() {
+        let s = p.value.span;
+        if p.value.kind == TokenKind.Identifier && offset >= s.offset && offset <= s.offset + s.length {
+            if p.index >= 2 && toks[p.index - 1].kind == TokenKind.Dot {
+                let recv = toks[p.index - 2];
+                if recv.kind == TokenKind.KwSelf {
+                    return Option.Some('self');
+                }
+                if recv.kind == TokenKind.Identifier {
+                    return Option.Some(recv.lexeme());
+                }
+            }
+            return Option.None;
+        }
+    }
+    return Option.None;
+}
+
+// --- enclosing context ---
+
+// The enclosing method's `self` type (with type params, for display) and the
+// enclosing function/method — the context a name resolves against.
+struct Enclosing {
+    self_type: Option<String>,
+    fn_decl: Option<FnDecl>,
+}
+
+fn enclosing_ctx(_ program: Program, _ offset: Int) -> Enclosing {
+    for decl in program.decls {
+        match decl {
+            Fn(f) => {
+                if span_covers(f.span, offset) {
+                    return Enclosing { self_type: Option.None, fn_decl: Option.Some(f) };
+                }
+            },
+            Impl(i) => {
+                if span_covers(i.span, offset) {
+                    return Enclosing { self_type: Option.Some(impl_type_label(i)), fn_decl: method_at(i.methods, offset) };
+                }
+            },
+            Interface(it) => {
+                if span_covers(it.span, offset) {
+                    return Enclosing { self_type: Option.Some(it.name), fn_decl: method_at(it.methods, offset) };
+                }
+            },
+            _ => {},
+        }
+    }
+    return Enclosing { self_type: Option.None, fn_decl: Option.None };
+}
+
+// `List<T>` for `impl List<T>`, `Server` for `impl Server` — the display form.
+fn impl_type_label(_ i: ImplDecl) -> String {
+    if i.type_params.len() == 0 {
+        return i.type_name;
+    }
+    return '${i.type_name}<${i.type_params.map((tp) => tp.name).join(', ')}>';
+}
+
+// The bare type name (`List` from `List<T>`) — for looking members up by name.
+fn bare_type(_ s: String) -> String {
+    return match s.find('<') {
+        Some(i) => s.slice(0, i),
+        None => s,
+    };
+}
+
+fn method_at(_ methods: List<FnDecl>, _ offset: Int) -> Option<FnDecl> {
+    for m in methods {
+        if span_covers(m.span, offset) {
+            return Option.Some(m);
+        }
+    }
+    return Option.None;
+}
+
+fn span_covers(_ span: SourceSpan, _ offset: Int) -> Bool {
+    return offset >= span.offset && offset <= span.offset + span.length;
+}
+
+// --- per-case resolution ---
+
+fn self_resolved(_ program: Program, _ imports: List<Program>, _ ref: NameRef, _ display: String) -> Resolved {
+    let site = find_decl_site(program, imports, bare_type(display));
+    return Resolved {
+        ref_span: ref.span,
+        render: 'self: ${display}',
+        def_file: match site { Some(s) => Option.Some(s.file), None => Option.None },
+        def_span: match site { Some(s) => decl_name_span(s.decl), None => Option.None },
+    };
+}
+
+fn member_resolved(_ program: Program, _ imports: List<Program>, _ ref: NameRef, _ type_name: String) -> Option<Resolved> {
+    if let Some(ms) = find_method_site(program, imports, type_name, ref.name) {
+        return Option.Some(Resolved {
+            ref_span: ref.span,
+            render: describe_fn(ms.fn_decl),
+            def_file: Option.Some(ms.file),
+            def_span: Option.Some(ms.fn_decl.name_span),
+        });
+    }
+    // A field carries no name span, so it is renderable but not navigable.
+    if let Some(f) = find_field(program, imports, type_name, ref.name) {
+        return Option.Some(Resolved {
+            ref_span: ref.span,
+            render: '${f.name}: ${describe.describe_type(f.type_ann)}',
+            def_file: Option.None,
+            def_span: Option.None,
+        });
+    }
+    return Option.None;
+}
+
+fn variant_resolved(_ program: Program, _ imports: List<Program>, _ ref: NameRef, _ enum_name: String) -> Option<Resolved> {
+    return match find_variant_site(program, imports, enum_name, ref.name) {
+        Some(vs) => Option.Some(Resolved {
+            ref_span: ref.span,
+            render: variant_render(enum_name, vs.variant),
+            def_file: Option.Some(vs.file),
+            def_span: Option.Some(vs.variant.name_span),
+        }),
+        None => Option.None,
+    };
+}
+
+fn param_resolved(_ program: Program, _ ref: NameRef, _ fn_decl: FnDecl) -> Option<Resolved> {
+    for p in fn_decl.params {
+        if !p.is_self && p.name == ref.name {
+            let render = match p.type_ann {
+                Some(t) => '${p.name}: ${describe.describe_type(t)}',
+                None => p.name,
+            };
+            return Option.Some(Resolved {
+                ref_span: ref.span,
+                render: render,
+                def_file: Option.Some(paths.program_path(program)),
+                def_span: Option.Some(p.name_span),
+            });
+        }
+    }
+    return Option.None;
+}
+
+// --- member / variant / field lookup (file-aware, for navigation) ---
+
+struct MethodSite {
+    fn_decl: FnDecl,
+    file: String,
+}
+
+fn find_method_site(_ program: Program, _ imports: List<Program>, _ type_name: String, _ method: String) -> Option<MethodSite> {
+    if let Some(m) = find_method_in(program, type_name, method) {
+        return Option.Some(MethodSite { fn_decl: m, file: paths.program_path(program) });
+    }
+    for imp in imports {
+        if let Some(m) = find_method_in(imp, type_name, method) {
+            return Option.Some(MethodSite { fn_decl: m, file: paths.program_path(imp) });
+        }
+    }
+    return Option.None;
+}
+
+fn find_method_in(_ program: Program, _ type_name: String, _ method: String) -> Option<FnDecl> {
+    for decl in program.decls {
+        let methods = match decl {
+            Impl(i) => if i.type_name == type_name { i.methods } else { [] },
+            Interface(it) => if it.name == type_name { it.methods } else { [] },
+            _ => [],
+        };
+        for m in methods {
+            if m.name == method {
+                return Option.Some(m);
+            }
+        }
+    }
+    return Option.None;
+}
+
+fn find_field(_ program: Program, _ imports: List<Program>, _ type_name: String, _ field: String) -> Option<FieldDef> {
+    if let Some(f) = find_field_in(program, type_name, field) { return Option.Some(f); }
+    for imp in imports {
+        if let Some(f) = find_field_in(imp, type_name, field) { return Option.Some(f); }
+    }
+    return Option.None;
+}
+
+fn find_field_in(_ program: Program, _ type_name: String, _ field: String) -> Option<FieldDef> {
+    for decl in program.decls {
+        if let Type(t) = decl {
+            if t.name == type_name {
+                for f in t.fields {
+                    if f.name == field {
+                        return Option.Some(f);
+                    }
+                }
+            }
+        }
+    }
+    return Option.None;
+}
+
+struct VariantSite {
+    variant: EnumVariant,
+    file: String,
+}
+
+fn find_variant_site(_ program: Program, _ imports: List<Program>, _ enum_name: String, _ variant: String) -> Option<VariantSite> {
+    if let Some(v) = find_variant_in(program, enum_name, variant) {
+        return Option.Some(VariantSite { variant: v, file: paths.program_path(program) });
+    }
+    for imp in imports {
+        if let Some(v) = find_variant_in(imp, enum_name, variant) {
+            return Option.Some(VariantSite { variant: v, file: paths.program_path(imp) });
+        }
+    }
+    return Option.None;
+}
+
+fn find_variant_in(_ program: Program, _ enum_name: String, _ variant: String) -> Option<EnumVariant> {
+    for decl in program.decls {
+        if let Enum(e) = decl {
+            if e.name == enum_name {
+                for v in e.variants {
+                    if v.name == variant {
+                        return Option.Some(v);
+                    }
+                }
+            }
+        }
+    }
+    return Option.None;
+}
+
+// --- top-level declaration lookup ---
+
+// The first top-level declaration named `name` (with its file), searching the
+// primary program then its imports.
+pub fn find_decl_site(_ program: Program, _ imports: List<Program>, _ name: String) -> Option<DeclSite> {
+    if let Some(d) = find_decl_in(program, name) { return Option.Some(DeclSite { decl: d, file: paths.program_path(program) }); }
+    for imp in imports {
+        if let Some(d) = find_decl_in(imp, name) { return Option.Some(DeclSite { decl: d, file: paths.program_path(imp) }); }
+    }
+    return Option.None;
+}
+
+fn find_decl_in(_ program: Program, _ name: String) -> Option<Decl> {
+    for decl in program.decls {
+        if let Some(n) = decl_name(decl) {
+            if n == name {
+                return Option.Some(decl);
+            }
+        }
+    }
+    return Option.None;
+}
+
+// The declared name of a top-level decl (None for impls/imports, which name no
+// new symbol).
+pub fn decl_name(_ decl: Decl) -> Option<String> {
+    return match decl {
+        Fn(d) => Option.Some(d.name),
+        Type(d) => Option.Some(d.name),
+        Enum(d) => Option.Some(d.name),
+        Interface(d) => Option.Some(d.name),
+        Const(d) => Option.Some(d.name),
+        Let(d) => Option.Some(d.name),
+        Impl(_) => Option.None,
+        Import(_) => Option.None,
+    };
+}
+
+// The span of a declaration's own name — where go-to-definition lands.
+pub fn decl_name_span(_ decl: Decl) -> Option<SourceSpan> {
+    return match decl {
+        Fn(d) => Option.Some(d.name_span),
+        Type(d) => Option.Some(d.name_span),
+        Enum(d) => Option.Some(d.name_span),
+        Interface(d) => Option.Some(d.name_span),
+        Const(d) => Option.Some(d.name_span),
+        Let(d) => Option.Some(d.name_span),
+        Impl(_) => Option.None,
+        Import(_) => Option.None,
+    };
+}
+
+// --- signature / type rendering ---
+
+pub fn describe_decl(_ decl: Decl) -> String {
+    return match decl {
+        Fn(d) => describe_fn(d),
+        Type(d) => describe_type_decl(d),
+        Enum(d) => describe_enum(d),
+        Interface(d) => describe_interface(d),
+        Const(d) => describe_const(d),
+        Let(d) => describe_let(d),
+        Impl(_) => '',
+        Import(_) => '',
+    };
+}
+
+fn describe_fn(_ d: FnDecl) -> String {
+    let params = d.params.map((p) => describe_param(p)).join(', ');
+    let ret = match d.return_type {
+        Some(t) => ' -> ${describe.describe_type(t)}',
+        None => '',
+    };
+    return 'fn ${d.name}(${params})${ret}';
+}
+
+fn describe_param(_ p: Param) -> String {
+    if p.is_self {
+        return 'self';
+    }
+    return match p.type_ann {
+        Some(t) => '${p.name}: ${describe.describe_type(t)}',
+        None => p.name,
+    };
+}
+
+fn describe_type_decl(_ d: TypeDecl) -> String {
+    let fields = d.fields.map((f) => '  ${f.name}: ${describe.describe_type(f.type_ann)}').join('\n');
+    return 'type ${d.name} = {\n${fields}\n}';
+}
+
+fn describe_enum(_ d: EnumDecl) -> String {
+    let variants = d.variants.map((v) => variant_render_indented(v)).join('\n');
+    return 'enum ${d.name} {\n${variants}\n}';
+}
+
+// `Enum.Variant` / `Enum.Variant(T, …)` — the qualified variant render (hover).
+fn variant_render(_ enum_name: String, _ v: EnumVariant) -> String {
+    if v.fields.len() == 0 {
+        return '${enum_name}.${v.name}';
+    }
+    return '${enum_name}.${v.name}(${v.fields.map((t) => describe.describe_type(t)).join(', ')})';
+}
+
+fn variant_render_indented(_ v: EnumVariant) -> String {
+    if v.fields.len() == 0 {
+        return '  ${v.name}';
+    }
+    return '  ${v.name}(${v.fields.map((t) => describe.describe_type(t)).join(', ')})';
+}
+
+fn describe_interface(_ d: InterfaceDecl) -> String {
+    let methods = d.methods.map((m) => '  ${describe_fn(m)}').join('\n');
+    return 'interface ${d.name} {\n${methods}\n}';
+}
+
+fn describe_const(_ d: ConstDecl) -> String {
+    return match d.type_ann {
+        Some(t) => 'const ${d.name}: ${describe.describe_type(t)} = ...',
+        None => 'const ${d.name} = ...',
+    };
+}
+
+fn describe_let(_ d: LetDecl) -> String {
+    return match d.type_ann {
+        Some(t) => 'let ${d.name}: ${describe.describe_type(t)} = ...',
+        None => 'let ${d.name} = ...',
+    };
+}

@@ -14,11 +14,11 @@ import '../ast/ast' as _;
 import '../lexer/lexer';
 import '../lexer/token' as _;
 import 'diagnostics';
-import 'hover';
+import 'resolve';
 import 'paths';
 
 pub fn handle_rename(_ program: Program, _ imports: List<Program>, _ text: String, _ offset: Int, _ new_name: String) -> json.Json {
-    return match hover.name_at(text, offset) {
+    return match resolve.name_at(text, offset) {
         Some(ref) => {
             let changes: Map<String, json.Json> = {};
             find_edits_in_text(paths.program_path(program), text, ref.name, new_name, changes);

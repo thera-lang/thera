@@ -15,7 +15,7 @@
 
 import '../ast/ast' as _; // Program
 import '../fix/fix'; // FixSite
-import 'hover'; // position_to_offset
+import 'resolve'; // position_to_offset
 import 'diagnostics'; // span_to_range
 import std.json;
 
@@ -87,7 +87,7 @@ fn rewrite_action(_ uri: String, _ site: fix.FixSite) -> json.Json {
 }
 
 fn pos_offset(_ text: String, _ pos: json.Json) -> Int {
-    return hover.position_to_offset(text,
+    return resolve.position_to_offset(text,
         pos.get('line').as_int().unwrap_or(0),
         pos.get('character').as_int().unwrap_or(0));
 }
