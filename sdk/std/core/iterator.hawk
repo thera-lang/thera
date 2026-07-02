@@ -158,8 +158,10 @@ impl Iterator<Indexed<T>> for EnumerateIter<T> {
 
 // The iterator backing `List.enumerate()` — walks a list by index, pairing each
 // element with its position. Kept here (a plain index cursor, no `List.iter()`
-// bridge) so the pairing lives beside `Indexed`/`EnumerateIter`.
-struct ListEnumerateIter<T> {
+// bridge) so the pairing lives beside `Indexed`/`EnumerateIter`. `pub` because
+// `List.enumerate` (in list.hawk) constructs it across the file boundary — like
+// `Indexed`, it is part of `enumerate`'s public surface.
+pub struct ListEnumerateIter<T> {
     list: List<T>,
     mut pos: Int,
 }
