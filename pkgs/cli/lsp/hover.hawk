@@ -1,13 +1,18 @@
-// LSP hover: the identifier under the cursor, resolved to a top-level
-// declaration whose signature is shown. The cursor's identifier is found from
-// the token stream (robust, no AST walk); the name is then looked up among the
-// file's and its imports' declarations.
+// LSP hover: the identifier under the cursor, resolved to a signature or type.
+// The cursor's identifier is found from the token stream (robust, no AST walk);
+// resolution is then context-aware — it uses the enclosing method/impl so that
+// names that are *not* top-level still resolve:
 //
-// Ported from the Dart `lsp/hover.dart`, scoped to declaration signatures. The
-// Dart version also showed an expression's *inferred* type (via the dropped
-// `resolvedType` annotation); that needs scope-reconstruction inference at an
-// offset and is a follow-up — so hovering a local/parameter that isn't a
-// top-level name yields nothing for now.
+//   - `self`                 -> the enclosing impl/interface's type
+//   - `self.method` / `.field` -> that type's method signature / field type
+//   - a parameter            -> the enclosing function's parameter type
+//   - `Enum.Variant`         -> the variant (with its payload types)
+//   - otherwise              -> a top-level declaration (function/type/…)
+//
+// This covers the bulk of in-method identifiers without a full inference pass.
+// Still deferred (needs scope-reconstruction inference at an offset): the
+// *inferred* type of a local `let`/loop variable, and members of a non-`self`
+// receiver (`xs.foo()` where `xs`'s type isn't written down).
 
 import std.json as _;
 
@@ -31,25 +36,263 @@ pub struct DeclSite {
     file: String,
 }
 
-// The `Hover` (as JSON) for `offset` in `text`: the resolved declaration's
-// signature, or JSON null when nothing resolves.
+// The `Hover` (as JSON) for `offset` in `text`: the resolved signature/type, or
+// JSON null when nothing resolves.
 pub fn handle_hover(_ program: Program, _ imports: List<Program>, _ text: String, _ offset: Int) -> Json {
     return match name_at(text, offset) {
-        Some(ref) => match find_decl_site(program, imports, ref.name) {
-            Some(site) => hover_result(describe_decl(site.decl), ref.span),
+        Some(ref) => match resolve_hover(program, imports, text, offset, ref) {
+            Some(code) => hover_result(code, ref.span),
             None => json.null(),
         },
         None => json.null(),
     };
 }
 
-// The identifier token whose span covers `offset` (a code-point offset), if any.
+// The identifier (or `self`) token whose span covers `offset`, if any.
 pub fn name_at(_ text: String, _ offset: Int) -> Option<NameRef> {
     for tok in lexer.tokenize(text).tokens {
-        if tok.kind == TokenKind.Identifier {
+        if tok.kind == TokenKind.Identifier || tok.kind == TokenKind.KwSelf {
             let s = tok.span;
             if offset >= s.offset && offset <= s.offset + s.length {
                 return Option.Some(NameRef { name: tok.lexeme(), span: s });
+            }
+        }
+    }
+    return Option.None;
+}
+
+// --- context-aware resolution ---
+
+// The rendered signature/type for the name at `offset`, resolved against the
+// enclosing scope (see the module header for the order). None when nothing fits.
+fn resolve_hover(_ program: Program, _ imports: List<Program>, _ text: String,
+    _ offset: Int, _ ref: NameRef) -> Option<String> {
+    let ctx = enclosing_ctx(program, offset);
+    // `self` — the enclosing impl/interface's type.
+    if ref.name == 'self' {
+        return match ctx.self_type {
+            Some(t) => Option.Some('self: ${t}'),
+            None => Option.None,
+        };
+    }
+    // A member access `RECEIVER.name`.
+    if let Some(receiver) = member_receiver_at(text, offset) {
+        if receiver == 'self' {
+            // `self.method` / `self.field` — resolved within the enclosing type.
+            return match ctx.self_type {
+                Some(t) => describe_member(program, imports, bare_type(t), ref.name),
+                None => Option.None,
+            };
+        }
+        // `Enum.Variant` — when the receiver names an enum in scope.
+        if let Some(code) = describe_enum_variant(program, imports, receiver, ref.name) {
+            return Option.Some(code);
+        }
+        // A member of some other receiver needs the receiver's type (inference) —
+        // don't guess against unrelated top-level names.
+        return Option.None;
+    }
+    // A parameter of the enclosing function.
+    if let Some(fn_decl) = ctx.fn_decl {
+        if let Some(code) = param_hover(fn_decl, ref.name) {
+            return Option.Some(code);
+        }
+    }
+    // A top-level declaration (function / type / enum / interface / const / let).
+    return match find_decl_site(program, imports, ref.name) {
+        Some(site) => Option.Some(describe_decl(site.decl)),
+        None => Option.None,
+    };
+}
+
+// The enclosing method's `self` type (with type params, for display) and the
+// enclosing function/method — the context a name resolves against.
+struct Enclosing {
+    self_type: Option<String>,
+    fn_decl: Option<FnDecl>,
+}
+
+fn enclosing_ctx(_ program: Program, _ offset: Int) -> Enclosing {
+    for decl in program.decls {
+        match decl {
+            Fn(f) => {
+                if span_covers(f.span, offset) {
+                    return Enclosing { self_type: Option.None, fn_decl: Option.Some(f) };
+                }
+            },
+            Impl(i) => {
+                if span_covers(i.span, offset) {
+                    return Enclosing { self_type: Option.Some(impl_type_label(i)), fn_decl: method_at(i.methods, offset) };
+                }
+            },
+            Interface(it) => {
+                if span_covers(it.span, offset) {
+                    return Enclosing { self_type: Option.Some(it.name), fn_decl: method_at(it.methods, offset) };
+                }
+            },
+            _ => {},
+        }
+    }
+    return Enclosing { self_type: Option.None, fn_decl: Option.None };
+}
+
+// `List<T>` for `impl List<T>`, `Server` for `impl Server` — the display form of
+// an impl's `self` type.
+fn impl_type_label(_ i: ImplDecl) -> String {
+    if i.type_params.len() == 0 {
+        return i.type_name;
+    }
+    return '${i.type_name}<${i.type_params.map((tp) => tp.name).join(', ')}>';
+}
+
+// The bare type name (`List` from `List<T>`) — for looking members up by name.
+fn bare_type(_ s: String) -> String {
+    return match s.find('<') {
+        Some(i) => s.slice(0, i),
+        None => s,
+    };
+}
+
+fn method_at(_ methods: List<FnDecl>, _ offset: Int) -> Option<FnDecl> {
+    for m in methods {
+        if span_covers(m.span, offset) {
+            return Option.Some(m);
+        }
+    }
+    return Option.None;
+}
+
+fn span_covers(_ span: SourceSpan, _ offset: Int) -> Bool {
+    return offset >= span.offset && offset <= span.offset + span.length;
+}
+
+// The receiver name of a `RECEIVER.name` access at `offset` (the token there is
+// the member, preceded by `.` and an identifier or `self`), or None.
+pub fn member_receiver_at(_ text: String, _ offset: Int) -> Option<String> {
+    let toks = lexer.tokenize(text).tokens;
+    for p in toks.enumerate() {
+        let s = p.value.span;
+        if p.value.kind == TokenKind.Identifier && offset >= s.offset && offset <= s.offset + s.length {
+            if p.index >= 2 && toks[p.index - 1].kind == TokenKind.Dot {
+                let recv = toks[p.index - 2];
+                if recv.kind == TokenKind.KwSelf {
+                    return Option.Some('self');
+                }
+                if recv.kind == TokenKind.Identifier {
+                    return Option.Some(recv.lexeme());
+                }
+            }
+            return Option.None;
+        }
+    }
+    return Option.None;
+}
+
+// --- member / parameter / variant lookup ---
+
+// A method signature or field type for `member` on `type_name` (`bare`), searched
+// across every `impl`/`interface` and the type declaration in the file + imports.
+fn describe_member(_ program: Program, _ imports: List<Program>, _ type_name: String, _ member: String) -> Option<String> {
+    if let Some(m) = find_type_method(program, imports, type_name, member) {
+        return Option.Some(describe_fn(m));
+    }
+    if let Some(f) = find_field(program, imports, type_name, member) {
+        return Option.Some('${f.name}: ${describe.describe_type(f.type_ann)}');
+    }
+    return Option.None;
+}
+
+fn find_type_method(_ program: Program, _ imports: List<Program>, _ type_name: String, _ method: String) -> Option<FnDecl> {
+    if let Some(m) = find_method_in(program, type_name, method) { return Option.Some(m); }
+    for imp in imports {
+        if let Some(m) = find_method_in(imp, type_name, method) { return Option.Some(m); }
+    }
+    return Option.None;
+}
+
+fn find_method_in(_ program: Program, _ type_name: String, _ method: String) -> Option<FnDecl> {
+    for decl in program.decls {
+        let methods = match decl {
+            Impl(i) => if i.type_name == type_name { i.methods } else { [] },
+            Interface(it) => if it.name == type_name { it.methods } else { [] },
+            _ => [],
+        };
+        for m in methods {
+            if m.name == method {
+                return Option.Some(m);
+            }
+        }
+    }
+    return Option.None;
+}
+
+fn find_field(_ program: Program, _ imports: List<Program>, _ type_name: String, _ field: String) -> Option<FieldDef> {
+    if let Some(f) = find_field_in(program, type_name, field) { return Option.Some(f); }
+    for imp in imports {
+        if let Some(f) = find_field_in(imp, type_name, field) { return Option.Some(f); }
+    }
+    return Option.None;
+}
+
+fn find_field_in(_ program: Program, _ type_name: String, _ field: String) -> Option<FieldDef> {
+    for decl in program.decls {
+        if let Type(t) = decl {
+            if t.name == type_name {
+                for f in t.fields {
+                    if f.name == field {
+                        return Option.Some(f);
+                    }
+                }
+            }
+        }
+    }
+    return Option.None;
+}
+
+// `name: Type` for a parameter of `fn_decl` (None when there is no such param, or
+// it is unannotated — its type would need inference from the call context).
+fn param_hover(_ fn_decl: FnDecl, _ name: String) -> Option<String> {
+    for p in fn_decl.params {
+        if !p.is_self && p.name == name {
+            return match p.type_ann {
+                Some(t) => Option.Some('${name}: ${describe.describe_type(t)}'),
+                None => Option.Some(name),
+            };
+        }
+    }
+    return Option.None;
+}
+
+// `Enum.Variant` (with payload types) when `enum_name` names an enum in scope and
+// `variant` is one of its variants.
+fn describe_enum_variant(_ program: Program, _ imports: List<Program>, _ enum_name: String, _ variant: String) -> Option<String> {
+    return match find_enum_variant(program, imports, enum_name, variant) {
+        Some(v) => if v.fields.len() == 0 {
+            Option.Some('${enum_name}.${v.name}')
+        } else {
+            Option.Some('${enum_name}.${v.name}(${v.fields.map((t) => describe.describe_type(t)).join(', ')})')
+        },
+        None => Option.None,
+    };
+}
+
+fn find_enum_variant(_ program: Program, _ imports: List<Program>, _ enum_name: String, _ variant: String) -> Option<EnumVariant> {
+    if let Some(v) = find_enum_variant_in(program, enum_name, variant) { return Option.Some(v); }
+    for imp in imports {
+        if let Some(v) = find_enum_variant_in(imp, enum_name, variant) { return Option.Some(v); }
+    }
+    return Option.None;
+}
+
+fn find_enum_variant_in(_ program: Program, _ enum_name: String, _ variant: String) -> Option<EnumVariant> {
+    for decl in program.decls {
+        if let Enum(e) = decl {
+            if e.name == enum_name {
+                for v in e.variants {
+                    if v.name == variant {
+                        return Option.Some(v);
+                    }
+                }
             }
         }
     }

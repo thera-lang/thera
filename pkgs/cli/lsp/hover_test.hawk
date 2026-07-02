@@ -1,0 +1,89 @@
+// Tests for context-aware hover resolution (hover.hawk): `self`, `self.member`,
+// parameters, and `Enum.Variant` — the non-top-level names that now resolve.
+
+import std.testing;
+import std.json as _;
+
+import '../ast/ast' as _; // Program
+import '../lexer/lexer';
+import '../parser/parser';
+import 'hover' as _;
+
+// The rendered hover code for `src` at code-point `offset` ('' when hover is null).
+fn rendered(_ src: String, _ offset: Int) -> String {
+    let program = parser.parse_tokens(lexer.tokenize(src).tokens).program;
+    let imports: List<Program> = [];
+    return hover.handle_hover(program, imports, src, offset)
+        .get('contents').get('value').as_string().unwrap_or('');
+}
+
+// The offset `delta` code points past the first occurrence of `marker` in `src`.
+fn at(_ src: String, _ marker: String, _ delta: Int) -> Int {
+    return src.find(marker).unwrap_or(0) + delta;
+}
+
+const SRC: String = 'struct S { count: Int }\n'
+    + 'impl S {\n'
+    + '    fn helper(self, _ n: Int) -> Int { return self.count + n; }\n'
+    + '    fn go(self) -> Int { return self.helper(self.count); }\n'
+    + '}\n'
+    + 'enum Color { Red, Green(Int) }\n'
+    + 'fn paint() -> Color { return Color.Green(1); }\n';
+
+@test
+fn test_hover_self_resolves_to_the_impl_type() -> Result<Void, Error> {
+    // `self` in `return self.helper(...)` → the enclosing impl's type.
+    let code = rendered(SRC, at(SRC, 'return self.helper', 7));
+    testing.assert_eq(actual: code, expected: '```hawk\nself: S\n```')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_hover_self_field() -> Result<Void, Error> {
+    // `self.count` → the field's declared type.
+    let code = rendered(SRC, at(SRC, 'self.count + n', 5));
+    testing.assert(code.contains('count: Int'), message: 'shows the field type')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_hover_self_method() -> Result<Void, Error> {
+    // `self.helper(...)` → the method signature.
+    let code = rendered(SRC, at(SRC, 'self.helper(self', 5));
+    testing.assert(code.contains('fn helper(self, n: Int) -> Int'), message: 'shows the method signature')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_hover_parameter() -> Result<Void, Error> {
+    // The parameter `n` used in the body → its declared type.
+    let code = rendered(SRC, at(SRC, 'self.count + n', 13));
+    testing.assert(code.contains('n: Int'), message: 'shows the parameter type')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_hover_enum_variant() -> Result<Void, Error> {
+    // `Color.Green(1)` → the variant with its payload types.
+    let code = rendered(SRC, at(SRC, 'Color.Green(1)', 6));
+    testing.assert(code.contains('Color.Green(Int)'), message: 'shows the variant + payload')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_hover_top_level_still_resolves() -> Result<Void, Error> {
+    // Regression: a top-level name still resolves to its declaration.
+    let code = rendered(SRC, at(SRC, 'fn paint', 3));
+    testing.assert(code.contains('fn paint() -> Color'), message: 'top-level fn resolves')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_hover_member_of_unknown_receiver_is_null() -> Result<Void, Error> {
+    // A member of a non-`self` receiver needs inference — don't guess. `count` here
+    // is a member access on `other`, and must NOT resolve to the struct field.
+    let src = 'fn f(_ other: S) -> Int { return other.count; }\n' + SRC;
+    let code = rendered(src, at(src, 'other.count', 6));
+    testing.assert_eq(actual: code, expected: '')?;
+    return Result.Ok(void);
+}

@@ -319,7 +319,18 @@ resolution_ below.)
   inference-at-offset work as below.
 - **LSP v2 toward an incremental engine.** Inference-at-offset (hover/definition
   on locals, expressions, members), overlay-aware imports (honor unsaved edits),
-  and memoizing the import-closure load. The front-end is whole-program and
+  and memoizing the import-closure load.
+  - **Context-aware hover landed (no inference needed).** `hover.hawk` resolves
+    the name at the cursor against the **enclosing method/impl**, not just
+    top-level decls: `self` → the impl/interface type; `self.method` / `self.field`
+    → that type's signature / field type (searched across all its `impl`s + the
+    type decl, file + imports); a parameter → its declared type; `Enum.Variant` →
+    the variant + payload. Keyed off the AST's impl/method spans + a token-stream
+    `RECEIVER.member` check (and `name_at` now also matches `self`/`KwSelf`). A
+    member of a **non-`self` receiver** returns null rather than guessing against
+    unrelated top-level names. Still deferred to true inference-at-offset: the
+    *inferred* type of a local `let` / loop variable, and `xs.foo()` where `xs`'s
+    type isn't written down. Unit + end-to-end (`hawk lsp`) tested. The front-end is whole-program and
   stateless per request: each `hawk check` / LSP edit re-reads, re-parses, and
   re-checks the entire import closure (incl. the `std.core` prelude) from
   scratch — fine now, but the LSP re-does it per keystroke. Longer term: cache
