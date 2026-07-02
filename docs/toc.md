@@ -23,6 +23,10 @@ is"; read top-down for progressive detail.
   prelude/core/ecosystem tiers, and the module-by-module catalog.
 - [lsp_v2.md](lsp_v2.md) — LSP v2 — the target architecture for Hawk's
   analysis/LSP layer and a low-risk, incremental plan to reach it.
+- [audit_2026_07.md](audit_2026_07.md) — the July 2026 **front-end audit**:
+  tracked correctness findings and modelling gaps across `pkgs/cli/`, the fix
+  sequencing, and the one-name-space-per-scope decision (spec'd in scoping.md;
+  enforcement tracked here).
 - [testability.md](testability.md) — the **ambient-capability** design: an
   ambient free function + opt-in capability interface (`Clock`/`FileSystem`),
   where test doubles live, and why there's no global override.

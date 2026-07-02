@@ -11,13 +11,22 @@ spec the front-end resolver is held to.
 
 - **A `.hawk` file is a library.** It is also the unit of privacy. (A directory
   fronted by a barrel is a library too; see [language.md](language.md) → Imports.)
-- **Three independent name spaces.** A name is resolved in exactly one of:
-  - **values** — functions (incl. `native fn`), consts, and local bindings;
-  - **types** — `type`/`enum`/`interface` declarations, built-ins, type parameters;
-  - **namespaces** — the bindings introduced by `import`.
+- **One name space per scope — with position-aware resolution.** Syntactic
+  position still determines what a name is *looked up as* — a value (functions
+  incl. `native fn`, consts, local bindings), a type (`type`/`enum`/`interface`,
+  built-ins, type parameters), or an import namespace — but declarations share
+  **one name space per scope**: a scope may introduce a given name at most
+  once, across *all* declaration kinds. Two same-file top-level declarations of
+  the same name collide even when their kinds differ (`fn max` + `const max`,
+  `fn Config` + `struct Config`, `import std.fs;` + `fn fs`) — a check error,
+  exactly like a same-kind duplicate.
 
-  The spaces don't collide: a `type Set` and a value `Set` can coexist; `a[i]`
-  vs `Set` vs `set(...)` are disambiguated by syntactic position.
+  Rationale: one name, one meaning — a reader (or an agent) never needs the
+  syntactic position to know which declaration a name denotes. *(Decision
+  2026-07. Supersedes the earlier "three independent name spaces" model, which
+  was never implemented — the corpus measured zero cross-kind reuse, so the
+  stricter rule cost nothing. Enforcement is tracked in
+  [audit_2026_07.md](audit_2026_07.md) → X2.)*
 - **Qualified-only cross-library access (by default).** A name defined in
   *another* library is reachable only through that library's **namespace**
   (`fs.read_text`, `parser.parse_tokens`). The **prelude** (`std.core`) is the
@@ -53,13 +62,22 @@ spec the front-end resolver is held to.
 ## File (library) scope — top-level declarations
 
 Within a file, all top-level declarations (`fn`, `type`, `enum`, `interface`,
-`const`, `impl`) are **mutually visible**, regardless of declaration order and
-regardless of `pub`. `pub` controls only *cross-library* visibility (below), not
-visibility within the file.
+`const`, `let`, `impl`) are **mutually visible**, regardless of declaration order
+and regardless of `pub`. `pub` controls only *cross-library* visibility (below),
+not visibility within the file.
+
+**One name space applies here**: a file may introduce a top-level name at most
+once across all kinds — `fn`, `type`/`enum`/`interface`, `const`/`let`, and the
+namespace bound by an `import` — any second introduction is a duplicate-name
+error, kind notwithstanding.
 
 A top-level name may shadow a prelude name **within its file** (the file's own
 declaration wins for bare references in that file). Doing so is discouraged — the
-prelude is soft-reserved — and the duplicate-definition diagnostic reports it.
+prelude is soft-reserved — and is meant to be diagnosed; the diagnostic was lost
+when duplicate checking became same-file-only (the T4 uniqueness lift) and is
+tracked in [audit_2026_07.md](audit_2026_07.md) (with X1: today a user
+`Result`/`List` silently *inherits builtin semantics*, so shadowing
+prelude/builtin names is an active hazard until that closes).
 
 ## The prelude (`std.core`)
 
@@ -243,10 +261,14 @@ are the violations to address.
      imported by the file isn't an "imported name", so it isn't flagged — closing
      that needs the resolution rework below.
 
-**Status (Phases 1 and 2 done — values).** Resolution runs through a single
-`FileScope` per file; value resolution is owner-correct and global value-name
-uniqueness is lifted (gaps 2 and 5 closed for values; type-name uniqueness pending,
-see Phase 2e S5 above). The Phase 1 detail below is retained for history.
+**Status (Phases 1 and 2 done — values; types done since).** Resolution runs
+through a single `FileScope` per file; value resolution is owner-correct and
+global value-name uniqueness is lifted (gaps 2 and 5 closed for values). The
+type side (Phase 2e S5 below) has since landed as the `TypeId` arc —
+[lsp_v2.md](lsp_v2.md) Phase 1 (T1–T4): `Type` carries its owning file,
+type resolution is owner-correct, and type-name uniqueness is lifted; its
+remaining tail is tracked in [audit_2026_07.md](audit_2026_07.md). The Phase 1
+detail below is retained for history.
 
 **Status (Phase 1 done).** Migration (6) is **done** and guarded at 0.
 Qualified-only and `pub` visibility are now **enforced by construction in the
