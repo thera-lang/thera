@@ -317,9 +317,16 @@ resolution_ below.)
   element model, then collect only the references that bind to it (and, for
   rename, verify the new name doesn't collide). This rides on the same
   inference-at-offset work as below.
-- **LSP v2 toward an incremental engine.** Inference-at-offset (hover/definition
-  on locals, expressions, members), overlay-aware imports (honor unsaved edits),
-  and memoizing the import-closure load.
+- **LSP v2 toward an incremental engine.** Full architecture + phased plan:
+  **[lsp_v2.md](lsp_v2.md)** (analysis session, owner-correct value+type
+  resolution, symbol identity, query layer, incremental recompute). Direction
+  set: correctness-first (finish the type-origin arc before the engine/features),
+  medium-scale target (~1–2k files), semantic references+rename as the first
+  query-layer feature, one engine shared by `hawk check` + LSP. Near-term
+  pull-outs identified there (codegen bare-call owner-correctness; a shared
+  `resolve.hawk`; an analysis-session struct). Inference-at-offset
+  (hover/definition on locals, expressions, members), overlay-aware imports
+  (honor unsaved edits), and memoizing the import-closure load.
   - **Context-aware hover landed (no inference needed).** `hover.hawk` resolves
     the name at the cursor against the **enclosing method/impl**, not just
     top-level decls: `self` → the impl/interface type; `self.method` / `self.field`
