@@ -1,0 +1,21 @@
+// Support library: `pub enum Color` — the same type name libenum_b also defines,
+// with *different* variants. Owner-correct resolution (Phase 1) keeps them
+// distinct; a qualified `a.Color` reaches this one. The helpers construct and match
+// this Color in same-file (bare) scope — the path that a name collision would
+// otherwise mis-resolve against the flat table's last-wins entry.
+
+pub enum Color {
+    Red,
+    Green(Int),
+}
+
+pub fn red() -> Color {
+    return Color.Red;
+}
+
+pub fn tag(_ c: Color) -> Int {
+    return match c {
+        Red => 1,
+        Green(n) => n,
+    };
+}

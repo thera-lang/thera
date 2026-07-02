@@ -1,0 +1,22 @@
+//! spec: mod-shared-type-name
+//! mode: run
+
+import 'libenum_a' as a;
+import 'libenum_b' as b;
+
+// The enum/static-receiver analogue of shared_type_name: two libraries each define
+// `pub enum Color` with disjoint variants. Owner-correct resolution keeps them
+// distinct across every bare type-name receiver:
+//
+//   * bare construction in a library's own scope — `a.red()` builds `Color.Red`
+//     bare, which must resolve to *a*'s Color (the flat table's last-wins entry is
+//     b's Color, which has no `Red`);
+//   * qualified construction with a payload — `a.Color.Green(5)` / `b.Color.Cyan`;
+//   * `match` on the resulting value — each library's `tag` matches its own tags.
+fn main() -> Int {
+    println('${a.tag(a.red())}');           // expect: 1
+    println('${b.tag(b.blue())}');          // expect: 10
+    println('${a.tag(a.Color.Green(5))}');  // expect: 5
+    println('${b.tag(b.Color.Cyan(7))}');   // expect: 107
+    return 0;
+}

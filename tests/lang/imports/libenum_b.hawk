@@ -1,0 +1,20 @@
+// Support library: `pub enum Color` with disjoint variants (Blue/Cyan vs
+// libenum_a's Red/Green). A qualified `b.Color` reaches this one; the disjoint
+// variant tags make a wrong owner mis-tag (or fail to find the variant) rather
+// than silently pick the other library's enum.
+
+pub enum Color {
+    Blue,
+    Cyan(Int),
+}
+
+pub fn blue() -> Color {
+    return Color.Blue;
+}
+
+pub fn tag(_ c: Color) -> Int {
+    return match c {
+        Blue => 10,
+        Cyan(n) => n + 100,
+    };
+}

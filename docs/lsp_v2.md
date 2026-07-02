@@ -215,6 +215,13 @@ sites resolve an *inferred* `Type` — which needs the owner on `Type` (T1) anyw
     `resolve_impl` likewise attaches methods to the scope-resolved element. The
     conformance test now exercises a collided **field type** (`Point.label: Label`)
     and the signature path (`a.sum(_ p: Point)`); byte-identical fixpoint validates.
+  - **Bare enum / static-method receivers. _Done._** `type_def_for_expr`'s bare
+    `Ident` case (inference) and codegen's new `static_type_id` now resolve the
+    receiver's owner through the file's scope (`resolve_type_owner`, honoring a
+    `ns.Enum` qualifier) — the enum/static analogue of `infer_struct`, closing the
+    inconsistency where a bare `Enum.Variant` still went through the flat by-name
+    lookup. Conformance test `shared_enum_name` (two libraries, disjoint `Color`
+    variants; bare construction, qualified payload construction, and `match`).
   - **Deferred — codegen method-owner keying.** Method *dispatch* is still
     name-keyed: `ModuleScope.method_table` and the method unit's `self`-type
     (`named_self_type`) resolve by bare type name, so a method impl'd on a collided

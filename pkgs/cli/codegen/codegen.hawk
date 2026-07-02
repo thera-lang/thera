@@ -1473,8 +1473,8 @@ impl FnCompiler {
     // If `object` names a user enum (Enum or ns.Enum, not a local) and `name` is
     // one of its variants, the enum info and the variant's tag.
     fn enum_variant(self, _ object: Expr, _ name: String) -> Option<EnumVariantRef> {
-        if let Some(type_name) = self.static_type_name(object) {
-            if let Some(info) = self.scope.resolve_enum(self.scope.type_owner(type_name), type_name) {
+        if let Some(id) = self.static_type_id(object) {
+            if let Some(info) = self.scope.resolve_enum(id.owner, id.name) {
                 let tag = tag_of(info, name);
                 if tag < 0 {
                     return Option.None;
@@ -1498,6 +1498,30 @@ impl FnCompiler {
                 if let Ident(_, ns_name) = inner {
                     if self.is_namespace(ns_name) && self.is_type_name(field) {
                         return Option.Some(field);
+                    }
+                }
+            },
+            _ => {},
+        }
+        return Option.None;
+    }
+
+    // The owner-correct identity of a static type-name receiver — a bare `Type` or
+    // a qualified `ns.Type` — resolved through this file's scope so a name two
+    // libraries share reaches the one this file sees (Phase 1 T4 follow-up). The
+    // owner-carrying analogue of `static_type_name`, used to key the type table.
+    fn static_type_id(self, _ e: Expr) -> Option<TypeId> {
+        let fs = file_scope(self.scope.library, self.file);
+        match e {
+            Ident(_, name) => {
+                if !self.slots.has(name) && self.is_type_name(name) {
+                    return Option.Some(TypeId { owner: fs.resolve_type_owner(name, Option.None), name: name });
+                }
+            },
+            Field(_, inner, field) => {
+                if let Ident(_, ns_name) = inner {
+                    if self.is_namespace(ns_name) && self.is_type_name(field) {
+                        return Option.Some(TypeId { owner: fs.resolve_type_owner(field, Option.Some(ns_name)), name: field });
                     }
                 }
             },

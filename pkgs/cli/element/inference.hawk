@@ -1102,7 +1102,13 @@ fn type_def_for_expr(_ object: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx
     match object {
         Ident(_, name) => {
             if !scope.has(name) {
-                return ctx_scope(ctx).resolve_type_def_by_name(name);
+                // A bare type-name receiver (`Enum.Variant`, `Type.static()`):
+                // resolve it owner-correct through this file's scope, so a name two
+                // libraries share reaches the one this file sees (Phase 1 T4
+                // follow-up) — the enum/static analogue of `infer_struct`.
+                let fs = ctx_scope(ctx);
+                let owner = fs.resolve_type_owner(name, Option.None);
+                return fs.resolve_type_def(TypeId { owner: owner, name: name });
             };
         },
         Field(_, inner, field) => {
