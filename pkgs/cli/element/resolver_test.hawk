@@ -43,7 +43,7 @@ fn test_function_signature_resolves() -> Result<Void, Error> {
                 expected: Type.Primitive(Primitive.Int))?;
             testing.assert_eq(actual: f.parameters.len(), expected: 1)?;
             testing.assert_eq(actual: f.parameters[0].ty,
-                expected: Type.Interface('Point', []))?;
+                expected: named_type(lib.type_defs, 'Point', []))?;
         },
         None => {
             testing.assert(false, message: 'origin not found')?;

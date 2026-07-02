@@ -205,7 +205,7 @@ fn check_program(_ errors: List<CheckError>, _ program: Program, _ library: Libr
             Fn(x) => { check_fn(errors, x, library, Option.None, Set.new(), file); },
             Type(x) => { check_type_decl(errors, x, library, file); },
             Impl(x) => {
-                let self_type = impl_self_type(x);
+                let self_type = impl_self_type(x, library.type_defs);
                 let type_params = type_param_set(x.type_params);
                 for m in x.methods {
                     check_fn(errors, m, library, Option.Some(self_type), type_params, file);
@@ -355,8 +355,8 @@ fn check_conformance(_ errors: List<CheckError>, _ decl: ImplDecl, _ library: Li
     match library.type_defs.get(decl.type_name) {
         None => { return; }, // unknown target type — reported elsewhere
         Some(owner) => {
-            let impl_type = impl_self_type(decl);
-            let self_type = Type.Interface(iface_name, []);
+            let impl_type = impl_self_type(decl, library.type_defs);
+            let self_type = named_type(library.type_defs, iface_name, []);
             let iface_params = iface_def.type_parameters;
             if decl.interface_args.len() != iface_params.len() {
                 add_error(errors,
@@ -443,7 +443,7 @@ fn self_to_impl(_ t: Type, _ self_type: Type, _ impl_type: Type) -> Type {
         return impl_type;
     }
     return match t {
-        Interface(name, args) => Type.Interface(name,
+        Interface(id, args) => Type.Interface(id,
             args.map((a) => self_to_impl(a, self_type, impl_type))),
         Function(params, ret) => Type.Function(
             params.map((p) => self_to_impl(p, self_type, impl_type)),
@@ -1111,9 +1111,9 @@ fn satisfies_bound(_ t: Type, _ bound: String, _ type_defs: Map<String, TypeDefE
     }
     // An interface-typed value satisfies a bound it *is* or transitively extends.
     if let Interface(name, _) = t {
-        if let Some(def) = type_defs.get(name) {
+        if let Some(def) = type_defs.get(name.name) {
             if def.kind == TypeDefKind.Interface {
-                return name == bound || str_list_has(def.super_interfaces, bound);
+                return name.name == bound || str_list_has(def.super_interfaces, bound);
             };
         }
     }
@@ -1121,7 +1121,7 @@ fn satisfies_bound(_ t: Type, _ bound: String, _ type_defs: Map<String, TypeDefE
         return true; // structural derive
     }
     return match t {
-        Interface(name, _) => match type_defs.get(name) {
+        Interface(name, _) => match type_defs.get(name.name) {
             Some(def) => implements_interface(def, bound),
             None => false,
         },
@@ -1238,7 +1238,7 @@ fn check_return(_ errors: List<CheckError>, _ value: Expr, _ expected: Type,
         return;
     }
     if let Interface(name, args) = expected {
-        if name == 'Result' && args.len() > 0 && is_assignable(actual, args[0], ctx.library.type_defs) {
+        if name.name == 'Result' && args.len() > 0 && is_assignable(actual, args[0], ctx.library.type_defs) {
             return; // implicit Ok(value)
         };
     }
@@ -1295,8 +1295,8 @@ fn check_propagate(_ errors: List<CheckError>, _ inner: Expr, _ span: SourceSpan
 // anything else.
 fn enum_family(_ t: Type) -> Option<String> {
     return match t {
-        Interface(name, _) => if name == 'Option' || name == 'Result' {
-            Option.Some(name)
+        Interface(name, _) => if name.name == 'Option' || name.name == 'Result' {
+            Option.Some(name.name)
         } else {
             Option.None
         },
@@ -1382,8 +1382,8 @@ fn namespace_of_access(_ object: Expr, _ scope: Map<String, Type>, _ ctx: InferC
     };
 }
 
-fn impl_self_type(_ decl: ImplDecl) -> Type {
-    return primitive_type(decl.type_name).unwrap_or_else(() => Type.Interface(decl.type_name,
+fn impl_self_type(_ decl: ImplDecl, _ type_defs: Map<String, TypeDefElement>) -> Type {
+    return primitive_type(decl.type_name).unwrap_or_else(() => named_type(type_defs, decl.type_name,
         decl.type_params.map((tp) => Type.TypeParameter(tp.name))));
 }
 

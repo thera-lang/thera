@@ -16,10 +16,20 @@ pub enum Primitive {
     Unit,
 }
 
+// The nominal identity of a named type: the library (file key) that declares it,
+// plus its name. Identity is (owner, name) — this is what lets two libraries share
+// a type name. Built via `named_type` (owner read from the resolved element's
+// `owner_file`), so all constructions of the same name carry the same owner and
+// structural `==` stays correct while type names remain globally unique.
+pub struct TypeId {
+    owner: String,
+    name: String,
+}
+
 pub enum Type {
     Primitive(Primitive),
-    // A struct/enum/interface/built-in, by element name, with resolved args.
-    Interface(String, List<Type>),
+    // A struct/enum/interface/built-in, by element identity, with resolved args.
+    Interface(TypeId, List<Type>),
     // An as-yet-unbound generic type parameter, e.g. `T` in `Box<T>`.
     TypeParameter(String),
     Function(List<Type>, Type),
@@ -28,14 +38,27 @@ pub enum Type {
     Unknown,
 }
 
+// Build a named `Type` for `name` with `args`, stamping the owning file read from
+// the element registry (`owner_file`). The single constructor for a fresh named
+// type — so every construction of a given name shares one owner (keeping `==`
+// correct). Re-wrapping an already-resolved `Interface(id, _)` reuses its `id`
+// instead (the owner is already known); only *fresh from a name* goes here.
+pub fn named_type(_ type_defs: Map<String, TypeDefElement>, _ name: String, _ args: List<Type>) -> Type {
+    let owner = match type_defs.get(name) {
+        Some(d) => d.owner_file,
+        None => '',
+    };
+    return Type.Interface(TypeId { owner: owner, name: name }, args);
+}
+
 // The displayed form of a type (Dart's `toString`).
 pub fn type_to_string(_ t: Type) -> String {
     return match t {
         Primitive(p) => primitive_to_string(p),
-        Interface(name, args) => if args.len() == 0 {
-            name
+        Interface(id, args) => if args.len() == 0 {
+            id.name
         } else {
-            name + '<' + join_type_strings(args) + '>'
+            id.name + '<' + join_type_strings(args) + '>'
         },
         TypeParameter(name) => name,
         Function(params, ret) => '(' + join_type_strings(params) + ') -> '
@@ -112,15 +135,15 @@ pub fn is_assignable(_ source: Type, _ target: Type,
     // A concrete type is assignable to an interface it implements, and a
     // sub-interface value where one of its (transitively closed) supers is
     // expected. See docs/language.md.
-    if let Interface(tname, _) = target {
-        if is_interface_def(type_defs, tname) {
-            if let Interface(sname, _) = source {
-                if let Some(sdef) = map_get_def(type_defs, sname) {
-                    if implements_interface(sdef, tname) {
+    if let Interface(tid, _) = target {
+        if is_interface_def(type_defs, tid.name) {
+            if let Interface(sid, _) = source {
+                if let Some(sdef) = map_get_def(type_defs, sid.name) {
+                    if implements_interface(sdef, tid.name) {
                         return true;
                     }
                     if sdef.kind == TypeDefKind.Interface
-                        && str_list_has(sdef.super_interfaces, tname) {
+                        && str_list_has(sdef.super_interfaces, tid.name) {
                         return true;
                     }
                 }
@@ -129,10 +152,10 @@ pub fn is_assignable(_ source: Type, _ target: Type,
     }
     // Same-element generics: assignable element with pairwise-assignable args.
     match source {
-        Interface(sname, sargs) => {
+        Interface(sid, sargs) => {
             match target {
-                Interface(tname, targs) => {
-                    if sname != tname {
+                Interface(tid, targs) => {
+                    if sid.name != tid.name {
                         return false;
                     }
                     if sargs.len() != targs.len() {
@@ -191,10 +214,10 @@ fn map_get_def(_ type_defs: Map<String, TypeDefElement>, _ name: String)
 pub fn substitute(_ ty: Type, _ bindings: Map<String, Type>) -> Type {
     return match ty {
         TypeParameter(name) => bindings.get(name).unwrap_or(ty),
-        Interface(name, args) => if args.len() == 0 {
+        Interface(id, args) => if args.len() == 0 {
             ty
         } else {
-            Type.Interface(name, args.map((a) => substitute(a, bindings)))
+            Type.Interface(id, args.map((a) => substitute(a, bindings)))
         },
         Function(params, ret) => Type.Function(
             params.map((p) => substitute(p, bindings)),

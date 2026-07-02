@@ -142,14 +142,17 @@ be validated ahead of T4 (type-name uniqueness is still enforced, so no
 two-same-named-types conformance test is constructible yet), and its interesting
 sites resolve an *inferred* `Type` — which needs the owner on `Type` (T1) anyway.
 
-- **T1 — representation.** Add `owner_file` to `TypeDefElement`; introduce `TypeId`;
-  `Interface(String)`→`Interface(TypeId)`. Capture owner cheaply in T1 by reading
-  the resolved element's `owner_file` (correct under uniqueness — the scope-aware
-  `FileScope` resolution that *picks among* same-named types is only needed once
-  uniqueness lifts, T4). `.name`→`.id.name` everywhere; route synthetic
-  constructions through a `named_type(type_defs, name, args)` helper. Equality
-  stays name-based (owner carried, not yet compared) → behavior-preserving. The
-  big mechanical step.
+- **T1 — representation. _Done._** Added `owner_file` to `TypeDefElement`;
+  introduced `TypeId {owner, name}`; `Interface(String)`→`Interface(TypeId)`. Owner
+  is stamped from the resolved element's `owner_file` (via a `named_type(type_defs,
+  name, args)` helper for fresh names; a re-wrapped `Interface(id, _)` reuses its
+  id) — correct under uniqueness; the scope-aware `FileScope` resolution that
+  *picks among* same-named types is deferred to T4. Every `Interface` destructure
+  now reads `id.name`. Owner is carried *and* part of structural `==`, which stays
+  behavior-preserving because owner is captured consistently (all constructions of
+  a name share one owner) — **the SDK fixpoint is byte-identical**, proving it.
+  ~70 sites across the type core (types/element/resolver/inference/checker/codegen)
+  + test updates (expected types built via `named_type`, so owners match).
 - **T2 — element model.** `resolve_type_def` owner-keyed via `file_type_defs`
   (a wrong owner → miss in the per-file table → broken build, so the **fixpoint
   validates owner-correctness here**). Migrate the raw-map helper sites.

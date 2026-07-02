@@ -1998,8 +1998,8 @@ fn sorted_keys(_ cases: Map<Int, MatchArm>) -> List<Int> {
 // the two infer a method body identically.
 fn named_self_type(_ name: String, _ library: element.LibraryElement) -> Type {
     return primitive_type(name).unwrap_or_else(() => match library.type_defs.get(name) {
-        Some(def) => Type.Interface(name, def.type_parameters.map((p) => Type.TypeParameter(p))),
-        None => Type.Interface(name, []),
+        Some(def) => Type.Interface(TypeId { owner: def.owner_file, name: name }, def.type_parameters.map((p) => Type.TypeParameter(p))),
+        None => Type.Interface(TypeId { owner: '', name: name }, []),
     });
 }
 
@@ -2034,8 +2034,8 @@ fn checker_self_type(_ self_name: Option<String>, _ library: element.LibraryElem
             Some(p) => Option.Some(p),
             None => match library.type_defs.get(n) {
                 Some(def) => Option.Some(
-                    Type.Interface(n, def.type_parameters.map((p) => Type.TypeParameter(p)))),
-                None => Option.Some(Type.Interface(n, [])),
+                    Type.Interface(TypeId { owner: def.owner_file, name: n }, def.type_parameters.map((p) => Type.TypeParameter(p)))),
+                None => Option.Some(Type.Interface(TypeId { owner: '', name: n }, [])),
             },
         },
         None => Option.None,
@@ -2104,7 +2104,7 @@ fn name_of_type(_ t: Type) -> Option<String> {
             Str => Option.Some('String'),
             Unit => Option.None,
         },
-        Interface(name, _) => Option.Some(name),
+        Interface(name, _) => Option.Some(name.name),
         TypeParameter(name) => Option.Some(name),
         _ => Option.None,
     };

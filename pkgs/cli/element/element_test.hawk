@@ -5,9 +5,9 @@ import 'element' as _;
 
 fn defs() -> Map<String, TypeDefElement> {
     let m: Map<String, TypeDefElement> = {};
-    m['List'] = new_builtin('List', ['T']);
-    m['Display'] = new_interface('Display', []);
-    m['Error'] = new_interface('Error', []);
+    m['List'] = new_builtin('t', 'List', ['T']);
+    m['Display'] = new_interface('t', 'Display', []);
+    m['Error'] = new_interface('t', 'Error', []);
     return m;
 }
 
@@ -21,7 +21,7 @@ fn test_primitive_type_lookup() -> Result<Void, Error> {
 
 @test
 fn test_type_to_string() -> Result<Void, Error> {
-    let list_int = Type.Interface('List', [Type.Primitive(Primitive.Int)]);
+    let list_int = Type.Interface(TypeId { owner: 't', name: 'List' }, [Type.Primitive(Primitive.Int)]);
     testing.assert_eq(actual: type_to_string(list_int), expected: 'List<Int>')?;
     testing.assert_eq(actual: type_to_string(Type.Unknown), expected: '?')?;
     return Result.Ok(void);
@@ -46,11 +46,11 @@ fn test_is_assignable_interface_subtyping() -> Result<Void, Error> {
     // Error extends Display (transitive supers stored on the element).
     d['Error'].super_interfaces.push('Display');
     // A struct that impls Error.
-    d['Boom'] = new_struct('Boom', []);
+    d['Boom'] = new_struct('t', 'Boom', []);
     d['Boom'].interfaces.push('Error');
-    let boom = Type.Interface('Boom', []);
-    let err = Type.Interface('Error', []);
-    let disp = Type.Interface('Display', []);
+    let boom = Type.Interface(TypeId { owner: 't', name: 'Boom' }, []);
+    let err = Type.Interface(TypeId { owner: 't', name: 'Error' }, []);
+    let disp = Type.Interface(TypeId { owner: 't', name: 'Display' }, []);
     testing.assert(is_assignable(boom, err, d), message: 'Boom -> Error')?;
     // Error value assignable where Display (a super) is expected.
     testing.assert(is_assignable(err, disp, d), message: 'Error -> Display')?;
@@ -60,8 +60,8 @@ fn test_is_assignable_interface_subtyping() -> Result<Void, Error> {
 @test
 fn test_substitute_and_unify() -> Result<Void, Error> {
     let bindings: Map<String, Type> = {};
-    unify(Type.Interface('List', [Type.TypeParameter('T')]),
-        Type.Interface('List', [Type.Primitive(Primitive.Int)]), bindings);
+    unify(Type.Interface(TypeId { owner: 't', name: 'List' }, [Type.TypeParameter('T')]),
+        Type.Interface(TypeId { owner: 't', name: 'List' }, [Type.Primitive(Primitive.Int)]), bindings);
     testing.assert_eq(actual: bindings.get('T'),
         expected: Option.Some(Type.Primitive(Primitive.Int)))?;
     // substitute applies the binding.

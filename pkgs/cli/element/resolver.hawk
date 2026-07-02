@@ -43,7 +43,7 @@ fn resolve_named(_ nt: NamedType, _ type_defs: Map<String, TypeDefElement>,
         return Type.Unknown;
     }
     let args = nt.args.map((a) => resolve_type_ref(a, type_defs, type_params, self_type));
-    return Type.Interface(nt.name, args);
+    return named_type(type_defs, nt.name, args);
 }
 
 // The built-in type-definition elements, by name. These back an InterfaceType
@@ -59,24 +59,29 @@ pub fn builtin_type_defs() -> Map<String, TypeDefElement> {
     m['Bool'] = builtin_displayable('Bool');
     m['Double'] = builtin_displayable('Double');
     // Generic built-ins.
-    m['List'] = new_builtin('List', ['T']);
-    m['Set'] = new_builtin('Set', ['T']);
-    m['Map'] = new_builtin('Map', ['K', 'V']);
-    m['Result'] = new_builtin('Result', ['T', 'E']);
-    m['Option'] = new_builtin('Option', ['T']);
+    m['List'] = new_builtin(BUILTIN_OWNER, 'List', ['T']);
+    m['Set'] = new_builtin(BUILTIN_OWNER, 'Set', ['T']);
+    m['Map'] = new_builtin(BUILTIN_OWNER, 'Map', ['K', 'V']);
+    m['Result'] = new_builtin(BUILTIN_OWNER, 'Result', ['T', 'E']);
+    m['Option'] = new_builtin(BUILTIN_OWNER, 'Option', ['T']);
     // Runtime-backed opaque types (methods are native fns in std.core).
-    m['Bytes'] = new_builtin('Bytes', []);
-    m['BytesBuilder'] = new_builtin('BytesBuilder', []);
+    m['Bytes'] = new_builtin(BUILTIN_OWNER, 'Bytes', []);
+    m['BytesBuilder'] = new_builtin(BUILTIN_OWNER, 'BytesBuilder', []);
     // Opaque built-ins; real declarations shadow these when linked in.
-    m['Error'] = new_builtin('Error', []);
-    m['Args'] = new_builtin('Args', []);
+    m['Error'] = new_builtin(BUILTIN_OWNER, 'Error', []);
+    m['Args'] = new_builtin(BUILTIN_OWNER, 'Args', []);
     return m;
 }
+
+// The owner file stamped on the hermetic built-in floor. When std.core is linked,
+// the real `native type` declaration (owned by its core file) shadows the floor
+// entry, so this sentinel only surfaces in hermetic contexts.
+const BUILTIN_OWNER: String = '<builtin>';
 
 // A built-in type def that declares it implements `Display` — the hermetic-floor
 // stand-in for a primitive's `impl Display for …` in std.core.
 fn builtin_displayable(_ name: String) -> TypeDefElement {
-    let def = new_builtin(name, []);
+    let def = new_builtin(BUILTIN_OWNER, name, []);
     def.interfaces.push('Display');
     return def;
 }
@@ -126,23 +131,24 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
                     // A `native type` resolves as an opaque built-in (no fields, an
                     // attachment point for impls) — the same kind the hardcoded
                     // `builtin_type_defs()` floor registers, which this shadows.
+                    let owner = file_key(p.file_path);
                     let el = if x.is_native {
-                        new_builtin(x.name, type_param_names(x.type_params))
+                        new_builtin(owner, x.name, type_param_names(x.type_params))
                     } else {
-                        new_struct(x.name, type_param_names(x.type_params))
+                        new_struct(owner, x.name, type_param_names(x.type_params))
                     };
                     fill_type_param_bounds(el, x.type_params);
                     type_defs[x.name] = el;
                     record_file_type(file_type_defs, p.file_path, x.name, el);
                 },
                 Enum(x) => {
-                    let el = new_enum(x.name, type_param_names(x.type_params));
+                    let el = new_enum(file_key(p.file_path), x.name, type_param_names(x.type_params));
                     fill_type_param_bounds(el, x.type_params);
                     type_defs[x.name] = el;
                     record_file_type(file_type_defs, p.file_path, x.name, el);
                 },
                 Interface(x) => {
-                    let el = new_interface(x.name, type_param_names(x.type_params));
+                    let el = new_interface(file_key(p.file_path), x.name, type_param_names(x.type_params));
                     fill_type_param_bounds(el, x.type_params);
                     type_defs[x.name] = el;
                     record_file_type(file_type_defs, p.file_path, x.name, el);
@@ -211,7 +217,7 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
                             element.super_interfaces.push(s);
                         }
                         let tps = type_param_set(x.type_params);
-                        let self_type = Type.Interface(x.name,
+                        let self_type = Type.Interface(TypeId { owner: element.owner_file, name: x.name },
                             x.type_params.map((tp) => Type.TypeParameter(tp.name)));
                         for m in x.methods {
                             element.own_methods.push(m.name);
@@ -324,7 +330,7 @@ fn resolve_impl(_ decl: ImplDecl, _ type_defs: Map<String, TypeDefElement>) -> V
         let impl_params = type_param_set(decl.type_params);
         // For an `impl Int`/`String`/… the receiver's type is the primitive
         // itself, not an interface wrapper.
-        let self_type = primitive_type(decl.type_name).unwrap_or_else(() => Type.Interface(decl.type_name,
+        let self_type = primitive_type(decl.type_name).unwrap_or_else(() => Type.Interface(TypeId { owner: owner.owner_file, name: decl.type_name },
             decl.type_params.map((tp) => Type.TypeParameter(tp.name))));
         if let Some(iface) = decl.interface_name {
             if !implements_interface(owner, iface) {

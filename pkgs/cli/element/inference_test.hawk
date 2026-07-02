@@ -25,6 +25,12 @@ fn empty_scope() -> Map<String, Type> {
     return s;
 }
 
+// An expected named type built the way inference builds one — owner stamped from
+// the registry — so structural equality matches the inferred type's `TypeId`.
+fn mk_iface(_ ctx: InferCtx, _ name: String, _ args: List<Type>) -> Type {
+    return named_type(ctx.library.type_defs, name, args);
+}
+
 @test
 fn test_arithmetic_is_int() -> Result<Void, Error> {
     let ctx = new_ctx(lib_of(''));
@@ -45,7 +51,7 @@ fn test_comparison_is_bool() -> Result<Void, Error> {
 fn test_list_literal_is_list_of_element() -> Result<Void, Error> {
     let ctx = new_ctx(lib_of(''));
     testing.assert_eq(actual: type_of('[1, 2, 3]', empty_scope(), ctx),
-        expected: Type.Interface('List', [Type.Primitive(Primitive.Int)]))?;
+        expected: mk_iface(ctx, 'List', [Type.Primitive(Primitive.Int)]))?;
     return Result.Ok(void);
 }
 
@@ -53,7 +59,7 @@ fn test_list_literal_is_list_of_element() -> Result<Void, Error> {
 fn test_map_literal_is_map_of_key_value() -> Result<Void, Error> {
     let ctx = new_ctx(lib_of(''));
     testing.assert_eq(actual: type_of('{ 1: true }', empty_scope(), ctx),
-        expected: Type.Interface('Map', [
+        expected: mk_iface(ctx, 'Map', [
             Type.Primitive(Primitive.Int),
             Type.Primitive(Primitive.Bool),
     ]))?;
@@ -82,7 +88,7 @@ fn test_const_lookup() -> Result<Void, Error> {
 fn test_bare_enum_variant() -> Result<Void, Error> {
     let ctx = new_ctx(lib_of('enum Color { Red, Green, Blue }'));
     testing.assert_eq(actual: type_of('Color.Red', empty_scope(), ctx),
-        expected: Type.Interface('Color', []))?;
+        expected: mk_iface(ctx, 'Color', []))?;
     return Result.Ok(void);
 }
 
@@ -90,7 +96,7 @@ fn test_bare_enum_variant() -> Result<Void, Error> {
 fn test_generic_enum_construction_recovers_arg() -> Result<Void, Error> {
     let ctx = new_ctx(lib_of('enum Box<T> { Of(T), Empty }'));
     testing.assert_eq(actual: type_of('Box.Of(5)', empty_scope(), ctx),
-        expected: Type.Interface('Box', [Type.Primitive(Primitive.Int)]))?;
+        expected: mk_iface(ctx, 'Box', [Type.Primitive(Primitive.Int)]))?;
     return Result.Ok(void);
 }
 
@@ -98,7 +104,7 @@ fn test_generic_enum_construction_recovers_arg() -> Result<Void, Error> {
 fn test_generic_struct_literal_recovers_arg() -> Result<Void, Error> {
     let ctx = new_ctx(lib_of('struct Wrap<T> { value: T }'));
     testing.assert_eq(actual: type_of('Wrap { value: true }', empty_scope(), ctx),
-        expected: Type.Interface('Wrap', [Type.Primitive(Primitive.Bool)]))?;
+        expected: mk_iface(ctx, 'Wrap', [Type.Primitive(Primitive.Bool)]))?;
     return Result.Ok(void);
 }
 
@@ -106,7 +112,7 @@ fn test_generic_struct_literal_recovers_arg() -> Result<Void, Error> {
 fn test_struct_field_access() -> Result<Void, Error> {
     let ctx = new_ctx(lib_of('struct Point { x: Int, y: Double }'));
     let scope = empty_scope();
-    scope['p'] = Type.Interface('Point', []);
+    scope['p'] = mk_iface(ctx, 'Point', []);
     testing.assert_eq(actual: type_of('p.x', scope, ctx),
         expected: Type.Primitive(Primitive.Int))?;
     testing.assert_eq(actual: type_of('p.y', scope, ctx),
@@ -119,7 +125,7 @@ fn test_method_return_type() -> Result<Void, Error> {
     let ctx = new_ctx(lib_of('struct Point { x: Int, y: Int }\n'
         + 'impl Point { pub fn sum(self) -> Int { return self.x + self.y; } }'));
     let scope = empty_scope();
-    scope['p'] = Type.Interface('Point', []);
+    scope['p'] = mk_iface(ctx, 'Point', []);
     testing.assert_eq(actual: type_of('p.sum()', scope, ctx),
         expected: Type.Primitive(Primitive.Int))?;
     return Result.Ok(void);
@@ -130,7 +136,7 @@ fn test_generic_method_instantiates_from_receiver() -> Result<Void, Error> {
     // A `List<Int>` indexes to `Int`, exercising receiver-type-arg binding.
     let ctx = new_ctx(lib_of(''));
     let scope = empty_scope();
-    scope['xs'] = Type.Interface('List', [Type.Primitive(Primitive.Int)]);
+    scope['xs'] = mk_iface(ctx, 'List', [Type.Primitive(Primitive.Int)]);
     testing.assert_eq(actual: type_of('xs[0]', scope, ctx),
         expected: Type.Primitive(Primitive.Int))?;
     return Result.Ok(void);
@@ -149,7 +155,7 @@ fn test_match_arm_binds_variant_payload() -> Result<Void, Error> {
     // Matching a `Box<Int>` binds the payload to `Int`; the arm's value is that.
     let ctx = new_ctx(lib_of('enum Box<T> { Of(T), Empty }'));
     let scope = empty_scope();
-    scope['b'] = Type.Interface('Box', [Type.Primitive(Primitive.Int)]);
+    scope['b'] = mk_iface(ctx, 'Box', [Type.Primitive(Primitive.Int)]);
     testing.assert_eq(
         actual: type_of('match b { Of(v) => v, Empty => 0 }', scope, ctx),
         expected: Type.Primitive(Primitive.Int))?;
@@ -246,7 +252,7 @@ fn test_enum_construction_recovers_param_from_expected() -> Result<Void, Error> 
     // parameter, which the payload can't determine) is recovered from the
     // expected type — the `Result.Ok(x)` -> `Result<T, Unknown>` precision gap.
     let ctx = new_ctx(lib_of('enum Res<T, E> { Ok(T), Err(E) }'));
-    let expected = Type.Interface('Res', [Type.Primitive(Primitive.Int), Type.Primitive(Primitive.Bool)]);
+    let expected = mk_iface(ctx, 'Res', [Type.Primitive(Primitive.Int), Type.Primitive(Primitive.Bool)]);
     testing.assert_eq(actual: type_of_expecting('Res.Ok(0)', ctx, expected), expected: expected)?;
     return Result.Ok(void);
 }
@@ -257,9 +263,9 @@ fn test_enum_construction_payload_wins_over_expected() -> Result<Void, Error> {
     // is `Res<Int, _>` even if the expected `T` disagrees (the mismatch is a
     // separate diagnostic); only the un-determined `E` comes from the expected.
     let ctx = new_ctx(lib_of('enum Res<T, E> { Ok(T), Err(E) }'));
-    let expected = Type.Interface('Res', [Type.Primitive(Primitive.Str), Type.Primitive(Primitive.Bool)]);
+    let expected = mk_iface(ctx, 'Res', [Type.Primitive(Primitive.Str), Type.Primitive(Primitive.Bool)]);
     testing.assert_eq(actual: type_of_expecting('Res.Ok(0)', ctx, expected),
-        expected: Type.Interface('Res', [Type.Primitive(Primitive.Int), Type.Primitive(Primitive.Bool)]))?;
+        expected: mk_iface(ctx, 'Res', [Type.Primitive(Primitive.Int), Type.Primitive(Primitive.Bool)]))?;
     return Result.Ok(void);
 }
 
@@ -269,7 +275,7 @@ fn test_enum_construction_without_expected_leaves_param_unknown() -> Result<Void
     // load-bearing behavior — see the roadmap's Unknown-hole finding).
     let ctx = new_ctx(lib_of('enum Res<T, E> { Ok(T), Err(E) }'));
     testing.assert_eq(actual: type_of('Res.Ok(0)', empty_scope(), ctx),
-        expected: Type.Interface('Res', [Type.Primitive(Primitive.Int), Type.Unknown]))?;
+        expected: mk_iface(ctx, 'Res', [Type.Primitive(Primitive.Int), Type.Unknown]))?;
     return Result.Ok(void);
 }
 
@@ -283,7 +289,7 @@ fn test_forward_flow_pins_through_if_block() -> Result<Void, Error> {
     let ctx = new_ctx(lib_of('enum Opt<T> { Some(T), Nope }'));
     testing.assert_eq(
         actual: type_of('{ let mut x = Opt.Nope; if true { x = Opt.Some(5); } x }', empty_scope(), ctx),
-        expected: Type.Interface('Opt', [Type.Primitive(Primitive.Int)]))?;
+        expected: mk_iface(ctx, 'Opt', [Type.Primitive(Primitive.Int)]))?;
     return Result.Ok(void);
 }
 
