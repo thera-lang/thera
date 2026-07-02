@@ -13,13 +13,11 @@ import std.io;             // io.Reader, io.Writer
 import '../ast/ast' as _;       // Program
 import '../lexer/lexer';   // tokenize
 import '../parser/parser'; // parse_tokens
-import '../loader';        // load_imports
 
 import 'jsonrpc';
 import 'paths';
-import 'diagnostics';
 import 'symbols';
-import 'resolve';
+import 'analysis' as _;
 import 'hover';
 import 'definition';
 import 'formatting';
@@ -30,15 +28,14 @@ import 'workspace_symbols';
 // where an editor expects semantic results. They stay parked until they're made
 // scope-aware. See pkgs/cli/lsp/references.hawk, rename.hawk, and roadmap.md.
 
-// The server state: the set of open documents (URI -> current text), the SDK
-// root used to resolve a document's imports, and a cross-request parse cache so
-// the import closure (the `std.core` prelude above all) is lexed and parsed once
-// and reused — not re-parsed on every keystroke. Keyed by resolved file path;
-// an edited document's entry is dropped on change (see `update_document`).
+// The server = the protocol layer. It owns dispatch and the deferred-diagnostics
+// state (`dirty`/`shutdown_received`); the workspace analysis state — open
+// documents, the SDK root, and the cross-request caches — lives in `Analysis`
+// (analysis.hawk), where the incremental engine grows (see docs/lsp_v2.md).
 pub struct Server {
-    docs: Map<String, String>,
-    sdk_root: Option<String>,
-    parse_cache: Map<String, loader.ParsedFile>,
+    // The workspace analysis state (open docs, SDK root, caches). The protocol
+    // layer below owns only dispatch and the dirty/shutdown flags.
+    analysis: Analysis,
     // Documents edited since the last diagnostics flush. Recomputing diagnostics
     // is the expensive step, so an edit only marks its document dirty; the actual
     // re-check is deferred to `flush`, which lets a burst of keystrokes collapse
@@ -49,21 +46,10 @@ pub struct Server {
 
 pub fn new_server(_ sdk_root: Option<String>) -> Server {
     return Server {
-        docs: {},
-        sdk_root: sdk_root,
-        parse_cache: {},
+        analysis: new_analysis(sdk_root),
         dirty: Set.new(),
         shutdown_received: false,
     };
-}
-
-// A parsed open document plus its import closure and the cursor offset — the
-// shared input to the position-based requests (hover, definition).
-struct DocAnalysis {
-    program: Program,
-    imports: List<Program>,
-    text: String,
-    offset: Int,
 }
 
 // Run the server: read framed messages from `reader`, dispatch each, and write
@@ -187,10 +173,7 @@ impl Server {
         // dispatched: their implementations are lexical-only (see the import block).
         if method == 'textDocument/didClose' {
             if let Some(uri) = params.get('textDocument').get('uri').as_string() {
-                match self.docs.remove(uri) {
-                    Some(_) => {},
-                    None => {},
-                }
+                self.analysis.close_document(uri);
             }
             return true;
         }
@@ -204,25 +187,14 @@ impl Server {
 
     // Store `text` for `uri` (when both are present) and mark it dirty so the
     // next `flush` re-checks it. The publish is deferred (not done here) so a
-    // burst of edits coalesces into one re-check.
+    // burst of edits coalesces into one re-check. `set_document` also evicts the
+    // file's cached parse so an importer's next check re-sees the change.
     fn update_document(self, _ uri: Option<String>, _ text: Option<String>) -> Void {
         if let Some(u) = uri {
             if let Some(t) = text {
-                self.docs[u] = t;
-                // Drop the edited file's cached parse: it may be an import of
-                // another open document, whose next check must see the change.
-                // (The primary itself is parsed from `t`, not the cache.)
-                self.invalidate(u);
+                self.analysis.set_document(u, t);
                 self.dirty.add(u);
             }
-        }
-    }
-
-    // Evict `uri`'s parsed AST from the cross-request cache (a no-op when absent).
-    fn invalidate(self, _ uri: String) -> Void {
-        match self.parse_cache.remove(paths.uri_to_path(uri)) {
-            Some(_) => {},
-            None => {},
         }
     }
 
@@ -230,7 +202,7 @@ impl Server {
     // Built from the recovered parse, so it still works while the file has errors.
     fn document_symbols(self, _ uri: Option<String>) -> Json {
         return match uri {
-            Some(u) => match self.docs.get(u) {
+            Some(u) => match self.analysis.text(u) {
                 Some(text) => symbols.build_symbols(parser.parse_tokens(lexer.tokenize(text).tokens).program),
                 None => json.arr([]),
             },
@@ -240,7 +212,7 @@ impl Server {
 
     // Hover at a position: the resolved declaration's signature, or JSON null.
     fn hover(self, _ uri: Option<String>, _ position: Json) -> Json {
-        return match self.analyze_at(uri, position) {
+        return match self.analysis.analyze_at(uri, position) {
             Some(a) => hover.handle_hover(a.program, a.imports, a.text, a.offset),
             None => json.null(),
         };
@@ -248,7 +220,7 @@ impl Server {
 
     // Go-to-definition at a position: the declaration's `Location`, or JSON null.
     fn definition(self, _ uri: Option<String>, _ position: Json) -> Json {
-        return match self.analyze_at(uri, position) {
+        return match self.analysis.analyze_at(uri, position) {
             Some(a) => definition.handle_definition(a.program, a.imports, a.text, a.offset),
             None => json.null(),
         };
@@ -256,7 +228,7 @@ impl Server {
 
     fn formatting(self, _ uri: Option<String>) -> Json {
         return match uri {
-            Some(u) => match self.docs.get(u) {
+            Some(u) => match self.analysis.text(u) {
                 Some(text) => json.arr(formatting.format_document(text)),
                 None => json.null(),
             },
@@ -269,7 +241,7 @@ impl Server {
     // closure). An empty array when the document isn't open or offers no rewrites.
     fn code_action(self, _ uri: Option<String>, _ range: Json, _ context: Json) -> Json {
         return match uri {
-            Some(u) => match self.docs.get(u) {
+            Some(u) => match self.analysis.text(u) {
                 Some(text) => code_action.handle_code_action(u,
                     parser.parse_tokens(lexer.tokenize(text).tokens).program, text, range, context),
                 None => json.arr([]),
@@ -281,8 +253,8 @@ impl Server {
     fn workspace_symbol(self, _ query: Option<String>) -> Json {
         let q = query.unwrap_or('');
         let programs: List<Program> = [];
-        for u in self.docs.keys() {
-            let text = self.docs.get(u).unwrap_or('');
+        for u in self.analysis.uris() {
+            let text = self.analysis.text(u).unwrap_or('');
             let program = parser.parse_tokens(lexer.tokenize(text).tokens).program;
             program.file_path = Option.Some(paths.uri_to_path(u));
             programs.push(program);
@@ -290,35 +262,12 @@ impl Server {
         return workspace_symbols.handle_workspace_symbols(programs, q);
     }
 
-    // Parse an open document and load its import closure, resolving `position` to
-    // a code-point offset — the shared setup for hover/definition. None when the
-    // document isn't open. Imports are loaded so a name from an imported library
-    // (a stdlib function/type) resolves too.
-    fn analyze_at(self, _ uri: Option<String>, _ position: Json) -> Option<DocAnalysis> {
-        return match uri {
-            Some(u) => match self.docs.get(u) {
-                Some(text) => {
-                    let offset = resolve.position_to_offset(text,
-                        position.get('line').as_int().unwrap_or(0),
-                        position.get('character').as_int().unwrap_or(0));
-                    let program = parser.parse_tokens(lexer.tokenize(text).tokens).program;
-                    let path = paths.uri_to_path(u);
-                    program.file_path = Option.Some(path);
-                    let loaded = loader.load_imports(path, program, self.sdk_root, parse_cache: self.parse_cache);
-                    Option.Some(DocAnalysis { program: program, imports: loaded.programs, text: text, offset: offset })
-                },
-                None => Option.None,
-            },
-            None => Option.None,
-        };
-    }
-
     // Publish diagnostics for every document dirtied since the last flush, then
     // reset the set. A document edited several times in one batch is re-checked
     // once; one closed before the flush is skipped (no stale publish).
     fn flush(self, _ writer: io.Writer) -> Void {
         for uri in self.dirty.to_list() {
-            if let Some(text) = self.docs.get(uri) { self.publish(writer, uri, text); }
+            if let Some(text) = self.analysis.text(uri) { self.publish(writer, uri, text); }
         }
         self.dirty.clear();
     }
@@ -326,8 +275,7 @@ impl Server {
     fn publish(self, _ writer: io.Writer, _ uri: String, _ text: String) -> Void {
         send_notification(writer, 'textDocument/publishDiagnostics', json.obj({
             'uri': json.str(uri),
-            'diagnostics': diagnostics.compute_diagnostics(text, paths.uri_to_path(uri), self.sdk_root,
-                parse_cache: self.parse_cache),
+            'diagnostics': self.analysis.diagnostics(uri, text),
         }));
     }
 }

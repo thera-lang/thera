@@ -102,10 +102,14 @@ behavior-preserving refactors.
   Go-to-definition now navigates to `self`'s type, `self.method`s, parameters, and
   `Enum.Variant`s (not just top-level names); `self.field` renders but isn't
   navigable (a field carries no name span). Unit + end-to-end (`hawk lsp`) tested.
-- **C. Analysis-session struct.** Fold the server's `docs`/`parse_cache` into one
-  `Analysis` object — pure refactor, establishes the seam the incremental cache
-  later slots into.
-- **D. `module`→`library` terminology sweep** (optional, cheap hygiene).
+- **C. Analysis-session struct. _Done._** The server's open docs, SDK root, and
+  parse cache (plus `analyze_at` / diagnostics) are folded into an `Analysis`
+  object (`analysis.hawk`); `Server` keeps only protocol state (dispatch, the
+  dirty set, shutdown). Pure refactor — this is the seam the Phase-2 incremental
+  engine (resolved-library cache + dependency graph) grows on, without touching
+  the protocol layer.
+- **D. `module`→`library` terminology sweep** (optional, cheap hygiene) — _not
+  started_; deferred (broad, cosmetic).
 
 ### Phase 1 — resolution correctness (the foundation)
 

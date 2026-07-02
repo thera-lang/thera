@@ -275,14 +275,14 @@ fn test_did_change_evicts_the_parse_cache() -> Result<Void, Error> {
     let server = new_server(Option.None);
     let path = paths.uri_to_path('file:///c.hawk');
     let prog = parser.parse_tokens(lexer.tokenize('fn g() -> Int { return 1; }').tokens).program;
-    server.parse_cache[path] = loader.ParsedFile { program: prog, diagnostics: [] };
-    testing.assert(server.parse_cache.get(path).is_some(), message: 'seed is cached')?;
+    server.analysis.parse_cache[path] = loader.ParsedFile { program: prog, diagnostics: [] };
+    testing.assert(server.analysis.parse_cache.get(path).is_some(), message: 'seed is cached')?;
 
     server.handle(io.StringWriter.new(),
         '{"jsonrpc":"2.0","method":"textDocument/didChange","params":'
         + '{"textDocument":{"uri":"file:///c.hawk"},'
         + '"contentChanges":[{"text":"fn h() -> Int { return 2; }"}]}}');
-    testing.assert(server.parse_cache.get(path).is_none(), message: 'edit evicts the cache entry')?;
+    testing.assert(server.analysis.parse_cache.get(path).is_none(), message: 'edit evicts the cache entry')?;
     return Result.Ok(void);
 }
 
