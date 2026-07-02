@@ -346,3 +346,48 @@ fn test_code_action_offers_unwrap_or() -> Result<Void, Error> {
     testing.assert(out.contains('o.unwrap_or(0)'), message: 'edit rewrites to unwrap_or')?;
     return Result.Ok(void);
 }
+
+// A convertible document + a codeAction request narrowed by `context.only`.
+fn code_action_with_only(_ only: String) -> String {
+    let server = new_server(Option.None);
+    let _opened = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"file:///only.hawk","text":'
+        + '"fn f(_ o: Option<Int>) { match o { Some(v) => { g(v); }, None => {} } }"}}}');
+    return capture(server, '{"jsonrpc":"2.0","id":30,"method":"textDocument/codeAction","params":'
+        + '{"textDocument":{"uri":"file:///only.hawk"},'
+        + '"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":80}},'
+        + '"context":{"diagnostics":[],"only":[' + only + ']}}}');
+}
+
+@test
+fn test_code_action_only_refactor_ancestor_offers() -> Result<Void, Error> {
+    // `refactor` is a `.`-separated ancestor of our `refactor.rewrite` kind.
+    let out = code_action_with_only('"refactor"');
+    testing.assert(out.contains('refactor.rewrite'), message: 'ancestor kind admits the rewrite')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_code_action_only_exact_kind_offers() -> Result<Void, Error> {
+    let out = code_action_with_only('"refactor.rewrite"');
+    testing.assert(out.contains('refactor.rewrite'), message: 'exact kind admits the rewrite')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_code_action_only_quickfix_is_empty() -> Result<Void, Error> {
+    // An unrelated requested kind filters out our refactor.
+    let out = code_action_with_only('"quickfix"');
+    testing.assert(out.contains('"result":[]') || out.contains('"result": []'),
+        message: 'quickfix-only request offers nothing')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_code_action_only_sibling_kind_is_empty() -> Result<Void, Error> {
+    // A sibling under `refactor` is not an ancestor of `refactor.rewrite`.
+    let out = code_action_with_only('"refactor.extract"');
+    testing.assert(out.contains('"result":[]') || out.contains('"result": []'),
+        message: 'sibling refactor kind offers nothing')?;
+    return Result.Ok(void);
+}

@@ -174,7 +174,8 @@ impl Server {
         }
         if method == 'textDocument/codeAction' {
             send_response(writer, id,
-                self.code_action(params.get('textDocument').get('uri').as_string(), params.get('range')));
+                self.code_action(params.get('textDocument').get('uri').as_string(),
+                    params.get('range'), params.get('context')));
             return true;
         }
         if method == 'workspace/symbol' {
@@ -265,11 +266,11 @@ impl Server {
     // Code actions at a range: the idiomatic-rewrite refactorings (`match → if
     // let`). Purely syntactic, so it parses the buffer directly (no import
     // closure). An empty array when the document isn't open or offers no rewrites.
-    fn code_action(self, _ uri: Option<String>, _ range: Json) -> Json {
+    fn code_action(self, _ uri: Option<String>, _ range: Json, _ context: Json) -> Json {
         return match uri {
             Some(u) => match self.docs.get(u) {
                 Some(text) => code_action.handle_code_action(u,
-                    parser.parse_tokens(lexer.tokenize(text).tokens).program, text, range),
+                    parser.parse_tokens(lexer.tokenize(text).tokens).program, text, range, context),
                 None => json.arr([]),
             },
             None => json.arr([]),

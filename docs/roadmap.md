@@ -551,10 +551,14 @@ resolution_ below.)
     carries its edit + title). The `WorkspaceEdit` is the localized, self-formatted
     replacement (via `format_fragment`), so applying it touches only that span — no
     document-wide reformat. Purely syntactic (parses the open buffer, no import
-    closure). In-process JSON-RPC tests cover offer (`if let` + `unwrap_or`) + empty
-    cases. This is the per-site vehicle for dogfooding the rest of the corpus.
-    (Not yet: honoring `context.only` kind filters — currently returns the rewrite
-    regardless; the `while → for` rewriter, which needs a loop-body rewrite.)
+    closure). Honors the request's **`context.only`**: every action is a
+    `refactor.rewrite`, so it is offered only when `only` is absent/empty or lists
+    a `.`-separated ancestor (`refactor` / `refactor.rewrite`) — a `quickfix`- or
+    `refactor.extract`-only request gets nothing (and skips the tree walk).
+    In-process JSON-RPC tests cover offer (`if let` + `unwrap_or`), empty, and the
+    `only` filter (ancestor / exact / unrelated / sibling). This is the per-site
+    vehicle for dogfooding the rest of the corpus. (Not yet: the `while → for`
+    rewriter, which needs a loop-body rewrite.)
   - **First step — a read-only count — _landed._** `hawk lint <file|dir>`
     (`pkgs/cli/lint/lint.hawk`) walks the parsed AST — purely syntactic, no import
     closure — and reports + per-rule tallies convertible sites. Source `match`es
