@@ -113,17 +113,47 @@ behavior-preserving refactors.
 
 ### Phase 1 — resolution correctness (the foundation)
 
-- **1a. Architecture review checkpoint.** Evaluate the element-model / `Type`
-  representation *before* bolting origin on (the roadmap explicitly calls for
-  this). Decide how a `Type` carries origin (e.g. a `TypeId {owner, name}` or
-  interned type ids) and how the element model holds per-library type tables.
-- **1b.** Element model: per-file type tables with origin; extend namespace/bare
-  surfaces with a type-origin map (mirroring what values already have).
-- **1c.** Thread origin into `Type` — inference, unification, codegen type table.
-- **1d.** Owner-correct `resolve_type_def` (checker + codegen); enforce type
-  visibility.
-- **1e.** Lift type-name uniqueness (relax `check_duplicates` for types; add a
-  conformance test: two libraries, same-named type, both used qualified).
+**1a. Architecture-review checkpoint — done; decision recorded below.** Nominal
+type identity is **(owning library, name)**, but three representations track it by
+name alone and carry no origin: the semantic type `Type.Interface(String, args)`;
+the element model's flat `type_defs: Map<String, TypeDefElement>` (~16 helpers take
+the raw map); and codegen's name-keyed `structs`/`enums` maps (last-wins on
+collision — a latent type miscompile, the same class as the `global_functions` bug
+fixed in pull-out A). The crux: a resolved `Type.Interface(name)` flows through
+inference/unification/codegen with **no file context**, so a def lookup is
+unambiguous only while names are globally unique — full correctness therefore
+*requires the `Type` to carry origin*.
+
+**Decision: `TypeId {owner, name}`** (a struct, not a positional field or an
+interned int). `Type.Interface(TypeId, args)`; origin is captured in the one site
+that turns a source name into a type — `resolver.resolve_named`, which gains a
+`FileScope` to resolve the name to its owner (own → `as _` → prelude → builtin;
+builtins get owner = the core file / a `'<builtin>'` sentinel). `resolve_type_def`
+becomes `file_type_defs[id.owner][id.name]` (reusing the per-file tables Phase 2e
+already built). Chosen over an interned `Int` id (keeps inference **pure** — no
+stateful interner — and keeps the name for diagnostics/codegen) and over a bare
+positional owner (bundling encapsulates the identity). Cost: ~80–100 edit sites in
+the type core (~7 files) + codegen; practical urgency is low (nominal types
+discourage clashes) but it is foundational and the chosen correctness-first path.
+
+Staged (fixpoint-idempotent until the final flip — the Phase 2e playbook):
+
+- **Pull-out (early, ahead of T1): codegen type-name owner-correctness.** Make
+  codegen resolve a type name *at a construction/annotation site* (`Foo {…}`,
+  `Foo.Bar`) owner-correctly from the current file — like the `global_functions`
+  fix, and *without* the `Type` change (the site has the file in hand). Closes the
+  latent struct/enum miscompile; fixpoint-provable alone.
+- **T1 — representation.** Introduce `TypeId`; `Interface(String)`→`Interface(TypeId)`;
+  capture owner in `resolve_named` (thread `FileScope` through `resolve_type_ref`);
+  `.name`→`.id.name` everywhere. Equality still ignores owner (names unique →
+  behavior-preserving). The big mechanical step.
+- **T2 — element model.** `resolve_type_def` owner-keyed via `file_type_defs`;
+  migrate the raw-map helper sites. Same elements → fixpoint holds.
+- **T3 — codegen type table.** Resolve a *resolved* `Type` to its runtime id via
+  owner (the part the early pull-out couldn't cover). Fixpoint holds.
+- **T4 — the flip (one behavior change).** Interface equality includes owner;
+  relax `check_duplicates` for types; conformance test (two libraries, same-named
+  type). Type-name uniqueness lifted; enforce type visibility.
 
 ### Phase 2 — incremental engine (medium scale)
 
