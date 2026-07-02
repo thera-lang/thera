@@ -1,18 +1,21 @@
-// Support library: defines `pub struct Point` (fields x/y) — the same type name
-// libpoint_b also defines, with different fields. Owner-correct type resolution
-// (Phase 1) lets the two coexist; a qualified `a.Point` reaches this one. Its
-// helpers construct and read *this* Point in same-file scope. No `//!` block, so
-// the harness treats it as a support file.
+// Support library: `Point` (x/y) plus a second type `Label` — BOTH names are also
+// defined by libpoint_b, with different fields. Owner-correct resolution (Phase 1)
+// keeps them distinct; a qualified `a.Point` / `a.Label` reaches this library's.
+// This library exercises two collision-sensitive resolution paths: a function
+// signature (`sum`'s `Point` param) and a struct field's declared type
+// (`Point.label: Label`, itself a collided name), both resolved when the library
+// element is built.
+
+pub struct Label {
+    a_id: Int,
+}
 
 pub struct Point {
     x: Int,
     y: Int,
-}
-
-pub fn origin() -> Point {
-    return Point { x: 0, y: 0 };
+    label: Label,
 }
 
 pub fn sum(_ p: Point) -> Int {
-    return p.x + p.y;
+    return p.x + p.y + p.label.a_id;
 }

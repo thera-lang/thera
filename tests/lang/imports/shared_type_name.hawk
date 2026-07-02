@@ -4,17 +4,18 @@
 import 'libpoint_a' as a;
 import 'libpoint_b' as b;
 
-// Two libraries each define `pub struct Point`, with *different* fields (x/y vs
-// lat/lng). Under owner-correct type resolution (Phase 1) they coexist with no
-// collision: a qualified `a.Point` / `b.Point` resolves to — and constructs — its
-// own library's type, and the two are distinct types (an `Interface`'s identity
-// includes its owning library). The flat by-name type table this replaced forced
-// type names globally unique across the whole import closure.
+// Two libraries each define `pub struct Point` (and `pub struct Label`), with
+// *different* fields. Under owner-correct type resolution (Phase 1) they coexist
+// with no collision: a qualified `a.Point` / `b.Point` resolves to — and
+// constructs — its own library's type, and the two are distinct (an `Interface`'s
+// identity includes its owning library, `TypeId`). This exercises every resolution
+// path that keys on a type name, each of which must pick the *owner* the file sees:
 //
-// Each helper here takes a qualified param type and reads the fields of *that*
-// library's Point; the libraries' own helpers (`origin`/`make`) construct and read
-// their Point in same-file scope. A wrong owner anywhere would look for the other
-// library's field set and fail to compile or read.
+//   * a function signature — `a.sum(_ p: Point)`'s param type (resolved when the
+//     library element is built), matched against a scope-typed argument;
+//   * a struct field's declared type — `Point.label: Label` (a collided name), so
+//     `pa.label.a_id` must read `a.Label`, not `b.Label`;
+//   * a qualified param annotation here — `diff_a(_ p: a.Point)`.
 fn diff_a(_ p: a.Point) -> Int {
     return p.x - p.y;
 }
@@ -24,13 +25,13 @@ fn diff_b(_ p: b.Point) -> Int {
 }
 
 fn main() -> Int {
-    let pa = a.Point { x: 30, y: 4 };
-    let pb = b.Point { lat: 10, lng: 25 };
-    println('${a.sum(pa)}');          // expect: 34
-    println('${b.total(pb)}');        // expect: 35
-    println('${diff_a(pa)}');         // expect: 26
-    println('${diff_b(pb)}');         // expect: -15
-    println('${a.sum(a.origin())}');  // expect: 0
-    println('${b.total(b.make(1, 2))}'); // expect: 3
+    let pa = a.Point { x: 30, y: 4, label: a.Label { a_id: 1 } };
+    let pb = b.Point { lat: 10, lng: 25, label: b.Label { b_id: 2 } };
+    println('${a.sum(pa)}');       // expect: 35
+    println('${b.total(pb)}');     // expect: 37
+    println('${pa.label.a_id}');   // expect: 1
+    println('${pb.label.b_id}');   // expect: 2
+    println('${diff_a(pa)}');      // expect: 26
+    println('${diff_b(pb)}');      // expect: -15
     return 0;
 }

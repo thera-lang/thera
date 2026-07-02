@@ -201,11 +201,32 @@ sites resolve an *inferred* `Type` — which needs the owner on `Type` (T1) anyw
     the same-file duplicate is still flagged. Type visibility was already enforced
     (`vis-pub`/`vis-pub-type-reject`).
 
-  _Remaining flat-path (owner-unaware) sites, latent only under a collision the
-  corpus doesn't have — follow-ups:_ `resolve_impl` (a method impl on a collided
-  type attaches to the last-wins element); the deep subtype/conformance helpers in
-  the checker (`is_assignable`/`satisfies_bound` `type_defs.get`); and pass-2 field
-  *type* resolution (a struct field whose declared type is itself a collided name).
+- **T4 follow-ups — mostly closed.** After T4, several flat-path sites stayed
+  owner-blind (latent only under a collision the corpus lacks). Now addressed:
+  - **`is_assignable` identity (a real soundness hole). _Done._** The same-element
+    generics branch compared elements by *name*, so `a.Box<Int>` unified with
+    `b.Box<Int>`; now it compares the full `TypeId` ([types.hawk] `sid != tid`).
+    One-liner, byte-identical under uniqueness; unit test in `element_test`.
+  - **`build_library` pass-2 resolution + `resolve_impl`. _Done._** The
+    `LibraryElement` is now assembled right after pass 1, so pass 2 resolves every
+    signature / field / variant / const type against `file_scope(library, file)`
+    (`resolve_type_ref_in`) instead of the flat map — a function param or struct
+    field whose type is a collided name now gets the owner its file sees.
+    `resolve_impl` likewise attaches methods to the scope-resolved element. The
+    conformance test now exercises a collided **field type** (`Point.label: Label`)
+    and the signature path (`a.sum(_ p: Point)`); byte-identical fixpoint validates.
+  - **Deferred — codegen method-owner keying.** Method *dispatch* is still
+    name-keyed: `ModuleScope.method_table` and the method unit's `self`-type
+    (`named_self_type`) resolve by bare type name, so a method impl'd on a collided
+    type would dispatch to / type `self` as the last-wins type. This is a
+    T3-for-methods (owner-key `method_table`, thread the impl's file into
+    `named_self_type`, owner the dispatch rows) — its own increment; until then the
+    conformance test avoids methods on collided types.
+  - **Deferred — deep subtype helpers.** `is_assignable`/`satisfies_bound` still
+    take the flat `type_defs` for their interface-conformance def-lookups
+    (`map_get_def`/`type_defs.get(name)`), wrong only when a collided name
+    participates in *cross-library* interface conformance. Fold into a future
+    "retire the flat `type_defs` map" pass rather than pay a ~17-site ripple now.
 
 ### Phase 2 — incremental engine (medium scale)
 

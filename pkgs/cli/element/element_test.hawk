@@ -58,6 +58,22 @@ fn test_is_assignable_interface_subtyping() -> Result<Void, Error> {
 }
 
 @test
+fn test_is_assignable_owner_distinct() -> Result<Void, Error> {
+    // Two libraries' same-named generic types are distinct: element identity is
+    // the full TypeId (owner + name), so `a.Box<Int>` is NOT assignable to
+    // `b.Box<Int>` even though the names and args match. An owner-blind compare
+    // would unify them — a soundness hole under lifted type-name uniqueness.
+    let d = defs();
+    let int_t = Type.Primitive(Primitive.Int);
+    let a_box = Type.Interface(TypeId { owner: 'a', name: 'Box' }, [int_t]);
+    let b_box = Type.Interface(TypeId { owner: 'b', name: 'Box' }, [int_t]);
+    let a_box2 = Type.Interface(TypeId { owner: 'a', name: 'Box' }, [int_t]);
+    testing.assert(!is_assignable(a_box, b_box, d), message: 'a.Box<Int> not assignable to b.Box<Int>')?;
+    testing.assert(is_assignable(a_box, a_box2, d), message: 'a.Box<Int> assignable to a.Box<Int>')?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_substitute_and_unify() -> Result<Void, Error> {
     let bindings: Map<String, Type> = {};
     unify(Type.Interface(TypeId { owner: 't', name: 'List' }, [Type.TypeParameter('T')]),

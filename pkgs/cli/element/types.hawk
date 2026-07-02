@@ -151,11 +151,15 @@ pub fn is_assignable(_ source: Type, _ target: Type,
         }
     }
     // Same-element generics: assignable element with pairwise-assignable args.
+    // Element identity is the full `TypeId` (owner + name), so two libraries'
+    // same-named generic types (`a.Box<Int>` vs `b.Box<Int>`) stay distinct — an
+    // owner-blind name compare here would unify them (a soundness hole under the
+    // lifted type-name uniqueness).
     match source {
         Interface(sid, sargs) => {
             match target {
                 Interface(tid, targs) => {
-                    if sid.name != tid.name {
+                    if sid != tid {
                         return false;
                     }
                     if sargs.len() != targs.len() {

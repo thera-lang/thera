@@ -206,15 +206,34 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
         }
     }
 
+    // The library is assembled here — after pass 1, so its per-file tables are
+    // populated enough for a `FileScope` — then handed to pass 2 for owner-correct
+    // signature/field/member resolution (Phase 1 T4 follow-up). The maps are
+    // references filled in place, so consts/functions added below (and the pass-3
+    // interface closure) are visible through it; this is the same object returned.
+    let library = LibraryElement {
+        type_defs: type_defs,
+        file_functions: file_functions,
+        file_type_defs: file_type_defs,
+        file_consts: file_consts,
+        file_namespaces: file_namespaces,
+        file_bare_surface: file_bare_surface,
+        file_owned: file_owned,
+    };
+
     // ---- pass 2: members, signatures, consts ----
     for p in programs {
+        // Resolve every type reference in this file's declarations against the
+        // file's own scope, so a name shared by two libraries stamps the owner the
+        // file actually sees — not the flat table's last-wins entry.
+        let fs = file_scope(library, p.file_path);
         for decl in p.decls {
             match decl {
                 Type(x) => {
                     let tps = type_param_set(x.type_params);
                     if let Some(element) = file_type_def(file_type_defs, p.file_path, x.name) {
                         for f in x.fields {
-                            element.fields[f.name] = resolve_type_ref(f.type_ann, type_defs, tps, Option.None);
+                            element.fields[f.name] = resolve_type_ref_in(f.type_ann, fs, tps, Option.None);
                             if f.is_mut {
                                 element.mut_fields.add(f.name);
                             }
@@ -227,13 +246,13 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
                         for v in x.variants {
                             element.variants.push(EnumVariantElement {
                                 name: v.name,
-                                fields: v.fields.map((f) => resolve_type_ref(f, type_defs, tps, Option.None)),
+                                fields: v.fields.map((f) => resolve_type_ref_in(f, fs, tps, Option.None)),
                             });
                         }
                     }
                 },
                 Fn(x) => {
-                    let element = function_element(x, type_defs);
+                    let element = function_element(x, fs);
                     let key = file_key(p.file_path);
                     if !file_functions.has(key) {
                         file_functions[key] = {};
@@ -243,7 +262,7 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
                 Const(x) => {
                     record_file_const(file_consts, p.file_path, x.name, ConstElement {
                         name: x.name,
-                        ty: resolve_opt(x.type_ann, type_defs, Set.new(), Option.None),
+                        ty: resolve_opt_in(x.type_ann, fs, Set.new(), Option.None),
                     });
                 },
                 // Module-level `let` (top-level globals; docs/module_init.md). For
@@ -253,11 +272,11 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
                 Let(x) => {
                     record_file_const(file_consts, p.file_path, x.name, ConstElement {
                         name: x.name,
-                        ty: resolve_opt(x.type_ann, type_defs, Set.new(), Option.None),
+                        ty: resolve_opt_in(x.type_ann, fs, Set.new(), Option.None),
                     });
                 },
                 Impl(x) => {
-                    resolve_impl(x, type_defs);
+                    resolve_impl(x, fs);
                 },
                 Interface(x) => {
                     if let Some(element) = file_type_def(file_type_defs, p.file_path, x.name) {
@@ -272,7 +291,7 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
                             if m.body.is_some() {
                                 element.default_methods.push(m.name);
                             }
-                            element.methods.push(method_element(m, x.name, type_defs, tps, Option.Some(self_type)));
+                            element.methods.push(method_element(m, x.name, fs, tps, Option.Some(self_type)));
                         }
                     }
                 },
@@ -325,15 +344,7 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
         }
     }
 
-    return LibraryElement {
-        type_defs: type_defs,
-        file_functions: file_functions,
-        file_type_defs: file_type_defs,
-        file_consts: file_consts,
-        file_namespaces: file_namespaces,
-        file_bare_surface: file_bare_surface,
-        file_owned: file_owned,
-    };
+    return library;
 }
 
 // Record `el` under its declaring `file` in a per-file table (file key -> name ->
@@ -386,8 +397,12 @@ fn top_decl_name(_ decl: Decl) -> Option<String> {
     };
 }
 
-fn resolve_impl(_ decl: ImplDecl, _ type_defs: Map<String, TypeDefElement>) -> Void {
-    if let Some(owner) = type_defs.get(decl.type_name) {
+fn resolve_impl(_ decl: ImplDecl, _ scope: FileScope) -> Void {
+    // Attach to the type the impl's file actually sees (own file / bare import),
+    // not the flat table's last-wins entry — so `impl Point { … }` in one library
+    // extends *its* Point (Phase 1 T4 follow-up).
+    let owner_key = scope.resolve_type_owner(decl.type_name, Option.None);
+    if let Some(owner) = scope.resolve_type_def(TypeId { owner: owner_key, name: decl.type_name }) {
         let impl_params = type_param_set(decl.type_params);
         // For an `impl Int`/`String`/… the receiver's type is the primitive
         // itself, not an interface wrapper.
@@ -401,28 +416,28 @@ fn resolve_impl(_ decl: ImplDecl, _ type_defs: Map<String, TypeDefElement>) -> V
             // default method called on a concrete receiver can bind the
             // interface's type parameters (`impl Iterator<Int>` -> [Int]).
             owner.interface_args[iface] = decl.interface_args.map((a) =>
-                resolve_type_ref(a, type_defs, impl_params, Option.Some(self_type)));
+                resolve_type_ref_in(a, scope, impl_params, Option.Some(self_type)));
         }
         for m in decl.methods {
-            owner.methods.push(method_element(m, decl.type_name, type_defs, impl_params, Option.Some(self_type)));
+            owner.methods.push(method_element(m, decl.type_name, scope, impl_params, Option.Some(self_type)));
         }
     }
 }
 
-fn function_element(_ decl: FnDecl, _ type_defs: Map<String, TypeDefElement>) -> FunctionElement {
+fn function_element(_ decl: FnDecl, _ scope: FileScope) -> FunctionElement {
     let tps = type_param_set(decl.type_params);
     return FunctionElement {
         name: decl.name,
         type_parameters: type_param_names(decl.type_params),
         type_parameter_bounds: type_param_bounds(decl),
-        parameters: build_params(decl, type_defs, tps, Option.None),
-        return_type: resolve_return(decl.return_type, type_defs, tps, Option.None),
+        parameters: build_params(decl, scope, tps, Option.None),
+        return_type: resolve_return(decl.return_type, scope, tps, Option.None),
         owner: Option.None,
         is_static: false,
     };
 }
 
-fn method_element(_ decl: FnDecl, _ owner: String, _ type_defs: Map<String, TypeDefElement>,
+fn method_element(_ decl: FnDecl, _ owner: String, _ scope: FileScope,
     _ outer_type_params: Set<String>, _ self_type: Option<Type>) -> FunctionElement {
     let tps: Set<String> = Set.new();
     for t in outer_type_params.to_list() {
@@ -435,8 +450,8 @@ fn method_element(_ decl: FnDecl, _ owner: String, _ type_defs: Map<String, Type
         name: decl.name,
         type_parameters: type_param_names(decl.type_params),
         type_parameter_bounds: type_param_bounds(decl),
-        parameters: build_params(decl, type_defs, tps, self_type),
-        return_type: resolve_return(decl.return_type, type_defs, tps, self_type),
+        parameters: build_params(decl, scope, tps, self_type),
+        return_type: resolve_return(decl.return_type, scope, tps, self_type),
         owner: Option.Some(owner),
         is_static: !has_self_param(decl.params),
     };
@@ -444,15 +459,15 @@ fn method_element(_ decl: FnDecl, _ owner: String, _ type_defs: Map<String, Type
 
 // A missing `-> Type` means the function returns Unit (Hawk's implicit-unit
 // return), not "unknown".
-fn resolve_return(_ ref: Option<TypeRef>, _ type_defs: Map<String, TypeDefElement>,
+fn resolve_return(_ ref: Option<TypeRef>, _ scope: FileScope,
     _ type_params: Set<String>, _ self_type: Option<Type>) -> Type {
     return match ref {
         None => Type.Primitive(Primitive.Unit),
-        Some(r) => resolve_type_ref(r, type_defs, type_params, self_type),
+        Some(r) => resolve_type_ref_in(r, scope, type_params, self_type),
     };
 }
 
-fn build_params(_ decl: FnDecl, _ type_defs: Map<String, TypeDefElement>,
+fn build_params(_ decl: FnDecl, _ scope: FileScope,
     _ type_params: Set<String>, _ self_type: Option<Type>) -> List<ParameterElement> {
     let result: List<ParameterElement> = [];
     for p in decl.params {
@@ -469,7 +484,7 @@ fn build_params(_ decl: FnDecl, _ type_defs: Map<String, TypeDefElement>,
                 label: p.label,
                 is_self: false,
                 name: p.name,
-                ty: resolve_opt(p.type_ann, type_defs, type_params, self_type),
+                ty: resolve_opt_in(p.type_ann, scope, type_params, self_type),
                 has_default: match p.default_value {
                     Some(_) => true,
                     None => false,
