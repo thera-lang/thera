@@ -96,12 +96,12 @@ pub struct ModuleScope {
     unit_names: List<String>,         // index -> mangled name (e.g. Point.area)
     unit_self_types: List<Option<String>>, // index -> receiver type, if a method
     unit_files: List<Option<String>>, // index -> declaring file (for name scoping)
-    // Free functions resolve same-file-first: a per-file table (file key -> name
-    // -> idx), with a cross-file fallback (every function, last-wins). A private
-    // helper resolves to its own file's definition even when another file
-    // declares a same-named one. Mirrors the element model's `file_functions`.
+    // Free functions resolve same-file-first, then via this file's **bare surface**
+    // (prelude / `as _` imports) to the *owning* file's table — owner-correct, with
+    // no global last-wins fallback, so two libraries' same-named free functions
+    // resolve to distinct units (and a private helper can't leak cross-file).
+    // Mirrors the element model's `FileScope.bare_owner`.
     file_functions: Map<String, Map<String, Int>>,
-    global_functions: Map<String, Int>,
     method_table: Map<String, Map<String, Int>>, // type -> method -> idx
     structs: Map<String, StructInfo>,
     enums: Map<String, EnumInfo>,
@@ -146,7 +146,6 @@ pub fn new_module_scope(_ library: element.LibraryElement) -> ModuleScope {
         unit_self_types: [],
         unit_files: [],
         file_functions: {},
-        global_functions: {},
         method_table: {},
         structs: {},
         enums: {},
@@ -190,19 +189,27 @@ impl ModuleScope {
         if let Some(m) = self.file_functions.get(key) {
             m[decl.name] = index;
         }
-        self.global_functions[decl.name] = index;
         self.add_unit(decl, decl.name, Option.None, file);
     }
 
-    // The unit index of free function `name` referenced from `file` — the file's
-    // own function if it has one, else the cross-file fallback.
+    // The unit index of free function `name` referenced *bare* from `file`: the
+    // file's own function if it has one, else the function the file's bare surface
+    // (prelude / `as _` imports) attributes to its owning file. No global fallback
+    // — the same owner-correct resolution the checker's `FileScope` performs, so a
+    // bare call that passed the checker resolves to the same function here.
     pub fn resolve_function(self, _ file: Option<String>, _ name: String) -> Option<Int> {
-        if let Some(m) = self.file_functions.get(element.file_key(file)) {
+        let key = element.file_key(file);
+        if let Some(m) = self.file_functions.get(key) {
             if let Some(i) = m.get(name) {
                 return Option.Some(i);
             }
         }
-        return self.global_functions.get(name);
+        if let Some(surface) = self.library.file_bare_surface.get(key) {
+            if let Some(owner) = surface.get(name) {
+                return self.function_in_file(owner, name);
+            }
+        }
+        return Option.None;
     }
 
     // The unit index of free function `name` declared in file `owner` (a file key) —

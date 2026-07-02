@@ -3,6 +3,7 @@
 
 import 'libjson' as json;
 import 'libtoml' as toml;
+import 'bare_caller';
 
 // Two libraries each define `pub fn parse`. Under owner-correct resolution they
 // coexist with no collision, and each qualified call dispatches to its own
@@ -10,9 +11,16 @@ import 'libtoml' as toml;
 // `std.json.parse` and `std.toml.parse` able to share a name. The flat global
 // tables this replaced forced top-level value names to be unique across the whole
 // import closure.
+//
+// `bare_caller.call_parse()` additionally exercises the **bare** (`as _`) path
+// through codegen: `bare_caller` imports libjson unqualified and calls `parse()`
+// bare, which must resolve to libjson's `parse` (100) even though libtoml's
+// `parse` (200) is in the same closure — the codegen `global_functions` last-wins
+// fallback this replaced could bind that bare call to the wrong library.
 fn main() -> Int {
     println('${json.parse()}');                 // expect: 100
     println('${toml.parse()}');                 // expect: 200
     println('${json.parse() + toml.parse()}');  // expect: 300
+    println('${bare_caller.call_parse()}');     // expect: 100
     return 0;
 }

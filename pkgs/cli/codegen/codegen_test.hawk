@@ -197,16 +197,20 @@ fn program_of(_ src: String, _ path: String) -> Program {
 @test
 fn test_same_file_first_resolution_byte_identical() -> Result<Void, Error> {
     // Two co-loaded files each define a private `combine` with different arity.
-    // Same-file-first resolution links each call to its *own* file's `combine`
-    // (main's 1-arg in `use_both`, lib's 2-arg in `lib_pick`) — byte-identical to
-    // the Dart oracle, which compiles the same two files distinctly.
+    // Same-file-first resolution links each `combine` call to its *own* file
+    // (main's 1-arg in `use_both`, lib's 2-arg in `lib_pick`), and main's bare
+    // `lib_pick` resolves through its bare surface (as if `import 'lib' as _`) to
+    // lib.hawk's function — owner-correct, no global last-wins fallback. The
+    // `file_bare_surface` (file → bare name → owning file) is what a real `as _`
+    // import threads in; here it maps main's bare `lib_pick` to lib.hawk.
     let lib = program_of(
         'pub fn lib_pick(_ a: Int, _ b: Int) -> Int { return combine(a, b); }\n'
         + 'fn combine(_ x: Int, _ y: Int) -> Int { return x + y; }', 'lib.hawk');
     let main_prog = program_of(
         'fn combine(_ x: Int) -> Int { return x * 100; }\n'
         + 'fn use_both() -> Int { return combine(3) + lib_pick(4, 5); }', 'main.hawk');
-    let result = compile_program(main_prog, [lib], {}, {});
+    let bare_surface = { 'main.hawk': { 'lib_pick': 'lib.hawk' } };
+    let result = compile_program(main_prog, [lib], {}, bare_surface);
     testing.assert_eq(actual: result.errors.len(), expected: 0)?;
     testing.assert_eq(actual: encode_module(result.module).to_list(), expected: [
         72, 65, 87, 75, 1, 0, 0, 0, 2, 1, 0, 3, 1, 0, 1, 82, 4, 8, 108, 105, 98,

@@ -21,6 +21,8 @@ is"; read top-down for progressive detail.
   (the index behind `tests/lang/`).
 - [stdlib.md](stdlib.md) — the **standard library** design: principles, the
   prelude/core/ecosystem tiers, and the module-by-module catalog.
+- [lsp_v2.md](lsp_v2.md) — LSP v2 — the target architecture for Hawk's
+  analysis/LSP layer and a low-risk, incremental plan to reach it.
 - [testability.md](testability.md) — the **ambient-capability** design: an
   ambient free function + opt-in capability interface (`Clock`/`FileSystem`),
   where test doubles live, and why there's no global override.

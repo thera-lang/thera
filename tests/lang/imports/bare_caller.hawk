@@ -1,0 +1,11 @@
+// Support library: imports `libjson` unqualified (`as _`) and calls its `parse`
+// **bare**. `libtoml` also defines `parse` and is in the same import closure, so
+// this exercises owner-correct *bare* resolution end to end (codegen included):
+// the bare `parse()` must bind to libjson's function, never libtoml's. (No `//!`
+// block, so the harness treats this as a support file.)
+
+import 'libjson' as _;
+
+pub fn call_parse() -> Int {
+    return parse();
+}
