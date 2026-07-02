@@ -1,10 +1,9 @@
 // Support library: `Point` (x/y) plus a second type `Label` — BOTH names are also
 // defined by libpoint_b, with different fields. Owner-correct resolution (Phase 1)
 // keeps them distinct; a qualified `a.Point` / `a.Label` reaches this library's.
-// This library exercises two collision-sensitive resolution paths: a function
-// signature (`sum`'s `Point` param) and a struct field's declared type
-// (`Point.label: Label`, itself a collided name), both resolved when the library
-// element is built.
+// Exercises the collision-sensitive resolution paths: a function signature (`sum`'s
+// `Point` param), a struct field's declared type (`Point.label: Label`, itself a
+// collided name), an inherent method (`scaled`), and an interface impl (`Display`).
 
 pub struct Label {
     a_id: Int,
@@ -14,6 +13,18 @@ pub struct Point {
     x: Int,
     y: Int,
     label: Label,
+}
+
+impl Point {
+    pub fn scaled(self) -> Int {
+        return self.x * 10 + self.y;
+    }
+}
+
+impl Display for Point {
+    pub fn display(self) -> String {
+        return 'a:${self.x},${self.y}';
+    }
 }
 
 pub fn sum(_ p: Point) -> Int {

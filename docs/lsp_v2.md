@@ -222,13 +222,22 @@ sites resolve an *inferred* `Type` — which needs the owner on `Type` (T1) anyw
     inconsistency where a bare `Enum.Variant` still went through the flat by-name
     lookup. Conformance test `shared_enum_name` (two libraries, disjoint `Color`
     variants; bare construction, qualified payload construction, and `match`).
-  - **Deferred — codegen method-owner keying.** Method *dispatch* is still
-    name-keyed: `ModuleScope.method_table` and the method unit's `self`-type
-    (`named_self_type`) resolve by bare type name, so a method impl'd on a collided
-    type would dispatch to / type `self` as the last-wins type. This is a
-    T3-for-methods (owner-key `method_table`, thread the impl's file into
-    `named_self_type`, owner the dispatch rows) — its own increment; until then the
-    conformance test avoids methods on collided types.
+  - **Codegen method-owner keying. _Done._** Concrete-type method dispatch is now
+    owner-keyed. A `type_key(owner, name)` composite keys `method_table`,
+    `interface_impls` (now an `ImplInfo` carrying the split owner/name), and the
+    `PendingDispatch` rows; interface *names* stay unqualified (their key space is
+    disjoint — a type key always contains `#`), so the transitive-closure machinery
+    (`interface_methods`/`interface_supers`/`flatten_interfaces`) is untouched.
+    Registration resolves the receiver's owner scope-aware from the `impl`'s file
+    (`owner_of`); reads (`resolve_method`, `interface_method`, `is_iterator`) key by
+    the receiver's owner-correct identity (`static_type_id`/`type_id_of`, falling
+    back to the registry owner for primitives, which carry no `Interface` TypeId);
+    `named_self_type` types `self` owner-correct from the unit's file. Conformance
+    test now covers an inherent method (`scaled`) and an interface method
+    (`Display`) on the collided `Point`. Byte-identical fixpoint. **Remaining:**
+    interface *name* collisions (two libraries, same interface name) are still
+    name-keyed, and `native` instance/static methods (`native_*_methods`) stay
+    name-keyed — both narrow, deferred.
   - **Deferred — deep subtype helpers.** `is_assignable`/`satisfies_bound` still
     take the flat `type_defs` for their interface-conformance def-lookups
     (`map_get_def`/`type_defs.get(name)`), wrong only when a collided name

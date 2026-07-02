@@ -82,10 +82,31 @@ pub fn field_count_of(_ info: EnumInfo, _ name: String) -> Int {
 }
 
 // A pending dynamic-dispatch row recorded from an `impl Interface for Type`
-// block, resolved into the module's dispatch table by `build_dispatch`.
+// block, resolved into the module's dispatch table by `build_dispatch`. The
+// receiver type is carried owner-qualified (owner + name) so two libraries' same-
+// named types dispatch to their own methods (Phase 1 T4 follow-up).
 pub struct PendingDispatch {
+    owner: String,
     type_name: String,
     selector: String,
+}
+
+// A concrete type's interface implementations, keyed in `interface_impls` by the
+// type's owner-qualified `type_key`. Carries the split owner/name so the default-
+// method wiring can rebuild both the method-table key and the dispatch row.
+pub struct ImplInfo {
+    owner: String,
+    type_name: String,
+    interfaces: Set<String>,
+}
+
+// The owner-qualified key of a concrete type in the method/dispatch tables. `name`
+// is an identifier (never contains `#`), so the join is unambiguous — two distinct
+// (owner, name) pairs can't collide. Interface *names* stay unqualified (their key
+// spaces are disjoint: a type key always contains `#`), so the transitive-closure
+// machinery (`interface_methods`/`interface_supers`) is untouched.
+pub fn type_key(_ owner: String, _ name: String) -> String {
+    return owner + '#' + name;
 }
 
 // The shared codegen scope. The mutable lists/maps are filled during
@@ -120,7 +141,7 @@ pub struct ModuleScope {
     native_fns: Map<String, String>,
     native_static_methods: Map<String, Map<String, String>>,
     native_instance_methods: Map<String, Map<String, String>>,
-    interface_impls: Map<String, Set<String>>,
+    interface_impls: Map<String, ImplInfo>, // type_key -> impls
     interface_methods: Map<String, Set<String>>,
     pending_dispatch: List<PendingDispatch>,
     interface_supers: Map<String, List<String>>,
@@ -309,6 +330,14 @@ impl ModuleScope {
         return TypeId { owner: self.type_owner(name), name: name };
     }
 
+    // The owning file (key) of type `name` as the file `file` sees it — scope-aware
+    // (own file / bare import / built-in), so a method registered from an `impl` in
+    // one library binds to the type that library declares, and a call site keying
+    // the method table by the receiver's owner reaches the same entry.
+    pub fn owner_of(self, _ name: String, _ file: Option<String>) -> String {
+        return file_scope(self.library, file).resolve_type_owner(name, Option.None);
+    }
+
     // Whether `name` is a registered user struct or enum, in any library — the
     // existence half of type-name recognition (built-ins handled separately).
     pub fn has_struct_or_enum(self, _ name: String) -> Bool {
@@ -362,25 +391,31 @@ impl ModuleScope {
         }
     }
 
-    pub fn add_interface_impl(self, _ type_name: String, _ interface_name: String) -> Void {
-        if !self.interface_impls.has(type_name) {
-            self.interface_impls[type_name] = Set.new();
+    pub fn add_interface_impl(self, _ owner: String, _ type_name: String, _ interface_name: String) -> Void {
+        let key = type_key(owner, type_name);
+        if !self.interface_impls.has(key) {
+            self.interface_impls[key] = ImplInfo { owner: owner, type_name: type_name, interfaces: Set.new() };
         }
-        if let Some(s) = self.interface_impls.get(type_name) {
-            s.add(interface_name);
+        if let Some(info) = self.interface_impls.get(key) {
+            info.interfaces.add(interface_name);
         }
     }
 
-    pub fn add_method(self, _ type_name: String, _ method: FnDecl, _ file: Option<String>) -> Void {
+    // Register a method unit under `key` in the method table. For a concrete type
+    // `key` is its owner-qualified `type_key` (so same-named types in two libraries
+    // keep distinct method sets); for an interface default method it is the plain
+    // interface name. `type_name` (unqualified) backs the unit's mangled name and
+    // its `self` type, resolved owner-correct from the unit's file at compile time.
+    pub fn add_method(self, _ key: String, _ type_name: String, _ method: FnDecl, _ file: Option<String>) -> Void {
         let self_type = if has_self_param(method.params) {
             Option.Some(type_name)
         } else {
             Option.None
         };
-        if !self.method_table.has(type_name) {
-            self.method_table[type_name] = {};
+        if !self.method_table.has(key) {
+            self.method_table[key] = {};
         }
-        if let Some(m) = self.method_table.get(type_name) {
+        if let Some(m) = self.method_table.get(key) {
             m[method.name] = self.units.len();
         }
         self.add_unit(method, type_name + '.' + method.name, self_type, file);
@@ -397,8 +432,8 @@ impl ModuleScope {
         }
     }
 
-    pub fn add_dispatch(self, _ type_name: String, _ selector: String) -> Void {
-        self.pending_dispatch.push(PendingDispatch { type_name: type_name, selector: selector });
+    pub fn add_dispatch(self, _ owner: String, _ type_name: String, _ selector: String) -> Void {
+        self.pending_dispatch.push(PendingDispatch { owner: owner, type_name: type_name, selector: selector });
     }
 
     // Register a lifted lambda as a synthetic top-level unit; returns its
@@ -474,12 +509,11 @@ impl ModuleScope {
     // Walks the transitive super-interface closure so an inherited default is
     // wired too. Run after every module registers, before `build_dispatch`.
     pub fn wire_default_methods(self) -> Void {
-        for type_name in self.interface_impls.keys() {
+        for key in self.interface_impls.keys() {
+            let info = self.interface_impls[key];
             let seen: Set<String> = Set.new();
             let queue: List<String> = [];
-            if let Some(s) = self.interface_impls.get(type_name) {
-                for d in s.to_list() { queue.push(d); }
-            }
+            for d in info.interfaces.to_list() { queue.push(d); }
             let mut qi = 0;
             while qi < queue.len() {
                 let iface = queue[qi];
@@ -494,7 +528,7 @@ impl ModuleScope {
                     // interface methods are added there).
                     if let Some(defaults) = self.method_table.get(iface) {
                         for m in defaults.keys() {
-                            self.wire_one_default(type_name, m, defaults.get(m));
+                            self.wire_one_default(info.owner, info.type_name, m, defaults.get(m));
                         }
                     }
                 }
@@ -502,17 +536,18 @@ impl ModuleScope {
         }
     }
 
-    // Point `type_name`'s dispatch for `method` at the shared default `unit`,
-    // unless the type already provides (overrides) that method.
-    fn wire_one_default(self, _ type_name: String, _ method: String, _ unit: Option<Int>) -> Void {
+    // Point the type's dispatch for `method` at the shared default `unit`, unless
+    // the type already provides (overrides) that method. The type is owner-keyed.
+    fn wire_one_default(self, _ owner: String, _ type_name: String, _ method: String, _ unit: Option<Int>) -> Void {
         if let Some(idx) = unit {
-            if !self.method_table.has(type_name) {
-                self.method_table[type_name] = {};
+            let key = type_key(owner, type_name);
+            if !self.method_table.has(key) {
+                self.method_table[key] = {};
             }
-            if let Some(tm) = self.method_table.get(type_name) {
+            if let Some(tm) = self.method_table.get(key) {
                 if !tm.has(method) {
                     tm[method] = idx;
-                    self.add_dispatch(type_name, method);
+                    self.add_dispatch(owner, type_name, method);
                 }
             }
         }
@@ -522,14 +557,13 @@ impl ModuleScope {
     pub fn build_dispatch(self) -> List<DispatchEntry> {
         let entries: List<DispatchEntry> = [];
         for row in self.pending_dispatch {
-            let func = match self.method_table.get(row.type_name) {
+            let func = match self.method_table.get(type_key(row.owner, row.type_name)) {
                 Some(m) => m.get(row.selector),
                 None => Option.None,
             };
-            let owner = self.type_owner(row.type_name);
-            let type_id = match self.resolve_struct(owner, row.type_name) {
+            let type_id = match self.resolve_struct(row.owner, row.type_name) {
                 Some(si) => Option.Some(si.index),
-                None => self.resolve_enum(owner, row.type_name).map((ei) => ENUM_DISPATCH_BASE | ei.ty),
+                None => self.resolve_enum(row.owner, row.type_name).map((ei) => ENUM_DISPATCH_BASE | ei.ty),
             };
             if let Some(f) = func {
                 if let Some(tid) = type_id {

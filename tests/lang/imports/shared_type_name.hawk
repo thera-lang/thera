@@ -15,6 +15,8 @@ import 'libpoint_b' as b;
 //     library element is built), matched against a scope-typed argument;
 //   * a struct field's declared type — `Point.label: Label` (a collided name), so
 //     `pa.label.a_id` must read `a.Label`, not `b.Label`;
+//   * an inherent method on a collided type — `a`'s `Point.scaled` vs `b`'s;
+//   * an interface method (`Display`) dispatched on a collided type — `'${pa}'`;
 //   * a qualified param annotation here — `diff_a(_ p: a.Point)`.
 fn diff_a(_ p: a.Point) -> Int {
     return p.x - p.y;
@@ -31,6 +33,10 @@ fn main() -> Int {
     println('${b.total(pb)}');     // expect: 37
     println('${pa.label.a_id}');   // expect: 1
     println('${pb.label.b_id}');   // expect: 2
+    println('${pa.scaled()}');     // expect: 304
+    println('${pb.scaled()}');     // expect: 1025
+    println('${pa}');              // expect: a:30,4
+    println('${pb}');              // expect: b:10,25
     println('${diff_a(pa)}');      // expect: 26
     println('${diff_b(pb)}');      // expect: -15
     return 0;

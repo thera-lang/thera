@@ -157,12 +157,18 @@ fn register_module(_ scope: ModuleScope, _ program: Program) -> Void {
                 // (wired by `wire_default_methods`).
                 for method in x.methods {
                     if !method.is_native && has_self_param(method.params) && method.body.is_some() {
-                        scope.add_method(x.name, method, file);
+                        // An interface default keys the method table by the plain
+                        // interface name (its key space is disjoint from concrete
+                        // types' owner-qualified keys).
+                        scope.add_method(x.name, x.name, method, file);
                     }
                 }
             },
             Impl(x) => {
-                if let Some(iface) = x.interface_name { scope.add_interface_impl(x.type_name, iface); }
+                // The receiver type owner-qualified as this file sees it, so a method
+                // impl'd on a name two libraries share binds to this library's type.
+                let owner = scope.owner_of(x.type_name, file);
+                if let Some(iface) = x.interface_name { scope.add_interface_impl(owner, x.type_name, iface); }
                 for method in x.methods {
                     let is_static = !has_self_param(method.params);
                     if method.is_native && is_static {
@@ -170,11 +176,11 @@ fn register_module(_ scope: ModuleScope, _ program: Program) -> Void {
                     } else if method.is_native {
                         scope.add_native_instance_method(x.type_name, method);
                     } else {
-                        if let Some(_) = method.body { scope.add_method(x.type_name, method, file); }
+                        if let Some(_) = method.body { scope.add_method(type_key(owner, x.type_name), x.type_name, method, file); }
                     }
                     if let Some(_) = x.interface_name {
                         if !is_static && !method.is_native {
-                            scope.add_dispatch(x.type_name, method.name);
+                            scope.add_dispatch(owner, x.type_name, method.name);
                         }
                     }
                 }
@@ -250,7 +256,7 @@ impl FnCompiler {
         // and the checker infer every expression in the body to the same type.
         // (The unit table holds only the receiver's name; its parameters come from
         // the type definition.) The chosen `self_type` is recorded for the oracle.
-        let self_type = self.scope.unit_self_types[index].map((name) => named_self_type(name, self.scope.library));
+        let self_type = self.scope.unit_self_types[index].map((name) => named_self_type(name, self.scope.library, self.scope.unit_files[index]));
         self.scope.unit_ctx_self[index] = self_type;
         let type_params: Set<String> = Set.new();
         if let Some(st) = self_type {
@@ -642,13 +648,13 @@ impl FnCompiler {
     }
 
     fn is_iterator(self, _ e: Expr) -> Bool {
-        match self.type_of(e) {
-            Some(name) => {
-                if name == 'Iterator' {
+        match self.type_id_of(e) {
+            Some(id) => {
+                if id.name == 'Iterator' {
                     return true;
                 }
-                return match self.scope.interface_impls.get(name) {
-                    Some(s) => s.has('Iterator'),
+                return match self.scope.interface_impls.get(type_key(id.owner, id.name)) {
+                    Some(info) => info.interfaces.has('Iterator'),
                     None => false,
                 };
             },
@@ -1233,7 +1239,7 @@ impl FnCompiler {
                 }
                 return;
             }
-            if let Some(eq_idx) = self.interface_method(operand_type, 'Eq', 'eq') {
+            if let Some(eq_idx) = self.interface_method(self.type_id_of(left), 'Eq', 'eq') {
                 self.expr(left);
                 self.expr(right);
                 self.emit(Instr.Call(eq_idx, 2));
@@ -1339,9 +1345,10 @@ impl FnCompiler {
     // and `println`/`print`/`eprintln`/`eprint`.
     fn emit_as_string(self, _ value: Expr, _ span: SourceSpan) -> Void {
         let ty_name = self.type_of(value);
+        let ty_id = self.type_id_of(value);
         self.expr(value);
         if ty_name != Option.Some('String') {
-            self.emit_display(ty_name, span);
+            self.emit_display(ty_name, ty_id, span);
         }
     }
 
@@ -1350,13 +1357,13 @@ impl FnCompiler {
     // primitives' `display` → their per-type native, e.g. `int_to_string`), a
     // virtual dispatch (an interface-typed or bounded-generic value), or a concrete
     // impl method. Errors when the type has no `Display`.
-    fn emit_display(self, _ ty_name: Option<String>, _ span: SourceSpan) -> Void {
+    fn emit_display(self, _ ty_name: Option<String>, _ ty_id: Option<TypeId>, _ span: SourceSpan) -> Void {
         if let Some(symbol) = self.native_instance_method_symbol(ty_name, 'display') { self.emit(Instr.CallNative(symbol, 1)); return; }
         if self.dispatches_via(ty_name, 'display') {
             self.emit(Instr.CallVirtual('display', 1));
             return;
         }
-        match self.interface_method(ty_name, 'Display', 'display') {
+        match self.interface_method(ty_id, 'Display', 'display') {
             Some(display_idx) => { self.emit(Instr.Call(display_idx, 1)); },
             None => {
                 // Total rendering: no static `Display` impl, so dispatch `display`
@@ -1787,12 +1794,21 @@ impl FnCompiler {
     // name (`Type` or `ns.Type`, not a local) selects a static method; otherwise
     // the receiver's static type does.
     fn resolve_method(self, _ receiver: Expr, _ name: String) -> Option<Int> {
-        let ty = match self.static_type_name(receiver) {
+        // Key the method table by the receiver's owner-qualified identity — a
+        // static type-name receiver (`Type`/`ns.Type`) or the receiver value's
+        // inferred type — so two libraries' same-named types keep distinct methods.
+        let id = match self.static_type_id(receiver) {
             Some(t) => Option.Some(t),
-            None => self.type_of(receiver),
+            None => match self.type_id_of(receiver) {
+                Some(t) => Option.Some(t),
+                // A primitive receiver carries no `Interface` TypeId; key it by its
+                // registry owner (`type_id_for`), which matches how `impl Int`/… was
+                // registered (`owner_of` resolves the same owner for a primitive).
+                None => self.type_of(receiver).map((n) => self.scope.type_id_for(n)),
+            },
         };
-        if let Some(t) = ty {
-            if let Some(m) = self.scope.method_table.get(t) { return m.get(name); }
+        if let Some(t) = id {
+            if let Some(m) = self.scope.method_table.get(type_key(t.owner, t.name)) { return m.get(name); }
         }
         return Option.None;
     }
@@ -1906,14 +1922,15 @@ impl FnCompiler {
 
     // --- dispatch helpers ---
 
-    fn interface_method(self, _ ty_name: Option<String>, _ interface_name: String, _ method: String) -> Option<Int> {
-        if let Some(t) = ty_name {
-            let implements = match self.scope.interface_impls.get(t) {
-                Some(s) => s.has(interface_name),
+    fn interface_method(self, _ ty: Option<TypeId>, _ interface_name: String, _ method: String) -> Option<Int> {
+        if let Some(t) = ty {
+            let key = type_key(t.owner, t.name);
+            let implements = match self.scope.interface_impls.get(key) {
+                Some(info) => info.interfaces.has(interface_name),
                 None => false,
             };
             if implements {
-                if let Some(m) = self.scope.method_table.get(t) { return m.get(method); }
+                if let Some(m) = self.scope.method_table.get(key) { return m.get(method); }
             }
         }
         return Option.None;
@@ -2033,11 +2050,19 @@ fn sorted_keys(_ cases: Map<Int, MatchArm>) -> List<Int> {
 // with its declared parameters applied (`List` -> `List<T>`). This is codegen's
 // inference-context construction; it matches the checker's `impl_self_type` so
 // the two infer a method body identically.
-fn named_self_type(_ name: String, _ library: element.LibraryElement) -> Type {
-    return primitive_type(name).unwrap_or_else(() => match library.type_defs.get(name) {
-        Some(def) => Type.Interface(TypeId { owner: def.owner_file, name: name }, def.type_parameters.map((p) => Type.TypeParameter(p))),
+fn named_self_type(_ name: String, _ library: element.LibraryElement, _ file: Option<String>) -> Type {
+    if let Some(p) = primitive_type(name) {
+        return p;
+    }
+    // Owner-correct: type `self` against the receiver the method's own file sees,
+    // so a method impl'd on a name two libraries share binds to *its* type — the
+    // self-type analogue of the method-table's owner keying.
+    let fs = file_scope(library, file);
+    let owner = fs.resolve_type_owner(name, Option.None);
+    return match fs.resolve_type_def(TypeId { owner: owner, name: name }) {
+        Some(def) => Type.Interface(TypeId { owner: owner, name: name }, def.type_parameters.map((p) => Type.TypeParameter(p))),
         None => Type.Interface(TypeId { owner: '', name: name }, []),
-    });
+    };
 }
 
 // The type-parameter names of a receiver type (`List<T>` -> `[T]`) — the owner
@@ -2065,14 +2090,21 @@ fn self_type_param_names(_ t: Type) -> List<String> {
 
 // The checker's receiver type for a unit — the oracle's reference, kept separate
 // from codegen's `named_self_type` so the comparison is a genuine differential.
-fn checker_self_type(_ self_name: Option<String>, _ library: element.LibraryElement) -> Option<Type> {
+fn checker_self_type(_ self_name: Option<String>, _ library: element.LibraryElement,
+    _ file: Option<String>) -> Option<Type> {
     return match self_name {
         Some(n) => match primitive_type(n) {
             Some(p) => Option.Some(p),
-            None => match library.type_defs.get(n) {
-                Some(def) => Option.Some(
-                    Type.Interface(TypeId { owner: def.owner_file, name: n }, def.type_parameters.map((p) => Type.TypeParameter(p)))),
-                None => Option.Some(Type.Interface(TypeId { owner: '', name: n }, [])),
+            None => {
+                // Resolved owner-correct (like `named_self_type`), but via its own
+                // path so the oracle stays a genuine differential.
+                let fs = file_scope(library, file);
+                let owner = fs.resolve_type_owner(n, Option.None);
+                match fs.resolve_type_def(TypeId { owner: owner, name: n }) {
+                    Some(def) => Option.Some(
+                        Type.Interface(TypeId { owner: owner, name: n }, def.type_parameters.map((p) => Type.TypeParameter(p)))),
+                    None => Option.Some(Type.Interface(TypeId { owner: '', name: n }, [])),
+                }
             },
         },
         None => Option.None,
@@ -2106,7 +2138,7 @@ fn run_infer_oracle(_ scope: ModuleScope) -> Void {
             // What codegen actually built (recorded during compilation) vs the
             // independent checker reference.
             let cg = describe_self(recorded_self(scope, p.index));
-            let ck = describe_self(checker_self_type(scope.unit_self_types[p.index], library));
+            let ck = describe_self(checker_self_type(scope.unit_self_types[p.index], library, scope.unit_files[p.index]));
             if cg != ck {
                 diverged = diverged + 1;
                 eprintln('  ${name}  [${file_label(scope.unit_files[p.index])}]');

@@ -1,7 +1,8 @@
 // Support library: `Point` (lat/lng) and `Label` — the same two type names
-// libpoint_a defines, with disjoint fields (`lng`/`b_id` vs `y`/`a_id`). A
-// qualified `b.Point` / `b.Label` reaches this one; the disjoint fields make a
-// wrong owner fail to compile rather than silently pick the other library's type.
+// libpoint_a defines, with disjoint fields (`lng`/`b_id` vs `y`/`a_id`) and its own
+// `scaled` / `Display`. A qualified `b.Point` reaches this one; the disjoint fields
+// and distinct method bodies make a wrong owner mis-dispatch rather than silently
+// pick the other library's type.
 
 pub struct Label {
     b_id: Int,
@@ -11,6 +12,18 @@ pub struct Point {
     lat: Int,
     lng: Int,
     label: Label,
+}
+
+impl Point {
+    pub fn scaled(self) -> Int {
+        return self.lat * 100 + self.lng;
+    }
+}
+
+impl Display for Point {
+    pub fn display(self) -> String {
+        return 'b:${self.lat},${self.lng}';
+    }
 }
 
 pub fn total(_ p: Point) -> Int {
