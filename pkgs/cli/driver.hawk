@@ -86,18 +86,20 @@ pub fn compile_source(_ source: String) -> CompileOutcome {
 // counterpart to `check_source` — this is what the CLI uses on a real file.
 pub fn check_source_at(_ source: String, _ path: String, _ sdk_root: Option<String>,
     parse_cache: Map<String, loader.ParsedFile> = {}) -> List<Diagnostic> {
+    // Canonical identity from the start, so the primary's attribution matches
+    // the keys the loader mints (`Diagnostic.file` is always canonical).
+    let canon = loader.canonical_path(path);
     let lex = lexer.tokenize(source);
     if lex.errors.len() > 0 {
-        return lex_diagnostics(lex.errors, build_source_map(source, path, []));
+        return lex_diagnostics(lex.errors, build_source_map(source, canon, []));
     }
     let parsed = parser.parse_tokens(lex.tokens);
     if parsed.errors.len() > 0 {
-        return parse_diagnostics(parsed.errors, build_source_map(source, path, []));
+        return parse_diagnostics(parsed.errors, build_source_map(source, canon, []));
     }
     let program = parsed.program;
-    program.file_path = Option.Some(path);
-    let loaded = loader.load_imports(path, program, sdk_root, parse_cache: parse_cache);
-    let src_map = build_source_map(source, path, loaded.programs);
+    let loaded = loader.load_imports(canon, program, sdk_root, parse_cache: parse_cache);
+    let src_map = build_source_map(source, canon, loaded.programs);
     // Lex/parse errors from imported files first (root causes), then the primary
     // program's check errors.
     let out = load_diagnostics(loaded.diagnostics);
@@ -110,18 +112,18 @@ pub fn check_source_at(_ source: String, _ path: String, _ sdk_root: Option<Stri
 // Compile `source` (located at `path`) to `.hawkbc` bytes with its import closure
 // linked in — the loader-backed counterpart to `compile_source`.
 pub fn compile_source_at(_ source: String, _ path: String, _ sdk_root: Option<String>) -> CompileOutcome {
+    let canon = loader.canonical_path(path);
     let lex = lexer.tokenize(source);
     if lex.errors.len() > 0 {
-        return failed(lex_diagnostics(lex.errors, build_source_map(source, path, [])));
+        return failed(lex_diagnostics(lex.errors, build_source_map(source, canon, [])));
     }
     let parsed = parser.parse_tokens(lex.tokens);
     if parsed.errors.len() > 0 {
-        return failed(parse_diagnostics(parsed.errors, build_source_map(source, path, [])));
+        return failed(parse_diagnostics(parsed.errors, build_source_map(source, canon, [])));
     }
     let program = parsed.program;
-    program.file_path = Option.Some(path);
-    let loaded = loader.load_imports(path, program, sdk_root);
-    let src_map = build_source_map(source, path, loaded.programs);
+    let loaded = loader.load_imports(canon, program, sdk_root);
+    let src_map = build_source_map(source, canon, loaded.programs);
     // An imported file that failed to lex/parse leaves the closure incomplete, so
     // its diagnostics (root causes) block codegen alongside any check errors.
     let import_diags = load_diagnostics(loaded.diagnostics);
@@ -158,10 +160,21 @@ pub fn lint_source(_ source: String) -> List<lint.Suggestion> {
     return lint.lint_program(parsed.program);
 }
 
-// `file:line:column: message` — the diagnostic line the CLI prints. Uses the
-// diagnostic's own `file` when known (an imported file), else `file_path`.
+// `file:line:column: message` — the diagnostic line the CLI prints. Attribution
+// (`d.file`) is canonical (absolute); printing shows the primary file exactly as
+// the user spelled it (`file_path`, the compiler convention), and any other
+// attributed file relative to the current directory when it lies under it.
 pub fn format_diagnostic(_ d: Diagnostic, _ file_path: String) -> String {
-    let file = d.file.unwrap_or(file_path);
+    let file = match d.file {
+        Some(f) => {
+            if f == loader.canonical_path(file_path) {
+                file_path
+            } else {
+                loader.display_path(f)
+            }
+        },
+        None => file_path,
+    };
     return '${file}:${d.span}: ${d.message}';
 }
 

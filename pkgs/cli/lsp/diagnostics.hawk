@@ -20,15 +20,18 @@ pub fn compute_diagnostics(_ text: String, _ path: String, _ sdk_root: Option<St
     // `check_source_at` now reports the whole closure (incl. imported-file
     // errors); the LSP publishes per-URI, so keep only this document's own
     // diagnostics — an imported file's surface when *it* is the open document.
+    // Attribution (`d.file`) is canonical, so compare in canonical form.
+    let canon = loader.canonical_path(path);
     for d in driver.check_source_at(text, path, sdk_root, parse_cache: parse_cache) {
-        if diagnostic_in_file(d, path) {
+        if diagnostic_in_file(d, canon) {
             items.push(diagnostic_to_json(d));
         }
     }
     return json.arr(items);
 }
 
-// Whether `d` belongs to `path` — its own file, or unattributed (the primary).
+// Whether `d` belongs to the (canonical) `path` — its own file, or unattributed
+// (the primary).
 fn diagnostic_in_file(_ d: driver.Diagnostic, _ path: String) -> Bool {
     return match d.file {
         Some(f) => f == path,

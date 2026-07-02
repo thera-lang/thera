@@ -60,8 +60,9 @@ impl Analysis {
     }
 
     // Evict `uri`'s parsed AST from the cross-request cache (a no-op when absent).
+    // The cache is keyed by the loader's canonical form, so evict by that key.
     pub fn invalidate(self, _ uri: String) -> Void {
-        match self.parse_cache.remove(paths.uri_to_path(uri)) {
+        match self.parse_cache.remove(loader.canonical_path(paths.uri_to_path(uri))) {
             Some(_) => {},
             None => {},
         }

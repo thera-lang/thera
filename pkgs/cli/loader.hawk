@@ -112,6 +112,41 @@ fn walk_up_for_std(_ start: String) -> Option<String> {
     return Option.None;
 }
 
+// --- canonical file identity ---
+
+// The loader's canonical identity form for a source-file path: **absolute**
+// (a relative path is resolved against the current directory) and **lexically
+// normalized** (`.`/`..` collapsed). Every key the loader mints — the closure
+// cache, `file_path` stamps, the per-file namespace/bare-surface tables, the
+// caller-supplied parse cache — is in this form, so the same physical file
+// reached under different spellings (`/abs/x.hawk`, `./x.hawk`, `x.hawk`,
+// `a/../x.hawk`) has exactly one identity. Purely lexical beyond the cwd
+// resolution: symlinks and case-folding are not resolved (no stdlib native yet).
+pub fn canonical_path(_ path: String) -> String {
+    if path.starts_with('/') {
+        return normalize_path(path);
+    }
+    return match env.current_dir() {
+        Ok(cwd) => normalize_path(cwd + '/' + path),
+        // No usable working directory (deleted, unreadable): the lexical-only
+        // fallback still dedupes different relative spellings of one path.
+        Err(_) => normalize_path(path),
+    };
+}
+
+// The display inverse of [canonical_path]: a canonical (absolute) path shown
+// relative to the current directory when it lies under it, else unchanged.
+// Identity stays canonical everywhere; only the printing edge relativizes.
+pub fn display_path(_ path: String) -> String {
+    if let Ok(cwd) = env.current_dir() {
+        let prefix = cwd + '/';
+        if path.starts_with(prefix) {
+            return path.slice(prefix.len(), path.len());
+        }
+    }
+    return path;
+}
+
 // --- file resolution ---
 
 // Resolve a library base path (no extension) to its source file: `<base>.hawk`,
@@ -207,7 +242,7 @@ impl Loader {
                     match std_root(root) {
                         Some(std) => {
                             let rel = import_path.slice(STD_PREFIX.len(), import_path.len()).split('.').join('/');
-                            return normalize_resolved(resolve_library_file(std + '/' + rel));
+                            return canonical_resolved(resolve_library_file(std + '/' + rel));
                         },
                         None => { return Option.None; },
                     }
@@ -215,11 +250,12 @@ impl Loader {
                 None => { return Option.None; },
             }
         }
-        // Normalize so the same physical file reached by different `../` spellings
-        // (`codegen/../element/element` vs `element/element`) gets one canonical key
-        // — otherwise it loads (and compiles) once per spelling, and owner-correct
-        // resolution can't tell the duplicate units apart.
-        return normalize_resolved(resolve_library_file(base_dir + '/' + import_path));
+        // Canonicalize so the same physical file reached by different spellings
+        // (`codegen/../element/element` vs `element/element`, or the root file
+        // re-reached through an import cycle) gets one canonical key — otherwise
+        // it loads (and compiles) once per spelling, and owner-correct resolution
+        // can't tell the duplicate units apart.
+        return canonical_resolved(resolve_library_file(base_dir + '/' + import_path));
     }
 
     // Resolve `file` to a library source, recursively linking its imports. Cached
@@ -275,8 +311,18 @@ impl Loader {
 
 // Resolve and parse the import closure of `program` (located at `path`). `program`
 // itself is used as-is (not re-read), so in-memory edits are honored.
+//
+// `path` is canonicalized at entry ([canonical_path]) and the program's
+// `file_path` is re-stamped with the canonical form, so the root carries the
+// same identity import resolution produces: a cycle that re-reaches the root
+// hits the cache instead of loading the file a second time as a duplicate unit,
+// and a bare `hawk run root.hawk` resolves its imports against the invocation
+// directory (the pre-canonical `dirname('root.hawk')` was `''`, which sent
+// imports to the filesystem root).
 pub fn load_imports(_ path: String, _ program: Program, _ sdk_root: Option<String>,
     parse_cache: Map<String, ParsedFile> = {}) -> LoadedImports {
+    let canon = canonical_path(path);
+    program.file_path = Option.Some(canon);
     let loader = Loader {
         sdk_root: sdk_root,
         order: [],
@@ -303,10 +349,11 @@ pub fn load_imports(_ path: String, _ program: Program, _ sdk_root: Option<Strin
     }
 
     // The primary program is already parsed; link its imports so its namespaces
-    // can be derived.
+    // can be derived. Cached under the canonical key, so an import that resolves
+    // back to the root (a cycle) reuses this in-memory program.
     let root = LibrarySource { program: program, imports: {} };
-    loader.cache[path] = root;
-    loader.link_imports(program, dirname(path), root);
+    loader.cache[canon] = root;
+    loader.link_imports(program, dirname(canon), root);
 
     // Each file resolves qualifiers against its own imports — so build a per-file
     // table (every linked module, plus the root) rather than a closure-wide union.
@@ -542,8 +589,8 @@ fn normalize_path(_ path: String) -> String {
     return if absolute { '/' + joined } else { joined };
 }
 
-fn normalize_resolved(_ o: Option<String>) -> Option<String> {
-    return o.map((f) => normalize_path(f));
+fn canonical_resolved(_ o: Option<String>) -> Option<String> {
+    return o.map((f) => canonical_path(f));
 }
 
 // The directory portion of `path` — everything before the last `/`.
