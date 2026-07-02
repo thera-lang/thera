@@ -49,7 +49,12 @@ fn test_resolve_function_same_file() -> Result<Void, Error> {
 fn test_resolve_type_def() -> Result<Void, Error> {
     let lib = lib_of('struct Point { x: Int }');
     let fs = file_scope(lib, Option.None);
-    testing.assert(match fs.resolve_type_def('Point') {
+    // Resolve owner-correctly: a `Type`'s `TypeId` carries Point's owning file.
+    let owner = match lib.type_defs.get('Point') {
+        Some(d) => d.owner_file,
+        None => '',
+    };
+    testing.assert(match fs.resolve_type_def(TypeId { owner: owner, name: 'Point' }) {
         Some(d) => d.kind == TypeDefKind.Struct,
         None => false,
     }, message: 'Point resolves to a struct def')?;

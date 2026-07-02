@@ -140,16 +140,30 @@ impl FileScope {
 
     // --- types ---
 
-    // The type definition for canonical type name `name`. Intentionally a global
-    // by-name lookup, not bare-scoped: this resolves both a bare source reference
-    // *and* an already-resolved `Type.Interface(name)` whose type may be owned by
-    // any file in the closure (a namespace-qualified receiver type, etc.) — the
-    // name is all a `Type` carries. Bare *legality* is enforced separately by the
-    // checker's `is_type_known` gate. Making type resolution owner-correct (lifting
-    // uniqueness for types too) needs `Type` to carry its origin file — a separate
-    // effort; for now type names remain globally unique while values (functions /
-    // consts) do not.
-    pub fn resolve_type_def(self, _ name: String) -> Option<TypeDefElement> {
+    // The type definition an already-resolved `Type.Interface(id)` denotes,
+    // resolved **within its owning file** (Phase 1 T2): a `Type` now carries its
+    // origin (`TypeId {owner, name}`), so the def comes from that file's table, not
+    // a global by-name lookup — a wrong owner misses rather than silently
+    // resolving a same-named type elsewhere. The `<builtin>` sentinel (the hermetic
+    // floor's owner) falls through to the global floor; every real owner is a file
+    // in `file_type_defs`. Type names are still globally unique (the flip is T4),
+    // so under uniqueness this returns the same element the global lookup did —
+    // which the SDK fixpoint confirms.
+    pub fn resolve_type_def(self, _ id: TypeId) -> Option<TypeDefElement> {
+        if id.owner == '<builtin>' {
+            return self.library.type_defs.get(id.name);
+        }
+        return match self.library.file_type_defs.get(id.owner) {
+            Some(m) => m.get(id.name),
+            None => Option.None,
+        };
+    }
+
+    // The type definition for a bare type *name* — a source reference (a struct
+    // being constructed, an interface bound) or a primitive's element. Still a
+    // global by-name lookup: these names carry no owner, and owner-correct source
+    // resolution (picking among same-named types via this file's scope) is T4.
+    pub fn resolve_type_def_by_name(self, _ name: String) -> Option<TypeDefElement> {
         return self.library.type_defs.get(name);
     }
 

@@ -133,7 +133,7 @@ fn infer_map(_ entries: List<MapEntry>, _ scope: Map<String, Type>, _ ctx: Infer
 }
 
 fn infer_struct(_ x: StructExpr, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
-    if let Some(element) = ctx_scope(ctx).resolve_type_def(x.type_name) {
+    if let Some(element) = ctx_scope(ctx).resolve_type_def_by_name(x.type_name) {
         if element.kind == TypeDefKind.Struct {
             let bindings: Map<String, Type> = {};
             for fi in x.fields {
@@ -656,7 +656,7 @@ fn infer_call_field(_ obj: Expr, _ field: String, _ arg_types: List<Type>,
     if let TypeParameter(tpname) = recv_type {
         if let Some(bounds) = ctx.type_param_bounds.get(tpname) {
             for bound in bounds {
-                if let Some(bdef) = ctx_scope(ctx).resolve_type_def(bound) {
+                if let Some(bdef) = ctx_scope(ctx).resolve_type_def_by_name(bound) {
                     if let Some(method) = find_method(bdef, field) { return method.return_type; }
                 }
             }
@@ -769,7 +769,7 @@ fn dispatches_virtually(_ recv: Type, _ ctx: InferCtx) -> Bool {
 }
 
 fn is_interface_def(_ name: String, _ ctx: InferCtx) -> Bool {
-    return match ctx_scope(ctx).resolve_type_def(name) {
+    return match ctx_scope(ctx).resolve_type_def_by_name(name) {
         Some(def) => def.kind == TypeDefKind.Interface,
         None => false,
     };
@@ -811,7 +811,7 @@ pub fn expected_arg_types(_ callee: Expr, _ args: List<CallArg>,
                 None => {
                     let recv = infer_expr(obj, scope, ctx, Option.None);
                     if let Interface(rname, rargs) = recv {
-                        if let Some(rdef) = ctx_scope(ctx).resolve_type_def(rname.name) {
+                        if let Some(rdef) = ctx_scope(ctx).resolve_type_def(rname) {
                             match find_method(rdef, field) {
                                 Some(method) => {
                                     params = Option.Some(method.parameters);
@@ -914,7 +914,7 @@ pub fn bind_for_pattern(_ pattern: Pattern, _ iter_type: Type,
 // Result/Option are ordinary enums here, handled by this generic path.
 fn variant_field_types(_ subject: Type, _ name: String, _ ctx: InferCtx) -> List<Type> {
     if let Interface(sname, sargs) = subject {
-        if let Some(element) = ctx_scope(ctx).resolve_type_def(sname.name) {
+        if let Some(element) = ctx_scope(ctx).resolve_type_def(sname) {
             if element.kind == TypeDefKind.Enum {
                 if let Some(variant) = find_variant(element, name) {
                     let bindings = receiver_bindings(sname.name, sargs, ctx);
@@ -947,7 +947,7 @@ pub fn for_element_type(_ iter_type: Type, _ ctx: InferCtx) -> Type {
 // arguments applied. None if not an iterator.
 fn iterator_element(_ t: Type, _ ctx: InferCtx) -> Option<Type> {
     if let Interface(name, args) = t {
-        if let Some(def) = ctx_scope(ctx).resolve_type_def(name.name) {
+        if let Some(def) = ctx_scope(ctx).resolve_type_def(name) {
             if name.name != 'Iterator' && !str_list_has(def.interfaces, 'Iterator') {
                 return Option.None;
             }
@@ -1071,7 +1071,7 @@ fn index_result(_ recv: Type) -> Type {
 // Type of `recv.field` for a struct receiver (with generic args applied).
 fn field_type(_ recv: Type, _ field: String, _ ctx: InferCtx) -> Type {
     if let Interface(name, args) = recv {
-        if let Some(def) = ctx_scope(ctx).resolve_type_def(name.name) {
+        if let Some(def) = ctx_scope(ctx).resolve_type_def(name) {
             if def.kind == TypeDefKind.Struct {
                 if let Some(declared) = def.fields.get(field) {
                     return substitute(declared, receiver_bindings(name.name, args, ctx));
@@ -1097,7 +1097,7 @@ fn type_def_for_expr(_ object: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx
     match object {
         Ident(_, name) => {
             if !scope.has(name) {
-                return ctx_scope(ctx).resolve_type_def(name);
+                return ctx_scope(ctx).resolve_type_def_by_name(name);
             };
         },
         Field(_, inner, field) => {
@@ -1169,9 +1169,9 @@ fn enum_expected_args(_ name: String, _ expected: Option<Type>) -> List<Type> {
 // the bridge that lets primitives host methods uniformly.
 fn type_def_for(_ ty: Type, _ ctx: InferCtx) -> Option<TypeDefElement> {
     return match ty {
-        Interface(name, _) => ctx_scope(ctx).resolve_type_def(name.name),
+        Interface(name, _) => ctx_scope(ctx).resolve_type_def(name),
         Primitive(p) => match primitive_type_name(p) {
-            Some(n) => ctx_scope(ctx).resolve_type_def(n),
+            Some(n) => ctx_scope(ctx).resolve_type_def_by_name(n),
             None => Option.None,
         },
         _ => Option.None,
@@ -1275,7 +1275,7 @@ fn default_method_bindings(_ element: TypeDefElement, _ iface_name: String,
 fn find_default_method(_ element: TypeDefElement, _ field: String, _ ctx: InferCtx)
     -> Option<MethodResolution> {
     for iface_name in element.interfaces {
-        if let Some(iface_def) = ctx_scope(ctx).resolve_type_def(iface_name) {
+        if let Some(iface_def) = ctx_scope(ctx).resolve_type_def_by_name(iface_name) {
             if is_default_method(iface_def, field) {
                 if let Some(method) = find_method(iface_def, field) {
                     return Option.Some(MethodResolution {
@@ -1386,7 +1386,7 @@ fn combined_type_params(_ a: List<String>, _ b: List<String>) -> List<String> {
 
 fn is_enum_type(_ ty: Type, _ ctx: InferCtx) -> Bool {
     return match ty {
-        Interface(name, _) => match ctx_scope(ctx).resolve_type_def(name.name) {
+        Interface(name, _) => match ctx_scope(ctx).resolve_type_def(name) {
             Some(def) => def.kind == TypeDefKind.Enum,
             None => false,
         },
@@ -1398,7 +1398,7 @@ fn is_enum_type(_ ty: Type, _ ctx: InferCtx) -> Bool {
 // resolved arguments, for instantiating members.
 fn receiver_bindings(_ name: String, _ args: List<Type>, _ ctx: InferCtx) -> Map<String, Type> {
     let bindings: Map<String, Type> = {};
-    if let Some(def) = ctx_scope(ctx).resolve_type_def(name) {
+    if let Some(def) = ctx_scope(ctx).resolve_type_def_by_name(name) {
         let params = def.type_parameters;
         let mut i = 0;
         while i < params.len() && i < args.len() {

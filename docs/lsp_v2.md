@@ -153,9 +153,15 @@ sites resolve an *inferred* `Type` — which needs the owner on `Type` (T1) anyw
   a name share one owner) — **the SDK fixpoint is byte-identical**, proving it.
   ~70 sites across the type core (types/element/resolver/inference/checker/codegen)
   + test updates (expected types built via `named_type`, so owners match).
-- **T2 — element model.** `resolve_type_def` owner-keyed via `file_type_defs`
-  (a wrong owner → miss in the per-file table → broken build, so the **fixpoint
-  validates owner-correctness here**). Migrate the raw-map helper sites.
+- **T2 — element model. _Done._** `FileScope.resolve_type_def` now takes a
+  `TypeId` and resolves via `file_type_defs[id.owner]` (no global fallback for a
+  real owner; the `<builtin>` sentinel falls through to the hermetic floor). The
+  6 `Type.Interface`-derived call sites pass the id; the 7 bare-name sites (struct
+  literals, interface bounds, primitive elements — no owner in hand) use a new
+  `resolve_type_def_by_name` (still global, an owner-correct *source* resolution is
+  T4). Because a wrong owner would miss the per-file table → broken build, **the
+  byte-identical SDK fixpoint validates T1's owner stamping here.** (The checker's
+  raw `type_defs.get(name)` sites stay name-based — migrated in T4.)
 - **T3 — codegen type table.** Per-file `file_structs`/`file_enums`; resolve a
   `Type` to its runtime id via its `owner` (covers both construction sites and
   inferred-`Type` sites). Fixpoint holds.
