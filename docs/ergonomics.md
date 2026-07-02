@@ -267,13 +267,18 @@ _Tools — refactorings_).
 Lower-priority contributors to verbosity. Worth recording; address
 opportunistically.
 
-- **C-style `while i < xs.len()` loops** — ~83 of them. Some are genuine
-  parallel-index iteration (`i_params[i]` vs `o_params[i]` in
-  [`signatures_match`](../pkgs/cli/checker/checker.hawk)) that wants a `zip`
-  adapter; others just need an index and `enumerate()` (already exists) would
-  do. A `zip` iterator adapter would retire a chunk of these — **tracked** on
-  [roadmap.md](roadmap.md) (it has a `Pair`/tuple design dependency, since
-  Hawk has no tuple to yield pairs into).
+- **C-style `while i < xs.len()` loops** — 65 flagged by `hawk lint`. A survey:
+  ~23% read only `xs[i]` (→ `for x in xs`), ~9% only need the index (→
+  `for i in 0..xs.len()`), and ~68% use both the element and the position (bounds,
+  first/last checks, parallel `ys[i]`). The last group was the blocker — it needs
+  indexed iteration, now provided by **`List.enumerate()`** (landed): a lazy
+  `Iterator<Indexed<T>>`, so `for p in xs.enumerate() { … p.index … p.value … }`
+  with no import or new syntax, reusing the blessed `Indexed<T>` struct. A `zip`
+  adapter for the parallel-two-list sub-case (`i_params[i]` vs `o_params[i]` in
+  [`signatures_match`](../pkgs/cli/checker/checker.hawk)) is still **tracked** on
+  [roadmap.md](roadmap.md) (it has a `Pair`/tuple design dependency, since Hawk
+  has no tuple to yield pairs into). An auto-rewriter for these loops is deferred
+  (it needs a real loop-body rewrite — see roadmap).
 - **`return match … { … };` as a whole function body** (~214×). The
   most-repeated boilerplate after the Option arms. This follows from the
   deliberate decision that function bodies are _not_ expression position (so a

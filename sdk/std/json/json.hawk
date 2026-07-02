@@ -561,17 +561,15 @@ fn write_array(_ items: List<Json>, _ pretty: Bool, _ indent: Int, _ out: List<S
         return void;
     }
     out.push('[');
-    let mut i = 0;
-    while i < items.len() {
+    for p in items.enumerate() {
         if pretty {
             out.push('\n');
             out.push(indent_str(indent + 1));
         }
-        write_value(items[i], pretty, indent + 1, out);
-        if i + 1 < items.len() {
+        write_value(p.value, pretty, indent + 1, out);
+        if p.index + 1 < items.len() {
             out.push(',');
         }
-        i = i + 1;
     }
     if pretty {
         out.push('\n');

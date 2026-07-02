@@ -59,14 +59,12 @@ pub fn from_native(_ p: String) -> String {
 pub fn components(_ path: String) -> List<String> {
     let raw = path.split('/');
     let result: List<String> = [];
-    let mut i = 0;
-    while i < raw.len() {
-        let part = raw[i];
+    for p in raw.enumerate() {
+        let part = p.value;
         // Keep a leading empty component (root marker); drop the rest.
-        if !part.is_empty() || i == 0 {
+        if !part.is_empty() || p.index == 0 {
             result.push(part);
         }
-        i = i + 1;
     }
     return result;
 }

@@ -74,6 +74,13 @@ resolution_ below.)
     `fs.open`/`create` → `File` (`Reader`/`Writer`/`Seek`/`Closer`); `List.pop`
     also landed. Remaining: the rest of the "batteries included" goal
     (`std.log`, `std.term`), and sorted/`Ord`-keyed `Set`/`Map` variants.
+  - **`List.enumerate()` — _landed._** A lazy `Iterator<Indexed<T>>` right on
+    `List` (`for p in xs.enumerate() { … p.index … p.value … }`), the idiomatic
+    replacement for a `while i < xs.len()` index loop — no import, no new syntax,
+    reusing the blessed `Indexed<T>` struct (so it sidesteps the `Pair`/`Tuple`
+    decision below). Backed by a small `ListEnumerateIter` cursor in
+    `std.core`. This is the chosen answer to the indexed-loop ergonomics gap the
+    review found (see below / [ergonomics.md](ergonomics.md)).
   - **`zip` iterator adapter** (and `flat_map`/`chain`, the other wrapped
     adapters the `enumerate` parser extension opened). `zip(a, b)` pairs two
     iterators; the **design dependency** is what it yields — Hawk has no tuple,
@@ -474,10 +481,22 @@ resolution_ below.)
     `opt.map((v) => f(v))`; `match opt { Some(v) => v, None => d }` →
     `opt.unwrap_or(d)` / `.unwrap_or_else(…)` (already underused — e.g. json
     `write_object` — so this rewrites existing code too).
-  - **`while i < xs.len()` → `for`/`enumerate`/`zip`.** A manual index loop that
-    only reads `xs[i]` → `for x in xs`; one that needs the index →
-    `for (i, x) in xs.enumerate()`; a parallel two-list index loop → a `zip`
-    adapter (when one exists — see the iterator note under _Stdlib breadth_).
+  - **`while i < xs.len()` → `for` / `enumerate`. _Lint landed; rewriter not
+    built (see below)._** A survey of the 65 flagged sites: **A** — `i` only ever
+    appears as `xs[i]` + the increment (15, ~23%) → `for x in xs`; **B** — `i`
+    never indexes `xs`, only passed on / used as a bound (6, ~9%) →
+    `for i in 0..xs.len()`; **C** — `i` used as *both* `xs[i]` and for position
+    (bounds, first/last checks, parallel `ys[i]`) (44, ~68%) →
+    `for p in xs.enumerate() { … p.value … p.index … }`. The C majority was the
+    real blocker — it needs indexed iteration, now provided by **`List.enumerate()`**
+    (landed; see _Stdlib breadth_). The rewriter itself is **not built**: unlike
+    the `match` rules it needs a genuine loop-body rewrite (substitute `xs[i]` →
+    the binding, delete the pre-loop `let mut i = 0` and the `i = i + 1`, both
+    outside the loop span) — a bigger capability step. The lint already flags all
+    65; the `enumerate` ergonomic lets a human/agent convert idiomatically, and
+    two sites (`json.write_array`, `path.components`) are dogfooded. Deferred: a
+    `zip` adapter for the parallel-two-list sub-case (needs the `Pair`/`Tuple`
+    decision below).
   - **Shared machinery — _edit toolkit landed._** Edits are created by
     **AST-guided source-slice reassembly**, not AST pretty-printing: the kept
     sub-expressions (scrutinee/pattern/body) are sliced verbatim from source via

@@ -14,6 +14,49 @@ fn test_slice() -> Result<Void, Error> {
 }
 
 @test
+fn test_enumerate_pairs_index_and_value() -> Result<Void, Error> {
+    // Collected: each element paired with its 0-based position.
+    let pairs = ['a', 'b', 'c'].enumerate().collect();
+    testing.assert_eq(actual: pairs.len(), expected: 3)?;
+    testing.assert_eq(actual: pairs[0].index, expected: 0)?;
+    testing.assert_eq(actual: pairs[0].value, expected: 'a')?;
+    testing.assert_eq(actual: pairs[2].index, expected: 2)?;
+    testing.assert_eq(actual: pairs[2].value, expected: 'c')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_enumerate_drives_a_for_loop() -> Result<Void, Error> {
+    // The intended use: iterate with the index in hand (the `while i < xs.len()`
+    // replacement).
+    let xs = [10, 20, 30];
+    let mut seen: List<String> = [];
+    for p in xs.enumerate() {
+        seen.push('${p.index}=${p.value}');
+    }
+    testing.assert_eq(actual: seen, expected: ['0=10', '1=20', '2=30'])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_enumerate_empty_is_empty() -> Result<Void, Error> {
+    let empty: List<Int> = [];
+    testing.assert_eq(actual: empty.enumerate().count(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_enumerate_is_lazy_and_composes() -> Result<Void, Error> {
+    // A lazy adapter like `Iterator.enumerate` — the interface default methods
+    // (`filter`/`collect`) compose on it.
+    let evens = [5, 6, 7, 8].enumerate().filter((p) => p.value % 2 == 0).collect();
+    testing.assert_eq(actual: evens.len(), expected: 2)?;
+    testing.assert_eq(actual: evens[0].index, expected: 1)?;
+    testing.assert_eq(actual: evens[0].value, expected: 6)?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_map_filter_fold_still_work() -> Result<Void, Error> {
     let xs = [1, 2, 3, 4];
     testing.assert_eq(actual: xs.map(n => n * 2), expected: [2, 4, 6, 8])?;

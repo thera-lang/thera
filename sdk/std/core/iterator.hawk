@@ -155,3 +155,22 @@ impl Iterator<Indexed<T>> for EnumerateIter<T> {
         };
     }
 }
+
+// The iterator backing `List.enumerate()` — walks a list by index, pairing each
+// element with its position. Kept here (a plain index cursor, no `List.iter()`
+// bridge) so the pairing lives beside `Indexed`/`EnumerateIter`.
+struct ListEnumerateIter<T> {
+    list: List<T>,
+    mut pos: Int,
+}
+
+impl Iterator<Indexed<T>> for ListEnumerateIter<T> {
+    pub fn next(self) -> Option<Indexed<T>> {
+        if self.pos >= self.list.len() {
+            return Option.None;
+        }
+        let i = self.pos;
+        self.pos = self.pos + 1;
+        return Option.Some(Indexed { index: i, value: self.list[i] });
+    }
+}

@@ -161,6 +161,20 @@ impl List<T> {
         return src;
     }
 
+    /// A lazy iterator pairing each element with its 0-based position, as
+    /// `Indexed<T>` values (`.index`, `.value`). Reach for it to iterate with the
+    /// index in hand — `for p in xs.enumerate() { … p.index … p.value … }` — in
+    /// place of a manual `while i < xs.len()` index loop.
+    ///
+    /// ```hawk
+    /// for p in ['a', 'b'].enumerate() {
+    ///     println('${p.index}: ${p.value}');   // 0: a\n1: b
+    /// }
+    /// ```
+    pub fn enumerate(self) -> Iterator<Indexed<T>> {
+        return ListEnumerateIter { list: self, pos: 0 };
+    }
+
     /// A new list with `f` applied to each element, in order.
     pub fn map<U>(self, _ f: (T) -> U) -> List<U> {
         let result = [];
