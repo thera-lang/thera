@@ -34,12 +34,10 @@ struct StringPool {
 impl StringPool {
     // Intern `s`, returning its pool index (reusing an existing entry).
     fn intern(self, _ s: String) -> Int {
-        let mut i = 0;
-        while i < self.strings.len() {
-            if self.strings[i] == s {
-                return i;
+        for p in self.strings.enumerate() {
+            if p.value == s {
+                return p.index;
             }
-            i = i + 1;
         }
         let n = self.strings.len();
         self.strings.push(s);
@@ -48,12 +46,10 @@ impl StringPool {
 
     // The index of an already-interned string.
     fn index_of(self, _ s: String) -> Int {
-        let mut i = 0;
-        while i < self.strings.len() {
-            if self.strings[i] == s {
-                return i;
+        for p in self.strings.enumerate() {
+            if p.value == s {
+                return p.index;
             }
-            i = i + 1;
         }
         return -1; // unreachable: every referenced string is interned first
     }

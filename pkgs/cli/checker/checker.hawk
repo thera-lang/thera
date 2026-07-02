@@ -488,10 +488,8 @@ fn check_block(_ errors: List<CheckError>, _ block: Block, _ outer: Map<String, 
     // A block's bindings are scoped to it (like `scope`), so copy the mutability
     // map too — a `let` inside the block doesn't leak to the enclosing one.
     let block_muts = copy_muts(muts);
-    let mut i = 0;
-    while i < block.stmts.len() {
-        check_stmt(errors, block.stmts[i], block.stmts, i, scope, ctx, block_muts);
-        i = i + 1;
+    for p in block.stmts.enumerate() {
+        check_stmt(errors, p.value, block.stmts, p.index, scope, ctx, block_muts);
     }
     if let Some(tail) = block.tail {
         // An else-less `if` tail has type Unit (its then-branch runs for
