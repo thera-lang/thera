@@ -203,19 +203,17 @@ fn infer_lambda(_ x: LambdaExpr, _ scope: Map<String, Type>, _ ctx: InferCtx,
     // unknown (the checker errors on a remaining unknown).
     let expected_params = expected_function_params(expected);
     let param_types: List<Type> = [];
-    let mut i = 0;
-    while i < x.params.len() {
-        let p = x.params[i];
+    for ip in x.params.enumerate() {
+        let p = ip.value;
         let pt = match p.type_ann {
             Some(ref) => resolver.resolve_type_ref(ref, ctx.library.type_defs, ctx.type_params, ctx.self_type),
             None => match expected_params {
-                Some(eps) => if i < eps.len() { eps[i] } else { Type.Unknown },
+                Some(eps) => if ip.index < eps.len() { eps[ip.index] } else { Type.Unknown },
                 None => Type.Unknown,
             },
         };
         param_types.push(pt);
         lambda_scope[p.name] = pt;
-        i = i + 1;
     }
     let ret = lambda_body_type(x.body, lambda_scope, ctx, expected_function_return(expected));
     return Type.Function(param_types, ret);
@@ -252,12 +250,10 @@ fn collect_block_returns(_ block: Block, _ scope: Map<String, Type>, _ ctx: Infe
     _ expected: Option<Type>) -> Type {
     let s = copy_scope(scope);
     let mut result = Type.Unknown;
-    let mut i = 0;
-    while i < block.stmts.len() {
-        let stmt = block.stmts[i];
+    for p in block.stmts.enumerate() {
+        let stmt = p.value;
         result = first_known(result, stmt_return_type(stmt, s, ctx, expected));
-        infer_stmt_fwd(stmt, block.stmts, i, s, ctx); // grow the scope a following `return` sees
-        i = i + 1;
+        infer_stmt_fwd(stmt, block.stmts, p.index, s, ctx); // grow the scope a following `return` sees
     }
     return result;
 }
@@ -338,10 +334,8 @@ fn infer_if(_ x: IfExpr, _ scope: Map<String, Type>, _ ctx: InferCtx,
 pub fn infer_block(_ block: Block, _ outer: Map<String, Type>, _ ctx: InferCtx,
     _ expected: Option<Type>) -> Type {
     let scope = copy_scope(outer);
-    let mut i = 0;
-    while i < block.stmts.len() {
-        infer_stmt_fwd(block.stmts[i], block.stmts, i, scope, ctx);
-        i = i + 1;
+    for p in block.stmts.enumerate() {
+        infer_stmt_fwd(p.value, block.stmts, p.index, scope, ctx);
     }
     return match block.tail {
         Some(tail) => infer_expr(tail, scope, ctx, expected),
@@ -477,12 +471,10 @@ fn pinning_in_if(_ name: String, _ then_block: Block, _ else_block: Option<Block
 fn pinning_in_block(_ name: String, _ block: Block, _ current: Type,
     _ scope: Map<String, Type>, _ ctx: InferCtx) -> Option<Type> {
     let s = copy_scope(scope);
-    let mut i = 0;
-    while i < block.stmts.len() {
-        let stmt = block.stmts[i];
+    for p in block.stmts.enumerate() {
+        let stmt = p.value;
         if let Some(t) = pinning_candidate(name, stmt, current, s, ctx) { return Option.Some(t); }
         infer_stmt(stmt, s, ctx);
-        i = i + 1;
     }
     return Option.None;
 }
@@ -525,10 +517,8 @@ fn merge_known(_ a: Type, _ b: Type) -> Type {
         Interface(an, aargs) => match b {
             Interface(bn, bargs) => if an == bn && aargs.len() == bargs.len() {
                 let merged: List<Type> = [];
-                let mut i = 0;
-                while i < aargs.len() {
-                    merged.push(merge_known(aargs[i], bargs[i]));
-                    i = i + 1;
+                for p in aargs.enumerate() {
+                    merged.push(merge_known(p.value, bargs[p.index]));
                 }
                 Type.Interface(an, merged)
             } else {
@@ -576,14 +566,12 @@ fn infer_call(_ x: CallExpr, _ scope: Map<String, Type>, _ ctx: InferCtx,
     // its parameter types from the callee's signature.
     let expected_params = expected_arg_types(callee, args, scope, ctx);
     let arg_types: List<Type> = [];
-    let mut i = 0;
-    while i < args.len() {
+    for p in args.enumerate() {
         let exp = match expected_params {
-            Some(eps) => if i < eps.len() { Option.Some(eps[i]) } else { Option.None },
+            Some(eps) => if p.index < eps.len() { Option.Some(eps[p.index]) } else { Option.None },
             None => Option.None,
         };
-        arg_types.push(infer_expr(args[i].value, scope, ctx, exp));
-        i = i + 1;
+        arg_types.push(infer_expr(p.value.value, scope, ctx, exp));
     }
 
     match callee {
@@ -897,11 +885,9 @@ pub fn bind_match_pattern(_ pattern: Pattern, _ subject: Type,
         Ident(_, name) => { scope[name] = subject; },
         Constructor(_, name, pargs) => {
             let field_types = variant_field_types(subject, name, ctx);
-            let mut i = 0;
-            while i < pargs.len() {
-                let t = if i < field_types.len() { field_types[i] } else { Type.Unknown };
-                bind_match_pattern(pargs[i], t, scope, ctx);
-                i = i + 1;
+            for p in pargs.enumerate() {
+                let t = if p.index < field_types.len() { field_types[p.index] } else { Type.Unknown };
+                bind_match_pattern(p.value, t, scope, ctx);
             }
         },
         Wildcard(_) => {},
@@ -1146,11 +1132,9 @@ fn enum_variant_type(_ object: Expr, _ variant: String, _ arg_types: List<Type>,
                     // where both apply (a real mismatch is reported elsewhere).
                     let expected_args = enum_expected_args(element.name, expected);
                     let args: List<Type> = [];
-                    let mut k = 0;
-                    while k < element.type_parameters.len() {
-                        let tp = element.type_parameters[k];
-                        args.push(bindings.get(tp).unwrap_or_else(() => arg_at(expected_args, k)));
-                        k = k + 1;
+                    for p in element.type_parameters.enumerate() {
+                        let tp = p.value;
+                        args.push(bindings.get(tp).unwrap_or_else(() => arg_at(expected_args, p.index)));
                     }
                     return Option.Some(Type.Interface(element.name, args));
                 },

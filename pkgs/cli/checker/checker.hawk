@@ -153,13 +153,12 @@ fn report_dups(_ errors: List<CheckError>, _ m: Map<String, List<NameSite>>, _ k
 // file) is the duplicate — report it, pointing at the earliest definition it
 // shadows. Each collision is reported once, at the offending (later) definition.
 fn report_name(_ errors: List<CheckError>, _ name: String, _ kind: String, _ sites: List<NameSite>) -> Void {
-    let mut i = 0;
-    while i < sites.len() {
-        let s = sites[i];
+    for p in sites.enumerate() {
+        let s = p.value;
         if s.primary {
             let mut j = 0;
             let mut reported = false;
-            while j < i && !reported {
+            while j < p.index && !reported {
                 if !same_decl(s, sites[j]) && collides(s, sites[j], kind) {
                     let where = if file_key(s.file) == file_key(sites[j].file) {
                         'this file'
@@ -172,7 +171,6 @@ fn report_name(_ errors: List<CheckError>, _ name: String, _ kind: String, _ sit
                 j = j + 1;
             }
         }
-        i = i + 1;
     }
 }
 
@@ -368,11 +366,9 @@ fn check_conformance(_ errors: List<CheckError>, _ decl: ImplDecl, _ library: Li
             }
             let impl_tps = type_param_set(decl.type_params);
             let iface_bindings: Map<String, Type> = {};
-            let mut i = 0;
-            while i < iface_params.len() {
-                iface_bindings[iface_params[i]] = resolver.resolve_type_ref(
-                    decl.interface_args[i], library.type_defs, impl_tps, Option.Some(impl_type));
-                i = i + 1;
+            for p in iface_params.enumerate() {
+                iface_bindings[p.value] = resolver.resolve_type_ref(
+                    decl.interface_args[p.index], library.type_defs, impl_tps, Option.Some(impl_type));
             }
             let provided: Set<String> = Set.new();
             for m in decl.methods {
@@ -431,13 +427,11 @@ fn signatures_match(_ im: FunctionElement, _ om: FunctionElement, _ self_type: T
     if i_params.len() != o_params.len() {
         return false;
     }
-    let mut i = 0;
-    while i < i_params.len() {
-        let expect = self_to_impl(substitute(i_params[i].ty, iface_bindings), self_type, impl_type);
-        if !type_matches(expect, o_params[i].ty) {
+    for p in i_params.enumerate() {
+        let expect = self_to_impl(substitute(p.value.ty, iface_bindings), self_type, impl_type);
+        if !type_matches(expect, o_params[p.index].ty) {
             return false;
         }
-        i = i + 1;
     }
     let expect_ret = self_to_impl(substitute(im.return_type, iface_bindings), self_type, impl_type);
     return type_matches(expect_ret, om.return_type);
@@ -622,14 +616,12 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
             // them as types and against the receiver type's parameters.
             check_recv_type_args(errors, x, ctx);
             let expected_params = expected_arg_types(x.callee, x.args, scope, ctx);
-            let mut i = 0;
-            while i < x.args.len() {
+            for p in x.args.enumerate() {
                 let exp = match expected_params {
-                    Some(eps) => if i < eps.len() { Option.Some(eps[i]) } else { Option.None },
+                    Some(eps) => if p.index < eps.len() { Option.Some(eps[p.index]) } else { Option.None },
                     None => Option.None,
                 };
-                check_expr(errors, x.args[i].value, scope, ctx, exp);
-                i = i + 1;
+                check_expr(errors, p.value.value, scope, ctx, exp);
             }
             match x.callee {
                 Ident(_, name) => {
@@ -811,9 +803,8 @@ fn check_lambda(_ errors: List<CheckError>, _ x: LambdaExpr, _ scope: Map<String
     _ ctx: InferCtx, _ expected: Option<Type>) -> Void {
     let lambda_scope = copy_scope(scope);
     let expected_params = expected_function_params(expected);
-    let mut i = 0;
-    while i < x.params.len() {
-        let p = x.params[i];
+    for ip in x.params.enumerate() {
+        let p = ip.value;
         let pt = match p.type_ann {
             Some(ref) => {
                 check_type_ref(errors, ref, ctx.library, ctx.current_file, ctx.type_params);
@@ -821,7 +812,7 @@ fn check_lambda(_ errors: List<CheckError>, _ x: LambdaExpr, _ scope: Map<String
             },
             None => {
                 let from_ctx = match expected_params {
-                    Some(eps) => if i < eps.len() { eps[i] } else { Type.Unknown },
+                    Some(eps) => if ip.index < eps.len() { eps[ip.index] } else { Type.Unknown },
                     None => Type.Unknown,
                 };
                 // No annotation and nothing in the surrounding context determined
@@ -838,7 +829,6 @@ fn check_lambda(_ errors: List<CheckError>, _ x: LambdaExpr, _ scope: Map<String
             },
         };
         lambda_scope[p.name] = pt;
-        i = i + 1;
     }
     // A `return` inside the lambda returns from the lambda, so check the body
     // against the lambda's own return type (inferred from the body) rather than
@@ -934,12 +924,11 @@ fn check_call_args(_ errors: List<CheckError>, _ fn_el: FunctionElement,
     }
 
     // Each argument's type against its parameter.
-    let mut i = 0;
-    while i < args.len() {
-        let arg = args[i];
+    for ip in args.enumerate() {
+        let arg = ip.value;
         let param = match arg.label {
             Some(l) => param_by_label(params, l),
-            None => if i < params.len() { Option.Some(params[i]) } else { Option.None },
+            None => if ip.index < params.len() { Option.Some(params[ip.index]) } else { Option.None },
         };
         if let Some(p) = param {
             // Receiver generics make the parameter concrete (a method's `T`
@@ -949,7 +938,6 @@ fn check_call_args(_ errors: List<CheckError>, _ fn_el: FunctionElement,
             let actual = infer_expr(arg.value, scope, ctx, Option.Some(pty));
             expect_type(errors, actual, pty, 'argument to "${fn_el.name}"', span, ctx.library.type_defs);
         }
-        i = i + 1;
     }
 
     check_bounds(errors, fn_el, params, bindings, args, span, scope, ctx);
@@ -966,19 +954,17 @@ fn check_bounds(_ errors: List<CheckError>, _ fn_el: FunctionElement,
         return;
     }
     let bindings: Map<String, Type> = {};
-    let mut i = 0;
-    while i < args.len() {
-        let param = match args[i].label {
+    for ip in args.enumerate() {
+        let param = match ip.value.label {
             Some(l) => param_by_label(params, l),
-            None => if i < params.len() { Option.Some(params[i]) } else { Option.None },
+            None => if ip.index < params.len() { Option.Some(params[ip.index]) } else { Option.None },
         };
         if let Some(p) = param {
             // Make receiver generics concrete first, so unification recovers
             // only the callee's *own* type parameters (those carrying bounds).
-            let actual = infer_expr(args[i].value, scope, ctx, Option.None);
+            let actual = infer_expr(ip.value.value, scope, ctx, Option.None);
             unify(substitute(p.ty, recv_bindings), actual, bindings);
         }
-        i = i + 1;
     }
     for tp in fn_el.type_parameter_bounds.keys() {
         if let Some(arg) = bindings.get(tp) {
@@ -1044,14 +1030,12 @@ fn check_inferable_type_args(_ errors: List<CheckError>, _ fn_el: FunctionElemen
     // `(Unknown) -> Unknown` and leave its result parameter spuriously unbound.
     let expected_params = expected_arg_types(call.callee, call.args, scope, ctx);
     let arg_types: List<Type> = [];
-    let mut a = 0;
-    while a < call.args.len() {
+    for p in call.args.enumerate() {
         let exp = match expected_params {
-            Some(eps) => if a < eps.len() { Option.Some(eps[a]) } else { Option.None },
+            Some(eps) => if p.index < eps.len() { Option.Some(eps[p.index]) } else { Option.None },
             None => Option.None,
         };
-        arg_types.push(infer_expr(call.args[a].value, scope, ctx, exp));
-        a = a + 1;
+        arg_types.push(infer_expr(p.value.value, scope, ctx, exp));
     }
     // The parameters not declared by the callee itself are the owner's (a static
     // method's `Set<T>`); receiver type args (`Set<String>.new()`) bind those.

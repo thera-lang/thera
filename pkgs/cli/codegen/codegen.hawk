@@ -462,10 +462,8 @@ impl FnCompiler {
     // --- statements ---
 
     fn block(self, _ block: Block) -> Void {
-        let mut i = 0;
-        while i < block.stmts.len() {
-            self.stmt(block.stmts[i], block.stmts, i);
-            i = i + 1;
+        for p in block.stmts.enumerate() {
+            self.stmt(p.value, block.stmts, p.index);
         }
     }
 
@@ -901,15 +899,13 @@ impl FnCompiler {
         for c in captures {
             stash[c] = self.type_scope.get(c).unwrap_or(Type.Unknown);
         }
-        let mut i = 0;
-        while i < x.params.len() {
-            let pt = if i < param_types.len() {
-                param_types[i]
+        for p in x.params.enumerate() {
+            let pt = if p.index < param_types.len() {
+                param_types[p.index]
             } else {
                 Type.Unknown
             };
-            stash[x.params[i].name] = pt;
-            i = i + 1;
+            stash[p.value.name] = pt;
         }
 
         let lifted = lift_lambda(x, captures);
@@ -1144,20 +1140,18 @@ impl FnCompiler {
                     self.emit(Instr.Simple(Op.EqI64));
                     self.emit_jump(Jk.IfFalse, f);
                 }
-                let mut k = 0;
-                while k < args.len() {
-                    let arg = args[k];
+                for p in args.enumerate() {
+                    let arg = p.value;
                     match arg {
                         Wildcard(_) => {}, // field ignored; skip extraction
                         _ => {
                             let field_slot = self.fresh_slot();
                             self.emit(Instr.Load(value_slot));
-                            self.emit(Instr.EnumGet(k));
+                            self.emit(Instr.EnumGet(p.index));
                             self.emit(Instr.Store(field_slot));
-                            self.emit_pattern(arg, field_slot, enum_field_type_name(info, tag, k), fail, Option.None);
+                            self.emit_pattern(arg, field_slot, enum_field_type_name(info, tag, p.index), fail, Option.None);
                         },
                     }
-                    k = k + 1;
                 }
             },
         }
@@ -1721,14 +1715,12 @@ impl FnCompiler {
         // instance-method path. Without this, a lambda passed to a virtual call
         // (e.g. `it.map((x) => …)`) would lose its param type in codegen.
         let expected = expected_arg_types(x.callee, x.args, self.type_scope, self.ctx);
-        let mut ai = 0;
-        while ai < x.args.len() {
+        for p in x.args.enumerate() {
             let exp = match expected {
-                Some(eps) => if ai < eps.len() { Option.Some(eps[ai]) } else { Option.None },
+                Some(eps) => if p.index < eps.len() { Option.Some(eps[p.index]) } else { Option.None },
                 None => Option.None,
             };
-            self.expr_expecting(x.args[ai].value, exp);
-            ai = ai + 1;
+            self.expr_expecting(p.value.value, exp);
         }
         self.emit(Instr.CallVirtual(field, x.args.len() + 1));
         return true;
@@ -1776,22 +1768,20 @@ impl FnCompiler {
         let tag = self.fresh_slot();
         self.emit(Instr.Store(tag));
         let end = self.new_label();
-        let mut i = 0;
-        while i < info.variants.len() {
-            let name = info.variants[i].name;
-            if i == info.variants.len() - 1 {
+        for p in info.variants.enumerate() {
+            let name = p.value.name;
+            if p.index == info.variants.len() - 1 {
                 self.emit(Instr.ConstStr(name)); // last variant: fall through
             } else {
                 let next = self.new_label();
                 self.emit(Instr.Load(tag));
-                self.emit(Instr.ConstInt(i));
+                self.emit(Instr.ConstInt(p.index));
                 self.emit(Instr.Simple(Op.EqI64));
                 self.emit_jump(Jk.IfFalse, next);
                 self.emit(Instr.ConstStr(name));
                 self.emit_jump(Jk.Jump, end);
                 self.bind(next);
             }
-            i = i + 1;
         }
         self.bind(end);
     }
@@ -1802,14 +1792,12 @@ impl FnCompiler {
     // entry per non-self parameter, aligned with `ordered`.
     fn emit_ordered_args(self, _ callee: Expr, _ args: List<CallArg>, _ ordered: List<Expr>) -> Void {
         let expected = expected_arg_types(callee, args, self.type_scope, self.ctx);
-        let mut i = 0;
-        while i < ordered.len() {
+        for p in ordered.enumerate() {
             let exp = match expected {
-                Some(eps) => if i < eps.len() { Option.Some(eps[i]) } else { Option.None },
+                Some(eps) => if p.index < eps.len() { Option.Some(eps[p.index]) } else { Option.None },
                 None => Option.None,
             };
-            self.expr_expecting(ordered[i], exp);
-            i = i + 1;
+            self.expr_expecting(p.value, exp);
         }
     }
 
@@ -2072,24 +2060,22 @@ fn run_infer_oracle(_ scope: ModuleScope) -> Void {
     let mut checked = 0;
     let mut lambdas = 0;
     eprintln('infer-oracle: checker/codegen inference-context divergence');
-    let mut i = 0;
-    while i < scope.units.len() {
-        let name = scope.unit_names[i];
+    for p in scope.units.enumerate() {
+        let name = scope.unit_names[p.index];
         if name.starts_with('__lambda_') {
             lambdas = lambdas + 1;
         } else {
             checked = checked + 1;
             // What codegen actually built (recorded during compilation) vs the
             // independent checker reference.
-            let cg = describe_self(recorded_self(scope, i));
-            let ck = describe_self(checker_self_type(scope.unit_self_types[i], library));
+            let cg = describe_self(recorded_self(scope, p.index));
+            let ck = describe_self(checker_self_type(scope.unit_self_types[p.index], library));
             if cg != ck {
                 diverged = diverged + 1;
-                eprintln('  ${name}  [${file_label(scope.unit_files[i])}]');
+                eprintln('  ${name}  [${file_label(scope.unit_files[p.index])}]');
                 eprintln('      self_type:   codegen=${cg}   checker=${ck}');
             }
         }
-        i = i + 1;
     }
     eprintln('infer-oracle: ${diverged}/${checked} non-lambda unit(s) diverge; '
         + '${lambdas} lambda unit(s) skipped (context inherited via snapshot)');

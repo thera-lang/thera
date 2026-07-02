@@ -46,12 +46,10 @@ pub struct GlobalInit {
 }
 
 pub fn field_index_of(_ info: StructInfo, _ name: String) -> Int {
-    let mut i = 0;
-    while i < info.field_names.len() {
-        if info.field_names[i] == name {
-            return i;
+    for p in info.field_names.enumerate() {
+        if p.value == name {
+            return p.index;
         }
-        i = i + 1;
     }
     return -1;
 }
@@ -66,12 +64,10 @@ pub struct EnumInfo {
 
 // The tag (variant index) of `name`, or -1 if it isn't a variant.
 pub fn tag_of(_ info: EnumInfo, _ name: String) -> Int {
-    let mut i = 0;
-    while i < info.variants.len() {
-        if info.variants[i].name == name {
-            return i;
+    for p in info.variants.enumerate() {
+        if p.value.name == name {
+            return p.index;
         }
-        i = i + 1;
     }
     return -1;
 }

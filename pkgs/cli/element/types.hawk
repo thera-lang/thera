@@ -138,12 +138,10 @@ pub fn is_assignable(_ source: Type, _ target: Type,
                     if sargs.len() != targs.len() {
                         return false;
                     }
-                    let mut i = 0;
-                    while i < sargs.len() {
-                        if !is_assignable(sargs[i], targs[i], type_defs) {
+                    for p in sargs.enumerate() {
+                        if !is_assignable(p.value, targs[p.index], type_defs) {
                             return false;
                         }
-                        i = i + 1;
                     }
                     return true;
                 },
@@ -158,12 +156,10 @@ pub fn is_assignable(_ source: Type, _ target: Type,
                     if sparams.len() != tparams.len() {
                         return false;
                     }
-                    let mut i = 0;
-                    while i < sparams.len() {
-                        if !is_assignable(sparams[i], tparams[i], type_defs) {
+                    for p in sparams.enumerate() {
+                        if !is_assignable(p.value, tparams[p.index], type_defs) {
                             return false;
                         }
-                        i = i + 1;
                     }
                     return is_assignable(sret, tret, type_defs);
                 },
@@ -225,10 +221,8 @@ pub fn unify(_ param: Type, _ actual: Type, _ bindings: Map<String, Type>) -> Vo
         Interface(_, pargs) => {
             if let Interface(_, aargs) = actual {
                 if aargs.len() == pargs.len() {
-                    let mut i = 0;
-                    while i < pargs.len() {
-                        unify(pargs[i], aargs[i], bindings);
-                        i = i + 1;
+                    for p in pargs.enumerate() {
+                        unify(p.value, aargs[p.index], bindings);
                     }
                 }
             }
@@ -236,10 +230,8 @@ pub fn unify(_ param: Type, _ actual: Type, _ bindings: Map<String, Type>) -> Vo
         Function(pparams, pret) => {
             if let Function(aparams, aret) = actual {
                 if aparams.len() == pparams.len() {
-                    let mut i = 0;
-                    while i < pparams.len() {
-                        unify(pparams[i], aparams[i], bindings);
-                        i = i + 1;
+                    for p in pparams.enumerate() {
+                        unify(p.value, aparams[p.index], bindings);
                     }
                     unify(pret, aret, bindings);
                 }

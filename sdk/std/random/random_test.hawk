@@ -122,10 +122,8 @@ fn test_shuffle_preserves_elements() -> Result<Void, Error> {
 fn test_shuffle_is_reproducible() -> Result<Void, Error> {
     let a = random.seeded(5).shuffle([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     let b = random.seeded(5).shuffle([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
-    let mut i = 0;
-    while i < a.len() {
-        testing.assert_eq(actual: a[i], expected: b[i])?;
-        i = i + 1;
+    for p in a.enumerate() {
+        testing.assert_eq(actual: p.value, expected: b[p.index])?;
     }
     return Result.Ok(void);
 }

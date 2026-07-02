@@ -63,15 +63,13 @@ impl Args {
     /// TODO: also accept the `--name=value` form (today only the space-separated
     /// `--name value` form is recognized).
     pub fn option(self, _ name: String) -> Option<String> {
-        let mut i = 0;
-        while i < self.parameters.len() {
-            if self.parameters[i] == name {
-                if i + 1 < self.parameters.len() {
-                    return Option.Some(self.parameters[i + 1]);
+        for p in self.parameters.enumerate() {
+            if p.value == name {
+                if p.index + 1 < self.parameters.len() {
+                    return Option.Some(self.parameters[p.index + 1]);
                 }
                 return Option.None;
             }
-            i = i + 1;
         }
         return Option.None;
     }

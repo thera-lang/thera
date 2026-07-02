@@ -117,12 +117,10 @@ pub fn base64_decode(_ s: String) -> Result<Bytes, Error> {
 pub fn hex_encode(_ data: Bytes) -> String {
     let bytes = data.to_list();
     let cps: List<Int> = [];
-    let mut i = 0;
-    while i < bytes.len() {
-        let b = bytes[i];
+    for p in bytes.enumerate() {
+        let b = p.value;
         cps.push(hex_digit((b >> 4) & 0xF));
         cps.push(hex_digit(b & 0xF));
-        i = i + 1;
     }
     return String.from_chars(cps);
 }
@@ -166,9 +164,8 @@ pub fn hex_decode(_ s: String) -> Result<Bytes, Error> {
 pub fn url_encode(_ s: String) -> String {
     let bytes = s.bytes().to_list();
     let cps: List<Int> = [];
-    let mut i = 0;
-    while i < bytes.len() {
-        let b = bytes[i];
+    for p in bytes.enumerate() {
+        let b = p.value;
         if is_unreserved(b) {
             cps.push(b);   // an unreserved byte is ASCII; its value is its code point
         } else {
@@ -176,7 +173,6 @@ pub fn url_encode(_ s: String) -> String {
             cps.push(hex_digit((b >> 4) & 0xF, upper: true));
             cps.push(hex_digit(b & 0xF, upper: true));
         }
-        i = i + 1;
     }
     return String.from_chars(cps);
 }
@@ -213,10 +209,8 @@ pub fn url_decode(_ s: String) -> Result<String, Error> {
             // A raw non-ASCII character: contribute its UTF-8 bytes so decoding is
             // total even on input that wasn't produced by `url_encode`.
             let enc = String.from_chars([c]).bytes().to_list();
-            let mut j = 0;
-            while j < enc.len() {
-                bytes.push(enc[j]);
-                j = j + 1;
+            for p in enc.enumerate() {
+                bytes.push(p.value);
             }
             i = i + 1;
         }

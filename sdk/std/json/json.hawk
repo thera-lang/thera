@@ -249,15 +249,13 @@ impl Scanner {
     /// True (and consumes) if the upcoming code points spell `lit`.
     fn match_literal(self, _ lit: String) -> Bool {
         let want = lit.chars();
-        let mut i = 0;
-        while i < want.len() {
-            if self.pos + i >= self.len {
+        for p in want.enumerate() {
+            if self.pos + p.index >= self.len {
                 return false;
             }
-            if self.chars[self.pos + i] != want[i] {
+            if self.chars[self.pos + p.index] != p.value {
                 return false;
             }
-            i = i + 1;
         }
         self.pos = self.pos + want.len();
         return true;
@@ -586,27 +584,25 @@ fn write_object(_ fields: Map<String, Json>, _ pretty: Bool, _ indent: Int, _ ou
         return void;
     }
     out.push('{');
-    let mut i = 0;
-    while i < keys.len() {
+    for p in keys.enumerate() {
         if pretty {
             out.push('\n');
             out.push(indent_str(indent + 1));
         }
-        out.push(quote(keys[i]));
+        out.push(quote(p.value));
         if pretty {
             out.push(': ');
         } else {
             out.push(':');
         }
-        let value = match fields.get(keys[i]) {
+        let value = match fields.get(p.value) {
             Some(jv) => jv,
             None => Json.Null,
         };
         write_value(value, pretty, indent + 1, out);
-        if i + 1 < keys.len() {
+        if p.index + 1 < keys.len() {
             out.push(',');
         }
-        i = i + 1;
     }
     if pretty {
         out.push('\n');
@@ -621,9 +617,8 @@ fn quote(_ s: String) -> String {
     let cps = s.chars();
     let mut out: List<Int> = [];
     out.push(char.DQUOTE);
-    let mut i = 0;
-    while i < cps.len() {
-        let c = cps[i];
+    for p in cps.enumerate() {
+        let c = p.value;
         if c == char.DQUOTE {
             out.push(char.BACKSLASH);
             out.push(char.DQUOTE);
@@ -656,7 +651,6 @@ fn quote(_ s: String) -> String {
         } else {
             out.push(c);
         }
-        i = i + 1;
     }
     out.push(char.DQUOTE);
     return String.from_chars(out);

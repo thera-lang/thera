@@ -471,34 +471,28 @@ fn describe(_ head: String, _ help: String) -> String {
 
 /// Index of the flag/option/subcommand named `name`, or -1.
 fn flag_index(_ flags: List<Flag>, _ name: String) -> Int {
-    let mut i = 0;
-    while i < flags.len() {
-        if flags[i].name == name {
-            return i;
+    for p in flags.enumerate() {
+        if p.value.name == name {
+            return p.index;
         }
-        i = i + 1;
     }
     return -1;
 }
 
 fn opt_index(_ opts: List<Opt>, _ name: String) -> Int {
-    let mut i = 0;
-    while i < opts.len() {
-        if opts[i].name == name {
-            return i;
+    for p in opts.enumerate() {
+        if p.value.name == name {
+            return p.index;
         }
-        i = i + 1;
     }
     return -1;
 }
 
 fn cmd_index(_ cmds: List<Command>, _ name: String) -> Int {
-    let mut i = 0;
-    while i < cmds.len() {
-        if cmds[i].name == name {
-            return i;
+    for p in cmds.enumerate() {
+        if p.value.name == name {
+            return p.index;
         }
-        i = i + 1;
     }
     return -1;
 }
@@ -508,12 +502,10 @@ fn flag_abbr_index(_ flags: List<Flag>, _ abbr: String) -> Int {
     if abbr == '' {
         return -1;
     }
-    let mut i = 0;
-    while i < flags.len() {
-        if flags[i].abbr == abbr {
-            return i;
+    for p in flags.enumerate() {
+        if p.value.abbr == abbr {
+            return p.index;
         }
-        i = i + 1;
     }
     return -1;
 }
@@ -522,12 +514,10 @@ fn opt_abbr_index(_ opts: List<Opt>, _ abbr: String) -> Int {
     if abbr == '' {
         return -1;
     }
-    let mut i = 0;
-    while i < opts.len() {
-        if opts[i].abbr == abbr {
-            return i;
+    for p in opts.enumerate() {
+        if p.value.abbr == abbr {
+            return p.index;
         }
-        i = i + 1;
     }
     return -1;
 }

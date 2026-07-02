@@ -489,14 +489,19 @@ resolution_ below.)
     (bounds, first/last checks, parallel `ys[i]`) (44, ~68%) →
     `for p in xs.enumerate() { … p.value … p.index … }`. The C majority was the
     real blocker — it needs indexed iteration, now provided by **`List.enumerate()`**
-    (landed; see _Stdlib breadth_). The rewriter itself is **not built**: unlike
-    the `match` rules it needs a genuine loop-body rewrite (substitute `xs[i]` →
-    the binding, delete the pre-loop `let mut i = 0` and the `i = i + 1`, both
-    outside the loop span) — a bigger capability step. The lint already flags all
-    65; the `enumerate` ergonomic lets a human/agent convert idiomatically, and
-    two sites (`json.write_array`, `path.components`) are dogfooded. Deferred: a
-    `zip` adapter for the parallel-two-list sub-case (needs the `Pair`/`Tuple`
-    decision below).
+    (landed; see _Stdlib breadth_). The corpus has been **hand-migrated** with it:
+    47 of the 65 sites converted to `for p in xs.enumerate()` / `for x in xs`
+    (a fixpoint-clean, suite-green batch), leaving **18** that genuinely don't fit
+    the shape — non-zero start (`let mut i = start`), a stepped/conditional
+    increment (`i = i + 2`, argv parsers), a compound min-length bound
+    (`while i < a.len() && i < b.len()`), a sub-range bound (`… .len() - 1`), a
+    plain count (`while i < 4`), a `Bytes` receiver, or a list mutated mid-loop.
+    An **auto-rewriter is still not built** (unlike the `match` rules it needs a
+    genuine loop-body rewrite — substitute `xs[i]` → the binding and delete the
+    pre-loop `let mut i = 0` + the `i = i + 1`, both outside the loop span); the
+    lint flags the shape and the migration was done by hand. Deferred: a `zip`
+    adapter for the parallel-two-list sub-case (needs the `Pair`/`Tuple` decision
+    below).
   - **Shared machinery — _edit toolkit landed._** Edits are created by
     **AST-guided source-slice reassembly**, not AST pretty-printing: the kept
     sub-expressions (scrutinee/pattern/body) are sliced verbatim from source via
