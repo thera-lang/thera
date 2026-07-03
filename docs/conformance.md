@@ -100,7 +100,7 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `fn-named-params`   | Named parameters         | label-by-name, `_` suppression, `external internal`        | ✓      |
 | `fn-default-params` | Named parameters         | default parameter values                                  | ✓      |
 | `fn-lambda`         | Functions                | `n => …` and `(a, b) => …` forms                          | ✓      |
-| `fn-lambda-infer`   | Functions → Param types  | lambda param type from context; error when undetermined    | ✓      |
+| `fn-lambda-infer`   | Functions → Param types  | lambda param type from context (incl. if/block tails, static-method args); error when undetermined | ✓ |
 | `fn-closures`       | Functions                | capture by value; captured `mut` is shared                 | ✓      |
 | `fn-types`          | Functions                | `(T) -> R` function-typed values                          | ✓      |
 

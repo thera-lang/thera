@@ -914,8 +914,8 @@ impl FnCompiler {
             Call(x) => { self.call_expr(x); },
             Propagate(_, inner) => { self.propagate_expr(inner); },
             Match(x) => { self.match_expr(x); },
-            Block(_, block) => { self.emit_block_value(block); },
-            If(x) => { self.if_expr(x.condition, x.then_block, x.else_block); },
+            Block(_, block) => { self.emit_block_value(block, expected); },
+            If(x) => { self.if_expr(x.condition, x.then_block, x.else_block, expected); },
             Return(_, value) => { self.emit_return(value); },
             Throw(_, value) => { self.emit_throw(value); },
             Lambda(x) => { self.lambda_expr(x, expected); },
@@ -946,27 +946,30 @@ impl FnCompiler {
 
     // Emit a block in value position: statements for effect, then the tail value
     // (or Unit when there's no tail). Leaves exactly one value. The tail is part
-    // of the block's scope (it sees the block's bindings), so the scope spans both.
-    fn emit_block_value(self, _ block: Block) -> Void {
+    // of the block's scope (it sees the block's bindings), so the scope spans
+    // both; `expected` is the context's type for the tail (CH7 — a lambda tail
+    // types its parameters bidirectionally, mirroring the checker).
+    fn emit_block_value(self, _ block: Block, _ expected: Option<Type>) -> Void {
         let saved = self.enter_scope();
         self.block(block);
         match block.tail {
-            Some(tail) => { self.expr(tail); },
+            Some(tail) => { self.expr_expecting(tail, expected); },
             None => { self.emit(Instr.Simple(Op.ConstUnit)); },
         }
         self.exit_scope(saved);
     }
 
-    fn if_expr(self, _ condition: Expr, _ then_block: Block, _ else_block: Option<Block>) -> Void {
+    fn if_expr(self, _ condition: Expr, _ then_block: Block, _ else_block: Option<Block>,
+        _ expected: Option<Type>) -> Void {
         self.expr(condition);
         let else_label = self.new_label();
         let end = self.new_label();
         self.emit_jump(Jk.IfFalse, else_label);
-        self.emit_block_value(then_block);
+        self.emit_block_value(then_block, expected);
         self.emit_jump(Jk.Jump, end);
         self.bind(else_label);
         match else_block {
-            Some(eb) => { self.emit_block_value(eb); },
+            Some(eb) => { self.emit_block_value(eb, expected); },
             None => { self.emit(Instr.Simple(Op.ConstUnit)); },
         }
         self.bind(end);

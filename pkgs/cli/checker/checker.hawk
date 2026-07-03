@@ -614,8 +614,12 @@ fn copy_muts(_ m: Map<String, Bool>) -> Map<String, Bool> {
     return out;
 }
 
+// `tail_expected` is the type the context wants the block's tail value to be —
+// an expression-position block/`if` threads its own expected type here (CH7),
+// so a lambda tail can type its parameters bidirectionally.
 fn check_block(_ errors: List<CheckError>, _ block: Block, _ outer: Map<String, Type>,
-    _ ctx: InferCtx, _ muts: Map<String, Bool>) -> Void {
+    _ ctx: InferCtx, _ muts: Map<String, Bool>,
+    tail_expected: Option<Type> = Option.None) -> Void {
     let scope = copy_scope(outer);
     // A block's bindings are scoped to it (like `scope`), so copy the mutability
     // map too — a `let` inside the block doesn't leak to the enclosing one.
@@ -638,7 +642,7 @@ fn check_block(_ errors: List<CheckError>, _ block: Block, _ outer: Map<String, 
                 Some(_) => {},
             }
         }
-        check_expr(errors, tail, scope, ctx, Option.None);
+        check_expr(errors, tail, scope, ctx, tail_expected);
     }
 }
 
@@ -936,14 +940,14 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
             // An expression-position block: its statements' bindings aren't
             // tracked for mutability (a conservative `{}`), so assignments here
             // are not immutability-checked — a deliberate v1 limitation.
-            check_block(errors, block, scope, ctx, {});
+            check_block(errors, block, scope, ctx, {}, tail_expected: expected);
         },
         If(x) => {
             check_expr(errors, x.condition, scope, ctx, Option.None);
             check_condition(errors, x.condition, scope, ctx);
-            check_block(errors, x.then_block, scope, ctx, {});
+            check_block(errors, x.then_block, scope, ctx, {}, tail_expected: expected);
             if let Some(eb) = x.else_block {
-                check_block(errors, eb, scope, ctx, {});
+                check_block(errors, eb, scope, ctx, {}, tail_expected: expected);
                 // An `if` in expression position is a value: its branches must
                 // agree, exactly like match arms (a value-less branch — Unit, or
                 // a bare return/throw — is exempt). Previously never unified:

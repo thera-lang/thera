@@ -1,0 +1,42 @@
+//! spec: fn-lambda-infer
+//! mode: run
+
+// The positive half of bidirectional lambda-parameter inference: the expected
+// type reaches a lambda through every context that carries one — including an
+// `if`-expression branch tail and a value block's tail (previously "cannot
+// infer" false positives), and a static-method argument (previously the
+// expected type was never computed for a static receiver).
+
+struct Counter {
+    n: Int,
+}
+
+impl Counter {
+    pub fn make(_ f: (Int) -> Int) -> Counter {
+        return Counter { n: f(1) };
+    }
+}
+
+fn apply(_ f: (Int) -> Int) -> Int {
+    return f(10);
+}
+
+fn main() -> Void {
+    // A lambda as an if-expression branch tail, typed from the annotation.
+    let f: (Int) -> Int = if true { (x) => x + 1 } else { (x) => x - 1 };
+    println('${f(5)}');                            // expect: 6
+
+    // A lambda as a value block's tail.
+    let g: (Int) -> Int = {
+        let base = 100;
+        (x) => x + base
+    };
+    println('${g(5)}');                            // expect: 105
+
+    // A lambda argument to a static method, typed from its signature.
+    println('${Counter.make((x) => x + 41).n}');   // expect: 42
+
+    // Still checked through the if tail: the plain call form.
+    let r = if true { apply((x) => x + 1) } else { 0 };
+    println('${r}');                               // expect: 11
+}

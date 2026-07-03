@@ -810,11 +810,17 @@ pub fn expected_arg_types(_ callee: Expr, _ args: List<CallArg>,
             }
         },
         Field(_, obj, field) => {
-            // Namespace-qualified free function: `ns.fn(...)`.
-            if let Ident(_, nsname) = obj {
-                if is_namespace(nsname, scope, ctx) {
-                    if let Some(fn_el) = ctx_scope(ctx).resolve_qualified_function(nsname, field) { params = Option.Some(fn_el.parameters); }
-                };
+            // A static-receiver callee — a static method (`Set.new`,
+            // `ns.Type.make`) or a namespaced free/native fn (`fs.read_text`) —
+            // has no value receiver: its params come straight from the resolved
+            // callee (CH8; previously only the `ns.fn` half existed, so a
+            // lambda argument to a static method never got an expected type).
+            match resolve_static_receiver(obj, field, scope, ctx) {
+                Some(sr) => match sr {
+                    StaticMethod(_, method) => { params = Option.Some(method.parameters); },
+                    NamespaceFn(fn_el) => { params = Option.Some(fn_el.parameters); },
+                },
+                None => {},
             }
             // User method on the receiver's type, instantiated with its type args.
             match params {
