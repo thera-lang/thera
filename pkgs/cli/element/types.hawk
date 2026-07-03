@@ -183,8 +183,10 @@ pub fn is_assignable(_ source: Type, _ target: Type,
                     if sparams.len() != tparams.len() {
                         return false;
                     }
+                    // Parameters are *contravariant* (EL16): the source accepts
+                    // everything the target's signature promises to pass it.
                     for p in sparams.enumerate() {
-                        if !is_assignable(p.value, tparams[p.index], type_defs) {
+                        if !is_assignable(tparams[p.index], p.value, type_defs) {
                             return false;
                         }
                     }
@@ -245,9 +247,12 @@ pub fn unify(_ param: Type, _ actual: Type, _ bindings: Map<String, Type>) -> Vo
                 bindings[name] = actual;
             }
         },
-        Interface(_, pargs) => {
-            if let Interface(_, aargs) = actual {
-                if aargs.len() == pargs.len() {
+        Interface(pid, pargs) => {
+            // Bind type arguments only when the *identities* match (EL14 —
+            // mirrors is_assignable): unify(List<T>, Set<Int>) must not bind
+            // T = Int just because the arities agree.
+            if let Interface(aid, aargs) = actual {
+                if aid == pid && aargs.len() == pargs.len() {
                     for p in pargs.enumerate() {
                         unify(p.value, aargs[p.index], bindings);
                     }

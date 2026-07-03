@@ -1,0 +1,36 @@
+//! spec: type-fn-variance
+//! mode: check
+
+// Function-type assignability: parameters are contravariant (the source must
+// accept everything the target's signature promises to pass it), results
+// covariant. A lambda accepting a wider (interface) parameter serves where a
+// narrower (implementing) parameter type is expected; the reverse is an error.
+
+interface Sized {
+    fn size(self) -> Int;
+}
+
+struct Box {
+    n: Int,
+}
+
+impl Sized for Box {
+    pub fn size(self) -> Int {
+        return self.n;
+    }
+}
+
+fn apply_box(_ f: (Box) -> Int) -> Int {
+    return f(Box { n: 7 });
+}
+
+fn apply_sized(_ f: (Sized) -> Int) -> Int {
+    return f(Box { n: 9 });
+}
+
+fn main() -> Void {
+    let widened = apply_box((x: Sized) => x.size());
+    println('${widened}');
+    let narrowed = apply_sized((x: Box) => x.n);   // expect error: expected (Sized) -> Int, found (Box) -> Int
+    println('${narrowed}');
+}
