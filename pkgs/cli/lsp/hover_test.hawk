@@ -5,15 +5,25 @@ import std.testing;
 import std.json as _;
 
 import '../ast/ast' as _; // Program
+import '../element/element' as _; // LibraryNamespace
 import '../lexer/lexer';
 import '../parser/parser';
 import 'hover' as _;
+import 'resolve' as _;
 
 // The rendered hover code for `src` at code-point `offset` ('' when hover is null).
 fn rendered(_ src: String, _ offset: Int) -> String {
     let program = parser.parse_tokens(lexer.tokenize(src).tokens).program;
     let imports: List<Program> = [];
-    return hover.handle_hover(program, imports, src, offset)
+    let nss: Map<String, Map<String, LibraryNamespace>> = {};
+    let bare: Map<String, Map<String, String>> = {};
+    let ctx = ResolveCtx {
+        program: program,
+        imports: imports,
+        file_namespaces: nss,
+        file_bare_surface: bare,
+    };
+    return hover.handle_hover(ctx, src, offset)
         .get('contents').get('value').as_string().unwrap_or('');
 }
 

@@ -1,25 +1,32 @@
 // Shared cursor resolution for the LSP. The identifier (or `self`) token at an
-// offset is resolved — against the enclosing method/impl and the file's
-// declarations — to a `Resolved` target that carries both its **hover render**
-// (signature/type) and its **definition location** (file + name span). The
-// feature handlers (`hover`, `definition`, …) are thin renderers over `resolve_at`.
+// offset is resolved — against the enclosing method/impl, the file's
+// declarations, and the loader's owner-correct surfaces — to a `Resolved`
+// target that carries both its **hover render** (signature/type) and its
+// **definition location** (file + name span). The feature handlers (`hover`,
+// `definition`, …) are thin renderers over `resolve_at`.
 //
 // Resolution is context-aware without a full inference pass:
 //
 //   - `self`                   -> the enclosing impl/interface's type
 //   - `self.method` / `.field` -> that type's method signature / field type
 //   - a parameter              -> the enclosing function's parameter type
-//   - `Enum.Variant`           -> the variant (with its payload types)
-//   - otherwise                -> a top-level declaration
+//   - `ns.member` / `ns`       -> the namespace's surface / the import decl
+//   - `Enum.Variant` / `Type.method` -> the type's member, owner-correct
+//   - otherwise                -> the top-level declaration the file's scope
+//                                 sees (own decl, else its bare surface)
 //
-// Still deferred (needs scope-reconstruction inference at an offset): the
-// *inferred* type of a local `let`/loop variable, and members of a non-`self`
-// receiver (`xs.foo()` where `xs`'s type isn't written down).
+// Bare and qualified names resolve through the same per-file surfaces the
+// compiler uses (`file_bare_surface`/`file_namespaces` — LS1): owner-correct,
+// visibility-aware, `as _`-aware — never a whole-closure name scan. A member of
+// a *computed* receiver (`f().x`) needs inference and resolves to None rather
+// than guessing (LS3). Still deferred: the inferred type of a local, and
+// members of a value receiver (`xs.foo()` where `xs`'s type isn't written).
 
 import '../ast/ast' as _;       // Program, Decl, the per-decl payloads
 import '../ast/describe';  // describe_type
 import '../lexer/token' as _;   // SourceSpan, Token, TokenKind
 import '../lexer/lexer';   // tokenize
+import '../element/element';    // file_key, LibraryNamespace
 import 'paths';              // program_path
 
 // The identifier under the cursor: its name and source span.
@@ -34,6 +41,17 @@ pub struct DeclSite {
     file: String,
 }
 
+// The owner-correct resolution inputs for a document (LS1): the parsed primary,
+// its import closure, and the loader's per-file surfaces — the bare-legal names
+// each file sees (name -> owning file) and each file's import namespaces (with
+// per-member origin). The same maps the compiler resolves with.
+pub struct ResolveCtx {
+    program: Program,
+    imports: List<Program>,
+    file_namespaces: Map<String, Map<String, element.LibraryNamespace>>,
+    file_bare_surface: Map<String, Map<String, String>>,
+}
+
 // A resolved target at the cursor: enough to render a hover *and* to navigate to
 // its definition. `def_span`/`def_file` are None when the target has no navigable
 // declaration site (a struct field carries no name span; a builtin has no source).
@@ -46,40 +64,54 @@ pub struct Resolved {
 
 // The target the name at `offset` resolves to, or None. The single resolution
 // authority behind hover and definition.
-pub fn resolve_at(_ program: Program, _ imports: List<Program>, _ text: String, _ offset: Int) -> Option<Resolved> {
+pub fn resolve_at(_ ctx: ResolveCtx, _ text: String, _ offset: Int) -> Option<Resolved> {
     let ref = match name_at(text, offset) {
         Some(r) => r,
         None => return Option.None,
     };
-    let ctx = enclosing_ctx(program, offset);
+    let enc = enclosing_ctx(ctx.program, offset);
     // `self` — the enclosing impl/interface's type (navigates to its declaration).
     if ref.name == 'self' {
-        return match ctx.self_type {
-            Some(t) => Option.Some(self_resolved(program, imports, ref, t)),
+        return match enc.self_type {
+            Some(t) => Option.Some(self_resolved(ctx, ref, t)),
             None => Option.None,
         };
     }
-    // A member access `RECEIVER.name`.
-    if let Some(receiver) = member_receiver_at(text, offset) {
-        if receiver == 'self' {
-            return match ctx.self_type {
-                Some(t) => member_resolved(program, imports, ref, bare_type(t)),
+    // A member access `RECEIVER.name`, by receiver kind (LS3: a computed
+    // receiver needs inference — resolve to nothing rather than guessing).
+    match receiver_at(text, offset) {
+        NotMember => {},
+        SelfRecv => {
+            return match enc.self_type {
+                Some(t) => member_resolved(ctx, ref, bare_type(t)),
                 None => Option.None,
             };
-        }
-        // `Enum.Variant` when the receiver names an enum; else a member of some
-        // other receiver, which needs the receiver's type (inference) — don't
-        // guess against unrelated top-level names.
-        return variant_resolved(program, imports, ref, receiver);
+        },
+        Named(recv) => { return named_receiver_member(ctx, ref, recv); },
+        Qualified(ns, tname) => {
+            return match namespace_surface(ctx, ns) {
+                Some(surface) => match surface.origin.get(tname) {
+                    Some(owner) => type_member(ctx, ref, owner, tname),
+                    None => Option.None,
+                },
+                None => Option.None,
+            };
+        },
+        Computed => { return Option.None; },
     }
     // A parameter of the enclosing function.
-    if let Some(fn_decl) = ctx.fn_decl {
-        if let Some(res) = param_resolved(program, ref, fn_decl) {
+    if let Some(fn_decl) = enc.fn_decl {
+        if let Some(res) = param_resolved(ctx.program, ref, fn_decl) {
             return Option.Some(res);
         }
     }
-    // A top-level declaration (function / type / enum / interface / const / let).
-    return match find_decl_site(program, imports, ref.name) {
+    // The namespace an import binds (`fs` in `fs.read_text`) — the import decl.
+    if let Some(res) = namespace_resolved(ctx, ref) {
+        return Option.Some(res);
+    }
+    // A top-level declaration (function / type / enum / interface / const / let),
+    // resolved as this file's scope sees the bare name.
+    return match find_decl_site(ctx, ref.name) {
         Some(site) => Option.Some(Resolved {
             ref_span: ref.span,
             render: describe_decl(site.decl),
@@ -88,6 +120,133 @@ pub fn resolve_at(_ program: Program, _ imports: List<Program>, _ text: String, 
         }),
         None => Option.None,
     };
+}
+
+// A member on a plain named receiver: the receiver is an import namespace
+// (`fs.read_text`), a type this file sees bare (`Color.Red`, `Set.new`), or a
+// value binding (needs inference — None).
+fn named_receiver_member(_ ctx: ResolveCtx, _ ref: NameRef, _ recv: String) -> Option<Resolved> {
+    if let Some(surface) = namespace_surface(ctx, recv) {
+        return ns_member(ctx, ref, surface);
+    }
+    return match bare_owner_key(ctx, recv) {
+        Some(owner) => type_member(ctx, ref, owner, recv),
+        None => Option.None,
+    };
+}
+
+// `ns.member`: the member must be on `ns`'s public surface; its origin map
+// names the declaring file.
+fn ns_member(_ ctx: ResolveCtx, _ ref: NameRef, _ surface: element.LibraryNamespace) -> Option<Resolved> {
+    return match surface.origin.get(ref.name) {
+        Some(owner) => match program_of_key(ctx, owner) {
+            Some(p) => match find_decl_in(p, ref.name) {
+                Some(d) => Option.Some(Resolved {
+                    ref_span: ref.span,
+                    render: describe_decl(d),
+                    def_file: Option.Some(paths.program_path(p)),
+                    def_span: decl_name_span(d),
+                }),
+                None => Option.None,
+            },
+            None => Option.None,
+        },
+        None => Option.None,
+    };
+}
+
+// A member of the type (`owner`, `type_name`): an enum variant, else a method
+// from an impl/interface (owner-aware, LS8).
+fn type_member(_ ctx: ResolveCtx, _ ref: NameRef, _ owner: String, _ type_name: String) -> Option<Resolved> {
+    if let Some(res) = variant_resolved(ctx, ref, owner, type_name) {
+        return Option.Some(res);
+    }
+    if let Some(ms) = find_method_site(ctx, owner, type_name, ref.name) {
+        return Option.Some(Resolved {
+            ref_span: ref.span,
+            render: describe_fn(ms.fn_decl),
+            def_file: Option.Some(ms.file),
+            def_span: Option.Some(ms.fn_decl.name_span),
+        });
+    }
+    return Option.None;
+}
+
+// --- owner attribution (the LS1 core) ---
+
+// The file (key) that owns bare `name` as seen from the primary file: its own
+// top-level declaration, else the file's bare surface (prelude / `as _`) —
+// scoping.md's bare resolution, over the loader's maps.
+fn bare_owner_key(_ ctx: ResolveCtx, _ name: String) -> Option<String> {
+    return owner_key_from(ctx, ctx.program, name);
+}
+
+// The same attribution from an arbitrary closure file's point of view.
+fn owner_key_from(_ ctx: ResolveCtx, _ p: Program, _ name: String) -> Option<String> {
+    if find_decl_in(p, name).is_some() {
+        return Option.Some(element.file_key(p.file_path));
+    }
+    return match ctx.file_bare_surface.get(element.file_key(p.file_path)) {
+        Some(s) => s.get(name),
+        None => Option.None,
+    };
+}
+
+// The public surface bound to namespace `ns` in the primary file, or None.
+fn namespace_surface(_ ctx: ResolveCtx, _ ns: String) -> Option<element.LibraryNamespace> {
+    return match ctx.file_namespaces.get(element.file_key(ctx.program.file_path)) {
+        Some(m) => m.get(ns),
+        None => Option.None,
+    };
+}
+
+// The parsed program whose canonical key is `key` — the primary or an import.
+fn program_of_key(_ ctx: ResolveCtx, _ key: String) -> Option<Program> {
+    if element.file_key(ctx.program.file_path) == key {
+        return Option.Some(ctx.program);
+    }
+    for p in ctx.imports {
+        if element.file_key(p.file_path) == key {
+            return Option.Some(p);
+        }
+    }
+    return Option.None;
+}
+
+// The import declaration binding namespace `name` in the primary file — hovering
+// the `fs` of `fs.read_text` shows and navigates to the import.
+fn namespace_resolved(_ ctx: ResolveCtx, _ ref: NameRef) -> Option<Resolved> {
+    if namespace_surface(ctx, ref.name).is_none() {
+        return Option.None;
+    }
+    for decl in ctx.program.decls {
+        if let Import(imp) = decl {
+            if import_binding_name(imp) == Option.Some(ref.name) {
+                return Option.Some(Resolved {
+                    ref_span: ref.span,
+                    render: 'import \'${imp.path}\' as ${ref.name}',
+                    def_file: Option.Some(paths.program_path(ctx.program)),
+                    def_span: Option.Some(imp.span),
+                });
+            }
+        }
+    }
+    return Option.None;
+}
+
+// The namespace an import binds: its alias, else the trailing path segment
+// (`as _` binds none).
+fn import_binding_name(_ imp: ImportDecl) -> Option<String> {
+    if imp.unqualified {
+        return Option.None; // `as _` binds no namespace
+    }
+    if let Some(a) = imp.alias {
+        return Option.Some(a);
+    }
+    let segs = imp.path.split('/');
+    let last = segs[segs.len() - 1];
+    let dots = last.split('.');
+    return Option.Some(dots[dots.len() - 1]);
 }
 
 // The identifier (or `self`) token whose span covers `offset`, if any.
@@ -119,9 +278,20 @@ pub fn position_to_offset(_ text: String, _ line: Int, _ character: Int) -> Int 
     return offset;
 }
 
-// The receiver name of a `RECEIVER.name` access at `offset` (the token there is
-// the member, preceded by `.` and an identifier or `self`), or None.
-pub fn member_receiver_at(_ text: String, _ offset: Int) -> Option<String> {
+// The receiver classification of the token at `offset` (LS3): not a member at
+// all; a member of `self`; of a plain named receiver (a namespace, a type, or a
+// value binding); of a `ns.Type` pair; or of a *computed* receiver (`f().x`,
+// `xs[i].y`, deeper chains) — which needs the receiver's inferred type, so the
+// resolver answers "unknown" rather than guessing a same-named top-level decl.
+pub enum Receiver {
+    NotMember,
+    SelfRecv,
+    Named(String),
+    Qualified(String, String), // `ns.Type.member`: (ns, Type)
+    Computed,
+}
+
+pub fn receiver_at(_ text: String, _ offset: Int) -> Receiver {
     let toks = lexer.tokenize(text).tokens;
     for p in toks.enumerate() {
         let s = p.value.span;
@@ -129,16 +299,24 @@ pub fn member_receiver_at(_ text: String, _ offset: Int) -> Option<String> {
             if p.index >= 2 && toks[p.index - 1].kind == TokenKind.Dot {
                 let recv = toks[p.index - 2];
                 if recv.kind == TokenKind.KwSelf {
-                    return Option.Some('self');
+                    return Receiver.SelfRecv;
                 }
                 if recv.kind == TokenKind.Identifier {
-                    return Option.Some(recv.lexeme());
+                    if p.index >= 4 && toks[p.index - 3].kind == TokenKind.Dot {
+                        let head = toks[p.index - 4];
+                        if head.kind == TokenKind.Identifier {
+                            return Receiver.Qualified(head.lexeme(), recv.lexeme());
+                        }
+                        return Receiver.Computed; // `self.x.y`, `f().a.b`
+                    }
+                    return Receiver.Named(recv.lexeme());
                 }
+                return Receiver.Computed; // `f().x`, `xs[i].y`, literal receivers
             }
-            return Option.None;
+            return Receiver.NotMember;
         }
     }
-    return Option.None;
+    return Receiver.NotMember;
 }
 
 // --- enclosing context ---
@@ -205,8 +383,8 @@ fn span_covers(_ span: SourceSpan, _ offset: Int) -> Bool {
 
 // --- per-case resolution ---
 
-fn self_resolved(_ program: Program, _ imports: List<Program>, _ ref: NameRef, _ display: String) -> Resolved {
-    let site = find_decl_site(program, imports, bare_type(display));
+fn self_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ display: String) -> Resolved {
+    let site = find_decl_site(ctx, bare_type(display));
     return Resolved {
         ref_span: ref.span,
         render: 'self: ${display}',
@@ -215,8 +393,14 @@ fn self_resolved(_ program: Program, _ imports: List<Program>, _ ref: NameRef, _
     };
 }
 
-fn member_resolved(_ program: Program, _ imports: List<Program>, _ ref: NameRef, _ type_name: String) -> Option<Resolved> {
-    if let Some(ms) = find_method_site(program, imports, type_name, ref.name) {
+// `self.member`: the enclosing impl's type, resolved to its owner from this
+// file (an impl's type is same-file or bare-visible), then its method or field.
+fn member_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ type_name: String) -> Option<Resolved> {
+    let owner = match bare_owner_key(ctx, type_name) {
+        Some(o) => o,
+        None => return Option.None,
+    };
+    if let Some(ms) = find_method_site(ctx, owner, type_name, ref.name) {
         return Option.Some(Resolved {
             ref_span: ref.span,
             render: describe_fn(ms.fn_decl),
@@ -225,7 +409,7 @@ fn member_resolved(_ program: Program, _ imports: List<Program>, _ ref: NameRef,
         });
     }
     // A field carries no name span, so it is renderable but not navigable.
-    if let Some(f) = find_field(program, imports, type_name, ref.name) {
+    if let Some(f) = find_field(ctx, owner, type_name, ref.name) {
         return Option.Some(Resolved {
             ref_span: ref.span,
             render: '${f.name}: ${describe.describe_type(f.type_ann)}',
@@ -236,8 +420,8 @@ fn member_resolved(_ program: Program, _ imports: List<Program>, _ ref: NameRef,
     return Option.None;
 }
 
-fn variant_resolved(_ program: Program, _ imports: List<Program>, _ ref: NameRef, _ enum_name: String) -> Option<Resolved> {
-    return match find_variant_site(program, imports, enum_name, ref.name) {
+fn variant_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ owner: String, _ enum_name: String) -> Option<Resolved> {
+    return match find_variant_site(ctx, owner, enum_name, ref.name) {
         Some(vs) => Option.Some(Resolved {
             ref_span: ref.span,
             render: variant_render(enum_name, vs.variant),
@@ -273,23 +457,30 @@ struct MethodSite {
     file: String,
 }
 
-fn find_method_site(_ program: Program, _ imports: List<Program>, _ type_name: String, _ method: String) -> Option<MethodSite> {
-    if let Some(m) = find_method_in(program, type_name, method) {
-        return Option.Some(MethodSite { fn_decl: m, file: paths.program_path(program) });
+// A method of the type (`owner`, `type_name`): searched in every closure file's
+// impl blocks whose *own view* of `type_name` resolves to the same owner (a
+// cross-file impl still binds to the type its file sees), plus interface decls
+// (which own their methods). Owner-aware, not first-name-wins (LS8).
+fn find_method_site(_ ctx: ResolveCtx, _ owner: String, _ type_name: String, _ method: String) -> Option<MethodSite> {
+    if let Some(m) = methods_of(ctx, ctx.program, owner, type_name, method) {
+        return Option.Some(MethodSite { fn_decl: m, file: paths.program_path(ctx.program) });
     }
-    for imp in imports {
-        if let Some(m) = find_method_in(imp, type_name, method) {
+    for imp in ctx.imports {
+        if let Some(m) = methods_of(ctx, imp, owner, type_name, method) {
             return Option.Some(MethodSite { fn_decl: m, file: paths.program_path(imp) });
         }
     }
     return Option.None;
 }
 
-fn find_method_in(_ program: Program, _ type_name: String, _ method: String) -> Option<FnDecl> {
-    for decl in program.decls {
+fn methods_of(_ ctx: ResolveCtx, _ p: Program, _ owner: String, _ type_name: String,
+    _ method: String) -> Option<FnDecl> {
+    for decl in p.decls {
         let methods = match decl {
-            Impl(i) => if i.type_name == type_name { i.methods } else { [] },
-            Interface(it) => if it.name == type_name { it.methods } else { [] },
+            Impl(i) => if i.type_name == type_name
+                && owner_key_from(ctx, p, type_name) == Option.Some(owner) { i.methods } else { [] },
+            Interface(it) => if it.name == type_name
+                && element.file_key(p.file_path) == owner { it.methods } else { [] },
             _ => [],
         };
         for m in methods {
@@ -301,21 +492,16 @@ fn find_method_in(_ program: Program, _ type_name: String, _ method: String) -> 
     return Option.None;
 }
 
-fn find_field(_ program: Program, _ imports: List<Program>, _ type_name: String, _ field: String) -> Option<FieldDef> {
-    if let Some(f) = find_field_in(program, type_name, field) { return Option.Some(f); }
-    for imp in imports {
-        if let Some(f) = find_field_in(imp, type_name, field) { return Option.Some(f); }
-    }
-    return Option.None;
-}
-
-fn find_field_in(_ program: Program, _ type_name: String, _ field: String) -> Option<FieldDef> {
-    for decl in program.decls {
-        if let Type(t) = decl {
-            if t.name == type_name {
-                for f in t.fields {
-                    if f.name == field {
-                        return Option.Some(f);
+// A struct field lives with its type's declaration — the owner file only.
+fn find_field(_ ctx: ResolveCtx, _ owner: String, _ type_name: String, _ field: String) -> Option<FieldDef> {
+    if let Some(p) = program_of_key(ctx, owner) {
+        for decl in p.decls {
+            if let Type(t) = decl {
+                if t.name == type_name {
+                    for f in t.fields {
+                        if f.name == field {
+                            return Option.Some(f);
+                        }
                     }
                 }
             }
@@ -329,25 +515,16 @@ struct VariantSite {
     file: String,
 }
 
-fn find_variant_site(_ program: Program, _ imports: List<Program>, _ enum_name: String, _ variant: String) -> Option<VariantSite> {
-    if let Some(v) = find_variant_in(program, enum_name, variant) {
-        return Option.Some(VariantSite { variant: v, file: paths.program_path(program) });
-    }
-    for imp in imports {
-        if let Some(v) = find_variant_in(imp, enum_name, variant) {
-            return Option.Some(VariantSite { variant: v, file: paths.program_path(imp) });
-        }
-    }
-    return Option.None;
-}
-
-fn find_variant_in(_ program: Program, _ enum_name: String, _ variant: String) -> Option<EnumVariant> {
-    for decl in program.decls {
-        if let Enum(e) = decl {
-            if e.name == enum_name {
-                for v in e.variants {
-                    if v.name == variant {
-                        return Option.Some(v);
+// An enum's variants live with its declaration — the owner file only.
+fn find_variant_site(_ ctx: ResolveCtx, _ owner: String, _ enum_name: String, _ variant: String) -> Option<VariantSite> {
+    if let Some(p) = program_of_key(ctx, owner) {
+        for decl in p.decls {
+            if let Enum(e) = decl {
+                if e.name == enum_name {
+                    for v in e.variants {
+                        if v.name == variant {
+                            return Option.Some(VariantSite { variant: v, file: paths.program_path(p) });
+                        }
                     }
                 }
             }
@@ -358,14 +535,21 @@ fn find_variant_in(_ program: Program, _ enum_name: String, _ variant: String) -
 
 // --- top-level declaration lookup ---
 
-// The first top-level declaration named `name` (with its file), searching the
-// primary program then its imports.
-pub fn find_decl_site(_ program: Program, _ imports: List<Program>, _ name: String) -> Option<DeclSite> {
-    if let Some(d) = find_decl_in(program, name) { return Option.Some(DeclSite { decl: d, file: paths.program_path(program) }); }
-    for imp in imports {
-        if let Some(d) = find_decl_in(imp, name) { return Option.Some(DeclSite { decl: d, file: paths.program_path(imp) }); }
-    }
-    return Option.None;
+// The declaration bare `name` resolves to from the primary file: its own
+// declaration, else the one its bare surface (prelude / `as _`) attributes to
+// an owning file — owner-correct and visibility-aware, never a whole-closure
+// name scan (LS1).
+pub fn find_decl_site(_ ctx: ResolveCtx, _ name: String) -> Option<DeclSite> {
+    return match bare_owner_key(ctx, name) {
+        Some(owner) => match program_of_key(ctx, owner) {
+            Some(p) => match find_decl_in(p, name) {
+                Some(d) => Option.Some(DeclSite { decl: d, file: paths.program_path(p) }),
+                None => Option.None,
+            },
+            None => Option.None,
+        },
+        None => Option.None,
+    };
 }
 
 fn find_decl_in(_ program: Program, _ name: String) -> Option<Decl> {

@@ -38,11 +38,11 @@ pub fn new_analysis(_ sdk_root: Option<String>) -> Analysis {
     };
 }
 
-// A parsed open document plus its import closure and a cursor offset — the shared
+// A parsed open document plus its import closure — with the loader's
+// owner-correct resolution surfaces (LS1) — and a cursor offset: the shared
 // input to the position-based requests (hover, definition).
 pub struct DocAnalysis {
-    program: Program,
-    imports: List<Program>,
+    ctx: resolve.ResolveCtx,
     text: String,
     offset: Int,
 }
@@ -111,7 +111,15 @@ impl Analysis {
                     program.file_path = Option.Some(path);
                     let loaded = loader.load_imports(path, program, self.sdk_root,
                         parse_cache: self.parse_cache, overlays: self.overlay_map());
-                    Option.Some(DocAnalysis { program: program, imports: loaded.programs, text: text, offset: offset })
+                    // The loader's surfaces ride along — resolution uses the
+                    // same owner-correct maps the compiler does (LS1).
+                    let rctx = resolve.ResolveCtx {
+                        program: program,
+                        imports: loaded.programs,
+                        file_namespaces: loaded.file_namespaces,
+                        file_bare_surface: loaded.file_bare_surface,
+                    };
+                    Option.Some(DocAnalysis { ctx: rctx, text: text, offset: offset })
                 },
                 None => Option.None,
             },

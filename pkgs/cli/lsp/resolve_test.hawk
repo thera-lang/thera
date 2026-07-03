@@ -6,6 +6,7 @@
 import std.testing;
 
 import '../ast/ast' as _; // Program
+import '../element/element' as _; // LibraryNamespace
 import '../lexer/lexer';
 import '../parser/parser';
 import 'resolve' as _;
@@ -14,6 +15,18 @@ fn program_of(_ src: String) -> Program {
     let p = parser.parse_tokens(lexer.tokenize(src).tokens).program;
     p.file_path = Option.Some('t.hawk');
     return p;
+}
+
+// A hermetic single-file resolution context (no imports, empty surfaces).
+fn ctx_of(_ program: Program, _ imports: List<Program>) -> ResolveCtx {
+    let nss: Map<String, Map<String, LibraryNamespace>> = {};
+    let bare: Map<String, Map<String, String>> = {};
+    return ResolveCtx {
+        program: program,
+        imports: imports,
+        file_namespaces: nss,
+        file_bare_surface: bare,
+    };
 }
 
 // The offset `delta` code points past the first occurrence of `marker`.
@@ -25,7 +38,7 @@ fn at(_ src: String, _ marker: String, _ delta: Int) -> Int {
 fn def_offset(_ src: String, _ use_offset: Int) -> Int {
     let program = program_of(src);
     let imports: List<Program> = [];
-    return match resolve.resolve_at(program, imports, src, use_offset) {
+    return match resolve.resolve_at(ctx_of(program, imports), src, use_offset) {
         Some(r) => match r.def_span {
             Some(s) => s.offset,
             None => -1,
@@ -83,5 +96,115 @@ fn test_field_access_is_not_navigable() -> Result<Void, Error> {
     // A struct field carries no name span — renderable (hover) but not navigable.
     let use_off = at(SRC, 'self.count + n', 5);
     testing.assert_eq(actual: def_offset(SRC, use_off), expected: -1)?;
+    return Result.Ok(void);
+}
+
+// --- owner-correct cross-file resolution (LS1/LS3/LS8) ---
+
+fn program_at(_ src: String, _ path: String) -> Program {
+    let p = parser.parse_tokens(lexer.tokenize(src).tokens).program;
+    p.file_path = Option.Some(path);
+    return p;
+}
+
+// A two-library closure where BOTH imports declare `pub fn helper`, but the
+// primary's bare surface attributes the name to lib_b (an `as _` import) and
+// its `util` namespace maps to lib_a. The maps are hand-rolled stand-ins for
+// what the loader computes.
+fn cross_ctx(_ primary: Program) -> ResolveCtx {
+    let a = program_at('pub fn helper(_ n: Int) -> Int { return n; }\n'
+        + 'pub const width: Int = 4;\n', '/libs/a.hawk');
+    let b = program_at('pub fn helper(_ s: String) -> String { return s; }\n', '/libs/b.hawk');
+    let bare: Map<String, Map<String, String>> = {};
+    bare['/app/main.hawk'] = { 'helper': '/libs/b.hawk' };
+    let surface = LibraryNamespace {
+        names: Set.from(['helper', 'width']),
+        collisions: Set.new(),
+        origin: { 'helper': '/libs/a.hawk', 'width': '/libs/a.hawk' },
+    };
+    let ns_map: Map<String, LibraryNamespace> = {};
+    ns_map['util'] = surface;
+    let nss: Map<String, Map<String, LibraryNamespace>> = {};
+    nss['/app/main.hawk'] = ns_map;
+    return ResolveCtx {
+        program: primary,
+        imports: [a, b],
+        file_namespaces: nss,
+        file_bare_surface: bare,
+    };
+}
+
+@test
+fn test_bare_name_resolves_via_the_bare_surface_owner() -> Result<Void, Error> {
+    // Bare `helper` must go to the file the surface attributes it to (b),
+    // not the first import that happens to declare the name (a).
+    let src = 'import \'b\' as _;\nfn main() -> Void { helper(\'x\'); }\n';
+    let primary = program_at(src, '/app/main.hawk');
+    let use_off = src.find('helper(\'x\'').unwrap_or(0);
+    match resolve.resolve_at(cross_ctx(primary), src, use_off) {
+        Some(r) => {
+            testing.assert_eq(actual: r.def_file.unwrap_or(''), expected: '/libs/b.hawk')?;
+        },
+        None => { testing.assert(false, message: 'bare helper did not resolve')?; },
+    }
+    return Result.Ok(void);
+}
+
+@test
+fn test_ns_member_resolves_on_the_namespace_surface() -> Result<Void, Error> {
+    // `util.helper` resolves through util's surface origin — lib_a — even
+    // though the bare surface points the same name at lib_b.
+    let src = 'import \'a\' as util;\nfn main() -> Void { util.helper(1); }\n';
+    let primary = program_at(src, '/app/main.hawk');
+    let use_off = src.find('.helper(1').unwrap_or(0) + 1;
+    match resolve.resolve_at(cross_ctx(primary), src, use_off) {
+        Some(r) => {
+            testing.assert_eq(actual: r.def_file.unwrap_or(''), expected: '/libs/a.hawk')?;
+        },
+        None => { testing.assert(false, message: 'util.helper did not resolve')?; },
+    }
+    return Result.Ok(void);
+}
+
+@test
+fn test_namespace_itself_resolves_to_its_import() -> Result<Void, Error> {
+    // Hovering the `util` of `util.helper` lands on the import declaration.
+    let src = 'import \'a\' as util;\nfn main() -> Void { util.helper(1); }\n';
+    let primary = program_at(src, '/app/main.hawk');
+    let use_off = src.find('util.helper').unwrap_or(0);
+    match resolve.resolve_at(cross_ctx(primary), src, use_off) {
+        Some(r) => {
+            testing.assert_eq(actual: r.def_file.unwrap_or(''), expected: '/app/main.hawk')?;
+            testing.assert(r.render.starts_with('import'), message: 'renders the import')?;
+        },
+        None => { testing.assert(false, message: 'namespace did not resolve')?; },
+    }
+    return Result.Ok(void);
+}
+
+@test
+fn test_member_of_computed_receiver_does_not_guess() -> Result<Void, Error> {
+    // `paint().bar` — the member of a call result needs inference; it must NOT
+    // resolve `bar` against an unrelated same-named top-level declaration.
+    let src = 'fn bar() -> Int { return 1; }\n'
+        + 'fn paint() -> Int { return 2; }\n'
+        + 'fn main() -> Void { let x = paint().bar; }\n';
+    let use_off = src.find(').bar').unwrap_or(0) + 2;
+    testing.assert_eq(actual: def_offset(src, use_off), expected: -1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_unimported_name_does_not_resolve() -> Result<Void, Error> {
+    // `width` exists in lib_a but the primary neither declares it nor has it on
+    // its bare surface — a whole-closure name scan would find it; the
+    // owner-correct resolver must not.
+    let src = 'fn main() -> Void { let w = width; }\n';
+    let primary = program_at(src, '/app/main.hawk');
+    let use_off = src.find('width;').unwrap_or(0);
+    match resolve.resolve_at(cross_ctx(primary), src, use_off) {
+        Some(_) => { testing.assert(false, message: 'unimported width must not resolve')?; },
+        None => {},
+    }
     return Result.Ok(void);
 }

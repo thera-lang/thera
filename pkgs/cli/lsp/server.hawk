@@ -213,7 +213,7 @@ impl Server {
     // Hover at a position: the resolved declaration's signature, or JSON null.
     fn hover(self, _ uri: Option<String>, _ position: Json) -> Json {
         return match self.analysis.analyze_at(uri, position) {
-            Some(a) => hover.handle_hover(a.program, a.imports, a.text, a.offset),
+            Some(a) => hover.handle_hover(a.ctx, a.text, a.offset),
             None => json.null(),
         };
     }
@@ -221,7 +221,7 @@ impl Server {
     // Go-to-definition at a position: the declaration's `Location`, or JSON null.
     fn definition(self, _ uri: Option<String>, _ position: Json) -> Json {
         return match self.analysis.analyze_at(uri, position) {
-            Some(a) => definition.handle_definition(a.program, a.imports, a.text, a.offset),
+            Some(a) => definition.handle_definition(a.ctx, a.text, a.offset),
             None => json.null(),
         };
     }
