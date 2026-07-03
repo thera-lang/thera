@@ -824,7 +824,22 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
             check_expr(errors, x.condition, scope, ctx, Option.None);
             check_condition(errors, x.condition, scope, ctx);
             check_block(errors, x.then_block, scope, ctx, {});
-            if let Some(eb) = x.else_block { check_block(errors, eb, scope, ctx, {}); }
+            if let Some(eb) = x.else_block {
+                check_block(errors, eb, scope, ctx, {});
+                // An `if` in expression position is a value: its branches must
+                // agree, exactly like match arms (a value-less branch — Unit, or
+                // a bare return/throw — is exempt). Previously never unified:
+                // `let x = if c { 1 } else { 'a' }` checked clean and `x` held a
+                // String on the else path.
+                let then_type = infer_block(x.then_block, scope, ctx, expected);
+                let else_type = infer_block(eb, scope, ctx, expected);
+                if produces_value(then_type) && produces_value(else_type)
+                    && !arms_compatible(then_type, else_type, ctx.library.type_defs) {
+                    add_error(errors,
+                        '`if`/`else` branches have incompatible types: ${type_to_string(then_type)} and ${type_to_string(else_type)}',
+                        x.span);
+                }
+            }
         },
         Return(span, value) => {
             if let Some(v) = value {

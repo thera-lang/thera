@@ -1,0 +1,16 @@
+//! spec: expr-if-branch-types
+//! mode: check
+
+// An `if` in expression position is a value: its branches must agree, exactly
+// like match arms. A value-less branch (Unit, or one that exits via
+// `return`/`throw`) is exempt. (Previously never unified: the mismatch checked
+// clean and the binding held the wrong type on the else path.)
+
+fn pick(_ c: Bool) -> Int {
+    let x = if c { 1 } else { 'a' };   // expect error: `if`/`else` branches have incompatible types: Int and String
+
+    // Agreeing branches, and an exempt exiting branch, are fine.
+    let y = if c { 1 } else { 2 };
+    let z = if c { 3 } else { return 0; };
+    return x + y + z;
+}

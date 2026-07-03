@@ -49,6 +49,7 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `expr-concat`       | language.md Types        | `+` concatenates strings                                   | ✓      |
 | `expr-operator-types`| Operator precedence     | operands type-checked: same-typed Int/Double (+String for `+`), Bool for logical/`!`, Int for `%`/bitwise, agreeing `==`/`!=`; no Int↔Double coercion | ✓ |
 | `expr-tail`         | language.md Tail exprs   | `if`/`match` as values (tail expression)                   | ✓      |
+| `expr-if-branch-types`| language.md Tail exprs | an expression-position `if`'s branches must agree in type (value-less/exiting branches exempt) | ✓ |
 | `expr-semicolon`    | language.md Tail exprs   | `;` discards a tail; bare tail only in expr position       | ◐      |
 | `expr-if-needs-else`| language.md Tail exprs   | `let x = if c { 1 }` (no else) is an error                 | ✓      |
 | `expr-loc`          | Metaconstants            | `#loc` → `SourceLoc`; as a default param, captures caller  | ✓      |
