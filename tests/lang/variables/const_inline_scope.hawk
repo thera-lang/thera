@@ -1,0 +1,17 @@
+//! spec: const-inline-scope
+//! mode: run
+
+// A `const` compiles by inlining its initializer at each use site, but the
+// initializer is *the const's* code: it evaluates in the const's own top-level
+// scope, not the consumer's. A local that shadows a name the initializer
+// references must not be captured. Previously the initializer compiled against
+// the consumer's locals, so `derived` below inlined as `base(local) + 1` = 11.
+
+const base: Int = 2;
+const derived: Int = base + 1;
+
+fn main() -> Void {
+    let base = 10;
+    println('${derived}');   // expect: 3
+    println('${base}');      // expect: 10
+}

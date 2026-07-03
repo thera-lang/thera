@@ -1,0 +1,2 @@
+// Support library for shared_const_name.hawk.
+pub const width: Int = 4;

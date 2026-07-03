@@ -88,6 +88,7 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `module-let-order`  | module_init.md           | initializers run in dependency order; a cycle is an error   | ◐      |
 | `module-let-cross-module` | module_init.md     | imported globals initialize before an importer's that use them | ✓   |
 | `const-manifest`    | module_init.md           | `const` must be compile-time evaluable; computed -> use `let`  | ✓      |
+| `const-inline-scope`| module_init.md           | a const's inlined initializer evaluates in the const's own top-level scope, not the consumer's | ✓ |
 
 ## Functions
 
@@ -166,6 +167,7 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `mod-no-bare-fallback`| scoping.md             | a bare name owned by an un-imported (closure-only) library is `undefined` — no global last-wins fallback | ✓ |
 | `mod-shared-value-name`| scoping.md              | two libraries may share a top-level value name; each qualified call dispatches to its own library (value-uniqueness lift) | ✓ |
 | `mod-shared-type-name`| scoping.md              | two libraries may share a top-level *type* name; each qualified `ns.T` constructs/resolves its own library's type (type-uniqueness lift) | ✓ |
+| `mod-shared-const-name`| scoping.md             | two libraries may share a const name: `ns.NAME` inlines its own library's initializer, resolved against the const's file; owner-keyed cycle guard | ✓ |
 | `mod-import-resolve-error`| Imports            | an import that doesn't resolve is a located diagnostic at the import decl (not a silent no-op / downstream `undefined name`) | ✓ |
 | `mod-one-name-space`| scoping.md               | one name space per scope: a file introduces a top-level name once, across all kinds (fn/type/const/let/import namespace) | ✓ |
 | `mod-bare-collision`| scoping.md               | two `import … as _` exposing one public name is an error at the second import (barrel collisions likewise, at the barrel — unit-tested) | ✓ |

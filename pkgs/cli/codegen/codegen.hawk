@@ -65,6 +65,20 @@ struct SavedScope {
     types: Map<String, Type>,
 }
 
+// The compiler's full per-position context, saved when compilation crosses into
+// another file's code mid-unit (a const initializer inlined at a use site):
+// the file bare references resolve against, the inference context (whose
+// `current_file` must move in tandem with `file` — this and `enter_file_context`
+// are the one seam that moves them), and the lexical maps and type-parameter
+// bounds, which a top-level initializer must not see.
+struct FileContext {
+    file: Option<String>,
+    ctx: InferCtx,
+    slots: Map<String, Int>,
+    types: Map<String, Type>,
+    bounds: Map<String, List<String>>,
+}
+
 // --- entry point ---
 
 // Compile `program` plus any `imports` into one module. All modules' functions,
@@ -156,7 +170,7 @@ fn register_module(_ scope: ModuleScope, _ program: Program) -> Void {
             // representation lives in the runtime. Methods come from `impl` blocks.
             Type(x) => { if !x.is_native { scope.add_struct(x, file); } },
             Enum(x) => { scope.add_enum(x, file); },
-            Const(x) => { scope.add_const(x); },
+            Const(x) => { scope.add_const(x, file); },
             // Module-level `let`: a global slot computed once in the `<init>`
             // thunk (see docs/module_init.md).
             Let(x) => { scope.add_global(x, file); },
@@ -208,7 +222,7 @@ pub struct FnCompiler {
     code: List<Instr>,
     mut slots: Map<String, Int>,
     mut type_scope: Map<String, Type>,
-    type_param_bounds: Map<String, List<String>>,
+    mut type_param_bounds: Map<String, List<String>>,
     consts_in_progress: Set<String>,
     boxed_locals: Set<String>,
     mut local_count: Int,
@@ -445,6 +459,36 @@ impl FnCompiler {
         self.exit_scope(saved);
     }
 
+    // Enter the top-level compile context of `file` — the scope a declaration
+    // belonging to `file` compiles in when reached mid-unit (a const initializer
+    // inlined at a use site): no locals, no type params, no self. Keeps
+    // `self.file` and `ctx.current_file` in tandem.
+    fn enter_file_context(self, _ file: Option<String>) -> FileContext {
+        let saved = FileContext {
+            file: self.file,
+            ctx: self.ctx,
+            slots: self.slots,
+            types: self.type_scope,
+            bounds: self.type_param_bounds,
+        };
+        self.file = file;
+        let ctx = new_ctx(self.scope.library);
+        ctx.current_file = file;
+        self.ctx = ctx;
+        self.slots = {};
+        self.type_scope = {};
+        self.type_param_bounds = {};
+        return saved;
+    }
+
+    fn restore_file_context(self, _ saved: FileContext) -> Void {
+        self.file = saved.file;
+        self.ctx = saved.ctx;
+        self.slots = saved.slots;
+        self.type_scope = saved.types;
+        self.type_param_bounds = saved.bounds;
+    }
+
     fn ends_in_return(self) -> Bool {
         return match self.code[self.code.len() - 1] {
             Simple(op) => op == Op.Return,
@@ -466,12 +510,15 @@ impl FnCompiler {
                 }
             },
             None => {
-                if self.scope.consts.has(name) {
-                    self.emit_const(name, span);
-                } else if self.scope.globals.has(name) {
-                    self.emit_global(name);
-                } else {
-                    self.error('not a local variable: ${name}', span);
+                match self.scope.resolve_const_owner(self.file, name) {
+                    Some(owner) => { self.emit_const(owner, name, span); },
+                    None => {
+                        if self.scope.globals.has(name) {
+                            self.emit_global(name);
+                        } else {
+                            self.error('not a local variable: ${name}', span);
+                        }
+                    },
                 }
             },
         }
@@ -482,15 +529,25 @@ impl FnCompiler {
         if let Some(slot) = self.scope.globals.get(name) { self.emit(Instr.GlobalGet(slot)); }
     }
 
-    // Inline a top-level constant by compiling its initializer at the use site.
-    fn emit_const(self, _ name: String, _ span: SourceSpan) -> Void {
-        if self.consts_in_progress.has(name) {
+    // Inline the top-level constant `owner`/`name` by compiling its initializer
+    // at the use site. The initializer is `owner`'s code, so it compiles in that
+    // file's top-level context: a consumer local can't be captured, and the
+    // initializer's own references (another const, a namespace) resolve against
+    // its declaring file. Cycle detection keys by owner too, so two libraries'
+    // same-named consts referencing each other aren't a false cycle.
+    fn emit_const(self, _ owner: String, _ name: String, _ span: SourceSpan) -> Void {
+        let key = type_key(owner, name);
+        if self.consts_in_progress.has(key) {
             self.error('cyclic constant: ${name}', span);
             return;
         }
-        self.consts_in_progress.add(name);
-        if let Some(e) = self.scope.consts.get(name) { self.expr(e); }
-        self.consts_in_progress.remove(name);
+        self.consts_in_progress.add(key);
+        if let Some(e) = self.scope.const_in_file(owner, name) {
+            let saved = self.enter_file_context(file_of_key(owner));
+            self.expr(e);
+            self.restore_file_context(saved);
+        }
+        self.consts_in_progress.remove(key);
     }
 
     // The static type *name* of an expression, for opcode/dispatch selection.
@@ -1458,12 +1515,16 @@ impl FnCompiler {
 
     fn field_expr(self, _ object: Expr, _ field: String, _ span: SourceSpan) -> Void {
         // A namespace-qualified constant or global: `ns.NAME` → inline the const
-        // initializer, or load the global slot.
+        // initializer, or load the global slot. Resolved within `ns`'s owning
+        // library (owner-correct): the member must be on the namespace's own
+        // surface, so two libraries' same-named consts inline their own values.
         if let Ident(_, ns_name) = object {
             if self.is_namespace(ns_name) {
-                if self.scope.consts.has(field) {
-                    self.emit_const(field, span);
-                    return;
+                if let Some(owner) = file_scope(self.scope.library, self.file).member_owner(ns_name, field) {
+                    if self.scope.const_in_file(owner, field).is_some() {
+                        self.emit_const(owner, field, span);
+                        return;
+                    }
                 }
                 if self.scope.globals.has(field) {
                     self.emit_global(field);
@@ -2302,6 +2363,12 @@ fn copy_set(_ s: Set<String>) -> Set<String> {
         out.add(x);
     }
     return out;
+}
+
+// The Option-file for a file key — the inverse of `element.file_key` ('' denotes
+// the primary/anonymous program).
+fn file_of_key(_ key: String) -> Option<String> {
+    return if key == '' { Option.None } else { Option.Some(key) };
 }
 
 // The slot-map analogue of inference's `copy_scope`.

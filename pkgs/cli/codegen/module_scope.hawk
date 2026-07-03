@@ -132,7 +132,10 @@ pub struct ModuleScope {
     structs: Map<String, Map<String, StructInfo>>, // owner -> name -> info
     enums: Map<String, Map<String, EnumInfo>>,     // owner -> name -> info
     types: List<TypeDef>,
-    consts: Map<String, Expr>,
+    // Top-level constants, keyed by **owning file** then name (owner-correct,
+    // like `structs`/`file_functions`): two libraries' same-named consts inline
+    // their own initializers, and cycle detection can't conflate them.
+    consts: Map<String, Map<String, Expr>>,
     // Module globals (top-level `let`; see docs/module_init.md): name -> slot for
     // reference emission, plus the initializers to run in the `<init>` thunk.
     globals: Map<String, Int>,
@@ -354,8 +357,46 @@ impl ModuleScope {
         return false;
     }
 
-    pub fn add_const(self, _ decl: ConstDecl) -> Void {
-        self.consts[decl.name] = decl.value;
+    pub fn add_const(self, _ decl: ConstDecl, _ file: Option<String>) -> Void {
+        let owner = element.file_key(file);
+        if !self.consts.has(owner) {
+            self.consts[owner] = {};
+        }
+        if let Some(m) = self.consts.get(owner) {
+            m[decl.name] = decl.value;
+        }
+    }
+
+    // The initializer of const `name` declared in file `owner` (a file key) — the
+    // owner-correct lookup behind a qualified `ns.NAME`. No global fallback.
+    pub fn const_in_file(self, _ owner: String, _ name: String) -> Option<Expr> {
+        return match self.consts.get(owner) {
+            Some(m) => m.get(name),
+            None => Option.None,
+        };
+    }
+
+    // The owning file (key) of const `name` referenced *bare* from `file`: the
+    // file's own const if it has one, else the one its bare surface (prelude /
+    // `as _` imports) attributes to its owning file. No global fallback —
+    // mirrors `resolve_function`.
+    pub fn resolve_const_owner(self, _ file: Option<String>, _ name: String) -> Option<String> {
+        let key = element.file_key(file);
+        if let Some(m) = self.consts.get(key) {
+            if m.has(name) {
+                return Option.Some(key);
+            }
+        }
+        if let Some(surface) = self.library.file_bare_surface.get(key) {
+            if let Some(owner) = surface.get(name) {
+                if let Some(m) = self.consts.get(owner) {
+                    if m.has(name) {
+                        return Option.Some(owner);
+                    }
+                }
+            }
+        }
+        return Option.None;
     }
 
     // Assign a module global its slot and record its initializer for the `<init>`

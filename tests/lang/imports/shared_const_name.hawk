@@ -1,0 +1,17 @@
+//! spec: mod-shared-const-name
+//! mode: run
+
+import 'libconst_a' as a;
+import 'libconst_b' as b;
+
+// Two libraries may each declare a `pub const` with the same name: a qualified
+// `a.size` / `b.size` inlines its own library's initializer (consts are keyed
+// by owning file, not a last-wins name table). A const initializer that itself
+// references another library (`libconst_b.width = other.width + 1`) resolves
+// that reference against *its* file's imports when inlined here — and the two
+// same-named `width` consts referencing each other's libraries are not a
+// "cyclic constant" (the cycle guard is owner-keyed too).
+fn main() -> Void {
+    println('${a.size} ${b.size}');    // expect: 10 20
+    println('${a.width} ${b.width}');  // expect: 5 6
+}
