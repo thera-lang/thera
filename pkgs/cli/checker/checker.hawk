@@ -589,6 +589,13 @@ fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ stmts: List<Stmt>, _ i
             // struct field's.
             let target_type = infer_expr(target, scope, ctx, Option.None);
             check_expr(errors, value, scope, ctx, Option.Some(target_type));
+            // And the value must actually be assignable to it — the expected type
+            // above is only an inference hint. (Previously unchecked: `x = 'a'` on
+            // a `mut x = 1`, `xs[0] = 'a'` on a `List<Int>`, and a struct-field
+            // assignment of the wrong type all passed and corrupted at runtime.)
+            let actual = infer_expr(value, scope, ctx, Option.Some(target_type));
+            expect_type(errors, actual, target_type, assign_context(target),
+                expr_span(value), ctx.library.type_defs);
         },
         Expr(_, e) => {
             check_expr(errors, e, scope, ctx, Option.None);
@@ -1248,6 +1255,16 @@ fn name_known(_ name: String, _ library: LibraryElement,
 // Report when `actual` is not assignable to `expected`. `Unknown` is lenient on
 // both sides (so the checker never reports a *false* mismatch); `type_defs` backs
 // interface subtyping.
+// The diagnostic context for an assignment, by target shape.
+fn assign_context(_ target: Expr) -> String {
+    return match target {
+        Ident(_, name) => 'assignment to `${name}`',
+        Field(_, _, field) => 'assignment to field `${field}`',
+        Index(_, _, _) => 'assignment to element',
+        _ => 'assignment',
+    };
+}
+
 fn expect_type(_ errors: List<CheckError>, _ actual: Type, _ expected: Type,
     _ context: String, _ span: SourceSpan, _ type_defs: Map<String, TypeDefElement>) -> Void {
     if !is_assignable(actual, expected, type_defs) {

@@ -1,0 +1,24 @@
+//! spec: var-assign-type
+//! mode: check
+
+// An assignment's value must be assignable to its target's type — for a
+// binding, a collection element, and a struct field alike. (Previously only
+// inference *hints* flowed here: `x = 'a'` on a `mut x = 1` passed the check
+// and corrupted the binding at runtime.)
+
+struct Point {
+    mut x: Int,
+}
+
+fn main() -> Void {
+    let mut n = 1;
+    n = 'a';           // expect error: assignment to `n`: expected Int, found String
+    n = 2;
+
+    let xs = [1, 2];
+    xs[0] = 'a';       // expect error: assignment to element: expected Int, found String
+
+    let p = Point { x: 1 };
+    p.x = 'a';         // expect error: assignment to field `x`: expected Int, found String
+    p.x = n;
+}
