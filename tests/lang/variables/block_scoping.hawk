@@ -1,0 +1,54 @@
+//! spec: var-block-scope
+//! mode: run
+
+// A binding introduced inside a block (an `if`/`while` body, a for loop, a
+// match arm, a value block) is scoped to that block: it may shadow an outer
+// binding, and after the block the outer binding — its value AND its type — is
+// visible again. Previously codegen's slot map had no block scoping, so a
+// post-block reference read the inner binding's slot (and its leaked *type*
+// could diverge opcode selection from the checker, corrupting the stack).
+
+enum E {
+    A(Int),
+    B,
+}
+
+fn main() -> Void {
+    // Shadow in an if-block: the outer value reads back after.
+    let x = 1;
+    if true {
+        let x = 2;
+        println('${x}');       // expect: 2
+    }
+    println('${x}');           // expect: 1
+
+    // Shadow with a *different type*: post-block arithmetic is Int again.
+    let d = 10;
+    if true {
+        let d = 1.5;
+        println('${d}');       // expect: 1.5
+    }
+    println('${d + 1}');       // expect: 11
+
+    // A match arm's pattern binding shadows only within the arm.
+    let n = 7;
+    let r = match E.A(42) {
+        A(n) => n * 2,
+        B => 0,
+    };
+    println('${r} ${n}');      // expect: 84 7
+
+    // A for-loop variable is scoped to the loop.
+    let i = 99;
+    for i in [1, 2] {
+        println('${i}');       // expect: 1
+    }                          // expect: 2
+    println('${i}');           // expect: 99
+
+    // A value block's bindings (including its tail) end with the block.
+    let v = {
+        let x = 100;
+        x + 1
+    };
+    println('${v} ${x}');      // expect: 101 1
+}

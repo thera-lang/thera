@@ -82,6 +82,7 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `var-let-immutable` | Variables                | reassigning a `let` (or a parameter) is an error          | ✓      |
 | `var-assign-type`   | Variables                | an assignment's value must match the target's type (binding, element, field) | ✓ |
 | `var-references`    | Variables                | heap values are shared references                          | ✓      |
+| `var-block-scope`   | Variables                | block/arm/loop bindings shadow lexically; the outer binding (value and type) restores after | ✓ |
 | `module-let-immutable`| module_init.md         | no top-level `let mut`; module globals are immutable       | ✓      |
 | `module-let`        | module_init.md           | top-level `let` computed once into a stored global slot     | ✓      |
 | `module-let-order`  | module_init.md           | initializers run in dependency order; a cycle is an error   | ◐      |
