@@ -18,14 +18,16 @@ import '../loader';      // ParsedFile (the cross-request parse cache)
 // changed since they last checked clean.
 pub fn compute_diagnostics(_ text: String, _ path: String, _ sdk_root: Option<String>,
     parse_cache: Map<String, loader.ParsedFile> = {},
-    checked: Set<String> = Set.new()) -> Json {
+    checked: Set<String> = Set.new(),
+    overlays: Map<String, String> = {}) -> Json {
     let items: List<Json> = [];
     // `check_source_at` now reports the whole closure (incl. imported-file
     // errors); the LSP publishes per-URI, so keep only this document's own
     // diagnostics — an imported file's surface when *it* is the open document.
     // Attribution (`d.file`) is canonical, so compare in canonical form.
     let canon = loader.canonical_path(path);
-    for d in driver.check_source_at(text, path, sdk_root, parse_cache: parse_cache, checked: checked) {
+    for d in driver.check_source_at(text, path, sdk_root, parse_cache: parse_cache,
+        checked: checked, overlays: overlays) {
         if diagnostic_in_file(d, canon) {
             items.push(diagnostic_to_json(d));
         }

@@ -1,0 +1,54 @@
+// Tests for the analysis session — specifically the open-buffer overlay
+// contract: an *imported* file that is open in the editor is analyzed as the
+// user sees it (unsaved edits included), not as last saved to disk.
+
+import std.testing;
+import std.fs;
+import std.json as _;
+
+import 'analysis' as _;
+import 'paths';
+import '../loader';
+
+// `a.hawk` imports `b.hawk` and calls `b.helper()`. On disk, `b` exports
+// `helper`; the open (unsaved) buffer for `b` removes it. Analyzing `a` must
+// see the buffer — an "not a public member" diagnostic — not the disk content.
+@test
+fn test_imported_open_buffer_overlays_disk() -> Result<Void, Error> {
+    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_overlay_test');
+    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} } // stale fixture
+    if let Err(e) = fs.create_dir_all(dir) {
+        return Result.Err(error('create fixture dir: ${e.message()}'));
+    }
+    if let Err(e) = fs.write_text(dir + '/b.hawk', 'pub fn helper() -> Int { return 1; }\n') {
+        return Result.Err(error('write b: ${e.message()}'));
+    }
+    let a_text = 'import \'b\';\nfn use_it() -> Int { return b.helper(); }\n';
+    if let Err(e) = fs.write_text(dir + '/a.hawk', a_text) {
+        return Result.Err(error('write a: ${e.message()}'));
+    }
+
+    let analysis = new_analysis(Option.None);
+    let a_uri = paths.path_to_uri(dir + '/a.hawk');
+    let b_uri = paths.path_to_uri(dir + '/b.hawk');
+    analysis.set_document(a_uri, a_text);
+
+    // Both files as saved: clean.
+    let clean = analysis.diagnostics(a_uri, a_text);
+    testing.assert_eq(actual: clean.as_array().map((xs) => xs.len()).unwrap_or(-1), expected: 0)?;
+
+    // Open `b` with an unsaved edit that removes `helper`: `a`'s analysis must
+    // see the buffer, not the stale disk content.
+    analysis.set_document(b_uri, 'pub fn renamed() -> Int { return 1; }\n');
+    let stale = analysis.diagnostics(a_uri, a_text);
+    testing.assert(stale.as_array().map((xs) => xs.len()).unwrap_or(0) > 0,
+        message: 'a sees b\'s unsaved edit (helper gone)')?;
+
+    // Close `b` (buffer discarded): back to the disk content — clean again.
+    analysis.close_document(b_uri);
+    let reverted = analysis.diagnostics(a_uri, a_text);
+    testing.assert_eq(actual: reverted.as_array().map((xs) => xs.len()).unwrap_or(-1), expected: 0)?;
+
+    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    return Result.Ok(void);
+}

@@ -80,6 +80,17 @@ impl Analysis {
         return self.docs.get(uri);
     }
 
+    // The open buffers as a loader overlay map (canonical path -> text), so an
+    // *imported* file that is open in the editor is analyzed as the user sees
+    // it — unsaved edits included — not as last saved to disk.
+    fn overlay_map(self) -> Map<String, String> {
+        let overlays: Map<String, String> = {};
+        for uri in self.docs.keys() {
+            overlays[loader.canonical_path(paths.uri_to_path(uri))] = self.docs[uri];
+        }
+        return overlays;
+    }
+
     pub fn uris(self) -> List<String> {
         return self.docs.keys();
     }
@@ -98,7 +109,8 @@ impl Analysis {
                     let program = parser.parse_tokens(lexer.tokenize(text).tokens).program;
                     let path = paths.uri_to_path(u);
                     program.file_path = Option.Some(path);
-                    let loaded = loader.load_imports(path, program, self.sdk_root, parse_cache: self.parse_cache);
+                    let loaded = loader.load_imports(path, program, self.sdk_root,
+                        parse_cache: self.parse_cache, overlays: self.overlay_map());
                     Option.Some(DocAnalysis { program: program, imports: loaded.programs, text: text, offset: offset })
                 },
                 None => Option.None,
@@ -116,6 +128,7 @@ impl Analysis {
         let path = paths.uri_to_path(uri);
         self.checked.remove(loader.canonical_path(path));
         return diagnostics.compute_diagnostics(text, path, self.sdk_root,
-            parse_cache: self.parse_cache, checked: self.checked);
+            parse_cache: self.parse_cache, checked: self.checked,
+            overlays: self.overlay_map());
     }
 }

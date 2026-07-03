@@ -194,22 +194,26 @@ pub struct ParsedFile {
 // diagnostics can key on it.
 fn parse_file(_ path: String) -> Result<ParsedFile, String> {
     match fs.read_text(path) {
-        Ok(source) => {
-            let diagnostics: List<LoadDiagnostic> = [];
-            let lex = lexer.tokenize(source);
-            for e in lex.errors {
-                diagnostics.push(LoadDiagnostic { message: e.message, span: e.span, file: path });
-            }
-            let parsed = parser.parse_tokens(lex.tokens);
-            for e in parsed.errors {
-                diagnostics.push(LoadDiagnostic { message: e.message, span: e.span, file: path });
-            }
-            let prog = parsed.program;
-            prog.file_path = Option.Some(path);
-            return Result.Ok(ParsedFile { program: prog, diagnostics: diagnostics });
-        },
+        Ok(source) => { return Result.Ok(parse_source(path, source)); },
         Err(e) => { return Result.Err(e.message()); },
     }
+}
+
+// Lex + parse `source` as the content of `path` (best-effort recovery; errors
+// collected, stamped with `path`).
+fn parse_source(_ path: String, _ source: String) -> ParsedFile {
+    let diagnostics: List<LoadDiagnostic> = [];
+    let lex = lexer.tokenize(source);
+    for e in lex.errors {
+        diagnostics.push(LoadDiagnostic { message: e.message, span: e.span, file: path });
+    }
+    let parsed = parser.parse_tokens(lex.tokens);
+    for e in parsed.errors {
+        diagnostics.push(LoadDiagnostic { message: e.message, span: e.span, file: path });
+    }
+    let prog = parsed.program;
+    prog.file_path = Option.Some(path);
+    return ParsedFile { program: prog, diagnostics: diagnostics };
 }
 
 // Lex and parse `path`, or None if it can't be read or has lex/parse errors.
@@ -239,6 +243,13 @@ struct Loader {
     // A library reached from many files' closures is read+lexed+parsed once, not
     // once per importing file. Empty (fresh) by default → no cross-call sharing.
     parse_cache: Map<String, ParsedFile>,
+    // In-memory file contents (canonical path -> text) that take precedence over
+    // disk — the LSP's open, possibly-unsaved buffers. An imported file that is
+    // open in the editor is analyzed as the user sees it, not as last saved.
+    // The caller must evict a file's `parse_cache` entry whenever its overlay
+    // text changes or is removed (the LSP does, on every document event) — the
+    // cache is consulted first, so a stale entry would win otherwise.
+    overlays: Map<String, String>,
 }
 
 impl Loader {
@@ -293,10 +304,16 @@ impl Loader {
     }
 
     // Parse `file`, consulting the cross-call cache first so a file shared by many
-    // closures (the prelude) is lexed+parsed once per run. A cache miss parses and
-    // stores; the cached `ParsedFile` is reused as-is (the AST is immutable).
+    // closures (the prelude) is lexed+parsed once per run. A cache miss parses —
+    // from the file's overlay when one is open, else from disk — and stores; the
+    // cached `ParsedFile` is reused as-is (the AST is immutable).
     fn parsed_file(self, _ file: String) -> Result<ParsedFile, String> {
         if let Some(cached) = self.parse_cache.get(file) { return Result.Ok(cached); }
+        if let Some(text) = self.overlays.get(file) {
+            let pf = parse_source(file, text);
+            self.parse_cache[file] = pf;
+            return Result.Ok(pf);
+        }
         match parse_file(file) {
             Ok(pf) => {
                 self.parse_cache[file] = pf;
@@ -369,7 +386,8 @@ impl Loader {
 // directory (the pre-canonical `dirname('root.hawk')` was `''`, which sent
 // imports to the filesystem root).
 pub fn load_imports(_ path: String, _ program: Program, _ sdk_root: Option<String>,
-    parse_cache: Map<String, ParsedFile> = {}) -> LoadedImports {
+    parse_cache: Map<String, ParsedFile> = {},
+    overlays: Map<String, String> = {}) -> LoadedImports {
     let canon = canonical_path(path);
     program.file_path = Option.Some(canon);
     let loader = Loader {
@@ -378,6 +396,7 @@ pub fn load_imports(_ path: String, _ program: Program, _ sdk_root: Option<Strin
         cache: {},
         diagnostics: [],
         parse_cache: parse_cache,
+        overlays: overlays,
     };
 
     // std.core is auto-imported into every program — load it so its types (Error),

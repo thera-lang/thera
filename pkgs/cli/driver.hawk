@@ -98,7 +98,8 @@ pub fn compile_source(_ source: String) -> CompileOutcome {
 // re-encountering one re-reports it (the caller de-duplicates printing).
 pub fn check_source_at(_ source: String, _ path: String, _ sdk_root: Option<String>,
     parse_cache: Map<String, loader.ParsedFile> = {},
-    checked: Set<String> = Set.new()) -> List<Diagnostic> {
+    checked: Set<String> = Set.new(),
+    overlays: Map<String, String> = {}) -> List<Diagnostic> {
     // Canonical identity from the start, so the primary's attribution matches
     // the keys the loader mints (`Diagnostic.file` is always canonical).
     let canon = loader.canonical_path(path);
@@ -111,7 +112,7 @@ pub fn check_source_at(_ source: String, _ path: String, _ sdk_root: Option<Stri
         return parse_diagnostics(parsed.errors, build_source_map(source, canon, []));
     }
     let program = parsed.program;
-    let loaded = loader.load_imports(canon, program, sdk_root, parse_cache: parse_cache);
+    let loaded = loader.load_imports(canon, program, sdk_root, parse_cache: parse_cache, overlays: overlays);
     let src_map = build_source_map(source, canon, loaded.programs);
     let skip = skip_keys(canon, loaded.programs, sdk_root, checked);
     // Lex/parse errors from imported files first (root causes) — minus files
@@ -139,7 +140,8 @@ pub fn check_source_at(_ source: String, _ path: String, _ sdk_root: Option<Stri
 // `checked` holds only *clean* files, so skipping them never masks an error.
 pub fn compile_source_at(_ source: String, _ path: String, _ sdk_root: Option<String>,
     parse_cache: Map<String, loader.ParsedFile> = {},
-    checked: Set<String> = Set.new()) -> CompileOutcome {
+    checked: Set<String> = Set.new(),
+    overlays: Map<String, String> = {}) -> CompileOutcome {
     let canon = loader.canonical_path(path);
     let lex = lexer.tokenize(source);
     if lex.errors.len() > 0 {
@@ -150,7 +152,7 @@ pub fn compile_source_at(_ source: String, _ path: String, _ sdk_root: Option<St
         return failed(parse_diagnostics(parsed.errors, build_source_map(source, canon, [])));
     }
     let program = parsed.program;
-    let loaded = loader.load_imports(canon, program, sdk_root, parse_cache: parse_cache);
+    let loaded = loader.load_imports(canon, program, sdk_root, parse_cache: parse_cache, overlays: overlays);
     let src_map = build_source_map(source, canon, loaded.programs);
     let skip = skip_keys(canon, loaded.programs, sdk_root, checked);
     // An imported file that failed to lex/parse/resolve leaves the closure
