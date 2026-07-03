@@ -1277,20 +1277,26 @@ fn check_recv_type_args(_ errors: List<CheckError>, _ x: CallExpr, _ ctx: InferC
     for a in x.recv_type_args {
         check_type_ref(errors, a, ctx.library, ctx.current_file, ctx.type_params);
     }
-    // The receiver is the callee's object; its name is the type being parameterized.
-    let tname = match x.callee {
+    // The receiver is the callee's object; resolve the type being parameterized
+    // owner-correct through this file's scope, honoring a `ns.Type` qualifier
+    // (CH14) — the def a collided name reaches is the one this file sees.
+    let fs = file_scope(ctx.library, ctx.current_file);
+    let tid = match x.callee {
         Field(_, recv, _) => match recv {
-            Ident(_, n) => Option.Some(n),
-            Field(_, _, n) => Option.Some(n), // `ns.Type`
+            Ident(_, n) => Option.Some(TypeId { owner: fs.resolve_type_owner(n, Option.None), name: n }),
+            Field(_, nsx, n) => match nsx { // `ns.Type`
+                Ident(_, ns) => Option.Some(TypeId { owner: fs.resolve_type_owner(n, Option.Some(ns)), name: n }),
+                _ => Option.None,
+            },
             _ => Option.None,
         },
         _ => Option.None,
     };
-    if let Some(n) = tname { if let Some(def) = ctx.library.type_defs.get(n) {
+    if let Some(id) = tid { if let Some(def) = fs.resolve_type_def(id) {
         if x.recv_type_args.len() != def.type_parameters.len() {
-            add_error(errors, '`${n}` takes ${def.type_parameters.len()} type argument(s), but ${x.recv_type_args.len()} were given', x.span);
+            add_error(errors, '`${id.name}` takes ${def.type_parameters.len()} type argument(s), but ${x.recv_type_args.len()} were given', x.span);
         }
-        let arg_types = x.recv_type_args.map((a) => resolver.resolve_type_ref_in(a, file_scope(ctx.library, ctx.current_file), ctx.type_params, ctx.self_type));
+        let arg_types = x.recv_type_args.map((a) => resolver.resolve_type_ref_in(a, fs, ctx.type_params, ctx.self_type));
         check_type_arg_bounds(errors, def, arg_types, x.span, ctx.library);
     } }
 }
@@ -1459,9 +1465,13 @@ fn check_type_ref(_ errors: List<CheckError>, _ type_ref: TypeRef,
     match type_ref {
         Named(nt) => {
             check_named_type(errors, nt.name, nt.namespace, nt.span, library, current_file, type_params);
-            // The supplied arguments must satisfy the named type's parameter bounds.
-            if let Some(def) = library.type_defs.get(nt.name) {
-                let arg_types = nt.args.map((a) => resolver.resolve_type_ref(a, library.type_defs, type_params, Option.None));
+            // The supplied arguments must satisfy the named type's parameter
+            // bounds — the def and the argument types both resolved through this
+            // file's scope (CH15), not the flat registry.
+            let fs = file_scope(library, current_file);
+            let id = TypeId { owner: fs.resolve_type_owner(nt.name, nt.namespace), name: nt.name };
+            if let Some(def) = fs.resolve_type_def(id) {
+                let arg_types = nt.args.map((a) => resolver.resolve_type_ref_in(a, fs, type_params, Option.None));
                 check_type_arg_bounds(errors, def, arg_types, nt.span, library);
             }
             for arg in nt.args {

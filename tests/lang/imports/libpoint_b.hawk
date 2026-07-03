@@ -29,3 +29,15 @@ impl Display for Point {
 pub fn total(_ p: Point) -> Int {
     return p.lat + p.lng + p.label.b_id;
 }
+
+// The same-named generic type as libpoint_a's `Pair<T>`, picking the other way.
+pub struct Pair<T> {
+    first: T,
+    second: T,
+}
+
+impl Pair<T> {
+    pub fn pick(self) -> T {
+        return self.second;
+    }
+}

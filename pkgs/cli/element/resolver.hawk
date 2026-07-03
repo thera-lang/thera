@@ -345,47 +345,67 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
     // A sub-interface exposes its supers' methods too, and is assignable where a
     // super is expected. Walk supers transitively (the `seen` set tolerates a
     // cycle, which the checker reports), copy inherited methods the sub doesn't
-    // declare, and rewrite super_interfaces to the full closure.
-    for def in type_defs.values() {
-        if def.kind == TypeDefKind.Interface {
-            let closure: Set<String> = Set.new();
-            let queue: List<String> = [];
-            for s in def.super_interfaces {
-                queue.push(s);
+    // declare, and rewrite super_interfaces to the full closure. Iterates the
+    // *per-file* tables so a shadowed same-named interface flattens too, and
+    // resolves each super name from the file that named it — supers-of-supers
+    // from *their* declaring file — not the flat registry (EL9). (The closure
+    // itself stays name-keyed: interface identity in dispatch is by plain name,
+    // the documented deferral.)
+    for owner in file_type_defs.keys() {
+        for def in file_type_defs[owner].values() {
+            if def.kind == TypeDefKind.Interface {
+                flatten_interface_closure(def, library);
             }
-            let mut qi = 0;
-            while qi < queue.len() {
-                let super_name = queue[qi];
-                qi = qi + 1;
-                if super_name != def.name && !closure.has(super_name) {
-                    closure.add(super_name);
-                    if let Some(super_def) = type_defs.get(super_name) {
-                        if super_def.kind == TypeDefKind.Interface {
-                            for s in super_def.super_interfaces {
-                                queue.push(s);
-                            }
-                            for m in super_def.methods {
-                                match find_method(def, m.name) {
-                                    Some(_) => {},
-                                    None => {
-                                        def.methods.push(m);
-                                        // A defaulted super method stays
-                                        // defaulted in the sub-interface.
-                                        if is_default_method(super_def, m.name) {
-                                            def.default_methods.push(m.name);
-                                        }
-                                    },
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            def.super_interfaces = closure.to_list();
         }
     }
 
     return library;
+}
+
+// A super-interface reference during the pass-3 walk: the super's name and the
+// file (key) whose scope named it.
+struct SuperRef {
+    name: String,
+    from: String,
+}
+
+fn flatten_interface_closure(_ def: TypeDefElement, _ library: LibraryElement) -> Void {
+    let closure: Set<String> = Set.new();
+    let queue: List<SuperRef> = [];
+    for s in def.super_interfaces {
+        queue.push(SuperRef { name: s, from: def.owner_file });
+    }
+    let mut qi = 0;
+    while qi < queue.len() {
+        let sr = queue[qi];
+        qi = qi + 1;
+        if sr.name != def.name && !closure.has(sr.name) {
+            closure.add(sr.name);
+            let sfs = file_scope(library, file_of_key(sr.from));
+            let sid = TypeId { owner: sfs.resolve_type_owner(sr.name, Option.None), name: sr.name };
+            if let Some(super_def) = sfs.resolve_type_def(sid) {
+                if super_def.kind == TypeDefKind.Interface {
+                    for s in super_def.super_interfaces {
+                        queue.push(SuperRef { name: s, from: super_def.owner_file });
+                    }
+                    for m in super_def.methods {
+                        match find_method(def, m.name) {
+                            Some(_) => {},
+                            None => {
+                                def.methods.push(m);
+                                // A defaulted super method stays defaulted in
+                                // the sub-interface.
+                                if is_default_method(super_def, m.name) {
+                                    def.default_methods.push(m.name);
+                                }
+                            },
+                        }
+                    }
+                }
+            }
+        }
+    }
+    def.super_interfaces = closure.to_list();
 }
 
 // Record `el` under its declaring `file` in a per-file table (file key -> name ->

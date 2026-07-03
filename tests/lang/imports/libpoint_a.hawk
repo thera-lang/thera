@@ -30,3 +30,17 @@ impl Display for Point {
 pub fn sum(_ p: Point) -> Int {
     return p.x + p.y + p.label.a_id;
 }
+
+// A *generic* collided type: libpoint_b declares `Pair<T>` too, with the
+// opposite `pick`. Member typing on a collided generic type must bind `T`
+// against THIS library's def (owner-correct `receiver_bindings`).
+pub struct Pair<T> {
+    first: T,
+    second: T,
+}
+
+impl Pair<T> {
+    pub fn pick(self) -> T {
+        return self.first;
+    }
+}

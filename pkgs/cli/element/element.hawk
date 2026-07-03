@@ -245,6 +245,11 @@ pub fn file_key(_ file: Option<String>) -> String {
     return file.unwrap_or('');
 }
 
+// The Option-file for a file key — the inverse of `file_key`.
+pub fn file_of_key(_ key: String) -> Option<String> {
+    return if key == '' { Option.None } else { Option.Some(key) };
+}
+
 // --- core-type identity ---
 
 // The owning file (key) of the *core* type `name`: the file the registry

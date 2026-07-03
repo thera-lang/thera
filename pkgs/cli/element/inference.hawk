@@ -110,6 +110,10 @@ pub fn infer_expr(_ expr: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx,
 
 // A named type built with its owner stamped from the element registry — the
 // inference-side shorthand for `types.named_type` over this context's type_defs.
+// Build a named core type (`List`/`Map`/`SourceLoc`) from the flat registry.
+// Sound despite the flat lookup (EL6): every name passed here is *reserved*
+// (scoping.md), and the resolver pins a reserved name's registry entry to its
+// core registration — so the stamped owner is always the core identity.
 fn iface(_ ctx: InferCtx, _ name: String, _ args: List<Type>) -> Type {
     return named_type(ctx.library.type_defs, name, args);
 }
@@ -821,7 +825,7 @@ pub fn expected_arg_types(_ callee: Expr, _ args: List<CallArg>,
                             match find_method(rdef, field) {
                                 Some(method) => {
                                     params = Option.Some(method.parameters);
-                                    merge_into(bindings, receiver_bindings(rname.name, rargs, ctx));
+                                    merge_into(bindings, receiver_bindings(rname, rargs, ctx));
                                 },
                                 None => {
                                     // A default method inherited from an
@@ -923,7 +927,7 @@ fn variant_field_types(_ subject: Type, _ name: String, _ ctx: InferCtx) -> List
         if let Some(element) = ctx_scope(ctx).resolve_type_def(sname) {
             if element.kind == TypeDefKind.Enum {
                 if let Some(variant) = find_variant(element, name) {
-                    let bindings = receiver_bindings(sname.name, sargs, ctx);
+                    let bindings = receiver_bindings(sname, sargs, ctx);
                     return variant.fields.map((f) => substitute(f, bindings));
                 }
             };
@@ -958,7 +962,7 @@ fn iterator_element(_ t: Type, _ ctx: InferCtx) -> Option<Type> {
                 return Option.None;
             }
             if let Some(next) = find_method(def, 'next') {
-                let ret = substitute(next.return_type, receiver_bindings(name.name, args, ctx));
+                let ret = substitute(next.return_type, receiver_bindings(name, args, ctx));
                 if let Interface(rname, rargs) = ret {
                     if is_core_id(ctx.library, rname, 'Option') && rargs.len() > 0 {
                         return Option.Some(rargs[0]);
@@ -1081,7 +1085,7 @@ fn field_type(_ recv: Type, _ field: String, _ ctx: InferCtx) -> Type {
         if let Some(def) = ctx_scope(ctx).resolve_type_def(name) {
             if def.kind == TypeDefKind.Struct {
                 if let Some(declared) = def.fields.get(field) {
-                    return substitute(declared, receiver_bindings(name.name, args, ctx));
+                    return substitute(declared, receiver_bindings(name, args, ctx));
                 }
             };
         }
@@ -1306,7 +1310,7 @@ pub fn resolve_method(_ recv: Type, _ field: String, _ ctx: InferCtx) -> Option<
     if let Some(element) = type_def_for(recv, ctx) {
         if let Some(method) = find_method(element, field) {
             let bindings = match recv {
-                Interface(rname, rargs) => receiver_bindings(rname.name, rargs, ctx),
+                Interface(rname, rargs) => receiver_bindings(rname, rargs, ctx),
                 _ => empty_bindings(),
             };
             return Option.Some(MethodResolution { method: method, bindings: bindings });
@@ -1408,10 +1412,12 @@ fn is_enum_type(_ ty: Type, _ ctx: InferCtx) -> Bool {
 }
 
 // A `Map<String, Type>` mapping the receiver element's type parameters to its
-// resolved arguments, for instantiating members.
-fn receiver_bindings(_ name: String, _ args: List<Type>, _ ctx: InferCtx) -> Map<String, Type> {
+// resolved arguments, for instantiating members. Resolves the receiver's def by
+// its owner-qualified `TypeId` (CH6) — a wrong owner misses rather than binding
+// against a same-named type from another library.
+fn receiver_bindings(_ id: TypeId, _ args: List<Type>, _ ctx: InferCtx) -> Map<String, Type> {
     let bindings: Map<String, Type> = {};
-    if let Some(def) = ctx_scope(ctx).resolve_type_def_by_name(name) {
+    if let Some(def) = ctx_scope(ctx).resolve_type_def(id) {
         let params = def.type_parameters;
         let mut i = 0;
         while i < params.len() && i < args.len() {

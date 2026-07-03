@@ -550,7 +550,7 @@ impl FnCompiler {
         }
         self.consts_in_progress.add(key);
         if let Some(e) = self.scope.const_in_file(owner, name) {
-            let saved = self.enter_file_context(file_of_key(owner));
+            let saved = self.enter_file_context(element.file_of_key(owner));
             self.expr(e);
             self.restore_file_context(saved);
         }
@@ -2364,12 +2364,6 @@ fn copy_set(_ s: Set<String>) -> Set<String> {
         out.add(x);
     }
     return out;
-}
-
-// The Option-file for a file key — the inverse of `element.file_key` ('' denotes
-// the primary/anonymous program).
-fn file_of_key(_ key: String) -> Option<String> {
-    return if key == '' { Option.None } else { Option.Some(key) };
 }
 
 // The slot-map analogue of inference's `copy_scope`.

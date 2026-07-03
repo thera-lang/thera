@@ -39,5 +39,13 @@ fn main() -> Int {
     println('${pb}');              // expect: b:10,25
     println('${diff_a(pa)}');      // expect: 26
     println('${diff_b(pb)}');      // expect: -15
+
+    // A collided *generic* type: `T` binds against the owning library's def, so
+    // each `pick` types (and dispatches) through its own `Pair<T>` — and the
+    // result is usable as the instantiated `T` (Int arithmetic below).
+    let ga = a.Pair { first: 10, second: 20 };
+    let gb = b.Pair { first: 10, second: 20 };
+    println('${ga.pick() + 1}');   // expect: 11
+    println('${gb.pick() + 1}');   // expect: 21
     return 0;
 }
