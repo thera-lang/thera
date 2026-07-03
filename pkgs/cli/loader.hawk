@@ -56,6 +56,14 @@ pub struct LoadedImports {
     // name maps to its owning file (key), so bare resolution can reach the owning
     // element (Phase 2e); the legality check reads only the keys.
     file_bare_surface: Map<String, Map<String, String>>,
+    // The import graph: canonical file key -> the canonical keys its `import`s
+    // resolve to (deduped, in decl order; unresolved imports contribute no edge).
+    // This is the dependency graph incremental invalidation walks (reverse the
+    // edges for "who must recheck when X changes") — carried out of the loader,
+    // the one place that knows it, instead of being re-derived. Only *explicit*
+    // imports are recorded: the implicit `std.core` prelude dependency is
+    // universal, so it isn't repeated per file.
+    file_imports: Map<String, List<String>>,
 }
 
 // --- SDK root discovery ---
@@ -405,18 +413,41 @@ pub fn load_imports(_ path: String, _ program: Program, _ sdk_root: Option<Strin
     // each compiled file's own bindings. The bare-legal surface is built alongside.
     let file_namespaces: Map<String, Map<String, element.LibraryNamespace>> = {};
     let file_bare_surface: Map<String, Map<String, String>> = {};
+    let file_imports: Map<String, List<String>> = {};
     for file in loader.cache.keys() {
         let src = loader.cache[file];
         let key = element.file_key(src.program.file_path);
         file_namespaces[key] = namespaces_for(src);
         file_bare_surface[key] = bare_surface_for(src, core_names);
+        file_imports[key] = import_edges_of(src);
     }
     return LoadedImports {
         programs: loader.order,
         diagnostics: loader.diagnostics,
         file_namespaces: file_namespaces,
         file_bare_surface: file_bare_surface,
+        file_imports: file_imports,
     };
+}
+
+// The canonical keys `source`'s imports resolved to — one graph node's outgoing
+// edges, deduped, in declaration order (`source.imports` is keyed by the import
+// path as written; two spellings of one file collapse to one edge).
+fn import_edges_of(_ source: LibrarySource) -> List<String> {
+    let seen: Set<String> = Set.new();
+    let edges: List<String> = [];
+    for decl in source.program.decls {
+        if let Import(x) = decl {
+            if let Some(child) = source.imports.get(x.path) {
+                let key = element.file_key(child.program.file_path);
+                if !seen.has(key) {
+                    seen.add(key);
+                    edges.push(key);
+                }
+            }
+        }
+    }
+    return edges;
 }
 
 // The names that resolve *bare* in `root` from another library: the prelude

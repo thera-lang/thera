@@ -162,6 +162,19 @@ fn check_root_closure(_ loaded: LoadedImports) -> Result<Void, Error> {
                 message: 'child sees root.ping through the cycle')?;
         }
     }
+    // The import graph carries both edges of the cycle, keyed canonically.
+    testing.assert_eq(actual: loaded.file_imports.len(), expected: 2)?;
+    for key in loaded.file_imports.keys() {
+        let edges = loaded.file_imports[key];
+        testing.assert_eq(actual: edges.len(), expected: 1)?;
+        if key.ends_with('/root.hawk') {
+            testing.assert(edges[0].ends_with('/sub/child.hawk'),
+                message: 'root imports child: ${edges[0]}')?;
+        } else {
+            testing.assert(edges[0].ends_with('/root.hawk'),
+                message: 'child imports root: ${edges[0]}')?;
+        }
+    }
     return Result.Ok(void);
 }
 
