@@ -513,10 +513,9 @@ impl FnCompiler {
                 match self.scope.resolve_const_owner(self.file, name) {
                     Some(owner) => { self.emit_const(owner, name, span); },
                     None => {
-                        if self.scope.globals.has(name) {
-                            self.emit_global(name);
-                        } else {
-                            self.error('not a local variable: ${name}', span);
+                        match self.scope.resolve_global_owner(self.file, name) {
+                            Some(owner) => { self.emit_global(owner, name); },
+                            None => { self.error('not a local variable: ${name}', span); },
                         }
                     },
                 }
@@ -524,9 +523,9 @@ impl FnCompiler {
         }
     }
 
-    // Load a module global (top-level `let`) by its slot.
-    fn emit_global(self, _ name: String) -> Void {
-        if let Some(slot) = self.scope.globals.get(name) { self.emit(Instr.GlobalGet(slot)); }
+    // Load a module global (top-level `let`) by its owner-resolved slot.
+    fn emit_global(self, _ owner: String, _ name: String) -> Void {
+        if let Some(slot) = self.scope.global_in_file(owner, name) { self.emit(Instr.GlobalGet(slot)); }
     }
 
     // Inline the top-level constant `owner`/`name` by compiling its initializer
@@ -1525,10 +1524,10 @@ impl FnCompiler {
                         self.emit_const(owner, field, span);
                         return;
                     }
-                }
-                if self.scope.globals.has(field) {
-                    self.emit_global(field);
-                    return;
+                    if self.scope.global_in_file(owner, field).is_some() {
+                        self.emit_global(owner, field);
+                        return;
+                    }
                 }
             }
         }
@@ -2528,20 +2527,27 @@ fn fv_stmt(_ s: Stmt, _ bound: Set<String>, _ free: List<String>, _ seen: Set<St
 // which the post-order preserves for globals with no edge between them.
 fn order_global_inits(_ scope: ModuleScope, _ errors: List<CodegenError>) -> List<GlobalInit> {
     let ordered: List<GlobalInit> = [];
-    let state: Map<String, Int> = {}; // 1 = visiting, 2 = done
-    let by_name: Map<String, GlobalInit> = {};
+    let state: Map<String, Int> = {}; // keyed like `global_key`; 1 = visiting, 2 = done
+    let by_key: Map<String, GlobalInit> = {};
     for g in scope.global_inits {
-        by_name[g.name] = g;
+        by_key[global_key(g)] = g;
     }
     for g in scope.global_inits {
-        visit_global_init(g, scope, by_name, state, ordered, errors);
+        visit_global_init(g, scope, by_key, state, ordered, errors);
     }
     return ordered;
 }
 
-fn visit_global_init(_ g: GlobalInit, _ scope: ModuleScope, _ by_name: Map<String, GlobalInit>,
+// A global's owner-qualified identity (two libraries' same-named globals are
+// distinct nodes in the initializer-order graph).
+fn global_key(_ g: GlobalInit) -> String {
+    return type_key(element.file_key(g.file), g.name);
+}
+
+fn visit_global_init(_ g: GlobalInit, _ scope: ModuleScope, _ by_key: Map<String, GlobalInit>,
     _ state: Map<String, Int>, _ ordered: List<GlobalInit>, _ errors: List<CodegenError>) -> Void {
-    if let Some(s) = state.get(g.name) {
+    let key = global_key(g);
+    if let Some(s) = state.get(key) {
         if s == 1 {
             errors.push(CodegenError {
                 message: 'module-level `let` initializer cycle through `${g.name}`',
@@ -2550,11 +2556,11 @@ fn visit_global_init(_ g: GlobalInit, _ scope: ModuleScope, _ by_name: Map<Strin
         }
         return; // already done, or a cycle just reported
     }
-    state[g.name] = 1;
-    for dep in global_init_deps(g.value, scope) {
-        if let Some(dg) = by_name.get(dep) { visit_global_init(dg, scope, by_name, state, ordered, errors); }
+    state[key] = 1;
+    for dep in global_init_deps(g, scope) {
+        if let Some(dg) = by_key.get(dep) { visit_global_init(dg, scope, by_key, state, ordered, errors); }
     }
-    state[g.name] = 2;
+    state[key] = 2;
     ordered.push(g);
 }
 
@@ -2573,18 +2579,20 @@ fn forbidden_in_initializer(_ sym: String) -> Bool {
 }
 
 // The module globals an initializer references directly: bare identifiers that
-// name a global. Names bound inside the initializer (lambda params, block lets,
-// match/for patterns) are excluded by the free-variable walk. Indirect
-// dependencies through a called function's body are not tracked — initializers
-// should reference their dependencies directly.
-fn global_init_deps(_ value: Expr, _ scope: ModuleScope) -> List<String> {
+// resolve to a global from the initializer's own file (same-file first, then
+// its bare surface), returned as owner-qualified `global_key`s. Names bound
+// inside the initializer (lambda params, block lets, match/for patterns) are
+// excluded by the free-variable walk. Indirect dependencies through a called
+// function's body are not tracked — initializers should reference their
+// dependencies directly.
+fn global_init_deps(_ g: GlobalInit, _ scope: ModuleScope) -> List<String> {
     let free: List<String> = [];
     let seen: Set<String> = Set.new();
-    fv_visit(value, Set.new(), free, seen);
+    fv_visit(g.value, Set.new(), free, seen);
     let deps: List<String> = [];
     for n in free {
-        if scope.globals.has(n) {
-            deps.push(n);
+        if let Some(owner) = scope.resolve_global_owner(g.file, n) {
+            deps.push(type_key(owner, n));
         }
     }
     return deps;

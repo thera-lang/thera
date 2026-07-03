@@ -1,0 +1,5 @@
+// Support library for shared_global_name.hawk: same global names as
+// libglobal_a, different values (and `stride` depends on this file's own
+// `start` — the dependency edge must not cross into libglobal_a's).
+pub let start: Int = 200;
+pub let stride: Int = start + 2;

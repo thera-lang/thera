@@ -1,0 +1,17 @@
+//! spec: mod-shared-global-name
+//! mode: run
+
+import 'libglobal_a' as a;
+import 'libglobal_b' as b;
+
+// Two libraries may each declare a `pub let` module global with the same name:
+// each gets its own slot, *both* initializers run in the `<init>` thunk (the
+// init-order graph is owner-keyed — previously the second same-named global's
+// initializer was never emitted, so its slot read uninitialized), and a
+// qualified `ns.NAME` loads its own library's slot. An initializer's
+// dependency on a same-named global (`stride = start + n`) binds to its own
+// file's `start`.
+fn main() -> Void {
+    println('${a.start} ${b.start}');    // expect: 100 200
+    println('${a.stride} ${b.stride}');  // expect: 101 202
+}

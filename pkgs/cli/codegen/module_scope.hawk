@@ -136,9 +136,10 @@ pub struct ModuleScope {
     // like `structs`/`file_functions`): two libraries' same-named consts inline
     // their own initializers, and cycle detection can't conflate them.
     consts: Map<String, Map<String, Expr>>,
-    // Module globals (top-level `let`; see docs/module_init.md): name -> slot for
+    // Module globals (top-level `let`; see docs/module_init.md), keyed by
+    // **owning file** then name (owner-correct): owner -> name -> slot for
     // reference emission, plus the initializers to run in the `<init>` thunk.
-    globals: Map<String, Int>,
+    globals: Map<String, Map<String, Int>>,
     global_inits: List<GlobalInit>,
     mut next_global_slot: Int,
     native_fns: Map<String, String>,
@@ -404,7 +405,13 @@ impl ModuleScope {
     pub fn add_global(self, _ decl: LetDecl, _ file: Option<String>) -> Void {
         let slot = self.next_global_slot;
         self.next_global_slot = slot + 1;
-        self.globals[decl.name] = slot;
+        let owner = element.file_key(file);
+        if !self.globals.has(owner) {
+            self.globals[owner] = {};
+        }
+        if let Some(m) = self.globals.get(owner) {
+            m[decl.name] = slot;
+        }
         self.global_inits.push(GlobalInit {
             slot: slot,
             name: decl.name,
@@ -412,6 +419,38 @@ impl ModuleScope {
             value: decl.value,
             file: file,
         });
+    }
+
+    // The slot of global `name` declared in file `owner` (a file key) — the
+    // owner-correct lookup behind a qualified `ns.NAME`. No global fallback.
+    pub fn global_in_file(self, _ owner: String, _ name: String) -> Option<Int> {
+        return match self.globals.get(owner) {
+            Some(m) => m.get(name),
+            None => Option.None,
+        };
+    }
+
+    // The owning file (key) of module global `name` referenced *bare* from
+    // `file`: the file's own global if it has one, else the one its bare surface
+    // (prelude / `as _` imports) attributes to its owning file. No global
+    // fallback — mirrors `resolve_const_owner`.
+    pub fn resolve_global_owner(self, _ file: Option<String>, _ name: String) -> Option<String> {
+        let key = element.file_key(file);
+        if let Some(m) = self.globals.get(key) {
+            if m.has(name) {
+                return Option.Some(key);
+            }
+        }
+        if let Some(surface) = self.library.file_bare_surface.get(key) {
+            if let Some(owner) = surface.get(name) {
+                if let Some(m) = self.globals.get(owner) {
+                    if m.has(name) {
+                        return Option.Some(owner);
+                    }
+                }
+            }
+        }
+        return Option.None;
     }
 
     pub fn add_native_static_method(self, _ type_name: String, _ method: FnDecl) -> Void {

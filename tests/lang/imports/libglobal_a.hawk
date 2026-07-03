@@ -1,0 +1,4 @@
+// Support library for shared_global_name.hawk: module globals whose names
+// collide with libglobal_b's.
+pub let start: Int = 100;
+pub let stride: Int = start + 1;
