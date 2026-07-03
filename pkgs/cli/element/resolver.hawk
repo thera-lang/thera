@@ -153,16 +153,21 @@ fn builtin_displayable(_ name: String) -> TypeDefElement {
 }
 
 // Register `el` as the flat by-name registry entry for `name`. A reserved core
-// name is pinned to its first real registration — std.core loads before user
-// files (imports precede the primary), so even an *unchecked* program (an open
-// LSP buffer with an illegal `struct Result` mid-edit) can't steal core
-// identity from the registry (audit EL8). Other names keep last-wins: the flat
-// table is only a fallback beneath the authoritative per-file tables.
+// name is pinned to the *file* that first really registered it — std.core loads
+// before user files (imports precede the primary), so even an *unchecked*
+// program (an open LSP buffer with an illegal `struct Result` mid-edit) can't
+// steal core identity from the registry (audit EL8). A re-registration from the
+// **same owner file** must still overwrite: when a core file is itself the
+// check primary it appears in the program list twice (once via the prelude
+// closure, once as the primary), and blocking the second copy would leave the
+// flat entry pointing at a stale element while pass 2 fills the per-file one
+// (methods vanish program-wide). Other names keep last-wins: the flat table is
+// only a fallback beneath the authoritative per-file tables.
 fn record_flat_type(_ type_defs: Map<String, TypeDefElement>, _ name: String,
     _ el: TypeDefElement) -> Void {
     if is_reserved_type_name(name) {
         if let Some(existing) = type_defs.get(name) {
-            if existing.owner_file != BUILTIN_OWNER {
+            if existing.owner_file != BUILTIN_OWNER && existing.owner_file != el.owner_file {
                 return;
             }
         }

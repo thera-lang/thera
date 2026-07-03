@@ -221,3 +221,33 @@ fn test_reserved_flat_entry_pinned_to_first_registration() -> Result<Void, Error
     }
     return Result.Ok(void);
 }
+
+@test
+fn test_reserved_pin_allows_same_owner_reregistration() -> Result<Void, Error> {
+    // A core file that is itself the check primary appears in the program list
+    // twice (once via the prelude closure, once as the primary). The reserved
+    // pin must let the same owner re-register — the flat entry has to track the
+    // latest element object, the one pass 2 fills — or its methods vanish
+    // program-wide. Probe object identity through reference semantics: a
+    // mutation via the per-file table must be visible through the flat entry.
+    let first = parse_tokens(tokenize('pub enum Result { Good, Bad }').tokens).program;
+    first.file_path = Option.Some('/core/result.hawk');
+    let again = parse_tokens(tokenize('pub enum Result { Good, Bad }').tokens).program;
+    again.file_path = Option.Some('/core/result.hawk');
+    let lib = build_library(again, [first], {}, {});
+    match lib.file_type_defs.get('/core/result.hawk') {
+        Some(m) => match m.get('Result') {
+            Some(per_file) => { per_file.own_methods.push('probe'); },
+            None => { testing.assert(false, message: 'Result missing per-file')?; },
+        },
+        None => { testing.assert(false, message: 'no per-file table')?; },
+    }
+    match lib.type_defs.get('Result') {
+        Some(flat) => {
+            testing.assert(str_list_has(flat.own_methods, 'probe'),
+                message: 'flat entry must be the same object as the per-file one')?;
+        },
+        None => { testing.assert(false, message: 'Result not in type_defs')?; },
+    }
+    return Result.Ok(void);
+}
