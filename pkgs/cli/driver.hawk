@@ -84,8 +84,21 @@ pub fn compile_source(_ source: String) -> CompileOutcome {
 // Type-check `source` (located at `path`) with its full import closure resolved
 // from `sdk_root` (`std.core` auto-loaded, `import`s linked). The loader-backed
 // counterpart to `check_source` — this is what the CLI uses on a real file.
+//
+// The whole *local* closure is checked, not just the primary: a check error in
+// an imported file is a diagnostic (attributed to that file) rather than
+// shipping to bytecode. Files under the SDK's std root are trusted (the SDK is
+// fixpoint-validated; its diagnostics aren't actionable here) and skipped.
+//
+// `checked` (caller-shared, like `parse_cache`) accumulates the canonical keys
+// of files that checked *clean* this run: they're skipped on later calls, so a
+// batch (`hawk check <dir>`, `hawk test`) stays linear in the closure instead
+// of re-checking shared imports per target — and their already-reported load
+// diagnostics aren't re-emitted. Files with diagnostics are never marked, so
+// re-encountering one re-reports it (the caller de-duplicates printing).
 pub fn check_source_at(_ source: String, _ path: String, _ sdk_root: Option<String>,
-    parse_cache: Map<String, loader.ParsedFile> = {}) -> List<Diagnostic> {
+    parse_cache: Map<String, loader.ParsedFile> = {},
+    checked: Set<String> = Set.new()) -> List<Diagnostic> {
     // Canonical identity from the start, so the primary's attribution matches
     // the keys the loader mints (`Diagnostic.file` is always canonical).
     let canon = loader.canonical_path(path);
@@ -100,18 +113,33 @@ pub fn check_source_at(_ source: String, _ path: String, _ sdk_root: Option<Stri
     let program = parsed.program;
     let loaded = loader.load_imports(canon, program, sdk_root, parse_cache: parse_cache);
     let src_map = build_source_map(source, canon, loaded.programs);
-    // Lex/parse errors from imported files first (root causes), then the primary
-    // program's check errors.
-    let out = load_diagnostics(loaded.diagnostics);
-    for d in check_diagnostics(checker.check(program, loaded.programs, loaded.file_namespaces, loaded.file_bare_surface).errors, src_map) {
+    let skip = skip_keys(canon, loaded.programs, sdk_root, checked);
+    // Lex/parse errors from imported files first (root causes) — minus files
+    // already reported this run — then the closure's check errors.
+    let out: List<Diagnostic> = [];
+    for d in load_diagnostics(loaded.diagnostics) {
+        if !d.file.map((f) => checked.has(f)).unwrap_or(false) {
+            out.push(d);
+        }
+    }
+    let result = checker.check_files(program, loaded.programs,
+        loaded.file_namespaces, loaded.file_bare_surface, skip: skip);
+    for d in check_diagnostics(result.errors, src_map) {
         out.push(d);
     }
+    mark_checked_clean(checked, canon, loaded.programs, skip, out);
     return out;
 }
 
 // Compile `source` (located at `path`) to `.hawkbc` bytes with its import closure
-// linked in — the loader-backed counterpart to `compile_source`.
-pub fn compile_source_at(_ source: String, _ path: String, _ sdk_root: Option<String>) -> CompileOutcome {
+// linked in — the loader-backed counterpart to `compile_source`. Like
+// `check_source_at`, the whole local (non-SDK) closure is checked — an imported
+// file's check error blocks the compile instead of shipping to bytecode — and
+// the caller-shared `parse_cache`/`checked` make a batch (`hawk test`) linear.
+// `checked` holds only *clean* files, so skipping them never masks an error.
+pub fn compile_source_at(_ source: String, _ path: String, _ sdk_root: Option<String>,
+    parse_cache: Map<String, loader.ParsedFile> = {},
+    checked: Set<String> = Set.new()) -> CompileOutcome {
     let canon = loader.canonical_path(path);
     let lex = lexer.tokenize(source);
     if lex.errors.len() > 0 {
@@ -122,18 +150,22 @@ pub fn compile_source_at(_ source: String, _ path: String, _ sdk_root: Option<St
         return failed(parse_diagnostics(parsed.errors, build_source_map(source, canon, [])));
     }
     let program = parsed.program;
-    let loaded = loader.load_imports(canon, program, sdk_root);
+    let loaded = loader.load_imports(canon, program, sdk_root, parse_cache: parse_cache);
     let src_map = build_source_map(source, canon, loaded.programs);
-    // An imported file that failed to lex/parse leaves the closure incomplete, so
-    // its diagnostics (root causes) block codegen alongside any check errors.
+    let skip = skip_keys(canon, loaded.programs, sdk_root, checked);
+    // An imported file that failed to lex/parse/resolve leaves the closure
+    // incomplete, so its diagnostics (root causes) block codegen alongside any
+    // check errors.
     let import_diags = load_diagnostics(loaded.diagnostics);
-    let checked = checker.check(program, loaded.programs, loaded.file_namespaces, loaded.file_bare_surface);
-    if import_diags.len() > 0 || checked.errors.len() > 0 {
-        for d in check_diagnostics(checked.errors, src_map) {
+    let result = checker.check_files(program, loaded.programs,
+        loaded.file_namespaces, loaded.file_bare_surface, skip: skip);
+    if import_diags.len() > 0 || result.errors.len() > 0 {
+        for d in check_diagnostics(result.errors, src_map) {
             import_diags.push(d);
         }
         return failed(import_diags);
     }
+    mark_checked_clean(checked, canon, loaded.programs, skip, []);
     let cg = codegen.compile_program(program, loaded.programs, loaded.file_namespaces, loaded.file_bare_surface);
     if cg.errors.len() > 0 {
         return failed(codegen_diagnostics(cg.errors, src_map));
@@ -182,6 +214,61 @@ pub fn format_diagnostic(_ d: Diagnostic, _ file_path: String) -> String {
 
 fn failed(_ diagnostics: List<Diagnostic>) -> CompileOutcome {
     return CompileOutcome { diagnostics: diagnostics, bytes: Option.None };
+}
+
+// The closure files to skip when checking: everything under the SDK's std root
+// (trusted — fixpoint-validated, and its diagnostics aren't actionable from a
+// user program) plus everything already checked clean this run. The primary —
+// the file explicitly asked about — is exempt from the SDK skip (checking an
+// SDK file directly must still check it), but not from `checked`.
+fn skip_keys(_ primary_key: String, _ programs: List<Program>, _ sdk_root: Option<String>,
+    _ checked: Set<String>) -> Set<String> {
+    let skip: Set<String> = Set.new();
+    if let Some(prefix) = sdk_prefix(sdk_root) {
+        for p in programs {
+            let key = p.file_path.unwrap_or('');
+            if key.starts_with(prefix) && key != primary_key {
+                skip.add(key);
+            }
+        }
+    }
+    for key in checked.to_list() {
+        skip.add(key);
+    }
+    return skip;
+}
+
+// The canonical `<std root>/` prefix SDK file keys carry, if there is an SDK.
+fn sdk_prefix(_ sdk_root: Option<String>) -> Option<String> {
+    return match sdk_root {
+        Some(root) => loader.std_root(root).map((std) => loader.canonical_path(std) + '/'),
+        None => Option.None,
+    };
+}
+
+// Record which closure files checked *clean* this run: every non-skipped file
+// with no diagnostic attributed to it (an unattributed diagnostic is the
+// primary's, conservatively). Skipped files keep their existing state.
+fn mark_checked_clean(_ checked: Set<String>, _ primary_key: String,
+    _ programs: List<Program>, _ skip: Set<String>, _ diags: List<Diagnostic>) -> Void {
+    let error_files: Set<String> = Set.new();
+    let mut primary_dirty = false;
+    for d in diags {
+        match d.file {
+            Some(f) => { error_files.add(f); },
+            None => { primary_dirty = true; },
+        }
+    }
+    if !primary_dirty && !error_files.has(primary_key) && !skip.has(primary_key) {
+        checked.add(primary_key);
+    }
+    for p in programs {
+        let key = p.file_path.unwrap_or('');
+        if key != '' && !skip.has(key) && !error_files.has(key) {
+            checked.add(key);
+        }
+    }
+    return;
 }
 
 // One diagnostic, with its owning file resolved from the span's source text.

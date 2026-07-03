@@ -50,6 +50,34 @@ pub fn check(_ program: Program, _ imports: List<Program>,
     return CheckResult { errors: errors };
 }
 
+// Check the whole closure against one shared element model: the primary program
+// plus every import whose canonical file key is not in `skip` (the caller's
+// already-reported-this-run set and/or trusted files — the SDK). Each checked
+// file gets the primary treatment — same-file duplicate detection plus a full
+// `check_program` walk — so a check error in an *imported* file surfaces
+// (previously only the primary was checked: an importer of a type-broken
+// library reported nothing and the error shipped to bytecode).
+pub fn check_files(_ program: Program, _ imports: List<Program>,
+    _ file_namespaces: Map<String, Map<String, LibraryNamespace>>,
+    _ file_bare_surface: Map<String, Map<String, String>>,
+    skip: Set<String> = Set.new()) -> CheckResult {
+    let errors: List<CheckError> = [];
+    let library = resolver.build_library(program, imports, file_namespaces, file_bare_surface);
+    if !skip.has(file_key(program.file_path)) {
+        check_duplicates(errors, program, imports);
+        check_program(errors, program, library, program.file_path);
+    }
+    for ip in imports {
+        if !skip.has(file_key(ip.file_path)) {
+            // Same-file duplicates only (`collides` is same-file-only post-T4,
+            // so an empty imports list loses nothing and skips a closure rescan).
+            check_duplicates(errors, ip, []);
+            check_program(errors, ip, library, ip.file_path);
+        }
+    }
+    return CheckResult { errors: errors };
+}
+
 fn add_error(_ errors: List<CheckError>, _ message: String, _ span: SourceSpan) -> Void {
     errors.push(CheckError { message: message, span: span });
 }
@@ -202,12 +230,12 @@ fn check_program(_ errors: List<CheckError>, _ program: Program, _ library: Libr
             Fn(x) => { check_fn(errors, x, library, Option.None, Set.new(), file); },
             Type(x) => { check_type_decl(errors, x, library, file); },
             Impl(x) => {
-                let self_type = impl_self_type(x, library.type_defs);
+                let self_type = impl_self_type(x, library, file);
                 let type_params = type_param_set(x.type_params);
                 for m in x.methods {
                     check_fn(errors, m, library, Option.Some(self_type), type_params, file);
                 }
-                if let Some(_) = x.interface_name { check_conformance(errors, x, library); }
+                if let Some(_) = x.interface_name { check_conformance(errors, x, library, file); }
             },
             Interface(x) => { check_interface_decl(errors, x, library, file); },
             Const(x) => {
@@ -339,8 +367,11 @@ fn extends_cycle(_ name: String, _ library: LibraryElement) -> Bool {
     return false;
 }
 
-fn check_conformance(_ errors: List<CheckError>, _ decl: ImplDecl, _ library: LibraryElement) -> Void {
+fn check_conformance(_ errors: List<CheckError>, _ decl: ImplDecl, _ library: LibraryElement,
+    _ file: Option<String>) -> Void {
     let Some(iface_name) = decl.interface_name else { return; };
+    // (Interface *names* are still resolved flat — interface-name collisions are
+    // a documented deferral; the impl *target* below is owner-correct.)
     let Some(iface_def) = library.type_defs.get(iface_name) else {
         add_error(errors, 'unknown interface: ${iface_name}', decl.name_span);
         return;
@@ -349,10 +380,12 @@ fn check_conformance(_ errors: List<CheckError>, _ decl: ImplDecl, _ library: Li
         add_error(errors, '\'${iface_name}\' is not an interface', decl.name_span);
         return;
     }
-    match library.type_defs.get(decl.type_name) {
+    let fs = file_scope(library, file);
+    let target_id = TypeId { owner: fs.resolve_type_owner(decl.type_name, Option.None), name: decl.type_name };
+    match fs.resolve_type_def(target_id) {
         None => { return; }, // unknown target type — reported elsewhere
         Some(owner) => {
-            let impl_type = impl_self_type(decl, library.type_defs);
+            let impl_type = impl_self_type(decl, library, file);
             let self_type = named_type(library.type_defs, iface_name, []);
             let iface_params = iface_def.type_parameters;
             if decl.interface_args.len() != iface_params.len() {
@@ -364,8 +397,8 @@ fn check_conformance(_ errors: List<CheckError>, _ decl: ImplDecl, _ library: Li
             let impl_tps = type_param_set(decl.type_params);
             let iface_bindings: Map<String, Type> = {};
             for p in iface_params.enumerate() {
-                iface_bindings[p.value] = resolver.resolve_type_ref(
-                    decl.interface_args[p.index], library.type_defs, impl_tps, Option.Some(impl_type));
+                iface_bindings[p.value] = resolver.resolve_type_ref_in(
+                    decl.interface_args[p.index], fs, impl_tps, Option.Some(impl_type));
             }
             let provided: Set<String> = Set.new();
             for m in decl.methods {
@@ -1384,9 +1417,18 @@ fn namespace_of_access(_ object: Expr, _ scope: Map<String, Type>, _ ctx: InferC
     };
 }
 
-fn impl_self_type(_ decl: ImplDecl, _ type_defs: Map<String, TypeDefElement>) -> Type {
-    return primitive_type(decl.type_name).unwrap_or_else(() => named_type(type_defs, decl.type_name,
-        decl.type_params.map((tp) => Type.TypeParameter(tp.name))));
+// `self`'s type inside an `impl` — the receiver name resolved **owner-correct**
+// against the impl's own file (the checker analogue of codegen's
+// `named_self_type`). The old flat `named_type` lookup stamped the last-wins
+// owner, so when two libraries share the type name, a method body's
+// `self.field` resolved against the *other* library's type.
+fn impl_self_type(_ decl: ImplDecl, _ library: LibraryElement, _ file: Option<String>) -> Type {
+    if let Some(p) = primitive_type(decl.type_name) {
+        return p;
+    }
+    let owner = file_scope(library, file).resolve_type_owner(decl.type_name, Option.None);
+    return Type.Interface(TypeId { owner: owner, name: decl.type_name },
+        decl.type_params.map((tp) => Type.TypeParameter(tp.name)));
 }
 
 fn union_type_params(_ outer: Set<String>, _ own: List<TypeParam>) -> Set<String> {

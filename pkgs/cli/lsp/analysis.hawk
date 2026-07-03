@@ -22,6 +22,11 @@ pub struct Analysis {
     // path -> parsed AST, reused across requests so the import closure (the
     // prelude above all) is parsed once and only re-parsed when its file changes.
     parse_cache: Map<String, loader.ParsedFile>,
+    // Canonical keys of closure files that already checked clean this session —
+    // the driver skips re-checking them per request, so a diagnostics pass costs
+    // the open document plus whatever was invalidated, not the whole closure.
+    // Evicted alongside the parse cache when a file changes.
+    checked: Set<String>,
 }
 
 pub fn new_analysis(_ sdk_root: Option<String>) -> Analysis {
@@ -29,6 +34,7 @@ pub fn new_analysis(_ sdk_root: Option<String>) -> Analysis {
         docs: {},
         sdk_root: sdk_root,
         parse_cache: {},
+        checked: Set.new(),
     };
 }
 
@@ -59,13 +65,15 @@ impl Analysis {
         self.invalidate(uri);
     }
 
-    // Evict `uri`'s parsed AST from the cross-request cache (a no-op when absent).
-    // The cache is keyed by the loader's canonical form, so evict by that key.
+    // Evict `uri`'s parsed AST and checked-clean status from the cross-request
+    // caches (a no-op when absent). Keyed by the loader's canonical form.
     pub fn invalidate(self, _ uri: String) -> Void {
-        match self.parse_cache.remove(loader.canonical_path(paths.uri_to_path(uri))) {
+        let key = loader.canonical_path(paths.uri_to_path(uri));
+        match self.parse_cache.remove(key) {
             Some(_) => {},
             None => {},
         }
+        self.checked.remove(key);
     }
 
     pub fn text(self, _ uri: String) -> Option<String> {
@@ -99,9 +107,15 @@ impl Analysis {
         };
     }
 
-    // The `diagnostics` array (as JSON) for `uri`'s `text`, reusing the parse cache.
+    // The `diagnostics` array (as JSON) for `uri`'s `text`, reusing the parse
+    // cache and the checked-clean set. The open document itself is always
+    // rechecked: its overlay text is this request's input, never a cached
+    // result, so its key must not linger in `checked` (edits evict it via
+    // `invalidate`; the remove here covers a re-publish without an edit).
     pub fn diagnostics(self, _ uri: String, _ text: String) -> Json {
-        return diagnostics.compute_diagnostics(text, paths.uri_to_path(uri), self.sdk_root,
-            parse_cache: self.parse_cache);
+        let path = paths.uri_to_path(uri);
+        self.checked.remove(loader.canonical_path(path));
+        return diagnostics.compute_diagnostics(text, path, self.sdk_root,
+            parse_cache: self.parse_cache, checked: self.checked);
     }
 }

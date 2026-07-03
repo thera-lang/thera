@@ -1,10 +1,14 @@
 // Tests for the front-end driver: the source-to-bytecode pipeline as one call.
 // `compile_source` is diffed byte-for-byte against the Dart oracle, confirming
-// the whole Hawk front-end lowers a program identically end to end.
+// the whole Hawk front-end lowers a program identically end to end. The
+// `*_source_at` closure-checking tests use a real fixture tree under the temp
+// dir (like loader_test).
 
 import std.testing;
+import std.fs;
 
 import 'driver' as _;
+import 'loader';
 
 @test
 fn test_check_clean_source_has_no_diagnostics() -> Result<Void, Error> {
@@ -31,6 +35,87 @@ fn test_check_reports_parse_error_with_location() -> Result<Void, Error> {
     let line = format_diagnostic(diags[0], 'demo.hawk');
     testing.assert(line.starts_with('demo.hawk:'),
         message: 'diagnostic should be prefixed with the file path')?;
+    return Result.Ok(void);
+}
+
+// A check error in an *imported* file surfaces when checking the importer —
+// attributed to the imported file — and blocks compilation (previously only the
+// primary was checked: `hawk check importer.hawk` exited 0 and `hawk run`
+// shipped the broken import to bytecode).
+@test
+fn test_imported_file_check_errors_surface() -> Result<Void, Error> {
+    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_driver_closure_test');
+    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} } // stale fixture
+    if let Err(e) = fs.create_dir_all(dir) {
+        return Result.Err(error('create fixture dir: ${e.message()}'));
+    }
+    let broken = 'pub fn bad() -> Int { return missing_name; }\n';
+    if let Err(e) = fs.write_text(dir + '/dep.hawk', broken) {
+        return Result.Err(error('write dep: ${e.message()}'));
+    }
+    let main_src = 'import \'dep\';\nfn main() -> Void { }\n';
+    let main_path = dir + '/main.hawk';
+    if let Err(e) = fs.write_text(main_path, main_src) {
+        return Result.Err(error('write main: ${e.message()}'));
+    }
+
+    // check: the dep's error is reported, attributed to dep.hawk.
+    let diags = check_source_at(main_src, main_path, Option.None);
+    testing.assert_eq(actual: diags.len(), expected: 1)?;
+    testing.assert(diags[0].message.contains('undefined name: missing_name'),
+        message: 'dep error surfaced: ${diags[0].message}')?;
+    testing.assert(diags[0].file.map((f) => f.ends_with('/dep.hawk')).unwrap_or(false),
+        message: 'attributed to the dep: ${diags[0].file.unwrap_or('<none>')}')?;
+
+    // compile: the same error blocks codegen — nothing ships to bytecode.
+    let outcome = compile_source_at(main_src, main_path, Option.None);
+    testing.assert(outcome.diagnostics.len() > 0, message: 'compile is blocked')?;
+    match outcome.bytes {
+        Some(_) => { testing.assert(false, message: 'no bytes for a broken closure')?; },
+        None => {},
+    }
+
+    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    return Result.Ok(void);
+}
+
+// The caller-shared `checked` set: clean files are recorded and skipped on
+// later calls (batch linearity + report-once); files with errors are never
+// marked, so they re-check per importer.
+@test
+fn test_checked_set_records_only_clean_files() -> Result<Void, Error> {
+    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_driver_checked_test');
+    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    if let Err(e) = fs.create_dir_all(dir) {
+        return Result.Err(error('create fixture dir: ${e.message()}'));
+    }
+    if let Err(e) = fs.write_text(dir + '/clean.hawk', 'pub fn ok() -> Int { return 1; }\n') {
+        return Result.Err(error('write clean: ${e.message()}'));
+    }
+    if let Err(e) = fs.write_text(dir + '/broken.hawk', 'pub fn bad() -> Int { return missing_name; }\n') {
+        return Result.Err(error('write broken: ${e.message()}'));
+    }
+    let main_src = 'import \'clean\';\nimport \'broken\';\nfn main() -> Void { }\n';
+    let main_path = dir + '/main.hawk';
+    if let Err(e) = fs.write_text(main_path, main_src) {
+        return Result.Err(error('write main: ${e.message()}'));
+    }
+
+    let checked: Set<String> = Set.new();
+    let first = check_source_at(main_src, main_path, Option.None, checked: checked);
+    testing.assert_eq(actual: first.len(), expected: 1)?;
+    testing.assert(checked.has(dir + '/clean.hawk'), message: 'clean dep marked checked')?;
+    testing.assert(checked.has(main_path), message: 'clean primary marked checked')?;
+    testing.assert(!checked.has(dir + '/broken.hawk'), message: 'broken dep never marked')?;
+
+    // A second pass with the same set: the clean files (incl. the primary) are
+    // skipped; the broken dep re-reports.
+    let second = check_source_at(main_src, main_path, Option.None, checked: checked);
+    testing.assert_eq(actual: second.len(), expected: 1)?;
+    testing.assert(second[0].message.contains('undefined name: missing_name'),
+        message: 'broken dep re-reported: ${second[0].message}')?;
+
+    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
     return Result.Ok(void);
 }
 

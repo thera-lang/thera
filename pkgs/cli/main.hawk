@@ -320,10 +320,15 @@ fn do_check(_ targets: List<String>, _ sdk_root: Option<String>) -> Result<Int, 
         return Result.Ok(2);
     }
 
-    // One parse cache shared across all targets: every file imports the `std.core`
-    // prelude (and most share internal imports), so without this the closure is
-    // re-lexed and re-parsed once per file. Reused, it is parsed once per run.
+    // Shared across all targets: the parse cache (every file imports the
+    // `std.core` prelude, and most share internal imports — parsed once per run,
+    // not once per file) and the checked-clean set (a shared import is *checked*
+    // once per run, not once per importer). Files whose check has errors are
+    // re-encountered per importer; `printed` de-duplicates their output so each
+    // diagnostic prints — and counts — once per run.
     let parse_cache: Map<String, loader.ParsedFile> = {};
+    let checked: Set<String> = Set.new();
+    let printed: Set<String> = Set.new();
     let mut total = 0;
     for file in runner.sort_dedup(files) {
         match fs.read_text(file) {
@@ -333,11 +338,16 @@ fn do_check(_ targets: List<String>, _ sdk_root: Option<String>) -> Result<Int, 
                 // analyzers it resembles (eslint, ruff, mypy). stderr is reserved
                 // for operational failures (below) and `emit`, which is a compiler
                 // whose product is the `.hawkbc`. (See docs/architecture.md.)
-                let diags = driver.check_source_at(source, file, sdk_root, parse_cache: parse_cache);
+                let diags = driver.check_source_at(source, file, sdk_root,
+                    parse_cache: parse_cache, checked: checked);
                 for d in diags {
-                    println(driver.format_diagnostic(d, file));
+                    let line = driver.format_diagnostic(d, file);
+                    if !printed.has(line) {
+                        printed.add(line);
+                        println(line);
+                        total = total + 1;
+                    }
                 }
-                total = total + diags.len();
             },
             Err(e) => {
                 eprintln('hawk check: cannot read ${file}: ${e}');

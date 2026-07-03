@@ -20,6 +20,7 @@ import 'ast/ast';      // ast.Program, ast.FnDecl, Decl
 import 'lexer/lexer';  // tokenize
 import 'parser/parser'; // parse
 import 'driver';       // compile_source_at, check_source_at, format_diagnostic
+import 'loader';       // ParsedFile (the cross-file parse cache)
 
 // The per-file test tally a run produces (a `@test` count and how many failed).
 struct TestCounts {
@@ -76,10 +77,16 @@ pub fn test_paths(_ targets: List<String>, _ sdk_root: Option<String>, show_outp
                 eprintln('hawk test: no *_test.hawk files found.');
                 return Result.Ok(1);
             }
+            // Shared across the test files (they share most of their closure —
+            // the prelude, and the libraries under test): the parse cache and
+            // the checked-clean set, so the shared closure is parsed and checked
+            // once per run, not once per test file.
+            let parse_cache: Map<String, loader.ParsedFile> = {};
+            let checked: Set<String> = Set.new();
             let mut total_tests = 0;
             let mut failed_files = 0;
             for f in files {
-                match run_test_file(f, runtime, sdk_root, show_output) {
+                match run_test_file(f, runtime, sdk_root, show_output, parse_cache, checked) {
                     Some(counts) => {
                         total_tests = total_tests + counts.total;
                         if counts.failures > 0 {
@@ -106,7 +113,8 @@ pub fn test_paths(_ targets: List<String>, _ sdk_root: Option<String>, show_outp
 // header and (after the child exits) its per-test output. Each test's stdout is
 // captured and shown only on failure (or always, when `show_output`). Returns the
 // counts, or None if the file failed to read/parse/compile (already reported).
-fn run_test_file(_ path_str: String, _ runtime: String, _ sdk_root: Option<String>, _ show_output: Bool) -> Option<TestCounts> {
+fn run_test_file(_ path_str: String, _ runtime: String, _ sdk_root: Option<String>, _ show_output: Bool,
+    _ parse_cache: Map<String, loader.ParsedFile>, _ checked: Set<String>) -> Option<TestCounts> {
     let source = match fs.read_text(path_str) {
         Ok(s) => s,
         Err(e) => {
@@ -121,7 +129,7 @@ fn run_test_file(_ path_str: String, _ runtime: String, _ sdk_root: Option<Strin
     println(path_str); // the per-file header is part of the report (stdout)
     if lex.errors.len() > 0 || parsed.errors.len() > 0 {
         // Re-run the standard pipeline so the lex/parse errors print uniformly.
-        for d in driver.check_source_at(source, path_str, sdk_root) {
+        for d in driver.check_source_at(source, path_str, sdk_root, parse_cache: parse_cache) {
             eprintln(driver.format_diagnostic(d, path_str));
         }
         return Option.None;
@@ -135,7 +143,8 @@ fn run_test_file(_ path_str: String, _ runtime: String, _ sdk_root: Option<Strin
 
     // Recompile the source plus a synthesized driver `main` that runs each test.
     let combined = '${source}\n${test_driver(tests, show_output)}';
-    let outcome = driver.compile_source_at(combined, path_str, sdk_root);
+    let outcome = driver.compile_source_at(combined, path_str, sdk_root,
+        parse_cache: parse_cache, checked: checked);
     if outcome.diagnostics.len() > 0 {
         for d in outcome.diagnostics {
             eprintln(driver.format_diagnostic(d, path_str));

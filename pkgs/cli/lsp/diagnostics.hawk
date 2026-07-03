@@ -13,16 +13,19 @@ import '../loader';      // ParsedFile (the cross-request parse cache)
 // JSON array. Imports resolve from `sdk_root`; the primary file is checked from
 // the in-memory `text`. `parse_cache` (server-lived, keyed by resolved path) lets
 // the import closure — the `std.core` prelude above all — be lexed and parsed
-// once and reused across keystrokes instead of re-parsed on every change.
+// once and reused across keystrokes instead of re-parsed on every change;
+// `checked` (also server-lived) likewise limits re-*checking* to files that
+// changed since they last checked clean.
 pub fn compute_diagnostics(_ text: String, _ path: String, _ sdk_root: Option<String>,
-    parse_cache: Map<String, loader.ParsedFile> = {}) -> Json {
+    parse_cache: Map<String, loader.ParsedFile> = {},
+    checked: Set<String> = Set.new()) -> Json {
     let items: List<Json> = [];
     // `check_source_at` now reports the whole closure (incl. imported-file
     // errors); the LSP publishes per-URI, so keep only this document's own
     // diagnostics — an imported file's surface when *it* is the open document.
     // Attribution (`d.file`) is canonical, so compare in canonical form.
     let canon = loader.canonical_path(path);
-    for d in driver.check_source_at(text, path, sdk_root, parse_cache: parse_cache) {
+    for d in driver.check_source_at(text, path, sdk_root, parse_cache: parse_cache, checked: checked) {
         if diagnostic_in_file(d, canon) {
             items.push(diagnostic_to_json(d));
         }
