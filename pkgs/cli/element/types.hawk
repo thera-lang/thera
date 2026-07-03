@@ -116,7 +116,7 @@ pub fn id_key(_ id: TypeId) -> String {
 // `FileScope.resolve_type_def`; None when the owner is unknown (`''`) or the
 // owner file doesn't declare the name.
 pub fn def_by_id(_ lib: LibraryElement, _ id: TypeId) -> Option<TypeDefElement> {
-    if id.owner == '<builtin>' {
+    if id.owner == BUILTIN_OWNER {
         return lib.type_defs.get(id.name);
     }
     return match lib.file_type_defs.get(id.owner) {

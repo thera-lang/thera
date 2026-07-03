@@ -135,7 +135,7 @@ fn test_per_file_tables_populated() -> Result<Void, Error> {
     // program keys under '' (file_key of None).
     let lib = lib_of('struct Point { x: Int }\nconst K: Int = 1\n'
         + 'fn f() -> Int { return 0; }');
-    match lib.file_type_defs.get('') {
+    match lib.file_type_defs.get(file_key(Option.None)) {
         Some(types) => {
             testing.assert(types.has('Point'), message: 'Point recorded per-file')?;
             // Same object as the flat table (member fills are visible through both).
@@ -144,7 +144,7 @@ fn test_per_file_tables_populated() -> Result<Void, Error> {
         },
         None => { testing.assert(false, message: 'no per-file types for anon program')?; },
     }
-    match lib.file_consts.get('') {
+    match lib.file_consts.get(file_key(Option.None)) {
         Some(cs) => { testing.assert(cs.has('K'), message: 'K recorded per-file')?; },
         None => { testing.assert(false, message: 'no per-file consts for anon program')?; },
     }
@@ -159,8 +159,8 @@ fn test_interface_inheritance_flattens() -> Result<Void, Error> {
     match lib.type_defs.get('Pretty') {
         Some(p) => {
             // The closure carries both supers; the methods are flattened in.
-            testing.assert(id_list_has(p.super_interfaces, TypeId { owner: '', name: 'Display' }))?;
-            testing.assert(id_list_has(p.super_interfaces, TypeId { owner: '', name: 'Debug' }))?;
+            testing.assert(id_list_has(p.super_interfaces, TypeId { owner: '<anon>', name: 'Display' }))?;
+            testing.assert(id_list_has(p.super_interfaces, TypeId { owner: '<anon>', name: 'Debug' }))?;
             testing.assert(match find_method(p, 'show') {
                 Some(_) => true,
                 None => false,

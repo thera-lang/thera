@@ -1,0 +1,12 @@
+// Support library for the white-box-test-access tests: one private and one
+// public top-level name. `store_test.hawk` *beside this file* gets the private
+// surface bare (the white-box exception); a `store_test.hawk` elsewhere that
+// merely imports this file does not.
+
+fn secret() -> Int {
+    return 7;
+}
+
+pub fn get() -> Int {
+    return secret();
+}

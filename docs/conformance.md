@@ -171,6 +171,7 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `mod-no-bare-fallback`| scoping.md             | a bare name owned by an un-imported (closure-only) library is `undefined` — no global last-wins fallback | ✓ |
 | `mod-shared-value-name`| scoping.md              | two libraries may share a top-level value name; each qualified call dispatches to its own library (value-uniqueness lift) | ✓ |
 | `mod-shared-type-name`| scoping.md              | two libraries may share a top-level *type* name; each qualified `ns.T` constructs/resolves its own library's type (type-uniqueness lift) | ✓ |
+| `mod-whitebox-same-dir` | Modules / Testing | `<base>_test.hawk` gets `<base>.hawk`'s private surface bare — same directory only | ✓ |
 | `mod-shared-const-name`| scoping.md             | two libraries may share a const name: `ns.NAME` inlines its own library's initializer, resolved against the const's file; owner-keyed cycle guard | ✓ |
 | `mod-shared-global-name`| scoping.md            | two libraries may share a module-global name: distinct slots, both initializers run, owner-keyed init order and dependency edges | ✓ |
 | `mod-native-name-isolation`| scoping.md         | a `native fn` binds within its own library: `ns.fn(...)` resolves on `ns`'s surface, never a flat native table (no cross-import hijack) | ✓ |

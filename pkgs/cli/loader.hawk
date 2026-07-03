@@ -329,7 +329,7 @@ impl Loader {
     // to the importer: the root cause, not a downstream "undefined name" (and an
     // unused broken import no longer passes silently).
     fn link_imports(self, _ prog: Program, _ base_dir: String, _ into: LibrarySource) -> Void {
-        let importer = prog.file_path.unwrap_or('');
+        let importer = element.file_key(prog.file_path);
         for decl in prog.decls {
             if let Import(x) = decl {
                 match self.resolve(x.path, base_dir) {
@@ -496,9 +496,14 @@ fn bare_surface_for(_ root: LibrarySource, _ core_names: Map<String, String>) ->
                     }
                 }
                 // White-box: `foo_test.hawk` sees `foo.hawk`'s private
-                // top-level names bare, in addition to its public surface.
+                // top-level names bare, in addition to its public surface —
+                // for the `foo.hawk` in its *own directory* only (LD9: a
+                // basename match alone granted private access to any imported
+                // `foo.hawk` from any directory).
                 if let Some(base) = test_base {
-                    if basename_no_ext(child.program.file_path) == base {
+                    if basename_no_ext(child.program.file_path) == base
+                        && dirname(element.file_key(root.program.file_path))
+                        == dirname(element.file_key(child.program.file_path)) {
                         for n in all_top_names(child).to_list() {
                             names[n] = child_key;
                         }
@@ -525,7 +530,7 @@ fn bare_surface_for(_ root: LibrarySource, _ core_names: Map<String, String>) ->
 // here: a file's *own* declarations may shadow the prelude (soft-reserved),
 // and the existing insertion order implements that precedence.
 fn collect_surface_collisions(_ src: LibrarySource, _ diags: List<LoadDiagnostic>) -> Void {
-    let file = src.program.file_path.unwrap_or('');
+    let file = element.file_key(src.program.file_path);
     // name -> origin file, for the barrel (public) and bare (`as _`) surfaces.
     let exposed: Map<String, String> = {};
     let bare: Map<String, String> = {};
@@ -653,7 +658,7 @@ pub fn public_surface_of(_ lib: LibrarySource) -> element.LibraryNamespace {
 // Cycle detection keys on the program's `file_path` (Hawk has no object identity).
 fn collect_surface(_ source: LibrarySource, _ names: Set<String>, _ collisions: Set<String>,
     _ origin: Map<String, String>, _ visited: Set<String>) -> Void {
-    let key = source.program.file_path.unwrap_or('');
+    let key = element.file_key(source.program.file_path);
     if visited.has(key) {
         return;
     }

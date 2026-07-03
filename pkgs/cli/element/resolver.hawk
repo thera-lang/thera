@@ -7,56 +7,16 @@ import 'types' as _;
 import 'element' as _;
 import 'scope' as _;
 
-// --- TypeRef -> Type resolution ---
+// --- TypeRef -> Type resolution (scope-aware, Phase 1 T4) ---
+//
+// The owner stamped on a named type is chosen by the current file's `FileScope`
+// (own declarations -> bare surface -> built-ins), so two libraries' same-named
+// types resolve distinctly. The old flat (registry-keyed) pipeline these
+// replaced is gone (EL12) — `build_library`'s pass 2 constructs the library
+// first, so every resolution site has a `FileScope`.
 
 // Resolve an optional type reference; a missing one (omitted annotation) is
 // Unknown.
-pub fn resolve_opt(_ ref: Option<TypeRef>, _ type_defs: Map<String, TypeDefElement>,
-    _ type_params: Set<String>, _ self_type: Option<Type>) -> Type {
-    return match ref {
-        Some(r) => resolve_type_ref(r, type_defs, type_params, self_type),
-        None => Type.Unknown,
-    };
-}
-
-pub fn resolve_type_ref(_ ref: TypeRef, _ type_defs: Map<String, TypeDefElement>,
-    _ type_params: Set<String>, _ self_type: Option<Type>) -> Type {
-    return match ref {
-        Named(nt) => resolve_named(nt, type_defs, type_params, self_type),
-        Function(ft) => Type.Function(
-            ft.params.map((p) => resolve_type_ref(p, type_defs, type_params, self_type)),
-            resolve_type_ref(ft.return_type, type_defs, type_params, self_type)),
-    };
-}
-
-fn resolve_named(_ nt: NamedType, _ type_defs: Map<String, TypeDefElement>,
-    _ type_params: Set<String>, _ self_type: Option<Type>) -> Type {
-    if let Some(p) = primitive_type(nt.name) {
-        return p;
-    }
-    if nt.name == 'Self' {
-        return self_type.unwrap_or(Type.Unknown);
-    }
-    if type_params.has(nt.name) {
-        return Type.TypeParameter(nt.name);
-    }
-    if !type_defs.has(nt.name) {
-        return Type.Unknown;
-    }
-    let args = nt.args.map((a) => resolve_type_ref(a, type_defs, type_params, self_type));
-    return named_type(type_defs, nt.name, args);
-}
-
-// --- scope-aware resolution (Phase 1 T4) ---
-//
-// The same `TypeRef` -> `Type` resolution as above, but the owner stamped on a
-// named type is chosen by the current file's `FileScope` (own declarations ->
-// bare surface -> built-ins -> flat registry), so two libraries' same-named types
-// resolve distinctly once type-name uniqueness is lifted. Callers that have the
-// current file (inference / `check_fn` / codegen) use these; the flat entry points
-// above stay for `build_library`'s own signature/field resolution, which runs
-// before the library — and thus a `FileScope` — exists. Under uniqueness a scoped
-// resolve stamps the same owner the flat one does, which the SDK fixpoint checks.
 pub fn resolve_opt_in(_ ref: Option<TypeRef>, _ scope: FileScope,
     _ type_params: Set<String>, _ self_type: Option<Type>) -> Type {
     return match ref {
@@ -127,11 +87,6 @@ pub fn builtin_type_defs() -> Map<String, TypeDefElement> {
     m['Debug'] = new_interface(BUILTIN_OWNER, 'Debug', []);
     return m;
 }
-
-// The owner file stamped on the hermetic built-in floor. When std.core is linked,
-// the real `native type` declaration (owned by its core file) shadows the floor
-// entry, so this sentinel only surfaces in hermetic contexts.
-const BUILTIN_OWNER: String = '<builtin>';
 
 // Type names the language itself speaks — in signatures (`Void`), sugar
 // (`Result`/`Option`/`?`, `#loc`/`SourceLoc`), literals (`List`/`Map`/`Set`/
@@ -303,12 +258,7 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
                     }
                 },
                 Fn(x) => {
-                    let element = function_element(x, fs);
-                    let key = file_key(p.file_path);
-                    if !file_functions.has(key) {
-                        file_functions[key] = {};
-                    }
-                    if let Some(m) = file_functions.get(key) { m[x.name] = element; }
+                    record_file_function(file_functions, p.file_path, x.name, function_element(x, fs));
                 },
                 Const(x) => {
                     record_file_const(file_consts, p.file_path, x.name, ConstElement {
@@ -435,6 +385,17 @@ fn file_type_def(_ tbl: Map<String, Map<String, TypeDefElement>>, _ file: Option
         Some(m) => m.get(name),
         None => Option.None,
     };
+}
+
+// Record `el` under its declaring `file` in the per-file function table —
+// the `FunctionElement` sibling of `record_file_type`/`record_file_const`.
+fn record_file_function(_ tbl: Map<String, Map<String, FunctionElement>>, _ file: Option<String>,
+    _ name: String, _ el: FunctionElement) -> Void {
+    let key = file_key(file);
+    if !tbl.has(key) {
+        tbl[key] = {};
+    }
+    if let Some(m) = tbl.get(key) { m[name] = el; }
 }
 
 fn record_file_const(_ tbl: Map<String, Map<String, ConstElement>>, _ file: Option<String>,

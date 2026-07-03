@@ -186,7 +186,7 @@ impl FileScope {
             }
         }
         if self.is_builtin_type(name) {
-            return '<builtin>';
+            return BUILTIN_OWNER;
         }
         return '';
     }
@@ -218,7 +218,7 @@ impl FileScope {
     // declaration shadows them.
     pub fn is_builtin_type(self, _ name: String) -> Bool {
         return match self.library.type_defs.get(name) {
-            Some(def) => def.kind == TypeDefKind.Builtin || def.owner_file == '<builtin>',
+            Some(def) => def.kind == TypeDefKind.Builtin || def.owner_file == BUILTIN_OWNER,
             None => false,
         };
     }
@@ -247,6 +247,10 @@ impl FileScope {
 
     // The first namespace this file imports that exposes `name`, or None — so a
     // bare-but-qualifiable name becomes the "qualify as `ns.name`" diagnostic.
+    // A namespace this file binds whose public surface exposes `name` — used
+    // for "qualify as `ns.T`" hints. When several qualify, the first in import
+    // order wins (map iteration is insertion-ordered, so this is deterministic
+    // — EL17); the hint names *a* valid qualifier, not the only one.
     pub fn qualifying_namespace(self, _ name: String) -> Option<String> {
         let nss = namespaces_in(self.library, self.file);
         for ns in nss.keys() {

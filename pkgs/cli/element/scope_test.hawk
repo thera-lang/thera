@@ -29,7 +29,7 @@ fn lib_with_namespace(_ src: String, _ ns: String, _ names: List<String>) -> Lib
     let nss: Map<String, LibraryNamespace> = {};
     nss[ns] = LibraryNamespace { names: surface, collisions: Set.new(), origin: origin };
     let file_ns: Map<String, Map<String, LibraryNamespace>> = {};
-    file_ns[''] = nss;
+    file_ns[file_key(Option.None)] = nss;
     return build_library(parse_tokens(tokenize(src).tokens).program, [], file_ns, {});
 }
 
