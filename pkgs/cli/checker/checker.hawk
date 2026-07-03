@@ -90,26 +90,26 @@ struct NameSite {
     span: SourceSpan,
     is_pub: Bool,
     primary: Bool,
+    kind: String, // 'function' | 'type' | 'constant' | 'global' | 'namespace'
 }
 
-// Flag top-level names defined more than once. Only a same-file redefinition
-// collides: cross-file resolution is owner-correct for all three name spaces —
-// values (per-file bare, qualified within the named library) and, since Phase 1,
-// types (a `Type` carries its owning-library `TypeId`) — so different files may
-// share a top-level name. Reported against the colliding definition in the file
-// being checked.
+// Flag top-level names introduced more than once. **One name space per scope**
+// (scoping.md, decision 2026-07): every top-level introduction — `fn`,
+// `type`/`enum`/`interface`, `const`, top-level `let`, and the namespace an
+// `import` binds — shares a single per-file name space, so a second
+// introduction of a name collides regardless of kind (`fn max` + `const max`,
+// `fn Config` + `struct Config`, `import std.fs;` + `fn fs`). Only a
+// *same-file* re-introduction collides: cross-file resolution is
+// owner-correct (per-file bare / qualified / `TypeId`), so different files may
+// share a name. Reported against the colliding definition in the file being
+// checked.
 fn check_duplicates(_ errors: List<CheckError>, _ program: Program, _ imports: List<Program>) -> Void {
-    let types: Map<String, List<NameSite>> = {};
-    let funcs: Map<String, List<NameSite>> = {};
-    let consts: Map<String, List<NameSite>> = {};
+    let names: Map<String, List<NameSite>> = {};
     for ip in imports {
-        collect_names(ip, false, types, funcs, consts);
+        collect_names(ip, false, names);
     }
-    collect_names(program, true, types, funcs, consts);
-
-    report_dups(errors, types, 'type');
-    report_dups(errors, funcs, 'function');
-    report_dups(errors, consts, 'constant');
+    collect_names(program, true, names);
+    report_dups(errors, names);
 }
 
 // A `const` initializer must be *manifest* — a compile-time constant safe to
@@ -143,18 +143,44 @@ fn manifest_string(_ parts: List<StringPart>) -> Bool {
     return true;
 }
 
-fn collect_names(_ p: Program, _ primary: Bool, _ types: Map<String, List<NameSite>>,
-    _ funcs: Map<String, List<NameSite>>, _ consts: Map<String, List<NameSite>>) -> Void {
+fn collect_names(_ p: Program, _ primary: Bool, _ names: Map<String, List<NameSite>>) -> Void {
     for decl in p.decls {
         match decl {
-            Fn(x) => { add_name(funcs, x.name, NameSite { file: p.file_path, span: x.name_span, is_pub: x.is_pub, primary: primary }); },
-            Type(x) => { add_name(types, x.name, NameSite { file: p.file_path, span: x.name_span, is_pub: x.is_pub, primary: primary }); },
-            Enum(x) => { add_name(types, x.name, NameSite { file: p.file_path, span: x.name_span, is_pub: x.is_pub, primary: primary }); },
-            Interface(x) => { add_name(types, x.name, NameSite { file: p.file_path, span: x.name_span, is_pub: x.is_pub, primary: primary }); },
-            Const(x) => { add_name(consts, x.name, NameSite { file: p.file_path, span: x.name_span, is_pub: x.is_pub, primary: primary }); },
-            _ => {},
+            Fn(x) => { add_name(names, x.name, site(p, primary, x.name_span, x.is_pub, 'function')); },
+            Type(x) => { add_name(names, x.name, site(p, primary, x.name_span, x.is_pub, 'type')); },
+            Enum(x) => { add_name(names, x.name, site(p, primary, x.name_span, x.is_pub, 'type')); },
+            Interface(x) => { add_name(names, x.name, site(p, primary, x.name_span, x.is_pub, 'type')); },
+            Const(x) => { add_name(names, x.name, site(p, primary, x.name_span, x.is_pub, 'constant')); },
+            Let(x) => { add_name(names, x.name, site(p, primary, x.name_span, x.is_pub, 'global')); },
+            Import(x) => {
+                // An import introduces its namespace into the file's name space
+                // (`as _` binds none).
+                if let Some(ns) = import_binding(x) {
+                    add_name(names, ns, site(p, primary, x.span, false, 'namespace'));
+                }
+            },
+            Impl(_) => {},
         }
     }
+}
+
+fn site(_ p: Program, _ primary: Bool, _ span: SourceSpan, _ is_pub: Bool, _ kind: String) -> NameSite {
+    return NameSite { file: p.file_path, span: span, is_pub: is_pub, primary: primary, kind: kind };
+}
+
+// The namespace an `import` binds in its file — its alias, or the trailing
+// path segment (`std.fs` → `fs`, `util/strings` → `strings`); None for an
+// `as _` import (no binding). Mirrors the loader's `namespace_of`.
+fn import_binding(_ x: ImportDecl) -> Option<String> {
+    if x.unqualified {
+        return Option.None;
+    }
+    return Option.Some(x.alias.unwrap_or_else(() => trailing_segment(trailing_segment(x.path, '/'), '.')));
+}
+
+fn trailing_segment(_ s: String, _ sep: String) -> String {
+    let parts = s.split(sep);
+    return parts[parts.len() - 1];
 }
 
 fn add_name(_ m: Map<String, List<NameSite>>, _ name: String, _ site: NameSite) -> Void {
@@ -164,13 +190,13 @@ fn add_name(_ m: Map<String, List<NameSite>>, _ name: String, _ site: NameSite) 
     if let Some(list) = m.get(name) { list.push(site); }
 }
 
-// Report each primary-file definition that collides with another definition of
-// the same name (in the same name space).
-fn report_dups(_ errors: List<CheckError>, _ m: Map<String, List<NameSite>>, _ kind: String) -> Void {
+// Report each primary-file introduction that collides with another
+// introduction of the same name (one name space: any kind collides).
+fn report_dups(_ errors: List<CheckError>, _ m: Map<String, List<NameSite>>) -> Void {
     for name in m.keys() {
         if let Some(sites) = m.get(name) {
             if sites.len() >= 2 {
-                report_name(errors, name, kind, sites);
+                report_name(errors, name, sites);
             }
         }
     }
@@ -180,20 +206,27 @@ fn report_dups(_ errors: List<CheckError>, _ m: Map<String, List<NameSite>>, _ k
 // collides with an earlier site (an import, or a prior definition in the same
 // file) is the duplicate — report it, pointing at the earliest definition it
 // shadows. Each collision is reported once, at the offending (later) definition.
-fn report_name(_ errors: List<CheckError>, _ name: String, _ kind: String, _ sites: List<NameSite>) -> Void {
+// A same-kind collision keeps the familiar message; a cross-kind one names the
+// earlier introduction's kind.
+fn report_name(_ errors: List<CheckError>, _ name: String, _ sites: List<NameSite>) -> Void {
     for p in sites.enumerate() {
         let s = p.value;
         if s.primary {
             let mut j = 0;
             let mut reported = false;
             while j < p.index && !reported {
-                if !same_decl(s, sites[j]) && collides(s, sites[j], kind) {
+                if !same_decl(s, sites[j]) && collides(s, sites[j]) {
                     let where = if file_key(s.file) == file_key(sites[j].file) {
                         'this file'
                     } else {
                         file_key(sites[j].file)
                     };
-                    add_error(errors, 'duplicate ${kind} `${name}`: also defined in ${where}', s.span);
+                    let message = if s.kind == sites[j].kind {
+                        'duplicate ${s.kind} `${name}`: also defined in ${where}'
+                    } else {
+                        'duplicate name `${name}`: already bound as a ${sites[j].kind} in ${where} (one name space per scope)'
+                    };
+                    add_error(errors, message, s.span);
                     reported = true;
                 }
                 j = j + 1;
@@ -211,13 +244,14 @@ fn same_decl(_ a: NameSite, _ b: NameSite) -> Bool {
     return a.span.offset == b.span.offset && a.span.source == b.span.source;
 }
 
-// Whether two same-named definitions genuinely collide. All three name spaces now
-// resolve owner-correct — values bare to their declaring file / qualified within
-// the named library (Phase 2e), and types likewise via a `Type`'s owning-library
+// Whether two same-named introductions genuinely collide. Resolution is
+// owner-correct — values bare to their declaring file / qualified within the
+// named library (Phase 2e), and types likewise via a `Type`'s owning-library
 // `TypeId` (Phase 1) — so two *different* files may share a top-level name
 // (`std.json.parse` and `std.toml.parse`; two libraries' `Point`), even `pub`.
-// Only a same-file redefinition, where scope can't tell the two apart, collides.
-fn collides(_ a: NameSite, _ b: NameSite, _ kind: String) -> Bool {
+// Only a same-file re-introduction, where scope can't tell the two apart,
+// collides — and within a file, kind doesn't matter (one name space per scope).
+fn collides(_ a: NameSite, _ b: NameSite) -> Bool {
     return file_key(a.file) == file_key(b.file);
 }
 

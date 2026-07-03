@@ -1,0 +1,25 @@
+//! spec: mod-one-name-space
+//! mode: check
+
+// One name space per scope (scoping.md, decision 2026-07): a file may
+// introduce a top-level name at most once, across *all* declaration kinds —
+// functions, types, constants, module globals, and the namespace an `import`
+// binds. Same-kind duplicates keep their familiar message; cross-kind ones
+// name the earlier introduction.
+
+import 'greeter';
+
+fn max_of(_ a: Int, _ b: Int) -> Int { return if a > b { a } else { b }; }
+const max_of: Int = 3;   // expect error: duplicate name `max_of`: already bound as a function in this file
+
+struct Config {
+    x: Int,
+}
+fn Config() -> Int { return 1; }   // expect error: duplicate name `Config`: already bound as a type in this file
+
+fn greeter() -> Int { return 2; }   // expect error: duplicate name `greeter`: already bound as a namespace in this file
+
+let cache: Int = 1;
+let cache: Int = 2;   // expect error: duplicate global `cache`: also defined in this file
+
+fn main() -> Void { }
