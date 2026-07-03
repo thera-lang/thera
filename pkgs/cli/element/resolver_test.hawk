@@ -178,3 +178,46 @@ fn test_interface_inheritance_flattens() -> Result<Void, Error> {
     }
     return Result.Ok(void);
 }
+
+@test
+fn test_reserved_flat_entry_pinned_to_first_registration() -> Result<Void, Error> {
+    // A reserved core name's flat registry entry is pinned to its first real
+    // registration (EL8): a later — illegal, but possibly *unchecked* (an open
+    // LSP buffer) — declaration must not steal core identity. `is_core_id`
+    // therefore keeps pointing at the first owner.
+    let core = parse_tokens(tokenize('pub enum Result { Good, Bad }').tokens).program;
+    core.file_path = Option.Some('/core/result.hawk');
+    let user = parse_tokens(tokenize('struct Result { x: Int }').tokens).program;
+    user.file_path = Option.Some('/app/main.hawk');
+    let lib = build_library(user, [core], {}, {});
+    match lib.type_defs.get('Result') {
+        Some(d) => {
+            testing.assert_eq(actual: d.owner_file, expected: '/core/result.hawk')?;
+            testing.assert_eq(actual: d.kind, expected: TypeDefKind.Enum)?;
+        },
+        None => {
+            testing.assert(false, message: 'Result not in type_defs')?;
+        },
+    }
+    testing.assert(is_core_id(lib,
+        TypeId { owner: '/core/result.hawk', name: 'Result' }, 'Result'))?;
+    testing.assert(!is_core_id(lib,
+        TypeId { owner: '/app/main.hawk', name: 'Result' }, 'Result'))?;
+    // The user file's own table still holds its (illegal) declaration — only
+    // the shared flat entry is protected.
+    match lib.file_type_defs.get('/app/main.hawk') {
+        Some(m) => { testing.assert(m.has('Result'))?; },
+        None => { testing.assert(false, message: 'no /app/main.hawk table')?; },
+    }
+    // A non-reserved name keeps last-wins in the flat table.
+    let a = parse_tokens(tokenize('pub struct Config { x: Int }').tokens).program;
+    a.file_path = Option.Some('/a.hawk');
+    let b = parse_tokens(tokenize('pub struct Config { y: Int }').tokens).program;
+    b.file_path = Option.Some('/b.hawk');
+    let lib2 = build_library(b, [a], {}, {});
+    match lib2.type_defs.get('Config') {
+        Some(d) => { testing.assert_eq(actual: d.owner_file, expected: '/b.hawk')?; },
+        None => { testing.assert(false, message: 'Config not in type_defs')?; },
+    }
+    return Result.Ok(void);
+}

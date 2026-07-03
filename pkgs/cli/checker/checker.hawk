@@ -116,22 +116,14 @@ fn check_duplicates(_ errors: List<CheckError>, _ program: Program, _ imports: L
 
 // ---- reserved core type names ----
 
-// Type names the language itself speaks — in signatures (`Void`), sugar
-// (`Result`/`Option`/`?`, `#loc`/`SourceLoc`), literals (`List`/`Map`/`Set`/
-// `String`/`Int`/`Bool`/`Double`), protocols (`Iterator`, `Ordering`,
-// `error(...)`/`Error`), or the runtime's value model (`Bytes`). Declaring one
-// in user code would make the reserved meaning ambiguous at every use site, so
-// it is a check error (scoping.md "Reserved type names"). Deliberately *not*
-// the whole core surface: utility types that merely live in core
-// (`BytesBuilder`, `Args`, `Indexed`, …) are ordinary owner-resolved names a
-// user may redeclare. Values (`fn`/`const`) are not reserved either — casing
-// conventions keep them unambiguous.
+// The reserved-name list itself lives in the element layer
+// (`resolver.is_reserved_type_name`) — the resolver also uses it to pin core
+// identity in the flat registry (EL8). Declaring one of these names in user
+// code would make the reserved meaning ambiguous at every use site, so it is a
+// check error (scoping.md "Reserved type names"). Values (`fn`/`const`) are not
+// reserved — casing conventions keep them unambiguous.
 fn is_reserved_type_name(_ name: String) -> Bool {
-    return name == 'Result' || name == 'Option' || name == 'Ordering'
-        || name == 'List' || name == 'Map' || name == 'Set'
-        || name == 'String' || name == 'Int' || name == 'Bool' || name == 'Double'
-        || name == 'Bytes' || name == 'Iterator' || name == 'Error'
-        || name == 'SourceLoc' || name == 'Void';
+    return resolver.is_reserved_type_name(name);
 }
 
 // Flag type declarations (struct/enum/interface, native or not) — and type
@@ -1668,7 +1660,8 @@ fn check_return(_ errors: List<CheckError>, _ value: Expr, _ expected: Type,
         return;
     }
     if let Interface(name, args) = expected {
-        if name.name == 'Result' && args.len() > 0 && is_assignable(actual, args[0], ctx.library.type_defs) {
+        if is_core_id(ctx.library, name, 'Result') && args.len() > 0
+            && is_assignable(actual, args[0], ctx.library.type_defs) {
             return; // implicit Ok(value)
         };
     }
@@ -1689,7 +1682,7 @@ fn check_propagate(_ errors: List<CheckError>, _ inner: Expr, _ span: SourceSpan
     if is_uncertain_type(inner_ty) {
         return; // an unresolved operand already has its own diagnostic
     }
-    let Some(fam) = enum_family(inner_ty) else {
+    let Some(fam) = enum_family(inner_ty, ctx) else {
         add_error(errors,
             '`?` can only be used on a `Result` or `Option` (found ${type_to_string(inner_ty)})',
             span);
@@ -1700,7 +1693,7 @@ fn check_propagate(_ errors: List<CheckError>, _ inner: Expr, _ span: SourceSpan
     if is_uncertain_type(rt) {
         return;
     }
-    match enum_family(rt) {
+    match enum_family(rt, ctx) {
         Some(rfam) => {
             if fam != rfam {
                 let hint = if fam == 'Option' {
@@ -1721,11 +1714,12 @@ fn check_propagate(_ errors: List<CheckError>, _ inner: Expr, _ span: SourceSpan
     }
 }
 
-// The enum family of a type for `?` purposes: `Option`, `Result`, or None for
-// anything else.
-fn enum_family(_ t: Type) -> Option<String> {
+// The enum family of a type for `?` purposes: the *core* `Option` or `Result`
+// (by identity, not spelling — X1), or None for anything else.
+fn enum_family(_ t: Type, _ ctx: InferCtx) -> Option<String> {
     return match t {
-        Interface(name, _) => if name.name == 'Option' || name.name == 'Result' {
+        Interface(name, _) => if is_core_id(ctx.library, name, 'Option')
+            || is_core_id(ctx.library, name, 'Result') {
             Option.Some(name.name)
         } else {
             Option.None

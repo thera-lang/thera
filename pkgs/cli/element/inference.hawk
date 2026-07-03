@@ -93,7 +93,7 @@ pub fn infer_expr(_ expr: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx,
         Ident(_, name) => infer_ident(name, scope, ctx),
         Call(x) => infer_call(x, scope, ctx, expected),
         Field(_, object, field) => infer_field(object, field, expected, scope, ctx),
-        Index(_, object, _) => index_result(infer_expr(object, scope, ctx, Option.None)),
+        Index(_, object, _) => index_result(infer_expr(object, scope, ctx, Option.None), ctx),
         Binary(_, left, op, right) => infer_binary(left, op, right, scope, ctx),
         Unary(_, op, operand) => infer_unary(op, operand, scope, ctx),
         Propagate(_, inner) => infer_propagate(inner, scope, ctx),
@@ -182,7 +182,8 @@ fn infer_unary(_ op: String, _ operand: Expr, _ scope: Map<String, Type>, _ ctx:
 fn infer_propagate(_ inner: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
     let t = infer_expr(inner, scope, ctx, Option.None);
     return match t {
-        Interface(id, args) => if (id.name == 'Result' || id.name == 'Option') && args.len() > 0 {
+        Interface(id, args) => if (is_core_id(ctx.library, id, 'Result')
+            || is_core_id(ctx.library, id, 'Option')) && args.len() > 0 {
             args[0]
         } else {
             Type.Unknown
@@ -496,9 +497,9 @@ fn indexed_assign_candidate(_ current: Type, _ key: Expr, _ value: Expr,
     _ scope: Map<String, Type>, _ ctx: InferCtx) -> Option<Type> {
     let v = infer_expr(value, scope, ctx, Option.None);
     return match current {
-        Interface(id, _) => if id.name == 'Map' {
+        Interface(id, _) => if is_core_id(ctx.library, id, 'Map') {
             Option.Some(iface(ctx, 'Map', [infer_expr(key, scope, ctx, Option.None), v]))
-        } else if id.name == 'List' {
+        } else if is_core_id(ctx.library, id, 'List') {
             Option.Some(iface(ctx, 'List', [v]))
         } else {
             Option.None
@@ -940,7 +941,7 @@ fn variant_field_types(_ subject: Type, _ name: String, _ ctx: InferCtx) -> List
 // unknown iterable (a range, inferred as `Unknown`) falls back to `Int`.
 pub fn for_element_type(_ iter_type: Type, _ ctx: InferCtx) -> Type {
     if let Interface(name, args) = iter_type {
-        if name.name == 'List' {
+        if is_core_id(ctx.library, name, 'List') {
             return arg_at(args, 0);
         };
     }
@@ -953,13 +954,13 @@ pub fn for_element_type(_ iter_type: Type, _ ctx: InferCtx) -> Type {
 fn iterator_element(_ t: Type, _ ctx: InferCtx) -> Option<Type> {
     if let Interface(name, args) = t {
         if let Some(def) = ctx_scope(ctx).resolve_type_def(name) {
-            if name.name != 'Iterator' && !str_list_has(def.interfaces, 'Iterator') {
+            if !is_core_id(ctx.library, name, 'Iterator') && !str_list_has(def.interfaces, 'Iterator') {
                 return Option.None;
             }
             if let Some(next) = find_method(def, 'next') {
                 let ret = substitute(next.return_type, receiver_bindings(name.name, args, ctx));
                 if let Interface(rname, rargs) = ret {
-                    if rname.name == 'Option' && rargs.len() > 0 {
+                    if is_core_id(ctx.library, rname, 'Option') && rargs.len() > 0 {
                         return Option.Some(rargs[0]);
                     };
                 }
@@ -1060,13 +1061,14 @@ pub fn type_mentions_param(_ ty: Type, _ name: String) -> Bool {
     };
 }
 
-// Result of `object[index]`: a `List<T>`'s element, a `Map<K, V>`'s value.
-fn index_result(_ recv: Type) -> Type {
+// Result of `object[index]`: a core `List<T>`'s element, a core `Map<K, V>`'s
+// value (by identity, not spelling — X1).
+fn index_result(_ recv: Type, _ ctx: InferCtx) -> Type {
     if let Interface(name, args) = recv {
-        if name.name == 'List' {
+        if is_core_id(ctx.library, name, 'List') {
             return arg_at(args, 0);
         }
-        if name.name == 'Map' {
+        if is_core_id(ctx.library, name, 'Map') {
             return arg_at(args, 1);
         };
     }

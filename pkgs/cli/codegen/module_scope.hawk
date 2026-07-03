@@ -321,11 +321,17 @@ impl ModuleScope {
 
     pub fn add_enum(self, _ decl: EnumDecl, _ file: Option<String>) -> Void {
         let owner = element.file_key(file);
-        let ty = if decl.name == 'Result' {
+        // The fixed runtime type ids (shared with the runtime's value model)
+        // attach to the *core* enums by identity, not name (X1/CG6): this
+        // declaration gets one only if it is the declaration the registry
+        // attributes the reserved name to — the core SDK's (or, hermetically,
+        // the program's own shadowing declaration).
+        let is_core_decl = element.core_owner(self.library, decl.name) == owner;
+        let ty = if is_core_decl && decl.name == 'Result' {
             TY_RESULT
-        } else if decl.name == 'Option' {
+        } else if is_core_decl && decl.name == 'Option' {
             TY_OPTION
-        } else if decl.name == 'Ordering' {
+        } else if is_core_decl && decl.name == 'Ordering' {
             TY_ORDERING
         } else {
             let t = self.next_enum_ty;

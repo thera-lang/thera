@@ -245,6 +245,29 @@ pub fn file_key(_ file: Option<String>) -> String {
     return file.unwrap_or('');
 }
 
+// --- core-type identity ---
+
+// The owning file (key) of the *core* type `name`: the file the registry
+// attributes it to — std.core's declaration when the SDK is linked, the
+// `<builtin>` floor hermetically. The registry entry is authoritative because
+// the name is reserved (scoping.md "Reserved type names"): only the core SDK
+// may declare it, and the resolver keeps a reserved flat entry pinned to its
+// first (core) registration.
+pub fn core_owner(_ lib: LibraryElement, _ name: String) -> String {
+    return match lib.type_defs.get(name) {
+        Some(d) => d.owner_file,
+        None => '<builtin>',
+    };
+}
+
+// Whether `id` is the core type `name` — the language's own type, to which
+// semantics (`?`/implicit-`Ok`, `for` iteration, index lowering, fixed runtime
+// type ids) attach. Identity, not spelling (audit X1): the owner must match,
+// so a same-named type from anywhere else never inherits builtin semantics.
+pub fn is_core_id(_ lib: LibraryElement, _ id: TypeId, _ name: String) -> Bool {
+    return id.name == name && id.owner == core_owner(lib, name);
+}
+
 // --- small helpers (List<String> has no `contains` yet — audit gap) ---
 
 pub fn str_list_has(_ xs: List<String>, _ s: String) -> Bool {

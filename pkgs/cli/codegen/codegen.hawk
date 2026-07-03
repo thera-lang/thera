@@ -262,7 +262,6 @@ impl FnCompiler {
     pub fn compile(self, _ index: Int) -> FuncDef {
         let fn_decl = self.scope.units[index];
         self.file = self.scope.unit_files[index];
-        self.returns_result = type_ref_name(fn_decl.return_type) == Option.Some('Result');
         for tp in fn_decl.type_params {
             self.type_param_bounds[tp.name] = tp.bounds;
         }
@@ -293,6 +292,15 @@ impl FnCompiler {
             type_params.add(tp.name);
         }
         let return_type = fn_decl.return_type.map((ref) => resolver.resolve_type_ref_in(ref, file_scope(self.scope.library, self.file), type_params, self_type));
+        // Implicit-`Ok` wrapping applies only when the *resolved* return type is
+        // the core `Result` (identity, not spelling — X1).
+        self.returns_result = match return_type {
+            Some(rt) => match rt {
+                Interface(id, _) => element.is_core_id(self.scope.library, id, 'Result'),
+                _ => false,
+            },
+            None => false,
+        };
         self.ctx = InferCtx {
             library: self.scope.library,
             type_params: type_params,
@@ -562,6 +570,16 @@ impl FnCompiler {
         return type_id_of_type(infer_expr(e, self.type_scope, self.ctx, Option.None));
     }
 
+    // Whether `e`'s inferred type is the *core* type `name` — identity, not
+    // spelling (X1): lowering (`List`/`Map` opcodes, implicit-`Ok`) keys on the
+    // core types themselves, never on a name match.
+    fn is_core(self, _ e: Expr, _ name: String) -> Bool {
+        return match self.type_id_of(e) {
+            Some(id) => element.is_core_id(self.scope.library, id, name),
+            None => false,
+        };
+    }
+
     // --- statements ---
 
     fn block(self, _ block: Block) -> Void {
@@ -672,18 +690,16 @@ impl FnCompiler {
                 self.expr(object);
                 self.expr(index);
                 self.expr(value);
-                match self.type_of(object) {
-                    Some(t) => {
-                        if t == 'List' {
-                            self.emit(Instr.Simple(Op.ListSet));
-                        } else if t == 'Map' {
-                            self.emit(Instr.CallNative('map_set', 3));
-                            self.emit(Instr.Simple(Op.Pop));
-                        } else {
-                            self.error('indexed assignment on ${t} is not supported', span);
-                        }
-                    },
-                    None => { self.error('indexed assignment on unknown type', span); },
+                if self.is_core(object, 'List') {
+                    self.emit(Instr.Simple(Op.ListSet));
+                } else if self.is_core(object, 'Map') {
+                    self.emit(Instr.CallNative('map_set', 3));
+                    self.emit(Instr.Simple(Op.Pop));
+                } else {
+                    match self.type_of(object) {
+                        Some(t) => { self.error('indexed assignment on ${t} is not supported', span); },
+                        None => { self.error('indexed assignment on unknown type', span); },
+                    }
                 }
             },
             _ => { self.error('unsupported assignment target', span); },
@@ -697,7 +713,7 @@ impl FnCompiler {
             None => { self.emit(Instr.Simple(Op.ConstUnit)); },
             Some(v) => {
                 self.expr_expecting(v, self.ctx.return_type);
-                if self.returns_result && self.type_of(v) != Option.Some('Result') {
+                if self.returns_result && !self.is_core(v, 'Result') {
                     self.emit(Instr.EnumNew(TY_RESULT, TAG_OK, 1));
                 }
             },
@@ -724,17 +740,15 @@ impl FnCompiler {
         match iterable {
             Range(_, _, _) => { self.range_for(var_name, iterable, body); },
             _ => {
-                match self.type_of(iterable) {
-                    Some(t) => {
-                        if t == 'List' {
-                            self.list_for(var_name, iterable, body);
-                        } else if self.is_iterator(iterable) {
-                            self.iterator_for(var_name, iterable, body);
-                        } else {
-                            self.error('cannot iterate ${t} (only ranges, lists, and Iterators are supported)', expr_span(iterable));
-                        }
-                    },
-                    None => { self.error('cannot iterate this value', expr_span(iterable)); },
+                if self.is_core(iterable, 'List') {
+                    self.list_for(var_name, iterable, body);
+                } else if self.is_iterator(iterable) {
+                    self.iterator_for(var_name, iterable, body);
+                } else {
+                    match self.type_of(iterable) {
+                        Some(t) => { self.error('cannot iterate ${t} (only ranges, lists, and Iterators are supported)', expr_span(iterable)); },
+                        None => { self.error('cannot iterate this value', expr_span(iterable)); },
+                    }
                 }
             },
         }
@@ -743,7 +757,7 @@ impl FnCompiler {
     fn is_iterator(self, _ e: Expr) -> Bool {
         match self.type_id_of(e) {
             Some(id) => {
-                if id.name == 'Iterator' {
+                if element.is_core_id(self.scope.library, id, 'Iterator') {
                     return true;
                 }
                 return match self.scope.interface_impls.get(type_key(id.owner, id.name)) {
@@ -1566,17 +1580,15 @@ impl FnCompiler {
     }
 
     fn emit_index_get(self, _ object: Expr, _ span: SourceSpan) -> Void {
-        match self.type_of(object) {
-            Some(t) => {
-                if t == 'List' {
-                    self.emit(Instr.Simple(Op.ListGet));
-                } else if t == 'Map' {
-                    self.emit(Instr.CallNative('map_index', 2));
-                } else {
-                    self.error('indexing on ${t} is not supported', span);
-                }
-            },
-            None => { self.error('indexing on unknown type', span); },
+        if self.is_core(object, 'List') {
+            self.emit(Instr.Simple(Op.ListGet));
+        } else if self.is_core(object, 'Map') {
+            self.emit(Instr.CallNative('map_index', 2));
+        } else {
+            match self.type_of(object) {
+                Some(t) => { self.error('indexing on ${t} is not supported', span); },
+                None => { self.error('indexing on unknown type', span); },
+            }
         }
     }
 
@@ -2259,16 +2271,6 @@ fn file_label(_ f: Option<String>) -> String {
     return f.unwrap_or('(no file)');
 }
 
-fn type_ref_name(_ t: Option<TypeRef>) -> Option<String> {
-    return match t {
-        Some(r) => match r {
-            Named(nt) => Option.Some(nt.name),
-            Function(_) => Option.None,
-        },
-        None => Option.None,
-    };
-}
-
 fn name_of_type(_ t: Type) -> Option<String> {
     return match t {
         Primitive(p) => match p {
@@ -2773,9 +2775,13 @@ fn find_field_init(_ fields: List<FieldInit>, _ name: String) -> Option<Expr> {
     return Option.None;
 }
 
+// Names recognized as built-in types when classifying a *static receiver*
+// (`String.from_chars(...)`). Name-based is sound for the reserved entries
+// (scoping.md — nothing else can legally carry them); `BytesBuilder` rides
+// along until static-method natives are owner-keyed.
 fn is_builtin_type_name(_ name: String) -> Bool {
     return name == 'String' || name == 'Bytes' || name == 'BytesBuilder'
-        || name == 'Int' || name == 'Bool' || name == 'Double' || name == 'Float'
+        || name == 'Int' || name == 'Bool' || name == 'Double'
         || name == 'Void' || name == 'List' || name == 'Map' || name == 'Set'
         || name == 'Result' || name == 'Option';
 }
