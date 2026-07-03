@@ -1,0 +1,11 @@
+//! spec: mod-import-resolve-error
+//! mode: check
+
+// An import that resolves to no file is a located diagnostic at the import
+// declaration — even when nothing uses the namespace (previously a silent
+// no-op; when the namespace *was* used, the only symptom was a misleading
+// downstream `undefined name`).
+
+import 'no_such_library';   // expect error: cannot resolve import 'no_such_library'
+
+fn main() -> Void { }

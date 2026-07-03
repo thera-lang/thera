@@ -180,9 +180,11 @@ pub struct ParsedFile {
 // Read and parse `path` **best-effort**: the parser recovers past errors, so the
 // returned program is usable (its recovered decls link) even when the file has
 // lex/parse errors — which are returned alongside it, stamped with `path`, rather
-// than dropped. None only when the file can't be read. Stamps `file_path` so cycle
-// detection and diagnostics can key on it.
-fn parse_file(_ path: String) -> Option<ParsedFile> {
+// than dropped. Err carries the read failure's message (the file is missing or
+// unreadable) so the caller can attribute the root cause instead of degrading to
+// a downstream "undefined name". Stamps `file_path` so cycle detection and
+// diagnostics can key on it.
+fn parse_file(_ path: String) -> Result<ParsedFile, String> {
     match fs.read_text(path) {
         Ok(source) => {
             let diagnostics: List<LoadDiagnostic> = [];
@@ -196,9 +198,9 @@ fn parse_file(_ path: String) -> Option<ParsedFile> {
             }
             let prog = parsed.program;
             prog.file_path = Option.Some(path);
-            return Option.Some(ParsedFile { program: prog, diagnostics: diagnostics });
+            return Result.Ok(ParsedFile { program: prog, diagnostics: diagnostics });
         },
-        Err(_) => { return Option.None; },
+        Err(e) => { return Result.Err(e.message()); },
     }
 }
 
@@ -207,14 +209,14 @@ fn parse_file(_ path: String) -> Option<ParsedFile> {
 // callers that only want a clean parse.)
 pub fn parse_file_or_null(_ path: String) -> Option<Program> {
     return match parse_file(path) {
-        Some(pf) => {
+        Ok(pf) => {
             if pf.diagnostics.len() == 0 {
                 Option.Some(pf.program)
             } else {
                 Option.None
             }
         },
-        None => Option.None,
+        Err(_) => Option.None,
     };
 }
 
@@ -260,15 +262,15 @@ impl Loader {
 
     // Resolve `file` to a library source, recursively linking its imports. Cached
     // before recursing (to terminate cycles); each program is added to the flat
-    // list exactly once.
-    fn source_for(self, _ file: String) -> Option<LibrarySource> {
-        if let Some(cached) = self.cache.get(file) { return Option.Some(cached); }
+    // list exactly once. Err carries the read failure's message.
+    fn source_for(self, _ file: String) -> Result<LibrarySource, String> {
+        if let Some(cached) = self.cache.get(file) { return Result.Ok(cached); }
         // Parse best-effort: even a file with lex/parse errors yields a recovered
         // program that we still link (its good decls resolve) — and its diagnostics
         // are collected here so the importer surfaces them attributed to this file,
         // rather than the broken import vanishing into a downstream "undefined name".
         match self.parsed_file(file) {
-            Some(pf) => {
+            Ok(pf) => {
                 for d in pf.diagnostics {
                     self.diagnostics.push(d);
                 }
@@ -276,36 +278,75 @@ impl Loader {
                 self.cache[file] = source;
                 self.link_imports(pf.program, dirname(file), source);
                 self.order.push(pf.program);
-                return Option.Some(source);
+                return Result.Ok(source);
             },
-            None => { return Option.None; },
+            Err(msg) => { return Result.Err(msg); },
         }
     }
 
     // Parse `file`, consulting the cross-call cache first so a file shared by many
     // closures (the prelude) is lexed+parsed once per run. A cache miss parses and
     // stores; the cached `ParsedFile` is reused as-is (the AST is immutable).
-    fn parsed_file(self, _ file: String) -> Option<ParsedFile> {
-        if let Some(cached) = self.parse_cache.get(file) { return Option.Some(cached); }
+    fn parsed_file(self, _ file: String) -> Result<ParsedFile, String> {
+        if let Some(cached) = self.parse_cache.get(file) { return Result.Ok(cached); }
         match parse_file(file) {
-            Some(pf) => {
+            Ok(pf) => {
                 self.parse_cache[file] = pf;
-                return Option.Some(pf);
+                return Result.Ok(pf);
             },
-            None => { return Option.None; },
+            Err(msg) => { return Result.Err(msg); },
         }
     }
 
     // Resolve each `import` in `prog` and record the child library under the
-    // import path on `into`.
+    // import path on `into`. A failure — the path doesn't resolve to a file, or
+    // the file can't be read — is a diagnostic at the import's span, attributed
+    // to the importer: the root cause, not a downstream "undefined name" (and an
+    // unused broken import no longer passes silently).
     fn link_imports(self, _ prog: Program, _ base_dir: String, _ into: LibrarySource) -> Void {
+        let importer = prog.file_path.unwrap_or('');
         for decl in prog.decls {
             if let Import(x) = decl {
-                if let Some(file) = self.resolve(x.path, base_dir) {
-                    if let Some(child) = self.source_for(file) { into.imports[x.path] = child; }
+                match self.resolve(x.path, base_dir) {
+                    Some(file) => {
+                        match self.source_for(file) {
+                            Ok(child) => { into.imports[x.path] = child; },
+                            Err(msg) => {
+                                self.diagnostics.push(LoadDiagnostic {
+                                    message: 'cannot read import \'${x.path}\': ${msg}',
+                                    span: x.span,
+                                    file: importer,
+                                });
+                            },
+                        }
+                    },
+                    None => {
+                        self.diagnostics.push(LoadDiagnostic {
+                            message: self.unresolved_message(x.path),
+                            span: x.span,
+                            file: importer,
+                        });
+                    },
                 }
             }
         }
+    }
+
+    // Why an import path failed to resolve: a `std.*` path either has no SDK to
+    // anchor at or names a module the SDK doesn't have; any other path found
+    // neither `<base>.hawk` nor a `<base>/` barrel.
+    fn unresolved_message(self, _ import_path: String) -> String {
+        if import_path.starts_with(STD_PREFIX) {
+            let has_sdk = match self.sdk_root {
+                Some(root) => match std_root(root) { Some(_) => true, None => false },
+                None => false,
+            };
+            if !has_sdk {
+                return 'cannot resolve import \'${import_path}\': no Hawk SDK found';
+            }
+            return 'cannot resolve import \'${import_path}\': not in the SDK';
+        }
+        return 'cannot resolve import \'${import_path}\'';
     }
 }
 
@@ -337,9 +378,12 @@ pub fn load_imports(_ path: String, _ program: Program, _ sdk_root: Option<Strin
     // name maps to the file that *declares* it (from the surface's origin map), not
     // the barrel — a prelude name re-exported from a std.core sub-file (e.g. `error`
     // in core/error.hawk) owns to that sub-file, where its element lives.
+    // (With no SDK — `sdk_root: None`, the deliberate hermetic mode — the resolve
+    // misses and no prelude loads; explicit `std.*` imports get the "no Hawk SDK
+    // found" diagnostic in `link_imports`, and the CLI warns once at startup.)
     let core_names: Map<String, String> = {};
     if let Some(core) = loader.resolve('std.core', '') {
-        if let Some(core_src) = loader.source_for(core) {
+        if let Ok(core_src) = loader.source_for(core) {
             let core_surface = public_surface_of(core_src);
             let core_key = element.file_key(core_src.program.file_path);
             for n in core_surface.names.to_list() {

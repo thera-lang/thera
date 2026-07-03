@@ -191,6 +191,20 @@ fn dispatch(_ app: cli.Command, _ m: cli.Matches) -> Result<Int, Error> {
     }
 }
 
+// The SDK root for a pipeline command, warning once on stderr when none can be
+// found — otherwise every `std.*` name degrades to a wall of `undefined name` /
+// `cannot resolve import` diagnostics with no root cause in sight.
+fn sdk_root_or_warn() -> Option<String> {
+    let root = loader.find_sdk_root();
+    match root {
+        Some(_) => {},
+        None => {
+            eprintln('hawk: warning: no Hawk SDK found - std.* imports will not resolve');
+        },
+    }
+    return root;
+}
+
 // Run the selected subcommand from its own parsed arguments.
 fn run_subcommand(_ app: cli.Command, _ name: String, _ m: cli.Matches) -> Result<Int, Error> {
     match m.matches() {
@@ -205,7 +219,7 @@ fn run_subcommand(_ app: cli.Command, _ name: String, _ m: cli.Matches) -> Resul
             }
             // `lsp` is the only command that takes no file argument.
             if name == 'lsp' {
-                server.serve(io.stdin(), io.stdout(), loader.find_sdk_root());
+                server.serve(io.stdin(), io.stdout(), sdk_root_or_warn());
                 return Result.Ok(0);
             }
             return run_on_file(name, sub);
@@ -223,14 +237,14 @@ fn run_on_file(_ name: String, _ sub: cli.Matches) -> Result<Int, Error> {
             eprintln('hawk test: expected a <file|dir> argument');
             return Result.Ok(2);
         }
-        return runner.test_paths(positionals, loader.find_sdk_root(), show_output: sub.flag('show-output'));
+        return runner.test_paths(positionals, sdk_root_or_warn(), show_output: sub.flag('show-output'));
     }
     if name == 'check' {
         if positionals.len() == 0 {
             eprintln('hawk check: expected a <file|dir> argument');
             return Result.Ok(2);
         }
-        return do_check(positionals, loader.find_sdk_root());
+        return do_check(positionals, sdk_root_or_warn());
     }
     if name == 'fmt' {
         if positionals.len() == 0 {
@@ -267,7 +281,7 @@ fn run_on_file(_ name: String, _ sub: cli.Matches) -> Result<Int, Error> {
                 }
             }
             if name == 'run' {
-                return runner.run_file(file, positionals.slice(1, positionals.len()), loader.find_sdk_root());
+                return runner.run_file(file, positionals.slice(1, positionals.len()), sdk_root_or_warn());
             }
             eprintln('${name}: not yet implemented (${file})');
             return Result.Ok(0);
@@ -517,7 +531,7 @@ fn do_fix(_ targets: List<String>, write: Bool = false) -> Result<Int, Error> {
 fn do_emit(_ file: String, _ out: String) -> Result<Int, Error> {
     match fs.read_text(file) {
         Ok(source) => {
-            let outcome = driver.compile_source_at(source, file, loader.find_sdk_root());
+            let outcome = driver.compile_source_at(source, file, sdk_root_or_warn());
             for d in outcome.diagnostics {
                 eprintln(driver.format_diagnostic(d, file));
             }

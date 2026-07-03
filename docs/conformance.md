@@ -159,6 +159,7 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `mod-no-bare-fallback`| scoping.md             | a bare name owned by an un-imported (closure-only) library is `undefined` — no global last-wins fallback | ✓ |
 | `mod-shared-value-name`| scoping.md              | two libraries may share a top-level value name; each qualified call dispatches to its own library (value-uniqueness lift) | ✓ |
 | `mod-shared-type-name`| scoping.md              | two libraries may share a top-level *type* name; each qualified `ns.T` constructs/resolves its own library's type (type-uniqueness lift) | ✓ |
+| `mod-import-resolve-error`| Imports            | an import that doesn't resolve is a located diagnostic at the import decl (not a silent no-op / downstream `undefined name`) | ✓ |
 | `vis-pub`           | Visibility               | non-`pub` top-level is file-private (enforced)            | ✓      |
 | `vis-barrel`        | Visibility               | barrel re-exports a directory library's symbols (std.cli) | ◐      |
 | `vis-whitebox-test` | Visibility / Testing     | `foo_test.hawk` sees `foo.hawk` privates (bare)           | ✓      |
