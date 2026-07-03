@@ -1088,7 +1088,7 @@ impl FnCompiler {
         };
 
         if let Some(plan) = dispatch {
-            self.emit_dispatch(plan, subject, subject_ty, subject_type, tag_slot.unwrap_or(0), end);
+            self.emit_dispatch(plan, subject, subject_ty, tag_slot.unwrap_or(0), end);
             self.bind(end);
             return;
         }
@@ -1108,12 +1108,12 @@ impl FnCompiler {
             // taken to match: emit its bindings, run the body, and stop (later
             // arms are unreachable).
             if is_last || is_irrefutable(arm.pattern) {
-                self.emit_pattern(arm.pattern, subject, subject_type, Option.None, Option.None);
+                self.emit_pattern(arm.pattern, subject, subject_ty, Option.None, Option.None);
                 self.arm_body(arm.body, end, false);
                 going = false;
             } else {
                 let next = self.new_label();
-                self.emit_pattern(arm.pattern, subject, subject_type, Option.Some(next), tag_slot);
+                self.emit_pattern(arm.pattern, subject, subject_ty, Option.Some(next), tag_slot);
                 self.arm_body(arm.body, end, true);
                 self.bind(next);
                 i = i + 1;
@@ -1172,17 +1172,17 @@ impl FnCompiler {
     // Emit a balanced binary search over the (distinct, sorted) case tags, with
     // every miss routed to a single shared default.
     fn emit_dispatch(self, _ plan: DispatchPlan, _ subject: Int, _ subject_ty: Type,
-        _ subject_type: Option<TypeId>, _ tag_slot: Int, _ end: Int) -> Void {
+        _ tag_slot: Int, _ end: Int) -> Void {
         let tags = sorted_keys(plan.cases);
         let default_label = self.new_label();
         self.emit_bisect(0, tags.len() - 1, tags, plan.cases, default_label,
-            subject, subject_ty, subject_type, tag_slot, end);
+            subject, subject_ty, tag_slot, end);
         self.bind(default_label);
-        self.emit_leaf(plan.default_arm, subject, subject_ty, subject_type, end, false);
+        self.emit_leaf(plan.default_arm, subject, subject_ty, end, false);
     }
 
     fn emit_bisect(self, _ lo: Int, _ hi: Int, _ tags: List<Int>, _ cases: Map<Int, MatchArm>,
-        _ default_label: Int, _ subject: Int, _ subject_ty: Type, _ subject_type: Option<TypeId>,
+        _ default_label: Int, _ subject: Int, _ subject_ty: Type,
         _ tag_slot: Int, _ end: Int) -> Void {
         let mid = (lo + hi) / 2;
         let t = tags[mid];
@@ -1193,7 +1193,7 @@ impl FnCompiler {
             self.emit(Instr.ConstInt(t));
             self.emit(Instr.Simple(Op.EqI64));
             self.emit_jump(Jk.IfFalse, default_label);
-            self.emit_leaf(get_case(cases, t), subject, subject_ty, subject_type, end, true);
+            self.emit_leaf(get_case(cases, t), subject, subject_ty, end, true);
             return;
         }
         // Absent subranges route their branch straight to the default.
@@ -1207,36 +1207,39 @@ impl FnCompiler {
         self.emit(Instr.ConstInt(t));
         self.emit(Instr.Simple(Op.GtI64));
         self.emit_jump(Jk.IfTrue, right_target);
-        self.emit_leaf(get_case(cases, t), subject, subject_ty, subject_type, end, true); // equal
+        self.emit_leaf(get_case(cases, t), subject, subject_ty, end, true); // equal
         if has_left {
             self.bind(left_target);
             self.emit_bisect(lo, mid - 1, tags, cases, default_label,
-                subject, subject_ty, subject_type, tag_slot, end);
+                subject, subject_ty, tag_slot, end);
         }
         if has_right {
             self.bind(right_target);
             self.emit_bisect(mid + 1, hi, tags, cases, default_label,
-                subject, subject_ty, subject_type, tag_slot, end);
+                subject, subject_ty, tag_slot, end);
         }
     }
 
     // The tag is already known at a leaf, so only bind fields (fail = None), then
     // run the body. The pattern's bindings are scoped to the arm.
     fn emit_leaf(self, _ arm: MatchArm, _ subject: Int, _ subject_ty: Type,
-        _ subject_type: Option<TypeId>, _ end: Int, _ jump_to_end: Bool) -> Void {
+        _ end: Int, _ jump_to_end: Bool) -> Void {
         let saved = self.enter_scope();
         bind_match_pattern(arm.pattern, subject_ty, self.type_scope, self.ctx);
-        self.emit_pattern(arm.pattern, subject, subject_type, Option.None, Option.None);
+        self.emit_pattern(arm.pattern, subject, subject_ty, Option.None, Option.None);
         self.arm_body(arm.body, end, jump_to_end);
         self.exit_scope(saved);
     }
 
-    // Match `pattern` against the value in `value_slot` (whose enum type name,
-    // when known, is `value_type`) and bind the variables it introduces. When
-    // `fail` is set, any mismatch jumps there; when None the pattern is taken to
+    // Match `pattern` against the value in `value_slot` (whose full type, when
+    // known, is `value_ty`) and bind the variables it introduces. When `fail`
+    // is set, any mismatch jumps there; when None the pattern is taken to
     // match (only bindings are emitted). `tag_slot`, when set, holds a precomputed
-    // `enum.tag` reused at this level instead of recomputing.
-    fn emit_pattern(self, _ pattern: Pattern, _ value_slot: Int, _ value_type: Option<TypeId>,
+    // `enum.tag` reused at this level instead of recomputing. Carrying the full
+    // `Type` (not just its id) lets a nested constructor pattern resolve its
+    // payload's *instantiated* type — `Some(Line(k))` on an `Option<Shape>`
+    // recurses with `Shape`, substituting the subject's type arguments (CG7).
+    fn emit_pattern(self, _ pattern: Pattern, _ value_slot: Int, _ value_ty: Type,
         _ fail: Option<Int>, _ tag_slot: Option<Int>) -> Void {
         match pattern {
             Wildcard(_) => {}, // matches anything, binds nothing
@@ -1250,14 +1253,7 @@ impl FnCompiler {
                 }
             },
             Constructor(span, name, args) => {
-                let info = match value_type {
-                    Some(t) => self.scope.resolve_enum(t.owner, t.name),
-                    None => Option.None,
-                };
-                let tag = match info {
-                    Some(ei) => tag_of(ei, name),
-                    None => -1,
-                };
+                let value_id = type_id_of_type(value_ty);
                 if let Some(f) = fail {
                     match tag_slot {
                         Some(ts) => { self.emit(Instr.Load(ts)); }, // reuse the hoisted tag
@@ -1266,10 +1262,11 @@ impl FnCompiler {
                             self.emit(Instr.Simple(Op.EnumTag));
                         },
                     }
-                    self.emit(Instr.ConstInt(self.variant_tag(value_type, name, span)));
+                    self.emit(Instr.ConstInt(self.variant_tag(value_id, name, span)));
                     self.emit(Instr.Simple(Op.EqI64));
                     self.emit_jump(Jk.IfFalse, f);
                 }
+                let field_types = variant_field_types(value_ty, name, self.ctx);
                 for p in args.enumerate() {
                     let arg = p.value;
                     match arg {
@@ -1279,7 +1276,8 @@ impl FnCompiler {
                             self.emit(Instr.Load(value_slot));
                             self.emit(Instr.EnumGet(p.index));
                             self.emit(Instr.Store(field_slot));
-                            self.emit_pattern(arg, field_slot, enum_field_type_id(self.scope, info, tag, p.index), fail, Option.None);
+                            let ft = if p.index < field_types.len() { field_types[p.index] } else { Type.Unknown };
+                            self.emit_pattern(arg, field_slot, ft, fail, Option.None);
                         },
                     }
                 }
@@ -2739,25 +2737,6 @@ fn is_irrefutable(_ p: Pattern) -> Bool {
         Ident(_, _) => true,
         _ => false,
     };
-}
-
-// The type id of field `k` of variant `tag` in enum `info` — the enum to match a
-// nested constructor pattern against — or None if not resolvable. The field's
-// source type name is owner-qualified through the registry (T3); scope-aware
-// source resolution is T4.
-fn enum_field_type_id(_ scope: ModuleScope, _ info: Option<EnumInfo>, _ tag: Int, _ k: Int) -> Option<TypeId> {
-    if let Some(ei) = info {
-        if tag >= 0 && tag < ei.variants.len() {
-            let fields = ei.variants[tag].fields;
-            if k < fields.len() {
-                return match fields[k] {
-                    Named(nt) => Option.Some(scope.type_id_for(nt.name)),
-                    Function(_) => Option.None,
-                };
-            }
-        }
-    }
-    return Option.None;
 }
 
 fn find_field_init(_ fields: List<FieldInit>, _ name: String) -> Option<Expr> {

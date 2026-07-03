@@ -21,10 +21,25 @@ fn eval(_ e: Expr) -> Int {
     };
 }
 
+// Nested patterns through a *generic* payload: the inner constructor resolves
+// against the instantiated payload type (`Some(Num(...))` on an `Option<Expr>`
+// substitutes the subject's type argument), previously an 'unknown variant'
+// compile error.
+fn eval_opt(_ e: Option<Expr>) -> Int {
+    return match e {
+        Some(Num(n)) => n * 2,
+        Some(other) => eval(other),
+        None => -1,
+    };
+}
+
 fn main() -> Int {
     let sum = Expr.Bin(Op.Add, Expr.Num(2), Expr.Num(3));
     println('${eval(sum)}');   // expect: 5
     let diff = Expr.Bin(Op.Sub, Expr.Num(10), Expr.Num(4));
     println('${eval(diff)}');  // expect: 6
+    println('${eval_opt(Option.Some(Expr.Num(21)))}');  // expect: 42
+    println('${eval_opt(Option.Some(sum))}');           // expect: 5
+    println('${eval_opt(Option.None)}');                // expect: -1
     return 0;
 }
