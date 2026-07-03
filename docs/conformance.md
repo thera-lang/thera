@@ -112,6 +112,7 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `cf-while`          | grammar.md Statements    | `while` loop                                              | ✓      |
 | `cf-match`          | grammar.md Patterns      | match dispatch; exhaustiveness assumption                  | ✓      |
 | `cf-match-nested`   | grammar.md Patterns      | nested constructor patterns bind at leaves                 | ✓      |
+| `cf-match-exhaustive`| grammar.md Patterns     | a match must be exhaustive: enum = all variants or catch-all; Bool = both literals; other subjects = catch-all | ✓ |
 | `cf-match-literal`  | grammar.md Patterns      | int/string/bool literal patterns (not float)               | ✓      |
 | `cf-break-continue` | grammar.md Not-yet       | `break`/`continue` (unimplemented)                        | ⓧ      |
 

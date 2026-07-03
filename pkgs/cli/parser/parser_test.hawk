@@ -27,6 +27,7 @@ fn decl_name(_ d: Decl) -> String {
         Impl(x) => x.type_name,
         Interface(x) => x.name,
         Const(x) => x.name,
+        Let(x) => x.name,
         Enum(x) => x.name,
     };
 }

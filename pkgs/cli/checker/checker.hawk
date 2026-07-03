@@ -950,6 +950,77 @@ fn check_match(_ errors: List<CheckError>, _ x: MatchExpr, _ scope: Map<String, 
         let arm_type = infer_expr(arm.body, arm_scope, ctx, expected);
         reference = unify_arm(errors, reference, arm_type, arm.body, ctx);
     }
+    check_exhaustive(errors, x, subject_type, ctx);
+}
+
+// ---- match exhaustiveness ----
+//
+// Codegen *assumes* an exhaustive match — the last arm compiles as the
+// always-taken default — so a non-exhaustive match silently ran its last arm
+// on an uncovered value, or extracted payload fields from the wrong variant
+// and trapped. A match is exhaustive when it has a catch-all arm (`_`, or an
+// identifier that isn't one of the subject's variants and so binds anything);
+// an enum subject may instead cover every variant, and a Bool subject both
+// literals. Any other subject (Int, String, …) can't be enumerated and needs
+// the catch-all. Conservative on Unknown / type-parameter subjects.
+fn check_exhaustive(_ errors: List<CheckError>, _ x: MatchExpr, _ subject: Type, _ ctx: InferCtx) -> Void {
+    let variants = enum_variant_names(subject, ctx);
+    let covered: Set<String> = Set.new();
+    let mut true_seen = false;
+    let mut false_seen = false;
+    for arm in x.arms {
+        match arm.pattern {
+            Wildcard(_) => { return; },
+            Ident(_, name) => {
+                // A bare variant name covers that variant; any other identifier
+                // is a binding and matches everything (codegen's rule).
+                if variants.contains(name) {
+                    covered.add(name);
+                } else {
+                    return;
+                }
+            },
+            Constructor(_, name, _) => { covered.add(name); },
+            Literal(_, lit) => {
+                if let Bool(_, b) = lit {
+                    if b { true_seen = true; } else { false_seen = true; }
+                }
+            },
+        }
+    }
+    if variants.len() > 0 {
+        let missing = variants.filter((v) => !covered.has(v));
+        if missing.len() > 0 {
+            add_error(errors,
+                'match is not exhaustive: missing ${missing.map((v) => '`${v}`').join(', ')} (or add a `_` arm)',
+                x.span);
+        }
+        return;
+    }
+    if let Primitive(Bool) = subject {
+        if !(true_seen && false_seen) {
+            add_error(errors, 'match on Bool is not exhaustive: needs `true` and `false` arms (or a `_` arm)', x.span);
+        }
+        return;
+    }
+    if is_lenient_operand(subject) {
+        return;
+    }
+    add_error(errors,
+        'match on ${type_to_string(subject)} is not exhaustive: add a catch-all arm (`_` or a binding)',
+        x.span);
+}
+
+// The subject's enum variant names, when it is an enum (else empty).
+fn enum_variant_names(_ subject: Type, _ ctx: InferCtx) -> List<String> {
+    if let Interface(id, _) = subject {
+        if let Some(def) = file_scope(ctx.library, ctx.current_file).resolve_type_def(id) {
+            if def.kind == TypeDefKind.Enum {
+                return def.variants.map((v) => v.name);
+            }
+        }
+    }
+    return [];
 }
 
 // Fold one arm's type into the running match type, flagging an incompatibility.

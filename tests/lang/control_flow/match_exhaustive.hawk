@@ -1,0 +1,78 @@
+//! spec: cf-match-exhaustive
+//! mode: check
+
+// A match must be exhaustive: an enum subject covers every variant (or has a
+// catch-all `_`/binding arm), a Bool subject covers both literals, and any
+// other subject needs the catch-all. Codegen compiles the last arm as the
+// always-taken default, so a non-exhaustive match previously ran the wrong
+// arm silently — or extracted payload fields from the wrong variant.
+
+enum Color {
+    Red,
+    Green,
+    Blue,
+}
+
+enum Shape {
+    Dot,
+    Line(Int),
+}
+
+fn partial(_ c: Color) -> String {
+    return match c {   // expect error: match is not exhaustive: missing `Blue` (or add a `_` arm)
+        Red => 'red',
+        Green => 'green',
+    };
+}
+
+fn partial_payload(_ s: Shape) -> Int {
+    return match s {   // expect error: match is not exhaustive: missing `Dot`
+        Line(n) => n,
+    };
+}
+
+fn bool_partial(_ b: Bool) -> Int {
+    return match b {   // expect error: match on Bool is not exhaustive
+        true => 1,
+    };
+}
+
+fn int_partial(_ n: Int) -> Int {
+    return match n {   // expect error: match on Int is not exhaustive: add a catch-all arm
+        1 => 10,
+        2 => 20,
+    };
+}
+
+// The exhaustive shapes: full variant coverage, a binding catch-all, a `_`
+// arm, both Bool literals.
+fn full(_ c: Color) -> String {
+    return match c {
+        Red => 'red',
+        Green => 'green',
+        Blue => 'blue',
+    };
+}
+
+fn bound(_ c: Color) -> String {
+    return match c {
+        Red => 'red',
+        other => other.name(),
+    };
+}
+
+fn int_full(_ n: Int) -> Int {
+    return match n {
+        1 => 10,
+        _ => 0,
+    };
+}
+
+fn bool_full(_ b: Bool) -> Int {
+    return match b {
+        true => 1,
+        false => 0,
+    };
+}
+
+fn main() -> Void { }
