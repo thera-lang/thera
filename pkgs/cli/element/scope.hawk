@@ -171,10 +171,12 @@ impl FileScope {
     // the scope-aware owner used to stamp a resolved `Type`'s `TypeId` (T4). A
     // qualified `ns.Foo` owns to the file `ns`'s surface attributes it to; a bare
     // `Foo` to this file (if it declares it), else its bare surface (prelude /
-    // `as _`), else the `<builtin>` floor. Anything the scope can't place falls
-    // back to the flat registry's owner — so under type-name uniqueness this
-    // returns exactly the owner the global stamping did (the SDK fixpoint checks
-    // it), while a lifted-uniqueness collision resolves to the in-scope type.
+    // `as _`), else the `<builtin>` floor. A name the scope can't place is
+    // unresolved (`''`) — there is no flat-registry fallback (EL15): a type a
+    // file never imported must not resolve just because it exists somewhere in
+    // the closure (the value-side version of this shortcut produced the
+    // `find_method` miscompile). The tier order (own file → bare surface →
+    // built-in) is scoping.md's "bare type name" algorithm.
     pub fn resolve_type_owner(self, _ name: String, _ namespace: Option<String>) -> String {
         if let Some(ns) = namespace {
             if let Some(owner) = self.member_owner(ns, name) {
@@ -192,10 +194,7 @@ impl FileScope {
         if self.is_builtin_type(name) {
             return '<builtin>';
         }
-        return match self.library.type_defs.get(name) {
-            Some(d) => d.owner_file,
-            None => '',
-        };
+        return '';
     }
 
     // Whether a *bare* type name is known and reachable from this file — `Self`, a

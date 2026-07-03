@@ -184,11 +184,17 @@ first match; failing all steps is a located error.
 
 1. an in-scope **type parameter** named `T` → `TypeParameter(T)`; `Self` → the
    receiver type;
-2. a **built-in** (`Int`/`String`/`List`/`Map`/…) → that built-in;
-3. a **same-file** `type`/`enum`/`interface` named `T` → it;
-4. a public type named `T` exposed by an **`as _` import** → it;
-5. a **prelude** public type named `T` → it;
+2. a **same-file** `type`/`enum`/`interface` named `T` → it;
+3. a public type named `T` exposed by an **`as _` import** → it;
+4. a **prelude** public type named `T` → it;
+5. a **built-in** (`Int`/`String`/`List`/`Map`/…) → that built-in;
 6. otherwise **unknown type**.
+
+(Same-file before built-in matches the file-shadowing rule; for the language's
+own types the order is unobservable anyway — their names are reserved and only
+the core SDK declares them, so steps 2–4 can never capture one. A non-reserved
+core utility name (`Args`, `BytesBuilder`) *can* be shadowed by steps 2–4,
+which is ordinary owner-resolved shadowing.)
 
 ### A qualified type name `ns.T`
 
