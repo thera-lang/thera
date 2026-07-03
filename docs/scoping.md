@@ -92,9 +92,10 @@ at every use site — exactly the confusion Hawk is designed to prevent. The lis
 is deliberately *not* the whole core surface: semantics attach to the **core
 types by identity**, never to names, so utility types that merely live in core
 (`BytesBuilder`, `Args`, `Indexed`, …) are ordinary owner-resolved names a user
-library may redeclare. Value names (`fn`/`const`) are not reserved; casing
-conventions keep them unambiguous. Only the core SDK itself declares the real
-ones.
+library may redeclare. The rule covers type *parameters* too (`fn f<Result>` is
+an error — a type parameter declares a type name for its scope). Value names
+(`fn`/`const`) are not reserved; casing conventions keep them unambiguous. Only
+the core SDK itself declares the real ones.
 
 ## The prelude (`std.core`)
 

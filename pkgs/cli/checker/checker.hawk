@@ -134,9 +134,12 @@ fn is_reserved_type_name(_ name: String) -> Bool {
         || name == 'SourceLoc' || name == 'Void';
 }
 
-// Flag type declarations (struct/enum/interface, native or not) that take a
-// reserved core type name. The core SDK declares the real ones — the caller
-// exempts it by passing the canonical `<std root>/` prefix as `sdk`.
+// Flag type declarations (struct/enum/interface, native or not) — and type
+// *parameters*, which declare a type name for their scope — that take a
+// reserved core type name. (A `<Result>` type parameter would otherwise pass
+// the `?`/implicit-`Ok` checks by spelling and miscompile.) The core SDK
+// declares the real ones — the caller exempts it by passing the canonical
+// `<std root>/` prefix as `sdk`.
 fn check_reserved_names(_ errors: List<CheckError>, _ program: Program, _ sdk: Option<String>) -> Void {
     if let Some(prefix) = sdk {
         if file_key(program.file_path).starts_with(prefix) {
@@ -145,14 +148,42 @@ fn check_reserved_names(_ errors: List<CheckError>, _ program: Program, _ sdk: O
     }
     for decl in program.decls {
         let found = match decl {
-            Type(x) => if is_reserved_type_name(x.name) { Option.Some(NamedSpan { name: x.name, span: x.name_span }) } else { Option.None },
-            Enum(x) => if is_reserved_type_name(x.name) { Option.Some(NamedSpan { name: x.name, span: x.name_span }) } else { Option.None },
-            Interface(x) => if is_reserved_type_name(x.name) { Option.Some(NamedSpan { name: x.name, span: x.name_span }) } else { Option.None },
+            Type(x) => { reserved_params(errors, x.type_params); reserved_site(x.name, x.name_span) },
+            Enum(x) => { reserved_params(errors, x.type_params); reserved_site(x.name, x.name_span) },
+            Interface(x) => {
+                reserved_params(errors, x.type_params);
+                for m in x.methods { reserved_params(errors, m.type_params); }
+                reserved_site(x.name, x.name_span)
+            },
+            Fn(x) => { reserved_params(errors, x.type_params); Option.None },
+            Impl(x) => {
+                reserved_params(errors, x.type_params);
+                for m in x.methods { reserved_params(errors, m.type_params); }
+                Option.None
+            },
             _ => Option.None,
         };
         if let Some(f) = found {
             add_error(errors, '`${f.name}` is a reserved type name (a Hawk core type); '
                 + 'choose a different name', f.span);
+        }
+    }
+}
+
+// The declaration's (name, span) when the name is reserved, else None.
+fn reserved_site(_ name: String, _ span: SourceSpan) -> Option<NamedSpan> {
+    return if is_reserved_type_name(name) {
+        Option.Some(NamedSpan { name: name, span: span })
+    } else {
+        Option.None
+    };
+}
+
+fn reserved_params(_ errors: List<CheckError>, _ type_params: List<TypeParam>) -> Void {
+    for tp in type_params {
+        if is_reserved_type_name(tp.name) {
+            add_error(errors, '`${tp.name}` is a reserved type name (a Hawk core type); '
+                + 'choose a different type-parameter name', tp.span);
         }
     }
 }

@@ -28,6 +28,17 @@ struct Void {      // expect error: `Void` is a reserved type name
     x: Int,
 }
 
+// A type *parameter* declares a type name for its scope, so the reservation
+// applies there too (a `<Result>` param would otherwise pass the `?` and
+// implicit-`Ok` checks by spelling).
+fn pick<Result>(_ x: Result) -> Result {   // expect error: `Result` is a reserved type name
+    return x;
+}
+
+struct Box<List> {   // expect error: `List` is a reserved type name
+    value: List,
+}
+
 // Not reserved: a utility type that happens to share a core name.
 struct Args {
     values: List<String>,
