@@ -99,10 +99,13 @@ pub fn resolve_at(_ ctx: ResolveCtx, _ text: String, _ offset: Int) -> Option<Re
         },
         Computed => { return Option.None; },
     }
-    // A parameter of the enclosing function.
+    // A local binding of the enclosing function — a parameter, `let`, loop
+    // variable, pattern binding, or lambda parameter (LS2). Locals shadow
+    // everything non-lexical, so this must come before top-level resolution:
+    // previously `let error = …` hovered as the prelude's `error()`.
     if let Some(fn_decl) = enc.fn_decl {
-        if let Some(res) = param_resolved(ctx.program, ref, fn_decl) {
-            return Option.Some(res);
+        if let Some(site) = local_binding_at(fn_decl, ref) {
+            return Option.Some(local_resolved(ctx, ref, site));
         }
     }
     // The namespace an import binds (`fs` in `fs.read_text`) — the import decl.
@@ -432,22 +435,205 @@ fn variant_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ owner: String, _ enum_n
     };
 }
 
-fn param_resolved(_ program: Program, _ ref: NameRef, _ fn_decl: FnDecl) -> Option<Resolved> {
+// --- local bindings (LS2/LS4) ---
+
+// A local binding site for the name under the cursor: where it binds and its
+// written annotation (its *inferred* type still needs inference-at-offset —
+// the render degrades to the bare name).
+struct BindingSite {
+    span: SourceSpan,
+    type_ann: Option<TypeRef>,
+}
+
+// The local binding `ref` resolves to inside `fn_decl`, or None: parameters,
+// plus every binding form in scopes covering the cursor (`let`, `for`/`match`/
+// if-let patterns, lambda params). The *nearest declaration at or before* the
+// cursor wins, so a shadowing `let` beats the parameter it shadows (LS4) and
+// an earlier same-named binding.
+fn local_binding_at(_ fn_decl: FnDecl, _ ref: NameRef) -> Option<BindingSite> {
+    let sites: List<BindingSite> = [];
     for p in fn_decl.params {
         if !p.is_self && p.name == ref.name {
-            let render = match p.type_ann {
-                Some(t) => '${p.name}: ${describe.describe_type(t)}',
-                None => p.name,
-            };
-            return Option.Some(Resolved {
-                ref_span: ref.span,
-                render: render,
-                def_file: Option.Some(paths.program_path(program)),
-                def_span: Option.Some(p.name_span),
-            });
+            sites.push(BindingSite { span: p.name_span, type_ann: p.type_ann });
         }
     }
-    return Option.None;
+    if let Some(body) = fn_decl.body { bindings_in_block(body, ref, sites); }
+    let mut best: Option<BindingSite> = Option.None;
+    for site in sites {
+        if site.span.offset <= ref.span.offset {
+            best = match best {
+                Some(b) => if site.span.offset >= b.span.offset { Option.Some(site) } else { Option.Some(b) },
+                None => Option.Some(site),
+            };
+        }
+    }
+    return best;
+}
+
+fn local_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ site: BindingSite) -> Resolved {
+    let render = match site.type_ann {
+        Some(t) => '${ref.name}: ${describe.describe_type(t)}',
+        None => ref.name,
+    };
+    return Resolved {
+        ref_span: ref.span,
+        render: render,
+        def_file: Option.Some(paths.program_path(ctx.program)),
+        def_span: Option.Some(site.span),
+    };
+}
+
+// Collect binding sites for `ref.name` reachable at `ref`'s offset. The walk
+// prunes to scopes that *cover* the cursor (a binding inside a block the
+// cursor isn't in is not in scope), so nearest-preceding-wins is a faithful
+// shadowing approximation without an inference pass.
+fn bindings_in_block(_ b: Block, _ ref: NameRef, _ out: List<BindingSite>) -> Void {
+    for st in b.stmts {
+        bindings_in_stmt(st, ref, out);
+    }
+    if let Some(t) = b.tail { bindings_in_expr(t, ref, out); }
+}
+
+fn block_covers(_ b: Block, _ offset: Int) -> Bool {
+    return offset >= b.start_span.offset
+        && offset <= b.end_span.offset + b.end_span.length;
+}
+
+fn bindings_in_stmt(_ st: Stmt, _ ref: NameRef, _ out: List<BindingSite>) -> Void {
+    match st {
+        Let(x) => {
+            if x.name == ref.name {
+                out.push(BindingSite { span: x.name_span, type_ann: x.type_ann });
+            }
+            bindings_in_expr(x.value, ref, out);
+        },
+        Assign(_, _, value) => { bindings_in_expr(value, ref, out); },
+        Expr(_, e) => { bindings_in_expr(e, ref, out); },
+        Return(_, value) => {
+            if let Some(v) = value { bindings_in_expr(v, ref, out); }
+        },
+        Throw(_, value) => { bindings_in_expr(value, ref, out); },
+        If(x) => {
+            bindings_in_expr(x.condition, ref, out);
+            if block_covers(x.then_block, ref.span.offset) { bindings_in_block(x.then_block, ref, out); }
+            if let Some(eb) = x.else_block {
+                if block_covers(eb, ref.span.offset) { bindings_in_block(eb, ref, out); }
+            }
+        },
+        While(x) => {
+            bindings_in_expr(x.condition, ref, out);
+            if block_covers(x.body, ref.span.offset) { bindings_in_block(x.body, ref, out); }
+        },
+        For(x) => {
+            bindings_in_expr(x.iterable, ref, out);
+            // The loop variable binds within the body (and at its own pattern).
+            if block_covers(x.body, ref.span.offset) || span_covers(pattern_span(x.pattern), ref.span.offset) {
+                bindings_in_pattern(x.pattern, ref, out);
+                if block_covers(x.body, ref.span.offset) { bindings_in_block(x.body, ref, out); }
+            }
+        },
+    }
+}
+
+fn bindings_in_expr(_ e: Expr, _ ref: NameRef, _ out: List<BindingSite>) -> Void {
+    // Only scopes covering the cursor can bind it.
+    if !span_covers(expr_span(e), ref.span.offset) {
+        return;
+    }
+    match e {
+        Block(_, b) => {
+            if block_covers(b, ref.span.offset) { bindings_in_block(b, ref, out); }
+        },
+        If(x) => {
+            bindings_in_expr(x.condition, ref, out);
+            if block_covers(x.then_block, ref.span.offset) { bindings_in_block(x.then_block, ref, out); }
+            if let Some(eb) = x.else_block {
+                if block_covers(eb, ref.span.offset) { bindings_in_block(eb, ref, out); }
+            }
+        },
+        Match(x) => {
+            bindings_in_expr(x.subject, ref, out);
+            for arm in x.arms {
+                // An arm's pattern binds within the arm (and at the pattern).
+                if span_covers(arm.span, ref.span.offset) {
+                    bindings_in_pattern(arm.pattern, ref, out);
+                    bindings_in_expr(arm.body, ref, out);
+                }
+            }
+        },
+        Lambda(x) => {
+            for p in x.params {
+                if p.name == ref.name {
+                    out.push(BindingSite { span: p.span, type_ann: p.type_ann });
+                }
+            }
+            bindings_in_expr(x.body, ref, out);
+        },
+        Call(x) => {
+            bindings_in_expr(x.callee, ref, out);
+            for a in x.args {
+                bindings_in_expr(a.value, ref, out);
+            }
+        },
+        Binary(_, l, _, r) => {
+            bindings_in_expr(l, ref, out);
+            bindings_in_expr(r, ref, out);
+        },
+        Unary(_, _, operand) => { bindings_in_expr(operand, ref, out); },
+        Field(_, obj, _) => { bindings_in_expr(obj, ref, out); },
+        Index(_, obj, idx) => {
+            bindings_in_expr(obj, ref, out);
+            bindings_in_expr(idx, ref, out);
+        },
+        Propagate(_, inner) => { bindings_in_expr(inner, ref, out); },
+        Range(_, a, b2) => {
+            bindings_in_expr(a, ref, out);
+            bindings_in_expr(b2, ref, out);
+        },
+        Struct(x) => {
+            for f in x.fields {
+                bindings_in_expr(f.value, ref, out);
+            }
+        },
+        ListLit(_, items) => {
+            for it in items {
+                bindings_in_expr(it, ref, out);
+            }
+        },
+        MapLit(_, entries) => {
+            for en in entries {
+                bindings_in_expr(en.key, ref, out);
+                bindings_in_expr(en.value, ref, out);
+            }
+        },
+        Str(_, parts) => {
+            for part in parts {
+                if let Interp(_, ie) = part { bindings_in_expr(ie, ref, out); }
+            }
+        },
+        Return(_, value) => {
+            if let Some(v) = value { bindings_in_expr(v, ref, out); }
+        },
+        Throw(_, value) => { bindings_in_expr(value, ref, out); },
+        _ => {},
+    }
+}
+
+fn bindings_in_pattern(_ pat: Pattern, _ ref: NameRef, _ out: List<BindingSite>) -> Void {
+    match pat {
+        Ident(span, name) => {
+            if name == ref.name {
+                out.push(BindingSite { span: span, type_ann: Option.None });
+            }
+        },
+        Constructor(_, _, args) => {
+            for a in args {
+                bindings_in_pattern(a, ref, out);
+            }
+        },
+        Wildcard(_) => {},
+        Literal(_, _) => {},
+    }
 }
 
 // --- member / variant / field lookup (file-aware, for navigation) ---

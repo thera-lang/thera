@@ -208,3 +208,95 @@ fn test_unimported_name_does_not_resolve() -> Result<Void, Error> {
     }
     return Result.Ok(void);
 }
+
+// --- local bindings (LS2/LS4) ---
+
+@test
+fn test_local_let_shadows_a_toplevel_name() -> Result<Void, Error> {
+    // `let error = …` then `error` — must resolve to the local binding, not a
+    // same-named top-level function (previously the prelude's `error()`).
+    let src = 'fn error() -> Int { return 1; }\n'
+        + 'fn main() -> Void {\n'
+        + '    let error = 2;\n'
+        + '    let x = error;\n'
+        + '}\n';
+    let use_off = at(src, 'let x = error', 8);
+    let decl_off = at(src, 'let error = 2', 4);
+    testing.assert_eq(actual: def_offset(src, use_off), expected: decl_off)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_shadowing_let_beats_the_parameter() -> Result<Void, Error> {
+    // A `let n` after the parameter `n` shadows it — nearest binding wins (LS4).
+    let src = 'fn f(_ n: Int) -> Int {\n'
+        + '    let n = 10;\n'
+        + '    return n;\n'
+        + '}\n';
+    let use_off = at(src, 'return n', 7);
+    let decl_off = at(src, 'let n = 10', 4);
+    testing.assert_eq(actual: def_offset(src, use_off), expected: decl_off)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_inner_block_binding_not_visible_after_the_block() -> Result<Void, Error> {
+    // A binding inside an if-block is out of scope after it: the reference
+    // resolves to the outer binding, not the (nearer) inner one.
+    let src = 'fn f(_ c: Bool) -> Int {\n'
+        + '    let v = 1;\n'
+        + '    if c {\n'
+        + '        let v = 2;\n'
+        + '        let w = v + 0;\n'
+        + '    }\n'
+        + '    return v;\n'
+        + '}\n';
+    let use_off = at(src, 'return v', 7);
+    let decl_off = at(src, 'let v = 1', 4);
+    testing.assert_eq(actual: def_offset(src, use_off), expected: decl_off)?;
+    // Inside the block, the inner binding wins.
+    let inner_use = at(src, 'v + 0', 0);
+    let inner_decl = at(src, 'let v = 2', 4);
+    testing.assert_eq(actual: def_offset(src, inner_use), expected: inner_decl)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_match_arm_binding_resolves_within_the_arm() -> Result<Void, Error> {
+    let src = 'fn f(_ o: Option<Int>) -> Int {\n'
+        + '    return match o {\n'
+        + '        Some(inner) => inner + 1,\n'
+        + '        None => 0,\n'
+        + '    };\n'
+        + '}\n';
+    let use_off = at(src, 'inner + 1', 2);
+    let decl_off = at(src, 'Some(inner)', 5);
+    testing.assert_eq(actual: def_offset(src, use_off), expected: decl_off)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_for_variable_resolves_in_the_loop_body() -> Result<Void, Error> {
+    let src = 'fn f(_ xs: List<Int>) -> Int {\n'
+        + '    let mut total = 0;\n'
+        + '    for x in xs {\n'
+        + '        total = total + x;\n'
+        + '    }\n'
+        + '    return total;\n'
+        + '}\n';
+    let use_off = at(src, '+ x;', 2);
+    let decl_off = at(src, 'for x in', 4);
+    testing.assert_eq(actual: def_offset(src, use_off), expected: decl_off)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_lambda_param_resolves_in_the_lambda_body() -> Result<Void, Error> {
+    let src = 'fn f(_ xs: List<Int>) -> List<Int> {\n'
+        + '    return xs.map((v) => v * 2);\n'
+        + '}\n';
+    let use_off = at(src, 'v * 2', 0);
+    let decl_off = at(src, '(v) =>', 1);
+    testing.assert_eq(actual: def_offset(src, use_off), expected: decl_off)?;
+    return Result.Ok(void);
+}
