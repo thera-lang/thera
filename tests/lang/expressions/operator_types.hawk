@@ -1,0 +1,32 @@
+//! spec: expr-operator-types
+//! mode: check
+
+// Operator operands are type-checked: arithmetic and ordering need same-typed
+// Int or Double operands (`+` also takes String pairs), `%` and the bitwise
+// family are Int-only, `&&`/`||` and `!` need Bool, and `==`/`!=` need
+// operands of one type. No coercion — Int and Double never mix. (Previously
+// operands were never checked: `1 + 'a'` checked clean and trapped at
+// runtime.)
+
+fn main() -> Void {
+    let a = 1 + 'a';        // expect error: operator `+`: mismatched operand types Int and String
+    let a2 = 1 + true;      // expect error: operator `+` requires Int, Double or String operands, found Bool
+    let b = 1 + 2.0;        // expect error: operator `+`: mismatched operand types Int and Double
+    let c = 1 == 'a';       // expect error: operator `==`: mismatched operand types Int and String
+    let d = 'x' < 'y';      // expect error: operator `<` requires Int or Double operands, found String
+    let e = 2.5 % 2.0;      // expect error: operator `%` requires Int operands, found Double
+    let f = true && 1;      // expect error: operator `&&`: expected Bool, found Int
+    let g = !3;             // expect error: operator `!`: expected Bool, found Int
+    let h = -'s';           // expect error: operator `-` requires an Int or Double operand, found String
+    let i = 1.5 & 2.5;      // expect error: operator `&` requires Int operands, found Double
+
+    // The legal combinations.
+    let ok1 = 1 + 2;
+    let ok2 = 1.5 * 2.0;
+    let ok3 = 'a' + 'b';
+    let ok4 = 1 < 2 && 2.0 >= 1.0;
+    let ok5 = 'a' == 'b';
+    let ok6 = 7 % 2 + (1 << 3) + ~4;
+    let ok7 = -2.5;
+    let ok8 = !false;
+}

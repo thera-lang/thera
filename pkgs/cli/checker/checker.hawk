@@ -732,12 +732,14 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
                 add_error(errors, 'indexing on String is not supported (use `.chars()` or `.graphemes()`)', span);
             }
         },
-        Binary(_, left, _, right) => {
+        Binary(span, left, op, right) => {
             check_expr(errors, left, scope, ctx, Option.None);
             check_expr(errors, right, scope, ctx, Option.None);
+            check_binary_op(errors, span, left, op, right, scope, ctx);
         },
-        Unary(_, _, operand) => {
+        Unary(_, op, operand) => {
             check_expr(errors, operand, scope, ctx, Option.None);
+            check_unary_op(errors, op, operand, scope, ctx);
         },
         Propagate(span, inner) => {
             check_expr(errors, inner, scope, ctx, Option.None);
@@ -1255,6 +1257,134 @@ fn name_known(_ name: String, _ library: LibraryElement,
 // Report when `actual` is not assignable to `expected`. `Unknown` is lenient on
 // both sides (so the checker never reports a *false* mismatch); `type_defs` backs
 // interface subtyping.
+// ---- operator typing ----
+//
+// Mirrors what codegen can emit (no operator overloading, no Int->Double
+// coercion): arithmetic and ordering on Int×Int or Double×Double, `+` also on
+// String×String, `%` and the bitwise family Int-only, `&&`/`||` on Bool, and
+// `==`/`!=` on operands of one type (every type has structural/`Eq` equality).
+// Conservative on Unknown / type-parameter operands — the deliberate leniency
+// the rest of the checker shares. Previously operands were never checked:
+// `1 + 'a'` and `1 == 'a'` checked clean and trapped at runtime.
+
+fn check_binary_op(_ errors: List<CheckError>, _ span: SourceSpan, _ left: Expr, _ op: String,
+    _ right: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Void {
+    let l = infer_expr(left, scope, ctx, Option.None);
+    let r = infer_expr(right, scope, ctx, Option.None);
+    if is_lenient_operand(l) || is_lenient_operand(r) {
+        return;
+    }
+    if op == '&&' || op == '||' {
+        expect_type(errors, l, Type.Primitive(Primitive.Bool), 'operator `${op}`',
+            expr_span(left), ctx.library.type_defs);
+        expect_type(errors, r, Type.Primitive(Primitive.Bool), 'operator `${op}`',
+            expr_span(right), ctx.library.type_defs);
+        return;
+    }
+    if op == '==' || op == '!=' {
+        if !is_assignable(l, r, ctx.library.type_defs) && !is_assignable(r, l, ctx.library.type_defs) {
+            add_error(errors,
+                'operator `${op}`: mismatched operand types ${type_to_string(l)} and ${type_to_string(r)}',
+                span);
+        }
+        return;
+    }
+    // Arithmetic / ordering / bitwise: same-typed operands from the op's allowed
+    // set. An op this table doesn't know (future syntax) is left to codegen.
+    let kinds = operand_kinds(op);
+    if kinds.len() == 0 {
+        return;
+    }
+    let lo = operand_kind(l);
+    let ro = operand_kind(r);
+    if !lo.map((n) => kinds.contains(n)).unwrap_or(false) {
+        add_error(errors, 'operator `${op}` requires ${describe_kinds(kinds)} operands, found ${type_to_string(l)}',
+            expr_span(left));
+        return;
+    }
+    if !ro.map((n) => kinds.contains(n)).unwrap_or(false) {
+        add_error(errors, 'operator `${op}` requires ${describe_kinds(kinds)} operands, found ${type_to_string(r)}',
+            expr_span(right));
+        return;
+    }
+    if lo != ro {
+        add_error(errors,
+            'operator `${op}`: mismatched operand types ${type_to_string(l)} and ${type_to_string(r)}',
+            span);
+    }
+}
+
+fn check_unary_op(_ errors: List<CheckError>, _ op: String, _ operand: Expr,
+    _ scope: Map<String, Type>, _ ctx: InferCtx) -> Void {
+    let t = infer_expr(operand, scope, ctx, Option.None);
+    if is_lenient_operand(t) {
+        return;
+    }
+    if op == '!' {
+        expect_type(errors, t, Type.Primitive(Primitive.Bool), 'operator `!`',
+            expr_span(operand), ctx.library.type_defs);
+        return;
+    }
+    if op == '-' {
+        if operand_kind(t) != Option.Some('Int') && operand_kind(t) != Option.Some('Double') {
+            add_error(errors, 'operator `-` requires an Int or Double operand, found ${type_to_string(t)}',
+                expr_span(operand));
+        }
+        return;
+    }
+    if op == '~' {
+        if operand_kind(t) != Option.Some('Int') {
+            add_error(errors, 'operator `~` requires an Int operand, found ${type_to_string(t)}',
+                expr_span(operand));
+        }
+    }
+}
+
+// An operand type the operator checks stay quiet about: not yet inferred, or
+// generic (bounds, not operators, constrain type parameters today).
+fn is_lenient_operand(_ t: Type) -> Bool {
+    return match t {
+        Unknown => true,
+        TypeParameter(_) => true,
+        _ => false,
+    };
+}
+
+// The primitive-name kind an operand offers the arithmetic/ordering/bitwise
+// table, or None for a non-primitive.
+fn operand_kind(_ t: Type) -> Option<String> {
+    return match t {
+        Primitive(_) => Option.Some(type_to_string(t)),
+        _ => Option.None,
+    };
+}
+
+// The operand kinds an operator accepts (empty = not this table's op).
+fn operand_kinds(_ op: String) -> List<String> {
+    if op == '+' {
+        return ['Int', 'Double', 'String'];
+    }
+    if op == '-' || op == '*' || op == '/' {
+        return ['Int', 'Double'];
+    }
+    if op == '<' || op == '<=' || op == '>' || op == '>=' {
+        return ['Int', 'Double'];
+    }
+    if op == '%' || op == '&' || op == '|' || op == '^'
+        || op == '<<' || op == '>>' || op == '>>>' {
+        return ['Int'];
+    }
+    return [];
+}
+
+fn describe_kinds(_ kinds: List<String>) -> String {
+    if kinds.len() == 1 {
+        return kinds[0];
+    }
+    let head = kinds.slice(0, kinds.len() - 1).join(', ');
+    return '${head} or ${kinds[kinds.len() - 1]}';
+}
+
 // The diagnostic context for an assignment, by target shape.
 fn assign_context(_ target: Expr) -> String {
     return match target {
