@@ -153,7 +153,7 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `iface-dispatch`    | Dispatch                 | dynamic dispatch for interface-typed values & bounds       | ✓      |
 | `iface-default`     | Interfaces               | default methods (interface method bodies); optional in an `impl`, overridable, dispatched dynamically | ✓ |
 | `iface-identity`    | Interfaces               | interface identity is owner+name: conformance obligations, default-method units, and interface-typed params bind per-owner; `impl ns.Iface for T` names an interface through an import | ✓ |
-| `iface-bound-identity` | Interfaces / Dispatch | the `Display`/`Eq`/`Debug` intrinsics attach to the *core* interfaces' identity; a user interface named `Display` is an ordinary interface | ✓ |
+| `iface-bound-identity` | Interfaces / Dispatch | a type-parameter bound binds the interface its declaring file resolves — a conformer to a same-named interface elsewhere does not satisfy it | ✓ |
 | `generic-bounds`    | Interfaces / Dispatch    | `<T: Eq + Debug>` enforced at call sites                  | ✓      |
 | `generic-type-bounds`| Interfaces / Dispatch    | a bound on a generic type's own parameter (`Box<T: Display>`) is enforced on its type arguments | ✓ |
 

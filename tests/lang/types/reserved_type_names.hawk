@@ -39,6 +39,18 @@ struct Box<List> {   // expect error: `List` is a reserved type name
     value: List,
 }
 
+// The core-semantic interfaces are reserved too (decision 2026-07): `Eq`,
+// `Ord`, `Display`, and `Debug` carry language semantics (`==`, sorting,
+// `${}` rendering, the structural derives), so a user declaration would be
+// ambiguous at every use site.
+interface Display {   // expect error: `Display` is a reserved type name
+    fn show(self) -> String;
+}
+
+struct Ord {   // expect error: `Ord` is a reserved type name
+    v: Int,
+}
+
 // Not reserved: a utility type that happens to share a core name.
 struct Args {
     values: List<String>,

@@ -25,3 +25,9 @@ impl Shape for CircleA {
 pub fn a_area(_ s: Shape) -> Int {
     return s.area();
 }
+
+// A bound on *this* Shape: satisfied only by its own conformers (see
+// bound_identity.hawk).
+pub fn a_bounded<T: Shape>(_ x: T) -> Int {
+    return x.area();
+}

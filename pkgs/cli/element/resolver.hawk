@@ -136,19 +136,21 @@ const BUILTIN_OWNER: String = '<builtin>';
 // Type names the language itself speaks — in signatures (`Void`), sugar
 // (`Result`/`Option`/`?`, `#loc`/`SourceLoc`), literals (`List`/`Map`/`Set`/
 // `String`/`Int`/`Bool`/`Double`), protocols (`Iterator`, `Ordering`,
-// `error(...)`/`Error`), or the runtime's value model (`Bytes`). Reserved
-// (scoping.md "Reserved type names"): the checker rejects a user declaration
-// (type or type parameter), and pass 1 below pins the flat registry entry to
-// its first (core) registration so even an unchecked program (an LSP buffer
-// mid-edit) can't clobber core identity. Deliberately *not* the whole core
-// surface: utility types that merely live in core (`BytesBuilder`, `Args`,
-// `Indexed`, …) are ordinary owner-resolved names a user may redeclare.
+// `Eq`/`Ord`/`Display`/`Debug` — `==`, sorting, `${}` rendering, the
+// structural derives — and `error(...)`/`Error`), or the runtime's value model
+// (`Bytes`). Reserved (scoping.md "Reserved type names"): the checker rejects
+// a user declaration (type or type parameter), and pass 1 below pins the flat
+// registry entry to its first (core) registration so even an unchecked program
+// (an LSP buffer mid-edit) can't clobber core identity. Deliberately *not* the
+// whole core surface: utility types that merely live in core (`BytesBuilder`,
+// `Args`, `Indexed`, …) are ordinary owner-resolved names a user may redeclare.
 pub fn is_reserved_type_name(_ name: String) -> Bool {
     return name == 'Result' || name == 'Option' || name == 'Ordering'
         || name == 'List' || name == 'Map' || name == 'Set'
         || name == 'String' || name == 'Int' || name == 'Bool' || name == 'Double'
         || name == 'Bytes' || name == 'Iterator' || name == 'Error'
-        || name == 'SourceLoc' || name == 'Void';
+        || name == 'SourceLoc' || name == 'Void'
+        || name == 'Eq' || name == 'Ord' || name == 'Display' || name == 'Debug';
 }
 
 // A built-in type def that declares it implements `Display` — the hermetic-floor
@@ -174,7 +176,7 @@ fn builtin_displayable(_ name: String) -> TypeDefElement {
 // only a fallback beneath the authoritative per-file tables.
 fn record_flat_type(_ type_defs: Map<String, TypeDefElement>, _ name: String,
     _ el: TypeDefElement) -> Void {
-    if is_reserved_type_name(name) || is_core_semantic_name(name) {
+    if is_reserved_type_name(name) {
         if let Some(existing) = type_defs.get(name) {
             if existing.owner_file != BUILTIN_OWNER && existing.owner_file != el.owner_file {
                 return;
@@ -182,15 +184,6 @@ fn record_flat_type(_ type_defs: Map<String, TypeDefElement>, _ name: String,
         }
     }
     type_defs[name] = el;
-}
-
-// Core-semantic interface names that are *not* reserved: `Eq`/`Display`/`Debug`
-// carry language semantics (bound intrinsics, structural derives, `display`
-// dispatch) keyed by core identity (`core_owner`). A user may still declare
-// these names — the declaration is an ordinary owner-resolved interface — but
-// the flat registry entry that anchors `core_owner` stays pinned to core.
-fn is_core_semantic_name(_ name: String) -> Bool {
-    return name == 'Eq' || name == 'Display' || name == 'Debug';
 }
 
 // --- building the library ---

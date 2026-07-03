@@ -1,31 +1,17 @@
 //! spec: iface-bound-identity
 //! mode: check
 
-// `Display` is core-semantic but not reserved: a user interface named
-// `Display` legally shadows the prelude's in its own file, and is an ordinary
-// interface. The "primitives satisfy Display" intrinsic attaches to the *core*
-// Display's identity, not to the name — so `Int` does not satisfy a bound on
-// this file's Display, while a type that implements it does.
+import 'libshape_a' as a;
+import 'libshape_b' as b;
 
-interface Display {
-    fn show(self) -> String;
-}
-
-struct Card {
-    v: Int,
-}
-
-impl Display for Card {
-    pub fn show(self) -> String {
-        return 'card';
-    }
-}
-
-fn need<T: Display>(_ x: T) -> Int {
-    return 0;
-}
+// A type-parameter bound resolves in its *declaring* file's scope and is
+// satisfied by identity: libshape_a's `a_bounded<T: Shape>` names a's Shape,
+// so a conformer to a's Shape satisfies it while a conformer to b's same-named
+// Shape does not. (The core-semantic interfaces — Eq/Ord/Display/Debug — are
+// reserved names, so their intrinsics can't even be shadowed; see
+// types/reserved_type_names.hawk.)
 
 fn f() -> Int {
-    let ok = need(Card { v: 1 });
-    return need(5) + ok; // expect error: type argument `Int` for `T` does not implement `Display` (required by "need")
+    let ok = a.a_bounded(a.CircleA { r: 1 });
+    return a.a_bounded(b.SquareB { side: 2 }) + ok; // expect error: type argument `SquareB` for `T` does not implement `Shape` (required by "a_bounded")
 }

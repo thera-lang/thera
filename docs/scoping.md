@@ -83,10 +83,13 @@ The type names the **language itself speaks** are reserved: user code may not
 declare a `type`/`enum`/`interface` (native or not) named
 
 > `Result`, `Option`, `Ordering`, `List`, `Map`, `Set`, `String`, `Int`,
-> `Bool`, `Double`, `Bytes`, `Iterator`, `Error`, `SourceLoc`, `Void`
+> `Bool`, `Double`, `Bytes`, `Iterator`, `Error`, `SourceLoc`, `Void`,
+> `Eq`, `Ord`, `Display`, `Debug`
 
-— a check error (decision 2026-07). These names appear in signatures (`Void`),
-sugar (`?`/implicit-`Ok`, `#loc`), literals, and protocols (`for` iteration,
+— a check error (decision 2026-07; the core-semantic interfaces `Eq`/`Ord`/
+`Display`/`Debug` joined the list 2026-07-03). These names appear in signatures
+(`Void`), sugar (`?`/implicit-`Ok`, `#loc`), literals, and protocols (`for`
+iteration, `==`, sorting, `${}` rendering, the structural derives,
 `error(...)`), so a user declaration would make the reserved meaning ambiguous
 at every use site — exactly the confusion Hawk is designed to prevent. The list
 is deliberately *not* the whole core surface: semantics attach to the **core
@@ -97,12 +100,6 @@ an error — a type parameter declares a type name for its scope). Value names
 (`fn`/`const`) are not reserved; casing conventions keep them unambiguous. Only
 the core SDK itself declares the real ones.
 
-Three core-semantic interface names sit between the two groups: `Eq`,
-`Display`, and `Debug` are **not** reserved — a user interface named `Display`
-is legal and behaves as an ordinary interface — but the language semantics
-attached to them (bound intrinsics, the structural `eq`/`debug` derives, `${}`
-rendering) key on the *core* interfaces' identity, which is pinned to core in
-the registry. Shadowing the name never captures the semantics.
 
 ## The prelude (`std.core`)
 
