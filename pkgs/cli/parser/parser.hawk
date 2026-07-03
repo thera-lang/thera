@@ -629,7 +629,15 @@ impl Parser {
 
     fn parse_impl_decl(self, _ start: SourceSpan) -> Decl {
         self.advance(); // 'impl'
-        let first_tok = self.parse_qualified_type_name('type or interface name');
+        // Parse `Name` or `ns.Name`, keeping the qualifier: for `impl ns.Iface
+        // for T` the interface resolves through `ns` (an inherent `impl ns.T`'s
+        // qualifier is still dropped — impl targets resolve bare).
+        let mut first_ns: Option<String> = Option.None;
+        let mut first_tok = self.expect(TokenKind.Identifier, 'type or interface name');
+        if self.match_kind(TokenKind.Dot) {
+            first_ns = Option.Some(first_tok.lexeme());
+            first_tok = self.expect(TokenKind.Identifier, 'type or interface name after "${first_tok.lexeme()}."');
+        }
         // The `<…>` after the first name is ambiguous until we see `for`: it is
         // either the interface's type arguments (full type refs, possibly nested
         // — `impl Iterator<Indexed<T>> for …`) or the impl type's own parameter
@@ -641,10 +649,12 @@ impl Parser {
         let mut type_name = '';
         let mut name_span = first_tok.span;
         let mut interface_name = Option.None;
+        let mut interface_namespace: Option<String> = Option.None;
         let mut type_params: List<TypeParam> = [];
         let mut interface_args: List<TypeRef> = [];
         if self.match_kind(TokenKind.KwFor) {
             interface_name = Option.Some(first_tok.lexeme());
+            interface_namespace = first_ns;
             interface_args = first_args;
             let type_tok = self.parse_qualified_type_name('type name');
             type_name = type_tok.lexeme();
@@ -683,6 +693,7 @@ impl Parser {
             name_span: name_span,
             type_params: type_params,
             interface_name: interface_name,
+            interface_namespace: interface_namespace,
             interface_args: interface_args,
             methods: methods,
         });

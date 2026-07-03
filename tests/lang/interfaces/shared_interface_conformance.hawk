@@ -1,0 +1,40 @@
+//! spec: iface-identity
+//! mode: check
+
+import 'libshape_a' as a;
+import 'libshape_b' as b;
+
+// Conformance obligations come from the interface the impl actually names —
+// b's Shape requires `name`, even though a same-named interface elsewhere in
+// the closure does not.
+
+struct Blob {
+    v: Int,
+}
+
+impl b.Shape for Blob { // expect error: missing method 'name' required by interface 'Shape'
+    pub fn area(self) -> Int {
+        return self.v;
+    }
+}
+
+// And an interface-typed value must conform to *that* interface: Disc2
+// implements a's Shape, which does not satisfy a `b.Shape` parameter.
+
+struct Disc2 {
+    r: Int,
+}
+
+impl a.Shape for Disc2 {
+    pub fn area(self) -> Int {
+        return self.r;
+    }
+}
+
+fn wants_b(_ s: b.Shape) -> Int {
+    return s.area();
+}
+
+fn f() -> Int {
+    return wants_b(Disc2 { r: 1 }); // expect error: argument to "wants_b": expected Shape, found Disc2
+}

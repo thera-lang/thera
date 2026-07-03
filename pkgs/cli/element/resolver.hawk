@@ -118,6 +118,13 @@ pub fn builtin_type_defs() -> Map<String, TypeDefElement> {
     // Opaque built-ins; real declarations shadow these when linked in.
     m['Error'] = new_builtin(BUILTIN_OWNER, 'Error', []);
     m['Args'] = new_builtin(BUILTIN_OWNER, 'Args', []);
+    // The core-semantic interfaces, so hermetic contexts (no prelude) can
+    // resolve a `<T: Display>` bound / an `impl Eq for …` to a real identity —
+    // the anchor `builtin_displayable`'s conformance and `satisfies_bound`'s
+    // intrinsic arms compare against. std.core's declarations shadow these.
+    m['Display'] = new_interface(BUILTIN_OWNER, 'Display', []);
+    m['Eq'] = new_interface(BUILTIN_OWNER, 'Eq', []);
+    m['Debug'] = new_interface(BUILTIN_OWNER, 'Debug', []);
     return m;
 }
 
@@ -145,10 +152,12 @@ pub fn is_reserved_type_name(_ name: String) -> Bool {
 }
 
 // A built-in type def that declares it implements `Display` — the hermetic-floor
-// stand-in for a primitive's `impl Display for …` in std.core.
+// stand-in for a primitive's `impl Display for …` in std.core. The conformance
+// carries the floor `Display`'s identity; the real core impls carry the core
+// file's.
 fn builtin_displayable(_ name: String) -> TypeDefElement {
     let def = new_builtin(BUILTIN_OWNER, name, []);
-    def.interfaces.push('Display');
+    def.interfaces.push(TypeId { owner: BUILTIN_OWNER, name: 'Display' });
     return def;
 }
 
@@ -165,7 +174,7 @@ fn builtin_displayable(_ name: String) -> TypeDefElement {
 // only a fallback beneath the authoritative per-file tables.
 fn record_flat_type(_ type_defs: Map<String, TypeDefElement>, _ name: String,
     _ el: TypeDefElement) -> Void {
-    if is_reserved_type_name(name) {
+    if is_reserved_type_name(name) || is_core_semantic_name(name) {
         if let Some(existing) = type_defs.get(name) {
             if existing.owner_file != BUILTIN_OWNER && existing.owner_file != el.owner_file {
                 return;
@@ -173,6 +182,15 @@ fn record_flat_type(_ type_defs: Map<String, TypeDefElement>, _ name: String,
         }
     }
     type_defs[name] = el;
+}
+
+// Core-semantic interface names that are *not* reserved: `Eq`/`Display`/`Debug`
+// carry language semantics (bound intrinsics, structural derives, `display`
+// dispatch) keyed by core identity (`core_owner`). A user may still declare
+// these names — the declaration is an ordinary owner-resolved interface — but
+// the flat registry entry that anchors `core_owner` stays pinned to core.
+fn is_core_semantic_name(_ name: String) -> Bool {
+    return name == 'Eq' || name == 'Display' || name == 'Debug';
 }
 
 // --- building the library ---
@@ -226,19 +244,16 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
                     } else {
                         new_struct(owner, x.name, type_param_names(x.type_params))
                     };
-                    fill_type_param_bounds(el, x.type_params);
                     record_flat_type(type_defs, x.name, el);
                     record_file_type(file_type_defs, p.file_path, x.name, el);
                 },
                 Enum(x) => {
                     let el = new_enum(file_key(p.file_path), x.name, type_param_names(x.type_params));
-                    fill_type_param_bounds(el, x.type_params);
                     record_flat_type(type_defs, x.name, el);
                     record_file_type(file_type_defs, p.file_path, x.name, el);
                 },
                 Interface(x) => {
                     let el = new_interface(file_key(p.file_path), x.name, type_param_names(x.type_params));
-                    fill_type_param_bounds(el, x.type_params);
                     record_flat_type(type_defs, x.name, el);
                     record_file_type(file_type_defs, p.file_path, x.name, el);
                 },
@@ -273,6 +288,7 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
                 Type(x) => {
                     let tps = type_param_set(x.type_params);
                     if let Some(element) = file_type_def(file_type_defs, p.file_path, x.name) {
+                        fill_type_param_bounds(element, x.type_params, fs);
                         for f in x.fields {
                             element.fields[f.name] = resolve_type_ref_in(f.type_ann, fs, tps, Option.None);
                             if f.is_mut {
@@ -284,6 +300,7 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
                 Enum(x) => {
                     let tps = type_param_set(x.type_params);
                     if let Some(element) = file_type_def(file_type_defs, p.file_path, x.name) {
+                        fill_type_param_bounds(element, x.type_params, fs);
                         for v in x.variants {
                             element.variants.push(EnumVariantElement {
                                 name: v.name,
@@ -321,8 +338,11 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
                 },
                 Interface(x) => {
                     if let Some(element) = file_type_def(file_type_defs, p.file_path, x.name) {
+                        fill_type_param_bounds(element, x.type_params, fs);
+                        // Supers by resolved identity — the interface this
+                        // file's scope sees under the name.
                         for s in x.super_interfaces {
-                            element.super_interfaces.push(s);
+                            element.super_interfaces.push(bound_id(fs, s));
                         }
                         let tps = type_param_set(x.type_params);
                         let self_type = Type.Interface(TypeId { owner: element.owner_file, name: x.name },
@@ -343,14 +363,12 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
 
     // ---- pass 3: flatten the inherited interface closure ----
     // A sub-interface exposes its supers' methods too, and is assignable where a
-    // super is expected. Walk supers transitively (the `seen` set tolerates a
+    // super is expected. Walk supers transitively (the `seen` check tolerates a
     // cycle, which the checker reports), copy inherited methods the sub doesn't
     // declare, and rewrite super_interfaces to the full closure. Iterates the
-    // *per-file* tables so a shadowed same-named interface flattens too, and
-    // resolves each super name from the file that named it — supers-of-supers
-    // from *their* declaring file — not the flat registry (EL9). (The closure
-    // itself stays name-keyed: interface identity in dispatch is by plain name,
-    // the documented deferral.)
+    // *per-file* tables so a shadowed same-named interface flattens too. Supers
+    // were resolved to `TypeId`s in pass 2 (each from its declaring file's
+    // scope), so the walk — and the closure it stores — is by identity (EL9).
     for owner in file_type_defs.keys() {
         for def in file_type_defs[owner].values() {
             if def.kind == TypeDefKind.Interface {
@@ -362,31 +380,23 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
     return library;
 }
 
-// A super-interface reference during the pass-3 walk: the super's name and the
-// file (key) whose scope named it.
-struct SuperRef {
-    name: String,
-    from: String,
-}
-
 fn flatten_interface_closure(_ def: TypeDefElement, _ library: LibraryElement) -> Void {
-    let closure: Set<String> = Set.new();
-    let queue: List<SuperRef> = [];
+    let own_id = TypeId { owner: def.owner_file, name: def.name };
+    let closure: List<TypeId> = [];
+    let queue: List<TypeId> = [];
     for s in def.super_interfaces {
-        queue.push(SuperRef { name: s, from: def.owner_file });
+        queue.push(s);
     }
     let mut qi = 0;
     while qi < queue.len() {
-        let sr = queue[qi];
+        let sid = queue[qi];
         qi = qi + 1;
-        if sr.name != def.name && !closure.has(sr.name) {
-            closure.add(sr.name);
-            let sfs = file_scope(library, file_of_key(sr.from));
-            let sid = TypeId { owner: sfs.resolve_type_owner(sr.name, Option.None), name: sr.name };
-            if let Some(super_def) = sfs.resolve_type_def(sid) {
+        if sid != own_id && !id_list_has(closure, sid) {
+            closure.push(sid);
+            if let Some(super_def) = def_by_id(library, sid) {
                 if super_def.kind == TypeDefKind.Interface {
                     for s in super_def.super_interfaces {
-                        queue.push(SuperRef { name: s, from: super_def.owner_file });
+                        queue.push(s);
                     }
                     for m in super_def.methods {
                         match find_method(def, m.name) {
@@ -405,7 +415,7 @@ fn flatten_interface_closure(_ def: TypeDefElement, _ library: LibraryElement) -
             }
         }
     }
-    def.super_interfaces = closure.to_list();
+    def.super_interfaces = closure;
 }
 
 // Record `el` under its declaring `file` in a per-file table (file key -> name ->
@@ -470,13 +480,17 @@ fn resolve_impl(_ decl: ImplDecl, _ scope: FileScope) -> Void {
         let self_type = primitive_type(decl.type_name).unwrap_or_else(() => Type.Interface(TypeId { owner: owner.owner_file, name: decl.type_name },
             decl.type_params.map((tp) => Type.TypeParameter(tp.name))));
         if let Some(iface) = decl.interface_name {
-            if !implements_interface(owner, iface) {
-                owner.interfaces.push(iface);
+            // The conformance's identity is the interface *this file's scope*
+            // sees under the name — a same-named interface elsewhere in the
+            // closure is a different interface.
+            let iface_id = TypeId { owner: scope.resolve_type_owner(iface, decl.interface_namespace), name: iface };
+            if !implements_interface(owner, iface_id) {
+                owner.interfaces.push(iface_id);
             }
             // Record the conformance's resolved type arguments, so a
             // default method called on a concrete receiver can bind the
             // interface's type parameters (`impl Iterator<Int>` -> [Int]).
-            owner.interface_args[iface] = decl.interface_args.map((a) =>
+            owner.interface_args[id_key(iface_id)] = decl.interface_args.map((a) =>
                 resolve_type_ref_in(a, scope, impl_params, Option.Some(self_type)));
         }
         for m in decl.methods {
@@ -490,7 +504,7 @@ fn function_element(_ decl: FnDecl, _ scope: FileScope) -> FunctionElement {
     return FunctionElement {
         name: decl.name,
         type_parameters: type_param_names(decl.type_params),
-        type_parameter_bounds: type_param_bounds(decl),
+        type_parameter_bounds: type_param_bounds(decl, scope),
         parameters: build_params(decl, scope, tps, Option.None),
         return_type: resolve_return(decl.return_type, scope, tps, Option.None),
         owner: Option.None,
@@ -510,7 +524,7 @@ fn method_element(_ decl: FnDecl, _ owner: String, _ scope: FileScope,
     return FunctionElement {
         name: decl.name,
         type_parameters: type_param_names(decl.type_params),
-        type_parameter_bounds: type_param_bounds(decl),
+        type_parameter_bounds: type_param_bounds(decl, scope),
         parameters: build_params(decl, scope, tps, self_type),
         return_type: resolve_return(decl.return_type, scope, tps, self_type),
         owner: Option.Some(owner),
@@ -562,19 +576,28 @@ fn type_param_names(_ tps: List<TypeParam>) -> List<String> {
     return tps.map((tp) => tp.name);
 }
 
+// The resolved identity of a bound / super-interface / conformance name — the
+// interface the declaring file's scope sees. Shared with the checker and
+// codegen, which resolve the same AST bound lists at their use sites.
+pub fn bound_id(_ fs: FileScope, _ name: String) -> TypeId {
+    return TypeId { owner: fs.resolve_type_owner(name, Option.None), name: name };
+}
+
 // Fill a type def's per-parameter interface bounds from its declared type params
-// (`type Box<T: Display>` -> {T: [Display]}). Index-assign into the (already-empty)
-// map, so the field needn't be `mut` — the same way `fields` is filled.
-fn fill_type_param_bounds(_ el: TypeDefElement, _ tps: List<TypeParam>) -> Void {
+// (`type Box<T: Display>` -> {T: [Display]}), each resolved in the declaring
+// file's scope. Index-assign into the (already-empty) map, so the field needn't
+// be `mut` — the same way `fields` is filled. Runs in pass 2 (bounds resolve
+// names, so pass 1 is too early).
+fn fill_type_param_bounds(_ el: TypeDefElement, _ tps: List<TypeParam>, _ fs: FileScope) -> Void {
     for tp in tps {
-        el.type_parameter_bounds[tp.name] = tp.bounds;
+        el.type_parameter_bounds[tp.name] = tp.bounds.map((b) => bound_id(fs, b));
     }
 }
 
-fn type_param_bounds(_ decl: FnDecl) -> Map<String, List<String>> {
-    let b: Map<String, List<String>> = {};
+fn type_param_bounds(_ decl: FnDecl, _ fs: FileScope) -> Map<String, List<TypeId>> {
+    let b: Map<String, List<TypeId>> = {};
     for tp in decl.type_params {
-        b[tp.name] = tp.bounds;
+        b[tp.name] = tp.bounds.map((n) => bound_id(fs, n));
     }
     return b;
 }

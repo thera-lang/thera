@@ -8,7 +8,7 @@ import 'jsonrpc' as _;
 // An in-memory `Reader` that hands out `data` in `max`-sized chunks, so the
 // read loop can be driven without a real stream (empty read = EOF).
 struct FakeReader { data: Bytes, mut pos: Int }
-impl Reader for FakeReader {
+impl io.Reader for FakeReader {
     pub fn read(self, max: Int) -> Result<Bytes, Error> {
         let end = (self.pos + max).min(self.data.len());
         let chunk = self.data.slice(self.pos, end);

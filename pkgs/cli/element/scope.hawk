@@ -150,13 +150,7 @@ impl FileScope {
     // so under uniqueness this returns the same element the global lookup did —
     // which the SDK fixpoint confirms.
     pub fn resolve_type_def(self, _ id: TypeId) -> Option<TypeDefElement> {
-        if id.owner == '<builtin>' {
-            return self.library.type_defs.get(id.name);
-        }
-        return match self.library.file_type_defs.get(id.owner) {
-            Some(m) => m.get(id.name),
-            None => Option.None,
-        };
+        return def_by_id(self.library, id);
     }
 
     // The type definition for a bare type *name* — a source reference (a struct
@@ -219,9 +213,12 @@ impl FileScope {
     }
 
     // Whether `name` is a built-in type (`Int`/`List`/`Set`/…) — always in scope.
+    // A floor-owned entry of any kind counts too: the hermetic floor's
+    // `Eq`/`Display`/`Debug` are interfaces, and only surface when no real
+    // declaration shadows them.
     pub fn is_builtin_type(self, _ name: String) -> Bool {
         return match self.library.type_defs.get(name) {
-            Some(def) => def.kind == TypeDefKind.Builtin,
+            Some(def) => def.kind == TypeDefKind.Builtin || def.owner_file == '<builtin>',
             None => false,
         };
     }

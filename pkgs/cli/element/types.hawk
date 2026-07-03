@@ -103,14 +103,47 @@ pub fn primitive_type(_ name: String) -> Option<Type> {
     return Option.None;
 }
 
+// A `Map` key for a `TypeId` (a real owner key never contains `#`). For tables
+// that pair interface identity with data (`interface_args`, codegen's method
+// tables) — lookups always hold the `TypeId`, so the key never needs decoding.
+pub fn id_key(_ id: TypeId) -> String {
+    return id.owner + '#' + id.name;
+}
+
+// The type definition `id` names, looked up owner-correctly in the per-file
+// tables — never the flat last-wins registry. The `<builtin>` sentinel (the
+// hermetic floor's owner) falls through to the flat registry, mirroring
+// `FileScope.resolve_type_def`; None when the owner is unknown (`''`) or the
+// owner file doesn't declare the name.
+pub fn def_by_id(_ lib: LibraryElement, _ id: TypeId) -> Option<TypeDefElement> {
+    if id.owner == '<builtin>' {
+        return lib.type_defs.get(id.name);
+    }
+    return match lib.file_type_defs.get(id.owner) {
+        Some(m) => m.get(id.name),
+        None => Option.None,
+    };
+}
+
+// Whether `xs` contains `id` (`List<TypeId>` analogue of `str_list_has`).
+pub fn id_list_has(_ xs: List<TypeId>, _ id: TypeId) -> Bool {
+    for x in xs {
+        if x == id {
+            return true;
+        }
+    }
+    return false;
+}
+
 // Whether a value of type `source` may be used where `target` is expected.
 //
 // Deliberately lenient so the checker never reports a *false* mismatch: an
 // `Unknown` or a `TypeParameter` on either side is always compatible. Otherwise
 // types must match structurally — same element and assignable arguments — with
-// interface and super-interface subtyping resolved through `type_defs`.
-pub fn is_assignable(_ source: Type, _ target: Type,
-    _ type_defs: Map<String, TypeDefElement>) -> Bool {
+// interface and super-interface subtyping resolved by element *identity*
+// (`TypeId` → `def_by_id`), so two libraries' same-named interfaces stay
+// distinct.
+pub fn is_assignable(_ source: Type, _ target: Type, _ lib: LibraryElement) -> Bool {
     match source {
         Unknown => {
             return true;
@@ -134,16 +167,18 @@ pub fn is_assignable(_ source: Type, _ target: Type,
     }
     // A concrete type is assignable to an interface it implements, and a
     // sub-interface value where one of its (transitively closed) supers is
-    // expected. See docs/language.md.
+    // expected. Conformance and super entries are `TypeId`s, so this matches the
+    // *interface the impl's file resolved*, never a same-named one elsewhere.
+    // See docs/language.md.
     if let Interface(tid, _) = target {
-        if is_interface_def(type_defs, tid.name) {
+        if is_interface_id(lib, tid) {
             if let Interface(sid, _) = source {
-                if let Some(sdef) = map_get_def(type_defs, sid.name) {
-                    if implements_interface(sdef, tid.name) {
+                if let Some(sdef) = def_by_id(lib, sid) {
+                    if implements_interface(sdef, tid) {
                         return true;
                     }
                     if sdef.kind == TypeDefKind.Interface
-                        && str_list_has(sdef.super_interfaces, tid.name) {
+                        && id_list_has(sdef.super_interfaces, tid) {
                         return true;
                     }
                 }
@@ -166,7 +201,7 @@ pub fn is_assignable(_ source: Type, _ target: Type,
                         return false;
                     }
                     for p in sargs.enumerate() {
-                        if !is_assignable(p.value, targs[p.index], type_defs) {
+                        if !is_assignable(p.value, targs[p.index], lib) {
                             return false;
                         }
                     }
@@ -186,11 +221,11 @@ pub fn is_assignable(_ source: Type, _ target: Type,
                     // Parameters are *contravariant* (EL16): the source accepts
                     // everything the target's signature promises to pass it.
                     for p in sparams.enumerate() {
-                        if !is_assignable(tparams[p.index], p.value, type_defs) {
+                        if !is_assignable(tparams[p.index], p.value, lib) {
                             return false;
                         }
                     }
-                    return is_assignable(sret, tret, type_defs);
+                    return is_assignable(sret, tret, lib);
                 },
                 _ => {
                     return false;
@@ -203,16 +238,12 @@ pub fn is_assignable(_ source: Type, _ target: Type,
     }
 }
 
-fn is_interface_def(_ type_defs: Map<String, TypeDefElement>, _ name: String) -> Bool {
-    return match map_get_def(type_defs, name) {
+// Whether `id` names an interface definition (owner-correct lookup).
+pub fn is_interface_id(_ lib: LibraryElement, _ id: TypeId) -> Bool {
+    return match def_by_id(lib, id) {
         Some(d) => d.kind == TypeDefKind.Interface,
         None => false,
     };
-}
-
-fn map_get_def(_ type_defs: Map<String, TypeDefElement>, _ name: String)
-    -> Option<TypeDefElement> {
-    return type_defs.get(name);
 }
 
 // Replace the `TypeParameter`s named in `bindings` throughout `type`. Used to

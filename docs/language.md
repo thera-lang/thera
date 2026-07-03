@@ -1048,6 +1048,14 @@ impl Greet for User {
 }
 ```
 
+The interface name resolves like any type name — same file, bare surface
+(prelude / `as _`), or qualified through an import namespace: `impl io.Reader
+for File` implements `std.io`'s `Reader`. Interface **identity** is the
+resolved declaration (owner + name), not the spelling: two libraries may each
+declare a `Shape`, and a conformance, bound, or interface-typed parameter binds
+to the one its own file resolves — never to a same-named interface elsewhere
+(see [scoping.md](scoping.md)).
+
 ### Default methods
 
 An interface method may carry a body — a **default method**. An `impl` need not

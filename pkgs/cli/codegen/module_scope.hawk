@@ -91,8 +91,9 @@ pub struct PendingDispatch {
     selector: String,
 }
 
-// A concrete type's interface implementations, keyed in `interface_impls` by the
-// type's owner-qualified `type_key`. Carries the split owner/name so the default-
+// A concrete type's interface implementations — a set of owner-qualified
+// interface keys — stored in `interface_impls` under the type's own
+// owner-qualified `type_key`. Carries the split owner/name so the default-
 // method wiring can rebuild both the method-table key and the dispatch row.
 pub struct ImplInfo {
     owner: String,
@@ -100,11 +101,12 @@ pub struct ImplInfo {
     interfaces: Set<String>,
 }
 
-// The owner-qualified key of a concrete type in the method/dispatch tables. `name`
-// is an identifier (never contains `#`), so the join is unambiguous — two distinct
-// (owner, name) pairs can't collide. Interface *names* stay unqualified (their key
-// spaces are disjoint: a type key always contains `#`), so the transitive-closure
-// machinery (`interface_methods`/`interface_supers`) is untouched.
+// The owner-qualified key of a type in the method/dispatch tables — concrete
+// types and interfaces alike (`interface_methods`/`interface_supers` and default
+// method-table entries key interfaces the same way, so two libraries' same-named
+// interfaces keep distinct method sets and default units). `name` is an
+// identifier (never contains `#`), so the join is unambiguous — two distinct
+// (owner, name) pairs can't collide.
 pub fn type_key(_ owner: String, _ name: String) -> String {
     return owner + '#' + name;
 }
@@ -164,7 +166,7 @@ pub struct ModuleScope {
     // bounds (e.g. `T: Ord`), so a bound method called on a captured/own param of
     // type `T` inside the lambda still resolves through its bound when the lambda
     // is compiled as its own (type-parameter-less) unit.
-    lambda_bounds: Map<Int, Map<String, List<String>>>,
+    lambda_bounds: Map<Int, Map<String, List<TypeId>>>,
     // The `self_type` codegen actually put in each unit's inference context,
     // recorded during compilation so the differential oracle can observe (not
     // model) what codegen built and compare it to the checker-correct value.
@@ -515,13 +517,13 @@ impl ModuleScope {
         }
     }
 
-    pub fn add_interface_impl(self, _ owner: String, _ type_name: String, _ interface_name: String) -> Void {
+    pub fn add_interface_impl(self, _ owner: String, _ type_name: String, _ iface_key: String) -> Void {
         let key = type_key(owner, type_name);
         if !self.interface_impls.has(key) {
             self.interface_impls[key] = ImplInfo { owner: owner, type_name: type_name, interfaces: Set.new() };
         }
         if let Some(info) = self.interface_impls.get(key) {
-            info.interfaces.add(interface_name);
+            info.interfaces.add(iface_key);
         }
     }
 
@@ -545,14 +547,18 @@ impl ModuleScope {
         self.add_unit(method, type_name + '.' + method.name, self_type, file);
     }
 
-    pub fn add_interface(self, _ decl: InterfaceDecl) -> Void {
+    pub fn add_interface(self, _ decl: InterfaceDecl, _ file: Option<String>) -> Void {
+        let key = type_key(element.file_key(file), decl.name);
         let names: Set<String> = Set.new();
         for m in decl.methods {
             names.add(m.name);
         }
-        self.interface_methods[decl.name] = names;
+        self.interface_methods[key] = names;
         if decl.super_interfaces.len() > 0 {
-            self.interface_supers[decl.name] = decl.super_interfaces;
+            // Supers by the identity this file's scope sees under the name.
+            let fs = file_scope(self.library, file);
+            self.interface_supers[key] = decl.super_interfaces.map((s) =>
+                type_key(fs.resolve_type_owner(s, Option.None), s));
         }
     }
 
@@ -565,7 +571,7 @@ impl ModuleScope {
     // that hold a boxed cell; `param_types` types every parameter so the lambda
     // body can be inferred when compiled.
     pub fn add_lambda(self, _ decl: FnDecl, _ boxed: Set<String>,
-        _ param_types: Map<String, Type>, _ bounds: Map<String, List<String>>,
+        _ param_types: Map<String, Type>, _ bounds: Map<String, List<TypeId>>,
         _ file: Option<String>) -> Int {
         let index = self.units.len();
         self.add_unit(decl, '__lambda_${index}', Option.None, file);

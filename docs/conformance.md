@@ -152,6 +152,8 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `iface-inherit`     | Interface inheritance    | `interface E: Display + Debug` obligations & widened set   | ✓      |
 | `iface-dispatch`    | Dispatch                 | dynamic dispatch for interface-typed values & bounds       | ✓      |
 | `iface-default`     | Interfaces               | default methods (interface method bodies); optional in an `impl`, overridable, dispatched dynamically | ✓ |
+| `iface-identity`    | Interfaces               | interface identity is owner+name: conformance obligations, default-method units, and interface-typed params bind per-owner; `impl ns.Iface for T` names an interface through an import | ✓ |
+| `iface-bound-identity` | Interfaces / Dispatch | the `Display`/`Eq`/`Debug` intrinsics attach to the *core* interfaces' identity; a user interface named `Display` is an ordinary interface | ✓ |
 | `generic-bounds`    | Interfaces / Dispatch    | `<T: Eq + Debug>` enforced at call sites                  | ✓      |
 | `generic-type-bounds`| Interfaces / Dispatch    | a bound on a generic type's own parameter (`Box<T: Display>`) is enforced on its type arguments | ✓ |
 

@@ -1,0 +1,43 @@
+//! spec: iface-identity
+//! mode: run
+
+import 'libshape_a' as a;
+import 'libshape_b' as b;
+
+// Two libraries each declare `pub interface Shape`, with different method sets
+// and different `describe` defaults. Interface identity is the resolved
+// owner + name (not the bare name), so:
+//
+//   * a conformance binds to the interface the impl's file sees — `CircleA`
+//     implements a's Shape, `SquareB` implements b's;
+//   * default-method units are per interface — `describe` on an a-conformer
+//     runs a's default, on a b-conformer b's (name-keyed default tables would
+//     collide last-wins);
+//   * an interface-typed param (`a_area`'s `Shape`) admits its own conformers,
+//     including one implemented elsewhere via the qualified form below;
+//   * `impl ns.Iface for T` names an interface through an import namespace —
+//     `Disc` here implements a's Shape (only `area` is required; b's Shape
+//     would also demand `name`).
+
+struct Disc {
+    r: Int,
+}
+
+impl a.Shape for Disc {
+    pub fn area(self) -> Int {
+        return self.r * self.r;
+    }
+}
+
+fn main() -> Int {
+    let c = a.CircleA { r: 2 };
+    let s = b.SquareB { side: 3 };
+    println('${a.a_area(c)}');      // expect: 12
+    println('${b.b_describe(s)}');  // expect: B:square
+    println('${c.describe()}');     // expect: A:12
+    println('${s.describe()}');     // expect: B:square
+    let d = Disc { r: 4 };
+    println('${a.a_area(d)}');      // expect: 16
+    println('${d.describe()}');     // expect: A:16
+    return 0;
+}

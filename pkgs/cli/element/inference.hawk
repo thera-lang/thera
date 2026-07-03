@@ -30,7 +30,7 @@ pub struct InferCtx {
     type_params: Set<String>,
     self_type: Option<Type>,
     return_type: Option<Type>,
-    type_param_bounds: Map<String, List<String>>,
+    type_param_bounds: Map<String, List<TypeId>>,
     // The file of the function being inferred — the scope a bare free-function
     // reference resolves against (same-file-first).
     mut current_file: Option<String>,
@@ -666,7 +666,7 @@ fn infer_call_field(_ obj: Expr, _ field: String, _ arg_types: List<Type>,
     if let TypeParameter(tpname) = recv_type {
         if let Some(bounds) = ctx.type_param_bounds.get(tpname) {
             for bound in bounds {
-                if let Some(bdef) = ctx_scope(ctx).resolve_type_def_by_name(bound) {
+                if let Some(bdef) = ctx_scope(ctx).resolve_type_def(bound) {
                     if let Some(method) = find_method(bdef, field) { return method.return_type; }
                 }
             }
@@ -762,11 +762,11 @@ pub fn infer_callee_kind(_ obj: Expr, _ field: String, _ arg_count: Int,
 // codegen's `dispatch_interfaces`.
 fn dispatches_virtually(_ recv: Type, _ ctx: InferCtx) -> Bool {
     return match recv {
-        Interface(id, _) => is_interface_def(id.name, ctx),
+        Interface(id, _) => is_interface_id(ctx.library, id),
         TypeParameter(tpname) => match ctx.type_param_bounds.get(tpname) {
             Some(bounds) => {
                 for b in bounds {
-                    if is_interface_def(b, ctx) {
+                    if is_interface_id(ctx.library, b) {
                         return true;
                     }
                 }
@@ -775,13 +775,6 @@ fn dispatches_virtually(_ recv: Type, _ ctx: InferCtx) -> Bool {
             None => false,
         },
         _ => false,
-    };
-}
-
-fn is_interface_def(_ name: String, _ ctx: InferCtx) -> Bool {
-    return match ctx_scope(ctx).resolve_type_def_by_name(name) {
-        Some(def) => def.kind == TypeDefKind.Interface,
-        None => false,
     };
 }
 
@@ -967,7 +960,7 @@ pub fn for_element_type(_ iter_type: Type, _ ctx: InferCtx) -> Type {
 fn iterator_element(_ t: Type, _ ctx: InferCtx) -> Option<Type> {
     if let Interface(name, args) = t {
         if let Some(def) = ctx_scope(ctx).resolve_type_def(name) {
-            if !is_core_id(ctx.library, name, 'Iterator') && !str_list_has(def.interfaces, 'Iterator') {
+            if !is_core_id(ctx.library, name, 'Iterator') && !implements_core(ctx.library, def, 'Iterator') {
                 return Option.None;
             }
             if let Some(next) = find_method(def, 'next') {
@@ -1280,10 +1273,10 @@ pub struct MethodResolution {
 // leaves un-arg-checked, mirroring `method_resolves`' conservatism.
 // Bindings mapping interface `iface_def`'s type parameters to the receiver
 // element's recorded conformance arguments (`impl Iterator<Int>` -> {T: Int}).
-fn default_method_bindings(_ element: TypeDefElement, _ iface_name: String,
+fn default_method_bindings(_ element: TypeDefElement, _ iface: TypeId,
     _ iface_def: TypeDefElement) -> Map<String, Type> {
     let bindings: Map<String, Type> = {};
-    if let Some(args) = element.interface_args.get(iface_name) {
+    if let Some(args) = element.interface_args.get(id_key(iface)) {
         let params = iface_def.type_parameters;
         let mut i = 0;
         while i < params.len() && i < args.len() {
@@ -1300,13 +1293,13 @@ fn default_method_bindings(_ element: TypeDefElement, _ iface_name: String,
 // to this conformance's arguments, so the method's signature instantiates.
 fn find_default_method(_ element: TypeDefElement, _ field: String, _ ctx: InferCtx)
     -> Option<MethodResolution> {
-    for iface_name in element.interfaces {
-        if let Some(iface_def) = ctx_scope(ctx).resolve_type_def_by_name(iface_name) {
+    for iface in element.interfaces {
+        if let Some(iface_def) = ctx_scope(ctx).resolve_type_def(iface) {
             if is_default_method(iface_def, field) {
                 if let Some(method) = find_method(iface_def, field) {
                     return Option.Some(MethodResolution {
                         method: method,
-                        bindings: default_method_bindings(element, iface_name, iface_def),
+                        bindings: default_method_bindings(element, iface, iface_def),
                     });
                 }
             }

@@ -407,7 +407,7 @@ fn check_fn(_ errors: List<CheckError>, _ fn_decl: FnDecl, _ library: LibraryEle
                 type_params: type_params,
                 self_type: self_type,
                 return_type: return_type,
-                type_param_bounds: fn_param_bounds(fn_decl),
+                type_param_bounds: fn_param_bounds(fn_decl, file_scope(library, file)),
                 current_file: file,
             };
             let scope = empty_scope();
@@ -443,8 +443,12 @@ fn check_interface_decl(_ errors: List<CheckError>, _ decl: InterfaceDecl, _ lib
     for m in decl.methods {
         check_fn_sig(errors, m, library, current_file, union_type_params(iface_tps, m.type_params));
     }
+    // Supers resolve like any bare type name — the interface this file's scope
+    // sees; a super that exists somewhere in the closure but isn't reachable
+    // here is unknown.
+    let fs = file_scope(library, current_file);
     for super_name in decl.super_interfaces {
-        match library.type_defs.get(super_name) {
+        match fs.resolve_type_def(resolver.bound_id(fs, super_name)) {
             None => { add_error(errors, 'unknown super-interface: ${super_name}', decl.name_span); },
             Some(super_def) => {
                 if super_def.kind != TypeDefKind.Interface {
@@ -453,19 +457,20 @@ fn check_interface_decl(_ errors: List<CheckError>, _ decl: InterfaceDecl, _ lib
             },
         }
     }
-    if str_list_has(decl.super_interfaces, decl.name) || extends_cycle(decl.name, library) {
+    if str_list_has(decl.super_interfaces, decl.name)
+        || extends_cycle(resolver.bound_id(fs, decl.name), library) {
         add_error(errors, 'interface \'${decl.name}\' extends itself (inheritance cycle)', decl.name_span);
     }
 }
 
-// Whether interface `name` participates in a mutual/longer inheritance cycle —
+// Whether interface `id` participates in a mutual/longer inheritance cycle —
 // reachable as a super of one of its own (transitive) supers.
-fn extends_cycle(_ name: String, _ library: LibraryElement) -> Bool {
-    if let Some(start) = library.type_defs.get(name) {
+fn extends_cycle(_ id: TypeId, _ library: LibraryElement) -> Bool {
+    if let Some(start) = def_by_id(library, id) {
         if start.kind == TypeDefKind.Interface {
             for s in start.super_interfaces {
-                if let Some(sd) = library.type_defs.get(s) {
-                    if sd.kind == TypeDefKind.Interface && str_list_has(sd.super_interfaces, name) {
+                if let Some(sd) = def_by_id(library, s) {
+                    if sd.kind == TypeDefKind.Interface && id_list_has(sd.super_interfaces, id) {
                         return true;
                     };
                 }
@@ -478,9 +483,12 @@ fn extends_cycle(_ name: String, _ library: LibraryElement) -> Bool {
 fn check_conformance(_ errors: List<CheckError>, _ decl: ImplDecl, _ library: LibraryElement,
     _ file: Option<String>) -> Void {
     let Some(iface_name) = decl.interface_name else { return; };
-    // (Interface *names* are still resolved flat — interface-name collisions are
-    // a documented deferral; the impl *target* below is owner-correct.)
-    let Some(iface_def) = library.type_defs.get(iface_name) else {
+    let fs = file_scope(library, file);
+    // The conformance is to the interface *this file's scope* sees under the
+    // name — identity, not spelling: a same-named interface elsewhere in the
+    // closure is a different interface, with different obligations.
+    let iface_id = TypeId { owner: fs.resolve_type_owner(iface_name, decl.interface_namespace), name: iface_name };
+    let Some(iface_def) = fs.resolve_type_def(iface_id) else {
         add_error(errors, 'unknown interface: ${iface_name}', decl.name_span);
         return;
     };
@@ -488,13 +496,12 @@ fn check_conformance(_ errors: List<CheckError>, _ decl: ImplDecl, _ library: Li
         add_error(errors, '\'${iface_name}\' is not an interface', decl.name_span);
         return;
     }
-    let fs = file_scope(library, file);
     let target_id = TypeId { owner: fs.resolve_type_owner(decl.type_name, Option.None), name: decl.type_name };
     match fs.resolve_type_def(target_id) {
         None => { return; }, // unknown target type — reported elsewhere
         Some(owner) => {
             let impl_type = impl_self_type(decl, library, file);
-            let self_type = named_type(library.type_defs, iface_name, []);
+            let self_type = Type.Interface(iface_id, []);
             let iface_params = iface_def.type_parameters;
             if decl.interface_args.len() != iface_params.len() {
                 add_error(errors,
@@ -530,7 +537,7 @@ fn check_conformance(_ errors: List<CheckError>, _ decl: ImplDecl, _ library: Li
                         // Provided — possibly an override of a default. Either
                         // way its signature must match the interface's.
                         if let Some(om) = find_method(owner, im.name) {
-                            if !signatures_match(im, om, self_type, impl_type, iface_bindings, library.type_defs) {
+                            if !signatures_match(im, om, self_type, impl_type, iface_bindings) {
                                 add_error(errors,
                                     'method \'${im.name}\' does not match its declaration in interface \'${iface_name}\'',
                                     decl.name_span);
@@ -541,10 +548,10 @@ fn check_conformance(_ errors: List<CheckError>, _ decl: ImplDecl, _ library: Li
             }
             // Inherited obligation: implementing a sub-interface requires
             // implementing each super-interface too.
-            for super_name in iface_def.super_interfaces {
-                if !satisfies_bound(impl_type, super_name, library.type_defs) {
+            for super_id in iface_def.super_interfaces {
+                if !satisfies_bound(impl_type, super_id, library) {
                     add_error(errors,
-                        '\'${decl.type_name}\' implements \'${iface_name}\', which extends \'${super_name}\', but does not implement \'${super_name}\'',
+                        '\'${decl.type_name}\' implements \'${iface_name}\', which extends \'${super_id.name}\', but does not implement \'${super_id.name}\'',
                         decl.name_span);
                 }
             }
@@ -555,8 +562,7 @@ fn check_conformance(_ errors: List<CheckError>, _ decl: ImplDecl, _ library: Li
 // Whether impl method `om` matches interface method `im`, treating `Self` (==
 // `self_type` inside the interface) as `impl_type`.
 fn signatures_match(_ im: FunctionElement, _ om: FunctionElement, _ self_type: Type,
-    _ impl_type: Type, _ iface_bindings: Map<String, Type>,
-    _ type_defs: Map<String, TypeDefElement>) -> Bool {
+    _ impl_type: Type, _ iface_bindings: Map<String, Type>) -> Bool {
     if im.is_static != om.is_static {
         return false;
     }
@@ -658,7 +664,7 @@ fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ stmts: List<Stmt>, _ i
             // element type from its first pinning use later in the block.
             scope[x.name] = annotated.unwrap_or_else(() => refine_binding_type(x.name, actual, stmts, index + 1, scope, ctx));
             muts[x.name] = x.is_mut;
-            if let Some(a) = annotated { expect_type(errors, actual, a, 'binding \'${x.name}\'', x.span, ctx.library.type_defs); }
+            if let Some(a) = annotated { expect_type(errors, actual, a, 'binding \'${x.name}\'', x.span, ctx.library); }
         },
         Return(span, value) => {
             if let Some(v) = value {
@@ -707,7 +713,7 @@ fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ stmts: List<Stmt>, _ i
             // assignment of the wrong type all passed and corrupted at runtime.)
             let actual = infer_expr(value, scope, ctx, Option.Some(target_type));
             expect_type(errors, actual, target_type, assign_context(target),
-                expr_span(value), ctx.library.type_defs);
+                expr_span(value), ctx.library);
         },
         Expr(_, e) => {
             check_expr(errors, e, scope, ctx, Option.None);
@@ -956,7 +962,7 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
                 let then_type = infer_block(x.then_block, scope, ctx, expected);
                 let else_type = infer_block(eb, scope, ctx, expected);
                 if produces_value(then_type) && produces_value(else_type)
-                    && !arms_compatible(then_type, else_type, ctx.library.type_defs) {
+                    && !arms_compatible(then_type, else_type, ctx.library) {
                     add_error(errors,
                         '`if`/`else` branches have incompatible types: ${type_to_string(then_type)} and ${type_to_string(else_type)}',
                         x.span);
@@ -1160,7 +1166,7 @@ fn unify_arm(_ errors: List<CheckError>, _ reference: Type, _ arm_type: Type,
         Unknown => { return arm_type; },
         _ => {},
     }
-    if !arms_compatible(arm_type, reference, ctx.library.type_defs) {
+    if !arms_compatible(arm_type, reference, ctx.library) {
         add_error(errors,
             'match arms have incompatible types: expected ${type_to_string(reference)}, found ${type_to_string(arm_type)}',
             expr_span(body));
@@ -1170,8 +1176,8 @@ fn unify_arm(_ errors: List<CheckError>, _ reference: Type, _ arm_type: Type,
 
 // Whether two value-producing arm types may coexist — assignable in either
 // direction (covering interface subtyping and lenient `Unknown` slots).
-fn arms_compatible(_ a: Type, _ b: Type, _ type_defs: Map<String, TypeDefElement>) -> Bool {
-    return is_assignable(a, b, type_defs) || is_assignable(b, a, type_defs);
+fn arms_compatible(_ a: Type, _ b: Type, _ lib: LibraryElement) -> Bool {
+    return is_assignable(a, b, lib) || is_assignable(b, a, lib);
 }
 
 // ---- call checking ----
@@ -1224,7 +1230,7 @@ fn check_call_args(_ errors: List<CheckError>, _ fn_el: FunctionElement,
             // is empty and this is a no-op.
             let pty = substitute(p.ty, bindings);
             let actual = infer_expr(arg.value, scope, ctx, Option.Some(pty));
-            expect_type(errors, actual, pty, 'argument to "${fn_el.name}"', span, ctx.library.type_defs);
+            expect_type(errors, actual, pty, 'argument to "${fn_el.name}"', span, ctx.library);
         }
     }
 
@@ -1258,10 +1264,10 @@ fn check_bounds(_ errors: List<CheckError>, _ fn_el: FunctionElement,
         if let Some(arg) = bindings.get(tp) {
             if let Some(bounds) = fn_el.type_parameter_bounds.get(tp) {
                 for bound in bounds {
-                    if !satisfies_bound(arg, bound, ctx.library.type_defs) {
+                    if !satisfies_bound(arg, bound, ctx.library) {
                         add_error(
                             errors,
-                            'type argument `${type_to_string(arg)}` for `${tp}` does not implement `${bound}` (required by "${fn_el.name}")',
+                            'type argument `${type_to_string(arg)}` for `${tp}` does not implement `${bound.name}` (required by "${fn_el.name}")',
                             span
                         );
                     }
@@ -1369,9 +1375,9 @@ fn check_type_arg_bounds(_ errors: List<CheckError>, _ def: TypeDefElement,
     while i < args.len() && i < params.len() {
         if let Some(bounds) = def.type_parameter_bounds.get(params[i]) {
             for b in bounds {
-                if !satisfies_bound(args[i], b, library.type_defs) {
+                if !satisfies_bound(args[i], b, library) {
                     add_error(errors,
-                        'type argument `${type_to_string(args[i])}` for `${params[i]}` does not implement `${b}` (required by `${def.name}`)',
+                        'type argument `${type_to_string(args[i])}` for `${params[i]}` does not implement `${b.name}` (required by `${def.name}`)',
                         span);
                 }
             }
@@ -1380,11 +1386,13 @@ fn check_type_arg_bounds(_ errors: List<CheckError>, _ def: TypeDefElement,
     }
 }
 
-// Whether `t` satisfies interface `bound`. The built-in interfaces
-// (`Eq`/`Display`/`Debug`) hold for every primitive; `Eq`/`Debug` additionally
-// hold for any struct/enum (auto-derived); any other interface needs an explicit
-// `impl`. Lenient for unresolved types so it never reports a false mismatch.
-fn satisfies_bound(_ t: Type, _ bound: String, _ type_defs: Map<String, TypeDefElement>) -> Bool {
+// Whether `t` satisfies interface `bound` — by *identity*: a conformance to one
+// library's `Shape` never satisfies another's, and the `Eq`/`Debug` intrinsics
+// (every primitive; structs/enums via the structural derive) apply only when the
+// bound *is* the core interface (`is_core_id`) — a user interface that happens
+// to be named `Eq` is an ordinary interface. Lenient for unresolved types so it
+// never reports a false mismatch.
+fn satisfies_bound(_ t: Type, _ bound: TypeId, _ lib: LibraryElement) -> Bool {
     match t {
         Unknown => { return true; },
         TypeParameter(_) => { return true; },
@@ -1392,11 +1400,13 @@ fn satisfies_bound(_ t: Type, _ bound: String, _ type_defs: Map<String, TypeDefE
             // `Eq`/`Debug` are intrinsic to every primitive; any other bound
             // (`Display`, …) must be a declared `impl` on the primitive's type def
             // (`impl Display for Int`, … in std.core; floor-seeded in
-            // `builtin_type_defs` for hermetic contexts).
-            if bound == 'Eq' || bound == 'Debug' {
+            // `builtin_type_defs` for hermetic contexts). The def is the core
+            // registry entry, by identity (CH24: no display-string keying).
+            if is_core_id(lib, bound, 'Eq') || is_core_id(lib, bound, 'Debug') {
                 return true;
             }
-            return match type_defs.get(type_to_string(t)) {
+            let name = type_to_string(t);
+            return match def_by_id(lib, TypeId { owner: core_owner(lib, name), name: name }) {
                 Some(def) => implements_interface(def, bound),
                 None => false,
             };
@@ -1404,18 +1414,18 @@ fn satisfies_bound(_ t: Type, _ bound: String, _ type_defs: Map<String, TypeDefE
         _ => {},
     }
     // An interface-typed value satisfies a bound it *is* or transitively extends.
-    if let Interface(name, _) = t {
-        if let Some(def) = type_defs.get(name.name) {
+    if let Interface(id, _) = t {
+        if let Some(def) = def_by_id(lib, id) {
             if def.kind == TypeDefKind.Interface {
-                return name.name == bound || str_list_has(def.super_interfaces, bound);
+                return id == bound || id_list_has(def.super_interfaces, bound);
             };
         }
     }
-    if bound == 'Eq' || bound == 'Debug' {
+    if is_core_id(lib, bound, 'Eq') || is_core_id(lib, bound, 'Debug') {
         return true; // structural derive
     }
     return match t {
-        Interface(name, _) => match type_defs.get(name.name) {
+        Interface(id, _) => match def_by_id(lib, id) {
             Some(def) => implements_interface(def, bound),
             None => false,
         },
@@ -1509,8 +1519,8 @@ fn name_known(_ name: String, _ library: LibraryElement,
 // ---- type-mismatch diagnostics ----
 
 // Report when `actual` is not assignable to `expected`. `Unknown` is lenient on
-// both sides (so the checker never reports a *false* mismatch); `type_defs` backs
-// interface subtyping.
+// both sides (so the checker never reports a *false* mismatch); the library
+// backs interface subtyping (conformances resolved by identity).
 // ---- operator typing ----
 //
 // Mirrors what codegen can emit (no operator overloading, no Int->Double
@@ -1530,13 +1540,13 @@ fn check_binary_op(_ errors: List<CheckError>, _ span: SourceSpan, _ left: Expr,
     }
     if op == '&&' || op == '||' {
         expect_type(errors, l, Type.Primitive(Primitive.Bool), 'operator `${op}`',
-            expr_span(left), ctx.library.type_defs);
+            expr_span(left), ctx.library);
         expect_type(errors, r, Type.Primitive(Primitive.Bool), 'operator `${op}`',
-            expr_span(right), ctx.library.type_defs);
+            expr_span(right), ctx.library);
         return;
     }
     if op == '==' || op == '!=' {
-        if !is_assignable(l, r, ctx.library.type_defs) && !is_assignable(r, l, ctx.library.type_defs) {
+        if !is_assignable(l, r, ctx.library) && !is_assignable(r, l, ctx.library) {
             add_error(errors,
                 'operator `${op}`: mismatched operand types ${type_to_string(l)} and ${type_to_string(r)}',
                 span);
@@ -1576,7 +1586,7 @@ fn check_unary_op(_ errors: List<CheckError>, _ op: String, _ operand: Expr,
     }
     if op == '!' {
         expect_type(errors, t, Type.Primitive(Primitive.Bool), 'operator `!`',
-            expr_span(operand), ctx.library.type_defs);
+            expr_span(operand), ctx.library);
         return;
     }
     if op == '-' {
@@ -1650,8 +1660,8 @@ fn assign_context(_ target: Expr) -> String {
 }
 
 fn expect_type(_ errors: List<CheckError>, _ actual: Type, _ expected: Type,
-    _ context: String, _ span: SourceSpan, _ type_defs: Map<String, TypeDefElement>) -> Void {
-    if !is_assignable(actual, expected, type_defs) {
+    _ context: String, _ span: SourceSpan, _ lib: LibraryElement) -> Void {
+    if !is_assignable(actual, expected, lib) {
         add_error(errors, '${context}: expected ${type_to_string(expected)}, found ${type_to_string(actual)}', span);
     }
 }
@@ -1660,7 +1670,7 @@ fn expect_type(_ errors: List<CheckError>, _ actual: Type, _ expected: Type,
 fn check_condition(_ errors: List<CheckError>, _ condition: Expr,
     _ scope: Map<String, Type>, _ ctx: InferCtx) -> Void {
     let t = infer_expr(condition, scope, ctx, Option.None);
-    if !is_assignable(t, Type.Primitive(Primitive.Bool), ctx.library.type_defs) {
+    if !is_assignable(t, Type.Primitive(Primitive.Bool), ctx.library) {
         add_error(errors, 'condition must be Bool, found ${type_to_string(t)}', expr_span(condition));
     }
 }
@@ -1670,12 +1680,12 @@ fn check_condition(_ errors: List<CheckError>, _ condition: Expr,
 fn check_return(_ errors: List<CheckError>, _ value: Expr, _ expected: Type,
     _ span: SourceSpan, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Void {
     let actual = infer_expr(value, scope, ctx, Option.Some(expected));
-    if is_assignable(actual, expected, ctx.library.type_defs) {
+    if is_assignable(actual, expected, ctx.library) {
         return;
     }
     if let Interface(name, args) = expected {
         if is_core_id(ctx.library, name, 'Result') && args.len() > 0
-            && is_assignable(actual, args[0], ctx.library.type_defs) {
+            && is_assignable(actual, args[0], ctx.library) {
             return; // implicit Ok(value)
         };
     }
@@ -1845,10 +1855,10 @@ fn union_type_params(_ outer: Set<String>, _ own: List<TypeParam>) -> Set<String
     return s;
 }
 
-fn fn_param_bounds(_ decl: FnDecl) -> Map<String, List<String>> {
-    let b: Map<String, List<String>> = {};
+fn fn_param_bounds(_ decl: FnDecl, _ fs: FileScope) -> Map<String, List<TypeId>> {
+    let b: Map<String, List<TypeId>> = {};
     for tp in decl.type_params {
-        b[tp.name] = tp.bounds;
+        b[tp.name] = tp.bounds.map((n) => resolver.bound_id(fs, n));
     }
     return b;
 }

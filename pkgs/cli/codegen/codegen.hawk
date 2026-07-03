@@ -76,7 +76,7 @@ struct FileContext {
     ctx: InferCtx,
     slots: Map<String, Int>,
     types: Map<String, Type>,
-    bounds: Map<String, List<String>>,
+    bounds: Map<String, List<TypeId>>,
 }
 
 // --- entry point ---
@@ -175,17 +175,17 @@ fn register_module(_ scope: ModuleScope, _ program: Program) -> Void {
             // thunk (see docs/module_init.md).
             Let(x) => { scope.add_global(x, file); },
             Interface(x) => {
-                scope.add_interface(x);
+                scope.add_interface(x, file);
                 // A default method (interface method with a body) compiles once
                 // as a shared unit with `self` typed as the interface; each
                 // implementing type that doesn't override it dispatches here
                 // (wired by `wire_default_methods`).
                 for method in x.methods {
                     if !method.is_native && has_self_param(method.params) && method.body.is_some() {
-                        // An interface default keys the method table by the plain
-                        // interface name (its key space is disjoint from concrete
-                        // types' owner-qualified keys).
-                        scope.add_method(x.name, x.name, method, file);
+                        // An interface default keys the method table by the
+                        // interface's owner-qualified key — two libraries'
+                        // same-named interfaces keep distinct default units.
+                        scope.add_method(type_key(element.file_key(file), x.name), x.name, method, file);
                     }
                 }
             },
@@ -193,7 +193,12 @@ fn register_module(_ scope: ModuleScope, _ program: Program) -> Void {
                 // The receiver type owner-qualified as this file sees it, so a method
                 // impl'd on a name two libraries share binds to this library's type.
                 let owner = scope.owner_of(x.type_name, file);
-                if let Some(iface) = x.interface_name { scope.add_interface_impl(owner, x.type_name, iface); }
+                // The conformance records the interface *this file's scope*
+                // sees under the name (owner-qualified key).
+                if let Some(iface) = x.interface_name {
+                    let ifs = file_scope(scope.library, file);
+                    scope.add_interface_impl(owner, x.type_name, type_key(ifs.resolve_type_owner(iface, x.interface_namespace), iface));
+                }
                 for method in x.methods {
                     let is_static = !has_self_param(method.params);
                     if method.is_native && is_static {
@@ -222,7 +227,7 @@ pub struct FnCompiler {
     code: List<Instr>,
     mut slots: Map<String, Int>,
     mut type_scope: Map<String, Type>,
-    mut type_param_bounds: Map<String, List<String>>,
+    mut type_param_bounds: Map<String, List<TypeId>>,
     consts_in_progress: Set<String>,
     boxed_locals: Set<String>,
     mut local_count: Int,
@@ -262,8 +267,9 @@ impl FnCompiler {
     pub fn compile(self, _ index: Int) -> FuncDef {
         let fn_decl = self.scope.units[index];
         self.file = self.scope.unit_files[index];
+        let bfs = file_scope(self.scope.library, self.file);
         for tp in fn_decl.type_params {
-            self.type_param_bounds[tp.name] = tp.bounds;
+            self.type_param_bounds[tp.name] = tp.bounds.map((n) => resolver.bound_id(bfs, n));
         }
         // A lifted lambda has no type params of its own, but inherits its
         // enclosing function's bounds (stashed at lift time) so a bound method on
@@ -761,7 +767,7 @@ impl FnCompiler {
                     return true;
                 }
                 return match self.scope.interface_impls.get(type_key(id.owner, id.name)) {
-                    Some(info) => info.interfaces.has('Iterator'),
+                    Some(info) => info.interfaces.has(self.core_iface_key('Iterator')),
                     None => false,
                 };
             },
@@ -1337,7 +1343,8 @@ impl FnCompiler {
             self.logical_expr(left, op, right);
             return;
         }
-        let operand_type = self.type_of(left);
+        let left_type = infer_expr(left, self.type_scope, self.ctx, Option.None);
+        let operand_type = name_of_type(left_type);
         let is_primitive = operand_type == Option.Some('Int')
             || operand_type == Option.Some('Double')
             || operand_type == Option.Some('Bool');
@@ -1346,7 +1353,7 @@ impl FnCompiler {
         // structural `eq` native (non-primitives, and Bool — which has no typed
         // equality opcode) or a typed opcode (Int/Double).
         if op == '==' || op == '!=' {
-            if self.dispatches_via(operand_type, 'eq') {
+            if self.dispatches_via(left_type, 'eq') {
                 self.expr(left);
                 self.expr(right);
                 self.emit(Instr.CallVirtual('eq', 2));
@@ -1355,7 +1362,7 @@ impl FnCompiler {
                 }
                 return;
             }
-            if let Some(eq_idx) = self.interface_method(self.type_id_of(left), 'Eq', 'eq') {
+            if let Some(eq_idx) = self.interface_method(type_id_of_type(left_type), self.core_iface_key('Eq'), 'eq') {
                 self.expr(left);
                 self.expr(right);
                 self.emit(Instr.Call(eq_idx, 2));
@@ -1460,11 +1467,10 @@ impl FnCompiler {
     // its `Display.display` method. The shared lowering behind both interpolation
     // and `println`/`print`/`eprintln`/`eprint`.
     fn emit_as_string(self, _ value: Expr, _ span: SourceSpan) -> Void {
-        let ty_name = self.type_of(value);
-        let ty_id = self.type_id_of(value);
+        let t = infer_expr(value, self.type_scope, self.ctx, Option.None);
         self.expr(value);
-        if ty_name != Option.Some('String') {
-            self.emit_display(ty_name, ty_id, span);
+        if name_of_type(t) != Option.Some('String') {
+            self.emit_display(t, span);
         }
     }
 
@@ -1473,13 +1479,13 @@ impl FnCompiler {
     // primitives' `display` → their per-type native, e.g. `int_to_string`), a
     // virtual dispatch (an interface-typed or bounded-generic value), or a concrete
     // impl method. Errors when the type has no `Display`.
-    fn emit_display(self, _ ty_name: Option<String>, _ ty_id: Option<TypeId>, _ span: SourceSpan) -> Void {
-        if let Some(symbol) = self.native_instance_method_symbol(ty_name, 'display') { self.emit(Instr.CallNative(symbol, 1)); return; }
-        if self.dispatches_via(ty_name, 'display') {
+    fn emit_display(self, _ t: Type, _ span: SourceSpan) -> Void {
+        if let Some(symbol) = self.native_instance_method_symbol(name_of_type(t), 'display') { self.emit(Instr.CallNative(symbol, 1)); return; }
+        if self.dispatches_via(t, 'display') {
             self.emit(Instr.CallVirtual('display', 1));
             return;
         }
-        match self.interface_method(ty_id, 'Display', 'display') {
+        match self.interface_method(type_id_of_type(t), self.core_iface_key('Display'), 'display') {
             Some(display_idx) => { self.emit(Instr.Call(display_idx, 1)); },
             None => {
                 // Total rendering: no static `Display` impl, so dispatch `display`
@@ -1856,7 +1862,7 @@ impl FnCompiler {
     fn emit_virtual_call(self, _ x: CallExpr, _ obj: Expr, _ field: String) -> Bool {
         if field != 'display' && field != 'debug' {
             // A non-universal selector must be declared by a candidate interface.
-            let declared = match self.dispatch_interfaces(self.type_of(obj)) {
+            let declared = match self.dispatch_interfaces(infer_expr(obj, self.type_scope, self.ctx, Option.None)) {
                 Some(ifaces) => {
                     let mut found = false;
                     for i in ifaces {
@@ -2040,11 +2046,11 @@ impl FnCompiler {
 
     // --- dispatch helpers ---
 
-    fn interface_method(self, _ ty: Option<TypeId>, _ interface_name: String, _ method: String) -> Option<Int> {
+    fn interface_method(self, _ ty: Option<TypeId>, _ iface_key: String, _ method: String) -> Option<Int> {
         if let Some(t) = ty {
             let key = type_key(t.owner, t.name);
             let implements = match self.scope.interface_impls.get(key) {
-                Some(info) => info.interfaces.has(interface_name),
+                Some(info) => info.interfaces.has(iface_key),
                 None => false,
             };
             if implements {
@@ -2054,28 +2060,43 @@ impl FnCompiler {
         return Option.None;
     }
 
-    fn dispatch_interfaces(self, _ name: Option<String>) -> Option<List<String>> {
-        if let Some(n) = name {
-            if self.scope.interface_methods.has(n) {
-                return Option.Some([n]);
-            }
-            if let Some(bounds) = self.type_param_bounds.get(n) {
-                let ifaces: List<String> = [];
-                for b in bounds {
-                    if self.scope.interface_methods.has(b) {
-                        ifaces.push(b);
+    // The owner-qualified key of the *core* interface `name` (`Eq`/`Display`/
+    // `Iterator`, …) — identity, never a same-named user interface.
+    fn core_iface_key(self, _ name: String) -> String {
+        return type_key(element.core_owner(self.scope.library, name), name);
+    }
+
+    // The candidate interfaces (owner-qualified keys) a value of type `t`
+    // dispatches through: the interface it *is*, or its type parameter's bounds.
+    fn dispatch_interfaces(self, _ t: Type) -> Option<List<String>> {
+        match t {
+            Interface(id, _) => {
+                let key = type_key(id.owner, id.name);
+                if self.scope.interface_methods.has(key) {
+                    return Option.Some([key]);
+                }
+            },
+            TypeParameter(n) => {
+                if let Some(bounds) = self.type_param_bounds.get(n) {
+                    let ifaces: List<String> = [];
+                    for b in bounds {
+                        let key = type_key(b.owner, b.name);
+                        if self.scope.interface_methods.has(key) {
+                            ifaces.push(key);
+                        }
+                    }
+                    if ifaces.len() > 0 {
+                        return Option.Some(ifaces);
                     }
                 }
-                if ifaces.len() > 0 {
-                    return Option.Some(ifaces);
-                }
-            }
+            },
+            _ => {},
         }
         return Option.None;
     }
 
-    fn dispatches_via(self, _ ty_name: Option<String>, _ method: String) -> Bool {
-        if let Some(ifaces) = self.dispatch_interfaces(ty_name) {
+    fn dispatches_via(self, _ t: Type, _ method: String) -> Bool {
+        if let Some(ifaces) = self.dispatch_interfaces(t) {
             for i in ifaces {
                 if let Some(s) = self.scope.interface_methods.get(i) {
                     if s.has(method) {

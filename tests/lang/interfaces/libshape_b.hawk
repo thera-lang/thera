@@ -1,0 +1,28 @@
+// Support library: the second `pub interface Shape` — different obligations
+// (`name` is required here) and a different `describe` default than
+// libshape_a's Shape. See shared_interface_name.hawk.
+
+pub interface Shape {
+    fn area(self) -> Int;
+    fn name(self) -> String;
+    fn describe(self) -> String {
+        return 'B:${self.name()}';
+    }
+}
+
+pub struct SquareB {
+    side: Int,
+}
+
+impl Shape for SquareB {
+    pub fn area(self) -> Int {
+        return self.side * self.side;
+    }
+    pub fn name(self) -> String {
+        return 'square';
+    }
+}
+
+pub fn b_describe(_ s: Shape) -> String {
+    return s.describe();
+}

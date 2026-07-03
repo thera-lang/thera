@@ -159,8 +159,8 @@ fn test_interface_inheritance_flattens() -> Result<Void, Error> {
     match lib.type_defs.get('Pretty') {
         Some(p) => {
             // The closure carries both supers; the methods are flattened in.
-            testing.assert(str_list_has(p.super_interfaces, 'Display'))?;
-            testing.assert(str_list_has(p.super_interfaces, 'Debug'))?;
+            testing.assert(id_list_has(p.super_interfaces, TypeId { owner: '', name: 'Display' }))?;
+            testing.assert(id_list_has(p.super_interfaces, TypeId { owner: '', name: 'Debug' }))?;
             testing.assert(match find_method(p, 'show') {
                 Some(_) => true,
                 None => false,

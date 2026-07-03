@@ -283,7 +283,7 @@ native fn _file_seek(_ handle: Int, _ whence: Int, _ offset: Int) -> Result<Int,
 @extern('file_close')
 native fn _file_close(_ handle: Int) -> Result<Void, String>
 
-impl Reader for File {
+impl io.Reader for File {
     pub fn read(self, max: Int) -> Result<Bytes, Error> {
         return match _file_read(self.handle, max) {
             Ok(b) => Result.Ok(b),
@@ -292,7 +292,7 @@ impl Reader for File {
     }
 }
 
-impl Writer for File {
+impl io.Writer for File {
     pub fn write(self, _ data: Bytes) -> Result<Int, Error> {
         return match _file_write(self.handle, data) {
             Ok(n) => Result.Ok(n),
@@ -301,7 +301,7 @@ impl Writer for File {
     }
 }
 
-impl Seek for File {
+impl io.Seek for File {
     pub fn seek(self, _ to: io.SeekFrom) -> Result<Int, Error> {
         // Decode `SeekFrom` into the native's (whence, offset) pair (0/1/2).
         let raw = match to {
@@ -316,7 +316,7 @@ impl Seek for File {
     }
 }
 
-impl Closer for File {
+impl io.Closer for File {
     pub fn close(self) -> Result<Void, Error> {
         return match _file_close(self.handle) {
             Ok(_) => Result.Ok(void),

@@ -87,6 +87,9 @@ pub struct ImplDecl {
     name_span: SourceSpan, // span of type_name
     type_params: List<TypeParam>,
     interface_name: Option<String>, // None = inherent impl
+    // The namespace qualifying the interface name (`impl io.Reader for X`), if
+    // any — the interface resolves through it, like a `ns.T` annotation.
+    interface_namespace: Option<String>,
     // The interface's type args, e.g. <Int> in `impl Iterator<Int> for RangeIter`.
     interface_args: List<TypeRef>,
     methods: List<FnDecl>,

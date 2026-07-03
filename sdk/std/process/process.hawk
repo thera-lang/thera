@@ -114,7 +114,7 @@ native fn _stderr_read(_ id: Int, _ max: Int) -> Result<Bytes, String>
 
 /// A child's stdin, as a `Writer`. Each write is flushed.
 struct ProcessStdin { id: Int }
-impl Writer for ProcessStdin {
+impl io.Writer for ProcessStdin {
     pub fn write(self, _ data: Bytes) -> Result<Int, Error> {
         return match _stdin_write(self.id, data) {
             Ok(n) => Result.Ok(n),
@@ -125,7 +125,7 @@ impl Writer for ProcessStdin {
 
 /// A child's stdout, as a `Reader`. An empty read is EOF.
 struct ProcessStdout { id: Int }
-impl Reader for ProcessStdout {
+impl io.Reader for ProcessStdout {
     pub fn read(self, max: Int) -> Result<Bytes, Error> {
         return match _stdout_read(self.id, max) {
             Ok(b) => Result.Ok(b),
@@ -136,7 +136,7 @@ impl Reader for ProcessStdout {
 
 /// A child's stderr, as a `Reader`. An empty read is EOF.
 struct ProcessStderr { id: Int }
-impl Reader for ProcessStderr {
+impl io.Reader for ProcessStderr {
     pub fn read(self, max: Int) -> Result<Bytes, Error> {
         return match _stderr_read(self.id, max) {
             Ok(b) => Result.Ok(b),

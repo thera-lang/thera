@@ -11,6 +11,28 @@ fn defs() -> Map<String, TypeDefElement> {
     return m;
 }
 
+// Wrap a by-name def map into a minimal LibraryElement whose defs are all owned
+// by file key 't' (matching the fixture TypeIds) — `is_assignable` resolves
+// identities through the per-file tables.
+fn lib_with(_ m: Map<String, TypeDefElement>) -> LibraryElement {
+    let file_type_defs: Map<String, Map<String, TypeDefElement>> = {};
+    file_type_defs['t'] = m;
+    let file_functions: Map<String, Map<String, FunctionElement>> = {};
+    let file_consts: Map<String, Map<String, ConstElement>> = {};
+    let file_namespaces: Map<String, Map<String, LibraryNamespace>> = {};
+    let file_bare_surface: Map<String, Map<String, String>> = {};
+    let file_owned: Map<String, Set<String>> = {};
+    return LibraryElement {
+        type_defs: m,
+        file_functions: file_functions,
+        file_type_defs: file_type_defs,
+        file_consts: file_consts,
+        file_namespaces: file_namespaces,
+        file_bare_surface: file_bare_surface,
+        file_owned: file_owned,
+    };
+}
+
 @test
 fn test_primitive_type_lookup() -> Result<Void, Error> {
     testing.assert_eq(actual: primitive_type('Int'),
@@ -29,7 +51,7 @@ fn test_type_to_string() -> Result<Void, Error> {
 
 @test
 fn test_is_assignable_basics() -> Result<Void, Error> {
-    let d = defs();
+    let d = lib_with(defs());
     let int_t = Type.Primitive(Primitive.Int);
     // Unknown / TypeParameter are lenient on either side.
     testing.assert(is_assignable(Type.Unknown, int_t, d))?;
@@ -42,12 +64,14 @@ fn test_is_assignable_basics() -> Result<Void, Error> {
 
 @test
 fn test_is_assignable_interface_subtyping() -> Result<Void, Error> {
-    let d = defs();
-    // Error extends Display (transitive supers stored on the element).
-    d['Error'].super_interfaces.push('Display');
+    let m = defs();
+    let d = lib_with(m);
+    // Error extends Display (transitive supers stored on the element, by
+    // identity).
+    m['Error'].super_interfaces.push(TypeId { owner: 't', name: 'Display' });
     // A struct that impls Error.
-    d['Boom'] = new_struct('t', 'Boom', []);
-    d['Boom'].interfaces.push('Error');
+    m['Boom'] = new_struct('t', 'Boom', []);
+    m['Boom'].interfaces.push(TypeId { owner: 't', name: 'Error' });
     let boom = Type.Interface(TypeId { owner: 't', name: 'Boom' }, []);
     let err = Type.Interface(TypeId { owner: 't', name: 'Error' }, []);
     let disp = Type.Interface(TypeId { owner: 't', name: 'Display' }, []);
@@ -63,7 +87,7 @@ fn test_is_assignable_owner_distinct() -> Result<Void, Error> {
     // the full TypeId (owner + name), so `a.Box<Int>` is NOT assignable to
     // `b.Box<Int>` even though the names and args match. An owner-blind compare
     // would unify them — a soundness hole under lifted type-name uniqueness.
-    let d = defs();
+    let d = lib_with(defs());
     let int_t = Type.Primitive(Primitive.Int);
     let a_box = Type.Interface(TypeId { owner: 'a', name: 'Box' }, [int_t]);
     let b_box = Type.Interface(TypeId { owner: 'b', name: 'Box' }, [int_t]);

@@ -39,7 +39,9 @@ pub struct ParameterElement {
 pub struct FunctionElement {
     name: String,
     type_parameters: List<String>,
-    type_parameter_bounds: Map<String, List<String>>,
+    // Interface bounds per type parameter (`fn f<T: Display>` -> {T: [Display]}),
+    // by resolved identity (the interface the declaring file sees).
+    type_parameter_bounds: Map<String, List<TypeId>>,
     parameters: List<ParameterElement>,
     return_type: Type,
     owner: Option<String>,
@@ -63,14 +65,19 @@ pub struct TypeDefElement {
     type_parameters: List<String>,
     // Interface bounds on the type's own parameters (`type Box<T: Display>` ->
     // {T: [Display]}), enforced where a concrete type argument is supplied. The
-    // analogue of `FunctionElement.type_parameter_bounds`.
-    type_parameter_bounds: Map<String, List<String>>,
+    // analogue of `FunctionElement.type_parameter_bounds`. Bound identity is the
+    // resolved `TypeId` (the interface the *declaring file* sees).
+    type_parameter_bounds: Map<String, List<TypeId>>,
     methods: List<FunctionElement>, // from impl blocks / interface decls
-    interfaces: List<String>,       // `impl Interface for Type` conformances
-    // For each implemented interface, the resolved type arguments of the
-    // conformance (`impl Iterator<Int> for T` -> {Iterator: [Int]}). Lets a
-    // default method called on a *concrete* receiver bind the interface's type
-    // parameters (the receiver itself doesn't carry them).
+    // `impl Interface for Type` conformances, by resolved interface identity
+    // (the interface the *impl's file* sees — two libraries' same-named
+    // interfaces stay distinct).
+    interfaces: List<TypeId>,
+    // For each implemented interface (keyed by `id_key`), the resolved type
+    // arguments of the conformance (`impl Iterator<Int> for T` ->
+    // {core#Iterator: [Int]}). Lets a default method called on a *concrete*
+    // receiver bind the interface's type parameters (the receiver itself
+    // doesn't carry them).
     interface_args: Map<String, List<Type>>,
     // Struct fields: name -> resolved type (insertion order preserved).
     fields: Map<String, Type>,
@@ -78,9 +85,10 @@ pub struct TypeDefElement {
     mut_fields: Set<String>,
     // Enum variants, in declaration order.
     variants: List<EnumVariantElement>,
-    // Interface: the (transitively flattened) super-interfaces, and the method
-    // names declared directly on this interface (conformance needs only these).
-    mut super_interfaces: List<String>,
+    // Interface: the (transitively flattened) super-interfaces by resolved
+    // identity, and the method names declared directly on this interface
+    // (conformance needs only these).
+    mut super_interfaces: List<TypeId>,
     own_methods: List<String>,
     // Interface: the subset of methods that carry a default body, so an `impl`
     // need not provide them (conformance skips these). Includes defaults
@@ -159,9 +167,22 @@ pub fn find_variant(_ e: TypeDefElement, _ name: String) -> Option<EnumVariantEl
     return Option.None;
 }
 
-// Whether `e` declares it implements `interface_name`.
-pub fn implements_interface(_ e: TypeDefElement, _ interface_name: String) -> Bool {
-    return str_list_has(e.interfaces, interface_name);
+// Whether `e` declares it implements the interface `iface` — identity, not
+// name: a conformance to one library's `Shape` never satisfies another's.
+pub fn implements_interface(_ e: TypeDefElement, _ iface: TypeId) -> Bool {
+    return id_list_has(e.interfaces, iface);
+}
+
+// Whether `e` implements the *core* interface `name` (`Iterator`, `Display`, …)
+// — a conformance whose identity is the core registry entry, never a same-named
+// user interface.
+pub fn implements_core(_ lib: LibraryElement, _ e: TypeDefElement, _ name: String) -> Bool {
+    for i in e.interfaces {
+        if is_core_id(lib, i, name) {
+            return true;
+        }
+    }
+    return false;
 }
 
 // --- the resolved library ---

@@ -97,6 +97,13 @@ an error — a type parameter declares a type name for its scope). Value names
 (`fn`/`const`) are not reserved; casing conventions keep them unambiguous. Only
 the core SDK itself declares the real ones.
 
+Three core-semantic interface names sit between the two groups: `Eq`,
+`Display`, and `Debug` are **not** reserved — a user interface named `Display`
+is legal and behaves as an ordinary interface — but the language semantics
+attached to them (bound intrinsics, the structural `eq`/`debug` derives, `${}`
+rendering) key on the *core* interfaces' identity, which is pinned to core in
+the registry. Shadowing the name never captures the semantics.
+
 ## The prelude (`std.core`)
 
 `std.core` is auto-imported into every file and is the **one unqualified import**:
@@ -209,6 +216,13 @@ Member access is resolved through the **receiver**, not a namespace:
   in any file that can see the type (and, for `impl I for T`, the interface);
   cross-library, only `pub fn` methods are callable. Dynamic dispatch applies for
   interface-typed and bounded-generic receivers.
+- **Interface references** — the interface named by an `impl I for T` (bare, or
+  qualified: `impl io.Reader for File`), a super-interface (`interface A: B`),
+  and a type-parameter bound (`<T: Display>`) each resolve in **their declaring
+  file's scope**, by the bare-type algorithm above. Interface *identity* is the
+  resolved declaration (owner + name): conformance obligations, assignability,
+  bound satisfaction, and default-method dispatch all compare identities, so two
+  libraries' same-named interfaces never entangle.
 - **Static method** `T.m(...)` and **enum construction** `E.V(...)` — `T`/`E` is
   resolved as a type name (bare or `ns.`-qualified) first, then the member is
   selected within it. `e.name()` on an enum value yields the variant name.

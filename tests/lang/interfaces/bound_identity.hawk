@@ -1,0 +1,31 @@
+//! spec: iface-bound-identity
+//! mode: check
+
+// `Display` is core-semantic but not reserved: a user interface named
+// `Display` legally shadows the prelude's in its own file, and is an ordinary
+// interface. The "primitives satisfy Display" intrinsic attaches to the *core*
+// Display's identity, not to the name — so `Int` does not satisfy a bound on
+// this file's Display, while a type that implements it does.
+
+interface Display {
+    fn show(self) -> String;
+}
+
+struct Card {
+    v: Int,
+}
+
+impl Display for Card {
+    pub fn show(self) -> String {
+        return 'card';
+    }
+}
+
+fn need<T: Display>(_ x: T) -> Int {
+    return 0;
+}
+
+fn f() -> Int {
+    let ok = need(Card { v: 1 });
+    return need(5) + ok; // expect error: type argument `Int` for `T` does not implement `Display` (required by "need")
+}
