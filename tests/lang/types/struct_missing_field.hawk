@@ -1,0 +1,15 @@
+//! spec: type-struct-fields-required
+//! mode: check
+
+// A struct literal must provide every declared field. (Previously validated
+// only in codegen: `check` said clean, `emit`/`run` failed.)
+
+struct Point {
+    x: Int,
+    y: Int,
+}
+
+fn main() -> Void {
+    let p = Point { x: 1 };    // expect error: missing field `y` in Point literal
+    let q = Point { x: 1, y: 2 };
+}

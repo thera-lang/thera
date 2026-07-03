@@ -1,0 +1,35 @@
+//! spec: cf-match-variant-check
+//! mode: check
+
+// A constructor pattern must name a variant of the subject's enum — including
+// nested payload patterns. A capitalized bare pattern is a zero-arg
+// constructor, so a typo'd variant is caught here too. (Previously validated
+// only in codegen: `check` said clean, `emit`/`run` failed.)
+
+enum Color {
+    Red,
+    Green,
+    Blue,
+}
+
+enum Wrap {
+    One(Color),
+    Empty,
+}
+
+fn f(_ c: Color) -> String {
+    return match c {
+        Rd => 'red',        // expect error: unknown variant `Rd`
+        _ => 'other',
+    };
+}
+
+fn g(_ w: Wrap) -> String {
+    return match w {
+        One(Grn) => 'green',   // expect error: unknown variant `Grn`
+        One(_) => 'one',
+        Empty => 'empty',
+    };
+}
+
+fn main() -> Void { }

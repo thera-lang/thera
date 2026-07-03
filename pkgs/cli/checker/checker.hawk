@@ -808,11 +808,21 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
             match struct_scope.resolve_type_def(TypeId { owner: struct_scope.resolve_type_owner(x.type_name, x.namespace), name: x.type_name }) {
                 Some(element) => {
                     if element.kind == TypeDefKind.Struct {
+                        let given: Set<String> = Set.new();
                         for fi in x.fields {
+                            given.add(fi.name);
                             if !element.fields.has(fi.name) {
                                 add_error(errors, 'unknown field "${fi.name}" on type ${x.type_name}', x.span);
                             }
                             check_expr(errors, fi.value, scope, ctx, element.fields.get(fi.name));
+                        }
+                        // Every declared field must be provided — a `check`
+                        // diagnostic, not (only) a codegen failure, so the
+                        // analyzer/LSP sees it too. Same message as codegen's.
+                        for fname in element.fields.keys() {
+                            if !given.has(fname) {
+                                add_error(errors, 'missing field `${fname}` in ${x.type_name} literal', x.span);
+                            }
                         }
                         // Enforce the struct's own parameter bounds against the type
                         // arguments inferred from the fields (`Box<T: Display>` built
@@ -944,6 +954,7 @@ fn check_match(_ errors: List<CheckError>, _ x: MatchExpr, _ scope: Map<String, 
     let subject_type = infer_expr(x.subject, scope, ctx, Option.None);
     let mut reference: Type = expected.unwrap_or(Type.Unknown);
     for arm in x.arms {
+        validate_pattern(errors, arm.pattern, subject_type, ctx);
         let arm_scope = copy_scope(scope);
         bind_match_pattern(arm.pattern, subject_type, arm_scope, ctx);
         check_expr(errors, arm.body, arm_scope, ctx, expected);
@@ -951,6 +962,41 @@ fn check_match(_ errors: List<CheckError>, _ x: MatchExpr, _ scope: Map<String, 
         reference = unify_arm(errors, reference, arm_type, arm.body, ctx);
     }
     check_exhaustive(errors, x, subject_type, ctx);
+}
+
+// A constructor pattern must name a variant of its (known-enum) subject; its
+// payload sub-patterns are validated against that variant's field types. The
+// checker analogue of codegen's `variant_tag` error, so a typo'd variant
+// (`Rd` — a capitalized bare pattern parses as a zero-arg constructor) is a
+// located `check` diagnostic rather than a codegen-only failure. Non-enum and
+// unknown subjects stay lenient.
+fn validate_pattern(_ errors: List<CheckError>, _ pattern: Pattern, _ subject: Type, _ ctx: InferCtx) -> Void {
+    if let Constructor(span, name, args) = pattern {
+        if let Interface(id, _) = subject {
+            if let Some(def) = file_scope(ctx.library, ctx.current_file).resolve_type_def(id) {
+                if def.kind == TypeDefKind.Enum {
+                    match variant_of(def, name) {
+                        Some(v) => {
+                            for p in args.enumerate() {
+                                let ft = if p.index < v.fields.len() { v.fields[p.index] } else { Type.Unknown };
+                                validate_pattern(errors, p.value, ft, ctx);
+                            }
+                        },
+                        None => { add_error(errors, 'unknown variant `${name}`', span); },
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn variant_of(_ def: TypeDefElement, _ name: String) -> Option<EnumVariantElement> {
+    for v in def.variants {
+        if v.name == name {
+            return Option.Some(v);
+        }
+    }
+    return Option.None;
 }
 
 // ---- match exhaustiveness ----

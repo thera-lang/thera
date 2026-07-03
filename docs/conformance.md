@@ -71,6 +71,7 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `type-struct-keyword` | Structs                | the removed `type Name = { … }` form is a parse error      | ✓     |
 | `type-struct-immut` | Structs                  | struct fields immutable by default (non-`mut` assign = error)| ✓    |
 | `type-mut-field`    | Structs                  | a `mut field: T` may be reassigned after construction     | ✓      |
+| `type-struct-fields-required`| Structs         | a struct literal must provide every declared field — a `check` diagnostic | ✓ |
 | `type-field-nonstruct`| Structs                | a bare field access on a non-struct value is rejected     | ✓      |
 
 ## Variables & semantics
@@ -113,6 +114,7 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `cf-match`          | grammar.md Patterns      | match dispatch; exhaustiveness assumption                  | ✓      |
 | `cf-match-nested`   | grammar.md Patterns      | nested constructor patterns bind at leaves                 | ✓      |
 | `cf-match-exhaustive`| grammar.md Patterns     | a match must be exhaustive: enum = all variants or catch-all; Bool = both literals; other subjects = catch-all | ✓ |
+| `cf-match-variant-check`| grammar.md Patterns  | a constructor pattern (incl. nested payloads; capitalized bare = zero-arg constructor) must name a real variant — a `check` diagnostic | ✓ |
 | `cf-match-literal`  | grammar.md Patterns      | int/string/bool literal patterns (not float)               | ✓      |
 | `cf-break-continue` | grammar.md Not-yet       | `break`/`continue` (unimplemented)                        | ⓧ      |
 
