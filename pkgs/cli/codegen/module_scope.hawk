@@ -142,7 +142,11 @@ pub struct ModuleScope {
     globals: Map<String, Map<String, Int>>,
     global_inits: List<GlobalInit>,
     mut next_global_slot: Int,
-    native_fns: Map<String, String>,
+    // Top-level `native fn`s, keyed by **owning file** then Hawk name (owner-
+    // correct): name -> the runtime symbol it binds to. A library's ordinary
+    // `pub fn get` can no longer be hijacked by an unrelated import's native
+    // `get`, and two libraries' same-named natives bind their own symbols.
+    native_fns: Map<String, Map<String, String>>,
     native_static_methods: Map<String, Map<String, String>>,
     native_instance_methods: Map<String, Map<String, String>>,
     interface_impls: Map<String, ImplInfo>, // type_key -> impls
@@ -262,8 +266,42 @@ impl ModuleScope {
 
     // A top-level `native fn`: its name binds to the runtime native named by its
     // `@extern('<symbol>')` decorator (or its own name).
-    pub fn add_native(self, _ decl: FnDecl) -> Void {
-        self.native_fns[decl.name] = extern_symbol(decl);
+    pub fn add_native(self, _ decl: FnDecl, _ file: Option<String>) -> Void {
+        let owner = element.file_key(file);
+        if !self.native_fns.has(owner) {
+            self.native_fns[owner] = {};
+        }
+        if let Some(m) = self.native_fns.get(owner) {
+            m[decl.name] = extern_symbol(decl);
+        }
+    }
+
+    // The runtime symbol of native fn `name` declared in file `owner` (a file
+    // key) — the owner-correct lookup behind a qualified `ns.fn(...)`.
+    pub fn native_in_file(self, _ owner: String, _ name: String) -> Option<String> {
+        return match self.native_fns.get(owner) {
+            Some(m) => m.get(name),
+            None => Option.None,
+        };
+    }
+
+    // The runtime symbol of native fn `name` referenced *bare* from `file`: the
+    // file's own native if it has one, else the one its bare surface (prelude /
+    // `as _` imports) attributes to its owning file. No global fallback —
+    // mirrors `resolve_function`.
+    pub fn resolve_native(self, _ file: Option<String>, _ name: String) -> Option<String> {
+        let key = element.file_key(file);
+        if let Some(m) = self.native_fns.get(key) {
+            if let Some(sym) = m.get(name) {
+                return Option.Some(sym);
+            }
+        }
+        if let Some(surface) = self.library.file_bare_surface.get(key) {
+            if let Some(owner) = surface.get(name) {
+                return self.native_in_file(owner, name);
+            }
+        }
+        return Option.None;
     }
 
     pub fn add_struct(self, _ decl: TypeDecl, _ file: Option<String>) -> Void {

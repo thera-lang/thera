@@ -1,0 +1,17 @@
+//! spec: mod-native-name-isolation
+//! mode: run
+
+import 'libstore' as store;
+import std.env;
+
+// `native fn` bindings are scoped like everything else: a qualified `ns.fn(...)`
+// resolves on `ns`'s own surface. Previously a flat Hawk-name -> runtime-symbol
+// native table was consulted first, so importing std.env anywhere made
+// `store.get(...)` compile to the `env_get` native (a checked-OK program that
+// trapped at runtime). The same-named native still works through its own
+// namespace.
+fn main() -> Void {
+    println(store.get('k'));                      // expect: store:k
+    let path = env.get('PATH');
+    println('${path.is_some()}');                 // expect: true
+}

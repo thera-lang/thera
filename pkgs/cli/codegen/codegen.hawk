@@ -161,7 +161,7 @@ fn register_module(_ scope: ModuleScope, _ program: Program) -> Void {
         match decl {
             Fn(x) => {
                 if x.is_native {
-                    scope.add_native(x);
+                    scope.add_native(x, file);
                 } else {
                     scope.add_function(x, file);
                 }
@@ -1673,7 +1673,7 @@ impl FnCompiler {
                     self.emit(Instr.Call(fn_index, ordered.len()));
                     return;
                 }
-                if let Some(native_fn) = self.scope.native_fns.get(name) {
+                if let Some(native_fn) = self.scope.resolve_native(self.file, name) {
                     // `println`/`print`/`eprintln`/`eprint` render their argument
                     // to a `String` via `Display`, then pass it to the native
                     // (which just writes the string).
@@ -1743,21 +1743,21 @@ impl FnCompiler {
     }
 
     // Namespace-qualified call: `ns.fn(...)`. A `native fn` lowers to a receiver-
-    // less native; an ordinary free function to a direct call.
+    // less native; an ordinary free function to a direct call. Both resolve
+    // within `ns`'s owning library (owner-correct): the member must be on the
+    // namespace's own surface — a flat native table used to let any import's
+    // native `get` hijack an unrelated library's ordinary `pub fn get`.
     fn emit_namespace_call(self, _ x: CallExpr, _ obj: Expr, _ field: String) -> Bool {
         if let Ident(_, ns_name) = obj {
             if self.is_namespace(ns_name) {
-                if let Some(native_sym) = self.scope.native_fns.get(field) {
-                    for arg in x.args {
-                        self.expr(arg.value);
-                    }
-                    self.emit(Instr.CallNative(native_sym, x.args.len()));
-                    return true;
-                }
-                // Resolve the qualified function within `ns`'s owning library
-                // (owner-correct), not a last-wins global table — so two
-                // libraries' same-named functions emit calls to distinct units.
                 if let Some(owner) = file_scope(self.scope.library, self.file).member_owner(ns_name, field) {
+                    if let Some(native_sym) = self.scope.native_in_file(owner, field) {
+                        for arg in x.args {
+                            self.expr(arg.value);
+                        }
+                        self.emit(Instr.CallNative(native_sym, x.args.len()));
+                        return true;
+                    }
                     if let Some(fn_idx) = self.scope.function_in_file(owner, field) {
                         let ordered = self.resolve_args(self.scope.units[fn_idx].params, x.args, x.span);
                         // Thread expected arg types (like the bare-call path), so a
