@@ -124,7 +124,7 @@ pub fn check_source_at(_ source: String, _ path: String, _ sdk_root: Option<Stri
         }
     }
     let result = checker.check_files(program, loaded.programs,
-        loaded.file_namespaces, loaded.file_bare_surface, skip: skip);
+        loaded.file_namespaces, loaded.file_bare_surface, skip: skip, sdk: sdk_prefix(sdk_root));
     for d in check_diagnostics(result.errors, src_map) {
         out.push(d);
     }
@@ -160,7 +160,7 @@ pub fn compile_source_at(_ source: String, _ path: String, _ sdk_root: Option<St
     // check errors.
     let import_diags = load_diagnostics(loaded.diagnostics);
     let result = checker.check_files(program, loaded.programs,
-        loaded.file_namespaces, loaded.file_bare_surface, skip: skip);
+        loaded.file_namespaces, loaded.file_bare_surface, skip: skip, sdk: sdk_prefix(sdk_root));
     if import_diags.len() > 0 || result.errors.len() > 0 {
         for d in check_diagnostics(result.errors, src_map) {
             import_diags.push(d);

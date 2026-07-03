@@ -1,0 +1,41 @@
+//! spec: type-reserved-names
+//! mode: check
+
+// The type names the language itself speaks are reserved (scoping.md "Reserved
+// type names"): declaring them in user code is a check error, whatever the
+// declaration kind. Utility types that merely live in core (BytesBuilder,
+// Args, Indexed, ...) are NOT reserved — semantics attach to the core types by
+// identity, so redeclaring those is ordinary owner-correct shadowing.
+
+struct Result {    // expect error: `Result` is a reserved type name
+    x: Int,
+}
+
+enum Option {      // expect error: `Option` is a reserved type name
+    A,
+    B,
+}
+
+interface Iterator {   // expect error: `Iterator` is a reserved type name
+    fn next(self) -> Int;
+}
+
+struct Error {     // expect error: `Error` is a reserved type name
+    message: String,
+}
+
+struct Void {      // expect error: `Void` is a reserved type name
+    x: Int,
+}
+
+// Not reserved: a utility type that happens to share a core name.
+struct Args {
+    values: List<String>,
+}
+
+// Not reserved: an ordinary user name.
+struct Config {
+    x: Int,
+}
+
+fn main() -> Void { }

@@ -60,11 +60,12 @@ pub fn check(_ program: Program, _ imports: List<Program>,
 pub fn check_files(_ program: Program, _ imports: List<Program>,
     _ file_namespaces: Map<String, Map<String, LibraryNamespace>>,
     _ file_bare_surface: Map<String, Map<String, String>>,
-    skip: Set<String> = Set.new()) -> CheckResult {
+    skip: Set<String> = Set.new(), sdk: Option<String> = Option.None) -> CheckResult {
     let errors: List<CheckError> = [];
     let library = resolver.build_library(program, imports, file_namespaces, file_bare_surface);
     if !skip.has(file_key(program.file_path)) {
         check_duplicates(errors, program, imports);
+        check_reserved_names(errors, program, sdk);
         check_program(errors, program, library, program.file_path);
     }
     for ip in imports {
@@ -72,6 +73,7 @@ pub fn check_files(_ program: Program, _ imports: List<Program>,
             // Same-file duplicates only (`collides` is same-file-only post-T4,
             // so an empty imports list loses nothing and skips a closure rescan).
             check_duplicates(errors, ip, []);
+            check_reserved_names(errors, ip, sdk);
             check_program(errors, ip, library, ip.file_path);
         }
     }
@@ -110,6 +112,55 @@ fn check_duplicates(_ errors: List<CheckError>, _ program: Program, _ imports: L
     }
     collect_names(program, true, names);
     report_dups(errors, names);
+}
+
+// ---- reserved core type names ----
+
+// Type names the language itself speaks — in signatures (`Void`), sugar
+// (`Result`/`Option`/`?`, `#loc`/`SourceLoc`), literals (`List`/`Map`/`Set`/
+// `String`/`Int`/`Bool`/`Double`), protocols (`Iterator`, `Ordering`,
+// `error(...)`/`Error`), or the runtime's value model (`Bytes`). Declaring one
+// in user code would make the reserved meaning ambiguous at every use site, so
+// it is a check error (scoping.md "Reserved type names"). Deliberately *not*
+// the whole core surface: utility types that merely live in core
+// (`BytesBuilder`, `Args`, `Indexed`, …) are ordinary owner-resolved names a
+// user may redeclare. Values (`fn`/`const`) are not reserved either — casing
+// conventions keep them unambiguous.
+fn is_reserved_type_name(_ name: String) -> Bool {
+    return name == 'Result' || name == 'Option' || name == 'Ordering'
+        || name == 'List' || name == 'Map' || name == 'Set'
+        || name == 'String' || name == 'Int' || name == 'Bool' || name == 'Double'
+        || name == 'Bytes' || name == 'Iterator' || name == 'Error'
+        || name == 'SourceLoc' || name == 'Void';
+}
+
+// Flag type declarations (struct/enum/interface, native or not) that take a
+// reserved core type name. The core SDK declares the real ones — the caller
+// exempts it by passing the canonical `<std root>/` prefix as `sdk`.
+fn check_reserved_names(_ errors: List<CheckError>, _ program: Program, _ sdk: Option<String>) -> Void {
+    if let Some(prefix) = sdk {
+        if file_key(program.file_path).starts_with(prefix) {
+            return;
+        }
+    }
+    for decl in program.decls {
+        let found = match decl {
+            Type(x) => if is_reserved_type_name(x.name) { Option.Some(NamedSpan { name: x.name, span: x.name_span }) } else { Option.None },
+            Enum(x) => if is_reserved_type_name(x.name) { Option.Some(NamedSpan { name: x.name, span: x.name_span }) } else { Option.None },
+            Interface(x) => if is_reserved_type_name(x.name) { Option.Some(NamedSpan { name: x.name, span: x.name_span }) } else { Option.None },
+            _ => Option.None,
+        };
+        if let Some(f) = found {
+            add_error(errors, '`${f.name}` is a reserved type name (a Hawk core type); '
+                + 'choose a different name', f.span);
+        }
+    }
+}
+
+// A name with the span to report it at.
+struct NamedSpan {
+    name: String,
+    span: SourceSpan,
 }
 
 // A `const` initializer must be *manifest* — a compile-time constant safe to

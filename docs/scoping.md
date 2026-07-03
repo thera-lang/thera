@@ -75,9 +75,26 @@ A top-level name may shadow a prelude name **within its file** (the file's own
 declaration wins for bare references in that file). Doing so is discouraged — the
 prelude is soft-reserved — and is meant to be diagnosed; the diagnostic was lost
 when duplicate checking became same-file-only (the T4 uniqueness lift) and is
-tracked in [audit_2026_07.md](audit_2026_07.md) (with X1: today a user
-`Result`/`List` silently *inherits builtin semantics*, so shadowing
-prelude/builtin names is an active hazard until that closes).
+tracked in [audit_2026_07.md](audit_2026_07.md).
+
+### Reserved type names
+
+The type names the **language itself speaks** are reserved: user code may not
+declare a `type`/`enum`/`interface` (native or not) named
+
+> `Result`, `Option`, `Ordering`, `List`, `Map`, `Set`, `String`, `Int`,
+> `Bool`, `Double`, `Bytes`, `Iterator`, `Error`, `SourceLoc`, `Void`
+
+— a check error (decision 2026-07). These names appear in signatures (`Void`),
+sugar (`?`/implicit-`Ok`, `#loc`), literals, and protocols (`for` iteration,
+`error(...)`), so a user declaration would make the reserved meaning ambiguous
+at every use site — exactly the confusion Hawk is designed to prevent. The list
+is deliberately *not* the whole core surface: semantics attach to the **core
+types by identity**, never to names, so utility types that merely live in core
+(`BytesBuilder`, `Args`, `Indexed`, …) are ordinary owner-resolved names a user
+library may redeclare. Value names (`fn`/`const`) are not reserved; casing
+conventions keep them unambiguous. Only the core SDK itself declares the real
+ones.
 
 ## The prelude (`std.core`)
 

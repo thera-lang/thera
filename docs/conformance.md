@@ -72,6 +72,7 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `type-struct-immut` | Structs                  | struct fields immutable by default (non-`mut` assign = error)| ✓    |
 | `type-mut-field`    | Structs                  | a `mut field: T` may be reassigned after construction     | ✓      |
 | `type-struct-fields-required`| Structs         | a struct literal must provide every declared field — a `check` diagnostic | ✓ |
+| `type-reserved-names`| scoping.md              | the language's own type names (Result, Option, List, Void, …) may not be declared in user code; core utility names (Args, …) stay free | ✓ |
 | `type-field-nonstruct`| Structs                | a bare field access on a non-struct value is rejected     | ✓      |
 
 ## Variables & semantics
