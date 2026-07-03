@@ -4,8 +4,9 @@
 // The positive half of bidirectional lambda-parameter inference: the expected
 // type reaches a lambda through every context that carries one — including an
 // `if`-expression branch tail and a value block's tail (previously "cannot
-// infer" false positives), and a static-method argument (previously the
-// expected type was never computed for a static receiver).
+// infer" false positives), a static-method argument (previously the expected
+// type was never computed for a static receiver), and a match arm (previously
+// dropped by inference and codegen — checked clean, failed to emit).
 
 struct Counter {
     n: Int,
@@ -35,6 +36,13 @@ fn main() -> Void {
 
     // A lambda argument to a static method, typed from its signature.
     println('${Counter.make((x) => x + 41).n}');   // expect: 42
+
+    // A lambda as a match arm's value, typed from the annotation.
+    let m: (Int) -> Int = match true {
+        true => (x) => x * 2,
+        false => (x) => x,
+    };
+    println('${m(5)}');                            // expect: 10
 
     // Still checked through the if tail: the plain call form.
     let r = if true { apply((x) => x + 1) } else { 0 };

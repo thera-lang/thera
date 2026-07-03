@@ -919,7 +919,7 @@ impl FnCompiler {
             Struct(x) => { self.struct_expr(x); },
             Call(x) => { self.call_expr(x); },
             Propagate(_, inner) => { self.propagate_expr(inner); },
-            Match(x) => { self.match_expr(x); },
+            Match(x) => { self.match_expr(x, expected); },
             Block(_, block) => { self.emit_block_value(block, expected); },
             If(x) => { self.if_expr(x.condition, x.then_block, x.else_block, expected); },
             Return(_, value) => { self.emit_return(value); },
@@ -1060,7 +1060,10 @@ impl FnCompiler {
     // a tag-check chain. The final arm is the fall-through (matches always, given
     // exhaustiveness). A large enum match dispatches on a hoisted tag (computed
     // once) via a balanced binary search instead of the linear chain.
-    fn match_expr(self, _ e: MatchExpr) -> Void {
+    // `expected` threads into every arm body (the codegen mirror of
+    // `infer_match`/`check_match` — CH16), so a lambda in a value arm types its
+    // parameters bidirectionally when the unit is later compiled.
+    fn match_expr(self, _ e: MatchExpr, _ expected: Option<Type>) -> Void {
         let subject_ty = infer_expr(e.subject, self.type_scope, self.ctx, Option.None);
         // Owner-qualified: enum dispatch resolves the codegen type table by the
         // subject's owning library, not its bare name (T3).
@@ -1097,7 +1100,7 @@ impl FnCompiler {
         };
 
         if let Some(plan) = dispatch {
-            self.emit_dispatch(plan, subject, subject_ty, tag_slot.unwrap_or(0), end);
+            self.emit_dispatch(plan, subject, subject_ty, tag_slot.unwrap_or(0), end, expected);
             self.bind(end);
             return;
         }
@@ -1118,12 +1121,12 @@ impl FnCompiler {
             // arms are unreachable).
             if is_last || is_irrefutable(arm.pattern) {
                 self.emit_pattern(arm.pattern, subject, subject_ty, Option.None, Option.None);
-                self.arm_body(arm.body, end, false);
+                self.arm_body(arm.body, end, false, expected);
                 going = false;
             } else {
                 let next = self.new_label();
                 self.emit_pattern(arm.pattern, subject, subject_ty, Option.Some(next), tag_slot);
-                self.arm_body(arm.body, end, true);
+                self.arm_body(arm.body, end, true, expected);
                 self.bind(next);
                 i = i + 1;
             }
@@ -1181,18 +1184,18 @@ impl FnCompiler {
     // Emit a balanced binary search over the (distinct, sorted) case tags, with
     // every miss routed to a single shared default.
     fn emit_dispatch(self, _ plan: DispatchPlan, _ subject: Int, _ subject_ty: Type,
-        _ tag_slot: Int, _ end: Int) -> Void {
+        _ tag_slot: Int, _ end: Int, _ expected: Option<Type>) -> Void {
         let tags = sorted_keys(plan.cases);
         let default_label = self.new_label();
         self.emit_bisect(0, tags.len() - 1, tags, plan.cases, default_label,
-            subject, subject_ty, tag_slot, end);
+            subject, subject_ty, tag_slot, end, expected);
         self.bind(default_label);
-        self.emit_leaf(plan.default_arm, subject, subject_ty, end, false);
+        self.emit_leaf(plan.default_arm, subject, subject_ty, end, false, expected);
     }
 
     fn emit_bisect(self, _ lo: Int, _ hi: Int, _ tags: List<Int>, _ cases: Map<Int, MatchArm>,
         _ default_label: Int, _ subject: Int, _ subject_ty: Type,
-        _ tag_slot: Int, _ end: Int) -> Void {
+        _ tag_slot: Int, _ end: Int, _ expected: Option<Type>) -> Void {
         let mid = (lo + hi) / 2;
         let t = tags[mid];
         let has_left = lo <= mid - 1;
@@ -1202,7 +1205,7 @@ impl FnCompiler {
             self.emit(Instr.ConstInt(t));
             self.emit(Instr.Simple(Op.EqI64));
             self.emit_jump(Jk.IfFalse, default_label);
-            self.emit_leaf(get_case(cases, t), subject, subject_ty, end, true);
+            self.emit_leaf(get_case(cases, t), subject, subject_ty, end, true, expected);
             return;
         }
         // Absent subranges route their branch straight to the default.
@@ -1216,27 +1219,27 @@ impl FnCompiler {
         self.emit(Instr.ConstInt(t));
         self.emit(Instr.Simple(Op.GtI64));
         self.emit_jump(Jk.IfTrue, right_target);
-        self.emit_leaf(get_case(cases, t), subject, subject_ty, end, true); // equal
+        self.emit_leaf(get_case(cases, t), subject, subject_ty, end, true, expected); // equal
         if has_left {
             self.bind(left_target);
             self.emit_bisect(lo, mid - 1, tags, cases, default_label,
-                subject, subject_ty, tag_slot, end);
+                subject, subject_ty, tag_slot, end, expected);
         }
         if has_right {
             self.bind(right_target);
             self.emit_bisect(mid + 1, hi, tags, cases, default_label,
-                subject, subject_ty, tag_slot, end);
+                subject, subject_ty, tag_slot, end, expected);
         }
     }
 
     // The tag is already known at a leaf, so only bind fields (fail = None), then
     // run the body. The pattern's bindings are scoped to the arm.
     fn emit_leaf(self, _ arm: MatchArm, _ subject: Int, _ subject_ty: Type,
-        _ end: Int, _ jump_to_end: Bool) -> Void {
+        _ end: Int, _ jump_to_end: Bool, _ expected: Option<Type>) -> Void {
         let saved = self.enter_scope();
         bind_match_pattern(arm.pattern, subject_ty, self.type_scope, self.ctx);
         self.emit_pattern(arm.pattern, subject, subject_ty, Option.None, Option.None);
-        self.arm_body(arm.body, end, jump_to_end);
+        self.arm_body(arm.body, end, jump_to_end, expected);
         self.exit_scope(saved);
     }
 
@@ -1296,12 +1299,13 @@ impl FnCompiler {
 
     // A match arm body either yields a value (and jumps to the merge point) or
     // transfers control out of the function (return/throw).
-    fn arm_body(self, _ body: Expr, _ end: Int, _ jump_to_end: Bool) -> Void {
+    fn arm_body(self, _ body: Expr, _ end: Int, _ jump_to_end: Bool,
+        _ expected: Option<Type>) -> Void {
         match body {
             Return(_, value) => { self.emit_return(value); },
             Throw(_, value) => { self.emit_throw(value); },
             _ => {
-                self.expr(body);
+                self.expr_expecting(body, expected);
                 if jump_to_end {
                     self.emit_jump(Jk.Jump, end);
                 }

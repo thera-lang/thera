@@ -770,19 +770,27 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
             // Receiver type args on a static call (`Set<String>.new()`): validate
             // them as types and against the receiver type's parameters.
             check_recv_type_args(errors, x, ctx);
+            // Infer each argument ONCE, with its expected type, and hand the
+            // resulting types to every downstream validator — argument typing,
+            // bound checking, and inferability all see the *same* types the
+            // call was checked with (CH19: previously each re-inferred, up to
+            // five walks per argument, and check_bounds inferred with no
+            // expected type — different types than were checked).
             let expected_params = expected_arg_types(x.callee, x.args, scope, ctx);
+            let arg_types: List<Type> = [];
             for p in x.args.enumerate() {
                 let exp = match expected_params {
                     Some(eps) => if p.index < eps.len() { Option.Some(eps[p.index]) } else { Option.None },
                     None => Option.None,
                 };
                 check_expr(errors, p.value.value, scope, ctx, exp);
+                arg_types.push(infer_expr(p.value.value, scope, ctx, exp));
             }
             match x.callee {
                 Ident(_, name) => {
                     if let Some(fn_el) = file_scope(ctx.library, ctx.current_file).resolve_function(name) {
-                        check_call_args(errors, fn_el, {}, x.args, x.span, scope, ctx);
-                        check_inferable_type_args(errors, fn_el, fn_el.type_parameters, x, expected, scope, ctx);
+                        check_call_args(errors, fn_el, {}, x.args, arg_types, x.span, ctx);
+                        check_inferable_type_args(errors, fn_el, fn_el.type_parameters, x, expected, arg_types, ctx);
                     }
                 },
                 Field(_, recv, field) => {
@@ -795,8 +803,8 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
                     check_qualified_receiver(errors, recv, field, x.span, scope, ctx);
                     match resolve_ns_or_static_call(recv, field, scope, ctx) {
                         Some(target) => {
-                            check_call_args(errors, target.fn_el, {}, x.args, x.span, scope, ctx);
-                            check_inferable_type_args(errors, target.fn_el, target.type_params, x, expected, scope, ctx);
+                            check_call_args(errors, target.fn_el, {}, x.args, arg_types, x.span, ctx);
+                            check_inferable_type_args(errors, target.fn_el, target.type_params, x, expected, arg_types, ctx);
                         },
                         None => {
                             let recv_type = infer_expr(recv, scope, ctx, Option.None);
@@ -806,7 +814,7 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
                                 // The method resolved — validate its arguments
                                 // (arity, labels, types) against the signature.
                                 if let Some(res) = resolve_method(recv_type, field, ctx) {
-                                    check_call_args(errors, res.method, res.bindings, x.args, x.span, scope, ctx);
+                                    check_call_args(errors, res.method, res.bindings, x.args, arg_types, x.span, ctx);
                                 }
                             };
                         },
@@ -1183,8 +1191,8 @@ fn arms_compatible(_ a: Type, _ b: Type, _ lib: LibraryElement) -> Bool {
 // ---- call checking ----
 
 fn check_call_args(_ errors: List<CheckError>, _ fn_el: FunctionElement,
-    _ bindings: Map<String, Type>, _ args: List<CallArg>,
-    _ span: SourceSpan, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Void {
+    _ bindings: Map<String, Type>, _ args: List<CallArg>, _ arg_types: List<Type>,
+    _ span: SourceSpan, _ ctx: InferCtx) -> Void {
     let params = non_self_params(fn_el.parameters);
 
     // Every named argument label must be a declared parameter label.
@@ -1229,12 +1237,12 @@ fn check_call_args(_ errors: List<CheckError>, _ fn_el: FunctionElement,
             // becomes the receiver's element); for a free function `bindings`
             // is empty and this is a no-op.
             let pty = substitute(p.ty, bindings);
-            let actual = infer_expr(arg.value, scope, ctx, Option.Some(pty));
+            let actual = if ip.index < arg_types.len() { arg_types[ip.index] } else { Type.Unknown };
             expect_type(errors, actual, pty, 'argument to "${fn_el.name}"', span, ctx.library);
         }
     }
 
-    check_bounds(errors, fn_el, params, bindings, args, span, scope, ctx);
+    check_bounds(errors, fn_el, params, bindings, args, arg_types, span, ctx);
 }
 
 // Enforce generic bounds at a call site: infer each type parameter's binding
@@ -1242,8 +1250,8 @@ fn check_call_args(_ errors: List<CheckError>, _ fn_el: FunctionElement,
 // declared interface bound (`fn f<T: Display>(x: T)` rejects `f(5)`).
 fn check_bounds(_ errors: List<CheckError>, _ fn_el: FunctionElement,
     _ params: List<ParameterElement>, _ recv_bindings: Map<String, Type>,
-    _ args: List<CallArg>, _ span: SourceSpan,
-    _ scope: Map<String, Type>, _ ctx: InferCtx) -> Void {
+    _ args: List<CallArg>, _ arg_types: List<Type>, _ span: SourceSpan,
+    _ ctx: InferCtx) -> Void {
     if fn_el.type_parameter_bounds.len() == 0 {
         return;
     }
@@ -1256,7 +1264,9 @@ fn check_bounds(_ errors: List<CheckError>, _ fn_el: FunctionElement,
         if let Some(p) = param {
             // Make receiver generics concrete first, so unification recovers
             // only the callee's *own* type parameters (those carrying bounds).
-            let actual = infer_expr(ip.value.value, scope, ctx, Option.None);
+            // The argument types are the ones the call was checked with — not a
+            // fresh expected-free re-inference (the CH19 divergence).
+            let actual = if ip.index < arg_types.len() { arg_types[ip.index] } else { Type.Unknown };
             unify(substitute(p.ty, recv_bindings), actual, bindings);
         }
     }
@@ -1320,23 +1330,14 @@ fn check_recv_type_args(_ errors: List<CheckError>, _ x: CallExpr, _ ctx: InferC
 // parameter position is bound by its argument and so never reported here.
 fn check_inferable_type_args(_ errors: List<CheckError>, _ fn_el: FunctionElement,
     _ type_params: List<String>, _ call: CallExpr, _ expected: Option<Type>,
-    _ scope: Map<String, Type>, _ ctx: InferCtx) -> Void {
+    _ arg_types: List<Type>, _ ctx: InferCtx) -> Void {
     if type_params.len() == 0 {
         return;
     }
-    // Infer the arguments bidirectionally (as the call itself does), so a lambda
-    // argument takes its parameter types from the callee's signature and pins the
-    // type parameters it determines — otherwise a `(x) => …` would type as
-    // `(Unknown) -> Unknown` and leave its result parameter spuriously unbound.
-    let expected_params = expected_arg_types(call.callee, call.args, scope, ctx);
-    let arg_types: List<Type> = [];
-    for p in call.args.enumerate() {
-        let exp = match expected_params {
-            Some(eps) => if p.index < eps.len() { Option.Some(eps[p.index]) } else { Option.None },
-            None => Option.None,
-        };
-        arg_types.push(infer_expr(p.value.value, scope, ctx, exp));
-    }
+    // `arg_types` is the Call arm's one bidirectional inference of the
+    // arguments (a lambda's parameter types come from the callee's signature,
+    // pinning the type parameters it determines) — reused here rather than
+    // re-derived (CH19).
     // The parameters not declared by the callee itself are the owner's (a static
     // method's `Set<T>`); receiver type args (`Set<String>.new()`) bind those.
     let owner_params: List<String> = [];

@@ -98,7 +98,7 @@ pub fn infer_expr(_ expr: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx,
         Unary(_, op, operand) => infer_unary(op, operand, scope, ctx),
         Propagate(_, inner) => infer_propagate(inner, scope, ctx),
         Range(_, _, _) => Type.Unknown, // no first-class Range type yet
-        Match(x) => infer_match(x, scope, ctx),
+        Match(x) => infer_match(x, scope, ctx, expected),
         Lambda(x) => infer_lambda(x, scope, ctx, expected),
         Block(_, block) => infer_block(block, scope, ctx, expected),
         If(x) => infer_if(x, scope, ctx, expected),
@@ -196,13 +196,17 @@ fn infer_propagate(_ inner: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx) -
     };
 }
 
-fn infer_match(_ x: MatchExpr, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
+// The expected type threads into every arm body, mirroring `check_match` — a
+// lambda in a match arm types its parameters bidirectionally (CH16: dropping
+// it here left the value type Unknown while the checker accepted the arm).
+fn infer_match(_ x: MatchExpr, _ scope: Map<String, Type>, _ ctx: InferCtx,
+    _ expected: Option<Type>) -> Type {
     let subject_type = infer_expr(x.subject, scope, ctx, Option.None);
     let mut result: Type = Type.Unknown;
     for arm in x.arms {
         let arm_scope = copy_scope(scope);
         bind_match_pattern(arm.pattern, subject_type, arm_scope, ctx);
-        let arm_type = infer_expr(arm.body, arm_scope, ctx, Option.None);
+        let arm_type = infer_expr(arm.body, arm_scope, ctx, expected);
         match result {
             Unknown => { result = arm_type; },
             _ => {},
