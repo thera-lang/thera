@@ -89,6 +89,7 @@ pub struct PendingDispatch {
     owner: String,
     type_name: String,
     selector: String,
+    span: SourceSpan, // the impl method (or wired default) the row came from
 }
 
 // A concrete type's interface implementations — a set of owner-qualified
@@ -562,8 +563,9 @@ impl ModuleScope {
         }
     }
 
-    pub fn add_dispatch(self, _ owner: String, _ type_name: String, _ selector: String) -> Void {
-        self.pending_dispatch.push(PendingDispatch { owner: owner, type_name: type_name, selector: selector });
+    pub fn add_dispatch(self, _ owner: String, _ type_name: String, _ selector: String,
+        _ span: SourceSpan) -> Void {
+        self.pending_dispatch.push(PendingDispatch { owner: owner, type_name: type_name, selector: selector, span: span });
     }
 
     // Register a lifted lambda as a synthetic top-level unit; returns its
@@ -677,15 +679,28 @@ impl ModuleScope {
             if let Some(tm) = self.method_table.get(key) {
                 if !tm.has(method) {
                     tm[method] = idx;
-                    self.add_dispatch(owner, type_name, method);
+                    self.add_dispatch(owner, type_name, method, self.units[idx].span);
                 }
             }
         }
     }
 
-    // Resolve the pending dispatch rows into the module's dispatch table.
-    pub fn build_dispatch(self) -> List<DispatchEntry> {
+    // Resolve the pending dispatch rows into the module's dispatch table. Must
+    // run after every module has registered (methods + structs/enums) and after
+    // `wire_default_methods` — rows reference the finished tables, and the entry
+    // order (registration order) is part of the module's canonical byte layout
+    // (the fixpoint compares it).
+    //
+    // A row whose target type has no runtime type-table entry is dropped *by
+    // design*: `impl … for Int`/`String`/… target native types, whose virtual
+    // selectors the runtime resolves via its own fallbacks. A row whose target
+    // exists but whose method unit is missing, though, is an internal
+    // inconsistency — the impl's method never registered — reported via
+    // `unresolved` (CG10: previously dropped silently, leaving a "no method"
+    // trap at runtime).
+    pub fn build_dispatch(self) -> DispatchBuild {
         let entries: List<DispatchEntry> = [];
+        let unresolved: List<PendingDispatch> = [];
         for row in self.pending_dispatch {
             let func = match self.method_table.get(type_key(row.owner, row.type_name)) {
                 Some(m) => m.get(row.selector),
@@ -695,14 +710,22 @@ impl ModuleScope {
                 Some(si) => Option.Some(si.index),
                 None => self.resolve_enum(row.owner, row.type_name).map((ei) => ENUM_DISPATCH_BASE | ei.ty),
             };
-            if let Some(f) = func {
-                if let Some(tid) = type_id {
-                    entries.push(DispatchEntry { type_id: tid, selector: row.selector, func: f });
+            if let Some(tid) = type_id {
+                match func {
+                    Some(f) => { entries.push(DispatchEntry { type_id: tid, selector: row.selector, func: f }); },
+                    None => { unresolved.push(row); },
                 }
             }
         }
-        return entries;
+        return DispatchBuild { entries: entries, unresolved: unresolved };
     }
+}
+
+// `build_dispatch`'s result: the resolved dispatch table, plus any rows that
+// should have resolved but didn't (internal inconsistencies the caller reports).
+pub struct DispatchBuild {
+    entries: List<DispatchEntry>,
+    unresolved: List<PendingDispatch>,
 }
 
 // --- decorator / native-symbol helpers ---

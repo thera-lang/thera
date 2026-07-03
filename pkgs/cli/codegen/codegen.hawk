@@ -138,11 +138,22 @@ pub fn compile_program(_ program: Program, _ imports: List<Program>,
     // root of the checker/codegen inference-disagreement bug class.
     if let Some(_) = env.get('HAWK_INFER_ORACLE') { run_infer_oracle(scope); }
 
+    // Dispatch rows that should have resolved but didn't are internal
+    // inconsistencies (an impl method that never registered) — surface them
+    // instead of shipping a module that traps "no method" at runtime (CG10).
+    let dispatch = scope.build_dispatch();
+    for row in dispatch.unresolved {
+        errors.push(CodegenError {
+            message: 'internal: unresolved dispatch row `${row.type_name}.${row.selector}`',
+            span: row.span,
+        });
+    }
+
     return CodegenResult {
         module: Module {
             functions: functions,
             types: scope.types,
-            dispatch: scope.build_dispatch(),
+            dispatch: dispatch.entries,
             global_count: scope.next_global_slot,
         },
         errors: errors,
@@ -210,7 +221,7 @@ fn register_module(_ scope: ModuleScope, _ program: Program) -> Void {
                     }
                     if let Some(_) = x.interface_name {
                         if !is_static && !method.is_native {
-                            scope.add_dispatch(owner, x.type_name, method.name);
+                            scope.add_dispatch(owner, x.type_name, method.name, method.span);
                         }
                     }
                 }
@@ -1622,52 +1633,36 @@ impl FnCompiler {
 
     // The bare type name a (possibly namespace-qualified) type expression refers
     // to, when it names a struct/enum/built-in type and isn't shadowed by a local.
+    // (The native static-method table is name-keyed; everything else keys off the
+    // owner-carrying form below.)
     fn static_type_name(self, _ e: Expr) -> Option<String> {
-        match e {
-            Ident(_, name) => {
-                if !self.slots.has(name) && self.is_type_name(name) {
-                    return Option.Some(name);
-                }
-            },
-            Field(_, inner, field) => {
-                if let Ident(_, ns_name) = inner {
-                    if self.is_namespace(ns_name) && self.is_type_name(field) {
-                        return Option.Some(field);
-                    }
-                }
-            },
-            _ => {},
-        }
-        return Option.None;
+        return self.static_type_id(e).map((t) => t.name);
     }
 
     // The owner-correct identity of a static type-name receiver — a bare `Type` or
     // a qualified `ns.Type` — resolved through this file's scope so a name two
-    // libraries share reaches the one this file sees (Phase 1 T4 follow-up). The
-    // owner-carrying analogue of `static_type_name`, used to key the type table.
+    // libraries share reaches the one this file sees. Scope-aware, not
+    // existence-anywhere (CG9): a type this file can't reach does not classify a
+    // bare name as a type — matching the checker's view — and a local always
+    // shadows.
     fn static_type_id(self, _ e: Expr) -> Option<TypeId> {
         let fs = file_scope(self.scope.library, self.file);
         match e {
             Ident(_, name) => {
-                if !self.slots.has(name) && self.is_type_name(name) {
-                    return Option.Some(TypeId { owner: fs.resolve_type_owner(name, Option.None), name: name });
+                if !self.slots.has(name) {
+                    return receiver_type_id(fs, name, Option.None);
                 }
             },
             Field(_, inner, field) => {
                 if let Ident(_, ns_name) = inner {
-                    if self.is_namespace(ns_name) && self.is_type_name(field) {
-                        return Option.Some(TypeId { owner: fs.resolve_type_owner(field, Option.Some(ns_name)), name: field });
+                    if self.is_namespace(ns_name) {
+                        return receiver_type_id(fs, field, Option.Some(ns_name));
                     }
                 }
             },
             _ => {},
         }
         return Option.None;
-    }
-
-    fn is_type_name(self, _ name: String) -> Bool {
-        return self.scope.has_struct_or_enum(name)
-            || is_builtin_type_name(name);
     }
 
     // --- calls ---
@@ -1929,16 +1924,30 @@ impl FnCompiler {
             Some(t) => Option.Some(t),
             None => match self.type_id_of(receiver) {
                 Some(t) => Option.Some(t),
-                // A primitive receiver carries no `Interface` TypeId; key it by its
-                // registry owner (`type_id_for`), which matches how `impl Int`/… was
-                // registered (`owner_of` resolves the same owner for a primitive).
-                None => self.type_of(receiver).map((n) => self.scope.type_id_for(n)),
+                // A primitive receiver carries no `Interface` TypeId; key it by
+                // the *core* registry identity (`impl Int`/… registered against
+                // the core declaration — `owner_of` resolves the same owner).
+                // Nothing else falls back: a type-parameter or unknown receiver
+                // has no method-table identity (CG8 — this was a flat by-name
+                // lookup any same-named type could satisfy).
+                None => self.primitive_receiver_id(receiver),
             },
         };
         if let Some(t) = id {
             if let Some(m) = self.scope.method_table.get(type_key(t.owner, t.name)) { return m.get(name); }
         }
         return Option.None;
+    }
+
+    // The inferred type of a primitive-typed receiver as a method-table identity:
+    // the core registry entry for its type name. None for anything non-primitive.
+    fn primitive_receiver_id(self, _ receiver: Expr) -> Option<TypeId> {
+        let t = infer_expr(receiver, self.type_scope, self.ctx, Option.None);
+        return match t {
+            Primitive(_) => name_of_type(t).map((n) =>
+                TypeId { owner: element.core_owner(self.scope.library, n), name: n }),
+            _ => Option.None,
+        };
     }
 
     // `e.name()` — the variant name, looked up from the enum tag (a tag-check
@@ -2776,15 +2785,20 @@ fn find_field_init(_ fields: List<FieldInit>, _ name: String) -> Option<Expr> {
     return Option.None;
 }
 
-// Names recognized as built-in types when classifying a *static receiver*
-// (`String.from_chars(...)`). Name-based is sound for the reserved entries
-// (scoping.md — nothing else can legally carry them); `BytesBuilder` rides
-// along until static-method natives are owner-keyed.
-fn is_builtin_type_name(_ name: String) -> Bool {
-    return name == 'String' || name == 'Bytes' || name == 'BytesBuilder'
-        || name == 'Int' || name == 'Bool' || name == 'Double'
-        || name == 'Void' || name == 'List' || name == 'Map' || name == 'Set'
-        || name == 'Result' || name == 'Option';
+// `name` (optionally qualified by `ns`) as a static-receiver type identity: the
+// type this file's scope resolves — same-file, bare surface, built-in, or the
+// namespace's public surface — when its definition is a struct, enum, or
+// built-in (an interface has no static-receiver form).
+fn receiver_type_id(_ fs: FileScope, _ name: String, _ ns: Option<String>) -> Option<TypeId> {
+    let id = TypeId { owner: fs.resolve_type_owner(name, ns), name: name };
+    // No explicit unresolved (`''`) guard: `''` is also the anonymous program's
+    // real file key (EL11's double duty), and hermetic/in-memory programs own
+    // their types under it. The per-file def lookup disambiguates — a real miss
+    // has no `''` table to hit.
+    return match fs.resolve_type_def(id) {
+        Some(def) => if def.kind == element.TypeDefKind.Interface { Option.None } else { Option.Some(id) },
+        None => Option.None,
+    };
 }
 
 fn is_arithmetic(_ op: String) -> Bool {
