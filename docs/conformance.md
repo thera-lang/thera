@@ -164,6 +164,7 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `mod-shared-type-name`| scoping.md              | two libraries may share a top-level *type* name; each qualified `ns.T` constructs/resolves its own library's type (type-uniqueness lift) | ✓ |
 | `mod-import-resolve-error`| Imports            | an import that doesn't resolve is a located diagnostic at the import decl (not a silent no-op / downstream `undefined name`) | ✓ |
 | `mod-one-name-space`| scoping.md               | one name space per scope: a file introduces a top-level name once, across all kinds (fn/type/const/let/import namespace) | ✓ |
+| `mod-bare-collision`| scoping.md               | two `import … as _` exposing one public name is an error at the second import (barrel collisions likewise, at the barrel — unit-tested) | ✓ |
 | `vis-pub`           | Visibility               | non-`pub` top-level is file-private (enforced)            | ✓      |
 | `vis-barrel`        | Visibility               | barrel re-exports a directory library's symbols (std.cli) | ◐      |
 | `vis-whitebox-test` | Visibility / Testing     | `foo_test.hawk` sees `foo.hawk` privates (bare)           | ✓      |

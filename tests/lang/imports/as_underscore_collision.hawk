@@ -1,0 +1,13 @@
+//! spec: mod-bare-collision
+//! mode: check
+
+// Two `import … as _` that expose the same public name make every bare use of
+// it ambiguous — the collision itself is the error, at the second import
+// (scoping.md: resolve it by importing one of them normally).
+
+import 'libshare_a' as _;
+import 'libshare_b' as _;   // expect error: two `import … as _` imports expose `shared_util` unqualified
+
+fn main() -> Void {
+    let x = only_a() + only_b();
+}

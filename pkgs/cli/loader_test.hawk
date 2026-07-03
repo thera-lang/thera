@@ -229,6 +229,59 @@ fn test_broken_imports_are_diagnosed() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
+// Surface collisions are the exposing file's error (one name space per scope,
+// at the import/export surface): a barrel whose `pub import` re-exposes a name
+// it already exposes from another file, and two `as _` imports exposing the
+// same unqualified name, are each diagnosed at the offending import decl.
+// Same-origin re-exposure (a diamond) is not a collision.
+@test
+fn test_surface_collisions_are_diagnosed() -> Result<Void, Error> {
+    let dir = canonical_path(fs.temp_dir() + '/hawk_loader_surface_collision_test');
+    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    fs_ok(fs.create_dir_all(dir), 'create fixture dir')?;
+    fs_ok(fs.write_text(dir + '/inner_a.hawk', 'pub fn deep() -> Int { return 1; }\n'), 'write inner_a')?;
+    fs_ok(fs.write_text(dir + '/inner_b.hawk', 'pub fn deep() -> Int { return 2; }\n'), 'write inner_b')?;
+    // A colliding barrel (line 2 is the offending pub import) …
+    fs_ok(fs.write_text(dir + '/barrel.hawk',
+        'pub import \'inner_a\';\npub import \'inner_b\';\n'), 'write barrel')?;
+    // … a diamond (both routes reach inner_a — not a collision) …
+    fs_ok(fs.write_text(dir + '/route.hawk', 'pub import \'inner_a\';\n'), 'write route')?;
+    fs_ok(fs.write_text(dir + '/diamond.hawk',
+        'pub import \'inner_a\';\npub import \'route\';\n'), 'write diamond')?;
+    // … and a main whose two `as _` imports collide (line 3).
+    fs_ok(fs.write_text(dir + '/main.hawk',
+        'import \'diamond\';\nimport \'inner_a\' as _;\nimport \'inner_b\' as _;\n'
+        + 'import \'barrel\';\nfn main() -> Void { }\n'), 'write main')?;
+
+    let loaded = match fs.read_text(dir + '/main.hawk') {
+        Ok(src) => load_imports(dir + '/main.hawk',
+            parse_tokens(tokenize(src).tokens).program, Option.None),
+        Err(e) => { return Result.Err(error('read main: ${e.message()}')); },
+    };
+    testing.assert_eq(actual: loaded.diagnostics.len(), expected: 2)?;
+    let mut barrel_seen = false;
+    let mut bare_seen = false;
+    for d in loaded.diagnostics {
+        if d.message.contains('barrel') {
+            barrel_seen = true;
+            testing.assert(d.message.contains('`deep`'), message: 'barrel names the name: ${d.message}')?;
+            testing.assert(d.file.ends_with('/barrel.hawk'),
+                message: 'barrel collision attributed to the barrel: ${d.file}')?;
+            testing.assert_eq(actual: d.span.line, expected: 2)?;
+        }
+        if d.message.contains('as _') {
+            bare_seen = true;
+            testing.assert(d.file.ends_with('/main.hawk'),
+                message: 'bare collision attributed to the importer: ${d.file}')?;
+            testing.assert_eq(actual: d.span.line, expected: 3)?;
+        }
+    }
+    testing.assert(barrel_seen && bare_seen, message: 'both collision kinds diagnosed')?;
+
+    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    return Result.Ok(void);
+}
+
 // A `std.*` import that can't resolve says why: no SDK at all vs a module the
 // SDK doesn't have.
 @test

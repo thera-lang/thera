@@ -439,6 +439,7 @@ pub fn load_imports(_ path: String, _ program: Program, _ sdk_root: Option<Strin
         file_namespaces[key] = namespaces_for(src);
         file_bare_surface[key] = bare_surface_for(src, core_names);
         file_imports[key] = import_edges_of(src);
+        collect_surface_collisions(src, loader.diagnostics);
     }
     return LoadedImports {
         programs: loader.order,
@@ -507,6 +508,74 @@ fn bare_surface_for(_ root: LibrarySource, _ core_names: Map<String, String>) ->
         }
     }
     return names;
+}
+
+// The one-name-space rule at a file's import/export surface (scoping.md):
+//
+// - **A colliding barrel is the barrel author's error.** A `pub import` whose
+//   flattened public surface would re-expose a name this file already exposes
+//   (an own `pub` decl, or an earlier `pub import`) from a *different* origin
+//   file is diagnosed at that `pub import` — never at a consumer.
+// - **Two `import … as _` exposing one name make every bare use ambiguous** —
+//   diagnosed at the second import; the fix is importing one of them with a
+//   namespace.
+//
+// Same-origin re-exposure (a diamond of re-exports reaching one declaring
+// file) is not a collision. Prelude and white-box-test names are not checked
+// here: a file's *own* declarations may shadow the prelude (soft-reserved),
+// and the existing insertion order implements that precedence.
+fn collect_surface_collisions(_ src: LibrarySource, _ diags: List<LoadDiagnostic>) -> Void {
+    let file = src.program.file_path.unwrap_or('');
+    // name -> origin file, for the barrel (public) and bare (`as _`) surfaces.
+    let exposed: Map<String, String> = {};
+    let bare: Map<String, String> = {};
+    for decl in src.program.decls {
+        if let Some(n) = public_name(decl) {
+            exposed[n] = element.file_key(src.program.file_path);
+        }
+    }
+    for decl in src.program.decls {
+        if let Import(x) = decl {
+            if let Some(child) = src.imports.get(x.path) {
+                if x.is_pub {
+                    let surf = public_surface_of(child);
+                    for n in surf.names.to_list() {
+                        let origin = surf.origin.get(n).unwrap_or(element.file_key(child.program.file_path));
+                        match exposed.get(n) {
+                            Some(prior) => {
+                                if prior != origin {
+                                    diags.push(LoadDiagnostic {
+                                        message: 'this `pub import` re-exposes `${n}`, which the barrel already exposes; a barrel must expose each public name from one file',
+                                        span: x.span,
+                                        file: file,
+                                    });
+                                }
+                            },
+                            None => { exposed[n] = origin; },
+                        }
+                    }
+                }
+                if x.unqualified {
+                    let surf = public_surface_of(child);
+                    for n in surf.names.to_list() {
+                        let origin = surf.origin.get(n).unwrap_or(element.file_key(child.program.file_path));
+                        match bare.get(n) {
+                            Some(prior) => {
+                                if prior != origin {
+                                    diags.push(LoadDiagnostic {
+                                        message: 'two `import … as _` imports expose `${n}` unqualified; import one of them with a namespace',
+                                        span: x.span,
+                                        file: file,
+                                    });
+                                }
+                            },
+                            None => { bare[n] = origin; },
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 // `<base>` for a `<base>_test.hawk` source file, else None.
