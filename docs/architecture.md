@@ -334,7 +334,11 @@ is which turns on whether the command's product is an **artifact** or its
   test runners (`cargo test`, `go test`, pytest), and keeps a future
   `--json`/SARIF mode on the same stream so `hawk check --json | jq` works.
   Pass/fail is _also_ on the **exit code** (`check`: 0 clean / 1 diagnostics / 2
-  missing target; `test`: the failure count).
+  missing target; `test`: the failure count). Note the asymmetry this implies:
+  a test file that fails to **compile** produces no test results — that's an
+  operational failure of the run, so `hawk test` sends those compile
+  diagnostics to **stderr**, even though `hawk check` would put the identical
+  lines on stdout (where they are the product). Deliberate, not drift.
 - `emit` is a **compiler** — its product is the `.hawkbc`, so its diagnostics are
   "why the build failed" and go to **stderr** (the rustc/clang convention),
   leaving stdout clean.
