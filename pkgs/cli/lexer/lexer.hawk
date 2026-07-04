@@ -85,6 +85,7 @@ impl Lexer {
             kind: TokenKind.Eof,
             span: self.span_at(self.pos, 0),
             value: Option.None,
+            interps: [],
         });
         return LexResult { tokens: self.tokens, comments: self.comments, errors: self.errors };
     }
@@ -162,6 +163,7 @@ impl Lexer {
             kind: kind,
             span: self.span_from(self.ts_offset, self.ts_line, self.ts_col),
             value: Option.None,
+            interps: [],
         });
     }
 
@@ -336,6 +338,7 @@ impl Lexer {
 
     fn scan_string(self, _ quote: Int) -> Void {
         let buf: List<Int> = [];
+        let interps: List<SourceSpan> = [];
         while !self.at_end() && self.ch() != quote {
             if self.ch() == char.BACKSLASH {
                 let eo = self.pos;
@@ -347,7 +350,7 @@ impl Lexer {
                     self.scan_string_escape(buf, eo, el, ec);
                 }
             } else if self.ch() == char.DOLLAR && self.peek() == char.LBRACE {
-                self.scan_interpolation(buf);
+                self.scan_interpolation(buf, interps);
             } else {
                 buf.push(self.ch());
                 self.advance();
@@ -362,17 +365,21 @@ impl Lexer {
             kind: TokenKind.StringLiteral,
             span: self.span_from(self.ts_offset, self.ts_line, self.ts_col),
             value: Option.Some(String.from_chars(buf)),
+            interps: interps,
         });
     }
 
     // Capture a `${...}` interpolation verbatim into `buf` so the parser can
     // split it later. Tracks brace depth, but copies nested string literals
     // whole so a `}` inside one (e.g. `${ m['}'] }`) doesn't close it early.
-    fn scan_interpolation(self, _ buf: List<Int>) -> Void {
+    fn scan_interpolation(self, _ buf: List<Int>, _ interps: List<SourceSpan>) -> Void {
         buf.push(char.DOLLAR);
         self.advance(); // $
         buf.push(char.LBRACE);
         self.advance(); // {
+        let start = self.pos;
+        let start_line = self.line;
+        let start_col = self.col;
         let mut depth = 1;
         while !self.at_end() && depth > 0 {
             let ic = self.ch();
@@ -408,6 +415,16 @@ impl Lexer {
                 self.advance();
             }
         }
+        // The expression's source region: between `${` and its matching `}`
+        // (consumed last when depth hit 0; on an unterminated string, to EOF).
+        let end = if depth == 0 { self.pos - 1 } else { self.pos };
+        interps.push(SourceSpan {
+            source: self.source,
+            offset: start,
+            length: end - start,
+            line: start_line,
+            column: start_col,
+        });
     }
 
     // Decode one escape into `buf`. The backslash is already consumed; `ch()` is
@@ -548,18 +565,20 @@ impl Lexer {
                 kind: TokenKind.Underscore,
                 span: span,
                 value: Option.None,
+                interps: [],
             });
             return;
         }
         match keyword_kind(text) {
             Some(k) => {
-                self.tokens.push(Token { kind: k, span: span, value: Option.None });
+                self.tokens.push(Token { kind: k, span: span, value: Option.None, interps: [] });
             },
             None => {
                 self.tokens.push(Token {
                     kind: TokenKind.Identifier,
                     span: span,
                     value: Option.Some(text),
+                    interps: [],
                 });
             },
         }

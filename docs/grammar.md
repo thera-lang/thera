@@ -394,6 +394,14 @@ checklist; items that are planned link to [roadmap.md](roadmap.md).
 **Parser limitations (not language decisions)**
 
 - Generic call type-arguments use a lookahead heuristic
-  (`_looksLikeTypeArgList`) that bails on **nested** generics in call position,
-  e.g. `f<Result<T, E>>(…)`. Annotated positions (`let`, params) handle nesting
-  fine; only the `name<…>(…)` call form is limited.
+  (`looks_like_type_arg_list`) that bails on **nested** generics in call
+  position, e.g. `f<Result<T, E>>(…)` — and therefore also the receiver form
+  `Map<String, List<Int>>.new()`, which is unwritable today. Annotated
+  positions (`let`, params) handle nesting fine; only the `name<…>(…)` /
+  `Type<…>.m(…)` call forms are limited.
+- The `<` disambiguation: `name<Idents…>` followed by `(` or `.` commits to
+  type arguments (so a comparison chain `a < b > c` parses as comparisons —
+  ill-typed, but syntactically comparisons). The residual `a < b > (c)`
+  ambiguity resolves the generic-call way (as in C#); the checker then rejects
+  type arguments on a non-generic callee, so the comparison reading must be
+  written parenthesized: `(a < b) > (c)`.

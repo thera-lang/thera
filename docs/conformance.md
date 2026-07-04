@@ -29,6 +29,8 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | ID                  | Spec (grammar.md)        | Pins                                                        | Status |
 | ------------------- | ------------------------ | ---------------------------------------------------------- | ------ |
 | `lex-comments`      | Comments & whitespace    | `//` line comments only; no block comments                 | ✓      |
+| `lex-interp-errors` | Strings / Interpolation | a syntax error inside `${...}` is a located parse error with a real file span (empty `${}` and trailing tokens included) | ✓ |
+| `parse-recovery-sync` | Parsing / Recovery | error recovery resyncs at a top-level declaration boundary, brace-aware — no phantom declarations or cascades | ✓ |
 | `lex-int`           | Literals                 | decimal + `0x` hex; hex wraps into signed `Int`            | ✓      |
 | `lex-float`         | Literals                 | digits both sides of `.`; no `1.` / `.5` / exponent        | ✓      |
 | `lex-string-escape` | Literals                 | the 7 escapes + `\xNN` + `\u{…}`; unknown escape = error    | ✓      |
@@ -48,6 +50,7 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `expr-range`        | Operator precedence      | `a..b`, non-associative                                    | ◐      |
 | `expr-concat`       | language.md Types        | `+` concatenates strings                                   | ✓      |
 | `expr-operator-types`| Operator precedence     | operands type-checked: same-typed Int/Double (+String for `+`), Bool for logical/`!`, Int for `%`/bitwise, agreeing `==`/`!=`; no Int↔Double coercion | ✓ |
+| `expr-lt-ambiguity` | Expressions / Generics | `name<...>` commits to type args only before `(`/`.`; `a < b > (c)` is a checked error, chains parse as comparisons | ✓ |
 | `expr-tail`         | language.md Tail exprs   | `if`/`match` as values (tail expression)                   | ✓      |
 | `expr-if-branch-types`| language.md Tail exprs | an expression-position `if`'s branches must agree in type (value-less/exiting branches exempt) | ✓ |
 | `expr-semicolon`    | language.md Tail exprs   | `;` discards a tail; bare tail only in expr position       | ◐      |

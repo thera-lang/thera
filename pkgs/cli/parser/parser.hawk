@@ -172,8 +172,33 @@ impl Parser {
     }
 
     fn sync_to_decl(self) -> Void {
-        // Skip tokens until something that can start a top-level declaration.
-        while !self.at_end() && !self.starts_decl(self.current().kind) {
+        // Skip tokens until something that can start a top-level declaration,
+        // tracking brace depth from the error point so a statement keyword
+        // *inside* the broken declaration's body doesn't resync mid-body and
+        // fabricate phantom top-level declarations (PA4). `let` is the
+        // ambiguous starter (statement and declaration); it resyncs only after
+        // a `}` has closed an enclosing scope (depth went negative — we were
+        // inside the broken declaration's body and have now left it). The
+        // unambiguous starters (`fn`, `struct`, …) resync at depth <= 0: they
+        // can't begin a statement, so seeing one un-nested means a new
+        // declaration even if the broken one never closed its brace.
+        let mut depth = 0;
+        let mut crossed = false; // a `}` closed a scope the error was inside
+        while !self.at_end() {
+            let k = self.current().kind;
+            if k == TokenKind.LBrace {
+                depth = depth + 1;
+            } else if k == TokenKind.RBrace {
+                depth = depth - 1;
+                if depth < 0 {
+                    depth = 0;
+                    crossed = true;
+                }
+            } else if depth <= 0 && self.starts_decl(k) {
+                if k != TokenKind.KwLet || crossed {
+                    return;
+                }
+            }
             self.advance();
         }
     }
@@ -1707,7 +1732,12 @@ impl Parser {
     }
 
     // Heuristic lookahead: after `<`, a `TypeName>` or `TypeName, TypeName>`
-    // looks like a type-argument list rather than a comparison.
+    // *followed by `(` or `.`* looks like a type-argument list (`f<Int>(...)`,
+    // `Set<String>.new(...)`) rather than a comparison. Requiring the follow
+    // token keeps comparison chains (`a < b > c`) parsing as comparisons (PA3);
+    // the residual `a < b > (c)` ambiguity resolves the generic-call way (as in
+    // C#) and the checker rejects type arguments on a non-generic callee — see
+    // grammar.md's generic-call caveat.
     fn looks_like_type_arg_list(self) -> Bool {
         let mut i = self.pos + 1; // after <
         if i >= self.tokens.len() {
@@ -1725,7 +1755,12 @@ impl Parser {
                 } else {
                     let after = self.tokens[i].kind;
                     if after == TokenKind.Gt {
-                        result = Option.Some(true);
+                        let follow = if i + 1 < self.tokens.len() {
+                            self.tokens[i + 1].kind
+                        } else {
+                            TokenKind.Eof
+                        };
+                        result = Option.Some(follow == TokenKind.LParen || follow == TokenKind.Dot);
                     } else if after == TokenKind.Comma {
                         i = i + 1;
                     } else {
@@ -1781,7 +1816,7 @@ impl Parser {
         }
         if k == TokenKind.StringLiteral {
             self.advance();
-            return Expr.Str(t.span, self.split_string_parts(self.value_of(t), t.span));
+            return Expr.Str(t.span, self.split_string_parts(t));
         }
         if k == TokenKind.KwTrue {
             self.advance();
@@ -2046,12 +2081,23 @@ impl Parser {
 
     // Split the raw string content (as captured by the lexer) into Text and
     // Interp parts. ${...} nesting (and nested string literals within) is handled.
-    fn split_string_parts(self, _ raw: String, _ parent: SourceSpan) -> List<StringPart> {
+    //
+    // Each interpolated expression sub-lexes and sub-parses against its *real*
+    // source region — the lexer captured interpolations verbatim and recorded
+    // their file spans on the token (`t.interps`), so the mini token stream is
+    // rebased before parsing and every diagnostic and AST span inside `${...}`
+    // points at the file (PA2). Sub-lex and sub-parse errors — including an
+    // empty `${}` and unconsumed trailing tokens — surface into this parser's
+    // errors instead of being dropped (PA1).
+    fn split_string_parts(self, _ t: Token) -> List<StringPart> {
+        let raw = self.value_of(t);
+        let parent = t.span;
         let cps = raw.chars();
         let n = cps.len();
         let parts: List<StringPart> = [];
         let mut buf: List<Int> = [];
         let mut i = 0;
+        let mut k = 0; // index into `t.interps`, one per bare `${` in the value
         while i < n {
             if cps[i] == char.BACKSLASH && i + 1 < n {
                 // `\\` / `\$` from the lexer: the next char is a literal `\`/`$`.
@@ -2062,6 +2108,8 @@ impl Parser {
                     parts.push(StringPart.Text(parent, String.from_chars(buf)));
                     buf = []; // reset the text accumulator (List has no clear())
                 }
+                let region = if k < t.interps.len() { t.interps[k] } else { parent };
+                k = k + 1;
                 i = i + 2; // skip ${
                 let interp_start = i;
                 let mut depth = 1;
@@ -2088,12 +2136,30 @@ impl Parser {
                 // cps[interp_start .. i-1] is the expression source (closing } excluded).
                 let expr_source = String.from_chars(cps.slice(interp_start, i - 1));
                 let lex_result = lexer.tokenize(expr_source);
+                for le in lex_result.errors {
+                    self.errors.push(ParseError { message: le.message, span: rebase_span(le.span, expr_source, region) });
+                }
                 if lex_result.tokens.len() > 1 {
-                    let expr = parse_expression(lex_result.tokens);
-                    parts.push(StringPart.Interp(parent, expr));
+                    let sub = Parser {
+                        tokens: rebase_tokens(lex_result.tokens, expr_source, region),
+                        pos: 0,
+                        errors: [],
+                        panicking: false,
+                    };
+                    let expr = sub.parse_expr();
+                    for e in sub.errors {
+                        self.errors.push(e);
+                    }
+                    if !sub.panicking && !sub.current().is_eof() {
+                        self.errors.push(ParseError {
+                            message: 'unexpected token after interpolated expression: "${sub.current().span.text()}"',
+                            span: sub.current().span,
+                        });
+                    }
+                    parts.push(StringPart.Interp(region, expr));
                 } else {
-                    // Empty interpolation — emit empty text.
-                    parts.push(StringPart.Text(parent, ''));
+                    self.errors.push(ParseError { message: 'empty interpolation', span: region });
+                    parts.push(StringPart.Text(region, ''));
                 }
             } else {
                 buf.push(cps[i]);
@@ -2105,6 +2171,48 @@ impl Parser {
         }
         return parts;
     }
+}
+
+// Rebase a span from interpolation-local coordinates (offset 0 = the first
+// character after `${`) onto the file: `region` is the interpolation
+// expression's recorded file span, `text` its source. The region text is the
+// file text verbatim (the lexer captures interpolations raw), so only the
+// offset shifts; line/column are recovered by counting the region's newlines.
+fn rebase_span(_ sp: SourceSpan, _ text: String, _ region: SourceSpan) -> SourceSpan {
+    let cps = text.chars();
+    let stop = if sp.offset < cps.len() { sp.offset } else { cps.len() };
+    let mut line = region.line;
+    let mut col = region.column;
+    let mut i = 0;
+    while i < stop {
+        if cps[i] == char.LF {
+            line = line + 1;
+            col = 1;
+        } else {
+            col = col + 1;
+        }
+        i = i + 1;
+    }
+    return SourceSpan {
+        source: region.source,
+        offset: region.offset + sp.offset,
+        length: sp.length,
+        line: line,
+        column: col,
+    };
+}
+
+// Rebase every token of an interpolation sub-lex onto the file (see
+// `rebase_span`). A nested string literal inside the interpolation carries its
+// own interpolation marks in mini coordinates — rebased too, so a nested
+// `'${...}'` splits against the file as well.
+fn rebase_tokens(_ tokens: List<Token>, _ text: String, _ region: SourceSpan) -> List<Token> {
+    return tokens.map((t) => Token {
+        kind: t.kind,
+        span: rebase_span(t.span, text, region),
+        value: t.value,
+        interps: t.interps.map((s) => rebase_span(s, text, region)),
+    });
 }
 
 // --- free helpers over the AST ---

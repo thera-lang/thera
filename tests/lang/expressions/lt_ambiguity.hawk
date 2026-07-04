@@ -1,0 +1,21 @@
+//! spec: expr-lt-ambiguity
+//! mode: check
+
+// The `<` disambiguation (grammar.md): `name<Idents…>` followed by `(` or `.`
+// commits to a generic call; anything else stays a comparison. The residual
+// `a < b > (c)` form parses the generic-call way and is rejected by the
+// checker (a local can't be a generic function) instead of silently
+// miscompiling to a call and trapping (PA3).
+
+fn main() -> Void {
+    let a = 1;
+    let b = 2;
+    let c = 3;
+    let r = a < b > (c); // expect error: `a` is not a generic function
+    // Without the `(`, a chain parses as comparisons — here ill-typed
+    // (`Bool > Int`), which is the comparison reading, not a call.
+    let s = a < b > c; // expect error: operator `>`
+    // The intended comparison-of-comparisons form, parenthesized.
+    let ok = (a < b) == (b < c);
+    println('${r} ${s} ${ok}');
+}

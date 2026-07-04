@@ -207,6 +207,12 @@ pub struct Token {
     // String-literal content (with ${...} kept verbatim) or identifier text;
     // None for every other kind.
     value: Option<String>,
+    // For a string literal: the source span of each `${...}` interpolation's
+    // expression (between the `${` and its matching `}`), in value order. The
+    // parser's splitter rebases each sub-parse onto these, so diagnostics and
+    // AST spans inside interpolations point at the real file (PA2). Empty for
+    // every other kind.
+    interps: List<SourceSpan>,
 }
 
 impl Token {

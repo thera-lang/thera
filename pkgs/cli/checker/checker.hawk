@@ -788,9 +788,28 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
             }
             match x.callee {
                 Ident(_, name) => {
-                    if let Some(fn_el) = file_scope(ctx.library, ctx.current_file).resolve_function(name) {
-                        check_call_args(errors, fn_el, {}, x.args, arg_types, x.span, ctx);
-                        check_inferable_type_args(errors, fn_el, fn_el.type_parameters, x, expected, arg_types, ctx);
+                    match file_scope(ctx.library, ctx.current_file).resolve_function(name) {
+                        Some(fn_el) => {
+                            if x.type_args.len() > fn_el.type_parameters.len() {
+                                add_error(errors,
+                                    '"${name}" takes ${fn_el.type_parameters.len()} type argument(s), but ${x.type_args.len()} were given',
+                                    x.span);
+                            }
+                            check_call_args(errors, fn_el, {}, x.args, arg_types, x.span, ctx);
+                            check_inferable_type_args(errors, fn_el, fn_el.type_parameters, x, expected, arg_types, ctx);
+                        },
+                        None => {
+                            // Explicit type arguments need a generic *function*
+                            // callee — a local value can't be generic. The
+                            // `a < b > (c)` comparison misparse commits to this
+                            // call shape (PA3): make it a located error rather
+                            // than a silent trap at runtime.
+                            if x.type_args.len() > 0 && scope.has(name) {
+                                add_error(errors,
+                                    '`${name}` is not a generic function (type arguments require one); to compare, parenthesize: `(${name} < ...) > (...)`',
+                                    x.span);
+                            }
+                        },
                     }
                 },
                 Field(_, recv, field) => {

@@ -1,0 +1,18 @@
+//! spec: parse-recovery-sync
+//! mode: check
+
+// Error recovery resyncs at a *top-level* declaration boundary, tracking brace
+// depth (PA4): the `let y` statement inside the broken body is not mistaken
+// for a top-level declaration, so there is exactly one error here — no
+// phantom declarations, no "expected a declaration" cascade — and the
+// declarations after the broken one still parse.
+
+fn broken() -> Int {
+    let x = ; // expect error: unexpected token
+    let y = 10;
+    return y;
+}
+
+fn after() -> Int {
+    return 1;
+}

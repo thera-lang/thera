@@ -1,0 +1,14 @@
+//! spec: lex-interp-errors
+//! mode: check
+
+// A syntax error inside `${...}` is a located parse error — the one place the
+// front-end used to ship a syntax error to bytecode (PA1) — and its span
+// points into the real file, not a synthetic per-interpolation mini-source
+// (PA2; these line-anchored expectations only match with rebased spans).
+
+fn main() -> Void {
+    println('${1 +}'); // expect error: unexpected token
+    println('${}'); // expect error: empty interpolation
+    let v = 3;
+    println('${v w}'); // expect error: unexpected token after interpolated expression
+}
