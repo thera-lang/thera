@@ -382,3 +382,57 @@ fn test_import_alias_and_unqualified() -> Result<Void, Error> {
     }
     return Result.Ok(void);
 }
+
+@test
+fn test_stmt_spans_cover_statement() -> Result<Void, Error> {
+    // A `Stmt.Expr`/`Stmt.Assign` span covers the whole statement through the
+    // `;` (like Let/Return), not just the first token (PA7).
+    let r = parse_src('fn f() { g(1); x = 2 + 3; x += 1; }');
+    let texts: List<String> = [];
+    if let Fn(fd) = r.program.decls[0] {
+        if let Some(b) = fd.body {
+            for s in b.stmts {
+                texts.push(match s {
+                    Expr(sp, _) => sp.text(),
+                    Assign(sp, _, _) => sp.text(),
+                    _ => '?',
+                });
+            }
+        }
+    }
+    testing.assert_eq(actual: texts, expected: ['g(1);', 'x = 2 + 3;', 'x += 1;'])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_describe_reescapes_string_text() -> Result<Void, Error> {
+    // describe strings are one-line diff keys: decoded control characters and
+    // the backslash render back as escapes rather than raw text (PA14).
+    testing.assert_eq(actual: expr_str("'a\\nb'"), expected: "\"a\\nb\"")?;
+    testing.assert_eq(actual: expr_str("'a\\tb'"), expected: "\"a\\tb\"")?;
+    testing.assert_eq(actual: expr_str("'c\\\\d'"), expected: "\"c\\\\d\"")?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_import_path_interpolation_rejected() -> Result<Void, Error> {
+    // An import path is a literal; interpolation is a parse error (PA9).
+    let r = parse_src("import '\${x}/lib';");
+    testing.assert(r.has_errors(), message: 'interpolated import should error')?;
+    testing.assert_eq(actual: r.errors[0].message,
+        expected: 'an import path cannot be interpolated')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_impl_param_must_be_bare_name() -> Result<Void, Error> {
+    // In the type-parameter view (`impl Type<…>`, no `for`) each element must
+    // be a bare name — `impl Box<Pair<T>>` used to lower `Pair` as a parameter
+    // and silently drop `<T>` (PA10).
+    let r = parse_src('impl Box<Pair<T>> { fn f(self) -> Int { return 1; } }');
+    testing.assert(r.has_errors(), message: 'generic impl param should error')?;
+    // The interface-argument view is untouched: nesting is fine before `for`.
+    let ok = parse_src('impl Iterator<Indexed<T>> for Zip<T> { }');
+    testing.assert(!ok.has_errors(), message: 'nested interface args should parse')?;
+    return Result.Ok(void);
+}

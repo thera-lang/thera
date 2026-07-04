@@ -208,7 +208,20 @@ impl Lexer {
         while !self.at_end() && self.ch() != char.LF {
             self.advance();
         }
-        let span = self.span_from(start, start_line, start_col);
+        // On a CRLF file the `\r` before the newline is line-ending, not
+        // comment text — exclude it from the span (fmt re-emits comment spans
+        // verbatim, and a trailing `\r` would survive a rewrite).
+        let mut end = self.pos;
+        if end > start && self.chars[end - 1] == char.CR {
+            end = end - 1;
+        }
+        let span = SourceSpan {
+            source: self.source,
+            offset: start,
+            length: end - start,
+            line: start_line,
+            column: start_col,
+        };
         self.comments.push(Comment {
             kind: classify_comment(span.text()),
             span: span,

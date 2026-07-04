@@ -149,11 +149,12 @@ param       = 'self'
             // `label name` gives a distinct external label; a single IDENT
             // means label == name.
 
-structDecl  = 'struct' IDENT typeParams? '{' field (',' field)* ','? '}'
+structDecl  = 'struct' IDENT typeParams? '{' ( field (',' field)* ','? )? '}'
 field       = 'mut'? IDENT ':' type        // `mut` allows the field to be reassigned
               // A nominal record: `struct Point { x: Int, y: Int }`. Constructed
               // with a struct literal `Point { x: 1, y: 2 }`; methods come from
-              // `impl` blocks. (There is no `=`: `struct Name { … }`, not
+              // `impl` blocks. A fieldless `struct Marker {}` is legal (a
+              // unit/marker type). (There is no `=`: `struct Name { … }`, not
               // `type Name = { … }` — the latter form was removed.)
 
 nativeTypeDecl = 'native' 'type' IDENT typeParams? ';'?
@@ -165,9 +166,12 @@ nativeTypeDecl = 'native' 'type' IDENT typeParams? ';'?
 enumDecl    = 'enum' IDENT typeParams? '{' variant (',' variant)* ','? '}'
 variant     = IDENT ( '(' type (',' type)* ')' )?       // positional payload
 
-interfaceDecl = 'interface' IDENT typeParams? superInterfaces? '{' methodSig* '}'
+interfaceDecl = 'interface' IDENT typeParams? superInterfaces? '{' ifaceMethod* '}'
 superInterfaces = ':' IDENT ('+' IDENT)*    // extended interfaces, e.g. `: Display + Debug`
-methodSig   = 'pub'? 'fn' IDENT typeParams? '(' paramList? ')' ('->' type)? ';'?
+ifaceMethod = 'pub'? 'fn' IDENT typeParams? '(' paramList? ')' ('->' type)? ( block | ';'? )
+              // With a block: a **default method**, inherited by conformers
+              // that don't define it (docs/language.md, Interfaces). Without,
+              // a required signature.
 
 implDecl    = 'impl' qualName typeParams?       // typeParams = interface type args
               ( 'for' qualName typeParams? )?    //   in `impl Iface<Int> for T`
@@ -307,8 +311,12 @@ lambdaParams = lambdaParam (',' lambdaParam)*
 lambdaParam  = IDENT (':' type)?
 
 listLit   = '[' ( expr (',' expr)* )? ']'
-mapLit    = '{' ( mapEntry (',' mapEntry)* )? '}'         // '{}' or string/int-keyed
+mapLit    = '{' ( mapEntry (',' mapEntry)* )? '}'
 mapEntry  = expr ':' expr
+            // A `{` opens a map literal only when it looks like one: `{}` or a
+            // first key that is a string/int literal (optionally `-`-negated)
+            // followed by `:`; any other `{` in expression position is a block.
+            // Later keys are unrestricted exprs.
 structBody= '{' ( field (',' field)* ','? )? '}'   field = IDENT ':' expr
 
 matchExpr = 'match' exprNB '{' arm* '}'
@@ -375,7 +383,8 @@ checklist; items that are planned link to [roadmap.md](roadmap.md).
 - Integer bases & separators: `0b…`, `0o…` (binary/octal), digit separators
   (`1_000`); integer/float **exponents** (`1e9`); float shorthands `1.` and
   `.5`. (Hex `0x…` _is_ supported.)
-- String: `\u{…}` / `\0` escapes, raw or triple-quoted strings.
+- String: `\0` escape, raw or triple-quoted strings. (`\u{…}` and `\xNN`
+  _are_ supported.)
 - Tuple literals/types `(a, b)` — `(…)` is grouping or lambda params only.
 
 **Statements & control flow**

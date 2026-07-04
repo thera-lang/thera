@@ -8,6 +8,8 @@
 // statement describers — Dart's multi-line, indented forms — are added with the
 // driver; expressions/types/patterns are what the parser tests exercise.
 
+import std.char;
+
 import '../lexer/token';
 import 'ast' as _; // a pure AST renderer — ast's node types are used pervasively
 
@@ -122,7 +124,7 @@ fn describe_parts(_ parts: List<StringPart>) -> String {
 
 fn describe_part(_ p: StringPart) -> String {
     return match p {
-        Text(_, t) => t,
+        Text(_, t) => escape_text(t),
         // The literal `${` is built from two separate string literals: a `'\${'`
         // literal would be re-read as an interpolation by the string-splitter
         // (the `\$` escape is collapsed to `$` before splitting; see the parser
@@ -130,6 +132,38 @@ fn describe_part(_ p: StringPart) -> String {
         Interp(_, e) => '$' + '{' + describe_expr(e) + '}',
     };
 }
+
+// Re-escape a (decoded) text part: describe strings are one-line diff keys, so
+// the control characters the lexer's escapes decode — and the backslash and
+// quote that would make the rendering ambiguous — render back as escapes.
+fn escape_text(_ t: String) -> String {
+    let out: List<Int> = [];
+    for c in t.chars() {
+        if c == char.BACKSLASH {
+            out.push(char.BACKSLASH);
+            out.push(char.BACKSLASH);
+        } else if c == char.LF {
+            out.push(char.BACKSLASH);
+            out.push(LOWER_N);
+        } else if c == char.CR {
+            out.push(char.BACKSLASH);
+            out.push(LOWER_R);
+        } else if c == char.TAB {
+            out.push(char.BACKSLASH);
+            out.push(LOWER_T);
+        } else if c == char.DQUOTE {
+            out.push(char.BACKSLASH);
+            out.push(char.DQUOTE);
+        } else {
+            out.push(c);
+        }
+    }
+    return String.from_chars(out);
+}
+
+const LOWER_N: Int = 110;
+const LOWER_R: Int = 114;
+const LOWER_T: Int = 116;
 
 fn describe_arg(_ a: CallArg) -> String {
     return match a.label {

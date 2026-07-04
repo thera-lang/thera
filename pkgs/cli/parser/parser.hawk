@@ -397,7 +397,15 @@ impl Parser {
         self.advance(); // 'import'
         let mut path = '';
         if self.check(TokenKind.StringLiteral) {
-            path = self.value_of(self.advance());
+            let path_tok = self.advance();
+            // An import path is a literal, resolved before any code runs — an
+            // interpolation here used to pass through as literal `${…}` text
+            // and surface later as a confusing "module not found" (PA9).
+            if path_tok.interps.len() > 0 {
+                self.fail_at('an import path cannot be interpolated', path_tok.span);
+                return self.err_decl();
+            }
+            path = self.value_of(path_tok);
         } else {
             path = self.expect(TokenKind.Identifier, 'module path').lexeme();
             while !self.panicking && self.check(TokenKind.Dot) {
@@ -689,6 +697,22 @@ impl Parser {
             type_name = first_tok.lexeme();
             name_span = first_tok.span;
             type_params = first_param_decls;
+            // No `for`, so the `<…>` was the impl type's own parameter list:
+            // each element must be a bare parameter name. `impl Box<Indexed<T>>`
+            // used to lower `Indexed` as a parameter and silently drop its
+            // arguments (PA10).
+            for ref in first_args {
+                let bare = match ref {
+                    Named(nt) => nt.args.len() == 0 && nt.namespace.is_none(),
+                    _ => false,
+                };
+                if !bare {
+                    self.fail_at(
+                        'an impl type parameter must be a bare name (`impl ${type_name}<T>`), found `${type_span(ref).text()}`',
+                        type_span(ref));
+                    return self.err_decl();
+                }
+            }
         }
         self.expect(TokenKind.LBrace, '{');
         let methods: List<FnDecl> = [];
@@ -1043,7 +1067,8 @@ impl Parser {
                 Some(op) => Expr.Binary(expr_span(expr).cover(expr_span(rhs)), expr, op, rhs),
                 None => rhs,
             };
-            return Stmt.Assign(start, expr, value);
+            // The statement span covers through the `;` (PA7), like Let/Return.
+            return Stmt.Assign(start.cover(self.prev_span()), expr, value);
         }
         // A block-terminated expression statement (a bare `match`/`if` ending in
         // `}`) needs no trailing ';'; everything else requires one.
@@ -1052,7 +1077,7 @@ impl Parser {
         } else {
             self.expect(TokenKind.Semi, "';'");
         }
-        return Stmt.Expr(start, expr);
+        return Stmt.Expr(start.cover(self.prev_span()), expr);
     }
 
     // Parse a block in expression position (a BlockExpr or a `{…}` match arm): a
@@ -1073,7 +1098,7 @@ impl Parser {
                     going = false;
                 } else {
                     self.match_kind(TokenKind.Semi);
-                    stmts.push(Stmt.Expr(if_start, if_expr));
+                    stmts.push(Stmt.Expr(if_start.cover(self.prev_span()), if_expr));
                 }
             } else {
                 let expr_start = self.current().span;
@@ -1974,7 +1999,7 @@ impl Parser {
     }
 
     // True when the current `{` opens a map literal (`{}` or `{ key: value, ...}`
-    // with a string/int literal key) rather than a block.
+    // with a — possibly negated — string/int literal key) rather than a block.
     fn is_map_literal_start(self) -> Bool {
         let peek1 = self.peek_tok(1);
         if peek1.kind == TokenKind.RBrace {
@@ -1982,6 +2007,11 @@ impl Parser {
         }
         if peek1.kind == TokenKind.StringLiteral || peek1.kind == TokenKind.IntLiteral {
             return self.peek_tok(2).kind == TokenKind.Colon;
+        }
+        // A negative int key: `{-1: …}` used to fall through to the block
+        // parse and fail with a baffling "expected ';', found ':'" (PA13).
+        if peek1.kind == TokenKind.Minus && self.peek_tok(2).kind == TokenKind.IntLiteral {
+            return self.peek_tok(3).kind == TokenKind.Colon;
         }
         return false;
     }

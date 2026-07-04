@@ -159,6 +159,16 @@ fn test_comments_captured_on_side_channel() -> Result<Void, Error> {
 }
 
 @test
+fn test_comment_span_excludes_cr() -> Result<Void, Error> {
+    // On a CRLF file the `\r` before the newline is line-ending, not comment
+    // text — the span ends before it (fmt re-emits comment spans verbatim).
+    let res = tokenize('// a comment\r\nx');
+    testing.assert_eq(actual: res.comments.len(), expected: 1)?;
+    testing.assert_eq(actual: res.comments[0].span.text(), expected: '// a comment')?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_comment_kinds() -> Result<Void, Error> {
     let res = tokenize('// plain\n/// item doc\n//! module doc\n//// divider\nx');
     testing.assert_eq(actual: res.comments.map((c) => c.kind), expected: [

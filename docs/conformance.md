@@ -78,6 +78,7 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `type-reserved-names`| scoping.md              | the language's own type names (Result, Option, List, Void, …) may not be declared in user code; core utility names (Args, …) stay free | ✓ |
 | `type-fn-variance`  | Types                    | function-type assignability: contravariant parameters, covariant result | ✓ |
 | `type-field-nonstruct`| Structs                | a bare field access on a non-struct value is rejected     | ✓      |
+| `type-impl-param-bare`| Impl blocks             | an inherent `impl Type<…>` element must be a bare parameter name (a type expression is an error, not silently flattened) | ✓ |
 
 ## Variables & semantics
 
@@ -184,6 +185,7 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `mod-shared-global-name`| scoping.md            | two libraries may share a module-global name: distinct slots, both initializers run, owner-keyed init order and dependency edges | ✓ |
 | `mod-native-name-isolation`| scoping.md         | a `native fn` binds within its own library: `ns.fn(...)` resolves on `ns`'s surface, never a flat native table (no cross-import hijack) | ✓ |
 | `mod-import-resolve-error`| Imports            | an import that doesn't resolve is a located diagnostic at the import decl (not a silent no-op / downstream `undefined name`) | ✓ |
+| `mod-import-literal-path`| Imports             | an import path is a literal: an interpolated path is a parse error       | ✓ |
 | `mod-one-name-space`| scoping.md               | one name space per scope: a file introduces a top-level name once, across all kinds (fn/type/const/let/import namespace) | ✓ |
 | `mod-bare-collision`| scoping.md               | two `import … as _` exposing one public name is an error at the second import (barrel collisions likewise, at the barrel — unit-tested) | ✓ |
 | `vis-pub`           | Visibility               | non-`pub` top-level is file-private (enforced)            | ✓      |

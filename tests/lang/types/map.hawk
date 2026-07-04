@@ -6,5 +6,9 @@ fn main() -> Int {
     println('${m['a']}');     // expect: 1
     println('${m['b']}');     // expect: 2
     println('${m.len()}');    // expect: 2
+    // A negative int literal key still reads as a map literal, not a block
+    // (grammar.md's map/block disambiguation).
+    let n = {-1: 'neg', 2: 'pos'};
+    println('${n[-1]} ${n[2]}');  // expect: neg pos
     return 0;
 }

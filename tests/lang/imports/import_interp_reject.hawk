@@ -1,0 +1,10 @@
+//! spec: mod-import-literal-path
+//! mode: check
+
+// An import path is a literal, resolved before any code runs: an interpolated
+// path is a located parse error (PA9), not literal `${…}` text that surfaces
+// later as a confusing "module not found".
+
+import '${x}/lib'; // expect error: an import path cannot be interpolated
+
+fn main() -> Void {}
