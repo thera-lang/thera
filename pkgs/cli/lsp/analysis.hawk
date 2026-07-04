@@ -19,12 +19,19 @@ pub struct Analysis {
     // texts are mirrored into the session's overlay map under canonical keys.
     docs: Map<String, String>,
     session: session.Session,
+    // Documents (URIs) edited since the last diagnostics flush. Lives beside
+    // the caches so invalidation state is one object (LS-D1): an edit marks
+    // here in the same call that evicts the session's caches, and Phase 2's
+    // dependency-graph invalidation will mark importers dirty through the same
+    // set. The server's flush drains it via `take_dirty`.
+    dirty: Set<String>,
 }
 
 pub fn new_analysis(_ sdk_root: Option<String>) -> Analysis {
     return Analysis {
         docs: {},
         session: session.new_session(sdk_root),
+        dirty: Set.new(),
     };
 }
 
@@ -40,19 +47,31 @@ pub struct DocAnalysis {
 impl Analysis {
     // Open or update `uri`'s text: the session's overlay is the loader's view
     // of the buffer, and setting it evicts the file's cached parse and
-    // checked-clean status so the next analysis re-sees the change.
+    // checked-clean status so the next analysis re-sees the change. The edit
+    // also marks the document dirty for the next diagnostics flush.
     pub fn set_document(self, _ uri: String, _ text: String) -> Void {
         self.docs[uri] = text;
         self.session.set_overlay(paths.uri_to_path(uri), text);
+        self.dirty.add(uri);
     }
 
-    // Forget `uri` (closed): analyses revert to the on-disk content.
+    // Forget `uri` (closed): analyses revert to the on-disk content, and any
+    // pending dirty mark is dropped (no stale publish for a closed document).
     pub fn close_document(self, _ uri: String) -> Void {
         match self.docs.remove(uri) {
             Some(_) => {},
             None => {},
         }
         self.session.remove_overlay(paths.uri_to_path(uri));
+        self.dirty.remove(uri);
+    }
+
+    // The documents edited since the last call, clearing the set — the
+    // diagnostics flush's worklist.
+    pub fn take_dirty(self) -> List<String> {
+        let uris = self.dirty.to_list();
+        self.dirty.clear();
+        return uris;
     }
 
     pub fn text(self, _ uri: String) -> Option<String> {

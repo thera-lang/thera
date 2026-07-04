@@ -223,6 +223,27 @@ fn test_reserved_flat_entry_pinned_to_first_registration() -> Result<Void, Error
 }
 
 @test
+fn test_pathless_programs_get_distinct_keys() -> Result<Void, Error> {
+    // `build_library` stamps path-less programs distinct identities (LD8): the
+    // primary keeps `<anon>`, imports mint `<anon:2>`… — two in-memory
+    // programs must never merge into one per-file table.
+    let dep = parse_tokens(tokenize('fn helper() -> Int { return 1; }').tokens).program;
+    let main = parse_tokens(tokenize('fn helper() -> Int { return 2; }').tokens).program;
+    let lib = build_library(main, [dep], {}, {});
+    testing.assert_eq(actual: main.file_path, expected: Option.Some('<anon>'))?;
+    testing.assert_eq(actual: dep.file_path, expected: Option.Some('<anon:2>'))?;
+    match lib.file_functions.get('<anon>') {
+        Some(m) => { testing.assert(m.has('helper'), message: 'primary owns its helper')?; },
+        None => { testing.assert(false, message: 'no <anon> table')?; },
+    }
+    match lib.file_functions.get('<anon:2>') {
+        Some(m) => { testing.assert(m.has('helper'), message: 'import owns its helper')?; },
+        None => { testing.assert(false, message: 'no <anon:2> table')?; },
+    }
+    return Result.Ok(void);
+}
+
+@test
 fn test_reserved_pin_allows_same_owner_reregistration() -> Result<Void, Error> {
     // A core file that is itself the check primary appears in the program list
     // twice (once via the prelude closure, once as the primary). The reserved

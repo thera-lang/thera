@@ -26,26 +26,22 @@ import 'workspace_symbols';
 // where an editor expects semantic results. They stay parked until they're made
 // scope-aware. See pkgs/cli/lsp/references.hawk, rename.hawk, and roadmap.md.
 
-// The server = the protocol layer. It owns dispatch and the deferred-diagnostics
-// state (`dirty`/`shutdown_received`); the workspace analysis state — open
-// documents, the SDK root, and the cross-request caches — lives in `Analysis`
+// The server = the protocol layer. It owns dispatch and the lifecycle flag
+// (`shutdown_received`); the workspace analysis state — open documents, the SDK
+// root, the cross-request caches, and the dirty set — lives in `Analysis`
 // (analysis.hawk), where the incremental engine grows (see docs/lsp_v2.md).
+// Recomputing diagnostics is the expensive step, so an edit only marks its
+// document dirty; the actual re-check is deferred to `flush`, which lets a
+// burst of keystrokes collapse into a single re-check per document (see
+// `serve`).
 pub struct Server {
-    // The workspace analysis state (open docs, SDK root, caches). The protocol
-    // layer below owns only dispatch and the dirty/shutdown flags.
     analysis: Analysis,
-    // Documents edited since the last diagnostics flush. Recomputing diagnostics
-    // is the expensive step, so an edit only marks its document dirty; the actual
-    // re-check is deferred to `flush`, which lets a burst of keystrokes collapse
-    // into a single re-check per document (see `serve`).
-    dirty: Set<String>,
     mut shutdown_received: Bool,
 }
 
 pub fn new_server(_ sdk_root: Option<String>) -> Server {
     return Server {
         analysis: new_analysis(sdk_root),
-        dirty: Set.new(),
         shutdown_received: false,
     };
 }
@@ -186,7 +182,6 @@ impl Server {
         if method == 'textDocument/didClose' {
             if let Some(uri) = params.get('textDocument').get('uri').as_string() {
                 self.analysis.close_document(uri);
-                self.dirty.remove(uri);
                 // An empty publish releases the closed document's squiggles —
                 // without it they persist in the editor forever (LS9).
                 send_notification(writer, 'textDocument/publishDiagnostics', json.obj({
@@ -205,15 +200,14 @@ impl Server {
         return true;
     }
 
-    // Store `text` for `uri` (when both are present) and mark it dirty so the
-    // next `flush` re-checks it. The publish is deferred (not done here) so a
-    // burst of edits coalesces into one re-check. `set_document` also evicts the
-    // file's cached parse so an importer's next check re-sees the change.
+    // Store `text` for `uri` (when both are present); `set_document` marks it
+    // dirty for the next `flush` and evicts the file's cached parse so an
+    // importer's next check re-sees the change. The publish is deferred (not
+    // done here) so a burst of edits coalesces into one re-check.
     fn update_document(self, _ uri: Option<String>, _ text: Option<String>) -> Void {
         if let Some(u) = uri {
             if let Some(t) = text {
                 self.analysis.set_document(u, t);
-                self.dirty.add(u);
             }
         }
     }
@@ -287,14 +281,14 @@ impl Server {
         return workspace_symbols.handle_workspace_symbols(programs, q);
     }
 
-    // Publish diagnostics for every document dirtied since the last flush, then
-    // reset the set. A document edited several times in one batch is re-checked
-    // once; one closed before the flush is skipped (no stale publish).
+    // Publish diagnostics for every document dirtied since the last flush
+    // (`take_dirty` drains the analysis's set). A document edited several times
+    // in one batch is re-checked once; one closed before the flush was already
+    // dropped from the set (no stale publish).
     fn flush(self, _ writer: io.Writer) -> Void {
-        for uri in self.dirty.to_list() {
+        for uri in self.analysis.take_dirty() {
             if let Some(text) = self.analysis.text(uri) { self.publish(writer, uri, text); }
         }
-        self.dirty.clear();
     }
 
     fn publish(self, _ writer: io.Writer, _ uri: String, _ text: String) -> Void {

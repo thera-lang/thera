@@ -238,11 +238,16 @@ sites resolve an *inferred* `Type` — which needs the owner on `Type` (T1) anyw
     interface *name* collisions (two libraries, same interface name) are still
     name-keyed, and `native` instance/static methods (`native_*_methods`) stay
     name-keyed — both narrow, deferred.
-  - **Deferred — deep subtype helpers.** `is_assignable`/`satisfies_bound` still
-    take the flat `type_defs` for their interface-conformance def-lookups
-    (`map_get_def`/`type_defs.get(name)`), wrong only when a collided name
-    participates in *cross-library* interface conformance. Fold into a future
-    "retire the flat `type_defs` map" pass rather than pay a ~17-site ripple now.
+  - **Deep subtype helpers. _Done_** (was deferred): the raw-`type_defs` sweep
+    happened as a side effect of the interface-identity and `is_assignable`
+    migrations (audit EL17) — `def_by_id` resolves through the per-file tables;
+    the only raw takers left are `named_type` (reserved-name-sound, documented)
+    and the flat-table builder itself. Interface *identity* is owner-correct
+    end-to-end too. The one remaining crumb: the `native` instance/static
+    method tables stay name-keyed (narrow by design — natives only come from
+    SDK core).
+
+**Phase 1 is complete.**
 
 ### Phase 2 — incremental engine (medium scale)
 
@@ -260,9 +265,13 @@ LSP all drive it (layer 1's "one engine" — the LSP's `Analysis` is a thin URI
 wrapper). File identity is settled: the canonical-path String is the file id
 (minted only by `loader.canonical_path`; helpers deduped onto `std.path`), and
 **spans carry their file** (`SourceSpan.file`), so diagnostics attribute by id
-— collision-free cache keys for the resolved-library cache. What remains for
-Phase 2 proper: the `surface_cache`/`library_cache` layers and
-dependency-graph invalidation over `LoadedImports.file_imports` (LD14).
+— collision-free cache keys for the resolved-library cache. Pre-flight
+(2026-07-04): path-less in-memory programs get distinct stamped identities
+(`build_library` mints `<anon>`/`<anon:2>`…, LD8 — no aliased cache keys), and
+the LSP's dirty set moved from `Server` into `Analysis`, so invalidation state
+(dirty docs, overlays, caches) is one object (LS-D1). What remains for Phase 2
+proper: the `surface_cache`/`library_cache` layers and dependency-graph
+invalidation over `LoadedImports.file_imports` (LD14).
 
 ### Phase 3 — query layer + inference-at-offset
 

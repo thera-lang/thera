@@ -551,6 +551,20 @@ fn test_pub_function_shared_across_files_is_allowed() -> Result<Void, Error> {
 }
 
 @test
+fn test_pathless_programs_do_not_alias() -> Result<Void, Error> {
+    // Two in-memory (path-less) programs used to share one `<anon>` identity
+    // (LD8), merging their name spaces — a same-named private helper in each
+    // read as a same-file duplicate. Distinct stamped identities keep them the
+    // ordinary cross-file case (same-file-first, no collision).
+    let dep = parse_tokens(tokenize('fn helper() -> Int { return 1; }').tokens).program;
+    let main = parse_tokens(tokenize('fn helper() -> Int { return 2; }\n'
+        + 'fn run() -> Int { return helper(); }').tokens).program;
+    let errs = check(main, [dep], {}, {}).errors;
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_private_function_collision_across_files_is_allowed() -> Result<Void, Error> {
     // Two *private* same-named helpers in different files resolve same-file-first,
     // so they don't collide — leniency the policy must keep.

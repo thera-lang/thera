@@ -295,7 +295,10 @@ pub const BUILTIN_OWNER: String = '<builtin>';
 // program keys as `<anon>` — a real path can't carry angle brackets — so the
 // anonymous program's tables never collide with the unresolved-owner miss
 // sentinel `''` (EL11: `''` previously served both roles, and an unresolved
-// name could resolve into the anonymous program's real tables).
+// name could resolve into the anonymous program's real tables). When several
+// path-less programs enter one build, `build_library` stamps each a distinct
+// key (`<anon>` for the primary, `<anon:2>`… for imports) so they never alias
+// (LD8) — this bridge serves programs that haven't been through a build yet.
 pub fn file_key(_ file: Option<String>) -> String {
     return file.unwrap_or('<anon>');
 }
