@@ -5,6 +5,7 @@
 
 import std.testing;
 
+import '../ast/ast' as _;
 import '../lexer/lexer' as _;
 import '../parser/parser' as _;
 import 'types' as _;
@@ -301,5 +302,34 @@ fn test_forward_flow_pins_through_for_loop_push() -> Result<Void, Error> {
     testing.assert_eq(
         actual: type_of('{ let xs = []; for i in 0..3 { xs.push(i); } xs[0] }', empty_scope(), ctx),
         expected: Type.Primitive(Primitive.Int))?;
+    return Result.Ok(void);
+}
+
+// ---- the committed-type memo (CH19) ----
+
+@test
+fn test_memo_hit_wins_regardless_of_expected() -> Result<Void, Error> {
+    // A committed record answers for its node no matter what the caller
+    // expects — the committed value was computed with the correct expectation.
+    let expr = parse_expression(tokenize('1 + 2').tokens);
+    let types: Map<Int, Type> = {};
+    types[span_key(expr_span(expr))] = Type.Primitive(Primitive.Str);
+    let ctx = new_ctx(lib_of(''), types: types);
+    testing.assert_eq(actual: infer_in(expr, empty_scope(), ctx),
+        expected: Type.Primitive(Primitive.Str))?;
+    testing.assert_eq(
+        actual: infer_expr(expr, empty_scope(), ctx, Option.Some(Type.Primitive(Primitive.Int))),
+        expected: Type.Primitive(Primitive.Str))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_empty_memo_leaves_inference_untouched() -> Result<Void, Error> {
+    // The codegen-safety pin: a default ctx has an empty record, inference
+    // derives normally and never writes to it.
+    let ctx = new_ctx(lib_of(''));
+    testing.assert_eq(actual: type_of('1 + 2', empty_scope(), ctx),
+        expected: Type.Primitive(Primitive.Int))?;
+    testing.assert_eq(actual: ctx.types.len(), expected: 0)?;
     return Result.Ok(void);
 }

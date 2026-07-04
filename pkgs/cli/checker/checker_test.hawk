@@ -9,6 +9,8 @@ import '../ast/ast' as _;
 import '../lexer/lexer' as _;
 import '../parser/parser' as _;
 import '../element/element' as _;
+import '../element/inference' as _;
+import '../element/types' as _;
 import 'checker' as _;
 
 fn errors_of(_ src: String) -> List<CheckError> {
@@ -610,5 +612,77 @@ fn test_redefinition_in_same_file_is_flagged() -> Result<Void, Error> {
     testing.assert_eq(actual: errs.len(), expected: 1)?;
     testing.assert(any_message_contains(errs, 'duplicate function `dup`'),
         message: 'expected a same-file redefinition diagnostic')?;
+    return Result.Ok(void);
+}
+
+// ---- the committed-type record (CH19) ----
+
+fn records_of(_ src: String) -> List<TypeRecord> {
+    return check(parse_tokens(tokenize(src).tokens).program, [], {}, {}).records;
+}
+
+// The rendered committed type of the first occurrence of `text` in `src`.
+// Scans the whole record; a later entry supersedes (the refinement override).
+fn record_for(_ rec: List<TypeRecord>, _ src: String, _ text: String) -> String {
+    return match src.find(text) {
+        Some(off) => {
+            let mut found = '<no record>';
+            for r in rec {
+                if r.offset == off && r.length == text.len() {
+                    found = type_to_string(r.ty);
+                }
+            }
+            found
+        },
+        None => '<text not found>',
+    };
+}
+
+@test
+fn test_record_covers_expressions_and_let_names() -> Result<Void, Error> {
+    let src = 'fn f() -> Int { let y = 1 + 2; return y; }';
+    let rec = records_of(src);
+    testing.assert_eq(actual: record_for(rec, src, '1 + 2'), expected: 'Int')?;
+    testing.assert_eq(actual: record_for(rec, src, '2'), expected: 'Int')?;
+    // `let` name spans are stamped for declaration-site type queries.
+    testing.assert_eq(actual: record_for(rec, src, 'y'), expected: 'Int')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_record_let_value_holds_the_refined_type() -> Result<Void, Error> {
+    // Forward-flow pins `xs` to List<Int>; the refined type supersedes the
+    // value's pre-refinement `List<?>` record.
+    let src = 'fn f() -> Void { let xs = []; xs.push(1); }';
+    let rec = records_of(src);
+    testing.assert_eq(actual: record_for(rec, src, '[]'), expected: 'List<Int>')?;
+    testing.assert_eq(actual: record_for(rec, src, 'xs'), expected: 'List<Int>')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_record_compound_assign_is_first_write_wins() -> Result<Void, Error> {
+    // The compound-assign transient (`total + 2` synthesized over the
+    // `total += 2` span) records once; the re-synthesis in later probes hits
+    // the same key.
+    let src = 'fn f() -> Int { let mut total = 1; total += 2; return total; }';
+    let rec = records_of(src);
+    testing.assert_eq(actual: record_for(rec, src, 'total += 2'), expected: 'Int')?;
+    testing.assert_eq(actual: record_for(rec, src, 'total'), expected: 'Int')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_record_skips_synthesized_desugar_nodes() -> Result<Void, Error> {
+    // The if-let desugar fabricates zero-length-span nodes (PA6); none of them
+    // may be recorded (no real token has length 0).
+    let src = 'fn f(_ o: Option<Int>) -> Int {\n'
+        + '    if let Some(x) = o { return x; }\n'
+        + '    return 0;\n'
+        + '}';
+    let rec = records_of(src);
+    for r in rec {
+        testing.assert_ne(actual: r.length, unexpected: 0)?;
+    }
     return Result.Ok(void);
 }

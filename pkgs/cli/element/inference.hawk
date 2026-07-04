@@ -16,6 +16,7 @@
 // statement's sub-expressions itself when it visits them.
 
 import '../ast/ast' as _;
+import '../lexer/token' as _;
 import 'types' as _;
 import 'element' as _;
 import 'scope' as _;
@@ -34,10 +35,36 @@ pub struct InferCtx {
     // The file of the function being inferred — the scope a bare free-function
     // reference resolves against (same-file-first).
     mut current_file: Option<String>,
+    // The committed-type memo for *this function's* nodes, keyed by `span_key`
+    // (CH19). Write-once, checker-owned: only the checker's `record_type` writes
+    // (its walk visits each real node exactly once, with the correct expected
+    // type); `infer_expr` only reads, so post-check re-inference returns the
+    // committed type instead of re-walking the subtree — and provisional probes
+    // (forward-flow scans, expected=None argument probes) can never poison the
+    // record. Per-function on purpose: the runtime Map is an association vector
+    // (lookups scan linearly), so a whole-file map would make every probe pay
+    // O(file); one function's nodes keep the scans short, and every duplicate
+    // re-inference site is intra-function anyway. Callers that never populate
+    // it (codegen, tests) pay one `len()` check per inference.
+    types: Map<Int, Type>,
+    // Every committed type, appended in walk order across the whole check run —
+    // a list, so accumulation is O(1) per node (no big-map insert scans).
+    // Consumers scan it per query; a later entry for the same span supersedes
+    // an earlier one (the `let` refinement override).
+    record_sink: List<TypeRecord>,
+}
+
+// One committed-type fact: the node at `file`/`offset`/`length` has type `ty`.
+pub struct TypeRecord {
+    file: String,
+    offset: Int,
+    length: Int,
+    ty: Type,
 }
 
 // A context for inferring at the top level (no enclosing generics/self/return).
-pub fn new_ctx(_ library: LibraryElement) -> InferCtx {
+pub fn new_ctx(_ library: LibraryElement, types: Map<Int, Type> = {},
+    record_sink: List<TypeRecord> = []) -> InferCtx {
     return InferCtx {
         library: library,
         type_params: Set.new(),
@@ -45,6 +72,8 @@ pub fn new_ctx(_ library: LibraryElement) -> InferCtx {
         return_type: Option.None,
         type_param_bounds: {},
         current_file: Option.None,
+        types: types,
+        record_sink: record_sink,
     };
 }
 
@@ -59,7 +88,17 @@ pub fn with_return_type(_ ctx: InferCtx, _ ret: Type) -> InferCtx {
         return_type: Option.Some(ret),
         type_param_bounds: ctx.type_param_bounds,
         current_file: ctx.current_file,
+        types: ctx.types,
+        record_sink: ctx.record_sink,
     };
+}
+
+// The committed-type memo's key for a span — offset and length packed into one
+// Int (collision-free within a file for nodes under 2MB; allocation-free, unlike
+// a string key). Synthesized desugar nodes carry zero-length spans (no real
+// token has length 0) and are never recorded.
+pub fn span_key(_ s: SourceSpan) -> Int {
+    return s.offset * 2097152 + s.length;
 }
 
 // The per-file resolution scope of the function being inferred — the static tier
@@ -81,6 +120,19 @@ pub fn infer_in(_ expr: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Ty
 // from the surrounding signature.
 pub fn infer_expr(_ expr: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx,
     _ expected: Option<Type>) -> Type {
+    // Committed-type memo (CH19): a node the checker's walk has already settled
+    // keeps that answer — the re-inference the checker's diagnostic helpers do
+    // (and any post-commit block re-walk) returns it without re-walking the
+    // subtree, regardless of `expected` (the committed value was computed with
+    // the correct one).
+    if ctx.types.len() > 0 {
+        let span = expr_span(expr);
+        if span.length > 0 {
+            if let Some(t) = ctx.types.get(span_key(span)) {
+                return t;
+            }
+        }
+    }
     return match expr {
         Int(_, _) => Type.Primitive(Primitive.Int),
         Float(_, _) => Type.Primitive(Primitive.Double),

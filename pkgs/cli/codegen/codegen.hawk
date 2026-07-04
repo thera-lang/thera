@@ -325,6 +325,10 @@ impl FnCompiler {
             return_type: return_type,
             type_param_bounds: self.type_param_bounds,
             current_file: self.file,
+            // Codegen never records committed types — an empty memo keeps its
+            // inference identical to the pre-CH19 behavior (the fixpoint substrate).
+            types: {},
+            record_sink: [],
         };
 
         // Boxed cells: capture params arriving boxed, plus this function's own

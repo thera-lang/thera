@@ -27,6 +27,11 @@ pub struct CheckError {
 
 pub struct CheckResult {
     errors: List<CheckError>,
+    // The committed-type record built during the walk (CH19), in walk order:
+    // every real expression node of each checked (non-skipped) file, plus `let`
+    // name spans. A later entry for the same span supersedes an earlier one
+    // (the `let` refinement override).
+    records: List<TypeRecord>,
 }
 
 pub fn has_errors(_ r: CheckResult) -> Bool {
@@ -40,6 +45,7 @@ pub fn check(_ program: Program, _ imports: List<Program>,
     _ file_namespaces: Map<String, Map<String, LibraryNamespace>>,
     _ file_bare_surface: Map<String, Map<String, String>>) -> CheckResult {
     let errors: List<CheckError> = [];
+    let records: List<TypeRecord> = [];
     let library = resolver.build_library(program, imports, file_namespaces, file_bare_surface);
     check_duplicates(errors, program, imports);
     check_shadowed_surface(errors, program, library);
@@ -47,8 +53,8 @@ pub fn check(_ program: Program, _ imports: List<Program>,
     // reject a bare-but-qualifiable name ("qualify as `ns.name`") and a qualified
     // `ns.name` to a non-public member ("`name` is not a public member of `ns`").
     // The two transitional lints (`qualify_lint`/`visibility_lint`) are retired.
-    check_program(errors, program, library, program.file_path);
-    return CheckResult { errors: errors };
+    check_program(errors, program, library, program.file_path, records);
+    return CheckResult { errors: errors, records: records };
 }
 
 // Check the whole closure against one shared element model: the primary program
@@ -64,6 +70,7 @@ pub fn check_files(_ program: Program, _ imports: List<Program>,
     skip: Set<String> = Set.new(), sdk: Option<String> = Option.None,
     prebuilt: Option<LibraryElement> = Option.None) -> CheckResult {
     let errors: List<CheckError> = [];
+    let records: List<TypeRecord> = [];
     // `prebuilt` is the session's cached-base + layered-primary library (LD14)
     // — behavior-identical to the full build by the resolver's contract.
     let library = prebuilt.unwrap_or_else(() =>
@@ -72,7 +79,7 @@ pub fn check_files(_ program: Program, _ imports: List<Program>,
         check_duplicates(errors, program, imports);
         check_reserved_names(errors, program, sdk);
         check_shadowed_surface(errors, program, library);
-        check_program(errors, program, library, program.file_path);
+        check_program(errors, program, library, program.file_path, records);
     }
     for ip in imports {
         if !skip.has(file_key(ip.file_path)) {
@@ -81,10 +88,10 @@ pub fn check_files(_ program: Program, _ imports: List<Program>,
             check_duplicates(errors, ip, []);
             check_reserved_names(errors, ip, sdk);
             check_shadowed_surface(errors, ip, library);
-            check_program(errors, ip, library, ip.file_path);
+            check_program(errors, ip, library, ip.file_path, records);
         }
     }
-    return CheckResult { errors: errors };
+    return CheckResult { errors: errors, records: records };
 }
 
 fn add_error(_ errors: List<CheckError>, _ message: String, _ span: SourceSpan) -> Void {
@@ -421,23 +428,23 @@ fn collides(_ a: NameSite, _ b: NameSite) -> Bool {
 // ---- declaration checking ----
 
 fn check_program(_ errors: List<CheckError>, _ program: Program, _ library: LibraryElement,
-    _ file: Option<String>) -> Void {
+    _ file: Option<String>, _ records: List<TypeRecord>) -> Void {
     for decl in program.decls {
         match decl {
-            Fn(x) => { check_fn(errors, x, library, Option.None, Set.new(), file); },
+            Fn(x) => { check_fn(errors, x, library, Option.None, Set.new(), file, records); },
             Type(x) => { check_type_decl(errors, x, library, file); },
             Impl(x) => {
                 let self_type = impl_self_type(x, library, file);
                 let type_params = type_param_set(x.type_params);
                 for m in x.methods {
-                    check_fn(errors, m, library, Option.Some(self_type), type_params, file);
+                    check_fn(errors, m, library, Option.Some(self_type), type_params, file, records);
                 }
                 if let Some(_) = x.interface_name { check_conformance(errors, x, library, file); }
             },
             Interface(x) => { check_interface_decl(errors, x, library, file); },
             Const(x) => {
                 if let Some(ref) = x.type_ann { check_type_ref(errors, ref, library, file, Set.new()); }
-                let ctx = new_ctx(library);
+                let ctx = new_ctx(library, record_sink: records);
                 ctx.current_file = file;
                 check_expr(errors, x.value, empty_scope(), ctx, Option.None);
                 // A `const` is a manifest constant, inlined at every use site; a
@@ -457,7 +464,7 @@ fn check_program(_ errors: List<CheckError>, _ program: Program, _ library: Libr
                 // Type-checked like a `const` initializer — unlike `const`, the
                 // initializer may be computed (it runs once at load, not inlined).
                 if let Some(ref) = x.type_ann { check_type_ref(errors, ref, library, file, Set.new()); }
-                let ctx = new_ctx(library);
+                let ctx = new_ctx(library, record_sink: records);
                 ctx.current_file = file;
                 check_expr(errors, x.value, empty_scope(), ctx, Option.None);
             },
@@ -483,7 +490,8 @@ fn check_type_decl(_ errors: List<CheckError>, _ decl: TypeDecl, _ library: Libr
 }
 
 fn check_fn(_ errors: List<CheckError>, _ fn_decl: FnDecl, _ library: LibraryElement,
-    _ self_type: Option<Type>, _ outer_type_params: Set<String>, _ file: Option<String>) -> Void {
+    _ self_type: Option<Type>, _ outer_type_params: Set<String>, _ file: Option<String>,
+    _ records: List<TypeRecord>) -> Void {
     let type_params = union_type_params(outer_type_params, fn_decl.type_params);
     check_fn_sig(errors, fn_decl, library, file, type_params);
 
@@ -498,6 +506,10 @@ fn check_fn(_ errors: List<CheckError>, _ fn_decl: FnDecl, _ library: LibraryEle
                 return_type: return_type,
                 type_param_bounds: fn_param_bounds(fn_decl, file_scope(library, file)),
                 current_file: file,
+                // A fresh per-function memo (short scans — the runtime Map is an
+                // association vector); the sink accumulates across the whole run.
+                types: {},
+                record_sink: records,
             };
             let scope = empty_scope();
             // Track binding mutability in parallel with `scope`: a name maps to
@@ -751,9 +763,16 @@ fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ stmts: List<Stmt>, _ i
             let actual = infer_expr(x.value, scope, ctx, annotated);
             // Forward-flow: an underdetermined binding (`let xs = []`) takes its
             // element type from its first pinning use later in the block.
-            scope[x.name] = annotated.unwrap_or_else(() => refine_binding_type(x.name, actual, stmts, index + 1, scope, ctx));
+            let bound = annotated.unwrap_or_else(() => refine_binding_type(x.name, actual, stmts, index + 1, scope, ctx));
+            scope[x.name] = bound;
             muts[x.name] = x.is_mut;
             if let Some(a) = annotated { expect_type(errors, actual, a, 'binding \'${x.name}\'', x.span, ctx.library); }
+            // The refined type supersedes the value's pre-refinement record
+            // (`List<Unknown>` → `List<Int>`) — a post-commit block re-walk then
+            // memo-hits a hole-free type and `refine_binding_type` early-exits
+            // instead of rescanning. The name span serves type-at-declaration.
+            if annotated.is_none() { set_record(expr_span(x.value), bound, ctx); }
+            set_record(x.name_span, bound, ctx);
         },
         Return(span, value) => {
             if let Some(v) = value {
@@ -839,13 +858,54 @@ fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ stmts: List<Stmt>, _ i
 
 // ---- expression checking ----
 
+// The committed walk (CH19): check the node, then record its final type in
+// `ctx.types`. Post-order — sub-expressions are recorded by the inner arm's
+// recursion before `record_type`'s closing `infer_expr` runs, so that inference
+// memo-hits every child and costs one level of work, not a subtree walk. The
+// checker's diagnostic re-inference sites then read the committed types back
+// instead of re-deriving them (possibly divergently) from scratch.
+fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Type>,
+    _ ctx: InferCtx, _ expected: Option<Type>,
+    muts: Map<String, Bool> = {}) -> Void {
+    check_expr_inner(errors, expr, scope, ctx, expected, muts: muts);
+    record_type(expr, scope, ctx, expected);
+}
+
+// Record `expr`'s committed type, first-write-wins. The walk visits each real
+// node exactly once with the correct expected type, so a second write can only
+// come from a transient re-synthesis (the compound-assign Binary) — the first
+// value stands. Synthesized desugar nodes (zero-length spans, PA6) are skipped.
+fn record_type(_ expr: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx,
+    _ expected: Option<Type>) -> Void {
+    let span = expr_span(expr);
+    if span.length == 0 { return; }
+    let key = span_key(span);
+    if !ctx.types.has(key) {
+        let t = infer_expr(expr, scope, ctx, expected);
+        ctx.types[key] = t;
+        ctx.record_sink.push(TypeRecord {
+            file: span.file, offset: span.offset, length: span.length, ty: t });
+    }
+}
+
+// A deliberate post-commit update: the `let` arm overwrites its value's record
+// with the forward-flow-refined binding type, and stamps the binding's name
+// span (a declaration site, never an expression span) for type-at queries. The
+// sink keeps both entries; the later one supersedes.
+fn set_record(_ span: SourceSpan, _ t: Type, _ ctx: InferCtx) -> Void {
+    if span.length == 0 { return; }
+    ctx.types[span_key(span)] = t;
+    ctx.record_sink.push(TypeRecord {
+        file: span.file, offset: span.offset, length: span.length, ty: t });
+}
+
 // `muts` is the enclosing statement context's mutability map, threaded through
 // every sub-expression so an assignment inside an expression-position block or
 // `if` is immutability-checked like any other (CH18: these used to get a fresh
 // empty map, so `let y = if c { x = 5; 1 } else { 2 }` escaped the check).
 // Callers with no statement context (initializers, lambda bodies — a function
 // boundary with its own tracking) omit it; untracked names stay lenient.
-fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Type>,
+fn check_expr_inner(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Type>,
     _ ctx: InferCtx, _ expected: Option<Type>,
     muts: Map<String, Bool> = {}) -> Void {
     match expr {
