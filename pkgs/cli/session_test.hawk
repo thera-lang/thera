@@ -1,0 +1,118 @@
+// Tests for the analysis session's cross-request state: the dependency graph
+// and the cascading invalidation it drives (LD14 batch A). The check/compile
+// pipeline itself is covered by driver_test; these cover what happens *between*
+// requests — an edit to a dependency must re-expose its importers to checking.
+
+import std.testing;
+import std.fs;
+
+import 'loader';
+import 'session' as _;
+
+// A fixture tree under the OS temp dir: `files` are (name, source) pairs
+// written into a fresh `hawk_session_<tag>_test` directory. Returns the
+// canonical directory path.
+fn fixture_dir(_ tag: String, _ files: Map<String, String>) -> Result<String, Error> {
+    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_session_${tag}_test');
+    match fs.remove_dir_all(dir) {
+        Ok(_) => {},
+        Err(_) => {}, // stale fixture only
+    }
+    fs.create_dir_all(dir)?;
+    for name in files.keys() {
+        fs.write_text('${dir}/${name}', files[name])?;
+    }
+    return Result.Ok(dir);
+}
+
+fn cleanup(_ dir: String) -> Void {
+    match fs.remove_dir_all(dir) {
+        Ok(_) => {},
+        Err(_) => {},
+    }
+}
+
+// An edit to a dependency must re-check importers that previously checked
+// clean: `a` imports `b` and `c`; `c` calls `b.helper()`. After `a` checks
+// clean (everything lands in `checked`), an overlay on `b` removing `helper`
+// must surface a diagnostic attributed to `c.hawk` on the next check of `a`
+// — before batch A, `c` stayed in `checked` and the breakage was skipped.
+@test
+fn test_dependency_edit_rechecks_importers() -> Result<Void, Error> {
+    let dir = fixture_dir('stale', {
+        'b.hawk': 'pub fn helper() -> Int { return 1; }\n',
+        'c.hawk': 'import \'b\';\npub fn go() -> Int { return b.helper(); }\n',
+        'a.hawk': 'import \'b\';\nimport \'c\';\nfn main() -> Int { return c.go() + b.helper(); }\n',
+    })?;
+    let sess = new_session(Option.None);
+    let a_path = '${dir}/a.hawk';
+    let a_src = fs.read_text(a_path)?;
+
+    let first = sess.check(a_src, a_path);
+    testing.assert_eq(actual: first.len(), expected: 0)?;
+
+    // The edit: `b` loses `helper`. `a`'s own call sites break too, so give
+    // `a` a fresh check — the point is that *c's* breakage also surfaces.
+    sess.set_overlay('${dir}/b.hawk', 'pub fn helper2() -> Int { return 2; }\n');
+    let second = sess.check(a_src, a_path);
+    let mut c_flagged = false;
+    for d in second {
+        if d.file.map((f) => f.ends_with('/c.hawk')).unwrap_or(false) {
+            c_flagged = true;
+        }
+    }
+    testing.assert(c_flagged, message: 'the importer c.hawk is re-checked: ${second.len()} diags')?;
+
+    cleanup(dir);
+    return Result.Ok(void);
+}
+
+@test
+fn test_dependents_of_is_transitive() -> Result<Void, Error> {
+    let dir = fixture_dir('cone', {
+        'b.hawk': 'pub fn helper() -> Int { return 1; }\n',
+        'c.hawk': 'import \'b\';\npub fn go() -> Int { return b.helper(); }\n',
+        'a.hawk': 'import \'c\';\nfn main() -> Int { return c.go(); }\n',
+    })?;
+    let sess = new_session(Option.None);
+    let a_path = '${dir}/a.hawk';
+    let diags = sess.check(fs.read_text(a_path)?, a_path);
+    testing.assert_eq(actual: diags.len(), expected: 0)?;
+
+    // b's cone climbs the import chain: b <- c <- a.
+    let cone = sess.dependents_of('${dir}/b.hawk');
+    testing.assert(cone.contains(loader.canonical_path('${dir}/b.hawk')), message: 'cone has b')?;
+    testing.assert(cone.contains(loader.canonical_path('${dir}/c.hawk')), message: 'cone has c')?;
+    testing.assert(cone.contains(loader.canonical_path(a_path)), message: 'cone has a')?;
+    // a's cone is just a — nothing imports it.
+    testing.assert_eq(actual: sess.dependents_of(a_path).len(), expected: 1)?;
+
+    cleanup(dir);
+    return Result.Ok(void);
+}
+
+// A file under the SDK's std root invalidates everything: every file's bare
+// surface implicitly depends on the std.core prelude, and that edge isn't in
+// the graph.
+@test
+fn test_sdk_file_invalidates_every_known_file() -> Result<Void, Error> {
+    let dir = fixture_dir('sdk', {
+        'main.hawk': 'fn main() -> Int { return 1; }\n',
+    })?;
+    // A fake SDK: `<dir>/sdk/std/core/core.hawk` (empty prelude is fine — the
+    // loader just needs the layout).
+    fs.create_dir_all('${dir}/sdk/std/core')?;
+    fs.write_text('${dir}/sdk/std/core/core.hawk', '// empty prelude\n')?;
+
+    let sess = new_session(Option.Some('${dir}/sdk'));
+    let main_path = '${dir}/main.hawk';
+    let diags = sess.check(fs.read_text(main_path)?, main_path);
+    testing.assert_eq(actual: diags.len(), expected: 0)?;
+
+    let cone = sess.dependents_of('${dir}/sdk/std/core/core.hawk');
+    testing.assert(cone.contains(loader.canonical_path(main_path)),
+        message: 'an SDK edit invalidates the user file')?;
+
+    cleanup(dir);
+    return Result.Ok(void);
+}

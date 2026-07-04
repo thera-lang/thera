@@ -52,3 +52,40 @@ fn test_imported_open_buffer_overlays_disk() -> Result<Void, Error> {
     match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
     return Result.Ok(void);
 }
+
+// An edit to an open dependency marks its open importers dirty (LD14 batch A):
+// the server's next flush re-publishes `a`'s diagnostics after a `b` edit.
+@test
+fn test_dependency_edit_marks_importer_dirty() -> Result<Void, Error> {
+    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_dirty_cone_test');
+    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} } // stale fixture
+    if let Err(e) = fs.create_dir_all(dir) {
+        return Result.Err(error('create fixture dir: ${e.message()}'));
+    }
+    let b_text = 'pub fn helper() -> Int { return 1; }\n';
+    if let Err(e) = fs.write_text(dir + '/b.hawk', b_text) {
+        return Result.Err(error('write b: ${e.message()}'));
+    }
+    let a_text = 'import \'b\';\nfn use_it() -> Int { return b.helper(); }\n';
+    if let Err(e) = fs.write_text(dir + '/a.hawk', a_text) {
+        return Result.Err(error('write a: ${e.message()}'));
+    }
+
+    let analysis = new_analysis(Option.None);
+    let a_uri = paths.path_to_uri(dir + '/a.hawk');
+    let b_uri = paths.path_to_uri(dir + '/b.hawk');
+    analysis.set_document(a_uri, a_text);
+    analysis.set_document(b_uri, b_text);
+    // Analyze once so the session's import graph knows a -> b, then drain.
+    let _seed = analysis.diagnostics(a_uri, a_text);
+    let _drained = analysis.take_dirty();
+
+    // Editing `b` dirties both `b` and its open importer `a`.
+    analysis.set_document(b_uri, 'pub fn renamed() -> Int { return 1; }\n');
+    let dirty = analysis.take_dirty();
+    testing.assert(dirty.contains(b_uri), message: 'edited doc is dirty')?;
+    testing.assert(dirty.contains(a_uri), message: 'open importer is dirty')?;
+
+    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    return Result.Ok(void);
+}

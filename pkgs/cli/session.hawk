@@ -57,6 +57,11 @@ pub struct Session {
     // skipped on later checks, so a batch (or a keystroke) costs the changed
     // files, not the whole closure. Files with diagnostics are never marked.
     checked: Set<String>,
+    // The merged forward import graph across every closure this session has
+    // loaded: canonical key -> that file's last-known resolved import edges
+    // (`LoadedImports.file_imports`, replaced entry-wise per load). Reversed
+    // on demand by `dependents_of`, the invalidation cone for an edit.
+    import_graph: Map<String, List<String>>,
 }
 
 pub fn new_session(_ sdk_root: Option<String>) -> Session {
@@ -65,6 +70,7 @@ pub fn new_session(_ sdk_root: Option<String>) -> Session {
         overlays: {},
         parse_cache: {},
         checked: Set.new(),
+        import_graph: {},
     };
 }
 
@@ -87,15 +93,79 @@ impl Session {
         self.invalidate(p);
     }
 
-    // Evict `p`'s parsed AST and checked-clean status from the cross-request
-    // caches (a no-op when absent).
+    // Evict `p` from the cross-request caches (a no-op when absent). Only
+    // `p`'s own text changed, so importers keep their parses — but their
+    // checked-clean status is stale (they checked against `p`'s old content),
+    // so the eviction cascades over the invalidation cone. This closes the
+    // stale-`checked` gap: an edit to `util.hawk` re-checks its importers on
+    // their next check, not just `util.hawk` itself.
     pub fn invalidate(self, _ p: String) -> Void {
         let key = loader.canonical_path(p);
         match self.parse_cache.remove(key) {
             Some(_) => {},
             None => {},
         }
-        self.checked.remove(key);
+        for k in self.dependents_of(key) {
+            self.checked.remove(k);
+        }
+    }
+
+    // `p` (canonicalized) plus every file that transitively imports it, per
+    // the session's merged import graph — the invalidation cone for an edit
+    // to `p`. Conservative: the graph's edges are unlabeled (no pub/non-pub
+    // distinction), so any import path counts — over-eviction only. A key
+    // under the SDK's std root returns every known file: each file's bare
+    // surface implicitly depends on the std.core prelude, and that implicit
+    // edge isn't in the graph.
+    pub fn dependents_of(self, _ p: String) -> List<String> {
+        let key = loader.canonical_path(p);
+        if let Some(prefix) = sdk_prefix(self.sdk_root) {
+            if key.starts_with(prefix) {
+                let all = self.import_graph.keys();
+                if !all.contains(key) {
+                    all.push(key);
+                }
+                return all;
+            }
+        }
+        // Reverse adjacency, rebuilt per call: edits are rare next to loads,
+        // and rebuilding sidesteps the bookkeeping when a file's edge list is
+        // replaced wholesale.
+        let importers_of: Map<String, List<String>> = {};
+        for importer in self.import_graph.keys() {
+            for dep in self.import_graph[importer] {
+                if !importers_of.has(dep) {
+                    importers_of[dep] = [];
+                }
+                if let Some(list) = importers_of.get(dep) {
+                    list.push(importer);
+                }
+            }
+        }
+        let seen: Set<String> = Set.new();
+        seen.add(key);
+        let cone: List<String> = [key];
+        let mut i = 0;
+        while i < cone.len() {
+            if let Some(importers) = importers_of.get(cone[i]) {
+                for f in importers {
+                    if !seen.has(f) {
+                        seen.add(f);
+                        cone.push(f);
+                    }
+                }
+            }
+            i = i + 1;
+        }
+        return cone;
+    }
+
+    // Merge one load's dependency edges into the session graph (entry-wise
+    // replace: the load's view of a file's imports is current).
+    fn record_graph(self, _ loaded: loader.LoadedImports) -> Void {
+        for f in loaded.file_imports.keys() {
+            self.import_graph[f] = loaded.file_imports[f];
+        }
     }
 
     // Force `p` to be re-checked by the next `check` even if unedited (the LSP
@@ -134,6 +204,7 @@ impl Session {
         let program = self.parse(text, p);
         let loaded = loader.load_imports(p, program, self.sdk_root,
             parse_cache: self.parse_cache, overlays: self.overlays);
+        self.record_graph(loaded);
         return Closure { program: program, loaded: loaded };
     }
 
@@ -156,6 +227,7 @@ impl Session {
         let program = pf.program;
         let loaded = loader.load_imports(canon, program, self.sdk_root,
             parse_cache: self.parse_cache, overlays: self.overlays);
+        self.record_graph(loaded);
         let skip = skip_keys(canon, loaded.programs, self.sdk_root, self.checked);
         // Lex/parse errors from imported files first (root causes) — minus files
         // already reported this run — then the closure's check errors.
@@ -187,6 +259,7 @@ impl Session {
         let program = pf.program;
         let loaded = loader.load_imports(canon, program, self.sdk_root,
             parse_cache: self.parse_cache, overlays: self.overlays);
+        self.record_graph(loaded);
         let skip = skip_keys(canon, loaded.programs, self.sdk_root, self.checked);
         // An imported file that failed to lex/parse/resolve leaves the closure
         // incomplete, so its diagnostics (root causes) block codegen alongside
