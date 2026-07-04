@@ -624,8 +624,11 @@ impl FnCompiler {
                 self.type_scope[x.name] = ty;
                 self.emit(Instr.Store(slot));
             },
-            Assign(span, target, value) => {
-                self.assign(target, value, span);
+            Assign(span, target, op, rhs) => {
+                // Emit the stored value — for a compound assignment, the
+                // synthesized `target op rhs` (byte-identical to the old
+                // parser desugar, including target re-evaluation).
+                self.assign(target, assign_value(target, op, rhs), span);
             },
             If(x) => {
                 self.expr(x.condition);
@@ -2341,6 +2344,7 @@ fn lift_lambda(_ x: LambdaExpr, _ captures: List<String>) -> FnDecl {
         end_span: x.span,
         stmts: [Stmt.Return(x.span, Option.Some(x.body))],
         tail: Option.None,
+        synthetic: true,
     };
     let params: List<Param> = [];
     for c in captures {
@@ -2523,7 +2527,7 @@ fn fv_stmt(_ s: Stmt, _ bound: Set<String>, _ free: List<String>, _ seen: Set<St
             fv_visit(x.value, bound, free, seen);
             bound.add(x.name); // visible to later statements in the block
         },
-        Assign(_, target, value) => {
+        Assign(_, target, _, value) => {
             fv_visit(target, bound, free, seen);
             fv_visit(value, bound, free, seen);
         },
@@ -2742,7 +2746,7 @@ fn bml_stmt(_ s: Stmt, _ muts: Set<String>, _ lambdas: List<LambdaExpr>) -> Void
                 muts.add(x.name);
             }
         },
-        Assign(_, target, value) => {
+        Assign(_, target, _, value) => {
             bml_expr(target, muts, lambdas);
             bml_expr(value, muts, lambdas);
         },

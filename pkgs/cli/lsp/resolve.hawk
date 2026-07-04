@@ -491,7 +491,7 @@ fn bindings_in_stmt(_ st: Stmt, _ ref: NameRef, _ out: List<BindingSite>) -> Voi
             }
             bindings_in_expr(x.value, ref, out);
         },
-        Assign(_, _, value) => { bindings_in_expr(value, ref, out); },
+        Assign(_, _, _, value) => { bindings_in_expr(value, ref, out); },
         Expr(_, e) => { bindings_in_expr(e, ref, out); },
         Return(_, value) => {
             if let Some(v) = value { bindings_in_expr(v, ref, out); }

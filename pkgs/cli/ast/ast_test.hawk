@@ -40,6 +40,7 @@ fn sample(_ ret: Int) -> Program {
                     end_span: sp(),
                     stmts: [Stmt.Return(sp(), Option.Some(Expr.Int(sp(), ret)))],
                     tail: Option.None,
+                    synthetic: true,
                 }),
             }),
         ],

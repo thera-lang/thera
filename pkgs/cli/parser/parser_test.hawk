@@ -478,3 +478,122 @@ fn test_name_spans_recorded() -> Result<Void, Error> {
     }
     return Result.Ok(void);
 }
+
+// The first statement of `fn f() { ... }`'s body in `src` — for the
+// desugar-fidelity tests.
+fn first_body_stmt(_ src: String) -> Option<Stmt> {
+    let r = parse_src(src);
+    if let Fn(f) = r.program.decls[0] {
+        if let Some(b) = f.body {
+            if b.stmts.len() > 0 {
+                return Option.Some(b.stmts[0]);
+            }
+        }
+    }
+    return Option.None;
+}
+
+// A compound assignment keeps its shape (PA5): the operator rides on the
+// statement and the RHS stays raw — no synthesized Binary aliasing the target
+// node into the value.
+@test
+fn test_compound_assign_keeps_shape() -> Result<Void, Error> {
+    match first_body_stmt('fn f() { let mut x = 1; }') {
+        Some(_) => {},
+        None => { return Result.Err(error('no body stmt')); },
+    }
+    let r = parse_src('fn f(_ m: Int) { m += 2; }');
+    testing.assert_eq(actual: r.errors.len(), expected: 0)?;
+    if let Fn(f) = r.program.decls[0] {
+        if let Some(b) = f.body {
+            if let Assign(_, target, op, value) = b.stmts[0] {
+                testing.assert_eq(actual: op, expected: Option.Some('+'))?;
+                testing.assert_eq(actual: expr_span(target).text(), expected: 'm')?;
+                // The RHS is the raw literal, not `m + 2`.
+                testing.assert_eq(actual: expr_span(value).text(), expected: '2')?;
+                return Result.Ok(void);
+            }
+        }
+    }
+    return Result.Err(error('expected an Assign stmt'));
+}
+
+// A plain assignment carries no operator.
+@test
+fn test_plain_assign_has_no_op() -> Result<Void, Error> {
+    if let Some(s) = first_body_stmt('fn f(_ m: Int) { m = 2; }') {
+        if let Assign(_, _, op, _) = s {
+            testing.assert_eq(actual: op, expected: Option.None)?;
+            return Result.Ok(void);
+        }
+    }
+    return Result.Err(error('expected an Assign stmt'));
+}
+
+// The if-let desugar fabricates a wildcard arm (and, with no `else`, an empty
+// block): both carry zero-length synthetic spans so offset queries skip them,
+// and the block is marked synthetic (PA6).
+@test
+fn test_if_let_desugar_spans_are_synthetic() -> Result<Void, Error> {
+    if let Some(s) = first_body_stmt(
+        'fn f(_ o: Option<Int>) { if let Some(v) = o { g(v); } }') {
+        if let Expr(_, e) = s {
+            if let Match(m) = e {
+                testing.assert_eq(actual: m.arms.len(), expected: 2)?;
+                testing.assert_eq(actual: pattern_span(m.arms[1].pattern).length, expected: 0)?;
+                if let Block(bs, blk) = m.arms[1].body {
+                    testing.assert_eq(actual: bs.length, expected: 0)?;
+                    testing.assert(blk.synthetic, message: 'missing-else block is synthetic')?;
+                    return Result.Ok(void);
+                }
+            }
+        }
+    }
+    return Result.Err(error('expected the desugared match'));
+}
+
+// The let-else desugar's success body references the binding through a
+// fabricated Ident: zero-length at the binding, so it never duplicates the
+// pattern's real node (PA6); the wildcard is synthetic too.
+@test
+fn test_let_else_desugar_spans_are_synthetic() -> Result<Void, Error> {
+    if let Some(s) = first_body_stmt(
+        'fn f(_ o: Option<Int>) -> Int { let Some(v) = o else { return 0; }; return v; }') {
+        if let Let(l) = s {
+            if let Match(m) = l.value {
+                if let Ident(is, name) = m.arms[0].body {
+                    testing.assert_eq(actual: name, expected: 'v')?;
+                    testing.assert_eq(actual: is.length, expected: 0)?;
+                    testing.assert_eq(actual: is.offset, expected: l.name_span.offset)?;
+                }
+                testing.assert_eq(actual: pattern_span(m.arms[1].pattern).length, expected: 0)?;
+                return Result.Ok(void);
+            }
+        }
+    }
+    return Result.Err(error('expected the desugared let'));
+}
+
+// An `else if` chain's wrapper block is marked synthetic; a source
+// `else { if … }` is not (PA8 — the marker replaces span sniffing).
+@test
+fn test_else_if_wrapper_is_synthetic() -> Result<Void, Error> {
+    if let Some(s) = first_body_stmt(
+        'fn f(_ a: Bool, _ b: Bool) { if a { } else if b { } }') {
+        if let If(x) = s {
+            testing.assert_eq(actual: x.else_block.map((b) => b.synthetic),
+                expected: Option.Some(true))?;
+        } else {
+            return Result.Err(error('expected an If stmt'));
+        }
+    }
+    if let Some(s) = first_body_stmt(
+        'fn f(_ a: Bool, _ b: Bool) { if a { } else { if b { } } }') {
+        if let If(x) = s {
+            testing.assert_eq(actual: x.else_block.map((b) => b.synthetic),
+                expected: Option.Some(false))?;
+            return Result.Ok(void);
+        }
+    }
+    return Result.Err(error('expected an If stmt'));
+}

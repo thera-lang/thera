@@ -297,7 +297,7 @@ fn stmt_return_type(_ stmt: Stmt, _ scope: Map<String, Type>, _ ctx: InferCtx,
         Let(_) => Type.Unknown,
         Throw(_, _) => Type.Unknown,
         Expr(_, _) => Type.Unknown,
-        Assign(_, _, _) => Type.Unknown,
+        Assign(_, _, _, _) => Type.Unknown,
     };
 }
 
@@ -434,15 +434,17 @@ pub fn refine_binding_type(_ name: String, _ inferred: Type, _ stmts: List<Stmt>
 fn pinning_candidate(_ name: String, _ stmt: Stmt, _ current: Type,
     _ scope: Map<String, Type>, _ ctx: InferCtx) -> Option<Type> {
     return match stmt {
-        Assign(_, target, value) => match target {
+        Assign(_, target, op, rhs) => match target {
             Ident(_, n) => if n == name {
-                Option.Some(infer_expr(value, scope, ctx, Option.None))
+                // Pin from the stored value — for a compound assignment, the
+                // synthesized `target op rhs` (exactly the old desugar).
+                Option.Some(infer_expr(assign_value(target, op, rhs), scope, ctx, Option.None))
             } else {
                 Option.None
             },
             Index(_, obj, key) => match obj {
                 Ident(_, n) => if n == name {
-                    indexed_assign_candidate(current, key, value, scope, ctx)
+                    indexed_assign_candidate(current, key, assign_value(target, op, rhs), scope, ctx)
                 } else {
                     Option.None
                 },

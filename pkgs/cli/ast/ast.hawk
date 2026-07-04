@@ -214,10 +214,28 @@ pub enum Stmt {
     Return(SourceSpan, Option<Expr>),
     Throw(SourceSpan, Expr),
     Expr(SourceSpan, Expr),
-    Assign(SourceSpan, Expr, Expr), // target (Ident/Field/Index), value
+    // target (Ident/Field/Index), compound operator, value. The operator is
+    // `Some('+')` for `x += y` (etc.) with `value` the *raw* right-hand side —
+    // the AST keeps the compound shape faithfully instead of desugaring to
+    // `x = x + y`, which aliased the target node into the value (PA5: one node
+    // in two positions breaks span-keyed consumers, and the `+=` shape was
+    // unrecoverable for fmt/lint). Pipeline consumers that need the stored
+    // value's shape build it with [assign_value].
+    Assign(SourceSpan, Expr, Option<String>, Expr),
     If(IfStmt),
     For(ForStmt),
     While(WhileStmt),
+}
+
+// The value an assignment stores: the RHS for a plain `=`, or the synthesized
+// `target op rhs` Binary for a compound assignment (`x += y` stores `x + y`).
+// Built fresh per call — the transient node exists only inside the consumer
+// (checker/inference/codegen), never in the AST that walks see.
+pub fn assign_value(_ target: Expr, _ op: Option<String>, _ value: Expr) -> Expr {
+    return match op {
+        Some(o) => Expr.Binary(expr_span(target).cover(expr_span(value)), target, o, value),
+        None => value,
+    };
 }
 
 pub struct LetStmt {
@@ -258,6 +276,12 @@ pub struct Block {
     // position (a BlockExpr or a `{…}` match arm); None for statement-position
     // blocks (fn/if/while/for bodies). See docs/language.md.
     tail: Option<Expr>,
+    // True when a phase fabricated the block with no source braces of its own:
+    // the `else if` chain wrapper (PA8 — otherwise indistinguishable from a
+    // source `else { if … }`), an `if let`'s missing-else Unit block, a
+    // `let … else` assertion body, a lifted lambda's body. fmt/lint/LSP
+    // consumers must not attribute source text to a synthetic block.
+    synthetic: Bool,
 }
 
 // --- Patterns ---

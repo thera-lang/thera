@@ -176,6 +176,23 @@ impl Display for SourceSpan {
     }
 }
 
+// A zero-length span at the start of `anchor` — the span for a *synthesized*
+// node (a desugar's fabricated wildcard pattern, binding reference, or empty
+// block). It keeps the anchor's file/position, so a diagnostic on the node
+// still points somewhere sensible, but it covers no source: offset/range
+// consumers (reference collection, span-keyed records) can skip synthesized
+// nodes by their zero length, which no real token produces (PA6).
+pub fn synthetic_span(_ anchor: SourceSpan) -> SourceSpan {
+    return SourceSpan {
+        source: anchor.source,
+        file: anchor.file,
+        offset: anchor.offset,
+        length: 0,
+        line: anchor.line,
+        column: anchor.column,
+    };
+}
+
 // A source comment, captured on a side channel the parser never sees (comments
 // are not tokens, so the compile path stays byte-identical). The formatter and
 // doc tooling re-associate comments with AST nodes by span (gofmt's model). The

@@ -778,7 +778,7 @@ fn walk_stmt(_ s: Stmt, _ out: List<Suggestion>) -> Void {
         Return(_, v) => { walk_opt_expr(v, out); },
         Throw(_, e) => { walk_expr(e, out); },
         Expr(_, e) => { walk_expr(e, out); },
-        Assign(_, target, value) => {
+        Assign(_, target, _, value) => {
             walk_expr(target, out);
             walk_expr(value, out);
         },

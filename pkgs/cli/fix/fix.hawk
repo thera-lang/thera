@@ -317,7 +317,7 @@ fn fs_stmt(_ s: Stmt, _ out: List<FixSite>) -> Void {
         Return(_, v) => { fs_opt_expr(v, out); },
         Throw(_, e) => { fs_expr(e, out); },
         Expr(_, e) => { fs_expr(e, out); },
-        Assign(_, target, value) => {
+        Assign(_, target, _, value) => {
             fs_expr(target, out);
             fs_expr(value, out);
         },

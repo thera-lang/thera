@@ -1041,6 +1041,7 @@ impl Parser {
             end_span: end.span,
             stmts: stmts,
             tail: Option.None,
+            synthetic: false,
         };
     }
 
@@ -1100,12 +1101,11 @@ impl Parser {
             self.advance(); // '=' or the compound operator
             let rhs = self.parse_expr();
             self.expect(TokenKind.Semi, "';'");
-            let value = match compound {
-                Some(op) => Expr.Binary(expr_span(expr).cover(expr_span(rhs)), expr, op, rhs),
-                None => rhs,
-            };
+            // A compound assignment keeps its shape — the operator rides on the
+            // statement, the RHS stays raw (PA5: the old `x = x + y` desugar
+            // aliased the target node into the value).
             // The statement span covers through the `;` (PA7), like Let/Return.
-            return Stmt.Assign(start.cover(self.prev_span()), expr, value);
+            return Stmt.Assign(start.cover(self.prev_span()), expr, compound, rhs);
         }
         // A block-terminated expression statement (a bare `match`/`if` ending in
         // `}`) needs no trailing ';'; everything else requires one.
@@ -1154,6 +1154,7 @@ impl Parser {
             end_span: end.span,
             stmts: stmts,
             tail: tail,
+            synthetic: false,
         };
     }
 
@@ -1285,9 +1286,11 @@ impl Parser {
                 block_span(else_block));
         }
         let span = start.span.cover(block_span(else_block));
+        // The wildcard is fabricated (no `_` in source): a synthetic zero-length
+        // span anchored at the else block, so offset queries skip it (PA6).
         let else_arm = MatchArm {
             span: block_span(else_block),
-            pattern: Pattern.Wildcard(span),
+            pattern: Pattern.Wildcard(synthetic_span(block_span(else_block))),
             body: Expr.Block(block_span(else_block), else_block),
         };
         let binds: List<Pattern> = [];
@@ -1298,12 +1301,16 @@ impl Parser {
                 span);
         }
         if binds.len() == 0 {
-            // Assertion form: refute-or-diverge, binding nothing.
+            // Assertion form: refute-or-diverge, binding nothing. The empty
+            // success body is fabricated — synthetic, zero-length at the
+            // pattern (PA6/PA8).
+            let ok_span = synthetic_span(pattern_span(pattern));
             let ok_arm = MatchArm {
                 span: pattern_span(pattern),
                 pattern: pattern,
-                body: Expr.Block(span, Block {
-                    start_span: span, end_span: span, stmts: [], tail: Option.None,
+                body: Expr.Block(ok_span, Block {
+                    start_span: ok_span, end_span: ok_span, stmts: [], tail: Option.None,
+                    synthetic: true,
                 }),
             };
             return Stmt.Expr(span, Expr.Match(MatchExpr {
@@ -1316,10 +1323,13 @@ impl Parser {
             _ => '_',
         };
         let name_span = pattern_span(binds[0]);
+        // The arm body referencing the binding is fabricated — a zero-length
+        // span at the binding, so it never duplicates the pattern's real node
+        // for offset queries or reference collection (PA6).
         let ok_arm = MatchArm {
             span: pattern_span(pattern),
             pattern: pattern,
-            body: Expr.Ident(name_span, name),
+            body: Expr.Ident(synthetic_span(name_span), name),
         };
         return Stmt.Let(LetStmt {
             span: span,
@@ -1375,11 +1385,14 @@ impl Parser {
             if self.check(TokenKind.KwIf) {
                 let inner = self.parse_if_stmt();
                 let inner_span = stmt_span(inner);
+                // An `else if` chain: the wrapper block is fabricated (PA8) —
+                // `synthetic` distinguishes it from a source `else { if … }`.
                 else_block = Option.Some(Block {
                     start_span: inner_span,
                     end_span: inner_span,
                     stmts: [inner],
                     tail: Option.None,
+                    synthetic: true,
                 });
                 end = inner_span;
             } else {
@@ -1412,11 +1425,13 @@ impl Parser {
             if self.check(TokenKind.KwIf) {
                 let inner = self.parse_if_expr(require_else);
                 let inner_span = expr_span(inner);
+                // An `else if` chain: the wrapper block is fabricated (PA8).
                 else_block = Option.Some(Block {
                     start_span: inner_span,
                     end_span: inner_span,
                     stmts: [],
                     tail: Option.Some(inner),
+                    synthetic: true,
                 });
                 end = inner_span;
             } else {
@@ -1471,12 +1486,17 @@ impl Parser {
         }
         let span = start.span.cover(end);
         // No `else`: an empty Unit wildcard arm, so a statement `if let` with no
-        // `else` has type Unit (its then-branch runs for effect), like `if`.
-        let else_body = else_expr.unwrap_or_else(() => Expr.Block(span, Block {
-            start_span: span,
-            end_span: span,
+        // `else` has type Unit (its then-branch runs for effect), like `if`. The
+        // fabricated block is synthetic with a zero-length span, and the
+        // fabricated wildcard's span is zero-length too, so offset queries and
+        // reference collection skip both (PA6).
+        let missing_else = synthetic_span(span);
+        let else_body = else_expr.unwrap_or_else(() => Expr.Block(missing_else, Block {
+            start_span: missing_else,
+            end_span: missing_else,
             stmts: [],
             tail: Option.None,
+            synthetic: true,
         }));
         let arms: List<MatchArm> = [
             MatchArm {
@@ -1486,7 +1506,7 @@ impl Parser {
             },
             MatchArm {
                 span: expr_span(else_body),
-                pattern: Pattern.Wildcard(span),
+                pattern: Pattern.Wildcard(synthetic_span(expr_span(else_body))),
                 body: else_body,
             },
         ];
@@ -2302,7 +2322,7 @@ fn stmt_span(_ s: Stmt) -> SourceSpan {
         Return(sp, _) => sp,
         Throw(sp, _) => sp,
         Expr(sp, _) => sp,
-        Assign(sp, _, _) => sp,
+        Assign(sp, _, _, _) => sp,
         If(x) => x.span,
         For(x) => x.span,
         While(x) => x.span,

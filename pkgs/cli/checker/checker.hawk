@@ -761,7 +761,11 @@ fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ stmts: List<Stmt>, _ i
                 if let Some(rt) = ctx.return_type { check_return(errors, v, rt, span, scope, ctx); }
             }
         },
-        Assign(_, target, value) => {
+        Assign(_, target, op, rhs) => {
+            // A compound assignment stores `target op rhs` — check exactly the
+            // value the old desugar produced (PA5 keeps the AST faithful; the
+            // synthesized Binary here is transient).
+            let value = assign_value(target, op, rhs);
             check_expr(errors, target, scope, ctx, Option.None, muts: muts);
             // Immutability: reassigning a binding that isn't `mut` is an error.
             // Only flag a name we know is an immutable local (a non-`mut` `let` or
