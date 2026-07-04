@@ -249,29 +249,41 @@ sites resolve an *inferred* `Type` — which needs the owner on `Type` (T1) anyw
 
 **Phase 1 is complete.**
 
-### Phase 2 — incremental engine (medium scale)
+### Phase 2 — incremental engine (medium scale) — **complete (LD14)**
 
 Resolved-library cache + dependency-graph invalidation on top of the Phase-0
 session struct: re-parse only the edited file; re-resolve only affected libraries;
-keep element models for unchanged libraries. Back-port the batch parse-cache
-learnings rather than bolting on more caches. Target: no whole-closure rebuild per
+keep element models for unchanged libraries. Target: no whole-closure rebuild per
 edit for ~1–2k-file projects.
 
-**Groundwork landed (2026-07-03, the LD16/LD17/LD7 arc):** the session now
-exists at the **CLI level** — `pkgs/cli/session.hawk`'s `Session` owns
-{sdk_root, overlays, parse_cache, checked} and the pipeline
-(`parse`/`load_closure`/`check`/`compile`); `hawk check`/`test`/`emit` and the
-LSP all drive it (layer 1's "one engine" — the LSP's `Analysis` is a thin URI
-wrapper). File identity is settled: the canonical-path String is the file id
-(minted only by `loader.canonical_path`; helpers deduped onto `std.path`), and
-**spans carry their file** (`SourceSpan.file`), so diagnostics attribute by id
-— collision-free cache keys for the resolved-library cache. Pre-flight
-(2026-07-04): path-less in-memory programs get distinct stamped identities
-(`build_library` mints `<anon>`/`<anon:2>`…, LD8 — no aliased cache keys), and
-the LSP's dirty set moved from `Server` into `Analysis`, so invalidation state
-(dirty docs, overlays, caches) is one object (LS-D1). What remains for Phase 2
-proper: the `surface_cache`/`library_cache` layers and dependency-graph
-invalidation over `LoadedImports.file_imports` (LD14).
+**Groundwork (2026-07-03/04):** the CLI-level `Session` (LD16) with canonical
+String file identity (LD17), file-carrying spans (LD7), distinct anon
+identities (LD8), and unified invalidation state on `Analysis` (LS-D1).
+
+**The engine (2026-07-04, four batches — LD14):**
+- The primary parses through the session's `parse_cache` (R1).
+- The session merges each load's `file_imports` into a persistent import
+  graph; `invalidate(p)` cascades over `dependents_of(p)` (conservative over
+  unlabeled edges; an SDK key invalidates everything — the implicit prelude
+  dependency). This also fixed a live staleness bug: importers' checked-clean
+  status survived a dependency edit. Open importers are marked dirty in the
+  LSP, so a dep edit re-publishes them.
+- Surfaces: `public_surface_of` is memoized per load (the per-edge quadratic
+  is gone) and each file's derived `FileSurface` (namespaces, bare surface,
+  edges, collision diagnostics) lives in a cross-call `surface_cache`.
+- Libraries: `resolver.build_import_library` builds the imports-only element
+  model, cached by closure signature; `resolver.layer_primary` stacks the
+  primary on a shallow-copied view without mutating the base (**frozen-base
+  invariant**: elements reachable from a cached base are frozen; a primary
+  `impl` on a type it doesn't declare falls back to a full build). The
+  checker takes the layered library via `check_files(prebuilt:)`; codegen
+  keeps its full build (emit path, the fixpoint substrate).
+
+Measured: batch corpus check 22.6s → 12.5s; a warm LSP keystroke costs the
+primary only (small file 9ms → 5ms; warm closure load ~3ms; `build_library`
+and `collect_surface` both dropped off the deterministic profile). The
+remaining keystroke cost is the primary's own inference — CH19's memo
+(Phase 3) is the next lever.
 
 ### Phase 3 — query layer + inference-at-offset
 
