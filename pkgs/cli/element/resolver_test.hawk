@@ -4,6 +4,7 @@
 
 import std.testing;
 
+import '../ast/ast' as _; // Program
 import '../lexer/lexer' as _;
 import '../parser/parser' as _;
 import 'types' as _;
@@ -13,6 +14,14 @@ import 'scope' as _;
 
 fn lib_of(_ src: String) -> LibraryElement {
     return build_library(parse_tokens(tokenize(src).tokens).program, [], {}, {});
+}
+
+// Parse `src` stamped with `path` — for the multi-file / layered-build tests,
+// which need real per-file identities.
+fn prog_of(_ src: String, _ path: String) -> Program {
+    let prog = parse_tokens(tokenize(src).tokens).program;
+    prog.file_path = Option.Some(path);
+    return prog;
 }
 
 @test
@@ -322,5 +331,99 @@ fn test_elements_carry_symbol_identity() -> Result<Void, Error> {
     } else {
         testing.assert(false, message: 'List floor entry not resolved')?;
     }
+    return Result.Ok(void);
+}
+
+// --- the layered build (LD14 batch C) ---
+
+// `build_import_library` + `layer_primary` must equal the full build: same
+// flat keys, same primary tables, same impl attachment — and the base must
+// come out untouched.
+@test
+fn test_layered_build_matches_full_build() -> Result<Void, Error> {
+    let dep_src = 'pub interface Greet { fn hello(self) -> Int }\n';
+    let main_src = 'struct Point { x: Int }\n'
+        + 'impl Greet for Point { pub fn hello(self) -> Int { return self.x; } }\n';
+    // Two parses of the dep so the full and layered builds don't share
+    // mutated programs.
+    let dep_a = prog_of(dep_src, '/dep.hawk');
+    let dep_b = prog_of(dep_src, '/dep.hawk');
+    let surface: Map<String, Map<String, String>> = {};
+    surface['/main.hawk'] = { 'Greet': '/dep.hawk' };
+    let full = build_library(prog_of(main_src, '/main.hawk'), [dep_a], {}, surface);
+    let base = build_import_library([dep_b], {}, surface);
+    let layered = match layer_primary(base, prog_of(main_src, '/main.hawk'), {}, surface) {
+        Some(lib) => lib,
+        None => { return Result.Err(error('layer_primary unexpectedly fell back')); },
+    };
+
+    // The primary's element matches: same interface conformance, same method.
+    let full_pt = full.file_type_defs['/main.hawk']['Point'];
+    let layered_pt = layered.file_type_defs['/main.hawk']['Point'];
+    testing.assert_eq(actual: layered_pt.interfaces.len(), expected: full_pt.interfaces.len())?;
+    testing.assert_eq(actual: layered_pt.methods.len(), expected: full_pt.methods.len())?;
+    testing.assert_eq(actual: layered_pt.interfaces[0],
+        expected: TypeId { owner: '/dep.hawk', name: 'Greet' })?;
+    // The flat registry agrees.
+    testing.assert(layered.type_defs.has('Point'), message: 'flat has Point')?;
+    testing.assert(layered.type_defs.has('Greet'), message: 'flat has Greet')?;
+    // The base is untouched: no Point anywhere, dep element unmutated.
+    testing.assert(!base.type_defs.has('Point'), message: 'base flat has no Point')?;
+    testing.assert(!base.file_type_defs.has('/main.hawk'), message: 'base has no primary table')?;
+    return Result.Ok(void);
+}
+
+// The poisoning gate (the frozen-base invariant's enforcement): a primary
+// `impl` on a type the primary doesn't declare returns None — twice — and the
+// base element accumulates nothing.
+@test
+fn test_layer_primary_gates_foreign_impl() -> Result<Void, Error> {
+    let dep = prog_of('pub struct Point { x: Int }\n', '/dep.hawk');
+    let surface: Map<String, Map<String, String>> = {};
+    surface['/main.hawk'] = { 'Point': '/dep.hawk' };
+    let base = build_import_library([dep], {}, surface);
+    let before = base.file_type_defs['/dep.hawk']['Point'].methods.len();
+
+    let main_src = 'impl Point { pub fn shout(self) -> Int { return 1; } }\n';
+    let first = layer_primary(base, prog_of(main_src, '/main.hawk'), {}, surface);
+    let second = layer_primary(base, prog_of(main_src, '/main.hawk'), {}, surface);
+    testing.assert(first.is_none(), message: 'foreign impl falls back')?;
+    testing.assert(second.is_none(), message: 'falls back on repeat too')?;
+    testing.assert_eq(actual: base.file_type_defs['/dep.hawk']['Point'].methods.len(),
+        expected: before)?;
+    return Result.Ok(void);
+}
+
+// `impl Int` (a builtin-floor target) is foreign too: the gate falls back
+// rather than mutating the shared floor element.
+@test
+fn test_layer_primary_gates_builtin_impl() -> Result<Void, Error> {
+    let base = build_import_library([], {}, {});
+    let main_src = 'impl Int { pub fn shout(self) -> Int { return self; } }\n';
+    let layered = layer_primary(base, prog_of(main_src, '/main.hawk'), {}, {});
+    testing.assert(layered.is_none(), message: 'builtin impl falls back')?;
+    return Result.Ok(void);
+}
+
+// Interface flattening in the layered build writes only primary elements: a
+// primary interface extending an imported one gains the inherited method; the
+// imported super's element is unchanged.
+@test
+fn test_layer_primary_flattens_into_primary_only() -> Result<Void, Error> {
+    let dep = prog_of('pub interface Base { fn root(self) -> Int }\n', '/dep.hawk');
+    let surface: Map<String, Map<String, String>> = {};
+    surface['/main.hawk'] = { 'Base': '/dep.hawk' };
+    let base = build_import_library([dep], {}, surface);
+    let super_methods = base.file_type_defs['/dep.hawk']['Base'].methods.len();
+
+    let main_src = 'interface Sub: Base { fn extra(self) -> Int }\n';
+    let layered = match layer_primary(base, prog_of(main_src, '/main.hawk'), {}, surface) {
+        Some(lib) => lib,
+        None => { return Result.Err(error('layer_primary unexpectedly fell back')); },
+    };
+    let sub = layered.file_type_defs['/main.hawk']['Sub'];
+    testing.assert_eq(actual: sub.methods.len(), expected: 2)?; // extra + inherited root
+    testing.assert_eq(actual: base.file_type_defs['/dep.hawk']['Base'].methods.len(),
+        expected: super_methods)?;
     return Result.Ok(void);
 }

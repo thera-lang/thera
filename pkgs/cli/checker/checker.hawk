@@ -61,9 +61,13 @@ pub fn check(_ program: Program, _ imports: List<Program>,
 pub fn check_files(_ program: Program, _ imports: List<Program>,
     _ file_namespaces: Map<String, Map<String, LibraryNamespace>>,
     _ file_bare_surface: Map<String, Map<String, String>>,
-    skip: Set<String> = Set.new(), sdk: Option<String> = Option.None) -> CheckResult {
+    skip: Set<String> = Set.new(), sdk: Option<String> = Option.None,
+    prebuilt: Option<LibraryElement> = Option.None) -> CheckResult {
     let errors: List<CheckError> = [];
-    let library = resolver.build_library(program, imports, file_namespaces, file_bare_surface);
+    // `prebuilt` is the session's cached-base + layered-primary library (LD14)
+    // — behavior-identical to the full build by the resolver's contract.
+    let library = prebuilt.unwrap_or_else(() =>
+        resolver.build_library(program, imports, file_namespaces, file_bare_surface));
     if !skip.has(file_key(program.file_path)) {
         check_duplicates(errors, program, imports);
         check_reserved_names(errors, program, sdk);

@@ -172,3 +172,62 @@ fn test_whitebox_surface_refreshes_on_dep_edit() -> Result<Void, Error> {
     cleanup(dir);
     return Result.Ok(void);
 }
+
+// --- the library cache (LD14 batch C) ---
+
+// Repeated checks of one primary run against the cached imports-only base;
+// the diagnostics must be identical run over run (the end-to-end frozen-base
+// guard: an accumulating base would change resolution or duplicate methods).
+@test
+fn test_repeated_checks_are_stable() -> Result<Void, Error> {
+    let dir = fixture_dir('stable', {
+        'shape.hawk': 'pub interface Shape { fn area(self) -> Int }\n',
+        'main.hawk': 'import \'shape\' as _;\n'
+            + 'struct Sq { s: Int }\n'
+            + 'impl Shape for Sq { pub fn area(self) -> Int { return self.s * self.s; } }\n'
+            + 'fn main() -> Int { return Sq { s: 3 }.area() + missing; }\n',
+    })?;
+    let sess = new_session(Option.None);
+    let main_path = '${dir}/main.hawk';
+    let main_src = fs.read_text(main_path)?;
+
+    let first = sess.check(main_src, main_path);
+    testing.assert(first.len() > 0, message: 'the fixture has its one error')?;
+    testing.assert(sess.library_cache.len() > 0, message: 'the base library is cached')?;
+    let mut round = 0;
+    while round < 3 {
+        sess.force_recheck(main_path);
+        let again = sess.check(main_src, main_path);
+        testing.assert_eq(actual: again.len(), expected: first.len())?;
+        testing.assert_eq(actual: again[0].message, expected: first[0].message)?;
+        round = round + 1;
+    }
+
+    cleanup(dir);
+    return Result.Ok(void);
+}
+
+// A dependency edit evicts the cached base: the next check resolves against
+// the new dependency (its renamed method is required by the impl).
+@test
+fn test_library_cache_evicts_on_dep_edit() -> Result<Void, Error> {
+    let dir = fixture_dir('libevict', {
+        'shape.hawk': 'pub interface Shape { fn area(self) -> Int }\n',
+        'main.hawk': 'import \'shape\';\n'
+            + 'struct Sq { s: Int }\n'
+            + 'impl shape.Shape for Sq { pub fn area(self) -> Int { return self.s; } }\n',
+    })?;
+    let sess = new_session(Option.None);
+    let main_path = '${dir}/main.hawk';
+    let main_src = fs.read_text(main_path)?;
+    testing.assert_eq(actual: sess.check(main_src, main_path).len(), expected: 0)?;
+
+    // The interface gains a method the impl doesn't provide.
+    sess.set_overlay('${dir}/shape.hawk',
+        'pub interface Shape { fn area(self) -> Int\n fn name(self) -> String }\n');
+    testing.assert(sess.check(main_src, main_path).len() > 0,
+        message: 'the stale base was evicted; the new interface is enforced')?;
+
+    cleanup(dir);
+    return Result.Ok(void);
+}

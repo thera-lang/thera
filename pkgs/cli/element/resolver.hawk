@@ -147,35 +147,106 @@ fn record_flat_type(_ type_defs: Map<String, TypeDefElement>, _ name: String,
 //
 // Pass 1 registers a skeleton element for every declared type (so mutually
 // recursive references resolve); pass 2 fills member types, signatures, consts,
-// and impl methods; pass 3 flattens the inherited interface closure.
+// and impl methods; pass 3 flattens the inherited interface closure. The
+// per-program pass bodies are shared with the incremental pair below
+// (`build_import_library` + `layer_primary`), which must stay
+// behavior-identical to this full build.
 pub fn build_library(_ program: Program, _ imports: List<Program>,
     _ file_namespaces: Map<String, Map<String, LibraryNamespace>>,
     _ file_bare_surface: Map<String, Map<String, String>>) -> LibraryElement {
-    let type_defs = builtin_type_defs();
-    let file_functions: Map<String, Map<String, FunctionElement>> = {};
-    let file_type_defs: Map<String, Map<String, TypeDefElement>> = {};
-    let file_consts: Map<String, Map<String, ConstElement>> = {};
-    // The top-level names each file declares — the same-file half of bare resolution.
-    let file_owned: Map<String, Set<String>> = {};
-
+    stamp_anon_keys(program, imports);
     // Imports are registered first so the primary program can shadow them.
     let programs: List<Program> = [];
     for ip in imports {
         programs.push(ip);
     }
     programs.push(program);
+    let library = library_over(programs, file_namespaces, file_bare_surface);
+    for owner in library.file_type_defs.keys() {
+        flatten_owner_interfaces(library, owner);
+    }
+    return library;
+}
 
-    // Distinct identity for path-less (in-memory) programs, stamped before any
-    // table is keyed: two hermetic programs aliasing one `<anon>` key merge
-    // their name spaces — a same-named helper in each reads as a same-file
-    // duplicate, and private access looks same-file (LD8). The primary keeps
-    // the plain `<anon>` key (hermetic callers address it as `file_key(None)`);
-    // path-less imports count up from 2. Stamping mutates the program — as the
-    // loader's canonical re-stamp does — so the checker's and codegen's builds
-    // agree on one identity.
+// The imports-only library: the closure's element model with no primary
+// layered in — the cacheable base `layer_primary` builds on (LD14). Runs the
+// same passes as `build_library` over `imports` alone (dependency-first
+// order — the registration-order invariant — with the builtin floor
+// included).
+//
+// **Frozen-base invariant:** once a base is cached and layered on, every
+// element reachable from it is frozen — `layer_primary` must mutate only
+// primary-owned elements (any new element-mutation site in the resolver must
+// respect this, or repeated layered requests silently poison the cache).
+pub fn build_import_library(_ imports: List<Program>,
+    _ file_namespaces: Map<String, Map<String, LibraryNamespace>>,
+    _ file_bare_surface: Map<String, Map<String, String>>) -> LibraryElement {
+    stamp_anon_imports(imports);
+    let library = library_over(imports, file_namespaces, file_bare_surface);
+    for owner in library.file_type_defs.keys() {
+        flatten_owner_interfaces(library, owner);
+    }
+    return library;
+}
+
+// Layer `program` over a cached imports-only `base` WITHOUT mutating it: the
+// flat registry and the per-file outer maps are shallow-copied (element
+// objects shared), then passes 1/2/3 run for the primary alone against the
+// copy. Returns None — the caller falls back to a full `build_library` — when
+// a primary `impl`'s target type is not declared by the primary itself: the
+// impl would push methods onto an import-owned (or builtin-floor) element,
+// poisoning the shared base. `file_namespaces`/`file_bare_surface` are the
+// *current* load's (they match the base's for import files — the caller's
+// invalidation guarantees it — plus the primary's own entries).
+pub fn layer_primary(_ base: LibraryElement, _ program: Program,
+    _ file_namespaces: Map<String, Map<String, LibraryNamespace>>,
+    _ file_bare_surface: Map<String, Map<String, String>>) -> Option<LibraryElement> {
     if program.file_path.is_none() {
         program.file_path = Option.Some(file_key(Option.None));
     }
+    let library = LibraryElement {
+        type_defs: map_copy(base.type_defs),
+        file_functions: map_copy(base.file_functions),
+        file_type_defs: map_copy(base.file_type_defs),
+        file_consts: map_copy(base.file_consts),
+        file_namespaces: file_namespaces,
+        file_bare_surface: file_bare_surface,
+        file_owned: map_copy(base.file_owned),
+    };
+    let primary_key = file_key(program.file_path);
+    collect_owned(library.file_owned, program);
+    register_skeletons(library.type_defs, library.file_type_defs, program);
+    // The poisoning gate, after pass 1 so the primary's own types are
+    // registered: an impl on anything the primary doesn't declare would
+    // resolve to (and mutate) a frozen base element.
+    for decl in program.decls {
+        if let Impl(x) = decl {
+            if !file_type_def(library.file_type_defs, program.file_path, x.type_name).is_some() {
+                return Option.None;
+            }
+        }
+    }
+    resolve_members(library, program);
+    flatten_owner_interfaces(library, primary_key);
+    return Option.Some(library);
+}
+
+// Distinct identity for path-less (in-memory) programs, stamped before any
+// table is keyed: two hermetic programs aliasing one `<anon>` key merge
+// their name spaces — a same-named helper in each reads as a same-file
+// duplicate, and private access looks same-file (LD8). The primary keeps
+// the plain `<anon>` key (hermetic callers address it as `file_key(None)`);
+// path-less imports count up from 2. Stamping mutates the program — as the
+// loader's canonical re-stamp does — so the checker's and codegen's builds
+// agree on one identity.
+fn stamp_anon_keys(_ program: Program, _ imports: List<Program>) -> Void {
+    if program.file_path.is_none() {
+        program.file_path = Option.Some(file_key(Option.None));
+    }
+    stamp_anon_imports(imports);
+}
+
+fn stamp_anon_imports(_ imports: List<Program>) -> Void {
     let mut anon = 1;
     for ip in imports {
         if ip.file_path.is_none() {
@@ -183,50 +254,33 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
             ip.file_path = Option.Some('<anon:${anon}>');
         }
     }
+}
 
-    // Collect each file's declared top-level names (for same-file bare resolution).
-    for p in programs {
-        let key = file_key(p.file_path);
-        if !file_owned.has(key) {
-            file_owned[key] = Set.new();
-        }
-        if let Some(owned) = file_owned.get(key) {
-            for decl in p.decls {
-                if let Some(n) = top_decl_name(decl) { owned.add(n); }
-            }
-        }
+// A shallow copy: the outer map is fresh, the values are shared references.
+fn map_copy<K, V>(_ m: Map<K, V>) -> Map<K, V> {
+    let out: Map<K, V> = {};
+    for k in m.keys() {
+        out[k] = m[k];
     }
+    return out;
+}
 
-    // ---- pass 1: skeleton type definitions ----
+// Passes 1 and 2 over `programs`, in order, into a fresh library (the builtin
+// floor included). Pass 3 (interface flattening) is the caller's — the
+// layered build flattens only the primary's interfaces.
+fn library_over(_ programs: List<Program>,
+    _ file_namespaces: Map<String, Map<String, LibraryNamespace>>,
+    _ file_bare_surface: Map<String, Map<String, String>>) -> LibraryElement {
+    let type_defs = builtin_type_defs();
+    let file_type_defs: Map<String, Map<String, TypeDefElement>> = {};
+    // The top-level names each file declares — the same-file half of bare resolution.
+    let file_owned: Map<String, Set<String>> = {};
+
     for p in programs {
-        for decl in p.decls {
-            match decl {
-                Type(x) => {
-                    // A `native type` resolves as an opaque built-in (no fields, an
-                    // attachment point for impls) — the same kind the hardcoded
-                    // `builtin_type_defs()` floor registers, which this shadows.
-                    let owner = file_key(p.file_path);
-                    let el = if x.is_native {
-                        new_builtin(owner, x.name, type_param_names(x.type_params), name_span: x.name_span)
-                    } else {
-                        new_struct(owner, x.name, type_param_names(x.type_params), name_span: x.name_span)
-                    };
-                    record_flat_type(type_defs, x.name, el);
-                    record_file_type(file_type_defs, p.file_path, x.name, el);
-                },
-                Enum(x) => {
-                    let el = new_enum(file_key(p.file_path), x.name, type_param_names(x.type_params), name_span: x.name_span);
-                    record_flat_type(type_defs, x.name, el);
-                    record_file_type(file_type_defs, p.file_path, x.name, el);
-                },
-                Interface(x) => {
-                    let el = new_interface(file_key(p.file_path), x.name, type_param_names(x.type_params), name_span: x.name_span);
-                    record_flat_type(type_defs, x.name, el);
-                    record_file_type(file_type_defs, p.file_path, x.name, el);
-                },
-                _ => {},
-            }
-        }
+        collect_owned(file_owned, p);
+    }
+    for p in programs {
+        register_skeletons(type_defs, file_type_defs, p);
     }
 
     // The library is assembled here — after pass 1, so its per-file tables are
@@ -236,115 +290,169 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
     // interface closure) are visible through it; this is the same object returned.
     let library = LibraryElement {
         type_defs: type_defs,
-        file_functions: file_functions,
+        file_functions: {},
         file_type_defs: file_type_defs,
-        file_consts: file_consts,
+        file_consts: {},
         file_namespaces: file_namespaces,
         file_bare_surface: file_bare_surface,
         file_owned: file_owned,
     };
-
-    // ---- pass 2: members, signatures, consts ----
     for p in programs {
-        // Resolve every type reference in this file's declarations against the
-        // file's own scope, so a name shared by two libraries stamps the owner the
-        // file actually sees — not the flat table's last-wins entry.
-        let fs = file_scope(library, p.file_path);
+        resolve_members(library, p);
+    }
+    return library;
+}
+
+// Collect one program's declared top-level names into `file_owned` (the
+// same-file half of bare resolution).
+fn collect_owned(_ file_owned: Map<String, Set<String>>, _ p: Program) -> Void {
+    let key = file_key(p.file_path);
+    if !file_owned.has(key) {
+        file_owned[key] = Set.new();
+    }
+    if let Some(owned) = file_owned.get(key) {
         for decl in p.decls {
-            match decl {
-                Type(x) => {
-                    let tps = type_param_set(x.type_params);
-                    if let Some(element) = file_type_def(file_type_defs, p.file_path, x.name) {
-                        fill_type_param_bounds(element, x.type_params, fs);
-                        for f in x.fields {
-                            element.fields[f.name] = resolve_type_ref_in(f.type_ann, fs, tps, Option.None);
-                            if f.is_mut {
-                                element.mut_fields.add(f.name);
-                            }
-                        }
-                    }
-                },
-                Enum(x) => {
-                    let tps = type_param_set(x.type_params);
-                    if let Some(element) = file_type_def(file_type_defs, p.file_path, x.name) {
-                        fill_type_param_bounds(element, x.type_params, fs);
-                        for v in x.variants {
-                            element.variants.push(EnumVariantElement {
-                                name: v.name,
-                                name_span: v.name_span,
-                                fields: v.fields.map((f) => resolve_type_ref_in(f, fs, tps, Option.None)),
-                            });
-                        }
-                    }
-                },
-                Fn(x) => {
-                    record_file_function(file_functions, p.file_path, x.name, function_element(x, fs));
-                },
-                Const(x) => {
-                    record_file_const(file_consts, p.file_path, x.name, ConstElement {
-                        name: x.name,
-                        file: file_key(p.file_path),
-                        name_span: x.name_span,
-                        ty: resolve_opt_in(x.type_ann, fs, Set.new(), Option.None),
-                    });
-                },
-                // Module-level `let` (top-level globals; docs/module_init.md). For
-                // type resolution it behaves exactly like a `const` — a named
-                // binding with a type — so it shares the const element table; only
-                // codegen distinguishes them (a stored slot vs. inlining).
-                Let(x) => {
-                    record_file_const(file_consts, p.file_path, x.name, ConstElement {
-                        name: x.name,
-                        file: file_key(p.file_path),
-                        name_span: x.name_span,
-                        ty: resolve_opt_in(x.type_ann, fs, Set.new(), Option.None),
-                    });
-                },
-                Impl(x) => {
-                    resolve_impl(x, fs);
-                },
-                Interface(x) => {
-                    if let Some(element) = file_type_def(file_type_defs, p.file_path, x.name) {
-                        fill_type_param_bounds(element, x.type_params, fs);
-                        // Supers by resolved identity — the interface this
-                        // file's scope sees under the name.
-                        for s in x.super_interfaces {
-                            element.super_interfaces.push(bound_id(fs, s));
-                        }
-                        let tps = type_param_set(x.type_params);
-                        let self_type = Type.Interface(TypeId { owner: element.owner_file, name: x.name },
-                            x.type_params.map((tp) => Type.TypeParameter(tp.name)));
-                        for m in x.methods {
-                            element.own_methods.push(m.name);
-                            if m.body.is_some() {
-                                element.default_methods.push(m.name);
-                            }
-                            element.methods.push(method_element(m, x.name, fs, tps, Option.Some(self_type)));
-                        }
-                    }
-                },
-                Import(x) => {},
-            }
+            if let Some(n) = top_decl_name(decl) { owned.add(n); }
         }
     }
+}
 
-    // ---- pass 3: flatten the inherited interface closure ----
-    // A sub-interface exposes its supers' methods too, and is assignable where a
-    // super is expected. Walk supers transitively (the `seen` check tolerates a
-    // cycle, which the checker reports), copy inherited methods the sub doesn't
-    // declare, and rewrite super_interfaces to the full closure. Iterates the
-    // *per-file* tables so a shadowed same-named interface flattens too. Supers
-    // were resolved to `TypeId`s in pass 2 (each from its declaring file's
-    // scope), so the walk — and the closure it stores — is by identity (EL9).
-    for owner in file_type_defs.keys() {
-        for def in file_type_defs[owner].values() {
+// ---- pass 1: skeleton type definitions (one program) ----
+fn register_skeletons(_ type_defs: Map<String, TypeDefElement>,
+    _ file_type_defs: Map<String, Map<String, TypeDefElement>>, _ p: Program) -> Void {
+    for decl in p.decls {
+        match decl {
+            Type(x) => {
+                // A `native type` resolves as an opaque built-in (no fields, an
+                // attachment point for impls) — the same kind the hardcoded
+                // `builtin_type_defs()` floor registers, which this shadows.
+                let owner = file_key(p.file_path);
+                let el = if x.is_native {
+                    new_builtin(owner, x.name, type_param_names(x.type_params), name_span: x.name_span)
+                } else {
+                    new_struct(owner, x.name, type_param_names(x.type_params), name_span: x.name_span)
+                };
+                record_flat_type(type_defs, x.name, el);
+                record_file_type(file_type_defs, p.file_path, x.name, el);
+            },
+            Enum(x) => {
+                let el = new_enum(file_key(p.file_path), x.name, type_param_names(x.type_params), name_span: x.name_span);
+                record_flat_type(type_defs, x.name, el);
+                record_file_type(file_type_defs, p.file_path, x.name, el);
+            },
+            Interface(x) => {
+                let el = new_interface(file_key(p.file_path), x.name, type_param_names(x.type_params), name_span: x.name_span);
+                record_flat_type(type_defs, x.name, el);
+                record_file_type(file_type_defs, p.file_path, x.name, el);
+            },
+            _ => {},
+        }
+    }
+}
+
+// ---- pass 2: members, signatures, consts (one program) ----
+fn resolve_members(_ library: LibraryElement, _ p: Program) -> Void {
+    let file_functions = library.file_functions;
+    let file_type_defs = library.file_type_defs;
+    let file_consts = library.file_consts;
+    // Resolve every type reference in this file's declarations against the
+    // file's own scope, so a name shared by two libraries stamps the owner the
+    // file actually sees — not the flat table's last-wins entry.
+    let fs = file_scope(library, p.file_path);
+    for decl in p.decls {
+        match decl {
+            Type(x) => {
+                let tps = type_param_set(x.type_params);
+                if let Some(element) = file_type_def(file_type_defs, p.file_path, x.name) {
+                    fill_type_param_bounds(element, x.type_params, fs);
+                    for f in x.fields {
+                        element.fields[f.name] = resolve_type_ref_in(f.type_ann, fs, tps, Option.None);
+                        if f.is_mut {
+                            element.mut_fields.add(f.name);
+                        }
+                    }
+                }
+            },
+            Enum(x) => {
+                let tps = type_param_set(x.type_params);
+                if let Some(element) = file_type_def(file_type_defs, p.file_path, x.name) {
+                    fill_type_param_bounds(element, x.type_params, fs);
+                    for v in x.variants {
+                        element.variants.push(EnumVariantElement {
+                            name: v.name,
+                            name_span: v.name_span,
+                            fields: v.fields.map((f) => resolve_type_ref_in(f, fs, tps, Option.None)),
+                        });
+                    }
+                }
+            },
+            Fn(x) => {
+                record_file_function(file_functions, p.file_path, x.name, function_element(x, fs));
+            },
+            Const(x) => {
+                record_file_const(file_consts, p.file_path, x.name, ConstElement {
+                    name: x.name,
+                    file: file_key(p.file_path),
+                    name_span: x.name_span,
+                    ty: resolve_opt_in(x.type_ann, fs, Set.new(), Option.None),
+                });
+            },
+            // Module-level `let` (top-level globals; docs/module_init.md). For
+            // type resolution it behaves exactly like a `const` — a named
+            // binding with a type — so it shares the const element table; only
+            // codegen distinguishes them (a stored slot vs. inlining).
+            Let(x) => {
+                record_file_const(file_consts, p.file_path, x.name, ConstElement {
+                    name: x.name,
+                    file: file_key(p.file_path),
+                    name_span: x.name_span,
+                    ty: resolve_opt_in(x.type_ann, fs, Set.new(), Option.None),
+                });
+            },
+            Impl(x) => {
+                resolve_impl(x, fs);
+            },
+            Interface(x) => {
+                if let Some(element) = file_type_def(file_type_defs, p.file_path, x.name) {
+                    fill_type_param_bounds(element, x.type_params, fs);
+                    // Supers by resolved identity — the interface this
+                    // file's scope sees under the name.
+                    for s in x.super_interfaces {
+                        element.super_interfaces.push(bound_id(fs, s));
+                    }
+                    let tps = type_param_set(x.type_params);
+                    let self_type = Type.Interface(TypeId { owner: element.owner_file, name: x.name },
+                        x.type_params.map((tp) => Type.TypeParameter(tp.name)));
+                    for m in x.methods {
+                        element.own_methods.push(m.name);
+                        if m.body.is_some() {
+                            element.default_methods.push(m.name);
+                        }
+                        element.methods.push(method_element(m, x.name, fs, tps, Option.Some(self_type)));
+                    }
+                }
+            },
+            Import(x) => {},
+        }
+    }
+}
+
+// ---- pass 3: flatten one file's inherited interface closures ----
+// A sub-interface exposes its supers' methods too, and is assignable where a
+// super is expected. Walk supers transitively (the `seen` check tolerates a
+// cycle, which the checker reports), copy inherited methods the sub doesn't
+// declare, and rewrite super_interfaces to the full closure. Operates on the
+// *per-file* table so a shadowed same-named interface flattens too. Supers
+// were resolved to `TypeId`s in pass 2 (each from its declaring file's
+// scope), so the walk — and the closure it stores — is by identity (EL9).
+fn flatten_owner_interfaces(_ library: LibraryElement, _ owner: String) -> Void {
+    if let Some(defs) = library.file_type_defs.get(owner) {
+        for def in defs.values() {
             if def.kind == TypeDefKind.Interface {
                 flatten_interface_closure(def, library);
             }
         }
     }
-
-    return library;
 }
 
 fn flatten_interface_closure(_ def: TypeDefElement, _ library: LibraryElement) -> Void {

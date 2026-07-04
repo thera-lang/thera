@@ -16,6 +16,8 @@ import 'parser/parser';
 import 'checker/checker';
 import 'codegen/codegen';
 import 'bytecode/encoder';
+import 'element/element';
+import 'element/resolver';
 import 'loader';
 
 // A uniform diagnostic across the phases (each phase's error type is structurally
@@ -70,6 +72,19 @@ pub struct Session {
     // cache, only overlay events invalidate — out-of-band disk edits are
     // invisible to a long-lived session.
     surface_cache: Map<String, loader.FileSurface>,
+    // Closure signature (sorted member keys) -> the imports-only element
+    // model, reused across requests so a keystroke re-resolves the primary,
+    // not the whole closure (`resolver.layer_primary` stacks the primary on
+    // the cached base without mutating it — the frozen-base invariant).
+    // Evicted when any member is invalidated.
+    library_cache: Map<String, CachedLibrary>,
+}
+
+// One cached imports-only library plus its member set (for eviction: an entry
+// dies when any member file is invalidated).
+pub struct CachedLibrary {
+    members: Set<String>,
+    library: element.LibraryElement,
 }
 
 pub fn new_session(_ sdk_root: Option<String>) -> Session {
@@ -80,6 +95,7 @@ pub fn new_session(_ sdk_root: Option<String>) -> Session {
         checked: Set.new(),
         import_graph: {},
         surface_cache: {},
+        library_cache: {},
     };
 }
 
@@ -120,7 +136,69 @@ impl Session {
                 Some(_) => {},
                 None => {},
             }
+            self.evict_libraries_with(k);
         }
+    }
+
+    // Drop every cached imports-only library whose closure contains `k`.
+    fn evict_libraries_with(self, _ k: String) -> Void {
+        let stale: List<String> = [];
+        for sig in self.library_cache.keys() {
+            if self.library_cache[sig].members.has(k) {
+                stale.push(sig);
+            }
+        }
+        for sig in stale {
+            match self.library_cache.remove(sig) {
+                Some(_) => {},
+                None => {},
+            }
+        }
+    }
+
+    // The element model for this request through the library cache: the
+    // imports-only base — cache-hit by closure signature, else built and
+    // stored — with the primary layered on top. None when the layered path
+    // can't serve the request (the primary appears in its own import closure:
+    // an SDK file checked as the primary, or an import cycle through the
+    // root; or a primary `impl` targets a type the primary doesn't declare) —
+    // the caller then runs the full uncached build.
+    fn library_for(self, _ program: Program, _ canon: String,
+        _ loaded: loader.LoadedImports) -> Option<element.LibraryElement> {
+        let keys: List<String> = [];
+        for p in loaded.programs {
+            let k = element.file_key(p.file_path);
+            if k == canon {
+                return Option.None; // the primary is in its own closure
+            }
+            keys.push(k);
+        }
+        for f in loaded.file_imports.keys() {
+            if loaded.file_imports[f].contains(canon) {
+                return Option.None; // an import references the primary
+            }
+        }
+        let signature = keys.sort((a, b) => a.compare(b) == Ordering.Less).join('\n');
+        let base = match self.library_cache.get(signature) {
+            Some(c) => c.library,
+            None => {
+                // A crude cap for batch runs over many distinct closures —
+                // the LSP holds a handful of signatures; an uncapped batch
+                // would hold one full element model per target.
+                if self.library_cache.len() >= 32 {
+                    self.library_cache.clear();
+                }
+                let built = resolver.build_import_library(loaded.programs,
+                    loaded.file_namespaces, loaded.file_bare_surface);
+                let members: Set<String> = Set.new();
+                for k in keys {
+                    members.add(k);
+                }
+                self.library_cache[signature] = CachedLibrary { members: members, library: built };
+                built
+            },
+        };
+        return resolver.layer_primary(base, program, loaded.file_namespaces, loaded.file_bare_surface);
     }
 
     // `p` (canonicalized) plus every file that transitively imports it, per
@@ -251,7 +329,8 @@ impl Session {
             }
         }
         let result = checker.check_files(program, loaded.programs,
-            loaded.file_namespaces, loaded.file_bare_surface, skip: skip, sdk: sdk_prefix(self.sdk_root));
+            loaded.file_namespaces, loaded.file_bare_surface, skip: skip, sdk: sdk_prefix(self.sdk_root),
+            prebuilt: self.library_for(program, canon, loaded));
         for d in check_diagnostics(result.errors) {
             out.push(d);
         }
@@ -279,7 +358,8 @@ impl Session {
         // any check errors.
         let import_diags = load_diagnostics(loaded.diagnostics);
         let result = checker.check_files(program, loaded.programs,
-            loaded.file_namespaces, loaded.file_bare_surface, skip: skip, sdk: sdk_prefix(self.sdk_root));
+            loaded.file_namespaces, loaded.file_bare_surface, skip: skip, sdk: sdk_prefix(self.sdk_root),
+            prebuilt: self.library_for(program, canon, loaded));
         if import_diags.len() > 0 || result.errors.len() > 0 {
             for d in check_diagnostics(result.errors) {
                 import_diags.push(d);
