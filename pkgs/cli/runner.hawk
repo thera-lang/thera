@@ -268,7 +268,7 @@ fn test_driver(_ tests: List<String>, _ show_output: Bool) -> String {
 // stdin/stdout/stderr (output streams live), and we return its exit code. The
 // temp dir is removed afterwards.
 fn run_bytecode(_ runtime: String, _ bytes: Bytes, _ entry: Option<String>, _ program_args: List<String>) -> Result<Int, Error> {
-    let dir = temp_dir_unique('hawk');
+    let dir = temp_dir_unique('hawk')?;
     let out = path.join(dir, 'out.hawkbc');
     if let Err(e) = fs.write_bytes(out, bytes) {
         cleanup_dir(dir);
@@ -441,13 +441,24 @@ fn str_less(_ a: String, _ b: String) -> Bool {
 
 // --- temp-dir helpers ---
 
-fn temp_dir_unique(_ prefix: String) -> String {
-    let dir = path.join(fs.temp_dir(), '${prefix}_${time.now_millis()}');
-    match fs.create_dir_all(dir) {
-        Ok(_) => {},
-        Err(_) => {},
+// A fresh, private temp directory. `create_dir` (not `_all`) is the
+// atomicity: it fails when the path already exists, so two runs can never
+// share a directory — a bare millisecond stamp raced (LD10: same-millisecond
+// runs shared, clobbered, and deleted under each other), and its errors were
+// swallowed. Same-stamp candidates differ by the attempt counter; a run that
+// can't create any candidate reports the failure instead of limping on.
+fn temp_dir_unique(_ prefix: String) -> Result<String, Error> {
+    let base = fs.temp_dir();
+    let stamp = time.now_millis();
+    let mut attempt = 0;
+    while attempt < 100 {
+        let dir = path.join(base, '${prefix}_${stamp}_${attempt}');
+        if let Ok(_) = fs.create_dir(dir) {
+            return Result.Ok(dir);
+        }
+        attempt = attempt + 1;
     }
-    return dir;
+    return Result.Err(error('cannot create a temp directory under ${base}'));
 }
 
 fn cleanup_dir(_ dir: String) -> Void {
