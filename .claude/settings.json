@@ -43,8 +43,13 @@
       "Bash(tail *)",
       "mcp__plugin_flutter-slipstream_packages__library_stub",
       "WebFetch(domain:crates.io)",
-      "WebFetch(domain:docs.rs)"
+      "WebFetch(domain:docs.rs)",
+      "Bash(HAWK_PROFILE=1 bin/hawk.sh check pkgs/cli)",
+      "Bash(bin/hawk.sh fmt *)"
     ],
-    "additionalDirectories": ["../hawk-ext", "/tmp"]
+    "additionalDirectories": [
+      "../hawk-ext",
+      "/tmp"
+    ]
   }
 }

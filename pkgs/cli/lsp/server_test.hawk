@@ -8,6 +8,7 @@ import std.io;
 import 'server' as _;
 import 'jsonrpc';
 import 'paths';
+import '../ast/ast' as _; // Decl
 import '../loader';
 import '../lexer/lexer';
 import '../parser/parser';
@@ -271,7 +272,9 @@ fn test_did_change_evicts_the_parse_cache() -> Result<Void, Error> {
     // The cross-request parse cache keeps imported files parsed across keystrokes,
     // but an edited file's entry must be dropped so a later check (where the file
     // is someone's import) sees the change. Seed the cache as if `c.hawk` had been
-    // loaded as an import, then edit it and confirm the entry is gone.
+    // loaded as an import, then edit it: the stale seed must be gone — the entry
+    // the diagnostics flush re-caches holds the *edit's* parse (R1: the primary
+    // parses through the cache).
     let server = new_server(Option.None);
     let path = paths.uri_to_path('file:///c.hawk');
     let prog = parser.parse_tokens(lexer.tokenize('fn g() -> Int { return 1; }').tokens).program;
@@ -282,7 +285,16 @@ fn test_did_change_evicts_the_parse_cache() -> Result<Void, Error> {
         '{"jsonrpc":"2.0","method":"textDocument/didChange","params":'
         + '{"textDocument":{"uri":"file:///c.hawk"},'
         + '"contentChanges":[{"text":"fn h() -> Int { return 2; }"}]}}');
-    testing.assert(server.analysis.session.parse_cache.get(path).is_none(), message: 'edit evicts the cache entry')?;
+    match server.analysis.session.parse_cache.get(path) {
+        Some(pf) => {
+            testing.assert_eq(actual: pf.program.decls.len(), expected: 1)?;
+            match pf.program.decls[0] {
+                Fn(f) => { testing.assert_eq(actual: f.name, expected: 'h')?; },
+                _ => { testing.assert(false, message: 'expected a fn decl')?; },
+            }
+        },
+        None => { testing.assert(false, message: 'the flush re-caches the new parse')?; },
+    }
     return Result.Ok(void);
 }
 

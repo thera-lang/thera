@@ -110,13 +110,21 @@ impl Session {
     // Cached under the canonical key; an edit must `invalidate`/`set_overlay`
     // first (the LSP does, on every document event), so a hit is current.
     pub fn parse(self, _ text: String, _ p: String) -> Program {
-        let key = loader.canonical_path(p);
-        if let Some(pf) = self.parse_cache.get(key) {
-            return pf.program;
+        return self.parsed_primary(loader.canonical_path(p), text).program;
+    }
+
+    // The primary's cached parse (`canon` must be canonical): a hit returns the
+    // session's entry — evicted on every overlay event — and a miss parses
+    // `source` best-effort, lex and parse diagnostics riding on the
+    // `ParsedFile` exactly as imported files behave via the loader, then
+    // stores it for the closure loads that follow.
+    fn parsed_primary(self, _ canon: String, _ source: String) -> loader.ParsedFile {
+        if let Some(pf) = self.parse_cache.get(canon) {
+            return pf;
         }
-        let pf = loader.parse_source(key, text);
-        self.parse_cache[key] = pf;
-        return pf.program;
+        let pf = loader.parse_source(canon, source);
+        self.parse_cache[canon] = pf;
+        return pf;
     }
 
     // Parse `text` at `p` and load its import closure through the session's
@@ -138,16 +146,14 @@ impl Session {
     pub fn check(self, _ source: String, _ p: String) -> List<Diagnostic> {
         // Canonical identity from the start, so the primary's attribution
         // matches the keys the loader mints (`Diagnostic.file` is canonical).
+        // The parse comes through the cache (R1): a keystroke's diagnostics
+        // request reuses the parse the position queries already made.
         let canon = loader.canonical_path(p);
-        let lex = lexer.tokenize(source, file: canon);
-        if lex.errors.len() > 0 {
-            return lex_diagnostics(lex.errors);
+        let pf = self.parsed_primary(canon, source);
+        if pf.diagnostics.len() > 0 {
+            return load_diagnostics(pf.diagnostics);
         }
-        let parsed = parser.parse_tokens(lex.tokens);
-        if parsed.errors.len() > 0 {
-            return parse_diagnostics(parsed.errors);
-        }
-        let program = parsed.program;
+        let program = pf.program;
         let loaded = loader.load_imports(canon, program, self.sdk_root,
             parse_cache: self.parse_cache, overlays: self.overlays);
         let skip = skip_keys(canon, loaded.programs, self.sdk_root, self.checked);
@@ -174,15 +180,11 @@ impl Session {
     // shipping to bytecode.
     pub fn compile(self, _ source: String, _ p: String) -> CompileOutcome {
         let canon = loader.canonical_path(p);
-        let lex = lexer.tokenize(source, file: canon);
-        if lex.errors.len() > 0 {
-            return failed(lex_diagnostics(lex.errors));
+        let pf = self.parsed_primary(canon, source);
+        if pf.diagnostics.len() > 0 {
+            return failed(load_diagnostics(pf.diagnostics));
         }
-        let parsed = parser.parse_tokens(lex.tokens);
-        if parsed.errors.len() > 0 {
-            return failed(parse_diagnostics(parsed.errors));
-        }
-        let program = parsed.program;
+        let program = pf.program;
         let loaded = loader.load_imports(canon, program, self.sdk_root,
             parse_cache: self.parse_cache, overlays: self.overlays);
         let skip = skip_keys(canon, loaded.programs, self.sdk_root, self.checked);

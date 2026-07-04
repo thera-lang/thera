@@ -38,6 +38,20 @@ fn test_check_reports_parse_error_with_location() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
+// A primary with a lex error reports it (first — root cause), alongside any
+// parse errors from the recovered token stream: the session parses the primary
+// best-effort through its parse cache (R1), exactly as imported files behave.
+@test
+fn test_primary_lex_error_reports_lex_first() -> Result<Void, Error> {
+    // '`' is not a Hawk token (lex error); the dangling 'fn g(' is a parse error.
+    let src = 'fn f() -> Int { return 1; }\n`\nfn g( {\n';
+    let diags = check_source_at(src, '/mem/lexbad.hawk', Option.None);
+    testing.assert(diags.len() >= 2, message: 'lex and parse diagnostics: ${diags.len()}')?;
+    testing.assert(diags[0].message.contains('unexpected character'),
+        message: 'lex error first: ${diags[0].message}')?;
+    return Result.Ok(void);
+}
+
 // A check error in an *imported* file surfaces when checking the importer —
 // attributed to the imported file — and blocks compilation (previously only the
 // primary was checked: `hawk check importer.hawk` exited 0 and `hawk run`
