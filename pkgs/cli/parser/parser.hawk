@@ -2273,6 +2273,7 @@ fn rebase_span(_ sp: SourceSpan, _ text: String, _ region: SourceSpan) -> Source
     }
     return SourceSpan {
         source: region.source,
+        file: region.file,
         offset: region.offset + sp.offset,
         length: sp.length,
         line: line,

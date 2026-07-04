@@ -131,6 +131,11 @@ pub fn keyword_kind(_ text: String) -> Option<TokenKind> {
 // and the 1-based (line, column) of its start.
 pub struct SourceSpan {
     source: String,
+    // The canonical key of the file this span lies in (LD7/LD17), or `''`
+    // when the producer had no file (a hermetic/text-only tokenize). This is
+    // what attributes a diagnostic to its owning file — never the source
+    // *text* (identical file contents would collide).
+    file: String,
     offset: Int,
     length: Int,
     line: Int,
@@ -155,6 +160,7 @@ impl SourceSpan {
             return self;
         }
         return SourceSpan {
+            file: self.file,
             source: self.source,
             offset: self.offset,
             length: other.offset + other.length - self.offset,

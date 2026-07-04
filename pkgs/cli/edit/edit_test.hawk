@@ -33,7 +33,7 @@ fn insertion_is_an_empty_range() -> Result<Void, Error> {
 
 @test
 fn span_edit_targets_the_span() -> Result<Void, Error> {
-    let span = SourceSpan { source: 'let x = 1;', offset: 4, length: 1, line: 1, column: 5 };
+    let span = SourceSpan { source: 'let x = 1;', file: '', offset: 4, length: 1, line: 1, column: 5 };
     let out = apply_edits(span.source, [span_edit(span, 'y')]);
     testing.assert_eq(actual: out, expected: 'let y = 1;')?;
     return Result.Ok(void);

@@ -20,10 +20,9 @@ import 'loader';
 
 // A uniform diagnostic across the phases (each phase's error type is structurally
 // a message + a span; this is the common currency the CLI prints). `file` is the
-// diagnostic's owning file, resolved from the originating source so an error in an
-// imported file is attributed to *that* file, not the entrypoint (a span carries
-// its source text, not its path). None falls back to the path the CLI prints
-// against.
+// diagnostic's owning file — the span's `file` (LD7), so an error in an imported
+// file is attributed to *that* file, not the entrypoint. None (a file-less span,
+// e.g. the hermetic pipeline's) falls back to the path the CLI prints against.
 pub struct Diagnostic {
     message: String,
     span: token.SourceSpan,
@@ -140,18 +139,17 @@ impl Session {
         // Canonical identity from the start, so the primary's attribution
         // matches the keys the loader mints (`Diagnostic.file` is canonical).
         let canon = loader.canonical_path(p);
-        let lex = lexer.tokenize(source);
+        let lex = lexer.tokenize(source, file: canon);
         if lex.errors.len() > 0 {
-            return lex_diagnostics(lex.errors, build_source_map(source, canon, []));
+            return lex_diagnostics(lex.errors);
         }
         let parsed = parser.parse_tokens(lex.tokens);
         if parsed.errors.len() > 0 {
-            return parse_diagnostics(parsed.errors, build_source_map(source, canon, []));
+            return parse_diagnostics(parsed.errors);
         }
         let program = parsed.program;
         let loaded = loader.load_imports(canon, program, self.sdk_root,
             parse_cache: self.parse_cache, overlays: self.overlays);
-        let src_map = build_source_map(source, canon, loaded.programs);
         let skip = skip_keys(canon, loaded.programs, self.sdk_root, self.checked);
         // Lex/parse errors from imported files first (root causes) — minus files
         // already reported this run — then the closure's check errors.
@@ -163,7 +161,7 @@ impl Session {
         }
         let result = checker.check_files(program, loaded.programs,
             loaded.file_namespaces, loaded.file_bare_surface, skip: skip, sdk: sdk_prefix(self.sdk_root));
-        for d in check_diagnostics(result.errors, src_map) {
+        for d in check_diagnostics(result.errors) {
             out.push(d);
         }
         mark_checked_clean(self.checked, canon, loaded.programs, skip, out);
@@ -176,18 +174,17 @@ impl Session {
     // shipping to bytecode.
     pub fn compile(self, _ source: String, _ p: String) -> CompileOutcome {
         let canon = loader.canonical_path(p);
-        let lex = lexer.tokenize(source);
+        let lex = lexer.tokenize(source, file: canon);
         if lex.errors.len() > 0 {
-            return failed(lex_diagnostics(lex.errors, build_source_map(source, canon, [])));
+            return failed(lex_diagnostics(lex.errors));
         }
         let parsed = parser.parse_tokens(lex.tokens);
         if parsed.errors.len() > 0 {
-            return failed(parse_diagnostics(parsed.errors, build_source_map(source, canon, [])));
+            return failed(parse_diagnostics(parsed.errors));
         }
         let program = parsed.program;
         let loaded = loader.load_imports(canon, program, self.sdk_root,
             parse_cache: self.parse_cache, overlays: self.overlays);
-        let src_map = build_source_map(source, canon, loaded.programs);
         let skip = skip_keys(canon, loaded.programs, self.sdk_root, self.checked);
         // An imported file that failed to lex/parse/resolve leaves the closure
         // incomplete, so its diagnostics (root causes) block codegen alongside
@@ -196,7 +193,7 @@ impl Session {
         let result = checker.check_files(program, loaded.programs,
             loaded.file_namespaces, loaded.file_bare_surface, skip: skip, sdk: sdk_prefix(self.sdk_root));
         if import_diags.len() > 0 || result.errors.len() > 0 {
-            for d in check_diagnostics(result.errors, src_map) {
+            for d in check_diagnostics(result.errors) {
                 import_diags.push(d);
             }
             return failed(import_diags);
@@ -204,7 +201,7 @@ impl Session {
         mark_checked_clean(self.checked, canon, loaded.programs, skip, []);
         let cg = codegen.compile_program(program, loaded.programs, loaded.file_namespaces, loaded.file_bare_surface);
         if cg.errors.len() > 0 {
-            return failed(codegen_diagnostics(cg.errors, src_map));
+            return failed(codegen_diagnostics(cg.errors));
         }
         return CompileOutcome {
             diagnostics: [],
@@ -218,37 +215,35 @@ impl Session {
 // Type-check `source` with no import closure (no prelude, no loader) —
 // self-contained test fixtures. Lex and parse errors short-circuit.
 pub fn check_source(_ source: String) -> List<Diagnostic> {
-    let no_files: Map<String, String> = {};
     let lex = lexer.tokenize(source);
     if lex.errors.len() > 0 {
-        return lex_diagnostics(lex.errors, no_files);
+        return lex_diagnostics(lex.errors);
     }
     let parsed = parser.parse_tokens(lex.tokens);
     if parsed.errors.len() > 0 {
-        return parse_diagnostics(parsed.errors, no_files);
+        return parse_diagnostics(parsed.errors);
     }
-    return check_diagnostics(checker.check(parsed.program, [], {}, {}).errors, no_files);
+    return check_diagnostics(checker.check(parsed.program, [], {}, {}).errors);
 }
 
 // Compile `source` to `.hawkbc` bytes with no import closure. Each phase
 // short-circuits on errors, so `bytes` is present only for a clean program.
 pub fn compile_source(_ source: String) -> CompileOutcome {
-    let no_files: Map<String, String> = {};
     let lex = lexer.tokenize(source);
     if lex.errors.len() > 0 {
-        return failed(lex_diagnostics(lex.errors, no_files));
+        return failed(lex_diagnostics(lex.errors));
     }
     let parsed = parser.parse_tokens(lex.tokens);
     if parsed.errors.len() > 0 {
-        return failed(parse_diagnostics(parsed.errors, no_files));
+        return failed(parse_diagnostics(parsed.errors));
     }
     let checked = checker.check(parsed.program, [], {}, {});
     if checked.errors.len() > 0 {
-        return failed(check_diagnostics(checked.errors, no_files));
+        return failed(check_diagnostics(checked.errors));
     }
     let cg = codegen.compile_program(parsed.program, [], {}, {});
     if cg.errors.len() > 0 {
-        return failed(codegen_diagnostics(cg.errors, no_files));
+        return failed(codegen_diagnostics(cg.errors));
     }
     return CompileOutcome {
         diagnostics: [],
@@ -339,47 +334,12 @@ fn mark_checked_clean(_ checked: Set<String>, _ primary_key: String,
     return;
 }
 
-// One diagnostic, with its owning file resolved from the span's source text.
-fn diag(_ message: String, _ span: token.SourceSpan, _ src_to_file: Map<String, String>) -> Diagnostic {
-    return Diagnostic { message: message, span: span, file: src_to_file.get(span.source) };
-}
-
-// A source-text -> file-path map for the whole compiled closure, so a diagnostic
-// span resolves to the file it came from (the span carries its source text, not a
-// path — see `Diagnostic.file`). The primary `source`/`path` plus every loaded
-// program; an empty `programs` list yields just the primary.
-fn build_source_map(_ source: String, _ p: String, _ programs: List<Program>) -> Map<String, String> {
-    let m: Map<String, String> = {};
-    m[source] = p;
-    for prog in programs {
-        if let Some(src) = program_source(prog) {
-            if let Some(f) = prog.file_path { m[src] = f; }
-        }
-    }
-    return m;
-}
-
-// A program's source text, taken from its first declaration's span (every span in
-// a file shares that file's source). None for an empty program (it has no spans —
-// and no diagnostics either).
-fn program_source(_ p: Program) -> Option<String> {
-    if p.decls.len() == 0 {
-        return Option.None;
-    }
-    return Option.Some(decl_span(p.decls[0]).source);
-}
-
-fn decl_span(_ d: Decl) -> token.SourceSpan {
-    return match d {
-        Import(x) => x.span,
-        Fn(x) => x.span,
-        Type(x) => x.span,
-        Impl(x) => x.span,
-        Interface(x) => x.span,
-        Const(x) => x.span,
-        Let(x) => x.span,
-        Enum(x) => x.span,
-    };
+// One diagnostic, attributed to the file its span carries (LD7: attribution
+// used to reverse-map the span's source *text* to a path, so identical file
+// contents collided; the span now knows its file).
+fn diag(_ message: String, _ span: token.SourceSpan) -> Diagnostic {
+    let file = if span.file == '' { Option.None } else { Option.Some(span.file) };
+    return Diagnostic { message: message, span: span, file: file };
 }
 
 // Loader diagnostics already know their owning file (the loader stamps it while
@@ -392,34 +352,34 @@ fn load_diagnostics(_ diags: List<loader.LoadDiagnostic>) -> List<Diagnostic> {
     return out;
 }
 
-fn lex_diagnostics(_ errors: List<lexer.LexError>, _ src_to_file: Map<String, String>) -> List<Diagnostic> {
+fn lex_diagnostics(_ errors: List<lexer.LexError>) -> List<Diagnostic> {
     let out: List<Diagnostic> = [];
     for e in errors {
-        out.push(diag(e.message, e.span, src_to_file));
+        out.push(diag(e.message, e.span));
     }
     return out;
 }
 
-fn parse_diagnostics(_ errors: List<parser.ParseError>, _ src_to_file: Map<String, String>) -> List<Diagnostic> {
+fn parse_diagnostics(_ errors: List<parser.ParseError>) -> List<Diagnostic> {
     let out: List<Diagnostic> = [];
     for e in errors {
-        out.push(diag(e.message, e.span, src_to_file));
+        out.push(diag(e.message, e.span));
     }
     return out;
 }
 
-fn check_diagnostics(_ errors: List<checker.CheckError>, _ src_to_file: Map<String, String>) -> List<Diagnostic> {
+fn check_diagnostics(_ errors: List<checker.CheckError>) -> List<Diagnostic> {
     let out: List<Diagnostic> = [];
     for e in errors {
-        out.push(diag(e.message, e.span, src_to_file));
+        out.push(diag(e.message, e.span));
     }
     return out;
 }
 
-fn codegen_diagnostics(_ errors: List<codegen.CodegenError>, _ src_to_file: Map<String, String>) -> List<Diagnostic> {
+fn codegen_diagnostics(_ errors: List<codegen.CodegenError>) -> List<Diagnostic> {
     let out: List<Diagnostic> = [];
     for e in errors {
-        out.push(diag(e.message, e.span, src_to_file));
+        out.push(diag(e.message, e.span));
     }
     return out;
 }

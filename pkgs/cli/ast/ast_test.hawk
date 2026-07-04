@@ -11,7 +11,7 @@ import 'ast' as _;
 // A throwaway span for hand-built nodes (structural equality over a tree built
 // with the same span makes spans drop out of the comparison).
 fn sp() -> SourceSpan {
-    return SourceSpan { source: '', offset: 0, length: 0, line: 1, column: 1 };
+    return SourceSpan { source: '', file: '', offset: 0, length: 0, line: 1, column: 1 };
 }
 
 // `fn main() -> Int { return 0; }` as a hand-built Program — exercises Decl →

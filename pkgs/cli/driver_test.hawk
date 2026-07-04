@@ -151,3 +151,53 @@ fn test_compile_source_byte_identical() -> Result<Void, Error> {
     }
     return Result.Ok(void);
 }
+
+// Two imported files with **identical source text** attribute independently —
+// the exact LD7 failure: attribution used to reverse-map a span's source text
+// to a path, so byte-identical files collided on one entry and an error in
+// either was pinned to whichever registered last. Spans now carry their file.
+@test
+fn test_identical_imports_attribute_independently() -> Result<Void, Error> {
+    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_driver_ld7_test');
+    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} } // stale fixture
+    if let Err(e) = fs.create_dir_all(dir + '/a') {
+        return Result.Err(error('create fixture dir: ${e.message()}'));
+    }
+    if let Err(e) = fs.create_dir_all(dir + '/b') {
+        return Result.Err(error('create fixture dir: ${e.message()}'));
+    }
+    // Byte-identical broken sources in two different files.
+    let broken = 'pub fn bad() -> Int { return missing_name; }\n';
+    if let Err(e) = fs.write_text(dir + '/a/dep.hawk', broken) {
+        return Result.Err(error('write a/dep: ${e.message()}'));
+    }
+    if let Err(e) = fs.write_text(dir + '/b/dep.hawk', broken) {
+        return Result.Err(error('write b/dep: ${e.message()}'));
+    }
+    let main_src = 'import \'a/dep\' as da;\nimport \'b/dep\' as db;\nfn main() -> Void { }\n';
+    let main_path = dir + '/main.hawk';
+    if let Err(e) = fs.write_text(main_path, main_src) {
+        return Result.Err(error('write main: ${e.message()}'));
+    }
+
+    let diags = check_source_at(main_src, main_path, Option.None);
+    testing.assert_eq(actual: diags.len(), expected: 2)?;
+    let files: List<String> = [];
+    for d in diags {
+        files.push(d.file.unwrap_or('<none>'));
+    }
+    testing.assert(str_list_has_suffix(files, '/a/dep.hawk'),
+        message: 'one error attributed to a/dep.hawk: ${files}')?;
+    testing.assert(str_list_has_suffix(files, '/b/dep.hawk'),
+        message: 'one error attributed to b/dep.hawk: ${files}')?;
+    return Result.Ok(void);
+}
+
+fn str_list_has_suffix(_ xs: List<String>, _ suffix: String) -> Bool {
+    for x in xs {
+        if x.ends_with(suffix) {
+            return true;
+        }
+    }
+    return false;
+}

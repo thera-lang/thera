@@ -212,7 +212,7 @@ fn parse_file(_ path: String) -> Result<ParsedFile, String> {
 // program's identity (the session's cached-parse entry point relies on this).
 pub fn parse_source(_ path: String, _ source: String) -> ParsedFile {
     let diagnostics: List<LoadDiagnostic> = [];
-    let lex = lexer.tokenize(source);
+    let lex = lexer.tokenize(source, file: path);
     for e in lex.errors {
         diagnostics.push(LoadDiagnostic { message: e.message, span: e.span, file: path });
     }

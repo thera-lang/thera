@@ -43,6 +43,7 @@ impl LexResult {
 // and `error` can form its span without threading the start through every call.
 struct Lexer {
     source: String,
+    file: String, // canonical key stamped onto every span ('' = text-only)
     chars: List<Int>,
     mut pos: Int,
     mut line: Int,
@@ -56,9 +57,12 @@ struct Lexer {
 }
 
 // Tokenize `source` into a `LexResult` (tokens end with `Eof`).
-pub fn tokenize(_ source: String) -> LexResult {
+// `file` is the canonical key of the file `source` came from (stamped onto
+// every span for diagnostic attribution — LD7); `''` for text-only input.
+pub fn tokenize(_ source: String, file: String = '') -> LexResult {
     let lx = Lexer {
         source: source,
+        file: file,
         chars: source.chars(),
         pos: 0,
         line: 1,
@@ -137,6 +141,7 @@ impl Lexer {
     fn span_at(self, _ offset: Int, _ length: Int) -> SourceSpan {
         return SourceSpan {
             source: self.source,
+            file: self.file,
             offset: offset,
             length: length,
             line: self.line,
@@ -148,6 +153,7 @@ impl Lexer {
         -> SourceSpan {
         return SourceSpan {
             source: self.source,
+            file: self.file,
             offset: start_offset,
             length: self.pos - start_offset,
             line: start_line,
@@ -217,6 +223,7 @@ impl Lexer {
         }
         let span = SourceSpan {
             source: self.source,
+            file: self.file,
             offset: start,
             length: end - start,
             line: start_line,
@@ -433,6 +440,7 @@ impl Lexer {
         let end = if depth == 0 { self.pos - 1 } else { self.pos };
         interps.push(SourceSpan {
             source: self.source,
+            file: self.file,
             offset: start,
             length: end - start,
             line: start_line,

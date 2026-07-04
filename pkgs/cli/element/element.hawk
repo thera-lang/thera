@@ -18,7 +18,7 @@ import 'types' as _;
 // that has no source site. Zero-length at 0:0 of an empty source; `length == 0
 // && source == ''` marks it recognizably absent.
 pub fn no_span() -> SourceSpan {
-    return SourceSpan { source: '', offset: 0, length: 0, line: 0, column: 0 };
+    return SourceSpan { source: '', file: '', offset: 0, length: 0, line: 0, column: 0 };
 }
 
 pub enum TypeDefKind {
