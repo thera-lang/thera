@@ -334,3 +334,90 @@ fn test_pub_import_reexports_through_barrel() -> Result<Void, Error> {
     testing.assert(surface.names.has('deep'), message: 're-exports inner deep fn')?;
     return Result.Ok(void);
 }
+
+@test
+fn test_pub_import_diamond_is_not_a_collision() -> Result<Void, Error> {
+    // A diamond of re-exports reaching one declaring file: the barrel
+    // pub-imports `left` and `right`, which both pub-import `deep`. `deep`'s
+    // names must appear once with no collision — the shared-visited walk sees
+    // the deep file once. (Pins the semantics the loader's per-call surface
+    // memo must preserve: naively merging per-child surfaces would flag a
+    // false collision here.)
+    let deep = LibrarySource { program: prog_of('pub fn shared() { }', 'deep.hawk'), imports: {} };
+    let left = LibrarySource { program: prog_of('pub import \'deep\';', 'left.hawk'), imports: {} };
+    left.imports['deep'] = deep;
+    let right = LibrarySource { program: prog_of('pub import \'deep\';', 'right.hawk'), imports: {} };
+    right.imports['deep'] = deep;
+    let barrel = LibrarySource {
+        program: prog_of('pub import \'left\';\npub import \'right\';', 'barrel.hawk'),
+        imports: {},
+    };
+    barrel.imports['left'] = left;
+    barrel.imports['right'] = right;
+    let surface = public_surface_of(barrel);
+    testing.assert(surface.names.has('shared'), message: 'diamond name is exposed')?;
+    testing.assert(!surface.collisions.has('shared'), message: 'one declaring file: no collision')?;
+    testing.assert_eq(actual: surface.origin.get('shared'), expected: Option.Some('deep.hawk'))?;
+    return Result.Ok(void);
+}
+
+// A shared surface cache: the second load fills its tables from the cache
+// (proven by mutating the cached entry between calls), and collision
+// diagnostics replay identically on a hit.
+@test
+fn test_surface_cache_round_trip() -> Result<Void, Error> {
+    let dir = canonical_path(fs.temp_dir() + '/hawk_loader_surface_cache_test');
+    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} } // stale fixture
+    fs_ok(fs.create_dir_all(dir), 'create fixture dir')?;
+    fs_ok(fs.write_text(dir + '/util.hawk', 'pub fn helper() -> Int { return 1; }\n'), 'write util')?;
+    let main_src = 'import \'util\';\nfn main() -> Int { return util.helper(); }\n';
+    fs_ok(fs.write_text(dir + '/main.hawk', main_src), 'write main')?;
+
+    let cache: Map<String, FileSurface> = {};
+    let first = load_imports(dir + '/main.hawk',
+        parse_tokens(tokenize(main_src).tokens).program, Option.None, surface_cache: cache);
+    testing.assert_eq(actual: first.diagnostics.len(), expected: 0)?;
+    let main_key = canonical_path(dir + '/main.hawk');
+    testing.assert(cache.has(main_key), message: 'main surface cached')?;
+    testing.assert(cache.has(canonical_path(dir + '/util.hawk')), message: 'util surface cached')?;
+
+    // Prove the hit path: plant a marker in main's cached bare surface and
+    // check the second load reflects it.
+    if let Some(entry) = cache.get(main_key) {
+        entry.bare_surface['__marker'] = 'planted';
+    }
+    let second = load_imports(dir + '/main.hawk',
+        parse_tokens(tokenize(main_src).tokens).program, Option.None, surface_cache: cache);
+    let served = second.file_bare_surface.get(main_key)
+        .map((m) => m.has('__marker')).unwrap_or(false);
+    testing.assert(served, message: 'second load serves the cached entry')?;
+
+    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    return Result.Ok(void);
+}
+
+// Surface-collision diagnostics replay from the cache: a load with a warm
+// cache reports the same collision the cold load did.
+@test
+fn test_surface_collision_diagnostics_replay_on_hit() -> Result<Void, Error> {
+    let dir = canonical_path(fs.temp_dir() + '/hawk_loader_collision_replay_test');
+    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} } // stale fixture
+    fs_ok(fs.create_dir_all(dir), 'create fixture dir')?;
+    fs_ok(fs.write_text(dir + '/a.hawk', 'pub fn clash() -> Int { return 1; }\n'), 'write a')?;
+    fs_ok(fs.write_text(dir + '/b.hawk', 'pub fn clash() -> Int { return 2; }\n'), 'write b')?;
+    let main_src = 'import \'a\' as _;\nimport \'b\' as _;\nfn main() -> Void { }\n';
+    fs_ok(fs.write_text(dir + '/main.hawk', main_src), 'write main')?;
+
+    let cache: Map<String, FileSurface> = {};
+    let cold = load_imports(dir + '/main.hawk',
+        parse_tokens(tokenize(main_src).tokens).program, Option.None, surface_cache: cache);
+    let warm = load_imports(dir + '/main.hawk',
+        parse_tokens(tokenize(main_src).tokens).program, Option.None, surface_cache: cache);
+    testing.assert(cold.diagnostics.len() > 0, message: 'cold load reports the collision')?;
+    testing.assert_eq(actual: warm.diagnostics.len(), expected: cold.diagnostics.len())?;
+    testing.assert(warm.diagnostics[0].message.contains('clash'),
+        message: 'replayed diagnostic names the colliding fn')?;
+
+    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    return Result.Ok(void);
+}

@@ -116,3 +116,59 @@ fn test_sdk_file_invalidates_every_known_file() -> Result<Void, Error> {
     cleanup(dir);
     return Result.Ok(void);
 }
+
+// The surface cache serves repeated loads but must not go stale: an overlay
+// edit to a dependency evicts its importers' surfaces, so the next check sees
+// the new surface (here: a renamed export) — LD14 batch B.
+@test
+fn test_dependency_edit_refreshes_surfaces() -> Result<Void, Error> {
+    let dir = fixture_dir('surface', {
+        'util.hawk': 'pub fn helper() -> Int { return 1; }\n',
+        'main.hawk': 'import \'util\' as _;\nfn main() -> Int { return helper(); }\n',
+    })?;
+    let sess = new_session(Option.None);
+    let main_path = '${dir}/main.hawk';
+    let main_src = fs.read_text(main_path)?;
+
+    testing.assert_eq(actual: sess.check(main_src, main_path).len(), expected: 0)?;
+    testing.assert(sess.surface_cache.has(loader.canonical_path(main_path)),
+        message: 'surfaces cached after a load')?;
+
+    // Rename the export: main's bare surface (baked from util's) must refresh.
+    sess.set_overlay('${dir}/util.hawk', 'pub fn renamed() -> Int { return 1; }\n');
+    let diags = sess.check(main_src, main_path);
+    let mut helper_missing = false;
+    for d in diags {
+        if d.message.contains('helper') {
+            helper_missing = true;
+        }
+    }
+    testing.assert(helper_missing, message: 'the stale bare surface was evicted: ${diags.len()} diags')?;
+
+    cleanup(dir);
+    return Result.Ok(void);
+}
+
+// The white-box grant rides the same eviction: `foo_test.hawk` sees
+// `foo.hawk`'s private names, and an edit renaming one refreshes the
+// test file's surface (its import edge is in the graph).
+@test
+fn test_whitebox_surface_refreshes_on_dep_edit() -> Result<Void, Error> {
+    let dir = fixture_dir('whitebox', {
+        'foo.hawk': 'fn secret() -> Int { return 1; }\npub fn go() -> Int { return secret(); }\n',
+        'foo_test.hawk': 'import \'foo\' as _;\nfn probe() -> Int { return secret(); }\n',
+    })?;
+    let sess = new_session(Option.None);
+    let t_path = '${dir}/foo_test.hawk';
+    let t_src = fs.read_text(t_path)?;
+
+    testing.assert_eq(actual: sess.check(t_src, t_path).len(), expected: 0)?;
+
+    sess.set_overlay('${dir}/foo.hawk',
+        'fn hidden() -> Int { return 1; }\npub fn go() -> Int { return hidden(); }\n');
+    testing.assert(sess.check(t_src, t_path).len() > 0,
+        message: 'renamed private name no longer resolves in the test file')?;
+
+    cleanup(dir);
+    return Result.Ok(void);
+}

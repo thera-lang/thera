@@ -62,6 +62,14 @@ pub struct Session {
     // (`LoadedImports.file_imports`, replaced entry-wise per load). Reversed
     // on demand by `dependents_of`, the invalidation cone for an edit.
     import_graph: Map<String, List<String>>,
+    // Canonical path -> the file's derived surfaces (`loader.FileSurface`) —
+    // reused across requests so a load re-derives only changed files'
+    // surfaces. Evicted over the invalidation cone: a file's surfaces depend
+    // on its imports' surfaces (and, for `bare_surface`, on the prelude —
+    // the SDK invalidate-all rule covers that implicit edge). Like the parse
+    // cache, only overlay events invalidate — out-of-band disk edits are
+    // invisible to a long-lived session.
+    surface_cache: Map<String, loader.FileSurface>,
 }
 
 pub fn new_session(_ sdk_root: Option<String>) -> Session {
@@ -71,6 +79,7 @@ pub fn new_session(_ sdk_root: Option<String>) -> Session {
         parse_cache: {},
         checked: Set.new(),
         import_graph: {},
+        surface_cache: {},
     };
 }
 
@@ -107,6 +116,10 @@ impl Session {
         }
         for k in self.dependents_of(key) {
             self.checked.remove(k);
+            match self.surface_cache.remove(k) {
+                Some(_) => {},
+                None => {},
+            }
         }
     }
 
@@ -203,7 +216,7 @@ impl Session {
     pub fn load_closure(self, _ text: String, _ p: String) -> Closure {
         let program = self.parse(text, p);
         let loaded = loader.load_imports(p, program, self.sdk_root,
-            parse_cache: self.parse_cache, overlays: self.overlays);
+            parse_cache: self.parse_cache, overlays: self.overlays, surface_cache: self.surface_cache);
         self.record_graph(loaded);
         return Closure { program: program, loaded: loaded };
     }
@@ -226,7 +239,7 @@ impl Session {
         }
         let program = pf.program;
         let loaded = loader.load_imports(canon, program, self.sdk_root,
-            parse_cache: self.parse_cache, overlays: self.overlays);
+            parse_cache: self.parse_cache, overlays: self.overlays, surface_cache: self.surface_cache);
         self.record_graph(loaded);
         let skip = skip_keys(canon, loaded.programs, self.sdk_root, self.checked);
         // Lex/parse errors from imported files first (root causes) — minus files
@@ -258,7 +271,7 @@ impl Session {
         }
         let program = pf.program;
         let loaded = loader.load_imports(canon, program, self.sdk_root,
-            parse_cache: self.parse_cache, overlays: self.overlays);
+            parse_cache: self.parse_cache, overlays: self.overlays, surface_cache: self.surface_cache);
         self.record_graph(loaded);
         let skip = skip_keys(canon, loaded.programs, self.sdk_root, self.checked);
         // An imported file that failed to lex/parse/resolve leaves the closure

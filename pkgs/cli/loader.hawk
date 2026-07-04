@@ -259,6 +259,11 @@ struct Loader {
     // text changes or is removed (the LSP does, on every document event) — the
     // cache is consulted first, so a stale entry would win otherwise.
     overlays: Map<String, String>,
+    // Per-call memo: file key -> the file's flattened public surface. Kills
+    // the per-edge re-walk (LD14): `public_surface_of` used to be invoked once
+    // per import edge — namespaces ×1, bare surface ×1, the collision check
+    // ×2 — each re-walking the transitive pub-import closure from scratch.
+    surfaces: Map<String, element.LibraryNamespace>,
 }
 
 impl Loader {
@@ -310,6 +315,17 @@ impl Loader {
             },
             Err(msg) => { return Result.Err(msg); },
         }
+    }
+
+    // The memoized public surface of `lib` — computed once per file per load.
+    fn surface_of(self, _ lib: LibrarySource) -> element.LibraryNamespace {
+        let key = element.file_key(lib.program.file_path);
+        if let Some(s) = self.surfaces.get(key) {
+            return s;
+        }
+        let s = public_surface_of(lib);
+        self.surfaces[key] = s;
+        return s;
     }
 
     // Parse `file`, consulting the cross-call cache first so a file shared by many
@@ -396,7 +412,8 @@ impl Loader {
 // imports to the filesystem root).
 pub fn load_imports(_ entry: String, _ program: Program, _ sdk_root: Option<String>,
     parse_cache: Map<String, ParsedFile> = {},
-    overlays: Map<String, String> = {}) -> LoadedImports {
+    overlays: Map<String, String> = {},
+    surface_cache: Map<String, FileSurface> = {}) -> LoadedImports {
     let canon = canonical_path(entry);
     program.file_path = Option.Some(canon);
     let loader = Loader {
@@ -406,6 +423,7 @@ pub fn load_imports(_ entry: String, _ program: Program, _ sdk_root: Option<Stri
         diagnostics: [],
         parse_cache: parse_cache,
         overlays: overlays,
+        surfaces: {},
     };
 
     // std.core is auto-imported into every program — load it so its types (Error),
@@ -420,7 +438,7 @@ pub fn load_imports(_ entry: String, _ program: Program, _ sdk_root: Option<Stri
     let core_names: Map<String, String> = {};
     if let Some(core) = loader.resolve('std.core', '') {
         if let Ok(core_src) = loader.source_for(core) {
-            let core_surface = public_surface_of(core_src);
+            let core_surface = loader.surface_of(core_src);
             let core_key = element.file_key(core_src.program.file_path);
             for n in core_surface.names.to_list() {
                 core_names[n] = core_surface.origin.get(n).unwrap_or(core_key);
@@ -439,16 +457,35 @@ pub fn load_imports(_ entry: String, _ program: Program, _ sdk_root: Option<Stri
     // table (every linked module, plus the root) rather than a closure-wide union.
     // A module's body may itself use a namespace-qualified call, so codegen needs
     // each compiled file's own bindings. The bare-legal surface is built alongside.
+    // A `surface_cache` hit skips the whole per-file derivation (its collision
+    // diagnostics replay from the entry); a miss computes and stores.
     let file_namespaces: Map<String, Map<String, element.LibraryNamespace>> = {};
     let file_bare_surface: Map<String, Map<String, String>> = {};
     let file_imports: Map<String, List<String>> = {};
     for file in loader.cache.keys() {
         let src = loader.cache[file];
         let key = element.file_key(src.program.file_path);
-        file_namespaces[key] = namespaces_for(src);
-        file_bare_surface[key] = bare_surface_for(src, core_names);
-        file_imports[key] = import_edges_of(src);
-        collect_surface_collisions(src, loader.diagnostics);
+        let entry = match surface_cache.get(key) {
+            Some(cached) => cached,
+            None => {
+                let collision_diags: List<LoadDiagnostic> = [];
+                loader.collect_collisions(src, collision_diags);
+                let computed = FileSurface {
+                    namespaces: loader.namespaces_of(src),
+                    bare_surface: loader.bare_surface_of(src, core_names),
+                    imports: import_edges_of(src),
+                    diagnostics: collision_diags,
+                };
+                surface_cache[key] = computed;
+                computed
+            },
+        };
+        file_namespaces[key] = entry.namespaces;
+        file_bare_surface[key] = entry.bare_surface;
+        file_imports[key] = entry.imports;
+        for d in entry.diagnostics {
+            loader.diagnostics.push(d);
+        }
     }
     return LoadedImports {
         programs: loader.order,
@@ -457,6 +494,22 @@ pub fn load_imports(_ entry: String, _ program: Program, _ sdk_root: Option<Stri
         file_bare_surface: file_bare_surface,
         file_imports: file_imports,
     };
+}
+
+// One file's cached surface products — everything the per-file loop in
+// `load_imports` derives for it: the namespaces its imports bind, its
+// bare-legal surface, its import edges, and its surface-collision diagnostics
+// (replayed on a hit). An entry is valid until the file or anything in its
+// import cone changes: the caller (the session) evicts via its dependency
+// graph — the white-box `foo_test.hawk` → `foo.hawk` dependency is an
+// explicit import edge in that graph, and the implicit std.core dependency
+// (`bare_surface` bakes in the prelude names) is covered by the session's
+// SDK invalidate-all rule.
+pub struct FileSurface {
+    namespaces: Map<String, element.LibraryNamespace>,
+    bare_surface: Map<String, String>,
+    imports: List<String>,
+    diagnostics: List<LoadDiagnostic>,
 }
 
 // The canonical keys `source`'s imports resolved to — one graph node's outgoing
@@ -479,49 +532,52 @@ fn import_edges_of(_ source: LibrarySource) -> List<String> {
     return edges;
 }
 
-// The names that resolve *bare* in `root` from another library: the prelude
-// (`core_names`), the public surface of each `import … as _` (unqualified) import,
-// and — for a `foo_test.hawk` — the *full* surface (incl. private) of the `foo`
-// it imports (the white-box test exception; the filenames match).
-fn bare_surface_for(_ root: LibrarySource, _ core_names: Map<String, String>) -> Map<String, String> {
-    // name -> owning file (key). The prelude names own to std.core; an `as _`
-    // import's public names own to that import's file; a `foo_test.hawk`'s
-    // white-box view owns to `foo.hawk`.
-    let names: Map<String, String> = {};
-    for n in core_names.keys() {
-        names[n] = core_names[n];
-    }
-    let test_base = test_base_name(root.program.file_path);
-    for decl in root.program.decls {
-        if let Import(x) = decl {
-            if let Some(child) = root.imports.get(x.path) {
-                let child_key = element.file_key(child.program.file_path);
-                if x.unqualified {
-                    // Use each name's declaring file (a barrel imported `as _`
-                    // re-exports from its sub-files), not the barrel itself.
-                    let surf = public_surface_of(child);
-                    for n in surf.names.to_list() {
-                        names[n] = surf.origin.get(n).unwrap_or(child_key);
+impl Loader {
+    // The names that resolve *bare* in `root` from another library: the prelude
+    // (`core_names`), the public surface of each `import … as _` (unqualified)
+    // import, and — for a `foo_test.hawk` — the *full* surface (incl. private)
+    // of the `foo` it imports (the white-box test exception; the filenames
+    // match). A `Loader` method for the surface memo.
+    fn bare_surface_of(self, _ root: LibrarySource, _ core_names: Map<String, String>) -> Map<String, String> {
+        // name -> owning file (key). The prelude names own to std.core; an `as _`
+        // import's public names own to that import's file; a `foo_test.hawk`'s
+        // white-box view owns to `foo.hawk`.
+        let names: Map<String, String> = {};
+        for n in core_names.keys() {
+            names[n] = core_names[n];
+        }
+        let test_base = test_base_name(root.program.file_path);
+        for decl in root.program.decls {
+            if let Import(x) = decl {
+                if let Some(child) = root.imports.get(x.path) {
+                    let child_key = element.file_key(child.program.file_path);
+                    if x.unqualified {
+                        // Use each name's declaring file (a barrel imported `as _`
+                        // re-exports from its sub-files), not the barrel itself.
+                        let surf = self.surface_of(child);
+                        for n in surf.names.to_list() {
+                            names[n] = surf.origin.get(n).unwrap_or(child_key);
+                        }
                     }
-                }
-                // White-box: `foo_test.hawk` sees `foo.hawk`'s private
-                // top-level names bare, in addition to its public surface —
-                // for the `foo.hawk` in its *own directory* only (LD9: a
-                // basename match alone granted private access to any imported
-                // `foo.hawk` from any directory).
-                if let Some(base) = test_base {
-                    if basename_no_ext(child.program.file_path) == base
-                        && path.dirname(element.file_key(root.program.file_path))
-                        == path.dirname(element.file_key(child.program.file_path)) {
-                        for n in all_top_names(child).to_list() {
-                            names[n] = child_key;
+                    // White-box: `foo_test.hawk` sees `foo.hawk`'s private
+                    // top-level names bare, in addition to its public surface —
+                    // for the `foo.hawk` in its *own directory* only (LD9: a
+                    // basename match alone granted private access to any imported
+                    // `foo.hawk` from any directory).
+                    if let Some(base) = test_base {
+                        if basename_no_ext(child.program.file_path) == base
+                            && path.dirname(element.file_key(root.program.file_path))
+                            == path.dirname(element.file_key(child.program.file_path)) {
+                            for n in all_top_names(child).to_list() {
+                                names[n] = child_key;
+                            }
                         }
                     }
                 }
             }
         }
+        return names;
     }
-    return names;
 }
 
 // The one-name-space rule at a file's import/export surface (scoping.md):
@@ -538,57 +594,71 @@ fn bare_surface_for(_ root: LibrarySource, _ core_names: Map<String, String>) ->
 // file) is not a collision. Prelude and white-box-test names are not checked
 // here: a file's *own* declarations may shadow the prelude (soft-reserved),
 // and the existing insertion order implements that precedence.
-fn collect_surface_collisions(_ src: LibrarySource, _ diags: List<LoadDiagnostic>) -> Void {
-    let file = element.file_key(src.program.file_path);
-    // name -> origin file, for the barrel (public) and bare (`as _`) surfaces.
-    let exposed: Map<String, String> = {};
-    let bare: Map<String, String> = {};
-    for decl in src.program.decls {
-        if let Some(n) = public_name(decl) {
-            exposed[n] = element.file_key(src.program.file_path);
+impl Loader {
+    fn collect_collisions(self, _ src: LibrarySource, _ diags: List<LoadDiagnostic>) -> Void {
+        let file = element.file_key(src.program.file_path);
+        // name -> origin file, for the barrel (public) and bare (`as _`) surfaces.
+        let exposed: Map<String, String> = {};
+        let bare: Map<String, String> = {};
+        for decl in src.program.decls {
+            if let Some(n) = public_name(decl) {
+                exposed[n] = element.file_key(src.program.file_path);
+            }
         }
-    }
-    for decl in src.program.decls {
-        if let Import(x) = decl {
-            if let Some(child) = src.imports.get(x.path) {
-                if x.is_pub {
-                    let surf = public_surface_of(child);
-                    for n in surf.names.to_list() {
-                        let origin = surf.origin.get(n).unwrap_or(element.file_key(child.program.file_path));
-                        match exposed.get(n) {
-                            Some(prior) => {
-                                if prior != origin {
-                                    diags.push(LoadDiagnostic {
-                                        message: 'this `pub import` re-exposes `${n}`, which the barrel already exposes; a barrel must expose each public name from one file',
-                                        span: x.span,
-                                        file: file,
-                                    });
-                                }
-                            },
-                            None => { exposed[n] = origin; },
+        for decl in src.program.decls {
+            if let Import(x) = decl {
+                if let Some(child) = src.imports.get(x.path) {
+                    if x.is_pub {
+                        let surf = self.surface_of(child);
+                        for n in surf.names.to_list() {
+                            let origin = surf.origin.get(n).unwrap_or(element.file_key(child.program.file_path));
+                            match exposed.get(n) {
+                                Some(prior) => {
+                                    if prior != origin {
+                                        diags.push(LoadDiagnostic {
+                                            message: 'this `pub import` re-exposes `${n}`, which the barrel already exposes; a barrel must expose each public name from one file',
+                                            span: x.span,
+                                            file: file,
+                                        });
+                                    }
+                                },
+                                None => { exposed[n] = origin; },
+                            }
                         }
                     }
-                }
-                if x.unqualified {
-                    let surf = public_surface_of(child);
-                    for n in surf.names.to_list() {
-                        let origin = surf.origin.get(n).unwrap_or(element.file_key(child.program.file_path));
-                        match bare.get(n) {
-                            Some(prior) => {
-                                if prior != origin {
-                                    diags.push(LoadDiagnostic {
-                                        message: 'two `import … as _` imports expose `${n}` unqualified; import one of them with a namespace',
-                                        span: x.span,
-                                        file: file,
-                                    });
-                                }
-                            },
-                            None => { bare[n] = origin; },
+                    if x.unqualified {
+                        let surf = self.surface_of(child);
+                        for n in surf.names.to_list() {
+                            let origin = surf.origin.get(n).unwrap_or(element.file_key(child.program.file_path));
+                            match bare.get(n) {
+                                Some(prior) => {
+                                    if prior != origin {
+                                        diags.push(LoadDiagnostic {
+                                            message: 'two `import … as _` imports expose `${n}` unqualified; import one of them with a namespace',
+                                            span: x.span,
+                                            file: file,
+                                        });
+                                    }
+                                },
+                                None => { bare[n] = origin; },
+                            }
                         }
                     }
                 }
             }
         }
+    }
+
+    // The namespaces bound by `root`'s own imports — the memoized twin of the
+    // free `namespaces_for` (which stays for surface-shape callers/tests).
+    fn namespaces_of(self, _ root: LibrarySource) -> Map<String, element.LibraryNamespace> {
+        let result: Map<String, element.LibraryNamespace> = {};
+        for decl in root.program.decls {
+            if let Import(x) = decl {
+                if let Some(child) = root.imports.get(x.path) { result[namespace_of(x)] = self.surface_of(child); }
+            }
+        }
+        return result;
     }
 }
 
