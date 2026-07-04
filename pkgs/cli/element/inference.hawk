@@ -92,7 +92,7 @@ pub fn infer_expr(_ expr: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx,
         Struct(x) => infer_struct(x, scope, ctx),
         Ident(_, name) => infer_ident(name, scope, ctx),
         Call(x) => infer_call(x, scope, ctx, expected),
-        Field(_, object, field) => infer_field(object, field, expected, scope, ctx),
+        Field(_, object, field) => infer_field(object, field.name, expected, scope, ctx),
         Index(_, object, _) => index_result(infer_expr(object, scope, ctx, Option.None), ctx),
         Binary(_, left, op, right) => infer_binary(left, op, right, scope, ctx),
         Unary(_, op, operand) => infer_unary(op, operand, scope, ctx),
@@ -519,7 +519,7 @@ fn indexed_assign_candidate(_ current: Type, _ key: Expr, _ value: Expr,
 // `name.push(v)` as a `List<typeof(v)>` candidate. None otherwise.
 fn push_candidate(_ name: String, _ call: CallExpr,
     _ scope: Map<String, Type>, _ ctx: InferCtx) -> Option<Type> {
-    if let Field(_, obj, method) = call.callee { if let Ident(_, n) = obj {
+    if let Field(_, obj, m) = call.callee { let method = m.name; if let Ident(_, n) = obj {
         if n == name && method == 'push' && call.args.len() == 1 {
             return Option.Some(iface(ctx, 'List',
                 [infer_expr(call.args[0].value, scope, ctx, Option.None)]));
@@ -596,7 +596,7 @@ fn infer_call(_ x: CallExpr, _ scope: Map<String, Type>, _ ctx: InferCtx,
 
     match callee {
         Ident(_, name) => { return infer_call_ident(name, arg_types, x.type_args, expected, scope, ctx); },
-        Field(_, obj, field) => { return infer_call_field(obj, field, arg_types, x.type_args, x.recv_type_args, expected, scope, ctx); },
+        Field(_, obj, field) => { return infer_call_field(obj, field.name, arg_types, x.type_args, x.recv_type_args, expected, scope, ctx); },
         _ => {},
     }
 
@@ -844,7 +844,8 @@ fn callee_params(_ callee: Expr, _ args: List<CallArg>,
                 },
             }
         },
-        Field(_, obj, field) => {
+        Field(_, obj, fid) => {
+            let field = fid.name;
             // A static-receiver callee — a static method (`Set.new`,
             // `ns.Type.make`) or a namespaced free/native fn (`fs.read_text`) —
             // has no value receiver: its params come straight from the resolved
@@ -1171,7 +1172,7 @@ fn type_def_for_expr(_ object: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx
         Field(_, inner, field) => {
             if let Ident(_, nsname) = inner {
                 if is_namespace(nsname, scope, ctx) {
-                    return ctx_scope(ctx).resolve_qualified_type_def(nsname, field);
+                    return ctx_scope(ctx).resolve_qualified_type_def(nsname, field.name);
                 };
             }
         },

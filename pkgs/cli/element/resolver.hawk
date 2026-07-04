@@ -188,20 +188,20 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
                     // `builtin_type_defs()` floor registers, which this shadows.
                     let owner = file_key(p.file_path);
                     let el = if x.is_native {
-                        new_builtin(owner, x.name, type_param_names(x.type_params))
+                        new_builtin(owner, x.name, type_param_names(x.type_params), name_span: x.name_span)
                     } else {
-                        new_struct(owner, x.name, type_param_names(x.type_params))
+                        new_struct(owner, x.name, type_param_names(x.type_params), name_span: x.name_span)
                     };
                     record_flat_type(type_defs, x.name, el);
                     record_file_type(file_type_defs, p.file_path, x.name, el);
                 },
                 Enum(x) => {
-                    let el = new_enum(file_key(p.file_path), x.name, type_param_names(x.type_params));
+                    let el = new_enum(file_key(p.file_path), x.name, type_param_names(x.type_params), name_span: x.name_span);
                     record_flat_type(type_defs, x.name, el);
                     record_file_type(file_type_defs, p.file_path, x.name, el);
                 },
                 Interface(x) => {
-                    let el = new_interface(file_key(p.file_path), x.name, type_param_names(x.type_params));
+                    let el = new_interface(file_key(p.file_path), x.name, type_param_names(x.type_params), name_span: x.name_span);
                     record_flat_type(type_defs, x.name, el);
                     record_file_type(file_type_defs, p.file_path, x.name, el);
                 },
@@ -252,6 +252,7 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
                         for v in x.variants {
                             element.variants.push(EnumVariantElement {
                                 name: v.name,
+                                name_span: v.name_span,
                                 fields: v.fields.map((f) => resolve_type_ref_in(f, fs, tps, Option.None)),
                             });
                         }
@@ -263,6 +264,8 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
                 Const(x) => {
                     record_file_const(file_consts, p.file_path, x.name, ConstElement {
                         name: x.name,
+                        file: file_key(p.file_path),
+                        name_span: x.name_span,
                         ty: resolve_opt_in(x.type_ann, fs, Set.new(), Option.None),
                     });
                 },
@@ -273,6 +276,8 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
                 Let(x) => {
                     record_file_const(file_consts, p.file_path, x.name, ConstElement {
                         name: x.name,
+                        file: file_key(p.file_path),
+                        name_span: x.name_span,
                         ty: resolve_opt_in(x.type_ann, fs, Set.new(), Option.None),
                     });
                 },
@@ -457,6 +462,8 @@ fn function_element(_ decl: FnDecl, _ scope: FileScope) -> FunctionElement {
     let tps = type_param_set(decl.type_params);
     return FunctionElement {
         name: decl.name,
+        file: file_key(scope.file),
+        name_span: decl.name_span,
         type_parameters: type_param_names(decl.type_params),
         type_parameter_bounds: type_param_bounds(decl, scope),
         parameters: build_params(decl, scope, tps, Option.None),
@@ -477,6 +484,8 @@ fn method_element(_ decl: FnDecl, _ owner: String, _ scope: FileScope,
     }
     return FunctionElement {
         name: decl.name,
+        file: file_key(scope.file),
+        name_span: decl.name_span,
         type_parameters: type_param_names(decl.type_params),
         type_parameter_bounds: type_param_bounds(decl, scope),
         parameters: build_params(decl, scope, tps, self_type),

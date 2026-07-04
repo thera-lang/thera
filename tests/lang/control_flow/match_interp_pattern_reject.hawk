@@ -1,0 +1,15 @@
+//! spec: cf-match-literal
+//! mode: check
+
+// Only a literal is a pattern: an interpolated string is a runtime value, not
+// a matchable constant — a parse error (PA12), not a silently-compiled
+// "literal".
+
+fn main() -> Void {
+    let x = 1;
+    let r = match 'a1b' {
+        'a${x}b' => 1, // expect error: a string pattern cannot be interpolated
+        _ => 2,
+    };
+    println('${r}');
+}

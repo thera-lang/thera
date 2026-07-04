@@ -33,6 +33,7 @@ fn sample(_ ret: Int) -> Program {
                     name: 'Int',
                     args: [],
                     namespace: Option.None,
+                    namespace_span: Option.None,
                 })),
                 body: Option.Some(Block {
                     start_span: sp(),

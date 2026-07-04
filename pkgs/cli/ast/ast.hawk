@@ -40,7 +40,9 @@ pub enum Decl {
 pub struct ImportDecl {
     span: SourceSpan,
     path: String, // e.g. 'std.fs' or 'wordcount'
+    path_span: SourceSpan,
     alias: Option<String>,
+    alias_span: Option<SourceSpan>, // the alias identifier (Some iff `alias` is)
     is_pub: Bool, // `pub import` re-exports the target's public symbols
     // `import 'x' as _;` — bind no namespace; bring the library's public names
     // into this file's scope *unqualified* (see docs/scoping.md). `alias` is None.
@@ -78,6 +80,7 @@ pub struct TypeDecl {
 pub struct FieldDef {
     is_mut: Bool,
     name: String,
+    name_span: SourceSpan,
     type_ann: TypeRef,
 }
 
@@ -87,6 +90,7 @@ pub struct ImplDecl {
     name_span: SourceSpan, // span of type_name
     type_params: List<TypeParam>,
     interface_name: Option<String>, // None = inherent impl
+    interface_name_span: Option<SourceSpan>, // Some iff `interface_name` is
     // The namespace qualifying the interface name (`impl io.Reader for X`), if
     // any — the interface resolves through it, like a `ns.T` annotation.
     interface_namespace: Option<String>,
@@ -102,6 +106,7 @@ pub struct InterfaceDecl {
     name_span: SourceSpan,
     type_params: List<TypeParam>,
     super_interfaces: List<String>, // extended interfaces, e.g. Display + Debug
+    super_spans: List<SourceSpan>, // one per super_interfaces entry
     methods: List<FnDecl>,
 }
 
@@ -154,6 +159,7 @@ pub struct TypeParam {
     span: SourceSpan,
     name: String,
     bounds: List<String>, // e.g. ['Eq', 'Debug']
+    bound_spans: List<SourceSpan>, // one per bounds entry
 }
 
 pub struct Param {
@@ -166,6 +172,14 @@ pub struct Param {
     name_span: SourceSpan,
     type_ann: Option<TypeRef>,
     default_value: Option<Expr>,
+}
+
+// A name with its exact source span — the unit reference-side tooling keys on
+// (PA11). Adopted incrementally: today the member of `Expr.Field`; other
+// name-carrying nodes record parallel `*_span` fields.
+pub struct Identifier {
+    name: String,
+    span: SourceSpan,
 }
 
 // --- Type references ---
@@ -183,6 +197,7 @@ pub struct NamedType {
     // `time.Clock`), or None for a bare name. Resolution is by `name` alone; the
     // qualifier is carried for diagnostics.
     namespace: Option<String>,
+    namespace_span: Option<SourceSpan>, // Some iff `namespace` is
 }
 
 // A function type, e.g. `(Int, String) -> Bool` or `() -> Int`.
@@ -267,7 +282,7 @@ pub enum Expr {
     Struct(StructExpr),
     Ident(SourceSpan, String),
     Call(CallExpr),
-    Field(SourceSpan, Expr, String), // object, field name
+    Field(SourceSpan, Expr, Identifier), // object, member (with its own span)
     Index(SourceSpan, Expr, Expr), // object, index
     Binary(SourceSpan, Expr, String, Expr), // left, op, right
     Unary(SourceSpan, String, Expr), // op, operand
@@ -309,6 +324,7 @@ pub struct StructExpr {
 // A struct-literal field initializer: `name: value`.
 pub struct FieldInit {
     name: String,
+    name_span: SourceSpan,
     value: Expr,
 }
 
@@ -328,6 +344,7 @@ pub struct CallExpr {
 pub struct CallArg {
     span: SourceSpan,
     label: Option<String>,
+    label_span: Option<SourceSpan>, // Some iff `label` is
     value: Expr,
 }
 

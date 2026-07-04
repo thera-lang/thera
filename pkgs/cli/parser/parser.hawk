@@ -233,6 +233,7 @@ impl Parser {
             name: '',
             args: [],
             namespace: Option.None,
+            namespace_span: Option.None,
         });
     }
 
@@ -244,7 +245,9 @@ impl Parser {
         return Decl.Import(ImportDecl {
             span: self.current().span,
             path: '',
+            path_span: self.current().span,
             alias: Option.None,
+            alias_span: Option.None,
             is_pub: false,
             unqualified: false,
         });
@@ -396,6 +399,7 @@ impl Parser {
     fn parse_import(self, _ is_pub: Bool, _ start: SourceSpan) -> Decl {
         self.advance(); // 'import'
         let mut path = '';
+        let mut path_span = self.current().span;
         if self.check(TokenKind.StringLiteral) {
             let path_tok = self.advance();
             // An import path is a literal, resolved before any code runs — an
@@ -406,14 +410,20 @@ impl Parser {
                 return self.err_decl();
             }
             path = self.value_of(path_tok);
+            path_span = path_tok.span;
         } else {
-            path = self.expect(TokenKind.Identifier, 'module path').lexeme();
+            let first_seg = self.expect(TokenKind.Identifier, 'module path');
+            path = first_seg.lexeme();
+            path_span = first_seg.span;
             while !self.panicking && self.check(TokenKind.Dot) {
                 self.advance();
-                path = path + '.' + self.expect(TokenKind.Identifier, 'module name segment').lexeme();
+                let seg = self.expect(TokenKind.Identifier, 'module name segment');
+                path = path + '.' + seg.lexeme();
+                path_span = path_span.cover(seg.span);
             }
         }
         let mut alias = Option.None;
+        let mut alias_span: Option<SourceSpan> = Option.None;
         let mut unqualified = false;
         if self.match_kind(TokenKind.KwAs) {
             // `as _` binds no namespace — the library's names come in unqualified.
@@ -421,7 +431,9 @@ impl Parser {
                 self.advance();
                 unqualified = true;
             } else {
-                alias = Option.Some(self.expect(TokenKind.Identifier, 'alias name').lexeme());
+                let alias_tok = self.expect(TokenKind.Identifier, 'alias name');
+                alias = Option.Some(alias_tok.lexeme());
+                alias_span = Option.Some(alias_tok.span);
             }
         }
         self.match_kind(TokenKind.Semi);
@@ -429,7 +441,9 @@ impl Parser {
         return Decl.Import(ImportDecl {
             span: start.cover(end),
             path: path,
+            path_span: path_span,
             alias: alias,
+            alias_span: alias_span,
             is_pub: is_pub,
             unqualified: unqualified,
         });
@@ -484,15 +498,18 @@ impl Parser {
         while going && !self.panicking && !self.check(TokenKind.Gt) && !self.at_end() {
             let name_tok = self.expect(TokenKind.Identifier, 'type parameter name');
             let bounds: List<String> = [];
+            let bound_spans: List<SourceSpan> = [];
             let mut end = name_tok.span;
             if self.match_kind(TokenKind.Colon) {
                 let first = self.expect(TokenKind.Identifier, 'bound name');
                 bounds.push(first.lexeme());
+                bound_spans.push(first.span);
                 end = first.span;
                 while !self.panicking && self.check(TokenKind.Plus) {
                     self.advance();
                     let nb = self.expect(TokenKind.Identifier, 'bound name');
                     bounds.push(nb.lexeme());
+                    bound_spans.push(nb.span);
                     end = nb.span;
                 }
             }
@@ -500,6 +517,7 @@ impl Parser {
                 span: name_tok.span.cover(end),
                 name: name_tok.lexeme(),
                 bounds: bounds,
+                bound_spans: bound_spans,
             });
             if !self.match_kind(TokenKind.Comma) {
                 going = false;
@@ -639,10 +657,13 @@ impl Parser {
         let mut going = true;
         while going && !self.panicking && !self.check(TokenKind.RBrace) && !self.at_end() {
             let is_mut = self.match_kind(TokenKind.KwMut);   // `mut field: T`
-            let fname = self.expect(TokenKind.Identifier, 'field name').lexeme();
+            let fname_tok = self.expect(TokenKind.Identifier, 'field name');
             self.expect(TokenKind.Colon, ':');
             let ftype = self.parse_type_ref();
-            fields.push(FieldDef { is_mut: is_mut, name: fname, type_ann: ftype });
+            fields.push(FieldDef {
+                is_mut: is_mut, name: fname_tok.lexeme(), name_span: fname_tok.span,
+                type_ann: ftype,
+            });
             if !self.match_kind(TokenKind.Comma) {
                 going = false;
             }
@@ -682,11 +703,13 @@ impl Parser {
         let mut type_name = '';
         let mut name_span = first_tok.span;
         let mut interface_name = Option.None;
+        let mut interface_name_span: Option<SourceSpan> = Option.None;
         let mut interface_namespace: Option<String> = Option.None;
         let mut type_params: List<TypeParam> = [];
         let mut interface_args: List<TypeRef> = [];
         if self.match_kind(TokenKind.KwFor) {
             interface_name = Option.Some(first_tok.lexeme());
+            interface_name_span = Option.Some(first_tok.span);
             interface_namespace = first_ns;
             interface_args = first_args;
             let type_tok = self.parse_qualified_type_name('type name');
@@ -742,6 +765,7 @@ impl Parser {
             name_span: name_span,
             type_params: type_params,
             interface_name: interface_name,
+            interface_name_span: interface_name_span,
             interface_namespace: interface_namespace,
             interface_args: interface_args,
             methods: methods,
@@ -764,15 +788,18 @@ impl Parser {
         while going && !self.panicking && !self.check(TokenKind.Gt) && !self.at_end() {
             let ref = self.parse_type_ref();
             let bounds: List<String> = [];
+            let bound_spans: List<SourceSpan> = [];
             let mut end = type_span(ref);
             if self.match_kind(TokenKind.Colon) {
                 let first = self.expect(TokenKind.Identifier, 'bound name');
                 bounds.push(first.lexeme());
+                bound_spans.push(first.span);
                 end = first.span;
                 while !self.panicking && self.check(TokenKind.Plus) {
                     self.advance();
                     let nb = self.expect(TokenKind.Identifier, 'bound name');
                     bounds.push(nb.lexeme());
+                    bound_spans.push(nb.span);
                     end = nb.span;
                 }
             }
@@ -782,6 +809,7 @@ impl Parser {
                     span: type_span(ref).cover(end),
                     name: nt.name,
                     bounds: bounds,
+                    bound_spans: bound_spans,
                 });
             }
             if !self.match_kind(TokenKind.Comma) {
@@ -796,11 +824,16 @@ impl Parser {
         let name_tok = self.expect(TokenKind.Identifier, 'interface name');
         let type_params = self.parse_type_params();
         let super_interfaces: List<String> = [];
+        let super_spans: List<SourceSpan> = [];
         if self.match_kind(TokenKind.Colon) {
-            super_interfaces.push(self.expect(TokenKind.Identifier, 'super-interface').lexeme());
+            let s0 = self.expect(TokenKind.Identifier, 'super-interface');
+            super_interfaces.push(s0.lexeme());
+            super_spans.push(s0.span);
             while !self.panicking && self.check(TokenKind.Plus) {
                 self.advance();
-                super_interfaces.push(self.expect(TokenKind.Identifier, 'super-interface').lexeme());
+                let sn = self.expect(TokenKind.Identifier, 'super-interface');
+                super_interfaces.push(sn.lexeme());
+                super_spans.push(sn.span);
             }
         }
         self.expect(TokenKind.LBrace, '{');
@@ -827,6 +860,7 @@ impl Parser {
             name_span: name_tok.span,
             type_params: type_params,
             super_interfaces: super_interfaces,
+            super_spans: super_spans,
             methods: methods,
         });
     }
@@ -953,9 +987,11 @@ impl Parser {
         }
         let first_tok = self.expect(TokenKind.Identifier, 'type name');
         let mut namespace = Option.None;
+        let mut namespace_span: Option<SourceSpan> = Option.None;
         let mut name_tok = first_tok;
         if self.match_kind(TokenKind.Dot) {
             namespace = Option.Some(first_tok.lexeme());
+            namespace_span = Option.Some(first_tok.span);
             name_tok = self.expect(TokenKind.Identifier, 'type name after "${first_tok.lexeme()}."');
         }
         let args: List<TypeRef> = [];
@@ -977,6 +1013,7 @@ impl Parser {
             name: name_tok.lexeme(),
             args: args,
             namespace: namespace,
+            namespace_span: namespace_span,
         });
     }
 
@@ -1517,6 +1554,13 @@ impl Parser {
         }
         if self.check(TokenKind.KwTrue) || self.check(TokenKind.KwFalse)
             || self.check(TokenKind.IntLiteral) || self.check(TokenKind.StringLiteral) {
+            // Only a *literal* matches: an interpolated string is a runtime
+            // value, not a matchable constant (PA12 — these used to parse and
+            // reach codegen as "literal" patterns).
+            if self.current().interps.len() > 0 {
+                self.fail('a string pattern cannot be interpolated');
+                return self.err_pattern();
+            }
             let literal = self.parse_primary(true);
             return Pattern.Literal(expr_span(literal), literal);
         }
@@ -1665,7 +1709,8 @@ impl Parser {
             if self.check(TokenKind.Dot) {
                 self.advance();
                 let field = self.expect(TokenKind.Identifier, 'field or method name');
-                expr = Expr.Field(expr_span(expr).cover(field.span), expr, field.lexeme());
+                expr = Expr.Field(expr_span(expr).cover(field.span), expr,
+                    Identifier { name: field.lexeme(), span: field.span });
             } else if self.check(TokenKind.LParen) {
                 let args = self.parse_call_args();
                 let end = self.prev_span();
@@ -1695,7 +1740,8 @@ impl Parser {
                     // name (and any method-own `<...>`) follow.
                     self.advance(); // .
                     let method = self.expect(TokenKind.Identifier, 'method name after `Type<...>.`');
-                    let callee = Expr.Field(expr_span(expr).cover(method.span), expr, method.lexeme());
+                    let callee = Expr.Field(expr_span(expr).cover(method.span), expr,
+                        Identifier { name: method.lexeme(), span: method.span });
                     let method_type_args = if self.check(TokenKind.Lt) && self.looks_like_type_arg_list() {
                         self.parse_type_arg_list()
                     } else {
@@ -1747,7 +1793,7 @@ impl Parser {
                 Some(ls) => ls.cover(expr_span(val)),
                 None => expr_span(val),
             };
-            args.push(CallArg { span: span, label: label, value: val });
+            args.push(CallArg { span: span, label: label, label_span: label_span, value: val });
             if !self.match_kind(TokenKind.Comma) {
                 going = false;
             }
@@ -2052,10 +2098,12 @@ impl Parser {
         let fields: List<FieldInit> = [];
         let mut going = true;
         while going && !self.panicking && !self.check(TokenKind.RBrace) && !self.at_end() {
-            let fname = self.expect(TokenKind.Identifier, 'field name').lexeme();
+            let fname_tok = self.expect(TokenKind.Identifier, 'field name');
             self.expect(TokenKind.Colon, ':');
             let fval = self.parse_expr();
-            fields.push(FieldInit { name: fname, value: fval });
+            fields.push(FieldInit {
+                name: fname_tok.lexeme(), name_span: fname_tok.span, value: fval,
+            });
             if !self.match_kind(TokenKind.Comma) {
                 going = false;
             }

@@ -687,14 +687,14 @@ fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ stmts: List<Stmt>, _ i
                         }
                     }
                 },
-                Field(fspan, obj, field) => {
+                Field(_, obj, field) => {
                     // Assigning a struct field requires the field to be `mut`
                     // (only the last field of a chain — `a.b.c = …` mutates the
                     // object `a.b` points at). An index target mutates a
                     // collection, not a field, so it is not checked here.
                     let recv = infer_expr(obj, scope, ctx, Option.None);
-                    if struct_field_immutable(recv, field, ctx) {
-                        add_error(errors, 'cannot assign to field `${field}`: it is not declared `mut`', fspan);
+                    if struct_field_immutable(recv, field.name, ctx) {
+                        add_error(errors, 'cannot assign to field `${field.name}`: it is not declared `mut`', field.span);
                     }
                 },
                 _ => {},
@@ -819,14 +819,15 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
                         },
                     }
                 },
-                Field(_, recv, field) => {
+                Field(_, recv, fid) => {
+                    let field = fid.name;
                     // A namespace function (`ns.fn`) or static method (`Type.m`)
                     // is a free-function-style call: validate its arguments and
                     // diagnose an unpinnable return-only type parameter, like a
                     // bare call. Otherwise it's a value-receiver method.
                     // First, the qualified-access surface check: a `ns.fn` (or the
                     // `ns.Type` of a `ns.Type.method()`) must name a public member.
-                    check_qualified_receiver(errors, recv, field, x.span, scope, ctx);
+                    check_qualified_receiver(errors, recv, field, fid.span, scope, ctx);
                     match resolve_ns_or_static_call(recv, field, scope, ctx) {
                         Some(target) => {
                             check_call_args(errors, target.fn_el, {}, x.args, arg_types, x.span, ctx);
@@ -835,7 +836,7 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
                         None => {
                             let recv_type = infer_expr(recv, scope, ctx, Option.None);
                             if !method_resolves(recv_type, field, x.args.len(), ctx) {
-                                add_error(errors, 'no method "${field}" on ${type_to_string(recv_type)}', x.span);
+                                add_error(errors, 'no method "${field}" on ${type_to_string(recv_type)}', fid.span);
                             } else {
                                 // The method resolved — validate its arguments
                                 // (arity, labels, types) against the signature.
@@ -849,12 +850,13 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
                 _ => {},
             }
         },
-        Field(span, object, field) => {
+        Field(_, object, fid) => {
+            let field = fid.name;
             check_expr(errors, object, scope, ctx, Option.None, muts: muts);
             match namespace_of_access(object, scope, ctx) {
                 // A qualified `ns.member`: the member must be in ns's public surface.
                 Some(ns) => {
-                    check_member_visible(errors, ns, field, span, ctx.library, ctx.current_file);
+                    check_member_visible(errors, ns, field, fid.span, ctx.library, ctx.current_file);
                 },
                 // An ordinary receiver: flag a field its (known) struct type doesn't
                 // declare. Conservative: only a definitive miss on a resolved struct
@@ -862,14 +864,14 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
                 None => {
                     let recv = infer_expr(object, scope, ctx, Option.None);
                     if struct_field_missing(recv, field, ctx) {
-                        add_error(errors, 'no such field "${field}" on type ${type_to_string(recv)}', span);
+                        add_error(errors, 'no such field "${field}" on type ${type_to_string(recv)}', fid.span);
                     } else {
                         // A bare field access on a primitive value (`5.x`, `true.y`):
                         // primitives have methods, not fields. A method call like
                         // `5.to_double()` is a `Call` (handled above), not this
                         // bare-Field case, so it is unaffected.
                         if let Primitive(_) = recv {
-                            add_error(errors, 'field access on a non-struct value: ${type_to_string(recv)} has no field "${field}"', span);
+                            add_error(errors, 'field access on a non-struct value: ${type_to_string(recv)} has no field "${field}"', fid.span);
                         }
                     };
                 },
@@ -1369,7 +1371,7 @@ fn check_recv_type_args(_ errors: List<CheckError>, _ x: CallExpr, _ ctx: InferC
         Field(_, recv, _) => match recv {
             Ident(_, n) => Option.Some(TypeId { owner: fs.resolve_type_owner(n, Option.None), name: n }),
             Field(_, nsx, n) => match nsx { // `ns.Type`
-                Ident(_, ns) => Option.Some(TypeId { owner: fs.resolve_type_owner(n, Option.Some(ns)), name: n }),
+                Ident(_, ns) => Option.Some(TypeId { owner: fs.resolve_type_owner(n.name, Option.Some(ns)), name: n.name }),
                 _ => Option.None,
             },
             _ => Option.None,
@@ -1707,7 +1709,7 @@ fn describe_kinds(_ kinds: List<String>) -> String {
 fn assign_context(_ target: Expr) -> String {
     return match target {
         Ident(_, name) => 'assignment to `${name}`',
-        Field(_, _, field) => 'assignment to field `${field}`',
+        Field(_, _, field) => 'assignment to field `${field.name}`',
         Index(_, _, _) => 'assignment to element',
         _ => 'assignment',
     };
@@ -1863,7 +1865,7 @@ fn check_qualified_receiver(_ errors: List<CheckError>, _ object: Expr, _ member
     match namespace_of_access(object, scope, ctx) {
         Some(ns) => { check_member_visible(errors, ns, member, span, ctx.library, ctx.current_file); },
         None => {
-            if let Field(fspan, inner, name) = object { check_qualified_receiver(errors, inner, name, fspan, scope, ctx); }
+            if let Field(_, inner, name) = object { check_qualified_receiver(errors, inner, name.name, name.span, scope, ctx); }
         },
     }
 }

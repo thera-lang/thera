@@ -251,3 +251,55 @@ fn test_reserved_pin_allows_same_owner_reregistration() -> Result<Void, Error> {
     }
     return Result.Ok(void);
 }
+
+@test
+fn test_elements_carry_symbol_identity() -> Result<Void, Error> {
+    // Symbol identity (EL13): resolved elements carry the declaring file's key
+    // and the declaration's name-token span — the (file, kind, name, span)
+    // quadruple Phase 3 rename/references keys on. A path-less program keys as
+    // file_key(None); the spans point at the exact name tokens.
+    let src = 'struct Point { x: Int }\n'
+        + 'enum Color { Red, Green }\n'
+        + 'fn origin() -> Int { return 0; }\n'
+        + 'const SIZE: Int = 3;\n'
+        + 'impl Point { fn zero(self) -> Bool { return self.x == 0; } }';
+    let lib = lib_of(src);
+    let anon = file_key(Option.None);
+    let fs = file_scope(lib, Option.None);
+    if let Some(pt) = fs.resolve_type_def(TypeId { owner: anon, name: 'Point' }) {
+        testing.assert_eq(actual: pt.name_span.text(), expected: 'Point')?;
+        if let Some(zero) = find_method(pt, 'zero') {
+            testing.assert_eq(actual: zero.file, expected: anon)?;
+            testing.assert_eq(actual: zero.name_span.text(), expected: 'zero')?;
+            testing.assert_eq(actual: zero.owner, expected: Option.Some('Point'))?;
+        } else {
+            testing.assert(false, message: 'zero not resolved')?;
+        }
+    } else {
+        testing.assert(false, message: 'Point not resolved')?;
+    }
+    if let Some(color) = fs.resolve_type_def(TypeId { owner: anon, name: 'Color' }) {
+        testing.assert_eq(actual: color.variants[1].name_span.text(), expected: 'Green')?;
+    } else {
+        testing.assert(false, message: 'Color not resolved')?;
+    }
+    if let Some(f) = fs.resolve_function('origin') {
+        testing.assert_eq(actual: f.file, expected: anon)?;
+        testing.assert_eq(actual: f.name_span.text(), expected: 'origin')?;
+    } else {
+        testing.assert(false, message: 'origin not resolved')?;
+    }
+    if let Some(c) = fs.resolve_const('SIZE') {
+        testing.assert_eq(actual: c.file, expected: anon)?;
+        testing.assert_eq(actual: c.name_span.text(), expected: 'SIZE')?;
+    } else {
+        testing.assert(false, message: 'SIZE not resolved')?;
+    }
+    // A hermetic-floor entry has the synthetic no-source identity.
+    if let Some(lst) = fs.resolve_type_def(TypeId { owner: BUILTIN_OWNER, name: 'List' }) {
+        testing.assert_eq(actual: lst.name_span.length, expected: 0)?;
+    } else {
+        testing.assert(false, message: 'List floor entry not resolved')?;
+    }
+    return Result.Ok(void);
+}

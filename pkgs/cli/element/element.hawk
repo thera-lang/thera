@@ -11,7 +11,15 @@
 // (a `kind` discriminant) so the resolver can fill `methods`/`fields`/… in place
 // across passes (struct fields stored in a Map are mutated by reference).
 
+import '../lexer/token' as _; // SourceSpan (symbol identity, EL13)
 import 'types' as _;
+
+// The span for a synthesized element — a hermetic-floor entry or a fixture —
+// that has no source site. Zero-length at 0:0 of an empty source; `length == 0
+// && source == ''` marks it recognizably absent.
+pub fn no_span() -> SourceSpan {
+    return SourceSpan { source: '', offset: 0, length: 0, line: 0, column: 0 };
+}
 
 pub enum TypeDefKind {
     Struct,
@@ -23,6 +31,7 @@ pub enum TypeDefKind {
 // A resolved positional payload type list lives on each variant.
 pub struct EnumVariantElement {
     name: String,
+    name_span: SourceSpan, // the declaration's name token (identity; EL13)
     fields: List<Type>, // resolved payload types; empty = payload-free
 }
 
@@ -38,6 +47,12 @@ pub struct ParameterElement {
 // free function); `is_static` is a method with no `self`.
 pub struct FunctionElement {
     name: String,
+    // Symbol identity (EL13): the canonical key of the declaring file, and the
+    // declaration's name-token span. With `owner`, a method's identity is
+    // (file, owner, name); a free function's is (file, name). Synthesized
+    // entries carry BUILTIN_OWNER / `no_span()`.
+    file: String,
+    name_span: SourceSpan,
     type_parameters: List<String>,
     // Interface bounds per type parameter (`fn f<T: Display>` -> {T: [Display]}),
     // by resolved identity (the interface the declaring file sees).
@@ -50,6 +65,10 @@ pub struct FunctionElement {
 
 pub struct ConstElement {
     name: String,
+    // Symbol identity (EL13). Consts and module-level `let`s share this
+    // element; both are (file, name) value bindings.
+    file: String,
+    name_span: SourceSpan,
     ty: Type,
 }
 
@@ -57,6 +76,8 @@ pub struct ConstElement {
 // generic. The mutable lists/maps are filled during resolution.
 pub struct TypeDefElement {
     name: String,
+    // The declaration's name-token span (identity, with `owner_file`; EL13).
+    name_span: SourceSpan,
     // The file (key) that declares this type — its nominal owner. Stamped into a
     // `TypeId` when a source name resolves to this element (see types.named_type),
     // so `A.Foo` and `B.Foo` stay distinct once type-name uniqueness is lifted.
@@ -98,26 +119,31 @@ pub struct TypeDefElement {
 
 // --- constructors for skeleton elements (resolver pass 1) ---
 
-pub fn new_struct(_ owner: String, _ name: String, _ type_params: List<String>) -> TypeDefElement {
-    return empty_def(owner, name, TypeDefKind.Struct, type_params);
+pub fn new_struct(_ owner: String, _ name: String, _ type_params: List<String>,
+    name_span: SourceSpan = no_span()) -> TypeDefElement {
+    return empty_def(owner, name, TypeDefKind.Struct, type_params, name_span);
 }
 
-pub fn new_enum(_ owner: String, _ name: String, _ type_params: List<String>) -> TypeDefElement {
-    return empty_def(owner, name, TypeDefKind.Enum, type_params);
+pub fn new_enum(_ owner: String, _ name: String, _ type_params: List<String>,
+    name_span: SourceSpan = no_span()) -> TypeDefElement {
+    return empty_def(owner, name, TypeDefKind.Enum, type_params, name_span);
 }
 
-pub fn new_interface(_ owner: String, _ name: String, _ type_params: List<String>) -> TypeDefElement {
-    return empty_def(owner, name, TypeDefKind.Interface, type_params);
+pub fn new_interface(_ owner: String, _ name: String, _ type_params: List<String>,
+    name_span: SourceSpan = no_span()) -> TypeDefElement {
+    return empty_def(owner, name, TypeDefKind.Interface, type_params, name_span);
 }
 
-pub fn new_builtin(_ owner: String, _ name: String, _ type_params: List<String>) -> TypeDefElement {
-    return empty_def(owner, name, TypeDefKind.Builtin, type_params);
+pub fn new_builtin(_ owner: String, _ name: String, _ type_params: List<String>,
+    name_span: SourceSpan = no_span()) -> TypeDefElement {
+    return empty_def(owner, name, TypeDefKind.Builtin, type_params, name_span);
 }
 
-fn empty_def(_ owner: String, _ name: String, _ kind: TypeDefKind, _ type_params: List<String>)
-    -> TypeDefElement {
+fn empty_def(_ owner: String, _ name: String, _ kind: TypeDefKind, _ type_params: List<String>,
+    _ name_span: SourceSpan) -> TypeDefElement {
     return TypeDefElement {
         name: name,
+        name_span: name_span,
         owner_file: owner,
         kind: kind,
         type_parameters: type_params,

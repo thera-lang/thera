@@ -26,7 +26,7 @@ pub fn describe_expr(_ e: Expr) -> String {
         Ident(_, name) => name,
         Call(x) => describe_expr(x.callee) + describe_type_args(x.type_args)
             + '(' + describe_args(x.args) + ')',
-        Field(_, obj, f) => describe_expr(obj) + '.' + f,
+        Field(_, obj, f) => describe_expr(obj) + '.' + f.name,
         Index(_, obj, idx) => describe_expr(obj) + '[' + describe_expr(idx) + ']',
         Binary(_, l, op, r) => '(' + describe_expr(l) + ' ' + op + ' ' + describe_expr(r) + ')',
         Unary(_, op, operand) => '(' + op + describe_expr(operand) + ')',

@@ -436,3 +436,45 @@ fn test_impl_param_must_be_bare_name() -> Result<Void, Error> {
     testing.assert(!ok.has_errors(), message: 'nested interface args should parse')?;
     return Result.Ok(void);
 }
+
+@test
+fn test_name_spans_recorded() -> Result<Void, Error> {
+    // PA11: the previously missing name spans — field decls/inits, import
+    // path/alias, type-param bounds, interface supers, an impl's interface,
+    // a NamedType's namespace, a call-arg label — are recorded, each pointing
+    // at its exact source token.
+    let r = parse_src('import std.fs as f;\n'
+        + 'struct P<T: Display> { mut x: fs.Path }\n'
+        + 'interface I : Display + Debug { fn go(self); }\n'
+        + 'impl Display for P { fn show(self) -> String { return d(v: 1); } }');
+    testing.assert(!r.has_errors(), message: 'fixture should parse')?;
+    if let Import(im) = r.program.decls[0] {
+        testing.assert_eq(actual: im.path_span.text(), expected: 'std.fs')?;
+        testing.assert_eq(actual: im.alias_span.map((s) => s.text()),
+            expected: Option.Some('f'))?;
+    }
+    if let Type(td) = r.program.decls[1] {
+        testing.assert_eq(actual: td.type_params[0].bound_spans[0].text(), expected: 'Display')?;
+        testing.assert_eq(actual: td.fields[0].name_span.text(), expected: 'x')?;
+        if let Named(nt) = td.fields[0].type_ann {
+            testing.assert_eq(actual: nt.namespace_span.map((s) => s.text()),
+                expected: Option.Some('fs'))?;
+        }
+    }
+    if let Interface(idecl) = r.program.decls[2] {
+        testing.assert_eq(actual: idecl.super_spans.map((s) => s.text()),
+            expected: ['Display', 'Debug'])?;
+    }
+    if let Impl(imp) = r.program.decls[3] {
+        testing.assert_eq(actual: imp.interface_name_span.map((s) => s.text()),
+            expected: Option.Some('Display'))?;
+    }
+    // A member access carries the member's own Identifier span.
+    if let Field(_, _, member) = parse_expression(tokenize('obj.value').tokens) {
+        testing.assert_eq(actual: member.name, expected: 'value')?;
+        testing.assert_eq(actual: member.span.text(), expected: 'value')?;
+    } else {
+        testing.assert(false, message: 'expected a Field expr')?;
+    }
+    return Result.Ok(void);
+}

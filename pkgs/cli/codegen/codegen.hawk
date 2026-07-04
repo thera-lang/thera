@@ -700,7 +700,7 @@ impl FnCompiler {
                 if let Some(info) = self.struct_of(object, span) {
                     self.expr(object);
                     self.expr(value);
-                    self.emit(Instr.FieldSet(self.field_index(info, field, span)));
+                    self.emit(Instr.FieldSet(self.field_index(info, field.name, span)));
                 }
             },
             Index(_, object, index) => {
@@ -926,7 +926,7 @@ impl FnCompiler {
                 self.expr(index);
                 self.emit_index_get(object, span);
             },
-            Field(span, object, field) => { self.field_expr(object, field, span); },
+            Field(span, object, field) => { self.field_expr(object, field.name, span); },
             Struct(x) => { self.struct_expr(x); },
             Call(x) => { self.call_expr(x); },
             Propagate(_, inner) => { self.propagate_expr(inner); },
@@ -949,9 +949,9 @@ impl FnCompiler {
     fn emit_source_loc(self, _ span: SourceSpan) -> Void {
         let file = self.file.unwrap_or('');
         let fields: List<FieldInit> = [
-            FieldInit { name: 'file', value: Expr.Str(span, [StringPart.Text(span, file)]) },
-            FieldInit { name: 'line', value: Expr.Int(span, span.line) },
-            FieldInit { name: 'column', value: Expr.Int(span, span.column) },
+            FieldInit { name: 'file', name_span: span, value: Expr.Str(span, [StringPart.Text(span, file)]) },
+            FieldInit { name: 'line', name_span: span, value: Expr.Int(span, span.line) },
+            FieldInit { name: 'column', name_span: span, value: Expr.Int(span, span.column) },
         ];
         self.struct_expr(StructExpr {
             span: span,
@@ -1656,7 +1656,7 @@ impl FnCompiler {
             Field(_, inner, field) => {
                 if let Ident(_, ns_name) = inner {
                     if self.is_namespace(ns_name) {
-                        return receiver_type_id(fs, field, Option.Some(ns_name));
+                        return receiver_type_id(fs, field.name, Option.Some(ns_name));
                     }
                 }
             },
@@ -1671,7 +1671,7 @@ impl FnCompiler {
         let callee = x.callee;
         match callee {
             Field(_, obj, field) => {
-                self.method_call(x, obj, field);
+                self.method_call(x, obj, field.name);
                 return;
             },
             Ident(_, name) => {
