@@ -11,7 +11,7 @@ import std.json as _;
 import '../ast/ast' as _;      // Program
 import '../lexer/token' as _;  // SourceSpan
 import 'resolve';         // resolve_at
-import 'diagnostics';     // span_to_range
+import 'positions';     // span_to_range
 import 'paths';             // path_to_uri
 
 // The LSP `Location` (as JSON) for the definition of the symbol at `offset`, or
@@ -32,6 +32,6 @@ pub fn handle_definition(_ ctx: resolve.ResolveCtx, _ text: String, _ offset: In
 fn location(_ file: String, _ span: SourceSpan) -> Json {
     return json.obj({
         'uri': json.str(paths.path_to_uri(file)),
-        'range': diagnostics.span_to_range(span),
+        'range': positions.span_to_range(span),
     });
 }

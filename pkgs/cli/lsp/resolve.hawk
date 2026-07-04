@@ -265,22 +265,6 @@ pub fn name_at(_ text: String, _ offset: Int) -> Option<NameRef> {
     return Option.None;
 }
 
-// The 0-based (line, character) LSP position as a code-point offset into `text`.
-pub fn position_to_offset(_ text: String, _ line: Int, _ character: Int) -> Int {
-    let lines = text.split('\n');
-    let mut offset = 0;
-    let mut i = 0;
-    while i < line && i < lines.len() {
-        offset = offset + lines[i].len() + 1; // +1 for the '\n'
-        i = i + 1;
-    }
-    if line < lines.len() {
-        let line_text = lines[line];
-        offset = offset + (if character < line_text.len() { character } else { line_text.len() });
-    }
-    return offset;
-}
-
 // The receiver classification of the token at `offset` (LS3): not a member at
 // all; a member of `self`; of a plain named receiver (a namespace, a type, or a
 // value binding); of a `ns.Type` pair; or of a *computed* receiver (`f().x`,

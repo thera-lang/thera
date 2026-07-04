@@ -70,3 +70,37 @@ fn test_frame_prefixes_byte_length() -> Result<Void, Error> {
     testing.assert_eq(actual: frame('hi'), expected: 'Content-Length: 2\r\n\r\nhi')?;
     return Result.Ok(void);
 }
+
+// A header block that can never frame a body (unparseable, negative, or
+// missing Content-Length) is dropped and the next message still gets through
+// — previously it wedged the stream forever, buffering input without ever
+// yielding a message (LS9).
+@test
+fn test_malformed_content_length_recovers() -> Result<Void, Error> {
+    let input = 'Content-Length: abc\r\n\r\n${frame('{"a":1}')}';
+    let reader = FakeReader { data: input.bytes(), pos: 0 };
+    let buf = new_buffer();
+    testing.assert_eq(actual: buf.read_message(reader), expected: Option.Some('{"a":1}'))?;
+    testing.assert_eq(actual: buf.read_message(reader), expected: Option.None)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_missing_content_length_recovers() -> Result<Void, Error> {
+    let input = 'Content-Type: application/json\r\n\r\n${frame('{"b":2}')}';
+    let reader = FakeReader { data: input.bytes(), pos: 0 };
+    let buf = new_buffer();
+    testing.assert_eq(actual: buf.read_message(reader), expected: Option.Some('{"b":2}'))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_negative_content_length_is_malformed() -> Result<Void, Error> {
+    testing.assert_eq(actual: parse_content_length('Content-Length: -5\r\n'),
+        expected: Option.None)?;
+    let input = 'Content-Length: -5\r\n\r\n${frame('{"c":3}')}';
+    let reader = FakeReader { data: input.bytes(), pos: 0 };
+    let buf = new_buffer();
+    testing.assert_eq(actual: buf.read_message(reader), expected: Option.Some('{"c":3}'))?;
+    return Result.Ok(void);
+}

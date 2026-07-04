@@ -1,0 +1,93 @@
+// Position/text math for the LSP — the one home for the conversions between
+// the compiler's code-point world and the protocol's line/character world
+// (LS-D2's consolidation point).
+//
+// LSP positions default to **UTF-16** code units (we declare `utf-16` in the
+// initialize result), while Hawk spans and offsets are code-point based, so
+// every boundary crossing converts: an astral code point (>= U+10000) is one
+// code point but two UTF-16 units (LS6).
+
+import std.json as _;
+
+import '../lexer/token' as _; // SourceSpan
+
+// The UTF-16 length of `s`: one unit per code point, two for astral ones.
+pub fn utf16_len(_ s: String) -> Int {
+    let mut units = 0;
+    for cp in s.chars() {
+        units = units + (if cp >= 0x10000 { 2 } else { 1 });
+    }
+    return units;
+}
+
+// The 0-based LSP (line, character) position as a code-point offset into
+// `text`. `character` counts UTF-16 units, per the protocol. Out-of-range
+// positions clamp: a line past the last line is the end of the document
+// (previously one past it), a character past the line end is the line end,
+// and a character landing mid-surrogate-pair rounds down.
+pub fn position_to_offset(_ text: String, _ line: Int, _ character: Int) -> Int {
+    let lines = text.split('\n');
+    if line >= lines.len() {
+        return text.len();
+    }
+    let mut offset = 0;
+    let mut i = 0;
+    while i < line {
+        offset = offset + lines[i].len() + 1; // +1 for the '\n'
+        i = i + 1;
+    }
+    // Spend UTF-16 units along the line; the code points consumed are the offset.
+    let cps = lines[line].chars();
+    let mut units = 0;
+    let mut consumed = 0;
+    let mut walking = true;
+    while walking && consumed < cps.len() {
+        let width = if cps[consumed] >= 0x10000 { 2 } else { 1 };
+        if units + width <= character {
+            units = units + width;
+            consumed = consumed + 1;
+        } else {
+            walking = false;
+        }
+    }
+    return offset + consumed;
+}
+
+// An LSP `Range` for `span`. LSP positions are 0-based UTF-16; the span's
+// start is 1-based code points, and its end is found by walking the spanned
+// code points (counting newlines). End is exclusive, which is exactly where
+// the walk lands. Characters convert to UTF-16 by measuring the text between
+// each line's start and the position (a span with no source keeps its
+// code-point columns — there is no text to measure).
+pub fn span_to_range(_ span: SourceSpan) -> Json {
+    // Walk the spanned text: the end line, and where the end line starts.
+    let line_start = span.offset - (span.column - 1);
+    let mut end_line = span.line;
+    let mut end_line_start = line_start;
+    let mut walked = 0;
+    for cp in span.text().chars() {
+        walked = walked + 1;
+        if cp == 10 { // '\n'
+            end_line = end_line + 1;
+            end_line_start = span.offset + walked;
+        }
+    }
+    if span.source == '' {
+        return json.obj({
+            'start': position(span.line - 1, span.column - 1),
+            'end': position(end_line - 1, span.column - 1),
+        });
+    }
+    let end_offset = span.offset + span.length;
+    return json.obj({
+        'start': position(span.line - 1, utf16_len(span.source.slice(line_start, span.offset))),
+        'end': position(end_line - 1, utf16_len(span.source.slice(end_line_start, end_offset))),
+    });
+}
+
+fn position(_ line: Int, _ character: Int) -> Json {
+    return json.obj({
+        'line': json.int(line),
+        'character': json.int(character),
+    });
+}

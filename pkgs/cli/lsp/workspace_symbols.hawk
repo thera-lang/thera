@@ -5,7 +5,7 @@ import std.json;
 
 import '../ast/ast' as _;
 import '../lexer/token' as _;  // SourceSpan
-import 'diagnostics';
+import 'positions';
 import 'resolve';
 import 'symbols';
 import 'paths';
@@ -26,7 +26,7 @@ pub fn handle_workspace_symbols(_ programs: List<Program>, _ query: String) -> j
                             'kind': json.int(symbols.decl_kind(decl)),
                             'location': json.obj({
                                 'uri': json.str(doc_uri),
-                                'range': diagnostics.span_to_range(span),
+                                'range': positions.span_to_range(span),
                             }),
                         }));
                     }

@@ -1,0 +1,113 @@
+// Tests for the LSP position math — in particular the UTF-16 boundary (LS6):
+// an astral code point (here '\u{1D54F}', 𝕏) is one Hawk code point but two
+// UTF-16 units, so every position after it on the line differs between the
+// two worlds.
+
+import std.testing;
+import std.json as _;
+
+import '../lexer/token' as _; // SourceSpan
+import 'positions' as _;
+
+// A span over `source[offset..offset+length)`; line/column derived by walking
+// (test spans stay on real line starts, so the walk is simple).
+fn span_of(_ source: String, _ offset: Int, _ length: Int) -> SourceSpan {
+    let mut line = 1;
+    let mut column = 1;
+    for cp in source.slice(0, offset).chars() {
+        if cp == 10 {
+            line = line + 1;
+            column = 1;
+        } else {
+            column = column + 1;
+        }
+    }
+    return SourceSpan { source: source, file: '', offset: offset, length: length,
+        line: line, column: column };
+}
+
+// `span_to_range`'s JSON as a compact `line:char-line:char` string (0-based).
+fn fmt_range(_ r: Json) -> String {
+    let s = r.get('start');
+    let e = r.get('end');
+    return '${s.get('line').as_int().unwrap_or(-1)}:${s.get('character').as_int().unwrap_or(-1)}'
+        + '-${e.get('line').as_int().unwrap_or(-1)}:${e.get('character').as_int().unwrap_or(-1)}';
+}
+
+@test
+fn test_utf16_len() -> Result<Void, Error> {
+    testing.assert_eq(actual: utf16_len(''), expected: 0)?;
+    testing.assert_eq(actual: utf16_len('ab'), expected: 2)?;
+    testing.assert_eq(actual: utf16_len('\u{1D54F}'), expected: 2)?; // one cp, two units
+    testing.assert_eq(actual: utf16_len('a\u{1D54F}b'), expected: 4)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_position_to_offset_ascii() -> Result<Void, Error> {
+    let text = 'ab\ncd';
+    testing.assert_eq(actual: position_to_offset(text, 0, 0), expected: 0)?;
+    testing.assert_eq(actual: position_to_offset(text, 0, 2), expected: 2)?;
+    testing.assert_eq(actual: position_to_offset(text, 1, 1), expected: 4)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_position_to_offset_utf16() -> Result<Void, Error> {
+    // '𝕏b': the astral char spends two UTF-16 units but is one code point.
+    let text = '\u{1D54F}b';
+    testing.assert_eq(actual: position_to_offset(text, 0, 0), expected: 0)?;
+    testing.assert_eq(actual: position_to_offset(text, 0, 2), expected: 1)?; // after 𝕏
+    testing.assert_eq(actual: position_to_offset(text, 0, 3), expected: 2)?; // after b
+    // Mid-surrogate-pair (unit 1 of 2) rounds down, never splits the pair.
+    testing.assert_eq(actual: position_to_offset(text, 0, 1), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_position_to_offset_clamps() -> Result<Void, Error> {
+    let text = 'ab\ncd';
+    // Character past the line end clamps to the line end.
+    testing.assert_eq(actual: position_to_offset(text, 0, 99), expected: 2)?;
+    // A line past the last clamps to the end of the document (this used to
+    // land one past it — the LS9 off-by-one).
+    testing.assert_eq(actual: position_to_offset(text, 9, 0), expected: text.len())?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_span_to_range_ascii() -> Result<Void, Error> {
+    // Span over 'cd' in the second line.
+    let range = span_to_range(span_of('ab\ncd;', 3, 2));
+    testing.assert_eq(actual: fmt_range(range), expected: '1:0-1:2')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_span_to_range_utf16_start() -> Result<Void, Error> {
+    // '𝕏a b' with the span over 'b': code-point column 4, but UTF-16
+    // character 4 (0-based) because 𝕏 counts twice.
+    let source = '\u{1D54F}a b';
+    let range = span_to_range(span_of(source, 3, 1));
+    testing.assert_eq(actual: fmt_range(range), expected: '0:4-0:5')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_span_to_range_multiline_end() -> Result<Void, Error> {
+    // Span over 'b\n𝕏d': the end lands on line 2 after '𝕏d' — three UTF-16
+    // units in.
+    let source = 'ab\n\u{1D54F}d;';
+    let range = span_to_range(span_of(source, 1, 4));
+    testing.assert_eq(actual: fmt_range(range), expected: '0:1-1:3')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_span_to_range_no_source() -> Result<Void, Error> {
+    // A sourceless span (hermetic/synthetic) keeps its code-point columns —
+    // there is no text to measure UTF-16 against.
+    let span = SourceSpan { source: '', file: '', offset: 0, length: 0, line: 3, column: 5 };
+    testing.assert_eq(actual: fmt_range(span_to_range(span)), expected: '2:4-2:4')?;
+    return Result.Ok(void);
+}

@@ -27,9 +27,10 @@ impl MsgBuffer {
     pub fn read_message(self, _ reader: io.Reader) -> Option<String> {
         let mut going = true;
         while going {
-            if let Some(framed) = extract_message(self.pending) {
-                self.pending = framed.rest;
-                return Option.Some(framed.body);
+            let ex = extract_message(self.pending);
+            self.pending = ex.rest;
+            if let Some(body) = ex.body {
+                return Option.Some(body);
             }
             // Need more bytes before a full message is available.
             match reader.read(8192) {
@@ -52,44 +53,50 @@ impl MsgBuffer {
     // caller drain a burst of already-arrived messages (e.g. a flurry of edits)
     // before doing expensive per-batch work.
     pub fn try_message(self) -> Option<String> {
-        return match extract_message(self.pending) {
-            Some(framed) => {
-                self.pending = framed.rest;
-                Option.Some(framed.body)
-            },
-            None => Option.None,
-        };
+        let ex = extract_message(self.pending);
+        self.pending = ex.rest;
+        return ex.body;
     }
 }
 
-// One extracted message and the bytes that follow it (the start of the next).
-// (Named `FramedMessage`, not `Message`: top-level type names are global across
-// the import closure, so a common noun like `Message` is collision-bait.)
-struct FramedMessage {
-    body: String,
+// One extraction step's outcome: the message body when a complete one was
+// framed, plus the remaining buffer — after consuming the message **and any
+// malformed header blocks in front of it** (so callers always store `rest`).
+struct Extraction {
+    body: Option<String>,
     rest: Bytes,
 }
 
-// Try to peel one complete framed message off the front of `buf`. None when the
-// header is incomplete or the body hasn't fully arrived yet.
-fn extract_message(_ buf: Bytes) -> Option<FramedMessage> {
-    match find_header_end(buf) {
-        None => { return Option.None; },
-        Some(body_start) => {
-            let header = bytes_to_string(buf.slice(0, body_start));
-            match parse_content_length(header) {
-                None => { return Option.None; },
-                Some(len) => {
-                    let body_end = body_start + len;
-                    if buf.len() < body_end {
-                        return Option.None; // body still arriving
-                    }
-                    let body = bytes_to_string(buf.slice(body_start, body_end));
-                    return Option.Some(FramedMessage { body: body, rest: buf.slice(body_end, buf.len()) });
-                },
-            }
-        },
+// Try to peel one complete framed message off the front of `buf`. A complete
+// header block without a usable Content-Length can never frame a body, so it
+// is dropped and scanning continues — returning None forever on it would
+// wedge the stream, buffering input without ever yielding a message (LS9).
+// `body` is None when the header or body hasn't fully arrived yet.
+fn extract_message(_ buf: Bytes) -> Extraction {
+    let mut b = buf;
+    let mut scanning = true;
+    while scanning {
+        match find_header_end(b) {
+            None => { scanning = false; }, // header still arriving
+            Some(body_start) => {
+                let header = bytes_to_string(b.slice(0, body_start));
+                match parse_content_length(header) {
+                    None => {
+                        b = b.slice(body_start, b.len()); // drop the bad header
+                    },
+                    Some(len) => {
+                        let body_end = body_start + len;
+                        if b.len() < body_end {
+                            return Extraction { body: Option.None, rest: b }; // body still arriving
+                        }
+                        let body = bytes_to_string(b.slice(body_start, body_end));
+                        return Extraction { body: Option.Some(body), rest: b.slice(body_end, b.len()) };
+                    },
+                }
+            },
+        }
     }
+    return Extraction { body: Option.None, rest: b };
 }
 
 // The index just past the `\r\n\r\n` that ends the header block (i.e. where the
@@ -107,14 +114,18 @@ pub fn find_header_end(_ buf: Bytes) -> Option<Int> {
     return Option.None;
 }
 
-// The `Content-Length` value from a header block, or None if absent/malformed.
+// The `Content-Length` value from a header block, or None if absent/malformed
+// (a negative length is malformed — it would frame a reversed body range).
 // The header name is matched case-insensitively, per the base protocol.
 pub fn parse_content_length(_ header: String) -> Option<Int> {
     for line in header.lines() {
         let parts = line.split(':');
         if parts.len() >= 2 {
             if parts[0].trim().to_lowercase() == 'content-length' {
-                return parts[1].trim().to_int();
+                return match parts[1].trim().to_int() {
+                    Some(n) => { if n >= 0 { Option.Some(n) } else { Option.None } },
+                    None => Option.None,
+                };
             }
         }
     }

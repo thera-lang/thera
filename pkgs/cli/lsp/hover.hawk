@@ -8,7 +8,7 @@ import std.json as _;
 import '../ast/ast' as _;      // Program
 import '../lexer/token' as _;  // SourceSpan
 import 'resolve';         // resolve_at
-import 'diagnostics';     // span_to_range
+import 'positions';     // span_to_range
 
 // The `Hover` (as JSON) for `offset` in `text`: the resolved signature/type, or
 // JSON null when nothing resolves.
@@ -25,6 +25,6 @@ fn hover_result(_ code: String, _ span: SourceSpan) -> Json {
             'kind': json.str('markdown'),
             'value': json.str('```hawk\n${code}\n```'),
         }),
-        'range': diagnostics.span_to_range(span),
+        'range': positions.span_to_range(span),
     });
 }

@@ -1,23 +1,29 @@
 // Shared LSP path/URI helpers: the conversions between filesystem paths and
 // `file://` URIs, plus a program's source path. Used by the server and the
 // per-feature modules so these one-liners aren't re-implemented in each.
+//
+// URIs percent-encode reserved and non-ASCII bytes (RFC 3986), so both
+// directions convert: a workspace path with a space or a non-ASCII name must
+// round-trip, or every import resolution and returned Location under it
+// breaks (LS7).
 
 import '../ast/ast' as _; // Program
 import '../element/element';
 
 // A filesystem path to a `file://` URI. A path is absolute, so `file://` + `/abs`
-// gives `file:///abs`.
+// gives `file:///abs`. Every byte outside the unreserved set (and `/`) is
+// percent-encoded, matching what editors send and accept.
 pub fn path_to_uri(_ path: String) -> String {
-    return 'file://${path}';
+    return 'file://${percent_encode(path)}';
 }
 
-// A `file://` URI to a filesystem path. (URL-decoding of escaped characters is a
-// follow-up; ordinary paths pass through unchanged.)
+// A `file://` URI to a filesystem path, percent-decoding escaped bytes
+// (`%20` -> ` `). A non-`file:` URI passes through (decoded) unchanged.
 pub fn uri_to_path(_ uri: String) -> String {
     if uri.starts_with('file://') {
-        return uri.slice('file://'.len(), uri.len());
+        return percent_decode(uri.slice('file://'.len(), uri.len()));
     }
-    return uri;
+    return percent_decode(uri);
 }
 
 // A program's source-file key — `element.file_key`'s form, so an anonymous
@@ -25,4 +31,85 @@ pub fn uri_to_path(_ uri: String) -> String {
 // this used to say `''`, diverging from the loader's keys).
 pub fn program_path(_ p: Program) -> String {
     return element.file_key(p.file_path);
+}
+
+// --- percent encoding (RFC 3986, over UTF-8 bytes) ---
+
+// Encode every byte of `s` outside the unreserved set, keeping `/` (the path
+// separator stays structural in a `file://` URI).
+pub fn percent_encode(_ s: String) -> String {
+    let out = BytesBuilder.new();
+    for b in s.bytes().to_list() {
+        if is_unreserved(b) || b == 47 { // '/'
+            out.write_u8(b);
+        } else {
+            out.write_u8(37); // '%'
+            out.write_u8(hex_digit((b >>> 4) & 15));
+            out.write_u8(hex_digit(b & 15));
+        }
+    }
+    return out.finish().to_string().unwrap_or(s);
+}
+
+// Decode `%XX` escapes in `s`; a `%` not followed by two hex digits passes
+// through verbatim (lenient, like editors are).
+pub fn percent_decode(_ s: String) -> String {
+    let bytes = s.bytes();
+    let out = BytesBuilder.new();
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes.get(i).unwrap_or(0);
+        let decoded = if b == 37 && i + 2 < bytes.len() {
+            hex_pair(bytes.get(i + 1).unwrap_or(0), bytes.get(i + 2).unwrap_or(0))
+        } else {
+            Option.None
+        };
+        match decoded {
+            Some(v) => {
+                out.write_u8(v);
+                i = i + 3;
+            },
+            None => {
+                out.write_u8(b);
+                i = i + 1;
+            },
+        }
+    }
+    // Escapes could splice an invalid UTF-8 sequence; fall back to the input.
+    return out.finish().to_string().unwrap_or(s);
+}
+
+// ALPHA / DIGIT / '-' / '.' / '_' / '~' — RFC 3986's unreserved set.
+fn is_unreserved(_ b: Int) -> Bool {
+    return (b >= 65 && b <= 90) || (b >= 97 && b <= 122) || (b >= 48 && b <= 57)
+        || b == 45 || b == 46 || b == 95 || b == 126;
+}
+
+// The ASCII code of `v` (0..=15) as an uppercase hex digit.
+fn hex_digit(_ v: Int) -> Int {
+    return if v < 10 { 48 + v } else { 55 + v }; // '0'+v / 'A'+(v-10)
+}
+
+// The byte value of two ASCII hex-digit codes, or None if either is not hex.
+fn hex_pair(_ hi: Int, _ lo: Int) -> Option<Int> {
+    return match hex_val(hi) {
+        Some(h) => match hex_val(lo) {
+            Some(l) => Option.Some(h * 16 + l),
+            None => Option.None,
+        },
+        None => Option.None,
+    };
+}
+
+fn hex_val(_ b: Int) -> Option<Int> {
+    if b >= 48 && b <= 57 {
+        return Option.Some(b - 48); // '0'-'9'
+    }
+    if b >= 65 && b <= 70 {
+        return Option.Some(b - 55); // 'A'-'F'
+    }
+    if b >= 97 && b <= 102 {
+        return Option.Some(b - 87); // 'a'-'f'
+    }
+    return Option.None;
 }

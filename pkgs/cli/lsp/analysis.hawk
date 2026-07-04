@@ -9,9 +9,10 @@ import std.json as _;
 import '../ast/ast' as _;      // Program
 import '../loader';
 import '../session';
-import 'resolve';         // position_to_offset
+import 'resolve';         // ResolveCtx
 import 'diagnostics';     // render_diagnostics
 import 'paths';             // uri_to_path
+import 'positions';       // position_to_offset
 
 pub struct Analysis {
     // uri -> current text (open-buffer overlays over what's on disk). The same
@@ -78,7 +79,7 @@ impl Analysis {
         return match uri {
             Some(u) => match self.docs.get(u) {
                 Some(text) => {
-                    let offset = resolve.position_to_offset(text,
+                    let offset = positions.position_to_offset(text,
                         position.get('line').as_int().unwrap_or(0),
                         position.get('character').as_int().unwrap_or(0));
                     let closure = self.session.load_closure(text, paths.uri_to_path(u));

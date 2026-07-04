@@ -102,7 +102,12 @@ impl Server {
     // `exit`. (Requests like hover still answer inline — only the diagnostics
     // publish is deferred.)
     fn ingest(self, _ writer: io.Writer, _ body: String) -> Bool {
-        let Ok(msg) = json.parse(body) else { return true; };
+        // An unparseable body gets a JSON-RPC ParseError (id null), not a
+        // silent drop — the client learns its message was lost (LS9).
+        let Ok(msg) = json.parse(body) else {
+            send_error(writer, json.null(), -32700, 'parse error');
+            return true;
+        };
         // A request has both `method` and `id`; a notification has `method` and
         // no `id`; a response (no `method`) we ignore — we send no requests.
         return match msg.get('method').as_string() {
@@ -113,6 +118,15 @@ impl Server {
 
     // `id` is a JSON Null for a notification, present for a request.
     fn dispatch(self, _ writer: io.Writer, _ method: String, _ id: Json, _ params: Json) -> Bool {
+        // After `shutdown`, only `exit` is meaningful: further requests are
+        // answered with InvalidRequest and notifications are dropped, per the
+        // LSP lifecycle.
+        if self.shutdown_received && method != 'exit' {
+            if !id.is_null() {
+                send_error(writer, id, -32600, 'invalid request: server is shut down');
+            }
+            return true;
+        }
         if method == 'initialize' {
             send_response(writer, id, initialize_result());
             return true;
@@ -172,13 +186,21 @@ impl Server {
         if method == 'textDocument/didClose' {
             if let Some(uri) = params.get('textDocument').get('uri').as_string() {
                 self.analysis.close_document(uri);
+                self.dirty.remove(uri);
+                // An empty publish releases the closed document's squiggles —
+                // without it they persist in the editor forever (LS9).
+                send_notification(writer, 'textDocument/publishDiagnostics', json.obj({
+                    'uri': json.str(uri),
+                    'diagnostics': json.arr([]),
+                }));
             }
             return true;
         }
-        // An unhandled *request* still needs a reply so the client doesn't hang;
-        // a notification (Null id) is simply dropped.
+        // An unhandled *request* gets a MethodNotFound error so the client
+        // doesn't hang (a null *result* would claim we handled it); a
+        // notification (Null id) is simply dropped.
         if !id.is_null() {
-            send_response(writer, id, json.null());
+            send_error(writer, id, -32601, 'method not found: ${method}');
         }
         return true;
     }
@@ -301,11 +323,27 @@ fn send_notification(_ writer: io.Writer, _ method: String, _ params: Json) -> V
     }));
 }
 
+// A JSON-RPC error response (`code` from the spec's reserved range:
+// -32700 ParseError, -32601 MethodNotFound, -32600 InvalidRequest).
+fn send_error(_ writer: io.Writer, _ id: Json, _ code: Int, _ message: String) -> Void {
+    jsonrpc.send_message(writer, json.obj({
+        'jsonrpc': json.str('2.0'),
+        'id': id,
+        'error': json.obj({
+            'code': json.int(code),
+            'message': json.str(message),
+        }),
+    }));
+}
+
 // --- LSP payloads ---
 
 fn initialize_result() -> Json {
     return json.obj({
         'capabilities': json.obj({
+            // The protocol default, declared explicitly: positions crossing
+            // the boundary are UTF-16 code units (see positions.hawk, LS6).
+            'positionEncoding': json.str('utf-16'),
             'textDocumentSync': json.int(1), // TextDocumentSyncKind.Full
             'documentSymbolProvider': json.bool(true),
             'hoverProvider': json.bool(true),

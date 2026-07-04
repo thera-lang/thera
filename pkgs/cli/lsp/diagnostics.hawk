@@ -5,8 +5,8 @@
 
 import std.json as _;
 
-import '../lexer/token' as _; // SourceSpan
 import '../session';     // Diagnostic
+import 'positions';       // span_to_range
 
 // The LSP `Diagnostic[]` for the document at (canonical) `canon`, as a JSON
 // array. The session reports the whole closure (incl. imported-file errors);
@@ -34,36 +34,9 @@ fn diagnostic_in_file(_ d: session.Diagnostic, _ path: String) -> Bool {
 
 fn diagnostic_to_json(_ d: session.Diagnostic) -> Json {
     return json.obj({
-        'range': span_to_range(d.span),
+        'range': positions.span_to_range(d.span),
         'severity': json.int(1), // DiagnosticSeverity.Error
         'source': json.str('hawk'),
         'message': json.str(d.message),
-    });
-}
-
-// An LSP `Range` for `span`. LSP positions are 0-based; the span's start is
-// 1-based, and its end is found by walking the spanned code points (counting
-// newlines). End is exclusive, which is exactly where the walk lands.
-pub fn span_to_range(_ span: SourceSpan) -> Json {
-    let mut end_line = span.line;
-    let mut end_col = span.column;
-    for cp in span.text().chars() {
-        if cp == 10 { // '\n'
-            end_line = end_line + 1;
-            end_col = 1;
-        } else {
-            end_col = end_col + 1;
-        }
-    }
-    return json.obj({
-        'start': position(span.line - 1, span.column - 1),
-        'end': position(end_line - 1, end_col - 1),
-    });
-}
-
-fn position(_ line: Int, _ character: Int) -> Json {
-    return json.obj({
-        'line': json.int(line),
-        'character': json.int(character),
     });
 }

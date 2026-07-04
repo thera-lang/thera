@@ -287,15 +287,59 @@ fn test_did_change_evicts_the_parse_cache() -> Result<Void, Error> {
 }
 
 @test
-fn test_unknown_request_gets_null_reply() -> Result<Void, Error> {
-    // An unhandled *request* (has an id) still gets a reply, so the client never
-    // hangs waiting; a notification (no id) is silently dropped.
+fn test_unknown_request_gets_method_not_found() -> Result<Void, Error> {
+    // An unhandled *request* (has an id) gets a MethodNotFound error, so the
+    // client never hangs waiting (and never mistakes it for a null result);
+    // a notification (no id) is silently dropped.
     let out = handled('{"jsonrpc":"2.0","id":11,"method":"textDocument/completion","params":{}}');
     testing.assert(out.contains('"id":11') || out.contains('"id": 11'), message: 'echoes the id')?;
-    testing.assert(out.contains('"result":null') || out.contains('"result": null'),
-        message: 'replies with null result')?;
+    testing.assert(out.contains('-32601'), message: 'replies with MethodNotFound')?;
+    testing.assert(out.contains('textDocument/completion'), message: 'names the method')?;
     let dropped = handled('{"jsonrpc":"2.0","method":"textDocument/somethingNew","params":{}}');
     testing.assert_eq(actual: dropped, expected: '')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_unparseable_body_gets_parse_error() -> Result<Void, Error> {
+    // A body that isn't JSON gets a ParseError response (id null) rather than
+    // a silent drop.
+    let out = handled('{oops');
+    testing.assert(out.contains('-32700'), message: 'replies with ParseError')?;
+    testing.assert(out.contains('"id":null') || out.contains('"id": null'),
+        message: 'null id: the request id is unknowable')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_requests_after_shutdown_are_rejected() -> Result<Void, Error> {
+    // Between `shutdown` and `exit` only `exit` is meaningful: further
+    // requests are answered with InvalidRequest, and `exit` still stops the
+    // loop.
+    let server = new_server(Option.None);
+    let _down = capture(server, '{"jsonrpc":"2.0","id":12,"method":"shutdown"}');
+    let out = capture(server, '{"jsonrpc":"2.0","id":13,"method":"textDocument/documentSymbol","params":'
+        + '{"textDocument":{"uri":"file:///x.hawk"}}}');
+    testing.assert(out.contains('-32600'), message: 'request after shutdown is invalid')?;
+    let keep_going = server.handle(io.StringWriter.new(), '{"jsonrpc":"2.0","method":"exit"}');
+    testing.assert(!keep_going, message: 'exit still stops serving')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_did_close_clears_diagnostics() -> Result<Void, Error> {
+    // Closing a document publishes an empty diagnostics array for it — the
+    // editor releases its squiggles (previously they persisted forever).
+    let server = new_server(Option.None);
+    let opened = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"file:///stale.hawk","text":"fn f() -> Int { return missing; }"}}}');
+    testing.assert(opened.contains('undefined name: missing'), message: 'opens with an error')?;
+    let closed = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didClose","params":'
+        + '{"textDocument":{"uri":"file:///stale.hawk"}}}');
+    testing.assert(closed.contains('textDocument/publishDiagnostics'), message: 'publishes on close')?;
+    testing.assert(closed.contains('file:///stale.hawk'), message: 'for the closed document')?;
+    testing.assert(closed.contains('"diagnostics":[]') || closed.contains('"diagnostics": []'),
+        message: 'with no diagnostics')?;
     return Result.Ok(void);
 }
 

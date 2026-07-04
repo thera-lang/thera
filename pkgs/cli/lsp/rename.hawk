@@ -13,7 +13,7 @@ import std.fs;
 import '../ast/ast' as _;
 import '../lexer/lexer';
 import '../lexer/token' as _;
-import 'diagnostics';
+import 'positions';
 import 'resolve';
 import 'paths';
 
@@ -43,7 +43,7 @@ fn find_edits_in_text(_ file: String, _ text: String, _ target_name: String, _ n
     for tok in lexer.tokenize(text).tokens {
         if tok.kind == TokenKind.Identifier && tok.lexeme() == target_name {
             edits.push(json.obj({
-                'range': diagnostics.span_to_range(tok.span),
+                'range': positions.span_to_range(tok.span),
                 'newText': json.str(new_name),
             }));
         }

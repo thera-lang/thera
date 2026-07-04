@@ -13,7 +13,7 @@ import std.fs;
 import '../ast/ast' as _;
 import '../lexer/lexer';
 import '../lexer/token' as _;
-import 'diagnostics';
+import 'positions';
 import 'resolve';
 import 'paths';
 
@@ -42,7 +42,7 @@ fn find_in_text(_ file: String, _ text: String, _ target_name: String, _ out: Li
         if tok.kind == TokenKind.Identifier && tok.lexeme() == target_name {
             out.push(json.obj({
                 'uri': json.str(doc_uri),
-                'range': diagnostics.span_to_range(tok.span),
+                'range': positions.span_to_range(tok.span),
             }));
         }
     }
