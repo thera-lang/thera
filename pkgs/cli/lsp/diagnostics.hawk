@@ -1,33 +1,21 @@
-// LSP diagnostics: run the front-end pipeline on a document and map its
-// diagnostics to the LSP `Diagnostic[]` JSON shape. The analysis itself is the
-// driver's `check_source_at` (lex -> parse -> load imports -> check), so this is
-// just the span -> `Range` and message -> JSON translation.
+// LSP diagnostics: map the session's diagnostics for a document to the LSP
+// `Diagnostic[]` JSON shape. The analysis itself is the session's `check`
+// (lex -> parse -> load imports -> check, run by `Analysis`); this is just the
+// per-file filter and the span -> `Range` / message -> JSON translation.
 
 import std.json as _;
 
 import '../lexer/token' as _; // SourceSpan
-import '../driver';      // Diagnostic, check_source_at
-import '../loader';      // ParsedFile (the cross-request parse cache)
+import '../session';     // Diagnostic
 
-// The LSP `Diagnostic[]` for `text` (the open buffer, located at `path`), as a
-// JSON array. Imports resolve from `sdk_root`; the primary file is checked from
-// the in-memory `text`. `parse_cache` (server-lived, keyed by resolved path) lets
-// the import closure — the `std.core` prelude above all — be lexed and parsed
-// once and reused across keystrokes instead of re-parsed on every change;
-// `checked` (also server-lived) likewise limits re-*checking* to files that
-// changed since they last checked clean.
-pub fn compute_diagnostics(_ text: String, _ path: String, _ sdk_root: Option<String>,
-    parse_cache: Map<String, loader.ParsedFile> = {},
-    checked: Set<String> = Set.new(),
-    overlays: Map<String, String> = {}) -> Json {
+// The LSP `Diagnostic[]` for the document at (canonical) `canon`, as a JSON
+// array. The session reports the whole closure (incl. imported-file errors);
+// the LSP publishes per-URI, so keep only this document's own diagnostics — an
+// imported file's surface when *it* is the open document. Attribution
+// (`d.file`) is canonical, so `canon` must be too.
+pub fn render_diagnostics(_ diags: List<session.Diagnostic>, _ canon: String) -> Json {
     let items: List<Json> = [];
-    // `check_source_at` now reports the whole closure (incl. imported-file
-    // errors); the LSP publishes per-URI, so keep only this document's own
-    // diagnostics — an imported file's surface when *it* is the open document.
-    // Attribution (`d.file`) is canonical, so compare in canonical form.
-    let canon = loader.canonical_path(path);
-    for d in driver.check_source_at(text, path, sdk_root, parse_cache: parse_cache,
-        checked: checked, overlays: overlays) {
+    for d in diags {
         if diagnostic_in_file(d, canon) {
             items.push(diagnostic_to_json(d));
         }
@@ -37,14 +25,14 @@ pub fn compute_diagnostics(_ text: String, _ path: String, _ sdk_root: Option<St
 
 // Whether `d` belongs to the (canonical) `path` — its own file, or unattributed
 // (the primary).
-fn diagnostic_in_file(_ d: driver.Diagnostic, _ path: String) -> Bool {
+fn diagnostic_in_file(_ d: session.Diagnostic, _ path: String) -> Bool {
     return match d.file {
         Some(f) => f == path,
         None => true,
     };
 }
 
-fn diagnostic_to_json(_ d: driver.Diagnostic) -> Json {
+fn diagnostic_to_json(_ d: session.Diagnostic) -> Json {
     return json.obj({
         'range': span_to_range(d.span),
         'severity': json.int(1), // DiagnosticSeverity.Error

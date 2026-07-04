@@ -1,40 +1,29 @@
-// The analysis state for the open workspace: the open documents (overlays over
-// disk), the SDK root, and the caches the analysis pipeline reuses across
-// requests. Separated from the protocol layer (`server.hawk`, which owns dispatch
-// and the dirty/shutdown state) so the incremental engine (docs/lsp_v2.md Phase 2)
-// grows *here* — a resolved-library cache + dependency graph land on `Analysis`,
-// not on `Server`.
+// The LSP's view of the analysis session: the open documents (uri -> text) and
+// a `session.Session` (the one engine — see session.hawk and docs/lsp_v2.md).
+// This layer owns only the URI translation and the position math; the caches,
+// overlays, and the pipeline itself live on the session, shared with the batch
+// commands. The incremental engine (Phase 2) grows on the session, not here.
 
 import std.json as _;
 
 import '../ast/ast' as _;      // Program
-import '../lexer/lexer';
-import '../parser/parser';
 import '../loader';
+import '../session';
 import 'resolve';         // position_to_offset
-import 'diagnostics';     // compute_diagnostics
+import 'diagnostics';     // render_diagnostics
 import 'paths';             // uri_to_path
 
 pub struct Analysis {
-    // uri -> current text (open-buffer overlays over what's on disk).
+    // uri -> current text (open-buffer overlays over what's on disk). The same
+    // texts are mirrored into the session's overlay map under canonical keys.
     docs: Map<String, String>,
-    sdk_root: Option<String>,
-    // path -> parsed AST, reused across requests so the import closure (the
-    // prelude above all) is parsed once and only re-parsed when its file changes.
-    parse_cache: Map<String, loader.ParsedFile>,
-    // Canonical keys of closure files that already checked clean this session —
-    // the driver skips re-checking them per request, so a diagnostics pass costs
-    // the open document plus whatever was invalidated, not the whole closure.
-    // Evicted alongside the parse cache when a file changes.
-    checked: Set<String>,
+    session: session.Session,
 }
 
 pub fn new_analysis(_ sdk_root: Option<String>) -> Analysis {
     return Analysis {
         docs: {},
-        sdk_root: sdk_root,
-        parse_cache: {},
-        checked: Set.new(),
+        session: session.new_session(sdk_root),
     };
 }
 
@@ -48,51 +37,37 @@ pub struct DocAnalysis {
 }
 
 impl Analysis {
-    // Open or update `uri`'s text. Evicts the file's cached parse so an importer
-    // whose next check depends on it re-sees the change (the primary itself is
-    // parsed from the new text, not the cache).
+    // Open or update `uri`'s text: the session's overlay is the loader's view
+    // of the buffer, and setting it evicts the file's cached parse and
+    // checked-clean status so the next analysis re-sees the change.
     pub fn set_document(self, _ uri: String, _ text: String) -> Void {
         self.docs[uri] = text;
-        self.invalidate(uri);
+        self.session.set_overlay(paths.uri_to_path(uri), text);
     }
 
-    // Forget `uri` (closed) and drop its cached parse.
+    // Forget `uri` (closed): analyses revert to the on-disk content.
     pub fn close_document(self, _ uri: String) -> Void {
         match self.docs.remove(uri) {
             Some(_) => {},
             None => {},
         }
-        self.invalidate(uri);
-    }
-
-    // Evict `uri`'s parsed AST and checked-clean status from the cross-request
-    // caches (a no-op when absent). Keyed by the loader's canonical form.
-    pub fn invalidate(self, _ uri: String) -> Void {
-        let key = loader.canonical_path(paths.uri_to_path(uri));
-        match self.parse_cache.remove(key) {
-            Some(_) => {},
-            None => {},
-        }
-        self.checked.remove(key);
+        self.session.remove_overlay(paths.uri_to_path(uri));
     }
 
     pub fn text(self, _ uri: String) -> Option<String> {
         return self.docs.get(uri);
     }
 
-    // The open buffers as a loader overlay map (canonical path -> text), so an
-    // *imported* file that is open in the editor is analyzed as the user sees
-    // it — unsaved edits included — not as last saved to disk.
-    fn overlay_map(self) -> Map<String, String> {
-        let overlays: Map<String, String> = {};
-        for uri in self.docs.keys() {
-            overlays[loader.canonical_path(paths.uri_to_path(uri))] = self.docs[uri];
-        }
-        return overlays;
-    }
-
     pub fn uris(self) -> List<String> {
         return self.docs.keys();
+    }
+
+    // The parsed AST of an open document, through the session's parse cache —
+    // the entry for the parse-only requests (document symbols, code actions,
+    // workspace symbols), which used to re-tokenize the buffer per request.
+    pub fn parsed(self, _ uri: String) -> Option<Program> {
+        return self.docs.get(uri).map((text) =>
+            self.session.parse(text, paths.uri_to_path(uri)));
     }
 
     // Parse an open document and load its import closure, resolving `position` to a
@@ -106,18 +81,14 @@ impl Analysis {
                     let offset = resolve.position_to_offset(text,
                         position.get('line').as_int().unwrap_or(0),
                         position.get('character').as_int().unwrap_or(0));
-                    let program = parser.parse_tokens(lexer.tokenize(text).tokens).program;
-                    let path = paths.uri_to_path(u);
-                    program.file_path = Option.Some(path);
-                    let loaded = loader.load_imports(path, program, self.sdk_root,
-                        parse_cache: self.parse_cache, overlays: self.overlay_map());
+                    let closure = self.session.load_closure(text, paths.uri_to_path(u));
                     // The loader's surfaces ride along — resolution uses the
                     // same owner-correct maps the compiler does (LS1).
                     let rctx = resolve.ResolveCtx {
-                        program: program,
-                        imports: loaded.programs,
-                        file_namespaces: loaded.file_namespaces,
-                        file_bare_surface: loaded.file_bare_surface,
+                        program: closure.program,
+                        imports: closure.loaded.programs,
+                        file_namespaces: closure.loaded.file_namespaces,
+                        file_bare_surface: closure.loaded.file_bare_surface,
                     };
                     Option.Some(DocAnalysis { ctx: rctx, text: text, offset: offset })
                 },
@@ -127,16 +98,15 @@ impl Analysis {
         };
     }
 
-    // The `diagnostics` array (as JSON) for `uri`'s `text`, reusing the parse
-    // cache and the checked-clean set. The open document itself is always
-    // rechecked: its overlay text is this request's input, never a cached
-    // result, so its key must not linger in `checked` (edits evict it via
-    // `invalidate`; the remove here covers a re-publish without an edit).
+    // The `diagnostics` array (as JSON) for `uri`'s `text`. The open document
+    // itself is always rechecked: its overlay text is this request's input,
+    // never a cached result, so its key must not linger in the session's
+    // checked-clean set (edits evict it; `force_recheck` covers a re-publish
+    // without an edit).
     pub fn diagnostics(self, _ uri: String, _ text: String) -> Json {
-        let path = paths.uri_to_path(uri);
-        self.checked.remove(loader.canonical_path(path));
-        return diagnostics.compute_diagnostics(text, path, self.sdk_root,
-            parse_cache: self.parse_cache, checked: self.checked,
-            overlays: self.overlay_map());
+        let p = paths.uri_to_path(uri);
+        self.session.force_recheck(p);
+        return diagnostics.render_diagnostics(self.session.check(text, p),
+            loader.canonical_path(p));
     }
 }

@@ -208,8 +208,9 @@ fn parse_file(_ path: String) -> Result<ParsedFile, String> {
 }
 
 // Lex + parse `source` as the content of `path` (best-effort recovery; errors
-// collected, stamped with `path`).
-fn parse_source(_ path: String, _ source: String) -> ParsedFile {
+// collected, stamped with `path`). `path` must be canonical — it becomes the
+// program's identity (the session's cached-parse entry point relies on this).
+pub fn parse_source(_ path: String, _ source: String) -> ParsedFile {
     let diagnostics: List<LoadDiagnostic> = [];
     let lex = lexer.tokenize(source);
     for e in lex.errors {

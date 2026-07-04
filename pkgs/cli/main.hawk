@@ -23,6 +23,7 @@ import 'fmt';
 import 'loader';
 import 'lsp/server';
 import 'runner';
+import 'session';
 
 fn build_app() -> cli.Command {
     return cli.Command.new('hawk')
@@ -324,14 +325,14 @@ fn do_check(_ targets: List<String>, _ sdk_root: Option<String>) -> Result<Int, 
         return Result.Ok(2);
     }
 
-    // Shared across all targets: the parse cache (every file imports the
-    // `std.core` prelude, and most share internal imports — parsed once per run,
-    // not once per file) and the checked-clean set (a shared import is *checked*
-    // once per run, not once per importer). Files whose check has errors are
-    // re-encountered per importer; `printed` de-duplicates their output so each
-    // diagnostic prints — and counts — once per run.
-    let parse_cache: Map<String, loader.ParsedFile> = {};
-    let checked: Set<String> = Set.new();
+    // One analysis session for the whole run: its parse cache (every file
+    // imports the `std.core` prelude, and most share internal imports — parsed
+    // once per run, not once per file) and checked-clean set (a shared import
+    // is *checked* once per run, not once per importer) are shared across the
+    // targets. Files whose check has errors are re-encountered per importer;
+    // `printed` de-duplicates their output so each diagnostic prints — and
+    // counts — once per run.
+    let sess = session.new_session(sdk_root);
     let printed: Set<String> = Set.new();
     let mut total = 0;
     let mut unreadable = false;
@@ -343,10 +344,9 @@ fn do_check(_ targets: List<String>, _ sdk_root: Option<String>) -> Result<Int, 
                 // analyzers it resembles (eslint, ruff, mypy). stderr is reserved
                 // for operational failures (below) and `emit`, which is a compiler
                 // whose product is the `.hawkbc`. (See docs/architecture.md.)
-                let diags = driver.check_source_at(source, file, sdk_root,
-                    parse_cache: parse_cache, checked: checked);
+                let diags = sess.check(source, file);
                 for d in diags {
-                    let line = driver.format_diagnostic(d, file);
+                    let line = session.format_diagnostic(d, file);
                     if !printed.has(line) {
                         printed.add(line);
                         println(line);
@@ -563,9 +563,9 @@ fn do_fix(_ targets: List<String>, write: Bool = false) -> Result<Int, Error> {
 fn do_emit(_ file: String, _ out: String) -> Result<Int, Error> {
     match fs.read_text(file) {
         Ok(source) => {
-            let outcome = driver.compile_source_at(source, file, sdk_root_or_warn());
+            let outcome = session.new_session(sdk_root_or_warn()).compile(source, file);
             for d in outcome.diagnostics {
-                eprintln(driver.format_diagnostic(d, file));
+                eprintln(session.format_diagnostic(d, file));
             }
             match outcome.bytes {
                 Some(bytes) => {

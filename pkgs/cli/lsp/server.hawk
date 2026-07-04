@@ -11,9 +11,6 @@ import std.json as _;
 import std.io;             // io.Reader, io.Writer
 
 import '../ast/ast' as _;       // Program
-import '../lexer/lexer';   // tokenize
-import '../loader';        // canonical_path
-import '../parser/parser'; // parse_tokens
 
 import 'jsonrpc';
 import 'paths';
@@ -200,11 +197,12 @@ impl Server {
     }
 
     // The outline for an open document, or an empty array when it isn't open.
-    // Built from the recovered parse, so it still works while the file has errors.
+    // Built from the recovered parse (via the session's parse cache — no
+    // re-tokenize per request), so it still works while the file has errors.
     fn document_symbols(self, _ uri: Option<String>) -> Json {
         return match uri {
-            Some(u) => match self.analysis.text(u) {
-                Some(text) => symbols.build_symbols(parser.parse_tokens(lexer.tokenize(text).tokens).program),
+            Some(u) => match self.analysis.parsed(u) {
+                Some(program) => symbols.build_symbols(program),
                 None => json.arr([]),
             },
             None => json.arr([]),
@@ -238,29 +236,31 @@ impl Server {
     }
 
     // Code actions at a range: the idiomatic-rewrite refactorings (`match → if
-    // let`). Purely syntactic, so it parses the buffer directly (no import
-    // closure). An empty array when the document isn't open or offers no rewrites.
+    // let`). Purely syntactic — the session's cached parse, no import closure.
+    // An empty array when the document isn't open or offers no rewrites.
     fn code_action(self, _ uri: Option<String>, _ range: Json, _ context: Json) -> Json {
         return match uri {
             Some(u) => match self.analysis.text(u) {
-                Some(text) => code_action.handle_code_action(u,
-                    parser.parse_tokens(lexer.tokenize(text).tokens).program, text, range, context),
+                Some(text) => match self.analysis.parsed(u) {
+                    Some(program) => code_action.handle_code_action(u, program, text, range, context),
+                    None => json.arr([]),
+                },
                 None => json.arr([]),
             },
             None => json.arr([]),
         };
     }
 
+    // Every open document's cached parse (the session stamps canonical
+    // identity); previously this re-tokenized every open buffer per query
+    // keystroke.
     fn workspace_symbol(self, _ query: Option<String>) -> Json {
         let q = query.unwrap_or('');
         let programs: List<Program> = [];
         for u in self.analysis.uris() {
-            let text = self.analysis.text(u).unwrap_or('');
-            let program = parser.parse_tokens(lexer.tokenize(text).tokens).program;
-            // Identity is minted canonical everywhere (LD17) — a raw URI path
-            // here would diverge from the loader's keys.
-            program.file_path = Option.Some(loader.canonical_path(paths.uri_to_path(u)));
-            programs.push(program);
+            if let Some(program) = self.analysis.parsed(u) {
+                programs.push(program);
+            }
         }
         return workspace_symbols.handle_workspace_symbols(programs, q);
     }

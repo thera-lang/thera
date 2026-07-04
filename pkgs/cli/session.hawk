@@ -1,0 +1,425 @@
+// The analysis session — the one engine every front-end consumer drives
+// (docs/lsp_v2.md layer 1; audit LD16). It owns the state the stateless
+// pipeline phases share across requests: the SDK root, open-buffer overlays,
+// the cross-file parse cache, and the checked-clean set. Batch commands
+// (`hawk check`/`test`/`emit`) construct one per run; the LSP holds one for
+// the workspace and mutates it on document events. There is no second
+// stateless path to keep in sync — the driver's entry points are thin
+// wrappers over a one-shot session. Phase 2's incremental engine (a
+// resolved-library cache + dependency-graph invalidation over
+// `LoadedImports.file_imports`) grows here.
+
+import 'ast/ast' as _; // Program, Decl
+import 'lexer/token'; // SourceSpan
+import 'lexer/lexer';
+import 'parser/parser';
+import 'checker/checker';
+import 'codegen/codegen';
+import 'bytecode/encoder';
+import 'loader';
+
+// A uniform diagnostic across the phases (each phase's error type is structurally
+// a message + a span; this is the common currency the CLI prints). `file` is the
+// diagnostic's owning file, resolved from the originating source so an error in an
+// imported file is attributed to *that* file, not the entrypoint (a span carries
+// its source text, not its path). None falls back to the path the CLI prints
+// against.
+pub struct Diagnostic {
+    message: String,
+    span: token.SourceSpan,
+    file: Option<String>,
+}
+
+// The outcome of compiling a source: any diagnostics, and the encoded `.hawkbc`
+// bytes when there were none.
+pub struct CompileOutcome {
+    diagnostics: List<Diagnostic>,
+    bytes: Option<Bytes>,
+}
+
+// A parsed primary program plus its loaded import closure — what position-based
+// LSP queries consume (the resolution surfaces ride on `loaded`).
+pub struct Closure {
+    program: Program,
+    loaded: loader.LoadedImports,
+}
+
+pub struct Session {
+    sdk_root: Option<String>,
+    // Canonical path -> current text: open-buffer overlays over disk, consulted
+    // by the loader before reading a file (an unsaved import is analyzed as the
+    // user sees it).
+    overlays: Map<String, String>,
+    // Canonical path -> parsed AST, reused across requests so the import
+    // closure (the `std.core` prelude above all) is parsed once and only
+    // re-parsed when its file changes.
+    parse_cache: Map<String, loader.ParsedFile>,
+    // Canonical keys of closure files that already checked clean this session —
+    // skipped on later checks, so a batch (or a keystroke) costs the changed
+    // files, not the whole closure. Files with diagnostics are never marked.
+    checked: Set<String>,
+}
+
+pub fn new_session(_ sdk_root: Option<String>) -> Session {
+    return Session {
+        sdk_root: sdk_root,
+        overlays: {},
+        parse_cache: {},
+        checked: Set.new(),
+    };
+}
+
+impl Session {
+    // Set (or update) the overlay text for `p` — the open-buffer content the
+    // loader reads instead of disk. Evicts the file's cached parse and
+    // checked-clean status so the next analysis re-sees the change.
+    pub fn set_overlay(self, _ p: String, _ text: String) -> Void {
+        let key = loader.canonical_path(p);
+        self.overlays[key] = text;
+        self.invalidate(p);
+    }
+
+    // Drop `p`'s overlay (closed buffer): analyses revert to disk content.
+    pub fn remove_overlay(self, _ p: String) -> Void {
+        match self.overlays.remove(loader.canonical_path(p)) {
+            Some(_) => {},
+            None => {},
+        }
+        self.invalidate(p);
+    }
+
+    // Evict `p`'s parsed AST and checked-clean status from the cross-request
+    // caches (a no-op when absent).
+    pub fn invalidate(self, _ p: String) -> Void {
+        let key = loader.canonical_path(p);
+        match self.parse_cache.remove(key) {
+            Some(_) => {},
+            None => {},
+        }
+        self.checked.remove(key);
+    }
+
+    // Force `p` to be re-checked by the next `check` even if unedited (the LSP
+    // re-publishes an open document's diagnostics on demand; its overlay text is
+    // the request's input, never a cached result).
+    pub fn force_recheck(self, _ p: String) -> Void {
+        self.checked.remove(loader.canonical_path(p));
+    }
+
+    // The cached syntactic parse of `text` at `p` — the entry point for the
+    // parse-only consumers (document symbols, code actions, workspace symbols).
+    // Cached under the canonical key; an edit must `invalidate`/`set_overlay`
+    // first (the LSP does, on every document event), so a hit is current.
+    pub fn parse(self, _ text: String, _ p: String) -> Program {
+        let key = loader.canonical_path(p);
+        if let Some(pf) = self.parse_cache.get(key) {
+            return pf.program;
+        }
+        let pf = loader.parse_source(key, text);
+        self.parse_cache[key] = pf;
+        return pf.program;
+    }
+
+    // Parse `text` at `p` and load its import closure through the session's
+    // caches and overlays — the shared setup for the LSP's position-based
+    // queries (hover, definition).
+    pub fn load_closure(self, _ text: String, _ p: String) -> Closure {
+        let program = self.parse(text, p);
+        let loaded = loader.load_imports(p, program, self.sdk_root,
+            parse_cache: self.parse_cache, overlays: self.overlays);
+        return Closure { program: program, loaded: loaded };
+    }
+
+    // Type-check `source` (located at `p`) with its full import closure. The
+    // whole *local* closure is checked, not just the primary: a check error in
+    // an imported file is a diagnostic (attributed to that file) rather than
+    // shipping to bytecode. Files under the SDK's std root are trusted (the SDK
+    // is fixpoint-validated; its diagnostics aren't actionable here) and
+    // skipped, as is everything already checked clean this session.
+    pub fn check(self, _ source: String, _ p: String) -> List<Diagnostic> {
+        // Canonical identity from the start, so the primary's attribution
+        // matches the keys the loader mints (`Diagnostic.file` is canonical).
+        let canon = loader.canonical_path(p);
+        let lex = lexer.tokenize(source);
+        if lex.errors.len() > 0 {
+            return lex_diagnostics(lex.errors, build_source_map(source, canon, []));
+        }
+        let parsed = parser.parse_tokens(lex.tokens);
+        if parsed.errors.len() > 0 {
+            return parse_diagnostics(parsed.errors, build_source_map(source, canon, []));
+        }
+        let program = parsed.program;
+        let loaded = loader.load_imports(canon, program, self.sdk_root,
+            parse_cache: self.parse_cache, overlays: self.overlays);
+        let src_map = build_source_map(source, canon, loaded.programs);
+        let skip = skip_keys(canon, loaded.programs, self.sdk_root, self.checked);
+        // Lex/parse errors from imported files first (root causes) — minus files
+        // already reported this run — then the closure's check errors.
+        let out: List<Diagnostic> = [];
+        for d in load_diagnostics(loaded.diagnostics) {
+            if !d.file.map((f) => self.checked.has(f)).unwrap_or(false) {
+                out.push(d);
+            }
+        }
+        let result = checker.check_files(program, loaded.programs,
+            loaded.file_namespaces, loaded.file_bare_surface, skip: skip, sdk: sdk_prefix(self.sdk_root));
+        for d in check_diagnostics(result.errors, src_map) {
+            out.push(d);
+        }
+        mark_checked_clean(self.checked, canon, loaded.programs, skip, out);
+        return out;
+    }
+
+    // Compile `source` (located at `p`) to `.hawkbc` bytes with its import
+    // closure linked in. Like `check`, the whole local (non-SDK) closure is
+    // checked — an imported file's check error blocks the compile instead of
+    // shipping to bytecode.
+    pub fn compile(self, _ source: String, _ p: String) -> CompileOutcome {
+        let canon = loader.canonical_path(p);
+        let lex = lexer.tokenize(source);
+        if lex.errors.len() > 0 {
+            return failed(lex_diagnostics(lex.errors, build_source_map(source, canon, [])));
+        }
+        let parsed = parser.parse_tokens(lex.tokens);
+        if parsed.errors.len() > 0 {
+            return failed(parse_diagnostics(parsed.errors, build_source_map(source, canon, [])));
+        }
+        let program = parsed.program;
+        let loaded = loader.load_imports(canon, program, self.sdk_root,
+            parse_cache: self.parse_cache, overlays: self.overlays);
+        let src_map = build_source_map(source, canon, loaded.programs);
+        let skip = skip_keys(canon, loaded.programs, self.sdk_root, self.checked);
+        // An imported file that failed to lex/parse/resolve leaves the closure
+        // incomplete, so its diagnostics (root causes) block codegen alongside
+        // any check errors.
+        let import_diags = load_diagnostics(loaded.diagnostics);
+        let result = checker.check_files(program, loaded.programs,
+            loaded.file_namespaces, loaded.file_bare_surface, skip: skip, sdk: sdk_prefix(self.sdk_root));
+        if import_diags.len() > 0 || result.errors.len() > 0 {
+            for d in check_diagnostics(result.errors, src_map) {
+                import_diags.push(d);
+            }
+            return failed(import_diags);
+        }
+        mark_checked_clean(self.checked, canon, loaded.programs, skip, []);
+        let cg = codegen.compile_program(program, loaded.programs, loaded.file_namespaces, loaded.file_bare_surface);
+        if cg.errors.len() > 0 {
+            return failed(codegen_diagnostics(cg.errors, src_map));
+        }
+        return CompileOutcome {
+            diagnostics: [],
+            bytes: Option.Some(encoder.encode_module(cg.module)),
+        };
+    }
+}
+
+// --- the hermetic (no-import) pipeline, for self-contained programs ---
+
+// Type-check `source` with no import closure (no prelude, no loader) —
+// self-contained test fixtures. Lex and parse errors short-circuit.
+pub fn check_source(_ source: String) -> List<Diagnostic> {
+    let no_files: Map<String, String> = {};
+    let lex = lexer.tokenize(source);
+    if lex.errors.len() > 0 {
+        return lex_diagnostics(lex.errors, no_files);
+    }
+    let parsed = parser.parse_tokens(lex.tokens);
+    if parsed.errors.len() > 0 {
+        return parse_diagnostics(parsed.errors, no_files);
+    }
+    return check_diagnostics(checker.check(parsed.program, [], {}, {}).errors, no_files);
+}
+
+// Compile `source` to `.hawkbc` bytes with no import closure. Each phase
+// short-circuits on errors, so `bytes` is present only for a clean program.
+pub fn compile_source(_ source: String) -> CompileOutcome {
+    let no_files: Map<String, String> = {};
+    let lex = lexer.tokenize(source);
+    if lex.errors.len() > 0 {
+        return failed(lex_diagnostics(lex.errors, no_files));
+    }
+    let parsed = parser.parse_tokens(lex.tokens);
+    if parsed.errors.len() > 0 {
+        return failed(parse_diagnostics(parsed.errors, no_files));
+    }
+    let checked = checker.check(parsed.program, [], {}, {});
+    if checked.errors.len() > 0 {
+        return failed(check_diagnostics(checked.errors, no_files));
+    }
+    let cg = codegen.compile_program(parsed.program, [], {}, {});
+    if cg.errors.len() > 0 {
+        return failed(codegen_diagnostics(cg.errors, no_files));
+    }
+    return CompileOutcome {
+        diagnostics: [],
+        bytes: Option.Some(encoder.encode_module(cg.module)),
+    };
+}
+
+// `file:line:column: message` — the diagnostic line the CLI prints. Attribution
+// (`d.file`) is canonical (absolute); printing shows the primary file exactly as
+// the user spelled it (`file_path`, the compiler convention), and any other
+// attributed file relative to the current directory when it lies under it.
+pub fn format_diagnostic(_ d: Diagnostic, _ file_path: String) -> String {
+    let file = match d.file {
+        Some(f) => {
+            if f == loader.canonical_path(file_path) {
+                file_path
+            } else {
+                loader.display_path(f)
+            }
+        },
+        None => file_path,
+    };
+    return '${file}:${d.span}: ${d.message}';
+}
+
+// --- helpers ---
+
+fn failed(_ diagnostics: List<Diagnostic>) -> CompileOutcome {
+    return CompileOutcome { diagnostics: diagnostics, bytes: Option.None };
+}
+
+// The closure files to skip when checking: everything under the SDK's std root
+// (trusted — fixpoint-validated, and its diagnostics aren't actionable from a
+// user program) plus everything already checked clean this run. The primary —
+// the file explicitly asked about — is exempt from the SDK skip (checking an
+// SDK file directly must still check it), but not from `checked`.
+fn skip_keys(_ primary_key: String, _ programs: List<Program>, _ sdk_root: Option<String>,
+    _ checked: Set<String>) -> Set<String> {
+    let skip: Set<String> = Set.new();
+    if let Some(prefix) = sdk_prefix(sdk_root) {
+        for p in programs {
+            // A path-less program has no key to skip by (never `''` — the
+            // canonical-key discipline, LD17).
+            if let Some(key) = p.file_path {
+                if key.starts_with(prefix) && key != primary_key {
+                    skip.add(key);
+                }
+            }
+        }
+    }
+    for key in checked.to_list() {
+        skip.add(key);
+    }
+    return skip;
+}
+
+// The canonical `<std root>/` prefix SDK file keys carry, if there is an SDK.
+fn sdk_prefix(_ sdk_root: Option<String>) -> Option<String> {
+    return match sdk_root {
+        Some(root) => loader.std_root(root).map((std) => loader.canonical_path(std) + '/'),
+        None => Option.None,
+    };
+}
+
+// Record which closure files checked *clean* this run: every non-skipped file
+// with no diagnostic attributed to it (an unattributed diagnostic is the
+// primary's, conservatively). Skipped files keep their existing state.
+fn mark_checked_clean(_ checked: Set<String>, _ primary_key: String,
+    _ programs: List<Program>, _ skip: Set<String>, _ diags: List<Diagnostic>) -> Void {
+    let error_files: Set<String> = Set.new();
+    let mut primary_dirty = false;
+    for d in diags {
+        match d.file {
+            Some(f) => { error_files.add(f); },
+            None => { primary_dirty = true; },
+        }
+    }
+    if !primary_dirty && !error_files.has(primary_key) && !skip.has(primary_key) {
+        checked.add(primary_key);
+    }
+    for p in programs {
+        if let Some(key) = p.file_path {
+            if !skip.has(key) && !error_files.has(key) {
+                checked.add(key);
+            }
+        }
+    }
+    return;
+}
+
+// One diagnostic, with its owning file resolved from the span's source text.
+fn diag(_ message: String, _ span: token.SourceSpan, _ src_to_file: Map<String, String>) -> Diagnostic {
+    return Diagnostic { message: message, span: span, file: src_to_file.get(span.source) };
+}
+
+// A source-text -> file-path map for the whole compiled closure, so a diagnostic
+// span resolves to the file it came from (the span carries its source text, not a
+// path — see `Diagnostic.file`). The primary `source`/`path` plus every loaded
+// program; an empty `programs` list yields just the primary.
+fn build_source_map(_ source: String, _ p: String, _ programs: List<Program>) -> Map<String, String> {
+    let m: Map<String, String> = {};
+    m[source] = p;
+    for prog in programs {
+        if let Some(src) = program_source(prog) {
+            if let Some(f) = prog.file_path { m[src] = f; }
+        }
+    }
+    return m;
+}
+
+// A program's source text, taken from its first declaration's span (every span in
+// a file shares that file's source). None for an empty program (it has no spans —
+// and no diagnostics either).
+fn program_source(_ p: Program) -> Option<String> {
+    if p.decls.len() == 0 {
+        return Option.None;
+    }
+    return Option.Some(decl_span(p.decls[0]).source);
+}
+
+fn decl_span(_ d: Decl) -> token.SourceSpan {
+    return match d {
+        Import(x) => x.span,
+        Fn(x) => x.span,
+        Type(x) => x.span,
+        Impl(x) => x.span,
+        Interface(x) => x.span,
+        Const(x) => x.span,
+        Let(x) => x.span,
+        Enum(x) => x.span,
+    };
+}
+
+// Loader diagnostics already know their owning file (the loader stamps it while
+// parsing each import), so they convert directly.
+fn load_diagnostics(_ diags: List<loader.LoadDiagnostic>) -> List<Diagnostic> {
+    let out: List<Diagnostic> = [];
+    for d in diags {
+        out.push(Diagnostic { message: d.message, span: d.span, file: Option.Some(d.file) });
+    }
+    return out;
+}
+
+fn lex_diagnostics(_ errors: List<lexer.LexError>, _ src_to_file: Map<String, String>) -> List<Diagnostic> {
+    let out: List<Diagnostic> = [];
+    for e in errors {
+        out.push(diag(e.message, e.span, src_to_file));
+    }
+    return out;
+}
+
+fn parse_diagnostics(_ errors: List<parser.ParseError>, _ src_to_file: Map<String, String>) -> List<Diagnostic> {
+    let out: List<Diagnostic> = [];
+    for e in errors {
+        out.push(diag(e.message, e.span, src_to_file));
+    }
+    return out;
+}
+
+fn check_diagnostics(_ errors: List<checker.CheckError>, _ src_to_file: Map<String, String>) -> List<Diagnostic> {
+    let out: List<Diagnostic> = [];
+    for e in errors {
+        out.push(diag(e.message, e.span, src_to_file));
+    }
+    return out;
+}
+
+fn codegen_diagnostics(_ errors: List<codegen.CodegenError>, _ src_to_file: Map<String, String>) -> List<Diagnostic> {
+    let out: List<Diagnostic> = [];
+    for e in errors {
+        out.push(diag(e.message, e.span, src_to_file));
+    }
+    return out;
+}
