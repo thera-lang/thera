@@ -71,11 +71,16 @@ once across all kinds — `fn`, `type`/`enum`/`interface`, `const`/`let`, and th
 namespace bound by an `import` — any second introduction is a duplicate-name
 error, kind notwithstanding.
 
-A top-level name may shadow a prelude name **within its file** (the file's own
-declaration wins for bare references in that file). Doing so is discouraged — the
-prelude is soft-reserved — and is meant to be diagnosed; the diagnostic was lost
-when duplicate checking became same-file-only (the T4 uniqueness lift) and is
-tracked in [audit_2026_07.md](audit_2026_07.md).
+A top-level declaration may **not** take a name the file's bare surface already
+provides — a prelude name, or one brought in by an `as _` import. The bare
+surface injects those names into the file's one name space, so re-introducing
+one is a duplicate-name check error, exactly like a same-file duplicate.
+(Previously this was legal-but-discouraged shadowing with a lost diagnostic;
+worse, resolution split by kind — a same-file `fn Config` under an
+`as _`-imported `struct Config` checked clean and failed at codegen.) One
+exemption: a barrel's `pub import 'error';` binds the namespace `error` while
+re-exporting that library's eponymous `fn error` onto the bare surface — a
+self-referential pair reaching the same library, allowed.
 
 ### Reserved type names
 

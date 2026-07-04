@@ -207,8 +207,18 @@ impl FileScope {
         if !self.library.type_defs.has(name) {
             return false;
         }
+        // Same-file first, kind-aware: a file that binds `name` at all owns it
+        // for every kind (one name space per scope) — so `name` is a known type
+        // here only if the file's own binding *is* a type. A same-file value
+        // binding shadows any bare-imported or builtin type of that name (the
+        // checker also rejects such a shadow at the declaration site).
+        if file_owns(self.library, self.file, name) {
+            return match self.library.file_type_defs.get(file_key(self.file)) {
+                Some(defs) => defs.has(name),
+                None => false,
+            };
+        }
         return self.is_builtin_type(name)
-            || file_owns(self.library, self.file, name)
             || bare_surface_has(self.library, self.file, name);
     }
 

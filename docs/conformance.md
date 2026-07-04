@@ -188,6 +188,7 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `mod-import-literal-path`| Imports             | an import path is a literal: an interpolated path is a parse error       | ✓ |
 | `mod-one-name-space`| scoping.md               | one name space per scope: a file introduces a top-level name once, across all kinds (fn/type/const/let/import namespace) | ✓ |
 | `mod-bare-collision`| scoping.md               | two `import … as _` exposing one public name is an error at the second import (barrel collisions likewise, at the barrel — unit-tested) | ✓ |
+| `mod-no-surface-shadow`| scoping.md            | a top-level declaration may not re-introduce a bare-surface name (prelude or `as _`); the eponymous-barrel namespace is exempt | ✓ |
 | `vis-pub`           | Visibility               | non-`pub` top-level is file-private (enforced)            | ✓      |
 | `vis-barrel`        | Visibility               | barrel re-exports a directory library's symbols (std.cli) | ◐      |
 | `vis-whitebox-test` | Visibility / Testing     | `foo_test.hawk` sees `foo.hawk` privates (bare)           | ✓      |

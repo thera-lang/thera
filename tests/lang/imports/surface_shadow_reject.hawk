@@ -1,0 +1,18 @@
+//! spec: mod-no-surface-shadow
+//! mode: check
+
+// The bare surface (the prelude, and `as _` imports) injects names into the
+// file's one name space, so a top-level declaration may not re-introduce one
+// (EL1's last arm — the shadow used to be silent, and resolution split by
+// kind: this file checked clean but failed at codegen with "unknown struct
+// type: Config").
+
+import 'shadow/widgets' as _;
+
+fn Config() -> Int { return 41; } // expect error: top-level `Config` shadows a name the prelude or an `as _` import already provides
+
+fn shout(_ s: String) -> Void { println(s); }
+
+fn println(_ s: String) -> Void {} // expect error: top-level `println` shadows a name the prelude or an `as _` import already provides
+
+fn main() -> Void { shout('hi'); }

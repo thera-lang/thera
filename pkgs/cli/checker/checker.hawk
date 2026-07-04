@@ -42,6 +42,7 @@ pub fn check(_ program: Program, _ imports: List<Program>,
     let errors: List<CheckError> = [];
     let library = resolver.build_library(program, imports, file_namespaces, file_bare_surface);
     check_duplicates(errors, program, imports);
+    check_shadowed_surface(errors, program, library);
     // Qualified-only resolution is enforced inline by `check_program`: the gates
     // reject a bare-but-qualifiable name ("qualify as `ns.name`") and a qualified
     // `ns.name` to a non-public member ("`name` is not a public member of `ns`").
@@ -66,6 +67,7 @@ pub fn check_files(_ program: Program, _ imports: List<Program>,
     if !skip.has(file_key(program.file_path)) {
         check_duplicates(errors, program, imports);
         check_reserved_names(errors, program, sdk);
+        check_shadowed_surface(errors, program, library);
         check_program(errors, program, library, program.file_path);
     }
     for ip in imports {
@@ -74,6 +76,7 @@ pub fn check_files(_ program: Program, _ imports: List<Program>,
             // so an empty imports list loses nothing and skips a closure rescan).
             check_duplicates(errors, ip, []);
             check_reserved_names(errors, ip, sdk);
+            check_shadowed_surface(errors, ip, library);
             check_program(errors, ip, library, ip.file_path);
         }
     }
@@ -112,6 +115,88 @@ fn check_duplicates(_ errors: List<CheckError>, _ program: Program, _ imports: L
     }
     collect_names(program, true, names);
     report_dups(errors, names);
+}
+
+// ---- bare-surface shadowing ----
+
+// A top-level declaration may not take a name the file's **bare surface**
+// already provides — a prelude name or one brought in by an `as _` import
+// (EL1's last arm; scoping.md "one name space per scope": the bare surface
+// injects names into the file's one name space, so re-introducing one is a
+// collision, exactly like a same-file duplicate). Without this, resolution
+// splits by kind — a same-file `fn Config` with an `as _`-imported
+// `struct Config` checked clean but failed at codegen ("unknown struct
+// type"). The declaring file itself is exempt (its own names *are* the
+// surface's origin — a core file doesn't shadow the prelude it defines).
+fn check_shadowed_surface(_ errors: List<CheckError>, _ program: Program, _ library: LibraryElement) -> Void {
+    let own = file_key(program.file_path);
+    let Some(surface) = library.file_bare_surface.get(own) else {
+        return;
+    };
+    for decl in program.decls {
+        match decl {
+            Fn(x) => { flag_shadow(errors, surface, own, x.name, x.name_span); },
+            Type(x) => { flag_shadow(errors, surface, own, x.name, x.name_span); },
+            Enum(x) => { flag_shadow(errors, surface, own, x.name, x.name_span); },
+            Interface(x) => { flag_shadow(errors, surface, own, x.name, x.name_span); },
+            Const(x) => { flag_shadow(errors, surface, own, x.name, x.name_span); },
+            Let(x) => { flag_shadow(errors, surface, own, x.name, x.name_span); },
+            Import(x) => {
+                // A namespace binding shadows like a declaration — except the
+                // self-referential barrel case: `pub import 'error';` binds ns
+                // `error` while the bare surface's `error` *is* that library's
+                // own member (`error.error(...)` and `error(...)` reach the
+                // same file). Exempt when the bare name's origin is the
+                // namespace's own member origin.
+                if let Some(ns) = import_binding(x) {
+                    if !self_referential_ns(program, library, ns) {
+                        flag_shadow(errors, surface, own, ns, x.span);
+                    }
+                }
+            },
+            Impl(_) => {},
+        }
+    }
+}
+
+// Whether the bare-surface entry for `ns` originates from the very library the
+// namespace `ns` binds (the eponymous-member barrel pattern; see above).
+fn self_referential_ns(_ program: Program, _ library: LibraryElement, _ ns: String) -> Bool {
+    let own = file_key(program.file_path);
+    let bare_origin = match library.file_bare_surface.get(own) {
+        Some(surface) => surface.get(ns),
+        None => Option.None,
+    };
+    let ns_member_origin = match library.file_namespaces.get(own) {
+        Some(spaces) => match spaces.get(ns) {
+            Some(space) => space.origin.get(ns),
+            None => Option.None,
+        },
+        None => Option.None,
+    };
+    return match bare_origin {
+        Some(b) => match ns_member_origin {
+            Some(m) => b == m,
+            None => false,
+        },
+        None => false,
+    };
+}
+
+fn flag_shadow(_ errors: List<CheckError>, _ surface: Map<String, String>, _ own: String,
+    _ name: String, _ span: SourceSpan) -> Void {
+    // A reserved core type name already gets the dedicated (and more specific)
+    // reserved-name error — don't stack the shadow error on top.
+    if is_reserved_type_name(name) {
+        return;
+    }
+    if let Some(origin) = surface.get(name) {
+        if origin != own {
+            add_error(errors,
+                'top-level `${name}` shadows a name the prelude or an `as _` import already provides; rename it (one name space per scope)',
+                span);
+        }
+    }
 }
 
 // ---- reserved core type names ----

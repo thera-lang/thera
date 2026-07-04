@@ -1,0 +1,3 @@
+// Fixture for mod-no-surface-shadow: exports a type whose name the test file
+// re-introduces.
+pub struct Config { v: Int }
