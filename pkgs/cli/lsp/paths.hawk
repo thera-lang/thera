@@ -3,6 +3,7 @@
 // per-feature modules so these one-liners aren't re-implemented in each.
 
 import '../ast/ast' as _; // Program
+import '../element/element';
 
 // A filesystem path to a `file://` URI. A path is absolute, so `file://` + `/abs`
 // gives `file:///abs`.
@@ -19,7 +20,9 @@ pub fn uri_to_path(_ uri: String) -> String {
     return uri;
 }
 
-// A program's source-file path, or `''` when it has none (an anonymous buffer).
+// A program's source-file key — `element.file_key`'s form, so an anonymous
+// buffer reads `'<anon>'` here exactly as it does in every other table (LD17;
+// this used to say `''`, diverging from the loader's keys).
 pub fn program_path(_ p: Program) -> String {
-    return p.file_path.unwrap_or('');
+    return element.file_key(p.file_path);
 }

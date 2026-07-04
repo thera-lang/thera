@@ -228,9 +228,12 @@ fn skip_keys(_ primary_key: String, _ programs: List<Program>, _ sdk_root: Optio
     let skip: Set<String> = Set.new();
     if let Some(prefix) = sdk_prefix(sdk_root) {
         for p in programs {
-            let key = p.file_path.unwrap_or('');
-            if key.starts_with(prefix) && key != primary_key {
-                skip.add(key);
+            // A path-less program has no key to skip by (never `''` — the
+            // canonical-key discipline, LD17).
+            if let Some(key) = p.file_path {
+                if key.starts_with(prefix) && key != primary_key {
+                    skip.add(key);
+                }
             }
         }
     }
@@ -265,9 +268,10 @@ fn mark_checked_clean(_ checked: Set<String>, _ primary_key: String,
         checked.add(primary_key);
     }
     for p in programs {
-        let key = p.file_path.unwrap_or('');
-        if key != '' && !skip.has(key) && !error_files.has(key) {
-            checked.add(key);
+        if let Some(key) = p.file_path {
+            if !skip.has(key) && !error_files.has(key) {
+                checked.add(key);
+            }
         }
     }
     return;

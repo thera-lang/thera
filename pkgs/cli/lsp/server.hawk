@@ -12,6 +12,7 @@ import std.io;             // io.Reader, io.Writer
 
 import '../ast/ast' as _;       // Program
 import '../lexer/lexer';   // tokenize
+import '../loader';        // canonical_path
 import '../parser/parser'; // parse_tokens
 
 import 'jsonrpc';
@@ -256,7 +257,9 @@ impl Server {
         for u in self.analysis.uris() {
             let text = self.analysis.text(u).unwrap_or('');
             let program = parser.parse_tokens(lexer.tokenize(text).tokens).program;
-            program.file_path = Option.Some(paths.uri_to_path(u));
+            // Identity is minted canonical everywhere (LD17) — a raw URI path
+            // here would diverge from the loader's keys.
+            program.file_path = Option.Some(loader.canonical_path(paths.uri_to_path(u)));
             programs.push(program);
         }
         return workspace_symbols.handle_workspace_symbols(programs, q);

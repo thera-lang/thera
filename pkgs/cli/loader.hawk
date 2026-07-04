@@ -15,8 +15,9 @@ import 'lexer/lexer';
 import 'parser/parser';
 import 'element/element';
 
-import std.fs;
 import std.env;
+import std.fs;
+import std.path;
 
 const STD_PREFIX: String = 'std.';
 
@@ -72,11 +73,11 @@ pub struct LoadedImports {
 // The two layouts diverge only here: a distributed SDK keeps it at `<root>/std`,
 // the in-repo checkout at `<root>/sdk/std`.
 pub fn std_root(_ root: String) -> Option<String> {
-    if is_dir(root + '/std') {
-        return Option.Some(root + '/std');
+    if is_dir(path.join(root, 'std')) {
+        return Option.Some(path.join(root, 'std'));
     }
-    if is_dir(root + '/sdk/std') {
-        return Option.Some(root + '/sdk/std');
+    if is_dir(path.join(root, 'sdk/std')) {
+        return Option.Some(path.join(root, 'sdk/std'));
     }
     return Option.None;
 }
@@ -94,7 +95,7 @@ pub fn std_root(_ root: String) -> Option<String> {
 // executable doesn't sit near an SDK.
 pub fn find_sdk_root() -> Option<String> {
     if let Some(exe) = env.current_exe() {
-        if let Some(root) = walk_up_for_std(dirname(exe)) { return Option.Some(root); }
+        if let Some(root) = walk_up_for_std(path.dirname(exe)) { return Option.Some(root); }
     }
     if let Ok(start) = env.current_dir() {
         if let Some(root) = walk_up_for_std(start) { return Option.Some(root); }
@@ -110,8 +111,10 @@ fn walk_up_for_std(_ start: String) -> Option<String> {
     let mut i = 0;
     while i < 12 {
         if let Some(_) = std_root(dir) { return Option.Some(dir); }
-        let parent = dirname(dir);
-        if parent == '' || parent == dir {
+        // Stop on no progress: `path.dirname` fixes at '/' (absolute) or '.'
+        // (a bare relative name — its own parent).
+        let parent = path.dirname(dir);
+        if parent == dir || parent == '.' {
             return Option.None;
         }
         dir = parent;
@@ -130,15 +133,20 @@ fn walk_up_for_std(_ start: String) -> Option<String> {
 // reached under different spellings (`/abs/x.hawk`, `./x.hawk`, `x.hawk`,
 // `a/../x.hawk`) has exactly one identity. Purely lexical beyond the cwd
 // resolution: symlinks and case-folding are not resolved (no stdlib native yet).
-pub fn canonical_path(_ path: String) -> String {
-    if path.starts_with('/') {
-        return normalize_path(path);
+//
+// **This canonical String IS the front-end's file id (LD17).** Mint here only:
+// every table key, `TypeId.owner`, and `Diagnostic.file` carries this form
+// (`element.file_key` bridges `Program.file_path`'s Option; `display_path` is
+// the printing inverse). Don't stamp identity from a raw/relative path.
+pub fn canonical_path(_ p: String) -> String {
+    if path.is_absolute(p) {
+        return path.normalize(p);
     }
     return match env.current_dir() {
-        Ok(cwd) => normalize_path(cwd + '/' + path),
+        Ok(cwd) => path.normalize(path.join(cwd, p)),
         // No usable working directory (deleted, unreadable): the lexical-only
         // fallback still dedupes different relative spellings of one path.
-        Err(_) => normalize_path(path),
+        Err(_) => path.normalize(p),
     };
 }
 
@@ -165,7 +173,7 @@ fn resolve_library_file(_ base: String) -> Option<String> {
         return Option.Some(file);
     }
     if is_dir(base) {
-        let barrel = base + '/' + last_segment(base, '/') + '.hawk';
+        let barrel = path.join(base, path.basename(base) + '.hawk');
         if is_file(barrel) {
             return Option.Some(barrel);
         }
@@ -295,7 +303,7 @@ impl Loader {
                 }
                 let source = LibrarySource { program: pf.program, imports: {} };
                 self.cache[file] = source;
-                self.link_imports(pf.program, dirname(file), source);
+                self.link_imports(pf.program, path.dirname(file), source);
                 self.order.push(pf.program);
                 return Result.Ok(source);
             },
@@ -385,10 +393,10 @@ impl Loader {
 // and a bare `hawk run root.hawk` resolves its imports against the invocation
 // directory (the pre-canonical `dirname('root.hawk')` was `''`, which sent
 // imports to the filesystem root).
-pub fn load_imports(_ path: String, _ program: Program, _ sdk_root: Option<String>,
+pub fn load_imports(_ entry: String, _ program: Program, _ sdk_root: Option<String>,
     parse_cache: Map<String, ParsedFile> = {},
     overlays: Map<String, String> = {}) -> LoadedImports {
-    let canon = canonical_path(path);
+    let canon = canonical_path(entry);
     program.file_path = Option.Some(canon);
     let loader = Loader {
         sdk_root: sdk_root,
@@ -424,7 +432,7 @@ pub fn load_imports(_ path: String, _ program: Program, _ sdk_root: Option<Strin
     // back to the root (a cycle) reuses this in-memory program.
     let root = LibrarySource { program: program, imports: {} };
     loader.cache[canon] = root;
-    loader.link_imports(program, dirname(canon), root);
+    loader.link_imports(program, path.dirname(canon), root);
 
     // Each file resolves qualifiers against its own imports — so build a per-file
     // table (every linked module, plus the root) rather than a closure-wide union.
@@ -502,8 +510,8 @@ fn bare_surface_for(_ root: LibrarySource, _ core_names: Map<String, String>) ->
                 // `foo.hawk` from any directory).
                 if let Some(base) = test_base {
                     if basename_no_ext(child.program.file_path) == base
-                        && dirname(element.file_key(root.program.file_path))
-                        == dirname(element.file_key(child.program.file_path)) {
+                        && path.dirname(element.file_key(root.program.file_path))
+                        == path.dirname(element.file_key(child.program.file_path)) {
                         for n in all_top_names(child).to_list() {
                             names[n] = child_key;
                         }
@@ -596,8 +604,7 @@ fn test_base_name(_ file: Option<String>) -> Option<String> {
 
 // A source file's basename without its `.hawk` extension.
 fn basename_no_ext(_ file: Option<String>) -> String {
-    let path = file.unwrap_or('');
-    let seg = last_segment(path, '/');
+    let seg = path.basename(file.unwrap_or(''));
     let ext = '.hawk';
     if seg.len() > ext.len() && seg.slice(seg.len() - ext.len(), seg.len()) == ext {
         return seg.slice(0, seg.len() - ext.len());
@@ -688,7 +695,14 @@ fn collect_surface(_ source: LibrarySource, _ names: Set<String>, _ collisions: 
 // The namespace an import binds: its explicit alias, or the trailing segment of
 // its path (`std.fs` -> `fs`, `util/strings` -> `strings`).
 fn namespace_of(_ decl: ImportDecl) -> String {
-    return decl.alias.unwrap_or_else(() => last_segment(last_segment(decl.path, '/'), '.'));
+    return decl.alias.unwrap_or_else(() => last_dot_segment(path.basename(decl.path)));
+}
+
+// The last `.`-separated segment (`std.fs` -> `fs`) — a namespace derivation,
+// not a path operation (extensions don't apply to import paths).
+fn last_dot_segment(_ s: String) -> String {
+    let parts = s.split('.');
+    return parts[parts.len() - 1];
 }
 
 // The public top-level name a declaration contributes, or None when private or
@@ -722,62 +736,6 @@ fn is_dir(_ path: String) -> Bool {
     };
 }
 
-// Lexically normalize a path: collapse `.` and `..` segments so the same file
-// reached by different relative spellings (`a/../b` vs `b`) maps to one canonical
-// key. Purely lexical (no filesystem), which is what de-duplicates a library
-// imported via different `../` prefixes from different directories.
-fn normalize_path(_ path: String) -> String {
-    let absolute = path.starts_with('/');
-    let stack: List<String> = [];
-    let mut n = 0;
-    for p in path.split('/') {
-        if p == '' || p == '.' {
-            // skip empty (leading `/` or `//`) and current-dir segments
-        } else if p == '..' {
-            if n > 0 && stack[n - 1] != '..' {
-                n = n - 1; // pop the preceding segment
-            } else if !absolute {
-                // a relative path may keep leading `..` (it escapes the base)
-                if n < stack.len() { stack[n] = '..'; } else { stack.push('..'); }
-                n = n + 1;
-            }
-            // an absolute path's `..` at the root is dropped
-        } else {
-            if n < stack.len() { stack[n] = p; } else { stack.push(p); }
-            n = n + 1;
-        }
-    }
-    let out: List<String> = [];
-    let mut i = 0;
-    while i < n {
-        out.push(stack[i]);
-        i = i + 1;
-    }
-    let joined = out.join('/');
-    return if absolute { '/' + joined } else { joined };
-}
-
 fn canonical_resolved(_ o: Option<String>) -> Option<String> {
     return o.map((f) => canonical_path(f));
-}
-
-// The directory portion of `path` — everything before the last `/`.
-fn dirname(_ path: String) -> String {
-    let parts = path.split('/');
-    if parts.len() <= 1 {
-        return '';
-    }
-    let dir_parts: List<String> = [];
-    let mut i = 0;
-    while i < parts.len() - 1 {
-        dir_parts.push(parts[i]);
-        i = i + 1;
-    }
-    return dir_parts.join('/');
-}
-
-// The last `sep`-separated segment of `s` (`a/b/c` with `/` -> `c`).
-fn last_segment(_ s: String, _ sep: String) -> String {
-    let parts = s.split(sep);
-    return parts[parts.len() - 1];
 }
