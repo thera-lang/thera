@@ -252,6 +252,18 @@ keep element models for unchanged libraries. Back-port the batch parse-cache
 learnings rather than bolting on more caches. Target: no whole-closure rebuild per
 edit for ~1–2k-file projects.
 
+**Groundwork landed (2026-07-03, the LD16/LD17/LD7 arc):** the session now
+exists at the **CLI level** — `pkgs/cli/session.hawk`'s `Session` owns
+{sdk_root, overlays, parse_cache, checked} and the pipeline
+(`parse`/`load_closure`/`check`/`compile`); `hawk check`/`test`/`emit` and the
+LSP all drive it (layer 1's "one engine" — the LSP's `Analysis` is a thin URI
+wrapper). File identity is settled: the canonical-path String is the file id
+(minted only by `loader.canonical_path`; helpers deduped onto `std.path`), and
+**spans carry their file** (`SourceSpan.file`), so diagnostics attribute by id
+— collision-free cache keys for the resolved-library cache. What remains for
+Phase 2 proper: the `surface_cache`/`library_cache` layers and
+dependency-graph invalidation over `LoadedImports.file_imports` (LD14).
+
 ### Phase 3 — query layer + inference-at-offset
 
 Symbol identity → lexical-scope reconstruction at a cursor → `type_at` (run the
