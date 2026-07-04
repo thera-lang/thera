@@ -334,7 +334,9 @@ is which turns on whether the command's product is an **artifact** or its
   test runners (`cargo test`, `go test`, pytest), and keeps a future
   `--json`/SARIF mode on the same stream so `hawk check --json | jq` works.
   Pass/fail is _also_ on the **exit code** (`check`: 0 clean / 1 diagnostics / 2
-  missing target; `test`: the failure count). Note the asymmetry this implies:
+  missing target; `test`: 0 all passed / 1 any failed or none found — never a
+  count, which would collide with a trap's exit 1 and wrap at u8). Note the
+  asymmetry this implies:
   a test file that fails to **compile** produces no test results — that's an
   operational failure of the run, so `hawk test` sends those compile
   diagnostics to **stderr**, even though `hawk check` would put the identical

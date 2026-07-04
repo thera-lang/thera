@@ -22,10 +22,13 @@ import 'parser/parser'; // parse
 import 'driver';       // compile_source_at, check_source_at, format_diagnostic
 import 'loader';       // ParsedFile (the cross-file parse cache)
 
-// The per-file test tally a run produces (a `@test` count and how many failed).
+// The per-file test tally a run produces (a `@test` count and whether any
+// failed). Pass/fail only — the child's exit code doesn't carry a count
+// (LD11: a count would collide with a trap's exit 1 and wrap at u8, so 256
+// failures would read as a pass).
 struct TestCounts {
     total: Int,
-    failures: Int,
+    failed: Bool,
 }
 
 // --- run ---
@@ -89,7 +92,7 @@ pub fn test_paths(_ targets: List<String>, _ sdk_root: Option<String>, show_outp
                 match run_test_file(f, runtime, sdk_root, show_output, parse_cache, checked) {
                     Some(counts) => {
                         total_tests = total_tests + counts.total;
-                        if counts.failures > 0 {
+                        if counts.failed {
                             failed_files = failed_files + 1;
                         }
                     },
@@ -138,7 +141,7 @@ fn run_test_file(_ path_str: String, _ runtime: String, _ sdk_root: Option<Strin
     let tests = test_names(parsed.program);
     if tests.len() == 0 {
         println('  (no @test functions)');
-        return Option.Some(TestCounts { total: 0, failures: 0 });
+        return Option.Some(TestCounts { total: 0, failed: false });
     }
 
     // Recompile the source plus a synthesized driver `main` that runs each test.
@@ -157,28 +160,19 @@ fn run_test_file(_ path_str: String, _ runtime: String, _ sdk_root: Option<Strin
 
     // A unique entry name so the driver never collides with a tested module's
     // own `main` (executables under test keep theirs; it's dead code here).
+    // The child's exit code is pass/fail only: 0 = every test passed,
+    // anything else = the file failed — whether from failing tests (the driver
+    // returns 1) or a runtime trap (the runtime exits 1, its message already
+    // on stderr). The per-test `ok`/`FAIL` lines carry the detail.
     match run_bytecode(runtime, bytes, Option.Some('__hawk_test_main'), []) {
         Ok(code) => {
-            let total = tests.len();
-            return Option.Some(TestCounts { total: total, failures: failures_from_exit(code, total) });
+            return Option.Some(TestCounts { total: tests.len(), failed: code != 0 });
         },
         Err(e) => {
             eprintln('  error: ${e.message()}');
             return Option.None;
         },
     }
-}
-
-// `main` returns the failure count; a non-zero, non-count exit (e.g. a runtime
-// trap) still counts as a single failure for the file.
-fn failures_from_exit(_ exit_code: Int, _ total: Int) -> Int {
-    if exit_code == 0 {
-        return 0;
-    }
-    if exit_code <= total {
-        return exit_code;
-    }
-    return 1;
 }
 
 // The names of the `@test`-decorated functions in `program`, in source order.
@@ -204,8 +198,8 @@ fn has_test_decorator(_ f: ast.FnDecl) -> Bool {
 }
 
 // The synthesized driver: a `main` that runs each `@test` function, prints a
-// per-test `ok`/`FAIL` line (with the error on failure), and returns the number
-// of failures (which becomes the process exit code).
+// per-test `ok`/`FAIL` line (with the error on failure); the driver exits 0
+// when every test passed and 1 otherwise (never a count — see `TestCounts`).
 //
 // Each test's stdout is buffered (via the `test_capture_*` runtime natives) and
 // shown only when the test fails — keeping a green run quiet — unless
@@ -261,7 +255,7 @@ fn test_driver(_ tests: List<String>, _ show_output: Bool) -> String {
         s = '${s}    let __hawk_out_${t} = __hawk_capture_end();\n';
         s = '${s}    __hawk_failures = __hawk_failures + __hawk_report(\'${t}\', __hawk_r_${t}, __hawk_out_${t}, ${show});\n';
     }
-    s = '${s}    return __hawk_failures;\n';
+    s = '${s}    return if __hawk_failures > 0 { 1 } else { 0 };\n';
     s = '${s}}\n';
     return s;
 }
