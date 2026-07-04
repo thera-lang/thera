@@ -1,0 +1,18 @@
+//! spec: var-expr-position-immutable
+//! mode: check
+
+// Immutability is enforced inside expression-position blocks, `if`s, and match
+// arms (CH18): the enclosing statement context's mutability tracking threads
+// through — assignments here used to escape the check entirely.
+
+fn main() -> Void {
+    let x = 1;
+    let c = true;
+    let y = if c { x = 5; 1 } else { 2 }; // expect error: cannot assign to `x`
+    let z = { x = 6; 3 }; // expect error: cannot assign to `x`
+    let w = match y { 1 => { x = 7; 1 }, _ => 2 }; // expect error: cannot assign to `x`
+    // A `mut` binding reassigns fine in the same positions.
+    let mut m = 0;
+    let v = if c { m = 9; 1 } else { 2 };
+    println('${x} ${y} ${z} ${w} ${m} ${v}');
+}

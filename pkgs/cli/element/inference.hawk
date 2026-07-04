@@ -782,14 +782,52 @@ fn dispatches_virtually(_ recv: Type, _ ctx: InferCtx) -> Bool {
     };
 }
 
-// The expected type of each call argument (the callee's parameter types,
-// excluding `self`), or None when the callee can't be resolved cheaply here.
-// Type parameters are instantiated from the receiver and from the non-lambda
-// arguments (inferred first), so a later lambda argument sees them bound.
+// The expected type of each call **argument** (in call order — a labeled
+// argument gets its labeled parameter's type, CH12), or None when the callee
+// can't be resolved cheaply here. Type parameters are instantiated from the
+// receiver and from the non-lambda arguments (inferred first), so a later
+// lambda argument sees them bound.
 pub fn expected_arg_types(_ callee: Expr, _ args: List<CallArg>,
     _ scope: Map<String, Type>, _ ctx: InferCtx) -> Option<List<Type>> {
-    let mut params: Option<List<ParameterElement>> = Option.None;
     let bindings: Map<String, Type> = {};
+    return match callee_params(callee, args, scope, ctx, bindings) {
+        Some(positional) => {
+            bind_from_args(positional, args, scope, ctx, bindings);
+            Option.Some(params_for_args(positional, args).map((m) => match m {
+                Some(p) => substitute(p.ty, bindings),
+                None => Type.Unknown,
+            }))
+        },
+        None => Option.None,
+    };
+}
+
+// The expected type of each (non-self) **parameter** (in declaration order) —
+// codegen's view, aligned with `resolve_args`' parameter-ordered output, so a
+// reordered labeled lambda argument compiles with its own parameter's type.
+// Instantiation as in `expected_arg_types`.
+pub fn expected_param_types(_ callee: Expr, _ args: List<CallArg>,
+    _ scope: Map<String, Type>, _ ctx: InferCtx) -> Option<List<Type>> {
+    let bindings: Map<String, Type> = {};
+    return match callee_params(callee, args, scope, ctx, bindings) {
+        Some(positional) => {
+            bind_from_args(positional, args, scope, ctx, bindings);
+            Option.Some(positional.map((p) => substitute(p.ty, bindings)))
+        },
+        None => Option.None,
+    };
+}
+
+// The callee's resolved non-self parameters, or None when the callee can't be
+// resolved cheaply here. Receiver-supplied type-parameter bindings (a method's
+// `T` from the receiver's type args) are merged into `bindings`. A
+// function-*typed* callee (a local `let f: (Int) -> Int`, a function-valued
+// field) has plain types — synthesized as label-less parameters so both views
+// above apply uniformly.
+fn callee_params(_ callee: Expr, _ args: List<CallArg>,
+    _ scope: Map<String, Type>, _ ctx: InferCtx, _ bindings: Map<String, Type>)
+    -> Option<List<ParameterElement>> {
+    let mut params: Option<List<ParameterElement>> = Option.None;
 
     match callee {
         Ident(_, name) => {
@@ -798,7 +836,7 @@ pub fn expected_arg_types(_ callee: Expr, _ args: List<CallArg>,
                 None => {
                     return match scope.get(name) {
                         Some(local) => match local {
-                            Function(ps, _) => Option.Some(ps),
+                            Function(ps, _) => Option.Some(plain_params(ps)),
                             _ => Option.None,
                         },
                         None => Option.None,
@@ -846,7 +884,7 @@ pub fn expected_arg_types(_ callee: Expr, _ args: List<CallArg>,
                     // A function-valued field (`c.run(x)`): the field's params.
                     match params {
                         None => {
-                            if let Function(ps, _) = field_type(recv, field, ctx) { return Option.Some(ps); }
+                            if let Function(ps, _) = field_type(recv, field, ctx) { return Option.Some(plain_params(ps)); }
                         },
                         Some(_) => {},
                     }
@@ -856,27 +894,34 @@ pub fn expected_arg_types(_ callee: Expr, _ args: List<CallArg>,
         },
         _ => {},
     }
+    return params.map((ps) => non_self_params(ps));
+}
 
-    match params {
-        None => { return Option.None; },
-        Some(ps) => {
-            let positional = non_self_params(ps);
-            // Bind type parameters from the non-lambda arguments (inferred first),
-            // so a lambda argument's expected type is fully instantiated.
-            let mut i = 0;
-            while i < args.len() && i < positional.len() {
-                let is_lambda = match args[i].value {
-                    Lambda(_) => true,
-                    _ => false,
-                };
-                if !is_lambda {
-                    let at = infer_expr(args[i].value, scope, ctx, Option.None);
-                    unify(positional[i].ty, at, bindings);
-                }
-                i = i + 1;
+// Plain types as label-less parameter elements (a function-typed callee has no
+// labels or defaults — every argument is positional).
+fn plain_params(_ types: List<Type>) -> List<ParameterElement> {
+    return types.map((t) => ParameterElement {
+        label: Option.None, is_self: false, name: '', ty: t, has_default: false,
+    });
+}
+
+// Bind the callee's type parameters from the non-lambda arguments (inferred
+// first, each against the parameter its label/position targets), so a lambda
+// argument's expected type is fully instantiated.
+fn bind_from_args(_ positional: List<ParameterElement>, _ args: List<CallArg>,
+    _ scope: Map<String, Type>, _ ctx: InferCtx, _ bindings: Map<String, Type>) -> Void {
+    let matched = params_for_args(positional, args);
+    for a in args.enumerate() {
+        let is_lambda = match a.value.value {
+            Lambda(_) => true,
+            _ => false,
+        };
+        if !is_lambda {
+            if let Some(p) = matched[a.index] {
+                let at = infer_expr(a.value.value, scope, ctx, Option.None);
+                unify(p.ty, at, bindings);
             }
-            return Option.Some(positional.map((p) => substitute(p.ty, bindings)));
-        },
+        }
     }
 }
 
@@ -1442,6 +1487,35 @@ pub fn non_self_params(_ params: List<ParameterElement>) -> List<ParameterElemen
         if !p.is_self {
             out.push(p);
         }
+    }
+    return out;
+}
+
+pub fn param_by_label(_ params: List<ParameterElement>, _ label: String) -> Option<ParameterElement> {
+    for p in params {
+        if let Some(l) = p.label {
+            if l == label {
+                return Option.Some(p);
+            };
+        }
+    }
+    return Option.None;
+}
+
+// The parameter each argument targets — by label when the argument is labeled,
+// else by position — the one arg→param rule shared by the checker's
+// `check_call_args`/`check_bounds` and `expected_arg_types` (CH12: these used
+// to disagree, so a reordered labeled call fed the wrong expected types into
+// lambda-parameter inference). One entry per argument; None when the argument
+// has no parameter (unknown label, or beyond the parameter list).
+pub fn params_for_args(_ params: List<ParameterElement>, _ args: List<CallArg>)
+    -> List<Option<ParameterElement>> {
+    let out: List<Option<ParameterElement>> = [];
+    for a in args.enumerate() {
+        out.push(match a.value.label {
+            Some(l) => param_by_label(params, l),
+            None => if a.index < params.len() { Option.Some(params[a.index]) } else { Option.None },
+        });
     }
     return out;
 }

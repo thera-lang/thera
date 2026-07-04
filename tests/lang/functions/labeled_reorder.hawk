@@ -1,0 +1,19 @@
+//! spec: fn-labeled-reorder
+//! mode: run
+
+// Labeled arguments may appear in any order; each argument checks and compiles
+// against *its* parameter (CH12) — including an un-annotated lambda, whose
+// parameter types come from the labeled parameter it targets, in both the
+// checker and codegen. (These were positionally misaligned: the checker
+// rejected this program with swapped expected types, and parameter-ordered
+// emission read a call-ordered expected list.)
+
+fn apply(first f: (Int) -> Int, second g: (String) -> String, _ n: Int) -> Int {
+    println(g('x')); // expect: x!
+    return f(n);
+}
+
+fn main() -> Void {
+    let r = apply(second: (s) => s + '!', first: (i) => i + 1, 3);
+    println('${r}'); // expect: 4
+}

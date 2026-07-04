@@ -1,0 +1,21 @@
+//! spec: fn-call-args
+//! mode: check
+
+// Call-argument diagnostics anchor to the offending argument, not the whole
+// call (CH25) — these line-anchored expectations only match with
+// argument-precise spans. Covers the type mismatch, an unknown label, and a
+// bound violation (anchored to the argument that bound the type parameter).
+
+fn greet(_ name: String, times n: Int) -> Void { println('${name} x${n}'); }
+fn show<T: Display>(_ x: T) -> Void { println('${x}'); }
+struct Opaque { v: Int }
+
+fn main() -> Void {
+    greet(
+        42, // expect error: argument to "greet": expected String, found Int
+        times: 1);
+    greet('a',
+        wrong: 1); // expect error: unknown argument label "wrong"
+    show(
+        Opaque { v: 1 }); // expect error: does not implement `Display`
+}

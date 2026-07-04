@@ -1,0 +1,21 @@
+//! spec: gen-arg-consistency
+//! mode: check
+
+// A generic function's type parameter must bind consistently across the
+// arguments (CH10): `f<T>(a: T, b: T)` rejects `f(1, 'a')`, pointing at the
+// conflicting argument. Leniency is unchanged: an undetermined binding (`[]`
+// infers `List<Unknown>`) and cross-direction assignability never conflict.
+
+fn pick<T>(_ a: T, _ b: T) -> T { return a; }
+fn firsts<T>(_ xs: List<T>, _ ys: List<T>) -> List<T> { return xs; }
+
+fn main() -> Void {
+    let bad = pick(
+        1,
+        'a'); // expect error: conflicting argument types for type parameter `T`
+    // Consistent bindings are fine…
+    let ok = pick(1, 2);
+    // …and an undetermined element type stays lenient.
+    let ls = firsts([], [1, 2]);
+    println('${bad} ${ok} ${ls.len()}');
+}

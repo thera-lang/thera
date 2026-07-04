@@ -1978,10 +1978,11 @@ impl FnCompiler {
 
     // Emit the parameter-ordered argument values, each with its expected type
     // (the callee's parameter types, instantiated) so a lambda argument types its
-    // un-annotated parameters bidirectionally. `expected_arg_types` returns one
-    // entry per non-self parameter, aligned with `ordered`.
+    // un-annotated parameters bidirectionally. `expected_param_types` returns one
+    // entry per non-self parameter, aligned with `ordered` (`expected_arg_types`
+    // is the call-ordered view — a reordered labeled call would misalign here).
     fn emit_ordered_args(self, _ callee: Expr, _ args: List<CallArg>, _ ordered: List<Expr>) -> Void {
-        let expected = expected_arg_types(callee, args, self.type_scope, self.ctx);
+        let expected = expected_param_types(callee, args, self.type_scope, self.ctx);
         for p in ordered.enumerate() {
             let exp = match expected {
                 Some(eps) => if p.index < eps.len() { Option.Some(eps[p.index]) } else { Option.None },

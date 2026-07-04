@@ -86,6 +86,7 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `var-let-mut`       | Variables                | immutable by default; `mut` allows reassign                | ✓      |
 | `var-let-immutable` | Variables                | reassigning a `let` (or a parameter) is an error          | ✓      |
 | `var-assign-type`   | Variables                | an assignment's value must match the target's type (binding, element, field) | ✓ |
+| `var-expr-position-immutable` | Variables      | immutability enforced inside expression-position blocks/`if`s/match arms | ✓ |
 | `var-references`    | Variables                | heap values are shared references                          | ✓      |
 | `var-block-scope`   | Variables                | block/arm/loop bindings shadow lexically; the outer binding (value and type) restores after | ✓ |
 | `module-let-immutable`| module_init.md         | no top-level `let mut`; module globals are immutable       | ✓      |
@@ -101,6 +102,9 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | ------------------- | ------------------------ | ---------------------------------------------------------- | ------ |
 | `fn-decl`           | Functions                | params, return type, default `Void` return                | ✓      |
 | `fn-named-params`   | Named parameters         | label-by-name, `_` suppression, `external internal`        | ✓      |
+| `fn-labeled-reorder`| Named parameters         | labeled args in any order; an un-annotated lambda types (and compiles) against the parameter its label targets | ✓ |
+| `fn-call-args`      | Functions → Calls        | argument diagnostics (type mismatch, unknown label, bound violation) anchor to the offending argument | ✓ |
+| `gen-arg-consistency`| Functions → Generics    | a type parameter must bind consistently across a call's arguments; undetermined bindings stay lenient | ✓ |
 | `fn-default-params` | Named parameters         | default parameter values                                  | ✓      |
 | `fn-lambda`         | Functions                | `n => …` and `(a, b) => …` forms                          | ✓      |
 | `fn-lambda-infer`   | Functions → Param types  | lambda param type from context (incl. if/block tails, static-method args); error when undetermined | ✓ |
@@ -123,6 +127,7 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `cf-match-exhaustive`| grammar.md Patterns     | a match must be exhaustive: enum = all variants or catch-all; Bool = both literals; other subjects = catch-all | ✓ |
 | `cf-match-variant-check`| grammar.md Patterns  | a constructor pattern (incl. nested payloads; capitalized bare = zero-arg constructor) must name a real variant — a `check` diagnostic | ✓ |
 | `cf-match-literal`  | grammar.md Patterns      | int/string/bool literal patterns (not float)               | ✓      |
+| `cf-match-literal-type` | grammar.md Patterns  | a literal pattern whose type can never equal the subject's is a `check` error | ✓ |
 | `cf-break-continue` | grammar.md Not-yet       | `break`/`continue` (unimplemented)                        | ⓧ      |
 
 ## Error handling

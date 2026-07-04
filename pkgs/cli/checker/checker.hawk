@@ -648,7 +648,7 @@ fn check_block(_ errors: List<CheckError>, _ block: Block, _ outer: Map<String, 
                 Some(_) => {},
             }
         }
-        check_expr(errors, tail, scope, ctx, tail_expected);
+        check_expr(errors, tail, scope, ctx, tail_expected, muts: block_muts);
     }
 }
 
@@ -658,7 +658,7 @@ fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ stmts: List<Stmt>, _ i
         Let(x) => {
             if let Some(ref) = x.type_ann { check_type_ref(errors, ref, ctx.library, ctx.current_file, ctx.type_params); }
             let annotated = x.type_ann.map((ref) => resolver.resolve_type_ref_in(ref, file_scope(ctx.library, ctx.current_file), ctx.type_params, ctx.self_type));
-            check_expr(errors, x.value, scope, ctx, annotated);
+            check_expr(errors, x.value, scope, ctx, annotated, muts: muts);
             let actual = infer_expr(x.value, scope, ctx, annotated);
             // Forward-flow: an underdetermined binding (`let xs = []`) takes its
             // element type from its first pinning use later in the block.
@@ -668,12 +668,12 @@ fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ stmts: List<Stmt>, _ i
         },
         Return(span, value) => {
             if let Some(v) = value {
-                check_expr(errors, v, scope, ctx, ctx.return_type);
+                check_expr(errors, v, scope, ctx, ctx.return_type, muts: muts);
                 if let Some(rt) = ctx.return_type { check_return(errors, v, rt, span, scope, ctx); }
             }
         },
         Assign(_, target, value) => {
-            check_expr(errors, target, scope, ctx, Option.None);
+            check_expr(errors, target, scope, ctx, Option.None, muts: muts);
             // Immutability: reassigning a binding that isn't `mut` is an error.
             // Only flag a name we know is an immutable local (a non-`mut` `let` or
             // a parameter); an untracked name — a global, a match/lambda binding —
@@ -706,7 +706,7 @@ fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ stmts: List<Stmt>, _ i
             // exactly that type — a local's, a list element's / map value's, or a
             // struct field's.
             let target_type = infer_expr(target, scope, ctx, Option.None);
-            check_expr(errors, value, scope, ctx, Option.Some(target_type));
+            check_expr(errors, value, scope, ctx, Option.Some(target_type), muts: muts);
             // And the value must actually be assignable to it — the expected type
             // above is only an inference hint. (Previously unchecked: `x = 'a'` on
             // a `mut x = 1`, `xs[0] = 'a'` on a `List<Int>`, and a struct-field
@@ -716,16 +716,16 @@ fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ stmts: List<Stmt>, _ i
                 expr_span(value), ctx.library);
         },
         Expr(_, e) => {
-            check_expr(errors, e, scope, ctx, Option.None);
+            check_expr(errors, e, scope, ctx, Option.None, muts: muts);
         },
         If(x) => {
-            check_expr(errors, x.condition, scope, ctx, Option.None);
+            check_expr(errors, x.condition, scope, ctx, Option.None, muts: muts);
             check_condition(errors, x.condition, scope, ctx);
             check_block(errors, x.then_block, scope, ctx, muts);
             if let Some(eb) = x.else_block { check_block(errors, eb, scope, ctx, muts); }
         },
         For(x) => {
-            check_expr(errors, x.iterable, scope, ctx, Option.None);
+            check_expr(errors, x.iterable, scope, ctx, Option.None, muts: muts);
             let iter_type = infer_expr(x.iterable, scope, ctx, Option.None);
             let body_scope = copy_scope(scope);
             bind_for_pattern(x.pattern, iter_type, body_scope, ctx);
@@ -734,20 +734,27 @@ fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ stmts: List<Stmt>, _ i
             check_block(errors, x.body, body_scope, ctx, muts);
         },
         While(x) => {
-            check_expr(errors, x.condition, scope, ctx, Option.None);
+            check_expr(errors, x.condition, scope, ctx, Option.None, muts: muts);
             check_condition(errors, x.condition, scope, ctx);
             check_block(errors, x.body, scope, ctx, muts);
         },
         Throw(_, value) => {
-            check_expr(errors, value, scope, ctx, Option.None);
+            check_expr(errors, value, scope, ctx, Option.None, muts: muts);
         },
     }
 }
 
 // ---- expression checking ----
 
+// `muts` is the enclosing statement context's mutability map, threaded through
+// every sub-expression so an assignment inside an expression-position block or
+// `if` is immutability-checked like any other (CH18: these used to get a fresh
+// empty map, so `let y = if c { x = 5; 1 } else { 2 }` escaped the check).
+// Callers with no statement context (initializers, lambda bodies — a function
+// boundary with its own tracking) omit it; untracked names stay lenient.
 fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Type>,
-    _ ctx: InferCtx, _ expected: Option<Type>) -> Void {
+    _ ctx: InferCtx, _ expected: Option<Type>,
+    muts: Map<String, Bool> = {}) -> Void {
     match expr {
         Ident(span, name) => {
             // A bare name that isn't legal in this file is either qualifiable via an
@@ -764,8 +771,8 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
             // field access, which would reject `m` as a missing field), then
             // validate the method resolves. Other callees check normally.
             match x.callee {
-                Field(_, recv, _) => { check_expr(errors, recv, scope, ctx, Option.None); },
-                _ => { check_expr(errors, x.callee, scope, ctx, Option.None); },
+                Field(_, recv, _) => { check_expr(errors, recv, scope, ctx, Option.None, muts: muts); },
+                _ => { check_expr(errors, x.callee, scope, ctx, Option.None, muts: muts); },
             }
             // Receiver type args on a static call (`Set<String>.new()`): validate
             // them as types and against the receiver type's parameters.
@@ -783,7 +790,7 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
                     Some(eps) => if p.index < eps.len() { Option.Some(eps[p.index]) } else { Option.None },
                     None => Option.None,
                 };
-                check_expr(errors, p.value.value, scope, ctx, exp);
+                check_expr(errors, p.value.value, scope, ctx, exp, muts: muts);
                 arg_types.push(infer_expr(p.value.value, scope, ctx, exp));
             }
             match x.callee {
@@ -843,7 +850,7 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
             }
         },
         Field(span, object, field) => {
-            check_expr(errors, object, scope, ctx, Option.None);
+            check_expr(errors, object, scope, ctx, Option.None, muts: muts);
             match namespace_of_access(object, scope, ctx) {
                 // A qualified `ns.member`: the member must be in ns's public surface.
                 Some(ns) => {
@@ -869,8 +876,8 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
             };
         },
         Index(span, object, index) => {
-            check_expr(errors, object, scope, ctx, Option.None);
-            check_expr(errors, index, scope, ctx, Option.None);
+            check_expr(errors, object, scope, ctx, Option.None, muts: muts);
+            check_expr(errors, index, scope, ctx, Option.None, muts: muts);
             // A String is UTF-8 and not integer-indexable (it could split a
             // multi-byte character). Reject `s[i]` at check, not only at codegen.
             if let Primitive(Str) = infer_expr(object, scope, ctx, Option.None) {
@@ -878,31 +885,31 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
             }
         },
         Binary(span, left, op, right) => {
-            check_expr(errors, left, scope, ctx, Option.None);
-            check_expr(errors, right, scope, ctx, Option.None);
+            check_expr(errors, left, scope, ctx, Option.None, muts: muts);
+            check_expr(errors, right, scope, ctx, Option.None, muts: muts);
             check_binary_op(errors, span, left, op, right, scope, ctx);
         },
         Unary(_, op, operand) => {
-            check_expr(errors, operand, scope, ctx, Option.None);
+            check_expr(errors, operand, scope, ctx, Option.None, muts: muts);
             check_unary_op(errors, op, operand, scope, ctx);
         },
         Propagate(span, inner) => {
-            check_expr(errors, inner, scope, ctx, Option.None);
+            check_expr(errors, inner, scope, ctx, Option.None, muts: muts);
             check_propagate(errors, inner, span, scope, ctx);
         },
         Range(_, start, end) => {
-            check_expr(errors, start, scope, ctx, Option.None);
-            check_expr(errors, end, scope, ctx, Option.None);
+            check_expr(errors, start, scope, ctx, Option.None, muts: muts);
+            check_expr(errors, end, scope, ctx, Option.None, muts: muts);
         },
         ListLit(_, items) => {
             for item in items {
-                check_expr(errors, item, scope, ctx, Option.None);
+                check_expr(errors, item, scope, ctx, Option.None, muts: muts);
             }
         },
         MapLit(_, entries) => {
             for entry in entries {
-                check_expr(errors, entry.key, scope, ctx, Option.None);
-                check_expr(errors, entry.value, scope, ctx, Option.None);
+                check_expr(errors, entry.key, scope, ctx, Option.None, muts: muts);
+                check_expr(errors, entry.value, scope, ctx, Option.None, muts: muts);
             }
         },
         Struct(x) => {
@@ -925,7 +932,7 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
                             if !element.fields.has(fi.name) {
                                 add_error(errors, 'unknown field "${fi.name}" on type ${x.type_name}', x.span);
                             }
-                            check_expr(errors, fi.value, scope, ctx, element.fields.get(fi.name));
+                            check_expr(errors, fi.value, scope, ctx, element.fields.get(fi.name), muts: muts);
                         }
                         // Every declared field must be provided — a `check`
                         // diagnostic, not (only) a codegen failure, so the
@@ -941,13 +948,13 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
                         if let Interface(_, args) = infer_expr(expr, scope, ctx, expected) { check_type_arg_bounds(errors, element, args, x.span, ctx.library); }
                     } else {
                         for fi in x.fields {
-                            check_expr(errors, fi.value, scope, ctx, Option.None);
+                            check_expr(errors, fi.value, scope, ctx, Option.None, muts: muts);
                         }
                     };
                 },
                 None => {
                     for fi in x.fields {
-                        check_expr(errors, fi.value, scope, ctx, Option.None);
+                        check_expr(errors, fi.value, scope, ctx, Option.None, muts: muts);
                     }
                 },
             }
@@ -959,28 +966,27 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
                     // its `Display` if it has one, else the auto-derived
                     // `Debug` (which every type carries). So no Display
                     // requirement here; just check the interpolated expression.
-                    check_expr(errors, e, scope, ctx, Option.None);
+                    check_expr(errors, e, scope, ctx, Option.None, muts: muts);
                 }
             }
         },
         Match(x) => {
-            check_match(errors, x, scope, ctx, expected);
+            check_match(errors, x, scope, ctx, expected, muts: muts);
         },
         Lambda(x) => {
             check_lambda(errors, x, scope, ctx, expected);
         },
         Block(_, block) => {
-            // An expression-position block: its statements' bindings aren't
-            // tracked for mutability (a conservative `{}`), so assignments here
-            // are not immutability-checked — a deliberate v1 limitation.
-            check_block(errors, block, scope, ctx, {}, tail_expected: expected);
+            // An expression-position block continues the enclosing statement
+            // context's mutability tracking (CH18).
+            check_block(errors, block, scope, ctx, muts, tail_expected: expected);
         },
         If(x) => {
-            check_expr(errors, x.condition, scope, ctx, Option.None);
+            check_expr(errors, x.condition, scope, ctx, Option.None, muts: muts);
             check_condition(errors, x.condition, scope, ctx);
-            check_block(errors, x.then_block, scope, ctx, {}, tail_expected: expected);
+            check_block(errors, x.then_block, scope, ctx, muts, tail_expected: expected);
             if let Some(eb) = x.else_block {
-                check_block(errors, eb, scope, ctx, {}, tail_expected: expected);
+                check_block(errors, eb, scope, ctx, muts, tail_expected: expected);
                 // An `if` in expression position is a value: its branches must
                 // agree, exactly like match arms (a value-less branch — Unit, or
                 // a bare return/throw — is exempt). Previously never unified:
@@ -998,12 +1004,12 @@ fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Typ
         },
         Return(span, value) => {
             if let Some(v) = value {
-                check_expr(errors, v, scope, ctx, ctx.return_type);
+                check_expr(errors, v, scope, ctx, ctx.return_type, muts: muts);
                 if let Some(rt) = ctx.return_type { check_return(errors, v, rt, span, scope, ctx); }
             }
         },
         Throw(_, value) => {
-            check_expr(errors, value, scope, ctx, Option.None);
+            check_expr(errors, value, scope, ctx, Option.None, muts: muts);
         },
         Int(_, _) => {},
         Float(_, _) => {},
@@ -1060,15 +1066,16 @@ fn check_lambda(_ errors: List<CheckError>, _ x: LambdaExpr, _ scope: Map<String
 // match still checks. The reference type is `expected` when known, else the first
 // value-producing arm; a later arm assignable to neither it nor itself is flagged.
 fn check_match(_ errors: List<CheckError>, _ x: MatchExpr, _ scope: Map<String, Type>,
-    _ ctx: InferCtx, _ expected: Option<Type>) -> Void {
-    check_expr(errors, x.subject, scope, ctx, Option.None);
+    _ ctx: InferCtx, _ expected: Option<Type>,
+    muts: Map<String, Bool> = {}) -> Void {
+    check_expr(errors, x.subject, scope, ctx, Option.None, muts: muts);
     let subject_type = infer_expr(x.subject, scope, ctx, Option.None);
     let mut reference: Type = expected.unwrap_or(Type.Unknown);
     for arm in x.arms {
         validate_pattern(errors, arm.pattern, subject_type, ctx);
         let arm_scope = copy_scope(scope);
         bind_match_pattern(arm.pattern, subject_type, arm_scope, ctx);
-        check_expr(errors, arm.body, arm_scope, ctx, expected);
+        check_expr(errors, arm.body, arm_scope, ctx, expected, muts: muts);
         let arm_type = infer_expr(arm.body, arm_scope, ctx, expected);
         reference = unify_arm(errors, reference, arm_type, arm.body, ctx);
     }
@@ -1079,25 +1086,43 @@ fn check_match(_ errors: List<CheckError>, _ x: MatchExpr, _ scope: Map<String, 
 // payload sub-patterns are validated against that variant's field types. The
 // checker analogue of codegen's `variant_tag` error, so a typo'd variant
 // (`Rd` — a capitalized bare pattern parses as a zero-arg constructor) is a
-// located `check` diagnostic rather than a codegen-only failure. Non-enum and
-// unknown subjects stay lenient.
+// located `check` diagnostic rather than a codegen-only failure. A literal
+// pattern's type must be able to equal the subject's (CH17:
+// `match n { 'x' => … }` on an Int can never match). Non-enum and unknown
+// subjects stay lenient.
 fn validate_pattern(_ errors: List<CheckError>, _ pattern: Pattern, _ subject: Type, _ ctx: InferCtx) -> Void {
-    if let Constructor(span, name, args) = pattern {
-        if let Interface(id, _) = subject {
-            if let Some(def) = file_scope(ctx.library, ctx.current_file).resolve_type_def(id) {
-                if def.kind == TypeDefKind.Enum {
-                    match variant_of(def, name) {
-                        Some(v) => {
-                            for p in args.enumerate() {
-                                let ft = if p.index < v.fields.len() { v.fields[p.index] } else { Type.Unknown };
-                                validate_pattern(errors, p.value, ft, ctx);
-                            }
-                        },
-                        None => { add_error(errors, 'unknown variant `${name}`', span); },
+    match pattern {
+        Constructor(span, name, args) => {
+            if let Interface(id, _) = subject {
+                if let Some(def) = file_scope(ctx.library, ctx.current_file).resolve_type_def(id) {
+                    if def.kind == TypeDefKind.Enum {
+                        match variant_of(def, name) {
+                            Some(v) => {
+                                for p in args.enumerate() {
+                                    let ft = if p.index < v.fields.len() { v.fields[p.index] } else { Type.Unknown };
+                                    validate_pattern(errors, p.value, ft, ctx);
+                                }
+                            },
+                            None => { add_error(errors, 'unknown variant `${name}`', span); },
+                        }
                     }
                 }
             }
-        }
+        },
+        Literal(span, lit) => {
+            // A literal's type never depends on local bindings, so an empty
+            // scope suffices. Lenient both ways: an unresolved literal type
+            // (`Pattern.Literal` can wrap richer exprs) or subject stays quiet.
+            let lt = infer_expr(lit, {}, ctx, Option.None);
+            if !is_lenient_operand(lt) && !is_lenient_operand(subject)
+                && !arms_compatible(lt, subject, ctx.library) {
+                add_error(errors,
+                    'literal pattern of type ${type_to_string(lt)} can never match a subject of type ${type_to_string(subject)}',
+                    span);
+            }
+        },
+        Ident(_, _) => {},
+        Wildcard(_) => {},
     }
 }
 
@@ -1222,7 +1247,7 @@ fn check_call_args(_ errors: List<CheckError>, _ fn_el: FunctionElement,
     for arg in args {
         if let Some(l) = arg.label {
             if !valid_labels.has(l) {
-                add_error(errors, 'unknown argument label "${l}" for "${fn_el.name}"', span);
+                add_error(errors, 'unknown argument label "${l}" for "${fn_el.name}"', arg.span);
                 return;
             };
         }
@@ -1244,49 +1269,68 @@ fn check_call_args(_ errors: List<CheckError>, _ fn_el: FunctionElement,
         return;
     }
 
-    // Each argument's type against its parameter.
+    // Each argument's type against its parameter. The diagnostic points at the
+    // argument, not the whole call (CH25).
+    let matched = params_for_args(params, args);
     for ip in args.enumerate() {
-        let arg = ip.value;
-        let param = match arg.label {
-            Some(l) => param_by_label(params, l),
-            None => if ip.index < params.len() { Option.Some(params[ip.index]) } else { Option.None },
-        };
-        if let Some(p) = param {
+        if let Some(p) = matched[ip.index] {
             // Receiver generics make the parameter concrete (a method's `T`
             // becomes the receiver's element); for a free function `bindings`
             // is empty and this is a no-op.
             let pty = substitute(p.ty, bindings);
             let actual = if ip.index < arg_types.len() { arg_types[ip.index] } else { Type.Unknown };
-            expect_type(errors, actual, pty, 'argument to "${fn_el.name}"', span, ctx.library);
+            expect_type(errors, actual, pty, 'argument to "${fn_el.name}"', ip.value.span, ctx.library);
         }
     }
 
-    check_bounds(errors, fn_el, params, bindings, args, arg_types, span, ctx);
+    check_bounds(errors, fn_el, matched, bindings, args, arg_types, span, ctx);
 }
 
-// Enforce generic bounds at a call site: infer each type parameter's binding
-// from the arguments, then check each bound type argument satisfies every
-// declared interface bound (`fn f<T: Display>(x: T)` rejects `f(5)`).
+// Enforce generic-call consistency at a call site: infer each type parameter's
+// binding from the arguments — diagnosing an argument whose binding conflicts
+// with an earlier one (CH10: `f<T>(a: T, b: T)` called as `f(1, 'a')`) — then
+// check each bound binding satisfies every declared interface bound
+// (`fn f<T: Display>(x: T)` rejects `f(5)`). Conflict detection is as lenient
+// as the rest of inference: an `Unknown` or still-generic binding never
+// conflicts, and cross-direction assignability (interface subtyping) counts as
+// agreement — first-binding-wins semantics elsewhere are unchanged.
 fn check_bounds(_ errors: List<CheckError>, _ fn_el: FunctionElement,
-    _ params: List<ParameterElement>, _ recv_bindings: Map<String, Type>,
+    _ matched: List<Option<ParameterElement>>, _ recv_bindings: Map<String, Type>,
     _ args: List<CallArg>, _ arg_types: List<Type>, _ span: SourceSpan,
     _ ctx: InferCtx) -> Void {
-    if fn_el.type_parameter_bounds.len() == 0 {
+    if fn_el.type_parameters.len() == 0 {
         return;
     }
     let bindings: Map<String, Type> = {};
+    let bound_at: Map<String, SourceSpan> = {};
     for ip in args.enumerate() {
-        let param = match ip.value.label {
-            Some(l) => param_by_label(params, l),
-            None => if ip.index < params.len() { Option.Some(params[ip.index]) } else { Option.None },
-        };
-        if let Some(p) = param {
+        if let Some(p) = matched[ip.index] {
             // Make receiver generics concrete first, so unification recovers
             // only the callee's *own* type parameters (those carrying bounds).
             // The argument types are the ones the call was checked with — not a
             // fresh expected-free re-inference (the CH19 divergence).
             let actual = if ip.index < arg_types.len() { arg_types[ip.index] } else { Type.Unknown };
-            unify(substitute(p.ty, recv_bindings), actual, bindings);
+            let arg_bindings: Map<String, Type> = {};
+            unify(substitute(p.ty, recv_bindings), actual, arg_bindings);
+            for tp in arg_bindings.keys() {
+                if let Some(nt) = arg_bindings.get(tp) {
+                    match bindings.get(tp) {
+                        Some(prev) => {
+                            if str_list_has(fn_el.type_parameters, tp)
+                                && !is_lenient_operand(prev) && !is_lenient_operand(nt)
+                                && !arms_compatible(prev, nt, ctx.library) {
+                                add_error(errors,
+                                    'conflicting argument types for type parameter `${tp}` of "${fn_el.name}": `${type_to_string(prev)}` and `${type_to_string(nt)}`',
+                                    ip.value.span);
+                            }
+                        },
+                        None => {
+                            bindings[tp] = nt;
+                            bound_at[tp] = ip.value.span;
+                        },
+                    }
+                }
+            }
         }
     }
     for tp in fn_el.type_parameter_bounds.keys() {
@@ -1294,10 +1338,11 @@ fn check_bounds(_ errors: List<CheckError>, _ fn_el: FunctionElement,
             if let Some(bounds) = fn_el.type_parameter_bounds.get(tp) {
                 for bound in bounds {
                     if !satisfies_bound(arg, bound, ctx.library) {
+                        // Point at the argument that bound `tp` (CH25).
                         add_error(
                             errors,
                             'type argument `${type_to_string(arg)}` for `${tp}` does not implement `${bound.name}` (required by "${fn_el.name}")',
-                            span
+                            bound_at.get(tp).unwrap_or(span)
                         );
                     }
                 }
@@ -1451,17 +1496,6 @@ fn satisfies_bound(_ t: Type, _ bound: TypeId, _ lib: LibraryElement) -> Bool {
         },
         _ => false,
     };
-}
-
-fn param_by_label(_ params: List<ParameterElement>, _ label: String) -> Option<ParameterElement> {
-    for p in params {
-        if let Some(l) = p.label {
-            if l == label {
-                return Option.Some(p);
-            };
-        }
-    }
-    return Option.None;
 }
 
 // ---- type reference checking ----

@@ -1,0 +1,17 @@
+//! spec: cf-match-literal-type
+//! mode: check
+
+// A literal pattern must be able to equal its subject (CH17): a String or
+// Bool literal can never match an Int. A literal of the subject's own type
+// and the catch-all are fine.
+
+fn main() -> Void {
+    let n = 3;
+    let r = match n {
+        'x' => 1, // expect error: literal pattern of type String can never match a subject of type Int
+        true => 2, // expect error: literal pattern of type Bool can never match a subject of type Int
+        1 => 3,
+        _ => 4,
+    };
+    println('${r}');
+}
