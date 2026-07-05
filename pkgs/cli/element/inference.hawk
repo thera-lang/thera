@@ -270,25 +270,32 @@ fn infer_match(_ x: MatchExpr, _ scope: Map<String, Type>, _ ctx: InferCtx,
 fn infer_lambda(_ x: LambdaExpr, _ scope: Map<String, Type>, _ ctx: InferCtx,
     _ expected: Option<Type>) -> Type {
     let lambda_scope = copy_scope(scope);
-    // A param's type is its annotation when present, else the corresponding
-    // parameter of the expected function type (bidirectional inference), else
-    // unknown (the checker errors on a remaining unknown).
     let expected_params = expected_function_params(expected);
     let param_types: List<Type> = [];
     for ip in x.params.enumerate() {
-        let p = ip.value;
-        let pt = match p.type_ann {
-            Some(ref) => resolver.resolve_type_ref_in(ref, ctx_scope(ctx), ctx.type_params, ctx.self_type),
-            None => match expected_params {
-                Some(eps) => if ip.index < eps.len() { eps[ip.index] } else { Type.Unknown },
-                None => Type.Unknown,
-            },
-        };
+        let pt = lambda_param_type(ip.value, ip.index, expected_params, ctx);
         param_types.push(pt);
-        lambda_scope[p.name] = pt;
+        lambda_scope[ip.value.name] = pt;
     }
     let ret = lambda_body_type(x.body, lambda_scope, ctx, expected_function_return(expected));
     return Type.Function(param_types, ret);
+}
+
+// The type of lambda parameter `p` at `index`: its annotation when present, else
+// the corresponding parameter of the expected function type (bidirectional
+// inference), else Unknown (the checker errors on a remaining Unknown). The one
+// param-typing rule shared by `infer_lambda` and the checker's `check_lambda`,
+// so the two passes can't drift (CH21) — the checker layers its own annotation
+// validation and cannot-infer diagnostics over the same result.
+pub fn lambda_param_type(_ p: LambdaParam, _ index: Int,
+    _ expected_params: Option<List<Type>>, _ ctx: InferCtx) -> Type {
+    return match p.type_ann {
+        Some(ref) => resolver.resolve_type_ref_in(ref, ctx_scope(ctx), ctx.type_params, ctx.self_type),
+        None => match expected_params {
+            Some(eps) => if index < eps.len() { eps[index] } else { Type.Unknown },
+            None => Type.Unknown,
+        },
+    };
 }
 
 // The type a lambda body produces. An expression body (`() => expr`) is just the
@@ -1201,7 +1208,7 @@ fn field_type(_ recv: Type, _ field: String, _ ctx: InferCtx) -> Type {
 
 // Whether `name` refers to an import namespace here (a known namespace not
 // shadowed by a local).
-fn is_namespace(_ name: String, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Bool {
+pub fn is_namespace(_ name: String, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Bool {
     return !scope.has(name) && ctx_scope(ctx).is_namespace(name);
 }
 
@@ -1337,28 +1344,49 @@ pub fn struct_field_immutable(_ recv: Type, _ field: String, _ ctx: InferCtx) ->
     };
 }
 
-// Whether calling `field(...)` on a value of `recv` resolves -- to an impl
-// method, the synthesized enum `name()`, or a function-valued field. Mirrors
-// the value-receiver arm of `infer_call_field`. Conservative: true (no error)
-// when `recv` isn't a concrete element we can judge (Unknown, a type parameter,
-// a namespace/static receiver typed Unknown), so only a definitive miss on a
-// known type is flagged.
-pub fn method_resolves(_ recv: Type, _ field: String, _ arg_count: Int, _ ctx: InferCtx) -> Bool {
+// The outcome of resolving a `recv.field` method call for the checker: an
+// arg-checkable method (with the receiver's generic bindings), a lenient case
+// that resolves but carries no signature to check against (an enum `name()`, a
+// function-valued field, or an unresolved/lenient receiver), or a definitive
+// miss the checker reports. Mirrors the value-receiver arm of `infer_call_field`.
+// Conservative: `Lenient` (no error) whenever `recv` isn't a concrete element we
+// can judge (Unknown, a type parameter, a namespace/static receiver typed
+// Unknown), so only a definitive miss on a known type is `Missing`. One walk —
+// CH22 collapsed the old `method_resolves` ("does it resolve?") + `resolve_method`
+// ("give me the method") double lookup.
+pub enum MethodLookup {
+    Method(MethodResolution), // an arg-checkable impl/default method + bindings
+    Lenient,                  // resolves, but nothing to arg-check
+    Missing,                  // a definitive miss
+}
+
+pub fn lookup_method(_ recv: Type, _ field: String, _ arg_count: Int, _ ctx: InferCtx) -> MethodLookup {
     match type_def_for(recv, ctx) {
         Some(element) => {
-            if let Some(_) = find_method(element, field) { return true; }
-            // A default method inherited from an implemented interface (see
-            // `resolve_method`).
-            if let Some(_) = find_default_method(element, field, ctx) { return true; }
-            if field == 'name' && arg_count == 0 && element.kind == TypeDefKind.Enum {
-                return true;
+            if let Some(method) = find_method(element, field) {
+                let bindings = match recv {
+                    Interface(rname, rargs) => receiver_bindings(rname, rargs, ctx),
+                    _ => empty_bindings(),
+                };
+                return MethodLookup.Method(MethodResolution { method: method, bindings: bindings });
             }
+            // A default method inherited from an implemented interface.
+            if let Some(res) = find_default_method(element, field, ctx) {
+                return MethodLookup.Method(res);
+            }
+            // `e.name()` on an enum value resolves but has no impl signature.
+            if field == 'name' && arg_count == 0 && element.kind == TypeDefKind.Enum {
+                return MethodLookup.Lenient;
+            }
+            // A function-valued field is callable but not an impl method; any
+            // other definitive miss is the checker's error.
             return match field_type(recv, field, ctx) {
-                Function(_, _) => true,
-                _ => false,
+                Function(_, _) => MethodLookup.Lenient,
+                _ => MethodLookup.Missing,
             };
         },
-        None => { return true; },
+        // An unresolved/lenient receiver — leave it un-arg-checked.
+        None => { return MethodLookup.Lenient; },
     }
 }
 
@@ -1373,8 +1401,8 @@ pub struct MethodResolution {
 
 // Resolve a user/native impl method `field` on receiver type `recv`. None when
 // `field` isn't an impl method on a known element (the enum `name()`, a
-// function-valued field, or an unresolved/lenient receiver) — cases the checker
-// leaves un-arg-checked, mirroring `method_resolves`' conservatism.
+// function-valued field, or an unresolved/lenient receiver) — the lenient cases
+// `lookup_method` leaves un-arg-checked.
 // Bindings mapping interface `iface_def`'s type parameters to the receiver
 // element's recorded conformance arguments (`impl Iterator<Int>` -> {T: Int}).
 fn default_method_bindings(_ element: TypeDefElement, _ iface: TypeId,
@@ -1413,21 +1441,12 @@ fn find_default_method(_ element: TypeDefElement, _ field: String, _ ctx: InferC
 }
 
 pub fn resolve_method(_ recv: Type, _ field: String, _ ctx: InferCtx) -> Option<MethodResolution> {
-    if let Some(element) = type_def_for(recv, ctx) {
-        if let Some(method) = find_method(element, field) {
-            let bindings = match recv {
-                Interface(rname, rargs) => receiver_bindings(rname, rargs, ctx),
-                _ => empty_bindings(),
-            };
-            return Option.Some(MethodResolution { method: method, bindings: bindings });
-        }
-        // A default method inherited from an interface the receiver
-        // implements. (When `recv` is itself the interface type, `find_method`
-        // already found it; this covers a concrete receiver whose own impl
-        // omits the defaulted method.)
-        if let Some(res) = find_default_method(element, field, ctx) { return Option.Some(res); }
-    }
-    return Option.None;
+    // The arg-checkable half of `lookup_method` (arg count is immaterial: the
+    // enum-`name()` case is lenient, i.e. None, at every arity).
+    return match lookup_method(recv, field, 0, ctx) {
+        Method(res) => Option.Some(res),
+        _ => Option.None,
+    };
 }
 
 // The "static receiver" head of a `(ns.)?recv.field(...)` call — a callee reached

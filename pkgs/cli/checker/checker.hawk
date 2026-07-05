@@ -988,14 +988,13 @@ fn check_expr_inner(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<Strin
                         },
                         None => {
                             let recv_type = infer_expr(recv, scope, ctx, Option.None);
-                            if !method_resolves(recv_type, field, x.args.len(), ctx) {
-                                add_error(errors, 'no method "${field}" on ${type_to_string(recv_type)}', fid.span);
-                            } else {
-                                // The method resolved — validate its arguments
-                                // (arity, labels, types) against the signature.
-                                if let Some(res) = resolve_method(recv_type, field, ctx) {
-                                    check_call_args(errors, res.method, res.bindings, x.args, arg_types, x.span, ctx);
-                                }
+                            match lookup_method(recv_type, field, x.args.len(), ctx) {
+                                // Resolved — validate its arguments (arity,
+                                // labels, types) against the signature.
+                                Method(res) => check_call_args(errors, res.method, res.bindings, x.args, arg_types, x.span, ctx),
+                                // Resolves, but nothing to arg-check.
+                                Lenient => {},
+                                Missing => add_error(errors, 'no method "${field}" on ${type_to_string(recv_type)}', fid.span),
                             };
                         },
                     }
@@ -1180,29 +1179,21 @@ fn check_lambda(_ errors: List<CheckError>, _ x: LambdaExpr, _ scope: Map<String
     let expected_params = expected_function_params(expected);
     for ip in x.params.enumerate() {
         let p = ip.value;
-        let pt = match p.type_ann {
-            Some(ref) => {
-                check_type_ref(errors, ref, ctx.library, ctx.current_file, ctx.type_params);
-                resolver.resolve_type_ref_in(ref, file_scope(ctx.library, ctx.current_file), ctx.type_params, ctx.self_type)
+        // The shared param-typing rule (CH21); the checker adds the diagnostics
+        // inference doesn't: validate an annotation, and flag a parameter the
+        // surrounding context couldn't type (we don't guess).
+        let pt = lambda_param_type(p, ip.index, expected_params, ctx);
+        match p.type_ann {
+            Some(ref) => check_type_ref(errors, ref, ctx.library, ctx.current_file, ctx.type_params),
+            None => match pt {
+                Unknown => {
+                    add_error(errors,
+                        'cannot infer the type of lambda parameter \'${p.name}\'; add a type annotation, e.g. (${p.name}: Int) => ...',
+                        x.span);
+                },
+                _ => {},
             },
-            None => {
-                let from_ctx = match expected_params {
-                    Some(eps) => if ip.index < eps.len() { eps[ip.index] } else { Type.Unknown },
-                    None => Type.Unknown,
-                };
-                // No annotation and nothing in the surrounding context determined
-                // the type — we don't guess.
-                match from_ctx {
-                    Unknown => {
-                        add_error(errors,
-                            'cannot infer the type of lambda parameter \'${p.name}\'; add a type annotation, e.g. (${p.name}: Int) => ...',
-                            x.span);
-                    },
-                    _ => {},
-                }
-                from_ctx
-            },
-        };
+        }
         lambda_scope[p.name] = pt;
     }
     // A `return` inside the lambda returns from the lambda, so check the body
@@ -2028,13 +2019,7 @@ fn check_qualified_receiver(_ errors: List<CheckError>, _ object: Expr, _ member
 // qualified access whose member must be public. Else None (an ordinary receiver).
 fn namespace_of_access(_ object: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Option<String> {
     return match object {
-        Ident(_, name) => {
-            if !scope.has(name) && file_scope(ctx.library, ctx.current_file).is_namespace(name) {
-                Option.Some(name)
-            } else {
-                Option.None
-            }
-        },
+        Ident(_, name) => if is_namespace(name, scope, ctx) { Option.Some(name) } else { Option.None },
         _ => Option.None,
     };
 }
