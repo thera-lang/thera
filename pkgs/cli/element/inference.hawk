@@ -188,26 +188,50 @@ fn infer_map(_ entries: List<MapEntry>, _ scope: Map<String, Type>, _ ctx: Infer
     return iface(ctx, 'Map', [key, value]);
 }
 
-fn infer_struct(_ x: StructExpr, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
-    // Owner-correct (Phase 1 T4): pick the constructed type's owning library from
-    // this file's scope (honoring a `ns.Point` qualifier), then fetch the def from
-    // that owner's table — so `a.Point` and `b.Point` construct distinct types.
-    let fs = ctx_scope(ctx);
-    let owner = fs.resolve_type_owner(x.type_name, x.namespace);
-    if let Some(element) = fs.resolve_type_def(TypeId { owner: owner, name: x.type_name }) {
+// A struct literal's constructed type resolved owner-correct from a file scope:
+// its qualified `TypeId` and the struct's definition. `None` when the name
+// doesn't resolve to a struct this file can see (unknown, or a same-named
+// non-struct). The one resolution `infer_struct` and the checker's `Struct` arm
+// share (CH20), honoring a `ns.Point` qualifier — so `a.Point` and `b.Point`
+// construct distinct types (Phase 1 T4).
+pub struct StructDefRef {
+    id: TypeId,
+    element: TypeDefElement,
+}
+
+pub fn resolve_struct_literal(_ fs: FileScope, _ x: StructExpr) -> Option<StructDefRef> {
+    let id = TypeId { owner: fs.resolve_type_owner(x.type_name, x.namespace), name: x.type_name };
+    if let Some(element) = fs.resolve_type_def(id) {
         if element.kind == TypeDefKind.Struct {
-            let bindings: Map<String, Type> = {};
-            for fi in x.fields {
-                // The field's declared type is the expected type for its value.
-                let declared = element.fields.get(fi.name);
-                let value_type = infer_expr(fi.value, scope, ctx, declared);
-                if let Some(d) = declared { unify(d, value_type, bindings); }
-            }
-            let args = element.type_parameters.map((tp) => bindings.get(tp).unwrap_or(Type.Unknown));
-            return Type.Interface(TypeId { owner: owner, name: x.type_name }, args);
+            return Option.Some(StructDefRef { id: id, element: element });
         };
     }
-    return Type.Unknown;
+    return Option.None;
+}
+
+// The type arguments a struct literal binds, inferred from its field values
+// against the declared field types (`Box { item: 1 }` → `Box<Int>`). The single
+// field→type-args rule shared by `infer_struct` (to build the result type) and
+// the checker's parameter-bound check (CH20), so the checker need not re-infer
+// the whole literal — each field is inferred once (memo-hit after the checker's
+// own field walk) and unified into the struct's type parameters.
+pub fn struct_type_args(_ element: TypeDefElement, _ fields: List<FieldInit>,
+    _ scope: Map<String, Type>, _ ctx: InferCtx) -> List<Type> {
+    let bindings: Map<String, Type> = {};
+    for fi in fields {
+        // The field's declared type is the expected type for its value.
+        let declared = element.fields.get(fi.name);
+        let value_type = infer_expr(fi.value, scope, ctx, declared);
+        if let Some(d) = declared { unify(d, value_type, bindings); }
+    }
+    return element.type_parameters.map((tp) => bindings.get(tp).unwrap_or(Type.Unknown));
+}
+
+fn infer_struct(_ x: StructExpr, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
+    return match resolve_struct_literal(ctx_scope(ctx), x) {
+        Some(sd) => Type.Interface(sd.id, struct_type_args(sd.element, x.fields, scope, ctx)),
+        None => Type.Unknown,
+    };
 }
 
 fn infer_ident(_ name: String, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {

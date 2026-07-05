@@ -1073,39 +1073,37 @@ fn check_expr_inner(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<Strin
             // imported type isn't silently resolved against the closure's flat table.
             check_named_type(errors, x.type_name, x.namespace, x.span, ctx.library, ctx.current_file, ctx.type_params);
             // Owner-correct (Phase 1 T4): validate the literal's fields against the
-            // definition in its *owning* library (scope picks it, honoring a
-            // `ns.Point` qualifier), so two libraries' same-named structs don't
-            // cross-check.
-            let struct_scope = file_scope(ctx.library, ctx.current_file);
-            match struct_scope.resolve_type_def(TypeId { owner: struct_scope.resolve_type_owner(x.type_name, x.namespace), name: x.type_name }) {
-                Some(element) => {
-                    if element.kind == TypeDefKind.Struct {
-                        let given: Set<String> = Set.new();
-                        for fi in x.fields {
-                            given.add(fi.name);
-                            if !element.fields.has(fi.name) {
-                                add_error(errors, 'unknown field "${fi.name}" on type ${x.type_name}', x.span);
-                            }
-                            check_expr(errors, fi.value, scope, ctx, element.fields.get(fi.name), muts: muts);
+            // definition in its *owning* library (the shared resolver picks it,
+            // honoring a `ns.Point` qualifier), so two libraries' same-named
+            // structs don't cross-check.
+            match resolve_struct_literal(file_scope(ctx.library, ctx.current_file), x) {
+                Some(sd) => {
+                    let element = sd.element;
+                    let given: Set<String> = Set.new();
+                    for fi in x.fields {
+                        given.add(fi.name);
+                        if !element.fields.has(fi.name) {
+                            add_error(errors, 'unknown field "${fi.name}" on type ${x.type_name}', x.span);
                         }
-                        // Every declared field must be provided — a `check`
-                        // diagnostic, not (only) a codegen failure, so the
-                        // analyzer/LSP sees it too. Same message as codegen's.
-                        for fname in element.fields.keys() {
-                            if !given.has(fname) {
-                                add_error(errors, 'missing field `${fname}` in ${x.type_name} literal', x.span);
-                            }
+                        check_expr(errors, fi.value, scope, ctx, element.fields.get(fi.name), muts: muts);
+                    }
+                    // Every declared field must be provided — a `check`
+                    // diagnostic, not (only) a codegen failure, so the
+                    // analyzer/LSP sees it too. Same message as codegen's.
+                    for fname in element.fields.keys() {
+                        if !given.has(fname) {
+                            add_error(errors, 'missing field `${fname}` in ${x.type_name} literal', x.span);
                         }
-                        // Enforce the struct's own parameter bounds against the type
-                        // arguments inferred from the fields (`Box<T: Display>` built
-                        // with a non-Display field value is rejected here).
-                        if let Interface(_, args) = infer_expr(expr, scope, ctx, expected) { check_type_arg_bounds(errors, element, args, x.span, ctx.library); }
-                    } else {
-                        for fi in x.fields {
-                            check_expr(errors, fi.value, scope, ctx, Option.None, muts: muts);
-                        }
-                    };
+                    }
+                    // Enforce the struct's own parameter bounds against the type
+                    // arguments inferred from the fields (`Box<T: Display>` built
+                    // with a non-Display field value is rejected here). Reuses the
+                    // shared `struct_type_args` (CH20) rather than re-inferring the
+                    // whole literal.
+                    check_type_arg_bounds(errors, element, struct_type_args(element, x.fields, scope, ctx), x.span, ctx.library);
                 },
+                // Not a struct this file can see (unknown, or a same-named
+                // non-struct): still check the field values, leniently.
                 None => {
                     for fi in x.fields {
                         check_expr(errors, fi.value, scope, ctx, Option.None, muts: muts);
