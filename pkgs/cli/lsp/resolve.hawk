@@ -192,14 +192,19 @@ pub fn resolve_at(_ ctx: ResolveCtx, _ text: String, _ offset: Int) -> Option<Re
         Named(recv, recv_span) => { return named_receiver_member(ctx, ref, recv, recv_span); },
         Qualified(ns, tname) => {
             return match namespace_surface(ctx, ns) {
+                // `ns` is an import namespace: `ns.Type.member`, owner-correct.
                 Some(surface) => match surface.origin.get(tname) {
                     Some(owner) => type_member(ctx, ref, owner, tname),
                     None => Option.None,
                 },
-                None => Option.None,
+                // `ns` names no namespace, so `a.b.c` is a *value* chain, not
+                // `namespace.Type.member`: resolve on the receiver's committed type.
+                None => computed_member(ctx, ref, enc, offset),
             };
         },
-        Computed => { return Option.None; },
+        // A computed receiver (`f().x`, `xs[i].y`): the token stream can't delimit
+        // it, but the AST locates the receiver expression and CH19 has its type.
+        Computed => { return computed_member(ctx, ref, enc, offset); },
     }
     // A local binding of the enclosing function — a parameter, `let`, loop
     // variable, pattern binding, or lambda parameter (LS2). Locals shadow
@@ -247,6 +252,21 @@ fn inferred_member(_ ctx: ResolveCtx, _ ref: NameRef, _ recv_span: SourceSpan) -
         Some(ty) => match ty {
             Interface(id, _) => member_on_owner(ctx, ref, id.owner, id.name),
             _ => Option.None,
+        },
+        None => Option.None,
+    };
+}
+
+// A member of a *computed* value receiver (`f().x`, `xs[i].y`) or a value chain
+// (`a.b.c`): the token stream can't delimit the receiver, so locate the receiver
+// expression in the enclosing function's AST (`member_receiver_span`) and resolve
+// the member on its committed type (reusing `inferred_member`). None outside a
+// function body — a computed receiver in a top-level initializer isn't covered.
+fn computed_member(_ ctx: ResolveCtx, _ ref: NameRef, _ enc: Enclosing, _ offset: Int) -> Option<Resolved> {
+    return match enc.fn_decl {
+        Some(fn_decl) => match member_receiver_span(fn_decl, offset) {
+            Some(recv_span) => inferred_member(ctx, ref, recv_span),
+            None => Option.None,
         },
         None => Option.None,
     };
@@ -858,6 +878,152 @@ fn bindings_in_pattern(_ pat: Pattern, _ ref: NameRef, _ out: List<BindingSite>)
         Wildcard(_) => {},
         Literal(_, _) => {},
     }
+}
+
+// --- computed-receiver location (for member resolution on value receivers) ---
+
+// The receiver expression's span for the member access whose member name covers
+// `offset`, searched within `fn_decl`'s body. A token stream can't delimit a
+// computed receiver (`f().x`, `xs[i].y`) or tell a value chain (`a.b.c`) from a
+// namespace one, but the AST does — the member-access `Field(obj, member)` node
+// yields `obj`'s span, whose committed type the member then resolves on (CH19).
+// None when the cursor isn't on such a member.
+fn member_receiver_span(_ fn_decl: FnDecl, _ offset: Int) -> Option<SourceSpan> {
+    return match fn_decl.body {
+        Some(body) => member_receiver_in_block(body, offset),
+        None => Option.None,
+    };
+}
+
+fn member_receiver_in_block(_ b: Block, _ offset: Int) -> Option<SourceSpan> {
+    for st in b.stmts {
+        if let Some(s) = member_receiver_in_stmt(st, offset) {
+            return Option.Some(s);
+        }
+    }
+    return match b.tail {
+        Some(t) => member_receiver_in_expr(t, offset),
+        None => Option.None,
+    };
+}
+
+fn member_receiver_in_stmt(_ st: Stmt, _ offset: Int) -> Option<SourceSpan> {
+    return match st {
+        Let(x) => member_receiver_in_expr(x.value, offset),
+        Assign(_, target, _, value) => {
+            if let Some(s) = member_receiver_in_expr(target, offset) { return Option.Some(s); }
+            member_receiver_in_expr(value, offset)
+        },
+        Expr(_, e) => member_receiver_in_expr(e, offset),
+        Return(_, value) => match value {
+            Some(v) => member_receiver_in_expr(v, offset),
+            None => Option.None,
+        },
+        Throw(_, value) => member_receiver_in_expr(value, offset),
+        If(x) => {
+            if let Some(s) = member_receiver_in_expr(x.condition, offset) { return Option.Some(s); }
+            if let Some(s) = member_receiver_in_block(x.then_block, offset) { return Option.Some(s); }
+            match x.else_block {
+                Some(eb) => member_receiver_in_block(eb, offset),
+                None => Option.None,
+            }
+        },
+        While(x) => {
+            if let Some(s) = member_receiver_in_expr(x.condition, offset) { return Option.Some(s); }
+            member_receiver_in_block(x.body, offset)
+        },
+        For(x) => {
+            if let Some(s) = member_receiver_in_expr(x.iterable, offset) { return Option.Some(s); }
+            member_receiver_in_block(x.body, offset)
+        },
+    };
+}
+
+fn member_receiver_in_expr(_ e: Expr, _ offset: Int) -> Option<SourceSpan> {
+    // Only the expression on the path to the cursor can hold the member access.
+    if !span_covers(expr_span(e), offset) {
+        return Option.None;
+    }
+    return match e {
+        // The member access itself: when the cursor is on the member name, the
+        // receiver is `obj`; otherwise the cursor is deeper inside `obj` (a chain).
+        Field(_, obj, fid) => if span_covers(fid.span, offset) {
+            Option.Some(expr_span(obj))
+        } else {
+            member_receiver_in_expr(obj, offset)
+        },
+        Call(x) => {
+            if let Some(s) = member_receiver_in_expr(x.callee, offset) { return Option.Some(s); }
+            for a in x.args {
+                if let Some(s) = member_receiver_in_expr(a.value, offset) { return Option.Some(s); }
+            }
+            Option.None
+        },
+        Index(_, obj, idx) => {
+            if let Some(s) = member_receiver_in_expr(obj, offset) { return Option.Some(s); }
+            member_receiver_in_expr(idx, offset)
+        },
+        Binary(_, l, _, r) => {
+            if let Some(s) = member_receiver_in_expr(l, offset) { return Option.Some(s); }
+            member_receiver_in_expr(r, offset)
+        },
+        Unary(_, _, operand) => member_receiver_in_expr(operand, offset),
+        Propagate(_, inner) => member_receiver_in_expr(inner, offset),
+        Range(_, a, b2) => {
+            if let Some(s) = member_receiver_in_expr(a, offset) { return Option.Some(s); }
+            member_receiver_in_expr(b2, offset)
+        },
+        Block(_, b) => member_receiver_in_block(b, offset),
+        If(x) => {
+            if let Some(s) = member_receiver_in_expr(x.condition, offset) { return Option.Some(s); }
+            if let Some(s) = member_receiver_in_block(x.then_block, offset) { return Option.Some(s); }
+            match x.else_block {
+                Some(eb) => member_receiver_in_block(eb, offset),
+                None => Option.None,
+            }
+        },
+        Match(x) => {
+            if let Some(s) = member_receiver_in_expr(x.subject, offset) { return Option.Some(s); }
+            for arm in x.arms {
+                if let Some(s) = member_receiver_in_expr(arm.body, offset) { return Option.Some(s); }
+            }
+            Option.None
+        },
+        Lambda(x) => member_receiver_in_expr(x.body, offset),
+        Struct(x) => {
+            for f in x.fields {
+                if let Some(s) = member_receiver_in_expr(f.value, offset) { return Option.Some(s); }
+            }
+            Option.None
+        },
+        ListLit(_, items) => {
+            for it in items {
+                if let Some(s) = member_receiver_in_expr(it, offset) { return Option.Some(s); }
+            }
+            Option.None
+        },
+        MapLit(_, entries) => {
+            for en in entries {
+                if let Some(s) = member_receiver_in_expr(en.key, offset) { return Option.Some(s); }
+                if let Some(s) = member_receiver_in_expr(en.value, offset) { return Option.Some(s); }
+            }
+            Option.None
+        },
+        Str(_, parts) => {
+            for part in parts {
+                if let Interp(_, ie) = part {
+                    if let Some(s) = member_receiver_in_expr(ie, offset) { return Option.Some(s); }
+                }
+            }
+            Option.None
+        },
+        Return(_, value) => match value {
+            Some(v) => member_receiver_in_expr(v, offset),
+            None => Option.None,
+        },
+        Throw(_, value) => member_receiver_in_expr(value, offset),
+        _ => Option.None,
+    };
 }
 
 // --- member / variant / field lookup (file-aware, for navigation) ---

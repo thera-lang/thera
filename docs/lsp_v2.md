@@ -314,8 +314,17 @@ the receiver's committed type (CH19's record at the receiver's span): a
 `Receiver.Named` carries its span, and `inferred_member` reads the recorded
 `Type`, takes its `TypeId` owner/name, and resolves the method (navigable) or
 field (renderable) owner-correct via the shared `member_on_owner`. Covers user
-structs/enums and built-in collections; primitives and *computed* receivers
-(`f().x`) stay deferred (the latter needs the receiver's AST span, not a token).
+structs/enums and built-in collections; primitive receivers stay deferred (a
+`Primitive` carries no `TypeId`).
+
+**Computed-receiver member resolution is done (2026-07-05)** — `f().x`,
+`xs[i].y`, and value chains `a.b.c` (which the token classifier can't tell from
+`namespace.Type.member`) now resolve. A token stream can't delimit the receiver,
+so `member_receiver_span` walks the enclosing function's AST to the member-access
+`Field(obj, member)` node and yields `obj`'s span; `computed_member` then reuses
+`inferred_member` on its committed type. Wired into the `Computed` arm and the
+non-namespace `Qualified` fallback. Still lenient — no record (or an `Unknown`
+receiver type) resolves to nothing rather than guessing.
 
 **Semantic references are done (2026-07-05)** — `textDocument/references` is
 registered and resolves by identity, not text: `SymbolId.same` compares owning
@@ -338,8 +347,8 @@ references, rename, plus inferred-receiver member resolution). Remaining
 follow-ups, all deferred: a **workspace scan** so references/rename reach closed
 on-disk files (read `dependents_of` from disk, not just open buffers); a
 **pre-rename collision check** (the new name already bound in an affected scope —
-today the checker flags any clash on the next publish); **computed-receiver**
-member resolution (`f().x`, needs the receiver's AST span); and further
+today the checker flags any clash on the next publish); **primitive-receiver**
+member resolution (`"s".split()` — a `Primitive` carries no `TypeId`); and further
 renderers — completion / signature help / semantic tokens.
 
 ### Phase 4 — parser recovery

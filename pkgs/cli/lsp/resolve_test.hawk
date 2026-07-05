@@ -221,6 +221,53 @@ fn test_inferred_receiver_field_renders() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
+// The def-span offset resolved at `use_offset` with the committed-type record
+// populated (for inferred/computed receivers), or -1 when nothing navigable.
+fn typed_def_offset(_ src: String, _ use_offset: Int) -> Int {
+    let program = program_of(src);
+    return match resolve.resolve_at(typed_ctx(program), src, use_offset) {
+        Some(r) => match r.def_span() { Some(s) => s.offset, None => -1 },
+        None => -1,
+    };
+}
+
+// A struct with a method, reachable through a call result, a field chain, and an
+// index — the three *computed* receiver shapes a token stream can't delimit.
+const COMP_SRC: String = 'struct Point { x: Int }\n'
+    + 'struct Box { p: Point }\n'
+    + 'impl Point {\n'
+    + '    fn scaled(self) -> Point { return self; }\n'
+    + '}\n'
+    + 'fn make() -> Point { return Point { x: 1 }; }\n'
+    + 'fn use_call() -> Point { return make().scaled(); }\n'
+    + 'fn use_chain(_ b: Box) -> Point { return b.p.scaled(); }\n'
+    + 'fn use_index(_ xs: List<Point>) -> Point { return xs[0].scaled(); }\n';
+
+@test
+fn test_computed_call_receiver_member_resolves() -> Result<Void, Error> {
+    // `make().scaled()` — a member on a call result navigates to the method decl.
+    let decl = at(COMP_SRC, 'fn scaled', 3);
+    testing.assert_eq(actual: typed_def_offset(COMP_SRC, at(COMP_SRC, 'make().scaled()', 7)), expected: decl)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_value_chain_receiver_member_resolves() -> Result<Void, Error> {
+    // `b.p.scaled()` — a value chain (misclassified as `ns.Type.member` at the
+    // token level) resolves on the receiver `b.p`'s committed type.
+    let decl = at(COMP_SRC, 'fn scaled', 3);
+    testing.assert_eq(actual: typed_def_offset(COMP_SRC, at(COMP_SRC, 'b.p.scaled()', 4)), expected: decl)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_indexed_receiver_member_resolves() -> Result<Void, Error> {
+    // `xs[0].scaled()` — a member on an index result navigates to the method decl.
+    let decl = at(COMP_SRC, 'fn scaled', 3);
+    testing.assert_eq(actual: typed_def_offset(COMP_SRC, at(COMP_SRC, 'xs[0].scaled()', 6)), expected: decl)?;
+    return Result.Ok(void);
+}
+
 // --- owner-correct cross-file resolution (LS1/LS3/LS8) ---
 
 fn program_at(_ src: String, _ path: String) -> Program {

@@ -8,7 +8,6 @@
 
 import std.json as _;
 
-import '../ast/ast' as _;      // Program
 import '../lexer/token' as _;  // SourceSpan
 import 'resolve';         // resolve_at
 import 'positions';     // span_to_range
