@@ -300,8 +300,8 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   mechanism (`span.file`) and the per-phase converters live in one place, but
   each phase still has its own error struct behind them and the target
   `Diagnostic {file, span, message, severity, phase}` lacks the `severity`/
-  `phase` fields (no consumer yet). Finish the single model so check/emit/LSP are
-  pure renderers.
+  `phase` fields (no consumer yet). Finish the single model so check/emit/LSP
+  are pure renderers.
 - **Owner-qualified `FuncDef` names (audit CG-D4) — needs a portable file-key
   scheme.** Two libraries' `Point.area` emit identical `FuncDef` names (stack-
   trace / `--entry` ambiguity). _On hold:_ `FuncDef.name` is the only
@@ -311,11 +311,12 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   a portable scheme (`sdk:`/`file:`/`pkg:` + relative). Not a miscompile (calls
   resolve by owner-correct index) — observability; revisit on a forcing function
   (real stack traces).
-- **Residual owner-blind keying (audit tail).** Two narrow cases stay name-keyed,
-  deferred: interface _name_ collisions across libraries, and the `native`
-  instance/static method tables (natives only come from SDK core). Plus a CH12
-  residual — an out-of-order labeled/positional argument mix maps by index in the
-  checker but in sequence in codegen; fold into a single arg-resolution cleanup.
+- **Residual owner-blind keying (audit tail).** Two narrow cases stay
+  name-keyed, deferred: interface _name_ collisions across libraries, and the
+  `native` instance/static method tables (natives only come from SDK core). Plus
+  a CH12 residual — an out-of-order labeled/positional argument mix maps by
+  index in the checker but in sequence in codegen; fold into a single
+  arg-resolution cleanup.
 - **Codegen extraction seams (audit CG-R tail).** `codegen.hawk` is large; the
   match-compilation and shared closure/free-variable walker seams landed. Still
   to extract: the module-global init subsystem, the infer-oracle / operator
@@ -328,16 +329,17 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   value+type resolution, the resolved-library cache with dependency-graph
   invalidation, `type_at` (inference-at-offset), and semantic references/rename
   all shipped (see _Changelog_). The remaining follow-ups, all deferred:
-  - **References/rename — dependency-cone pruning.** The project-wide scan builds
-    every workspace file's closure to resolve it; scope it to the target's
-    dependency cone (via the session import graph) so cost scales with
+  - **References/rename — dependency-cone pruning.** The project-wide scan
+    builds every workspace file's closure to resolve it; scope it to the
+    target's dependency cone (via the session import graph) so cost scales with
     reachability, not project size.
   - **Pre-rename collision check.** Rename doesn't yet verify the new name isn't
-    already bound in an affected scope — today the checker flags any clash on the
-    next publish. Add a pre-flight check.
+    already bound in an affected scope — today the checker flags any clash on
+    the next publish. Add a pre-flight check.
   - **Primitive-receiver member resolution.** Hover / definition / member
     resolution on a primitive receiver (`"s".split()`) don't resolve — a
-    `Primitive` value carries no `TypeId`. Ties to _Primitive vtables_ (Runtime).
+    `Primitive` value carries no `TypeId`. Ties to _Primitive vtables_
+    (Runtime).
   - **Complete field identity.** A field's declaration name and its
     `S { field: … }` literal uses don't resolve to the field yet (field
     references are member-access-only; rename declines fields). Give fields full
@@ -347,7 +349,8 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     parser recovery below.
   - **Session tokenization dedup (audit LS-D1 tail).** The closure parse still
     tokenizes the primary separately; collapsing the last redundant tokenization
-    needs the session to expose a parse's tokens so `DocAnalysis` can carry them.
+    needs the session to expose a parse's tokens so `DocAnalysis` can carry
+    them.
 - **Parser error recovery for the LSP.** The LSP's normal input is
   _syntactically broken_ code mid-edit; the parser should synthesize a
   best-effort tree (recover past the error) so semantic resolution still runs
@@ -358,8 +361,9 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   completion) + an `Expr.Error` placeholder the resolver/checker analyze
   leniently (no semantic cascade) + the finer recovery points still open
   (per-method in impl/interface, statement/block boundary, match-arm, list
-  separators) + signature-past-body. (Keep in mind when touching the parser — the
-  recent precedence-table refactor preserved the `panicking`/recovery structure.)
+  separators) + signature-past-body. (Keep in mind when touching the parser —
+  the recent precedence-table refactor preserved the `panicking`/recovery
+  structure.)
   - **Dependent feature: `textDocument/completion`.** Autocomplete requires
     navigating a mid-keystroke AST (e.g., `obj.`). Deferring until the parser
     can reliably build an AST that doesn't drop the trailing, incomplete member
@@ -440,11 +444,10 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
 - **Tools — refactorings (suggestion diagnostics + code actions).** Now that the
   ergonomics features have landed (`if let`, `let … else`, `?` on `Option`, the
   Option/Result combinators), the common verbose shapes they replace are
-  **mechanically detectable**, so the
-  front-end can suggest (and a `hawk fix` / LSP code action can apply) the
-  rewrite. These are tracked here but **decoupled from the language work** —
-  shipping `if let` does not require building its suggester. The candidate
-  refactorings, roughly highest-value first:
+  **mechanically detectable**, so the front-end can suggest (and a `hawk fix` /
+  LSP code action can apply) the rewrite. These are tracked here but **decoupled
+  from the language work** — shipping `if let` does not require building its
+  suggester. The candidate refactorings, roughly highest-value first:
   - **`match` → `if let`.** A two-arm `match` whose other arm is a `_ => {}` /
     `None => {}` catch-all (`match X { Some(v) => { … }, None => {} }`) →
     `if let Some(v) = X { … }`. The dominant cascade (~323 sites; ~279 noise
@@ -749,35 +752,36 @@ conformance specs. Newest first.
 - **Owner-correct type resolution — `TypeId`** (2026-07). Completes the
   type-origin arc the roadmap flagged as foundational: nominal type identity is
   now `(owning library, name)` via a `TypeId {owner, name}` carried on every
-  `Type` through inference, unification, and codegen's type tables (staged T1–T4,
-  fixpoint-idempotent), lifting type-name uniqueness so two libraries may each
-  define `Point` (conformance `mod-shared-type-name`). The preceding
+  `Type` through inference, unification, and codegen's type tables (staged
+  T1–T4, fixpoint-idempotent), lifting type-name uniqueness so two libraries may
+  each define `Point` (conformance `mod-shared-type-name`). The preceding
   architecture-review checkpoint chose the `TypeId` struct over an interned int
   (keeps inference pure) and over a bare positional owner.
 
-- **LSP incremental analysis engine + `type_at`** (2026-07). `hawk check` and the
-  LSP now share one long-lived analysis session (`session.Session` / `Analysis`)
-  with a resolved-library cache + dependency-graph invalidation, so a keystroke
-  re-parses only the edited file and re-checks only the affected libraries
-  instead of the whole closure (batch corpus check 22.6s → 12.5s; warm keystroke
-  ~5ms). The checker records each node's committed type (`Session.type_at`),
-  which serves inference-at-offset and halved the checker's inference work.
+- **LSP incremental analysis engine + `type_at`** (2026-07). `hawk check` and
+  the LSP now share one long-lived analysis session (`session.Session` /
+  `Analysis`) with a resolved-library cache + dependency-graph invalidation, so
+  a keystroke re-parses only the edited file and re-checks only the affected
+  libraries instead of the whole closure (batch corpus check 22.6s → 12.5s; warm
+  keystroke ~5ms). The checker records each node's committed type
+  (`Session.type_at`), which serves inference-at-offset and halved the checker's
+  inference work.
 
-- **Front-end audit — six-subsystem correctness sweep** (2026-07). An adversarial
-  audit of `pkgs/cli/` closed whole classes of "checks clean, wrong at runtime"
-  gaps: match exhaustiveness and assignment / operator / `if`-branch typing;
-  value (const/global/native) owner-keying and codegen block/const scoping;
-  builtin identity by `TypeId` rather than name string; canonical file identity +
-  surfaced loader error paths + a unified per-file diagnostic model; owner-correct
-  LSP resolution; and parser soundness (interpolation errors, `<`-ambiguity,
-  brace-aware recovery).
+- **Front-end audit — six-subsystem correctness sweep** (2026-07). An
+  adversarial audit of `pkgs/cli/` closed whole classes of "checks clean, wrong
+  at runtime" gaps: match exhaustiveness and assignment / operator / `if`-branch
+  typing; value (const/global/native) owner-keying and codegen block/const
+  scoping; builtin identity by `TypeId` rather than name string; canonical file
+  identity + surfaced loader error paths + a unified per-file diagnostic model;
+  owner-correct LSP resolution; and parser soundness (interpolation errors,
+  `<`-ambiguity, brace-aware recovery).
 
 - **Map/Set scaling — hashed, insertion-ordered** (2026-07). `Obj::Map` was a
   linear-scan, clone-on-mutate `Vec<(Value, Value)>`, so building an N-entry map
-  was O(n²) (it bit an inference refactor building tens-of-thousands-entry maps).
-  Now a dedicated `MapObj` (`runtime/src/map.rs`): a Vec for insertion order + a
-  parallel key-hash Vec + an open-addressing index above 16 entries, with
-  content-based hashing consistent with `values_eq` and mutation via
+  was O(n²) (it bit an inference refactor building tens-of-thousands-entry
+  maps). Now a dedicated `MapObj` (`runtime/src/map.rs`): a Vec for insertion
+  order + a parallel key-hash Vec + an open-addressing index above 16 entries,
+  with content-based hashing consistent with `values_eq` and mutation via
   `heap::take_obj` — O(1) get/has/insert. `Set` inherits it; insertion order is
   preserved so the fixpoint is unaffected.
 
@@ -797,15 +801,15 @@ conformance specs. Newest first.
   `io.lines`/`fs.walk`/`BufReader`.
 
 - **Nested generic args in `impl` headers → `enumerate`** (2026-06). An `impl`
-  header's `<…>` parsed type-param names only, so `impl Iterator<Indexed<T>> for
-  …` didn't parse; `parse_impl_generics` now keeps both a TypeRef and a TypeParam
-  view, chosen by whether `for` follows. Unblocked the `enumerate` adapter
-  (`-> Iterator<Indexed<T>>`) and future wrapped adapters (`zip`/`flat_map`/
-  `chain`).
+  header's `<…>` parsed type-param names only, so
+  `impl Iterator<Indexed<T>> for …` didn't parse; `parse_impl_generics` now
+  keeps both a TypeRef and a TypeParam view, chosen by whether `for` follows.
+  Unblocked the `enumerate` adapter (`-> Iterator<Indexed<T>>`) and future
+  wrapped adapters (`zip`/`flat_map`/ `chain`).
 
 - **Iterator-backed stdlib — `io.lines`/`BufReader`, `fs.walk`, `List.pop`**
-  (2026-06). First consumers of the new adapters: `io.lines(src)` yields one line
-  per `next` (an `Iterator<String>`), `fs.walk(root)` is a lazy recursive
+  (2026-06). First consumers of the new adapters: `io.lines(src)` yields one
+  line per `next` (an `Iterator<String>`), `fs.walk(root)` is a lazy recursive
   `Iterator<String>` of descendant paths, and `List.pop() -> Option<T>` is the
   mutating companion of `last()`.
 
@@ -814,14 +818,15 @@ conformance specs. Newest first.
   (runtime `global.get`/`set`, a globals GC root, an `<init>` thunk before the
   entry; front-end does topological init with cycle detection + an
   effectful-native denylist). Immutable only; `const` tightened to manifest
-  constants. First use: `std.math` `INFINITY`/`NAN`. See [language.md](language.md)
-  → Module-level bindings; conformance `module-let*`, `const-manifest`.
+  constants. First use: `std.math` `INFINITY`/`NAN`. See
+  [language.md](language.md) → Module-level bindings; conformance `module-let*`,
+  `const-manifest`.
 - **`std.regex` — RE2 regexes over the `regex` crate** (2026-06). The runtime's
   2nd deliberate dependency (after `std.hash`): the linear-time RE2-derived
   `regex` crate — `compile`/`is_match`/`find`/`find_all`/`captures`/`replace`
-  (`_all`), byte-offset `Match`, `RegexError.Syntax`. A compiled pattern lives in
-  a runtime registry behind an `Int` handle, not yet freed (the benign leak the
-  _Native resource finalization_ item addresses). Design:
+  (`_all`), byte-offset `Match`, `RegexError.Syntax`. A compiled pattern lives
+  in a runtime registry behind an `Int` handle, not yet freed (the benign leak
+  the _Native resource finalization_ item addresses). Design:
   [stdlib.md](stdlib.md) §std.regex.
 - **`std.hash` — native digests + the runtime's first external deps** (2026-06).
   `sha256`/`sha1`/`md5` (as `Bytes`) and `crc32` (as `Int`), thin wrappers over
@@ -846,10 +851,10 @@ conformance specs. Newest first.
 
 - **LSP keystroke latency — parse cache + edit coalescing** (2026-06). A
   server-lived parse cache (keyed by path, evicted on edit) reuses the parsed
-  import closure across keystrokes: **186 → 8.3 ms/edit (~22×)**. Edit coalescing
-  drains a whole buffered burst before one diagnostics flush, so 100 bunched
-  edits ≈ the cost of 1. Next lever: caching the resolved/element-model closure
-  (the incremental engine).
+  import closure across keystrokes: **186 → 8.3 ms/edit (~22×)**. Edit
+  coalescing drains a whole buffered burst before one diagnostics flush, so 100
+  bunched edits ≈ the cost of 1. Next lever: caching the resolved/element-model
+  closure (the incremental engine).
 
 - **In-VM profiler + `hawk check` ~7.7× faster** (2026-06). A deterministic
   instruction-budget profiler (`HAWK_PROFILE`) drove a measure-then-fix pass on
@@ -861,8 +866,8 @@ conformance specs. Newest first.
 
 - **Unified checker/codegen inference context + a differential oracle**
   (2026-06). The checker and codegen built `infer_expr`'s context independently
-  — a bug class where the two stages inferred an expression to different types (a
-  runtime-trapping miscompile). A differential oracle (`HAWK_INFER_ORACLE`)
+  — a bug class where the two stages inferred an expression to different types
+  (a runtime-trapping miscompile). A differential oracle (`HAWK_INFER_ORACLE`)
   mapped every divergence to one pattern (codegen dropping the receiver's type
   args), now fixed and a permanent assert-zero guard in `bin/test.sh`;
   byte-identical fixpoint. _Open: extend the oracle to lambda units — a
@@ -871,12 +876,12 @@ conformance specs. Newest first.
 
 - **`Ord` interface + `std.sort`** (2026-06). Total ordering modeled on
   `Eq`/`Display`: `interface Ord { fn compare(self, other: Self) -> Ordering }`
-  + `enum Ordering`, with explicit primitive impls and a `compare` arm in the
-  runtime `virtual_fallback` for virtual dispatch. `std.sort` ships
-  `sorted`/`sorted_desc`/`min`/`max` over `<T: Ord>` (free fns); comparison
-  operators stay Int/Double-only (wiring them through `Ord` is the _Generic
-  operators_ arc). Also fixed a latent gap: lifted lambdas now inherit their
-  enclosing function's `type_param_bounds`. Spec `iface-ord`.
+  - `enum Ordering`, with explicit primitive impls and a `compare` arm in the
+    runtime `virtual_fallback` for virtual dispatch. `std.sort` ships
+    `sorted`/`sorted_desc`/`min`/`max` over `<T: Ord>` (free fns); comparison
+    operators stay Int/Double-only (wiring them through `Ord` is the _Generic
+    operators_ arc). Also fixed a latent gap: lifted lambdas now inherit their
+    enclosing function's `type_param_bounds`. Spec `iface-ord`.
 
 - **Bitwise operators** (2026-06). `& | ^ << >> >>> ~` on `Int` (wrapping i64),
   lexer → parser precedence → checker (Int-only) → opcodes. Let `std.random`'s
@@ -897,19 +902,20 @@ conformance specs. Newest first.
   `FileScope` with `name → defining-file` origin, so value (function/const)
   resolution is owner-correct (bare to its own file, qualified within its
   library) and two libraries may share a top-level value name. Landed in eight
-  fixpoint-preserving steps; also fixed a duplicate-file-loading bug that cut the
-  self-compile ~11.5s → 4.3s and the bootstrap 282KB → 124KB. Spec
+  fixpoint-preserving steps; also fixed a duplicate-file-loading bug that cut
+  the self-compile ~11.5s → 4.3s and the bootstrap 282KB → 124KB. Spec
   `mod-shared-value-name`. (Type-name owner-correctness followed — the `TypeId`
   entry above.)
 
 - **`#loc` caller-location + assertion source locations** (2026-06). `#loc` is a
-  compiler metaconstant evaluating to a `SourceLoc`; as a default parameter value
-  it captures the call site. `std.testing` assertions take `at: SourceLoc = #loc`
-  and prefix failures `file:line:column:` — the same format `hawk check` prints.
-  Spec `expr-loc`. _Open tail above (single-hop limit; runtime backtraces)._
-- **Total rendering — `Display`-preferred, `Debug`-fallback** (2026-06). `${x}` /
-  `println(x)` are total: a value renders via its `Display` impl if present, else
-  its auto-derived `Debug`, never a check error or trap.
+  compiler metaconstant evaluating to a `SourceLoc`; as a default parameter
+  value it captures the call site. `std.testing` assertions take
+  `at: SourceLoc = #loc` and prefix failures `file:line:column:` — the same
+  format `hawk check` prints. Spec `expr-loc`. _Open tail above (single-hop
+  limit; runtime backtraces)._
+- **Total rendering — `Display`-preferred, `Debug`-fallback** (2026-06). `${x}`
+  / `println(x)` are total: a value renders via its `Display` impl if present,
+  else its auto-derived `Debug`, never a check error or trap.
   `List`/`Map`/`Set`/`Option`/`Result` carry `Display` impls (elements via
   `Debug`, so nested strings quote). Specs `iface-display`/`iface-debug`. _Open:
   richer structural `Debug`, primitive vtables (both above)._
@@ -924,9 +930,9 @@ conformance specs. Newest first.
   codegen/runtime entry (shadows the built-in floor byte-identically). Spec
   `type-native`. _Open follow-ups above._
 - **Whole-closure diagnostics — per-file origin + import parse errors**
-  (2026-06). `Diagnostic` carries a `file` origin resolved from the span's source
-  text, so an imported-file error prints against its own file; the loader parses
-  every closure file best-effort and surfaces each file's diagnostics
+  (2026-06). `Diagnostic` carries a `file` origin resolved from the span's
+  source text, so an imported-file error prints against its own file; the loader
+  parses every closure file best-effort and surfaces each file's diagnostics
   (`LoadDiagnostic`), the LSP filtering per-URI. _Open tail above (cascade
   suppression / check-path scope)._
 - **Unify call/member resolution** (2026-06). Codegen's `method_call` dispatches
