@@ -2402,14 +2402,13 @@ fn lift_lambda(_ x: LambdaExpr, _ captures: List<String>) -> FnDecl {
 // lambdas, match patterns, block lets, and for loops, are bound (not free).
 // Listed in first-reference order so the capture layout is deterministic.
 fn free_variables(_ lambda: LambdaExpr) -> List<String> {
-    let free: List<String> = [];
-    let seen: Set<String> = Set.new();
+    let v = FreeVars { free: [], seen: Set.new() };
     let bound: Set<String> = Set.new();
     for p in lambda.params {
         bound.add(p.name);
     }
-    fv_visit(lambda.body, bound, free, seen);
-    return free;
+    walk_expr(lambda.body, bound, v);
+    return v.free;
 }
 
 fn copy_set(_ s: Set<String>) -> Set<String> {
@@ -2429,19 +2428,63 @@ fn copy_slots(_ m: Map<String, Int>) -> Map<String, Int> {
     return out;
 }
 
-fn fv_ref(_ name: String, _ bound: Set<String>, _ free: List<String>, _ seen: Set<String>) -> Void {
-    if !bound.has(name) && !seen.has(name) {
-        seen.add(name);
-        free.push(name);
+// A visitor over a function body's expression tree, driving the closure analyses
+// (free variables, boxed mutable locals) from ONE structural walk
+// (`walk_expr`/`walk_stmt`/`walk_block`) — so a new `Expr`/`Stmt` variant is
+// handled in a single place, not silently missed by one of two parallel walks.
+// The walker owns the recursion and lexical-scope tracking; an implementation
+// supplies only the behaviors that differ.
+interface TreeVisitor {
+    // An identifier reference not bound in the current lexical scope.
+    fn free_ref(self, _ name: String) -> Void;
+    // A `mut` local declaration (its name).
+    fn mut_local(self, _ name: String) -> Void;
+    // A lambda expression. Return true to descend into its body (its parameters
+    // are added to the scope); false to skip it (the visitor handles it).
+    fn enter_lambda(self, _ x: LambdaExpr) -> Bool;
+}
+
+// Collects the free variables of a body: each unbound identifier once, in
+// first-reference order (the capture layout must be deterministic). Descends
+// into nested lambdas (their inner references can still be free here).
+struct FreeVars {
+    free: List<String>,
+    seen: Set<String>,
+}
+
+impl TreeVisitor for FreeVars {
+    fn free_ref(self, _ name: String) -> Void {
+        if !self.seen.has(name) {
+            self.seen.add(name);
+            self.free.push(name);
+        }
+    }
+    fn mut_local(self, _ name: String) -> Void {} // references, not declarations, matter here
+    fn enter_lambda(self, _ x: LambdaExpr) -> Bool { return true; }
+}
+
+// Collects a function's own `mut` locals and its top-level lambdas (a lambda's
+// body belongs to the lifted unit, so it is not descended into).
+struct BoxScan {
+    muts: Set<String>,
+    lambdas: List<LambdaExpr>,
+}
+
+impl TreeVisitor for BoxScan {
+    fn free_ref(self, _ name: String) -> Void {} // refs don't matter for boxing
+    fn mut_local(self, _ name: String) -> Void { self.muts.add(name); }
+    fn enter_lambda(self, _ x: LambdaExpr) -> Bool {
+        self.lambdas.push(x);
+        return false;
     }
 }
 
-fn fv_pattern_bindings(_ p: Pattern, _ into: Set<String>) -> Void {
+fn pattern_bindings(_ p: Pattern, _ into: Set<String>) -> Void {
     match p {
         Ident(_, name) => { into.add(name); },
         Constructor(_, _, args) => {
             for a in args {
-                fv_pattern_bindings(a, into);
+                pattern_bindings(a, into);
             }
         },
         Wildcard(_) => {},
@@ -2449,121 +2492,125 @@ fn fv_pattern_bindings(_ p: Pattern, _ into: Set<String>) -> Void {
     }
 }
 
-fn fv_visit_block(_ b: Block, _ bound: Set<String>, _ free: List<String>, _ seen: Set<String>) -> Void {
+fn walk_block(_ b: Block, _ bound: Set<String>, _ v: TreeVisitor) -> Void {
     let local = copy_set(bound);
     for s in b.stmts {
-        fv_stmt(s, local, free, seen);
+        walk_stmt(s, local, v);
     }
-    if let Some(t) = b.tail { fv_visit(t, local, free, seen); }
+    if let Some(t) = b.tail { walk_expr(t, local, v); }
 }
 
-fn fv_visit(_ e: Expr, _ bound: Set<String>, _ free: List<String>, _ seen: Set<String>) -> Void {
+fn walk_expr(_ e: Expr, _ bound: Set<String>, _ v: TreeVisitor) -> Void {
     match e {
-        Ident(_, name) => { fv_ref(name, bound, free, seen); },
+        Ident(_, name) => { if !bound.has(name) { v.free_ref(name); } },
         Int(_, _) => {},
         Float(_, _) => {},
         Bool(_, _) => {},
         Unit(_) => {},
-        Loc(_) => {}, // a leaf metaconstant — no free variables
+        Loc(_) => {}, // a leaf metaconstant
         Str(_, parts) => {
             for p in parts {
-                if let Interp(_, ie) = p { fv_visit(ie, bound, free, seen); }
+                if let Interp(_, ie) = p { walk_expr(ie, bound, v); }
             }
         },
         ListLit(_, items) => {
             for it in items {
-                fv_visit(it, bound, free, seen);
+                walk_expr(it, bound, v);
             }
         },
         MapLit(_, entries) => {
             for en in entries {
-                fv_visit(en.key, bound, free, seen);
-                fv_visit(en.value, bound, free, seen);
+                walk_expr(en.key, bound, v);
+                walk_expr(en.value, bound, v);
             }
         },
         Struct(x) => {
             for f in x.fields {
-                fv_visit(f.value, bound, free, seen);
+                walk_expr(f.value, bound, v);
             }
         },
         Call(x) => {
-            fv_visit(x.callee, bound, free, seen);
+            walk_expr(x.callee, bound, v);
             for a in x.args {
-                fv_visit(a.value, bound, free, seen);
+                walk_expr(a.value, bound, v);
             }
         },
-        Field(_, obj, _) => { fv_visit(obj, bound, free, seen); },
+        Field(_, obj, _) => { walk_expr(obj, bound, v); },
         Index(_, obj, idx) => {
-            fv_visit(obj, bound, free, seen);
-            fv_visit(idx, bound, free, seen);
+            walk_expr(obj, bound, v);
+            walk_expr(idx, bound, v);
         },
         Binary(_, l, _, r) => {
-            fv_visit(l, bound, free, seen);
-            fv_visit(r, bound, free, seen);
+            walk_expr(l, bound, v);
+            walk_expr(r, bound, v);
         },
-        Unary(_, _, operand) => { fv_visit(operand, bound, free, seen); },
-        Propagate(_, inner) => { fv_visit(inner, bound, free, seen); },
+        Unary(_, _, operand) => { walk_expr(operand, bound, v); },
+        Propagate(_, inner) => { walk_expr(inner, bound, v); },
         Range(_, s, en) => {
-            fv_visit(s, bound, free, seen);
-            fv_visit(en, bound, free, seen);
+            walk_expr(s, bound, v);
+            walk_expr(en, bound, v);
         },
         Match(x) => {
-            fv_visit(x.subject, bound, free, seen);
+            walk_expr(x.subject, bound, v);
             for arm in x.arms {
                 let arm_bound = copy_set(bound);
-                fv_pattern_bindings(arm.pattern, arm_bound);
-                fv_visit(arm.body, arm_bound, free, seen);
+                pattern_bindings(arm.pattern, arm_bound);
+                walk_expr(arm.body, arm_bound, v);
             }
         },
         Lambda(x) => {
-            let inner = copy_set(bound);
-            for p in x.params {
-                inner.add(p.name);
+            // The visitor decides whether this lambda's body is part of the walk.
+            if v.enter_lambda(x) {
+                let inner = copy_set(bound);
+                for p in x.params {
+                    inner.add(p.name);
+                }
+                walk_expr(x.body, inner, v);
             }
-            fv_visit(x.body, inner, free, seen);
         },
-        Block(_, block) => { fv_visit_block(block, bound, free, seen); },
+        Block(_, block) => { walk_block(block, bound, v); },
         If(x) => {
-            fv_visit(x.condition, bound, free, seen);
-            fv_visit_block(x.then_block, bound, free, seen);
-            if let Some(eb) = x.else_block { fv_visit_block(eb, bound, free, seen); }
+            walk_expr(x.condition, bound, v);
+            walk_block(x.then_block, bound, v);
+            if let Some(eb) = x.else_block { walk_block(eb, bound, v); }
         },
         Return(_, value) => {
-            if let Some(v) = value { fv_visit(v, bound, free, seen); }
+            if let Some(val) = value { walk_expr(val, bound, v); }
         },
-        Throw(_, value) => { fv_visit(value, bound, free, seen); },
+        Throw(_, value) => { walk_expr(value, bound, v); },
     }
 }
 
-fn fv_stmt(_ s: Stmt, _ bound: Set<String>, _ free: List<String>, _ seen: Set<String>) -> Void {
+fn walk_stmt(_ s: Stmt, _ bound: Set<String>, _ v: TreeVisitor) -> Void {
     match s {
         Let(x) => {
-            fv_visit(x.value, bound, free, seen);
+            walk_expr(x.value, bound, v);
+            if x.is_mut { v.mut_local(x.name); }
             bound.add(x.name); // visible to later statements in the block
         },
         Assign(_, target, _, value) => {
-            fv_visit(target, bound, free, seen);
-            fv_visit(value, bound, free, seen);
+            walk_expr(target, bound, v);
+            walk_expr(value, bound, v);
         },
-        Expr(_, e) => { fv_visit(e, bound, free, seen); },
+        Expr(_, e) => { walk_expr(e, bound, v); },
         Return(_, value) => {
-            if let Some(v) = value { fv_visit(v, bound, free, seen); }
+            if let Some(val) = value { walk_expr(val, bound, v); }
         },
-        Throw(_, value) => { fv_visit(value, bound, free, seen); },
+        Throw(_, value) => { walk_expr(value, bound, v); },
         If(x) => {
-            fv_visit(x.condition, bound, free, seen);
-            fv_visit_block(x.then_block, bound, free, seen);
-            if let Some(eb) = x.else_block { fv_visit_block(eb, bound, free, seen); }
+            walk_expr(x.condition, bound, v);
+            walk_block(x.then_block, bound, v);
+            if let Some(eb) = x.else_block { walk_block(eb, bound, v); }
         },
         While(x) => {
-            fv_visit(x.condition, bound, free, seen);
-            fv_visit_block(x.body, bound, free, seen);
+            walk_expr(x.condition, bound, v);
+            walk_block(x.body, bound, v);
         },
         For(x) => {
-            fv_visit(x.iterable, bound, free, seen);
+            walk_expr(x.iterable, bound, v);
             let loop_bound = copy_set(bound);
-            fv_pattern_bindings(x.pattern, loop_bound);
-            fv_visit_block(x.body, loop_bound, free, seen);
+            pattern_bindings(x.pattern, loop_bound);
+            walk_block(x.body, loop_bound, v);
         },
     }
 }
@@ -2636,11 +2683,10 @@ fn forbidden_in_initializer(_ sym: String) -> Bool {
 // function's body are not tracked — initializers should reference their
 // dependencies directly.
 fn global_init_deps(_ g: GlobalInit, _ scope: ModuleScope) -> List<String> {
-    let free: List<String> = [];
-    let seen: Set<String> = Set.new();
-    fv_visit(g.value, Set.new(), free, seen);
+    let v = FreeVars { free: [], seen: Set.new() };
+    walk_expr(g.value, Set.new(), v);
     let deps: List<String> = [];
-    for n in free {
+    for n in v.free {
         if let Some(owner) = scope.resolve_global_owner(g.file, n) {
             deps.push(type_key(owner, n));
         }
@@ -2654,135 +2700,24 @@ fn global_init_deps(_ g: GlobalInit, _ scope: ModuleScope) -> List<String> {
 // unit) and its top-level lambdas; a captured-and-mutable local is the
 // intersection.
 fn boxed_mut_locals(_ body: Block) -> Set<String> {
-    let muts: Set<String> = Set.new();
-    let lambdas: List<LambdaExpr> = [];
-    bml_block(body, muts, lambdas);
+    let scan = BoxScan { muts: Set.new(), lambdas: [] };
+    walk_block(body, Set.new(), scan);
     let result: Set<String> = Set.new();
-    if muts.len() == 0 || lambdas.len() == 0 {
+    if scan.muts.len() == 0 || scan.lambdas.len() == 0 {
         return result;
     }
     let captured: Set<String> = Set.new();
-    for l in lambdas {
+    for l in scan.lambdas {
         for name in free_variables(l) {
             captured.add(name);
         }
     }
-    for name in muts.to_list() {
+    for name in scan.muts.to_list() {
         if captured.has(name) {
             result.add(name);
         }
     }
     return result;
-}
-
-fn bml_block(_ b: Block, _ muts: Set<String>, _ lambdas: List<LambdaExpr>) -> Void {
-    for s in b.stmts {
-        bml_stmt(s, muts, lambdas);
-    }
-    if let Some(t) = b.tail { bml_expr(t, muts, lambdas); }
-}
-
-fn bml_expr(_ e: Expr, _ muts: Set<String>, _ lambdas: List<LambdaExpr>) -> Void {
-    match e {
-        Lambda(x) => { lambdas.push(x); }, // a lambda of this function; don't descend
-        Ident(_, _) => {},
-        Int(_, _) => {},
-        Float(_, _) => {},
-        Bool(_, _) => {},
-        Unit(_) => {},
-        Loc(_) => {}, // a leaf metaconstant
-        Str(_, parts) => {
-            for p in parts {
-                if let Interp(_, ie) = p { bml_expr(ie, muts, lambdas); }
-            }
-        },
-        ListLit(_, items) => {
-            for it in items {
-                bml_expr(it, muts, lambdas);
-            }
-        },
-        MapLit(_, entries) => {
-            for en in entries {
-                bml_expr(en.key, muts, lambdas);
-                bml_expr(en.value, muts, lambdas);
-            }
-        },
-        Struct(x) => {
-            for f in x.fields {
-                bml_expr(f.value, muts, lambdas);
-            }
-        },
-        Call(x) => {
-            bml_expr(x.callee, muts, lambdas);
-            for a in x.args {
-                bml_expr(a.value, muts, lambdas);
-            }
-        },
-        Field(_, obj, _) => { bml_expr(obj, muts, lambdas); },
-        Index(_, obj, idx) => {
-            bml_expr(obj, muts, lambdas);
-            bml_expr(idx, muts, lambdas);
-        },
-        Binary(_, l, _, r) => {
-            bml_expr(l, muts, lambdas);
-            bml_expr(r, muts, lambdas);
-        },
-        Unary(_, _, operand) => { bml_expr(operand, muts, lambdas); },
-        Propagate(_, inner) => { bml_expr(inner, muts, lambdas); },
-        Range(_, s, en) => {
-            bml_expr(s, muts, lambdas);
-            bml_expr(en, muts, lambdas);
-        },
-        Match(x) => {
-            bml_expr(x.subject, muts, lambdas);
-            for arm in x.arms {
-                bml_expr(arm.body, muts, lambdas);
-            }
-        },
-        Block(_, block) => { bml_block(block, muts, lambdas); },
-        If(x) => {
-            bml_expr(x.condition, muts, lambdas);
-            bml_block(x.then_block, muts, lambdas);
-            if let Some(eb) = x.else_block { bml_block(eb, muts, lambdas); }
-        },
-        Return(_, value) => {
-            if let Some(v) = value { bml_expr(v, muts, lambdas); }
-        },
-        Throw(_, value) => { bml_expr(value, muts, lambdas); },
-    }
-}
-
-fn bml_stmt(_ s: Stmt, _ muts: Set<String>, _ lambdas: List<LambdaExpr>) -> Void {
-    match s {
-        Let(x) => {
-            bml_expr(x.value, muts, lambdas);
-            if x.is_mut {
-                muts.add(x.name);
-            }
-        },
-        Assign(_, target, _, value) => {
-            bml_expr(target, muts, lambdas);
-            bml_expr(value, muts, lambdas);
-        },
-        Expr(_, e) => { bml_expr(e, muts, lambdas); },
-        Return(_, value) => {
-            if let Some(v) = value { bml_expr(v, muts, lambdas); }
-        },
-        Throw(_, value) => { bml_expr(value, muts, lambdas); },
-        If(x) => {
-            bml_expr(x.condition, muts, lambdas);
-            bml_block(x.then_block, muts, lambdas);
-            if let Some(eb) = x.else_block { bml_block(eb, muts, lambdas); }
-        },
-        While(x) => {
-            bml_expr(x.condition, muts, lambdas);
-            bml_block(x.body, muts, lambdas);
-        },
-        For(x) => {
-            bml_expr(x.iterable, muts, lambdas);
-            bml_block(x.body, muts, lambdas);
-        },
-    }
 }
 
 // Whether `p` always matches, so it needs no test: a wildcard or a bare variable
