@@ -28,30 +28,28 @@ const SECTION_GLOBALS: Int = 5;
 // so the encoded pool matches the runtime's. A linear scan keeps the port free
 // of map-field mutation; the pool is small.
 struct StringPool {
-    strings: List<String>,
+    strings: List<String>,      // pool entries, in first-seen (insertion) order
+    index: Map<String, Int>,    // entry -> its pool index, mirroring `strings`
 }
 
 impl StringPool {
     // Intern `s`, returning its pool index (reusing an existing entry).
     fn intern(self, _ s: String) -> Int {
-        for p in self.strings.enumerate() {
-            if p.value == s {
-                return p.index;
-            }
+        if let Some(i) = self.index.get(s) {
+            return i;
         }
         let n = self.strings.len();
         self.strings.push(s);
+        self.index[s] = n;
         return n;
     }
 
-    // The index of an already-interned string.
+    // The index of an already-interned string. `encode_module` interns every
+    // referenced string in its first pass, so a miss is a codegen/encoder bug —
+    // indexing traps loudly (a missing key) rather than returning a −1 that
+    // `write_uvarint` would silently encode as a garbage index.
     fn index_of(self, _ s: String) -> Int {
-        for p in self.strings.enumerate() {
-            if p.value == s {
-                return p.index;
-            }
-        }
-        return -1; // unreachable: every referenced string is interned first
+        return self.index[s];
     }
 }
 
@@ -60,7 +58,7 @@ pub fn encode_module(_ m: module.Module) -> Bytes {
     // First pass: intern every string the module references — type names, string
     // literals, and the names of called natives/selectors — in the same order
     // the runtime does, so the pools (and therefore the bytes) match exactly.
-    let pool = StringPool { strings: [] };
+    let pool = StringPool { strings: [], index: {} };
     for t in m.types {
         pool.intern(t.name);
     }

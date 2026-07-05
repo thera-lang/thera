@@ -447,7 +447,16 @@ impl FnCompiler {
 
     fn resolve_jumps(self) -> Void {
         for f in self.fixups {
-            let target = self.labels[f.label].unwrap_or(0);
+            // Every label a fixup targets is bound by `bind` before resolution.
+            // An unbound one is a codegen bug — record it (so the module is
+            // discarded) instead of silently emitting a wrong jump-to-0.
+            let target = match self.labels[f.label] {
+                Some(t) => t,
+                None => {
+                    self.error('internal: unbound jump label ${f.label}', element.no_span());
+                    0
+                },
+            };
             self.code[f.pos] = match f.kind {
                 Jump => Instr.Jump(target),
                 IfTrue => Instr.JumpIfTrue(target),
@@ -1604,6 +1613,10 @@ impl FnCompiler {
         let idx = field_index_of(info, field);
         if idx < 0 {
             self.error('no such field: ${field}', span);
+            // The error dooms the compile (the module is never encoded), but
+            // return a valid in-range placeholder rather than let a −1 flow into
+            // the emitted `FieldGet`/`FieldSet`.
+            return 0;
         }
         return idx;
     }
