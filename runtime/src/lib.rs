@@ -7,6 +7,7 @@ pub mod disasm;
 pub mod heap;
 pub mod instr;
 pub mod interp;
+pub mod map;
 pub mod module;
 pub mod profile;
 pub mod serialize;

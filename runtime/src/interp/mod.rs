@@ -1283,9 +1283,10 @@ impl<'a> Vm<'a> {
                 Obj::Bytes(b) => format!("Bytes[{}]", hex_join(&b)),
                 Obj::BytesBuilder(b) => format!("BytesBuilder[{}]", hex_join(&b)),
                 Obj::List(items) => format!("[{}]", self.debug_list(module, &items)?),
-                Obj::Map(entries) => {
+                Obj::Map(m) => {
+                    let entries = m.entries();
                     let mut parts = Vec::with_capacity(entries.len());
-                    for (k, val) in &entries {
+                    for (k, val) in entries {
                         parts.push(format!(
                             "{}: {}",
                             self.debug_value(module, k)?,

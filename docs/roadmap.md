@@ -135,16 +135,6 @@ resolution_ below.)
     by interpreted and compiled frames, no `thread_local`, no per-access
     indirection) — where it is load-bearing and rides along with the
     untagged-value move. See the Cranelift bullet below.
-- **Map/Set scaling — hashed, insertion-ordered.** _(Scaling, not a self-compile
-  hotspot — see above.)_ `Obj::Map` is a `Vec<(Value, Value)>` with a linear
-  `map_find` and clone-on-mutate, so building an N-entry map (the codegen symbol
-  tables) is O(n²). Fix: an insertion-ordered hashed map (a Vec for order + a
-  hash→index table) used **above a size threshold** so small maps stay linear.
-  Constraints: content-based key hashing consistent with `values_eq`; preserved
-  insertion order (the fixpoint checks byte-identity); precomputed per-key
-  hashes so a lookup needn't re-enter the heap under the map's borrow. Same
-  treatment for `Set`. Matters when a _user_ program builds large maps; the
-  front-end's own maps are small enough that O(n) doesn't bite.
 - **Read accessors that clone whole heap objects** are a recurring hot spot
   (fixed for `list.len`/indexing, GC marking, map reads; `list.len()` is now the
   `ListLen` opcode entirely). Prefer the borrowing accessor; clone only when a
@@ -775,6 +765,22 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **Map/Set scaling — hashed, insertion-ordered** (2026-07). `Obj::Map` was a
+  `Vec<(Value, Value)>` with a linear `map_find` **and** clone-on-mutate, so
+  building an N-entry map was O(n²) — it bit a recent inference refactor that
+  built maps of tens of thousands of entries. Now a dedicated `MapObj` (new
+  `runtime/src/map.rs`): a Vec for insertion order + a parallel per-key hash Vec
+  + an open-addressing hash→entry-index table built **only above a 16-entry
+  threshold** (small maps — the front-end's own — stay a linear scan, but one
+  that rejects on the cheap `u64` hash before a full `values_eq`). Key hashing is
+  content-based and consistent with `values_eq` (equal values hash equal;
+  `0.0`/`-0.0` canonicalized). Mutation switched from clone-out/write-back to
+  `heap::take_obj` (move the object out of its slot, mutate it owned with the
+  heap free to re-enter for key comparison, put it back) — O(1) per insert. `Set`
+  is Hawk-over-`Map`, so it inherits the scaling for free; insertion order is
+  preserved, so the byte-identical fixpoint is unaffected. 50k inserts + 50k
+  reads + 50k string-keyed inserts + 50k membership checks now run in ~0.1s.
 
 - **Streaming files — `fs.open`/`fs.create` + `Seek`** (2026-06). `std.io`
   gained a `Seek` interface (+ `SeekFrom` enum); `std.fs` gained `File` — a

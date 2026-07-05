@@ -9,6 +9,7 @@ use std::io::Write;
 
 use super::{Trap, bug, struct_field};
 use crate::heap;
+use crate::map::{MapObj, hash_value};
 use crate::value::{Obj, TAG_SOME, TY_OPTION, Value};
 
 /// A native function: receives the VM's output sink and the call arguments.
@@ -865,33 +866,39 @@ fn native_io_stderr_write(_out: &mut dyn Write, args: &[Value]) -> Result<Value,
 
 /// `map.keys()` — the keys, in insertion order.
 fn native_map_keys(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
-    with_map(expect_one(args, "map.keys")?, "map.keys", |entries| {
-        Ok(Value::new_list(entries.iter().map(|(k, _)| *k).collect()))
-    })
+    // Collect the keys under a borrow (copying handles, no alloc), then build the
+    // list after the borrow is released (`new_list` allocates).
+    let keys = with_map_ref(expect_one(args, "map.keys")?, "map.keys", |m| {
+        Ok(m.entries().iter().map(|(k, _)| *k).collect::<Vec<_>>())
+    })?;
+    Ok(Value::new_list(keys))
 }
 
 /// `map.values()` — the values, in insertion order.
 fn native_map_values(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
-    with_map(expect_one(args, "map.values")?, "map.values", |entries| {
-        Ok(Value::new_list(entries.iter().map(|(_, v)| *v).collect()))
-    })
+    let vals = with_map_ref(expect_one(args, "map.values")?, "map.values", |m| {
+        Ok(m.entries().iter().map(|(_, v)| *v).collect::<Vec<_>>())
+    })?;
+    Ok(Value::new_list(vals))
 }
 
 /// `map.remove(key)` — remove and return the value (`Some`), or `None`.
 fn native_map_remove(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let (map, key) = args2(args, "map.remove")?;
-    with_map_mut(map, "map.remove", |entries| {
-        match entries.iter().position(|(k, _)| k == key) {
-            Some(pos) => Ok(Value::some(entries.remove(pos).1)),
-            None => Ok(Value::none()),
-        }
+    let hash = hash_value(*key);
+    // Remove under the taken map, then build the `Some` wrapper after it's put
+    // back (`Value::some` allocates).
+    let removed = with_map_taken(map, "map.remove", |m| Ok(m.remove(*key, hash)))?;
+    Ok(match removed {
+        Some(v) => Value::some(v),
+        None => Value::none(),
     })
 }
 
 /// `map.clear()` — remove every entry, in place. Returns Unit.
 fn native_map_clear(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
-    with_map_mut(expect_one(args, "map.clear")?, "map.clear", |entries| {
-        entries.clear();
+    with_map_taken(expect_one(args, "map.clear")?, "map.clear", |m| {
+        m.clear();
         Ok(Value::Unit)
     })
 }
@@ -1699,74 +1706,47 @@ fn with_list_mut<R>(
     }
 }
 
-fn with_map<R>(
-    v: &Value,
-    who: &str,
-    f: impl FnOnce(&[(Value, Value)]) -> Result<R, Trap>,
-) -> Result<R, Trap> {
+fn map_handle(v: &Value, who: &str) -> Result<u32, Trap> {
     match v {
-        Value::Ref(h) => match heap::clone_obj(*h) {
-            Obj::Map(entries) => f(&entries),
-            _ => Err(bug(format!("{who}: expected map"))),
-        },
+        Value::Ref(h) => Ok(*h),
         _ => Err(bug(format!("{who}: expected map"))),
     }
 }
 
-// Like [`with_map`] but *borrows* the map — no clone (the read-path clone was
-// O(n) per lookup). `f` may compare keys (`==` re-enters the heap, but only for
-// *reads*, so the nested shared borrow is fine); it must not allocate or mutate
-// the VM heap while it runs (extract a `Value` and build any `Some` wrapper after
-// it returns — see `map.get`).
+// Read a map under a shared heap borrow — no clone. `f` may compare keys
+// (`values_eq` re-enters the heap, but only for *reads*, a fine nested shared
+// borrow); it must not allocate or mutate the heap. Hash any lookup key *before*
+// calling (see `map.get`) so no hashing re-enters under the borrow, and build any
+// wrapper after `f` returns.
 fn with_map_ref<R>(
     v: &Value,
     who: &str,
-    f: impl FnOnce(&[(Value, Value)]) -> Result<R, Trap>,
+    f: impl FnOnce(&MapObj) -> Result<R, Trap>,
 ) -> Result<R, Trap> {
-    match v {
-        Value::Ref(h) => heap::with_obj(*h, |obj| match obj {
-            Obj::Map(entries) => f(entries),
-            _ => Err(bug(format!("{who}: expected map"))),
-        }),
+    heap::with_obj(map_handle(v, who)?, |obj| match obj {
+        Obj::Map(m) => f(m),
         _ => Err(bug(format!("{who}: expected map"))),
-    }
+    })
 }
 
-// Map mutators compare keys (`==` re-enters the heap), so they operate on a
-// clone and write it back — no heap borrow is held while `f` runs.
-fn with_map_mut<R>(
+// Mutate a map by *taking* it out of the heap (not cloning): `f` operates on the
+// owned map with the heap free to be re-entered for key hashing/comparison, then
+// it is put back — O(1) vs the old clone-out/write-back O(n). Restores the object
+// even when `f` errors. Build any allocating result after this returns (the slot
+// is empty while `f` runs).
+fn with_map_taken<R>(
     v: &Value,
     who: &str,
-    f: impl FnOnce(&mut Vec<(Value, Value)>) -> Result<R, Trap>,
+    f: impl FnOnce(&mut MapObj) -> Result<R, Trap>,
 ) -> Result<R, Trap> {
-    match v {
-        Value::Ref(h) => {
-            let mut entries = match heap::clone_obj(*h) {
-                Obj::Map(entries) => entries,
-                _ => return Err(bug(format!("{who}: expected map"))),
-            };
-            let r = f(&mut entries)?;
-            heap::with_obj_mut(*h, |obj| {
-                if let Obj::Map(e) = obj {
-                    *e = entries;
-                }
-            });
-            Ok(r)
-        }
+    let handle = map_handle(v, who)?;
+    let mut obj = heap::take_obj(handle);
+    let r = match &mut obj {
+        Obj::Map(m) => f(m),
         _ => Err(bug(format!("{who}: expected map"))),
-    }
-}
-
-fn map_find<'b>(entries: &'b [(Value, Value)], key: &Value) -> Option<&'b Value> {
-    entries.iter().find(|(k, _)| k == key).map(|(_, v)| v)
-}
-
-fn map_insert(entries: &mut Vec<(Value, Value)>, key: Value, val: Value) {
-    if let Some(slot) = entries.iter_mut().find(|(k, _)| *k == key) {
-        slot.1 = val;
-    } else {
-        entries.push((key, val));
-    }
+    };
+    heap::restore_obj(handle, obj);
+    r
 }
 
 /// `list[i]` — element at `i`, faulting if out of range.
@@ -1844,19 +1824,16 @@ fn native_map_new(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     if !args.len().is_multiple_of(2) {
         return Err(bug("map literal: expected an even number of arguments"));
     }
-    let mut entries: Vec<(Value, Value)> = Vec::new();
-    for pair in args.chunks_exact(2) {
-        map_insert(&mut entries, pair[0], pair[1]);
-    }
+    // `new_map` (via `MapObj::from_pairs`) dedups, later keys overwriting earlier.
+    let entries: Vec<(Value, Value)> = args.chunks_exact(2).map(|p| (p[0], p[1])).collect();
     Ok(Value::new_map(entries))
 }
 
 /// `map[key]` — value for `key`, faulting (naming the key) if absent.
 fn native_map_index(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let (map, key) = args2(args, "map index")?;
-    let found = with_map_ref(map, "map index", |entries| {
-        Ok(map_find(entries, key).copied())
-    })?;
+    let hash = hash_value(*key);
+    let found = with_map_ref(map, "map index", |m| Ok(m.get(*key, hash)))?;
     // Render the key for the message only on the miss path, after the map borrow
     // is released (rendering a string key re-borrows the heap).
     found.ok_or_else(|| Trap::MissingKey {
@@ -1883,13 +1860,11 @@ fn key_label(v: &Value) -> String {
 /// `map.get(key)` — `Some(value)` if present, else `None`.
 fn native_map_get(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let (map, key) = args2(args, "map.get")?;
-    // Find under a borrow (no clone), copy the value out, then build the `Some`
-    // wrapper after the borrow is released (`Value::some` allocates).
-    let found = with_map_ref(
-        map,
-        "map.get",
-        |entries| Ok(map_find(entries, key).copied()),
-    )?;
+    // Hash the key before borrowing; find under the borrow (no clone), copy the
+    // value out, then build the `Some` wrapper after the borrow is released
+    // (`Value::some` allocates).
+    let hash = hash_value(*key);
+    let found = with_map_ref(map, "map.get", |m| Ok(m.get(*key, hash)))?;
     Ok(match found {
         Some(v) => Value::some(v),
         None => Value::none(),
@@ -1898,24 +1873,24 @@ fn native_map_get(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
 
 /// `map.len()`.
 fn native_map_len(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
-    with_map_ref(expect_one(args, "map.len")?, "map.len", |entries| {
-        Ok(Value::Int(entries.len() as i64))
+    with_map_ref(expect_one(args, "map.len")?, "map.len", |m| {
+        Ok(Value::Int(m.len() as i64))
     })
 }
 
 /// `map.has(key)`.
 fn native_map_has(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let (map, key) = args2(args, "map.has")?;
-    with_map_ref(map, "map.has", |entries| {
-        Ok(Value::Bool(map_find(entries, key).is_some()))
-    })
+    let hash = hash_value(*key);
+    with_map_ref(map, "map.has", |m| Ok(Value::Bool(m.contains(*key, hash))))
 }
 
 /// `map[key] = v` — insert or update in place. Returns `Unit`.
 fn native_map_set(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let (map, key, val) = args3(args, "map set")?;
-    with_map_mut(map, "map set", |entries| {
-        map_insert(entries, *key, *val);
+    let hash = hash_value(*key);
+    with_map_taken(map, "map set", |m| {
+        m.insert(*key, hash, *val);
         Ok(Value::Unit)
     })
 }
@@ -1994,9 +1969,9 @@ fn expect_option_map(v: &Value, who: &str) -> Result<Option<HashMap<String, Stri
         let first = fields
             .first()
             .ok_or_else(|| bug(format!("{who}: missing Some field")))?;
-        with_map(first, who, |entries| {
+        with_map_ref(first, who, |m| {
             let mut map = HashMap::new();
-            for (k, val) in entries {
+            for (k, val) in m.entries() {
                 map.insert(str_contents(k)?, str_contents(val)?);
             }
             Ok(Some(map))

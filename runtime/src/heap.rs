@@ -194,6 +194,29 @@ pub fn with_obj_mut<R>(handle: u32, f: impl FnOnce(&mut Obj) -> R) -> R {
     })
 }
 
+/// Move the object at `handle` out of its slot, returning ownership and leaving
+/// the slot empty — so the caller can mutate it while freely re-entering the heap
+/// (a map/set mutation compares and hashes keys, which `borrow()` the heap), then
+/// [`restore_obj`] it. O(1) where [`clone_obj`] would be O(n).
+///
+/// The slot is empty between the two calls, so this handle must not be read and
+/// no collection may run in between: callers are natives, which run to completion
+/// between GC safepoints, and a mutation only touches *other* handles (its keys).
+pub fn take_obj(handle: u32) -> Obj {
+    HEAP.with(|h| {
+        h.borrow_mut().slots[handle as usize]
+            .take()
+            .expect("live handle")
+    })
+}
+
+/// Put an object taken by [`take_obj`] back into its slot.
+pub fn restore_obj(handle: u32, obj: Obj) {
+    HEAP.with(|h| {
+        h.borrow_mut().slots[handle as usize] = Some(obj);
+    });
+}
+
 /// A clone of the object at `handle`, with the heap borrow released — so the
 /// caller can recurse or compare (which re-enter the heap) freely. Cheap for
 /// the common shapes: cloning a `Vec<Value>` copies handles.

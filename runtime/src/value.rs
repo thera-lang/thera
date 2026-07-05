@@ -12,6 +12,7 @@
 //! equality and field mutation go through the heap.
 
 use crate::heap;
+use crate::map::MapObj;
 
 /// A value on the operand stack or in a local slot. `Copy`: heap objects are
 /// referenced by a small handle, not an owning pointer.
@@ -72,9 +73,10 @@ impl Value {
         heap::alloc(Obj::List(items))
     }
 
-    /// Construct a heap map from insertion-ordered key/value pairs.
+    /// Construct a heap map from insertion-ordered key/value pairs (later keys
+    /// overwrite earlier duplicates, a map literal's semantics).
     pub fn new_map(entries: Vec<(Value, Value)>) -> Value {
-        heap::alloc(Obj::Map(entries))
+        heap::alloc(Obj::Map(MapObj::from_pairs(entries)))
     }
 
     /// Construct a struct value of the given type on the heap.
@@ -127,9 +129,9 @@ pub enum Obj {
     BytesBuilder(Vec<u8>),
     /// An ordered, growable sequence.
     List(Vec<Value>),
-    /// A key/value store. Insertion-ordered; lookups are a linear scan keyed by
-    /// structural equality (simple and dependency-free for the draft).
-    Map(Vec<(Value, Value)>),
+    /// A key/value store: insertion-ordered, with a hash index above a size
+    /// threshold (see [`crate::map`]).
+    Map(MapObj),
     /// A struct instance: its type id and field values (addressed by index).
     Struct {
         ty: u32,
@@ -156,7 +158,7 @@ impl Obj {
         match self {
             Obj::Str(_) | Obj::Bytes(_) | Obj::BytesBuilder(_) => {}
             Obj::List(items) => items.iter().for_each(|&v| f(v)),
-            Obj::Map(entries) => entries.iter().for_each(|&(k, v)| {
+            Obj::Map(m) => m.entries().iter().for_each(|&(k, v)| {
                 f(k);
                 f(v);
             }),
@@ -186,7 +188,7 @@ impl Obj {
             Obj::Str(s) => s.capacity(),
             Obj::Bytes(b) | Obj::BytesBuilder(b) => b.capacity(),
             Obj::List(items) => items.capacity() * size_of::<Value>(),
-            Obj::Map(entries) => entries.capacity() * size_of::<(Value, Value)>(),
+            Obj::Map(m) => m.heap_bytes(),
             Obj::Struct { fields, .. } => fields.capacity() * size_of::<Value>(),
             Obj::Enum(e) => e.fields.capacity() * size_of::<Value>(),
             Obj::Closure { captures, .. } => captures.capacity() * size_of::<Value>(),
