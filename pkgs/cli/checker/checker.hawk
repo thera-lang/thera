@@ -446,7 +446,7 @@ fn check_program(_ errors: List<CheckError>, _ program: Program, _ library: Libr
                 if let Some(ref) = x.type_ann { check_type_ref(errors, ref, library, file, Set.new()); }
                 let ctx = new_ctx(library, record_sink: records);
                 ctx.current_file = file;
-                check_expr(errors, x.value, empty_scope(), ctx, Option.None);
+                check_expr(CheckCtx { errors: errors, infer: ctx, scope: empty_scope(), muts: {} }, x.value, Option.None);
                 // A `const` is a manifest constant, inlined at every use site; a
                 // computed initializer belongs in a top-level `let` (computed once
                 // and stored). See docs/module_init.md.
@@ -466,7 +466,7 @@ fn check_program(_ errors: List<CheckError>, _ program: Program, _ library: Libr
                 if let Some(ref) = x.type_ann { check_type_ref(errors, ref, library, file, Set.new()); }
                 let ctx = new_ctx(library, record_sink: records);
                 ctx.current_file = file;
-                check_expr(errors, x.value, empty_scope(), ctx, Option.None);
+                check_expr(CheckCtx { errors: errors, infer: ctx, scope: empty_scope(), muts: {} }, x.value, Option.None);
             },
             Enum(x) => {
                 let tps = type_param_set(x.type_params);
@@ -512,8 +512,9 @@ fn check_fn(_ errors: List<CheckError>, _ fn_decl: FnDecl, _ library: LibraryEle
                 record_sink: records,
             };
             let scope = empty_scope();
-            // Track binding mutability in parallel with `scope`: a name maps to
-            // whether it may be reassigned. Parameters are immutable.
+            // Track binding mutability alongside `scope` (both live in the
+            // function's `CheckCtx`, copied together per block). Parameters are
+            // immutable.
             let muts: Map<String, Bool> = {};
             for p in fn_decl.params {
                 if p.is_self {
@@ -523,7 +524,7 @@ fn check_fn(_ errors: List<CheckError>, _ fn_decl: FnDecl, _ library: LibraryEle
                     muts[p.name] = false;
                 }
             }
-            check_block(errors, body, scope, ctx, muts);
+            check_block(CheckCtx { errors: errors, infer: ctx, scope: scope, muts: muts }, body);
         },
     }
 }
@@ -721,18 +722,53 @@ fn copy_muts(_ m: Map<String, Bool>) -> Map<String, Bool> {
     return out;
 }
 
+// The context threaded through the expression/statement check walk (CH23): the
+// shared error sink and inference context (ambient for the whole function body),
+// plus the current lexical scope — name → type and name → is-mut. The two scope
+// maps travel together and are copied together on entering a nested block, so
+// they can never desync (the hazard behind the old parallel `scope`/`muts`
+// params). Leaf checks that only read types take `cc.scope`/`cc.infer`/`cc.errors`.
+struct CheckCtx {
+    errors: List<CheckError>,
+    infer: InferCtx,
+    scope: Map<String, Type>,
+    muts: Map<String, Bool>,
+}
+
+impl CheckCtx {
+    // A nested block's context: the scope and mutability maps copied together
+    // (block-local bindings don't leak outward), sharing the error sink and
+    // inference context.
+    fn child(self) -> CheckCtx {
+        return CheckCtx {
+            errors: self.errors,
+            infer: self.infer,
+            scope: copy_scope(self.scope),
+            muts: copy_muts(self.muts),
+        };
+    }
+
+    // The same context with a replaced scope (a match arm's or loop variable's
+    // scope): the mutability map is shared — a pattern/loop variable binds a
+    // type, not mutability, and any block body copies both maps anyway.
+    fn with_scope(self, _ scope: Map<String, Type>) -> CheckCtx {
+        return CheckCtx { errors: self.errors, infer: self.infer, scope: scope, muts: self.muts };
+    }
+}
+
 // `tail_expected` is the type the context wants the block's tail value to be —
 // an expression-position block/`if` threads its own expected type here (CH7),
 // so a lambda tail can type its parameters bidirectionally.
-fn check_block(_ errors: List<CheckError>, _ block: Block, _ outer: Map<String, Type>,
-    _ ctx: InferCtx, _ muts: Map<String, Bool>,
+fn check_block(_ cc: CheckCtx, _ block: Block,
     tail_expected: Option<Type> = Option.None) -> Void {
-    let scope = copy_scope(outer);
-    // A block's bindings are scoped to it (like `scope`), so copy the mutability
-    // map too — a `let` inside the block doesn't leak to the enclosing one.
-    let block_muts = copy_muts(muts);
+    // A block's bindings are scoped to it, so copy scope + mutability together —
+    // a `let` inside the block doesn't leak to the enclosing one.
+    let inner = cc.child();
+    let errors = inner.errors;
+    let scope = inner.scope;
+    let ctx = inner.infer;
     for p in block.stmts.enumerate() {
-        check_stmt(errors, p.value, block.stmts, p.index, scope, ctx, block_muts);
+        check_stmt(inner, p.value, block.stmts, p.index);
     }
     if let Some(tail) = block.tail {
         // An else-less `if` tail has type Unit (its then-branch runs for
@@ -749,17 +785,20 @@ fn check_block(_ errors: List<CheckError>, _ block: Block, _ outer: Map<String, 
                 Some(_) => {},
             }
         }
-        check_expr(errors, tail, scope, ctx, tail_expected, muts: block_muts);
+        check_expr(inner, tail, tail_expected);
     }
 }
 
-fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ stmts: List<Stmt>, _ index: Int,
-    _ scope: Map<String, Type>, _ ctx: InferCtx, _ muts: Map<String, Bool>) -> Void {
+fn check_stmt(_ cc: CheckCtx, _ stmt: Stmt, _ stmts: List<Stmt>, _ index: Int) -> Void {
+    let errors = cc.errors;
+    let scope = cc.scope;
+    let ctx = cc.infer;
+    let muts = cc.muts;
     match stmt {
         Let(x) => {
             if let Some(ref) = x.type_ann { check_type_ref(errors, ref, ctx.library, ctx.current_file, ctx.type_params); }
             let annotated = x.type_ann.map((ref) => resolver.resolve_type_ref_in(ref, file_scope(ctx.library, ctx.current_file), ctx.type_params, ctx.self_type));
-            check_expr(errors, x.value, scope, ctx, annotated, muts: muts);
+            check_expr(cc, x.value, annotated);
             let actual = infer_expr(x.value, scope, ctx, annotated);
             // Forward-flow: an underdetermined binding (`let xs = []`) takes its
             // element type from its first pinning use later in the block.
@@ -776,7 +815,7 @@ fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ stmts: List<Stmt>, _ i
         },
         Return(span, value) => {
             if let Some(v) = value {
-                check_expr(errors, v, scope, ctx, ctx.return_type, muts: muts);
+                check_expr(cc, v, ctx.return_type);
                 if let Some(rt) = ctx.return_type { check_return(errors, v, rt, span, scope, ctx); }
             }
         },
@@ -785,7 +824,7 @@ fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ stmts: List<Stmt>, _ i
             // value the old desugar produced (PA5 keeps the AST faithful; the
             // synthesized Binary here is transient).
             let value = assign_value(target, op, rhs);
-            check_expr(errors, target, scope, ctx, Option.None, muts: muts);
+            check_expr(cc, target, Option.None);
             // Immutability: reassigning a binding that isn't `mut` is an error.
             // Only flag a name we know is an immutable local (a non-`mut` `let` or
             // a parameter); an untracked name — a global, a match/lambda binding —
@@ -818,7 +857,7 @@ fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ stmts: List<Stmt>, _ i
             // exactly that type — a local's, a list element's / map value's, or a
             // struct field's.
             let target_type = infer_expr(target, scope, ctx, Option.None);
-            check_expr(errors, value, scope, ctx, Option.Some(target_type), muts: muts);
+            check_expr(cc, value, Option.Some(target_type));
             // And the value must actually be assignable to it — the expected type
             // above is only an inference hint. (Previously unchecked: `x = 'a'` on
             // a `mut x = 1`, `xs[0] = 'a'` on a `List<Int>`, and a struct-field
@@ -828,30 +867,30 @@ fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ stmts: List<Stmt>, _ i
                 expr_span(value), ctx.library);
         },
         Expr(_, e) => {
-            check_expr(errors, e, scope, ctx, Option.None, muts: muts);
+            check_expr(cc, e, Option.None);
         },
         If(x) => {
-            check_expr(errors, x.condition, scope, ctx, Option.None, muts: muts);
+            check_expr(cc, x.condition, Option.None);
             check_condition(errors, x.condition, scope, ctx);
-            check_block(errors, x.then_block, scope, ctx, muts);
-            if let Some(eb) = x.else_block { check_block(errors, eb, scope, ctx, muts); }
+            check_block(cc, x.then_block);
+            if let Some(eb) = x.else_block { check_block(cc, eb); }
         },
         For(x) => {
-            check_expr(errors, x.iterable, scope, ctx, Option.None, muts: muts);
+            check_expr(cc, x.iterable, Option.None);
             let iter_type = infer_expr(x.iterable, scope, ctx, Option.None);
-            let body_scope = copy_scope(scope);
-            bind_for_pattern(x.pattern, iter_type, body_scope, ctx);
+            let loop_cc = cc.with_scope(copy_scope(scope));
+            bind_for_pattern(x.pattern, iter_type, loop_cc.scope, ctx);
             // The loop variable isn't tracked in `muts`, so reassigning it isn't
             // flagged; reassigning an enclosing immutable binding still is.
-            check_block(errors, x.body, body_scope, ctx, muts);
+            check_block(loop_cc, x.body);
         },
         While(x) => {
-            check_expr(errors, x.condition, scope, ctx, Option.None, muts: muts);
+            check_expr(cc, x.condition, Option.None);
             check_condition(errors, x.condition, scope, ctx);
-            check_block(errors, x.body, scope, ctx, muts);
+            check_block(cc, x.body);
         },
         Throw(_, value) => {
-            check_expr(errors, value, scope, ctx, Option.None, muts: muts);
+            check_expr(cc, value, Option.None);
         },
     }
 }
@@ -864,11 +903,9 @@ fn check_stmt(_ errors: List<CheckError>, _ stmt: Stmt, _ stmts: List<Stmt>, _ i
 // memo-hits every child and costs one level of work, not a subtree walk. The
 // checker's diagnostic re-inference sites then read the committed types back
 // instead of re-deriving them (possibly divergently) from scratch.
-fn check_expr(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Type>,
-    _ ctx: InferCtx, _ expected: Option<Type>,
-    muts: Map<String, Bool> = {}) -> Void {
-    check_expr_inner(errors, expr, scope, ctx, expected, muts: muts);
-    record_type(expr, scope, ctx, expected);
+fn check_expr(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> Void {
+    check_expr_inner(cc, expr, expected);
+    record_type(expr, cc.scope, cc.infer, expected);
 }
 
 // Record `expr`'s committed type, first-write-wins. The walk visits each real
@@ -905,9 +942,10 @@ fn set_record(_ span: SourceSpan, _ t: Type, _ ctx: InferCtx) -> Void {
 // empty map, so `let y = if c { x = 5; 1 } else { 2 }` escaped the check).
 // Callers with no statement context (initializers, lambda bodies — a function
 // boundary with its own tracking) omit it; untracked names stay lenient.
-fn check_expr_inner(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<String, Type>,
-    _ ctx: InferCtx, _ expected: Option<Type>,
-    muts: Map<String, Bool> = {}) -> Void {
+fn check_expr_inner(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> Void {
+    let errors = cc.errors;
+    let scope = cc.scope;
+    let ctx = cc.infer;
     match expr {
         Ident(span, name) => {
             // A bare name that isn't legal in this file is either qualifiable via an
@@ -924,8 +962,8 @@ fn check_expr_inner(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<Strin
             // field access, which would reject `m` as a missing field), then
             // validate the method resolves. Other callees check normally.
             match x.callee {
-                Field(_, recv, _) => { check_expr(errors, recv, scope, ctx, Option.None, muts: muts); },
-                _ => { check_expr(errors, x.callee, scope, ctx, Option.None, muts: muts); },
+                Field(_, recv, _) => { check_expr(cc, recv, Option.None); },
+                _ => { check_expr(cc, x.callee, Option.None); },
             }
             // Receiver type args on a static call (`Set<String>.new()`): validate
             // them as types and against the receiver type's parameters.
@@ -943,7 +981,7 @@ fn check_expr_inner(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<Strin
                     Some(eps) => if p.index < eps.len() { Option.Some(eps[p.index]) } else { Option.None },
                     None => Option.None,
                 };
-                check_expr(errors, p.value.value, scope, ctx, exp, muts: muts);
+                check_expr(cc, p.value.value, exp);
                 arg_types.push(infer_expr(p.value.value, scope, ctx, exp));
             }
             match x.callee {
@@ -1004,7 +1042,7 @@ fn check_expr_inner(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<Strin
         },
         Field(_, object, fid) => {
             let field = fid.name;
-            check_expr(errors, object, scope, ctx, Option.None, muts: muts);
+            check_expr(cc, object, Option.None);
             match namespace_of_access(object, scope, ctx) {
                 // A qualified `ns.member`: the member must be in ns's public surface.
                 Some(ns) => {
@@ -1030,8 +1068,8 @@ fn check_expr_inner(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<Strin
             };
         },
         Index(span, object, index) => {
-            check_expr(errors, object, scope, ctx, Option.None, muts: muts);
-            check_expr(errors, index, scope, ctx, Option.None, muts: muts);
+            check_expr(cc, object, Option.None);
+            check_expr(cc, index, Option.None);
             // A String is UTF-8 and not integer-indexable (it could split a
             // multi-byte character). Reject `s[i]` at check, not only at codegen.
             if let Primitive(Str) = infer_expr(object, scope, ctx, Option.None) {
@@ -1039,31 +1077,31 @@ fn check_expr_inner(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<Strin
             }
         },
         Binary(span, left, op, right) => {
-            check_expr(errors, left, scope, ctx, Option.None, muts: muts);
-            check_expr(errors, right, scope, ctx, Option.None, muts: muts);
+            check_expr(cc, left, Option.None);
+            check_expr(cc, right, Option.None);
             check_binary_op(errors, span, left, op, right, scope, ctx);
         },
         Unary(_, op, operand) => {
-            check_expr(errors, operand, scope, ctx, Option.None, muts: muts);
+            check_expr(cc, operand, Option.None);
             check_unary_op(errors, op, operand, scope, ctx);
         },
         Propagate(span, inner) => {
-            check_expr(errors, inner, scope, ctx, Option.None, muts: muts);
+            check_expr(cc, inner, Option.None);
             check_propagate(errors, inner, span, scope, ctx);
         },
         Range(_, start, end) => {
-            check_expr(errors, start, scope, ctx, Option.None, muts: muts);
-            check_expr(errors, end, scope, ctx, Option.None, muts: muts);
+            check_expr(cc, start, Option.None);
+            check_expr(cc, end, Option.None);
         },
         ListLit(_, items) => {
             for item in items {
-                check_expr(errors, item, scope, ctx, Option.None, muts: muts);
+                check_expr(cc, item, Option.None);
             }
         },
         MapLit(_, entries) => {
             for entry in entries {
-                check_expr(errors, entry.key, scope, ctx, Option.None, muts: muts);
-                check_expr(errors, entry.value, scope, ctx, Option.None, muts: muts);
+                check_expr(cc, entry.key, Option.None);
+                check_expr(cc, entry.value, Option.None);
             }
         },
         Struct(x) => {
@@ -1085,7 +1123,7 @@ fn check_expr_inner(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<Strin
                         if !element.fields.has(fi.name) {
                             add_error(errors, 'unknown field "${fi.name}" on type ${x.type_name}', x.span);
                         }
-                        check_expr(errors, fi.value, scope, ctx, element.fields.get(fi.name), muts: muts);
+                        check_expr(cc, fi.value, element.fields.get(fi.name));
                     }
                     // Every declared field must be provided — a `check`
                     // diagnostic, not (only) a codegen failure, so the
@@ -1106,7 +1144,7 @@ fn check_expr_inner(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<Strin
                 // non-struct): still check the field values, leniently.
                 None => {
                     for fi in x.fields {
-                        check_expr(errors, fi.value, scope, ctx, Option.None, muts: muts);
+                        check_expr(cc, fi.value, Option.None);
                     }
                 },
             }
@@ -1118,27 +1156,27 @@ fn check_expr_inner(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<Strin
                     // its `Display` if it has one, else the auto-derived
                     // `Debug` (which every type carries). So no Display
                     // requirement here; just check the interpolated expression.
-                    check_expr(errors, e, scope, ctx, Option.None, muts: muts);
+                    check_expr(cc, e, Option.None);
                 }
             }
         },
         Match(x) => {
-            check_match(errors, x, scope, ctx, expected, muts: muts);
+            check_match(cc, x, expected);
         },
         Lambda(x) => {
-            check_lambda(errors, x, scope, ctx, expected);
+            check_lambda(cc, x, expected);
         },
         Block(_, block) => {
             // An expression-position block continues the enclosing statement
             // context's mutability tracking (CH18).
-            check_block(errors, block, scope, ctx, muts, tail_expected: expected);
+            check_block(cc, block, tail_expected: expected);
         },
         If(x) => {
-            check_expr(errors, x.condition, scope, ctx, Option.None, muts: muts);
+            check_expr(cc, x.condition, Option.None);
             check_condition(errors, x.condition, scope, ctx);
-            check_block(errors, x.then_block, scope, ctx, muts, tail_expected: expected);
+            check_block(cc, x.then_block, tail_expected: expected);
             if let Some(eb) = x.else_block {
-                check_block(errors, eb, scope, ctx, muts, tail_expected: expected);
+                check_block(cc, eb, tail_expected: expected);
                 // An `if` in expression position is a value: its branches must
                 // agree, exactly like match arms (a value-less branch — Unit, or
                 // a bare return/throw — is exempt). Previously never unified:
@@ -1156,12 +1194,12 @@ fn check_expr_inner(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<Strin
         },
         Return(span, value) => {
             if let Some(v) = value {
-                check_expr(errors, v, scope, ctx, ctx.return_type, muts: muts);
+                check_expr(cc, v, ctx.return_type);
                 if let Some(rt) = ctx.return_type { check_return(errors, v, rt, span, scope, ctx); }
             }
         },
         Throw(_, value) => {
-            check_expr(errors, value, scope, ctx, Option.None, muts: muts);
+            check_expr(cc, value, Option.None);
         },
         Int(_, _) => {},
         Float(_, _) => {},
@@ -1171,8 +1209,10 @@ fn check_expr_inner(_ errors: List<CheckError>, _ expr: Expr, _ scope: Map<Strin
     }
 }
 
-fn check_lambda(_ errors: List<CheckError>, _ x: LambdaExpr, _ scope: Map<String, Type>,
-    _ ctx: InferCtx, _ expected: Option<Type>) -> Void {
+fn check_lambda(_ cc: CheckCtx, _ x: LambdaExpr, _ expected: Option<Type>) -> Void {
+    let errors = cc.errors;
+    let scope = cc.scope;
+    let ctx = cc.infer;
     let lambda_scope = copy_scope(scope);
     let expected_params = expected_function_params(expected);
     for ip in x.params.enumerate() {
@@ -1200,7 +1240,10 @@ fn check_lambda(_ errors: List<CheckError>, _ x: LambdaExpr, _ scope: Map<String
     // separately at the call site.
     let lambda_return = lambda_body_type(x.body, lambda_scope, ctx, expected_function_return(expected));
     let body_ctx = with_return_type(ctx, lambda_return);
-    check_expr(errors, x.body, lambda_scope, body_ctx, expected_function_return(expected));
+    // A lambda is a function boundary: its body has its own scope and fresh
+    // mutability tracking, and the lambda's inferred return context.
+    let body_cc = CheckCtx { errors: errors, infer: body_ctx, scope: lambda_scope, muts: {} };
+    check_expr(body_cc, x.body, expected_function_return(expected));
 }
 
 // Check a `match`, including arm-type agreement: every arm that produces a value
@@ -1209,18 +1252,21 @@ fn check_lambda(_ errors: List<CheckError>, _ x: LambdaExpr, _ scope: Map<String
 // `Unknown` body like a bare `return`/`throw` — are exempt, so a side-effecting
 // match still checks. The reference type is `expected` when known, else the first
 // value-producing arm; a later arm assignable to neither it nor itself is flagged.
-fn check_match(_ errors: List<CheckError>, _ x: MatchExpr, _ scope: Map<String, Type>,
-    _ ctx: InferCtx, _ expected: Option<Type>,
-    muts: Map<String, Bool> = {}) -> Void {
-    check_expr(errors, x.subject, scope, ctx, Option.None, muts: muts);
+fn check_match(_ cc: CheckCtx, _ x: MatchExpr, _ expected: Option<Type>) -> Void {
+    let errors = cc.errors;
+    let scope = cc.scope;
+    let ctx = cc.infer;
+    check_expr(cc, x.subject, Option.None);
     let subject_type = infer_expr(x.subject, scope, ctx, Option.None);
     let mut reference: Type = expected.unwrap_or(Type.Unknown);
     for arm in x.arms {
         validate_pattern(errors, arm.pattern, subject_type, ctx);
-        let arm_scope = copy_scope(scope);
-        bind_match_pattern(arm.pattern, subject_type, arm_scope, ctx);
-        check_expr(errors, arm.body, arm_scope, ctx, expected, muts: muts);
-        let arm_type = infer_expr(arm.body, arm_scope, ctx, expected);
+        // The arm's pattern bindings extend a fresh scope; mutability tracking
+        // is shared (a pattern binds a type, not mutability — CH18).
+        let arm_cc = cc.with_scope(copy_scope(scope));
+        bind_match_pattern(arm.pattern, subject_type, arm_cc.scope, ctx);
+        check_expr(arm_cc, arm.body, expected);
+        let arm_type = infer_expr(arm.body, arm_cc.scope, ctx, expected);
         reference = unify_arm(errors, reference, arm_type, arm.body, ctx);
     }
     check_exhaustive(errors, x, subject_type, ctx);
