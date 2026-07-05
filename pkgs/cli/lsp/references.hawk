@@ -15,21 +15,21 @@ import 'positions';
 import 'resolve';
 import 'paths';
 
-// Collect references to `target` in one document (`text`, open at `uri`, resolved
-// through `ctx`) into `out`. Each identifier with the target's name is resolved
-// at its own offset and kept only when it names the same declaration. When
-// `include_decl` is false, the declaration's own name occurrence is skipped
-// (LSP `context.includeDeclaration`).
-pub fn collect_in(_ ctx: resolve.ResolveCtx, _ text: String, _ uri: String,
-    _ target: resolve.SymbolId, _ include_decl: Bool, _ out: List<json.Json>) -> Void {
-    let doc_path = paths.uri_to_path(uri);
+// The spans of every reference to `target` in one resolved document — each
+// identifier with the target's name resolved at its own offset and kept only
+// when it names the *same declaration* (SymbolId identity). When `include_decl`
+// is false, the declaration's own name occurrence is dropped. Shared by
+// find-references and rename (which rewrites exactly these spans).
+pub fn matching_spans(_ ctx: resolve.ResolveCtx, _ text: String, _ doc_path: String,
+    _ target: resolve.SymbolId, _ include_decl: Bool) -> List<SourceSpan> {
+    let spans: List<SourceSpan> = [];
     for tok in lexer.tokenize(text).tokens {
         if tok.kind == TokenKind.Identifier && tok.lexeme() == target.name() {
             match resolve.resolve_at(ctx, text, tok.span.offset) {
                 Some(r) => match r.symbol() {
                     Some(s) => {
                         if s.same(target) && (include_decl || !is_declaration(tok, doc_path, target)) {
-                            out.push(location(uri, tok.span));
+                            spans.push(tok.span);
                         }
                     },
                     None => {},
@@ -37,6 +37,17 @@ pub fn collect_in(_ ctx: resolve.ResolveCtx, _ text: String, _ uri: String,
                 None => {},
             }
         }
+    }
+    return spans;
+}
+
+// Collect references to `target` in one document (`text`, open at `uri`, resolved
+// through `ctx`) into `out` as LSP `Location`s (LSP `context.includeDeclaration`
+// via `include_decl`).
+pub fn collect_in(_ ctx: resolve.ResolveCtx, _ text: String, _ uri: String,
+    _ target: resolve.SymbolId, _ include_decl: Bool, _ out: List<json.Json>) -> Void {
+    for span in matching_spans(ctx, text, paths.uri_to_path(uri), target, include_decl) {
+        out.push(location(uri, span));
     }
 }
 

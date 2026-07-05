@@ -21,10 +21,10 @@ import 'definition';
 import 'formatting';
 import 'code_action';
 import 'workspace_symbols';
-// `references` is semantic (SymbolId identity, over the open documents) and
-// registered (via `analysis.references_at`). `rename` is still lexical-only (any
-// token with the same text) and stays parked until it, too, resolves by
-// identity. See references.hawk, rename.hawk, and roadmap.md.
+// `references` and `rename` are both semantic now — they resolve every candidate
+// by `SymbolId` identity over the open documents (via `analysis.references_at` /
+// `rename_at`), so unrelated same-named symbols are never touched. See
+// references.hawk and rename.hawk.
 
 // The server = the protocol layer. It owns dispatch and the lifecycle flag
 // (`shutdown_received`); the workspace analysis state — open documents, the SDK
@@ -184,8 +184,11 @@ impl Server {
                 params.get('position'), params.get('context')));
             return true;
         }
-        // `textDocument/rename` is intentionally not dispatched: it is still
-        // lexical-only (see the import block).
+        if method == 'textDocument/rename' {
+            send_response(writer, id, self.rename(params.get('textDocument').get('uri').as_string(),
+                params.get('position'), params.get('newName').as_string()));
+            return true;
+        }
         if method == 'textDocument/didClose' {
             if let Some(uri) = params.get('textDocument').get('uri').as_string() {
                 self.analysis.close_document(uri);
@@ -300,6 +303,19 @@ impl Server {
         };
     }
 
+    // Rename at a position: a WorkspaceEdit rewriting every occurrence that
+    // resolves to the same declaration across the open documents (semantic), or
+    // null when the cursor names no renamable symbol or the new name is invalid.
+    fn rename(self, _ uri: Option<String>, _ position: Json, _ new_name: Option<String>) -> Json {
+        return match uri {
+            Some(u) => match new_name {
+                Some(n) => self.analysis.rename_at(u, position, n),
+                None => json.null(),
+            },
+            None => json.null(),
+        };
+    }
+
     // Publish diagnostics for every document dirtied since the last flush
     // (`take_dirty` drains the analysis's set). A document edited several times
     // in one batch is re-checked once; one closed before the flush was already
@@ -371,7 +387,7 @@ fn initialize_result() -> Json {
             'codeActionProvider': json.bool(true),
             'workspaceSymbolProvider': json.bool(true),
             'referencesProvider': json.bool(true),
-            // renameProvider: withheld until it, too, is semantic.
+            'renameProvider': json.bool(true),
         }),
         'serverInfo': json.obj({
             'name': json.str('hawk'),

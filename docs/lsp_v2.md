@@ -327,9 +327,20 @@ context (so `f`'s local `x` and `g`'s local `x` stay distinct;
 closed on-disk file isn't found yet (a workspace scan, reading `dependents_of`
 from disk, is the follow-up).
 
-Remaining for Phase 3: **semantic rename** — the same identity-keyed collection
-as references, applied as a `WorkspaceEdit`, with a collision check (the new name
-must not clash in an affected scope). Then completion / signature help follow.
+**Semantic rename is done (2026-07-05)** — `textDocument/rename` is registered
+and rewrites exactly the identity-matched occurrences (`references.matching_spans`
+shared with find-references), grouped into a `WorkspaceEdit`. The new name is
+validated as a legal identifier (`rename.is_identifier`, lexer-checked — a
+keyword is rejected). Scope is the open document set, like references.
+
+**Phase 3 is functionally complete** for the planned features (definition, hover,
+references, rename, plus inferred-receiver member resolution). Remaining
+follow-ups, all deferred: a **workspace scan** so references/rename reach closed
+on-disk files (read `dependents_of` from disk, not just open buffers); a
+**pre-rename collision check** (the new name already bound in an affected scope —
+today the checker flags any clash on the next publish); **computed-receiver**
+member resolution (`f().x`, needs the receiver's AST span); and further
+renderers — completion / signature help / semantic tokens.
 
 ### Phase 4 — parser recovery
 

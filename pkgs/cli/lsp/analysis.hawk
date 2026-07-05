@@ -10,7 +10,8 @@ import '../ast/ast' as _;      // Program
 import '../loader';
 import '../session';
 import 'resolve';         // ResolveCtx
-import 'references';       // collect_in (semantic find-references)
+import 'references';       // collect_in / matching_spans (semantic)
+import 'rename';           // edits_for / is_identifier (semantic rename)
 import 'diagnostics';     // render_diagnostics
 import 'paths';             // uri_to_path
 import 'positions';       // position_to_offset
@@ -196,6 +197,48 @@ impl Analysis {
             }
         }
         return arr(out);
+    }
+
+    // The `WorkspaceEdit` (as JSON) that renames the symbol at `position` in
+    // `uri` to `new_name`, or JSON null when the cursor names no renamable symbol
+    // or the new name isn't a legal identifier. Rewrites exactly the occurrences
+    // that resolve to the same declaration (its own name included), across the
+    // open documents. A pre-rename collision check (the new name already bound in
+    // an affected scope) is a follow-up — the checker flags any clash on the next
+    // publish. Scope is the open document set, like references.
+    pub fn rename_at(self, _ uri: String, _ position: Json, _ new_name: String) -> Json {
+        if !rename.is_identifier(new_name) {
+            return null();
+        }
+        let target = match self.analyze_at(Option.Some(uri), position) {
+            Some(a) => match resolve.resolve_at(a.ctx, a.text, a.offset) {
+                Some(r) => match r.symbol() {
+                    Some(s) => s,
+                    None => return null(),
+                },
+                None => return null(),
+            },
+            None => return null(),
+        };
+        let changes: Map<String, Json> = {};
+        for u in self.docs.keys() {
+            match self.doc_ctx(u) {
+                Some(ctx) => match self.docs.get(u) {
+                    Some(text) => {
+                        let spans = references.matching_spans(ctx, text, paths.uri_to_path(u), target, true);
+                        if spans.len() > 0 {
+                            changes[u] = rename.edits_for(spans, new_name);
+                        }
+                    },
+                    None => {},
+                },
+                None => {},
+            }
+        }
+        if changes.keys().len() == 0 {
+            return null();
+        }
+        return obj({ 'changes': obj(changes) });
     }
 
     // The `diagnostics` array (as JSON) for `uri`'s `text`. The open document

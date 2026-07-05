@@ -1,54 +1,37 @@
-// LSP rename: renames the identifier under the cursor across the open document
-// and its imports.
+// LSP rename — semantic. Reuses the identity-keyed reference collection
+// (`references.matching_spans`) to rewrite exactly the occurrences that name the
+// declaration under the cursor — so a local `x` is renamed without touching an
+// unrelated `x`, the flaw that kept the lexical version unregistered.
 //
-// TODO(lsp): this is **lexical only** — it rewrites every identifier token with
-// the same text, with no scope/binding analysis, so it would rename unrelated
-// same-named symbols (a destructive false match). It is therefore **not
-// registered** by the server (see server.hawk) until it is made scope-aware via
-// the element model. See roadmap.md.
+// The orchestration — which documents to scan, the new-name guard — lives in
+// analysis.hawk (`rename_at`); this module formats one document's edits and
+// validates the proposed name.
 
 import std.json;
-import std.fs;
 
-import '../ast/ast' as _;
 import '../lexer/lexer';
 import '../lexer/token' as _;
 import 'positions';
-import 'resolve';
-import 'paths';
 
-pub fn handle_rename(_ program: Program, _ imports: List<Program>, _ text: String, _ offset: Int, _ new_name: String) -> json.Json {
-    return match resolve.name_at(text, offset) {
-        Some(ref) => {
-            let changes: Map<String, json.Json> = {};
-            find_edits_in_text(paths.program_path(program), text, ref.name, new_name, changes);
-            for imp in imports {
-                let path = paths.program_path(imp);
-                if path != '' {
-                    if let Ok(imp_text) = fs.read_text(path) {
-                        find_edits_in_text(path, imp_text, ref.name, new_name, changes);
-                    }
-                }
-            }
-            json.obj({
-                'changes': json.obj(changes)
-            })
-        },
-        None => json.null(),
-    };
+// The `TextEdit[]` (as JSON) that replaces each of `spans` with `new_name`.
+pub fn edits_for(_ spans: List<SourceSpan>, _ new_name: String) -> json.Json {
+    let edits: List<json.Json> = [];
+    for s in spans {
+        edits.push(json.obj({
+            'range': positions.span_to_range(s),
+            'newText': json.str(new_name),
+        }));
+    }
+    return json.arr(edits);
 }
 
-fn find_edits_in_text(_ file: String, _ text: String, _ target_name: String, _ new_name: String, _ changes: Map<String, json.Json>) -> Void {
-    let edits: List<json.Json> = [];
-    for tok in lexer.tokenize(text).tokens {
-        if tok.kind == TokenKind.Identifier && tok.lexeme() == target_name {
-            edits.push(json.obj({
-                'range': positions.span_to_range(tok.span),
-                'newText': json.str(new_name),
-            }));
-        }
-    }
-    if edits.len() > 0 {
-        changes[paths.path_to_uri(file)] = json.arr(edits);
-    }
+// Whether `name` is a single legal identifier — not empty, not a keyword, no
+// stray characters. The lexer is the oracle: a valid identifier tokenizes to
+// exactly one `Identifier` token covering the whole string (a keyword lexes to
+// its `Kw*` kind, a number/operator to another kind, two words to two tokens).
+pub fn is_identifier(_ name: String) -> Bool {
+    let toks = lexer.tokenize(name).tokens;
+    return toks.len() == 2
+        && toks[0].kind == TokenKind.Identifier
+        && toks[0].lexeme() == name;
 }
