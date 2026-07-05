@@ -286,6 +286,100 @@ fn test_top_level_initializer_computed_receiver_resolves() -> Result<Void, Error
     return Result.Ok(void);
 }
 
+// --- navigation to each top-level declaration kind ---
+
+// One file exercising every top-level declaration kind plus uses of each.
+const DEFS_SRC: String = 'struct Point { x: Int }\n'
+    + 'enum Color { Red, Green }\n'
+    + 'interface Shape { fn area(self) -> Int; }\n'
+    + 'const LIMIT: Int = 10;\n'
+    + 'let base = 5;\n'
+    + 'fn helper(_ n: Int) -> Int { return n; }\n'
+    + 'fn draw(_ s: Shape) -> Int { return s.area(); }\n'
+    + 'fn use_all(_ p: Point, _ c: Color) -> Int {\n'
+    + '    return helper(LIMIT) + base;\n'
+    + '}\n';
+
+@test
+fn test_definition_of_struct_type() -> Result<Void, Error> {
+    // `Point` in a parameter type navigates to the `struct` declaration.
+    testing.assert_eq(actual: def_offset(DEFS_SRC, at(DEFS_SRC, 'p: Point', 3)),
+        expected: at(DEFS_SRC, 'struct Point', 7))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_definition_of_enum_type() -> Result<Void, Error> {
+    // `Color` in a parameter type navigates to the `enum` declaration.
+    testing.assert_eq(actual: def_offset(DEFS_SRC, at(DEFS_SRC, 'c: Color', 3)),
+        expected: at(DEFS_SRC, 'enum Color', 5))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_definition_of_interface() -> Result<Void, Error> {
+    // `Shape` in a parameter type navigates to the `interface` declaration.
+    testing.assert_eq(actual: def_offset(DEFS_SRC, at(DEFS_SRC, 's: Shape', 3)),
+        expected: at(DEFS_SRC, 'interface Shape', 10))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_definition_of_const() -> Result<Void, Error> {
+    // `LIMIT` at a use navigates to the `const` declaration.
+    testing.assert_eq(actual: def_offset(DEFS_SRC, at(DEFS_SRC, 'helper(LIMIT)', 7)),
+        expected: at(DEFS_SRC, 'const LIMIT', 6))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_definition_of_top_level_let() -> Result<Void, Error> {
+    // `base` at a use navigates to the module-level `let` declaration.
+    testing.assert_eq(actual: def_offset(DEFS_SRC, at(DEFS_SRC, '+ base', 2)),
+        expected: at(DEFS_SRC, 'let base', 4))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_definition_of_function() -> Result<Void, Error> {
+    // A call navigates to the `fn` declaration.
+    testing.assert_eq(actual: def_offset(DEFS_SRC, at(DEFS_SRC, 'helper(LIMIT)', 0)),
+        expected: at(DEFS_SRC, 'fn helper', 3))?;
+    return Result.Ok(void);
+}
+
+// --- navigation to generic type parameters ---
+
+const GEN_SRC: String = 'fn ident<T>(_ x: T) -> T { return x; }\n'
+    + 'struct Box<U> { value: U }\n'
+    + 'impl Box<V> {\n'
+    + '    fn get(self) -> V { return self.value; }\n'
+    + '}\n';
+
+@test
+fn test_definition_of_fn_type_param() -> Result<Void, Error> {
+    // `T` in the return type navigates to its `<T>` introduction on the function.
+    testing.assert_eq(actual: def_offset(GEN_SRC, at(GEN_SRC, '-> T {', 3)),
+        expected: at(GEN_SRC, '<T>', 1))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_definition_of_struct_type_param() -> Result<Void, Error> {
+    // `U` in a field type navigates to its `<U>` introduction on the struct.
+    testing.assert_eq(actual: def_offset(GEN_SRC, at(GEN_SRC, 'value: U', 7)),
+        expected: at(GEN_SRC, '<U>', 1))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_definition_of_impl_type_param() -> Result<Void, Error> {
+    // `V` in a method return type navigates to its `<V>` introduction on the impl.
+    testing.assert_eq(actual: def_offset(GEN_SRC, at(GEN_SRC, '-> V {', 3)),
+        expected: at(GEN_SRC, '<V>', 1))?;
+    return Result.Ok(void);
+}
+
 // --- owner-correct cross-file resolution (LS1/LS3/LS8) ---
 
 fn program_at(_ src: String, _ path: String) -> Program {

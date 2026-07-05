@@ -76,6 +76,7 @@ pub enum SymbolKind {
     Field,
     Namespace,
     Local,
+    TypeParam,
 }
 
 // The identity of a resolved declaration: the file it lives in, its kind, its
@@ -225,6 +226,12 @@ pub fn resolve_at(_ ctx: ResolveCtx, _ text: String, _ offset: Int) -> Option<Re
         if let Some(site) = local_binding_at(fn_decl, ref) {
             return Option.Some(local_resolved(ctx, ref, site));
         }
+    }
+    // A type parameter of the enclosing generic declaration (`T` in `fn f<T>`,
+    // `struct Box<T>`, `impl Box<T>`, `enum Opt<T>`) — scoped to that decl, so it
+    // shadows a same-named top-level type; resolved before top-level names.
+    if let Some(res) = type_param_resolved(ctx, ref, offset) {
+        return Option.Some(res);
     }
     // The namespace an import binds (`fs` in `fs.read_text`) — the import decl.
     if let Some(res) = namespace_resolved(ctx, ref) {
@@ -1069,6 +1076,80 @@ fn member_receiver_in_expr(_ e: Expr, _ offset: Int) -> Option<SourceSpan> {
         Throw(_, value) => member_receiver_in_expr(value, offset),
         _ => Option.None,
     };
+}
+
+// --- type parameters (`T` in `fn f<T>`, `struct Box<T>`, ...) ---
+
+fn type_param_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ offset: Int) -> Option<Resolved> {
+    return match type_param_span(ctx.program, ref.name, offset) {
+        Some(span) => Option.Some(Resolved {
+            ref_span: ref.span,
+            render: 'type parameter ${ref.name}',
+            symbol: Option.Some(SymbolId {
+                file: paths.program_path(ctx.program),
+                kind: SymbolKind.TypeParam,
+                name: ref.name,
+                name_span: Option.Some(span),
+            }),
+        }),
+        None => Option.None,
+    };
+}
+
+// The declaration span of type parameter `name` as introduced by the generic
+// declaration enclosing `offset` — a function, struct, enum, impl, or interface.
+// A method's own type params shadow the surrounding impl/interface's.
+fn type_param_span(_ program: Program, _ name: String, _ offset: Int) -> Option<SourceSpan> {
+    for decl in program.decls {
+        match decl {
+            Fn(f) => {
+                if span_covers(f.span, offset) {
+                    if let Some(s) = type_param_in(f.type_params, name) { return Option.Some(s); }
+                }
+            },
+            Type(t) => {
+                if span_covers(t.span, offset) {
+                    if let Some(s) = type_param_in(t.type_params, name) { return Option.Some(s); }
+                }
+            },
+            Enum(e) => {
+                if span_covers(e.span, offset) {
+                    if let Some(s) = type_param_in(e.type_params, name) { return Option.Some(s); }
+                }
+            },
+            Impl(i) => {
+                if span_covers(i.span, offset) {
+                    for m in i.methods {
+                        if span_covers(m.span, offset) {
+                            if let Some(s) = type_param_in(m.type_params, name) { return Option.Some(s); }
+                        }
+                    }
+                    if let Some(s) = type_param_in(i.type_params, name) { return Option.Some(s); }
+                }
+            },
+            Interface(it) => {
+                if span_covers(it.span, offset) {
+                    for m in it.methods {
+                        if span_covers(m.span, offset) {
+                            if let Some(s) = type_param_in(m.type_params, name) { return Option.Some(s); }
+                        }
+                    }
+                    if let Some(s) = type_param_in(it.type_params, name) { return Option.Some(s); }
+                }
+            },
+            _ => {},
+        }
+    }
+    return Option.None;
+}
+
+fn type_param_in(_ tps: List<TypeParam>, _ name: String) -> Option<SourceSpan> {
+    for tp in tps {
+        if tp.name == name {
+            return Option.Some(tp.span);
+        }
+    }
+    return Option.None;
 }
 
 // --- member / variant / field lookup (file-aware, for navigation) ---

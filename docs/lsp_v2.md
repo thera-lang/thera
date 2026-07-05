@@ -333,6 +333,15 @@ special-case). This works for free because CH19 already records the types of
 top-level initializer nodes. Still lenient — no record (or an `Unknown` receiver
 type) resolves to nothing rather than guessing.
 
+**Generic-type-parameter navigation is done (2026-07-05)** — a `T` in `fn f<T>`,
+`struct Box<T>`, `impl Box<T>`, `enum Opt<T>`, or an interface resolves to its
+`<T>` introduction. `type_param_span` finds the generic declaration enclosing the
+cursor (a method's own params shadow the surrounding impl/interface's), keyed off
+`TypeParam.span`. Checked after locals and before top-level names, so a type
+param shadows a same-named top-level type. Definition navigates (across the full
+set now: functions, types/structs/enums/interfaces, consts, module `let`s, enum
+variants, methods, fields, `self`, params/locals, namespaces, and type params).
+
 **Semantic references are done (2026-07-05)** — `textDocument/references` is
 registered and resolves by identity, not text: `SymbolId.same` compares owning
 file + name + name-span, `references.collect_in` resolves every same-named
