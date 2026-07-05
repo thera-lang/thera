@@ -264,6 +264,17 @@ impl Session {
         return cone;
     }
 
+    // Whether `p` is a file under the SDK's std root — a trusted library source
+    // reached by `import std.*`. Such files are read-only to editing tools
+    // (rename skips them, and refuses a rename whose declaration lives in one),
+    // matching how the checker already trusts and skips them.
+    pub fn is_sdk_file(self, _ p: String) -> Bool {
+        return match sdk_prefix(self.sdk_root) {
+            Some(prefix) => loader.canonical_path(p).starts_with(prefix),
+            None => false,
+        };
+    }
+
     // Merge one load's dependency edges into the session graph (entry-wise
     // replace: the load's view of a file's imports is current).
     fn record_graph(self, _ loaded: loader.LoadedImports) -> Void {

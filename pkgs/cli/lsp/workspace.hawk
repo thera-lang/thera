@@ -1,0 +1,59 @@
+// Workspace file discovery: enumerate the `.hawk` sources under the roots the
+// client opened (`initialize`'s `workspaceFolders`/`rootUri`, captured in
+// analysis.hawk). This is what widens references/rename from the open buffers
+// to the whole project — the scan reads closed on-disk files too.
+//
+// There is no project/config file yet (no package system to give one a job);
+// the editor already tells us the workspace boundary, and symbol identity is
+// path-keyed, so self-references need no package name. The only structure we
+// impose is pruning noise directories (`build`, dot-dirs) from the walk.
+
+import std.fs;
+import std.path as _;
+
+// Every `.hawk` source under `roots`, recursively — the project's on-disk
+// files. Dot-directories (`.git`, `.dart_tool`, editor state) and `build`
+// output are pruned with their whole subtrees (see `skip_dir`). Unreadable
+// directories are skipped silently — a best-effort scan, not a hard error.
+// Paths are deduped (overlapping roots) and returned in no particular order.
+pub fn hawk_files(_ roots: List<String>) -> List<String> {
+    let seen: Set<String> = Set.new();
+    let out: List<String> = [];
+    for root in roots {
+        walk_dir(root, seen, out);
+    }
+    return out;
+}
+
+fn walk_dir(_ dir: String, _ seen: Set<String>, _ out: List<String>) -> Void {
+    let entries = match fs.list_dir(dir) {
+        Ok(names) => names,
+        Err(_) => return,  // unreadable directory — skip its subtree
+    };
+    for name in entries {
+        let full = path.join(dir, name);
+        match fs.metadata(full) {
+            Ok(md) => match md.kind {
+                Dir => {
+                    if !skip_dir(name) {
+                        walk_dir(full, seen, out);
+                    }
+                },
+                _ => {
+                    if name.ends_with('.hawk') && !seen.has(full) {
+                        seen.add(full);
+                        out.push(full);
+                    }
+                },
+            },
+            Err(_) => {},  // vanished/inaccessible entry — skip it
+        }
+    }
+}
+
+// A directory whose subtree is pruned from the scan: `build` output or a
+// dot-directory (version control, tool caches, editor state). Matching a
+// language server's usual noise filter without needing a config file.
+pub fn skip_dir(_ name: String) -> Bool {
+    return name == 'build' || name.starts_with('.');
+}

@@ -118,6 +118,32 @@ fn test_sdk_file_invalidates_every_known_file() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
+// `is_sdk_file` classifies a path by the SDK's std root: files under it are
+// trusted library sources (read-only to rename), everything else is not. With
+// no SDK, nothing is an SDK file.
+@test
+fn test_is_sdk_file_classifies_by_std_root() -> Result<Void, Error> {
+    let dir = fixture_dir('is_sdk', {
+        'main.hawk': 'fn main() -> Int { return 1; }\n',
+    })?;
+    fs.create_dir_all('${dir}/sdk/std/core')?;
+    fs.write_text('${dir}/sdk/std/core/core.hawk', '// empty prelude\n')?;
+
+    let sess = new_session(Option.Some('${dir}/sdk'));
+    testing.assert(sess.is_sdk_file('${dir}/sdk/std/core/core.hawk'),
+        message: 'a file under std root is an SDK file')?;
+    testing.assert(!sess.is_sdk_file('${dir}/main.hawk'),
+        message: 'a user file is not')?;
+
+    // No SDK configured: nothing classifies as SDK.
+    let bare = new_session(Option.None);
+    testing.assert(!bare.is_sdk_file('${dir}/sdk/std/core/core.hawk'),
+        message: 'no SDK → no SDK files')?;
+
+    cleanup(dir);
+    return Result.Ok(void);
+}
+
 // The surface cache serves repeated loads but must not go stale: an overlay
 // edit to a dependency evicts its importers' surfaces, so the next check sees
 // the new surface (here: a renamed export) — LD14 batch B.

@@ -64,6 +64,44 @@ fn test_initialize_advertises_capabilities() -> Result<Void, Error> {
 }
 
 @test
+fn test_initialize_captures_workspace_folders() -> Result<Void, Error> {
+    let server = new_server(Option.None);
+    let out = io.StringWriter.new();
+    server.handle(out, '{"jsonrpc":"2.0","id":1,"method":"initialize","params":'
+        + '{"workspaceFolders":[{"uri":"file:///home/proj","name":"proj"},'
+        + '{"uri":"file:///home/lib","name":"lib"}]}}');
+    let roots = server.analysis.roots();
+    testing.assert_eq(actual: roots.len(), expected: 2)?;
+    testing.assert_eq(actual: roots[0], expected: '/home/proj')?;
+    testing.assert_eq(actual: roots[1], expected: '/home/lib')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_initialize_falls_back_to_root_uri() -> Result<Void, Error> {
+    // A folder-less/older client sends `rootUri` instead of `workspaceFolders`.
+    let server = new_server(Option.None);
+    let out = io.StringWriter.new();
+    server.handle(out, '{"jsonrpc":"2.0","id":1,"method":"initialize","params":'
+        + '{"rootUri":"file:///home/proj"}}');
+    let roots = server.analysis.roots();
+    testing.assert_eq(actual: roots.len(), expected: 1)?;
+    testing.assert_eq(actual: roots[0], expected: '/home/proj')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_initialize_without_folders_has_no_roots() -> Result<Void, Error> {
+    // A loose single file (no folder) sends neither — references/rename stay
+    // scoped to the open documents.
+    let server = new_server(Option.None);
+    let out = io.StringWriter.new();
+    server.handle(out, '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}');
+    testing.assert_eq(actual: server.analysis.roots().len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_did_open_publishes_diagnostics() -> Result<Void, Error> {
     // The program references an undefined name, which the checker flags even
     // without the prelude linked (a pure scope check).

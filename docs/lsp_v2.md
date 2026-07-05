@@ -346,29 +346,45 @@ variants, methods, fields, `self`, params/locals, namespaces, and type params).
 registered and resolves by identity, not text: `SymbolId.same` compares owning
 file + name + name-span, `references.collect_in` resolves every same-named
 identifier in a document and keeps only the ones that match, and
-`Analysis.references_at` scans **every open document** in its own owner-correct
+`Analysis.references_at` scans the project in each file's own owner-correct
 context (so `f`'s local `x` and `g`'s local `x` stay distinct;
-`includeDeclaration` honored). Scope is the open document set — a reference in a
-closed on-disk file isn't found yet (a workspace scan, reading `dependents_of`
-from disk, is the follow-up).
+`includeDeclaration` honored).
 
 **Semantic rename is done (2026-07-05)** — `textDocument/rename` is registered
 and rewrites exactly the identity-matched occurrences (`references.matching_spans`
 shared with find-references), grouped into a `WorkspaceEdit`. The new name is
 validated as a legal identifier (`rename.is_identifier`, lexer-checked — a
-keyword is rejected). Scope is the open document set, like references.
+keyword is rejected).
+
+**Workspace scan is done (2026-07-05)** — references/rename reach **closed
+on-disk files**, not just open buffers. The server captures the workspace roots
+from `initialize` (`workspaceFolders`, falling back to `rootUri`; a folder-less
+client leaves the scan scoped to open documents, the prior behavior).
+`workspace.hawk_files` walks those roots for `.hawk` sources, pruning `build/`
+and dot-directories (`.git`, tool caches) with their whole subtrees.
+`Analysis.scan_files` unions the on-disk set with the open documents, keyed by
+canonical path so an unsaved buffer shadows its saved copy. No project/config
+file is needed: the editor gives the workspace boundary, and `SymbolId` is
+path-keyed, so self-references need no package name. The **SDK is read-only to
+rename** — a symbol declared under `sdk/std` (reached by `import std.*`,
+classified by `session.is_sdk_file`) is refused rather than partially rewritten,
+and SDK files are never edited even when they reference the target; they *are*
+scanned for references (finding uses is fine, editing trusted sources isn't).
+Correctness-first: the scan builds each file's closure to resolve it, so cost
+scales with the project; pruning to the target's dependency cone (via the
+session import graph) is the perf follow-up.
 
 **Phase 3 is functionally complete** for the planned features (definition, hover,
-references, rename, plus inferred-receiver member resolution). Remaining
-follow-ups, all deferred: a **workspace scan** so references/rename reach closed
-on-disk files (read `dependents_of` from disk, not just open buffers); a
-**pre-rename collision check** (the new name already bound in an affected scope —
-today the checker flags any clash on the next publish); **primitive-receiver**
-member resolution (`"s".split()` — a `Primitive` carries no `TypeId`); **complete
-field identity** (a field's declaration name and its `S { field: … }` literal uses
-don't resolve to the field yet, so field references are member-access-only and
-rename declines fields); and further renderers — completion / signature help /
-semantic tokens.
+references, rename — now project-wide — plus inferred-receiver member
+resolution). Remaining follow-ups, all deferred: **dependency-cone pruning** so a
+references/rename scan touches only files that can reach the target (today it
+builds every workspace file's closure); a **pre-rename collision check** (the new
+name already bound in an affected scope — today the checker flags any clash on
+the next publish); **primitive-receiver** member resolution (`"s".split()` — a
+`Primitive` carries no `TypeId`); **complete field identity** (a field's
+declaration name and its `S { field: … }` literal uses don't resolve to the field
+yet, so field references are member-access-only and rename declines fields); and
+further renderers — completion / signature help / semantic tokens.
 
 ### Phase 4 — parser recovery
 

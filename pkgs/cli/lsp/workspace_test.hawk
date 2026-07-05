@@ -1,0 +1,71 @@
+// Tests for workspace file discovery: the pure prune predicate, plus a real
+// on-disk walk under a temp tree to confirm `.hawk` files are found and the
+// `build`/dot-directory subtrees are skipped.
+
+import std.testing;
+import std.fs;
+import std.path;
+
+import 'workspace' as _;
+
+// A fresh, empty directory under the system temp dir (pre-cleaned).
+fn workspace_dir(_ name: String) -> Result<String, Error> {
+    let dir = path.join(fs.temp_dir(), name);
+    match fs.remove_dir_all(dir) {
+        Ok(_) => {},
+        Err(_) => {},
+    }
+    fs.create_dir_all(dir)?;
+    return Result.Ok(dir);
+}
+
+@test
+fn test_skip_dir_prunes_build_and_dot_dirs() -> Result<Void, Error> {
+    testing.assert(skip_dir('build'), message: 'build output')?;
+    testing.assert(skip_dir('.git'), message: 'version control')?;
+    testing.assert(skip_dir('.dart_tool'), message: 'tool cache')?;
+    testing.assert(!skip_dir('src'), message: 'a normal source dir')?;
+    testing.assert(!skip_dir('runtime'), message: 'a normal dir')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_hawk_files_walks_and_prunes() -> Result<Void, Error> {
+    let root = workspace_dir('hawk_ws_scan')?;
+    // A nested source tree, plus noise directories that must be pruned.
+    fs.create_dir_all(path.join(root, 'sub'))?;
+    fs.create_dir_all(path.join(root, 'build'))?;
+    fs.create_dir_all(path.join(root, '.git'))?;
+    fs.write_text(path.join(root, 'a.hawk'), 'fn a() {}')?;
+    fs.write_text(path.join(path.join(root, 'sub'), 'b.hawk'), 'fn b() {}')?;
+    fs.write_text(path.join(root, 'notes.txt'), 'not hawk')?;
+    fs.write_text(path.join(path.join(root, 'build'), 'gen.hawk'), 'fn g() {}')?;
+    fs.write_text(path.join(path.join(root, '.git'), 'hook.hawk'), 'fn h() {}')?;
+
+    let files = hawk_files([root]);
+    testing.assert_eq(actual: files.len(), expected: 2)?;
+    let found: Set<String> = Set.new();
+    for f in files { found.add(f); }
+    testing.assert(found.has(path.join(root, 'a.hawk')), message: 'top-level source')?;
+    testing.assert(found.has(path.join(path.join(root, 'sub'), 'b.hawk')), message: 'nested source')?;
+
+    fs.remove_dir_all(root)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_hawk_files_dedupes_overlapping_roots() -> Result<Void, Error> {
+    let root = workspace_dir('hawk_ws_dedupe')?;
+    fs.write_text(path.join(root, 'x.hawk'), 'fn x() {}')?;
+    // The same root twice yields the file once, not twice.
+    let files = hawk_files([root, root]);
+    testing.assert_eq(actual: files.len(), expected: 1)?;
+    fs.remove_dir_all(root)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_hawk_files_empty_when_no_roots() -> Result<Void, Error> {
+    testing.assert_eq(actual: hawk_files([]).len(), expected: 0)?;
+    return Result.Ok(void);
+}

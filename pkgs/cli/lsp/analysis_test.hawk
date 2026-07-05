@@ -53,6 +53,97 @@ fn test_imported_open_buffer_overlays_disk() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
+// References span the whole project: with workspace roots announced, a use in a
+// *closed* on-disk file is found, not just the open documents. `a.hawk` declares
+// `foo`; `b.hawk` (never opened) calls it. A references request on the
+// declaration returns both occurrences.
+@test
+fn test_references_scan_on_disk_workspace_files() -> Result<Void, Error> {
+    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_xref_test');
+    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    fs.create_dir_all(dir)?;
+    let a_text = 'pub fn foo() -> Int { return 1; }\n';
+    fs.write_text(dir + '/a.hawk', a_text)?;
+    fs.write_text(dir + '/b.hawk', 'import \'a\';\nfn use_it() -> Int { return a.foo(); }\n')?;
+
+    let analysis = new_analysis(Option.None);
+    analysis.set_roots([dir]);
+    let a_uri = paths.path_to_uri(dir + '/a.hawk');
+    let b_uri = paths.path_to_uri(dir + '/b.hawk');
+    // Only `a` is open; `b` stays closed on disk and must still be scanned.
+    analysis.set_document(a_uri, a_text, Option.None);
+
+    // References on `foo`'s declaration name (line 0, inside `foo` at char 8).
+    let pos = obj({ 'line': int(0), 'character': int(8) });
+    let locs = analysis.references_at(a_uri, pos, true).as_array().unwrap_or([]);
+    testing.assert_eq(actual: locs.len(), expected: 2)?;
+    let uris: Set<String> = Set.new();
+    for l in locs {
+        if let Some(u) = l.get('uri').as_string() { uris.add(u); }
+    }
+    testing.assert(uris.has(a_uri), message: 'declaration in a.hawk')?;
+    testing.assert(uris.has(b_uri), message: 'use in the closed b.hawk')?;
+
+    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    return Result.Ok(void);
+}
+
+// Rename is likewise project-wide: renaming `foo` rewrites both `a.hawk` (the
+// declaration) and the closed `b.hawk` (a caller), so the edit is complete.
+@test
+fn test_rename_scans_on_disk_workspace_files() -> Result<Void, Error> {
+    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_rename_scan_test');
+    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    fs.create_dir_all(dir)?;
+    let a_text = 'pub fn foo() -> Int { return 1; }\n';
+    fs.write_text(dir + '/a.hawk', a_text)?;
+    fs.write_text(dir + '/b.hawk', 'import \'a\';\nfn use_it() -> Int { return a.foo(); }\n')?;
+
+    let analysis = new_analysis(Option.None);
+    analysis.set_roots([dir]);
+    let a_uri = paths.path_to_uri(dir + '/a.hawk');
+    let b_uri = paths.path_to_uri(dir + '/b.hawk');
+    analysis.set_document(a_uri, a_text, Option.None);
+
+    let pos = obj({ 'line': int(0), 'character': int(8) });
+    let edit = analysis.rename_at(a_uri, pos, 'bar');
+    let changes = edit.get('changes');
+    testing.assert(!changes.is_null(), message: 'a WorkspaceEdit is produced')?;
+    testing.assert(!changes.get(a_uri).is_null(), message: 'edits a.hawk (the declaration)')?;
+    testing.assert(!changes.get(b_uri).is_null(), message: 'edits the closed b.hawk (a caller)')?;
+
+    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    return Result.Ok(void);
+}
+
+// The SDK is read-only to rename: renaming a symbol declared under `sdk/std`
+// (reached by `import std.*`) is refused with a null result rather than a
+// partial edit that rewrites callers but not the trusted library declaration.
+@test
+fn test_rename_of_an_sdk_symbol_is_refused() -> Result<Void, Error> {
+    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_sdk_rename_test');
+    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    fs.create_dir_all(dir + '/sdk/std/core')?;
+    fs.create_dir_all(dir + '/sdk/std/mylib')?;
+    fs.write_text(dir + '/sdk/std/core/core.hawk', '// empty prelude\n')?;
+    fs.write_text(dir + '/sdk/std/mylib/mylib.hawk', 'pub fn thing() -> Int { return 1; }\n')?;
+    let main_text = 'import std.mylib;\nfn f() -> Int { return mylib.thing(); }\n';
+    fs.write_text(dir + '/main.hawk', main_text)?;
+
+    let analysis = new_analysis(Option.Some(dir + '/sdk'));
+    analysis.set_roots([dir]);
+    let main_uri = paths.path_to_uri(dir + '/main.hawk');
+    analysis.set_document(main_uri, main_text, Option.None);
+
+    // Rename on `thing` in `mylib.thing()` (line 1, inside the name at char 31).
+    let pos = obj({ 'line': int(1), 'character': int(31) });
+    let edit = analysis.rename_at(main_uri, pos, 'renamed');
+    testing.assert(edit.is_null(), message: 'renaming an SDK symbol is declined')?;
+
+    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    return Result.Ok(void);
+}
+
 // An edit to an open dependency marks its open importers dirty (LD14 batch A):
 // the server's next flush re-publishes `a`'s diagnostics after a `b` edit.
 @test

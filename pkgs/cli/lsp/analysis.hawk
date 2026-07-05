@@ -5,6 +5,7 @@
 // commands. The incremental engine (Phase 2) grows on the session, not here.
 
 import std.json as _;
+import std.fs;
 
 import '../ast/ast' as _;      // Program
 import '../loader';
@@ -12,6 +13,7 @@ import '../session';
 import 'resolve';         // ResolveCtx
 import 'references';       // collect_in / matching_spans (semantic)
 import 'rename';           // edits_for / is_identifier (semantic rename)
+import 'workspace';       // hawk_files (on-disk project scan)
 import 'diagnostics';     // render_diagnostics
 import 'paths';             // uri_to_path
 import 'positions';       // position_to_offset
@@ -32,6 +34,11 @@ pub struct Analysis {
     // dependency-graph invalidation will mark importers dirty through the same
     // set. The server's flush drains it via `take_dirty`.
     dirty: Set<String>,
+    // The workspace root directories the client opened (from `initialize`'s
+    // `workspaceFolders`/`rootUri`). Empty until `initialize` arrives, or when
+    // the client is folder-less (a single loose file). These bound the on-disk
+    // scan that makes references/rename project-wide — see `workspace_files`.
+    mut roots: List<String>,
 }
 
 pub fn new_analysis(_ sdk_root: Option<String>) -> Analysis {
@@ -40,6 +47,7 @@ pub fn new_analysis(_ sdk_root: Option<String>) -> Analysis {
         session: session.new_session(sdk_root),
         versions: {},
         dirty: Set.new(),
+        roots: [],
     };
 }
 
@@ -50,6 +58,15 @@ pub struct DocAnalysis {
     ctx: resolve.ResolveCtx,
     text: String,
     offset: Int,
+}
+
+// One file in a project-wide references/rename scan: its display `uri` (for
+// returned Locations), filesystem `path` (for owner comparison + closure), and
+// the `text` to resolve against (open-buffer overlay or on-disk contents).
+struct ScanFile {
+    uri: String,
+    path: String,
+    text: String,
 }
 
 impl Analysis {
@@ -118,6 +135,16 @@ impl Analysis {
         return self.docs.keys();
     }
 
+    // Record the workspace roots the client opened (`initialize`). Idempotent —
+    // a re-`initialize` replaces the set. Paths, not URIs (the caller decodes).
+    pub fn set_roots(self, _ roots: List<String>) -> Void {
+        self.roots = roots;
+    }
+
+    pub fn roots(self) -> List<String> {
+        return self.roots;
+    }
+
     // The parsed AST of an open document, through the session's parse cache —
     // the entry for the parse-only requests (document symbols, code actions,
     // workspace symbols), which used to re-tokenize the buffer per request.
@@ -126,25 +153,57 @@ impl Analysis {
             self.session.parse(text, paths.uri_to_path(uri)));
     }
 
-    // The owner-correct resolution context for an open document: its import
-    // closure plus the loader's surfaces (LS1) and the committed-type record
-    // (CH19). The shared setup behind hover/definition/references. None when the
-    // document isn't open.
-    fn doc_ctx(self, _ uri: String) -> Option<resolve.ResolveCtx> {
-        return match self.docs.get(uri) {
-            Some(text) => {
-                let path = paths.uri_to_path(uri);
-                let closure = self.session.load_closure(text, path);
-                Option.Some(resolve.ResolveCtx {
-                    program: closure.program,
-                    imports: closure.loaded.programs,
-                    file_namespaces: closure.loaded.file_namespaces,
-                    file_bare_surface: closure.loaded.file_bare_surface,
-                    primary_types: self.session.records_for(path),
-                })
-            },
-            None => Option.None,
+    // The owner-correct resolution context for `text` as the file at `path`: its
+    // import closure plus the loader's surfaces (LS1) and the committed-type
+    // record (CH19). Works for any file, open or on disk — the caller supplies
+    // the text (an open buffer's overlay, or the on-disk contents for a scan).
+    fn ctx_for(self, _ path: String, _ text: String) -> resolve.ResolveCtx {
+        let closure = self.session.load_closure(text, path);
+        return resolve.ResolveCtx {
+            program: closure.program,
+            imports: closure.loaded.programs,
+            file_namespaces: closure.loaded.file_namespaces,
+            file_bare_surface: closure.loaded.file_bare_surface,
+            primary_types: self.session.records_for(path),
         };
+    }
+
+    // The resolution context for an open document, or None when it isn't open.
+    // The shared setup behind hover/definition.
+    fn doc_ctx(self, _ uri: String) -> Option<resolve.ResolveCtx> {
+        return self.docs.get(uri).map((text) => self.ctx_for(paths.uri_to_path(uri), text));
+    }
+
+    // Every file to scan for project-wide references/rename: the open documents
+    // unioned with the `.hawk` files under the workspace roots (closed files
+    // read from disk). Keyed by canonical path so an open buffer shadows its
+    // on-disk copy — the unsaved edits win, and a loose file outside every root
+    // is still covered. With no roots announced (a folder-less client), this is
+    // just the open documents, the pre-workspace-scan behavior.
+    //
+    // Correctness-first: it builds each file's closure to resolve it, so the
+    // cost scales with the project, not with the reference set. Pruning to the
+    // target's dependency cone (via the session's import graph) is a follow-up.
+    fn scan_files(self) -> List<ScanFile> {
+        let by_path: Map<String, ScanFile> = {};
+        for p in workspace.hawk_files(self.roots) {
+            let key = loader.canonical_path(p);
+            if !by_path.has(key) {
+                match fs.read_text(p) {
+                    Ok(text) => {
+                        by_path[key] = ScanFile { uri: paths.path_to_uri(p), path: p, text: text };
+                    },
+                    Err(_) => {},  // unreadable file — skip it
+                }
+            }
+        }
+        // Open buffers override the on-disk copy (and add files outside a root).
+        for u in self.docs.keys() {
+            let p = paths.uri_to_path(u);
+            by_path[loader.canonical_path(p)] =
+                ScanFile { uri: u, path: p, text: self.docs.get(u).unwrap_or('') };
+        }
+        return by_path.values();
     }
 
     // Parse an open document and load its import closure, resolving `position` to a
@@ -170,11 +229,11 @@ impl Analysis {
     }
 
     // The `Location[]` (as JSON) for every reference to the symbol at `position`
-    // in `uri`, across all open documents (each resolved in its own context).
-    // Semantic — only occurrences that resolve to the *same declaration* are
-    // returned (SymbolId identity), so unrelated same-named symbols are excluded.
-    // Scope is the open document set: a reference in a closed on-disk file isn't
-    // found yet (a workspace scan is a follow-up).
+    // in `uri`, across the project — the open documents unioned with the on-disk
+    // `.hawk` files under the workspace roots (see `scan_files`). Semantic — only
+    // occurrences that resolve to the *same declaration* are returned (SymbolId
+    // identity), so unrelated same-named symbols are excluded. With no roots
+    // announced, scope is just the open documents.
     pub fn references_at(self, _ uri: String, _ position: Json, _ include_decl: Bool) -> Json {
         let target = match self.analyze_at(Option.Some(uri), position) {
             Some(a) => match resolve.resolve_at(a.ctx, a.text, a.offset) {
@@ -187,14 +246,8 @@ impl Analysis {
             None => return arr([]),
         };
         let out: List<Json> = [];
-        for u in self.docs.keys() {
-            match self.doc_ctx(u) {
-                Some(ctx) => match self.docs.get(u) {
-                    Some(text) => references.collect_in(ctx, text, u, target, include_decl, out),
-                    None => {},
-                },
-                None => {},
-            }
+        for f in self.scan_files() {
+            references.collect_in(self.ctx_for(f.path, f.text), f.text, f.uri, target, include_decl, out);
         }
         return arr(out);
     }
@@ -203,9 +256,9 @@ impl Analysis {
     // `uri` to `new_name`, or JSON null when the cursor names no renamable symbol
     // or the new name isn't a legal identifier. Rewrites exactly the occurrences
     // that resolve to the same declaration (its own name included), across the
-    // open documents. A pre-rename collision check (the new name already bound in
-    // an affected scope) is a follow-up — the checker flags any clash on the next
-    // publish. Scope is the open document set, like references.
+    // project (open documents + on-disk files under the roots, like references).
+    // A pre-rename collision check (the new name already bound in an affected
+    // scope) is a follow-up — the checker flags any clash on the next publish.
     pub fn rename_at(self, _ uri: String, _ position: Json, _ new_name: String) -> Json {
         if !rename.is_identifier(new_name) {
             return null();
@@ -226,19 +279,23 @@ impl Analysis {
         if target.is_field() {
             return null();
         }
+        // The SDK is read-only: renaming a symbol declared under `sdk/std` would
+        // have to edit trusted, fixpoint-validated library sources (and the
+        // committed bootstrap tracks them). Refuse rather than produce a partial
+        // edit that rewrites the callers but not the declaration.
+        if self.session.is_sdk_file(target.file()) {
+            return null();
+        }
         let changes: Map<String, Json> = {};
-        for u in self.docs.keys() {
-            match self.doc_ctx(u) {
-                Some(ctx) => match self.docs.get(u) {
-                    Some(text) => {
-                        let spans = references.matching_spans(ctx, text, paths.uri_to_path(u), target, true);
-                        if spans.len() > 0 {
-                            changes[u] = rename.edits_for(spans, new_name);
-                        }
-                    },
-                    None => {},
-                },
-                None => {},
+        for f in self.scan_files() {
+            // Never rewrite an SDK file, even when it references the target — its
+            // uses stay pinned to the old name (belt-and-suspenders with the
+            // decl-owner refusal above).
+            if !self.session.is_sdk_file(f.path) {
+                let spans = references.matching_spans(self.ctx_for(f.path, f.text), f.text, f.path, target, true);
+                if spans.len() > 0 {
+                    changes[f.uri] = rename.edits_for(spans, new_name);
+                }
             }
         }
         if changes.keys().len() == 0 {

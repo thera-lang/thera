@@ -124,6 +124,7 @@ impl Server {
             return true;
         }
         if method == 'initialize' {
+            self.analysis.set_roots(workspace_roots(params));
             send_response(writer, id, initialize_result());
             return true;
         }
@@ -397,6 +398,30 @@ fn initialize_result() -> Json {
 }
 
 // --- helpers ---
+
+// The workspace root directories from an `initialize` request, as filesystem
+// paths. `workspaceFolders` (each folder's `uri`) is the modern form; a
+// single `rootUri` is the fallback the folder-less/older client sends. A
+// client that opened a loose file (no folder) sends neither — an empty list,
+// which leaves references/rename scoped to the open documents.
+fn workspace_roots(_ params: Json) -> List<String> {
+    let roots: List<String> = [];
+    match params.get('workspaceFolders').as_array() {
+        Some(folders) => {
+            for f in folders {
+                if let Some(uri) = f.get('uri').as_string() {
+                    roots.push(paths.uri_to_path(uri));
+                }
+            }
+        },
+        None => {
+            if let Some(uri) = params.get('rootUri').as_string() {
+                roots.push(paths.uri_to_path(uri));
+            }
+        },
+    }
+    return roots;
+}
 
 // The text of the last full-document content change (full-sync convention), or
 // None when there are no changes.
