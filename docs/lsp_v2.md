@@ -317,9 +317,19 @@ field (renderable) owner-correct via the shared `member_on_owner`. Covers user
 structs/enums and built-in collections; primitives and *computed* receivers
 (`f().x`) stay deferred (the latter needs the receiver's AST span, not a token).
 
-Remaining for Phase 3: **semantic references + rename** — the query that, given a
-`SymbolId`, finds every reference that resolves to it (declaring file + its
-`dependents_of`), then rename with a collision check.
+**Semantic references are done (2026-07-05)** — `textDocument/references` is
+registered and resolves by identity, not text: `SymbolId.same` compares owning
+file + name + name-span, `references.collect_in` resolves every same-named
+identifier in a document and keeps only the ones that match, and
+`Analysis.references_at` scans **every open document** in its own owner-correct
+context (so `f`'s local `x` and `g`'s local `x` stay distinct;
+`includeDeclaration` honored). Scope is the open document set — a reference in a
+closed on-disk file isn't found yet (a workspace scan, reading `dependents_of`
+from disk, is the follow-up).
+
+Remaining for Phase 3: **semantic rename** — the same identity-keyed collection
+as references, applied as a `WorkspaceEdit`, with a collision check (the new name
+must not clash in an affected scope). Then completion / signature help follow.
 
 ### Phase 4 — parser recovery
 

@@ -1,49 +1,57 @@
-// LSP find references: finds all occurrences of the identifier under the cursor
-// across the open document and its imports.
+// LSP find references — semantic. An occurrence counts only if it *resolves to
+// the same declaration* as the cursor's symbol (`SymbolId` identity), not merely
+// the same text — so a local `x`, a field `x`, and another library's `x` are no
+// longer conflated (the flaw that kept the lexical version unregistered).
 //
-// TODO(lsp): this is **lexical only** — it matches every identifier token with the
-// same text, with no scope/binding analysis, so it reports unrelated same-named
-// symbols (a local `x`, a field `x`, another file's `x`). It is therefore **not
-// registered** by the server (see server.hawk) until it is made scope-aware via
-// the element model. See roadmap.md.
+// The orchestration — which documents to scan, each in its own owner-correct
+// resolution context — lives in analysis.hawk (`references_at`); this module
+// collects the matches within one already-resolved document.
 
 import std.json;
-import std.fs;
 
-import '../ast/ast' as _;
 import '../lexer/lexer';
 import '../lexer/token' as _;
 import 'positions';
 import 'resolve';
 import 'paths';
 
-pub fn handle_references(_ program: Program, _ imports: List<Program>, _ text: String, _ offset: Int) -> json.Json {
-    return match resolve.name_at(text, offset) {
-        Some(ref) => {
-            let locations: List<json.Json> = [];
-            find_in_text(paths.program_path(program), text, ref.name, locations);
-            for imp in imports {
-                let path = paths.program_path(imp);
-                if path != '' {
-                    if let Ok(imp_text) = fs.read_text(path) {
-                        find_in_text(path, imp_text, ref.name, locations);
-                    }
-                }
+// Collect references to `target` in one document (`text`, open at `uri`, resolved
+// through `ctx`) into `out`. Each identifier with the target's name is resolved
+// at its own offset and kept only when it names the same declaration. When
+// `include_decl` is false, the declaration's own name occurrence is skipped
+// (LSP `context.includeDeclaration`).
+pub fn collect_in(_ ctx: resolve.ResolveCtx, _ text: String, _ uri: String,
+    _ target: resolve.SymbolId, _ include_decl: Bool, _ out: List<json.Json>) -> Void {
+    let doc_path = paths.uri_to_path(uri);
+    for tok in lexer.tokenize(text).tokens {
+        if tok.kind == TokenKind.Identifier && tok.lexeme() == target.name() {
+            match resolve.resolve_at(ctx, text, tok.span.offset) {
+                Some(r) => match r.symbol() {
+                    Some(s) => {
+                        if s.same(target) && (include_decl || !is_declaration(tok, doc_path, target)) {
+                            out.push(location(uri, tok.span));
+                        }
+                    },
+                    None => {},
+                },
+                None => {},
             }
-            json.arr(locations)
-        },
-        None => json.null(),
+        }
+    }
+}
+
+// Whether this occurrence is the target's own declaration name — the token that
+// sits exactly at the declaration's name span in its owning file.
+fn is_declaration(_ tok: Token, _ doc_path: String, _ target: resolve.SymbolId) -> Bool {
+    return match target.name_span() {
+        Some(ns) => doc_path == target.file() && tok.span.offset == ns.offset,
+        None => false,
     };
 }
 
-fn find_in_text(_ file: String, _ text: String, _ target_name: String, _ out: List<json.Json>) -> Void {
-    let doc_uri = paths.path_to_uri(file);
-    for tok in lexer.tokenize(text).tokens {
-        if tok.kind == TokenKind.Identifier && tok.lexeme() == target_name {
-            out.push(json.obj({
-                'uri': json.str(doc_uri),
-                'range': positions.span_to_range(tok.span),
-            }));
-        }
-    }
+fn location(_ uri: String, _ span: SourceSpan) -> json.Json {
+    return json.obj({
+        'uri': json.str(uri),
+        'range': positions.span_to_range(span),
+    });
 }

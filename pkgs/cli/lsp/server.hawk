@@ -21,10 +21,10 @@ import 'definition';
 import 'formatting';
 import 'code_action';
 import 'workspace_symbols';
-// `references`/`rename` are implemented but **not registered** — they match
-// identifiers purely lexically (any token with the same text), which is misleading
-// where an editor expects semantic results. They stay parked until they're made
-// scope-aware. See pkgs/cli/lsp/references.hawk, rename.hawk, and roadmap.md.
+// `references` is semantic (SymbolId identity, over the open documents) and
+// registered (via `analysis.references_at`). `rename` is still lexical-only (any
+// token with the same text) and stays parked until it, too, resolves by
+// identity. See references.hawk, rename.hawk, and roadmap.md.
 
 // The server = the protocol layer. It owns dispatch and the lifecycle flag
 // (`shutdown_received`); the workspace analysis state — open documents, the SDK
@@ -179,8 +179,13 @@ impl Server {
             send_response(writer, id, self.workspace_symbol(params.get('query').as_string()));
             return true;
         }
-        // `textDocument/references` and `textDocument/rename` are intentionally not
-        // dispatched: their implementations are lexical-only (see the import block).
+        if method == 'textDocument/references' {
+            send_response(writer, id, self.references(params.get('textDocument').get('uri').as_string(),
+                params.get('position'), params.get('context')));
+            return true;
+        }
+        // `textDocument/rename` is intentionally not dispatched: it is still
+        // lexical-only (see the import block).
         if method == 'textDocument/didClose' {
             if let Some(uri) = params.get('textDocument').get('uri').as_string() {
                 self.analysis.close_document(uri);
@@ -283,6 +288,18 @@ impl Server {
         return workspace_symbols.handle_workspace_symbols(programs, q);
     }
 
+    // Find references at a position: every occurrence across the open documents
+    // that resolves to the same declaration (semantic, not lexical). An empty
+    // array when the document isn't open or nothing resolves.
+    fn references(self, _ uri: Option<String>, _ position: Json, _ context: Json) -> Json {
+        // `includeDeclaration` defaults to true when the client omits the context.
+        let include_decl = context.get('includeDeclaration').as_bool().unwrap_or(true);
+        return match uri {
+            Some(u) => self.analysis.references_at(u, position, include_decl),
+            None => json.arr([]),
+        };
+    }
+
     // Publish diagnostics for every document dirtied since the last flush
     // (`take_dirty` drains the analysis's set). A document edited several times
     // in one batch is re-checked once; one closed before the flush was already
@@ -353,7 +370,8 @@ fn initialize_result() -> Json {
             'documentFormattingProvider': json.bool(true),
             'codeActionProvider': json.bool(true),
             'workspaceSymbolProvider': json.bool(true),
-            // referencesProvider / renameProvider: withheld until lexical->semantic.
+            'referencesProvider': json.bool(true),
+            // renameProvider: withheld until it, too, is semantic.
         }),
         'serverInfo': json.obj({
             'name': json.str('hawk'),

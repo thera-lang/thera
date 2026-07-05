@@ -10,6 +10,7 @@ import '../ast/ast' as _;      // Program
 import '../loader';
 import '../session';
 import 'resolve';         // ResolveCtx
+import 'references';       // collect_in (semantic find-references)
 import 'diagnostics';     // render_diagnostics
 import 'paths';             // uri_to_path
 import 'positions';       // position_to_offset
@@ -124,6 +125,27 @@ impl Analysis {
             self.session.parse(text, paths.uri_to_path(uri)));
     }
 
+    // The owner-correct resolution context for an open document: its import
+    // closure plus the loader's surfaces (LS1) and the committed-type record
+    // (CH19). The shared setup behind hover/definition/references. None when the
+    // document isn't open.
+    fn doc_ctx(self, _ uri: String) -> Option<resolve.ResolveCtx> {
+        return match self.docs.get(uri) {
+            Some(text) => {
+                let path = paths.uri_to_path(uri);
+                let closure = self.session.load_closure(text, path);
+                Option.Some(resolve.ResolveCtx {
+                    program: closure.program,
+                    imports: closure.loaded.programs,
+                    file_namespaces: closure.loaded.file_namespaces,
+                    file_bare_surface: closure.loaded.file_bare_surface,
+                    primary_types: self.session.records_for(path),
+                })
+            },
+            None => Option.None,
+        };
+    }
+
     // Parse an open document and load its import closure, resolving `position` to a
     // code-point offset — the shared setup for hover/definition. None when the
     // document isn't open. Imports are loaded so a name from an imported library (a
@@ -131,29 +153,49 @@ impl Analysis {
     pub fn analyze_at(self, _ uri: Option<String>, _ position: Json) -> Option<DocAnalysis> {
         return match uri {
             Some(u) => match self.docs.get(u) {
-                Some(text) => {
-                    let offset = positions.position_to_offset(text,
-                        position.get('line').as_int().unwrap_or(0),
-                        position.get('character').as_int().unwrap_or(0));
-                    let path = paths.uri_to_path(u);
-                    let closure = self.session.load_closure(text, path);
-                    // The loader's surfaces ride along — resolution uses the
-                    // same owner-correct maps the compiler does (LS1) — plus
-                    // the committed-type record for inferred-local hovers
-                    // (CH19; checks the overlay on demand when none stored).
-                    let rctx = resolve.ResolveCtx {
-                        program: closure.program,
-                        imports: closure.loaded.programs,
-                        file_namespaces: closure.loaded.file_namespaces,
-                        file_bare_surface: closure.loaded.file_bare_surface,
-                        primary_types: self.session.records_for(path),
-                    };
-                    Option.Some(DocAnalysis { ctx: rctx, text: text, offset: offset })
+                Some(text) => match self.doc_ctx(u) {
+                    Some(ctx) => {
+                        let offset = positions.position_to_offset(text,
+                            position.get('line').as_int().unwrap_or(0),
+                            position.get('character').as_int().unwrap_or(0));
+                        Option.Some(DocAnalysis { ctx: ctx, text: text, offset: offset })
+                    },
+                    None => Option.None,
                 },
                 None => Option.None,
             },
             None => Option.None,
         };
+    }
+
+    // The `Location[]` (as JSON) for every reference to the symbol at `position`
+    // in `uri`, across all open documents (each resolved in its own context).
+    // Semantic — only occurrences that resolve to the *same declaration* are
+    // returned (SymbolId identity), so unrelated same-named symbols are excluded.
+    // Scope is the open document set: a reference in a closed on-disk file isn't
+    // found yet (a workspace scan is a follow-up).
+    pub fn references_at(self, _ uri: String, _ position: Json, _ include_decl: Bool) -> Json {
+        let target = match self.analyze_at(Option.Some(uri), position) {
+            Some(a) => match resolve.resolve_at(a.ctx, a.text, a.offset) {
+                Some(r) => match r.symbol() {
+                    Some(s) => s,
+                    None => return arr([]),
+                },
+                None => return arr([]),
+            },
+            None => return arr([]),
+        };
+        let out: List<Json> = [];
+        for u in self.docs.keys() {
+            match self.doc_ctx(u) {
+                Some(ctx) => match self.docs.get(u) {
+                    Some(text) => references.collect_in(ctx, text, u, target, include_decl, out),
+                    None => {},
+                },
+                None => {},
+            }
+        }
+        return arr(out);
     }
 
     // The `diagnostics` array (as JSON) for `uri`'s `text`. The open document

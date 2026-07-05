@@ -91,6 +91,37 @@ pub struct SymbolId {
     name_span: Option<SourceSpan>,
 }
 
+impl SymbolId {
+    // Whether two resolved references name the same declaration — the identity
+    // references/rename key on. Compared by owning file, name, and the
+    // declaration's name-span offset/length (which together are unique),
+    // avoiding a full `SourceSpan` compare (it would diff the whole source
+    // text). A symbol with no name span (a struct field, a builtin) has no
+    // stable identity here, so it never matches.
+    pub fn same(self, _ other: SymbolId) -> Bool {
+        return match self.name_span {
+            Some(a) => match other.name_span {
+                Some(b) => self.file == other.file && self.name == other.name
+                    && a.offset == b.offset && a.length == b.length,
+                None => false,
+            },
+            None => false,
+        };
+    }
+
+    pub fn name_span(self) -> Option<SourceSpan> {
+        return self.name_span;
+    }
+
+    pub fn file(self) -> String {
+        return self.file;
+    }
+
+    pub fn name(self) -> String {
+        return self.name;
+    }
+}
+
 // A resolved target at the cursor: its **hover render** and the **symbol** it
 // names (None when it renders but names no identifiable declaration — currently
 // unused, reserved for builtins). The go-to-definition location derives from the
@@ -121,6 +152,12 @@ impl Resolved {
             Some(s) => s.name_span,
             None => Option.None,
         };
+    }
+
+    // The identity of the resolved symbol (references/rename key on it), or None
+    // when the target names no identifiable declaration.
+    pub fn symbol(self) -> Option<SymbolId> {
+        return self.symbol;
     }
 }
 
