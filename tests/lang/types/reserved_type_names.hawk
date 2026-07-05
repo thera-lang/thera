@@ -1,7 +1,7 @@
 //! spec: type-reserved-names
 //! mode: check
 
-// The type names the language itself speaks are reserved (scoping.md "Reserved
+// The type names the language itself speaks are reserved (language.md "Reserved
 // type names"): declaring them in user code is a check error, whatever the
 // declaration kind. Utility types that merely live in core (BytesBuilder,
 // Args, Indexed, ...) are NOT reserved — semantics attach to the core types by

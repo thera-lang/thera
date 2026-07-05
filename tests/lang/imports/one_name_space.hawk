@@ -1,7 +1,7 @@
 //! spec: mod-one-name-space
 //! mode: check
 
-// One name space per scope (scoping.md, decision 2026-07): a file may
+// One name space per scope (language.md, decision 2026-07): a file may
 // introduce a top-level name at most once, across *all* declaration kinds —
 // functions, types, constants, module globals, and the namespace an `import`
 // binds. Same-kind duplicates keep their familiar message; cross-kind ones

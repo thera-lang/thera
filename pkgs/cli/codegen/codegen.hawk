@@ -118,7 +118,7 @@ pub fn compile_program(_ program: Program, _ imports: List<Program>,
         i = i + 1;
     }
 
-    // The program-init thunk (module-global initializers; see docs/module_init.md)
+    // The program-init thunk (module-global initializers; see docs/bytecode.md)
     // is synthesized after the real units and appended LAST, so it never shifts
     // the unit -> function-index mapping. Synthesizing it may itself lift lambda
     // units (an initializer containing a lambda); drain those into the table
@@ -161,7 +161,7 @@ pub fn compile_program(_ program: Program, _ imports: List<Program>,
 }
 
 // The reserved name of the program-init thunk the runtime runs once before the
-// entry (see docs/module_init.md). Angle-bracketed so it can't collide with a
+// entry (see docs/bytecode.md). Angle-bracketed so it can't collide with a
 // user identifier. Must match the runtime's `interp::INIT_THUNK`.
 const INIT_THUNK_NAME: String = '<init>';
 
@@ -183,7 +183,7 @@ fn register_module(_ scope: ModuleScope, _ program: Program) -> Void {
             Enum(x) => { scope.add_enum(x, file); },
             Const(x) => { scope.add_const(x, file); },
             // Module-level `let`: a global slot computed once in the `<init>`
-            // thunk (see docs/module_init.md).
+            // thunk (see docs/bytecode.md).
             Let(x) => { scope.add_global(x, file); },
             Interface(x) => {
                 scope.add_interface(x, file);
@@ -379,7 +379,7 @@ impl FnCompiler {
     // Synthesize the `<init>` thunk: evaluate each module-global initializer and
     // `global.set` its slot, in `global_inits` order, then return Unit. Each
     // initializer is compiled in its declaring file's scope (so its references
-    // resolve same-file-first, like a normal unit). See docs/module_init.md.
+    // resolve same-file-first, like a normal unit). See docs/bytecode.md.
     pub fn compile_init_thunk(self) -> FuncDef {
         for init in order_global_inits(self.scope, self.errors) {
             self.file = init.file;
@@ -406,7 +406,7 @@ impl FnCompiler {
 
     // Reject time-varying / I/O natives called directly in a module-`let`
     // initializer (scanning the code emitted since `start`). The result would be
-    // a stale load-time snapshot; see docs/module_init.md. A lambda *value* in an
+    // a stale load-time snapshot; see docs/language.md. A lambda *value* in an
     // initializer is fine — its body is a separate unit, not run at load.
     fn reject_effectful_natives(self, _ start: Int, _ span: SourceSpan) -> Void {
         let mut i = start;
@@ -414,7 +414,7 @@ impl FnCompiler {
             if let CallNative(name, _) = self.code[i] {
                 if forbidden_in_initializer(name) {
                     self.error('a module-level `let` initializer may not call '
-                        + '`${name}` (time-varying or I/O); see docs/module_init.md', span);
+                        + '`${name}` (time-varying or I/O); see docs/language.md', span);
                 }
             }
             i = i + 1;
@@ -2628,7 +2628,7 @@ fn walk_stmt(_ s: Stmt, _ bound: Set<String>, _ v: TreeVisitor) -> Void {
     }
 }
 
-// --- module-global initialization order (docs/module_init.md) ---
+// --- module-global initialization order (docs/bytecode.md) ---
 
 // Order the module globals so each initializer runs after the globals it
 // references: a depth-first post-order over the reference graph. A back edge is
@@ -2675,8 +2675,8 @@ fn visit_global_init(_ g: GlobalInit, _ scope: ModuleScope, _ by_key: Map<String
 }
 
 // Natives a module-`let` initializer may not call: time-varying or I/O
-// operations whose result would be a stale load-time snapshot (docs/module_init.md
-// "Which initializer expressions"). Process-stable reads (env queries, the OS,
+// operations whose result would be a stale load-time snapshot (docs/language.md
+// -> Module-level bindings). Process-stable reads (env queries, the OS,
 // the path separator) are allowed. A cheap denylist, not a purity analysis —
 // matched on the resolved runtime symbol, so namespace aliasing can't evade it.
 fn forbidden_in_initializer(_ sym: String) -> Bool {

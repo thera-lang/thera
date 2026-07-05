@@ -39,7 +39,7 @@ pub enum Instr {
     /// Pop into `locals[slot]`.
     Store(Slot),
 
-    // --- module globals (top-level `let`; see docs/module_init.md) ---
+    // --- module globals (top-level `let`; see docs/bytecode.md) ---
     /// Push the module global at `idx`. A plain slot read — init order is fixed
     /// at link time, so there is no "is it initialized yet" guard.
     GlobalGet(u32),

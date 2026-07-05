@@ -29,7 +29,7 @@ import 'workspace_symbols';
 // The server = the protocol layer. It owns dispatch and the lifecycle flag
 // (`shutdown_received`); the workspace analysis state — open documents, the SDK
 // root, the cross-request caches, and the dirty set — lives in `Analysis`
-// (analysis.hawk), where the incremental engine grows (see docs/lsp_v2.md).
+// (analysis.hawk), where the incremental engine grows (see docs/roadmap.md).
 // Recomputing diagnostics is the expensive step, so an edit only marks its
 // document dirty; the actual re-check is deferred to `flush`, which lets a
 // burst of keystrokes collapse into a single re-check per document (see

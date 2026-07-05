@@ -110,7 +110,7 @@ struct NameSite {
 }
 
 // Flag top-level names introduced more than once. **One name space per scope**
-// (scoping.md, decision 2026-07): every top-level introduction — `fn`,
+// (language.md, decision 2026-07): every top-level introduction — `fn`,
 // `type`/`enum`/`interface`, `const`, top-level `let`, and the namespace an
 // `import` binds — shares a single per-file name space, so a second
 // introduction of a name collides regardless of kind (`fn max` + `const max`,
@@ -132,7 +132,7 @@ fn check_duplicates(_ errors: List<CheckError>, _ program: Program, _ imports: L
 
 // A top-level declaration may not take a name the file's **bare surface**
 // already provides — a prelude name or one brought in by an `as _` import
-// (EL1's last arm; scoping.md "one name space per scope": the bare surface
+// (EL1's last arm; language.md "one name space per scope": the bare surface
 // injects names into the file's one name space, so re-introducing one is a
 // collision, exactly like a same-file duplicate). Without this, resolution
 // splits by kind — a same-file `fn Config` with an `as _`-imported
@@ -216,7 +216,7 @@ fn flag_shadow(_ errors: List<CheckError>, _ surface: Map<String, String>, _ own
 // (`resolver.is_reserved_type_name`) — the resolver also uses it to pin core
 // identity in the flat registry (EL8). Declaring one of these names in user
 // code would make the reserved meaning ambiguous at every use site, so it is a
-// check error (scoping.md "Reserved type names"). Values (`fn`/`const`) are not
+// check error (language.md "Reserved type names"). Values (`fn`/`const`) are not
 // reserved — casing conventions keep them unambiguous.
 fn is_reserved_type_name(_ name: String) -> Bool {
     return resolver.is_reserved_type_name(name);
@@ -285,7 +285,7 @@ struct NamedSpan {
 // A `const` initializer must be *manifest* — a compile-time constant safe to
 // inline at every use site: literals, arithmetic on them, and references to other
 // consts. Computed initializers (calls, collections, control flow) belong in a
-// top-level `let`, computed once and stored. See docs/module_init.md.
+// top-level `let`, computed once and stored. See docs/language.md.
 fn is_manifest_const(_ e: Expr) -> Bool {
     return match e {
         Int(_, _) => true,
@@ -449,7 +449,7 @@ fn check_program(_ errors: List<CheckError>, _ program: Program, _ library: Libr
                 check_expr(CheckCtx { errors: errors, infer: ctx, scope: empty_scope(), muts: {} }, x.value, Option.None);
                 // A `const` is a manifest constant, inlined at every use site; a
                 // computed initializer belongs in a top-level `let` (computed once
-                // and stored). See docs/module_init.md.
+                // and stored). See docs/language.md.
                 if !is_manifest_const(x.value) {
                     errors.push(CheckError {
                         message: 'a `const` initializer must be a compile-time constant '
@@ -460,7 +460,7 @@ fn check_program(_ errors: List<CheckError>, _ program: Program, _ library: Libr
                 }
             },
             Let(x) => {
-                // Module-level `let` (computed-once global; docs/module_init.md).
+                // Module-level `let` (computed-once global; docs/language.md).
                 // Type-checked like a `const` initializer — unlike `const`, the
                 // initializer may be computed (it runs once at load, not inlined).
                 if let Some(ref) = x.type_ann { check_type_ref(errors, ref, library, file, Set.new()); }

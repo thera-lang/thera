@@ -4,7 +4,7 @@
 //! A frozen clock is almost purely a test affordance (hard to justify outside a
 //! test), so it lives in std.testing rather than beside std.time. Doubles that
 //! are also useful in production — like an in-memory filesystem — live beside
-//! their real library instead. See docs/testability.md.
+//! their real library instead. See docs/stdlib.md § Cross-cutting #7.
 
 import std.time;
 

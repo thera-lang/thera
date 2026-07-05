@@ -164,7 +164,7 @@ pub fn infer_expr(_ expr: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx,
 // inference-side shorthand for `types.named_type` over this context's type_defs.
 // Build a named core type (`List`/`Map`/`SourceLoc`) from the flat registry.
 // Sound despite the flat lookup (EL6): every name passed here is *reserved*
-// (scoping.md), and the resolver pins a reserved name's registry entry to its
+// (language.md), and the resolver pins a reserved name's registry entry to its
 // core registration — so the stamped owner is always the core identity.
 fn iface(_ ctx: InferCtx, _ name: String, _ args: List<Type>) -> Type {
     return named_type(ctx.library.type_defs, name, args);

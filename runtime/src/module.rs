@@ -90,7 +90,7 @@ pub struct Module {
     pub dispatch: Vec<DispatchEntry>,
     /// Number of module-global slots (top-level `let` bindings). The runtime
     /// allocates a vector this size before running the program-init thunk; both
-    /// `global.get`/`global.set` index into it. See docs/module_init.md.
+    /// `global.get`/`global.set` index into it. See docs/bytecode.md.
     pub global_count: u32,
 }
 

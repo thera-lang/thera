@@ -5,7 +5,7 @@ import 'module_let_lib' as lib;
 
 // A global in the entry module references an imported module's global. Imported
 // modules' initializers run first (import-topological order), so the reference
-// reads the computed value, not an uninitialized slot. See docs/module_init.md.
+// reads the computed value, not an uninitialized slot. See docs/language.md.
 let ENTRY: Int = lib.LIB_DERIVED * 2;
 
 fn main() -> Int {

@@ -2,7 +2,7 @@
 //! mode: check
 
 // Module-level bindings are immutable: there is no top-level `let mut`. Swappable
-// global state stays a capability value, not a module global (docs/module_init.md).
+// global state stays a capability value, not a module global (docs/language.md).
 let mut COUNT: Int = 0;   // expect error: let mut
 
 fn main() -> Int {

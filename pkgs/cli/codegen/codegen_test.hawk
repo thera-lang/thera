@@ -541,7 +541,7 @@ fn test_lowering_mut_capture_boxes_into_a_cell() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// --- module-level `let` (globals; docs/module_init.md) ---
+// --- module-level `let` (globals; docs/bytecode.md) ---
 
 @test
 fn test_module_let_emits_init_thunk_and_global_count() -> Result<Void, Error> {

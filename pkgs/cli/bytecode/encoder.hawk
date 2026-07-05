@@ -21,7 +21,7 @@ const SECTION_CONSTANTS: Int = 2;
 const SECTION_TYPES: Int = 3;
 const SECTION_DISPATCH: Int = 4;
 // The module-global count (a single uvarint); omitted when zero, so global-free
-// modules stay byte-identical to before the feature. See docs/module_init.md.
+// modules stay byte-identical to before the feature. See docs/bytecode.md.
 const SECTION_GLOBALS: Int = 5;
 
 // Collects and deduplicates strings during encoding, preserving first-seen order

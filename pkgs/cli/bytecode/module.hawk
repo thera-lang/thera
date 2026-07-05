@@ -38,7 +38,7 @@ pub struct DispatchEntry {
 }
 
 // A compiled module: its functions, type table, virtual-dispatch table, and the
-// number of module-global slots (top-level `let`; see docs/module_init.md). The
+// number of module-global slots (top-level `let`; see docs/bytecode.md). The
 // initializers run in a synthesized `<init>` function the runtime calls by name.
 pub struct Module {
     functions: List<FuncDef>,

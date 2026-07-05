@@ -11,8 +11,8 @@ when headings are reworded: only this table moves. The harness's coverage report
 (planned) diffs the `//! spec:` directives found in `tests/lang/` against this
 table to find untested IDs.
 
-The companion docs are [language.md](language.md) (semantics), [grammar.md](grammar.md)
-(syntax), and [scoping.md](scoping.md) (name resolution).
+The companion docs are [language.md](language.md) (semantics & name resolution)
+and [grammar.md](grammar.md) (syntax).
 
 ## Status legend
 
@@ -75,7 +75,7 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `type-struct-immut` | Structs                  | struct fields immutable by default (non-`mut` assign = error)| ✓    |
 | `type-mut-field`    | Structs                  | a `mut field: T` may be reassigned after construction     | ✓      |
 | `type-struct-fields-required`| Structs         | a struct literal must provide every declared field — a `check` diagnostic | ✓ |
-| `type-reserved-names`| scoping.md              | the language's own type names (Result, Option, List, Void, …) may not be declared in user code; core utility names (Args, …) stay free | ✓ |
+| `type-reserved-names`| language.md              | the language's own type names (Result, Option, List, Void, …) may not be declared in user code; core utility names (Args, …) stay free | ✓ |
 | `type-fn-variance`  | Types                    | function-type assignability: contravariant parameters, covariant result | ✓ |
 | `type-field-nonstruct`| Structs                | a bare field access on a non-struct value is rejected     | ✓      |
 | `type-impl-param-bare`| Impl blocks             | an inherent `impl Type<…>` element must be a bare parameter name (a type expression is an error, not silently flattened) | ✓ |
@@ -90,12 +90,12 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 | `var-expr-position-immutable` | Variables      | immutability enforced inside expression-position blocks/`if`s/match arms | ✓ |
 | `var-references`    | Variables                | heap values are shared references                          | ✓      |
 | `var-block-scope`   | Variables                | block/arm/loop bindings shadow lexically; the outer binding (value and type) restores after | ✓ |
-| `module-let-immutable`| module_init.md         | no top-level `let mut`; module globals are immutable       | ✓      |
-| `module-let`        | module_init.md           | top-level `let` computed once into a stored global slot     | ✓      |
-| `module-let-order`  | module_init.md           | initializers run in dependency order; a cycle is an error   | ◐      |
-| `module-let-cross-module` | module_init.md     | imported globals initialize before an importer's that use them | ✓   |
-| `const-manifest`    | module_init.md           | `const` must be compile-time evaluable; computed -> use `let`  | ✓      |
-| `const-inline-scope`| module_init.md           | a const's inlined initializer evaluates in the const's own top-level scope, not the consumer's | ✓ |
+| `module-let-immutable`| language.md         | no top-level `let mut`; module globals are immutable       | ✓      |
+| `module-let`        | language.md           | top-level `let` computed once into a stored global slot     | ✓      |
+| `module-let-order`  | language.md           | initializers run in dependency order; a cycle is an error   | ◐      |
+| `module-let-cross-module` | language.md     | imported globals initialize before an importer's that use them | ✓   |
+| `const-manifest`    | language.md           | `const` must be compile-time evaluable; computed -> use `let`  | ✓      |
+| `const-inline-scope`| language.md           | a const's inlined initializer evaluates in the const's own top-level scope, not the consumer's | ✓ |
 
 ## Functions
 
@@ -168,27 +168,27 @@ The companion docs are [language.md](language.md) (semantics), [grammar.md](gram
 
 ## Imports, scoping & visibility
 
-| ID                  | Spec (scoping.md)        | Pins                                                        | Status |
+| ID                  | Spec (language.md)        | Pins                                                        | Status |
 | ------------------- | ------------------------ | ---------------------------------------------------------- | ------ |
-| `name-undefined`    | scoping.md               | a bare unknown name is a diagnostic                       | ✓      |
+| `name-undefined`    | language.md               | a bare unknown name is a diagnostic                       | ✓      |
 | `mod-import-ns`     | Imports                  | last path segment becomes the namespace                   | ✓      |
 | `mod-import-as`     | Imports                  | `import … as alias` rebinds the prefix                    | ✓      |
 | `mod-import-under`  | Imports                  | `import … as _` brings names in unqualified                | ✓      |
 | `mod-prelude`       | Imports                  | `std.core` names available unqualified                    | ✓      |
-| `mod-qualified-only`| scoping.md               | bare cross-library reference is rejected                  | ✓      |
-| `mod-ns-file-local` | scoping.md               | a namespace is file-local; qualifying with one this file didn't import is rejected | ✓ |
-| `mod-no-bare-fallback`| scoping.md             | a bare name owned by an un-imported (closure-only) library is `undefined` — no global last-wins fallback | ✓ |
-| `mod-shared-value-name`| scoping.md              | two libraries may share a top-level value name; each qualified call dispatches to its own library (value-uniqueness lift) | ✓ |
-| `mod-shared-type-name`| scoping.md              | two libraries may share a top-level *type* name; each qualified `ns.T` constructs/resolves its own library's type (type-uniqueness lift) | ✓ |
+| `mod-qualified-only`| language.md               | bare cross-library reference is rejected                  | ✓      |
+| `mod-ns-file-local` | language.md               | a namespace is file-local; qualifying with one this file didn't import is rejected | ✓ |
+| `mod-no-bare-fallback`| language.md             | a bare name owned by an un-imported (closure-only) library is `undefined` — no global last-wins fallback | ✓ |
+| `mod-shared-value-name`| language.md              | two libraries may share a top-level value name; each qualified call dispatches to its own library (value-uniqueness lift) | ✓ |
+| `mod-shared-type-name`| language.md              | two libraries may share a top-level *type* name; each qualified `ns.T` constructs/resolves its own library's type (type-uniqueness lift) | ✓ |
 | `mod-whitebox-same-dir` | Modules / Testing | `<base>_test.hawk` gets `<base>.hawk`'s private surface bare — same directory only | ✓ |
-| `mod-shared-const-name`| scoping.md             | two libraries may share a const name: `ns.NAME` inlines its own library's initializer, resolved against the const's file; owner-keyed cycle guard | ✓ |
-| `mod-shared-global-name`| scoping.md            | two libraries may share a module-global name: distinct slots, both initializers run, owner-keyed init order and dependency edges | ✓ |
-| `mod-native-name-isolation`| scoping.md         | a `native fn` binds within its own library: `ns.fn(...)` resolves on `ns`'s surface, never a flat native table (no cross-import hijack) | ✓ |
+| `mod-shared-const-name`| language.md             | two libraries may share a const name: `ns.NAME` inlines its own library's initializer, resolved against the const's file; owner-keyed cycle guard | ✓ |
+| `mod-shared-global-name`| language.md            | two libraries may share a module-global name: distinct slots, both initializers run, owner-keyed init order and dependency edges | ✓ |
+| `mod-native-name-isolation`| language.md         | a `native fn` binds within its own library: `ns.fn(...)` resolves on `ns`'s surface, never a flat native table (no cross-import hijack) | ✓ |
 | `mod-import-resolve-error`| Imports            | an import that doesn't resolve is a located diagnostic at the import decl (not a silent no-op / downstream `undefined name`) | ✓ |
 | `mod-import-literal-path`| Imports             | an import path is a literal: an interpolated path is a parse error       | ✓ |
-| `mod-one-name-space`| scoping.md               | one name space per scope: a file introduces a top-level name once, across all kinds (fn/type/const/let/import namespace) | ✓ |
-| `mod-bare-collision`| scoping.md               | two `import … as _` exposing one public name is an error at the second import (barrel collisions likewise, at the barrel — unit-tested) | ✓ |
-| `mod-no-surface-shadow`| scoping.md            | a top-level declaration may not re-introduce a bare-surface name (prelude or `as _`); the eponymous-barrel namespace is exempt | ✓ |
+| `mod-one-name-space`| language.md               | one name space per scope: a file introduces a top-level name once, across all kinds (fn/type/const/let/import namespace) | ✓ |
+| `mod-bare-collision`| language.md               | two `import … as _` exposing one public name is an error at the second import (barrel collisions likewise, at the barrel — unit-tested) | ✓ |
+| `mod-no-surface-shadow`| language.md            | a top-level declaration may not re-introduce a bare-surface name (prelude or `as _`); the eponymous-barrel namespace is exempt | ✓ |
 | `vis-pub`           | Visibility               | non-`pub` top-level is file-private (enforced)            | ✓      |
 | `vis-barrel`        | Visibility               | barrel re-exports a directory library's symbols (std.cli) | ◐      |
 | `vis-whitebox-test` | Visibility / Testing     | `foo_test.hawk` sees `foo.hawk` privates (bare)           | ✓      |
@@ -208,18 +208,6 @@ sweep of enforcement fixes (now in [Resolved](#resolved-changelog)); what remain
 open is below.
 
 ### Open
-
-- **Resolution is correct for *values*, not yet for *types*** (scoping.md gaps
-  1/2/5). Per-file namespaces (gap 3) and per-file bare *value* resolution (gap 1
-  for values) are enforced with no global last-wins fallback — pinned by
-  `mod-ns-file-local`, `mod-no-bare-fallback`, `vis-whitebox-test`. Still open: the
-  same per-file gate for bare **type** references (`check_type_ref` consults the
-  flat `type_defs`), surface-checked within-library qualified resolution (gap 2),
-  and physical per-library ownership of the flat tables (gap 5; same-name
-  cross-file collisions are guarded by the duplicate-name diagnostic, not yet by
-  ownership). `qualify_lint`/`visibility_lint` still enforce the qualified-only +
-  `pub` rules and own the "qualify as `ns.name`" message; they retire once the
-  above lands. See [scoping.md](scoping.md).
 
 - **`iface-debug` — structural `Debug` derive not accepted as a `Debug` value**
   (◐). A struct with no explicit `impl Debug` is rejected where a `Debug`-typed

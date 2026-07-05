@@ -91,7 +91,7 @@ thread_local! {
     static INTERN: RefCell<std::collections::HashMap<String, Value>> =
         RefCell::new(std::collections::HashMap::new());
 
-    /// Module globals (top-level `let` slots; see docs/module_init.md), indexed
+    /// Module globals (top-level `let` slots; see docs/bytecode.md), indexed
     /// by `global.get`/`global.set`. A permanent GC root set ([`collect`] marks
     /// every slot), so a global's value lives for the run regardless of what is
     /// on any frame stack. Sized once by [`set_globals`] before the program-init
@@ -313,7 +313,7 @@ pub fn collect(roots: impl Iterator<Item = Value>) {
                 mark(&mut marked, &mut worklist, *v);
             }
         });
-        // Module globals are permanent roots too (see docs/module_init.md).
+        // Module globals are permanent roots too (see docs/bytecode.md).
         GLOBALS.with(|g| {
             for v in g.borrow().iter() {
                 mark(&mut marked, &mut worklist, *v);

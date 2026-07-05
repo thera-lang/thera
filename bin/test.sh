@@ -123,7 +123,7 @@ echo "==> qualified-reference guard (corpus stays at 0 bare cross-library refs)"
 # name goes through `ns.name` (or an explicit `import '…' as _;`). This is now
 # enforced — `check` reports a "bare reference to …" error for each violation —
 # so a regression fails the build outright; this guard keeps the count explicit
-# (and the message clear). See docs/scoping.md.
+# (and the message clear). See docs/language.md.
 bare_refs="$("$HAWK" check pkgs/cli sdk/std examples 2>/dev/null \
   | grep -c 'bare reference to')"
 if [ "$bare_refs" -eq 0 ]; then

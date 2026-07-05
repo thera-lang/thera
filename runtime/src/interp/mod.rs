@@ -131,7 +131,7 @@ impl Drop for GcPause {
 /// The reserved name of the program-init thunk: the function that evaluates
 /// every module-`let` initializer in dependency order and `global.set`s its
 /// slot. Run once, before the entry. The angle brackets keep it from colliding
-/// with any user identifier. See docs/module_init.md.
+/// with any user identifier. See docs/bytecode.md.
 pub const INIT_THUNK: &str = "<init>";
 
 /// Prepare `module`'s globals before its entry runs: allocate the globals vector

@@ -183,8 +183,8 @@ constDecl   = 'const' IDENT (':' type)? '=' expr ';'?
 
 letDecl     = 'let' IDENT (':' type)? '=' expr ';'?
               // A module-level binding (a global computed once at load; see
-              // docs/module_init.md). Immutable: top-level `let mut` is rejected,
-              // unlike the local `letStmt`. Parsed today; not yet executable.
+              // docs/language.md -> Module-level bindings). Immutable: top-level
+              // `let mut` is rejected, unlike the local `letStmt`.
 ```
 
 A trailing `;` is optional almost everywhere it can appear.

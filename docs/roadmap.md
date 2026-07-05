@@ -40,17 +40,16 @@ call. It sees through generics (`Option<T>`/`List<T>` elements, method returns,
 match bindings, `?`/`unwrap`), does bidirectional and forward-flow inference,
 and the checker reports located diagnostics (type mismatches, bad
 calls/fields/methods, unpinnable generics). The inference-completeness arc is
-**closed** — see _Completed_ at the end.
+**closed** — see _Changelog_ at the end.
 
 **Not yet:** a broader stdlib; generic operators (`<T: Add>`); index (`[]`)
-operator overloading; the Cranelift JIT tier. (Qualified-only resolution +
-`pub`/privacy are now **enforced**, and value resolution is owner-correct; the
-residual is **type-name** owner-correctness — see _Owner-correct type
-resolution_ below.)
+operator overloading; the Cranelift JIT tier. (Name resolution is now fully
+owner-correct for values _and_ types — the `TypeId` arc — with qualified-only
+resolution and `pub`/privacy enforced; see _Changelog_.)
 
 ## Open work
 
-### Runtime (Rust)
+### Stdlib
 
 - **Stdlib breadth.** `String.*`/`List.*`/`Map.*`/`Option.*` (native + Hawk),
   and
@@ -65,7 +64,7 @@ resolution_ below.)
   `read_u8`/`read_bytes`/`read_u32_le`/`read_u64_le`/`read_uvarint`/`read_ivarint`,
   pure Hawk, round-trips the writer). (`slice` on `String`/`List`/`Bytes` was
   already there.) The `Ord` interface + `std.sort` (`sorted`/`min`/`max`) are
-  now in — see _Completed_. `std.encoding` (base64/hex/url, pure Hawk),
+  now in — see _Changelog_. `std.encoding` (base64/hex/url, pure Hawk),
   `std.hash` (native digests), and `std.regex` (the `regex` crate) are in too.
   The **lazy iteration arc** has landed: `Iterator<T>` with
   `map`/`filter`/`take`/`enumerate`
@@ -76,21 +75,23 @@ resolution_ below.)
     (`std.log`, `std.term`), and sorted/`Ord`-keyed `Set`/`Map` variants.
   - **`List.enumerate()` — _landed._** A lazy `Iterator<Indexed<T>>` right on
     `List` (`for p in xs.enumerate() { … p.index … p.value … }`), the idiomatic
-    replacement for a `while i < xs.len()` index loop — no import, no new syntax,
-    reusing the blessed `Indexed<T>` struct (so it sidesteps the `Pair`/`Tuple`
-    decision below). Backed by a small `ListEnumerateIter` cursor in
-    `std.core`. This is the chosen answer to the indexed-loop ergonomics gap the
-    review found (see below / [ergonomics.md](ergonomics.md)).
+    replacement for a `while i < xs.len()` index loop — no import, no new
+    syntax, reusing the blessed `Indexed<T>` struct (so it sidesteps the
+    `Pair`/`Tuple` decision below). Backed by a small `ListEnumerateIter` cursor
+    in `std.core`. This is the chosen answer to the indexed-loop ergonomics gap
+    the review found (see below).
   - **`zip` iterator adapter** (and `flat_map`/`chain`, the other wrapped
     adapters the `enumerate` parser extension opened). `zip(a, b)` pairs two
     iterators; the **design dependency** is what it yields — Hawk has no tuple,
     so it needs a blessed `Pair<A, B>` (the way `enumerate` yields `Indexed<T>`)
     or settling the deferred `Tuple` open question (see
     [language.md](language.md) → Types → Open questions). Motivated by the
-    `while i < xs.len()` parallel-index loops the ergonomics review found
-    ([ergonomics.md](ergonomics.md) → Secondary observations) — e.g.
+    `while i < xs.len()` parallel-index loops the ergonomics review found — e.g.
     `signatures_match`'s `i_params[i]` vs `o_params[i]`. Deferred with that
     migration (no consumer until then); decide `Pair` vs `Tuple` first.
+
+### Runtime (Rust)
+
 - **Fibers — phases 3–4.** Phases 0–2 are done (scheduler-drivable `run_loop`;
   `spawn`/`join`/`yield` with GC roots across every fiber; buffered
   `Channel<T>`). Design in [architecture.md](architecture.md) §Concurrency.
@@ -236,35 +237,16 @@ resolution_ below.)
   and already covered by `cargo` + samply/Instruments and the
   `[profile.profiling]` / `native-stats` setup.)
 
-### Front-end / tooling
-
-- **Owner-correct type resolution (`Type` carries its origin) — + an
-  architecture review.** Phase 2e makes _value_ resolution (functions/consts)
-  owner-correct and lifts global name uniqueness for them, but **type names stay
-  globally unique**: `resolve_type_def` resolves a type by **name** alone,
-  because an already-resolved `Type.Interface(name)` (a namespace-qualified
-  receiver type, a field's type, …) carries no origin, so by-name lookup is
-  unambiguous only while type names don't collide across libraries. Making types
-  owner-correct needs an **origin threaded into every `Type`** — through
-  inference, unification, and codegen's type table — so `Foo` from library A and
-  `Foo` from library B stay distinct. This is foundational (a language should
-  resolve types correctly), and the friction hit while doing 2e suggests the
-  surrounding resolution/`Type` representation is due for an **architecture
-  review** — evaluate the element-model / `Type` design before (or as part of)
-  this work, rather than bolting origin on. Not urgent: Hawk's nominal types
-  already discourage cross-library type-name clashes, and the painful uniqueness
-  case (two libraries' same-named _functions_, e.g. `std.json.parse` vs
-  `std.toml.parse`) is handled by 2e. See [scoping.md](scoping.md) → Phase 2e
-  S5.
+### Compiler & front-end
 
 - **Resolution — smaller open items.** (Qualified-only + `pub` visibility
-  enforcement, the `FileScope` refactor, and owner-correct **value** resolution
-  are done — see _Completed_; type-name owner-correctness is the _Owner-correct
-  type resolution_ item above.) Remaining: `impl` coherence / orphan rules,
-  selective import (`show`/`hide`), and a "module"→"library" terminology sweep.
+  enforcement, the `FileScope` refactor, and owner-correct value _and type_
+  resolution — the `TypeId` arc — are all done; see _Changelog_.) Remaining:
+  `impl` coherence / orphan rules, selective import (`show`/`hide`), and a
+  "module"→"library" terminology sweep.
 
 - **Whole-closure diagnostics — remaining tail.** (Per-file origin + surfacing
-  imported-file parse errors are done — see _Completed_.) Two pieces remain:
+  imported-file parse errors are done — see _Changelog_.) Two pieces remain:
   - **Cascade suppression / cause-naming.** When an import fails to parse, its
     dependent symbols may not recover (`greet`'s decl is dropped), so the
     importer still shows a secondary `` `greet` is not a public member `` after
@@ -285,84 +267,18 @@ resolution_ below.)
     machine-readable JSON mode can follow.
 
 - **`native type` / `native fn` follow-ups.** (The bodyless `native type` decls
-  for the built-ins are done — see _Completed_.) Open: whether to _gate_
+  for the built-ins are done — see _Changelog_.) Open: whether to _gate_
   `native fn`/`native type` to SDK paths (ties to the `@extern` name-check
   item), and the checker leniency that lets a bare field access on an opaque
   value slip to codegen (the existing `type-field-nonstruct` residual).
 - **Generics — residual follow-ons.** (Static-method type args, struct/enum
   bound enforcement, and the inference-classification cleanup are done — see
-  _Completed_.) Remaining: enum construction with an _inferred_ (un-annotated)
+  _Changelog_.) Remaining: enum construction with an _inferred_ (un-annotated)
   argument isn't bound-checked yet (annotated enum use is); a bound isn't
   **propagated** onto an enclosing function's own type parameter
   (`fn f<U>(x: U) -> Box<U>` doesn't require `U: Display`); and
   `expected_arg_types` still handles only the namespace callee head inline.
   (Generics are **invariant by design** — no variance work planned.)
-- **Semantic (scope-aware) references & rename.** `textDocument/references` and
-  `textDocument/rename` are implemented but **lexical only** — they match every
-  identifier token with the same text, across files, with no binding/scope
-  analysis, so they'd report (or rewrite) unrelated same-named symbols. They are
-  therefore **not registered** by the server (`pkgs/cli/lsp/references.hawk`,
-  `rename.hawk` are parked with TODOs). Making them precise needs name
-  resolution at a cursor — resolve the identifier to its _declaration_ via the
-  element model, then collect only the references that bind to it (and, for
-  rename, verify the new name doesn't collide). This rides on the same
-  inference-at-offset work as below.
-- **LSP v2 toward an incremental engine.** Full architecture + phased plan:
-  **[lsp_v2.md](lsp_v2.md)** (analysis session, owner-correct value+type
-  resolution, symbol identity, query layer, incremental recompute). Direction
-  set: correctness-first (finish the type-origin arc before the engine/features),
-  medium-scale target (~1–2k files), semantic references+rename as the first
-  query-layer feature, one engine shared by `hawk check` + LSP. Near-term
-  pull-outs identified there (codegen bare-call owner-correctness; a shared
-  `resolve.hawk`; an analysis-session struct). Inference-at-offset
-  (hover/definition on locals, expressions, members), overlay-aware imports
-  (honor unsaved edits), and memoizing the import-closure load.
-  - **Context-aware hover landed (no inference needed).** `hover.hawk` resolves
-    the name at the cursor against the **enclosing method/impl**, not just
-    top-level decls: `self` → the impl/interface type; `self.method` / `self.field`
-    → that type's signature / field type (searched across all its `impl`s + the
-    type decl, file + imports); a parameter → its declared type; `Enum.Variant` →
-    the variant + payload. Keyed off the AST's impl/method spans + a token-stream
-    `RECEIVER.member` check (and `name_at` now also matches `self`/`KwSelf`). A
-    member of a **non-`self` receiver** returns null rather than guessing against
-    unrelated top-level names. Still deferred to true inference-at-offset: the
-    *inferred* type of a local `let` / loop variable, and `xs.foo()` where `xs`'s
-    type isn't written down. Unit + end-to-end (`hawk lsp`) tested. The front-end is whole-program and
-  stateless per request: each `hawk check` / LSP edit re-reads, re-parses, and
-  re-checks the entire import closure (incl. the `std.core` prelude) from
-  scratch — fine now, but the LSP re-does it per keystroke. Longer term: cache
-  parsed/resolved libraries, invalidate by file, reuse the element model across
-  requests, re-check only what changed. (Transport has an end-to-end smoke test
-  in `bin/test.sh`, added after a line-buffered-stdout bug let only each
-  message's header reach the client — which the in-process `StringWriter`
-  `@test`s couldn't catch.)
-  - **Partial down-payment landed — cross-file parse cache.** `hawk check <dir>`
-    now shares one parse cache (`Map<path, ParsedFile>`) across all checked
-    files, so the import closure (the prelude above all) is lexed+parsed once
-    per run instead of once per file — `hawk check pkgs/cli` 80s → ~10s (see
-    _Completed_). The remaining duplication this item targets: a file checked as
-    a primary _and_ imported by a sibling is still parsed ~twice (share the
-    primary parse forward — small, with an overlay-correctness note for the LSP
-    path); and the per-file `build_library` still rebuilds the prelude's
-    **element model** every file (the larger, invalidation-bearing piece).
-    Back-port these into the incremental engine rather than bolting more caches
-    onto the stateless path.
-  - **LSP server perf landed — server-lived parse cache + edit coalescing.** The
-    server now persists the parse cache across requests (keyed by path, evicted
-    on edit), so the import closure is parsed once and reused per keystroke
-    instead of re-parsed every change: a doc importing std.cli + std.json went
-    186 → 8.3 ms/edit (~22×). And the `serve` loop drains a whole buffered burst
-    of edits (non-blocking `MsgBuffer.try_message`) before a single diagnostics
-    flush, so a backlog collapses to one re-check per document (100 bunched
-    edits ≈ the cost of 1). **Still on the table here:** (a) the per-flush
-    re-check still rebuilds the closure's **element model** and re-runs the
-    checker — the big remaining lever, and exactly the resolved-library caching
-    this item is about; (b) _time-based_ debounce for edits that arrive just
-    apart (needs a timeout/non-blocking read native — small runtime add) — low
-    priority now that warm latency (~8 ms) keeps pace with typing; (c)
-    incremental `textDocumentSync` — still low ROI (the re-check, not the JSON,
-    dominates) and carries UTF-16 offset risk. Profile a warm flush before
-    picking (a) up, to confirm the checker pass is the cost.
 - **`@extern` name check.** Native names are written once as `@extern('…')` on
   the `native fn` decls in `sdk/std`; the Rust runtime table is the other half,
   bound by name at load. Add a test asserting every `@extern` name the front-end
@@ -380,17 +296,70 @@ resolution_ below.)
   coverage of `module_scope` internals (name mangling, same-file-first
   resolution edge cases, dispatch-table building) still leans on the implicit
   end-to-end suites.
+- **Unify the diagnostic model (audit LD15 tail).** Attribution is now one
+  mechanism (`span.file`) and the per-phase converters live in one place, but
+  each phase still has its own error struct behind them and the target
+  `Diagnostic {file, span, message, severity, phase}` lacks the `severity`/
+  `phase` fields (no consumer yet). Finish the single model so check/emit/LSP are
+  pure renderers.
+- **Owner-qualified `FuncDef` names (audit CG-D4) — needs a portable file-key
+  scheme.** Two libraries' `Point.area` emit identical `FuncDef` names (stack-
+  trace / `--entry` ambiguity). _On hold:_ `FuncDef.name` is the only
+  compile-time string emitted into `.hawkbc`, and `owner` is an absolute
+  canonical path — embedding it would leak home-dir paths and break the
+  reproducible `bootstrap/frontend.hawkbc`. Prerequisite: normalize file keys to
+  a portable scheme (`sdk:`/`file:`/`pkg:` + relative). Not a miscompile (calls
+  resolve by owner-correct index) — observability; revisit on a forcing function
+  (real stack traces).
+- **Residual owner-blind keying (audit tail).** Two narrow cases stay name-keyed,
+  deferred: interface _name_ collisions across libraries, and the `native`
+  instance/static method tables (natives only come from SDK core). Plus a CH12
+  residual — an out-of-order labeled/positional argument mix maps by index in the
+  checker but in sequence in codegen; fold into a single arg-resolution cleanup.
+- **Codegen extraction seams (audit CG-R tail).** `codegen.hawk` is large; the
+  match-compilation and shared closure/free-variable walker seams landed. Still
+  to extract: the module-global init subsystem, the infer-oracle / operator
+  tables, and the `emit_virtual_call` / `emit_ordered_args` argument-loop dedup.
+
+### LSP
+
+- **Query layer + incremental engine — landed; Phase-3 follow-ups remain.** The
+  analysis session (one engine shared by `hawk check` + LSP), owner-correct
+  value+type resolution, the resolved-library cache with dependency-graph
+  invalidation, `type_at` (inference-at-offset), and semantic references/rename
+  all shipped (see _Changelog_). The remaining follow-ups, all deferred:
+  - **References/rename — dependency-cone pruning.** The project-wide scan builds
+    every workspace file's closure to resolve it; scope it to the target's
+    dependency cone (via the session import graph) so cost scales with
+    reachability, not project size.
+  - **Pre-rename collision check.** Rename doesn't yet verify the new name isn't
+    already bound in an affected scope — today the checker flags any clash on the
+    next publish. Add a pre-flight check.
+  - **Primitive-receiver member resolution.** Hover / definition / member
+    resolution on a primitive receiver (`"s".split()`) don't resolve — a
+    `Primitive` value carries no `TypeId`. Ties to _Primitive vtables_ (Runtime).
+  - **Complete field identity.** A field's declaration name and its
+    `S { field: … }` literal uses don't resolve to the field yet (field
+    references are member-access-only; rename declines fields). Give fields full
+    symbol identity.
+  - **Further renderers — completion, signature help, semantic tokens.** Thin
+    query-layer renderers; completion + signatureHelp additionally need the
+    parser recovery below.
+  - **Session tokenization dedup (audit LS-D1 tail).** The closure parse still
+    tokenizes the primary separately; collapsing the last redundant tokenization
+    needs the session to expose a parse's tokens so `DocAnalysis` can carry them.
 - **Parser error recovery for the LSP.** The LSP's normal input is
   _syntactically broken_ code mid-edit; the parser should synthesize a
   best-effort tree (recover past the error) so semantic resolution still runs
-  and offers completions/hover. Today recovery is coarse (`sync_to_decl` — a
-  single declaration-level recovery point). **Design + staged plan in
-  [parser-recovery.md](parser-recovery.md):** non-fatal `expect` (fill known
-  holes in place so the leaf node survives for completion) + an `Expr.Error`
-  placeholder the resolver/checker analyze leniently (no semantic cascade) +
-  finer recovery points (statement/block) + signature-past-body. (Keep in mind
-  when touching the parser — the recent precedence-table refactor preserved the
-  `panicking`/recovery structure.)
+  and offers completions/hover. `sync_to_decl` is now **brace-depth-aware** (the
+  audit's PA4 — no more phantom top-level `let`s from resyncing inside a broken
+  body). **Design + staged plan in [parser-recovery.md](parser-recovery.md):**
+  non-fatal `expect` (fill known holes in place so the leaf node survives for
+  completion) + an `Expr.Error` placeholder the resolver/checker analyze
+  leniently (no semantic cascade) + the finer recovery points still open
+  (per-method in impl/interface, statement/block boundary, match-arm, list
+  separators) + signature-past-body. (Keep in mind when touching the parser — the
+  recent precedence-table refactor preserved the `panicking`/recovery structure.)
   - **Dependent feature: `textDocument/completion`.** Autocomplete requires
     navigating a mid-keystroke AST (e.g., `obj.`). Deferring until the parser
     can reliably build an AST that doesn't drop the trailing, incomplete member
@@ -399,28 +368,31 @@ resolution_ below.)
     names while inside a function call. Relies on the parser correctly framing
     an unterminated call `foo(`, which current coarse recovery struggles with.
 
+### Developer tooling
+
 - **Formatter (`hawk fmt`) — _v1 landed (indentation); intra-line spacing still
   open._** `fmt` was v0 (trailing-whitespace trim + final newline); it is now a
-  **line-preserving indentation formatter** (`pkgs/cli/fmt.hawk`). It keeps every
-  line break the author chose (no automatic line breaking / re-joining — the
-  deliberately-deferred source of formatter complexity) and normalizes the
+  **line-preserving indentation formatter** (`pkgs/cli/fmt.hawk`). It keeps
+  every line break the author chose (no automatic line breaking / re-joining —
+  the deliberately-deferred source of formatter complexity) and normalizes the
   vertical layout: re-indents each line, collapses blank runs to one, trims
-  trailing whitespace, single final newline. Indentation is a **token-only** pass
-  over a stack of per-bracket *anchors* — a `{` block hangs from the statement
-  base, a `(`/`[` from its opener line's visual column, several opens on one line
-  indent the body just once (`push(Foo {`), a continuation line (leading `.`/
-  operator/`->`, or after a line ending in a binary operator) gets one extra
-  level, and multi-line string literals are emitted **verbatim**. Validated by
-  formatting the whole corpus: a **no-op except legit blank/whitespace cleanups**,
-  save ~4 lines in test files where the author used open-paren *alignment* or a
-  paren-relative value-continuation — styles the canonical hanging-indent form
-  deliberately replaces. Idempotent (re-formatting is a fixpoint); moves only
-  whole lines, so tokens are preserved and it can never break a compile.
+  trailing whitespace, single final newline. Indentation is a **token-only**
+  pass over a stack of per-bracket _anchors_ — a `{` block hangs from the
+  statement base, a `(`/`[` from its opener line's visual column, several opens
+  on one line indent the body just once (`push(Foo {`), a continuation line
+  (leading `.`/ operator/`->`, or after a line ending in a binary operator) gets
+  one extra level, and multi-line string literals are emitted **verbatim**.
+  Validated by formatting the whole corpus: a **no-op except legit
+  blank/whitespace cleanups**, save ~4 lines in test files where the author used
+  open-paren _alignment_ or a paren-relative value-continuation — styles the
+  canonical hanging-indent form deliberately replaces. Idempotent (re-formatting
+  is a fixpoint); moves only whole lines, so tokens are preserved and it can
+  never break a compile.
   - **Still open — intra-line spacing** (`fn  foo( name:String )` →
     `fn foo(name: String)`). Deferred because token adjacency alone can't tell
     generics (`List<Int>`) from comparison (`a < b`), nor unary from binary `-`;
-    doing it safely wants **AST-aware** spacing, not the token-only pass. This is
-    the remaining piece of the "eliminate ~99% of format discussion" goal.
+    doing it safely wants **AST-aware** spacing, not the token-only pass. This
+    is the remaining piece of the "eliminate ~99% of format discussion" goal.
   - **Follow-up — format the corpus.** Dogfood `hawk fmt` over `pkgs/cli`/
     `sdk/std`/`examples` in one sweep so the tree is a fmt fixpoint (safe:
     whitespace-only, fixpoint-clean); pairs with a CI `fmt --check`.
@@ -436,9 +408,9 @@ resolution_ below.)
     comment carries a start line, so a blank between two elements is a
     line-number gap (a multi-line token counts newlines in its own text); no
     redundant tracking added. This keeps the formatter **orthogonal to parser
-    recovery** and holds as long as we **only format syntactically-valid files**.
-    Remaining for the formatter proper: **comment attachment** (leading /
-    trailing / dangling) — re-associating the positioned list to AST nodes by
+    recovery** and holds as long as we **only format syntactically-valid
+    files**. Remaining for the formatter proper: **comment attachment** (leading
+    / trailing / dangling) — re-associating the positioned list to AST nodes by
     span — the hardest design call, deferred to `fmt` itself. The same side
     channel is what doc-comment tooling (attach `///` to AST nodes) consumes.
 
@@ -451,23 +423,24 @@ resolution_ below.)
   ordinary comments, so it stayed fixpoint-clean). The **trivia side-channel
   prerequisite is now landed** — the lexer surfaces comments (incl. `///`/`//!`,
   classified) on `LexResult.comments` (see the formatter prerequisite above), so
-  they are no longer discarded — but every downstream consumer remains **pending**
-  (the side channel is collected, then dropped: each `parse_tokens` call site
-  passes only `lex.tokens`). The remaining tooling: (1) **attach docs to AST
-  nodes** — a pass re-associating each `///`/`//!` comment to the decl it precedes
-  by span, threaded onto the AST (or a side table) — the one piece the side
-  channel directly unblocks; (2) **LSP hover** surfaces the item/file doc (today
-  `hover.hawk` shows the signature only); (3) a **doc generator** extracts a
-  package's `pub` surface + barrel `//!` into an index for agent navigation (no
-  `doc` subcommand yet); (4) **reference resolution + lint** — resolve `[Symbol]`
-  references (link them in hover/doc-gen, flag ones that no longer resolve), plus
-  a lint for `pub` symbols whose doc only restates the signature, and
-  normalization of doc layout. (Not yet migrated: `pkgs/cli/` and `examples/`,
-  deliberately deferred — the public API surface was the priority.)
+  they are no longer discarded — but every downstream consumer remains
+  **pending** (the side channel is collected, then dropped: each `parse_tokens`
+  call site passes only `lex.tokens`). The remaining tooling: (1) **attach docs
+  to AST nodes** — a pass re-associating each `///`/`//!` comment to the decl it
+  precedes by span, threaded onto the AST (or a side table) — the one piece the
+  side channel directly unblocks; (2) **LSP hover** surfaces the item/file doc
+  (today `hover.hawk` shows the signature only); (3) a **doc generator**
+  extracts a package's `pub` surface + barrel `//!` into an index for agent
+  navigation (no `doc` subcommand yet); (4) **reference resolution + lint** —
+  resolve `[Symbol]` references (link them in hover/doc-gen, flag ones that no
+  longer resolve), plus a lint for `pub` symbols whose doc only restates the
+  signature, and normalization of doc layout. (Not yet migrated: `pkgs/cli/` and
+  `examples/`, deliberately deferred — the public API surface was the priority.)
 
-- **Tools — refactorings (suggestion diagnostics + code actions).** Once the
-  ergonomics features land (see [ergonomics.md](ergonomics.md)), the common
-  verbose shapes they replace become **mechanically detectable**, so the
+- **Tools — refactorings (suggestion diagnostics + code actions).** Now that the
+  ergonomics features have landed (`if let`, `let … else`, `?` on `Option`, the
+  Option/Result combinators), the common verbose shapes they replace are
+  **mechanically detectable**, so the
   front-end can suggest (and a `hawk fix` / LSP code action can apply) the
   rewrite. These are tracked here but **decoupled from the language work** —
   shipping `if let` does not require building its suggester. The candidate
@@ -476,130 +449,139 @@ resolution_ below.)
     `None => {}` catch-all (`match X { Some(v) => { … }, None => {} }`) →
     `if let Some(v) = X { … }`. The dominant cascade (~323 sites; ~279 noise
     arms) — the highest-leverage cleanup.
-  - **`match` → `let … else`. _Rewriter landed._** `let x = match opt { Some(v) => v, None => { …diverge… } };`
-    → `let Some(x) = opt else { …diverge… };`. Fires on a plain, unannotated `let`
+  - **`match` → `let … else`. _Rewriter landed._**
+    `let x = match opt { Some(v) => v, None => { …diverge… } };` →
+    `let Some(x) = opt else { …diverge… };`. Fires on a plain, unannotated `let`
     whose diverging arm binds nothing (the `else` binds nothing).
-  - **`match` → `?`. _Rewriter landed._** A `match r { Ok(v) => v, Err(e) => return Result.Err(e) }`
-    (or the `Some(v)`/`None => return Option.None` analogue) → `r?`. Parenthesizes a
-    low-precedence subject (`match a + b {…}` → `(a + b)?`), since `?` is postfix.
-    The corpus had 0 sites (already idiomatic) — but the rule's own verbose
-    extractors were the first dogfood: `let x = match f() { Some(n) => n, None => return Option.None }`
-    → `let x = f()?`.
-  - **`match` → combinator. _Rewriter landed._** `match opt { Some(v) => Option.Some(f(v)), None => Option.None }` →
+  - **`match` → `?`. _Rewriter landed._** A
+    `match r { Ok(v) => v, Err(e) => return Result.Err(e) }` (or the
+    `Some(v)`/`None => return Option.None` analogue) → `r?`. Parenthesizes a
+    low-precedence subject (`match a + b {…}` → `(a + b)?`), since `?` is
+    postfix. The corpus had 0 sites (already idiomatic) — but the rule's own
+    verbose extractors were the first dogfood:
+    `let x = match f() { Some(n) => n, None => return Option.None }` →
+    `let x = f()?`.
+  - **`match` → combinator. _Rewriter landed._**
+    `match opt { Some(v) => Option.Some(f(v)), None => Option.None }` →
     `opt.map((v) => f(v))`; `match opt { Some(v) => v, None => d }` →
     `opt.unwrap_or(d)` / `.unwrap_or_else(…)` (already underused — e.g. json
     `write_object` — so this rewrites existing code too).
   - **`while i < xs.len()` → `for` / `enumerate`. _Lint landed; rewriter not
-    built (see below)._** A survey of the 65 flagged sites: **A** — `i` only ever
-    appears as `xs[i]` + the increment (15, ~23%) → `for x in xs`; **B** — `i`
-    never indexes `xs`, only passed on / used as a bound (6, ~9%) →
-    `for i in 0..xs.len()`; **C** — `i` used as *both* `xs[i]` and for position
+    built (see below)._** A survey of the 65 flagged sites: **A** — `i` only
+    ever appears as `xs[i]` + the increment (15, ~23%) → `for x in xs`; **B** —
+    `i` never indexes `xs`, only passed on / used as a bound (6, ~9%) →
+    `for i in 0..xs.len()`; **C** — `i` used as _both_ `xs[i]` and for position
     (bounds, first/last checks, parallel `ys[i]`) (44, ~68%) →
     `for p in xs.enumerate() { … p.value … p.index … }`. The C majority was the
-    real blocker — it needs indexed iteration, now provided by **`List.enumerate()`**
-    (landed; see _Stdlib breadth_). The corpus has been **hand-migrated** with it:
-    47 of the 65 sites converted to `for p in xs.enumerate()` / `for x in xs`
-    (a fixpoint-clean, suite-green batch), leaving **18** that genuinely don't fit
-    the shape — non-zero start (`let mut i = start`), a stepped/conditional
-    increment (`i = i + 2`, argv parsers), a compound min-length bound
-    (`while i < a.len() && i < b.len()`), a sub-range bound (`… .len() - 1`), a
-    plain count (`while i < 4`), a `Bytes` receiver, or a list mutated mid-loop.
-    An **auto-rewriter is still not built** (unlike the `match` rules it needs a
-    genuine loop-body rewrite — substitute `xs[i]` → the binding and delete the
-    pre-loop `let mut i = 0` + the `i = i + 1`, both outside the loop span); the
-    lint flags the shape and the migration was done by hand. Deferred: a `zip`
-    adapter for the parallel-two-list sub-case (needs the `Pair`/`Tuple` decision
-    below).
+    real blocker — it needs indexed iteration, now provided by
+    **`List.enumerate()`** (landed; see _Stdlib breadth_). The corpus has been
+    **hand-migrated** with it: 47 of the 65 sites converted to
+    `for p in xs.enumerate()` / `for x in xs` (a fixpoint-clean, suite-green
+    batch), leaving **18** that genuinely don't fit the shape — non-zero start
+    (`let mut i = start`), a stepped/conditional increment (`i = i + 2`, argv
+    parsers), a compound min-length bound (`while i < a.len() && i < b.len()`),
+    a sub-range bound (`… .len() - 1`), a plain count (`while i < 4`), a `Bytes`
+    receiver, or a list mutated mid-loop. An **auto-rewriter is still not
+    built** (unlike the `match` rules it needs a genuine loop-body rewrite —
+    substitute `xs[i]` → the binding and delete the pre-loop `let mut i = 0` +
+    the `i = i + 1`, both outside the loop span); the lint flags the shape and
+    the migration was done by hand. Deferred: a `zip` adapter for the
+    parallel-two-list sub-case (needs the `Pair`/`Tuple` decision below).
   - **Shared machinery — _edit toolkit landed._** Edits are created by
     **AST-guided source-slice reassembly**, not AST pretty-printing: the kept
     sub-expressions (scrutinee/pattern/body) are sliced verbatim from source via
-    their spans (comments and all), only the connective scaffolding is generated,
-    and each replacement is formatted **as a fragment at the site's own
-    indentation** (`fmt.format_fragment(text, indent)` — format at base level, then
-    re-indent) so the edit is **localized**: only the rewritten span changes, the
-    rest of the file is byte-identical (fmt stays a separate, whole-file concern).
-    This avoids needing a faithful unparser — the kept regions carry arbitrary
-    code. Landed: `pkgs/cli/edit/edit.hawk` (`TextEdit` + `apply_edits` +
-    `span_edit` + offset↔line/col + `line_indent_at`), `fmt.format_fragment`, the
-    `MatchExpr.origin` marker (`Source`/`IfLet`/`LetElse`, retiring the
-    `span.text()` heuristic — a desugared node never re-fires),
-    `lint.match_if_let` (structured site: scrutinee/pattern/body), and
-    `pkgs/cli/fix/fix.hawk` — `if_let_edit` + `fix_source` (parse → collect →
-    per-edit format → apply), directly unit-tested (incl. comment preservation, a
-    reindent-the-spliced-region case, and a minimal-edit-leaves-the-rest-untouched
-    case). Each rule adds a structured `lint.match_*` site + a `fix.*_edit`; a
-    single `fix.fix_sites` walk emits at most one rewrite per `match` (the rules
-    partition) plus `let … else` at the enclosing `let`. The transforms are
-    vehicle-independent; a `hawk fix` CLI and an LSP code action both drive them.
-  - **`hawk fix` CLI — _landed (`if let`, `?`, `unwrap_or`, `map`, `let … else`)._**
-    `hawk fix <file|dir>…` (main.hawk) drives the machinery: previews by default
-    (one `path:line:col: match → …` per fix), `--write` applies. UX is flagged
-    provisional in `--help` (the LSP code action is the primary per-site vehicle).
-    `fix_source` loops non-overlapping edit batches to a fixpoint so **nested**
-    convertible matches converge (an inner match becomes visible once its enclosing
-    match is rewritten — a bug the dogfooding surfaced). Rewrites are conservative
-    (precision over recall — the `lint` reporters flag a broader set than `fix`
-    safely rewrites): a block-bodied arm is left to a human, since moving it into a
-    closure/`else` could drop statements or `return` out of the enclosing fn.
-    `unwrap_or` stays eager only for a **cheap** fallback (literal/ident/field);
-    a computed one becomes `unwrap_or_else`, threading the `Err(e)` binding into
-    `Result`'s closure. **Dogfooded** on 8 front-end files (26 sites across
-    driver/runner/element/lsp/loader/inference), plus the rule set applied to its
-    own fresh `lint`/`fix` code (19 sites — the only `?` sites in the tree). That
-    self-dogfood surfaced a latent `if_let_body_text` bug: a bare *diverging* arm
-    body (`Some(_) => return …`) was wrapped as `{ return … }`, but a `return`
-    can't be a block tail — now emitted as `{ return …; }`. The front-end compiles
-    itself from all the rewritten source with the SDK fixpoint byte-identical and
-    the suite green. Some of the corpus is deliberately left for the **LSP code
-    action** to dogfood.
-  - **LSP code action — _landed (`if let`, `?`, `unwrap_or`, `map`, `let … else`)._**
-    `textDocument/codeAction` (`pkgs/cli/lsp/code_action.hawk`, registered in the
-    server capabilities) offers a `refactor.rewrite` action for each rewrite site
-    overlapping the request range, driving the same `fix.fix_sites` (each site
-    carries its edit + title). The `WorkspaceEdit` is the localized, self-formatted
-    replacement (via `format_fragment`), so applying it touches only that span — no
-    document-wide reformat. Purely syntactic (parses the open buffer, no import
-    closure). Honors the request's **`context.only`**: every action is a
-    `refactor.rewrite`, so it is offered only when `only` is absent/empty or lists
-    a `.`-separated ancestor (`refactor` / `refactor.rewrite`) — a `quickfix`- or
-    `refactor.extract`-only request gets nothing (and skips the tree walk).
-    In-process JSON-RPC tests cover offer (`if let` + `unwrap_or`), empty, and the
-    `only` filter (ancestor / exact / unrelated / sibling). This is the per-site
-    vehicle for dogfooding the rest of the corpus. (Not yet: the `while → for`
-    rewriter, which needs a loop-body rewrite.)
+    their spans (comments and all), only the connective scaffolding is
+    generated, and each replacement is formatted **as a fragment at the site's
+    own indentation** (`fmt.format_fragment(text, indent)` — format at base
+    level, then re-indent) so the edit is **localized**: only the rewritten span
+    changes, the rest of the file is byte-identical (fmt stays a separate,
+    whole-file concern). This avoids needing a faithful unparser — the kept
+    regions carry arbitrary code. Landed: `pkgs/cli/edit/edit.hawk`
+    (`TextEdit` + `apply_edits` + `span_edit` + offset↔line/col +
+    `line_indent_at`), `fmt.format_fragment`, the `MatchExpr.origin` marker
+    (`Source`/`IfLet`/`LetElse`, retiring the `span.text()` heuristic — a
+    desugared node never re-fires), `lint.match_if_let` (structured site:
+    scrutinee/pattern/body), and `pkgs/cli/fix/fix.hawk` — `if_let_edit` +
+    `fix_source` (parse → collect → per-edit format → apply), directly
+    unit-tested (incl. comment preservation, a reindent-the-spliced-region case,
+    and a minimal-edit-leaves-the-rest-untouched case). Each rule adds a
+    structured `lint.match_*` site + a `fix.*_edit`; a single `fix.fix_sites`
+    walk emits at most one rewrite per `match` (the rules partition) plus
+    `let … else` at the enclosing `let`. The transforms are vehicle-independent;
+    a `hawk fix` CLI and an LSP code action both drive them.
+  - **`hawk fix` CLI — _landed (`if let`, `?`, `unwrap_or`, `map`,
+    `let … else`)._** `hawk fix <file|dir>…` (main.hawk) drives the machinery:
+    previews by default (one `path:line:col: match → …` per fix), `--write`
+    applies. UX is flagged provisional in `--help` (the LSP code action is the
+    primary per-site vehicle). `fix_source` loops non-overlapping edit batches
+    to a fixpoint so **nested** convertible matches converge (an inner match
+    becomes visible once its enclosing match is rewritten — a bug the dogfooding
+    surfaced). Rewrites are conservative (precision over recall — the `lint`
+    reporters flag a broader set than `fix` safely rewrites): a block-bodied arm
+    is left to a human, since moving it into a closure/`else` could drop
+    statements or `return` out of the enclosing fn. `unwrap_or` stays eager only
+    for a **cheap** fallback (literal/ident/field); a computed one becomes
+    `unwrap_or_else`, threading the `Err(e)` binding into `Result`'s closure.
+    **Dogfooded** on 8 front-end files (26 sites across
+    driver/runner/element/lsp/loader/inference), plus the rule set applied to
+    its own fresh `lint`/`fix` code (19 sites — the only `?` sites in the tree).
+    That self-dogfood surfaced a latent `if_let_body_text` bug: a bare
+    _diverging_ arm body (`Some(_) => return …`) was wrapped as `{ return … }`,
+    but a `return` can't be a block tail — now emitted as `{ return …; }`. The
+    front-end compiles itself from all the rewritten source with the SDK
+    fixpoint byte-identical and the suite green. Some of the corpus is
+    deliberately left for the **LSP code action** to dogfood.
+  - **LSP code action — _landed (`if let`, `?`, `unwrap_or`, `map`,
+    `let … else`)._** `textDocument/codeAction`
+    (`pkgs/cli/lsp/code_action.hawk`, registered in the server capabilities)
+    offers a `refactor.rewrite` action for each rewrite site overlapping the
+    request range, driving the same `fix.fix_sites` (each site carries its
+    edit + title). The `WorkspaceEdit` is the localized, self-formatted
+    replacement (via `format_fragment`), so applying it touches only that span —
+    no document-wide reformat. Purely syntactic (parses the open buffer, no
+    import closure). Honors the request's **`context.only`**: every action is a
+    `refactor.rewrite`, so it is offered only when `only` is absent/empty or
+    lists a `.`-separated ancestor (`refactor` / `refactor.rewrite`) — a
+    `quickfix`- or `refactor.extract`-only request gets nothing (and skips the
+    tree walk). In-process JSON-RPC tests cover offer (`if let` + `unwrap_or`),
+    empty, and the `only` filter (ancestor / exact / unrelated / sibling). This
+    is the per-site vehicle for dogfooding the rest of the corpus. (Not yet: the
+    `while → for` rewriter, which needs a loop-body rewrite.)
   - **First step — a read-only count — _landed._** `hawk lint <file|dir>`
-    (`pkgs/cli/lint/lint.hawk`) walks the parsed AST — purely syntactic, no import
-    closure — and reports + per-rule tallies convertible sites. Source `match`es
-    are told from desugared `if let`/`let … else` (an indistinguishable
-    `MatchExpr`) by the keyword the span starts at — no AST marker yet. The rules
-    partition (a `match` fires at most one): empty arm → `if let`;
-    error-propagating arm → `?`; diverging arm in a `let` initializer →
-    `let … else`; value-returning fallback → `unwrap_or`; both arms re-wrap →
-    `map`. Precision over recall, so each tally is a **floor**. **The count, this
-    corpus** (`pkgs/cli` / `sdk/std`; `examples` is 0 throughout):
+    (`pkgs/cli/lint/lint.hawk`) walks the parsed AST — purely syntactic, no
+    import closure — and reports + per-rule tallies convertible sites. Source
+    `match`es are told from desugared `if let`/`let … else` (an
+    indistinguishable `MatchExpr`) by the keyword the span starts at — no AST
+    marker yet. The rules partition (a `match` fires at most one): empty arm →
+    `if let`; error-propagating arm → `?`; diverging arm in a `let` initializer
+    → `let … else`; value-returning fallback → `unwrap_or`; both arms re-wrap →
+    `map`. Precision over recall, so each tally is a **floor**. **The count,
+    this corpus** (`pkgs/cli` / `sdk/std`; `examples` is 0 throughout):
 
-    | rule | pkgs/cli | sdk/std | note |
-    | --- | --- | --- | --- |
-    | `match → if let` | 255 | 3 | the dominant cleanup, as predicted |
-    | `while i < len → for` | 43 | 21 | locates candidates; some need `enumerate`/`zip` or don't convert (index lookahead) |
-    | `match → unwrap_or` | 38 | 11 | high precision; `unwrap_or` *or* `unwrap_or_else` |
-    | `match → let … else` | 14 | 0 | |
-    | `match → map` | 11 | 4 | textbook `Some(f(v))`/`None` re-wraps |
-    | `match → ?` | **0** | **0** | the codebase already uses `?` everywhere — **no payload** |
+    | rule                  | pkgs/cli | sdk/std | note                                                                               |
+    | --------------------- | -------- | ------- | ---------------------------------------------------------------------------------- |
+    | `match → if let`      | 255      | 3       | the dominant cleanup, as predicted                                                 |
+    | `while i < len → for` | 43       | 21      | locates candidates; some need `enumerate`/`zip` or don't convert (index lookahead) |
+    | `match → unwrap_or`   | 38       | 11      | high precision; `unwrap_or` _or_ `unwrap_or_else`                                  |
+    | `match → let … else`  | 14       | 0       |                                                                                    |
+    | `match → map`         | 11       | 4       | textbook `Some(f(v))`/`None` re-wraps                                              |
+    | `match → ?`           | **0**    | **0**   | the codebase already uses `?` everywhere — **no payload**                          |
 
-    Takeaways: `match → if let` (258) decisively justifies a codemod; `unwrap_or`
-    (49) and `while i <` (64, with caveats) are worthwhile; `let … else`/`map` are
-    modest; **`match → ?` has zero sites, so skip it.** Spot-checked for precision
-    (true positives across all rules). Rules plug into one rule-agnostic walker;
-    the calling-convention lint (positional arg → labeled param) is the next one
-    but needs resolution, not just AST shape.
+    Takeaways: `match → if let` (258) decisively justifies a codemod;
+    `unwrap_or` (49) and `while i <` (64, with caveats) are worthwhile;
+    `let … else`/`map` are modest; **`match → ?` has zero sites, so skip it.**
+    Spot-checked for precision (true positives across all rules). Rules plug
+    into one rule-agnostic walker; the calling-convention lint (positional arg →
+    labeled param) is the next one but needs resolution, not just AST shape.
+
   - **Ecosystem payoff.** These aren't one-off cleanups: the same
     shape-matching + located-suggestion + auto-fix machinery is what a Hawk
-    `lint` / `hawk fix` is built from, and what the LSP surfaces as code actions.
-    Investing here (diagnostics that flag non-idiomatic code, with a mechanical
-    fix) pays off for every future idiom, not just this batch — so lean into it
-    rather than hand-editing files. Migration of existing code is **opportunistic
-    until then** (touch a file, modernize it); the standing guard is the lint.
+    `lint` / `hawk fix` is built from, and what the LSP surfaces as code
+    actions. Investing here (diagnostics that flag non-idiomatic code, with a
+    mechanical fix) pays off for every future idiom, not just this batch — so
+    lean into it rather than hand-editing files. Migration of existing code is
+    **opportunistic until then** (touch a file, modernize it); the standing
+    guard is the lint.
 
 - **Idioms & best-practices guidance (agent-facing).** The language now has a
   canonical form for each common shape (the _Choosing a form_ table in
@@ -609,14 +591,19 @@ resolution_ below.)
   combinators over `match`-as-guard, `for`/`enumerate` over `while i <`, the
   doc-comment conventions, etc. Surfaced by the ergonomics sprint, which found
   that a lot of **existing** code predates these features and doesn't use them —
-  so idiomatic Hawk has to be written down somewhere consulted, not just implied.
-  Open question is **where**: (a) a section in [language.md](language.md), (b) a
-  separate `docs/idioms.md` (best-practices doc), or (c) a **skill / rules file**
-  an agent auto-loads (the most actionable for the LLM-native goal). Likely (c)
-  backed by (b). Pairs with _Tools — refactorings_: the doc says what's
-  idiomatic, the lint enforces it mechanically.
+  so idiomatic Hawk has to be written down somewhere consulted, not just
+  implied. Open question is **where**: (a) a section in
+  [language.md](language.md), (b) a separate `docs/idioms.md` (best-practices
+  doc), or (c) a **skill / rules file** an agent auto-loads (the most actionable
+  for the LLM-native goal). Likely (c) backed by (b) — the rules file doubles as
+  the **primer that gets an LLM up to speed on writing Hawk**, and is the
+  successor home for the (now-retired) ergonomics review's idiom guidance: the
+  canonical-form-per-shape table, the `match`-as-guard anti-pattern, and the
+  reach-for-it-when rationale behind each combinator. Pairs with _Tools —
+  refactorings_: the doc says what's idiomatic, the lint enforces it
+  mechanically.
 
-### Language features not yet built
+### Language
 
 - **Calling convention — one canonical call form (tighten + enforce).** The
   decided model (see [language.md](language.md) → Named parameters): the author
@@ -635,8 +622,9 @@ resolution_ below.)
      is a corpus-wide sweep; it pairs with the _Tools — refactorings_ machinery
      (a located diagnostic for "positional argument to a labeled parameter" is
      the natural lint, with a mechanical fix).
-  3. **Enforce** — the checker requires a labeled parameter's label and forbids a
-     positional argument for it. Flip after the sweep so the corpus stays green.
+  3. **Enforce** — the checker requires a labeled parameter's label and forbids
+     a positional argument for it. Flip after the sweep so the corpus stays
+     green.
   - **Open sub-decision:** whether to also require **source order** for labeled
     arguments (forbid `f(b: 2, a: 1)`). The same one-form principle argues yes;
     it's a separable call from the positional-vs-labeled tightening. Decide
@@ -675,24 +663,6 @@ resolution_ below.)
   write an empty map, no silent `Void`. (A non-empty `{ … }` is never
   ambiguous.)
 
-- **Syntax-elegance pass — through the LLM lens.** Several common shapes are
-  more verbose than they need to be; the dominant one is the resolution cascade
-  `match X { Some(v) => { …; return …; }, None => {} }` (~323 sites corpus-wide;
-  ~279 noise `None => {}` arms) — "look up, act-and-return, else fall through."
-  **Full analysis + prioritized plan in [ergonomics.md](ergonomics.md):** the
-  language features are **all landed** — P0 `if let`, P1 `let … else` (parser
-  desugars to `match`; specs `cf-if-let`/`cf-let-else`), the P2 **curated
-  combinator set** (Option `map`/`and_then`/`unwrap_or_else`; Result
-  `is_ok`/`is_err`/`map`/`map_err`/`and_then`/`unwrap_or`/`unwrap_or_else`/`ok`),
-  and P2 **`?`-on-`Option`** (same-enum-family rule, cross-family rejected with a
-  fix-it; specs `err-propagate-option`/`err-propagate-cross`). Remaining: the
-  one-obvious-way guardrail (a canonical form per shape — partly in the docs
-  already; a prescriptive LLM rules/skill file is the open piece), and the
-  cascade-cleanup refactorings. Those refactorings are now the **highest-value
-  remaining item** — the dogfooding showed convertible sites are sparse, so a
-  count is the way to know how many wins remain; tracked under _Front-end /
-  tooling → Tools — refactorings_.
-
 - **Generic operators** (`<T: Add>`, operators-as-traits) — the remaining piece
   of the generics arc (bound enforcement + `call.virtual` dispatch on `T` are
   done). This is also where the language's **implicit operator/literal
@@ -712,7 +682,7 @@ resolution_ below.)
   `[variant1, variant0]`. Add field/variant names to the rendering — needs the
   names threaded into the runtime type table, or the bytecode-level name table
   the Profiling/`.hawkbc` debug-info item would add. (`Display`-for-collections
-  and total rendering are done — see _Completed_.)
+  and total rendering are done — see _Changelog_.)
 - **Primitive vtables — scope it (runtime / generics / soundness).** A primitive
   reached through _virtual_ dispatch — `call.virtual('display'|'eq'|'debug')`
   from a generic `<T: Display>` / interface-typed context where the runtime
@@ -760,299 +730,203 @@ See [architecture.md](architecture.md) for the design behind each tier.
 4. **AOT via `cranelift-object`** later — single-binary distribution; optional,
    not on the startup-critical path.
 
-## Completed (changelog)
+## Changelog
 
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **Semantic LSP resolution — references, rename, inferred-type navigation**
+  (2026-07). `textDocument/references` and `rename` are now **semantic** — every
+  candidate resolved by `SymbolId` identity across the open documents + a
+  workspace scan (not by text match), so unrelated same-named symbols are never
+  touched; both are registered in the server. The same resolver drives
+  hover/definition on **inferred** receivers: local `let`/loop-variable types (a
+  committed type-record, `session.type_at`), members on computed receivers
+  (`f().x`, `xs[i].y`), struct fields, generic type parameters, and names inside
+  `${…}`. Retires the parked lexical-only `references.hawk`/`rename.hawk`.
+
+- **Owner-correct type resolution — `TypeId`** (2026-07). Completes the
+  type-origin arc the roadmap flagged as foundational: nominal type identity is
+  now `(owning library, name)` via a `TypeId {owner, name}` carried on every
+  `Type` through inference, unification, and codegen's type tables (staged T1–T4,
+  fixpoint-idempotent), lifting type-name uniqueness so two libraries may each
+  define `Point` (conformance `mod-shared-type-name`). The preceding
+  architecture-review checkpoint chose the `TypeId` struct over an interned int
+  (keeps inference pure) and over a bare positional owner.
+
+- **LSP incremental analysis engine + `type_at`** (2026-07). `hawk check` and the
+  LSP now share one long-lived analysis session (`session.Session` / `Analysis`)
+  with a resolved-library cache + dependency-graph invalidation, so a keystroke
+  re-parses only the edited file and re-checks only the affected libraries
+  instead of the whole closure (batch corpus check 22.6s → 12.5s; warm keystroke
+  ~5ms). The checker records each node's committed type (`Session.type_at`),
+  which serves inference-at-offset and halved the checker's inference work.
+
+- **Front-end audit — six-subsystem correctness sweep** (2026-07). An adversarial
+  audit of `pkgs/cli/` closed whole classes of "checks clean, wrong at runtime"
+  gaps: match exhaustiveness and assignment / operator / `if`-branch typing;
+  value (const/global/native) owner-keying and codegen block/const scoping;
+  builtin identity by `TypeId` rather than name string; canonical file identity +
+  surfaced loader error paths + a unified per-file diagnostic model; owner-correct
+  LSP resolution; and parser soundness (interpolation errors, `<`-ambiguity,
+  brace-aware recovery).
+
 - **Map/Set scaling — hashed, insertion-ordered** (2026-07). `Obj::Map` was a
-  `Vec<(Value, Value)>` with a linear `map_find` **and** clone-on-mutate, so
-  building an N-entry map was O(n²) — it bit a recent inference refactor that
-  built maps of tens of thousands of entries. Now a dedicated `MapObj` (new
-  `runtime/src/map.rs`): a Vec for insertion order + a parallel per-key hash Vec
-  + an open-addressing hash→entry-index table built **only above a 16-entry
-  threshold** (small maps — the front-end's own — stay a linear scan, but one
-  that rejects on the cheap `u64` hash before a full `values_eq`). Key hashing is
-  content-based and consistent with `values_eq` (equal values hash equal;
-  `0.0`/`-0.0` canonicalized). Mutation switched from clone-out/write-back to
-  `heap::take_obj` (move the object out of its slot, mutate it owned with the
-  heap free to re-enter for key comparison, put it back) — O(1) per insert. `Set`
-  is Hawk-over-`Map`, so it inherits the scaling for free; insertion order is
-  preserved, so the byte-identical fixpoint is unaffected. 50k inserts + 50k
-  reads + 50k string-keyed inserts + 50k membership checks now run in ~0.1s.
+  linear-scan, clone-on-mutate `Vec<(Value, Value)>`, so building an N-entry map
+  was O(n²) (it bit an inference refactor building tens-of-thousands-entry maps).
+  Now a dedicated `MapObj` (`runtime/src/map.rs`): a Vec for insertion order + a
+  parallel key-hash Vec + an open-addressing index above 16 entries, with
+  content-based hashing consistent with `values_eq` and mutation via
+  `heap::take_obj` — O(1) get/has/insert. `Set` inherits it; insertion order is
+  preserved so the fixpoint is unaffected.
 
 - **Streaming files — `fs.open`/`fs.create` + `Seek`** (2026-06). `std.io`
-  gained a `Seek` interface (+ `SeekFrom` enum); `std.fs` gained `File` — a
-  handle implementing `Reader`/`Writer`/`Seek`/`Closer` over an OS file (a
-  runtime registry keyed by an `Int`, the regex/process pattern). `open` is a
-  read handle, `create` a write handle; the OS enforces the mode. So
-  `io.lines(fs.open(p)?)` streams a file line by line without `read_all`, and
-  `seek` moves the cursor. No GC finalizers → `close()` is the caller's job
-  (documented). Independent of the fiber I/O-parking work: a blocking file read
-  just blocks the thread today and will transparently park the fiber once that
-  lands. Deferred: `temp_file`, append/read-write `open_options`.
+  gained a `Seek` interface; `std.fs` gained `File` — a
+  `Reader`/`Writer`/`Seek`/`Closer` over an OS file — so `io.lines(fs.open(p)?)`
+  streams a file line by line without `read_all`. No GC finalizer yet, so
+  `close()` is the caller's job. Deferred: `temp_file`, append/read-write
+  `open_options`.
 
 - **Interface default methods + Iterator adapters** (2026-06). Interface methods
-  may carry a body — a _default_ an `impl` inherits (and may override). Compiled
-  once as a shared unit with `self` typed as the interface; each implementing
-  type's dispatch row is wired to it unless it overrides (no runtime change —
-  same `call.virtual`). Resolution falls back to an implemented interface's
-  default for concrete receivers, binding the interface's type params from the
-  recorded conformance args (`impl Iterator<Int>` → `T=Int`). First use:
-  `Iterator<T>` gained `map`/`filter`/`take` (lazy adapters) + `collect`/`count`
-  (consumers) as defaults, so every iterator is fluent without an import and no
-  `Iter<T>` wrapper is needed; `std.iter` keeps the `range`/`from_list` sources.
-  Also fixed a latent bug: a lambda arg to a _virtual_ call (interface-typed
-  receiver) now gets its expected param type, so `it.map((x) => …)` infers `x`.
-  Spec `iface-default`; unblocks `io.lines`/`fs.walk`/`BufReader`. (`enumerate`
-  followed once `impl` headers accepted nested generic args — next entry.)
+  may carry a body — a _default_ an `impl` inherits (and may override), compiled
+  once as a shared unit with `self` typed as the interface (no runtime change).
+  First use: `Iterator<T>` gained lazy `map`/`filter`/`take` + `collect`/`count`
+  as defaults, so every iterator is fluent with no `Iter<T>` wrapper; also fixed
+  a lambda-arg-to-virtual-call inference bug. Spec `iface-default`; unblocks
+  `io.lines`/`fs.walk`/`BufReader`.
 
 - **Nested generic args in `impl` headers → `enumerate`** (2026-06). An `impl`
-  header's `<…>` parsed type-parameter _names_ only, so a nested interface arg
-  (`impl Iterator<Indexed<T>> for …`) didn't parse. `parse_impl_generics` now
-  parses each element once and keeps both views — a TypeRef (interface arg,
-  nestable) and a TypeParam (the type's own param, with bounds) — choosing by
-  whether `for` follows, so nesting works and bounded inherent params
-  (`impl Box<T: Display>`) still parse. With it, `Iterator` gained the
-  `enumerate` adapter (`-> Iterator<Indexed<T>>`, pairing each element with its
-  index); the same parser extension opens future wrapped adapters
-  (`zip`/`flat_map`/`chain`).
+  header's `<…>` parsed type-param names only, so `impl Iterator<Indexed<T>> for
+  …` didn't parse; `parse_impl_generics` now keeps both a TypeRef and a TypeParam
+  view, chosen by whether `for` follows. Unblocked the `enumerate` adapter
+  (`-> Iterator<Indexed<T>>`) and future wrapped adapters (`zip`/`flat_map`/
+  `chain`).
 
 - **Iterator-backed stdlib — `io.lines`/`BufReader`, `fs.walk`, `List.pop`**
-  (2026-06). The first consumers of the new adapters. `io.lines(src)` returns a
-  `BufReader` (a `Reader` wrapper yielding one line per `next`, so an
-  `Iterator<String>`; `read_line` is the explicit-error primitive); plus an
-  in-memory `io.from_string`/`from_bytes` Reader. `fs.walk(root)` is a lazy
-  recursive `Iterator<String>` of descendant paths (unreadable dirs skipped,
-  first failure kept for `.error()`). `List.pop() -> Option<T>` (a `list_pop`
-  native) — the mutating companion of `last()`, chosen `Option` for consistency
-  with `get`/`first`/`last`.
+  (2026-06). First consumers of the new adapters: `io.lines(src)` yields one line
+  per `next` (an `Iterator<String>`), `fs.walk(root)` is a lazy recursive
+  `Iterator<String>` of descendant paths, and `List.pop() -> Option<T>` is the
+  mutating companion of `last()`.
 
 - **Module initializers — computed-once immutable globals** (2026-06). Top-level
-  `let NAME[: T] = expr;` computed once at load into a stored global slot.
-  Runtime gained `global.get`/`global.set`, a `global_count` header field, a
-  per-run globals vector (a GC root), and a reserved `<init>` thunk run before
-  the entry. Front-end: typed globals + slot codegen, dependency-topological
-  init with cycle detection, an effectful-native denylist in initializer
-  position, and `const` tightened to manifest constants (a computed `const` now
-  points at `let`). **Immutable only** (no top-level `let mut`). First use:
-  `std.math` `INFINITY`/`NAN`; the lookup-table/keyword-map motivations proved
-  moot (native/arithmetic/`match`). Full design:
-  [module_init.md](module_init.md); conformance `module-let*`, `const-manifest`.
-- **`std.regex` — RE2 regular expressions over the `regex` crate** (2026-06).
-  The runtime's **2nd deliberate dependency** (after `std.hash`): the Rust
-  team's `regex` crate, RE2-derived and linear-time.
-  `compile`/`is_match`/`find`/ `find_all`/`captures`/`replace`/`replace_all`,
-  byte-offset `Match`, a `RegexError.Syntax` on a bad pattern. A compiled
-  pattern lives in a runtime registry behind an `Int` handle (the `std.process`
-  pattern; compiled patterns are not freed — a benign leak addressed by the
-  planned _Native resource finalization_ item under _Open work → Runtime_);
-  natives return byte-offset `List<Int>`s and the Hawk layer assembles
-  `Match`/`Captures` via a new `String.byte_slice` (the byte-offset companion to
-  `slice`), so natives never hardcode a struct type-id. Replaces the pure-Hawk
-  `re2_*` version that didn't survive the runtime migration. Full design:
+  `let NAME[: T] = expr;` is computed once at load into a stored global slot
+  (runtime `global.get`/`set`, a globals GC root, an `<init>` thunk before the
+  entry; front-end does topological init with cycle detection + an
+  effectful-native denylist). Immutable only; `const` tightened to manifest
+  constants. First use: `std.math` `INFINITY`/`NAN`. See [language.md](language.md)
+  → Module-level bindings; conformance `module-let*`, `const-manifest`.
+- **`std.regex` — RE2 regexes over the `regex` crate** (2026-06). The runtime's
+  2nd deliberate dependency (after `std.hash`): the linear-time RE2-derived
+  `regex` crate — `compile`/`is_match`/`find`/`find_all`/`captures`/`replace`
+  (`_all`), byte-offset `Match`, `RegexError.Syntax`. A compiled pattern lives in
+  a runtime registry behind an `Int` handle, not yet freed (the benign leak the
+  _Native resource finalization_ item addresses). Design:
   [stdlib.md](stdlib.md) §std.regex.
-- **`std.hash` — native digests + the runtime's first external dependencies**
-  (2026-06). `sha256`/`sha1`/`md5` (digests as `Bytes`) and `crc32` (IEEE 802.3,
-  as `Int`), thin `native fn` wrappers over **audited Rust crates** rather than
-  reimplemented in Hawk — hashing is crypto-adjacent and wants battle-tested
-  code. This adds the runtime's **first external dependencies** (previously
-  zero), deliberately: the RustCrypto `sha2`/`sha1`/`md-5` crates and
-  `crc32fast`, each named in its function's doc comment. The native ABI is the
-  existing `with_bytes` reader + `Value::new_bytes`/`Value::Int`. Checked
-  against published test vectors; pairs with `std.encoding` to render a digest.
-  (Precedent for the deliberate-dependency policy the `std.regex` rebuild will
-  revisit.)
+- **`std.hash` — native digests + the runtime's first external deps** (2026-06).
+  `sha256`/`sha1`/`md5` (as `Bytes`) and `crc32` (as `Int`), thin wrappers over
+  audited RustCrypto crates rather than reimplemented in Hawk — hashing is
+  crypto-adjacent. This deliberately added the runtime's first external
+  dependencies (each named in its function's doc); checked against published
+  vectors.
 
-- **`std.encoding` — base64 / hex / url** (2026-06). Flat module
-  (`import std.encoding`): `base64_encode`/`decode` (RFC 4648, `+/`,
-  `=`-padded), `hex_encode`/`decode` (lowercase out, case-insensitive in), and
-  `url_encode`/`decode` (RFC 3986 percent-encoding — unreserved
-  `A-Z a-z 0-9 -_.~` pass through, space is `%20` not `+`, `+` decodes
-  literally). Decoding is fallible (`Result`), never a trap. **Pure Hawk** over
-  `Bytes`/`String` + the bitwise operators — no natives and **no lookup tables**
-  (an arithmetic char mapping, so it's unaffected by the pending
-  module-initializer; a precomputed base64-decode table would be a marginal
-  future tidy-up). RFC 4648 vectors + binary round-trip + malformed-input cases
-  covered. `std.path` `normalize`/ `relative` also landed (see status table).
+- **`std.encoding` — base64 / hex / url** (2026-06). `base64`/`hex`/`url`
+  encode+decode, **pure Hawk** over `Bytes`/`String` + bitwise ops (no natives,
+  no lookup tables); decoding is fallible (`Result`), never a trap. RFC
+  4648/3986 vectors + binary round-trip + malformed-input cases covered.
+  `std.path` `normalize`/`relative` also landed.
 
 - **Struct-definition keyword: `type Foo = { … }` → `struct Foo { … }`**
-  (2026-06). Hawk is a **nominal** type system, but `type Foo = { … }` reads as
-  the _structural_ `type alias` of TypeScript/Flow/Elm — the wrong prior.
-  Structs now use the near-universal nominal signal (keyword + name + braces, no
-  `=`), rhyming with `enum`/`interface`: `struct Celsius { degrees: Int }`.
-  Purely surface — the parser produces the **same `TypeDecl` AST**, so
-  checker/codegen are untouched and the migrated front-end re-emits
-  **byte-identically** (the bootstrap snapshot didn't even change).
-  `native type` (opaque built-ins) is unchanged; the removed `type Foo = { … }`
-  form now errors with a hint, freeing `type X = Y` for transparent aliases
-  later. Landed as a **three-cycle ratchet**: (1) additive parser accepting both
-  forms + snapshot refresh (so the snapshot groks `struct` before any source
-  uses it, as with `native type`); (2) mechanically migrate all 145 sites across
-  `sdk/std` + `pkgs/cli` + examples + `tests/lang`; (3) remove the legacy form +
-  grammar/language docs + the keyword test. Full suite green at each step
-  (front-end, stdlib, 93 lang conformance, examples).
+  (2026-06). Hawk is nominal, but `type Foo = { … }` read as a structural alias
+  (the wrong prior); structs now use the nominal keyword-name-braces form,
+  rhyming with `enum`/`interface`. Purely surface — same `TypeDecl` AST,
+  byte-identical re-emit — landed as a three-cycle ratchet (additive parser +
+  snapshot, migrate 145 sites, remove the legacy form). Frees `type X = Y` for a
+  future transparent alias.
 
-- **LSP keystroke latency — parse cache + edit coalescing** (2026-06). Two
-  pure-front-end wins (no runtime change), targeting the per-keystroke backlog.
-  (1) A **server-lived parse cache** (the same lever as the `hawk check` win),
-  keyed by resolved path and evicted on edit, so the import closure is parsed
-  once and reused across keystrokes instead of re-read+re-parsed from disk every
-  change: a doc importing std.cli + std.json went **186 → 8.3 ms/edit (~22×)**.
-  (2) **Edit coalescing** — the `serve` loop drains a whole buffered burst (a
-  non-blocking `MsgBuffer.try_message`), applying each edit but deferring
-  diagnostics to a single `flush`, so a backlog collapses to one re-check per
-  document (**100 bunched edits ≈ the cost of 1**). Next lever is caching the
-  resolved/element-model closure (the incremental-engine work); see the LSP item
-  under _Front-end / tooling_.
+- **LSP keystroke latency — parse cache + edit coalescing** (2026-06). A
+  server-lived parse cache (keyed by path, evicted on edit) reuses the parsed
+  import closure across keystrokes: **186 → 8.3 ms/edit (~22×)**. Edit coalescing
+  drains a whole buffered burst before one diagnostics flush, so 100 bunched
+  edits ≈ the cost of 1. Next lever: caching the resolved/element-model closure
+  (the incremental engine).
 
-- **In-VM profiler + `hawk check` made ~7.7× faster** (2026-06). A
-  deterministic, instruction-budget profiler (`HAWK_PROFILE`, see _Profiling_
-  above) drove a pure measure-then-fix pass on `hawk check pkgs/cli` (80s): (1)
-  a **cross-file parse cache** — `check <dir>` re-lexed+re-parsed the whole
-  import closure once per file, so the `std.core` prelude was parsed 46× — now
-  shared across files (80s → 10.8s; 2.1B → 310M instructions; 55.6M → 9.1M
-  allocations); (2) **string constant interning** — `const.str` allocated a
-  fresh heap string per execution (a 24-arm keyword `match` allocated ~23
-  strings/call); interned constants are allocation-free after first use and
-  permanent GC roots (9.1M → 6.3M allocations). Net 80s → ~10.4s, byte-identical
-  fixpoint (both are runtime/ loader-only). Notable Hawk constraint surfaced: a
-  top-level `const` keyword map can't replace the `match` — with no load-time
-  init, `const` inlines its initializer, rebuilding the map per call; interning
-  was the right lever. (A computed-once **module `let`** would lift this
-  constraint — see _Module initializers_ under _Language features not yet
-  built_.) _Further check-dedup is part of the LSP incremental engine (above)._
+- **In-VM profiler + `hawk check` ~7.7× faster** (2026-06). A deterministic
+  instruction-budget profiler (`HAWK_PROFILE`) drove a measure-then-fix pass on
+  `hawk check pkgs/cli` (80s): a cross-file parse cache (the `std.core` prelude
+  was parsed 46× → once) plus string-constant interning took it to **~10.4s**,
+  byte-identical fixpoint. Surfaced that a top-level `const` keyword map can't
+  replace a `match` without load-time init — the motivation for _Module
+  initializers_.
 
 - **Unified checker/codegen inference context + a differential oracle**
-  (2026-06). Inference is one pure `infer_expr` query, but the checker and
-  codegen built its `InferCtx` independently, and the fields that differed were
-  the root of a bug class where the two stages inferred the same expression to
-  different types (the `for_element_type` miscompile that trapped at runtime;
-  the lambda-bounds spurious rejection). A **differential oracle**
-  (`HAWK_INFER_ORACLE`, in codegen) maps the divergence: it found 28/855
-  front-end units diverged, every one a method on a generic type, every
-  divergence the identical pattern — codegen dropped the receiver's type
-  arguments (`self_type` `List` vs `List<T>`) and omitted the owner type
-  parameters. **Fix:** codegen now builds the receiver type with its parameters
-  applied (from the type definition) and adds those to the in-scope set,
-  matching the checker; the chosen `self_type` is recorded so the oracle
-  _observes_ (not models) what codegen built. The oracle now reports **0** and
-  is a permanent assert-zero guard in `bin/test.sh`. Byte-identical fixpoint
-  (the correction is principled but the front-end's own lowerings were already
-  `Unknown`-tolerant). _Remaining: extend the lambda-unit context snapshot to
-  `self_type`/`type_params` (only bounds today) and bring the 34 lambda units
-  into the oracle; a per-expression oracle; and a targeted "unexpected-Unknown"
-  audit for inference incompleteness (distinct from this divergence pass — a
-  blanket Unknown-reject is ~330 false positives)._ **Note (lambda extension,
-  attempted + reverted):** giving lifted lambdas the full inherited
-  `self_type`/`type_params` (not just bounds) is correct on small inputs but
-  made `hawk check pkgs/cli` hang — a compile-time blowup (98% CPU, no output)
-  that the per-file closure recompilation in `check` exposes but a single `emit`
-  and the minimal repro do not (lambdas already resolve `self`/`T` via captures,
-  so the richer context is redundant _and_ expensive). Redo it perf-aware:
-  profile the blowup first (likely repeated work over the inherited generic
-  context across many nested lambdas), or narrow what lambdas inherit.
+  (2026-06). The checker and codegen built `infer_expr`'s context independently
+  — a bug class where the two stages inferred an expression to different types (a
+  runtime-trapping miscompile). A differential oracle (`HAWK_INFER_ORACLE`)
+  mapped every divergence to one pattern (codegen dropping the receiver's type
+  args), now fixed and a permanent assert-zero guard in `bin/test.sh`;
+  byte-identical fixpoint. _Open: extend the oracle to lambda units — a
+  full-context attempt hung `check` (a compile-time blowup) and was reverted, to
+  be redone perf-aware._
 
-- **`Ord` interface + `std.sort`** (2026-06). Total ordering, modeled on
+- **`Ord` interface + `std.sort`** (2026-06). Total ordering modeled on
   `Eq`/`Display`: `interface Ord { fn compare(self, other: Self) -> Ordering }`
-  with `enum Ordering { Less, Equal, Greater }` (a third runtime-blessed enum
-  alongside `Option`/`Result`, reserved type-id `TY_ORDERING`). The primitives
-  carry explicit `impl Ord` (Int/Double/Bool in Hawk via `<`; String a native);
-  a generic `<T: Ord>` calling `.compare()` dispatches dynamically, backed by a
-  `compare` arm in the runtime `virtual_fallback` that orders the four
-  primitives and returns an `Ordering` — the same explicit-impl-for-static /
-  fallback-for-virtual split as `Display`. `std.sort` (qualified module) ships
-  `sorted`/`sorted_desc`/`min`/`max` over `<T: Ord>` (free functions, since a
-  `List<T>` _method_ can't add a `T: Ord` bound). Comparison operators
-  (`< <= > >=`) stay Int/Double-only — wiring them through `Ord` is left to the
-  _Generic operators_ arc. Spec `iface-ord`. Fixed a latent codegen gap on the
-  way: a lambda inside a generic `<T: Bound>` function lost the enclosing bounds
-  when compiled as its own unit, so a bound method on a `T`-typed param failed
-  (`Display` hit it too) — lifted lambdas now inherit their enclosing function's
-  `type_param_bounds`.
+  + `enum Ordering`, with explicit primitive impls and a `compare` arm in the
+  runtime `virtual_fallback` for virtual dispatch. `std.sort` ships
+  `sorted`/`sorted_desc`/`min`/`max` over `<T: Ord>` (free fns); comparison
+  operators stay Int/Double-only (wiring them through `Ord` is the _Generic
+  operators_ arc). Also fixed a latent gap: lifted lambdas now inherit their
+  enclosing function's `type_param_bounds`. Spec `iface-ord`.
 
-- **Bitwise operators** (2026-06). `& | ^ << >> >>> ~` on `Int`: `<<`/`>>`
-  (arithmetic) / `>>>` (logical) shifts, AND/OR/XOR, and unary NOT — lexer →
-  parser precedence → checker (Int-only) → runtime opcodes (wrapping i64). Specs
-  `expr-bitwise` / `expr-shift`. This let `std.random`'s SplitMix64 mix and
-  `BytesBuilder`/`BytesReader`'s LEB128 / little-endian codecs move into pure
-  Hawk (the `random_mix` native is gone; only the entropy seed stays native).
+- **Bitwise operators** (2026-06). `& | ^ << >> >>> ~` on `Int` (wrapping i64),
+  lexer → parser precedence → checker (Int-only) → opcodes. Let `std.random`'s
+  SplitMix64 and the LEB128 / little-endian `Bytes` codecs move into pure Hawk
+  (the `random_mix` native is gone). Specs `expr-bitwise`/`expr-shift`.
 
 - **Generics: static-method type args, struct/enum bounds, inference cleanup**
-  (2026-06). Three solidifications. **Static-method owner type parameters:**
-  `Set.new() -> Set<T>` recovers `T` from call context (binding annotation,
-  directly-passed argument, return position), and `Set<String>.new()` names it
-  explicitly via **receiver type args** (`CallExpr.recv_type_args`; the parser
-  accepts `Ident<...>.method(...)`; a shared `static_call_bindings` seeds the
-  owner params for both inference and the checker) — `gen-static-context` /
-  `gen-static-recv-args`. **Generic struct/enum bounds enforced:** a bound on a
-  type's own parameter (`type Box<T: Display>`) is stored on `TypeDefElement`
-  and checked where a concrete argument is supplied (annotation, struct
-  construction) via `check_type_arg_bounds` — `generic-type-bounds`. **Inference
-  cleanup:** the static-receiver classification (`(ns.)?Type.method` / `ns.fn`)
-  is unified in `resolve_static_receiver` (shared by the three call cascades),
-  the instance arm routes through `resolve_method`, and the four return-type
-  instantiation paths collapsed onto `call_bindings` / `instantiate_return_ctx`
-  (namespace arm now context-aware; `instantiate_return` deleted). All
-  byte-identical fixpoint except the added checks. Generics are **invariant by
-  design**. _Open follow-ons above (Generics — residual)._
+  (2026-06). Three solidifications: static-method owner type params recovered
+  from call context (`Set.new()`) or named via receiver type args
+  (`Set<String>.new()`); generic struct/enum bounds (`type Box<T: Display>`)
+  enforced where a concrete arg is supplied; and the static-receiver
+  classification unified in `resolve_static_receiver`. All byte-identical
+  fixpoint except the added checks; generics are invariant by design. Specs
+  `gen-static-*`, `generic-type-bounds`. _Open follow-ons above._
 
 - **Resolution: `FileScope` + owner-correct value resolution (Phase 2)**
-  (2026-06). Resolution moved off the flat global name tables onto a single
-  **`FileScope`** per file (checker, inference, codegen all consult it).
-  Surfaces gained `name -> defining-file` origin maps and `build_library`
-  per-file element tables, so **value (function / const) resolution is
-  owner-correct** — bare to its own file, qualified within the named library —
-  and the flat `functions`/`consts` tables were deleted. This **lifts global
-  value-name uniqueness** (two libraries may share a top-level value name;
-  `mod-shared-value-name`). Landed as eight behavior-preserving steps with the
-  byte-identical fixpoint as the oracle, ending in one small `check_duplicates`
-  relaxation. Surfaced + fixed a latent **duplicate-file-loading** bug (the
-  loader compiled every shared library 3–4× under different `../` path
-  spellings); path canonicalization cut the self-compile ~11.5 s → ~4.3 s and
-  the bootstrap 282 KB → 124 KB. _Open: type-name owner-correctness (above)._
+  (2026-06). Resolution moved off flat global name tables onto a per-file
+  `FileScope` with `name → defining-file` origin, so value (function/const)
+  resolution is owner-correct (bare to its own file, qualified within its
+  library) and two libraries may share a top-level value name. Landed in eight
+  fixpoint-preserving steps; also fixed a duplicate-file-loading bug that cut the
+  self-compile ~11.5s → 4.3s and the bootstrap 282KB → 124KB. Spec
+  `mod-shared-value-name`. (Type-name owner-correctness followed — the `TypeId`
+  entry above.)
 
 - **`#loc` caller-location + assertion source locations** (2026-06). `#loc` is a
-  compiler metaconstant (new `#` sigil) evaluating to a
-  `SourceLoc { file, line, column }`; as a **default parameter value** it
-  captures the call site, because Hawk materializes default arguments at the
-  call site and codegen re-stamps a `#loc` default with the call's span + the
-  caller's file. `std.testing` assertions take `at: SourceLoc = #loc` and prefix
-  failures `file:line:column:` — the same shape `hawk check` prints, so test
-  failures and compiler diagnostics share one format. Pinned by `expr-loc`.
-  _Open tail above (single-hop limit; runtime backtraces)._
-- **Total rendering — `Display`-preferred, `Debug`-fallback** (2026-06). `${x}`
-  / `println(x)` are total: a value renders via its `Display` impl if present,
-  else its auto-derived `Debug` — never a `check` error or a runtime trap
-  (matching Python/Go/Swift/Java). `List`/`Map`/`Set`/`Option`/`Result` carry
-  `Display` impls (elements rendered via `Debug`, so nested strings quote:
-  `['a', 'b']`), with no `T: Display` bound. Mechanism: the runtime
-  `virtual_fallback` for `display` falls back to `debug_value`; codegen's
-  `emit_display` emits `CallVirtual('display')` for any not-statically-`Display`
-  value; `display` and `debug` are **universal selectors** (`infer_callee_kind`
-  → `Virtual` on any unresolved receiver). Pinned by `iface-display` /
-  `iface-debug` specs. Needed a bootstrap ratchet (std impls required the
-  front-end change first). _Open follow-ons:_ Richer structural `Debug`,
-  Primitive vtables (both above).
+  compiler metaconstant evaluating to a `SourceLoc`; as a default parameter value
+  it captures the call site. `std.testing` assertions take `at: SourceLoc = #loc`
+  and prefix failures `file:line:column:` — the same format `hawk check` prints.
+  Spec `expr-loc`. _Open tail above (single-hop limit; runtime backtraces)._
+- **Total rendering — `Display`-preferred, `Debug`-fallback** (2026-06). `${x}` /
+  `println(x)` are total: a value renders via its `Display` impl if present, else
+  its auto-derived `Debug`, never a check error or trap.
+  `List`/`Map`/`Set`/`Option`/`Result` carry `Display` impls (elements via
+  `Debug`, so nested strings quote). Specs `iface-display`/`iface-debug`. _Open:
+  richer structural `Debug`, primitive vtables (both above)._
 - **Primitive `Display` explicit** (2026-06). `Int`/`Double`/`Bool`/`String`
-  carry real `impl Display`s bound to per-type natives
-  (`int_to_string`/`double_to_string`/`bool_to_string`/`str_identity`); the
-  catch-all `stringify` native is gone and both front-end hardcodes removed. The
-  print natives (`println`/`print`/`eprintln`/`eprint`) became plain string
-  writers. `display_string` still backs the per-type natives + `list.join` + the
-  virtual fallback — full retirement waits on Primitive vtables.
+  carry real `impl Display`s bound to per-type natives; the catch-all
+  `stringify` native and both front-end hardcodes are gone. `display_string`
+  still backs the per-type natives + `list.join` + the virtual fallback — full
+  retirement waits on primitive vtables.
 - **`native type` declarations for the built-ins** (2026-06).
   `Int`/`Double`/`Bool`/`String`/`List`/`Map`/`Bytes`/`BytesBuilder` have
-  bodyless `native type` decls in `sdk/std/core/` — a definition + doc site,
-  opaque `Builtin` type def, no codegen / no runtime type-table entry (shadows
-  the `builtin_type_defs()` floor byte-identically). Spec `type-native`. _Open
-  follow-ups above (`native type` / `native fn`)._
+  bodyless `native type` decls in `sdk/std/core/` — a definition + doc site, no
+  codegen/runtime entry (shadows the built-in floor byte-identically). Spec
+  `type-native`. _Open follow-ups above._
 - **Whole-closure diagnostics — per-file origin + import parse errors**
-  (2026-06). `Diagnostic` carries a `file` origin resolved from the span's
-  source text (a span carries source _text_, not a path), so an imported-file
-  error prints against its own file (exit non-zero); the loader parses every
-  closure file best-effort and surfaces each file's lex/parse diagnostics
+  (2026-06). `Diagnostic` carries a `file` origin resolved from the span's source
+  text, so an imported-file error prints against its own file; the loader parses
+  every closure file best-effort and surfaces each file's diagnostics
   (`LoadDiagnostic`), the LSP filtering per-URI. _Open tail above (cascade
   suppression / check-path scope)._
 - **Unify call/member resolution** (2026-06). Codegen's `method_call` dispatches

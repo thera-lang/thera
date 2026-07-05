@@ -64,6 +64,35 @@ values.
 > compile error. A field opts into reassignment with `mut field: T` (see
 > [Structs](#structs)).
 
+### Module-level bindings
+
+A `let` at the top level of a file is a **module-level binding**: its
+initializer runs **once**, when the program loads, and the value is stored (not
+recomputed at each use). Unlike a local `let`, a module-level binding is
+**immutable** — there is no top-level `let mut`. Swappable global state is
+forbidden; mutable configuration is passed as a **capability value** you hold,
+never a module global.
+
+```hawk
+let INFINITY: Double = 1.0 / 0.0;   // computed once at load, then stored
+let TAU: Double = 2.0 * math.PI;    // may depend on another module global
+```
+
+`const` and module-level `let` are the two-tier story for named constants:
+
+- **`const`** is a _manifest_ constant — its initializer must be compile-time
+  evaluable, and it is **inlined** at each use site (no storage). A computed
+  initializer (`const t = build()`) is a compile error that points at `let`.
+- **module-level `let`** is _computed once at load_ and **stored** in a slot.
+
+Initializers must be **pure**: literals, arithmetic, and calls to pure functions
+and process-stable natives (a math constant, the path separator). Time-varying
+effects (`time.now()`, file/network reads) are rejected in initializer position
+— they would capture a stale, hidden snapshot at an unpredictable load-time
+moment. Initializers run **eagerly** in dependency order (imports before
+importers, a global before the one that uses it); an initializer-dependency
+**cycle is a compile error**.
+
 ---
 
 ## Types
@@ -96,7 +125,7 @@ since it would let code split a multi-byte character in half. Iterate explicitly
 instead: `.chars()` yields Unicode code points, `.graphemes()` user-perceived
 characters.
 
-### Collections
+### Collection types
 
 | Type        | Description                           | Example               |
 | ----------- | ------------------------------------- | --------------------- |
@@ -343,9 +372,9 @@ traditional colored-function approach. The goal is to avoid this.
 
 There are no exceptions. Errors are returned as `Result<T, E>`. `Error` is an
 interface (`fn message(self) -> String`); the simple-case error is built with
-the `error('...')` constructor (`-> Error`), and domain modules `impl Error` for
-their own enums. The `throw '...'` shorthand shown below is still planned sugar
-for `throw error('...')`; today write the `error('...')` call explicitly.
+the `error('...')` constructor (`-> Error`), and domain libraries `impl Error`
+for their own enums. The `throw '...'` shorthand is still planned sugar for
+`throw error('...')`; today write the `error('...')` call explicitly.
 
 ```hawk
 fn read_port(args: Args) -> Result<Int, Error> {
@@ -448,6 +477,14 @@ match config.log_dir {
 // treat absence as an error and propagate with ?
 let dir = config.log_dir.ok_or(error('log_dir is required'))?;
 ```
+
+Beyond these, `Option` carries the usual **combinators** — `map`, `and_then`,
+`unwrap_or`, `unwrap_or_else` (plus `ok_or` above and `is_some`/`is_none`) — for
+transforming or defaulting a value inline without a `match`. `Result` carries the
+matching set (`map`, `map_err`, `and_then`, `unwrap_or`, `unwrap_or_else`, `ok`,
+plus `is_ok`/`is_err`). Reach for a combinator when you want to transform or
+default a value in a single expression; see [Choosing a form](#choosing-a-form)
+for when to prefer it over `if let` / `let … else` / `?` / `match`.
 
 ---
 
@@ -619,7 +656,7 @@ let max = if a > b { a } else { b };
 
 **Semicolon rule.** In an expression-position block, every statement ends in `;`
 _except_ a final tail expression. `let x = { f(); g() }` makes `x` the value of
-`g()`; `let x = { f(); g(); }` makes `x` `Unit` (the value of `g()` is
+`g()`; `let x = { f(); g(); }` makes `x` `Void` (the value of `g()` is
 discarded). A bare trailing expression is legal **only** in expression position.
 
 **Function bodies are not expression position** — a function still returns with
@@ -628,7 +665,7 @@ statement (the require-`;` rule), not an implicit return. This is deliberate:
 the value a function produces is always marked, and the `;`-flip can never
 silently change a _return_ value.
 
-**`if` without `else`** has type `Unit` (the then-branch runs for effect). An
+**`if` without `else`** has type `Void` (the then-branch runs for effect). An
 `else` is required only where the `if`'s value is actually consumed —
 `let x = if c { 1 }` is an error, but a side-effecting `if c { foo() }` as a
 tail or statement is fine.
@@ -711,7 +748,7 @@ testing.assert_eq(actual: result, expected: 5)?;
 `as _` binds **no** prefix and instead brings the library's public names into the
 file **unqualified** — the opt-in escape hatch for a library used pervasively,
 where qualifying every reference would be noise. The default stays qualified; see
-[scoping.md](scoping.md) for the full rules.
+[Name resolution & scoping](#name-resolution--scoping) for the full rules.
 
 ```hawk
 import 'ast' as _;            // Expr, Stmt, Decl, … usable bare in this file
@@ -722,8 +759,8 @@ names available **unqualified** (`Result`/`Option`/`Error`, `Eq`/`Display`/
 `Debug`, `println`/…). `Result`/`Option` are ordinary prelude enums, so their
 variants are constructed qualified (`Result.Ok`, `Option.None`). It is the one
 unqualified import; every other library is referenced through its namespace.
-`std.cli` (the `Args` argument parser, and the home of process execution) is an
-ordinary library — `import std.cli` when you need it.
+`std.cli` (the `Args` argument parser) is an ordinary library — `import std.cli`
+when you need it.
 
 ### Import resolution
 
@@ -810,13 +847,105 @@ the access, avoiding a general package-private axis.
 Visibility and qualification are **front-end** concerns — name resolution
 applies them and they are erased in `.hawkbc` (calls are by index; the bytecode
 has no notion of "private" or namespaces). The precise resolution rules — bare vs.
-qualified, the prelude, and the algorithm — are specified in
-[scoping.md](scoping.md). Qualified-only access and `pub` privacy **are enforced**:
-a bare cross-library reference, a qualified access to a non-public member, and a
-bare reference to a value owned by an un-imported library are all `check` errors,
-and namespaces are per-file. A residual tail — the same gate for bare *type*
-references, plus per-library ownership of the symbol tables — is tracked in
-[scoping.md](scoping.md) → Implementation gaps and [roadmap.md](roadmap.md).
+qualified, the prelude, and the algorithm — are in [Name resolution &
+scoping](#name-resolution--scoping). Qualified-only access and `pub` privacy
+**are enforced**: a bare cross-library reference, a qualified access to a
+non-public member, and a bare reference to a value owned by an un-imported
+library are all `check` errors, namespaces are per-file, and resolution is
+owner-correct for values *and* types.
+
+---
+
+## Name resolution & scoping
+
+How a name in Hawk source resolves to a declaration: lexical scope first, then
+the file's own top-level declarations, the prelude, and — for another library —
+its namespace. [Imports](#imports) and [Visibility](#visibility) cover
+namespaces and privacy; this section adds the scope rules and the resolution
+order.
+
+### Lexical scope
+
+Parameters and `let` bindings introduce value names, in scope from the binding to
+the end of the enclosing block. `if`/`while`/`for` bodies, `match` arms, and
+block expressions each open a nested scope; a binding introduced inside does not
+escape it (a `match` arm's constructor pattern binds its payload within that arm,
+a `for` pattern within the loop body). An inner binding may **shadow** an outer
+one of the same name, and a local binding shadows any same-named top-level or
+prelude value — so `f(x)` where `f` is a `let`-bound lambda or a function-typed
+parameter calls the binding, never a same-named top-level function. Inside an
+instance method, `self` is the receiver binding and `Self` is its type.
+
+### One name space per scope
+
+A scope introduces a given name **at most once, across all declaration kinds**.
+Two same-file top-level declarations of the same name collide even when their
+kinds differ — `fn max` + `const max`, `fn Config` + `struct Config`,
+`import std.fs;` + `fn fs` — each a duplicate-name error, exactly like a same-kind
+duplicate. A top-level declaration also may not take a name the file's **bare
+surface** already provides (a prelude name, or one brought in by an `as _`
+import). The rationale is *one name, one meaning*: a reader never needs the
+syntactic position to know which declaration a name denotes. (One exemption: a
+barrel's `pub import 'error';` may bind the namespace `error` while re-exporting
+that library's eponymous `fn error` — a self-referential pair reaching the same
+library.)
+
+Syntactic position still selects which *space* a name is looked up in — a value
+(functions incl. `native fn`, consts, locals), a type
+(`type`/`enum`/`interface`, built-ins, type parameters), or an import namespace —
+but a name is introduced into its scope only once regardless.
+
+### Reserved type names
+
+The type names the language itself speaks are **reserved**: user code may not
+declare a `type`/`enum`/`interface` — or a type parameter — named
+
+> `Result`, `Option`, `Ordering`, `List`, `Map`, `Set`, `String`, `Int`,
+> `Bool`, `Double`, `Bytes`, `Iterator`, `Error`, `SourceLoc`, `Void`, `Eq`,
+> `Ord`, `Display`, `Debug`
+
+— a check error. These names appear in signatures (`Void`), sugar
+(`?`/implicit-`Ok`, `#loc`), literals, and protocols (`for` iteration, `==`,
+sorting, `${}` rendering, the structural derives, `error(...)`), so a user
+redeclaration would make the reserved meaning ambiguous at every use site. The
+list is deliberately *not* the whole core surface: semantics attach to the core
+types **by identity, never by name**, so utility types that merely live in
+`std.core` (`BytesBuilder`, `Args`, `Indexed`, …) are ordinary names a user
+library may redeclare. Value names (`fn`/`const`) are not reserved — casing
+conventions keep them unambiguous.
+
+### Resolution order
+
+For each syntactic position, resolution tries the ordered steps and stops at the
+first match; failing all steps is a located error.
+
+- **A bare value name** (`name`, or the callee of `name(...)`): (1) an in-scope
+  local binding → it; (2) a same-file top-level `fn`/`const` → it; (3) a public
+  `fn`/`const` from an `as _` import → it; (4) a prelude public `fn`/`const` →
+  it; else **undefined**. A bare name is *never* resolved against a namespaced
+  import — it must be qualified.
+- **A qualified value** (`ns.name`): `ns` must be an import namespace of the
+  current file (not shadowed by a local named `ns`), and `name` must be in `ns`'s
+  public surface; it resolves to that library's `pub` declaration.
+- **A bare type name** (annotation, struct literal, static receiver): (1) an
+  in-scope type parameter / `Self`; (2) a same-file `type`/`enum`/`interface`;
+  (3) a public type from an `as _` import; (4) a prelude public type; (5) a
+  built-in (`Int`/`String`/`List`/…); else **unknown type**. (For the language's
+  own types the order is unobservable — their names are reserved, so steps 2–4
+  never capture one.)
+- **A qualified type** (`ns.T`): as `ns.name`, resolved in the type space.
+- **Members** (`recv.m(...)`, `recv.f`, `T.m(...)`, `E.V(...)`): resolved through
+  the receiver or type — its static type and visible `impl`s — not a namespace.
+  Interface references (an `impl I for T`, a super-interface, a `<T: I>` bound)
+  resolve in their declaring file's scope by the bare-type algorithm, and
+  interface **identity** is the resolved declaration (owner + name), so two
+  libraries' same-named interfaces never entangle. See [Interfaces](#interfaces).
+
+Qualification therefore applies to **free functions, consts, and type names** —
+the things a library owns at top level. Methods and variants are selected within
+an already-resolved receiver/type, not separately namespace-qualified. Resolution
+is **owner-correct**: two libraries may share a top-level name (`std.json.parse`
+vs `std.toml.parse`), each qualified reference dispatching to its own library.
 
 ---
 
@@ -1054,7 +1183,7 @@ for File` implements `std.io`'s `Reader`. Interface **identity** is the
 resolved declaration (owner + name), not the spelling: two libraries may each
 declare a `Shape`, and a conformance, bound, or interface-typed parameter binds
 to the one its own file resolves — never to a same-named interface elsewhere
-(see [scoping.md](scoping.md)).
+(see [Name resolution & scoping](#name-resolution--scoping)).
 
 ### Default methods
 
@@ -1179,7 +1308,10 @@ type that does not implement `Display` is a compile error.
 `Eq` works the same way: `==`/`!=` use a type's explicit `impl Eq` when present,
 otherwise the structural derive (primitives, and structs/enums whose fields are
 all `Eq`). So `Eq` and `Debug` are **structural-by-default with explicit
-override**; `Display` is always explicit (it has no meaningful default).
+override**; `Display` is always explicit (it has no meaningful default). `Ord`
+(total ordering — an `impl Ord` whose `compare` returns an `Ordering`, or
+built-in for primitives) follows the explicit-or-built-in pattern too and backs
+sorting; see [stdlib.md](stdlib.md) (`std.sort`).
 
 ### Interface inheritance
 
@@ -1290,13 +1422,14 @@ Verbose mode is available when a human wants more detail.
 
 ### Commands
 
-| Command      | Description                    |
-| ------------ | ------------------------------ |
-| `hawk run`   | Run a source file              |
-| `hawk test`  | Run tests                      |
-| `hawk check` | Type-check without running     |
-| `hawk fmt`   | Format source files in place   |
-| `hawk build` | Compile to a standalone binary |
+| Command      | Description                          |
+| ------------ | ------------------------------------ |
+| `hawk run`   | Run a source file                    |
+| `hawk check` | Type-check without running           |
+| `hawk test`  | Run tests                            |
+| `hawk fmt`   | Format source files in place         |
+| `hawk emit`  | Compile to a `.hawkbc` bytecode file |
+| `hawk lsp`   | Start the language server            |
 
 ### `hawk test`
 
@@ -1371,7 +1504,7 @@ The Rust crate builds **`hawkrt`** — the _bare runtime_: it loads and runs a
 compiled front-end (`frontend.hawkbc`) into it, and ships it as **`hawk`** — the
 full launcher. So `hawk` is `hawkrt` + an embedded front-end: invoked on a
 `.hawkbc` (or `--entry`) it behaves as the bare runtime; invoked on a subcommand
-(`run`, `check`, `test`, `emit`, `lsp`) it boots its embedded front-end. The
+(`run`, `check`, `test`, `emit`, `fmt`, `lsp`) it boots its embedded front-end. The
 distinction lets a `cargo build` (which yields `hawkrt`) be unambiguously the
 runtime, while `hawk` is unambiguously the runtime + front-end.
 
@@ -1439,7 +1572,7 @@ and UTF-8 strings without integer indexing.
   `expr catch fallback` / `expr catch |e| { ... }` as an inline default handler
   is worth considering as an additional form.
 - **`Option` vs. a nullable type system** — `Option<T>` (composes with
-  `.map`/`.flat_map`, represents nested absence) vs. `String?` with `?.`/`??`
+  `.map`/`.and_then`, represents nested absence) vs. `String?` with `?.`/`??`
   (zero boilerplate, no wrapper, but can't nest). `language.md` uses `Option<T>`
   as a placeholder; revisit once there's enough real Hawk code to judge
   friction.

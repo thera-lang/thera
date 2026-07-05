@@ -2,7 +2,7 @@
 //!
 //! Import as: import std.time
 //!
-//! Two layers, by design (see docs/testability.md):
+//! Two layers, by design (see docs/stdlib.md § Cross-cutting #7):
 //!
 //!   - `time.now_millis()` is the ambient default — it always reads the real
 //!     system clock and has no override hook. Reach for it in the imperative

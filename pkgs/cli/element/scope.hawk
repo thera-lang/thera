@@ -1,5 +1,5 @@
 // FileScope — the per-file resolution object (Phase 2 of resolution correctness;
-// see docs/scoping.md → Phase 2).
+// see docs/language.md → Name resolution & scoping).
 //
 // Resolution at a syntactic position is: consult the lexical scope (a
 // `Map<String, Type>`, threaded separately by each consumer and unchanged here),
@@ -170,7 +170,7 @@ impl FileScope {
     // file never imported must not resolve just because it exists somewhere in
     // the closure (the value-side version of this shortcut produced the
     // `find_method` miscompile). The tier order (own file → bare surface →
-    // built-in) is scoping.md's "bare type name" algorithm.
+    // built-in) is language.md's "bare type name" algorithm.
     pub fn resolve_type_owner(self, _ name: String, _ namespace: Option<String>) -> String {
         if let Some(ns) = namespace {
             if let Some(owner) = self.member_owner(ns, name) {

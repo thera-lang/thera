@@ -18,7 +18,7 @@ pub const TAU: Double = 6.283185307179586; // 2 * PI
 // Floating-point infinity and not-a-number. These have no literal form, so they
 // are module-level `let`s — computed once at load and stored — rather than
 // consts. The first stdlib values that module initializers unblock; see
-// docs/module_init.md.
+// docs/language.md.
 pub let INFINITY: Double = 1.0 / 0.0;
 pub let NAN: Double = 0.0 / 0.0;
 

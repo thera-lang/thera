@@ -1,5 +1,5 @@
 // The LSP's view of the analysis session: the open documents (uri -> text) and
-// a `session.Session` (the one engine — see session.hawk and docs/lsp_v2.md).
+// a `session.Session` (the one engine — see session.hawk and docs/roadmap.md).
 // This layer owns only the URI translation and the position math; the caches,
 // overlays, and the pipeline itself live on the session, shared with the batch
 // commands. The incremental engine (Phase 2) grows on the session, not here.

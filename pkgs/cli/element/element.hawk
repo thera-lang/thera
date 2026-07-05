@@ -233,7 +233,7 @@ pub struct LibraryElement {
     // Type definitions stay a flat by-name table: a resolved `Type.Interface(name)`
     // (a namespace-qualified receiver type, a field's type) carries only the name,
     // so type lookup is global by name (type-name uniqueness pending — see
-    // roadmap.md / scoping.md Phase 2e S5). Values resolve per-file (below).
+    // roadmap.md). Values resolve per-file (below).
     type_defs: Map<String, TypeDefElement>,
     // Per-file free functions / type definitions / consts (file key -> name ->
     // element). Value resolution is owner-correct through these — a bare or
@@ -313,7 +313,7 @@ pub fn file_of_key(_ key: String) -> Option<String> {
 // The owning file (key) of the *core* type `name`: the file the registry
 // attributes it to — std.core's declaration when the SDK is linked, the
 // `<builtin>` floor hermetically. The registry entry is authoritative because
-// the name is reserved (scoping.md "Reserved type names"): only the core SDK
+// the name is reserved (language.md "Reserved type names"): only the core SDK
 // may declare it, and the resolver keeps a reserved flat entry pinned to its
 // first (core) registration.
 pub fn core_owner(_ lib: LibraryElement, _ name: String) -> String {

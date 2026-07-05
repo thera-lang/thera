@@ -888,12 +888,12 @@ impl Parser {
 
     // A top-level `let NAME[: Type] = expr;` (a module global). Mirrors
     // `parse_const_decl`, but rejects `let mut`: module-level bindings are
-    // immutable by design (see docs/module_init.md).
+    // immutable by design (see docs/language.md).
     fn parse_let_decl(self, _ is_pub: Bool, _ start: SourceSpan) -> Decl {
         self.advance(); // 'let'
         if self.check(TokenKind.KwMut) {
             self.fail('top-level `let mut` is not allowed; module-level bindings '
-                + 'are immutable (see docs/module_init.md)');
+                + 'are immutable (see docs/language.md)');
             return self.err_decl();
         }
         let name_tok = self.expect(TokenKind.Identifier, 'binding name');

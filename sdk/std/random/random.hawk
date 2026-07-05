@@ -4,7 +4,7 @@
 //!
 //! `Rng` is a seedable generator whose entire state is a plain value you hold
 //! and pass — there is no hidden global RNG, per the stdlib's no-hidden-state
-//! principle (see docs/stdlib.md §7 and docs/testability.md). Seed it explicitly
+//! principle (see docs/stdlib.md § Cross-cutting #7). Seed it explicitly
 //! with `seeded` for reproducible runs (tests, simulations), or with
 //! `from_entropy` for an unpredictable sequence. Not cryptographically secure.
 //!

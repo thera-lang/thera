@@ -1,7 +1,7 @@
 // Tests for FileScope — the per-file resolution facade. Build a LibraryElement
 // (optionally with crafted per-file namespace surfaces) and check that the
 // element-returning `resolve_*` queries and the bare/qualified legality predicates
-// match the resolution algorithm (docs/scoping.md).
+// match the resolution algorithm (docs/language.md).
 
 import std.testing;
 

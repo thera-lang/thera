@@ -3,7 +3,7 @@
 
 // Initializers run in dependency order, not declaration order: a global may
 // reference one declared later, and the linker reorders so the dependency is
-// computed first. See docs/module_init.md.
+// computed first. See docs/language.md.
 let DERIVED: Int = BASE * 2;   // references a global declared below
 let BASE: Int = 21;
 

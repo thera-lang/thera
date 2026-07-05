@@ -93,7 +93,7 @@ pub fn builtin_type_defs() -> Map<String, TypeDefElement> {
 // `String`/`Int`/`Bool`/`Double`), protocols (`Iterator`, `Ordering`,
 // `Eq`/`Ord`/`Display`/`Debug` — `==`, sorting, `${}` rendering, the
 // structural derives — and `error(...)`/`Error`), or the runtime's value model
-// (`Bytes`). Reserved (scoping.md "Reserved type names"): the checker rejects
+// (`Bytes`). Reserved (language.md "Reserved type names"): the checker rejects
 // a user declaration (type or type parameter), and pass 1 below pins the flat
 // registry entry to its first (core) registration so even an unchecked program
 // (an LSP buffer mid-edit) can't clobber core identity. Deliberately *not* the
@@ -397,7 +397,7 @@ fn resolve_members(_ library: LibraryElement, _ p: Program) -> Void {
                     ty: resolve_opt_in(x.type_ann, fs, Set.new(), Option.None),
                 });
             },
-            // Module-level `let` (top-level globals; docs/module_init.md). For
+            // Module-level `let` (top-level globals; docs/language.md). For
             // type resolution it behaves exactly like a `const` — a named
             // binding with a type — so it shares the const element table; only
             // codegen distinguishes them (a stored slot vs. inlining).

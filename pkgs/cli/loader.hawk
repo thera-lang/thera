@@ -580,7 +580,7 @@ impl Loader {
     }
 }
 
-// The one-name-space rule at a file's import/export surface (scoping.md):
+// The one-name-space rule at a file's import/export surface (language.md):
 //
 // - **A colliding barrel is the barrel author's error.** A `pub import` whose
 //   flattened public surface would re-expose a name this file already exposes

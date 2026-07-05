@@ -317,7 +317,7 @@ fn type_member(_ ctx: ResolveCtx, _ ref: NameRef, _ owner: String, _ type_name: 
 
 // The file (key) that owns bare `name` as seen from the primary file: its own
 // top-level declaration, else the file's bare surface (prelude / `as _`) —
-// scoping.md's bare resolution, over the loader's maps.
+// language.md's bare resolution, over the loader's maps.
 fn bare_owner_key(_ ctx: ResolveCtx, _ name: String) -> Option<String> {
     return owner_key_from(ctx, ctx.program, name);
 }

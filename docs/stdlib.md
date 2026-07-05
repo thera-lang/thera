@@ -76,11 +76,22 @@ enough to reduce hallucination.
    (`time.now_millis`, `fs.read_text` — for the imperative shell) and an
    **opt-in capability interface** you hold and pass (`time.Clock`,
    `fs.FileSystem` — for testable logic), where the free function _is_ the
-   system implementation. Some capabilities make the value-you-hold form the
-   default instead (`random.Rng` has no ambient form, since reproducibility is
-   the common case). This keeps the functional core pure, quarantines effects to
-   the shell ([overview.md](overview.md)), and makes the test seam explicit
-   rather than a global override. Full design: [testability.md](testability.md).
+   system implementation (`time.now_millis()` ≡ `system_clock().now_millis()`).
+   Some capabilities make the value-you-hold form the default instead
+   (`random.Rng` has no ambient form, since reproducibility is the common case).
+   The test seam is a **separate, explicit path** — you pass a fake capability,
+   never override the free function — so nothing is swapped from under you. Most
+   code should take **neither**: the functional core takes plain data
+   (`fn format(at: DateTime)`, not a `Clock` it reads); the capability is only
+   for the orchestrating middle layer that genuinely needs the effect yet is
+   still worth unit-testing. Test doubles live by usefulness — a
+   production-useful one beside its real library (`fs.MemoryFileSystem`), a
+   test-only one in `std.testing` (`testing.fixed_clock`) — while the interface
+   itself always lives with the real library. The stdlib ships **no capability
+   bundle** (`Sys`/`Context`): that is one step from an ambient god-object and is
+   application-specific, so apps thread their own. This keeps the functional core
+   pure ([overview.md](overview.md)) and the test seam explicit rather than a
+   global override.
 
 8. **Text is UTF-8; bytes are `Bytes`.** `String` is validated UTF-8; raw binary
    is the `Bytes` type (§ Core types). Conversions are explicit: `s.chars()`
@@ -362,7 +373,7 @@ Slash-based (POSIX-style, like Go's `path`): `'/'` is always the separator, so
 manipulation is **deterministic on every platform**. The OS boundary is
 explicit, not implicit: `separator` is the host path separator — a **module
 initializer** (it can't be a compile-time `const`;
-[module_init.md](module_init.md)) computed once from `env.os()` — and
+[language.md](language.md)) computed once from `env.os()` — and
 `to_native`/`from_native` translate at a display or interop boundary (the
 filesystem natives accept `/` everywhere, so most code never needs them). Full
 OS-native path _parsing_ (Windows drive letters, UNC) is deliberately out of
@@ -385,7 +396,7 @@ pub fn set_current_dir(_ path: String) -> Result<Void, Error>;
 pub fn exit(_ code: Int) -> Void;       // does not return; typed Never once that lands
 pub fn os() -> String;                  // 'macos' | 'linux' | 'windows' | ...
 
-// The environment as an opt-in capability (see testability.md). The free
+// The environment as an opt-in capability (§ Cross-cutting #7). The free
 // functions are the ambient form of `system_env().get(...)` / `.args()`; tests
 // pass `testing.fixed_env`.
 pub interface Env {
@@ -396,12 +407,12 @@ pub fn system_env() -> Env;
 ```
 
 Note: `OS` is a function (`os()`), not a `const` — it is a runtime/platform
-value. Module initializers now exist ([module_init.md](module_init.md)), but an
+value. Module initializers now exist ([language.md](language.md)), but an
 *effectful* native like `os()` is excluded from initializer position, so
 capturing it once into a global awaits the process-stable-ambient-native phase
 (see the roadmap). `exit` is typed `Void` until a `Never` type lands. `Env` is the
-second instance of the ambient-capability pattern after `time.Clock` (see
-[testability.md](testability.md)).
+second instance of the ambient-capability pattern after `time.Clock`
+(§ Cross-cutting #7).
 
 ### `std.process` — subprocess spawning _(implemented)_
 
@@ -466,7 +477,7 @@ pub fn now() -> DateTime;            // wall clock (UTC)
 pub fn monotonic() -> Instant;       // for elapsed measurement
 pub fn sleep(_ d: Duration) -> Void; // blocks the thread (parks the fiber once fibers land)
 
-// The clock as an opt-in capability (see testability.md). `now*()` is the
+// The clock as an opt-in capability (§ Cross-cutting #7). `now*()` is the
 // ambient form of `system_clock().now*()`; tests pass `testing.fixed_clock`.
 pub interface Clock { fn now_millis(self) -> Int; }
 pub fn system_clock() -> Clock;
@@ -578,7 +589,7 @@ returns `Double` (chain `.to_int()` for an `Int`). Numeric parsing is on
 `s.to_double() -> Option<Double>` (strict — the whole string must be the
 number). Deferred: `INFINITY`/`NAN` (no literal form; needs natives plus a place
 to compute-and-store them once — a **module initializer**,
-[module_init.md](module_init.md)).
+[language.md](language.md)).
 
 ### `std.random` — randomness _(implemented)_
 
@@ -815,7 +826,7 @@ pub fn set_output(_ w: Writer) -> Void;    // default: stderr
 >
 > - **(a) A configured global singleton.** Familiar and ergonomic
 >   (`log.info('…')` with no plumbing), but in tension with principle 7 / "no
->   global state". The **module initializer** ([module_init.md](module_init.md))
+>   global state". The **module initializer** ([language.md](language.md))
 >   supplies immutable computed globals but **deliberately not mutable** ones,
 >   so a swappable level/output singleton still needs its own sanctioned
 >   module-mutable-state mechanism — which module-init declines on purpose. That

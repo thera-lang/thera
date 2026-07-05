@@ -137,7 +137,7 @@ pub struct ModuleScope {
     // like `structs`/`file_functions`): two libraries' same-named consts inline
     // their own initializers, and cycle detection can't conflate them.
     consts: Map<String, Map<String, Expr>>,
-    // Module globals (top-level `let`; see docs/module_init.md), keyed by
+    // Module globals (top-level `let`; see docs/bytecode.md), keyed by
     // **owning file** then name (owner-correct): owner -> name -> slot for
     // reference emission, plus the initializers to run in the `<init>` thunk.
     globals: Map<String, Map<String, Int>>,
