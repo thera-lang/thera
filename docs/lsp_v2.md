@@ -303,9 +303,23 @@ the session stores each file's record under the same invalidation cone as
 span containing the offset; `records_for` feeds `ResolveCtx.primary_types`,
 which upgrades hover on unannotated locals (declaration and use sites) to the
 inferred type. The memoization also halved the checker's inference work (warm
-keystroke on main.hawk 719ms → 130ms). Remaining for Phase 3: `SymbolId` +
-semantic references/rename (LS-D2), and member resolution on inferred
-receivers (`xs.foo()` hover/definition via the recorded receiver type).
+keystroke on main.hawk 719ms → 130ms).
+
+**`SymbolId` is done (2026-07-05, LS-D2)** — `Resolved` carries a
+`SymbolId {file, kind, name, name_span}`; `def_file`/`def_span` render from it.
+
+**Member resolution on inferred receivers is done (2026-07-05)** — a member on a
+value receiver whose type isn't written (`xs.map()`, `p.scaled()`) resolves on
+the receiver's committed type (CH19's record at the receiver's span): a
+`Receiver.Named` carries its span, and `inferred_member` reads the recorded
+`Type`, takes its `TypeId` owner/name, and resolves the method (navigable) or
+field (renderable) owner-correct via the shared `member_on_owner`. Covers user
+structs/enums and built-in collections; primitives and *computed* receivers
+(`f().x`) stay deferred (the latter needs the receiver's AST span, not a token).
+
+Remaining for Phase 3: **semantic references + rename** — the query that, given a
+`SymbolId`, finds every reference that resolves to it (declaring file + its
+`dependents_of`), then rename with a collision check.
 
 ### Phase 4 — parser recovery
 

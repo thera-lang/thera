@@ -9,12 +9,28 @@ import '../ast/ast' as _; // Program
 import '../element/element' as _; // LibraryNamespace
 import '../lexer/lexer';
 import '../parser/parser';
+import '../checker/checker';
 import 'resolve' as _;
 
 fn program_of(_ src: String) -> Program {
     let p = parser.parse_tokens(lexer.tokenize(src).tokens).program;
     p.file_path = Option.Some('t.hawk');
     return p;
+}
+
+// A resolution context with the primary's committed-type record populated the
+// way `analyze_at` does (straight from the hermetic checker) — so inferred-
+// receiver resolution can consult it.
+fn typed_ctx(_ program: Program) -> ResolveCtx {
+    let nss: Map<String, Map<String, LibraryNamespace>> = {};
+    let bare: Map<String, Map<String, String>> = {};
+    return ResolveCtx {
+        program: program,
+        imports: [],
+        file_namespaces: nss,
+        file_bare_surface: bare,
+        primary_types: checker.check(program, [], {}, {}).records,
+    };
 }
 
 // A hermetic single-file resolution context (no imports, empty surfaces).
@@ -157,6 +173,50 @@ fn test_self_member_inside_interpolation_resolves() -> Result<Void, Error> {
     match resolve.resolve_at(ctx_of(program, imports), src, use_off) {
         Some(r) => { testing.assert(r.render.starts_with('count:'), message: 'renders the field')?; },
         None => { testing.assert(false, message: 'self.count in interp did not resolve')?; },
+    }
+    return Result.Ok(void);
+}
+
+// --- inferred-receiver member resolution (value receiver, recorded type) ---
+
+@test
+fn test_inferred_receiver_method_resolves() -> Result<Void, Error> {
+    // `p.scaled()` where `p`'s type is inferred (not written): the member
+    // resolves on the receiver's committed type and navigates to the method decl.
+    let src = 'struct Point { x: Int }\n'
+        + 'impl Point {\n'
+        + '    fn scaled(self) -> Point { return self; }\n'
+        + '}\n'
+        + 'fn f() -> Point {\n'
+        + '    let p = Point { x: 1 };\n'
+        + '    return p.scaled();\n'
+        + '}\n';
+    let program = program_of(src);
+    let use_off = at(src, 'p.scaled()', 2);
+    let decl_off = at(src, 'fn scaled', 3);
+    match resolve.resolve_at(typed_ctx(program), src, use_off) {
+        Some(r) => {
+            let off = match r.def_span() { Some(s) => s.offset, None => -1 };
+            testing.assert_eq(actual: off, expected: decl_off)?;
+        },
+        None => { testing.assert(false, message: 'p.scaled() did not resolve')?; },
+    }
+    return Result.Ok(void);
+}
+
+@test
+fn test_inferred_receiver_field_renders() -> Result<Void, Error> {
+    // A field on an inferred-typed receiver renders (hover) but isn't navigable.
+    let src = 'struct Point { x: Int }\n'
+        + 'fn f() -> Int {\n'
+        + '    let p = Point { x: 1 };\n'
+        + '    return p.x;\n'
+        + '}\n';
+    let program = program_of(src);
+    let use_off = at(src, 'p.x;', 2);
+    match resolve.resolve_at(typed_ctx(program), src, use_off) {
+        Some(r) => { testing.assert(r.render.starts_with('x:'), message: 'renders the field type')?; },
+        None => { testing.assert(false, message: 'p.x did not resolve')?; },
     }
     return Result.Ok(void);
 }

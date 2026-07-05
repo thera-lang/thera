@@ -152,7 +152,7 @@ pub fn resolve_at(_ ctx: ResolveCtx, _ text: String, _ offset: Int) -> Option<Re
                 None => Option.None,
             };
         },
-        Named(recv) => { return named_receiver_member(ctx, ref, recv); },
+        Named(recv, recv_span) => { return named_receiver_member(ctx, ref, recv, recv_span); },
         Qualified(ns, tname) => {
             return match namespace_surface(ctx, ns) {
                 Some(surface) => match surface.origin.get(tname) {
@@ -187,13 +187,30 @@ pub fn resolve_at(_ ctx: ResolveCtx, _ text: String, _ offset: Int) -> Option<Re
 
 // A member on a plain named receiver: the receiver is an import namespace
 // (`fs.read_text`), a type this file sees bare (`Color.Red`, `Set.new`), or a
-// value binding (needs inference — None).
-fn named_receiver_member(_ ctx: ResolveCtx, _ ref: NameRef, _ recv: String) -> Option<Resolved> {
+// value binding — resolved on its committed (inferred) type (`xs.map`).
+fn named_receiver_member(_ ctx: ResolveCtx, _ ref: NameRef, _ recv: String, _ recv_span: SourceSpan) -> Option<Resolved> {
     if let Some(surface) = namespace_surface(ctx, recv) {
         return ns_member(ctx, ref, surface);
     }
     return match bare_owner_key(ctx, recv) {
         Some(owner) => type_member(ctx, ref, owner, recv),
+        // Not a namespace or a type name: a value binding. Resolve the member on
+        // the receiver's recorded type (CH19) — the inferred-receiver case.
+        None => inferred_member(ctx, ref, recv_span),
+    };
+}
+
+// A member of a value receiver whose type isn't written: resolve it on the
+// receiver expression's committed type (CH19's record at `recv_span`). A
+// user struct/enum or a built-in collection carries a `TypeId`, so its method
+// or field resolves owner-correct; primitives/functions have no navigable
+// member here yet.
+fn inferred_member(_ ctx: ResolveCtx, _ ref: NameRef, _ recv_span: SourceSpan) -> Option<Resolved> {
+    return match recorded_type_at(ctx, recv_span) {
+        Some(ty) => match ty {
+            Interface(id, _) => member_on_owner(ctx, ref, id.owner, id.name),
+            _ => Option.None,
+        },
         None => Option.None,
     };
 }
@@ -395,7 +412,7 @@ fn span_in(_ text: String, _ start: Int, _ length: Int) -> SourceSpan {
 pub enum Receiver {
     NotMember,
     SelfRecv,
-    Named(String),
+    Named(String, SourceSpan), // a single-identifier receiver + its span (for its recorded type)
     Qualified(String, String), // `ns.Type.member`: (ns, Type)
     Computed,
 }
@@ -429,7 +446,7 @@ fn receiver_at_in(_ toks: List<Token>, _ text: String, _ offset: Int) -> Receive
                         }
                         return Receiver.Computed; // `self.x.y`, `f().a.b`
                     }
-                    return Receiver.Named(recv.lexeme());
+                    return Receiver.Named(recv.lexeme(), recv.span);
                 }
                 return Receiver.Computed; // `f().x`, `xs[i].y`, literal receivers
             }
@@ -526,27 +543,38 @@ fn self_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ st: SelfType) -> Resolved 
 // `self.member`: the enclosing impl's type, resolved to its owner from this
 // file (an impl's type is same-file or bare-visible), then its method or field.
 fn member_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ type_name: String) -> Option<Resolved> {
-    let owner = match bare_owner_key(ctx, type_name) {
-        Some(o) => o,
-        None => return Option.None,
+    return match bare_owner_key(ctx, type_name) {
+        Some(owner) => member_on_owner(ctx, ref, owner, type_name),
+        None => Option.None,
     };
+}
+
+// A method (navigable) or field (renderable) of the type identified by
+// (`owner`, `type_name`) — the shared body behind `self.member` and an
+// inferred value receiver's member.
+fn member_on_owner(_ ctx: ResolveCtx, _ ref: NameRef, _ owner: String, _ type_name: String) -> Option<Resolved> {
     if let Some(ms) = find_method_site(ctx, owner, type_name, ref.name) {
         return Option.Some(method_resolved(ref, ms));
     }
-    // A field carries no name span, so it is renderable but not navigable.
     if let Some(f) = find_field(ctx, owner, type_name, ref.name) {
-        return Option.Some(Resolved {
-            ref_span: ref.span,
-            render: '${f.name}: ${describe.describe_type(f.type_ann)}',
-            symbol: Option.Some(SymbolId {
-                file: '',
-                kind: SymbolKind.Field,
-                name: f.name,
-                name_span: Option.None,
-            }),
-        });
+        return Option.Some(field_resolved(ref, f));
     }
     return Option.None;
+}
+
+// A struct field: renderable (hover) but not navigable — a field carries no
+// name span, so `def_span`/`def_file` stay None.
+fn field_resolved(_ ref: NameRef, _ f: FieldDef) -> Resolved {
+    return Resolved {
+        ref_span: ref.span,
+        render: '${f.name}: ${describe.describe_type(f.type_ann)}',
+        symbol: Option.Some(SymbolId {
+            file: '',
+            kind: SymbolKind.Field,
+            name: f.name,
+            name_span: Option.None,
+        }),
+    };
 }
 
 fn variant_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ owner: String, _ enum_name: String) -> Option<Resolved> {
