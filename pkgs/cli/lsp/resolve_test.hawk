@@ -100,6 +100,33 @@ fn test_field_access_is_not_navigable() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
+@test
+fn test_generic_impl_self_type_renders_and_navigates() -> Result<Void, Error> {
+    // Inside `impl Box<T>`, `self` renders with its type params and `self.method`
+    // navigates via the bare type name — no round-trip through the display string.
+    let src = 'struct Box<T> { value: T }\n'
+        + 'impl Box<T> {\n'
+        + '    fn get(self) -> T { return self.value; }\n'
+        + '    fn go(self) -> T { return self.get(); }\n'
+        + '}\n';
+    let program = program_of(src);
+    let imports: List<Program> = [];
+    // `self` renders `self: Box<T>` and navigates to the struct declaration.
+    let self_off = at(src, 'return self.value', 7);
+    match resolve.resolve_at(ctx_of(program, imports), src, self_off) {
+        Some(r) => {
+            testing.assert_eq(actual: r.render, expected: 'self: Box<T>')?;
+            let def_off = match r.def_span { Some(s) => s.offset, None => -1 };
+            testing.assert_eq(actual: def_off, expected: at(src, 'struct Box', 7))?;
+        },
+        None => { testing.assert(false, message: 'self did not resolve')?; },
+    }
+    // `self.get()` navigates to the `get` method.
+    let use_off = at(src, 'self.get()', 5);
+    testing.assert_eq(actual: def_offset(src, use_off), expected: at(src, 'fn get', 3))?;
+    return Result.Ok(void);
+}
+
 // --- owner-correct cross-file resolution (LS1/LS3/LS8) ---
 
 fn program_at(_ src: String, _ path: String) -> Program {

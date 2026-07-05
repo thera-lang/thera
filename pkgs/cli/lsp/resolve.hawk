@@ -81,7 +81,7 @@ pub fn resolve_at(_ ctx: ResolveCtx, _ text: String, _ offset: Int) -> Option<Re
     // `self` — the enclosing impl/interface's type (navigates to its declaration).
     if ref.name == 'self' {
         return match enc.self_type {
-            Some(t) => Option.Some(self_resolved(ctx, ref, t)),
+            Some(st) => Option.Some(self_resolved(ctx, ref, st)),
             None => Option.None,
         };
     }
@@ -91,7 +91,7 @@ pub fn resolve_at(_ ctx: ResolveCtx, _ text: String, _ offset: Int) -> Option<Re
         NotMember => {},
         SelfRecv => {
             return match enc.self_type {
-                Some(t) => member_resolved(ctx, ref, bare_type(t)),
+                Some(st) => member_resolved(ctx, ref, st.name),
                 None => Option.None,
             };
         },
@@ -316,10 +316,19 @@ pub fn receiver_at(_ text: String, _ offset: Int) -> Receiver {
 
 // --- enclosing context ---
 
-// The enclosing method's `self` type (with type params, for display) and the
-// enclosing function/method — the context a name resolves against.
+// The enclosing method's `self` type: its bare name (for owner + member lookup)
+// and its display form with type params (for the `self:` hover). Kept structured
+// so member/owner lookup uses the bare name directly, rather than round-tripping
+// a `List<T>` display string back through a strip-at-`<`.
+struct SelfType {
+    name: String,    // `List` — the bare type name, for owner/member resolution
+    display: String, // `List<T>` — the hover render
+}
+
+// The enclosing method's `self` type and the enclosing function/method — the
+// context a name resolves against.
 struct Enclosing {
-    self_type: Option<String>,
+    self_type: Option<SelfType>,
     fn_decl: Option<FnDecl>,
 }
 
@@ -333,12 +342,14 @@ fn enclosing_ctx(_ program: Program, _ offset: Int) -> Enclosing {
             },
             Impl(i) => {
                 if span_covers(i.span, offset) {
-                    return Enclosing { self_type: Option.Some(impl_type_label(i)), fn_decl: method_at(i.methods, offset) };
+                    let st = SelfType { name: i.type_name, display: impl_type_label(i) };
+                    return Enclosing { self_type: Option.Some(st), fn_decl: method_at(i.methods, offset) };
                 }
             },
             Interface(it) => {
                 if span_covers(it.span, offset) {
-                    return Enclosing { self_type: Option.Some(it.name), fn_decl: method_at(it.methods, offset) };
+                    let st = SelfType { name: it.name, display: it.name };
+                    return Enclosing { self_type: Option.Some(st), fn_decl: method_at(it.methods, offset) };
                 }
             },
             _ => {},
@@ -353,14 +364,6 @@ fn impl_type_label(_ i: ImplDecl) -> String {
         return i.type_name;
     }
     return '${i.type_name}<${i.type_params.map((tp) => tp.name).join(', ')}>';
-}
-
-// The bare type name (`List` from `List<T>`) — for looking members up by name.
-fn bare_type(_ s: String) -> String {
-    return match s.find('<') {
-        Some(i) => s.slice(0, i),
-        None => s,
-    };
 }
 
 fn method_at(_ methods: List<FnDecl>, _ offset: Int) -> Option<FnDecl> {
@@ -378,11 +381,11 @@ fn span_covers(_ span: SourceSpan, _ offset: Int) -> Bool {
 
 // --- per-case resolution ---
 
-fn self_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ display: String) -> Resolved {
-    let site = find_decl_site(ctx, bare_type(display));
+fn self_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ st: SelfType) -> Resolved {
+    let site = find_decl_site(ctx, st.name);
     return Resolved {
         ref_span: ref.span,
-        render: 'self: ${display}',
+        render: 'self: ${st.display}',
         def_file: match site { Some(s) => Option.Some(s.file), None => Option.None },
         def_span: match site { Some(s) => decl_name_span(s.decl), None => Option.None },
     };
