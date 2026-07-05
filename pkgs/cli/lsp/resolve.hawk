@@ -19,14 +19,17 @@
 // compiler uses (`file_bare_surface`/`file_namespaces` — LS1): owner-correct,
 // visibility-aware, `as _`-aware — never a whole-closure name scan. A member of
 // a *computed* receiver (`f().x`) needs inference and resolves to None rather
-// than guessing (LS3). Still deferred: the inferred type of a local, and
-// members of a value receiver (`xs.foo()` where `xs`'s type isn't written).
+// than guessing (LS3). An unannotated local's *type* renders from the
+// committed-type record (CH19's `primary_types`); still deferred: members of
+// a value receiver (`xs.foo()` where `xs`'s type isn't written).
 
 import '../ast/ast' as _;       // Program, Decl, the per-decl payloads
 import '../ast/describe';  // describe_type
 import '../lexer/token' as _;   // SourceSpan, Token, TokenKind
 import '../lexer/lexer';   // tokenize
 import '../element/element';    // file_key, LibraryNamespace
+import '../element/inference';  // TypeRecord
+import '../element/types';      // Type, type_to_string
 import 'paths';              // program_path
 
 // The identifier under the cursor: its name and source span.
@@ -50,6 +53,11 @@ pub struct ResolveCtx {
     imports: List<Program>,
     file_namespaces: Map<String, Map<String, element.LibraryNamespace>>,
     file_bare_surface: Map<String, Map<String, String>>,
+    // The primary file's committed-type record from the last check (CH19;
+    // `Session.records_for`) — the inference-at-offset surface. May be empty
+    // (no check yet, or a caller without a session); renders degrade to the
+    // written annotation or the bare name.
+    primary_types: List<inference.TypeRecord>,
 }
 
 // A resolved target at the cursor: enough to render a hover *and* to navigate to
@@ -457,7 +465,16 @@ fn local_binding_at(_ fn_decl: FnDecl, _ ref: NameRef) -> Option<BindingSite> {
 fn local_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ site: BindingSite) -> Resolved {
     let render = match site.type_ann {
         Some(t) => '${ref.name}: ${describe.describe_type(t)}',
-        None => ref.name,
+        // No written annotation: the committed-type record has the inferred
+        // type — at the cursor's own span (a use-site `Ident`, or a `let`
+        // name the checker stamps) or, failing that, the binding site's.
+        None => match recorded_type_at(ctx, ref.span) {
+            Some(t) => '${ref.name}: ${types.type_to_string(t)}',
+            None => match recorded_type_at(ctx, site.span) {
+                Some(t) => '${ref.name}: ${types.type_to_string(t)}',
+                None => ref.name,
+            },
+        },
     };
     return Resolved {
         ref_span: ref.span,
@@ -465,6 +482,22 @@ fn local_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ site: BindingSite) -> Res
         def_file: Option.Some(paths.program_path(ctx.program)),
         def_span: Option.Some(site.span),
     };
+}
+
+// The committed type recorded for exactly `span`, or None. Later entries
+// supersede earlier ones (the `let` refinement override); a fully-unknown
+// type is withheld (the bare-name render is more honest than `?`).
+fn recorded_type_at(_ ctx: ResolveCtx, _ span: SourceSpan) -> Option<types.Type> {
+    let mut found: Option<types.Type> = Option.None;
+    for r in ctx.primary_types {
+        if r.offset == span.offset && r.length == span.length {
+            found = match r.ty {
+                Unknown => Option.None,
+                _ => Option.Some(r.ty),
+            };
+        }
+    }
+    return found;
 }
 
 // Collect binding sites for `ref.name` reachable at `ref`'s offset. The walk

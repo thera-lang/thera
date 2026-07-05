@@ -8,6 +8,7 @@ import '../ast/ast' as _; // Program
 import '../element/element' as _; // LibraryNamespace
 import '../lexer/lexer';
 import '../parser/parser';
+import '../checker/checker';
 import 'hover' as _;
 import 'resolve' as _;
 
@@ -22,6 +23,7 @@ fn rendered(_ src: String, _ offset: Int) -> String {
         imports: imports,
         file_namespaces: nss,
         file_bare_surface: bare,
+        primary_types: [],
     };
     return hover.handle_hover(ctx, src, offset)
         .get('contents').get('value').as_string().unwrap_or('');
@@ -95,5 +97,55 @@ fn test_hover_member_of_unknown_receiver_is_null() -> Result<Void, Error> {
     let src = 'fn f(_ other: S) -> Int { return other.count; }\n' + SRC;
     let code = rendered(src, at(src, 'other.count', 6));
     testing.assert_eq(actual: code, expected: '')?;
+    return Result.Ok(void);
+}
+
+// ---- inferred locals via the committed-type record (CH19) ----
+
+// Like `rendered`, with the primary's committed-type record populated the way
+// `analyze_at` populates it (here straight from the hermetic checker).
+fn rendered_with_types(_ src: String, _ offset: Int) -> String {
+    let program = parser.parse_tokens(lexer.tokenize(src).tokens).program;
+    let imports: List<Program> = [];
+    let nss: Map<String, Map<String, LibraryNamespace>> = {};
+    let bare: Map<String, Map<String, String>> = {};
+    let ctx = ResolveCtx {
+        program: program,
+        imports: imports,
+        file_namespaces: nss,
+        file_bare_surface: bare,
+        primary_types: checker.check(program, [], {}, {}).records,
+    };
+    return hover.handle_hover(ctx, src, offset)
+        .get('contents').get('value').as_string().unwrap_or('');
+}
+
+@test
+fn test_hover_unannotated_local_shows_inferred_type() -> Result<Void, Error> {
+    let src = 'fn f() -> Int { let xs = [1, 2]; return xs[0]; }';
+    // At the use site (the `Ident`'s committed record)...
+    let use_site = rendered_with_types(src, at(src, 'xs[0]', 0));
+    testing.assert_eq(actual: use_site, expected: '```hawk\nxs: List<Int>\n```')?;
+    // ...and on the declaration name (the `let` name-span record).
+    let decl_site = rendered_with_types(src, at(src, 'xs = ', 0));
+    testing.assert_eq(actual: decl_site, expected: '```hawk\nxs: List<Int>\n```')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_hover_annotated_local_keeps_the_annotation() -> Result<Void, Error> {
+    // A written annotation still renders as written (no record consulted).
+    let src = 'fn f() -> Int { let n: Int = 1; return n; }';
+    let code = rendered_with_types(src, at(src, 'return n', 7));
+    testing.assert_eq(actual: code, expected: '```hawk\nn: Int\n```')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_hover_local_without_record_degrades_to_the_name() -> Result<Void, Error> {
+    // No record (the pre-check state): the render degrades to the bare name.
+    let src = 'fn f() -> Int { let xs = [1, 2]; return xs[0]; }';
+    let code = rendered(src, at(src, 'xs[0]', 0));
+    testing.assert_eq(actual: code, expected: '```hawk\nxs\n```')?;
     return Result.Ok(void);
 }

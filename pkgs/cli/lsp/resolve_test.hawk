@@ -26,6 +26,7 @@ fn ctx_of(_ program: Program, _ imports: List<Program>) -> ResolveCtx {
         imports: imports,
         file_namespaces: nss,
         file_bare_surface: bare,
+        primary_types: [],
     };
 }
 
@@ -131,6 +132,7 @@ fn cross_ctx(_ primary: Program) -> ResolveCtx {
         imports: [a, b],
         file_namespaces: nss,
         file_bare_surface: bare,
+        primary_types: [],
     };
 }
 

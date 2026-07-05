@@ -294,6 +294,19 @@ declaration; collect only true binding references; verify rename doesn't collide
 fall out of the same machinery. Completion / signature help / semantic tokens
 follow as further renderers.
 
+**`type_at` is done (2026-07-04, CH19)** — and it did not need lexical-scope
+reconstruction at a cursor: the checker's walk *records* each node's committed
+type (write-once, span-keyed, skipping synthesized zero-length spans), the
+pure inference engine consults the record instead of re-walking subtrees, and
+the session stores each file's record under the same invalidation cone as
+`checked`. `Session.type_at(file, offset)` answers with the smallest recorded
+span containing the offset; `records_for` feeds `ResolveCtx.primary_types`,
+which upgrades hover on unannotated locals (declaration and use sites) to the
+inferred type. The memoization also halved the checker's inference work (warm
+keystroke on main.hawk 719ms → 130ms). Remaining for Phase 3: `SymbolId` +
+semantic references/rename (LS-D2), and member resolution on inferred
+receivers (`xs.foo()` hover/definition via the recorded receiver type).
+
 ### Phase 4 — parser recovery
 
 Parallelizable; benefits both the LSP (mid-keystroke robustness) and the
