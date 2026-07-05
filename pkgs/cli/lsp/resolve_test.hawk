@@ -40,7 +40,7 @@ fn def_offset(_ src: String, _ use_offset: Int) -> Int {
     let program = program_of(src);
     let imports: List<Program> = [];
     return match resolve.resolve_at(ctx_of(program, imports), src, use_offset) {
-        Some(r) => match r.def_span {
+        Some(r) => match r.def_span() {
             Some(s) => s.offset,
             None => -1,
         },
@@ -116,7 +116,7 @@ fn test_generic_impl_self_type_renders_and_navigates() -> Result<Void, Error> {
     match resolve.resolve_at(ctx_of(program, imports), src, self_off) {
         Some(r) => {
             testing.assert_eq(actual: r.render, expected: 'self: Box<T>')?;
-            let def_off = match r.def_span { Some(s) => s.offset, None => -1 };
+            let def_off = match r.def_span() { Some(s) => s.offset, None => -1 };
             testing.assert_eq(actual: def_off, expected: at(src, 'struct Box', 7))?;
         },
         None => { testing.assert(false, message: 'self did not resolve')?; },
@@ -172,7 +172,7 @@ fn test_bare_name_resolves_via_the_bare_surface_owner() -> Result<Void, Error> {
     let use_off = src.find('helper(\'x\'').unwrap_or(0);
     match resolve.resolve_at(cross_ctx(primary), src, use_off) {
         Some(r) => {
-            testing.assert_eq(actual: r.def_file.unwrap_or(''), expected: '/libs/b.hawk')?;
+            testing.assert_eq(actual: r.def_file().unwrap_or(''), expected: '/libs/b.hawk')?;
         },
         None => { testing.assert(false, message: 'bare helper did not resolve')?; },
     }
@@ -188,7 +188,7 @@ fn test_ns_member_resolves_on_the_namespace_surface() -> Result<Void, Error> {
     let use_off = src.find('.helper(1').unwrap_or(0) + 1;
     match resolve.resolve_at(cross_ctx(primary), src, use_off) {
         Some(r) => {
-            testing.assert_eq(actual: r.def_file.unwrap_or(''), expected: '/libs/a.hawk')?;
+            testing.assert_eq(actual: r.def_file().unwrap_or(''), expected: '/libs/a.hawk')?;
         },
         None => { testing.assert(false, message: 'util.helper did not resolve')?; },
     }
@@ -203,7 +203,7 @@ fn test_namespace_itself_resolves_to_its_import() -> Result<Void, Error> {
     let use_off = src.find('util.helper').unwrap_or(0);
     match resolve.resolve_at(cross_ctx(primary), src, use_off) {
         Some(r) => {
-            testing.assert_eq(actual: r.def_file.unwrap_or(''), expected: '/app/main.hawk')?;
+            testing.assert_eq(actual: r.def_file().unwrap_or(''), expected: '/app/main.hawk')?;
             testing.assert(r.render.starts_with('import'), message: 'renders the import')?;
         },
         None => { testing.assert(false, message: 'namespace did not resolve')?; },

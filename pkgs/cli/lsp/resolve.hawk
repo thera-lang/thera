@@ -60,14 +60,68 @@ pub struct ResolveCtx {
     primary_types: List<inference.TypeRecord>,
 }
 
-// A resolved target at the cursor: enough to render a hover *and* to navigate to
-// its definition. `def_span`/`def_file` are None when the target has no navigable
-// declaration site (a struct field carries no name span; a builtin has no source).
+// What kind of thing a resolved symbol is. Distinguishes same-named symbols and
+// tells a reference/rename consumer what it is looking at; the hover/definition
+// renderers don't branch on it. `Namespace` is an import binding; `Global` is a
+// top-level `let`; `Local` is any in-function binding (param/let/pattern/lambda).
+pub enum SymbolKind {
+    Function,
+    Struct,
+    Enum,
+    Interface,
+    Const,
+    Global,
+    Variant,
+    Method,
+    Field,
+    Namespace,
+    Local,
+}
+
+// The identity of a resolved declaration: the file it lives in, its kind, its
+// name, and where its name is written. Two references to the same symbol share a
+// `SymbolId` (the eventual key for scope-aware references/rename); the hover
+// render and the go-to-definition location are *renderings* of it. `name_span` is
+// None for a symbol with no navigable name token (a struct field, a builtin);
+// `file` is '' when the symbol has no source file.
+pub struct SymbolId {
+    file: String,
+    kind: SymbolKind,
+    name: String,
+    name_span: Option<SourceSpan>,
+}
+
+// A resolved target at the cursor: its **hover render** and the **symbol** it
+// names (None when it renders but names no identifiable declaration — currently
+// unused, reserved for builtins). The go-to-definition location derives from the
+// symbol via `def_file`/`def_span`, which are None when the symbol has no
+// navigable name span (a struct field carries none).
 pub struct Resolved {
     ref_span: SourceSpan,
     render: String,
-    def_file: Option<String>,
-    def_span: Option<SourceSpan>,
+    symbol: Option<SymbolId>,
+}
+
+impl Resolved {
+    // The declaring file for go-to-definition, or None when the target has no
+    // navigable name span (so no place to land).
+    pub fn def_file(self) -> Option<String> {
+        return match self.symbol {
+            Some(s) => match s.name_span {
+                Some(_) => Option.Some(s.file),
+                None => Option.None,
+            },
+            None => Option.None,
+        };
+    }
+
+    // The span of the target's own name — where go-to-definition lands, or None.
+    pub fn def_span(self) -> Option<SourceSpan> {
+        return match self.symbol {
+            Some(s) => s.name_span,
+            None => Option.None,
+        };
+    }
 }
 
 // The target the name at `offset` resolves to, or None. The single resolution
@@ -123,12 +177,7 @@ pub fn resolve_at(_ ctx: ResolveCtx, _ text: String, _ offset: Int) -> Option<Re
     // A top-level declaration (function / type / enum / interface / const / let),
     // resolved as this file's scope sees the bare name.
     return match find_decl_site(ctx, ref.name) {
-        Some(site) => Option.Some(Resolved {
-            ref_span: ref.span,
-            render: describe_decl(site.decl),
-            def_file: Option.Some(site.file),
-            def_span: decl_name_span(site.decl),
-        }),
+        Some(site) => Option.Some(decl_resolved(ref, site)),
         None => Option.None,
     };
 }
@@ -152,12 +201,7 @@ fn ns_member(_ ctx: ResolveCtx, _ ref: NameRef, _ surface: element.LibraryNamesp
     return match surface.origin.get(ref.name) {
         Some(owner) => match program_of_key(ctx, owner) {
             Some(p) => match find_decl_in(p, ref.name) {
-                Some(d) => Option.Some(Resolved {
-                    ref_span: ref.span,
-                    render: describe_decl(d),
-                    def_file: Option.Some(paths.program_path(p)),
-                    def_span: decl_name_span(d),
-                }),
+                Some(d) => Option.Some(decl_resolved(ref, DeclSite { decl: d, file: paths.program_path(p) })),
                 None => Option.None,
             },
             None => Option.None,
@@ -173,12 +217,7 @@ fn type_member(_ ctx: ResolveCtx, _ ref: NameRef, _ owner: String, _ type_name: 
         return Option.Some(res);
     }
     if let Some(ms) = find_method_site(ctx, owner, type_name, ref.name) {
-        return Option.Some(Resolved {
-            ref_span: ref.span,
-            render: describe_fn(ms.fn_decl),
-            def_file: Option.Some(ms.file),
-            def_span: Option.Some(ms.fn_decl.name_span),
-        });
+        return Option.Some(method_resolved(ref, ms));
     }
     return Option.None;
 }
@@ -236,8 +275,12 @@ fn namespace_resolved(_ ctx: ResolveCtx, _ ref: NameRef) -> Option<Resolved> {
                 return Option.Some(Resolved {
                     ref_span: ref.span,
                     render: 'import \'${imp.path}\' as ${ref.name}',
-                    def_file: Option.Some(paths.program_path(ctx.program)),
-                    def_span: Option.Some(imp.span),
+                    symbol: Option.Some(SymbolId {
+                        file: paths.program_path(ctx.program),
+                        kind: SymbolKind.Namespace,
+                        name: ref.name,
+                        name_span: Option.Some(imp.span),
+                    }),
                 });
             }
         }
@@ -386,8 +429,15 @@ fn self_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ st: SelfType) -> Resolved 
     return Resolved {
         ref_span: ref.span,
         render: 'self: ${st.display}',
-        def_file: match site { Some(s) => Option.Some(s.file), None => Option.None },
-        def_span: match site { Some(s) => decl_name_span(s.decl), None => Option.None },
+        symbol: match site {
+            Some(s) => Option.Some(SymbolId {
+                file: s.file,
+                kind: decl_symbol_kind(s.decl),
+                name: st.name,
+                name_span: decl_name_span(s.decl),
+            }),
+            None => Option.None,
+        },
     };
 }
 
@@ -399,20 +449,19 @@ fn member_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ type_name: String) -> Op
         None => return Option.None,
     };
     if let Some(ms) = find_method_site(ctx, owner, type_name, ref.name) {
-        return Option.Some(Resolved {
-            ref_span: ref.span,
-            render: describe_fn(ms.fn_decl),
-            def_file: Option.Some(ms.file),
-            def_span: Option.Some(ms.fn_decl.name_span),
-        });
+        return Option.Some(method_resolved(ref, ms));
     }
     // A field carries no name span, so it is renderable but not navigable.
     if let Some(f) = find_field(ctx, owner, type_name, ref.name) {
         return Option.Some(Resolved {
             ref_span: ref.span,
             render: '${f.name}: ${describe.describe_type(f.type_ann)}',
-            def_file: Option.None,
-            def_span: Option.None,
+            symbol: Option.Some(SymbolId {
+                file: '',
+                kind: SymbolKind.Field,
+                name: f.name,
+                name_span: Option.None,
+            }),
         });
     }
     return Option.None;
@@ -423,8 +472,12 @@ fn variant_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ owner: String, _ enum_n
         Some(vs) => Option.Some(Resolved {
             ref_span: ref.span,
             render: variant_render(enum_name, vs.variant),
-            def_file: Option.Some(vs.file),
-            def_span: Option.Some(vs.variant.name_span),
+            symbol: Option.Some(SymbolId {
+                file: vs.file,
+                kind: SymbolKind.Variant,
+                name: ref.name,
+                name_span: Option.Some(vs.variant.name_span),
+            }),
         }),
         None => Option.None,
     };
@@ -482,8 +535,12 @@ fn local_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ site: BindingSite) -> Res
     return Resolved {
         ref_span: ref.span,
         render: render,
-        def_file: Option.Some(paths.program_path(ctx.program)),
-        def_span: Option.Some(site.span),
+        symbol: Option.Some(SymbolId {
+            file: paths.program_path(ctx.program),
+            kind: SymbolKind.Local,
+            name: ref.name,
+            name_span: Option.Some(site.span),
+        }),
     };
 }
 
@@ -795,6 +852,52 @@ pub fn decl_name_span(_ decl: Decl) -> Option<SourceSpan> {
         Let(d) => Option.Some(d.name_span),
         Impl(_) => Option.None,
         Import(_) => Option.None,
+    };
+}
+
+// --- symbol construction ---
+
+// The kind of a top-level declaration (the Impl/Import arms are unreachable —
+// `find_decl_site`/`ns_member` only surface nameable decls).
+fn decl_symbol_kind(_ decl: Decl) -> SymbolKind {
+    return match decl {
+        Fn(_) => SymbolKind.Function,
+        Type(_) => SymbolKind.Struct,
+        Enum(_) => SymbolKind.Enum,
+        Interface(_) => SymbolKind.Interface,
+        Const(_) => SymbolKind.Const,
+        Let(_) => SymbolKind.Global,
+        Impl(_) => SymbolKind.Method,
+        Import(_) => SymbolKind.Namespace,
+    };
+}
+
+// The resolved target for a top-level declaration at `site`, rendered and
+// identified (bare-name and `ns.member` cases share this).
+fn decl_resolved(_ ref: NameRef, _ site: DeclSite) -> Resolved {
+    return Resolved {
+        ref_span: ref.span,
+        render: describe_decl(site.decl),
+        symbol: Option.Some(SymbolId {
+            file: site.file,
+            kind: decl_symbol_kind(site.decl),
+            name: ref.name,
+            name_span: decl_name_span(site.decl),
+        }),
+    };
+}
+
+// The resolved target for a method at `ms` (a `Type.method` or `self.method`).
+fn method_resolved(_ ref: NameRef, _ ms: MethodSite) -> Resolved {
+    return Resolved {
+        ref_span: ref.span,
+        render: describe_fn(ms.fn_decl),
+        symbol: Option.Some(SymbolId {
+            file: ms.file,
+            kind: SymbolKind.Method,
+            name: ref.name,
+            name_span: Option.Some(ms.fn_decl.name_span),
+        }),
     };
 }
 
