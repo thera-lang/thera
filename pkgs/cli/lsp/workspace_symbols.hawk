@@ -4,7 +4,6 @@
 import std.json;
 
 import '../ast/ast' as _;
-import '../lexer/token' as _;  // SourceSpan
 import 'positions';
 import 'resolve';
 import 'symbols';
@@ -20,7 +19,7 @@ pub fn handle_workspace_symbols(_ programs: List<Program>, _ query: String) -> j
         for decl in program.decls {
             if let Some(name) = resolve.decl_name(decl) {
                 if q == '' || name.to_lowercase().contains(q) {
-                    if let Some(span) = decl_span(decl) {
+                    if let Some(span) = resolve.decl_name_span(decl) {
                         result.push(json.obj({
                             'name': json.str(name),
                             'kind': json.int(symbols.decl_kind(decl)),
@@ -36,17 +35,4 @@ pub fn handle_workspace_symbols(_ programs: List<Program>, _ query: String) -> j
     }
 
     return json.arr(result);
-}
-
-fn decl_span(_ decl: Decl) -> Option<SourceSpan> {
-    return match decl {
-        Fn(d) => Option.Some(d.name_span),
-        Type(d) => Option.Some(d.name_span),
-        Enum(d) => Option.Some(d.name_span),
-        Interface(d) => Option.Some(d.name_span),
-        Const(d) => Option.Some(d.name_span),
-        Let(d) => Option.Some(d.name_span),
-        Impl(_) => Option.None,
-        Import(_) => Option.None,
-    };
 }

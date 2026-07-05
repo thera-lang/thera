@@ -11,12 +11,13 @@ import '../lexer/token' as _;  // SourceSpan
 import 'positions';     // span_to_range
 
 // LSP `SymbolKind` values (the subset we emit):
-//   Class=5  Method=6  Enum=10  Interface=11  Function=12  Constant=14
-//   EnumMember=22
+//   Class=5  Method=6  Enum=10  Interface=11  Function=12  Variable=13
+//   Constant=14  Object=19  EnumMember=22
 
 // The LSP `SymbolKind` for a top-level declaration. Shared with workspace symbols
 // so the decl→kind mapping lives in one place (`Import` has no symbol; 0 is
-// unused). See the table above.
+// unused). An impl block is neither a class nor an interface — it maps to
+// `Object` (the convention rust-analyzer uses for impls). See the table above.
 pub fn decl_kind(_ decl: Decl) -> Int {
     return match decl {
         Fn(_) => 12,
@@ -25,7 +26,7 @@ pub fn decl_kind(_ decl: Decl) -> Int {
         Interface(_) => 11,
         Const(_) => 14,
         Let(_) => 13,
-        Impl(_) => 11,
+        Impl(_) => 19,
         Import(_) => 0,
     };
 }
@@ -41,7 +42,7 @@ pub fn build_symbols(_ program: Program) -> Json {
                 symbols.push(make_symbol(d.name, decl_kind(decl), d.is_pub, d.span, d.name_span, Option.None));
             },
             Const(d) => {
-                symbols.push(make_symbol(d.name, decl_kind(decl), d.is_pub, d.span, d.span, Option.None));
+                symbols.push(make_symbol(d.name, decl_kind(decl), d.is_pub, d.span, d.name_span, Option.None));
             },
             Let(d) => {
                 symbols.push(make_symbol(d.name, decl_kind(decl), d.is_pub, d.span, d.name_span, Option.None));
@@ -84,7 +85,7 @@ fn method_symbols(_ methods: List<FnDecl>) -> List<Json> {
 fn variant_symbols(_ variants: List<EnumVariant>) -> List<Json> {
     let out: List<Json> = [];
     for v in variants {
-        out.push(make_symbol(v.name, 22, false, v.span, v.span, Option.None));
+        out.push(make_symbol(v.name, 22, false, v.span, v.name_span, Option.None));
     }
     return out;
 }
