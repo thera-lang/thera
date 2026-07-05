@@ -196,7 +196,7 @@ fn register_module(_ scope: ModuleScope, _ program: Program) -> Void {
                         // An interface default keys the method table by the
                         // interface's owner-qualified key — two libraries'
                         // same-named interfaces keep distinct default units.
-                        scope.add_method(type_key(element.file_key(file), x.name), x.name, method, file);
+                        scope.add_method(TypeId { owner: element.file_key(file), name: x.name }, x.name, method, file);
                     }
                 }
             },
@@ -208,7 +208,7 @@ fn register_module(_ scope: ModuleScope, _ program: Program) -> Void {
                 // sees under the name (owner-qualified key).
                 if let Some(iface) = x.interface_name {
                     let ifs = file_scope(scope.library, file);
-                    scope.add_interface_impl(owner, x.type_name, type_key(ifs.resolve_type_owner(iface, x.interface_namespace), iface));
+                    scope.add_interface_impl(owner, x.type_name, TypeId { owner: ifs.resolve_type_owner(iface, x.interface_namespace), name: iface });
                 }
                 for method in x.methods {
                     let is_static = !has_self_param(method.params);
@@ -217,7 +217,7 @@ fn register_module(_ scope: ModuleScope, _ program: Program) -> Void {
                     } else if method.is_native {
                         scope.add_native_instance_method(x.type_name, method);
                     } else {
-                        if let Some(_) = method.body { scope.add_method(type_key(owner, x.type_name), x.type_name, method, file); }
+                        if let Some(_) = method.body { scope.add_method(TypeId { owner: owner, name: x.type_name }, x.type_name, method, file); }
                     }
                     if let Some(_) = x.interface_name {
                         if !is_static && !method.is_native {
@@ -784,7 +784,7 @@ impl FnCompiler {
                 if element.is_core_id(self.scope.library, id, 'Iterator') {
                     return true;
                 }
-                return match self.scope.interface_impls.get(type_key(id.owner, id.name)) {
+                return match self.scope.interface_impls.get(id) {
                     Some(info) => info.interfaces.has(self.core_iface_key('Iterator')),
                     None => false,
                 };
@@ -1941,7 +1941,7 @@ impl FnCompiler {
             },
         };
         if let Some(t) = id {
-            if let Some(m) = self.scope.method_table.get(type_key(t.owner, t.name)) { return m.get(name); }
+            if let Some(m) = self.scope.method_table.get(t) { return m.get(name); }
         }
         return Option.None;
     }
@@ -2067,43 +2067,40 @@ impl FnCompiler {
 
     // --- dispatch helpers ---
 
-    fn interface_method(self, _ ty: Option<TypeId>, _ iface_key: String, _ method: String) -> Option<Int> {
+    fn interface_method(self, _ ty: Option<TypeId>, _ iface: TypeId, _ method: String) -> Option<Int> {
         if let Some(t) = ty {
-            let key = type_key(t.owner, t.name);
-            let implements = match self.scope.interface_impls.get(key) {
-                Some(info) => info.interfaces.has(iface_key),
+            let implements = match self.scope.interface_impls.get(t) {
+                Some(info) => info.interfaces.has(iface),
                 None => false,
             };
             if implements {
-                if let Some(m) = self.scope.method_table.get(key) { return m.get(method); }
+                if let Some(m) = self.scope.method_table.get(t) { return m.get(method); }
             }
         }
         return Option.None;
     }
 
-    // The owner-qualified key of the *core* interface `name` (`Eq`/`Display`/
-    // `Iterator`, …) — identity, never a same-named user interface.
-    fn core_iface_key(self, _ name: String) -> String {
-        return type_key(element.core_owner(self.scope.library, name), name);
+    // The identity of the *core* interface `name` (`Eq`/`Display`/`Iterator`, …)
+    // — never a same-named user interface.
+    fn core_iface_key(self, _ name: String) -> TypeId {
+        return TypeId { owner: element.core_owner(self.scope.library, name), name: name };
     }
 
-    // The candidate interfaces (owner-qualified keys) a value of type `t`
-    // dispatches through: the interface it *is*, or its type parameter's bounds.
-    fn dispatch_interfaces(self, _ t: Type) -> Option<List<String>> {
+    // The candidate interfaces a value of type `t` dispatches through: the
+    // interface it *is*, or its type parameter's bounds.
+    fn dispatch_interfaces(self, _ t: Type) -> Option<List<TypeId>> {
         match t {
             Interface(id, _) => {
-                let key = type_key(id.owner, id.name);
-                if self.scope.interface_methods.has(key) {
-                    return Option.Some([key]);
+                if self.scope.interface_methods.has(id) {
+                    return Option.Some([id]);
                 }
             },
             TypeParameter(n) => {
                 if let Some(bounds) = self.type_param_bounds.get(n) {
-                    let ifaces: List<String> = [];
+                    let ifaces: List<TypeId> = [];
                     for b in bounds {
-                        let key = type_key(b.owner, b.name);
-                        if self.scope.interface_methods.has(key) {
-                            ifaces.push(key);
+                        if self.scope.interface_methods.has(b) {
+                            ifaces.push(b);
                         }
                     }
                     if ifaces.len() > 0 {
