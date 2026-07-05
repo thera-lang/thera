@@ -1127,7 +1127,14 @@ impl FnCompiler {
         };
 
         if let Some(plan) = dispatch {
-            self.emit_dispatch(plan, subject, subject_ty, tag_slot.unwrap_or(0), end, expected);
+            let ctx = MatchCtx {
+                subject: subject,
+                subject_ty: subject_ty,
+                tag_slot: tag_slot.unwrap_or(0),
+                end: end,
+                expected: expected,
+            };
+            self.emit_dispatch(plan, ctx);
             self.bind(end);
             return;
         }
@@ -1210,63 +1217,57 @@ impl FnCompiler {
 
     // Emit a balanced binary search over the (distinct, sorted) case tags, with
     // every miss routed to a single shared default.
-    fn emit_dispatch(self, _ plan: DispatchPlan, _ subject: Int, _ subject_ty: Type,
-        _ tag_slot: Int, _ end: Int, _ expected: Option<Type>) -> Void {
+    fn emit_dispatch(self, _ plan: DispatchPlan, _ ctx: MatchCtx) -> Void {
         let tags = sorted_keys(plan.cases);
         let default_label = self.new_label();
-        self.emit_bisect(0, tags.len() - 1, tags, plan.cases, default_label,
-            subject, subject_ty, tag_slot, end, expected);
+        self.emit_bisect(0, tags.len() - 1, tags, plan.cases, default_label, ctx);
         self.bind(default_label);
-        self.emit_leaf(plan.default_arm, subject, subject_ty, end, false, expected);
+        self.emit_leaf(plan.default_arm, false, ctx);
     }
 
     fn emit_bisect(self, _ lo: Int, _ hi: Int, _ tags: List<Int>, _ cases: Map<Int, MatchArm>,
-        _ default_label: Int, _ subject: Int, _ subject_ty: Type,
-        _ tag_slot: Int, _ end: Int, _ expected: Option<Type>) -> Void {
+        _ default_label: Int, _ ctx: MatchCtx) -> Void {
         let mid = (lo + hi) / 2;
         let t = tags[mid];
         let has_left = lo <= mid - 1;
         let has_right = mid + 1 <= hi;
         if !has_left && !has_right {
-            self.emit(Instr.Load(tag_slot));
+            self.emit(Instr.Load(ctx.tag_slot));
             self.emit(Instr.ConstInt(t));
             self.emit(Instr.Simple(Op.EqI64));
             self.emit_jump(Jk.IfFalse, default_label);
-            self.emit_leaf(get_case(cases, t), subject, subject_ty, end, true, expected);
+            self.emit_leaf(get_case(cases, t), true, ctx);
             return;
         }
         // Absent subranges route their branch straight to the default.
         let left_target = if has_left { self.new_label() } else { default_label };
         let right_target = if has_right { self.new_label() } else { default_label };
-        self.emit(Instr.Load(tag_slot));
+        self.emit(Instr.Load(ctx.tag_slot));
         self.emit(Instr.ConstInt(t));
         self.emit(Instr.Simple(Op.LtI64));
         self.emit_jump(Jk.IfTrue, left_target);
-        self.emit(Instr.Load(tag_slot));
+        self.emit(Instr.Load(ctx.tag_slot));
         self.emit(Instr.ConstInt(t));
         self.emit(Instr.Simple(Op.GtI64));
         self.emit_jump(Jk.IfTrue, right_target);
-        self.emit_leaf(get_case(cases, t), subject, subject_ty, end, true, expected); // equal
+        self.emit_leaf(get_case(cases, t), true, ctx); // equal
         if has_left {
             self.bind(left_target);
-            self.emit_bisect(lo, mid - 1, tags, cases, default_label,
-                subject, subject_ty, tag_slot, end, expected);
+            self.emit_bisect(lo, mid - 1, tags, cases, default_label, ctx);
         }
         if has_right {
             self.bind(right_target);
-            self.emit_bisect(mid + 1, hi, tags, cases, default_label,
-                subject, subject_ty, tag_slot, end, expected);
+            self.emit_bisect(mid + 1, hi, tags, cases, default_label, ctx);
         }
     }
 
     // The tag is already known at a leaf, so only bind fields (fail = None), then
     // run the body. The pattern's bindings are scoped to the arm.
-    fn emit_leaf(self, _ arm: MatchArm, _ subject: Int, _ subject_ty: Type,
-        _ end: Int, _ jump_to_end: Bool, _ expected: Option<Type>) -> Void {
+    fn emit_leaf(self, _ arm: MatchArm, _ jump_to_end: Bool, _ ctx: MatchCtx) -> Void {
         let saved = self.enter_scope();
-        bind_match_pattern(arm.pattern, subject_ty, self.type_scope, self.ctx);
-        self.emit_pattern(arm.pattern, subject, subject_ty, Option.None, Option.None);
-        self.arm_body(arm.body, end, jump_to_end, expected);
+        bind_match_pattern(arm.pattern, ctx.subject_ty, self.type_scope, self.ctx);
+        self.emit_pattern(arm.pattern, ctx.subject, ctx.subject_ty, Option.None, Option.None);
+        self.arm_body(arm.body, ctx.end, jump_to_end, ctx.expected);
         self.exit_scope(saved);
     }
 
@@ -2156,6 +2157,18 @@ pub const MATCH_DISPATCH_MIN_CASES: Int = 6;
 pub struct DispatchPlan {
     cases: Map<Int, MatchArm>,
     default_arm: MatchArm,
+}
+
+// The invariant context of a match's enum-dispatch emission, shared by
+// `emit_dispatch`/`emit_bisect`/`emit_leaf`. As `emit_bisect` recurses only the
+// tag subrange (`lo`/`hi`) changes; everything here stays constant, so it rides
+// in one struct rather than as five repeated parameters.
+struct MatchCtx {
+    subject: Int,           // slot holding the subject value
+    subject_ty: Type,       // the subject's full (instantiated) type
+    tag_slot: Int,          // slot holding the hoisted `enum.tag`
+    end: Int,               // the merge label each arm body jumps to
+    expected: Option<Type>, // the expected result type of an arm body
 }
 
 // The number of non-final arms that emit a top-level tag test in the linear
