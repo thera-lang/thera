@@ -199,12 +199,12 @@ pub fn resolve_at(_ ctx: ResolveCtx, _ text: String, _ offset: Int) -> Option<Re
                 },
                 // `ns` names no namespace, so `a.b.c` is a *value* chain, not
                 // `namespace.Type.member`: resolve on the receiver's committed type.
-                None => computed_member(ctx, ref, enc, offset),
+                None => computed_member(ctx, ref, offset),
             };
         },
         // A computed receiver (`f().x`, `xs[i].y`): the token stream can't delimit
         // it, but the AST locates the receiver expression and CH19 has its type.
-        Computed => { return computed_member(ctx, ref, enc, offset); },
+        Computed => { return computed_member(ctx, ref, offset); },
     }
     // A local binding of the enclosing function — a parameter, `let`, loop
     // variable, pattern binding, or lambda parameter (LS2). Locals shadow
@@ -259,15 +259,11 @@ fn inferred_member(_ ctx: ResolveCtx, _ ref: NameRef, _ recv_span: SourceSpan) -
 
 // A member of a *computed* value receiver (`f().x`, `xs[i].y`) or a value chain
 // (`a.b.c`): the token stream can't delimit the receiver, so locate the receiver
-// expression in the enclosing function's AST (`member_receiver_span`) and resolve
-// the member on its committed type (reusing `inferred_member`). None outside a
-// function body — a computed receiver in a top-level initializer isn't covered.
-fn computed_member(_ ctx: ResolveCtx, _ ref: NameRef, _ enc: Enclosing, _ offset: Int) -> Option<Resolved> {
-    return match enc.fn_decl {
-        Some(fn_decl) => match member_receiver_span(fn_decl, offset) {
-            Some(recv_span) => inferred_member(ctx, ref, recv_span),
-            None => Option.None,
-        },
+// expression in the file's AST (`member_receiver_span`) and resolve the member on
+// its committed type (reusing `inferred_member`).
+fn computed_member(_ ctx: ResolveCtx, _ ref: NameRef, _ offset: Int) -> Option<Resolved> {
+    return match member_receiver_span(ctx.program, offset) {
+        Some(recv_span) => inferred_member(ctx, ref, recv_span),
         None => Option.None,
     };
 }
@@ -883,13 +879,50 @@ fn bindings_in_pattern(_ pat: Pattern, _ ref: NameRef, _ out: List<BindingSite>)
 // --- computed-receiver location (for member resolution on value receivers) ---
 
 // The receiver expression's span for the member access whose member name covers
-// `offset`, searched within `fn_decl`'s body. A token stream can't delimit a
-// computed receiver (`f().x`, `xs[i].y`) or tell a value chain (`a.b.c`) from a
-// namespace one, but the AST does — the member-access `Field(obj, member)` node
-// yields `obj`'s span, whose committed type the member then resolves on (CH19).
-// None when the cursor isn't on such a member.
-fn member_receiver_span(_ fn_decl: FnDecl, _ offset: Int) -> Option<SourceSpan> {
-    return match fn_decl.body {
+// `offset`, searched across every expression-bearing declaration in `program` —
+// function bodies, impl/interface methods, and module `let`/`const` initializers
+// (so a computed receiver at file scope resolves like one in a function body). A
+// token stream can't delimit a computed receiver (`f().x`, `xs[i].y`) or tell a
+// value chain (`a.b.c`) from a namespace one, but the AST does — the member-access
+// `Field(obj, member)` node yields `obj`'s span, whose committed type the member
+// then resolves on (CH19). None when the cursor isn't on such a member.
+fn member_receiver_span(_ program: Program, _ offset: Int) -> Option<SourceSpan> {
+    for decl in program.decls {
+        if let Some(s) = member_receiver_in_decl(decl, offset) {
+            return Option.Some(s);
+        }
+    }
+    return Option.None;
+}
+
+fn member_receiver_in_decl(_ decl: Decl, _ offset: Int) -> Option<SourceSpan> {
+    return match decl {
+        Fn(f) => member_receiver_in_fn(f, offset),
+        Impl(i) => {
+            for m in i.methods {
+                if let Some(s) = member_receiver_in_fn(m, offset) { return Option.Some(s); }
+            }
+            Option.None
+        },
+        Interface(it) => {
+            for m in it.methods {
+                if let Some(s) = member_receiver_in_fn(m, offset) { return Option.Some(s); }
+            }
+            Option.None
+        },
+        Const(c) => member_receiver_in_expr(c.value, offset),
+        Let(l) => member_receiver_in_expr(l.value, offset),
+        _ => Option.None, // Type / Enum / Import carry no expressions
+    };
+}
+
+// A function/method body, pruned by the declaration's own span so only the
+// enclosing one is walked deeply.
+fn member_receiver_in_fn(_ f: FnDecl, _ offset: Int) -> Option<SourceSpan> {
+    if !span_covers(f.span, offset) {
+        return Option.None;
+    }
+    return match f.body {
         Some(body) => member_receiver_in_block(body, offset),
         None => Option.None,
     };

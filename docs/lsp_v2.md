@@ -320,11 +320,16 @@ structs/enums and built-in collections; primitive receivers stay deferred (a
 **Computed-receiver member resolution is done (2026-07-05)** — `f().x`,
 `xs[i].y`, and value chains `a.b.c` (which the token classifier can't tell from
 `namespace.Type.member`) now resolve. A token stream can't delimit the receiver,
-so `member_receiver_span` walks the enclosing function's AST to the member-access
-`Field(obj, member)` node and yields `obj`'s span; `computed_member` then reuses
-`inferred_member` on its committed type. Wired into the `Computed` arm and the
-non-namespace `Qualified` fallback. Still lenient — no record (or an `Unknown`
-receiver type) resolves to nothing rather than guessing.
+so `member_receiver_span` walks the AST to the member-access `Field(obj, member)`
+node and yields `obj`'s span; `computed_member` then reuses `inferred_member` on
+its committed type. Wired into the `Computed` arm and the non-namespace
+`Qualified` fallback. The walk is **file-level** — over every expression-bearing
+declaration (function bodies, impl/interface methods, and module `let`/`const`
+initializers), pruned by declaration span — so a computed receiver in a module
+`let g = make().field;` resolves like one in a function body (no `enc.fn_decl`
+special-case). This works for free because CH19 already records the types of
+top-level initializer nodes. Still lenient — no record (or an `Unknown` receiver
+type) resolves to nothing rather than guessing.
 
 **Semantic references are done (2026-07-05)** — `textDocument/references` is
 registered and resolves by identity, not text: `SymbolId.same` compares owning
