@@ -17,7 +17,9 @@ import 'checker/checker';
 import 'codegen/codegen';
 import 'bytecode/encoder';
 import 'element/element';
+import 'element/inference';
 import 'element/resolver';
+import 'element/types';
 import 'loader';
 
 // A uniform diagnostic across the phases (each phase's error type is structurally
@@ -78,6 +80,12 @@ pub struct Session {
     // the cached base without mutating it — the frozen-base invariant).
     // Evicted when any member is invalidated.
     library_cache: Map<String, CachedLibrary>,
+    // Canonical path -> the file's committed-type record from the last check
+    // that walked it (CH19), serving `type_at`/`records_for`. As fresh as that
+    // check: evicted over the invalidation cone with `checked`; files the
+    // checker skipped (the SDK, files already clean before records existed)
+    // have no entry.
+    type_records: Map<String, List<inference.TypeRecord>>,
 }
 
 // One cached imports-only library plus its member set (for eviction: an entry
@@ -96,6 +104,7 @@ pub fn new_session(_ sdk_root: Option<String>) -> Session {
         import_graph: {},
         surface_cache: {},
         library_cache: {},
+        type_records: {},
     };
 }
 
@@ -133,6 +142,10 @@ impl Session {
         for k in self.dependents_of(key) {
             self.checked.remove(k);
             match self.surface_cache.remove(k) {
+                Some(_) => {},
+                None => {},
+            }
+            match self.type_records.remove(k) {
                 Some(_) => {},
                 None => {},
             }
@@ -334,6 +347,7 @@ impl Session {
         for d in check_diagnostics(result.errors) {
             out.push(d);
         }
+        self.store_records(result.records);
         mark_checked_clean(self.checked, canon, loaded.programs, skip, out);
         return out;
     }
@@ -360,6 +374,7 @@ impl Session {
         let result = checker.check_files(program, loaded.programs,
             loaded.file_namespaces, loaded.file_bare_surface, skip: skip, sdk: sdk_prefix(self.sdk_root),
             prebuilt: self.library_for(program, canon, loaded));
+        self.store_records(result.records);
         if import_diags.len() > 0 || result.errors.len() > 0 {
             for d in check_diagnostics(result.errors) {
                 import_diags.push(d);
@@ -375,6 +390,54 @@ impl Session {
             diagnostics: [],
             bytes: Option.Some(encoder.encode_module(cg.module)),
         };
+    }
+
+    // Fold a check run's committed-type records into the per-file store:
+    // group by file, then replace those files' entries wholesale (files the
+    // checker skipped don't appear and keep their stored records).
+    fn store_records(self, _ records: List<inference.TypeRecord>) -> Void {
+        let by_file: Map<String, List<inference.TypeRecord>> = {};
+        for r in records {
+            match by_file.get(r.file) {
+                Some(l) => { l.push(r); },
+                None => { by_file[r.file] = [r]; },
+            }
+        }
+        for f in by_file.keys() {
+            self.type_records[f] = by_file[f];
+        }
+    }
+
+    // The committed-type record for `p` from the last check that walked it —
+    // checking on demand when `p` is an open overlay with no stored records
+    // (the post-edit LSP case). Entries are in walk order; a later entry for
+    // the same span supersedes an earlier one (the `let` refinement override).
+    pub fn records_for(self, _ p: String) -> List<inference.TypeRecord> {
+        let canon = loader.canonical_path(p);
+        if !self.type_records.has(canon) {
+            if let Some(text) = self.overlays.get(canon) {
+                self.check(text, canon);
+            }
+        }
+        return self.type_records.get(canon).unwrap_or([]);
+    }
+
+    // The committed type of the node at `offset` in `p` — the smallest
+    // recorded span containing the offset (ties go to the later entry, so the
+    // refinement override wins). None when the offset sits outside any
+    // recorded node or the file has no records (never walked, or evicted).
+    pub fn type_at(self, _ p: String, _ offset: Int) -> Option<types.Type> {
+        let mut best: Option<types.Type> = Option.None;
+        let mut best_len = 0;
+        for r in self.records_for(p) {
+            if offset >= r.offset && offset < r.offset + r.length {
+                if best.is_none() || r.length <= best_len {
+                    best = Option.Some(r.ty);
+                    best_len = r.length;
+                }
+            }
+        }
+        return best;
     }
 }
 

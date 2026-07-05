@@ -6,6 +6,7 @@
 import std.testing;
 import std.fs;
 
+import 'element/types';
 import 'loader';
 import 'session' as _;
 
@@ -227,6 +228,69 @@ fn test_library_cache_evicts_on_dep_edit() -> Result<Void, Error> {
         'pub interface Shape { fn area(self) -> Int\n fn name(self) -> String }\n');
     testing.assert(sess.check(main_src, main_path).len() > 0,
         message: 'the stale base was evicted; the new interface is enforced')?;
+
+    cleanup(dir);
+    return Result.Ok(void);
+}
+
+// ---- committed-type records / type_at (CH19) ----
+
+fn render(_ t: Option<types.Type>) -> String {
+    return match t {
+        Some(ty) => types.type_to_string(ty),
+        None => '<none>',
+    };
+}
+
+// `type_at` answers from the stored record: the smallest recorded span
+// containing the offset wins, and offsets outside any expression have no type.
+@test
+fn test_type_at_returns_committed_types() -> Result<Void, Error> {
+    let dir = fixture_dir('typeat', {
+        'u.hawk': 'pub fn num() -> Int { return 40; }\n',
+        'm.hawk': 'import \'u\';\nfn main() -> Bool { return u.num() < 3; }\n',
+    })?;
+    let sess = new_session(Option.None);
+    let p = '${dir}/m.hawk';
+    let src = fs.read_text(p)?;
+    testing.assert_eq(actual: sess.check(src, p).len(), expected: 0)?;
+
+    // At `(`, the smallest containing node is the call `u.num()` (Int), not
+    // the enclosing comparison (Bool); at `<` only the comparison contains it.
+    let call_off = src.find('u.num').unwrap_or(0) + 5;
+    testing.assert_eq(actual: render(sess.type_at(p, call_off)), expected: 'Int')?;
+    let cmp_off = src.find(' < ').unwrap_or(0) + 1;
+    testing.assert_eq(actual: render(sess.type_at(p, cmp_off)), expected: 'Bool')?;
+    testing.assert_eq(actual: render(sess.type_at(p, 0)), expected: '<none>')?;
+
+    cleanup(dir);
+    return Result.Ok(void);
+}
+
+// A dependency edit evicts the cone's records (stale types never answer); an
+// open overlay repopulates on demand — `type_at` checks it without an explicit
+// `check` call.
+@test
+fn test_type_records_evict_and_repopulate() -> Result<Void, Error> {
+    let dir = fixture_dir('typeevict', {
+        'u.hawk': 'pub fn num() -> Int { return 40; }\n',
+        'm.hawk': 'import \'u\';\nfn main() -> Int { return u.num() + 2; }\n',
+    })?;
+    let sess = new_session(Option.None);
+    let p = '${dir}/m.hawk';
+    let src = fs.read_text(p)?;
+    testing.assert_eq(actual: sess.check(src, p).len(), expected: 0)?;
+    let off = src.find('u.num').unwrap_or(0) + 5;
+    testing.assert_eq(actual: render(sess.type_at(p, off)), expected: 'Int')?;
+
+    // Editing the dependency evicts `m`'s records; with no overlay for `m`
+    // there is nothing to answer from (no silent stale answers).
+    sess.set_overlay('${dir}/u.hawk', 'pub fn num() -> Int { return 41; }\n');
+    testing.assert_eq(actual: render(sess.type_at(p, off)), expected: '<none>')?;
+
+    // An open overlay for `m` repopulates on demand.
+    sess.set_overlay(p, src);
+    testing.assert_eq(actual: render(sess.type_at(p, off)), expected: 'Int')?;
 
     cleanup(dir);
     return Result.Ok(void);
