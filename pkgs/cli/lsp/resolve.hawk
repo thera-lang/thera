@@ -120,6 +120,17 @@ impl SymbolId {
     pub fn name(self) -> String {
         return self.name;
     }
+
+    // Whether this is a struct field. Fields navigate and (partially) find
+    // references, but a field's *declaration* name and `S { field: … }` literal
+    // uses aren't resolved yet, so a rename would be incomplete — rename declines
+    // fields until that identity is complete.
+    pub fn is_field(self) -> Bool {
+        return match self.kind {
+            Field => true,
+            _ => false,
+        };
+    }
 }
 
 // A resolved target at the cursor: its **hover render** and the **symbol** it
@@ -609,23 +620,24 @@ fn member_on_owner(_ ctx: ResolveCtx, _ ref: NameRef, _ owner: String, _ type_na
     if let Some(ms) = find_method_site(ctx, owner, type_name, ref.name) {
         return Option.Some(method_resolved(ref, ms));
     }
-    if let Some(f) = find_field(ctx, owner, type_name, ref.name) {
-        return Option.Some(field_resolved(ref, f));
+    if let Some(fs) = find_field(ctx, owner, type_name, ref.name) {
+        return Option.Some(field_resolved(ref, fs));
     }
     return Option.None;
 }
 
-// A struct field: renderable (hover) but not navigable — a field carries no
-// name span, so `def_span`/`def_file` stay None.
-fn field_resolved(_ ref: NameRef, _ f: FieldDef) -> Resolved {
+// A struct field: rendered for hover *and* navigable to its declaration — the
+// field's `name_span` in its owning file (`FieldDef` carries a real one).
+fn field_resolved(_ ref: NameRef, _ fs: FieldSite) -> Resolved {
+    let f = fs.field;
     return Resolved {
         ref_span: ref.span,
         render: '${f.name}: ${describe.describe_type(f.type_ann)}',
         symbol: Option.Some(SymbolId {
-            file: '',
+            file: fs.file,
             kind: SymbolKind.Field,
             name: f.name,
-            name_span: Option.None,
+            name_span: Option.Some(f.name_span),
         }),
     };
 }
@@ -1101,15 +1113,22 @@ fn methods_of(_ ctx: ResolveCtx, _ p: Program, _ owner: String, _ type_name: Str
     return Option.None;
 }
 
-// A struct field lives with its type's declaration — the owner file only.
-fn find_field(_ ctx: ResolveCtx, _ owner: String, _ type_name: String, _ field: String) -> Option<FieldDef> {
+struct FieldSite {
+    field: FieldDef,
+    file: String,
+}
+
+// A struct field lives with its type's declaration — the owner file only. The
+// owning file's path rides along so a field access can navigate to the field's
+// name (a `FieldDef` carries a real `name_span`).
+fn find_field(_ ctx: ResolveCtx, _ owner: String, _ type_name: String, _ field: String) -> Option<FieldSite> {
     if let Some(p) = program_of_key(ctx, owner) {
         for decl in p.decls {
             if let Type(t) = decl {
                 if t.name == type_name {
                     for f in t.fields {
                         if f.name == field {
-                            return Option.Some(f);
+                            return Option.Some(FieldSite { field: f, file: paths.program_path(p) });
                         }
                     }
                 }

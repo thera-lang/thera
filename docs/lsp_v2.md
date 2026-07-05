@@ -312,9 +312,11 @@ keystroke on main.hawk 719ms → 130ms).
 value receiver whose type isn't written (`xs.map()`, `p.scaled()`) resolves on
 the receiver's committed type (CH19's record at the receiver's span): a
 `Receiver.Named` carries its span, and `inferred_member` reads the recorded
-`Type`, takes its `TypeId` owner/name, and resolves the method (navigable) or
-field (renderable) owner-correct via the shared `member_on_owner`. Covers user
-structs/enums and built-in collections; primitive receivers stay deferred (a
+`Type`, takes its `TypeId` owner/name, and resolves the method or field
+owner-correct via the shared `member_on_owner`. Both are **navigable**: a
+`FieldDef` carries a real `name_span`, so `x.field`/`self.field` go-to-definition
+lands on the field declaration (`find_field` returns the owning file too). Covers
+user structs/enums and built-in collections; primitive receivers stay deferred (a
 `Primitive` carries no `TypeId`).
 
 **Computed-receiver member resolution is done (2026-07-05)** — `f().x`,
@@ -353,8 +355,11 @@ follow-ups, all deferred: a **workspace scan** so references/rename reach closed
 on-disk files (read `dependents_of` from disk, not just open buffers); a
 **pre-rename collision check** (the new name already bound in an affected scope —
 today the checker flags any clash on the next publish); **primitive-receiver**
-member resolution (`"s".split()` — a `Primitive` carries no `TypeId`); and further
-renderers — completion / signature help / semantic tokens.
+member resolution (`"s".split()` — a `Primitive` carries no `TypeId`); **complete
+field identity** (a field's declaration name and its `S { field: … }` literal uses
+don't resolve to the field yet, so field references are member-access-only and
+rename declines fields); and further renderers — completion / signature help /
+semantic tokens.
 
 ### Phase 4 — parser recovery
 

@@ -109,10 +109,12 @@ fn test_definition_of_self_type() -> Result<Void, Error> {
 }
 
 @test
-fn test_field_access_is_not_navigable() -> Result<Void, Error> {
-    // A struct field carries no name span — renderable (hover) but not navigable.
+fn test_field_access_navigates_to_the_field() -> Result<Void, Error> {
+    // `self.count` navigates to the `count` field declaration (a `FieldDef` has a
+    // real name span).
     let use_off = at(SRC, 'self.count + n', 5);
-    testing.assert_eq(actual: def_offset(SRC, use_off), expected: -1)?;
+    let decl_off = at(SRC, 'count: Int', 0);
+    testing.assert_eq(actual: def_offset(SRC, use_off), expected: decl_off)?;
     return Result.Ok(void);
 }
 

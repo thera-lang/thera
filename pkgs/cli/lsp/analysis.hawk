@@ -220,6 +220,12 @@ impl Analysis {
             },
             None => return null(),
         };
+        // A field's declaration name and its `S { field: … }` literal uses don't
+        // resolve yet, so renaming a field would rewrite only its member accesses
+        // — an incomplete, breaking edit. Decline until field identity is complete.
+        if target.is_field() {
+            return null();
+        }
         let changes: Map<String, Json> = {};
         for u in self.docs.keys() {
             match self.doc_ctx(u) {

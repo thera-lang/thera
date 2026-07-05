@@ -1,10 +1,9 @@
 // LSP go-to-definition — a thin renderer over the shared cursor resolver
 // (`resolve.hawk`): resolve the name under the cursor to a target and return its
 // declaration `Location` (file + name range), or null when the target has no
-// navigable declaration. Because it shares `resolve_at` with hover, it now
-// navigates to `self`'s type, `self.method`s, parameters, and `Enum.Variant`s —
-// not just top-level names. (A struct field carries no name span, so a
-// `self.field` access resolves for hover but is not navigable yet.)
+// navigable declaration. Because it shares `resolve_at` with hover, it navigates
+// to `self`'s type, `self.method`s, parameters, `Enum.Variant`s, and struct
+// fields (`self.field` / `x.field`) — not just top-level names.
 
 import std.json as _;
 

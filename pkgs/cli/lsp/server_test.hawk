@@ -235,6 +235,43 @@ fn test_rename_is_semantic() -> Result<Void, Error> {
 }
 
 @test
+fn test_definition_navigates_to_a_field() -> Result<Void, Error> {
+    let server = new_server(Option.None);
+    let opened = io.StringWriter.new();
+    server.handle(opened, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"file:///f.hawk",'
+        + '"text":"struct S { n: Int }\\nimpl S { fn get(self) -> Int { return self.n; } }"}}}');
+    // Go-to-definition on the `n` of `self.n` (line 1, char 43) lands on the field
+    // declaration up on line 0.
+    let asked = io.StringWriter.new();
+    server.handle(asked, '{"jsonrpc":"2.0","id":40,"method":"textDocument/definition","params":'
+        + '{"textDocument":{"uri":"file:///f.hawk"},"position":{"line":1,"character":43}}}');
+    let out = asked.into_string().unwrap_or('');
+    testing.assert(out.contains('file:///f.hawk'), message: 'returns a location in the file')?;
+    testing.assert(out.contains('"line":0') || out.contains('"line": 0'),
+        message: 'points at the field declaration on line 0')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_rename_declines_a_field() -> Result<Void, Error> {
+    let server = new_server(Option.None);
+    let opened = io.StringWriter.new();
+    server.handle(opened, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"file:///f.hawk",'
+        + '"text":"struct S { n: Int }\\nimpl S { fn get(self) -> Int { return self.n; } }"}}}');
+    // Renaming a field is declined (its declaration + literal uses aren't resolved
+    // yet, so the edit would be incomplete) — a null result, not a partial edit.
+    let asked = io.StringWriter.new();
+    server.handle(asked, '{"jsonrpc":"2.0","id":41,"method":"textDocument/rename","params":'
+        + '{"textDocument":{"uri":"file:///f.hawk"},"position":{"line":1,"character":43},"newName":"m"}}');
+    let out = asked.into_string().unwrap_or('');
+    testing.assert(out.contains('"result":null') || out.contains('"result": null'),
+        message: 'renaming a field is declined')?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_rename_to_a_keyword_is_rejected() -> Result<Void, Error> {
     let server = new_server(Option.None);
     let opened = io.StringWriter.new();
