@@ -31,7 +31,7 @@ fn test_imported_open_buffer_overlays_disk() -> Result<Void, Error> {
     let analysis = new_analysis(Option.None);
     let a_uri = paths.path_to_uri(dir + '/a.hawk');
     let b_uri = paths.path_to_uri(dir + '/b.hawk');
-    analysis.set_document(a_uri, a_text);
+    analysis.set_document(a_uri, a_text, Option.None);
 
     // Both files as saved: clean.
     let clean = analysis.diagnostics(a_uri, a_text);
@@ -39,7 +39,7 @@ fn test_imported_open_buffer_overlays_disk() -> Result<Void, Error> {
 
     // Open `b` with an unsaved edit that removes `helper`: `a`'s analysis must
     // see the buffer, not the stale disk content.
-    analysis.set_document(b_uri, 'pub fn renamed() -> Int { return 1; }\n');
+    analysis.set_document(b_uri, 'pub fn renamed() -> Int { return 1; }\n', Option.None);
     let stale = analysis.diagnostics(a_uri, a_text);
     testing.assert(stale.as_array().map((xs) => xs.len()).unwrap_or(0) > 0,
         message: 'a sees b\'s unsaved edit (helper gone)')?;
@@ -74,14 +74,14 @@ fn test_dependency_edit_marks_importer_dirty() -> Result<Void, Error> {
     let analysis = new_analysis(Option.None);
     let a_uri = paths.path_to_uri(dir + '/a.hawk');
     let b_uri = paths.path_to_uri(dir + '/b.hawk');
-    analysis.set_document(a_uri, a_text);
-    analysis.set_document(b_uri, b_text);
+    analysis.set_document(a_uri, a_text, Option.None);
+    analysis.set_document(b_uri, b_text, Option.None);
     // Analyze once so the session's import graph knows a -> b, then drain.
     let _seed = analysis.diagnostics(a_uri, a_text);
     let _drained = analysis.take_dirty();
 
     // Editing `b` dirties both `b` and its open importer `a`.
-    analysis.set_document(b_uri, 'pub fn renamed() -> Int { return 1; }\n');
+    analysis.set_document(b_uri, 'pub fn renamed() -> Int { return 1; }\n', Option.None);
     let dirty = analysis.take_dirty();
     testing.assert(dirty.contains(b_uri), message: 'edited doc is dirty')?;
     testing.assert(dirty.contains(a_uri), message: 'open importer is dirty')?;

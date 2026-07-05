@@ -19,6 +19,11 @@ pub struct Analysis {
     // texts are mirrored into the session's overlay map under canonical keys.
     docs: Map<String, String>,
     session: session.Session,
+    // uri -> the last document version the client sent (didOpen/didChange). Echoed
+    // back on `publishDiagnostics` so the client can discard diagnostics computed
+    // against a superseded revision — harmless while diagnostics are synchronous,
+    // load-bearing once Phase 2 makes them async (LS9).
+    versions: Map<String, Int>,
     // Documents (URIs) edited since the last diagnostics flush. Lives beside
     // the caches so invalidation state is one object (LS-D1): an edit marks
     // here in the same call that evicts the session's caches, and Phase 2's
@@ -31,6 +36,7 @@ pub fn new_analysis(_ sdk_root: Option<String>) -> Analysis {
     return Analysis {
         docs: {},
         session: session.new_session(sdk_root),
+        versions: {},
         dirty: Set.new(),
     };
 }
@@ -50,8 +56,11 @@ impl Analysis {
     // checked-clean status so the next analysis re-sees the change. The edit
     // marks the document — and every open document that transitively imports
     // it — dirty for the next diagnostics flush.
-    pub fn set_document(self, _ uri: String, _ text: String) -> Void {
+    pub fn set_document(self, _ uri: String, _ text: String, _ version: Option<Int>) -> Void {
         self.docs[uri] = text;
+        if let Some(v) = version {
+            self.versions[uri] = v;
+        }
         self.session.set_overlay(paths.uri_to_path(uri), text);
         self.dirty.add(uri);
         self.mark_open_dependents_dirty(uri);
@@ -65,6 +74,7 @@ impl Analysis {
             Some(_) => {},
             None => {},
         }
+        self.versions.remove(uri);
         self.session.remove_overlay(paths.uri_to_path(uri));
         self.mark_open_dependents_dirty(uri);
         self.dirty.remove(uri);
@@ -95,6 +105,11 @@ impl Analysis {
 
     pub fn text(self, _ uri: String) -> Option<String> {
         return self.docs.get(uri);
+    }
+
+    // The last version the client sent for `uri`, echoed on `publishDiagnostics`.
+    pub fn version_of(self, _ uri: String) -> Option<Int> {
+        return self.versions.get(uri);
     }
 
     pub fn uris(self) -> List<String> {

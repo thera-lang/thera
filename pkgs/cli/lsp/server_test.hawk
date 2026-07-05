@@ -219,6 +219,24 @@ fn test_did_change_republishes_diagnostics() -> Result<Void, Error> {
 }
 
 @test
+fn test_publish_echoes_the_document_version() -> Result<Void, Error> {
+    // A client-supplied document version is echoed on publishDiagnostics so the
+    // client can discard results for a superseded revision (LS9). didChange with
+    // a newer version updates the echo.
+    let server = new_server(Option.None);
+    let opened = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"file:///v.hawk","version":3,"text":"fn f() -> Int { return 1; }"}}}');
+    testing.assert(opened.contains('"version":3') || opened.contains('"version": 3'),
+        message: 'echoes the didOpen version')?;
+    let changed = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didChange","params":'
+        + '{"textDocument":{"uri":"file:///v.hawk","version":7},'
+        + '"contentChanges":[{"text":"fn f() -> Int { return missing; }"}]}}');
+    testing.assert(changed.contains('"version":7') || changed.contains('"version": 7'),
+        message: 'echoes the newer didChange version')?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_did_close_removes_document() -> Result<Void, Error> {
     // After `didClose` the document is forgotten, so a later documentSymbol over
     // it yields the empty (unknown-document) outline.

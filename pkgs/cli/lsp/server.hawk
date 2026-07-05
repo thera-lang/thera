@@ -140,13 +140,15 @@ impl Server {
         }
         if method == 'textDocument/didOpen' {
             let doc = params.get('textDocument');
-            self.update_document(doc.get('uri').as_string(), doc.get('text').as_string());
+            self.update_document(doc.get('uri').as_string(), doc.get('text').as_string(),
+                doc.get('version').as_int());
             return true;
         }
         if method == 'textDocument/didChange' {
             // Full sync: the last content change carries the whole document.
-            let uri = params.get('textDocument').get('uri').as_string();
-            self.update_document(uri, last_change_text(params.get('contentChanges')));
+            let doc = params.get('textDocument');
+            self.update_document(doc.get('uri').as_string(),
+                last_change_text(params.get('contentChanges')), doc.get('version').as_int());
             return true;
         }
         if method == 'textDocument/documentSymbol' {
@@ -204,10 +206,10 @@ impl Server {
     // dirty for the next `flush` and evicts the file's cached parse so an
     // importer's next check re-sees the change. The publish is deferred (not
     // done here) so a burst of edits coalesces into one re-check.
-    fn update_document(self, _ uri: Option<String>, _ text: Option<String>) -> Void {
+    fn update_document(self, _ uri: Option<String>, _ text: Option<String>, _ version: Option<Int>) -> Void {
         if let Some(u) = uri {
             if let Some(t) = text {
-                self.analysis.set_document(u, t);
+                self.analysis.set_document(u, t, version);
             }
         }
     }
@@ -292,10 +294,16 @@ impl Server {
     }
 
     fn publish(self, _ writer: io.Writer, _ uri: String, _ text: String) -> Void {
-        send_notification(writer, 'textDocument/publishDiagnostics', json.obj({
+        let params: Map<String, Json> = {
             'uri': json.str(uri),
             'diagnostics': self.analysis.diagnostics(uri, text),
-        }));
+        };
+        // Echo the document version (when the client sent one) so it can discard
+        // diagnostics for a superseded revision (LS9).
+        if let Some(v) = self.analysis.version_of(uri) {
+            params['version'] = json.int(v);
+        }
+        send_notification(writer, 'textDocument/publishDiagnostics', json.obj(params));
     }
 }
 
