@@ -127,7 +127,10 @@ impl Resolved {
 // The target the name at `offset` resolves to, or None. The single resolution
 // authority behind hover and definition.
 pub fn resolve_at(_ ctx: ResolveCtx, _ text: String, _ offset: Int) -> Option<Resolved> {
-    let ref = match name_at(text, offset) {
+    // Tokenize the document once and share it between name and receiver
+    // resolution — a hover used to tokenize the buffer twice here (LS-D1).
+    let toks = lexer.tokenize(text).tokens;
+    let ref = match name_at_in(toks, text, offset) {
         Some(r) => r,
         None => return Option.None,
     };
@@ -141,7 +144,7 @@ pub fn resolve_at(_ ctx: ResolveCtx, _ text: String, _ offset: Int) -> Option<Re
     }
     // A member access `RECEIVER.name`, by receiver kind (LS3: a computed
     // receiver needs inference — resolve to nothing rather than guessing).
-    match receiver_at(text, offset) {
+    match receiver_at_in(toks, text, offset) {
         NotMember => {},
         SelfRecv => {
             return match enc.self_type {
@@ -305,15 +308,83 @@ fn import_binding_name(_ imp: ImportDecl) -> Option<String> {
 
 // The identifier (or `self`) token whose span covers `offset`, if any.
 pub fn name_at(_ text: String, _ offset: Int) -> Option<NameRef> {
-    for tok in lexer.tokenize(text).tokens {
+    return name_at_in(lexer.tokenize(text).tokens, text, offset);
+}
+
+// `name_at` over an already-tokenized `text` (so hover tokenizes once). Descends
+// into a `${...}` interpolation covering `offset` — its identifiers are not
+// standalone tokens in the outer stream (PA2 records their spans on the string
+// token) — and rebases the hit back onto the outer file.
+fn name_at_in(_ toks: List<Token>, _ text: String, _ offset: Int) -> Option<NameRef> {
+    for tok in toks {
         if tok.kind == TokenKind.Identifier || tok.kind == TokenKind.KwSelf {
             let s = tok.span;
             if offset >= s.offset && offset <= s.offset + s.length {
                 return Option.Some(NameRef { name: tok.lexeme(), span: s });
             }
         }
+        if tok.kind == TokenKind.StringLiteral {
+            if let Some(ic) = interp_at(tok, text, offset) {
+                return match name_at_in(lexer.tokenize(ic.text).tokens, ic.text, offset - ic.base) {
+                    Some(nr) => Option.Some(NameRef {
+                        name: nr.name,
+                        span: span_in(text, ic.base + nr.span.offset, nr.span.length),
+                    }),
+                    None => Option.None,
+                };
+            }
+        }
     }
     return Option.None;
+}
+
+// The interpolation expression covering `offset`, if `offset` falls inside one
+// of `tok`'s `${...}` segments: its source text and its base offset in `text`
+// (to rebase spans found within it). The interp spans are already absolute
+// document offsets (the lexer stamps them), so slicing recovers the expression.
+struct InterpCtx {
+    text: String,
+    base: Int,
+}
+
+fn interp_at(_ tok: Token, _ text: String, _ offset: Int) -> Option<InterpCtx> {
+    for span in tok.interps {
+        if offset >= span.offset && offset <= span.offset + span.length {
+            return Option.Some(InterpCtx {
+                text: text.slice(span.offset, span.offset + span.length),
+                base: span.offset,
+            });
+        }
+    }
+    return Option.None;
+}
+
+// A real-file span for the `[start, start + length)` code-point range in `text`,
+// with line/column measured from `text` so `span_to_range` renders it correctly.
+// Rebases a token found inside an interpolation (tokenized from a sub-slice) back
+// onto the outer document.
+fn span_in(_ text: String, _ start: Int, _ length: Int) -> SourceSpan {
+    let cps = text.chars();
+    let mut line = 1;
+    let mut column = 1;
+    let mut i = 0;
+    while i < start && i < cps.len() {
+        if cps[i] == 10 { // '\n'
+            line = line + 1;
+            column = 1;
+        } else {
+            column = column + 1;
+        }
+        i = i + 1;
+    }
+    return SourceSpan {
+        source: text,
+        file: '',
+        offset: start,
+        length: length,
+        line: line,
+        column: column,
+    };
 }
 
 // The receiver classification of the token at `offset` (LS3): not a member at
@@ -330,8 +401,19 @@ pub enum Receiver {
 }
 
 pub fn receiver_at(_ text: String, _ offset: Int) -> Receiver {
-    let toks = lexer.tokenize(text).tokens;
+    return receiver_at_in(lexer.tokenize(text).tokens, text, offset);
+}
+
+// `receiver_at` over an already-tokenized `text`, descending into a `${...}`
+// interpolation covering `offset` (classification is by name, so no rebasing is
+// needed — only `name_at_in` returns spans).
+fn receiver_at_in(_ toks: List<Token>, _ text: String, _ offset: Int) -> Receiver {
     for p in toks.enumerate() {
+        if p.value.kind == TokenKind.StringLiteral {
+            if let Some(ic) = interp_at(p.value, text, offset) {
+                return receiver_at_in(lexer.tokenize(ic.text).tokens, ic.text, offset - ic.base);
+            }
+        }
         let s = p.value.span;
         if p.value.kind == TokenKind.Identifier && offset >= s.offset && offset <= s.offset + s.length {
             if p.index >= 2 && toks[p.index - 1].kind == TokenKind.Dot {

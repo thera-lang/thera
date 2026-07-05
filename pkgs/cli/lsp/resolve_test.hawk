@@ -127,6 +127,40 @@ fn test_generic_impl_self_type_renders_and_navigates() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
+@test
+fn test_identifier_inside_interpolation_resolves() -> Result<Void, Error> {
+    // An identifier inside a `${...}` interpolation is not a standalone token in
+    // the outer stream; the resolver must descend into it (LS9). Here a local
+    // `name` used in `'hi ${name}'` navigates to its `let`.
+    let src = 'fn greet() -> String {\n'
+        + '    let name = \'bob\';\n'
+        + '    return \'hi \${name}!\';\n'
+        + '}\n';
+    let use_off = at(src, '\${name}', 2);
+    let decl_off = at(src, 'let name', 4);
+    testing.assert_eq(actual: def_offset(src, use_off), expected: decl_off)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_self_member_inside_interpolation_resolves() -> Result<Void, Error> {
+    // `self.count` inside an interpolation resolves through the receiver path —
+    // the interpolation redirect must feed `receiver_at` too, not just `name_at`.
+    let src = 'struct S { count: Int }\n'
+        + 'impl S {\n'
+        + '    fn show(self) -> String { return \'n=\${self.count}\'; }\n'
+        + '}\n';
+    // The `count` member renders (a field: renderable, not navigable).
+    let use_off = at(src, '\${self.count}', 8);
+    let program = program_of(src);
+    let imports: List<Program> = [];
+    match resolve.resolve_at(ctx_of(program, imports), src, use_off) {
+        Some(r) => { testing.assert(r.render.starts_with('count:'), message: 'renders the field')?; },
+        None => { testing.assert(false, message: 'self.count in interp did not resolve')?; },
+    }
+    return Result.Ok(void);
+}
+
 // --- owner-correct cross-file resolution (LS1/LS3/LS8) ---
 
 fn program_at(_ src: String, _ path: String) -> Program {
