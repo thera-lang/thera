@@ -13,22 +13,22 @@ import std.math;
 import std.iter;
 
 // ---------------------------------------------------------------------------
-// Module-level bindings: a manifest `const` (inlined at use), and `let` globals
-// whose types are *inferred* from their initializers — the module-global
-// inference path. Hover each name; the type should be resolved, never Unknown.
+// Module-level bindings are *boundaries*, so — like function signatures and
+// struct fields — each carries a type annotation (see docs/language.md, "Type
+// annotations & inference"). Inference is for function bodies, not the file's
+// surface; the un-annotated locals live down in `main`.
 // ---------------------------------------------------------------------------
 
 /// The maximum score a task can carry. A manifest constant, inlined at use.
 const MAX_SCORE: Int = 100;
 
-// Inferred `Int`, computed once at load — and it depends on another global.
-let MIDPOINT = MAX_SCORE / 2;
+// Computed once at load — and it depends on another global.
+let MIDPOINT: Int = MAX_SCORE / 2;
 
-// Inferred `List<String>`.
-let LABELS = ['low', 'mid', 'high'];
+let LABELS: List<String> = ['low', 'mid', 'high'];
 
-// Inferred `Double` from a qualified stdlib constant (a pure initializer).
-let TURN = 2.0 * math.PI;
+// A qualified stdlib constant in a pure initializer.
+let TURN: Double = 2.0 * math.PI;
 
 // ---------------------------------------------------------------------------
 // A generic struct with an inherent impl: a static constructor and instance

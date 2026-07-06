@@ -760,6 +760,20 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **Boundary type-annotation diagnostics** (2026-07). The "hard at the
+  boundaries, soft in the center" rule (language.md, _Type annotations &
+  inference_) is now enforced at all four boundaries. Struct fields were already
+  required by the grammar; the checker now also flags an un-annotated **function
+  parameter** (other than `self`), an omitted **return type** on a function that
+  returns a value (a bare `return;`/`return void;` stays `Void`; reported once per
+  function via a shared `CheckCtx` box; the check-site placement excludes returns
+  inside nested lambdas for free), and an un-annotated **module-level
+  `let`/`const`**. The module-level check keeps the pass-4 initializer inference
+  under the hood (codegen never sees an `Unknown` global) but requires the
+  annotation at the source. Corpus impact was a single migration —
+  `std.log`'s `config` singleton, now `let config: Config = …`. No `.hawkbc`
+  changes (a check-only error path), so the fixpoint held without a snapshot
+  churn.
 - **Un-annotated module-global type inference — resolver pass 4** (2026-07). A
   top-level `let`/`const` with no type annotation now has its type **inferred
   from its initializer** (mirroring a local `let`). Previously the resolver

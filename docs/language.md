@@ -71,7 +71,9 @@ initializer runs **once**, when the program loads, and the value is stored (not
 recomputed at each use). Unlike a local `let`, a module-level binding is
 **immutable** — there is no top-level `let mut`. Swappable global state is
 forbidden; mutable configuration is passed as a **capability value** you hold,
-never a module global.
+never a module global. Being part of the file's surface, a module-level binding
+is a **boundary**: it carries a type annotation, read apart from its initializer
+(see [Type annotations & inference](#type-annotations--inference)).
 
 ```hawk
 let INFINITY: Double = 1.0 / 0.0;   // computed once at load, then stored
@@ -92,6 +94,65 @@ effects (`time.now()`, file/network reads) are rejected in initializer position
 moment. Initializers run **eagerly** in dependency order (imports before
 importers, a global before the one that uses it); an initializer-dependency
 **cycle is a compile error**.
+
+---
+
+## Type annotations & inference
+
+Hawk's annotation discipline is **hard at the boundaries, soft in the center**.
+A declaration's *public shape* — the types a reader sees without looking inside —
+is always spelled out; the types of intermediate values *within* a function body
+are inferred. The aim is that a reader (human or LLM) never has to guess a type
+that crosses a boundary, and never has to restate one an initializer already
+makes obvious.
+
+**Annotations are required at these four boundaries:**
+
+- **Function parameters** — `fn add(a: Int, b: Int)`. The rule covers every
+  function-like signature: free functions, instance and static methods, and
+  interface methods (`self` is the one parameter whose type is implicit).
+- **Function return types** — `-> Int`, written out (dropped only for `Void`;
+  see [Functions](#functions)).
+- **Struct fields** — `x: Double` (a struct literal supplies values, not types,
+  so a field has nothing to infer its type from). **Enum variant payloads**
+  (`Circle(Double)`) are the same kind of position and are likewise required —
+  both are type positions the grammar won't let you leave blank.
+- **Module-level bindings** — a top-level `let` or `const` is annotated
+  (`const MAX_SCORE: Int = 100;`, `let LABELS: List<String> = [...]`). A global
+  is part of the file's surface, read apart from its initializer.
+
+**Inference fills in the center — the body of a function:**
+
+- **Local `let` bindings** take their type from the initializer:
+  `let count = items.len();` is `Int`, no annotation needed.
+- **Lambda parameters** take theirs from the surrounding context — the callee's
+  signature or the binding's declared type (see [Functions](#functions)).
+- **Generic type arguments** are inferred at the call site: `Pair.of('a', 1)`
+  yields `Pair<String, Int>` with nothing written.
+
+```hawk
+let LABELS: List<String> = ['low', 'mid', 'high'];   // boundary — annotated
+
+fn label_widths() -> List<Int> {          // boundary — annotated
+    let widths = LABELS.map(s => s.len()); // center — inferred List<Int>
+    return widths;
+}
+```
+
+**When inference can't decide, that is a diagnostic — never a guess.** If a
+local's type is not pinned by its initializer or a later use — an empty `[]`
+nothing is ever pushed to, a `None` never paired with a `Some` — the checker
+reports that it needs more type information and points at the binding. The
+feedback is immediate; the fix is the annotation it asks for:
+
+```hawk
+let mut ids = [];              // error: the element type is never pinned
+let mut ids: List<Int> = [];   // annotate to resolve it
+```
+
+This is the same move as [immutability by default](#variables) and
+[qualified cross-library names](#name-resolution--scoping): be explicit exactly
+where a reader needs it, and stay out of the way everywhere else.
 
 ---
 

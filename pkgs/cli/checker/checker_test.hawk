@@ -686,3 +686,83 @@ fn test_record_skips_synthesized_desugar_nodes() -> Result<Void, Error> {
     }
     return Result.Ok(void);
 }
+
+// ---- boundary annotations (hard at the boundaries; see language.md) ----
+
+@test
+fn test_param_needs_type_annotation() -> Result<Void, Error> {
+    let errs = errors_of('fn f(x) -> Int { return x; }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs),
+        expected: 'parameter \'x\' needs a type annotation, e.g. x: Int')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_self_and_typed_params_are_clean() -> Result<Void, Error> {
+    let errs = errors_of('struct S { n: Int }\n'
+        + 'impl S { fn add(self, _ k: Int) -> Int { return self.n + k; } }');
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_value_return_needs_return_type() -> Result<Void, Error> {
+    let errs = errors_of('fn f(_ x: Int) { return x; }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs),
+        expected: 'this function returns a value but has no return type; add one, e.g. -> Int')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_value_return_reported_once_per_function() -> Result<Void, Error> {
+    // Two value-returns, one omitted return type — a single diagnostic.
+    let errs = errors_of('fn f(_ x: Int) { if x > 0 { return x; } else { return 0 - x; } }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_void_returns_are_clean() -> Result<Void, Error> {
+    // Bare `return;`, `return void;`, and no return at all all stay `Void`.
+    let errs = errors_of('fn a(_ x: Int) { if x > 0 { return; } }\n'
+        + 'fn b() { return void; }\n'
+        + 'fn c() { }');
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_value_returning_lambda_in_void_fn_is_clean() -> Result<Void, Error> {
+    // A `return` inside a lambda returns from the lambda, not the enclosing
+    // (return-type-less) function, so it must not trip the diagnostic.
+    let errs = errors_of('fn f() { let g = (n: Int) => n + 1; g(1); }');
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_module_let_needs_type_annotation() -> Result<Void, Error> {
+    let errs = errors_of('let X = 5;');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs),
+        expected: 'module-level \'X\' needs a type annotation, e.g. X: Int')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_module_const_needs_type_annotation() -> Result<Void, Error> {
+    let errs = errors_of('const K = 5;');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs),
+        expected: 'module-level \'K\' needs a type annotation, e.g. K: Int')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_annotated_globals_are_clean() -> Result<Void, Error> {
+    let errs = errors_of('const K: Int = 5;\nlet X: Int = K + 1;');
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    return Result.Ok(void);
+}

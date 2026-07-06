@@ -58,7 +58,7 @@ struct Config {
     mut format: Format,
 }
 
-let config = Config {
+let config: Config = Config {
     default_level: Level.Info,
     filters: {},
     format: Format.Text,

@@ -443,10 +443,10 @@ fn check_program(_ errors: List<CheckError>, _ program: Program, _ library: Libr
             },
             Interface(x) => { check_interface_decl(errors, x, library, file); },
             Const(x) => {
-                if let Some(ref) = x.type_ann { check_type_ref(errors, ref, library, file, Set.new()); }
+                check_global_annotation(errors, x.type_ann, x.name, x.name_span, library, file);
                 let ctx = new_ctx(library, record_sink: records);
                 ctx.current_file = file;
-                check_expr(CheckCtx { errors: errors, infer: ctx, scope: empty_scope(), muts: {} }, x.value, Option.None);
+                check_expr(CheckCtx { errors: errors, infer: ctx, scope: empty_scope(), muts: {}, no_return_reported: [true] }, x.value, Option.None);
                 // A `const` is a manifest constant, inlined at every use site; a
                 // computed initializer belongs in a top-level `let` (computed once
                 // and stored). See docs/language.md.
@@ -463,10 +463,10 @@ fn check_program(_ errors: List<CheckError>, _ program: Program, _ library: Libr
                 // Module-level `let` (computed-once global; docs/language.md).
                 // Type-checked like a `const` initializer — unlike `const`, the
                 // initializer may be computed (it runs once at load, not inlined).
-                if let Some(ref) = x.type_ann { check_type_ref(errors, ref, library, file, Set.new()); }
+                check_global_annotation(errors, x.type_ann, x.name, x.name_span, library, file);
                 let ctx = new_ctx(library, record_sink: records);
                 ctx.current_file = file;
-                check_expr(CheckCtx { errors: errors, infer: ctx, scope: empty_scope(), muts: {} }, x.value, Option.None);
+                check_expr(CheckCtx { errors: errors, infer: ctx, scope: empty_scope(), muts: {}, no_return_reported: [true] }, x.value, Option.None);
             },
             Enum(x) => {
                 let tps = type_param_set(x.type_params);
@@ -524,7 +524,7 @@ fn check_fn(_ errors: List<CheckError>, _ fn_decl: FnDecl, _ library: LibraryEle
                     muts[p.name] = false;
                 }
             }
-            check_block(CheckCtx { errors: errors, infer: ctx, scope: scope, muts: muts }, body);
+            check_block(CheckCtx { errors: errors, infer: ctx, scope: scope, muts: muts, no_return_reported: [] }, body);
         },
     }
 }
@@ -532,9 +532,68 @@ fn check_fn(_ errors: List<CheckError>, _ fn_decl: FnDecl, _ library: LibraryEle
 fn check_fn_sig(_ errors: List<CheckError>, _ fn_decl: FnDecl,
     _ library: LibraryElement, _ current_file: Option<String>, _ type_params: Set<String>) -> Void {
     for p in fn_decl.params {
-        if let Some(ref) = p.type_ann { check_type_ref(errors, ref, library, current_file, type_params); }
+        match p.type_ann {
+            Some(ref) => check_type_ref(errors, ref, library, current_file, type_params),
+            // A parameter is a boundary: its type is always written out (the one
+            // exception is `self`, whose type is the receiver). `_ name`/`name`
+            // with no `: Type` is a diagnostic, never an inferred `Unknown`. Skip
+            // error-recovery params (empty name) to avoid cascading on a parse
+            // failure. See language.md, "Type annotations & inference".
+            None => {
+                if !p.is_self && p.name != '' {
+                    add_error(errors,
+                        'parameter \'${p.name}\' needs a type annotation, e.g. ${p.name}: Int',
+                        p.name_span);
+                }
+            },
+        }
     }
     if let Some(ref) = fn_decl.return_type { check_type_ref(errors, ref, library, current_file, type_params); }
+}
+
+// The return type is a boundary: a function that can return a *value* writes it
+// out. Omitting `-> T` is the sanctioned form only for a `Void` function, so a
+// bare `return;` or `return void;` stays legal, but `return <value>;` in a
+// function with no declared return type is a diagnostic (today it would silently
+// default to `Void` and drop the value). See language.md, "Type annotations &
+// inference".
+//
+// `cc.infer.return_type` is `None` only when the annotation was omitted — an
+// explicit `-> Void` is `Some(Void)`, and a lambda body carries its own inferred
+// return — so neither an annotated function nor a lambda trips this. Reported
+// once per function via the shared `no_return_reported` box.
+fn check_missing_return_type(_ cc: CheckCtx, _ value: Option<Expr>) -> Void {
+    if cc.infer.return_type.is_some() { return; }
+    if cc.no_return_reported.len() > 0 { return; }
+    match value {
+        None => {},          // bare `return;` → Void
+        Some(v) => match v {
+            Unit(_) => {},   // `return void;` → Void
+            _ => {
+                add_error(cc.errors,
+                    'this function returns a value but has no return type; add one, e.g. -> Int',
+                    expr_span(v));
+                cc.no_return_reported.push(true);
+            },
+        },
+    }
+}
+
+// A module-level `let`/`const` is a boundary — part of the file's surface, read
+// apart from its initializer — so its type is written out. An un-annotated
+// global is a diagnostic even though the resolver can *infer* its type from the
+// initializer (pass 4): inference stays under the hood so codegen never sees an
+// `Unknown` global, but the annotation is required at the source. See
+// language.md, "Type annotations & inference".
+fn check_global_annotation(_ errors: List<CheckError>, _ type_ann: Option<TypeRef>,
+    _ name: String, _ name_span: SourceSpan, _ library: LibraryElement,
+    _ file: Option<String>) -> Void {
+    match type_ann {
+        Some(ref) => check_type_ref(errors, ref, library, file, Set.new()),
+        None => add_error(errors,
+            'module-level \'${name}\' needs a type annotation, e.g. ${name}: Int',
+            name_span),
+    }
 }
 
 // ---- interface declaration / conformance ----
@@ -733,18 +792,26 @@ struct CheckCtx {
     infer: InferCtx,
     scope: Map<String, Type>,
     muts: Map<String, Bool>,
+    // A shared 1-shot box guarding the "returns a value but has no return type"
+    // boundary diagnostic (see [check_missing_return_type]). Empty means "active,
+    // not yet reported" — the state a function body with an omitted return type
+    // starts in. A non-empty box suppresses the diagnostic: a function reports it
+    // at most once, and non-function-body contexts (a `const`/`let` initializer)
+    // start pre-filled so a stray `return` there never trips it.
+    no_return_reported: List<Bool>,
 }
 
 impl CheckCtx {
     // A nested block's context: the scope and mutability maps copied together
-    // (block-local bindings don't leak outward), sharing the error sink and
-    // inference context.
+    // (block-local bindings don't leak outward), sharing the error sink,
+    // inference context, and the return-diagnostic box.
     fn child(self) -> CheckCtx {
         return CheckCtx {
             errors: self.errors,
             infer: self.infer,
             scope: copy_scope(self.scope),
             muts: copy_muts(self.muts),
+            no_return_reported: self.no_return_reported,
         };
     }
 
@@ -752,7 +819,13 @@ impl CheckCtx {
     // scope): the mutability map is shared — a pattern/loop variable binds a
     // type, not mutability, and any block body copies both maps anyway.
     fn with_scope(self, _ scope: Map<String, Type>) -> CheckCtx {
-        return CheckCtx { errors: self.errors, infer: self.infer, scope: scope, muts: self.muts };
+        return CheckCtx {
+            errors: self.errors,
+            infer: self.infer,
+            scope: scope,
+            muts: self.muts,
+            no_return_reported: self.no_return_reported,
+        };
     }
 }
 
@@ -814,6 +887,7 @@ fn check_stmt(_ cc: CheckCtx, _ stmt: Stmt, _ stmts: List<Stmt>, _ index: Int) -
             set_record(x.name_span, bound, ctx);
         },
         Return(span, value) => {
+            check_missing_return_type(cc, value);
             if let Some(v) = value {
                 check_expr(cc, v, ctx.return_type);
                 if let Some(rt) = ctx.return_type { check_return(errors, v, rt, span, scope, ctx); }
@@ -1193,6 +1267,7 @@ fn check_expr_inner(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> V
             }
         },
         Return(span, value) => {
+            check_missing_return_type(cc, value);
             if let Some(v) = value {
                 check_expr(cc, v, ctx.return_type);
                 if let Some(rt) = ctx.return_type { check_return(errors, v, rt, span, scope, ctx); }
@@ -1242,7 +1317,10 @@ fn check_lambda(_ cc: CheckCtx, _ x: LambdaExpr, _ expected: Option<Type>) -> Vo
     let body_ctx = with_return_type(ctx, lambda_return);
     // A lambda is a function boundary: its body has its own scope and fresh
     // mutability tracking, and the lambda's inferred return context.
-    let body_cc = CheckCtx { errors: errors, infer: body_ctx, scope: lambda_scope, muts: {} };
+    // A lambda body carries its own inferred return type (`body_ctx` above), so
+    // the missing-return diagnostic never applies here; a fresh box keeps it
+    // independent of the enclosing function's.
+    let body_cc = CheckCtx { errors: errors, infer: body_ctx, scope: lambda_scope, muts: {}, no_return_reported: [] };
     check_expr(body_cc, x.body, expected_function_return(expected));
 }
 
