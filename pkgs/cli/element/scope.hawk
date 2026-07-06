@@ -17,6 +17,7 @@
 // tables and deletes the flat maps, lifting global name uniqueness; consumers see
 // only this API, so that change stays localized here.
 
+import '../ast/ast' as _;
 import 'types' as _;
 import 'element' as _;
 
@@ -26,6 +27,54 @@ import 'element' as _;
 pub struct FileScope {
     library: LibraryElement,
     file: Option<String>,
+}
+
+// --- TypeRef -> Type resolution (scope-aware, Phase 1 T4) ---
+//
+// Lives here (not the resolver) so that both the resolver and inference can
+// resolve a syntactic `TypeRef` to a semantic `Type` without an import cycle:
+// inference needs this, and the resolver in turn calls inference (module-global
+// type inference is a resolver pass). The owner stamped on a named type is
+// chosen by the current file's `FileScope` (own declarations -> bare surface ->
+// built-ins), so two libraries' same-named types resolve distinctly.
+
+// Resolve an optional type reference; a missing one (omitted annotation) is
+// Unknown.
+pub fn resolve_opt_in(_ ref: Option<TypeRef>, _ scope: FileScope,
+    _ type_params: Set<String>, _ self_type: Option<Type>) -> Type {
+    return match ref {
+        Some(r) => resolve_type_ref_in(r, scope, type_params, self_type),
+        None => Type.Unknown,
+    };
+}
+
+pub fn resolve_type_ref_in(_ ref: TypeRef, _ scope: FileScope,
+    _ type_params: Set<String>, _ self_type: Option<Type>) -> Type {
+    return match ref {
+        Named(nt) => resolve_named_in(nt, scope, type_params, self_type),
+        Function(ft) => Type.Function(
+            ft.params.map((p) => resolve_type_ref_in(p, scope, type_params, self_type)),
+            resolve_type_ref_in(ft.return_type, scope, type_params, self_type)),
+    };
+}
+
+fn resolve_named_in(_ nt: NamedType, _ scope: FileScope,
+    _ type_params: Set<String>, _ self_type: Option<Type>) -> Type {
+    if let Some(p) = primitive_type(nt.name) {
+        return p;
+    }
+    if nt.name == 'Self' {
+        return self_type.unwrap_or(Type.Unknown);
+    }
+    if type_params.has(nt.name) {
+        return Type.TypeParameter(nt.name);
+    }
+    if !scope.library.type_defs.has(nt.name) {
+        return Type.Unknown;
+    }
+    let args = nt.args.map((a) => resolve_type_ref_in(a, scope, type_params, self_type));
+    let owner = scope.resolve_type_owner(nt.name, nt.namespace);
+    return Type.Interface(TypeId { owner: owner, name: nt.name }, args);
 }
 
 pub fn file_scope(_ library: LibraryElement, _ file: Option<String>) -> FileScope {

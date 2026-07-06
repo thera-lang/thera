@@ -20,7 +20,6 @@ import '../lexer/token' as _;
 import 'types' as _;
 import 'element' as _;
 import 'scope' as _;
-import 'resolver';
 
 // The constant-per-function context: the resolved library, the generic
 // parameters in scope (with their interface bounds), `self`'s type inside an
@@ -240,34 +239,28 @@ fn infer_ident(_ name: String, _ scope: Map<String, Type>, _ ctx: InferCtx) -> T
     return Type.Unknown;
 }
 
-// Fill in the types of module-global `let`/`const` bindings that carry no
-// explicit annotation, by inferring each initializer — mirroring how a local
-// `let` is typed. The resolver records a global's type from its annotation only
-// (it can't call inference — inference imports the resolver), so an un-annotated
-// global's element type is left `Unknown`; the checker tolerates that (a member
-// access on an `Unknown` receiver is lenient), but codegen needs the concrete
-// type to emit a field/method access. This pass runs after `build_library` and
-// before checking/codegen, so `config.level` on a struct-typed global resolves.
+// Fill in the types of one program's module-global `let`/`const` bindings that
+// carry no explicit annotation, by inferring each initializer — mirroring how a
+// local `let` is typed. Resolution (`scope.resolve_type_ref_in`) records a
+// global's type from its annotation only, so an un-annotated global's element
+// type is left `Unknown`; the checker tolerates that (a member access on an
+// `Unknown` receiver is lenient), but codegen needs the concrete type to emit a
+// field/method access. Run as the resolver's pass 4 (`resolve_global_types`),
+// after the element model is built, so `config.level` on a struct-typed global
+// resolves. Per-program so the incremental build stays cache-correct (the base's
+// imports are typed once at base-build; `layer_primary` types only the primary).
 // Annotation-preserving (annotated globals are already typed and skipped) and
 // safe (inference degrades to `Unknown` for anything it can't resolve, so no
 // global is ever worse-typed than before). Only reads other globals' element
 // types — it never triggers nested global inference — so it cannot loop.
-pub fn infer_global_types(_ library: LibraryElement, _ program: Program,
-    _ imports: List<Program>) -> Void {
-    fill_program_globals(library, program);
-    for imp in imports {
-        fill_program_globals(library, imp);
-    }
-}
-
-fn fill_program_globals(_ library: LibraryElement, _ p: Program) -> Void {
+pub fn infer_program_globals(_ library: LibraryElement, _ program: Program) -> Void {
     let ctx = new_ctx(library);
-    ctx.current_file = p.file_path;
+    ctx.current_file = program.file_path;
     let scope: Map<String, Type> = {};
-    for decl in p.decls {
+    for decl in program.decls {
         match decl {
-            Const(x) => fill_global(library, p, x.name, x.type_ann, x.value, scope, ctx),
-            Let(x) => fill_global(library, p, x.name, x.type_ann, x.value, scope, ctx),
+            Const(x) => fill_global(library, program, x.name, x.type_ann, x.value, scope, ctx),
+            Let(x) => fill_global(library, program, x.name, x.type_ann, x.value, scope, ctx),
             _ => {},
         }
     }
@@ -361,7 +354,7 @@ fn infer_lambda(_ x: LambdaExpr, _ scope: Map<String, Type>, _ ctx: InferCtx,
 pub fn lambda_param_type(_ p: LambdaParam, _ index: Int,
     _ expected_params: Option<List<Type>>, _ ctx: InferCtx) -> Type {
     return match p.type_ann {
-        Some(ref) => resolver.resolve_type_ref_in(ref, ctx_scope(ctx), ctx.type_params, ctx.self_type),
+        Some(ref) => resolve_type_ref_in(ref, ctx_scope(ctx), ctx.type_params, ctx.self_type),
         None => match expected_params {
             Some(eps) => if index < eps.len() { eps[index] } else { Type.Unknown },
             None => Type.Unknown,
@@ -514,7 +507,7 @@ fn infer_stmt_fwd(_ stmt: Stmt, _ stmts: List<Stmt>, _ index: Int,
 pub fn let_bound_type(_ x: LetStmt, _ stmts: List<Stmt>, _ start: Int,
     _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
     // A type annotation on the binding is the expected type for its value.
-    let annotated = x.type_ann.map((ref) => resolver.resolve_type_ref_in(ref, ctx_scope(ctx), ctx.type_params, ctx.self_type));
+    let annotated = x.type_ann.map((ref) => resolve_type_ref_in(ref, ctx_scope(ctx), ctx.type_params, ctx.self_type));
     let inferred = infer_expr(x.value, scope, ctx, annotated);
     return annotated.unwrap_or_else(() => refine_binding_type(x.name, inferred, stmts, start, scope, ctx));
 }
@@ -1178,7 +1171,7 @@ fn call_bindings_into(_ bindings: Map<String, Type>, _ fn_el: FunctionElement,
     let tps = fn_el.type_parameters;
     let mut t = 0;
     while t < type_args.len() && t < tps.len() {
-        bindings[tps[t]] = resolver.resolve_type_ref_in(type_args[t], ctx_scope(ctx), ctx.type_params, ctx.self_type);
+        bindings[tps[t]] = resolve_type_ref_in(type_args[t], ctx_scope(ctx), ctx.type_params, ctx.self_type);
         t = t + 1;
     }
     let positional = non_self_params(fn_el.parameters);
@@ -1199,7 +1192,7 @@ fn owner_bindings_from(_ recv_type_args: List<TypeRef>, _ owner_params: List<Str
     let bindings: Map<String, Type> = {};
     let mut i = 0;
     while i < recv_type_args.len() && i < owner_params.len() {
-        bindings[owner_params[i]] = resolver.resolve_type_ref_in(recv_type_args[i], ctx_scope(ctx), ctx.type_params, ctx.self_type);
+        bindings[owner_params[i]] = resolve_type_ref_in(recv_type_args[i], ctx_scope(ctx), ctx.type_params, ctx.self_type);
         i = i + 1;
     }
     return bindings;

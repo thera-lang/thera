@@ -47,7 +47,6 @@ pub fn check(_ program: Program, _ imports: List<Program>,
     let errors: List<CheckError> = [];
     let records: List<TypeRecord> = [];
     let library = resolver.build_library(program, imports, file_namespaces, file_bare_surface);
-    infer_global_types(library, program, imports);
     check_duplicates(errors, program, imports);
     check_shadowed_surface(errors, program, library);
     // Qualified-only resolution is enforced inline by `check_program`: the gates
@@ -76,7 +75,6 @@ pub fn check_files(_ program: Program, _ imports: List<Program>,
     // — behavior-identical to the full build by the resolver's contract.
     let library = prebuilt.unwrap_or_else(() =>
         resolver.build_library(program, imports, file_namespaces, file_bare_surface));
-    infer_global_types(library, program, imports);
     if !skip.has(file_key(program.file_path)) {
         check_duplicates(errors, program, imports);
         check_reserved_names(errors, program, sdk);
@@ -500,7 +498,7 @@ fn check_fn(_ errors: List<CheckError>, _ fn_decl: FnDecl, _ library: LibraryEle
     match fn_decl.body {
         None => { return; },
         Some(body) => {
-            let return_type = fn_decl.return_type.map((ref) => resolver.resolve_type_ref_in(ref, file_scope(library, file), type_params, self_type));
+            let return_type = fn_decl.return_type.map((ref) => resolve_type_ref_in(ref, file_scope(library, file), type_params, self_type));
             let ctx = InferCtx {
                 library: library,
                 type_params: type_params,
@@ -522,7 +520,7 @@ fn check_fn(_ errors: List<CheckError>, _ fn_decl: FnDecl, _ library: LibraryEle
                 if p.is_self {
                     if let Some(st) = self_type { scope['self'] = st; }
                 } else {
-                    scope[p.name] = resolver.resolve_opt_in(p.type_ann, file_scope(library, file), type_params, self_type);
+                    scope[p.name] = resolve_opt_in(p.type_ann, file_scope(library, file), type_params, self_type);
                     muts[p.name] = false;
                 }
             }
@@ -616,7 +614,7 @@ fn check_conformance(_ errors: List<CheckError>, _ decl: ImplDecl, _ library: Li
             let impl_tps = type_param_set(decl.type_params);
             let iface_bindings: Map<String, Type> = {};
             for p in iface_params.enumerate() {
-                iface_bindings[p.value] = resolver.resolve_type_ref_in(
+                iface_bindings[p.value] = resolve_type_ref_in(
                     decl.interface_args[p.index], fs, impl_tps, Option.Some(impl_type));
             }
             let provided: Set<String> = Set.new();
@@ -799,7 +797,7 @@ fn check_stmt(_ cc: CheckCtx, _ stmt: Stmt, _ stmts: List<Stmt>, _ index: Int) -
     match stmt {
         Let(x) => {
             if let Some(ref) = x.type_ann { check_type_ref(errors, ref, ctx.library, ctx.current_file, ctx.type_params); }
-            let annotated = x.type_ann.map((ref) => resolver.resolve_type_ref_in(ref, file_scope(ctx.library, ctx.current_file), ctx.type_params, ctx.self_type));
+            let annotated = x.type_ann.map((ref) => resolve_type_ref_in(ref, file_scope(ctx.library, ctx.current_file), ctx.type_params, ctx.self_type));
             check_expr(cc, x.value, annotated);
             let actual = infer_expr(x.value, scope, ctx, annotated);
             // Forward-flow: an underdetermined binding (`let xs = []`) takes its
@@ -1572,7 +1570,7 @@ fn check_recv_type_args(_ errors: List<CheckError>, _ x: CallExpr, _ ctx: InferC
         if x.recv_type_args.len() != def.type_parameters.len() {
             add_error(errors, '`${id.name}` takes ${def.type_parameters.len()} type argument(s), but ${x.recv_type_args.len()} were given', x.span);
         }
-        let arg_types = x.recv_type_args.map((a) => resolver.resolve_type_ref_in(a, fs, ctx.type_params, ctx.self_type));
+        let arg_types = x.recv_type_args.map((a) => resolve_type_ref_in(a, fs, ctx.type_params, ctx.self_type));
         check_type_arg_bounds(errors, def, arg_types, x.span, ctx.library);
     } }
 }
@@ -1731,7 +1729,7 @@ fn check_type_ref(_ errors: List<CheckError>, _ type_ref: TypeRef,
             let fs = file_scope(library, current_file);
             let id = TypeId { owner: fs.resolve_type_owner(nt.name, nt.namespace), name: nt.name };
             if let Some(def) = fs.resolve_type_def(id) {
-                let arg_types = nt.args.map((a) => resolver.resolve_type_ref_in(a, fs, type_params, Option.None));
+                let arg_types = nt.args.map((a) => resolve_type_ref_in(a, fs, type_params, Option.None));
                 check_type_arg_bounds(errors, def, arg_types, nt.span, library);
             }
             for arg in nt.args {

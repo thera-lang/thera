@@ -90,7 +90,6 @@ pub fn compile_program(_ program: Program, _ imports: List<Program>,
     let library = resolver.build_library(program, imports, file_namespaces, file_bare_surface);
     // Fill un-annotated module-global types from their initializers (the resolver
     // only reads annotations) so a member access on a struct-typed global resolves.
-    infer_global_types(library, program, imports);
     // Namespace resolution is the element-model FileScope's job (each unit resolves
     // qualifiers against its own file's imports via `library.file_namespaces`) — no
     // codegen-local copy of the per-file namespace sets.
@@ -311,7 +310,7 @@ impl FnCompiler {
         for tp in fn_decl.type_params {
             type_params.add(tp.name);
         }
-        let return_type = fn_decl.return_type.map((ref) => resolver.resolve_type_ref_in(ref, file_scope(self.scope.library, self.file), type_params, self_type));
+        let return_type = fn_decl.return_type.map((ref) => resolve_type_ref_in(ref, file_scope(self.scope.library, self.file), type_params, self_type));
         // Implicit-`Ok` wrapping applies only when the *resolved* return type is
         // the core `Result` (identity, not spelling — X1).
         self.returns_result = match return_type {
@@ -358,7 +357,7 @@ impl FnCompiler {
             } else {
                 match lambda_types {
                     Some(lt) => lt.get(p.name).unwrap_or(Type.Unknown),
-                    None => resolver.resolve_opt_in(p.type_ann, file_scope(self.scope.library, self.file), type_params, self_type),
+                    None => resolve_opt_in(p.type_ann, file_scope(self.scope.library, self.file), type_params, self_type),
                 }
             };
             self.type_scope[p.name] = pt;
@@ -626,7 +625,7 @@ impl FnCompiler {
             Let(x) => {
                 // Evaluate before declaring, so the initializer can't see the
                 // not-yet-bound name. A captured `mut` local is boxed.
-                let annotated = x.type_ann.map((ref) => resolver.resolve_type_ref_in(ref, file_scope(self.scope.library, self.file), self.ctx.type_params, self.ctx.self_type));
+                let annotated = x.type_ann.map((ref) => resolve_type_ref_in(ref, file_scope(self.scope.library, self.file), self.ctx.type_params, self.ctx.self_type));
                 self.expr_expecting(x.value, annotated);
                 // An explicit annotation is the binding's type (matching the
                 // inference engine); fall back to the initializer's inferred type.

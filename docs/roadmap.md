@@ -760,22 +760,29 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
-- **Un-annotated module-global type inference** (2026-07). A top-level
-  `let`/`const` with no type annotation now has its type **inferred from its
-  initializer** (mirroring a local `let`), via `inference.infer_global_types` — a
-  pass layered above the resolver (the resolver can't call inference; inference
-  imports the resolver) and run right after `build_library` in the check and
-  codegen paths. Previously the resolver recorded a global's type from its
-  annotation only, leaving an un-annotated global `Unknown`: the checker tolerated
-  it (lenient member access on `Unknown`) but codegen hard-failed (`field access
-  on non-struct value`), so `let config = Config { … }` type-checked yet wouldn't
-  run. Annotation-preserving and safe (inference degrades to `Unknown`), so no
-  existing global — all annotated — changes. Unblocks the "final global struct
-  with `mut` fields" mutable-singleton pattern (`std.log`'s config). _Fast-follow
-  (Gap 2, open):_ a generic method on a struct's field (`config.filters.keys()`)
-  still doesn't recover the field's type arguments — infers `List<Int>` — so it
-  needs an annotated-local pin (`let m: Map<K,V> = config.filters;`); see Compiler
-  & front-end open items.
+- **Un-annotated module-global type inference — resolver pass 4** (2026-07). A
+  top-level `let`/`const` with no type annotation now has its type **inferred
+  from its initializer** (mirroring a local `let`). Previously the resolver
+  recorded a global's type from its annotation only, leaving an un-annotated
+  global `Unknown`: the checker tolerated it (lenient member access on `Unknown`)
+  but codegen hard-failed (`field access on non-struct value`), so
+  `let config = Config { … }` type-checked yet wouldn't run. Implemented as the
+  resolver's **pass 4** (`inference.infer_program_globals`, run per-program after
+  the interface closure in `build_library`/`build_import_library`/`layer_primary`),
+  so building a library yields a fully-typed one — no external caller has to run a
+  second step, and the incremental cache stays correct (the base's imports are
+  typed once at base-build; `layer_primary` types only the primary, honoring the
+  frozen-base invariant). Making the resolver able to call inference required
+  breaking the `inference → resolver` import cycle: `resolve_type_ref_in` /
+  `resolve_opt_in` moved down to `scope.hawk` (a layer both import), so
+  `inference` no longer imports `resolver` and `resolver` now imports `inference`.
+  Annotation-preserving and safe (inference degrades to `Unknown`), so no existing
+  global — all annotated — changes. Unblocks the "final global struct with `mut`
+  fields" mutable-singleton pattern (`std.log`'s config). _Fast-follow (Gap 2,
+  open):_ a generic method on a struct's field (`config.filters.keys()`) still
+  doesn't recover the field's type arguments — infers `List<Int>` — so it needs an
+  annotated-local pin (`let m: Map<K,V> = config.filters;`); see Compiler &
+  front-end open items.
 
 - **`std.log` — named, per-source logging** (2026-07). Levels
   (`Debug`/`Info`/`Warn`/`Error`), named loggers with hierarchical per-source

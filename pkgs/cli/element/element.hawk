@@ -70,9 +70,9 @@ pub struct ConstElement {
     file: String,
     name_span: SourceSpan,
     // The declared (annotated) type, or — for an un-annotated global — the type
-    // inferred from its initializer by `inference.infer_global_types` (a pass
-    // layered above the resolver, which can only read an annotation). Mutable so
-    // that pass can fill it in place after `build_library`.
+    // inferred from its initializer by the resolver's pass 4
+    // (`inference.infer_program_globals`), since resolution itself reads only an
+    // annotation. Mutable so that pass can fill it in place.
     mut ty: Type,
 }
 

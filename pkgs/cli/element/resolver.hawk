@@ -6,53 +6,12 @@ import '../ast/ast' as _;
 import 'types' as _;
 import 'element' as _;
 import 'scope' as _;
+import 'inference'; // pass 4: module-global type inference (no cycle — see scope.hawk)
 
-// --- TypeRef -> Type resolution (scope-aware, Phase 1 T4) ---
-//
-// The owner stamped on a named type is chosen by the current file's `FileScope`
-// (own declarations -> bare surface -> built-ins), so two libraries' same-named
-// types resolve distinctly. The old flat (registry-keyed) pipeline these
-// replaced is gone (EL12) — `build_library`'s pass 2 constructs the library
-// first, so every resolution site has a `FileScope`.
-
-// Resolve an optional type reference; a missing one (omitted annotation) is
-// Unknown.
-pub fn resolve_opt_in(_ ref: Option<TypeRef>, _ scope: FileScope,
-    _ type_params: Set<String>, _ self_type: Option<Type>) -> Type {
-    return match ref {
-        Some(r) => resolve_type_ref_in(r, scope, type_params, self_type),
-        None => Type.Unknown,
-    };
-}
-
-pub fn resolve_type_ref_in(_ ref: TypeRef, _ scope: FileScope,
-    _ type_params: Set<String>, _ self_type: Option<Type>) -> Type {
-    return match ref {
-        Named(nt) => resolve_named_in(nt, scope, type_params, self_type),
-        Function(ft) => Type.Function(
-            ft.params.map((p) => resolve_type_ref_in(p, scope, type_params, self_type)),
-            resolve_type_ref_in(ft.return_type, scope, type_params, self_type)),
-    };
-}
-
-fn resolve_named_in(_ nt: NamedType, _ scope: FileScope,
-    _ type_params: Set<String>, _ self_type: Option<Type>) -> Type {
-    if let Some(p) = primitive_type(nt.name) {
-        return p;
-    }
-    if nt.name == 'Self' {
-        return self_type.unwrap_or(Type.Unknown);
-    }
-    if type_params.has(nt.name) {
-        return Type.TypeParameter(nt.name);
-    }
-    if !scope.library.type_defs.has(nt.name) {
-        return Type.Unknown;
-    }
-    let args = nt.args.map((a) => resolve_type_ref_in(a, scope, type_params, self_type));
-    let owner = scope.resolve_type_owner(nt.name, nt.namespace);
-    return Type.Interface(TypeId { owner: owner, name: nt.name }, args);
-}
+// `TypeRef -> Type` resolution (`resolve_type_ref_in`/`resolve_opt_in`) now lives
+// in `scope.hawk` — a lower layer both this module and `inference` import — so
+// that inference can resolve type references while the resolver, in turn, calls
+// inference for module-global type inference (pass 4) without an import cycle.
 
 // The built-in type-definition elements, by name. These back an InterfaceType
 // (the generics) and are the attachment point for `impl` blocks / static methods.
@@ -165,7 +124,23 @@ pub fn build_library(_ program: Program, _ imports: List<Program>,
     for owner in library.file_type_defs.keys() {
         flatten_owner_interfaces(library, owner);
     }
+    resolve_global_types(library, programs);
     return library;
+}
+
+// Pass 4: infer the type of each un-annotated module-global `let`/`const` from
+// its initializer, writing it into the (otherwise `Unknown`) `ConstElement.ty`.
+// Runs last, after the interface closure, so the full element model is visible.
+// Lives here rather than the resolver's inner passes only because it needs
+// `inference`; it is nonetheless part of building a fully-typed library, so every
+// build path (`build_library`/`build_import_library`/`layer_primary`) runs it —
+// no caller has to. Per-program (never the whole shared library at once), so the
+// incremental path types the base's imports once at base-build and `layer_primary`
+// types only the primary — the frozen-base invariant holds.
+fn resolve_global_types(_ library: LibraryElement, _ programs: List<Program>) -> Void {
+    for p in programs {
+        inference.infer_program_globals(library, p);
+    }
 }
 
 // The imports-only library: the closure's element model with no primary
@@ -186,6 +161,9 @@ pub fn build_import_library(_ imports: List<Program>,
     for owner in library.file_type_defs.keys() {
         flatten_owner_interfaces(library, owner);
     }
+    // Type the imports' globals into the base now, so the cached-and-frozen base
+    // is complete — `layer_primary` never has to (and must not) touch them.
+    resolve_global_types(library, imports);
     return library;
 }
 
@@ -228,6 +206,9 @@ pub fn layer_primary(_ base: LibraryElement, _ program: Program,
     }
     resolve_members(library, program);
     flatten_owner_interfaces(library, primary_key);
+    // Pass 4 for the primary only — the base's import globals were already typed
+    // when the base was built (frozen-base invariant).
+    inference.infer_program_globals(library, program);
     return Option.Some(library);
 }
 
