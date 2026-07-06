@@ -24,6 +24,18 @@ fn first_message(_ errs: List<CheckError>) -> String {
     return errs[0].message;
 }
 
+// Reserved-name diagnostics from a full closure check (`check_files`, the path
+// that runs the reserved-name check — `check` alone does not).
+fn reserved_errors(_ primary: Program, _ imports: List<Program>) -> List<CheckError> {
+    let out: List<CheckError> = [];
+    for e in check_files(primary, imports, {}, {}).errors {
+        if e.message.contains('is a reserved type name') {
+            out.push(e);
+        }
+    }
+    return out;
+}
+
 @test
 fn test_clean_program_has_no_errors() -> Result<Void, Error> {
     let errs = errors_of('fn add(_ a: Int, _ b: Int) -> Int { return a + b; }');
@@ -764,5 +776,39 @@ fn test_module_const_needs_type_annotation() -> Result<Void, Error> {
 fn test_annotated_globals_are_clean() -> Result<Void, Error> {
     let errs = errors_of('const K: Int = 5;\nlet X: Int = K + 1;');
     testing.assert_eq(actual: errs.len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+// ---- reserved core type names: identity-based exemption ----
+
+@test
+fn test_reserved_name_exempt_for_its_core_owner() -> Result<Void, Error> {
+    // A reserved type declared by the file that owns the core type is allowed —
+    // the SDK's own `sdk/std/core` sources. Exemption is by owner *identity*
+    // (`core_owner`), not a path heuristic, so it holds on every analysis path
+    // (check/LSP/test) regardless of how the file path was spelled.
+    let core = program_at('pub enum Result { Ok, Err }', '/core/result.hawk');
+    testing.assert_eq(actual: reserved_errors(core, []).len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_reserved_name_flagged_for_non_owner() -> Result<Void, Error> {
+    // A different file declaring the same reserved type is flagged: the core
+    // owner arrives as an import, the redeclaration as the primary.
+    let core = program_at('pub enum Result { Ok, Err }', '/core/result.hawk');
+    let user = program_at('struct Result { x: Int }', '/app/main.hawk');
+    let errs = reserved_errors(user, [core]);
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert(errs[0].message.contains('`Result`'))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_void_keyword_type_never_exempt() -> Result<Void, Error> {
+    // `Void` is a keyword type no file declares, so it has no core owner to
+    // exempt — flagged even when the declaring file would otherwise "own" it.
+    let p = program_at('struct Void { x: Int }', '/core/void.hawk');
+    testing.assert_eq(actual: reserved_errors(p, []).len(), expected: 1)?;
     return Result.Ok(void);
 }

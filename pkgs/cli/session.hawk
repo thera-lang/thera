@@ -353,7 +353,7 @@ impl Session {
             }
         }
         let result = checker.check_files(program, loaded.programs,
-            loaded.file_namespaces, loaded.file_bare_surface, skip: skip, sdk: sdk_prefix(self.sdk_root),
+            loaded.file_namespaces, loaded.file_bare_surface, skip: skip,
             prebuilt: self.library_for(program, canon, loaded));
         for d in check_diagnostics(result.errors) {
             out.push(d);
@@ -383,7 +383,7 @@ impl Session {
         // any check errors.
         let import_diags = load_diagnostics(loaded.diagnostics);
         let result = checker.check_files(program, loaded.programs,
-            loaded.file_namespaces, loaded.file_bare_surface, skip: skip, sdk: sdk_prefix(self.sdk_root),
+            loaded.file_namespaces, loaded.file_bare_surface, skip: skip,
             prebuilt: self.library_for(program, canon, loaded));
         self.store_records(result.records);
         if import_diags.len() > 0 || result.errors.len() > 0 {

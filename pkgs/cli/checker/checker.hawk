@@ -67,7 +67,7 @@ pub fn check(_ program: Program, _ imports: List<Program>,
 pub fn check_files(_ program: Program, _ imports: List<Program>,
     _ file_namespaces: Map<String, Map<String, LibraryNamespace>>,
     _ file_bare_surface: Map<String, Map<String, String>>,
-    skip: Set<String> = Set.new(), sdk: Option<String> = Option.None,
+    skip: Set<String> = Set.new(),
     prebuilt: Option<LibraryElement> = Option.None) -> CheckResult {
     let errors: List<CheckError> = [];
     let records: List<TypeRecord> = [];
@@ -77,7 +77,7 @@ pub fn check_files(_ program: Program, _ imports: List<Program>,
         resolver.build_library(program, imports, file_namespaces, file_bare_surface));
     if !skip.has(file_key(program.file_path)) {
         check_duplicates(errors, program, imports);
-        check_reserved_names(errors, program, sdk);
+        check_reserved_names(errors, program, library);
         check_shadowed_surface(errors, program, library);
         check_program(errors, program, library, program.file_path, records);
     }
@@ -86,7 +86,7 @@ pub fn check_files(_ program: Program, _ imports: List<Program>,
             // Same-file duplicates only (`collides` is same-file-only post-T4,
             // so an empty imports list loses nothing and skips a closure rescan).
             check_duplicates(errors, ip, []);
-            check_reserved_names(errors, ip, sdk);
+            check_reserved_names(errors, ip, library);
             check_shadowed_surface(errors, ip, library);
             check_program(errors, ip, library, ip.file_path, records);
         }
@@ -226,22 +226,21 @@ fn is_reserved_type_name(_ name: String) -> Bool {
 // *parameters*, which declare a type name for their scope — that take a
 // reserved core type name. (A `<Result>` type parameter would otherwise pass
 // the `?`/implicit-`Ok` checks by spelling and miscompile.) The core SDK
-// declares the real ones — the caller exempts it by passing the canonical
-// `<std root>/` prefix as `sdk`.
-fn check_reserved_names(_ errors: List<CheckError>, _ program: Program, _ sdk: Option<String>) -> Void {
-    if let Some(prefix) = sdk {
-        if file_key(program.file_path).starts_with(prefix) {
-            return;
-        }
-    }
+// declares the real ones; a declaration is exempt only when *this file is the
+// core owner* of that type — an identity check (`core_owner`), not a path
+// heuristic. The owner file is pinned in the shared registry from the same
+// loader closure that minted `program.file_path`, so every analysis path (check,
+// LSP, test) agrees regardless of how the SDK root or file path was spelled.
+fn check_reserved_names(_ errors: List<CheckError>, _ program: Program, _ library: LibraryElement) -> Void {
+    let this_file = file_key(program.file_path);
     for decl in program.decls {
         let found = match decl {
-            Type(x) => { reserved_params(errors, x.type_params); reserved_site(x.name, x.name_span) },
-            Enum(x) => { reserved_params(errors, x.type_params); reserved_site(x.name, x.name_span) },
+            Type(x) => { reserved_params(errors, x.type_params); reserved_site(x.name, x.name_span, library, this_file) },
+            Enum(x) => { reserved_params(errors, x.type_params); reserved_site(x.name, x.name_span, library, this_file) },
             Interface(x) => {
                 reserved_params(errors, x.type_params);
                 for m in x.methods { reserved_params(errors, m.type_params); }
-                reserved_site(x.name, x.name_span)
+                reserved_site(x.name, x.name_span, library, this_file)
             },
             Fn(x) => { reserved_params(errors, x.type_params); Option.None },
             Impl(x) => {
@@ -258,13 +257,27 @@ fn check_reserved_names(_ errors: List<CheckError>, _ program: Program, _ sdk: O
     }
 }
 
-// The declaration's (name, span) when the name is reserved, else None.
-fn reserved_site(_ name: String, _ span: SourceSpan) -> Option<NamedSpan> {
-    return if is_reserved_type_name(name) {
-        Option.Some(NamedSpan { name: name, span: span })
-    } else {
-        Option.None
-    };
+// The declaration's (name, span) when the name is a reserved core type *and*
+// this file is not that type's core owner, else None. The owner is the core
+// library's own declaration (`core_owner` returns the registry-pinned file, or
+// the `<builtin>` floor for a type no file declares — e.g. `Void`); when it
+// matches `this_file`, this *is* the core declaration and is left alone. Type
+// *parameters* named after a reserved type ([reserved_params]) are never exempt
+// — a `<Result>` is illegitimate even in core.
+fn reserved_site(_ name: String, _ span: SourceSpan, _ library: LibraryElement,
+    _ this_file: String) -> Option<NamedSpan> {
+    if !is_reserved_type_name(name) {
+        return Option.None;
+    }
+    // A pure keyword type (`Void`) is declared by no file, so it has no core
+    // owner to compare against — always an error. Every other reserved name is
+    // floor-seeded or core-declared, so its registry owner is the genuine core
+    // declaration (pinned against a user's redeclaration): exempt only when this
+    // file *is* that owner.
+    if !resolver.is_keyword_type_name(name) && core_owner(library, name) == this_file {
+        return Option.None;
+    }
+    return Option.Some(NamedSpan { name: name, span: span });
 }
 
 fn reserved_params(_ errors: List<CheckError>, _ type_params: List<TypeParam>) -> Void {
