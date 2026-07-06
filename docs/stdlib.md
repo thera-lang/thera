@@ -88,10 +88,10 @@ enough to reduce hallucination.
    production-useful one beside its real library (`fs.MemoryFileSystem`), a
    test-only one in `std.testing` (`testing.fixed_clock`) — while the interface
    itself always lives with the real library. The stdlib ships **no capability
-   bundle** (`Sys`/`Context`): that is one step from an ambient god-object and is
-   application-specific, so apps thread their own. This keeps the functional core
-   pure ([overview.md](overview.md)) and the test seam explicit rather than a
-   global override.
+   bundle** (`Sys`/`Context`): that is one step from an ambient god-object and
+   is application-specific, so apps thread their own. This keeps the functional
+   core pure ([overview.md](overview.md)) and the test seam explicit rather than
+   a global override.
 
 8. **Text is UTF-8; bytes are `Bytes`.** `String` is validated UTF-8; raw binary
    is the `Bytes` type (§ Core types). Conversions are explicit: `s.chars()`
@@ -106,7 +106,7 @@ enough to reduce hallucination.
 | Tier          | Import          | Contents                                                                                                                                           |
 | ------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Prelude**   | none (auto)     | primitives, `List`/`Map`/`Set`, `Option`/`Result`, `Error` + `Eq`/`Display`/`Debug`/`Ord`, `println`/`print`/`eprintln`/`eprint`, `String` methods |
-| **Core std**  | `import std.x`  | `io fs path env process time fiber math random json encoding hash http log cli term regex testing`                                                 |
+| **Core std**  | `import std.x`  | `io iter fs path env process time fiber math random sort json encoding hash http log cli term char regex testing`                                  |
 | **Ecosystem** | package manager | databases, YAML/TOML/CSV, HTTP server _frameworks_ (a simple server is core), raw sockets, compression, full crypto/TLS, UUID, templating, …       |
 
 The line between core and ecosystem: core covers what a typical CLI tool or
@@ -235,7 +235,8 @@ even per-namespace resolution can't disambiguate). `Error` is an interface
 ## Module catalog
 
 Each entry: **purpose**, **key types**, **representative API** (illustrative,
-not exhaustive), and **status** (`exists` / `partial` / `new`).
+not exhaustive), and **status** in its heading (`implemented` / `partial` /
+`new`). This catalog is the single source of truth for module status.
 
 ### `std.io` — streaming I/O foundation _(implemented, pure Hawk)_
 
@@ -282,6 +283,23 @@ line is still yielded. `io.from_string`/`from_bytes` provide an in-memory
 `std.fs`. (The typed binary `BytesReader` pairing with `BytesBuilder` now exists
 in the prelude — see § Core types — with the typed `read_u16_le`/be family still
 a follow-up.)
+
+### `std.iter` — lazy iteration _(implemented, pure Hawk)_
+
+Purpose: the sources that seed the `Iterator<T>` protocol. `Iterator<T>` itself
+is a generic interface in the **prelude** (`fn next(self) -> Option<T>`), with
+the `map`/`filter`/`take`/`enumerate` adapters and the `collect`/`count`
+consumers shipping as **interface default methods** — so any iterator is fluent
+without an import, and `for x in it` drives any iterator. `std.iter` holds only
+the two sources:
+
+```
+pub fn range(_ start: Int, _ end: Int) -> Iterator<Int>;   // [start, end)
+pub fn from_list<T>(_ items: List<T>) -> Iterator<T>;
+```
+
+So `iter.range(0, 10).filter((n) => n % 2 == 0).map((n) => n * n).collect()`
+runs entirely off the prelude protocol; `std.iter` just supplies the seeds.
 
 ### `std.fs` — filesystem _(implemented, incl. streaming files)_
 
@@ -372,14 +390,13 @@ pub fn from_native(_ p: String) -> String;  // host form -> slash
 Slash-based (POSIX-style, like Go's `path`): `'/'` is always the separator, so
 manipulation is **deterministic on every platform**. The OS boundary is
 explicit, not implicit: `separator` is the host path separator — a **module
-initializer** (it can't be a compile-time `const`;
-[language.md](language.md)) computed once from `env.os()` — and
-`to_native`/`from_native` translate at a display or interop boundary (the
-filesystem natives accept `/` everywhere, so most code never needs them). Full
-OS-native path _parsing_ (Windows drive letters, UNC) is deliberately out of
-scope — keep application logic in slash form. `normalize` (Go `path.Clean`),
-`relative` (Go `filepath.Rel`), and the n-ary `join_all` (Hawk has no variadics)
-are all in.
+initializer** (it can't be a compile-time `const`; [language.md](language.md))
+computed once from `env.os()` — and `to_native`/`from_native` translate at a
+display or interop boundary (the filesystem natives accept `/` everywhere, so
+most code never needs them). Full OS-native path _parsing_ (Windows drive
+letters, UNC) is deliberately out of scope — keep application logic in slash
+form. `normalize` (Go `path.Clean`), `relative` (Go `filepath.Rel`), and the
+n-ary `join_all` (Hawk has no variadics) are all in.
 
 ### `std.env` — environment & process info _(implemented)_
 
@@ -408,11 +425,11 @@ pub fn system_env() -> Env;
 
 Note: `OS` is a function (`os()`), not a `const` — it is a runtime/platform
 value. Module initializers now exist ([language.md](language.md)), but an
-*effectful* native like `os()` is excluded from initializer position, so
+_effectful_ native like `os()` is excluded from initializer position, so
 capturing it once into a global awaits the process-stable-ambient-native phase
-(see the roadmap). `exit` is typed `Void` until a `Never` type lands. `Env` is the
-second instance of the ambient-capability pattern after `time.Clock`
-(§ Cross-cutting #7).
+(see the roadmap). `exit` is typed `Void` until a `Never` type lands. `Env` is
+the second instance of the ambient-capability pattern after `time.Clock` (§
+Cross-cutting #7).
 
 ### `std.process` — subprocess spawning _(implemented)_
 
@@ -475,7 +492,7 @@ pub struct DateTime { /* Unix milliseconds, UTC */ }
 pub fn now_millis() -> Int;          // ambient wall clock, Unix millis
 pub fn now() -> DateTime;            // wall clock (UTC)
 pub fn monotonic() -> Instant;       // for elapsed measurement
-pub fn sleep(_ d: Duration) -> Void; // blocks the thread (parks the fiber once fibers land)
+pub fn sleep(_ d: Duration) -> Void; // blocks the thread (parks the fiber once timer parking lands)
 
 // The clock as an opt-in capability (§ Cross-cutting #7). `now*()` is the
 // ambient form of `system_clock().now*()`; tests pass `testing.fixed_clock`.
@@ -504,7 +521,9 @@ UTC + RFC 3339 + Unix time, which covers logging/timestamps/CLI needs.
 `format_rfc3339` emits a `.sss` fraction only when the millisecond part is
 non-zero; `parse_rfc3339` accepts a `Z` or `±HH:MM` zone and an optional
 fractional part (keeping millisecond precision), normalizing to UTC. `sleep`
-blocks the thread until cooperative fibers arrive.
+still blocks the thread: the cooperative scheduler exists, but parking a
+sleeping fiber on a timer awaits the same I/O-parking work `std.http` needs (§
+`std.fiber`).
 
 ### `std.fiber` — cooperative concurrency _(spawn/join/yield + channels implemented; I/O parking deferred)_
 
@@ -614,6 +633,24 @@ wrapping add of the golden-ratio constant) and the bit-mixing finalizer (`^` /
 `from_entropy`'s seed is a native (it reads the system clock). Not
 cryptographically secure.
 
+### `std.sort` — sorting & extrema over `Ord` _(implemented, pure Hawk)_
+
+Purpose: order a `List<T>` and pick extrema, generic over the `Ord` interface
+(`Ord`/`Ordering` live in the prelude). Pure Hawk over `List.sort` and
+`Ord.compare`.
+
+```
+pub fn sorted<T: Ord>(_ xs: List<T>) -> List<T>;        // ascending, stable
+pub fn sorted_desc<T: Ord>(_ xs: List<T>) -> List<T>;   // descending
+pub fn min<T: Ord>(_ xs: List<T>) -> Option<T>;         // None if empty
+pub fn max<T: Ord>(_ xs: List<T>) -> Option<T>;
+```
+
+These are the `Ord`-driven counterparts to `List.sort(less)` (which takes an
+explicit comparator); they work for any element type with an `impl Ord` (the
+primitives included). Living in their own module keeps the common names
+`sorted`/`min`/`max` qualified rather than in the prelude.
+
 ### `std.json` — JSON _(implemented, pure Hawk; the flagship data format)_
 
 Purpose: parse and serialize JSON. A structural `Json` value, with a
@@ -683,7 +720,7 @@ that gap; **decode is the higher-value half** (typed parsing with
 `Type`/`Missing` errors) and the harder one. It's gated on the generics strategy
 (monomorphized compile-time reflection vs. today's dynamic dispatch), so it's a
 deliberate arc — but the goal is explicit: a Hawk struct should round-trip to
-JSON without manual wrapping. See § Sequencing #5.
+JSON without manual wrapping. See § Sequencing #1.
 
 **YAML/TOML/CSV are ecosystem** — this is where an agent looks first and finds
 the pointer.
@@ -806,39 +843,121 @@ same socket natives as the client; plaintext-HTTP/1.1 first (TLS terminated
 upstream), with a TLS-terminating variant a later add. The accept loop is a
 named driver for the fiber API (§ `std.fiber`).
 
-### `std.log` — leveled logging _(new — design pass needed)_
+### `std.log` — named, per-source logging _(implemented)_
+
+Purpose: diagnostic logging good enough that a common CLI tool, agent, or
+library never reaches for a third-party logger — while explicitly ceding the
+industrial tier (high-throughput servers wanting sampling, routing, async sinks)
+to purpose-built ecosystem infra. Two failures of the naïve "global logger with
+one level" shape drive the design, both learned from Go/Rust/Python: a **single
+coarse level toggle** is useless once one dependency is noisy, and **third-party
+libraries emit on their own schedule** — into your output, at their own volume.
+The answer all three languages converged on, and the shape here, is **named
+loggers with per-source level filtering, behind a facade only the application
+configures.**
 
 ```
-pub enum Level { Debug, Info, Warn, Error }
-pub fn info(_ message: String) -> Void;   // + debug/warn/error
-pub fn set_level(_ level: Level) -> Void;
-pub fn set_output(_ w: Writer) -> Void;    // default: stderr
+pub enum Level { Debug, Info, Warn, Error }   // Trace addable
+
+// The Logger the whole surface hands back — the four levels come through the
+// interface (not free functions) because a top-level `error` would collide with
+// the prelude's `error()` constructor (a soft-reserved common noun).
+pub interface Logger {
+    fn debug(self, _ msg: String) -> Void;   // + info / warn / error
+}
+
+// Ambient — the 90% case. `default()` is the process logger (writes to stderr,
+// under the global config); `named(...)` tags records with a source so levels
+// tune per-source. Both are pure constructors, so one-per-module is the idiom:
+//   let logger = log.named('myapp.db')    // an ordinary module-level `let`
+pub fn default() -> Logger;                 // log.default().info('starting up')
+pub fn named(_ name: String) -> Logger;
+
+// A self-contained Logger you hold and pass — the capability form. Its own sink,
+// level, and format; ignores the global config. Point it at a `StringWriter` to
+// capture output in a test, or a file `Writer` to log elsewhere.
+pub fn to_writer(_ name: String, _ sink: io.Writer, _ min_level: Level, _ format: Format) -> Logger;
+
+// Would a record at `level` from `name` pass the global filter? Guards an
+// expensive message before building it.
+pub fn enabled(_ name: String, _ level: Level) -> Bool;
+
+// Application-only configuration — call ONCE from `main`; a library MUST NOT.
+pub enum Format { Text, Json }              // Text for a TTY; Json = one object per line, for machines
+pub fn set_level(_ level: Level) -> Void;                        // default threshold (default Info)
+pub fn set_level_for(_ prefix: String, _ level: Level) -> Void;  // per-source override
+pub fn set_format(_ f: Format) -> Void;
+pub fn configure_from_env(_ var: String = 'HAWK_LOG') -> Void;   // 'info,myapp.db=debug,http=warn'
 ```
 
-> **Design pass needed before building.** The sketch above is the _conventional_
-> shape, but its `set_level`/`set_output` are **mutable module globals** —
-> exactly the hidden, swappable global state principle 7 avoids, and there is no
-> load-time init to seed them (§ Sequencing #8). Decide the model by **working
-> backwards from real logging consumers** — a CLI emitting progress, a library
-> that wants to log without dictating its host's configuration, a test that
-> captures log output — rather than picking a shape up front. The two
-> candidates:
->
-> - **(a) A configured global singleton.** Familiar and ergonomic
->   (`log.info('…')` with no plumbing), but in tension with principle 7 / "no
->   global state". The **module initializer** ([language.md](language.md))
->   supplies immutable computed globals but **deliberately not mutable** ones,
->   so a swappable level/output singleton still needs its own sanctioned
->   module-mutable-state mechanism — which module-init declines on purpose. That
->   tension is exactly why module-init steers logging toward (b).
-> - **(b) A `Logger` value you hold and pass.** The capability style, consistent
->   with `time.Clock` / `env.Env` / `random.Rng`: no hidden state, testable
->   without a global override, at the cost of threading it through call sites.
->
-> Writes to stderr by default either way (stdout stays clean for program output
-> — the CLI convention). Likely both can coexist (a default ambient logger
-> backed by a `Logger` capability), as `std.time`/`std.env` do — but that is the
-> call to make from the consumer needs, not assume.
+**Per-source filtering is the headline** (the coarse-toggle fix). A record from
+`log.named('http.client')` resolves its threshold by the most specific matching
+prefix — `http.client`, then `http`, then the global default — so a noisy
+dependency goes quiet with `set_level_for('http', Level.Warn)` (or
+`HAWK_LOG=info,http=warn`, no recompile) while your own `myapp=debug` stays
+loud. This is Python's hierarchical loggers / Rust's `RUST_LOG` + `EnvFilter`,
+minus the ceremony. Reading the filter map from an **env var** is the key
+ergonomic: what's noisy is _data, not code_, so tuning it never edits a source
+file.
+
+**The facade discipline** (the third-party-noise fix). Libraries call only
+`log.named(...).info(...)` — they **emit, never configure**; the `set_*`
+functions are application-only, called once at startup, and a library that calls
+them is misbehaving (convention today — visibility can't yet enforce it, §
+Sequencing #3). This is Rust's `log`-facade split (a library depends on the
+facade; the binary picks the sink) and it's what stops a dependency hijacking
+your output. Because the default sink is **stderr**, program output on stdout
+stays clean — a library "logging" via `println` is exactly the bug std.log
+removes.
+
+**Reconciling with principle 7 (no hidden global state) — a deliberate, narrow
+exception.** Principle 7 forbids swappable globals that are _sources of
+nondeterminism read by program logic_ (clocks, randomness, env), where a
+silently-swapped value changes what the program computes. Logging config is the
+opposite: **write-only diagnostic output, set once by the application, never
+read back into logic.** Threading a `Logger` through every call depth purely for
+diagnostics is the wrong trade — which is why every capability-conscious
+ecosystem (Rust included) still makes logging a global facade. So `std.log`
+keeps an ambient logger (`default()` / `named(...)`, § Cross-cutting #7's layer-1
+form) plus **one sanctioned setter surface** for its config: it is the single
+ambient with a setter, precisely because its state is diagnostics, not logic. The
+**capability escape hatch** still stands for code that wants it — `Logger` is an
+ordinary value, and `to_writer` builds a self-contained one (own sink, own
+level, ignores the global config) that a testable middle layer takes as a
+parameter (layer 2); point it at a `StringWriter` and a test asserts on the
+emitted records with no global override. That is the exception; for logging the
+global facade is the right default.
+
+**Structured fields — planned, sequenced after JSON auto-boxing.** Modern
+practice (Go `slog`) is key-value records, not bare strings — valuable for an
+agent-facing language whose logs are often re-parsed, and the `Json` format
+already emits one object per line. But call-side fields
+(`logger.info('query done', { 'rows': 42, 'ms': 12 })`) want the same
+expected-type-directed auto-boxing JSON encoding needs (§ Sequencing #1) rather
+than a second heterogeneous-map path; until that lands the message is a plain
+interpolated string. Sequenced after it, not before.
+
+**Implementation — pure Hawk, no natives.** Level resolution, prefix filtering,
+and Text/JSON rendering (the JSON via `std.json`, so messages escape correctly)
+are all Hawk. The mutable config is a Hawk global: `let config = Config { … }`
+with `mut` fields — the binding is an immutable module initializer (computed
+once), but the struct it points at mutates in place, so `set_level` etc. need no
+mutable global or native cell. Output reuses `std.io`: the ambient logger writes
+through `io.stderr()` and _discards_ the `Result` (so a broken stderr pipe drops
+the record rather than trapping — logging never crashes its caller), the same
+path the `to_writer` sink takes. (Landing this drove the front-end fix that
+infers an un-annotated module global's type from its initializer — see
+[roadmap.md](roadmap.md) changelog; before it, `config`'s type was `Unknown` and
+member access failed in codegen.) A _global_ `set_output` to redirect the ambient
+sink to an arbitrary `Writer` is deferred — it would mean holding a Hawk value in
+the config as a GC root — and `to_writer` already covers the custom-sink and
+capture cases.
+
+**Out of scope → ecosystem / DIY** (the industrial tier): async / non-blocking
+sinks, sampling and rate-limiting, log rotation, multi-destination routing,
+network / syslog / journald sinks, and span / trace correlation. Core stops at
+named loggers + per-source filtering + text/JSON on stderr; a server that
+outgrows that builds or brings its own.
 
 ### `std.cli` — argument parsing _(implemented, pure Hawk)_
 
@@ -1026,71 +1145,17 @@ So the boundary is explicit (and so an agent knows where to look):
 
 ## Sequencing & dependencies
 
-This design leans on language features not all of which exist yet. The
-dependency graph, so future work lands in the right order:
+This design leans on language features not all of which exist yet — this is the
+forward-looking dependency graph, so future work lands in the right order. The
+big early unblockers have all **landed** and no longer gate anything: the
+generics arc (interface-typed values + dynamic dispatch, so `io.copy`, the
+`Error` interface as a return type, and `<T: Eq + Debug>` bounds all work), the
+`Bytes` core type with the `Reader`/`Writer`/`Seek` interfaces, the lazy
+`Iterator<T>` protocol (the v1 interface + the v2 adapters/consumers as default
+methods), the `Error` interface migration, and top-level `const` codegen. What
+remains:
 
-1. **Generics arc (biggest unblocker).** Interface-typed values + dynamic
-   dispatch ([language.md](language.md), "Deferred") are a prerequisite for the
-   library's two core abstractions:
-   - `io.copy(dst: Writer, src: Reader)` and any function taking a `Reader`/
-     `Writer` parameter — these are interface-typed.
-   - The common `Error` **interface** as a return type (`Result<T, Error>` where
-     `Error` is the interface) — **done**: `Error` is now an interface, concrete
-     errors `impl Error`, and `?` propagates a concrete error into an
-     `Error`-returning caller (see § `Error`). `Error` extends `Display + Debug`
-     (interface inheritance), so interface-typed errors interpolate (`'${e}'`)
-     and work with `assert_ok`/`assert_err`.
-   - Generic bound enforcement (`<T: Display>`, `<T: Eq + Debug>`) used by
-     `std.testing` and generic combinators.
-
-2. **`Bytes` core type + `Reader`/`Writer`/`Seek` interfaces — done.** `Bytes` +
-   `BytesBuilder` + `BytesReader` are runtime-backed/pure-Hawk prelude types, and
-   `std.io` ships the `Reader`/`Writer`/`Closer`/`Seek` interfaces,
-   `read_all`/`copy`, the standard streams, `StringWriter`, `from_string`/
-   `from_bytes`, and `lines`/`BufReader`; `fs.open`/`create` give a streaming
-   `File`. Deferred: the typed `read_u16_le`/be reader family.
-
-3. **Lazy `Iterator<T>` — done (v1).** `Iterator<T>` is a **generic interface**
-   in the prelude (Hawk's first),
-   `pub interface Iterator<T> { fn next(self) -> Option<T>; }` — pull-based,
-   `self`-mutating cursor. `std.iter` ships the `range`/`from_list` sources and
-   the eager `collect`/`count` consumers, and a `for x in it` loop drives any
-   iterator (the for-loop lowers to `next()`/match over `Option`, dispatched
-   virtually so concrete and interface-typed iterators work alike). Landing it
-   added the generic-interface machinery end to end (parser type params on
-   `interface`/`impl Iface<Args> for T`, conformance substitution, and
-   receiver-arg inference reused from the collection types) and filled a codegen
-   gap: block-bodied match arms (`Some(v) => { … }`) compile. (Such a block then
-   yielded `Unit`; expression-position **tail expressions** now make its final
-   expression the value — see [language.md](language.md).)
-
-   **Adapters + consumers — done (v2).** `map`/`filter`/`take`/`enumerate` (lazy
-   adapters) and `collect`/`count` (eager consumers) now ship as **default
-   methods on the `Iterator` interface** (the language gained interface default
-   methods to make this clean — see [language.md](language.md) § Default
-   methods), so any iterator is fluent without an import and without each
-   implementer re-spelling them:
-   `iter.range(0, 10).filter((n) => n % 2 == 0) .map((n) => n * n).collect()`.
-   The adapter structs live (private) in the prelude beside `Iterator` (with the
-   public `Indexed<T>` that `enumerate` yields); `std.iter` keeps the
-   `range`/`from_list` sources. **No** separate `Iter<T>` wrapper — the protocol
-   _is_ the fluent type (the wrapper would duplicate `Iterator` and was rejected
-   as a worse fit for an LLM-first language). `enumerate` returns
-   `Iterator<Indexed<T>>`, which needed the parser to accept a nested generic in
-   an `impl` header (`impl Iterator<Indexed<T>> for …`) — now done, and the same
-   extension opens future wrapped adapters (`zip`/`flat_map`/`chain`). This
-   unblocks `io.lines`, `fs.walk`, and `BufReader` (above / below).
-
-4. **`Error` interface migration — done.** `std.core/error.hawk`'s `Error` is
-   now an interface with a `Message` struct; `throw`/`?`/implicit-`Ok` needed no
-   change (they pass the value through, and interface-typed `E` subsumption was
-   already handled), and `std.testing` constructs `Message`. `Error` extends
-   `Display + Debug` (interface inheritance), so interface-typed errors
-   interpolate (`'${e}'`) and work with `assert_ok`/`assert_err` directly; each
-   error type provides an explicit `impl Display` (every one already did), and
-   `Debug` is the structural auto-derive.
-
-5. **JSON encoding ergonomics.** Two independent improvements over the
+1. **JSON encoding ergonomics.** Two independent improvements over the
    constructors (`json.obj`/`json.int`/…) that ship today, for the two distinct
    use cases — building ad-hoc inline JSON, and serializing typed data:
    - **Auto-boxing into `Json` (proposed; smaller).** Extend the existing
@@ -1122,51 +1187,18 @@ dependency graph, so future work lands in the right order:
    macros/codegen (a last resort) — compile-time reflection is the principled
    substitute.
 
-6. **Runtime natives.** New runtime support is needed for `std.time` (clocks),
-   `std.random` (entropy), `std.http` (sockets + TLS), `std.hash`, and
-   `std.fiber` (the scheduler). These are independent of the front-end arcs and
-   can proceed in parallel — **except** that the **IO-heavy libraries depend on
-   `std.fiber`**: `std.http` (the client and the simple server, both now
-   committed to core) wants concurrent, blocking-looking I/O, which is only
-   "invisible" once the scheduler parks fibers (principle #5). So sequence
-   `std.fiber` **before** `std.http`, and let real IO clients (a concurrent
-   fetch, a server accept loop) drive the fiber API's design rather than fixing
-   it up front (see § `std.fiber`).
+2. **Fiber I/O parking, then `std.http`.** The clock, entropy, hash, and
+   scheduler natives have all landed (`std.time`, `std.random`, `std.hash`, and
+   `std.fiber`'s `spawn`/`join`/`yield` + channels). What remains is
+   **`std.http`** (client + simple server, both committed to core), which needs
+   runtime **sockets + TLS** and — crucially — depends on `std.fiber` **parking
+   on real I/O**: blocking-looking I/O is only "invisible" once the scheduler
+   parks a fiber on I/O rather than the thread (principle #5, still deferred).
+   So sequence fiber I/O parking **before** `std.http`, and let real IO clients
+   (a concurrent fetch, a server accept loop) drive the fiber API's design
+   rather than fixing it up front (see § `std.fiber`). The same parking work
+   lets `std.time`'s `sleep` park instead of blocking the thread.
 
-7. **Visibility enforcement** ([language.md](language.md)). Some modules (e.g.
+3. **Visibility enforcement** ([language.md](language.md)). Some modules (e.g.
    `std.process`) have native bindings that should be module-private; today the
    language can't enforce it. Tighten when visibility lands.
-
-8. **Top-level `const` in codegen — done.** `const`/`pub const` now compile: a
-   reference (bare or namespace-qualified `ns.NAME`) inlines its initializer
-   expression at the use site (codegen has no global storage). This unblocks
-   `std.char`'s constants and `std.math`'s `PI`/`E`. (Note: a _platform_ value
-   like a path separator is **not** a fit for `const` — it's compile-time
-   inlined.)
-
-## Status summary
-
-| Module       | Status  | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| ------------ | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| prelude/core | exists  | Int/Double + String parsing; `String.slice`/`replace`/`repeat`/`reverse`/`find`/`pad_*`/`trim_*`; `List.slice`/`first`/`last`/`contains`/`index_of`/`reverse`/`sort` (comparator)/`push`/`pop`; `Map.get_or`; `Bytes`/`BytesBuilder`/`BytesReader`; `Set<T>` in Hawk over `Map`; `Error`/`Eq`/`Display`/`Debug`/`Ord` interfaces + the `error(...)` constructor; `Iterator<T>` protocol + its `map`/`filter`/`take`/`enumerate`/`collect`/`count` default methods; **interface default methods** generally |
-| std.io       | done    | `Reader`/`Writer`/`Closer`/`Seek` (+ `SeekFrom`) + `IoError`, `read_all`/`copy`, stdin/stdout/stderr, `StringWriter`, `from_string`/`from_bytes`; `lines`/`BufReader` (Iterator<String>, `read_line` primitive)                                                                                                                                                                                                                                                                                            |
-| std.iter     | done    | v2: `Iterator<T>` (prelude) with `map`/`filter`/`take`/`enumerate` adapters + `collect`/`count` consumers as **default methods** (fluent, import-free); `std.iter` holds the `range`/`from_list` sources; `for x in it` drives any iterator                                                                                                                                                                                                                                                                |
-| std.fs       | done    | read/write text+bytes, exists, metadata, list_dir, create_dir(\_all), remove(\_dir_all), rename, copy, temp_dir; recursive `walk` (Iterator<String>); streaming `open`/`create` → `File: Reader+Writer+Seek+Closer`; classified `FsError`; `temp_file` deferred                                                                                                                                                                                                                                            |
-| std.path     | done    | pure Hawk; `components`/`with_extension`/`normalize`/`relative` in (lexical, slash-based)                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| std.env      | done    | vars/args/cwd/os/exit + `Env` capability + `testing.fixed_env`; `OS`→`os()`                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| std.process  | done    | `run` (capture) / `exec` (inherit stdio, exit code) / `start`; pipes are `std.io` `Reader`/`Writer` (+ `close_stdin`); classified `ProcessError`                                                                                                                                                                                                                                                                                                                                                           |
-| std.time     | done    | wall + monotonic clocks, `Duration`/`Instant` (nanos), `DateTime` (Unix ms UTC) + RFC 3339 format/parse, `sleep`; `Clock` capability + `testing.fixed_clock`                                                                                                                                                                                                                                                                                                                                               |
-| std.math     | done    | Double fns + constants; abs/min/max/clamp + to_double/to_int are Int/Double methods                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| std.random   | done    | SplitMix64; state is a visible Int; mix is pure Hawk (bitwise ops landed); only the entropy seed is native                                                                                                                                                                                                                                                                                                                                                                                                 |
-| std.sort     | done    | pure Hawk over `Ord`: `sorted`/`sorted_desc`/`min`/`max` (`<T: Ord>`); `Ord`/`Ordering` live in the prelude                                                                                                                                                                                                                                                                                                                                                                                                |
-| std.json     | done    | pure Hawk; structural `Json` + constructors, parse/stringify, navigation; Int/Double split; auto-boxing + typed decode later                                                                                                                                                                                                                                                                                                                                                                               |
-| std.encoding | done    | pure Hawk (no natives): base64 (RFC 4648), hex, percent/URL (RFC 3986); decode is fallible; arithmetic char mapping, no lookup tables                                                                                                                                                                                                                                                                                                                                                                      |
-| std.hash     | done    | native: sha256/sha1/md5 + crc32 (IEEE), backed by RustCrypto + crc32fast — the runtime's first external deps; checked against published vectors                                                                                                                                                                                                                                                                                                                                                            |
-| std.cli      | done    | pure Hawk; declarative `Command`/`Matches`/`CliError` + `--help`, abbrs, negation; `Args` is the raw escape hatch. v2: entry adapter, selected-subcommand help, required positionals, command-path errors (§ std.cli)                                                                                                                                                                                                                                                                                      |
-| std.char     | done    | pure Hawk; `pub` API + ASCII scope; `is_hex_digit` added, ident predicates removed                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| std.regex    | done    | RE2 syntax over the Rust `regex` crate (the runtime's 2nd deliberate dependency); `compile`/`is_match`/`find`/`find_all`/`captures`/`replace`/`replace_all`, byte-offset `Match`; compiled patterns held in a runtime registry behind an `Int` handle; self-tested                                                                                                                                                                                                                                         |
-| std.testing  | done    | `assert`/`assert_eq`/`assert_ne`/`assert_ok`/`assert_err` + `fixed_clock`/`fixed_env` doubles; self-tested                                                                                                                                                                                                                                                                                                                                                                                                 |
-| std.fiber    | partial | cooperative scheduler: `spawn`/`join`/`yield` + buffered `Channel<T>` (send/receive/close) over a FIFO run-queue, GC roots across fibers and channel buffers; parking on real I/O + 0-capacity rendezvous deferred                                                                                                                                                                                                                                                                                         |
-| std.term     | new     |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| std.http     | new     | client (`std.http`) + simple server (`std.http.server`, plaintext-first; bind + handle + tiny matcher, frameworks stay ecosystem); runtime sockets + TLS; gated on `std.fiber` I/O parking                                                                                                                                                                                                                                                                                                                 |
-| std.log      | new     | **design pass needed**: global singleton vs `Logger` value (capability). The specced `set_level`/`set_output` globals clash with principle 7 / no load-time init; decide from consumer needs (§ std.log)                                                                                                                                                                                                                                                                                                   |

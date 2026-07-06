@@ -1,0 +1,89 @@
+//! Tests for std.log.
+//!
+//! The ambient/named loggers write to the real stderr, which can't be captured
+//! here, so behaviour is exercised through the two observable surfaces: the
+//! self-contained `to_writer` logger (over a `StringWriter`) for rendering and
+//! per-logger thresholds, and `enabled` for the global per-source filter.
+
+import std.log;
+import std.io;
+import std.testing;
+
+@test
+fn writer_logger_filters_below_its_level() -> Result<Void, Error> {
+    let sink = io.StringWriter.new();
+    let logger = log.to_writer('svc', sink, log.Level.Warn, log.Format.Text);
+
+    logger.debug('d'); // below Warn — dropped
+    logger.info('i'); // below Warn — dropped
+    logger.warn('w'); // kept
+    logger.error('e'); // kept
+
+    testing.assert_eq(actual: sink.into_string()?, expected: 'WARN svc: w\nERROR svc: e\n')?;
+    return Result.Ok(void);
+}
+
+@test
+fn text_line_omits_an_empty_name() -> Result<Void, Error> {
+    let sink = io.StringWriter.new();
+    let logger = log.to_writer('', sink, log.Level.Info, log.Format.Text);
+
+    logger.info('hello');
+
+    testing.assert_eq(actual: sink.into_string()?, expected: 'INFO hello\n')?;
+    return Result.Ok(void);
+}
+
+@test
+fn json_format_shape() -> Result<Void, Error> {
+    let sink = io.StringWriter.new();
+    let logger = log.to_writer('myapp.db', sink, log.Level.Info, log.Format.Json);
+
+    logger.info('connected');
+
+    testing.assert_eq(
+        actual: sink.into_string()?,
+        expected: '{"level":"info","logger":"myapp.db","msg":"connected"}\n',
+    )?;
+    return Result.Ok(void);
+}
+
+@test
+fn json_format_escapes_the_message() -> Result<Void, Error> {
+    let sink = io.StringWriter.new();
+    let logger = log.to_writer('svc', sink, log.Level.Info, log.Format.Json);
+
+    logger.info('a "quoted" word');
+
+    // The embedded quotes must be JSON-escaped, not raw.
+    testing.assert(sink.into_string()?.contains('\\"quoted\\"'))?;
+    return Result.Ok(void);
+}
+
+@test
+fn enabled_respects_default_threshold() -> Result<Void, Error> {
+    log.set_level(log.Level.Info);
+
+    testing.assert(log.enabled('app', log.Level.Info))?;
+    testing.assert(log.enabled('app', log.Level.Error))?;
+    testing.assert(!log.enabled('app', log.Level.Debug))?;
+    return Result.Ok(void);
+}
+
+@test
+fn enabled_uses_the_longest_matching_prefix() -> Result<Void, Error> {
+    log.set_level(log.Level.Info);
+    log.set_level_for('net', log.Level.Error);
+    log.set_level_for('net.client', log.Level.Debug);
+
+    // 'net' and its descendants are quieted to Error ...
+    testing.assert(!log.enabled('net', log.Level.Warn))?;
+    testing.assert(!log.enabled('net.server', log.Level.Warn))?;
+    // ... except 'net.client', which the more specific override reopens.
+    testing.assert(log.enabled('net.client', log.Level.Debug))?;
+    // A distinct source falls back to the default.
+    testing.assert(log.enabled('other', log.Level.Info))?;
+    // 'network' is not under the 'net' prefix (no dotted boundary).
+    testing.assert(!log.enabled('network', log.Level.Debug))?;
+    return Result.Ok(void);
+}

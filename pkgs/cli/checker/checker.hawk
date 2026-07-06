@@ -47,6 +47,7 @@ pub fn check(_ program: Program, _ imports: List<Program>,
     let errors: List<CheckError> = [];
     let records: List<TypeRecord> = [];
     let library = resolver.build_library(program, imports, file_namespaces, file_bare_surface);
+    infer_global_types(library, program, imports);
     check_duplicates(errors, program, imports);
     check_shadowed_surface(errors, program, library);
     // Qualified-only resolution is enforced inline by `check_program`: the gates
@@ -75,6 +76,7 @@ pub fn check_files(_ program: Program, _ imports: List<Program>,
     // — behavior-identical to the full build by the resolver's contract.
     let library = prebuilt.unwrap_or_else(() =>
         resolver.build_library(program, imports, file_namespaces, file_bare_surface));
+    infer_global_types(library, program, imports);
     if !skip.has(file_key(program.file_path)) {
         check_duplicates(errors, program, imports);
         check_reserved_names(errors, program, sdk);

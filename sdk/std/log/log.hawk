@@ -1,0 +1,340 @@
+//! std.log — named, per-source diagnostic logging.
+//!
+//! Import as: import std.log
+//!
+//! Good-enough logging for CLI tools, agents, and libraries — levels, named
+//! loggers with per-source filtering, and text or JSON on stderr. The
+//! industrial tier (async sinks, sampling, rotation, routing) is deliberately
+//! ecosystem; see docs/stdlib.md § std.log.
+//!
+//! Three layers:
+//!
+//!   - Ambient free functions (`log.info`, ...) — the 90% case. Emit through the
+//!     process logger to stderr, filtered by the global config. Zero plumbing.
+//!
+//!         log.info('starting up');
+//!
+//!   - Named loggers (`log.named('myapp.db')`) tag each record with a source, so
+//!     the application can tune levels per-source and silence a noisy dependency
+//!     without touching its code. A pure constructor, so one per module is the
+//!     idiom:
+//!
+//!         let logger = log.named('myapp.db');
+//!         logger.warn('slow query');
+//!
+//!   - A `Logger` you hold and pass (`log.to_writer`) — the capability form, for
+//!     logic you want to unit-test against its own output (write to a
+//!     `StringWriter` and assert). Self-contained: its own level and sink, no
+//!     global state.
+//!
+//! Configuration (`set_level`, `set_level_for`, `set_format`,
+//! `configure_from_env`) is application-only — call it once from `main`; a
+//! library must only ever emit. See docs/stdlib.md § std.log for the rationale
+//! (logging is a deliberate, narrow exception to the "no global state"
+//! principle: its config is write-only diagnostics set once by the app).
+
+import std.env;
+import std.io;
+import std.json;
+
+/// Severity of a record, ordered low (`Debug`) to high (`Error`).
+pub enum Level { Debug, Info, Warn, Error }
+
+/// How a record is rendered: human-readable `Text` or one JSON object per line.
+pub enum Format { Text, Json }
+
+// --- the config (the one piece of mutable global state) ---
+//
+// docs/stdlib.md § std.log: the default threshold, the per-source level
+// overrides, and the output format. A deliberate, narrow exception to "no global
+// state" — write-only diagnostics, set once by the app. It needs neither a
+// native cell nor a mutable global: `config` is an *immutable* binding (a module
+// initializer, computed once), but the struct it points at has `mut` fields, so
+// the config mutates in place. Library-private — the sanctioned way to change it
+// is the application-only `set_*` functions below.
+struct Config {
+    mut default_level: Level,
+    filters: Map<String, Level>, // per-source overrides; content mutates in place
+    mut format: Format,
+}
+
+let config = Config {
+    default_level: Level.Info,
+    filters: {},
+    format: Format.Text,
+};
+
+// --- level ranks ---
+
+fn rank(_ level: Level) -> Int {
+    return match level {
+        Debug => 0,
+        Info => 1,
+        Warn => 2,
+        Error => 3,
+    };
+}
+
+// The threshold rank in force for a logger `name`: the level of the
+// longest-matching prefix filter, else the default. A filter prefix matches
+// `name` when it equals it or is a dotted ancestor (`http` covers `http.client`,
+// not `httpx`).
+fn effective_level(_ name: String) -> Int {
+    let mut best_rank = rank(config.default_level);
+    let mut best_len = -1;
+    // Pinned into an annotated local: a generic method (`keys()`) on a struct's
+    // field doesn't currently recover the field's type arguments (Gap 2; see
+    // roadmap). Without this, `keys()` infers `List<Int>`.
+    let filters: Map<String, Level> = config.filters;
+    for prefix in filters.keys() {
+        if prefix == name || name.starts_with('${prefix}.') {
+            if prefix.len() > best_len {
+                best_len = prefix.len();
+                best_rank = rank(filters.get_or(prefix, config.default_level));
+            }
+        }
+    }
+    return best_rank;
+}
+
+fn level_label(_ level: Level) -> String {
+    return match level {
+        Debug => 'DEBUG',
+        Info => 'INFO',
+        Warn => 'WARN',
+        Error => 'ERROR',
+    };
+}
+
+fn level_tag(_ level: Level) -> String {
+    return match level {
+        Debug => 'debug',
+        Info => 'info',
+        Warn => 'warn',
+        Error => 'error',
+    };
+}
+
+// --- rendering (pure) ---
+
+/// Render a record to a single line (no trailing newline).
+fn render(_ format: Format, _ name: String, _ level: Level, _ msg: String) -> String {
+    return match format {
+        Text => text_line(name, level, msg),
+        Json => json_line(name, level, msg),
+    };
+}
+
+fn text_line(_ name: String, _ level: Level, _ msg: String) -> String {
+    if name.is_empty() {
+        return '${level_label(level)} ${msg}';
+    }
+    return '${level_label(level)} ${name}: ${msg}';
+}
+
+fn json_line(_ name: String, _ level: Level, _ msg: String) -> String {
+    // Build via std.json so the message and name are correctly escaped.
+    let obj = json.obj({
+        'level': json.str(level_tag(level)),
+        'logger': json.str(name),
+        'msg': json.str(msg),
+    });
+    return json.stringify(obj);
+}
+
+// --- the Logger capability ---
+
+/// A logger you can hold and pass. `named` returns the process-backed form
+/// (stderr, under the global config); `to_writer` returns a self-contained one
+/// (its own sink and level). Middle-layer logic can take a `Logger` parameter
+/// and a test can pass one writing to a buffer.
+pub interface Logger {
+    fn debug(self, _ msg: String) -> Void;
+    fn info(self, _ msg: String) -> Void;
+    fn warn(self, _ msg: String) -> Void;
+    fn error(self, _ msg: String) -> Void;
+}
+
+// The process-backed logger: consults the global config, writes to stderr.
+struct NamedLogger {
+    name: String,
+}
+
+// Write a rendered line + newline to `sink`, discarding any write failure — a
+// logger must never crash the program it observes. (`io.stderr().write` returns
+// a `Result`, so a broken pipe is a dropped record here, not a trap.)
+fn write_line(_ sink: io.Writer, _ line: String) -> Void {
+    match sink.write('${line}\n'.bytes()) {
+        Ok(_) => {},
+        Err(_) => {},
+    };
+}
+
+fn emit_process(_ name: String, _ level: Level, _ msg: String) -> Void {
+    if rank(level) < effective_level(name) {
+        return;
+    }
+    write_line(io.stderr(), render(config.format, name, level, msg));
+}
+
+impl Logger for NamedLogger {
+    pub fn debug(self, _ msg: String) -> Void {
+        emit_process(self.name, Level.Debug, msg);
+    }
+    pub fn info(self, _ msg: String) -> Void {
+        emit_process(self.name, Level.Info, msg);
+    }
+    pub fn warn(self, _ msg: String) -> Void {
+        emit_process(self.name, Level.Warn, msg);
+    }
+    pub fn error(self, _ msg: String) -> Void {
+        emit_process(self.name, Level.Error, msg);
+    }
+}
+
+// A self-contained logger: its own writer, threshold, and format; ignores the
+// global config. The capability / test form.
+struct WriterLogger {
+    name: String,
+    sink: io.Writer,
+    min_level: Level,
+    format: Format,
+}
+
+fn emit_writer(_ logger: WriterLogger, _ level: Level, _ msg: String) -> Void {
+    if rank(level) < rank(logger.min_level) {
+        return;
+    }
+    write_line(logger.sink, render(logger.format, logger.name, level, msg));
+}
+
+impl Logger for WriterLogger {
+    pub fn debug(self, _ msg: String) -> Void {
+        emit_writer(self, Level.Debug, msg);
+    }
+    pub fn info(self, _ msg: String) -> Void {
+        emit_writer(self, Level.Info, msg);
+    }
+    pub fn warn(self, _ msg: String) -> Void {
+        emit_writer(self, Level.Warn, msg);
+    }
+    pub fn error(self, _ msg: String) -> Void {
+        emit_writer(self, Level.Error, msg);
+    }
+}
+
+// --- emission entry points ---
+
+/// A named logger. Records carry `name` as their source, so `set_level_for`
+/// (and `HAWK_LOG`) can tune this source's threshold independently.
+pub fn named(_ name: String) -> Logger {
+    return NamedLogger { name: name };
+}
+
+/// A self-contained logger writing every record at or above `min_level` to
+/// `sink`, rendered as `format`. Independent of the global config — the
+/// capability form to pass into testable logic (point it at a `StringWriter` and
+/// assert on the output), or to log to a file.
+pub fn to_writer(_ name: String, _ sink: io.Writer, _ min_level: Level, _ format: Format) -> Logger {
+    return WriterLogger { name: name, sink: sink, min_level: min_level, format: format };
+}
+
+/// The process logger — the ambient, unnamed-source form for the 90% case:
+///
+/// ```hawk
+/// log.default().info('starting up');
+/// ```
+///
+/// It writes through the global config to stderr, exactly like `named('')`.
+/// (The four levels come through the `Logger` interface rather than free
+/// functions because a top-level `error` would collide with the prelude's
+/// `error()` constructor — see docs/stdlib.md § std.log.)
+pub fn default() -> Logger {
+    return NamedLogger { name: '' };
+}
+
+/// Whether a record at `level` from a logger `name` would pass the global
+/// filter — for guarding an expensive message before building it:
+///
+/// ```hawk
+/// if log.enabled('myapp.db', log.Level.Debug) {
+///     log.named('myapp.db').debug(expensive_dump());
+/// }
+/// ```
+pub fn enabled(_ name: String, _ level: Level) -> Bool {
+    return rank(level) >= effective_level(name);
+}
+
+// --- configuration (application-only; call once from `main`) ---
+
+/// Set the default threshold for sources without a more specific override.
+pub fn set_level(_ level: Level) -> Void {
+    config.default_level = level;
+}
+
+/// Override the threshold for a source and its dotted descendants. The
+/// longest-matching prefix wins, so `set_level_for('http', Level.Warn)` quiets
+/// `http`, `http.client`, `http.client.pool`, ... while a more specific
+/// `set_level_for('http.client', Level.Debug)` still applies under it.
+pub fn set_level_for(_ prefix: String, _ level: Level) -> Void {
+    config.filters[prefix] = level;
+}
+
+/// Choose the output format (default `Text`).
+pub fn set_format(_ f: Format) -> Void {
+    config.format = f;
+}
+
+/// Apply a filter spec from an environment variable (default `HAWK_LOG`), in the
+/// `RUST_LOG` style: comma-separated directives, each either a bare level (the
+/// default) or `prefix=level`. Unknown levels are ignored. Absent variable is a
+/// no-op.
+///
+///     HAWK_LOG=info,myapp.db=debug,http=warn
+pub fn configure_from_env(_ var: String = 'HAWK_LOG') -> Void {
+    match env.get(var) {
+        Some(spec) => apply_spec(spec),
+        None => {},
+    };
+}
+
+fn apply_spec(_ spec: String) -> Void {
+    for raw in spec.split(',') {
+        let part = raw.trim();
+        if !part.is_empty() {
+            apply_directive(part);
+        }
+    }
+}
+
+fn apply_directive(_ directive: String) -> Void {
+    let fields = directive.split('=');
+    if fields.len() == 2 {
+        match parse_level(fields[1].trim()) {
+            Some(level) => set_level_for(fields[0].trim(), level),
+            None => {},
+        };
+    } else {
+        match parse_level(directive) {
+            Some(level) => set_level(level),
+            None => {},
+        };
+    }
+}
+
+fn parse_level(_ s: String) -> Option<Level> {
+    let low = s.to_lowercase();
+    if low == 'debug' {
+        return Option.Some(Level.Debug);
+    }
+    if low == 'info' {
+        return Option.Some(Level.Info);
+    }
+    if low == 'warn' {
+        return Option.Some(Level.Warn);
+    }
+    if low == 'error' {
+        return Option.Some(Level.Error);
+    }
+    return Option.None;
+}

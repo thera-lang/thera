@@ -69,7 +69,11 @@ pub struct ConstElement {
     // element; both are (file, name) value bindings.
     file: String,
     name_span: SourceSpan,
-    ty: Type,
+    // The declared (annotated) type, or — for an un-annotated global — the type
+    // inferred from its initializer by `inference.infer_global_types` (a pass
+    // layered above the resolver, which can only read an annotation). Mutable so
+    // that pass can fill it in place after `build_library`.
+    mut ty: Type,
 }
 
 // A declared (or built-in) type definition: struct, enum, interface, or built-in

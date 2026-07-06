@@ -240,6 +240,53 @@ fn infer_ident(_ name: String, _ scope: Map<String, Type>, _ ctx: InferCtx) -> T
     return Type.Unknown;
 }
 
+// Fill in the types of module-global `let`/`const` bindings that carry no
+// explicit annotation, by inferring each initializer — mirroring how a local
+// `let` is typed. The resolver records a global's type from its annotation only
+// (it can't call inference — inference imports the resolver), so an un-annotated
+// global's element type is left `Unknown`; the checker tolerates that (a member
+// access on an `Unknown` receiver is lenient), but codegen needs the concrete
+// type to emit a field/method access. This pass runs after `build_library` and
+// before checking/codegen, so `config.level` on a struct-typed global resolves.
+// Annotation-preserving (annotated globals are already typed and skipped) and
+// safe (inference degrades to `Unknown` for anything it can't resolve, so no
+// global is ever worse-typed than before). Only reads other globals' element
+// types — it never triggers nested global inference — so it cannot loop.
+pub fn infer_global_types(_ library: LibraryElement, _ program: Program,
+    _ imports: List<Program>) -> Void {
+    fill_program_globals(library, program);
+    for imp in imports {
+        fill_program_globals(library, imp);
+    }
+}
+
+fn fill_program_globals(_ library: LibraryElement, _ p: Program) -> Void {
+    let ctx = new_ctx(library);
+    ctx.current_file = p.file_path;
+    let scope: Map<String, Type> = {};
+    for decl in p.decls {
+        match decl {
+            Const(x) => fill_global(library, p, x.name, x.type_ann, x.value, scope, ctx),
+            Let(x) => fill_global(library, p, x.name, x.type_ann, x.value, scope, ctx),
+            _ => {},
+        }
+    }
+}
+
+fn fill_global(_ library: LibraryElement, _ p: Program, _ name: String,
+    _ type_ann: Option<TypeRef>, _ value: Expr, _ scope: Map<String, Type>,
+    _ ctx: InferCtx) -> Void {
+    if type_ann.is_some() {
+        return; // annotated: the resolver already recorded the declared type
+    }
+    let ty = infer_expr(value, scope, ctx, Option.None);
+    if let Some(consts) = library.file_consts.get(file_key(p.file_path)) {
+        if let Some(elem) = consts.get(name) {
+            elem.ty = ty;
+        }
+    }
+}
+
 fn infer_binary(_ left: Expr, _ op: String, _ right: Expr,
     _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
     if is_comparison(op) || op == '&&' || op == '||' {

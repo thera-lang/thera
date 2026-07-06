@@ -71,8 +71,9 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   - `collect`/`count` as **interface default methods**, the `std.iter` sources,
     and its first consumers — `io.lines`/`BufReader`, `fs.walk`, and streaming
     `fs.open`/`create` → `File` (`Reader`/`Writer`/`Seek`/`Closer`); `List.pop`
-    also landed. Remaining: the rest of the "batteries included" goal
-    (`std.log`, `std.term`), and sorted/`Ord`-keyed `Set`/`Map` variants.
+    also landed. `std.log` (named, per-source logging) is now in — see
+    _Changelog_. Remaining: the rest of the "batteries included" goal
+    (`std.term`, `std.http`), and sorted/`Ord`-keyed `Set`/`Map` variants.
   - **`List.enumerate()` — _landed._** A lazy `Iterator<Indexed<T>>` right on
     `List` (`for p in xs.enumerate() { … p.index … p.value … }`), the idiomatic
     replacement for a `while i < xs.len()` index loop — no import, no new
@@ -279,6 +280,15 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   (`fn f<U>(x: U) -> Box<U>` doesn't require `U: Display`); and
   `expected_arg_types` still handles only the namespace callee head inline.
   (Generics are **invariant by design** — no variance work planned.)
+- **Generic method on a struct field loses type args (Gap 2).** A generic method
+  called on a field-access receiver — `config.filters.keys()` where
+  `filters: Map<String, Level>` — doesn't recover the field's type arguments and
+  infers `List<Int>` (the receiver's `K`/`V` aren't threaded into the method's
+  result). Workaround: pin the field into an annotated local first
+  (`let m: Map<String, Level> = config.filters; m.keys()`). Independent of the
+  global-type fix (it reproduces on a properly-typed struct global and, likely,
+  any struct field). Surfaced by `std.log`'s config; low urgency (clean
+  workaround), but a real receiver-inference gap.
 - **`@extern` name check.** Native names are written once as `@extern('…')` on
   the `native fn` decls in `sdk/std`; the Rust runtime table is the other half,
   bound by name at load. Add a test asserting every `@extern` name the front-end
@@ -738,6 +748,39 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **Un-annotated module-global type inference** (2026-07). A top-level
+  `let`/`const` with no type annotation now has its type **inferred from its
+  initializer** (mirroring a local `let`), via `inference.infer_global_types` — a
+  pass layered above the resolver (the resolver can't call inference; inference
+  imports the resolver) and run right after `build_library` in the check and
+  codegen paths. Previously the resolver recorded a global's type from its
+  annotation only, leaving an un-annotated global `Unknown`: the checker tolerated
+  it (lenient member access on `Unknown`) but codegen hard-failed (`field access
+  on non-struct value`), so `let config = Config { … }` type-checked yet wouldn't
+  run. Annotation-preserving and safe (inference degrades to `Unknown`), so no
+  existing global — all annotated — changes. Unblocks the "final global struct
+  with `mut` fields" mutable-singleton pattern (`std.log`'s config). _Fast-follow
+  (Gap 2, open):_ a generic method on a struct's field (`config.filters.keys()`)
+  still doesn't recover the field's type arguments — infers `List<Int>` — so it
+  needs an annotated-local pin (`let m: Map<K,V> = config.filters;`); see Compiler
+  & front-end open items.
+
+- **`std.log` — named, per-source logging** (2026-07). Levels
+  (`Debug`/`Info`/`Warn`/`Error`), named loggers with hierarchical per-source
+  filtering (longest dotted-prefix wins), and Text/JSON rendering on stderr.
+  Configuration (`set_level`/`set_level_for`/`set_format`/`configure_from_env`,
+  the last reading a `RUST_LOG`-style `HAWK_LOG` spec) is application-only behind
+  a facade; libraries only ever emit. The ambient logger (`default()`/`named`)
+  and its config are the one **sanctioned exception** to "no global state" —
+  write-only diagnostics set once by the app — while the capability `to_writer`
+  logger (own sink/level, testable) is the escape hatch. Implemented **pure Hawk,
+  no natives**: the config is a `let config = Config { … }` module global (an
+  immutable binding whose `mut` fields mutate in place), rendering is pure Hawk
+  (JSON via `std.json`), and output writes through `io.stderr()`. The four levels
+  come through the `Logger` interface rather than free functions because a
+  top-level `error` would collide with the prelude `error()` constructor. See
+  [stdlib.md](stdlib.md) § `std.log`.
 
 - **Semantic LSP resolution — references, rename, inferred-type navigation**
   (2026-07). `textDocument/references` and `rename` are now **semantic** — every
