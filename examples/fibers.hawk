@@ -23,7 +23,7 @@ fn sum_of_squares(_ xs: List<Int>) -> Int {
     }
     let mut total = 0;
     for h in handles {
-        total = total + h.join();   // join blocks until that fiber has finished
+        total += h.join();   // join blocks until that fiber has finished
     }
     return total;
 }
@@ -35,13 +35,13 @@ fn produce(_ ch: fiber.Channel<Int>, _ count: Int) -> Int {
     let mut i = 1;
     while i <= count {
         ch.send(i);
-        i = i + 1;
+        i += 1;
     }
     ch.close();
     return 0;
 }
 
-fn main() -> Int {
+fn main() -> Result<Int, Error> {
     // Fan-out / collect.
     let total = sum_of_squares([1, 2, 3, 4, 5]);
     println('sum of squares 1..5 = ${total}');           // 55
@@ -56,8 +56,8 @@ fn main() -> Int {
     while going {
         match ch.receive() {
             Some(v) => {
-                count = count + 1;
-                sum = sum + v;
+                count += 1;
+                sum += v;
             },
             None => {
                 going = false;
@@ -67,5 +67,5 @@ fn main() -> Int {
     producer.join();
     println('consumed ${count} values, sum = ${sum}');   // 10 values, sum 55
 
-    return 0;
+    return Result.Ok(0);
 }

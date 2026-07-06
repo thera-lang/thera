@@ -1,26 +1,9 @@
 // Fixed-point Mandelbrot set generation benchmark.
 // Computes a 100x100 grid with max 100 iterations, repeated 50 times.
 // Exercises basic integer arithmetic, loops, and conditional branches.
-
-// 2026-06-07; debug interpreter:   4.07s
-// 2026-06-07; release interpreter: 1.51s
-
-// 2026-06-10; debug interpreter:   5.75s
-
-// 2026-06-11; debug interpreter:   4.62s
-// 2026-06-11; release interpreter: 0.97s
-
-// 2026-06-14; debug interpreter:   2.65s
-// 2026-06-14; release interpreter: 0.97s
-
-// 2026-06-17; release interpreter: 0.96s
-
-// 2026-06-24; debug interpreter:   2.84s
-// 2026-06-24; release interpreter: 0.83s
-
-// 2026-07-01; release interpreter: 0.92s
-
-// 2026-07-05; release interpreter: 0.97s
+//
+// Rough baseline (2026-07, release interpreter): ~0.9s. Git history has the
+// per-revision timing log this comment used to carry.
 
 fn main() -> Result<Int, Error> {
     let mut pass = 0;

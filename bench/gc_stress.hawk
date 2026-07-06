@@ -8,14 +8,14 @@
 // next iteration drops them. The live set stays tiny (one phrase). Run it and
 // watch the process's resident memory:
 //
-//   bin/hawk.sh run examples/gc_stress.hawk
+//   bin/hawk.sh run bench/gc_stress.hawk
 //
 // The runtime now has a precise mark-sweep collector, so this churn runs with a
 // flat, tiny live set: the heap fills to its collection threshold, sweeps the
-// garbage, and repeats. Measure the *runtime's* resident memory in isolation
-// (measure the bare runtime in isolation):
+// garbage, and repeats. Measure the *bare runtime's* resident memory in
+// isolation:
 //
-//   bin/hawk.sh emit examples/gc_stress.hawk /tmp/gc.hawkbc
+//   bin/hawk.sh emit bench/gc_stress.hawk /tmp/gc.hawkbc
 //   /usr/bin/time -l runtime/target/release/hawkrt /tmp/gc.hawkbc
 //
 // With BUDGET_MB = 16 this peaks at a few MB resident (bounded by the GC's byte
@@ -29,7 +29,7 @@ import std.random;
 // harder (the user suggested 4–16 MB).
 const BUDGET_MB: Int = 16;
 
-fn main() -> Int {
+fn main() -> Result<Int, Error> {
     let words = 'the quick brown fox jumps over the lazy dog and the sleepy cat'.split_whitespace();
     let rng = random.seeded(1);
     let budget = BUDGET_MB * 1024 * 1024;
@@ -48,5 +48,5 @@ fn main() -> Int {
 
     println('churned ${count} permutations (~${allocated / 1024 / 1024} MB allocated)');
     println('live set: 1 phrase — ${last}');
-    return 0;
+    return Result.Ok(0);
 }

@@ -186,13 +186,19 @@ check_out examples/fibers.hawk $'sum of squares 1..5 = 55\nconsumed 10 values, s
 check_out examples/list_hof.hawk $'20\n40\n60\nbig: 2\ntotal: 21'
 
 # Every other example must at least run cleanly. wordcount needs a file argument;
-# gc_stress is a manual perf harness; *_test.hawk are test files.
+# *_test.hawk are test files.
 for f in examples/*.hawk; do
   case "$f" in
-    *_test.hawk|*fibers.hawk|*list_hof.hawk|*gc_stress.hawk) continue ;;
+    *_test.hawk|*fibers.hawk|*list_hof.hawk) continue ;;
     *wordcount.hawk) "$HAWK" run "$f" examples/wordcount.hawk >/dev/null 2>&1 ;;
     *) "$HAWK" run "$f" >/dev/null 2>&1 ;;
   esac
+  if [ $? -eq 0 ]; then echo "  ok   $f"; else echo "  FAIL $f"; fail=1; fi
+done
+
+# Benchmarks (bench/) are manual perf harnesses; just check they run cleanly.
+for f in bench/*.hawk; do
+  "$HAWK" run "$f" >/dev/null 2>&1
   if [ $? -eq 0 ]; then echo "  ok   $f"; else echo "  FAIL $f"; fail=1; fi
 done
 

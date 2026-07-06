@@ -20,7 +20,8 @@ Full design docs: start at **[docs/toc.md](docs/toc.md)**.
 - `bootstrap/frontend.hawkbc` — the checked-in self-hosting bootstrap (the
   front-end compiled to bytecode); compiles the next revision of the front-end so
   the build needs no external toolchain. See `bootstrap/README.md`.
-- `examples/` — example `.hawk` programs. `bin/` — dev entry scripts.
+- `examples/` — example `.hawk` programs. `bench/` — perf/GC benchmark
+  harnesses. `bin/` — dev entry scripts.
 - `docs/` — design docs.
 
 ## Current state

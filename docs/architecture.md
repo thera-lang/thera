@@ -135,7 +135,7 @@ finding interesting.
   one re-entrant path — the structural `debug`/`display` fallback, which calls
   back into the interpreter while its values sit in Rust locals — pauses
   collection for its duration (atomic w.r.t. the GC, like a native). Validated
-  by `examples/gc_stress.hawk`: ~16 MB of churn that leaked to ~500 MB under the
+  by `bench/gc_stress.hawk`: ~16 MB of churn that leaked to ~500 MB under the
   no-collect heap now holds flat at a few MB resident.
 - **The collection heuristic is byte-budgeted and allocation-driven.** `alloc`
   tracks a running byte estimate (`Obj::heap_bytes` — slot + payload capacity)
