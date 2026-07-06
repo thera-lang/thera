@@ -2,9 +2,9 @@
 
 **What this is:** the spec for Hawk's bytecode — the stable IR that the
 front-end emits, the interpreter runs, and the Cranelift JIT will lower from —
-plus the serialized `.hawkbc` format. Iterate freely; the Tier-0 interpreter and
-the format already implement much of this (see [roadmap.md](roadmap.md) for
-status). The motivating rationale for a tiered VM and our own bytecode is in
+plus the serialized `.hawkbc` format. The Tier-0 interpreter and the format
+already implement much of this (see [roadmap.md](roadmap.md) for status). The
+motivating rationale for a tiered VM and our own bytecode is in
 [architecture.md](architecture.md).
 
 ## Design priorities
@@ -23,12 +23,15 @@ In order (per the project's stated criteria):
 A few consequences fall out of these directly:
 
 - **Stack-based.** No register allocation in the frontend; trivial interpreter.
-- **Typed and untagged.** Each instruction knows the type it operates on
-  (`add.i64` vs `add.f64`). Operand-stack slots carry no runtime tag. This is
-  what lets the JIT do straight-line typed lowering with no guards or deopt, and
-  what keeps the on-disk format compact. The cost is that the GC needs
-  _stackmaps_ to find roots (see [GC](#garbage-collection)) — deferred until we
-  actually have a GC.
+- **Typed and (eventually) untagged.** Each instruction knows the type it
+  operates on (`add.i64` vs `add.f64`) — this holds today. The _durable_ form
+  additionally carries no runtime tag on operand-stack slots, which is what lets
+  the JIT do straight-line typed lowering with no guards or deopt, and what
+  keeps the on-disk format compact; the cost is that the GC then needs
+  _stackmaps_ to find roots (see [GC](#garbage-collection)). The Tier-0
+  interpreter, however, still uses a **tagged `Value`** (simpler to build and
+  debug), so its GC reads the tag instead of a stackmap. Untagged slots arrive
+  with the JIT tier.
 - **Reducible control flow by construction.** Control flow is flat (jumps to
   byte offsets), but because it is only ever emitted from Hawk's structured
   constructs (`if`/`for`/`match`/`?`), the resulting CFG is always reducible —
@@ -64,14 +67,6 @@ copying — so two bindings to the same `mut` collection observe each other's
 mutations. This is the Dart/Python model, chosen over Swift-style value
 semantics for implementation simplicity.
 
-> **Bootstrapping decision:** the _durable_ design is untagged (above) — a
-> tagged `Value` enum defeats the typed-JIT rationale and bloats the format. But
-> the **first** Tier-0 interpreter will deliberately start with a tagged `Value`
-> enum: simpler to stand up and debug, and it sidesteps stackmaps before the GC
-> exists. We refactor to untagged slots once the ISA stabilizes. The bytecode
-> format itself stays untagged either way — only the interpreter's in-memory
-> value differs.
-
 ## The first interpreter (Tier 0): nailed-down decisions
 
 These pin down the draft interpreter so it can be built without guessing. They
@@ -85,8 +80,10 @@ describe the _first cut_, not permanent constraints.
   `Bool(bool)`, `Unit`, and a `Ref` to a heap object. `Unit` represents
   `Void`/`()`, so every call yields exactly one stack value and the dispatch
   loop has no "did this push or not" special-casing.
-- **Heap objects:** shared references (see reference semantics above). The draft
-  may use `Rc<RefCell<…>>`; the eventual GC replaces this with a managed heap.
+- **Heap objects:** shared references (see reference semantics above). The early
+  draft used `Rc<RefCell<…>>`; it is now a **managed slab heap** addressed by a
+  `u32` handle (`Value::Ref(u32)`), with a free list and the mark-sweep GC over
+  it (see [GC](#garbage-collection)).
 - **Calling convention:** the caller pushes args left-to-right; `call` moves the
   top `argc` slots into the callee's `locals[0..argc]`; the callee's return
   value is pushed onto the caller's operand stack (a `Void` function pushes
@@ -95,17 +92,20 @@ describe the _first cut_, not permanent constraints.
   collections — by content, never by identity.
 - **Integer overflow wraps** (two's complement). Not a trap. Divide-by-zero
   still traps. `/` and `%` follow Rust i64 semantics (truncate toward zero).
-- **Intrinsics:** `call.native <index>` resolves against a small Rust function
-  table. The draft ships `println`, a primitive-stringify helper (for `${int}`
-  etc.), and `str_concat` (for interpolation) — enough to write observable test
-  programs without a stdlib.
+- **Intrinsics:** `call.native <index>` resolves against a Rust function table.
+  The first draft shipped only `println`, a primitive-stringify helper (for
+  `${int}` etc.), and `str_concat`; the table has since grown to ~140 natives
+  (string/list/map ops, math, fs, env, process, bytes, hashing, regex, time, and
+  the fiber/channel primitives). Natives are **bound by name on the wire** and
+  resolved to a table index at load time.
 - **Enum tag numbering is fixed:** `Result` → `Ok = 0`, `Err = 1`; `Option` →
   `Some = 0`, `None = 1`. Hand-written bytecode, the `?`/`match` lowering, and
   the future frontend must all agree on this.
 - **Scope of the first draft:** `Int`/`Double`/`Bool`/`Unit`, locals,
   arithmetic/comparison, control flow, direct `call` + `return`, enums (so
-  `Result`/`Option`/`match`/`?` work), and `println`. **Deferred:** collections,
-  closures, interface dispatch, string methods, GC, fibers, and the JIT.
+  `Result`/`Option`/`match`/`?` work), and `println`. Everything the first draft
+  deferred — collections, closures, interface dispatch (via `call.virtual`),
+  string methods, GC, and fibers — has since landed; only the JIT remains.
 
 ## Container format (a compiled module)
 
@@ -114,27 +114,42 @@ is in [Serialized format](#serialized-format) below):
 
 ```
 Module
-  constants   : [Const]        // i64, f64, and string literals
-  types       : [TypeDef]      // struct + enum layouts
+  constants   : StringPool      // dedup'd string literals (strings only for now)
+  types       : [TypeDef]       // struct + enum shapes
   functions   : [Function]
-  globals?    : [Global]       // deferred; CLI code mostly needs none
-  entry       : FuncRef        // main
+  symbols     : [Str]           // one name per function (the Symbols section)
+  dispatch    : [DispatchRow]   // (type_id, selector, func) — backs call.virtual
+  global_count: u32             // size of the per-run globals vector; 0 if none
+  entry?      : u32             // index of `main`     (the Entry section)
+  init?       : u32             // index of `<init>`   (the Entry section)
 
 TypeDef
-  Struct { fields: [SlotKind] }            // SlotKind tells GC which are refs
-  Enum   { variants: [[SlotKind]] }        // payload layout per variant
+  name        : Str
+  field_count : u16             // struct fields / enum-payload arity
 
 Function
-  name        : Str
   param_count : u16
   local_count : u16             // includes params; locals are slots [0, local_count)
-  max_stack   : u16             // operand-stack depth; lets us preallocate
   code        : [u8]            // the instruction stream
-  stackmaps?  : [Stackmap]      // ref-bitmaps at safepoints; deferred (see GC)
+  // name lives in the parallel `symbols` table, not here
+  stackmaps?  : [Stackmap]      // ref-bitmaps at safepoints; not emitted yet (see GC)
 ```
 
-`SlotKind` is just `{ Value, Ref }` for now — enough for the GC to scan. It can
-grow into richer type info later if the JIT wants it.
+Function names live in a separate **Symbols** table (parallel to `functions`)
+rather than inline, so a build can strip them without touching the code stream.
+Because names are then optional, the **Entry** section records the `main` and
+`<init>` indices directly — the runtime finds its entry and init thunk without
+consulting names (it falls back to a name lookup only when the Entry section is
+absent). See [Serialized format](#serialized-format).
+
+Not stored yet: a `max_stack` hint (the interpreter grows the operand stack
+dynamically) and `stackmaps` (the tagged-`Value` GC doesn't need them — see
+[GC](#garbage-collection)).
+
+`TypeDef` carries no per-field ref/value info: the tagged-`Value` GC discovers
+refs by scanning the stack (see [GC](#garbage-collection)), so it needs no
+static `SlotKind` layout. A per-field `SlotKind` (`{ Value, Ref }`, richer later
+if the JIT wants it) returns with the untagged durable form.
 
 ## Serialized format
 
@@ -161,26 +176,45 @@ loader can skip sections it does not understand (forward compatibility, and a
 home for optional debug info):
 
 ```
-Header:   magic "HAWK" + format version
+Header:   magic "HAWK" + format version (u32, currently 2)
 Section:  id (u8) + byte_length (varint) + payload     // unknown ids skipped
-  Types     : struct/enum layouts (TypeDef); EnumNew's field_count moves here
-  Functions : per fn { name, param_count, local_count, max_stack, code }
-  Entry     : index of main
-  Constants : (later) dedup'd strings / f64 / large ints — a compaction step
+  Functions : per fn { param_count, local_count, code }
+  Constants : string constant pool — dedup'd string literals, referenced by
+              index (see below). f64 / large ints are not pooled yet.
+  Types     : struct/enum layouts (TypeDef: name + field_count)
+  Symbols   : one function name per Functions entry (length-prefixed strings);
+              emitted by default, but a self-contained section a build can drop.
+  Dispatch  : the (type_id, selector, func) rows backing `call.virtual`
   Globals   : module-global count (a single varint) — top-level `let` slots;
               omitted when zero, so global-free modules are byte-for-byte
               unchanged.
+  Entry     : the `main` and `<init>` function indices, each as `index + 1`
+              (0 = absent); omitted when the module has neither.
   Debug?    : (later) source file + line table — optional, skippable
 ```
 
+**Names and entry points.** Function names are not inline in Functions — they
+live in the parallel **Symbols** section, so a future build can strip them
+without touching the code stream. Because the entry then can't be found by name,
+the **Entry** section records the `main` and `<init>` indices directly; the
+runtime reads them there (falling back to a name lookup only when Entry is
+absent). `EnumNew` still carries its `field_count` as an inline operand rather
+than deriving it from the Types section — an intended-but-not-yet-done
+compaction.
+
+The section framing is the version-evolution seam: v1 inlined names in Functions
+and had no Symbols/Entry; v2 (current) moved them out. Since the front-end and
+runtime ship together, the loader accepts only the current version.
+
 **Module globals & the init thunk.** Top-level `let` bindings become slots in a
 per-run **globals vector**, sized by the Globals section's count. The front-end
-emits a reserved **program-init thunk** function named `<init>` that evaluates
-each initializer in dependency order and `global.set`s its slot; the runtime runs
-it once, after allocating the vector and before the entry. Globals are a
-permanent GC root set. The angle-bracketed name can't collide with a user
-identifier. (For the language surface — module-level `let`, `const` vs `let`,
-initializer purity — see [language.md](language.md) → Module-level bindings.)
+emits a reserved **program-init thunk** function named `<init>` (its index
+recorded in the Entry section) that evaluates each initializer in dependency
+order and `global.set`s its slot; the runtime runs it once, after allocating the
+vector and before the entry. Globals are a permanent GC root set. The
+angle-bracketed name can't collide with a user identifier. (For the language
+surface — module-level `let`, `const` vs `let`, initializer purity — see
+[language.md](language.md) → Module-level bindings.)
 
 **Instruction encoding.**
 
@@ -188,10 +222,12 @@ initializer purity — see [language.md](language.md) → Module-level bindings.
 - Operands use **LEB128 varints** (unsigned for indices/lengths, signed for
   `i64` immediates) — small values cost one byte. `f64` is 8 raw bytes.
 - Multi-byte fixed fields are little-endian.
-- v0 **inlines constants** in the instruction stream (a string literal carries
-  its bytes; `const.f64` carries 8 bytes). A module-global **constant pool**
-  (the JVM idea: dedup + reference by index) is a later compaction step, hence
-  the deferred Constants section above.
+- **Strings are pooled** (the JVM idea): a **string constant pool** in the
+  Constants section dedups string literals, and `const.str` references one by
+  index (`u32`). Type names, `call.virtual` selectors, and native-function names
+  are pooled the same way. Numeric constants are still **inlined** in the
+  instruction stream: `const.i64` carries a signed varint and `const.f64`
+  carries its 8 raw bytes. Pooling f64 / large ints is a later compaction step.
 
 The [disassembler](#) is the round-trip oracle: `encode → decode` must produce
 an identical `Module` (compared directly or via disassembly).
@@ -203,12 +239,13 @@ each is a distinct opcode.
 
 ### Constants
 
-| Op           | Operands   | Stack    | Notes                     |
-| ------------ | ---------- | -------- | ------------------------- |
-| `const.i64`  | `imm: i64` | `→ i64`  | small ints inline         |
-| `const.f64`  | `k: u32`   | `→ f64`  | from constant pool        |
-| `const.bool` | `b: u8`    | `→ bool` | 0 / 1                     |
-| `const.str`  | `k: u32`   | `→ ref`  | interned string from pool |
+| Op           | Operands   | Stack    | Notes                           |
+| ------------ | ---------- | -------- | ------------------------------- |
+| `const.i64`  | `imm: i64` | `→ i64`  | inline signed varint            |
+| `const.f64`  | `imm: f64` | `→ f64`  | inline 8 raw bytes              |
+| `const.bool` | `b: u8`    | `→ bool` | 0 / 1                           |
+| `const.str`  | `k: u32`   | `→ ref`  | interned string from const pool |
+| `const.unit` | —          | `→ unit` | the `Void`/`()` slot            |
 
 ### Locals
 
@@ -222,14 +259,14 @@ ref-ness is recorded in the function's stackmap, not the opcode.
 
 ### Module globals
 
-| Op           | Operands   | Stack | Notes                                  |
-| ------------ | ---------- | ----- | -------------------------------------- |
-| `global.get` | `idx: u32` | `→ v` | read a top-level `let` slot            |
-| `global.set` | `idx: u32` | `v →` | only inside the `<init>` thunk         |
+| Op           | Operands   | Stack | Notes                          |
+| ------------ | ---------- | ----- | ------------------------------ |
+| `global.get` | `idx: u32` | `→ v` | read a top-level `let` slot    |
+| `global.set` | `idx: u32` | `v →` | only inside the `<init>` thunk |
 
 A plain slot read/write into the per-run globals vector — init order is fixed at
-link time, so `global.get` needs **no** "is it initialized yet" guard. `global.set`
-is emitted only by the program-init thunk.
+link time, so `global.get` needs **no** "is it initialized yet" guard.
+`global.set` is emitted only by the program-init thunk.
 
 > **Captures: implemented — closure conversion.** The frontend does _closure
 > conversion_: each lambda lowers to a plain top-level function whose **leading
@@ -343,18 +380,19 @@ positional. A `Void` return pushes nothing.
 
 These are the GC _allocation safepoints_.
 
-| Op            | Operands                  | Stack                  | Notes                          |
-| ------------- | ------------------------- | ---------------------- | ------------------------------ |
-| `struct.new`  | `type: u32`               | `fieldN..field0 → ref` | field count comes from TypeDef |
-| `field.get`   | `idx: u16`                | `ref → v`              |                                |
-| `field.set`   | `idx: u16`                | `ref v →`              | for `mut` fields; rare         |
-| `enum.new`    | `type: u32, variant: u16` | `fieldN..field0 → ref` | writes the tag + payload       |
-| `enum.tag`    | —                         | `ref → i64`            | variant index, for `match`/`?` |
-| `enum.get`    | `idx: u16`                | `ref → v`              | extract a payload field        |
-| `list.new`    | `count: u32`              | `vN..v0 → ref`         | list literal `[a, b, c]`       |
-| `list.get`    | —                         | `ref idx → v`          | `list[i]` read; traps if OOB   |
-| `list.set`    | —                         | `ref idx v →`          | `list[i] = v`; traps if OOB    |
-| `closure.new` | `func: u32, captures: u8` | `capN..cap0 → ref`     | binds captured slots           |
+| Op            | Operands                                   | Stack                  | Notes                                                      |
+| ------------- | ------------------------------------------ | ---------------------- | ---------------------------------------------------------- |
+| `struct.new`  | `type: u32`                                | `fieldN..field0 → ref` | field count comes from TypeDef                             |
+| `field.get`   | `idx: u16`                                 | `ref → v`              |                                                            |
+| `field.set`   | `idx: u16`                                 | `ref v →`              | for `mut` fields; rare                                     |
+| `enum.new`    | `type: u32, variant: u16, field_count: u8` | `fieldN..field0 → ref` | writes the tag + payload                                   |
+| `enum.tag`    | —                                          | `ref → i64`            | variant index, for `match`/`?`                             |
+| `enum.get`    | `idx: u16`                                 | `ref → v`              | extract a payload field                                    |
+| `list.new`    | `count: u32`                               | `vN..v0 → ref`         | list literal `[a, b, c]`                                   |
+| `list.get`    | —                                          | `ref idx → v`          | `list[i]` read; traps if OOB                               |
+| `list.set`    | —                                          | `ref idx v →`          | `list[i] = v`; traps if OOB                                |
+| `list.len`    | —                                          | `ref → i64`            | `list.len()`; primitive so the JIT can elide bounds checks |
+| `closure.new` | `func: u32, captures: u8`                  | `capN..cap0 → ref`     | binds captured slots                                       |
 
 `list.get`/`list.set` are the faulting list-element load/store — primitives
 (like `field.get`/`field.set`) so the JIT can lower them inline and elide bounds
@@ -434,18 +472,33 @@ stringify intrinsic (`call.native`). The pieces are then joined with a
 
 ## Garbage collection
 
-Deferred — the first interpreter can run bounded CLI work without collecting.
-When the GC lands (precise, non-moving mark-sweep, per the plan):
+**Implemented** — a precise, non-moving **mark-sweep** collector over the
+u32-handle heap (`runtime/src/heap.rs`). Handles are stable across a collection
+(non-moving), so operand-stack slots and locals holding a `Value::Ref(u32)` stay
+valid. Collection is triggered by a byte-budget threshold (adaptive: grow 2×, or
+4× when a collection reclaims little) and runs only at a single **safepoint** —
+the top of the interpreter's `run_loop` — so it never fires mid-instruction.
 
-- **Roots** are the live operand-stack slots and locals that are refs. Because
-  the bytecode is typed, the compiler emits a **stackmap** at each safepoint
-  (every `call.*` and every allocating op) — a bitmap over
-  `[locals ++ live stack]` marking which slots are refs. This is the
-  `Function.stackmaps` field left as a stub above.
-- **Heap object headers** carry their `TypeDef` so the GC can trace fields
-  (`SlotKind` per field).
-- Non-moving is mandated by the eventual hybrid JIT-frame scanning; the format
-  does not assume object addresses are stable-and-relocatable.
+How it works today vs. the durable/JIT plan:
+
+- **Roots — found by scanning the tagged value stack, not stackmaps.** Because
+  the Tier-0 interpreter uses a **tagged `Value`** (see the value model below),
+  the collector finds refs dynamically: it walks every live fiber's operand
+  stack and locals and marks the slots that match `Value::Ref`, plus the
+  permanent roots (the string-intern table and the module globals vector). No
+  per-safepoint ref-bitmaps are emitted or needed.
+- **Tracing** is done by `Obj::for_each_child`, which matches on the heap
+  object's Rust enum variant and recurses into the `Value`s it holds — there is
+  no per-object `TypeDef`/`SlotKind` header. (`Struct`/`Enum` objects do carry a
+  `ty: u32` id, but that is for structural equality and dynamic dispatch, not GC
+  tracing.)
+- **The stackmap scheme is the future durable/JIT form.** Once operand slots go
+  **untagged** (the durable value model and the Cranelift tier), the collector
+  can no longer read a tag to decide ref-ness, so the compiler will emit a
+  **stackmap** at each safepoint — a bitmap over `[locals ++ live stack]`
+  marking refs — which is the still-unimplemented `Function.stackmaps` field
+  sketched in the container format above. Non-moving is retained so the eventual
+  hybrid JIT-frame scanning need not assume relocatable addresses.
 
 ## Lowering to Cranelift (Tier 1)
 
@@ -465,21 +518,29 @@ no type guards — the speculation-free property the plan is built around.
 
 ## Open questions / deferred
 
-Resolved: **closure capture** — closure conversion with captures as the lifted
-function's leading locals; `closure.new` / `call.indirect` implemented, with
-immutable captures by value and captured `mut` locals boxed into one-field
-cells. And **interface dispatch** (static resolution → direct `call` now; vtable
-`call.interface` only once type-erased interface values exist, devirtualized by
-the JIT).
+Resolved:
 
-- **Encoding details** — fixed-width vs. LEB128; the exact module file layout.
+- **Closure capture** — closure conversion with captures as the lifted
+  function's leading locals; `closure.new` / `call.indirect` implemented, with
+  immutable captures by value and captured `mut` locals boxed into one-field
+  cells.
+- **Interface dispatch** — dynamic dispatch via `call.virtual` and a module
+  dispatch table now; the slot-indexed `call.interface` waits on type-erased
+  interface values (devirtualized by the JIT).
+- **Encoding details** — LEB128 varints, 1-byte opcodes, the section layout
+  documented above.
+- **String interning** — a string constant pool dedups literals; f64 / large
+  ints are not pooled yet.
+- **Fiber yield points** — implemented as blocking/yielding `call.native`s (the
+  scheduler re-runs or reschedules the fiber on the native's park request), not
+  back-edges. Back-edges are GC safepoints only.
+- **Globals / module-level state** — implemented: a per-run globals vector plus
+  the `<init>` thunk.
+
+Still open:
+
 - **`switch.tag`** jump table for fast `match`.
-- **Constant-pool dedup / interning** policy for strings.
-- **Fiber yield points** — where the interpreter checks for cooperative
-  rescheduling (likely at back-edges and blocking `call.native`s).
+- **Constant-pool for f64 / large ints** — currently strings only.
 - **Stackmap representation** — bitmap vs. ranges; per-safepoint vs. per-block.
-- **Globals / module-level state** — whether CLI programs need them at all.
+  Only needed once operand slots go untagged (the JIT tier).
 - **Tail calls** — useful for the eventual self-hosted compiler; not yet.
-- **Container format** - instead of inventing a new container format wholesale,
-  we may look at existing formats; for example, could we use the wasm format?
-  Or, a custom format inspired by it?

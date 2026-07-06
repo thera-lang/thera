@@ -69,7 +69,7 @@ fn cmd_frontend(args: &[String]) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let Some(entry) = module.function_index("main") else {
+    let Some(entry) = module.entry_index() else {
         eprintln!("hawk: the embedded front-end has no 'main' function");
         return ExitCode::FAILURE;
     };
@@ -104,15 +104,15 @@ fn cmd_frontend(args: &[String]) -> ExitCode {
 /// whose synthesized driver avoids colliding with a tested module's own `main` —
 /// then the `.hawkbc` path, then the program arguments.
 fn cmd_run(args: &[String]) -> ExitCode {
-    let (entry_name, rest) = match args.split_first() {
+    let (explicit_entry, rest) = match args.split_first() {
         Some((flag, tail)) if flag == "--entry" => match tail.split_first() {
-            Some((name, tail)) => (name.as_str(), tail),
+            Some((name, tail)) => (Some(name.as_str()), tail),
             None => {
                 eprintln!("usage: hawkrt [--entry NAME] <file.hawkbc> [args]");
                 return ExitCode::from(2);
             }
         },
-        _ => ("main", args),
+        _ => (None, args),
     };
 
     let Some(path) = rest.first() else {
@@ -128,8 +128,17 @@ fn cmd_run(args: &[String]) -> ExitCode {
         }
     };
 
-    let Some(entry) = module.function_index(entry_name) else {
-        eprintln!("hawk: {path} has no '{entry_name}' function");
+    // An explicit `--entry NAME` is resolved by name (needs the Symbols table);
+    // the default entry comes from the Entry section.
+    let entry = match explicit_entry {
+        Some(name) => module.function_index(name),
+        None => module.entry_index(),
+    };
+    let Some(entry) = entry else {
+        eprintln!(
+            "hawk: {path} has no '{}' function",
+            explicit_entry.unwrap_or("main")
+        );
         return ExitCode::FAILURE;
     };
 

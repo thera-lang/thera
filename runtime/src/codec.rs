@@ -61,7 +61,7 @@ pub fn read_module_from_file(path: impl AsRef<Path>) -> Result<Module, LoadError
 }
 
 const MAGIC: &[u8] = b"HAWK";
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 
 /// Section ids. Unknown ids are skipped on decode via their byte length.
 mod section {
@@ -72,6 +72,13 @@ mod section {
     /// The module-global count (a single uvarint). Omitted when zero, so modules
     /// with no top-level `let` encode byte-identically to before the feature.
     pub const GLOBALS: u8 = 5;
+    /// The entry points: the `main` and `<init>` function indices (each as
+    /// `index + 1`, with `0` meaning absent). Lets the runtime find the entry
+    /// without function names. Omitted when the module has neither.
+    pub const ENTRY: u8 = 6;
+    /// The function-name table (a symbol per function, parallel to Functions).
+    /// Emitted by default, but separable so a future build can strip names.
+    pub const SYMBOLS: u8 = 7;
 }
 
 /// Collects and deduplicates string literals during encoding. Strings are
@@ -210,12 +217,29 @@ pub fn encode_module(m: &Module) -> Vec<u8> {
         types.write_uvarint(u64::from(t.field_count));
     }
 
-    // Functions section: bodies reference the pool by index.
+    // Functions section: bodies reference the pool by index. Names live in the
+    // Symbols section, not here.
     let mut funcs = Writer::new();
     funcs.write_uvarint(m.functions.len() as u64);
     for f in &m.functions {
         encode_function(&mut funcs, f, &pool);
     }
+
+    // Symbols section: one name per function, parallel to Functions.
+    let mut symbols = Writer::new();
+    symbols.write_uvarint(m.functions.len() as u64);
+    for f in &m.functions {
+        symbols.write_str(&f.name);
+    }
+
+    // Entry section: the `main` and `<init>` indices (each as `index + 1`, 0 =
+    // absent). Fall back to a name lookup for modules that don't set them.
+    let entry = m
+        .entry
+        .or_else(|| m.function_index("main").map(|i| i as u32));
+    let init = m
+        .init
+        .or_else(|| m.function_index("<init>").map(|i| i as u32));
 
     // Dispatch section: (type id, selector pool index, function index) per row.
     let mut dispatch = Writer::new();
@@ -232,6 +256,7 @@ pub fn encode_module(m: &Module) -> Vec<u8> {
     write_section(&mut w, section::CONSTANTS, &consts.into_bytes());
     write_section(&mut w, section::TYPES, &types.into_bytes());
     write_section(&mut w, section::FUNCTIONS, &funcs.into_bytes());
+    write_section(&mut w, section::SYMBOLS, &symbols.into_bytes());
     if !m.dispatch.is_empty() {
         write_section(&mut w, section::DISPATCH, &dispatch.into_bytes());
     }
@@ -239,6 +264,13 @@ pub fn encode_module(m: &Module) -> Vec<u8> {
         let mut globals = Writer::new();
         globals.write_uvarint(u64::from(m.global_count));
         write_section(&mut w, section::GLOBALS, &globals.into_bytes());
+    }
+    // Entry section last; omitted when the module has neither an entry nor init.
+    if entry.is_some() || init.is_some() {
+        let mut e = Writer::new();
+        e.write_uvarint(u64::from(entry.map_or(0, |i| i + 1)));
+        e.write_uvarint(u64::from(init.map_or(0, |i| i + 1)));
+        write_section(&mut w, section::ENTRY, &e.into_bytes());
     }
     w.into_bytes()
 }
@@ -258,8 +290,10 @@ pub fn decode_module(bytes: &[u8]) -> Result<Module, DecodeError> {
     let mut consts_payload: Option<&[u8]> = None;
     let mut types_payload: Option<&[u8]> = None;
     let mut funcs_payload: Option<&[u8]> = None;
+    let mut symbols_payload: Option<&[u8]> = None;
     let mut dispatch_payload: Option<&[u8]> = None;
     let mut globals_payload: Option<&[u8]> = None;
+    let mut entry_payload: Option<&[u8]> = None;
     while !r.is_empty() {
         let id = r.read_u8()?;
         let len = r.read_uvarint()? as usize;
@@ -268,8 +302,10 @@ pub fn decode_module(bytes: &[u8]) -> Result<Module, DecodeError> {
             section::CONSTANTS => consts_payload = Some(payload),
             section::TYPES => types_payload = Some(payload),
             section::FUNCTIONS => funcs_payload = Some(payload),
+            section::SYMBOLS => symbols_payload = Some(payload),
             section::DISPATCH => dispatch_payload = Some(payload),
             section::GLOBALS => globals_payload = Some(payload),
+            section::ENTRY => entry_payload = Some(payload),
             _ => {} // unknown section: skip (payload already consumed)
         }
     }
@@ -294,6 +330,17 @@ pub fn decode_module(bytes: &[u8]) -> Result<Module, DecodeError> {
         }
     }
 
+    // Symbols: assign each function its name. When absent (a name-stripped
+    // module), synthesize a stable placeholder so `function_index` and profiling
+    // still have something to show.
+    let symbols = match symbols_payload {
+        Some(p) => decode_symbols(p)?,
+        None => Vec::new(),
+    };
+    for (i, f) in functions.iter_mut().enumerate() {
+        f.name = symbols.get(i).cloned().unwrap_or_else(|| format!("fn#{i}"));
+    }
+
     let mut module = Module::with_types(functions, types);
     if let Some(p) = dispatch_payload {
         module.dispatch = decode_dispatch(p, &pool)?;
@@ -301,7 +348,27 @@ pub fn decode_module(bytes: &[u8]) -> Result<Module, DecodeError> {
     if let Some(p) = globals_payload {
         module.global_count = Reader::new(p).read_uvarint()? as u32;
     }
+    if let Some(p) = entry_payload {
+        let mut er = Reader::new(p);
+        module.entry = decode_opt_index(er.read_uvarint()?);
+        module.init = decode_opt_index(er.read_uvarint()?);
+    }
     Ok(module)
+}
+
+/// Decode an Entry-section index stored as `index + 1` (0 = absent).
+fn decode_opt_index(raw: u64) -> Option<u32> {
+    (raw != 0).then(|| (raw - 1) as u32)
+}
+
+fn decode_symbols(payload: &[u8]) -> Result<Vec<String>, DecodeError> {
+    let mut r = Reader::new(payload);
+    let count = r.read_uvarint()? as usize;
+    let mut names = Vec::with_capacity(count);
+    for _ in 0..count {
+        names.push(r.read_str()?);
+    }
+    Ok(names)
 }
 
 fn decode_dispatch(payload: &[u8], pool: &[String]) -> Result<Vec<DispatchEntry>, DecodeError> {
@@ -354,7 +421,6 @@ fn write_section(w: &mut Writer, id: u8, payload: &[u8]) {
 }
 
 fn encode_function(w: &mut Writer, f: &Function, pool: &StringPool) {
-    w.write_str(&f.name);
     w.write_uvarint(f.param_count as u64);
     w.write_uvarint(f.local_count as u64);
     w.write_uvarint(f.code.len() as u64);
@@ -364,7 +430,7 @@ fn encode_function(w: &mut Writer, f: &Function, pool: &StringPool) {
 }
 
 fn decode_function(r: &mut Reader, pool: &[String]) -> Result<Function, DecodeError> {
-    let name = r.read_str()?;
+    // The name lives in the Symbols section; the decoder fills it in afterward.
     let param_count = r.read_uvarint()? as u16;
     let local_count = r.read_uvarint()? as u16;
     let code_len = r.read_uvarint()? as usize;
@@ -372,7 +438,7 @@ fn decode_function(r: &mut Reader, pool: &[String]) -> Result<Function, DecodeEr
     for _ in 0..code_len {
         code.push(decode_instr(r, pool)?);
     }
-    Ok(Function::new(name, param_count, local_count, code))
+    Ok(Function::new(String::new(), param_count, local_count, code))
 }
 
 fn encode_instr(w: &mut Writer, instr: &Instr, pool: &StringPool) {
@@ -782,8 +848,7 @@ mod tests {
         consts.write_uvarint(0); // empty pool
 
         let mut funcs = Writer::new();
-        funcs.write_uvarint(1); // one function
-        funcs.write_str("f");
+        funcs.write_uvarint(1); // one function (name lives in Symbols, omitted here)
         funcs.write_uvarint(0); // params
         funcs.write_uvarint(0); // locals
         funcs.write_uvarint(2); // code len
@@ -828,8 +893,7 @@ mod tests {
         consts.write_str("bogus_native");
 
         let mut funcs = Writer::new();
-        funcs.write_uvarint(1);
-        funcs.write_str("f");
+        funcs.write_uvarint(1); // one function (name lives in Symbols, omitted here)
         funcs.write_uvarint(0); // params
         funcs.write_uvarint(0); // locals
         funcs.write_uvarint(2); // code len
@@ -881,8 +945,14 @@ mod tests {
         let main = Function::new("main", 0, 0, vec![Instr::GlobalGet(1), Instr::Return]);
         let mut m = Module::new(vec![init, main]);
         m.global_count = 2;
+        // The encoder derives these from the `main`/`<init>` names and writes the
+        // Entry section; the decoder reads them back.
+        m.entry = Some(1);
+        m.init = Some(0);
         let decoded = decode_module(&encode_module(&m)).unwrap();
         assert_eq!(decoded.global_count, 2);
+        assert_eq!(decoded.entry, Some(1));
+        assert_eq!(decoded.init, Some(0));
         assert_eq!(decoded, m);
     }
 
@@ -945,10 +1015,22 @@ mod tests {
 
     #[test]
     fn rejects_unknown_opcode() {
-        // The last byte of this module is the Return opcode; corrupt it.
-        let m = Module::new(vec![Function::new("f", 0, 0, vec![Instr::Return])]);
-        let mut bytes = encode_module(&m);
-        *bytes.last_mut().unwrap() = 0xFF;
-        assert_eq!(decode_module(&bytes), Err(DecodeError::UnknownOpcode(0xFF)));
+        // A hand-built function whose single "instruction" is an unknown opcode.
+        let mut funcs = Writer::new();
+        funcs.write_uvarint(1); // one function
+        funcs.write_uvarint(0); // params
+        funcs.write_uvarint(0); // locals
+        funcs.write_uvarint(1); // code len
+        funcs.write_u8(0xFF); // not a real opcode
+
+        let mut w = Writer::new();
+        w.write_raw(MAGIC);
+        w.write_u32_le(VERSION);
+        write_section(&mut w, super::section::FUNCTIONS, &funcs.into_bytes());
+
+        assert_eq!(
+            decode_module(&w.into_bytes()),
+            Err(DecodeError::UnknownOpcode(0xFF))
+        );
     }
 }

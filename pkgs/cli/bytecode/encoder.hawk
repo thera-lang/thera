@@ -2,18 +2,18 @@
 // runtime's `codec.rs` encode side and the Dart toolchain's bytecode/encoder.dart.
 //
 // A `"HAWK"` magic + version header, then length-prefixed sections (Constants,
-// Types, Functions, Dispatch). Strings are deduplicated into a constant pool and
-// referenced by index; `call.native`/`call.virtual`/`const.str` reference their
-// string by pool index. Function names are written inline (not pooled), matching
-// the runtime's loader. The output must be byte-identical to the Dart encoder's
-// (and the runtime's `emit-demo`) for the same module — the round-trip contract
-// the toolchains share.
+// Types, Functions, Symbols, Dispatch, Globals, Entry). Strings are deduplicated
+// into a constant pool and referenced by index; `call.native`/`call.virtual`/
+// `const.str` reference their string by pool index. Function names live in the
+// Symbols section (parallel to Functions), matching the runtime's loader. The
+// output must be byte-identical to the runtime's `emit-demo` for the same module
+// — the round-trip contract the toolchains share.
 
 import 'instr' as _; // emits instructions pervasively
 import 'module';
 
 const MAGIC: String = 'HAWK';
-const VERSION: Int = 1;
+const VERSION: Int = 2;
 
 // Section ids. Unknown ids are skipped on decode via their byte length.
 const SECTION_FUNCTIONS: Int = 1;
@@ -23,6 +23,13 @@ const SECTION_DISPATCH: Int = 4;
 // The module-global count (a single uvarint); omitted when zero, so global-free
 // modules stay byte-identical to before the feature. See docs/bytecode.md.
 const SECTION_GLOBALS: Int = 5;
+// The entry points: `main` and `<init>` function indices (each as `index + 1`,
+// 0 = absent), so the runtime finds the entry without function names. Omitted
+// when the module has neither.
+const SECTION_ENTRY: Int = 6;
+// The function-name table (one name per function, parallel to Functions).
+// Emitted by default, but separable so a future build can strip names.
+const SECTION_SYMBOLS: Int = 7;
 
 // Collects and deduplicates strings during encoding, preserving first-seen order
 // so the encoded pool matches the runtime's. A linear scan keeps the port free
@@ -97,11 +104,19 @@ pub fn encode_module(_ m: module.Module) -> Bytes {
         types.write_uvarint(t.field_count);
     }
 
-    // Functions section: bodies reference the pool by index.
+    // Functions section: bodies reference the pool by index. Names live in the
+    // Symbols section, not here.
     let funcs = BytesBuilder.new();
     funcs.write_uvarint(m.functions.len());
     for f in m.functions {
         encode_function(funcs, f, pool);
+    }
+
+    // Symbols section: one name per function, parallel to Functions.
+    let symbols = BytesBuilder.new();
+    symbols.write_uvarint(m.functions.len());
+    for f in m.functions {
+        write_str_lp(symbols, f.name);
     }
 
     // Dispatch section: (type id, selector pool index, function index) per row.
@@ -113,14 +128,20 @@ pub fn encode_module(_ m: module.Module) -> Bytes {
         dispatch.write_uvarint(e.func);
     }
 
+    // Entry section: the `main` and `<init>` indices (each as `index + 1`, 0 =
+    // absent), derived from the function names.
+    let entry_plus1 = find_func(m.functions, 'main') + 1;
+    let init_plus1 = find_func(m.functions, '<init>') + 1;
+
     let w = BytesBuilder.new();
     w.write_str(MAGIC); // raw, unprefixed (ASCII "HAWK")
     w.write_u32_le(VERSION);
     write_section(w, SECTION_CONSTANTS, consts.finish());
     write_section(w, SECTION_TYPES, types.finish());
     write_section(w, SECTION_FUNCTIONS, funcs.finish());
-    // The dispatch section is omitted entirely when empty (matching the Dart
-    // encoder and keeping older modules byte-identical).
+    write_section(w, SECTION_SYMBOLS, symbols.finish());
+    // The dispatch section is omitted entirely when empty (keeping older modules
+    // byte-identical).
     if m.dispatch.len() != 0 {
         write_section(w, SECTION_DISPATCH, dispatch.finish());
     }
@@ -131,7 +152,25 @@ pub fn encode_module(_ m: module.Module) -> Bytes {
         globals.write_uvarint(m.global_count);
         write_section(w, SECTION_GLOBALS, globals.finish());
     }
+    // Entry section last; omitted when the module has neither an entry nor init.
+    if entry_plus1 != 0 || init_plus1 != 0 {
+        let entry = BytesBuilder.new();
+        entry.write_uvarint(entry_plus1);
+        entry.write_uvarint(init_plus1);
+        write_section(w, SECTION_ENTRY, entry.finish());
+    }
     return w.finish();
+}
+
+// The index of the function named `name`, or -1 if absent. `encode_module` uses
+// it to derive the Entry section's `main`/`<init>` indices (as `index + 1`).
+fn find_func(_ fns: List<module.FuncDef>, _ name: String) -> Int {
+    for p in fns.enumerate() {
+        if p.value.name == name {
+            return p.index;
+        }
+    }
+    return -1;
 }
 
 // A length-prefixed string: uvarint byte-length, then the raw UTF-8 bytes.
@@ -149,7 +188,6 @@ fn write_section(_ w: BytesBuilder, _ id: Int, _ payload: Bytes) -> Void {
 }
 
 fn encode_function(_ w: BytesBuilder, _ f: module.FuncDef, _ pool: StringPool) -> Void {
-    write_str_lp(w, f.name);
     w.write_uvarint(f.param_count);
     w.write_uvarint(f.local_count);
     w.write_uvarint(f.code.len());

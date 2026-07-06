@@ -140,7 +140,7 @@ pub const INIT_THUNK: &str = "<init>";
 /// no-op for modules with no globals. Output goes to stdout, like [`run`].
 pub fn init_module(module: &Module) -> Result<(), Trap> {
     heap::set_globals(module.global_count as usize);
-    if let Some(idx) = module.function_index(INIT_THUNK) {
+    if let Some(idx) = module.init_index() {
         let mut out = std::io::stdout();
         Vm::new(&mut out).run(module, idx, &[])?;
     }

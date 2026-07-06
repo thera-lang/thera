@@ -92,6 +92,13 @@ pub struct Module {
     /// allocates a vector this size before running the program-init thunk; both
     /// `global.get`/`global.set` index into it. See docs/bytecode.md.
     pub global_count: u32,
+    /// The entry function (`main`), from the Entry section — so the runtime need
+    /// not consult function names, which the Symbols section makes strippable.
+    /// `None` when the module declares no entry (e.g. a library).
+    pub entry: Option<u32>,
+    /// The program-init thunk (`<init>`), from the Entry section. `None` when the
+    /// module has no module-`let` initializers.
+    pub init: Option<u32>,
 }
 
 impl Module {
@@ -102,6 +109,8 @@ impl Module {
             types: Vec::new(),
             dispatch: Vec::new(),
             global_count: 0,
+            entry: None,
+            init: None,
         }
     }
 
@@ -111,12 +120,32 @@ impl Module {
             types,
             dispatch: Vec::new(),
             global_count: 0,
+            entry: None,
+            init: None,
         }
     }
 
     /// Index of the function named `name`, if any.
     pub fn function_index(&self, name: &str) -> Option<usize> {
         self.functions.iter().position(|f| f.name == name)
+    }
+
+    /// The entry function index: the explicit Entry-section value, falling back
+    /// to a `main` lookup by name (legacy modules, or before the Entry section
+    /// existed). Names are still present by default, so the fallback works until
+    /// the Symbols section is stripped.
+    pub fn entry_index(&self) -> Option<usize> {
+        self.entry
+            .map(|i| i as usize)
+            .or_else(|| self.function_index("main"))
+    }
+
+    /// The program-init thunk index: the explicit Entry-section value, falling
+    /// back to a `<init>` lookup by name. Mirrors [`entry_index`](Self::entry_index).
+    pub fn init_index(&self) -> Option<usize> {
+        self.init
+            .map(|i| i as usize)
+            .or_else(|| self.function_index("<init>"))
     }
 
     /// The function implementing `selector` for type id `ty`, if any — the
