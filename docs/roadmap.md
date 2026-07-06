@@ -289,6 +289,17 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   global-type fix (it reproduces on a properly-typed struct global and, likely,
   any struct field). Surfaced by `std.log`'s config; low urgency (clean
   workaround), but a real receiver-inference gap.
+- **Let a user scope shadow a prelude _value_ name.** Today `check_shadowed_surface`
+  flags any top-level decl whose name is in the file's bare surface (prelude +
+  `as _` imports), so a `pub fn error` collides with the prelude `error()`
+  constructor — which is why `std.log` can't expose an ambient `error` free
+  function to match `info`/`warn`/`debug`. Relax it for prelude _value_ names
+  (free functions / consts): allow the local definition and let same-file-first
+  resolution make it win in-file (qualified access — `log.error` — already reaches
+  the intended one), so shadowing is permitted though not recommended. Keep
+  reserved core **type** names (`is_reserved_type_name`) interdicted — a shadowed
+  type name genuinely breaks codegen (the original rationale) — and keep flagging
+  `as _`-imported collisions. Unblocks the `std.log` ambient `error` TODO.
 - **`@extern` name check.** Native names are written once as `@extern('…')` on
   the `native fn` decls in `sdk/std`; the Rust runtime table is the other half,
   bound by name at load. Add a test asserting every `@extern` name the front-end
@@ -771,15 +782,17 @@ conformance specs. Newest first.
   filtering (longest dotted-prefix wins), and Text/JSON rendering on stderr.
   Configuration (`set_level`/`set_level_for`/`set_format`/`configure_from_env`,
   the last reading a `RUST_LOG`-style `HAWK_LOG` spec) is application-only behind
-  a facade; libraries only ever emit. The ambient logger (`default()`/`named`)
-  and its config are the one **sanctioned exception** to "no global state" —
-  write-only diagnostics set once by the app — while the capability `to_writer`
-  logger (own sink/level, testable) is the escape hatch. Implemented **pure Hawk,
-  no natives**: the config is a `let config = Config { … }` module global (an
+  a facade; libraries only ever emit. Ambient logging is the free functions
+  `info`/`warn`/`debug` (plus `named(...)` for source-tagged loggers); its config
+  is the one **sanctioned exception** to "no global state" — write-only
+  diagnostics set once by the app — while the capability `to_writer` logger (own
+  sink/level, testable) is the escape hatch. Implemented **pure Hawk, no
+  natives**: the config is a `let config = Config { … }` module global (an
   immutable binding whose `mut` fields mutate in place), rendering is pure Hawk
-  (JSON via `std.json`), and output writes through `io.stderr()`. The four levels
-  come through the `Logger` interface rather than free functions because a
-  top-level `error` would collide with the prelude `error()` constructor. See
+  (JSON via `std.json`), and output writes through `io.stderr()`. An ambient
+  `error` free function is a TODO — a top-level `error` collides with the prelude
+  `error()` constructor; pending the prelude-value-shadow relaxation below (until
+  then `error` is available as a `Logger` method). See
   [stdlib.md](stdlib.md) § `std.log`.
 
 - **Semantic LSP resolution — references, rename, inferred-type navigation**

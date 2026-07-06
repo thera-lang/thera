@@ -859,18 +859,22 @@ configures.**
 ```
 pub enum Level { Debug, Info, Warn, Error }   // Trace addable
 
-// The Logger the whole surface hands back — the four levels come through the
-// interface (not free functions) because a top-level `error` would collide with
-// the prelude's `error()` constructor (a soft-reserved common noun).
+// The Logger a source-tagged logger hands back — all four levels as methods.
 pub interface Logger {
     fn debug(self, _ msg: String) -> Void;   // + info / warn / error
 }
 
-// Ambient — the 90% case. `default()` is the process logger (writes to stderr,
-// under the global config); `named(...)` tags records with a source so levels
-// tune per-source. Both are pure constructors, so one-per-module is the idiom:
+// Ambient — the zero-ceremony form: log through the process logger (an empty
+// source, gated only by the default level). `log.info('starting up')`.
+pub fn debug(_ msg: String) -> Void;   // + info / warn
+// `error` pending: a top-level `error` fn collides with the prelude `error()`
+// constructor; until that rule is relaxed (tracked in roadmap.md), log an
+// ambient error via `log.named('').error(...)`. Errors are methods on `Logger`,
+// so a named logger already has all four levels.
+
+// A source-tagged logger: `named(...)` tags records so levels tune per-source.
+// A pure constructor, so one-per-module is the idiom:
 //   let logger = log.named('myapp.db')    // an ordinary module-level `let`
-pub fn default() -> Logger;                 // log.default().info('starting up')
 pub fn named(_ name: String) -> Logger;
 
 // A self-contained Logger you hold and pass — the capability form. Its own sink,
@@ -918,8 +922,9 @@ opposite: **write-only diagnostic output, set once by the application, never
 read back into logic.** Threading a `Logger` through every call depth purely for
 diagnostics is the wrong trade — which is why every capability-conscious
 ecosystem (Rust included) still makes logging a global facade. So `std.log`
-keeps an ambient logger (`default()` / `named(...)`, § Cross-cutting #7's layer-1
-form) plus **one sanctioned setter surface** for its config: it is the single
+keeps ambient logging (the `info`/`warn`/`debug` free functions and `named(...)`,
+§ Cross-cutting #7's layer-1 form) plus **one sanctioned setter surface** for its
+config: it is the single
 ambient with a setter, precisely because its state is diagnostics, not logic. The
 **capability escape hatch** still stands for code that wants it — `Logger` is an
 ordinary value, and `to_writer` builds a self-contained one (own sink, own

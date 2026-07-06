@@ -239,19 +239,35 @@ pub fn to_writer(_ name: String, _ sink: io.Writer, _ min_level: Level, _ format
     return WriterLogger { name: name, sink: sink, min_level: min_level, format: format };
 }
 
-/// The process logger — the ambient, unnamed-source form for the 90% case:
+/// Ambient logging through the process logger (the unnamed root source) — the
+/// zero-ceremony form for scripts and top-level program flow:
 ///
 /// ```hawk
-/// log.default().info('starting up');
+/// log.info('starting up');
+/// log.warn('config missing; using defaults');
 /// ```
 ///
-/// It writes through the global config to stderr, exactly like `named('')`.
-/// (The four levels come through the `Logger` interface rather than free
-/// functions because a top-level `error` would collide with the prelude's
-/// `error()` constructor — see docs/stdlib.md § std.log.)
-pub fn default() -> Logger {
-    return NamedLogger { name: '' };
+/// These records carry an empty source, so only the default level (`set_level`)
+/// gates them — anything you'll want to filter per-source should come from a
+/// `named` logger instead.
+pub fn debug(_ msg: String) -> Void {
+    emit_process('', Level.Debug, msg);
 }
+
+pub fn info(_ msg: String) -> Void {
+    emit_process('', Level.Info, msg);
+}
+
+pub fn warn(_ msg: String) -> Void {
+    emit_process('', Level.Warn, msg);
+}
+
+// TODO: add an ambient `error(_ msg: String)` here, for symmetry with the three
+// above (the natural `log.error('boom')`). Blocked today: a top-level `error`
+// collides with the prelude `error()` constructor under the "one name space per
+// scope" rule. Tracked in docs/roadmap.md — de-privilege prelude *value* names so
+// a user scope may shadow them (reserved core *types* stay interdicted). Until
+// then, log at error level via `log.named('').error(msg)` or a named logger.
 
 /// Whether a record at `level` from a logger `name` would pass the global
 /// filter — for guarding an expensive message before building it:
