@@ -1,7 +1,6 @@
 //! std.fs — filesystem access: whole-value reads/writes, directory listing,
-//! metadata, recursive `walk`, and streaming files (`open`/`create` → a
-//! `File: Reader+Writer+Seek+Closer`). `temp_file` is a planned follow-up (see
-//! docs/stdlib.md).
+//! metadata (following symlinks or not), recursive `walk`, a `temp_file`, and
+//! streaming files (`open`/`create` → a `File: Reader+Writer+Seek+Closer`).
 //!
 //! Import as: import std.fs
 //!
@@ -24,6 +23,7 @@
 
 import std.path;
 import std.io;
+import std.time;
 
 // --- errors ---
 
@@ -84,9 +84,18 @@ fn to_fs_error(_ raw: String) -> FsError {
 pub enum FileKind { File, Dir, Symlink, Other }
 
 pub struct Metadata {
-    size: Int,             // size in bytes
+    size: Int,                       // size in bytes
     kind: FileKind,
-    modified_millis: Int,  // last-modified time, Unix milliseconds (0 if unknown)
+    modified: Option<time.DateTime>, // last-modified time (None if the platform can't report it)
+}
+
+// The native reports last-modified as Unix milliseconds, using 0 to mean
+// "unknown"; surface that as `None` rather than a misleading 1970 timestamp.
+fn modified_from_millis(_ millis: Int) -> Option<time.DateTime> {
+    if millis == 0 {
+        return Option.None;
+    }
+    return Option.Some(time.DateTime.from_unix_millis(millis));
 }
 
 fn file_kind(_ code: Int) -> FileKind {
@@ -121,6 +130,9 @@ native fn _list_dir(_ path: String) -> Result<List<String>, String>
 
 @extern('fs_metadata')
 native fn _metadata(_ path: String) -> Result<List<Int>, String>
+
+@extern('fs_symlink_metadata')
+native fn _symlink_metadata(_ path: String) -> Result<List<Int>, String>
 
 @extern('fs_create_dir')
 native fn _create_dir(_ path: String) -> Result<Void, String>
@@ -183,15 +195,31 @@ pub fn write_bytes(_ path: String, _ data: Bytes) -> Result<Void, FsError> {
 
 // --- metadata & directories ---
 
-/// Metadata for the file or directory at `path` (follows symlinks).
+/// Metadata for the file or directory at `path`, **following** symlinks (a
+/// symlink reports its target's kind, size, and time). Use `symlink_metadata` to
+/// inspect the link itself.
 pub fn metadata(_ path: String) -> Result<Metadata, FsError> {
     return match _metadata(path) {
-        Ok(fields) => Result.Ok(Metadata {
-            kind: file_kind(fields[0]),
-            size: fields[1],
-            modified_millis: fields[2],
-        }),
+        Ok(fields) => Result.Ok(build_metadata(fields)),
         Err(e) => Result.Err(to_fs_error(e)),
+    };
+}
+
+/// Metadata for the entry at `path` **without following** a symlink — a symlink
+/// reports `FileKind.Symlink` (where `metadata` would report its target).
+pub fn symlink_metadata(_ path: String) -> Result<Metadata, FsError> {
+    return match _symlink_metadata(path) {
+        Ok(fields) => Result.Ok(build_metadata(fields)),
+        Err(e) => Result.Err(to_fs_error(e)),
+    };
+}
+
+// Assemble a `Metadata` from the native's `[kind, size, modified_millis]`.
+fn build_metadata(_ fields: List<Int>) -> Metadata {
+    return Metadata {
+        kind: file_kind(fields[0]),
+        size: fields[1],
+        modified: modified_from_millis(fields[2]),
     };
 }
 
@@ -263,6 +291,15 @@ pub fn copy(from src: String, to dst: String) -> Result<Void, FsError> {
 /// until the process exits.
 pub struct File {
     handle: Int,
+    path: String,
+}
+
+impl File {
+    /// The path this file was opened with (or created at, for a `temp_file`).
+    /// Handy to report the file, or to `fs.remove` a temp file when done.
+    pub fn path(self) -> String {
+        return self.path;
+    }
 }
 
 @extern('fs_open')
@@ -270,6 +307,11 @@ native fn _open(_ path: String) -> Result<Int, String>
 
 @extern('fs_create')
 native fn _create(_ path: String) -> Result<Int, String>
+
+// Returns "<handle>\u{1}<path>" so the open handle and its generated path come
+// back together (the native creates + opens atomically, avoiding a re-open race).
+@extern('fs_temp_file')
+native fn _temp_file(_ prefix: String) -> Result<String, String>
 
 @extern('file_read')
 native fn _file_read(_ handle: Int, _ max: Int) -> Result<Bytes, String>
@@ -328,7 +370,7 @@ impl io.Closer for File {
 /// Open an existing file for reading (its cursor starts at the beginning).
 pub fn open(_ path: String) -> Result<File, FsError> {
     return match _open(path) {
-        Ok(h) => Result.Ok(File { handle: h }),
+        Ok(h) => Result.Ok(File { handle: h, path: path }),
         Err(e) => Result.Err(to_fs_error(e)),
     };
 }
@@ -336,7 +378,31 @@ pub fn open(_ path: String) -> Result<File, FsError> {
 /// Create a file (or truncate an existing one) for writing.
 pub fn create(_ path: String) -> Result<File, FsError> {
     return match _create(path) {
-        Ok(h) => Result.Ok(File { handle: h }),
+        Ok(h) => Result.Ok(File { handle: h, path: path }),
+        Err(e) => Result.Err(to_fs_error(e)),
+    };
+}
+
+/// Create a new, uniquely-named file in the system temp directory (its name
+/// starts with `prefix`), opened for reading and writing. Creation is atomic, so
+/// it never clobbers an existing file. Returns an open `File` — read its `path()`
+/// to locate it. **Temp files are not auto-deleted**: `close()` it, then
+/// `fs.remove(f.path())` when done (there are no finalizers).
+///
+/// ```hawk
+/// let f = fs.temp_file(prefix: 'build-')?;
+/// io.write_all(f, someBytes)?;
+/// f.close()?;
+/// // ... use f.path() ...
+/// fs.remove(f.path())?;
+/// ```
+pub fn temp_file(prefix: String = 'tmp') -> Result<File, FsError> {
+    return match _temp_file(prefix) {
+        Ok(encoded) => {
+            let parts = encoded.split('\u{1}');
+            let handle = parts[0].to_int().unwrap_or(-1);
+            Result.Ok(File { handle: handle, path: parts[1] })
+        },
         Err(e) => Result.Err(to_fs_error(e)),
     };
 }
@@ -350,8 +416,9 @@ pub fn create(_ path: String) -> Result<File, FsError> {
 ///
 /// Traversal is resilient: a directory that can't be listed (e.g. permission
 /// denied) is skipped rather than aborting the walk, and the first such failure
-/// is kept for `error()`. (`metadata` follows symlinks, so a symlink cycle can
-/// loop — a future `symlink_metadata`/visited-set will guard this.)
+/// is kept for `error()`. Symlinks are **not** followed (the walk classifies
+/// entries with `symlink_metadata`), so a symlinked directory is yielded as a
+/// leaf and a link cycle can't loop the traversal.
 pub struct WalkIter {
     stack: List<String>,  // frontier of discovered paths to visit (LIFO)
     mut err: Option<FsError>,
@@ -388,8 +455,9 @@ impl Iterator<String> for WalkIter {
             None    => Option.None,
             Some(p) => {
                 // Descend into directories (pushes their entries, so a directory
-                // is yielded before its contents).
-                match metadata(p) {
+                // is yielded before its contents). `symlink_metadata` doesn't
+                // follow links, so a symlinked dir stays a leaf — no cycle.
+                match symlink_metadata(p) {
                     Ok(md) => {
                         if md.kind == FileKind.Dir {
                             self.expand(p);

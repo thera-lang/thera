@@ -318,7 +318,8 @@ pub fn write_bytes(_ path: String, _ data: Bytes) -> Result<Void, FsError>;
 
 // Existence, metadata & directories — implemented.
 pub fn exists(_ path: String) -> Bool;
-pub fn metadata(_ path: String) -> Result<Metadata, FsError>;   // follows symlinks
+pub fn metadata(_ path: String) -> Result<Metadata, FsError>;          // follows symlinks
+pub fn symlink_metadata(_ path: String) -> Result<Metadata, FsError>;  // does not follow
 pub fn list_dir(_ path: String) -> Result<List<String>, FsError>; // entry basenames
 pub fn create_dir(_ path: String) -> Result<Void, FsError>;       // parent must exist
 pub fn create_dir_all(_ path: String) -> Result<Void, FsError>;   // mkdir -p
@@ -329,7 +330,7 @@ pub fn copy(from src: String, to dst: String) -> Result<Void, FsError>;   // fil
 pub fn temp_dir() -> String;
 
 pub enum FileKind { File, Dir, Symlink, Other }
-pub struct Metadata { size: Int, kind: FileKind, modified_millis: Int }  // Unix mtime ms
+pub struct Metadata { size: Int, kind: FileKind, modified: Option<time.DateTime> }
 
 pub enum FsError {                          // implements Error + Display
     NotFound(String), PermissionDenied(String), AlreadyExists(String),
@@ -342,21 +343,24 @@ pub fn walk(_ path: String) -> WalkIter;   // WalkIter: Iterator<String> of full
 // Streaming files — implemented.
 pub fn open(_ path: String) -> Result<File, FsError>;     // read handle
 pub fn create(_ path: String) -> Result<File, FsError>;   // write handle (truncates)
-// File: Reader + Writer + Seek + Closer over a runtime handle; close it when done.
-
-// Deferred.
-pub fn temp_file(prefix: String = 'tmp') -> Result<File, FsError>;
+pub fn temp_file(prefix: String = 'tmp') -> Result<File, FsError>;  // new, unique, read+write
+// File: Reader + Writer + Seek + Closer over a runtime handle, plus `path()`;
+// close it when done.
 ```
 
 Notes: `FsError` is classified from the OS error kind — the natives tag each
 error with its kind and a private helper maps it to the variant, so callers get
 `NotFound`/`PermissionDenied`/etc., not just `Other`. `metadata` follows
-symlinks (so `kind` reports the target; `FileKind.Symlink` awaits a future
-`symlink_metadata`). `modified_millis` is Unix milliseconds, `0` when the
-platform can't report it (it becomes a `DateTime` once `std.time` grows one).
-`walk` is a thin `Iterator` over `list_dir`/`metadata` (a lazy `WalkIter`
-yielding every descendant path, directories before their contents; an unreadable
-directory is skipped and the first failure kept for `.error()`). `open`/`create`
+symlinks (so `kind` reports the target); `symlink_metadata` inspects the link
+itself (`FileKind.Symlink`). `modified` is an `Option<time.DateTime>` — `None`
+when the platform can't report a last-modified time (no misleading `1970`
+sentinel). `temp_file` creates a uniquely-named file in `temp_dir()` and opens it
+read+write, atomically (never clobbers an existing file); read `File.path()` to
+locate it — temp files are not auto-deleted, so `fs.remove(f.path())` when done.
+`walk` is a thin `Iterator` over `list_dir`/`symlink_metadata` (a lazy `WalkIter`
+yielding every descendant path, directories before their contents; symlinks are
+not followed, so a link cycle can't loop; an unreadable directory is skipped and
+the first failure kept for `.error()`). `open`/`create`
 return a `File` — a handle implementing `std.io`'s `Reader`/`Writer`/`Seek`/
 `Closer` — so `io.lines(fs.open(p)?)` streams a file line by line without
 loading it whole, and `seek` (via `io.SeekFrom`) moves the cursor. `open` is

@@ -132,6 +132,7 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("fs_exists", native_fs_exists),
     ("fs_list_dir", native_fs_list_dir),
     ("fs_metadata", native_fs_metadata),
+    ("fs_symlink_metadata", native_fs_symlink_metadata),
     ("fs_create_dir", native_fs_create_dir),
     ("fs_create_dir_all", native_fs_create_dir_all),
     ("fs_remove", native_fs_remove),
@@ -139,6 +140,7 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("fs_rename", native_fs_rename),
     ("fs_copy", native_fs_copy),
     ("fs_temp_dir", native_fs_temp_dir),
+    ("fs_temp_file", native_fs_temp_file),
     ("fs_open", native_fs_open),
     ("fs_create", native_fs_create),
     ("file_read", native_file_read),
@@ -1014,33 +1016,50 @@ fn native_fs_list_dir(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Tra
     }
 }
 
-/// `fs.metadata(path)` — follows symlinks; returns `[kind, size, modified_millis]`
-/// where kind is 0=file, 1=dir, 2=symlink, 3=other. The Hawk side builds a
-/// `Metadata`. `modified_millis` is 0 when the platform can't report it.
+/// The `[kind, size, modified_millis]` list the Hawk `Metadata` reads, where kind
+/// is 0=file, 1=dir, 2=symlink, 3=other. `modified_millis` is 0 when the platform
+/// can't report it. (`is_symlink` is only ever true for `symlink_metadata`, which
+/// doesn't follow the link; `metadata` follows it, so it reports the target.)
+fn metadata_fields(m: &std::fs::Metadata) -> Value {
+    let kind = if m.is_symlink() {
+        2
+    } else if m.is_dir() {
+        1
+    } else if m.is_file() {
+        0
+    } else {
+        3
+    };
+    let size = m.len() as i64;
+    let modified = m
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    Value::new_list(vec![
+        Value::Int(kind),
+        Value::Int(size),
+        Value::Int(modified),
+    ])
+}
+
+/// `fs.metadata(path)` — follows symlinks; returns `[kind, size, modified_millis]`.
+/// The Hawk side builds a `Metadata`.
 fn native_fs_metadata(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let path = str_contents(expect_one(args, "fs_metadata")?)?;
     Ok(match std::fs::metadata(&path) {
-        Ok(m) => {
-            let kind = if m.is_dir() {
-                1
-            } else if m.is_file() {
-                0
-            } else {
-                3
-            };
-            let size = m.len() as i64;
-            let modified = m
-                .modified()
-                .ok()
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|d| d.as_millis() as i64)
-                .unwrap_or(0);
-            Value::ok(Value::new_list(vec![
-                Value::Int(kind),
-                Value::Int(size),
-                Value::Int(modified),
-            ]))
-        }
+        Ok(m) => Value::ok(metadata_fields(&m)),
+        Err(e) => fs_err(&path, &e),
+    })
+}
+
+/// `fs.symlink_metadata(path)` — like `fs_metadata` but does **not** follow a
+/// symlink, so a symlink reports kind 2 (its own metadata, not the target's).
+fn native_fs_symlink_metadata(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let path = str_contents(expect_one(args, "fs_symlink_metadata")?)?;
+    Ok(match std::fs::symlink_metadata(&path) {
+        Ok(m) => Value::ok(metadata_fields(&m)),
         Err(e) => fs_err(&path, &e),
     })
 }
@@ -1158,6 +1177,51 @@ fn native_fs_create(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap>
         Ok(f) => register_file(f),
         Err(e) => fs_err(&path, &e),
     })
+}
+
+static TEMP_FILE_COUNTER: AtomicI64 = AtomicI64::new(0);
+
+/// `fs.temp_file(prefix)` — create a new, uniquely-named file in the system temp
+/// directory, opened read+write. Returns `"<handle>\u{1}<path>"` on success (the
+/// Hawk side splits it into a `File` with its path). Creation is atomic
+/// (`create_new` / O_EXCL), so it never clobbers an existing file — a colliding
+/// name is retried with a fresh suffix.
+fn native_fs_temp_file(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let prefix = str_contents(expect_one(args, "fs_temp_file")?)?;
+    let dir = std::env::temp_dir();
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let mut last: Option<std::io::Error> = None;
+    for _ in 0..64 {
+        let n = TEMP_FILE_COUNTER.fetch_add(1, Ordering::SeqCst);
+        let path = dir.join(format!("{prefix}{stamp}_{n}"));
+        match std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(f) => {
+                let id = NEXT_FILE_ID.fetch_add(1, Ordering::SeqCst);
+                file_registry().lock().unwrap().insert(id, f);
+                let path_str = path.to_string_lossy().into_owned();
+                return Ok(Value::ok(Value::new_str(format!("{id}\u{1}{path_str}"))));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                last = Some(e);
+            }
+            Err(e) => {
+                let ps = path.to_string_lossy().into_owned();
+                return Ok(fs_err(&ps, &e));
+            }
+        }
+    }
+    let msg = last
+        .map(|e| e.to_string())
+        .unwrap_or_else(|| "could not create a unique temp file".to_string());
+    Ok(Value::err(Value::new_str(format!("other\u{1}{msg}"))))
 }
 
 /// `file.read(handle, max)` — up to `max` bytes; an empty result is EOF.

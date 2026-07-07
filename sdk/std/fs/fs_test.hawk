@@ -4,6 +4,7 @@
 import std.testing;
 import std.path;
 import std.io;
+import std.process;
 
 import 'fs' as _;
 
@@ -91,8 +92,60 @@ fn test_metadata_file() -> Result<Void, Error> {
     let md = fs.metadata(file)?;
     testing.assert_eq(actual: md.size, expected: 5)?;
     testing.assert_eq(actual: md.kind, expected: FileKind.File)?;
+    // A freshly-written file reports a last-modified time (a `DateTime`, not a
+    // raw millis Int). It should be a plausible, positive instant.
+    match md.modified {
+        Some(dt) => { testing.assert(dt.unix_millis() > 0, message: 'modified time is set')?; },
+        None => { testing.assert(false, message: 'expected a modified time')?; },
+    }
     let dir_md = fs.metadata(dir)?;
     testing.assert_eq(actual: dir_md.kind, expected: FileKind.Dir)?;
+    fs.remove_dir_all(dir)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_temp_file() -> Result<Void, Error> {
+    let f = fs.temp_file(prefix: 'hawk_fs_tmp_')?;
+    let p = f.path();
+    testing.assert(fs.exists(p), message: 'temp file exists on disk')?;
+    testing.assert(path.basename(p).starts_with('hawk_fs_tmp_'), message: 'name uses the prefix')?;
+
+    // It's a real, writable File; what we write reads back from its path.
+    f.write('scratch'.bytes())?;
+    f.close()?;
+    testing.assert_eq(actual: fs.read_text(p)?, expected: 'scratch')?;
+
+    // Each call yields a distinct file (atomic, unique).
+    let f2 = fs.temp_file(prefix: 'hawk_fs_tmp_')?;
+    testing.assert(f2.path() != p, message: 'temp files get unique names')?;
+    f2.close()?;
+
+    fs.remove(p)?;
+    fs.remove(f2.path())?;
+    testing.assert(!fs.exists(p), message: 'removed after cleanup')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_symlink_metadata_detects_a_link() -> Result<Void, Error> {
+    let dir = workspace('hawk_fs_symlink')?;
+    let target = path.join(dir, 'target.txt');
+    fs.write_text(target, 'hi')?;
+    let link = path.join(dir, 'link.txt');
+    // Create a symlink with POSIX `ln -s`; if it isn't available, skip the
+    // symlink-specific assertions (still exercises the non-symlink path below).
+    match process.run('ln', args: ['-s', target, link]) {
+        Ok(_) => {
+            // symlink_metadata inspects the link itself...
+            testing.assert_eq(actual: fs.symlink_metadata(link)?.kind, expected: FileKind.Symlink)?;
+            // ...while metadata follows it through to the target file.
+            testing.assert_eq(actual: fs.metadata(link)?.kind, expected: FileKind.File)?;
+        },
+        Err(_) => {},
+    }
+    // For a plain file, symlink_metadata agrees with metadata.
+    testing.assert_eq(actual: fs.symlink_metadata(target)?.kind, expected: FileKind.File)?;
     fs.remove_dir_all(dir)?;
     return Result.Ok(void);
 }
