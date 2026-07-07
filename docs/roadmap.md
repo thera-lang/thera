@@ -292,15 +292,6 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   (`fn f<U>(x: U) -> Box<U>` doesn't require `U: Display`); and
   `expected_arg_types` still handles only the namespace callee head inline.
   (Generics are **invariant by design** — no variance work planned.)
-- **Generic method on a struct field loses type args (Gap 2).** A generic method
-  called on a field-access receiver — `config.filters.keys()` where
-  `filters: Map<String, Level>` — doesn't recover the field's type arguments and
-  infers `List<Int>` (the receiver's `K`/`V` aren't threaded into the method's
-  result). Workaround: pin the field into an annotated local first
-  (`let m: Map<String, Level> = config.filters; m.keys()`). Independent of the
-  global-type fix (it reproduces on a properly-typed struct global and, likely,
-  any struct field). Surfaced by `std.log`'s config; low urgency (clean
-  workaround), but a real receiver-inference gap.
 - **Let a user scope shadow a prelude _value_ name.** Today
   `check_shadowed_surface` flags any top-level decl whose name is in the file's
   bare surface (prelude + `as _` imports), so a `pub fn error` collides with the
@@ -785,8 +776,8 @@ conformance specs. Newest first.
   stop declining field rename. `matching_spans` already resolves each occurrence
   at its own offset and keeps only those whose `SymbolId` matches, so all three
   positions collect and rewrite together — a same-named field on a different
-  struct stays untouched. Removed the `is_field()` rename guard (and the now-dead
-  method); check-only, no `.hawkbc` change.
+  struct stays untouched. Removed the `is_field()` rename guard (and the
+  now-dead method); check-only, no `.hawkbc` change.
 - **Boundary type-annotation diagnostics** (2026-07). The "hard at the
   boundaries, soft in the center" rule (language.md, _Type annotations &
   inference_) is now enforced at all four boundaries. Struct fields were already

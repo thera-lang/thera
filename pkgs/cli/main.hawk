@@ -31,128 +31,88 @@ fn build_app() -> cli.Command {
         .details(
 'Compile, run, test, and check Hawk programs.
 
-Output convention: analysis output (diagnostics, test reports) goes to stdout;
-operational errors (missing file, bad usage) go to stderr.')
+Output convention: analysis output (diagnostics, test reports) goes to stdout; operational errors (missing file, bad usage) go to stderr.')
         .subcommand(cli.Command.new('run')
             .about('compile and run a Hawk program')
             .details(
-'Compiles <file> and executes it, forwarding any trailing arguments to the
-program. The program owns stdout/stderr (they stream through).
+'Compiles <file> and executes it, forwarding any trailing arguments to the program. The program owns stdout/stderr (they stream through).
 
-Exit code: the program\'s own exit code; 1 if compilation fails (diagnostics to
-stderr) or the program traps.
+Set HAWK_PROFILE=1 to write a deterministic per-function profile to stderr at exit.
 
-Set HAWK_PROFILE=1 to write a deterministic per-function profile to stderr at
-exit.
-
-  hawk run app.hawk --flag arg     # --flag and arg are passed to app')
+- exit code: the program\'s own exit code; 1 if compilation fails (diagnostics to stderr) or the program traps')
             .positional('file', help: 'the .hawk file to run')
             .trailing_var_arg(true))
         .subcommand(cli.Command.new('check')
             .about('type-check programs without running them')
             .details(
-'Type-checks each target (a .hawk file, or a directory searched for *.hawk)
-without executing — the analyzer for CI and pre-commit hooks.
+'Type-checks each target (a .hawk file, or a directory searched for *.hawk) without executing — the analyzer for CI and pre-commit hooks.
 
-stdout: one diagnostic per line, `path:line:col: message` (nothing when clean).
-stderr: operational errors (a missing or unreadable target).
-Exit code: 0 clean, 1 if any diagnostics, 2 if a target is missing or a file is
-unreadable.
-
-  hawk check src/                  # check every .hawk under src/')
+- stdout: one diagnostic per line, `path:line:col: message` (nothing when clean)
+- stderr: operational errors (a missing or unreadable target)
+- exit code: 0 clean, 1 if any diagnostics, 2 if a target is missing or a file is unreadable')
             .positional('target', help: 'a .hawk file or directory to check'))
         .subcommand(cli.Command.new('emit')
             .about('compile a Hawk program to a .hawkbc file')
             .details(
-'Compiles <file> ahead-of-time to a .hawkbc bytecode artifact at <out> (run it
-later with the runtime).
+'Compiles <file> ahead-of-time to a .hawkbc bytecode artifact at <out> (run it later with the runtime).
 
-stdout: nothing.
-stderr: diagnostics (`path:line:col: message`) and I/O errors.
-Exit code: 0 on success (artifact written), 1 on compile errors (no artifact),
-  2 on a read/write failure.
-
-  hawk emit app.hawk app.hawkbc')
+- stdout: nothing
+- stderr: diagnostics (`path:line:col: message`) and I/O errors
+- exit code: 0 on success (artifact written), 1 on compile errors (no artifact), 2 on a read/write failure')
             .positional('file', help: 'the .hawk file to compile')
             .positional('out', help: 'the .hawkbc output path'))
         .subcommand(cli.Command.new('test')
             .about('run the @test functions in a program')
             .details(
-'Compiles and runs every @test function in the targets (a file, or *_test.hawk
-under a directory) and prints a per-test report.
+'Compiles and runs every @test function in the targets (a file, or *_test.hawk under a directory) and prints a per-test report.
 
-stdout: the report — a per-file path header, then `  ok <name>` /
-  `  FAIL <name>` per test, then a summary line.
-stderr: operational errors.
-Exit code: 0 if all tests pass, 1 if any fail or none are found.
-
-  hawk test sdk/std/path')
+- stdout: the report — a per-file path header, then `  ok <name>` / `  FAIL <name>` per test, then a summary line
+- stderr: operational errors
+- exit code: 0 if all tests pass, 1 if any fail or none are found')
             .flag('show-output', help: 'show captured stdout for passing tests too (failing tests always show it)')
             .positional('file', help: 'the .hawk file or directory to test'))
         .subcommand(cli.Command.new('fmt')
             .about('format source files in place')
             .details(
-'Rewrites each target (a file, or *.hawk under a directory) to the canonical
-format, in place.
+'Rewrites each target (a file, or *.hawk under a directory) to the canonical format, in place.
 
-With --check, no file is modified: the unformatted files are listed instead, one
-per line, and the exit code reports whether any were found (for CI / pre-commit).
+With --check, no file is modified: the unformatted files are listed instead, one per line, and the exit code reports whether any were found (for CI / pre-commit).
 
-stdout: `Formatted <path>` for each file that changed (silent for files already
-  formatted); with --check, the path of each file that needs formatting.
-stderr: per-file errors.
-Exit code: 0; 2 when a target is missing or any file cannot be read or written
-  (the rest are still processed). With --check: 0 when all files are formatted,
-  1 when some need formatting, 2 on a read/target error.
-
-  hawk fmt src/                    # format in place
-  hawk fmt --check src/           # list files needing formatting, exit 1 if any')
+- stdout: `Formatted <path>` for each file that changed (silent for files already formatted); with --check, the path of each file that needs formatting
+- stderr: per-file errors
+- exit code: 0; 2 when a target is missing or any file cannot be read or written (the rest are still processed). With --check: 0 when all files are formatted, 1 when some need formatting, 2 on a read/target error')
             .flag('check', help: 'do not write; list files that need formatting and exit non-zero if any')
             .positional('target', help: 'a .hawk file or directory to format'))
         .subcommand(cli.Command.new('lint')
             .about('report non-idiomatic code shapes with a known rewrite')
             .details(
-'Scans each target (a file, or *.hawk under a directory) for code shapes that
-have a more idiomatic, mechanical rewrite (e.g. a two-arm `match` with an empty
-catch-all arm that could be `if let`). Read-only — it reports and tallies sites;
-it does not modify files.
+'Scans each target (a file, or *.hawk under a directory) for code shapes that have a more idiomatic, mechanical rewrite (e.g. a two-arm `match` with an empty catch-all arm that could be `if let`). Read-only — it reports and tallies sites; it does not modify files.
 
-stdout: one `path:line:col: message` per site, then a per-rule tally.
-stderr: per-file read errors.
-Exit code: 0.
-
-  hawk lint pkgs/cli              # tally convertible sites under a tree')
+- stdout: one `path:line:col: message` per site, then a per-rule tally
+- stderr: per-file read errors
+- exit code: 0')
             .positional('target', help: 'a .hawk file or directory to lint'))
         .subcommand(cli.Command.new('fix')
             .about('apply idiomatic-rewrite fixes (UX is provisional)')
             .details(
-'Applies the mechanical rewrites `hawk lint` reports (V1: a two-arm `match` with an
-empty catch-all arm -> `if let`). Each fix is a localized, self-formatted edit —
-only the rewritten span changes, the rest of the file is untouched.
+'Applies the mechanical rewrites `hawk lint` reports (V1: a two-arm `match` with an empty catch-all arm -> `if let`). Each fix is a localized, self-formatted edit — only the rewritten span changes, the rest of the file is untouched.
 
-NOTE: this command\'s UX is still TBD. It previews by default (writes nothing);
-pass --write to modify files in place. The LSP code action is the primary,
-per-site way to apply these; `hawk fix` is the batch counterpart.
+NOTE: this command\'s UX is still TBD. It previews by default (writes nothing); pass --write to modify files in place. The LSP code action is the primary, per-site way to apply these; `hawk fix` is the batch counterpart.
 
-stdout: with --write, `Fixed <path>` per changed file; otherwise one
-  `path:line:col:` per fix that would be applied. A summary line closes.
-stderr: per-file read/write errors.
-Exit code: 0 (2 on a missing target).
-
-  hawk fix src/                   # preview fixes (writes nothing)
-  hawk fix --write src/           # apply them in place')
+- stdout: with --write, `Fixed <path>` per changed file; otherwise one `path:line:col:` per fix that would be applied. A summary line closes
+- stderr: per-file read/write errors
+- exit code: 0 (2 on a missing target)')
             .flag('write', help: 'modify files in place instead of previewing')
             .positional('target', help: 'a .hawk file or directory to fix'))
         .subcommand(cli.Command.new('lsp')
             .about('start the Hawk language server')
             .details(
-'Serves the Language Server Protocol over stdin/stdout — the transport an
-editor drives, not for interactive use.
+'Serves the Language Server Protocol over stdin/stdout — the transport an editor drives, not for interactive use.
 
-stdout: framed LSP JSON-RPC (mix no other output here).
-stderr: server logs.
+Runs until stdin closes.
 
-Runs until stdin closes.'));
+- stdout: framed LSP JSON-RPC (mix no other output here)
+- stderr: server logs'));
 }
 
 fn main(parameters: List<String>) -> Result<Int, Error> {
