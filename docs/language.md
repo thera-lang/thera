@@ -206,8 +206,8 @@ let tags: Set<String>        = Set.from(['cli', 'tool', 'cli']);  // {'cli', 'to
 `.hawkbc` format). It is an **immutable** byte sequence — `len`, `get` (→
 `Option<Int>`), `slice`, `concat`, `to_string` (→ `Result`, UTF-8 validated),
 `to_list`, plus `Bytes.empty()` / `Bytes.from_list(...)`. Build one up with the
-mutable `BytesBuilder` (`write_u8` / `write_bytes` / `write_str`, the
-little-endian `write_u32_le` / `write_u64_le` / `write_f64_le`, varints, then
+mutable `BytesBuilder` (`write_u8` / `write_bytes` / `write_str`, the fixed-width
+`write_u16/u32/u64` and `write_f64` in `_le`/`_be` endianness, varints, then
 `finish()` → `Bytes`). Both live in `std.core`, so they're available
 unqualified.
 

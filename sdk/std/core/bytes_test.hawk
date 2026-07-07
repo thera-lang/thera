@@ -103,6 +103,37 @@ fn test_write_fixed_little_endian() -> Result<Void, Error> {
     b3.write_f64_le(1.0);
     testing.assert_eq(actual: b3.finish().to_list(),
         expected: [0, 0, 0, 0, 0, 0, 0xF0, 0x3F])?;
+
+    // write_u16_le takes the low 16 bits, least-significant byte first.
+    let b4 = BytesBuilder.new();
+    b4.write_u16_le(0xAA0201);   // only 0x0201 is kept
+    testing.assert_eq(actual: b4.finish().to_list(), expected: [1, 2])?;
+    return Result.Ok(void);
+}
+
+// The big-endian counterparts write the most-significant byte first — network /
+// wire-format order, the exact reverse of the little-endian writers above.
+
+@test
+fn test_write_fixed_big_endian() -> Result<Void, Error> {
+    let b16 = BytesBuilder.new();
+    b16.write_u16_be(0xAA0102);   // only 0x0102 is kept
+    testing.assert_eq(actual: b16.finish().to_list(), expected: [1, 2])?;
+
+    let b32 = BytesBuilder.new();
+    b32.write_u32_be(0x01020304);
+    testing.assert_eq(actual: b32.finish().to_list(), expected: [1, 2, 3, 4])?;
+
+    let b64 = BytesBuilder.new();
+    b64.write_u64_be(0x0102030405060708);
+    testing.assert_eq(actual: b64.finish().to_list(),
+        expected: [1, 2, 3, 4, 5, 6, 7, 8])?;
+
+    // 1.0 == 0x3FF0000000000000, big-endian (the reverse of the LE bytes).
+    let bf = BytesBuilder.new();
+    bf.write_f64_be(1.0);
+    testing.assert_eq(actual: bf.finish().to_list(),
+        expected: [0x3F, 0xF0, 0, 0, 0, 0, 0, 0])?;
     return Result.Ok(void);
 }
 

@@ -80,11 +80,18 @@ impl BytesBuilder {
     @extern('bytesbuilder_finish')
     pub native fn finish(self) -> Bytes
 
-    // --- fixed little-endian integers / floats ---
+    // --- fixed-width integers / floats (little- and big-endian) ---
     // Pure Hawk over `write_u8` + bitwise ops (each `write_u8` keeps the low 8
-    // bits). These mirror the runtime's `serialize.rs` writer, so the bytecode
-    // writer can be expressed in Hawk. `>>>` (logical shift) extracts each byte
-    // of the raw bit pattern regardless of sign.
+    // bits). The little-endian writers mirror the runtime's `serialize.rs`, so
+    // the bytecode writer can be expressed in Hawk; the big-endian writers are the
+    // network / wire-format order (most-significant byte first). `>>>` (logical
+    // shift) extracts each byte of the raw bit pattern regardless of sign.
+
+    /// The low 16 bits of `v`, little-endian (2 bytes).
+    pub fn write_u16_le(self, _ v: Int) -> Void {
+        self.write_u8(v);
+        self.write_u8(v >>> 8);
+    }
 
     /// The low 32 bits of `v`, little-endian (4 bytes).
     pub fn write_u32_le(self, _ v: Int) -> Void {
@@ -109,6 +116,37 @@ impl BytesBuilder {
     /// The 8 IEEE-754 bytes of `d`, little-endian.
     pub fn write_f64_le(self, _ d: Double) -> Void {
         self.write_u64_le(d.to_bits());
+    }
+
+    /// The low 16 bits of `v`, big-endian (2 bytes, most-significant first).
+    pub fn write_u16_be(self, _ v: Int) -> Void {
+        self.write_u8(v >>> 8);
+        self.write_u8(v);
+    }
+
+    /// The low 32 bits of `v`, big-endian (4 bytes).
+    pub fn write_u32_be(self, _ v: Int) -> Void {
+        self.write_u8(v >>> 24);
+        self.write_u8(v >>> 16);
+        self.write_u8(v >>> 8);
+        self.write_u8(v);
+    }
+
+    /// All 64 bits of `v`, big-endian (8 bytes).
+    pub fn write_u64_be(self, _ v: Int) -> Void {
+        self.write_u8(v >>> 56);
+        self.write_u8(v >>> 48);
+        self.write_u8(v >>> 40);
+        self.write_u8(v >>> 32);
+        self.write_u8(v >>> 24);
+        self.write_u8(v >>> 16);
+        self.write_u8(v >>> 8);
+        self.write_u8(v);
+    }
+
+    /// The 8 IEEE-754 bytes of `d`, big-endian.
+    pub fn write_f64_be(self, _ d: Double) -> Void {
+        self.write_u64_be(d.to_bits());
     }
 
     // --- LEB128 varints ---

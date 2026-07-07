@@ -140,9 +140,8 @@ impl Bytes {
 }
 
 // Accumulate bytes, then freeze (the binary-writer vocabulary; write_u8 masks
-// to the low 8 bits). The fixed little-endian + LEB128 writers are pure Hawk
-// over write_u8 + bitwise ops. The typed write_u16_le/be… family is a planned
-// follow-up.
+// to the low 8 bits). The fixed-width and LEB128 writers are pure Hawk over
+// write_u8 + bitwise ops.
 pub struct BytesBuilder { /* mutable */ }
 impl BytesBuilder {
     pub fn new() -> BytesBuilder;
@@ -151,9 +150,11 @@ impl BytesBuilder {
     pub fn write_str(self, _ s: String) -> Void;
     pub fn len(self) -> Int;
     pub fn finish(self) -> Bytes;
-    // Fixed little-endian + LEB128 (mirror the runtime's serialize.rs):
-    pub fn write_u32_le / write_u64_le (self, _ v: Int) -> Void;
-    pub fn write_f64_le(self, _ d: Double) -> Void;
+    // Fixed-width integers/floats, little- and big-endian:
+    pub fn write_u16_le / write_u32_le / write_u64_le (self, _ v: Int) -> Void;
+    pub fn write_u16_be / write_u32_be / write_u64_be (self, _ v: Int) -> Void;
+    pub fn write_f64_le / write_f64_be (self, _ d: Double) -> Void;
+    // LEB128 varints (mirror the runtime's serialize.rs):
     pub fn write_uvarint / write_ivarint (self, _ v: Int) -> Void;
 }
 
