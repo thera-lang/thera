@@ -1,6 +1,11 @@
 import std.testing;
 
 import std.fiber;
+import std.time;
+import std.fs;
+import std.path;
+import std.process;
+import std.io;
 
 /// A spawned fiber runs and `join` returns its result.
 @test
@@ -48,6 +53,115 @@ fn test_yield_interleaves_deterministically() -> Result<Void, Error> {
 fn test_fiber_spawns_fiber() -> Result<Void, Error> {
     let outer = fiber.spawn(() => fiber.spawn(() => 10).join() + 5);
     testing.assert_eq(actual: outer.join(), expected: 15)?;
+    return Result.Ok(void);
+}
+
+/// `time.sleep` parks the calling fiber on a scheduler timer rather than blocking
+/// the thread, so a ready fiber runs to completion while the sleeper waits — and
+/// the sleeper still resumes after its deadline. The interleaving is deterministic
+/// regardless of the sleep duration: the parked sleeper cannot run until its timer
+/// fires, so `quick` always finishes first.
+@test
+fn test_sleep_parks_letting_others_run() -> Result<Void, Error> {
+    let log: List<String> = [];
+    let sleeper = fiber.spawn(() => {
+        time.sleep(time.Duration.millis(5));
+        log.push('slept');
+        return 0;
+    });
+    let quick = fiber.spawn(() => {
+        log.push('quick');
+        return 0;
+    });
+    sleeper.join();
+    quick.join();
+    testing.assert_eq(actual: log.join(','), expected: 'quick,slept')?;
+    return Result.Ok(void);
+}
+
+/// A blocking `fs` read parks the calling fiber on the worker pool rather than
+/// blocking the whole thread, so a ready fiber runs to completion while the read is
+/// in flight — and the reader still gets the file contents when the syscall lands.
+/// Deterministic: the worker's completion is only awaited once every ready fiber
+/// has run, so `quick` always finishes before the reader resumes.
+@test
+fn test_blocking_read_parks_letting_others_run() -> Result<Void, Error> {
+    let dir = path.join(fs.temp_dir(), 'hawk_fiber_io');
+    fs.create_dir_all(dir)?;
+    let file = path.join(dir, 'data.txt');
+    fs.write_text(file, 'payload')?;
+
+    let log: List<String> = [];
+    let reader = fiber.spawn(() => {
+        let contents = fs.read_text(file);
+        log.push('read:${contents.unwrap_or('?')}');
+        return 0;
+    });
+    let quick = fiber.spawn(() => {
+        log.push('quick');
+        return 0;
+    });
+    reader.join();
+    quick.join();
+    fs.remove_dir_all(dir)?;
+
+    testing.assert_eq(actual: log.join(','), expected: 'quick,read:payload')?;
+    return Result.Ok(void);
+}
+
+/// Running a child process (`process.run`) parks the fiber on the worker pool
+/// until the child exits, so a ready fiber runs while the child is running — and
+/// the runner still gets the captured output. Deterministic: the child's completion
+/// is awaited only once every ready fiber has run, so `quick` finishes first.
+@test
+fn test_process_run_parks_letting_others_run() -> Result<Void, Error> {
+    let log: List<String> = [];
+    let runner = fiber.spawn(() => {
+        match process.run('echo', args: ['payload']) {
+            Ok(r) => log.push('ran:${r.stdout.trim()}'),
+            Err(_) => log.push('ran:err'),
+        }
+        return 0;
+    });
+    let quick = fiber.spawn(() => {
+        log.push('quick');
+        return 0;
+    });
+    runner.join();
+    quick.join();
+    testing.assert_eq(actual: log.join(','), expected: 'quick,ran:payload')?;
+    return Result.Ok(void);
+}
+
+/// One fiber feeds a child's stdin while another drains its stdout, concurrently.
+/// The payload is larger than the OS pipe buffer, so a single blocking thread that
+/// wrote it all before reading would deadlock. Because stdin and stdout park on the
+/// worker pool independently (they're separate handles), both fibers make progress
+/// and the round-trip completes — the pattern the worker pool exists to enable.
+@test
+fn test_pipe_streams_across_fibers_without_deadlock() -> Result<Void, Error> {
+    let child = process.start('cat')?;
+
+    let mut payload = '';
+    let mut i = 0;
+    while i < 8000 {
+        payload = payload + 'abcdefghijklmnopqrstuvwxyz0123456789\n';
+        i = i + 1;
+    }
+    let sent = payload.bytes().len();
+
+    let writer = fiber.spawn(() => {
+        child.stdin().write(payload.bytes());
+        child.close_stdin();
+        return 0;
+    });
+    let reader = fiber.spawn(() => io.read_all(child.stdout()));
+
+    writer.join();
+    let got = reader.join()?;
+    child.wait()?;
+
+    testing.assert_eq(actual: got.len(), expected: sent)?;
     return Result.Ok(void);
 }
 

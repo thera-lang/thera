@@ -11,9 +11,13 @@
 //! one `Vec` is also what lets a precise GC enumerate the roots, and it is the
 //! structure fibers will pause/resume.
 
+use std::any::Any;
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
 use std::io::Write;
+use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use crate::heap;
 use crate::instr::Instr;
@@ -165,17 +169,38 @@ enum RunOutcome {
     Parked(ParkRequest),
 }
 
-/// How a parked fiber resumes — set by the native that suspended it.
-#[derive(Clone, Copy)]
+/// A blocking syscall shipped to the worker pool: it runs off the Hawk thread and
+/// returns an owned, `Send` payload (never a `Value` — the Hawk heap is
+/// thread-local, so only the Hawk thread may allocate one).
+type IoJob = Box<dyn FnOnce() -> Box<dyn Any + Send> + Send + 'static>;
+
+/// Turns a completed [`IoJob`]'s payload into a Hawk `Value`, run back **on the
+/// Hawk thread** (the scheduler driver) so the allocation is safe. May `Trap`.
+type IoFinish = Box<dyn FnOnce(Box<dyn Any + Send>) -> Result<Value, Trap>>;
+
+/// How a parked fiber resumes — set by the native that suspended it. Not `Copy`:
+/// the `Await` variant owns the job/finish closures.
 enum ParkRequest {
     /// The op could not complete (its resource isn't ready): the fiber blocks
     /// until woken, and the `call.native` re-executes on resume — by which point
-    /// the resource is ready (`join`; later `receive`/`sleep`). The native is
-    /// written to be idempotent across that retry.
+    /// the resource is ready (`join`, `receive`). The native is written to be
+    /// idempotent across that retry.
     BlockRetry,
     /// The op completed; the fiber merely cedes the thread, stays runnable, and
     /// resumes right after the call (`yield`).
     YieldReady,
+    /// The fiber blocks until wall-clock time reaches the deadline (`time.sleep`).
+    /// Like `YieldReady` it resumes *right after* the call (the native's result is
+    /// kept, not recomputed — so no retry); unlike it, the fiber is parked, not
+    /// runnable, until the scheduler's timer wakes it. Progress here comes from
+    /// outside Hawk (the clock), so a program with only timer-blocked fibers is
+    /// not a deadlock — the driver sleeps the thread until the earliest deadline.
+    Timer(Instant),
+    /// A blocking syscall: run `job` on the worker pool, and on completion build
+    /// its result with `finish` and deliver it as the call's value (resume right
+    /// after the call, no retry). The fiber is parked until the worker signals —
+    /// another external progress source, so it is not a deadlock either.
+    Await { job: IoJob, finish: IoFinish },
 }
 
 // A native suspends the running fiber by setting `PARK` — the same
@@ -196,6 +221,22 @@ pub(super) fn park_yield_ready() {
     PARK.set(Some(ParkRequest::YieldReady));
 }
 
+/// Park the running fiber until `deadline` (wall clock). Called by `time.sleep`;
+/// the fiber resumes right after the call, so the native returns its final value
+/// before parking (it is not re-run).
+pub(super) fn park_timer(deadline: Instant) {
+    PARK.set(Some(ParkRequest::Timer(deadline)));
+}
+
+/// Park the running fiber on a blocking syscall: `job` runs on the worker pool,
+/// then `finish` turns its payload into the call's `Value` on the Hawk thread.
+/// Called by the blocking `fs`/`stdin`/`process` natives; the fiber resumes right
+/// after the call with the delivered value (the native's own return is a discarded
+/// placeholder).
+pub(super) fn park_await(job: IoJob, finish: IoFinish) {
+    PARK.set(Some(ParkRequest::Await { job, finish }));
+}
+
 fn take_park() -> Option<ParkRequest> {
     PARK.take()
 }
@@ -207,6 +248,10 @@ fn take_park() -> Option<ParkRequest> {
 /// call stack here.
 struct Fiber {
     state: FiberState,
+    /// Set while the fiber is parked on a worker-pool syscall (`Await`): the
+    /// `finish` that turns the worker's payload into the resume value, run on the
+    /// Hawk thread when the completion arrives.
+    pending: Option<IoFinish>,
 }
 
 enum FiberState {
@@ -233,6 +278,8 @@ struct Scheduler {
     fibers: Vec<Fiber>,     // indexed by fiber id; never compacted, so ids stay stable
     ready: VecDeque<usize>, // runnable fiber ids
     blocked: Vec<usize>,    // parked on a resource; woken en masse on any progress
+    timers: Vec<(Instant, usize)>, // (deadline, fiber id) — woken by the wall clock
+    io_blocked: usize,      // fibers parked on a worker-pool syscall — woken by a completion
     channels: Vec<Chan>,    // indexed by channel id
 }
 
@@ -267,6 +314,8 @@ impl Scheduler {
             fibers: Vec::new(),
             ready: VecDeque::new(),
             blocked: Vec::new(),
+            timers: Vec::new(),
+            io_blocked: 0,
             channels: Vec::new(),
         }
     }
@@ -335,6 +384,7 @@ impl Scheduler {
         let id = self.fibers.len();
         self.fibers.push(Fiber {
             state: FiberState::NotStarted(closure),
+            pending: None,
         });
         self.ready.push_back(id);
         id
@@ -356,13 +406,69 @@ impl Scheduler {
         self.wake_all();
     }
 
-    /// Save a suspended fiber's stack and route it per its park request.
+    /// Save a suspended fiber's stack and route it per its park request. `Await` is
+    /// routed by the driver (it needs the worker pool), so it never reaches here.
     fn park(&mut self, id: usize, vstack: Vec<Value>, frames: Vec<Frame>, req: ParkRequest) {
         self.fibers[id].state = FiberState::Suspended { vstack, frames };
         match req {
             ParkRequest::YieldReady => self.ready.push_back(id),
             ParkRequest::BlockRetry => self.blocked.push(id),
+            ParkRequest::Timer(deadline) => self.timers.push((deadline, id)),
+            ParkRequest::Await { .. } => unreachable!("Await is routed via park_io"),
         }
+    }
+
+    /// Park `id` on a worker-pool syscall: save its stack (the placeholder return is
+    /// on top of `vstack`, to be overwritten on completion), stash its `finish`, and
+    /// count it among the I/O-blocked. The driver submits the job to the pool.
+    fn park_io(&mut self, id: usize, vstack: Vec<Value>, frames: Vec<Frame>, finish: IoFinish) {
+        self.fibers[id].state = FiberState::Suspended { vstack, frames };
+        self.fibers[id].pending = Some(finish);
+        self.io_blocked += 1;
+    }
+
+    /// Take the `finish` of an I/O-parked fiber (called when its completion arrives).
+    fn take_pending(&mut self, id: usize) -> IoFinish {
+        self.fibers[id]
+            .pending
+            .take()
+            .expect("completion for a fiber that was not I/O-parked")
+    }
+
+    /// Deliver a completed syscall's `value` into I/O-parked fiber `id`: overwrite
+    /// the placeholder on top of its saved value stack, and make it runnable.
+    fn deliver(&mut self, id: usize, value: Value) {
+        match &mut self.fibers[id].state {
+            FiberState::Suspended { vstack, .. } => {
+                *vstack
+                    .last_mut()
+                    .expect("I/O-parked fiber has no placeholder slot") = value;
+            }
+            _ => unreachable!("delivered to a fiber that was not suspended"),
+        }
+        self.io_blocked -= 1;
+        self.ready.push_back(id);
+    }
+
+    /// The earliest timer deadline, if any fiber is timer-blocked.
+    fn earliest_deadline(&self) -> Option<Instant> {
+        self.timers.iter().map(|&(d, _)| d).min()
+    }
+
+    /// Move every timer whose deadline has passed (`<= now`) back to the ready
+    /// queue. Returns whether any fiber was woken.
+    fn wake_due_timers(&mut self, now: Instant) -> bool {
+        let mut woke = false;
+        self.timers.retain(|&(deadline, id)| {
+            if deadline <= now {
+                self.ready.push_back(id);
+                woke = true;
+                false
+            } else {
+                true
+            }
+        });
+        woke
     }
 }
 
@@ -423,6 +529,117 @@ fn gather_scheduler_roots(roots: &mut Vec<Value>) {
             roots.extend(ch.buffer.iter().copied());
         }
     });
+}
+
+// --- the blocking-syscall worker pool ---
+//
+// The `Await` park model runs a blocking syscall off the single Hawk thread so the
+// fiber that issued it can park (letting others run) instead of blocking everyone.
+// Workers run only Rust — no Hawk code, no Hawk-heap access — so the "single Hawk
+// thread" guarantee holds; each worker returns an owned, `Send` payload that the
+// driver turns into a `Value` back on the Hawk thread. This is stage (1) of the I/O
+// staging in architecture.md §Concurrency (a thread pool, no event loop yet).
+
+/// Number of worker threads. Bounds how many blocking syscalls run at once; excess
+/// jobs queue. Small and fixed — the pool exists to unblock the scheduler, not to
+/// scale I/O (the readiness poller, phase 4, is for that).
+const WORKER_COUNT: usize = 4;
+
+/// A completed job: the fiber that issued it and the syscall's owned payload.
+type Completion = (usize, Box<dyn Any + Send>);
+
+/// A fixed pool of worker threads draining a shared job queue. Created lazily on
+/// the first blocking syscall and torn down when the scheduler resets (dropping
+/// `job_tx` disconnects the queue, so idle workers exit).
+struct WorkerPool {
+    job_tx: Sender<(usize, IoJob)>,
+    done_rx: Receiver<Completion>,
+    _workers: Vec<std::thread::JoinHandle<()>>,
+}
+
+impl WorkerPool {
+    fn new() -> Self {
+        let (job_tx, job_rx) = std::sync::mpsc::channel::<(usize, IoJob)>();
+        let (done_tx, done_rx) = std::sync::mpsc::channel::<Completion>();
+        let job_rx = Arc::new(Mutex::new(job_rx));
+        let mut workers = Vec::with_capacity(WORKER_COUNT);
+        for _ in 0..WORKER_COUNT {
+            let job_rx = Arc::clone(&job_rx);
+            let done_tx = done_tx.clone();
+            workers.push(std::thread::spawn(move || {
+                loop {
+                    // Hold the queue lock only across `recv` (a near-instant handoff);
+                    // release it before running the job so jobs run concurrently.
+                    let next = job_rx.lock().unwrap().recv();
+                    match next {
+                        Ok((id, job)) => {
+                            if done_tx.send((id, job())).is_err() {
+                                break; // driver gone
+                            }
+                        }
+                        Err(_) => break, // queue disconnected — pool torn down
+                    }
+                }
+            }));
+        }
+        WorkerPool {
+            job_tx,
+            done_rx,
+            _workers: workers,
+        }
+    }
+}
+
+thread_local! {
+    /// The worker pool, created on first use. `None` until a program issues a
+    /// blocking syscall, so I/O-free programs spawn no threads.
+    static WORKER_POOL: RefCell<Option<WorkerPool>> = const { RefCell::new(None) };
+}
+
+/// Submit `job` (issued by fiber `id`) to the worker pool, creating the pool on
+/// first use.
+fn submit_io_job(id: usize, job: IoJob) {
+    WORKER_POOL.with(|p| {
+        let mut p = p.borrow_mut();
+        let pool = p.get_or_insert_with(WorkerPool::new);
+        // The receivers live as long as the driver, so this only fails if a worker
+        // panicked; treat that as fatal by ignoring here — the driver's `recv` will
+        // then see the disconnect and surface a deadlock rather than hang silently.
+        let _ = pool.job_tx.send((id, job));
+    });
+}
+
+/// Tear down the worker pool (drops `job_tx`, so idle workers exit). Called when
+/// the scheduler resets around a run.
+fn reset_worker_pool() {
+    WORKER_POOL.with(|p| *p.borrow_mut() = None);
+}
+
+/// Block until at least one worker completion is available (bounded by `timeout`,
+/// if a timer is also pending), then drain every completion ready now. Returns the
+/// completions; empty if it timed out with none ready. Runs on the Hawk thread with
+/// no Hawk-heap borrow held, so building the delivered `Value`s afterwards is safe.
+fn await_completions(timeout: Option<std::time::Duration>) -> Vec<Completion> {
+    WORKER_POOL.with(|p| {
+        let p = p.borrow();
+        let pool = p
+            .as_ref()
+            .expect("io_blocked > 0 implies the worker pool exists");
+        let mut out = Vec::new();
+        // Block for the first completion (bounded by the earliest timer deadline).
+        let first = match timeout {
+            Some(t) => pool.done_rx.recv_timeout(t).ok(),
+            None => pool.done_rx.recv().ok(),
+        };
+        if let Some(c) = first {
+            out.push(c);
+            // Grab any others that have also finished, without blocking.
+            while let Ok(c) = pool.done_rx.try_recv() {
+                out.push(c);
+            }
+        }
+        out
+    })
 }
 
 // --- native-call profiling probe (the `native-stats` feature) ---
@@ -527,10 +744,14 @@ impl<'a> Vm<'a> {
             // The main fiber is id 0, currently running (its frames are in the Vm).
             s.fibers.push(Fiber {
                 state: FiberState::Running,
+                pending: None,
             });
         });
         let result = self.drive(module, func, args);
         SCHEDULER.with(|s| *s.borrow_mut() = Scheduler::new());
+        // Tear down the worker pool so its threads exit and no completion from this
+        // run can leak into a later `run`/`call` on the same thread.
+        reset_worker_pool();
         result
     }
 
@@ -556,19 +777,53 @@ impl<'a> Vm<'a> {
                     // — is handed to the scheduler to hold until resumed.
                     let frames = std::mem::take(&mut self.frames);
                     let vstack = std::mem::take(&mut self.vstack);
-                    SCHEDULER.with(|s| s.borrow_mut().park(current, vstack, frames, req));
+                    match req {
+                        ParkRequest::Await { job, finish } => {
+                            // A blocking syscall: stash the finish, count it I/O-blocked,
+                            // and ship the job to the worker pool. The completion is
+                            // delivered by the idle loop below.
+                            SCHEDULER
+                                .with(|s| s.borrow_mut().park_io(current, vstack, frames, finish));
+                            submit_io_job(current, job);
+                        }
+                        other => {
+                            SCHEDULER.with(|s| s.borrow_mut().park(current, vstack, frames, other));
+                        }
+                    }
                 }
             }
-            // Pick the next runnable fiber (self.frames is empty here).
-            match self.next_ready(module)? {
-                Some((id, frame)) => {
-                    current = id;
-                    active = frame;
+            // Pick the next runnable fiber (self.frames is empty here). When nothing
+            // is ready, wait on an external progress source — a worker-pool syscall
+            // completing, or a timer deadline — then re-check. Either is why the fiber
+            // set is not a deadlock; a deadlock is only when nothing is ready *and*
+            // there is no external source pending.
+            let (id, frame) = loop {
+                if let Some(pair) = self.next_ready(module)? {
+                    break pair;
                 }
-                None => {
-                    // Nothing runnable. If fibers are still blocked, it's a
-                    // deadlock; otherwise everything finished (main already
-                    // returned above, so this is a spawned-only tail).
+                let (deadline, io_pending) =
+                    SCHEDULER.with(|s| (s.borrow().earliest_deadline(), s.borrow().io_blocked > 0));
+                if io_pending {
+                    // Block for a worker completion, bounded by the earliest timer so
+                    // a due timer isn't missed while waiting on slow I/O.
+                    let timeout = deadline.map(|d| d.saturating_duration_since(Instant::now()));
+                    for (fiber_id, payload) in await_completions(timeout) {
+                        let finish = SCHEDULER.with(|s| s.borrow_mut().take_pending(fiber_id));
+                        let value = finish(payload)?; // builds the Value on this (Hawk) thread
+                        SCHEDULER.with(|s| s.borrow_mut().deliver(fiber_id, value));
+                    }
+                    SCHEDULER.with(|s| s.borrow_mut().wake_due_timers(Instant::now()));
+                } else if let Some(deadline) = deadline {
+                    // Only timers pending: no worker can wake us early, so just sleep.
+                    let now = Instant::now();
+                    if deadline > now {
+                        std::thread::sleep(deadline - now);
+                    }
+                    SCHEDULER.with(|s| s.borrow_mut().wake_due_timers(Instant::now()));
+                } else {
+                    // No external wake source. If fibers are still blocked on a
+                    // resource, it's a deadlock; otherwise everything finished (main
+                    // already returned above, so this is a spawned-only tail).
                     let blocked = SCHEDULER.with(|s| !s.borrow().blocked.is_empty());
                     return if blocked {
                         Err(bug("all fibers blocked (deadlock)"))
@@ -576,7 +831,9 @@ impl<'a> Vm<'a> {
                         Ok(Value::Unit)
                     };
                 }
-            }
+            };
+            current = id;
+            active = frame;
         }
     }
 
@@ -948,7 +1205,7 @@ impl<'a> Vm<'a> {
                             vstack.truncate(base);
                             vstack.push(ret);
                         }
-                        Some(req @ ParkRequest::BlockRetry) => {
+                        Some(ParkRequest::BlockRetry) => {
                             // The op's resource isn't ready. Rewind to re-execute
                             // this `call.native` on resume — the args are still on
                             // the operand stack, the placeholder return is
@@ -957,10 +1214,14 @@ impl<'a> Vm<'a> {
                             // parked fiber's saved state.
                             frame.pc -= 1;
                             frames.push(frame);
-                            exit!(RunOutcome::Parked(req));
+                            exit!(RunOutcome::Parked(ParkRequest::BlockRetry));
                         }
-                        Some(req @ ParkRequest::YieldReady) => {
-                            // The op completed; resume right after the call.
+                        Some(req) => {
+                            // `YieldReady`/`Timer`/`Await`: the native produced its
+                            // result (Unit for yield/sleep, a discarded placeholder
+                            // for an `Await` — overwritten when the syscall completes),
+                            // so the fiber resumes right after the call. The scheduler
+                            // routes on the request (stay ready / timer / worker pool).
                             vstack.truncate(base);
                             vstack.push(ret);
                             frames.push(frame);

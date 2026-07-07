@@ -5,6 +5,7 @@
 //! call arguments. These are the stand-ins for the eventual stdlib `native fn`
 //! bindings — enough to write observable programs without a real stdlib.
 
+use std::any::Any;
 use std::io::Write;
 
 use super::{Trap, bug, struct_field};
@@ -830,18 +831,24 @@ fn native_bytesbuilder_finish(_out: &mut dyn Write, args: &[Value]) -> Result<Va
 // --- io natives (standard streams) ---
 
 /// `io.stdin().read(max)` — read up to `max` bytes from stdin. An empty result
-/// means end-of-stream. `Err(message)` on an I/O error.
+/// means end-of-stream. `Err(message)` on an I/O error. Parks on the worker pool,
+/// so a fiber waiting on stdin doesn't stall the others.
 fn native_io_stdin_read(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
-    use std::io::Read;
     let max = as_int(expect_one(args, "io_stdin_read")?, "io_stdin_read")?;
-    let mut buf = vec![0u8; max.max(0) as usize];
-    Ok(match std::io::stdin().read(&mut buf) {
-        Ok(n) => {
+    park_syscall(
+        move || -> std::io::Result<Vec<u8>> {
+            use std::io::Read;
+            let mut buf = vec![0u8; max.max(0) as usize];
+            let n = std::io::stdin().read(&mut buf)?;
             buf.truncate(n);
-            Value::ok(Value::new_bytes(buf))
-        }
-        Err(e) => Value::err(Value::new_str(format!("stdin: {e}"))),
-    })
+            Ok(buf)
+        },
+        move |res| match res {
+            Ok(buf) => Value::ok(Value::new_bytes(buf)),
+            Err(e) => Value::err(Value::new_str(format!("stdin: {e}"))),
+        },
+    );
+    Ok(Value::Unit)
 }
 
 /// `io.stdout().write(data)` — write all of `data` to the program's output.
@@ -930,10 +937,35 @@ fn as_option(v: &Value, who: &str) -> Result<(u16, Vec<Value>), Trap> {
     }
 }
 
+/// Park the running fiber on a blocking syscall: run `job` off the Hawk thread on
+/// the worker pool, then map its owned, `Send` result into a Hawk `Value` with
+/// `build` back on the Hawk thread (where allocating a `Value` is safe). The native
+/// itself returns a discarded placeholder — `build`'s value becomes the call's
+/// result when the fiber resumes. See the `Await` park model in the scheduler.
+///
+/// The blocking `fs`/`stdin`/`process` natives call this so their syscall parks the
+/// issuing fiber (letting other fibers run) instead of blocking the whole thread.
+fn park_syscall<T: Send + 'static>(
+    job: impl FnOnce() -> T + Send + 'static,
+    build: impl FnOnce(T) -> Value + 'static,
+) {
+    super::park_await(
+        Box::new(move || Box::new(job()) as Box<dyn Any + Send>),
+        Box::new(move |payload| {
+            let value = *payload
+                .downcast::<T>()
+                .expect("worker payload type does not match its finish");
+            Ok(build(value))
+        }),
+    );
+}
+
 // --- std.fs natives ---
 //
 // Errors are returned as a `String` payload for now; once `std.core`'s `Error`
-// type is linked in, these will build a proper `Error`.
+// type is linked in, these will build a proper `Error`. The read/write natives
+// park the calling fiber on the worker pool (`park_syscall`) so the blocking
+// syscall doesn't stall the scheduler.
 
 /// `fs.read_text(path)` — read a UTF-8 file, `Ok(contents)` or `Err(message)`.
 /// Build an `Err` value for a filesystem error. The String payload is
@@ -954,29 +986,44 @@ fn fs_err(path: &str, e: &std::io::Error) -> Value {
 
 fn native_fs_read_text(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let path = str_contents(expect_one(args, "fs_read_text")?)?;
-    Ok(match std::fs::read_to_string(&path) {
-        Ok(s) => Value::ok(Value::new_str(s)),
-        Err(e) => fs_err(&path, &e),
-    })
+    let err_path = path.clone();
+    park_syscall(
+        move || std::fs::read_to_string(&path),
+        move |res| match res {
+            Ok(s) => Value::ok(Value::new_str(s)),
+            Err(e) => fs_err(&err_path, &e),
+        },
+    );
+    Ok(Value::Unit) // placeholder; the delivered value replaces it on resume
 }
 
 /// `fs.write_text(path, contents)` — write a file, `Ok(())` or a classified Err.
 fn native_fs_write_text(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let (path, contents) = args2(args, "fs_write_text")?;
     let (path, contents) = (str_contents(path)?, str_contents(contents)?);
-    Ok(match std::fs::write(&path, contents) {
-        Ok(()) => Value::ok(Value::Unit),
-        Err(e) => fs_err(&path, &e),
-    })
+    let err_path = path.clone();
+    park_syscall(
+        move || std::fs::write(&path, contents),
+        move |res| match res {
+            Ok(()) => Value::ok(Value::Unit),
+            Err(e) => fs_err(&err_path, &e),
+        },
+    );
+    Ok(Value::Unit)
 }
 
 /// `fs.read_bytes(path)` — the whole file as `Bytes`.
 fn native_fs_read_bytes(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let path = str_contents(expect_one(args, "fs_read_bytes")?)?;
-    Ok(match std::fs::read(&path) {
-        Ok(b) => Value::ok(Value::new_bytes(b)),
-        Err(e) => fs_err(&path, &e),
-    })
+    let err_path = path.clone();
+    park_syscall(
+        move || std::fs::read(&path),
+        move |res| match res {
+            Ok(b) => Value::ok(Value::new_bytes(b)),
+            Err(e) => fs_err(&err_path, &e),
+        },
+    );
+    Ok(Value::Unit) // placeholder; the delivered value replaces it on resume
 }
 
 /// `fs.write_bytes(path, data)` — write raw bytes.
@@ -984,10 +1031,15 @@ fn native_fs_write_bytes(_out: &mut dyn Write, args: &[Value]) -> Result<Value, 
     let (path, data) = args2(args, "fs_write_bytes")?;
     let path = str_contents(path)?;
     let data = bytes_contents(data, "fs_write_bytes")?;
-    Ok(match std::fs::write(&path, &data) {
-        Ok(()) => Value::ok(Value::Unit),
-        Err(e) => fs_err(&path, &e),
-    })
+    let err_path = path.clone();
+    park_syscall(
+        move || std::fs::write(&path, &data),
+        move |res| match res {
+            Ok(()) => Value::ok(Value::Unit),
+            Err(e) => fs_err(&err_path, &e),
+        },
+    );
+    Ok(Value::Unit)
 }
 
 /// `fs.exists(path)` — whether the path exists (infallible; false on any error).
@@ -999,21 +1051,25 @@ fn native_fs_exists(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap>
 /// `fs.list_dir(path)` — entry basenames (not full paths), in OS order.
 fn native_fs_list_dir(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let path = str_contents(expect_one(args, "fs_list_dir")?)?;
-    match std::fs::read_dir(&path) {
-        Ok(entries) => {
+    let err_path = path.clone();
+    // The worker reads the directory into owned `String` names (or an error); the
+    // `Value` list is built back on the Hawk thread.
+    park_syscall(
+        move || -> std::io::Result<Vec<String>> {
             let mut names = Vec::new();
-            for entry in entries {
-                match entry {
-                    Ok(e) => {
-                        names.push(Value::new_str(e.file_name().to_string_lossy().into_owned()))
-                    }
-                    Err(e) => return Ok(fs_err(&path, &e)),
-                }
+            for entry in std::fs::read_dir(&path)? {
+                names.push(entry?.file_name().to_string_lossy().into_owned());
             }
-            Ok(Value::ok(Value::new_list(names)))
-        }
-        Err(e) => Ok(fs_err(&path, &e)),
-    }
+            Ok(names)
+        },
+        move |res| match res {
+            Ok(names) => Value::ok(Value::new_list(
+                names.into_iter().map(Value::new_str).collect(),
+            )),
+            Err(e) => fs_err(&err_path, &e),
+        },
+    );
+    Ok(Value::Unit)
 }
 
 /// The `[kind, size, modified_millis]` list the Hawk `Metadata` reads, where kind
@@ -1048,82 +1104,122 @@ fn metadata_fields(m: &std::fs::Metadata) -> Value {
 /// The Hawk side builds a `Metadata`.
 fn native_fs_metadata(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let path = str_contents(expect_one(args, "fs_metadata")?)?;
-    Ok(match std::fs::metadata(&path) {
-        Ok(m) => Value::ok(metadata_fields(&m)),
-        Err(e) => fs_err(&path, &e),
-    })
+    let err_path = path.clone();
+    park_syscall(
+        move || std::fs::metadata(&path),
+        move |res| match res {
+            Ok(m) => Value::ok(metadata_fields(&m)),
+            Err(e) => fs_err(&err_path, &e),
+        },
+    );
+    Ok(Value::Unit)
 }
 
 /// `fs.symlink_metadata(path)` — like `fs_metadata` but does **not** follow a
 /// symlink, so a symlink reports kind 2 (its own metadata, not the target's).
 fn native_fs_symlink_metadata(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let path = str_contents(expect_one(args, "fs_symlink_metadata")?)?;
-    Ok(match std::fs::symlink_metadata(&path) {
-        Ok(m) => Value::ok(metadata_fields(&m)),
-        Err(e) => fs_err(&path, &e),
-    })
+    let err_path = path.clone();
+    park_syscall(
+        move || std::fs::symlink_metadata(&path),
+        move |res| match res {
+            Ok(m) => Value::ok(metadata_fields(&m)),
+            Err(e) => fs_err(&err_path, &e),
+        },
+    );
+    Ok(Value::Unit)
 }
 
 /// `fs.create_dir(path)` — create a single directory (parent must exist).
 fn native_fs_create_dir(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let path = str_contents(expect_one(args, "fs_create_dir")?)?;
-    Ok(match std::fs::create_dir(&path) {
-        Ok(()) => Value::ok(Value::Unit),
-        Err(e) => fs_err(&path, &e),
-    })
+    let err_path = path.clone();
+    park_syscall(
+        move || std::fs::create_dir(&path),
+        move |res| match res {
+            Ok(()) => Value::ok(Value::Unit),
+            Err(e) => fs_err(&err_path, &e),
+        },
+    );
+    Ok(Value::Unit)
 }
 
 /// `fs.create_dir_all(path)` — create a directory and any missing parents.
 fn native_fs_create_dir_all(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let path = str_contents(expect_one(args, "fs_create_dir_all")?)?;
-    Ok(match std::fs::create_dir_all(&path) {
-        Ok(()) => Value::ok(Value::Unit),
-        Err(e) => fs_err(&path, &e),
-    })
+    let err_path = path.clone();
+    park_syscall(
+        move || std::fs::create_dir_all(&path),
+        move |res| match res {
+            Ok(()) => Value::ok(Value::Unit),
+            Err(e) => fs_err(&err_path, &e),
+        },
+    );
+    Ok(Value::Unit)
 }
 
 /// `fs.remove(path)` — remove a file or an empty directory.
 fn native_fs_remove(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let path = str_contents(expect_one(args, "fs_remove")?)?;
-    let p = std::path::Path::new(&path);
-    let res = if p.is_dir() {
-        std::fs::remove_dir(&path)
-    } else {
-        std::fs::remove_file(&path)
-    };
-    Ok(match res {
-        Ok(()) => Value::ok(Value::Unit),
-        Err(e) => fs_err(&path, &e),
-    })
+    let err_path = path.clone();
+    park_syscall(
+        move || {
+            if std::path::Path::new(&path).is_dir() {
+                std::fs::remove_dir(&path)
+            } else {
+                std::fs::remove_file(&path)
+            }
+        },
+        move |res| match res {
+            Ok(()) => Value::ok(Value::Unit),
+            Err(e) => fs_err(&err_path, &e),
+        },
+    );
+    Ok(Value::Unit)
 }
 
 /// `fs.remove_dir_all(path)` — remove a directory and all its contents.
 fn native_fs_remove_dir_all(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let path = str_contents(expect_one(args, "fs_remove_dir_all")?)?;
-    Ok(match std::fs::remove_dir_all(&path) {
-        Ok(()) => Value::ok(Value::Unit),
-        Err(e) => fs_err(&path, &e),
-    })
+    let err_path = path.clone();
+    park_syscall(
+        move || std::fs::remove_dir_all(&path),
+        move |res| match res {
+            Ok(()) => Value::ok(Value::Unit),
+            Err(e) => fs_err(&err_path, &e),
+        },
+    );
+    Ok(Value::Unit)
 }
 
 /// `fs.rename(src, dst)` — rename/move a file or directory.
 fn native_fs_rename(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let (src, dst) = args2(args, "fs_rename")?;
     let (src, dst) = (str_contents(src)?, str_contents(dst)?);
-    Ok(match std::fs::rename(&src, &dst) {
-        Ok(()) => Value::ok(Value::Unit),
-        Err(e) => fs_err(&src, &e),
-    })
+    let err_path = src.clone();
+    park_syscall(
+        move || std::fs::rename(&src, &dst),
+        move |res| match res {
+            Ok(()) => Value::ok(Value::Unit),
+            Err(e) => fs_err(&err_path, &e),
+        },
+    );
+    Ok(Value::Unit)
 }
 
 /// `fs.copy(src, dst)` — copy a file's contents and permissions.
 fn native_fs_copy(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let (src, dst) = args2(args, "fs_copy")?;
     let (src, dst) = (str_contents(src)?, str_contents(dst)?);
-    Ok(match std::fs::copy(&src, &dst) {
-        Ok(_) => Value::ok(Value::Unit),
-        Err(e) => fs_err(&src, &e),
-    })
+    let err_path = src.clone();
+    park_syscall(
+        move || std::fs::copy(&src, &dst),
+        move |res| match res {
+            Ok(_) => Value::ok(Value::Unit),
+            Err(e) => fs_err(&err_path, &e),
+        },
+    );
+    Ok(Value::Unit)
 }
 
 /// `fs.temp_dir()` — the system temporary directory path.
@@ -1140,6 +1236,13 @@ fn native_fs_temp_dir(_out: &mut dyn Write, _args: &[Value]) -> Result<Value, Tr
 // Reader/Writer/Seek/Closer methods to the natives below. Dropping a `File`
 // without `close()` leaks the fd until the process exits — there are no
 // finalizers in this GC — so the docs tell callers to close their files.
+//
+// The blocking ops (`read`/`write`/`seek`) park on the worker pool. Because a
+// worker can't hold the registry lock across a blocking syscall, the op **takes
+// the `File` out** of the registry for its duration and the value-builder **puts it
+// back**. Consequence: a concurrent op on the *same* handle from another fiber sees
+// it briefly absent and gets `file_closed_err` — an unsupported pattern (a `File`
+// is owned by one fiber at a time; interleaving reads on one cursor is meaningless).
 
 static NEXT_FILE_ID: AtomicI64 = AtomicI64::new(1);
 
@@ -1164,64 +1267,106 @@ fn file_closed_err() -> Value {
 /// `fs.open(path)` — open an existing file for reading. Returns an `Int` handle.
 fn native_fs_open(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let path = str_contents(expect_one(args, "fs_open")?)?;
-    Ok(match std::fs::File::open(&path) {
-        Ok(f) => register_file(f),
-        Err(e) => fs_err(&path, &e),
-    })
+    let err_path = path.clone();
+    park_syscall(
+        move || std::fs::File::open(&path),
+        move |res| match res {
+            Ok(f) => register_file(f),
+            Err(e) => fs_err(&err_path, &e),
+        },
+    );
+    Ok(Value::Unit)
 }
 
 /// `fs.create(path)` — create or truncate a file for writing. Returns a handle.
 fn native_fs_create(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let path = str_contents(expect_one(args, "fs_create")?)?;
-    Ok(match std::fs::File::create(&path) {
-        Ok(f) => register_file(f),
-        Err(e) => fs_err(&path, &e),
-    })
+    let err_path = path.clone();
+    park_syscall(
+        move || std::fs::File::create(&path),
+        move |res| match res {
+            Ok(f) => register_file(f),
+            Err(e) => fs_err(&err_path, &e),
+        },
+    );
+    Ok(Value::Unit)
 }
 
 static TEMP_FILE_COUNTER: AtomicI64 = AtomicI64::new(0);
+
+/// The result of the `fs.temp_file` syscall, produced on a worker thread (owned,
+/// `Send`) and turned into a `Value` on the Hawk thread.
+enum TempFileOutcome {
+    Created(String),                 // "<handle>\u{1}<path>"
+    FsError(String, std::io::Error), // path, error → classified `fs_err`
+    Exhausted(String),               // retries exhausted → `FsError.Other(message)`
+}
 
 /// `fs.temp_file(prefix)` — create a new, uniquely-named file in the system temp
 /// directory, opened read+write. Returns `"<handle>\u{1}<path>"` on success (the
 /// Hawk side splits it into a `File` with its path). Creation is atomic
 /// (`create_new` / O_EXCL), so it never clobbers an existing file — a colliding
-/// name is retried with a fresh suffix.
+/// name is retried with a fresh suffix. The whole retry loop (and registering the
+/// handle in the thread-safe file registry) runs on the worker pool.
 fn native_fs_temp_file(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let prefix = str_contents(expect_one(args, "fs_temp_file")?)?;
-    let dir = std::env::temp_dir();
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let mut last: Option<std::io::Error> = None;
-    for _ in 0..64 {
-        let n = TEMP_FILE_COUNTER.fetch_add(1, Ordering::SeqCst);
-        let path = dir.join(format!("{prefix}{stamp}_{n}"));
-        match std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create_new(true)
-            .open(&path)
-        {
-            Ok(f) => {
-                let id = NEXT_FILE_ID.fetch_add(1, Ordering::SeqCst);
-                file_registry().lock().unwrap().insert(id, f);
-                let path_str = path.to_string_lossy().into_owned();
-                return Ok(Value::ok(Value::new_str(format!("{id}\u{1}{path_str}"))));
+    park_syscall(
+        move || -> TempFileOutcome {
+            let dir = std::env::temp_dir();
+            let stamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0);
+            let mut last: Option<std::io::Error> = None;
+            for _ in 0..64 {
+                let n = TEMP_FILE_COUNTER.fetch_add(1, Ordering::SeqCst);
+                let path = dir.join(format!("{prefix}{stamp}_{n}"));
+                match std::fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .create_new(true)
+                    .open(&path)
+                {
+                    Ok(f) => {
+                        let id = NEXT_FILE_ID.fetch_add(1, Ordering::SeqCst);
+                        file_registry().lock().unwrap().insert(id, f);
+                        let path_str = path.to_string_lossy().into_owned();
+                        return TempFileOutcome::Created(format!("{id}\u{1}{path_str}"));
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                        last = Some(e);
+                    }
+                    Err(e) => {
+                        return TempFileOutcome::FsError(path.to_string_lossy().into_owned(), e);
+                    }
+                }
             }
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                last = Some(e);
+            let msg = last
+                .map(|e| e.to_string())
+                .unwrap_or_else(|| "could not create a unique temp file".to_string());
+            TempFileOutcome::Exhausted(msg)
+        },
+        move |outcome| match outcome {
+            TempFileOutcome::Created(s) => Value::ok(Value::new_str(s)),
+            TempFileOutcome::FsError(p, e) => fs_err(&p, &e),
+            TempFileOutcome::Exhausted(msg) => {
+                Value::err(Value::new_str(format!("other\u{1}{msg}")))
             }
-            Err(e) => {
-                let ps = path.to_string_lossy().into_owned();
-                return Ok(fs_err(&ps, &e));
-            }
-        }
-    }
-    let msg = last
-        .map(|e| e.to_string())
-        .unwrap_or_else(|| "could not create a unique temp file".to_string());
-    Ok(Value::err(Value::new_str(format!("other\u{1}{msg}"))))
+        },
+    );
+    Ok(Value::Unit)
+}
+
+/// Take a `File` out of the registry to run a blocking op on the worker pool
+/// without holding the registry lock; a missing handle short-circuits to a
+/// closed-file error (no park). See the take-out/return note above.
+fn take_file(handle: i64) -> Option<std::fs::File> {
+    file_registry().lock().unwrap().remove(&handle)
+}
+
+/// Return a `File` to the registry after its op completes (on the Hawk thread).
+fn return_file(handle: i64, file: std::fs::File) {
+    file_registry().lock().unwrap().insert(handle, file);
 }
 
 /// `file.read(handle, max)` — up to `max` bytes; an empty result is EOF.
@@ -1232,19 +1377,28 @@ fn native_file_read(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap>
     if max == 0 {
         return Ok(Value::ok(Value::new_bytes(Vec::new())));
     }
-    let mut registry = file_registry().lock().unwrap();
-    let file = match registry.get_mut(&handle) {
+    let mut file = match take_file(handle) {
         Some(f) => f,
         None => return Ok(file_closed_err()),
     };
-    let mut buf = vec![0u8; max.min(1 << 20)];
-    Ok(match file.read(&mut buf) {
-        Ok(n) => {
-            buf.truncate(n);
-            Value::ok(Value::new_bytes(buf))
-        }
-        Err(e) => fs_err("<file>", &e),
-    })
+    park_syscall(
+        move || {
+            let mut buf = vec![0u8; max.min(1 << 20)];
+            let res = file.read(&mut buf).map(|n| {
+                buf.truncate(n);
+                buf
+            });
+            (file, res)
+        },
+        move |(file, res)| {
+            return_file(handle, file);
+            match res {
+                Ok(buf) => Value::ok(Value::new_bytes(buf)),
+                Err(e) => fs_err("<file>", &e),
+            }
+        },
+    );
+    Ok(Value::Unit)
 }
 
 /// `file.write(handle, data)` — write all of `data`; returns the byte count.
@@ -1252,15 +1406,25 @@ fn native_file_write(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap
     let (hv, dv) = args2(args, "file_write")?;
     let handle = as_int(hv, "file_write")?;
     let data = bytes_contents(dv, "file_write")?;
-    let mut registry = file_registry().lock().unwrap();
-    let file = match registry.get_mut(&handle) {
+    let n = data.len() as i64;
+    let mut file = match take_file(handle) {
         Some(f) => f,
         None => return Ok(file_closed_err()),
     };
-    Ok(match file.write_all(&data).and_then(|()| file.flush()) {
-        Ok(()) => Value::ok(Value::Int(data.len() as i64)),
-        Err(e) => fs_err("<file>", &e),
-    })
+    park_syscall(
+        move || {
+            let res = file.write_all(&data).and_then(|()| file.flush());
+            (file, res)
+        },
+        move |(file, res)| {
+            return_file(handle, file);
+            match res {
+                Ok(()) => Value::ok(Value::Int(n)),
+                Err(e) => fs_err("<file>", &e),
+            }
+        },
+    );
+    Ok(Value::Unit)
 }
 
 /// `file.seek(handle, whence, offset)` — `whence` is 0=Start, 1=Current, 2=End;
@@ -1277,15 +1441,24 @@ fn native_file_seek(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap>
         2 => std::io::SeekFrom::End(offset),
         _ => return Err(bug(format!("file_seek: invalid whence {whence}"))),
     };
-    let mut registry = file_registry().lock().unwrap();
-    let file = match registry.get_mut(&handle) {
+    let mut file = match take_file(handle) {
         Some(f) => f,
         None => return Ok(file_closed_err()),
     };
-    Ok(match file.seek(target) {
-        Ok(pos) => Value::ok(Value::Int(pos as i64)),
-        Err(e) => fs_err("<file>", &e),
-    })
+    park_syscall(
+        move || {
+            let res = file.seek(target);
+            (file, res)
+        },
+        move |(file, res)| {
+            return_file(handle, file);
+            match res {
+                Ok(pos) => Value::ok(Value::Int(pos as i64)),
+                Err(e) => fs_err("<file>", &e),
+            }
+        },
+    );
+    Ok(Value::Unit)
 }
 
 /// `file.close(handle)` — drop the file (closing the fd). A closed/unknown
@@ -1332,12 +1505,16 @@ fn native_time_monotonic_nanos(_out: &mut dyn Write, args: &[Value]) -> Result<V
     Ok(Value::Int(start.elapsed().as_nanos() as i64))
 }
 
-/// `time.sleep(d)` — block the current thread for `millis` milliseconds. (Parks
-/// the fiber once cooperative fibers land; today it blocks the thread.)
+/// `time.sleep(d)` — park the calling fiber until `millis` milliseconds have
+/// elapsed, letting other fibers run in the meantime. The scheduler's timer wakes
+/// it; with no other runnable fiber the driver sleeps the thread until the
+/// deadline, so a single-fiber program still blocks for the full span. A
+/// non-positive span is a no-op (it does not even yield).
 fn native_time_sleep_millis(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let millis = as_int(expect_one(args, "time_sleep_millis")?, "time_sleep_millis")?;
     if millis > 0 {
-        std::thread::sleep(std::time::Duration::from_millis(millis as u64));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(millis as u64);
+        super::park_timer(deadline);
     }
     Ok(Value::Unit)
 }
@@ -2108,24 +2285,28 @@ fn native_process_run(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Tra
     command.stdout(Stdio::piped());
     command.stderr(Stdio::piped());
 
-    match command.output() {
-        Ok(output) => {
-            let exit_code = output.status.code().unwrap_or(-1) as i64;
-            let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-            let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-
-            let res = Value::new_struct(
-                0,
-                vec![
-                    Value::Int(exit_code),
-                    Value::new_str(stdout),
-                    Value::new_str(stderr),
-                ],
-            );
-            Ok(Value::ok(res))
-        }
-        Err(e) => Ok(proc_err(&e, format!("failed to run '{cmd_name}': {e}"))),
-    }
+    // The child runs to completion on the worker pool (parking the fiber); the
+    // captured `Output` is turned into the result struct on the Hawk thread.
+    park_syscall(
+        move || command.output(),
+        move |res| match res {
+            Ok(output) => {
+                let exit_code = output.status.code().unwrap_or(-1) as i64;
+                let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+                let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+                Value::ok(Value::new_struct(
+                    0,
+                    vec![
+                        Value::Int(exit_code),
+                        Value::new_str(stdout),
+                        Value::new_str(stderr),
+                    ],
+                ))
+            }
+            Err(e) => proc_err(&e, format!("failed to run '{cmd_name}': {e}")),
+        },
+    );
+    Ok(Value::Unit)
 }
 
 /// `process_exec(command, args, working_dir, env)` — run a child that *inherits*
@@ -2172,10 +2353,16 @@ fn native_process_exec(out: &mut dyn Write, args: &[Value]) -> Result<Value, Tra
     command.stdout(Stdio::inherit());
     command.stderr(Stdio::inherit());
 
-    match command.status() {
-        Ok(status) => Ok(Value::ok(Value::Int(status.code().unwrap_or(-1) as i64))),
-        Err(e) => Ok(proc_err(&e, format!("failed to run '{cmd_name}': {e}"))),
-    }
+    // The child inherits the *process's* stdio fds, so running it on the worker pool
+    // is fine — it still shares the terminal — and the fiber parks until it exits.
+    park_syscall(
+        move || command.status(),
+        move |res| match res {
+            Ok(status) => Value::ok(Value::Int(status.code().unwrap_or(-1) as i64)),
+            Err(e) => proc_err(&e, format!("failed to run '{cmd_name}': {e}")),
+        },
+    );
+    Ok(Value::Unit)
 }
 
 /// `process_start(command, args, working_dir, env)`
@@ -2244,8 +2431,12 @@ fn native_process_wait(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Tr
     let process_val = expect_one(args, "process_wait")?;
     let id = get_process_id(process_val)?;
 
-    let mut registry = process_registry().lock().unwrap();
-    let mut running = match registry.remove(&id) {
+    // Take the child out of the registry (so its pipes drop after the wait, as
+    // before), then park on `wait()` on the worker pool. `wait` mustn't hold the
+    // registry lock — a fiber blocked in `wait` would otherwise wedge every other
+    // process op — so removal happens up front, matching the old drop-lock-then-wait.
+    let removed = process_registry().lock().unwrap().remove(&id);
+    let mut running = match removed {
         Some(r) => r,
         None => {
             return Ok(proc_err_io(format!(
@@ -2253,18 +2444,14 @@ fn native_process_wait(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Tr
             )));
         }
     };
-    drop(registry);
-
-    match running.child.wait() {
-        Ok(status) => {
-            let exit_code = status.code().unwrap_or(-1) as i64;
-            Ok(Value::ok(Value::Int(exit_code)))
-        }
-        Err(e) => Ok(proc_err(
-            &e,
-            format!("failed to wait for process {id}: {e}"),
-        )),
-    }
+    park_syscall(
+        move || running.child.wait(),
+        move |res| match res {
+            Ok(status) => Value::ok(Value::Int(status.code().unwrap_or(-1) as i64)),
+            Err(e) => proc_err(&e, format!("failed to wait for process {id}: {e}")),
+        },
+    );
+    Ok(Value::Unit)
 }
 
 /// `process_kill(self)`
@@ -2291,28 +2478,45 @@ fn native_process_kill(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Tr
 }
 
 /// `process_stdin_write(id, data)` — write all of `data` (Bytes) to the child's
-/// stdin, returning the byte count. Backs `Process.stdin(): Writer`.
+/// stdin, returning the byte count. Backs `Process.stdin(): Writer`. Parks on the
+/// worker pool: the `ChildStdin` is taken out for the write and returned after (see
+/// the take-out/return note on the file registry), so a full-pipe write doesn't
+/// stall other fibers — and a reader fiber can drain stdout meanwhile to unblock it.
 fn native_process_stdin_write(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let (id_val, data_val) = args2(args, "process_stdin_write")?;
     let id = as_int(id_val, "process_stdin_write")?;
     let data = bytes_contents(data_val, "process_stdin_write")?;
+    let n = data.len() as i64;
 
     let mut registry = process_registry().lock().unwrap();
     let running = match registry.get_mut(&id) {
         Some(r) => r,
         None => return Ok(proc_err_io(format!("process {id} not found"))),
     };
-    let stdin = match &mut running.stdin {
+    let stdin = match running.stdin.take() {
         Some(s) => s,
         None => return Ok(proc_err_io(format!("process {id} stdin is not available"))),
     };
-    match stdin.write_all(&data).and_then(|()| stdin.flush()) {
-        Ok(()) => Ok(Value::ok(Value::Int(data.len() as i64))),
-        Err(e) => Ok(proc_err(
-            &e,
-            format!("failed to write to process {id} stdin: {e}"),
-        )),
-    }
+    drop(registry);
+    park_syscall(
+        move || {
+            let mut stdin = stdin;
+            let res = stdin.write_all(&data).and_then(|()| stdin.flush());
+            (stdin, res)
+        },
+        move |(stdin, res)| {
+            // Return the pipe so later writes / close still find it (unless the
+            // process was waited/removed meanwhile, in which case it just drops).
+            if let Some(running) = process_registry().lock().unwrap().get_mut(&id) {
+                running.stdin = Some(stdin);
+            }
+            match res {
+                Ok(()) => Value::ok(Value::Int(n)),
+                Err(e) => proc_err(&e, format!("failed to write to process {id} stdin: {e}")),
+            }
+        },
+    );
+    Ok(Value::Unit)
 }
 
 /// `process_stdin_close(id)` — drop the child's stdin so it sees EOF (the
@@ -2332,25 +2536,48 @@ fn native_process_stdin_close(_out: &mut dyn Write, args: &[Value]) -> Result<Va
     }
 }
 
-/// Read up to `max` bytes from a child pipe; an empty result is EOF (and the
-/// pipe is then dropped). Shared by stdout/stderr (both `impl Read`).
-fn read_pipe<R: Read>(stream: &mut Option<R>, max: usize, id: i64) -> Value {
-    let s = match stream {
+/// Read up to `max` bytes from an owned child pipe (run on the worker pool); an
+/// empty result is EOF, in which case the stream is dropped (returned as `None`).
+/// Shared by stdout/stderr (both `impl Read`).
+fn read_pipe_owned<R: Read>(
+    mut stream: Option<R>,
+    max: usize,
+) -> (Option<R>, std::io::Result<Vec<u8>>) {
+    let s = match &mut stream {
         Some(s) => s,
-        None => return Value::ok(Value::new_bytes(Vec::new())), // already at EOF
+        None => return (None, Ok(Vec::new())), // already at EOF
     };
     let mut buf = vec![0u8; max.clamp(1, 1 << 20)];
     match s.read(&mut buf) {
-        Ok(0) => {
-            *stream = None;
-            Value::ok(Value::new_bytes(Vec::new()))
-        }
+        Ok(0) => (None, Ok(Vec::new())), // EOF: drop the pipe
         Ok(n) => {
             buf.truncate(n);
-            Value::ok(Value::new_bytes(buf))
+            (stream, Ok(buf))
         }
-        Err(e) => proc_err(&e, format!("failed to read from process {id}: {e}")),
+        Err(e) => (stream, Err(e)), // keep the pipe on error
     }
+}
+
+/// Park a child-pipe read on the worker pool: `stream` is taken from the registry,
+/// read off-thread, and the (possibly-drained) pipe is put back by `restore` on the
+/// Hawk thread. `restore` writes the stream into the right `RunningProcess` field.
+fn park_pipe_read<R, F>(id: i64, stream: Option<R>, max: usize, restore: F)
+where
+    R: Read + Send + 'static,
+    F: FnOnce(&mut RunningProcess, Option<R>) + Send + 'static,
+{
+    park_syscall(
+        move || read_pipe_owned(stream, max),
+        move |(stream, res)| {
+            if let Some(running) = process_registry().lock().unwrap().get_mut(&id) {
+                restore(running, stream);
+            }
+            match res {
+                Ok(buf) => Value::ok(Value::new_bytes(buf)),
+                Err(e) => proc_err(&e, format!("failed to read from process {id}: {e}")),
+            }
+        },
+    );
 }
 
 /// `process_stdout_read(id, max)` — backs `Process.stdout(): Reader`.
@@ -2359,10 +2586,13 @@ fn native_process_stdout_read(_out: &mut dyn Write, args: &[Value]) -> Result<Va
     let id = as_int(id_val, "process_stdout_read")?;
     let max = as_int(max_val, "process_stdout_read")?.max(0) as usize;
     let mut registry = process_registry().lock().unwrap();
-    match registry.get_mut(&id) {
-        Some(running) => Ok(read_pipe(&mut running.stdout, max, id)),
-        None => Ok(proc_err_io(format!("process {id} not found"))),
-    }
+    let stream = match registry.get_mut(&id) {
+        Some(running) => running.stdout.take(),
+        None => return Ok(proc_err_io(format!("process {id} not found"))),
+    };
+    drop(registry);
+    park_pipe_read(id, stream, max, |running, s| running.stdout = s);
+    Ok(Value::Unit)
 }
 
 /// `process_stderr_read(id, max)` — backs `Process.stderr(): Reader`.
@@ -2371,10 +2601,13 @@ fn native_process_stderr_read(_out: &mut dyn Write, args: &[Value]) -> Result<Va
     let id = as_int(id_val, "process_stderr_read")?;
     let max = as_int(max_val, "process_stderr_read")?.max(0) as usize;
     let mut registry = process_registry().lock().unwrap();
-    match registry.get_mut(&id) {
-        Some(running) => Ok(read_pipe(&mut running.stderr, max, id)),
-        None => Ok(proc_err_io(format!("process {id} not found"))),
-    }
+    let stream = match registry.get_mut(&id) {
+        Some(running) => running.stderr.take(),
+        None => return Ok(proc_err_io(format!("process {id} not found"))),
+    };
+    drop(registry);
+    park_pipe_read(id, stream, max, |running, s| running.stderr = s);
+    Ok(Value::Unit)
 }
 
 // --- string byte-offset slice (companion to `str_byte_len`) ---

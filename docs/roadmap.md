@@ -97,9 +97,23 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   `spawn`/`join`/`yield` with GC roots across every fiber; buffered
   `Channel<T>`). Design in [architecture.md](architecture.md) §Concurrency.
   Next:
-  - **Phase 3 — park on real I/O.** `time.sleep` (a scheduler timer), then
-    offload blocking syscalls (`fs`/`stdin`/`process`) to a worker-thread pool
-    that wakes the fiber — keeping the single Hawk thread; unblocks `std.http`.
+  - **Phase 3 — park on real I/O.** _Done._ Two park kinds, both on the
+    deliver-on-resume model (the native's result is delivered when the fiber resumes,
+    not recomputed): a `Timer(deadline)` request for `time.sleep` (parks on a
+    scheduler timer, so other fibers run during a sleep; the driver sleeps the thread
+    until the earliest deadline when nothing else is runnable), and an
+    `Await{job, finish}` request that offloads a blocking syscall to a **worker-thread
+    pool** (4 threads, lazily created) — the worker returns owned Rust data and the
+    `Value` is built back on the Hawk thread (the heap is thread-local), keeping the
+    single Hawk thread. A program left with only timer- or I/O-blocked fibers is no
+    longer a deadlock. Parked: `fs` path ops, `stdin` read, `fs.open`/`create` +
+    `File` read/write/seek, and `std.process` `run`/`exec`/`wait` + pipe I/O. Handle
+    resources (open files, process pipes) use a **take-out/return** discipline — the
+    resource leaves the registry for the op's duration so no lock is held across the
+    blocking call — which lets one fiber feed a child's stdin while another drains
+    its stdout (validated by a >pipe-buffer cross-fiber round-trip through `cat`).
+    Left thread-blocking on purpose (fast, non-blocking syscalls): `fs.exists`,
+    `process.start`/`kill`/`close_stdin`.
   - **Phase 4 — readiness poller** (`kqueue`/`epoll`) for sockets, to scale to
     many connections (`mio` vs. hand-rolled — the first real runtime
     dependency).

@@ -496,7 +496,7 @@ pub struct DateTime { /* Unix milliseconds, UTC */ }
 pub fn now_millis() -> Int;          // ambient wall clock, Unix millis
 pub fn now() -> DateTime;            // wall clock (UTC)
 pub fn monotonic() -> Instant;       // for elapsed measurement
-pub fn sleep(_ d: Duration) -> Void; // blocks the thread (parks the fiber once timer parking lands)
+pub fn sleep(_ d: Duration) -> Void; // parks the fiber on a scheduler timer (other fibers run meanwhile)
 
 // The clock as an opt-in capability (§ Cross-cutting #7). `now*()` is the
 // ambient form of `system_clock().now*()`; tests pass `testing.fixed_clock`.
@@ -525,9 +525,10 @@ UTC + RFC 3339 + Unix time, which covers logging/timestamps/CLI needs.
 `format_rfc3339` emits a `.sss` fraction only when the millisecond part is
 non-zero; `parse_rfc3339` accepts a `Z` or `±HH:MM` zone and an optional
 fractional part (keeping millisecond precision), normalizing to UTC. `sleep`
-still blocks the thread: the cooperative scheduler exists, but parking a
-sleeping fiber on a timer awaits the same I/O-parking work `std.http` needs (§
-`std.fiber`).
+parks the calling fiber on a scheduler timer rather than blocking the thread, so
+other fibers run during the sleep; with nothing else runnable the driver sleeps
+the thread until the deadline, so a single-fiber program still waits the full
+span (§ `std.fiber`).
 
 ### `std.fiber` — cooperative concurrency _(spawn/join/yield + channels implemented; I/O parking deferred)_
 
@@ -557,8 +558,14 @@ fiber runs; `join` is the only way to get a fiber's result out. Deterministic
 scheduling, and GC keeps parked fibers' and channels' values alive. Channels are
 **buffered** (capacity ≥ 1, FIFO; a closed channel drains then gives `None`;
 `send` after `close` traps); true 0-capacity rendezvous is a later refinement.
-Deferred: parking on real I/O — today only fiber/channel ops park (see the I/O
-staging in the design).
+`time.sleep` also parks — on a scheduler timer — so other fibers run while a
+fiber sleeps. Blocking **syscalls** park too: the `fs` ops (path ops, `open`/
+`create`, and `File` read/write/seek), `stdin` read, and `std.process`
+(`run`/`exec`/`wait` + pipe I/O) run on a worker-thread pool (the worker returns
+owned data; the `Value` is built back on the Hawk thread), so a slow read never
+stalls the other fibers — and one fiber can feed a child's stdin while another
+drains its stdout. Only fast, effectively-non-blocking calls stay inline
+(`fs.exists`, `process.start`/`kill`/`close_stdin`).
 
 Notes: no mutexes/atomics — single-threaded means no data races
 ([language.md](language.md) §Concurrency). `select` over channels is a candidate
