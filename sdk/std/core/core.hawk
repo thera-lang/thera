@@ -11,6 +11,7 @@ pub import 'io';           // println, print
 pub import 'option';       // Option<T>
 pub import 'result';       // Result<T, E>
 pub import 'error';        // Error
+pub import 'void';         // Void (the unit type; the value `void`)
 pub import 'bool';         // Bool (the built-in boolean type)
 pub import 'int';          // Int methods (abs, min, max, clamp, to_double)
 pub import 'double';       // Double methods (abs, min, max, clamp, to_int)

@@ -1,0 +1,11 @@
+//! std.core — the built-in Void type (auto-imported with the prelude).
+//!
+//! `Void` is the unit type: it has exactly one value, written `void`. A function
+//! with no meaningful result returns `Void`, and its return type may be omitted
+//! — `fn log(_ msg: String)` and `fn log(_ msg: String) -> Void` are the same.
+//! Beyond a function signature and the `void` literal it is rarely written.
+
+/// The unit type — the single value `void`. A function that produces no
+/// meaningful result returns `Void` (the annotation may be dropped); `void` is
+/// the value itself, as in `return Result.Ok(void)`.
+pub native type Void

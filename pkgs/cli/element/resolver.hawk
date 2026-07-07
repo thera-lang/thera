@@ -67,16 +67,6 @@ pub fn is_reserved_type_name(_ name: String) -> Bool {
         || name == 'Eq' || name == 'Ord' || name == 'Display' || name == 'Debug';
 }
 
-// A reserved name that names a type in signatures but is **declared by no file**,
-// not even std.core — a pure keyword type. `Void` is the only one: it has no
-// floor registry entry and no core `struct`/`native type`, so unlike every other
-// reserved name there is no core owner to exempt. Declaring it is therefore
-// always an error (a would-be owner is just the illegal declaration itself), so
-// the reserved-name check must reject it by name rather than by owner identity.
-pub fn is_keyword_type_name(_ name: String) -> Bool {
-    return name == 'Void';
-}
-
 // A built-in type def that declares it implements `Display` — the hermetic-floor
 // stand-in for a primitive's `impl Display for …` in std.core. The conformance
 // carries the floor `Display`'s identity; the real core impls carry the core

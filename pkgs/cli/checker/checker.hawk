@@ -269,15 +269,41 @@ fn reserved_site(_ name: String, _ span: SourceSpan, _ library: LibraryElement,
     if !is_reserved_type_name(name) {
         return Option.None;
     }
-    // A pure keyword type (`Void`) is declared by no file, so it has no core
-    // owner to compare against — always an error. Every other reserved name is
-    // floor-seeded or core-declared, so its registry owner is the genuine core
-    // declaration (pinned against a user's redeclaration): exempt only when this
-    // file *is* that owner.
-    if !resolver.is_keyword_type_name(name) && core_owner(library, name) == this_file {
+    // A reserved name's registry owner is its genuine core declaration (every
+    // reserved type is floor-seeded or declared in std.core — including `Void`,
+    // in `void.hawk` — and the flat entry is pinned against a user's
+    // redeclaration). Exempt only when this file *is* that owner — by exact key,
+    // or as the same stdlib source at a different absolute path (the SDK the LSP
+    // loads the prelude from may live elsewhere than the core file being edited;
+    // see [same_std_source]).
+    let owner = core_owner(library, name);
+    if owner == this_file || same_std_source(owner, this_file) {
         return Option.None;
     }
     return Option.Some(NamedSpan { name: name, span: span });
+}
+
+// Two file keys denote the same standard-library source when their paths agree
+// from the last `/std/` segment onward. The SDK layout is `<root>/std/<lib>/…`,
+// so the tail past `/std/` is the library-relative identity — stable across
+// where the SDK physically lives. This keeps the core exemption correct when the
+// prelude's owner was resolved from one SDK (`<install>/std/core/map.hawk`) but
+// the file being checked is the same source in another tree
+// (`<repo>/sdk/std/core/map.hawk`) — the LSP-editing-the-repo case. A path with
+// no `/std/` segment (ordinary user code) never matches.
+fn same_std_source(_ a: String, _ b: String) -> Bool {
+    let ta = std_tail(a);
+    return ta.is_some() && ta == std_tail(b);
+}
+
+// The substring of `p` after its last `/std/` segment (`.../sdk/std/core/map.hawk`
+// → `core/map.hawk`), or None when `p` has no `/std/` segment.
+fn std_tail(_ p: String) -> Option<String> {
+    let parts = p.split('/std/');
+    if parts.len() < 2 {
+        return Option.None;
+    }
+    return parts.last();
 }
 
 fn reserved_params(_ errors: List<CheckError>, _ type_params: List<TypeParam>) -> Void {

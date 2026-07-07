@@ -805,10 +805,13 @@ fn test_reserved_name_flagged_for_non_owner() -> Result<Void, Error> {
 }
 
 @test
-fn test_void_keyword_type_never_exempt() -> Result<Void, Error> {
-    // `Void` is a keyword type no file declares, so it has no core owner to
-    // exempt — flagged even when the declaring file would otherwise "own" it.
-    let p = program_at('struct Void { x: Int }', '/core/void.hawk');
-    testing.assert_eq(actual: reserved_errors(p, []).len(), expected: 1)?;
+fn test_reserved_name_exempt_across_sdk_locations() -> Result<Void, Error> {
+    // The same core source at a different absolute path — an installed SDK the
+    // prelude was loaded from vs the repo copy being edited — is still the owner:
+    // keys agreeing from the last `/std/` segment on are the same stdlib source.
+    // Guards the LSP-editing-the-repo case.
+    let installed = program_at('pub enum Result { Ok, Err }', '/opt/hawk/std/core/result.hawk');
+    let repo = program_at('pub enum Result { Ok, Err }', '/home/me/hawk/sdk/std/core/result.hawk');
+    testing.assert_eq(actual: reserved_errors(repo, [installed]).len(), expected: 0)?;
     return Result.Ok(void);
 }
