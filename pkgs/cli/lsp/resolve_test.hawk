@@ -582,3 +582,31 @@ fn test_lambda_param_resolves_in_the_lambda_body() -> Result<Void, Error> {
     testing.assert_eq(actual: def_offset(src, use_off), expected: decl_off)?;
     return Result.Ok(void);
 }
+
+@test
+fn test_field_on_global_receiver_navigates() -> Result<Void, Error> {
+    // A struct field reached through a module-level global (`G.level`) navigates
+    // to the field declaration — the same as through a local (`l.level`). A
+    // global is a top-level decl, so it must still route to inferred-receiver
+    // resolution (its committed type) rather than being read as a type name.
+    let src = 'struct P { level: Int }\n'
+        + 'let G: P = P { level: 1 };\n'
+        + 'fn use_it() -> Int {\n'
+        + '    let l: P = P { level: 2 };\n'
+        + '    return G.level + l.level;\n'
+        + '}\n';
+    let program = program_of(src);
+    let ctx = typed_ctx(program);
+    let field_decl = src.find('level').unwrap_or(0);
+    let l_off = match resolve.resolve_at(ctx, src, at(src, 'l.level', 2)) {
+        Some(r) => match r.def_span() { Some(s) => s.offset, None => -1 },
+        None => -1,
+    };
+    let g_off = match resolve.resolve_at(ctx, src, at(src, 'G.level', 2)) {
+        Some(r) => match r.def_span() { Some(s) => s.offset, None => -1 },
+        None => -1,
+    };
+    testing.assert_eq(actual: l_off, expected: field_decl)?;
+    testing.assert_eq(actual: g_off, expected: field_decl)?;
+    return Result.Ok(void);
+}

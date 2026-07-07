@@ -252,10 +252,18 @@ fn named_receiver_member(_ ctx: ResolveCtx, _ ref: NameRef, _ recv: String, _ re
     if let Some(surface) = namespace_surface(ctx, recv) {
         return ns_member(ctx, ref, surface);
     }
+    // A *value* receiver resolves its member on the receiver's committed type
+    // (CH19's record) — this covers a local (`xs.map`) and a module-level global
+    // (`CONFIG.field`) alike. `bare_owner_key` matches *any* top-level name, so a
+    // global `let`/`const` would otherwise be mis-routed to `type_member` (as if
+    // the name were a type) and resolve nothing; a recorded value type at the
+    // receiver span disambiguates it from a bare type name (`Set.new`,
+    // `Color.Red`), which is not a value expression and carries no such record.
+    if recorded_type_at(ctx, recv_span).is_some() {
+        return inferred_member(ctx, ref, recv_span);
+    }
     return match bare_owner_key(ctx, recv) {
         Some(owner) => type_member(ctx, ref, owner, recv),
-        // Not a namespace or a type name: a value binding. Resolve the member on
-        // the receiver's recorded type (CH19) — the inferred-receiver case.
         None => inferred_member(ctx, ref, recv_span),
     };
 }
