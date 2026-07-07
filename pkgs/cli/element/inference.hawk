@@ -1449,8 +1449,31 @@ pub fn lookup_method(_ recv: Type, _ field: String, _ arg_count: Int, _ ctx: Inf
                 _ => MethodLookup.Missing,
             };
         },
-        // An unresolved/lenient receiver — leave it un-arg-checked.
-        None => { return MethodLookup.Lenient; },
+        None => {
+            // A method on a generic parameter bound by an interface (`x: T`,
+            // `T: Weighted`): resolve against the bounds' method sets (dynamic
+            // dispatch). A *bounded* parameter has exactly its bounds' methods, so
+            // a name in none of them is a definitive miss — not lenient. An
+            // unbounded `T` has no resolvable receiver, so it stays lenient below.
+            if let TypeParameter(tpname) = recv {
+                if let Some(bounds) = ctx.type_param_bounds.get(tpname) {
+                    if bounds.len() > 0 {
+                        for bound in bounds {
+                            if let Some(bdef) = ctx_scope(ctx).resolve_type_def(bound) {
+                                if let Some(method) = find_method(bdef, field) {
+                                    return MethodLookup.Method(MethodResolution {
+                                        method: method, bindings: empty_bindings(),
+                                    });
+                                }
+                            }
+                        }
+                        return MethodLookup.Missing;
+                    }
+                }
+            }
+            // An unresolved/lenient receiver — leave it un-arg-checked.
+            return MethodLookup.Lenient;
+        },
     }
 }
 

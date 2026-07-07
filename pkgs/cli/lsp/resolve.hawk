@@ -285,10 +285,30 @@ fn inferred_member(_ ctx: ResolveCtx, _ ref: NameRef, _ recv_span: SourceSpan) -
     return match recorded_type_at(ctx, recv_span) {
         Some(ty) => match ty {
             Interface(id, _) => member_on_owner(ctx, ref, id.owner, id.name),
+            // A bounded generic parameter (`x: T`, `T: Weighted`): its members are
+            // its bounds' — resolve `ref` against each bound interface.
+            TypeParameter(tpname) => type_param_member(ctx, ref, tpname, recv_span),
             _ => Option.None,
         },
         None => Option.None,
     };
+}
+
+// A member of a generic parameter `tpname` in scope at `recv_span`, resolved
+// against the interfaces it is bound by (`T: Weighted` -> Weighted's methods).
+// The enclosing generic declaration carries the bound names; each resolves as a
+// bare type in this file's scope, and the member is looked up owner-correct.
+fn type_param_member(_ ctx: ResolveCtx, _ ref: NameRef, _ tpname: String, _ recv_span: SourceSpan) -> Option<Resolved> {
+    if let Some(tp) = enclosing_type_param(ctx.program, tpname, recv_span.offset) {
+        for bound in tp.bounds {
+            if let Some(owner) = bare_owner_key(ctx, bound) {
+                if let Some(res) = member_on_owner(ctx, ref, owner, bound) {
+                    return Option.Some(res);
+                }
+            }
+        }
+    }
+    return Option.None;
 }
 
 // A member of a *computed* value receiver (`f().x`, `xs[i].y`) or a value chain
@@ -1421,60 +1441,61 @@ fn structural_in_expr(_ e: Expr, _ offset: Int) -> Option<StructuralTarget> {
 // --- type parameters (`T` in `fn f<T>`, `struct Box<T>`, ...) ---
 
 fn type_param_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ offset: Int) -> Option<Resolved> {
-    return match type_param_span(ctx.program, ref.name, offset) {
-        Some(span) => Option.Some(Resolved {
+    return match enclosing_type_param(ctx.program, ref.name, offset) {
+        Some(tp) => Option.Some(Resolved {
             ref_span: ref.span,
             render: 'type parameter ${ref.name}',
             symbol: Option.Some(SymbolId {
                 file: paths.program_path(ctx.program),
                 kind: SymbolKind.TypeParam,
                 name: ref.name,
-                name_span: Option.Some(span),
+                name_span: Option.Some(tp.span),
             }),
         }),
         None => Option.None,
     };
 }
 
-// The declaration span of type parameter `name` as introduced by the generic
-// declaration enclosing `offset` — a function, struct, enum, impl, or interface.
-// A method's own type params shadow the surrounding impl/interface's.
-fn type_param_span(_ program: Program, _ name: String, _ offset: Int) -> Option<SourceSpan> {
+// The type parameter `name` as introduced by the generic declaration enclosing
+// `offset` — a function, struct, enum, impl, or interface — carrying its bounds
+// and declaration span. A method's own type params shadow the surrounding
+// impl/interface's.
+fn enclosing_type_param(_ program: Program, _ name: String, _ offset: Int) -> Option<TypeParam> {
     for decl in program.decls {
         match decl {
             Fn(f) => {
                 if span_covers(f.span, offset) {
-                    if let Some(s) = type_param_in(f.type_params, name) { return Option.Some(s); }
+                    if let Some(tp) = type_param_of(f.type_params, name) { return Option.Some(tp); }
                 }
             },
             Type(t) => {
                 if span_covers(t.span, offset) {
-                    if let Some(s) = type_param_in(t.type_params, name) { return Option.Some(s); }
+                    if let Some(tp) = type_param_of(t.type_params, name) { return Option.Some(tp); }
                 }
             },
             Enum(e) => {
                 if span_covers(e.span, offset) {
-                    if let Some(s) = type_param_in(e.type_params, name) { return Option.Some(s); }
+                    if let Some(tp) = type_param_of(e.type_params, name) { return Option.Some(tp); }
                 }
             },
             Impl(i) => {
                 if span_covers(i.span, offset) {
                     for m in i.methods {
                         if span_covers(m.span, offset) {
-                            if let Some(s) = type_param_in(m.type_params, name) { return Option.Some(s); }
+                            if let Some(tp) = type_param_of(m.type_params, name) { return Option.Some(tp); }
                         }
                     }
-                    if let Some(s) = type_param_in(i.type_params, name) { return Option.Some(s); }
+                    if let Some(tp) = type_param_of(i.type_params, name) { return Option.Some(tp); }
                 }
             },
             Interface(it) => {
                 if span_covers(it.span, offset) {
                     for m in it.methods {
                         if span_covers(m.span, offset) {
-                            if let Some(s) = type_param_in(m.type_params, name) { return Option.Some(s); }
+                            if let Some(tp) = type_param_of(m.type_params, name) { return Option.Some(tp); }
                         }
                     }
-                    if let Some(s) = type_param_in(it.type_params, name) { return Option.Some(s); }
+                    if let Some(tp) = type_param_of(it.type_params, name) { return Option.Some(tp); }
                 }
             },
             _ => {},
@@ -1483,10 +1504,10 @@ fn type_param_span(_ program: Program, _ name: String, _ offset: Int) -> Option<
     return Option.None;
 }
 
-fn type_param_in(_ tps: List<TypeParam>, _ name: String) -> Option<SourceSpan> {
+fn type_param_of(_ tps: List<TypeParam>, _ name: String) -> Option<TypeParam> {
     for tp in tps {
         if tp.name == name {
-            return Option.Some(tp.span);
+            return Option.Some(tp);
         }
     }
     return Option.None;

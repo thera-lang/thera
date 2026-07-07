@@ -665,3 +665,26 @@ fn def_offset_of(_ r: Option<Resolved>) -> Int {
         None => -1,
     };
 }
+
+@test
+fn test_hover_method_on_bounded_type_param() -> Result<Void, Error> {
+    // `x.weight()` where `x: T` and `T: Weighted`: the method resolves against
+    // the bound interface and navigates to its declaration — directly, and as a
+    // lambda parameter passed to a generic higher-order function (`apply` is
+    // local so the closure's parameter type resolves without the prelude).
+    let src = 'interface Weighted { fn weight(self) -> Int; }\n'
+        + 'fn apply<T: Weighted>(_ x: T, _ f: (T) -> Int) -> Int { return f(x); }\n'
+        + 'fn direct<T: Weighted>(_ x: T) -> Int { return x.weight(); }\n'
+        + 'fn via_closure<T: Weighted>(_ x: T) -> Int { return apply(x, (y) => y.weight()); }\n';
+    let program = program_of(src);
+    let ctx = typed_ctx(program);
+    let method_decl = src.find('fn weight').unwrap_or(0) + 3;
+    // direct receiver: `x.weight()`
+    let dr = resolve.resolve_at(ctx, src, at(src, 'x.weight(); }', 2));
+    testing.assert_eq(actual: def_offset_of(dr), expected: method_decl)?;
+    testing.assert(render_of(dr).contains('weight'), message: 'renders the method')?;
+    // lambda parameter receiver: `y.weight()`
+    let cr = resolve.resolve_at(ctx, src, at(src, 'y.weight())', 2));
+    testing.assert_eq(actual: def_offset_of(cr), expected: method_decl)?;
+    return Result.Ok(void);
+}

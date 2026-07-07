@@ -240,6 +240,18 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
 
 ### Compiler & front-end
 
+- **Prelude-linked test harnesses.** The checker/resolver unit harnesses
+  (`errors_of`, `typed_ctx`, …) build a *hermetic* element model — no imports,
+  empty surfaces — so a test can't reference `std.core`: a closure whose
+  parameter type comes from a stdlib generic (`List.fold`) resolves its lambda
+  param to `Unknown`, and any test touching `Result`/`Option`/`List` methods
+  must stub them. Now that the prelude is mature and the loader is fast, evaluate
+  giving these harnesses an option to link the real `std.core` closure (cached
+  once), so tests exercise the same surfaces the CLI does. Scope the decision:
+  which harnesses opt in, the caching story, and whether the fully-hermetic mode
+  stays for the resolver/registry-floor tests that deliberately assert
+  no-prelude behavior.
+
 - **Resolution — smaller open items.** (Qualified-only + `pub` visibility
   enforcement, the `FileScope` refactor, and owner-correct value _and type_
   resolution — the `TypeId` arc — are all done; see _Changelog_.) Remaining:

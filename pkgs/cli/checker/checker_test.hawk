@@ -815,3 +815,30 @@ fn test_reserved_name_exempt_across_sdk_locations() -> Result<Void, Error> {
     testing.assert_eq(actual: reserved_errors(repo, [installed]).len(), expected: 0)?;
     return Result.Ok(void);
 }
+
+// ---- method calls on a bounded type parameter (T: Iface) ----
+
+@test
+fn test_bounded_type_param_bad_method_errors() -> Result<Void, Error> {
+    let errs = errors_of('interface W { fn weight(self) -> Int; }\n'
+        + 'fn f<T: W>(_ x: T) -> Int { return x.nope(); }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs), expected: 'no method "nope" on T')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_bounded_type_param_good_method_clean() -> Result<Void, Error> {
+    let errs = errors_of('interface W { fn weight(self) -> Int; }\n'
+        + 'fn f<T: W>(_ x: T) -> Int { return x.weight(); }');
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_unbounded_type_param_method_is_lenient() -> Result<Void, Error> {
+    // An unbounded `T` has no resolvable receiver — stay lenient, no false error.
+    let errs = errors_of('fn f<T>(_ x: T) -> Int { return x.anything(); }');
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    return Result.Ok(void);
+}
