@@ -81,10 +81,12 @@ pub enum SymbolKind {
 
 // The identity of a resolved declaration: the file it lives in, its kind, its
 // name, and where its name is written. Two references to the same symbol share a
-// `SymbolId` (the eventual key for scope-aware references/rename); the hover
-// render and the go-to-definition location are *renderings* of it. `name_span` is
-// None for a symbol with no navigable name token (a struct field, a builtin);
-// `file` is '' when the symbol has no source file.
+// `SymbolId` (the key for scope-aware references/rename); the hover render and
+// the go-to-definition location are *renderings* of it. `name_span` is None for a
+// symbol with no navigable name token (a builtin); `file` is '' when the symbol
+// has no source file. A struct field carries a real name span (its `FieldDef`'s),
+// so its declaration, member accesses, and `S { field: … }` uses all share one
+// identity — fully renamable.
 pub struct SymbolId {
     file: String,
     kind: SymbolKind,
@@ -97,8 +99,8 @@ impl SymbolId {
     // references/rename key on. Compared by owning file, name, and the
     // declaration's name-span offset/length (which together are unique),
     // avoiding a full `SourceSpan` compare (it would diff the whole source
-    // text). A symbol with no name span (a struct field, a builtin) has no
-    // stable identity here, so it never matches.
+    // text). A symbol with no name span (a builtin) has no stable identity
+    // here, so it never matches.
     pub fn same(self, _ other: SymbolId) -> Bool {
         return match self.name_span {
             Some(a) => match other.name_span {
@@ -121,24 +123,13 @@ impl SymbolId {
     pub fn name(self) -> String {
         return self.name;
     }
-
-    // Whether this is a struct field. Fields navigate and (partially) find
-    // references, but a field's *declaration* name and `S { field: … }` literal
-    // uses aren't resolved yet, so a rename would be incomplete — rename declines
-    // fields until that identity is complete.
-    pub fn is_field(self) -> Bool {
-        return match self.kind {
-            Field => true,
-            _ => false,
-        };
-    }
 }
 
 // A resolved target at the cursor: its **hover render** and the **symbol** it
 // names (None when it renders but names no identifiable declaration — currently
 // unused, reserved for builtins). The go-to-definition location derives from the
 // symbol via `def_file`/`def_span`, which are None when the symbol has no
-// navigable name span (a struct field carries none).
+// navigable name span (a builtin).
 pub struct Resolved {
     ref_span: SourceSpan,
     render: String,

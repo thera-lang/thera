@@ -241,16 +241,16 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
 ### Compiler & front-end
 
 - **Prelude-linked test harnesses.** The checker/resolver unit harnesses
-  (`errors_of`, `typed_ctx`, …) build a *hermetic* element model — no imports,
+  (`errors_of`, `typed_ctx`, …) build a _hermetic_ element model — no imports,
   empty surfaces — so a test can't reference `std.core`: a closure whose
   parameter type comes from a stdlib generic (`List.fold`) resolves its lambda
   param to `Unknown`, and any test touching `Result`/`Option`/`List` methods
-  must stub them. Now that the prelude is mature and the loader is fast, evaluate
-  giving these harnesses an option to link the real `std.core` closure (cached
-  once), so tests exercise the same surfaces the CLI does. Scope the decision:
-  which harnesses opt in, the caching story, and whether the fully-hermetic mode
-  stays for the resolver/registry-floor tests that deliberately assert
-  no-prelude behavior.
+  must stub them. Now that the prelude is mature and the loader is fast,
+  evaluate giving these harnesses an option to link the real `std.core` closure
+  (cached once), so tests exercise the same surfaces the CLI does. Scope the
+  decision: which harnesses opt in, the caching story, and whether the
+  fully-hermetic mode stays for the resolver/registry-floor tests that
+  deliberately assert no-prelude behavior.
 
 - **Resolution — smaller open items.** (Qualified-only + `pub` visibility
   enforcement, the `FileScope` refactor, and owner-correct value _and type_
@@ -301,17 +301,18 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   global-type fix (it reproduces on a properly-typed struct global and, likely,
   any struct field). Surfaced by `std.log`'s config; low urgency (clean
   workaround), but a real receiver-inference gap.
-- **Let a user scope shadow a prelude _value_ name.** Today `check_shadowed_surface`
-  flags any top-level decl whose name is in the file's bare surface (prelude +
-  `as _` imports), so a `pub fn error` collides with the prelude `error()`
-  constructor — which is why `std.log` can't expose an ambient `error` free
-  function to match `info`/`warn`/`debug`. Relax it for prelude _value_ names
-  (free functions / consts): allow the local definition and let same-file-first
-  resolution make it win in-file (qualified access — `log.error` — already reaches
-  the intended one), so shadowing is permitted though not recommended. Keep
-  reserved core **type** names (`is_reserved_type_name`) interdicted — a shadowed
-  type name genuinely breaks codegen (the original rationale) — and keep flagging
-  `as _`-imported collisions. Unblocks the `std.log` ambient `error` TODO.
+- **Let a user scope shadow a prelude _value_ name.** Today
+  `check_shadowed_surface` flags any top-level decl whose name is in the file's
+  bare surface (prelude + `as _` imports), so a `pub fn error` collides with the
+  prelude `error()` constructor — which is why `std.log` can't expose an ambient
+  `error` free function to match `info`/`warn`/`debug`. Relax it for prelude
+  _value_ names (free functions / consts): allow the local definition and let
+  same-file-first resolution make it win in-file (qualified access — `log.error`
+  — already reaches the intended one), so shadowing is permitted though not
+  recommended. Keep reserved core **type** names (`is_reserved_type_name`)
+  interdicted — a shadowed type name genuinely breaks codegen (the original
+  rationale) — and keep flagging `as _`-imported collisions. Unblocks the
+  `std.log` ambient `error` TODO.
 - **`@extern` name check.** Native names are written once as `@extern('…')` on
   the `native fn` decls in `sdk/std`; the Rust runtime table is the other half,
   bound by name at load. Add a test asserting every `@extern` name the front-end
@@ -373,10 +374,6 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     resolution on a primitive receiver (`"s".split()`) don't resolve — a
     `Primitive` value carries no `TypeId`. Ties to _Primitive vtables_
     (Runtime).
-  - **Complete field identity.** A field's declaration name and its
-    `S { field: … }` literal uses don't resolve to the field yet (field
-    references are member-access-only; rename declines fields). Give fields full
-    symbol identity.
   - **Further renderers — completion, signature help, semantic tokens.** Thin
     query-layer renderers; completion + signatureHelp additionally need the
     parser recovery below.
@@ -641,6 +638,14 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
 
 ### Language
 
+- Consider adding 'let' to struct field definitions. Partly for consistency with
+  other declarations. But more because it helps differentiate between struct
+  declarations and struct instantiations.
+
+- Instance level mutability would be easier for agents to reason about. We
+  should consider the impact, pros, and cons of switching from field level
+  mutability to instance level mutability.
+
 - **Calling convention — one canonical call form (tighten + enforce).** The
   decided model (see [language.md](language.md) → Named parameters): the author
   chooses each parameter's call form and the call site has exactly **one** —
@@ -772,60 +777,70 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **Complete field identity (LSP)** (2026-07). A struct field now has full
+  symbol identity, so references and rename treat it like any other declaration.
+  Hover/definition on a field's declaration name, its `S { field: … }` literal
+  uses, and its member accesses had already been unified onto the field's
+  `FieldDef` name span (one owner-correct `SymbolId`); the remaining step was to
+  stop declining field rename. `matching_spans` already resolves each occurrence
+  at its own offset and keeps only those whose `SymbolId` matches, so all three
+  positions collect and rewrite together — a same-named field on a different
+  struct stays untouched. Removed the `is_field()` rename guard (and the now-dead
+  method); check-only, no `.hawkbc` change.
 - **Boundary type-annotation diagnostics** (2026-07). The "hard at the
   boundaries, soft in the center" rule (language.md, _Type annotations &
   inference_) is now enforced at all four boundaries. Struct fields were already
   required by the grammar; the checker now also flags an un-annotated **function
   parameter** (other than `self`), an omitted **return type** on a function that
-  returns a value (a bare `return;`/`return void;` stays `Void`; reported once per
-  function via a shared `CheckCtx` box; the check-site placement excludes returns
-  inside nested lambdas for free), and an un-annotated **module-level
+  returns a value (a bare `return;`/`return void;` stays `Void`; reported once
+  per function via a shared `CheckCtx` box; the check-site placement excludes
+  returns inside nested lambdas for free), and an un-annotated **module-level
   `let`/`const`**. The module-level check keeps the pass-4 initializer inference
   under the hood (codegen never sees an `Unknown` global) but requires the
-  annotation at the source. Corpus impact was a single migration —
-  `std.log`'s `config` singleton, now `let config: Config = …`. No `.hawkbc`
-  changes (a check-only error path), so the fixpoint held without a snapshot
-  churn.
+  annotation at the source. Corpus impact was a single migration — `std.log`'s
+  `config` singleton, now `let config: Config = …`. No `.hawkbc` changes (a
+  check-only error path), so the fixpoint held without a snapshot churn.
 - **Un-annotated module-global type inference — resolver pass 4** (2026-07). A
   top-level `let`/`const` with no type annotation now has its type **inferred
   from its initializer** (mirroring a local `let`). Previously the resolver
   recorded a global's type from its annotation only, leaving an un-annotated
-  global `Unknown`: the checker tolerated it (lenient member access on `Unknown`)
-  but codegen hard-failed (`field access on non-struct value`), so
+  global `Unknown`: the checker tolerated it (lenient member access on
+  `Unknown`) but codegen hard-failed (`field access on non-struct value`), so
   `let config = Config { … }` type-checked yet wouldn't run. Implemented as the
-  resolver's **pass 4** (`inference.infer_program_globals`, run per-program after
-  the interface closure in `build_library`/`build_import_library`/`layer_primary`),
-  so building a library yields a fully-typed one — no external caller has to run a
-  second step, and the incremental cache stays correct (the base's imports are
-  typed once at base-build; `layer_primary` types only the primary, honoring the
-  frozen-base invariant). Making the resolver able to call inference required
-  breaking the `inference → resolver` import cycle: `resolve_type_ref_in` /
-  `resolve_opt_in` moved down to `scope.hawk` (a layer both import), so
-  `inference` no longer imports `resolver` and `resolver` now imports `inference`.
-  Annotation-preserving and safe (inference degrades to `Unknown`), so no existing
-  global — all annotated — changes. Unblocks the "final global struct with `mut`
-  fields" mutable-singleton pattern (`std.log`'s config). _Fast-follow (Gap 2,
-  open):_ a generic method on a struct's field (`config.filters.keys()`) still
-  doesn't recover the field's type arguments — infers `List<Int>` — so it needs an
-  annotated-local pin (`let m: Map<K,V> = config.filters;`); see Compiler &
-  front-end open items.
+  resolver's **pass 4** (`inference.infer_program_globals`, run per-program
+  after the interface closure in
+  `build_library`/`build_import_library`/`layer_primary`), so building a library
+  yields a fully-typed one — no external caller has to run a second step, and
+  the incremental cache stays correct (the base's imports are typed once at
+  base-build; `layer_primary` types only the primary, honoring the frozen-base
+  invariant). Making the resolver able to call inference required breaking the
+  `inference → resolver` import cycle: `resolve_type_ref_in` / `resolve_opt_in`
+  moved down to `scope.hawk` (a layer both import), so `inference` no longer
+  imports `resolver` and `resolver` now imports `inference`.
+  Annotation-preserving and safe (inference degrades to `Unknown`), so no
+  existing global — all annotated — changes. Unblocks the "final global struct
+  with `mut` fields" mutable-singleton pattern (`std.log`'s config).
+  _Fast-follow (Gap 2, open):_ a generic method on a struct's field
+  (`config.filters.keys()`) still doesn't recover the field's type arguments —
+  infers `List<Int>` — so it needs an annotated-local pin
+  (`let m: Map<K,V> = config.filters;`); see Compiler & front-end open items.
 
 - **`std.log` — named, per-source logging** (2026-07). Levels
   (`Debug`/`Info`/`Warn`/`Error`), named loggers with hierarchical per-source
   filtering (longest dotted-prefix wins), and Text/JSON rendering on stderr.
   Configuration (`set_level`/`set_level_for`/`set_format`/`configure_from_env`,
-  the last reading a `RUST_LOG`-style `HAWK_LOG` spec) is application-only behind
-  a facade; libraries only ever emit. Ambient logging is the free functions
-  `info`/`warn`/`debug` (plus `named(...)` for source-tagged loggers); its config
-  is the one **sanctioned exception** to "no global state" — write-only
-  diagnostics set once by the app — while the capability `to_writer` logger (own
-  sink/level, testable) is the escape hatch. Implemented **pure Hawk, no
-  natives**: the config is a `let config = Config { … }` module global (an
-  immutable binding whose `mut` fields mutate in place), rendering is pure Hawk
-  (JSON via `std.json`), and output writes through `io.stderr()`. An ambient
-  `error` free function is a TODO — a top-level `error` collides with the prelude
-  `error()` constructor; pending the prelude-value-shadow relaxation below (until
-  then `error` is available as a `Logger` method). See
+  the last reading a `RUST_LOG`-style `HAWK_LOG` spec) is application-only
+  behind a facade; libraries only ever emit. Ambient logging is the free
+  functions `info`/`warn`/`debug` (plus `named(...)` for source-tagged loggers);
+  its config is the one **sanctioned exception** to "no global state" —
+  write-only diagnostics set once by the app — while the capability `to_writer`
+  logger (own sink/level, testable) is the escape hatch. Implemented **pure
+  Hawk, no natives**: the config is a `let config = Config { … }` module global
+  (an immutable binding whose `mut` fields mutate in place), rendering is pure
+  Hawk (JSON via `std.json`), and output writes through `io.stderr()`. An
+  ambient `error` free function is a TODO — a top-level `error` collides with
+  the prelude `error()` constructor; pending the prelude-value-shadow relaxation
+  below (until then `error` is available as a `Logger` method). See
   [stdlib.md](stdlib.md) § `std.log`.
 
 - **Semantic LSP resolution — references, rename, inferred-type navigation**

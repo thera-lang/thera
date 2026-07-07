@@ -292,20 +292,49 @@ fn test_definition_navigates_to_a_field() -> Result<Void, Error> {
 }
 
 @test
-fn test_rename_declines_a_field() -> Result<Void, Error> {
+fn test_rename_renames_a_field() -> Result<Void, Error> {
     let server = new_server(Option.None);
     let opened = io.StringWriter.new();
     server.handle(opened, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
         + '{"textDocument":{"uri":"file:///f.hawk",'
-        + '"text":"struct S { n: Int }\\nimpl S { fn get(self) -> Int { return self.n; } }"}}}');
-    // Renaming a field is declined (its declaration + literal uses aren't resolved
-    // yet, so the edit would be incomplete) — a null result, not a partial edit.
+        + '"text":"struct S { n: Int }\\nfn mk() -> S { return S { n: 1 }; }'
+        + '\\nimpl S { fn get(self) -> Int { return self.n; } }"}}}');
+    // A field now has full symbol identity, so renaming one rewrites its whole
+    // identity in one edit: the declaration (line 0), the `S { n: … }` literal use
+    // (line 1), and the `self.n` member access (line 2) — no longer declined.
     let asked = io.StringWriter.new();
     server.handle(asked, '{"jsonrpc":"2.0","id":41,"method":"textDocument/rename","params":'
-        + '{"textDocument":{"uri":"file:///f.hawk"},"position":{"line":1,"character":43},"newName":"m"}}');
+        + '{"textDocument":{"uri":"file:///f.hawk"},"position":{"line":2,"character":43},"newName":"m"}}');
     let out = asked.into_string().unwrap_or('');
-    testing.assert(out.contains('"result":null') || out.contains('"result": null'),
-        message: 'renaming a field is declined')?;
+    testing.assert(!out.contains('"result":null') && !out.contains('"result": null'),
+        message: 'a field rename is not declined')?;
+    testing.assert(out.contains('"line":0') || out.contains('"line": 0'),
+        message: 'rewrites the field declaration on line 0')?;
+    testing.assert(out.contains('"line":1') || out.contains('"line": 1'),
+        message: 'rewrites the struct-literal field on line 1')?;
+    testing.assert(out.contains('"line":2') || out.contains('"line": 2'),
+        message: 'rewrites the member access on line 2')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_references_to_a_field_are_semantic() -> Result<Void, Error> {
+    let server = new_server(Option.None);
+    let opened = io.StringWriter.new();
+    // Two structs each with a field `n`; only `A`'s is referenced (`a.n`). A
+    // references request on `A.n` must return just `A`'s occurrences (decl + the
+    // member access) — NOT `B.n`, which a lexical match would wrongly include.
+    server.handle(opened, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"file:///r.hawk",'
+        + '"text":"struct A { n: Int }\\nstruct B { n: Int }'
+        + '\\nfn use_a(_ a: A) -> Int { return a.n; }"}}}');
+    // References on `A`'s field declaration (line 0, character 11).
+    let asked = io.StringWriter.new();
+    server.handle(asked, '{"jsonrpc":"2.0","id":22,"method":"textDocument/references","params":'
+        + '{"textDocument":{"uri":"file:///r.hawk"},"position":{"line":0,"character":11},'
+        + '"context":{"includeDeclaration":true}}}');
+    let out = asked.into_string().unwrap_or('');
+    testing.assert_eq(actual: count_substr(out, '"range"'), expected: 2)?;
     return Result.Ok(void);
 }
 
