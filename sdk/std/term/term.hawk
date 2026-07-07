@@ -1,0 +1,90 @@
+//! std.term — terminal capabilities and ANSI text styling.
+//!
+//! Import as: import std.term
+//!
+//! Query whether standard output is a terminal (`is_tty`) and its size (`size`),
+//! and wrap text in ANSI color / bold. Two styling entry points:
+//!
+//!   - `style` no-ops when stdout is not a TTY, so piped or redirected output
+//!     stays free of escape codes — reach for it in the imperative shell.
+//!   - `paint` always emits the codes: the pure primitive, for forcing color
+//!     (a `--color=always` flag) or building a string you style yourself.
+
+/// Whether this process's standard output is an interactive terminal. False when
+/// stdout is piped or redirected — the signal `style` uses to stay plain.
+@extern('term_is_tty')
+pub native fn is_tty() -> Bool
+
+/// The terminal's size in character cells, or None when stdout is not a terminal
+/// or the size cannot be determined.
+///
+/// ```hawk
+/// if let Some(sz) = term.size() { print('${sz.cols}x${sz.rows}'); }
+/// ```
+pub fn size() -> Option<TermSize> {
+    return match size_raw() {
+        Some(dims) => Option.Some(TermSize { cols: dims[0], rows: dims[1] }),
+        None => Option.None,
+    };
+}
+
+/// The terminal dimensions: `cols` columns wide by `rows` rows tall.
+pub struct TermSize {
+    cols: Int,
+    rows: Int,
+}
+
+// The native returns the raw `[cols, rows]` pair (or None); `size` assembles the
+// `TermSize` so the native never hardcodes a struct type-id (the std.regex ABI).
+@extern('term_size')
+native fn size_raw() -> Option<List<Int>>
+
+/// A foreground color for `style` / `paint`. `Default` restores the terminal's
+/// own default foreground.
+pub enum Color {
+    Black,
+    Red,
+    Green,
+    Yellow,
+    Blue,
+    Magenta,
+    Cyan,
+    White,
+    Default,
+}
+
+/// Wrap `text` in an ANSI foreground color (and optional bold) when stdout is a
+/// TTY; return `text` unchanged otherwise, so redirected output stays clean.
+///
+/// ```hawk
+/// print(term.style('error: not found', color: Color.Red, bold: true));
+/// ```
+pub fn style(_ text: String, color: Color, bold: Bool = false) -> String {
+    if !is_tty() {
+        return text;
+    }
+    return paint(text, color: color, bold: bold);
+}
+
+/// Wrap `text` in an ANSI foreground color (and optional bold) unconditionally —
+/// the mechanism behind `style`, without the TTY check. Use when the caller has
+/// already decided to colorize (e.g. a forced `--color` flag).
+pub fn paint(_ text: String, color: Color, bold: Bool = false) -> String {
+    let codes = if bold { '1;${fg_code(color)}' } else { fg_code(color) };
+    return '\x1b[${codes}m${text}\x1b[0m';
+}
+
+// The SGR foreground-color parameter for `color` (30..37, or 39 for the default).
+fn fg_code(_ color: Color) -> String {
+    return match color {
+        Black => '30',
+        Red => '31',
+        Green => '32',
+        Yellow => '33',
+        Blue => '34',
+        Magenta => '35',
+        Cyan => '36',
+        White => '37',
+        Default => '39',
+    };
+}

@@ -922,16 +922,16 @@ opposite: **write-only diagnostic output, set once by the application, never
 read back into logic.** Threading a `Logger` through every call depth purely for
 diagnostics is the wrong trade — which is why every capability-conscious
 ecosystem (Rust included) still makes logging a global facade. So `std.log`
-keeps ambient logging (the `info`/`warn`/`debug` free functions and `named(...)`,
-§ Cross-cutting #7's layer-1 form) plus **one sanctioned setter surface** for its
-config: it is the single
-ambient with a setter, precisely because its state is diagnostics, not logic. The
-**capability escape hatch** still stands for code that wants it — `Logger` is an
-ordinary value, and `to_writer` builds a self-contained one (own sink, own
-level, ignores the global config) that a testable middle layer takes as a
-parameter (layer 2); point it at a `StringWriter` and a test asserts on the
-emitted records with no global override. That is the exception; for logging the
-global facade is the right default.
+keeps ambient logging (the `info`/`warn`/`debug` free functions and
+`named(...)`, § Cross-cutting #7's layer-1 form) plus **one sanctioned setter
+surface** for its config: it is the single ambient with a setter, precisely
+because its state is diagnostics, not logic. The **capability escape hatch**
+still stands for code that wants it — `Logger` is an ordinary value, and
+`to_writer` builds a self-contained one (own sink, own level, ignores the global
+config) that a testable middle layer takes as a parameter (layer 2); point it at
+a `StringWriter` and a test asserts on the emitted records with no global
+override. That is the exception; for logging the global facade is the right
+default.
 
 **Structured fields — planned, sequenced after JSON auto-boxing.** Modern
 practice (Go `slog`) is key-value records, not bare strings — valuable for an
@@ -953,10 +953,10 @@ the record rather than trapping — logging never crashes its caller), the same
 path the `to_writer` sink takes. (Landing this drove the front-end fix that
 infers an un-annotated module global's type from its initializer — see
 [roadmap.md](roadmap.md) changelog; before it, `config`'s type was `Unknown` and
-member access failed in codegen.) A _global_ `set_output` to redirect the ambient
-sink to an arbitrary `Writer` is deferred — it would mean holding a Hawk value in
-the config as a GC root — and `to_writer` already covers the custom-sink and
-capture cases.
+member access failed in codegen.) A _global_ `set_output` to redirect the
+ambient sink to an arbitrary `Writer` is deferred — it would mean holding a Hawk
+value in the config as a GC root — and `to_writer` already covers the
+custom-sink and capture cases.
 
 **Out of scope → ecosystem / DIY** (the industrial tier): async / non-blocking
 sinks, sampling and rate-limiting, log rotation, multi-destination routing,
@@ -1040,16 +1040,28 @@ None are blockers — all are "remove a decision" wins. The entry adapter is the
 high-leverage one; required positionals and command-path-aware errors are the
 next tier.
 
-### `std.term` — terminal _(new)_
+### `std.term` — terminal _(implemented)_
 
 ```
-pub fn is_tty() -> Bool;
-pub fn size() -> Option<(Int, Int)>;      // (cols, rows); tuple syntax TBD in language
-pub fn style(_ text: String, color: Color, bold: Bool = false) -> String;  // ANSI
-pub enum Color { Red, Green, Yellow, Blue, Default /* … */ }
+pub fn is_tty() -> Bool;                   // is stdout an interactive terminal?
+pub fn size() -> Option<TermSize>;         // None when stdout is not a terminal
+pub struct TermSize { cols: Int, rows: Int }
+
+pub fn style(_ text: String, color: Color, bold: Bool = false) -> String;  // ANSI, TTY-gated
+pub fn paint(_ text: String, color: Color, bold: Bool = false) -> String;  // ANSI, always
+pub enum Color { Black, Red, Green, Yellow, Blue, Magenta, Cyan, White, Default }
 ```
 
-Notes: color helpers should no-op when `!is_tty()` so piped output stays clean.
+Notes: `style` no-ops (returns `text` unchanged) when `!is_tty()`, so piped
+output stays clean; `paint` is the pure primitive that always emits the codes
+(for a forced `--color=always`, or building a string you gate yourself). Since
+tuples aren't in the language, `size` returns a small `TermSize` struct rather
+than an `(Int, Int)` — the same call as `List.enumerate`'s `Indexed`. `is_tty`
+rides on Rust's `std::io::IsTerminal`; `size` is the runtime's **3rd deliberate
+dependency** (`terminal_size`, portable across unix + windows). The `term_size`
+native returns the raw `[cols, rows]` pair and the Hawk layer assembles
+`TermSize`, so the native never hardcodes a struct type-id (the `std.regex`
+ABI).
 
 ### `std.char` — ASCII code points _(implemented, pure Hawk)_
 

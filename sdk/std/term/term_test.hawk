@@ -1,0 +1,65 @@
+//! Tests for std.term — terminal queries and ANSI styling.
+//!
+//! `paint` is unconditional, so its output is deterministic and tested directly.
+//! `style` and `size` depend on whether stdout is a TTY (which differs between a
+//! piped test run and an interactive one), so those tests branch on `is_tty()`
+//! rather than assuming either.
+
+import std.term;
+import std.testing;
+
+@test
+fn test_paint_wraps_in_ansi() -> Result<Void, Error> {
+    testing.assert_eq(actual: term.paint('hi', color: term.Color.Red),
+        expected: '\x1b[31mhi\x1b[0m')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_paint_bold_prefixes_the_code() -> Result<Void, Error> {
+    testing.assert_eq(actual: term.paint('go', color: term.Color.Green, bold: true),
+        expected: '\x1b[1;32mgo\x1b[0m')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_paint_default_restores_foreground() -> Result<Void, Error> {
+    testing.assert_eq(actual: term.paint('x', color: term.Color.Default),
+        expected: '\x1b[39mx\x1b[0m')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_color_codes_span_the_palette() -> Result<Void, Error> {
+    // Spot-check the ends of the 30..37 range plus a middle color.
+    testing.assert_eq(actual: term.paint('_', color: term.Color.Black), expected: '\x1b[30m_\x1b[0m')?;
+    testing.assert_eq(actual: term.paint('_', color: term.Color.Blue), expected: '\x1b[34m_\x1b[0m')?;
+    testing.assert_eq(actual: term.paint('_', color: term.Color.White), expected: '\x1b[37m_\x1b[0m')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_style_tracks_tty() -> Result<Void, Error> {
+    let out = term.style('warn', color: term.Color.Yellow);
+    if term.is_tty() {
+        // On a TTY, `style` is exactly `paint`.
+        testing.assert_eq(actual: out, expected: term.paint('warn', color: term.Color.Yellow))?;
+    } else {
+        // Piped/redirected: no escape codes leak into the output.
+        testing.assert_eq(actual: out, expected: 'warn')?;
+    }
+    return Result.Ok(void);
+}
+
+@test
+fn test_size_is_wellformed() -> Result<Void, Error> {
+    // Whatever the environment, a reported size has positive dimensions.
+    match term.size() {
+        Some(sz) => {
+            testing.assert(sz.cols > 0, message: 'cols should be positive')?;
+            testing.assert(sz.rows > 0, message: 'rows should be positive')?;
+        },
+        None => {},
+    }
+    return Result.Ok(void);
+}

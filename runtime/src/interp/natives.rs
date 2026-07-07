@@ -158,6 +158,8 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("env_set_current_dir", native_env_set_current_dir),
     ("env_os", native_env_os),
     ("env_exit", native_env_exit),
+    ("term_is_tty", native_term_is_tty),
+    ("term_size", native_term_size),
     ("map_keys", native_map_keys),
     ("map_values", native_map_values),
     ("map_remove", native_map_remove),
@@ -1492,6 +1494,31 @@ fn native_env_os(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
 fn native_env_exit(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let code = as_int(expect_one(args, "env_exit")?, "env_exit")?;
     std::process::exit(code as i32)
+}
+
+/// `term.is_tty()` — whether this process's standard output is an interactive
+/// terminal. False when stdout is piped or redirected (the signal `style` uses to
+/// stay plain).
+fn native_term_is_tty(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    use std::io::IsTerminal;
+    expect_no_args(args, "term_is_tty")?;
+    Ok(Value::Bool(std::io::stdout().is_terminal()))
+}
+
+/// `term.size()` — the terminal as `[cols, rows]`, or None when the size can't be
+/// determined (stdout is not a terminal). The Hawk layer assembles the `TermSize`
+/// so this native never hardcodes a struct type-id (the std.regex ABI).
+fn native_term_size(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    expect_no_args(args, "term_size")?;
+    Ok(match terminal_size::terminal_size() {
+        Some((terminal_size::Width(cols), terminal_size::Height(rows))) => {
+            Value::some(Value::new_list(vec![
+                Value::Int(i64::from(cols)),
+                Value::Int(i64::from(rows)),
+            ]))
+        }
+        None => Value::none(),
+    })
 }
 
 // --- collection natives ---

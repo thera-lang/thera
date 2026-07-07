@@ -25,6 +25,9 @@ crc32fast = "1.4"   # CRC-32 (IEEE 802.3)
 # std.regex — RE2-derived, linear-time engine, the Rust team's reference crate
 # (the runtime's 2nd deliberate dependency; see docs/stdlib.md §std.regex).
 regex = "1"
+# std.term — terminal dimensions across unix + windows (the runtime's 3rd
+# deliberate dependency; see docs/stdlib.md §std.term). `is_tty` is std alone.
+terminal_size = "0.4"
 
 [profile.dev]
 # This makes the debug interpreter loop closer to the performance of the release
