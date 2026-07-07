@@ -22,14 +22,13 @@ pub interface Error: Display + Debug {
 ///
 /// ```hawk
 /// return Result.Err(error('file not found'));
-/// throw error('file not found');                  // or, eventually, `throw '...'`
+/// throw error('file not found');
 /// ```
 ///
 /// The concrete carrier (`ErrorMessage`) is an implementation detail you never
 /// name — `error(...)` is the only door. This keeps `std.core` from claiming a
 /// common noun like `Message` in the always-in-scope prelude, where it would
-/// collide with user types. (A `throw '...'` shorthand that desugars to `error`
-/// is planned; see docs/language.md.)
+/// collide with user types.
 pub fn error(_ message: String) -> Error {
     return ErrorMessage { text: message };
 }

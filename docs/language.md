@@ -434,8 +434,7 @@ traditional colored-function approach. The goal is to avoid this.
 There are no exceptions. Errors are returned as `Result<T, E>`. `Error` is an
 interface (`fn message(self) -> String`); the simple-case error is built with
 the `error('...')` constructor (`-> Error`), and domain libraries `impl Error`
-for their own enums. The `throw '...'` shorthand is still planned sugar for
-`throw error('...')`; today write the `error('...')` call explicitly.
+for their own enums.
 
 ```hawk
 fn read_port(args: Args) -> Result<Int, Error> {

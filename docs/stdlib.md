@@ -208,7 +208,6 @@ a named type (the Go `errors.New` / Rust `anyhow!` model):
 ```
 pub fn error(_ message: String) -> Error;   // the simple-case error / `throw` target
 // return Result.Err(error('file not found'));   throw error('...');
-// (a `throw 'oops'` shorthand that desugars to `error` is still planned)
 ```
 
 The concrete carrier is a private implementation detail you never name —
@@ -593,6 +592,7 @@ n.to_double()   x.to_int()   // truncates toward zero
 
 ```
 pub const PI: Double; pub const E: Double; pub const TAU: Double;
+pub let INFINITY: Double; pub let NAN: Double;   // module initializers (no literal form)
 pub fn sqrt(_ x: Double) -> Double;   pub fn pow(_ base: Double, _ exp: Double) -> Double;
 pub fn floor(_ x: Double) -> Double;  pub fn ceil(_ x: Double) -> Double;
 pub fn round(_ x: Double) -> Double;  pub fn trunc(_ x: Double) -> Double;
@@ -606,9 +606,9 @@ Notes: feed an `Int` to a `std.math` function via `n.to_double()`; rounding
 returns `Double` (chain `.to_int()` for an `Int`). Numeric parsing is on
 `String` (prelude): `s.to_int() -> Option<Int>`,
 `s.to_double() -> Option<Double>` (strict — the whole string must be the
-number). Deferred: `INFINITY`/`NAN` (no literal form; needs natives plus a place
-to compute-and-store them once — a **module initializer**,
-[language.md](language.md)).
+number). `INFINITY`/`NAN` have no literal form, so they are **module
+initializers** (`pub let`, computed once at load — [language.md](language.md));
+they were the driving use case for that feature.
 
 ### `std.random` — randomness _(implemented)_
 
