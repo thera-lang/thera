@@ -123,6 +123,26 @@ impl Display for Task {
 }
 
 // ---------------------------------------------------------------------------
+// A module-level singleton whose `Map` field is initialized with an empty `{}`
+// literal. The `{}` should take the field's declared type
+// (`Map<String, Priority>`) — exactly as it does for a local inside a function.
+// This is the top-level empty-map-in-a-struct-field inference case; the `mut`
+// field makes it the mutable-singleton shape (`std.log`'s config uses it).
+// Hover `{}` and `POLICY.overrides` below: the key/value types should resolve,
+// never `Unknown`.
+// ---------------------------------------------------------------------------
+
+struct Policy {
+    mut default_priority: Priority,
+    overrides: Map<String, Priority>,   // per-task overrides; content mutates in place
+}
+
+let POLICY: Policy = Policy {
+    default_priority: Priority.Medium,
+    overrides: {},
+};
+
+// ---------------------------------------------------------------------------
 // Generics with a bound, and interface-typed parameters — dynamic dispatch on
 // `Weighted` reached two different ways.
 // ---------------------------------------------------------------------------
@@ -218,6 +238,15 @@ fn main() -> Result<Int, Error> {
         println('- ${task}');                // Display dispatch through ${}
     }
     println('total weight: ${total_weight(tasks)}');
+
+    // module-level singleton: mutate the `mut` field and the field's map in
+    // place, then read it back. `keys()` should be List<String>, and indexing
+    // the field's map should yield a Priority (the empty-`{}` field's type).
+    POLICY.default_priority = Priority.High;
+    POLICY.overrides['ship'] = Priority.High;
+    for name in POLICY.overrides.keys() {
+        println('policy ${name}: weight ${POLICY.overrides[name].weight()}');
+    }
 
     // let … else: bind-or-bail on an Option.
     let Some(first_task) = tasks.first() else {
