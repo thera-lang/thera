@@ -218,6 +218,14 @@ pub fn resolve_at(_ ctx: ResolveCtx, _ text: String, _ offset: Int) -> Option<Re
         // it, but the AST locates the receiver expression and CH19 has its type.
         Computed => { return computed_member(ctx, ref, offset); },
     }
+    // A *structural* name — not a lexical reference, but a declaration or a label
+    // the AST places precisely: a struct field's declaration, a struct-literal
+    // field name, or a call-argument label. Resolved before the lexical fallbacks
+    // so a `S { count: … }` field or an `f(name: …)` label beats a same-named
+    // local/top-level binding.
+    if let Some(res) = structural_resolved(ctx, ref, offset) {
+        return Option.Some(res);
+    }
     // A local binding of the enclosing function — a parameter, `let`, loop
     // variable, pattern binding, or lambda parameter (LS2). Locals shadow
     // everything non-lexical, so this must come before top-level resolution:
@@ -1082,6 +1090,330 @@ fn member_receiver_in_expr(_ e: Expr, _ offset: Int) -> Option<SourceSpan> {
             None => Option.None,
         },
         Throw(_, value) => member_receiver_in_expr(value, offset),
+        _ => Option.None,
+    };
+}
+
+// --- structural names: field declarations, struct-literal fields, call labels ---
+
+// A name the AST places precisely as a declaration or a label, not a lexical
+// reference: the field name in a `struct` body, a `S { field: … }` initializer
+// name, or an `f(label: …)` argument label.
+enum StructuralTarget {
+    FieldDefName(FieldDef),           // `count` in `struct S { count: Int }`
+    LitField(StructExpr, FieldInit),  // `count` in `S { count: … }`
+    CallLabel(CallExpr, CallArg),     // `name`  in `f(name: …)`
+}
+
+// Resolve a structural name at `offset` (hover render + navigable declaration),
+// or None when the cursor is on no such position.
+fn structural_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ offset: Int) -> Option<Resolved> {
+    return match structural_target_in_program(ctx.program, offset) {
+        Some(t) => match t {
+            FieldDefName(f) => Option.Some(field_def_resolved(ctx, ref, f)),
+            LitField(sx, fi) => lit_field_resolved(ctx, ref, sx, fi),
+            CallLabel(call, arg) => call_label_resolved(ctx, ref, call, arg),
+        },
+        None => Option.None,
+    };
+}
+
+// A field at its own declaration (`struct S { count: Int }`): renders `name: T`
+// and lands on itself.
+fn field_def_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ f: FieldDef) -> Resolved {
+    return Resolved {
+        ref_span: ref.span,
+        render: '${f.name}: ${describe.describe_type(f.type_ann)}',
+        symbol: Option.Some(SymbolId {
+            file: paths.program_path(ctx.program),
+            kind: SymbolKind.Field,
+            name: f.name,
+            name_span: Option.Some(f.name_span),
+        }),
+    };
+}
+
+// A `S { field: … }` initializer name: the field `fi.name` of the constructed
+// type, resolved to its declaration (owner-correct) and rendered like any field.
+fn lit_field_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ sx: StructExpr, _ fi: FieldInit) -> Option<Resolved> {
+    return match struct_owner(ctx, sx) {
+        Some(owner) => match find_field(ctx, owner, sx.type_name, fi.name) {
+            Some(fs) => Option.Some(field_resolved(ref, fs)),
+            None => Option.None,
+        },
+        None => Option.None,
+    };
+}
+
+// The owner file of a struct literal's type — a bare type via the file's bare
+// resolution, or the import namespace a qualified `ns.Type { … }` names.
+fn struct_owner(_ ctx: ResolveCtx, _ sx: StructExpr) -> Option<String> {
+    return match sx.namespace {
+        Some(ns) => match namespace_surface(ctx, ns) {
+            Some(surface) => surface.origin.get(sx.type_name),
+            None => Option.None,
+        },
+        None => bare_owner_key(ctx, sx.type_name),
+    };
+}
+
+// A call-argument label (`f(name: …)`): resolve the callee to its declaration,
+// then the parameter whose external label is `ref.name`.
+fn call_label_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ call: CallExpr, _ arg: CallArg) -> Option<Resolved> {
+    return match callee_fn_site(ctx, call.callee) {
+        Some(cs) => match param_with_label(cs.fn_decl, ref.name) {
+            Some(p) => Option.Some(param_resolved(ref, p, cs.file)),
+            None => Option.None,
+        },
+        None => Option.None,
+    };
+}
+
+// The function/method a call targets, with its file: a free function (`f(...)`),
+// a static method (`Type.m(...)`), or an instance method (`value.m(...)`).
+fn callee_fn_site(_ ctx: ResolveCtx, _ callee: Expr) -> Option<MethodSite> {
+    return match callee {
+        Ident(_, name) => match find_decl_site(ctx, name) {
+            Some(ds) => match ds.decl {
+                Fn(fd) => Option.Some(MethodSite { fn_decl: fd, file: ds.file }),
+                _ => Option.None,
+            },
+            None => Option.None,
+        },
+        Field(_, recv, mid) => method_callee_site(ctx, recv, mid.name),
+        _ => Option.None,
+    };
+}
+
+// The method a `recv.method(...)` call targets: a static method when `recv` is a
+// bare type name (`Point.create`), else the instance method on `recv`'s committed
+// type. (A global receiver is a top-level name but not a type, so the static
+// lookup misses and the inferred-type path resolves it — as for member access.)
+fn method_callee_site(_ ctx: ResolveCtx, _ recv: Expr, _ method: String) -> Option<MethodSite> {
+    if let Ident(_, rname) = recv {
+        if let Some(owner) = bare_owner_key(ctx, rname) {
+            if let Some(ms) = find_method_site(ctx, owner, rname, method) {
+                return Option.Some(ms);
+            }
+        }
+    }
+    return match recorded_type_at(ctx, expr_span(recv)) {
+        Some(ty) => match ty {
+            Interface(id, _) => find_method_site(ctx, id.owner, id.name, method),
+            _ => Option.None,
+        },
+        None => Option.None,
+    };
+}
+
+// The parameter of `fd` whose external label is `label` (`self` and positional
+// `_` parameters carry no label).
+fn param_with_label(_ fd: FnDecl, _ label: String) -> Option<Param> {
+    for p in fd.params {
+        if !p.is_self {
+            if let Some(l) = p.label {
+                if l == label {
+                    return Option.Some(p);
+                }
+            }
+        }
+    }
+    return Option.None;
+}
+
+// A parameter, rendered `name: T` and navigable to its declaration in the
+// callee's file.
+fn param_resolved(_ ref: NameRef, _ p: Param, _ file: String) -> Resolved {
+    let ann = match p.type_ann {
+        Some(t) => ': ${describe.describe_type(t)}',
+        None => '',
+    };
+    return Resolved {
+        ref_span: ref.span,
+        render: '${p.name}${ann}',
+        symbol: Option.Some(SymbolId {
+            file: file,
+            kind: SymbolKind.Local,
+            name: p.name,
+            name_span: Option.Some(p.name_span),
+        }),
+    };
+}
+
+// --- the structural walk (decl -> fn -> block -> stmt -> expr) ---
+
+fn structural_target_in_program(_ program: Program, _ offset: Int) -> Option<StructuralTarget> {
+    for decl in program.decls {
+        if let Some(t) = structural_in_decl(decl, offset) {
+            return Option.Some(t);
+        }
+    }
+    return Option.None;
+}
+
+fn structural_in_decl(_ decl: Decl, _ offset: Int) -> Option<StructuralTarget> {
+    return match decl {
+        Type(t) => {
+            if span_covers(t.span, offset) {
+                for f in t.fields {
+                    if span_covers(f.name_span, offset) {
+                        return Option.Some(StructuralTarget.FieldDefName(f));
+                    }
+                }
+            }
+            Option.None
+        },
+        Fn(f) => structural_in_fn(f, offset),
+        Impl(i) => {
+            for m in i.methods {
+                if let Some(t) = structural_in_fn(m, offset) { return Option.Some(t); }
+            }
+            Option.None
+        },
+        Const(c) => structural_in_expr(c.value, offset),
+        Let(l) => structural_in_expr(l.value, offset),
+        _ => Option.None,
+    };
+}
+
+fn structural_in_fn(_ f: FnDecl, _ offset: Int) -> Option<StructuralTarget> {
+    if !span_covers(f.span, offset) {
+        return Option.None;
+    }
+    return match f.body {
+        Some(body) => structural_in_block(body, offset),
+        None => Option.None,
+    };
+}
+
+fn structural_in_block(_ b: Block, _ offset: Int) -> Option<StructuralTarget> {
+    for st in b.stmts {
+        if let Some(t) = structural_in_stmt(st, offset) {
+            return Option.Some(t);
+        }
+    }
+    return match b.tail {
+        Some(t) => structural_in_expr(t, offset),
+        None => Option.None,
+    };
+}
+
+fn structural_in_stmt(_ st: Stmt, _ offset: Int) -> Option<StructuralTarget> {
+    return match st {
+        Let(x) => structural_in_expr(x.value, offset),
+        Assign(_, target, _, value) => {
+            if let Some(t) = structural_in_expr(target, offset) { return Option.Some(t); }
+            structural_in_expr(value, offset)
+        },
+        Expr(_, e) => structural_in_expr(e, offset),
+        Return(_, value) => match value {
+            Some(v) => structural_in_expr(v, offset),
+            None => Option.None,
+        },
+        Throw(_, value) => structural_in_expr(value, offset),
+        If(x) => {
+            if let Some(t) = structural_in_expr(x.condition, offset) { return Option.Some(t); }
+            if let Some(t) = structural_in_block(x.then_block, offset) { return Option.Some(t); }
+            match x.else_block {
+                Some(eb) => structural_in_block(eb, offset),
+                None => Option.None,
+            }
+        },
+        While(x) => {
+            if let Some(t) = structural_in_expr(x.condition, offset) { return Option.Some(t); }
+            structural_in_block(x.body, offset)
+        },
+        For(x) => {
+            if let Some(t) = structural_in_expr(x.iterable, offset) { return Option.Some(t); }
+            structural_in_block(x.body, offset)
+        },
+    };
+}
+
+fn structural_in_expr(_ e: Expr, _ offset: Int) -> Option<StructuralTarget> {
+    if !span_covers(expr_span(e), offset) {
+        return Option.None;
+    }
+    return match e {
+        Struct(x) => {
+            for f in x.fields {
+                if span_covers(f.name_span, offset) {
+                    return Option.Some(StructuralTarget.LitField(x, f));
+                }
+                if let Some(t) = structural_in_expr(f.value, offset) { return Option.Some(t); }
+            }
+            Option.None
+        },
+        Call(x) => {
+            if let Some(t) = structural_in_expr(x.callee, offset) { return Option.Some(t); }
+            for a in x.args {
+                if let Some(ls) = a.label_span {
+                    if span_covers(ls, offset) {
+                        return Option.Some(StructuralTarget.CallLabel(x, a));
+                    }
+                }
+                if let Some(t) = structural_in_expr(a.value, offset) { return Option.Some(t); }
+            }
+            Option.None
+        },
+        Field(_, obj, _) => structural_in_expr(obj, offset),
+        Index(_, obj, idx) => {
+            if let Some(t) = structural_in_expr(obj, offset) { return Option.Some(t); }
+            structural_in_expr(idx, offset)
+        },
+        Binary(_, l, _, r) => {
+            if let Some(t) = structural_in_expr(l, offset) { return Option.Some(t); }
+            structural_in_expr(r, offset)
+        },
+        Unary(_, _, operand) => structural_in_expr(operand, offset),
+        Propagate(_, inner) => structural_in_expr(inner, offset),
+        Range(_, a, b2) => {
+            if let Some(t) = structural_in_expr(a, offset) { return Option.Some(t); }
+            structural_in_expr(b2, offset)
+        },
+        Block(_, b) => structural_in_block(b, offset),
+        If(x) => {
+            if let Some(t) = structural_in_expr(x.condition, offset) { return Option.Some(t); }
+            if let Some(t) = structural_in_block(x.then_block, offset) { return Option.Some(t); }
+            match x.else_block {
+                Some(eb) => structural_in_block(eb, offset),
+                None => Option.None,
+            }
+        },
+        Match(x) => {
+            if let Some(t) = structural_in_expr(x.subject, offset) { return Option.Some(t); }
+            for arm in x.arms {
+                if let Some(t) = structural_in_expr(arm.body, offset) { return Option.Some(t); }
+            }
+            Option.None
+        },
+        Lambda(x) => structural_in_expr(x.body, offset),
+        ListLit(_, items) => {
+            for it in items {
+                if let Some(t) = structural_in_expr(it, offset) { return Option.Some(t); }
+            }
+            Option.None
+        },
+        MapLit(_, entries) => {
+            for en in entries {
+                if let Some(t) = structural_in_expr(en.key, offset) { return Option.Some(t); }
+                if let Some(t) = structural_in_expr(en.value, offset) { return Option.Some(t); }
+            }
+            Option.None
+        },
+        Str(_, parts) => {
+            for part in parts {
+                if let Interp(_, ie) = part {
+                    if let Some(t) = structural_in_expr(ie, offset) { return Option.Some(t); }
+                }
+            }
+            Option.None
+        },
+        Return(_, value) => match value {
+            Some(v) => structural_in_expr(v, offset),
+            None => Option.None,
+        },
+        Throw(_, value) => structural_in_expr(value, offset),
         _ => Option.None,
     };
 }

@@ -610,3 +610,58 @@ fn test_field_on_global_receiver_navigates() -> Result<Void, Error> {
     testing.assert_eq(actual: g_off, expected: field_decl)?;
     return Result.Ok(void);
 }
+
+@test
+fn test_hover_field_definition_name() -> Result<Void, Error> {
+    // The `count` in `struct S { count: Int }` resolves to itself (hover + nav).
+    let src = 'struct S { count: Int }\n';
+    let program = program_of(src);
+    let ctx = typed_ctx(program);
+    let decl = src.find('count').unwrap_or(0);
+    let r = resolve.resolve_at(ctx, src, decl + 2);
+    testing.assert(r.is_some(), message: 'field def name should resolve')?;
+    testing.assert_eq(actual: def_offset_of(r), expected: decl)?;
+    testing.assert_eq(actual: render_of(r), expected: 'count: Int')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_hover_struct_literal_field() -> Result<Void, Error> {
+    // The `count` in `S { count: 5 }` navigates to the field declaration.
+    let src = 'struct S { count: Int }\n'
+        + 'fn make() -> S { return S { count: 5 }; }\n';
+    let program = program_of(src);
+    let ctx = typed_ctx(program);
+    let field_decl = src.find('count').unwrap_or(0);
+    let lit = src.find('{ count: 5').unwrap_or(0) + 2;   // the `count` in the literal
+    let r = resolve.resolve_at(ctx, src, lit);
+    testing.assert_eq(actual: def_offset_of(r), expected: field_decl)?;
+    testing.assert_eq(actual: render_of(r), expected: 'count: Int')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_hover_call_argument_label() -> Result<Void, Error> {
+    // The `n` label in `greet(n: 3)` navigates to the `n` parameter.
+    let src = 'fn greet(n: Int) -> Int { return n; }\n'
+        + 'fn go() -> Int { return greet(n: 3); }\n';
+    let program = program_of(src);
+    let ctx = typed_ctx(program);
+    let param_decl = src.find('n: Int').unwrap_or(0);
+    let label = src.find('greet(n: 3').unwrap_or(0) + 6;   // the `n` label
+    let r = resolve.resolve_at(ctx, src, label);
+    testing.assert_eq(actual: def_offset_of(r), expected: param_decl)?;
+    testing.assert_eq(actual: render_of(r), expected: 'n: Int')?;
+    return Result.Ok(void);
+}
+
+fn render_of(_ r: Option<Resolved>) -> String {
+    return match r { Some(res) => res.render, None => '<none>' };
+}
+
+fn def_offset_of(_ r: Option<Resolved>) -> Int {
+    return match r {
+        Some(res) => match res.def_span() { Some(s) => s.offset, None => -1 },
+        None => -1,
+    };
+}
