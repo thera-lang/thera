@@ -46,6 +46,11 @@
 //! }
 //! ```
 //!
+//! `parse` is the mechanism. For the common shape — parse, show help on
+//! `--help`, report a parse error with usage, dispatch a subcommand — reach for
+//! the `run` adapter instead: it folds that glue (and the exit codes) into one
+//! call, leaving the client just the subcommand switch. See `Command.run`.
+//!
 //! For raw, undeclared access to the argument list, see `std.cli/args` (the
 //! low-level escape hatch); `Command` is the declarative layer on the same idea.
 
@@ -94,19 +99,54 @@ pub struct Command {
     mut trailing_var_arg: Bool,
 }
 
-/// What `parse` can reject. Implements the common `Error` interface, so a
-/// `CliError` can be returned as `Result<_, Error>` at a boundary while callers
-/// who want the cause still `match` on it.
-pub enum CliError {
+/// What kind of thing `parse` rejected. The payload is the offending token
+/// (`match` on it for the cause); the surrounding `CliError` adds *where* it
+/// happened.
+pub enum CliErrorKind {
     UnknownFlag(String),        // an undeclared --flag / -x
     MissingValue(String),       // an option given with no value
     UnexpectedValue(String),    // a value attached to a flag (--verbose=x)
     UnknownSubcommand(String),  // a bare token where a subcommand was expected
 }
 
+/// A parse failure: its `kind` (the cause) plus the command `path` where it
+/// occurred (`[]` at the top level, `['run']` inside the `run` subcommand). The
+/// path lets a client — or the `run` adapter — show the *failing* command's own
+/// help instead of the top-level usage. Implements the common `Error` interface,
+/// so it can be returned as `Result<_, Error>` at a boundary while callers who
+/// want the cause still `match` on `.kind()`.
+pub struct CliError {
+    kind: CliErrorKind,
+    path: List<String>,
+}
+
+impl CliError {
+    /// The cause — `match` on it (`UnknownFlag(name)`, `MissingValue(name)`, …).
+    pub fn kind(self) -> CliErrorKind {
+        return self.kind;
+    }
+
+    /// The command path from the root to where parsing failed: `[]` at the top
+    /// level, `['run']` inside the `run` subcommand, `['remote', 'add']` deeper.
+    pub fn command_path(self) -> List<String> {
+        return self.path;
+    }
+
+    // A copy of this error with `name` pushed onto the front of the path — the
+    // parser rewraps a subcommand's error as it unwinds, so the path reads
+    // root-to-leaf.
+    fn under(self, _ name: String) -> CliError {
+        let p: List<String> = [name];
+        for c in self.path {
+            p.push(c);
+        }
+        return CliError { kind: self.kind, path: p };
+    }
+}
+
 impl Error for CliError {
     pub fn message(self) -> String {
-        return match self {
+        return match self.kind {
             UnknownFlag(name) => 'unknown flag: ${name}',
             MissingValue(name) => 'missing value for option: ${name}',
             UnexpectedValue(name) => 'unexpected value for flag: ${name}',
@@ -122,6 +162,11 @@ impl Display for CliError {
     }
 }
 
+// A root-level error (empty path); the parser adds the path as it unwinds.
+fn cli_error(_ kind: CliErrorKind) -> CliError {
+    return CliError { kind: kind, path: [] };
+}
+
 /// The result of a successful parse: resolved flag values, option values,
 /// positionals, and (if one was selected) the chosen subcommand and its own
 /// `Matches`.
@@ -131,6 +176,22 @@ pub struct Matches {
     positional_values: List<String>,
     mut sub_name: Option<String>,
     mut sub: Option<Matches>,
+}
+
+/// A selected subcommand paired with its parsed `Matches` — what
+/// `Matches.selected()` returns so a dispatcher has both at once.
+pub struct Selection {
+    name: String,
+    matches: Matches,
+}
+
+/// The outcome of the `run` entry adapter. Either the parse succeeded and no
+/// help was requested — `Proceed` with the resolved `Matches` for the client to
+/// dispatch on — or the adapter already handled the invocation (printed help or
+/// an error) and the program should `Exit` with the given status code.
+pub enum Action {
+    Proceed(Matches),
+    Exit(Int),
 }
 
 impl Command {
@@ -268,7 +329,7 @@ impl Command {
                     let oi = opt_index(self.options, name);
                     if fi >= 0 {
                         if has_value {
-                            return Result.Err(CliError.UnexpectedValue(name));
+                            return Result.Err(cli_error(CliErrorKind.UnexpectedValue(name)));
                         }
                         m.flag_values[name] = true;
                     } else if oi >= 0 {
@@ -278,10 +339,10 @@ impl Command {
                             m.option_values[name] = args[i + 1];
                             step = 2;
                         } else {
-                            return Result.Err(CliError.MissingValue(name));
+                            return Result.Err(cli_error(CliErrorKind.MissingValue(name)));
                         }
                     } else {
-                        return Result.Err(CliError.UnknownFlag(name));
+                        return Result.Err(cli_error(CliErrorKind.UnknownFlag(name)));
                     }
                 }
             } else if t.starts_with('-') && t.len() > 1 {
@@ -299,7 +360,7 @@ impl Command {
                 let oi = opt_abbr_index(self.options, abbr);
                 if fi >= 0 {
                     if has_value {
-                        return Result.Err(CliError.UnexpectedValue(abbr));
+                        return Result.Err(cli_error(CliErrorKind.UnexpectedValue(abbr)));
                     }
                     m.flag_values[self.flags[fi].name] = true;
                 } else if oi >= 0 {
@@ -310,22 +371,31 @@ impl Command {
                         m.option_values[oname] = args[i + 1];
                         step = 2;
                     } else {
-                        return Result.Err(CliError.MissingValue(oname));
+                        return Result.Err(cli_error(CliErrorKind.MissingValue(oname)));
                     }
                 } else {
-                    return Result.Err(CliError.UnknownFlag(abbr));
+                    return Result.Err(cli_error(CliErrorKind.UnknownFlag(abbr)));
                 }
             } else if self.subcommands.len() > 0 {
                 let ci = cmd_index(self.subcommands, t);
                 if ci >= 0 {
                     let rest = args.slice(i + 1, args.len());
-                    let sm = self.subcommands[ci].parse(rest)?;
-                    m.sub_name = Option.Some(t);
-                    m.sub = Option.Some(sm);
+                    // Rewrap a subcommand's error under its name, so the path
+                    // records where parsing actually failed (`hawk run --bad` ->
+                    // path `['run']`, not the top level).
+                    match self.subcommands[ci].parse(rest) {
+                        Ok(sm) => {
+                            m.sub_name = Option.Some(t);
+                            m.sub = Option.Some(sm);
+                        },
+                        Err(e) => {
+                            return Result.Err(e.under(t));
+                        },
+                    }
                     i = args.len(); // consume the remainder
                     step = 0;
                 } else {
-                    return Result.Err(CliError.UnknownSubcommand(t));
+                    return Result.Err(cli_error(CliErrorKind.UnknownSubcommand(t)));
                 }
             } else if self.trailing_var_arg {
                 // First positional in a launcher command: this token and the rest
@@ -344,6 +414,71 @@ impl Command {
         }
 
         return Result.Ok(m);
+    }
+
+    /// The opinionated entry adapter: parse `argv` and handle the glue every
+    /// client otherwise re-implements. It collapses the parse + `--help` +
+    /// error + exit-code boilerplate into one call. Specifically:
+    ///
+    ///   - **Parse error** → print `name: <message>` and the *failing*
+    ///     (sub)command's help to stderr; `Exit(2)`. (Command-path-aware: a
+    ///     `run --bad` shows `run`'s usage, not the top level's.)
+    ///   - **`--help`** on the selected subcommand or the top level → print that
+    ///     command's help to stdout; `Exit(0)`.
+    ///   - **No subcommand given** when the command has subcommands → print help
+    ///     to stderr; `Exit(1)` (a usage error, like `git` with no command).
+    ///   - **Otherwise** → `Proceed(matches)`; the client dispatches — typically
+    ///     `match matches.selected() { Some(sel) => … }`.
+    ///
+    /// Stdout/stderr and the exit-code convention (0 help, 1 usage, 2 parse
+    /// error) are the library's opinion; a client wanting different policy uses
+    /// `parse` directly.
+    ///
+    /// ```hawk
+    /// fn main(argv: List<String>) -> Result<Int, Error> {
+    ///     match app().run(argv) {
+    ///         Exit(code) => return Result.Ok(code),
+    ///         Proceed(m) => match m.selected() {
+    ///             Some(sel) => return dispatch(sel.name, sel.matches),
+    ///             None => return Result.Ok(0),
+    ///         },
+    ///     }
+    /// }
+    /// ```
+    pub fn run(self, _ argv: List<String>) -> Action {
+        let m = match self.parse(argv) {
+            Ok(parsed) => parsed,
+            Err(e) => {
+                eprintln('${self.name}: ${e}');
+                eprintln('');
+                eprintln(self.help_along(e.command_path()));
+                return Action.Exit(2);
+            },
+        };
+        // A selected subcommand: its own `--help` prints its help; otherwise the
+        // client dispatches on the resolved matches.
+        match m.selected() {
+            Some(sel) => {
+                if sel.matches.flag('help') {
+                    println(self.help_for(sel.name));
+                    return Action.Exit(0);
+                }
+                return Action.Proceed(m);
+            },
+            None => {},
+        }
+        // No subcommand: top-level `--help` is a success; a bare invocation of a
+        // command that *expects* a subcommand is a usage error; a flat command
+        // (no subcommands) proceeds to read its own flags/positionals.
+        if m.flag('help') {
+            println(self.help());
+            return Action.Exit(0);
+        }
+        if self.subcommands.len() > 0 {
+            eprintln(self.help());
+            return Action.Exit(1);
+        }
+        return Action.Proceed(m);
     }
 
     /// Generate usage text: a header, a usage line, and a section per group.
@@ -375,18 +510,16 @@ impl Command {
         }
         lines.push(usage);
 
+        // Align every section's description onto one column: the widest head
+        // (with a description) across all sections sets it, so flags, options,
+        // arguments, and commands read down a single gutter.
+        let width = self.description_column();
+
         if self.flags.len() > 0 {
             lines.push('');
             lines.push('Flags:');
             for f in self.flags {
-                let mut head = '  --${f.name}';
-                if f.abbr != '' {
-                    head = '${head}, -${f.abbr}';
-                }
-                if f.negatable {
-                    head = '${head} (negatable)';
-                }
-                lines.push(describe(head, f.help));
+                lines.push(describe(flag_head(f), f.help, width));
             }
         }
 
@@ -394,12 +527,7 @@ impl Command {
             lines.push('');
             lines.push('Options:');
             for o in self.options {
-                let mut head = '  --${o.name}';
-                if o.abbr != '' {
-                    head = '${head}, -${o.abbr}';
-                }
-                head = '${head} <value>';
-                lines.push(describe(head, o.help));
+                lines.push(describe(opt_head(o), o.help, width));
             }
         }
 
@@ -407,7 +535,7 @@ impl Command {
             lines.push('');
             lines.push('Arguments:');
             for p in self.positionals {
-                lines.push(describe('  ${p.name}', p.help));
+                lines.push(describe('  ${p.name}', p.help, width));
             }
         }
 
@@ -415,11 +543,62 @@ impl Command {
             lines.push('');
             lines.push('Commands:');
             for c in self.subcommands {
-                lines.push(describe('  ${c.name}', c.about_text));
+                lines.push(describe('  ${c.name}', c.about_text, width));
             }
         }
 
         return lines.join('\n');
+    }
+
+    // The width of the description column: the longest head (among entries that
+    // actually have a description) across every section. Entries with no
+    // description don't widen it — they print head-only, with no trailing gutter.
+    fn description_column(self) -> Int {
+        let mut w = 0;
+        for f in self.flags {
+            if f.help != '' {
+                w = w.max(flag_head(f).len());
+            }
+        }
+        for o in self.options {
+            if o.help != '' {
+                w = w.max(opt_head(o).len());
+            }
+        }
+        for p in self.positionals {
+            if p.help != '' {
+                w = w.max(('  ${p.name}').len());
+            }
+        }
+        for c in self.subcommands {
+            if c.about_text != '' {
+                w = w.max(('  ${c.name}').len());
+            }
+        }
+        return w;
+    }
+
+    /// The `help()` text for the immediate subcommand named `name`, or this
+    /// command's own help when no such subcommand exists. This is the
+    /// "`<tool> <command> --help`" text — a client (or the `run` adapter) shows
+    /// it for the selected subcommand.
+    pub fn help_for(self, _ name: String) -> String {
+        return self.help_along([name]);
+    }
+
+    // The `help()` of the command reached by following `path` from here (`[]` =
+    // this command); falls back to this command's help if the path goes astray.
+    fn help_along(self, _ path: List<String>) -> String {
+        if path.len() == 0 {
+            return self.help();
+        }
+        let head = path[0];
+        for c in self.subcommands {
+            if c.name == head {
+                return c.help_along(path.slice(1, path.len()));
+            }
+        }
+        return self.help();
     }
 }
 
@@ -457,16 +636,54 @@ impl Matches {
     pub fn matches(self) -> Option<Matches> {
         return self.sub;
     }
+
+    /// The selected subcommand's name **and** its `Matches` together, if one
+    /// matched — the pair a dispatcher needs, so a client reads
+    /// `match m.selected() { Some(sel) => …sel.name…sel.matches… }` instead of
+    /// threading `subcommand()` and `matches()` (which are always both present
+    /// or both absent) separately.
+    pub fn selected(self) -> Option<Selection> {
+        return match self.sub_name {
+            Some(name) => match self.sub {
+                Some(sub) => Option.Some(Selection { name: name, matches: sub }),
+                None => Option.None,
+            },
+            None => Option.None,
+        };
+    }
 }
 
 // --- internal helpers ---
 
-/// `head`, plus `help` padded onto the same line when non-empty.
-fn describe(_ head: String, _ help: String) -> String {
+/// A help row: `head`, then `help` on the same line at the shared description
+/// column (`width`) with a two-space gutter. A row with no description is just
+/// its head — no trailing whitespace.
+fn describe(_ head: String, _ help: String, _ width: Int) -> String {
     if help == '' {
         return head;
     }
-    return '${head}    ${help}';
+    return '${head.pad_end(width, ' ')}  ${help}';
+}
+
+/// The `--name, -a (negatable)` head for a flag in `help()`.
+fn flag_head(_ f: Flag) -> String {
+    let mut head = '  --${f.name}';
+    if f.abbr != '' {
+        head = '${head}, -${f.abbr}';
+    }
+    if f.negatable {
+        head = '${head} (negatable)';
+    }
+    return head;
+}
+
+/// The `--name, -a <value>` head for an option in `help()`.
+fn opt_head(_ o: Opt) -> String {
+    let mut head = '  --${o.name}';
+    if o.abbr != '' {
+        head = '${head}, -${o.abbr}';
+    }
+    return '${head} <value>';
 }
 
 /// Index of the flag/option/subcommand named `name`, or -1.

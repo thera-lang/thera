@@ -982,7 +982,9 @@ impl Command {
     pub fn positional(self, _ name: String, help = '') -> Command;
     pub fn subcommand(self, _ cmd: Command) -> Command;
     pub fn parse(self, _ args: List<String>) -> Result<Matches, CliError>;
+    pub fn run(self, _ argv: List<String>) -> Action;       // opinionated entry adapter
     pub fn help(self) -> String;                            // generated usage text
+    pub fn help_for(self, _ name: String) -> String;        // a subcommand's help
 }
 pub struct Matches { /* typed accessors */ }
 impl Matches {
@@ -992,53 +994,43 @@ impl Matches {
     pub fn positionals(self) -> List<String>;
     pub fn subcommand(self) -> Option<String>;              // selected subcommand
     pub fn matches(self) -> Option<Matches>;                // its parsed Matches
+    pub fn selected(self) -> Option<Selection>;             // the two together
 }
-pub enum CliError { UnknownFlag(String), MissingValue(String),
-                    UnexpectedValue(String), UnknownSubcommand(String) }
+pub struct Selection { name: String, matches: Matches }
+pub enum Action { Proceed(Matches), Exit(Int) }             // run's outcome
+
+pub struct CliError { /* kind + command path */ }
+impl CliError {
+    pub fn kind(self) -> CliErrorKind;                      // the cause (matchable)
+    pub fn command_path(self) -> List<String>;              // where it failed ([] = root)
+}
+pub enum CliErrorKind { UnknownFlag(String), MissingValue(String),
+                        UnexpectedValue(String), UnknownSubcommand(String) }
 ```
 
 Names are declared **bare** (`flag('verbose')`); the parser accepts the long
 form (`--verbose`), abbreviations (`-v`), `--name value` / `--name=value` for
 options, and `--no-name` for `negatable` flags. `--help`/`-h` is auto-registered
-but never auto-intercepted — the caller decides when to print `help()`.
-`CliError` implements `Error` + `Display`, so it propagates as
+but never auto-intercepted by `parse` — the caller (or `run`) decides when to
+print help. `CliError` implements `Error` + `Display`, so it propagates as
 `Result<_, Error>` and renders directly while callers who want the cause still
-`match` on it.
+`match` on `.kind()`.
 
-**Usability follow-ups (v2).** Writing real clients (`pkgs/cli/main.hawk`,
-`examples/git_branch.hawk`) showed the _parsing_ is handled, but the glue
-**around** a parse — help, subcommand dispatch, errors, exit codes — is
-re-implemented by every multi-command client. The library should absorb it,
-roughly in priority order:
+**The `run` entry adapter.** `parse` is the mechanism; `run` is the opinionated
+policy that collapses the glue every multi-command client used to re-implement.
+One call parses `argv` and: on a parse error prints `name: <message>` and the
+**failing** (sub)command's help to stderr → `Exit(2)` (command-path-aware, via
+`CliError.command_path`); on `--help` prints the selected (sub)command's help to
+stdout → `Exit(0)`; on a bare no-command invocation of a command that has
+subcommands prints help to stderr → `Exit(1)`; otherwise `Proceed(matches)`, and
+the client dispatches, typically `match matches.selected() { Some(sel) => … }`.
+A client wanting a different stdout/stderr or exit-code policy uses `parse`
+directly. `pkgs/cli/main.hawk` is the reference client — its `main` is now the
+adapter plus a subcommand switch (the ~40 lines of parse/help/error glue are
+gone).
 
-- **An opinionated entry adapter** (the headline). One call that parses and: on
-  a `CliError`, prints the message + usage to stderr and signals a non-zero
-  exit; on `--help`, prints the _selected_ (sub)command's help and signals exit
-  0; otherwise hands back the resolved command + its `Matches`. This collapses
-  the ~40 lines of identical glue every client writes (`pkgs/cli` included).
-- **Selected-subcommand help.** `--help` is auto-registered but inert; a client
-  must find the chosen subcommand and call _its_ `help()` (`pkgs/cli` iterates
-  `subcommands` by name to do this). Add `Matches.selected_help()` /
-  `Command.help_for(name)`.
-- **Dispatch ergonomics.** Today: `subcommand()` (→`Option<String>`) then
-  `matches()` (→`Option<Matches>`) then a string-equality ladder (no string
-  match patterns). Return the selected subcommand **and** its `Matches`
-  together, or support handler registration, to remove the boilerplate.
-- **Required positionals + arity.** Positionals are descriptive only; a client
-  hand-checks `positional(0)` and emits "expected `<file>`". Let `positional` be
-  marked required, yielding an automatic `MissingPositional` (and feeding the
-  generated usage); add a `TooManyArgs` for arity.
-- **Command-path-aware errors.** A subcommand parse error bubbles up without
-  recording which subcommand failed, so a client can only show the _top-level_
-  help (`hawk run --bad` shows `hawk` usage, not `run`'s). Carry the command
-  path in `CliError`.
-- **Help formatting.** Column-align the name/description columns in `help()`
-  (today they're space-padded, not aligned). Plus short-flag clustering (`-rf`),
-  still deferred.
-
-None are blockers — all are "remove a decision" wins. The entry adapter is the
-high-leverage one; required positionals and command-path-aware errors are the
-next tier.
+**Still deferred.** Short-flag clustering (`-rf` → `-r -f`) — a "remove a
+decision" win, not a blocker.
 
 ### `std.term` — terminal _(implemented)_
 

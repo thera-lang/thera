@@ -116,40 +116,25 @@ Runs until stdin closes.
 }
 
 fn main(parameters: List<String>) -> Result<Int, Error> {
-    let app = build_app();
-
-    // Parse; surface a parse error cleanly rather than letting a `CliError`
-    // bubble to the runtime's structural fallback.
-    match app.parse(parameters) {
-        Ok(m) => {
-            return dispatch(app, m);
+    // `run` is the std.cli entry adapter: it parses, and on a parse error, a
+    // `--help`, or a bare no-command invocation it prints the right (sub)command
+    // help / message and hands back an exit code. We're left with just the
+    // dispatch of a resolved subcommand.
+    match build_app().run(parameters) {
+        Exit(code) => {
+            return Result.Ok(code);
         },
-        Err(e) => {
-            eprintln('hawk: ${e}');
-            eprintln('');
-            eprintln(app.help());
-            return Result.Ok(2);
-        },
-    }
-}
-
-// Dispatch the top-level parse: a subcommand, or the no-command help path.
-// (Named `dispatch`, not `run`, to avoid colliding with the imported
-// `process.run` — free-function names still share one global namespace.)
-fn dispatch(_ app: cli.Command, _ m: cli.Matches) -> Result<Int, Error> {
-    match m.subcommand() {
-        Some(name) => {
-            return run_subcommand(app, name, m);
-        },
-        None => {
-            // `hawk --help` is a success (help to stdout); a bare `hawk` is a
-            // usage error (help to stderr).
-            if m.flag('help') {
-                println(app.help());
-                return Result.Ok(0);
+        Proceed(m) => {
+            match m.selected() {
+                Some(sel) => {
+                    return run_subcommand(sel.name, sel.matches);
+                },
+                None => {
+                    // Unreachable: `hawk` has subcommands, so the adapter turns a
+                    // no-command invocation into an exit, never `Proceed`.
+                    return Result.Ok(0);
+                },
             }
-            eprintln(app.help());
-            return Result.Ok(1);
         },
     }
 }
@@ -168,26 +153,17 @@ fn sdk_root_or_warn() -> Option<String> {
     return root;
 }
 
-// Run the selected subcommand from its own parsed arguments.
-fn run_subcommand(_ app: cli.Command, _ name: String, _ m: cli.Matches) -> Result<Int, Error> {
-    match m.matches() {
-        None => {
-            return Result.Ok(1); // unreachable: a named subcommand always has matches
-        },
-        Some(sub) => {
-            // `hawk <command> --help`.
-            if sub.flag('help') {
-                println(subcommand_help(app, name));
-                return Result.Ok(0);
-            }
-            // `lsp` is the only command that takes no file argument.
-            if name == 'lsp' {
-                server.serve(io.stdin(), io.stdout(), sdk_root_or_warn());
-                return Result.Ok(0);
-            }
-            return run_on_file(name, sub);
-        },
+// Run the selected subcommand from its own parsed arguments. (The adapter has
+// already handled `--help` and parse errors.) Named `run_subcommand`, not `run`,
+// to avoid colliding with the imported `process.run` — free-function names still
+// share one global namespace.
+fn run_subcommand(_ name: String, _ sub: cli.Matches) -> Result<Int, Error> {
+    // `lsp` is the only command that takes no file argument.
+    if name == 'lsp' {
+        server.serve(io.stdin(), io.stdout(), sdk_root_or_warn());
+        return Result.Ok(0);
     }
+    return run_on_file(name, sub);
 }
 
 // The file-taking subcommands (run/check/emit/test): dispatch to the real
@@ -549,14 +525,4 @@ fn do_emit(_ file: String, _ out: String) -> Result<Int, Error> {
             return Result.Ok(2);
         },
     }
-}
-
-// The `help()` text for the named subcommand (falls back to the app's own).
-fn subcommand_help(_ app: cli.Command, _ name: String) -> String {
-    for c in app.subcommands {
-        if c.name == name {
-            return c.help();
-        }
-    }
-    return app.help();
 }

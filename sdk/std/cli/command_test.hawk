@@ -117,23 +117,43 @@ fn test_subcommands() -> Result<Void, Error> {
 
 @test
 fn test_clierror_implements_error() -> Result<Void, Error> {
-    // message() formats each variant...
-    testing.assert_eq(
-        actual: CliError.UnknownFlag('bogus').message(),
-        expected: 'unknown flag: bogus',
-    )?;
-    // ...and a CliError flows where the Error interface is expected.
-    let m = match boundary() {
-        Ok(_) => 'ok',
-        Err(e) => e.message(),
+    // A real parse failure renders its kind via message() (the parser stores the
+    // bare name, without the leading dashes)...
+    let e = expect_err(sample().parse(['--bogus']))?;
+    testing.assert_eq(actual: e.message(), expected: 'unknown flag: bogus')?;
+    // ...and the cause is matchable via kind().
+    let named = match e.kind() {
+        UnknownFlag(name) => name,
+        UnexpectedValue(_) => '?',
+        MissingValue(_) => '?',
+        UnknownSubcommand(_) => '?',
     };
-    testing.assert_eq(actual: m, expected: 'missing value for option: out')?;
+    testing.assert_eq(actual: named, expected: 'bogus')?;
+
+    // A CliError also flows where the common Error interface is expected.
+    let msg = match boundary() {
+        Ok(_) => 'ok',
+        Err(err) => err.message(),
+    };
+    testing.assert_eq(actual: msg, expected: 'missing value for option: out')?;
     return Result.Ok(void);
 }
 
-/// Returns the common Error interface, constructed from a concrete CliError.
+/// Returns the common Error interface, carrying a concrete CliError from a real
+/// parse failure (a missing option value).
 fn boundary() -> Result<Int, Error> {
-    return Result.Err(CliError.MissingValue('out'));
+    return match sample().parse(['--out']) {
+        Ok(_) => Result.Err(error('expected a parse error')),
+        Err(e) => Result.Err(e),
+    };
+}
+
+/// Unwrap the `Err` of a parse `Result`, or fail the test with its `Ok` side.
+fn expect_err(_ r: Result<Matches, CliError>) -> Result<CliError, Error> {
+    return match r {
+        Ok(_) => Result.Err(error('expected a parse error')),
+        Err(e) => Result.Ok(e),
+    };
 }
 
 @test
@@ -182,4 +202,122 @@ fn test_trailing_var_arg() -> Result<Void, Error> {
     testing.assert_eq(actual: m2.flag('help'), expected: true)?;
     testing.assert_eq(actual: m2.positionals(), expected: ['foo.hawk', '--bar'])?;
     return Result.Ok(void);
+}
+
+/// An app with subcommands, for the dispatch/adapter tests.
+fn app() -> Command {
+    return Command.new('tool')
+        .subcommand(Command.new('build').about('compile the project').flag('release', abbr: 'r'))
+        .subcommand(Command.new('serve').about('run a server'));
+}
+
+@test
+fn test_command_path_in_error() -> Result<Void, Error> {
+    // An error inside `build` records the subcommand as the failure path...
+    let e = expect_err(app().parse(['build', '--bogus']))?;
+    testing.assert_eq(actual: e.command_path(), expected: ['build'])?;
+    // ...while an unknown top-level subcommand stays at the root.
+    let e2 = expect_err(app().parse(['bogus']))?;
+    testing.assert_eq(actual: e2.command_path().len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_selected_pairs_name_and_matches() -> Result<Void, Error> {
+    let m = testing.assert_ok(app().parse(['build', '--release']))?;
+    let sel = testing.assert_ok(m.selected().ok_or(error('no selection')))?;
+    testing.assert_eq(actual: sel.name, expected: 'build')?;
+    testing.assert_eq(actual: sel.matches.flag('release'), expected: true)?;
+
+    // No subcommand -> no selection (the pair is present or absent together).
+    let m2 = testing.assert_ok(app().parse([]))?;
+    testing.assert(m2.selected().is_none(), message: 'no subcommand -> None')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_help_for_selected_subcommand() -> Result<Void, Error> {
+    let sub_help = app().help_for('build');
+    testing.assert(sub_help.contains('Usage: build'), message: 'shows the subcommand usage')?;
+    testing.assert(sub_help.contains('--release, -r'), message: 'shows the subcommand flags')?;
+    // An unknown name falls back to the parent's own help.
+    testing.assert(app().help_for('nope').contains('Usage: tool'), message: 'fallback to parent')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_help_columns_align() -> Result<Void, Error> {
+    let cmd = Command.new('tool')
+        .flag('a', help: 'first')
+        .flag('bbbbbb', help: 'second');
+    let text = cmd.help();
+    // Both descriptions start at the same column, regardless of head width...
+    let c1 = testing.assert_ok(column_of(text, 'first'))?;
+    let c2 = testing.assert_ok(column_of(text, 'second'))?;
+    testing.assert_eq(actual: c1, expected: c2)?;
+    // ...and the short head is padded past the old fixed 4-space gap (column 9).
+    testing.assert(c1 > 9, message: 'short head is padded to the shared column')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_run_proceeds_on_a_subcommand() -> Result<Void, Error> {
+    // A normal invocation hands back the matches for the client to dispatch.
+    match app().run(['build', '--release']) {
+        Proceed(m) => {
+            let sel = testing.assert_ok(m.selected().ok_or(error('no selection')))?;
+            testing.assert_eq(actual: sel.name, expected: 'build')?;
+            testing.assert_eq(actual: sel.matches.flag('release'), expected: true)?;
+        },
+        Exit(_) => { testing.assert(false, message: 'expected Proceed')?; },
+    }
+    return Result.Ok(void);
+}
+
+@test
+fn test_run_exit_codes() -> Result<Void, Error> {
+    // --help on a subcommand / at the top level: handled, exit 0.
+    testing.assert_eq(actual: exit_code(app().run(['build', '--help'])), expected: 0)?;
+    testing.assert_eq(actual: exit_code(app().run(['--help'])), expected: 0)?;
+    // A command that expects a subcommand, invoked bare: usage error, exit 1.
+    testing.assert_eq(actual: exit_code(app().run([])), expected: 1)?;
+    // A parse error: exit 2.
+    testing.assert_eq(actual: exit_code(app().run(['build', '--bogus'])), expected: 2)?;
+    testing.assert_eq(actual: exit_code(app().run(['bogus'])), expected: 2)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_run_flat_command_proceeds() -> Result<Void, Error> {
+    // A command with no subcommands reads its own flags — a bare invocation is
+    // not a usage error; only a parse error or --help short-circuits.
+    let flat = Command.new('greet').flag('loud', abbr: 'l');
+    match flat.run(['--loud']) {
+        Proceed(m) => {
+            testing.assert_eq(actual: m.flag('loud'), expected: true)?;
+            testing.assert(m.selected().is_none(), message: 'flat command has no selection')?;
+        },
+        Exit(_) => { testing.assert(false, message: 'expected Proceed')?; },
+    }
+    return Result.Ok(void);
+}
+
+/// The exit code an `Action` carries, or -1 when it is `Proceed` (test-only).
+fn exit_code(_ a: Action) -> Int {
+    return match a {
+        Proceed(_) => -1,
+        Exit(code) => code,
+    };
+}
+
+/// The column (offset within its line) of `needle`'s first occurrence in `text`,
+/// or an error if absent — for asserting help columns line up.
+fn column_of(_ text: String, _ needle: String) -> Result<Int, Error> {
+    for line in text.lines() {
+        match line.find(needle) {
+            Some(col) => return Result.Ok(col),
+            None => {},
+        }
+    }
+    return Result.Err(error('needle not found: ${needle}'));
 }
