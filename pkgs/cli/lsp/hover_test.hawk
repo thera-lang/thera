@@ -91,6 +91,19 @@ fn test_hover_top_level_still_resolves() -> Result<Void, Error> {
 }
 
 @test
+fn test_hover_enum_variant_definition_name() -> Result<Void, Error> {
+    // Hovering a variant at its declaration renders the qualified variant — the
+    // same form a use site shows — with its payload types.
+    let src = 'enum Priority { Low, Medium, High }\n'
+        + 'enum Shape { Circle(Int), Square(Int, Int) }\n';
+    let bare = rendered(src, at(src, 'Medium, High', 0));
+    testing.assert_eq(actual: bare, expected: '```hawk\nPriority.Medium\n```')?;
+    let payload = rendered(src, at(src, 'Square(Int, Int)', 0));
+    testing.assert_eq(actual: payload, expected: '```hawk\nShape.Square(Int, Int)\n```')?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_hover_interface_method_definition_name() -> Result<Void, Error> {
     // Hovering a method's name at its declaration inside an `interface` shows the
     // method signature (a method has no bare top-level name to fall back on).

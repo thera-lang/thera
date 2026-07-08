@@ -1118,10 +1118,11 @@ fn member_receiver_in_expr(_ e: Expr, _ offset: Int) -> Option<SourceSpan> {
 // reference: the field name in a `struct` body, a `S { field: … }` initializer
 // name, or an `f(label: …)` argument label.
 enum StructuralTarget {
-    FieldDefName(FieldDef),           // `count` in `struct S { count: Int }`
-    LitField(StructExpr, FieldInit),  // `count` in `S { count: … }`
-    CallLabel(CallExpr, CallArg),     // `name`  in `f(name: …)`
-    MatchVariant(SourceSpan),         // `Low`   in `match p { Low => … }` (subject span)
+    FieldDefName(FieldDef),               // `count` in `struct S { count: Int }`
+    VariantDefName(String, EnumVariant),  // `Low`   in `enum Priority { Low }` (+ enum name)
+    LitField(StructExpr, FieldInit),      // `count` in `S { count: … }`
+    CallLabel(CallExpr, CallArg),         // `name`  in `f(name: …)`
+    MatchVariant(SourceSpan),             // `Low`   in `match p { Low => … }` (subject span)
 }
 
 // Resolve a structural name at `offset` (hover render + navigable declaration),
@@ -1130,6 +1131,7 @@ fn structural_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ offset: Int) -> Opti
     return match structural_target_in_program(ctx.program, offset) {
         Some(t) => match t {
             FieldDefName(f) => Option.Some(field_def_resolved(ctx, ref, f)),
+            VariantDefName(en, v) => Option.Some(variant_def_resolved(ctx, ref, en, v)),
             LitField(sx, fi) => lit_field_resolved(ctx, ref, sx, fi),
             CallLabel(call, arg) => call_label_resolved(ctx, ref, call, arg),
             MatchVariant(subject_span) => match_variant_resolved(ctx, ref, subject_span),
@@ -1149,6 +1151,22 @@ fn field_def_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ f: FieldDef) -> Resol
             kind: SymbolKind.Field,
             name: f.name,
             name_span: Option.Some(f.name_span),
+        }),
+    };
+}
+
+// An enum variant at its own declaration (`Low` in `enum Priority { Low }`):
+// renders the qualified variant — the same form a use site (`Priority.Low`) shows
+// — and lands on itself.
+fn variant_def_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ enum_name: String, _ v: EnumVariant) -> Resolved {
+    return Resolved {
+        ref_span: ref.span,
+        render: variant_render(enum_name, v),
+        symbol: Option.Some(SymbolId {
+            file: paths.program_path(ctx.program),
+            kind: SymbolKind.Variant,
+            name: v.name,
+            name_span: Option.Some(v.name_span),
         }),
     };
 }
@@ -1295,6 +1313,16 @@ fn structural_in_decl(_ decl: Decl, _ offset: Int) -> Option<StructuralTarget> {
                 for f in t.fields {
                     if span_covers(f.name_span, offset) {
                         return Option.Some(StructuralTarget.FieldDefName(f));
+                    }
+                }
+            }
+            Option.None
+        },
+        Enum(e) => {
+            if span_covers(e.span, offset) {
+                for v in e.variants {
+                    if span_covers(v.name_span, offset) {
+                        return Option.Some(StructuralTarget.VariantDefName(e.name, v));
                     }
                 }
             }

@@ -159,6 +159,15 @@ fn test_variant_pattern_binding_still_local() -> Result<Void, Error> {
 }
 
 @test
+fn test_enum_variant_name_resolves_to_itself() -> Result<Void, Error> {
+    // A variant's declaration name is a navigable target that lands on itself.
+    let src = 'enum Priority { Low, Medium, High }\n';
+    let off = at(src, 'Medium, High', 0);
+    testing.assert_eq(actual: def_offset(src, off), expected: off)?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_interface_method_name_resolves_to_itself() -> Result<Void, Error> {
     // A method's declaration name in an `interface` is a navigable target that
     // lands on itself (it has no bare top-level name).
