@@ -424,8 +424,17 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   - **Still open — intra-line spacing** (`fn  foo( name:String )` →
     `fn foo(name: String)`). Deferred because token adjacency alone can't tell
     generics (`List<Int>`) from comparison (`a < b`), nor unary from binary `-`;
-    doing it safely wants **AST-aware** spacing, not the token-only pass. This
-    is the remaining piece of the "eliminate ~99% of format discussion" goal.
+    doing it safely wants role-aware spacing, not the token-only pass. This is
+    the remaining piece of the "eliminate ~99% of format discussion" goal.
+    **Design specced** in [fmt_v2.md](fmt_v2.md): a **gap-edit** model (rewrite
+    only the whitespace between adjacent same-line tokens, driven from the token
+    stream — not an AST pretty-printer, which the AST's omission of
+    keyword/delimiter tokens rules out) with a round-trip token check preserving
+    the never-break-a-compile guarantee. Only `<`/`>` is irreducibly ambiguous
+    (unary `-` is decidable locally), resolved by a **generic-delimiter parser
+    side-channel** (the `LexResult.comments` pattern). Comment-safe with no
+    attachment logic — Hawk's line-only comments never sit between two same-line
+    tokens — so it's independent of the doc-comment attachment work below.
   - **Follow-up — format the corpus.** Dogfood `hawk fmt` over `pkgs/cli`/
     `sdk/std`/`examples` in one sweep so the tree is a fmt fixpoint (safe:
     whitespace-only, fixpoint-clean); pairs with a CI `fmt --check`.
