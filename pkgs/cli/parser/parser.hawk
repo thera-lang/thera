@@ -23,6 +23,9 @@ import '../diagnostic'; // Diagnostic — the uniform phase error
 pub struct ParseResult {
     let program: Program;
     let errors: List<diagnostic.Diagnostic>;
+    // The role signal the formatter needs to tell generics from comparisons — a
+    // parser side-channel, not part of the AST (the compile path ignores it).
+    let generic_delims: GenericDelims;
 }
 
 impl ParseResult {
@@ -31,25 +34,60 @@ impl ParseResult {
     }
 }
 
+// The source offsets of the `<`/`>` tokens the parser consumed as generic
+// delimiters (type args, type params, generic calls) — as opposed to comparison
+// operators (`a < b`), which are indistinguishable by token adjacency alone. The
+// formatter uses this to space `List<Int>` tight but `a < b` loose. Nested `>>`
+// closers are separate `Gt` tokens (the lexer never combines them — see
+// `token.hawk`), so each is recorded by its own offset. See docs/fmt_v2.md.
+pub struct GenericDelims {
+    let opens: Set<Int>;  // offsets of `<` used as a generic open
+    let closes: Set<Int>; // offsets of `>` used as a generic close
+}
+
+// A GenericDelims that classifies no bracket — for callers with no parse (a
+// hermetic tokenize) or the sub-parsers whose delimiters are discarded.
+pub fn empty_generic_delims() -> GenericDelims {
+    return GenericDelims { opens: Set.new(), closes: Set.new() };
+}
+
 struct Parser {
     let tokens: List<Token>;
     let mut pos: Int;
     let errors: List<diagnostic.Diagnostic>;
     let mut panicking: Bool;
+    // Generic-delimiter offsets accumulated as the parse consumes `<`/`>` in a
+    // type-argument / type-parameter position; surfaced on ParseResult.
+    let generic_opens: Set<Int>;
+    let generic_closes: Set<Int>;
 }
 
 // Parse a token stream into a Program (plus any recovered errors). (Named
 // `parse_tokens`, not `parse`, so it doesn't collide with `std.json`'s `parse`
 // in a closure that imports both — top-level fn names are global.)
 pub fn parse_tokens(_ tokens: List<Token>) -> ParseResult {
-    let p = Parser { tokens: tokens, pos: 0, errors: [], panicking: false };
+    let p = Parser {
+        tokens: tokens,
+        pos: 0,
+        errors: [],
+        panicking: false,
+        generic_opens: Set.new(),
+        generic_closes: Set.new(),
+    };
     return p.parse_program();
 }
 
 // Parse a single expression from a token stream — used for string-interpolation
 // segments (mirrors the Dart parser's internal `_parseExpr` re-entry).
 pub fn parse_expression(_ tokens: List<Token>) -> Expr {
-    let p = Parser { tokens: tokens, pos: 0, errors: [], panicking: false };
+    let p = Parser {
+        tokens: tokens,
+        pos: 0,
+        errors: [],
+        panicking: false,
+        generic_opens: Set.new(),
+        generic_closes: Set.new(),
+    };
     return p.parse_expr();
 }
 
@@ -64,6 +102,10 @@ impl Parser {
         return ParseResult {
             program: Program { decls: decls, file_path: Option.None },
             errors: self.errors,
+            generic_delims: GenericDelims {
+                opens: self.generic_opens,
+                closes: self.generic_closes,
+            },
         };
     }
 
@@ -209,6 +251,27 @@ impl Parser {
 
     fn prev_span(self) -> SourceSpan {
         return self.tokens[self.pos - 1].span;
+    }
+
+    // --- generic-delimiter side channel (see `GenericDelims`) ---
+
+    // Consume the `<` at the cursor, recording it as a generic open. The caller
+    // has already checked the cursor is `Lt`; the offset is recorded only when a
+    // token is actually consumed (not mid-recovery).
+    fn open_generic(self) -> Void {
+        if !self.panicking {
+            self.generic_opens.add(self.current().span.offset);
+        }
+        self.advance();
+    }
+
+    // Consume the closing `>` of a generic list (like `expect(Gt, '>')`),
+    // recording its offset as a generic close when the `>` is actually present.
+    fn close_generic(self) -> Token {
+        if !self.panicking && self.check(TokenKind.Gt) {
+            self.generic_closes.add(self.current().span.offset);
+        }
+        return self.expect(TokenKind.Gt, '>');
     }
 
     // --- throwaway nodes returned after `fail` (discarded at the boundary) ---
@@ -483,7 +546,7 @@ impl Parser {
         if !self.check(TokenKind.Lt) {
             return params;
         }
-        self.advance(); // <
+        self.open_generic(); // <
         let mut going = true;
         while going && !self.panicking && !self.check(TokenKind.Gt) && !self.at_end() {
             let name_tok = self.expect(TokenKind.Identifier, 'type parameter name');
@@ -513,7 +576,7 @@ impl Parser {
                 going = false;
             }
         }
-        self.expect(TokenKind.Gt, '>');
+        self.close_generic();
         return params;
     }
 
@@ -785,7 +848,7 @@ impl Parser {
         if !self.check(TokenKind.Lt) {
             return;
         }
-        self.advance(); // <
+        self.open_generic(); // <
         let mut going = true;
         while going && !self.panicking && !self.check(TokenKind.Gt) && !self.at_end() {
             let ref = self.parse_type_ref();
@@ -818,7 +881,7 @@ impl Parser {
                 going = false;
             }
         }
-        self.expect(TokenKind.Gt, '>');
+        self.close_generic();
     }
 
     fn parse_interface_decl(self, _ is_pub: Bool, _ start: SourceSpan) -> Decl {
@@ -999,7 +1062,7 @@ impl Parser {
         let args: List<TypeRef> = [];
         let mut end = name_tok.span;
         if self.check(TokenKind.Lt) {
-            self.advance(); // <
+            self.open_generic(); // <
             let mut going = true;
             while going && !self.panicking && !self.check(TokenKind.Gt) && !self.at_end() {
                 args.push(self.parse_type_ref());
@@ -1007,7 +1070,7 @@ impl Parser {
                     going = false;
                 }
             }
-            let gt = self.expect(TokenKind.Gt, '>');
+            let gt = self.close_generic();
             end = gt.span;
         }
         return TypeRef.Named(NamedType {
@@ -1866,7 +1929,7 @@ impl Parser {
     }
 
     fn parse_type_arg_list(self) -> List<TypeRef> {
-        self.advance(); // <
+        self.open_generic(); // <
         let args: List<TypeRef> = [];
         let mut going = true;
         while going && !self.panicking && !self.check(TokenKind.Gt) && !self.at_end() {
@@ -1875,7 +1938,7 @@ impl Parser {
                 going = false;
             }
         }
-        self.expect(TokenKind.Gt, '>');
+        self.close_generic();
         return args;
     }
 
@@ -2245,6 +2308,8 @@ impl Parser {
                         pos: 0,
                         errors: [],
                         panicking: false,
+                        generic_opens: Set.new(),
+                        generic_closes: Set.new(),
                     };
                     let expr = sub.parse_expr();
                     for e in sub.errors {

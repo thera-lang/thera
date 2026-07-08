@@ -61,6 +61,66 @@ fn parse_all_prefixes(_ src: String) -> Int {
     return count;
 }
 
+// --- generic-delimiter side channel (GenericDelims / docs/fmt_v2.md) ---
+
+// The code-point offset of the first `needle` in `src` (or -1). Tests use it to
+// name the `<`/`>` token they expect the parser to have classified.
+fn offset_of(_ src: String, _ needle: String) -> Int {
+    return src.find(needle).unwrap_or(-1);
+}
+
+@test
+fn test_generic_delims_type_annotation() -> Result<Void, Error> {
+    // A type argument list on a struct field — arrow-free so the only `>` is the
+    // generic close (a `->` return type would shadow it under `find`).
+    let src = 'struct S { let m: Map<String, Int>; }';
+    let d = parse_src(src).generic_delims;
+    testing.assert(d.opens.has(offset_of(src, '<')), message: '`<` is a generic open')?;
+    testing.assert(d.closes.has(offset_of(src, '>')), message: '`>` is a generic close')?;
+    testing.assert_eq(actual: d.opens.len(), expected: 1)?;
+    testing.assert_eq(actual: d.closes.len(), expected: 1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_generic_delims_ignores_comparison() -> Result<Void, Error> {
+    // `a < b` is a comparison, not a generic — its `<` must not be recorded.
+    let src = 'fn f(_ a: Int, _ b: Int) -> Bool { return a < b; }';
+    let d = parse_src(src).generic_delims;
+    testing.assert(!d.opens.has(offset_of(src, '<')), message: 'comparison `<` is not a generic open')?;
+    testing.assert_eq(actual: d.opens.len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_generic_delims_nested_closes_are_separate() -> Result<Void, Error> {
+    // `List<Int>>` closes with two single `>` tokens (the lexer never combines
+    // them); each is recorded by its own offset.
+    let src = 'struct S { let m: Map<String, List<Int>>; }';
+    let d = parse_src(src).generic_delims;
+    testing.assert_eq(actual: d.opens.len(), expected: 2)?;
+    testing.assert_eq(actual: d.closes.len(), expected: 2)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_generic_delims_type_params_and_generic_call() -> Result<Void, Error> {
+    // Type parameters (`<T>`) and a generic static call (`Set<String>.new()`).
+    let params = parse_src('fn f<T>(_ x: T) -> T { return x; }').generic_delims;
+    testing.assert(params.opens.has(offset_of('fn f<T>(_ x: T) -> T { return x; }', '<')),
+        message: 'type-param `<` recorded')?;
+    testing.assert_eq(actual: params.opens.len(), expected: 1)?;
+
+    let src = 'fn f() -> Int { let s = Set<String>.new(); return s.len(); }';
+    let call = parse_src(src).generic_delims;
+    // Two `>`: the return arrow and the generic close. Only the latter is a
+    // delimiter, so exactly one open and one close.
+    testing.assert_eq(actual: call.opens.len(), expected: 1)?;
+    testing.assert_eq(actual: call.closes.len(), expected: 1)?;
+    testing.assert(call.opens.has(offset_of(src, 'Set<') + 3), message: 'generic-call `<` recorded')?;
+    return Result.Ok(void);
+}
+
 @test
 fn test_arithmetic_precedence() -> Result<Void, Error> {
     testing.assert_eq(actual: expr_str('1 + 2 * 3'), expected: '(1 + (2 * 3))')?;
