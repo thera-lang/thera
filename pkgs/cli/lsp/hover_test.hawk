@@ -138,6 +138,27 @@ fn test_hover_bare_variant_pattern() -> Result<Void, Error> {
 }
 
 @test
+fn test_hover_for_loop_variable_shows_element_type() -> Result<Void, Error> {
+    // The loop variable's element type is reported at its `for x in …`
+    // declaration site (the checker stamps its name span), matching the render
+    // at its use sites in the body.
+    let src = 'fn f(_ xs: List<Task>) -> Int {\n'
+        + '    for x in xs {\n'
+        + '        println(x.title);\n'
+        + '    }\n'
+        + '    return 0;\n'
+        + '}\n'
+        + 'struct Task { title: String }\n';
+    // At the declaration (`for x in xs`)...
+    let decl_site = rendered_with_types(src, at(src, 'for x in xs', 4));
+    testing.assert_eq(actual: decl_site, expected: '```hawk\nx: Task\n```')?;
+    // ...and at a use site in the body.
+    let use_site = rendered_with_types(src, at(src, 'x.title', 0));
+    testing.assert_eq(actual: use_site, expected: '```hawk\nx: Task\n```')?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_hover_unannotated_local_shows_inferred_type() -> Result<Void, Error> {
     let src = 'fn f() -> Int { let xs = [1, 2]; return xs[0]; }';
     // At the use site (the `Ident`'s committed record)...

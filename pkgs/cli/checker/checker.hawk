@@ -988,6 +988,13 @@ fn check_stmt(_ cc: CheckCtx, _ stmt: Stmt, _ stmts: List<Stmt>, _ index: Int) -
             let iter_type = infer_expr(x.iterable, scope, ctx, Option.None);
             let loop_cc = cc.with_scope(copy_scope(scope));
             bind_for_pattern(x.pattern, iter_type, loop_cc.scope, ctx);
+            // Stamp the loop variable's element type at its binding name span, so
+            // hover / type-at at the `for x in …` declaration site reports the
+            // element type (mirroring the `let` name-span record above); uses in
+            // the body are recorded as ordinary `Ident` expressions.
+            if let Ident(name_span, _) = x.pattern {
+                set_record(name_span, for_element_type(iter_type, ctx), ctx);
+            }
             // The loop variable isn't tracked in `muts`, so reassigning it isn't
             // flagged; reassigning an enclosing immutable binding still is.
             check_block(loop_cc, x.body);
