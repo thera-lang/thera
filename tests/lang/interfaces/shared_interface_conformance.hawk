@@ -9,7 +9,7 @@ import 'libshape_b' as b;
 // the closure does not.
 
 struct Blob {
-    v: Int,
+    let v: Int;
 }
 
 impl b.Shape for Blob { // expect error: missing method 'name' required by interface 'Shape'
@@ -22,7 +22,7 @@ impl b.Shape for Blob { // expect error: missing method 'name' required by inter
 // implements a's Shape, which does not satisfy a `b.Shape` parameter.
 
 struct Disc2 {
-    r: Int,
+    let r: Int;
 }
 
 impl a.Shape for Disc2 {

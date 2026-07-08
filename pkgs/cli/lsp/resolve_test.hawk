@@ -64,7 +64,7 @@ fn def_offset(_ src: String, _ use_offset: Int) -> Int {
     };
 }
 
-const SRC: String = 'struct S { count: Int }\n'
+const SRC: String = 'struct S { let count: Int; }\n'
     + 'impl S {\n'
     + '    fn helper(self, _ n: Int) -> Int { return self.count + n; }\n'
     + '    fn go(self) -> Int { return self.helper(self.count); }\n'
@@ -200,7 +200,7 @@ fn test_field_access_navigates_to_the_field() -> Result<Void, Error> {
 fn test_generic_impl_self_type_renders_and_navigates() -> Result<Void, Error> {
     // Inside `impl Box<T>`, `self` renders with its type params and `self.method`
     // navigates via the bare type name — no round-trip through the display string.
-    let src = 'struct Box<T> { value: T }\n'
+    let src = 'struct Box<T> { let value: T; }\n'
         + 'impl Box<T> {\n'
         + '    fn get(self) -> T { return self.value; }\n'
         + '    fn go(self) -> T { return self.get(); }\n'
@@ -242,7 +242,7 @@ fn test_identifier_inside_interpolation_resolves() -> Result<Void, Error> {
 fn test_self_member_inside_interpolation_resolves() -> Result<Void, Error> {
     // `self.count` inside an interpolation resolves through the receiver path —
     // the interpolation redirect must feed `receiver_at` too, not just `name_at`.
-    let src = 'struct S { count: Int }\n'
+    let src = 'struct S { let count: Int; }\n'
         + 'impl S {\n'
         + '    fn show(self) -> String { return \'n=\${self.count}\'; }\n'
         + '}\n';
@@ -263,7 +263,7 @@ fn test_self_member_inside_interpolation_resolves() -> Result<Void, Error> {
 fn test_inferred_receiver_method_resolves() -> Result<Void, Error> {
     // `p.scaled()` where `p`'s type is inferred (not written): the member
     // resolves on the receiver's committed type and navigates to the method decl.
-    let src = 'struct Point { x: Int }\n'
+    let src = 'struct Point { let x: Int; }\n'
         + 'impl Point {\n'
         + '    fn scaled(self) -> Point { return self; }\n'
         + '}\n'
@@ -287,7 +287,7 @@ fn test_inferred_receiver_method_resolves() -> Result<Void, Error> {
 @test
 fn test_inferred_receiver_field_renders() -> Result<Void, Error> {
     // A field on an inferred-typed receiver renders (hover) but isn't navigable.
-    let src = 'struct Point { x: Int }\n'
+    let src = 'struct Point { let x: Int; }\n'
         + 'fn f() -> Int {\n'
         + '    let p = Point { x: 1 };\n'
         + '    return p.x;\n'
@@ -313,8 +313,8 @@ fn typed_def_offset(_ src: String, _ use_offset: Int) -> Int {
 
 // A struct with a method, reachable through a call result, a field chain, and an
 // index — the three *computed* receiver shapes a token stream can't delimit.
-const COMP_SRC: String = 'struct Point { x: Int }\n'
-    + 'struct Box { p: Point }\n'
+const COMP_SRC: String = 'struct Point { let x: Int; }\n'
+    + 'struct Box { let p: Point; }\n'
     + 'impl Point {\n'
     + '    fn scaled(self) -> Point { return self; }\n'
     + '}\n'
@@ -352,7 +352,7 @@ fn test_indexed_receiver_member_resolves() -> Result<Void, Error> {
 fn test_top_level_initializer_computed_receiver_resolves() -> Result<Void, Error> {
     // A computed receiver in a module `let` initializer has no enclosing function;
     // the file-level AST walk still locates it and resolves the member.
-    let src = 'struct Point { x: Int }\n'
+    let src = 'struct Point { let x: Int; }\n'
         + 'impl Point {\n'
         + '    fn scaled(self) -> Point { return self; }\n'
         + '}\n'
@@ -367,7 +367,7 @@ fn test_top_level_initializer_computed_receiver_resolves() -> Result<Void, Error
 // --- navigation to each top-level declaration kind ---
 
 // One file exercising every top-level declaration kind plus uses of each.
-const DEFS_SRC: String = 'struct Point { x: Int }\n'
+const DEFS_SRC: String = 'struct Point { let x: Int; }\n'
     + 'enum Color { Red, Green }\n'
     + 'interface Shape { fn area(self) -> Int; }\n'
     + 'const LIMIT: Int = 10;\n'
@@ -429,7 +429,7 @@ fn test_definition_of_function() -> Result<Void, Error> {
 // --- navigation to generic type parameters ---
 
 const GEN_SRC: String = 'fn ident<T>(_ x: T) -> T { return x; }\n'
-    + 'struct Box<U> { value: U }\n'
+    + 'struct Box<U> { let value: U; }\n'
     + 'impl Box<V> {\n'
     + '    fn get(self) -> V { return self.value; }\n'
     + '}\n';
@@ -667,7 +667,7 @@ fn test_field_on_global_receiver_navigates() -> Result<Void, Error> {
     // to the field declaration — the same as through a local (`l.level`). A
     // global is a top-level decl, so it must still route to inferred-receiver
     // resolution (its committed type) rather than being read as a type name.
-    let src = 'struct P { level: Int }\n'
+    let src = 'struct P { let level: Int; }\n'
         + 'let G: P = P { level: 1 };\n'
         + 'fn use_it() -> Int {\n'
         + '    let l: P = P { level: 2 };\n'
@@ -691,8 +691,8 @@ fn test_field_on_global_receiver_navigates() -> Result<Void, Error> {
 
 @test
 fn test_hover_field_definition_name() -> Result<Void, Error> {
-    // The `count` in `struct S { count: Int }` resolves to itself (hover + nav).
-    let src = 'struct S { count: Int }\n';
+    // The `count` in `struct S { let count: Int; }` resolves to itself (hover + nav).
+    let src = 'struct S { let count: Int; }\n';
     let program = program_of(src);
     let ctx = typed_ctx(program);
     let decl = src.find('count').unwrap_or(0);
@@ -706,7 +706,7 @@ fn test_hover_field_definition_name() -> Result<Void, Error> {
 @test
 fn test_hover_struct_literal_field() -> Result<Void, Error> {
     // The `count` in `S { count: 5 }` navigates to the field declaration.
-    let src = 'struct S { count: Int }\n'
+    let src = 'struct S { let count: Int; }\n'
         + 'fn make() -> S { return S { count: 5 }; }\n';
     let program = program_of(src);
     let ctx = typed_ctx(program);

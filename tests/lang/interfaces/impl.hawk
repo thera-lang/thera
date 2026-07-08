@@ -6,7 +6,7 @@ interface Greet {
 }
 
 struct User {
-    name: String,
+    let name: String;
 }
 
 impl Greet for User {

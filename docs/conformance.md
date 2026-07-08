@@ -72,6 +72,8 @@ and [grammar.md](grammar.md) (syntax).
 | `type-native`       | Types → Built-ins        | `native type` decl: opaque, impl-extensible, no field layout| ✓     |
 | `type-struct`       | Structs                  | `struct` decl, struct literal, field access               | ✓      |
 | `type-struct-keyword` | Structs                | the removed `type Name = { … }` form is a parse error      | ✓     |
+| `type-struct-field-let` | Structs              | a struct field must be declared with `let` (`let x: T;`) — parse error otherwise | ✓ |
+| `type-struct-field-semicolon` | Structs        | struct fields are terminated with `;`, not separated by `,` — parse error otherwise | ✓ |
 | `type-struct-immut` | Structs                  | struct fields immutable by default (non-`mut` assign = error)| ✓    |
 | `type-mut-field`    | Structs                  | a `mut field: T` may be reassigned after construction     | ✓      |
 | `type-struct-fields-required`| Structs         | a struct literal must provide every declared field — a `check` diagnostic | ✓ |

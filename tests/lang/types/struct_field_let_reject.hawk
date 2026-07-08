@@ -1,0 +1,14 @@
+//! spec: type-struct-field-let
+//! mode: check
+
+// A struct field is a `let`-declaration; a field written without `let` is a
+// parse error (the form reads as a declaration and distinguishes a struct
+// declaration from a struct instantiation).
+struct Point {
+    x: Int;   // expect error: must be declared with `let`
+    let y: Int;
+}
+
+fn main() -> Int {
+    return 0;
+}

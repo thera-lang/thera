@@ -11,7 +11,7 @@ interface Sized {
 }
 
 struct Box {
-    n: Int,
+    let n: Int;
 }
 
 impl Sized for Box {

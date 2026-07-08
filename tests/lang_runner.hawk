@@ -30,21 +30,21 @@ import std.process;
 
 // One test's parsed directives and expectations.
 struct Test {
-    path: String,
-    mode: String,                 // 'run' | 'check'
-    spec: String,                 // spec anchor, or '' when absent
-    xfail: Option<String>,        // Some(reason) when expected to fail
-    stdout: List<String>,         // ordered expected stdout lines (run mode)
-    errors: List<ExpectError>,    // expected diagnostics (check mode)
-    traps: List<String>,          // expected trap substrings (run mode)
-    exit_code: Option<Int>,       // expected process exit code (run mode)
-    stderr: List<String>,         // expected stderr substrings (run mode)
-    is_test: Bool,                // false for a support file (no `//!` directives)
+    let path: String;
+    let mode: String;                 // 'run' | 'check'
+    let spec: String;                 // spec anchor, or '' when absent
+    let xfail: Option<String>;        // Some(reason) when expected to fail
+    let stdout: List<String>;         // ordered expected stdout lines (run mode)
+    let errors: List<ExpectError>;    // expected diagnostics (check mode)
+    let traps: List<String>;          // expected trap substrings (run mode)
+    let exit_code: Option<Int>;       // expected process exit code (run mode)
+    let stderr: List<String>;         // expected stderr substrings (run mode)
+    let is_test: Bool;                // false for a support file (no `//!` directives)
 }
 
 struct ExpectError {
-    line: Int,
-    needle: String,
+    let line: Int;
+    let needle: String;
 }
 
 // The result of comparing one test's run against its expectations.
@@ -310,8 +310,8 @@ fn run_run(_ hawk: String, _ test: Test) -> Verdict {
 
 // A parsed `path:line:col: message` diagnostic line.
 struct Diagnostic {
-    line: Int,
-    message: String,
+    let line: Int;
+    let message: String;
 }
 
 // Parse the CLI's diagnostic lines from `check` stdout. A diagnostic starts with
@@ -448,8 +448,8 @@ fn is_id_token(_ s: String) -> Bool {
 // --- string helpers ---
 
 struct Split {
-    before: String,
-    after: String,
+    let before: String;
+    let after: String;
 }
 
 // Split `s` at the first occurrence of `sep`, or None when absent.

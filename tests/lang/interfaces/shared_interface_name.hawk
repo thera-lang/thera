@@ -20,7 +20,7 @@ import 'libshape_b' as b;
 //     would also demand `name`).
 
 struct Disc {
-    r: Int,
+    let r: Int;
 }
 
 impl a.Shape for Disc {

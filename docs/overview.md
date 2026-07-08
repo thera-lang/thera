@@ -73,9 +73,9 @@ import std.fs;
 import std.cli;
 
 struct Counts {
-    lines: Int,
-    words: Int,
-    bytes: Int,
+    let lines: Int;
+    let words: Int;
+    let bytes: Int;
 }
 
 fn count(_ text: String) -> Counts {

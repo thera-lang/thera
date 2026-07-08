@@ -11,7 +11,7 @@ pub interface Shape {
 }
 
 pub struct SquareB {
-    side: Int,
+    let side: Int;
 }
 
 impl Shape for SquareB {

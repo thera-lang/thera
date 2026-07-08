@@ -6,8 +6,8 @@
 // used to lower its head as a parameter and silently drop the arguments
 // (PA10: `impl Box<Indexed<T>>` became `impl Box<Indexed>`).
 
-struct Box<T> { v: T }
-struct Pair<T> { a: T, b: T }
+struct Box<T> { let v: T; }
+struct Pair<T> { let a: T; let b: T; }
 
 impl Box<Pair<T>> { // expect error: an impl type parameter must be a bare name
     fn first(self) -> T { return self.v.a; }

@@ -2,7 +2,7 @@
 //! mode: run
 
 struct Dog {
-    name: String,
+    let name: String;
 }
 
 impl Display for Dog {
@@ -12,7 +12,7 @@ impl Display for Dog {
 }
 
 struct Cat {
-    name: String,
+    let name: String;
 }
 
 impl Display for Cat {

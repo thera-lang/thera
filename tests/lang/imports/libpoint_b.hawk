@@ -5,13 +5,13 @@
 // pick the other library's type.
 
 pub struct Label {
-    b_id: Int,
+    let b_id: Int;
 }
 
 pub struct Point {
-    lat: Int,
-    lng: Int,
-    label: Label,
+    let lat: Int;
+    let lng: Int;
+    let label: Label;
 }
 
 impl Point {
@@ -32,8 +32,8 @@ pub fn total(_ p: Point) -> Int {
 
 // The same-named generic type as libpoint_a's `Pair<T>`, picking the other way.
 pub struct Pair<T> {
-    first: T,
-    second: T,
+    let first: T;
+    let second: T;
 }
 
 impl Pair<T> {

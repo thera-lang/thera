@@ -6,13 +6,13 @@
 // collided name), an inherent method (`scaled`), and an interface impl (`Display`).
 
 pub struct Label {
-    a_id: Int,
+    let a_id: Int;
 }
 
 pub struct Point {
-    x: Int,
-    y: Int,
-    label: Label,
+    let x: Int;
+    let y: Int;
+    let label: Label;
 }
 
 impl Point {
@@ -35,8 +35,8 @@ pub fn sum(_ p: Point) -> Int {
 // opposite `pick`. Member typing on a collided generic type must bind `T`
 // against THIS library's def (owner-correct `receiver_bindings`).
 pub struct Pair<T> {
-    first: T,
-    second: T,
+    let first: T;
+    let second: T;
 }
 
 impl Pair<T> {

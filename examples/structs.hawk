@@ -3,8 +3,8 @@
 // through it in string interpolation instead of the auto-derived Debug form.
 
 struct Point {
-    let x: Int,
-    let y: Int,
+    let x: Int;
+    let y: Int;
 }
 
 impl Point {
@@ -31,8 +31,8 @@ impl Display for Point {
 
 struct Rect {
     let top_left: Point;
-    let width: Int,
-    let height: Int,
+    let width: Int;
+    let height: Int;
 }
 
 impl Rect {

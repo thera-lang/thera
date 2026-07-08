@@ -2,8 +2,8 @@
 //! mode: check
 
 struct Point {
-    x: Int,
-    y: Int,
+    let x: Int;
+    let y: Int;
 }
 
 fn main() -> Int {

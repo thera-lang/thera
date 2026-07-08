@@ -2,7 +2,7 @@
 //! mode: run
 
 struct Counter {
-    value: Int,
+    let value: Int;
 }
 
 impl Counter {

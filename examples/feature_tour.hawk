@@ -37,8 +37,8 @@ let TURN: Double = 2.0 * math.PI;
 
 /// An ordered pair of two possibly-different types.
 struct Pair<A, B> {
-    let first: A,
-    let second: B,
+    let first: A;
+    let second: B;
 }
 
 impl Pair<A, B> {
@@ -103,10 +103,10 @@ impl Weighted for Priority {
 
 /// A unit of work: a title, a priority, free-form tags, and an optional due day.
 struct Task {
-    let title: String,
-    let priority: Priority,
-    let tags: Set<String>,
-    let due: Option<Int>,
+    let title: String;
+    let priority: Priority;
+    let tags: Set<String>;
+    let due: Option<Int>;
 }
 
 impl Weighted for Task {
@@ -133,8 +133,8 @@ impl Display for Task {
 // ---------------------------------------------------------------------------
 
 struct Policy {
-    let mut default_priority: Priority,
-    let overrides: Map<String, Priority>   // per-task overrides; content mutates in place
+    let mut default_priority: Priority;
+    let overrides: Map<String, Priority>;   // per-task overrides; content mutates in place
 }
 
 let POLICY: Policy = Policy {

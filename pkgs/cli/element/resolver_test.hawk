@@ -26,7 +26,7 @@ fn prog_of(_ src: String, _ path: String) -> Program {
 
 @test
 fn test_struct_fields_resolve() -> Result<Void, Error> {
-    let lib = lib_of('struct Point { x: Int, y: Double }');
+    let lib = lib_of('struct Point { let x: Int; let y: Double; }');
     match lib.type_defs.get('Point') {
         Some(pt) => {
             testing.assert_eq(actual: pt.kind, expected: TypeDefKind.Struct)?;
@@ -44,7 +44,7 @@ fn test_struct_fields_resolve() -> Result<Void, Error> {
 
 @test
 fn test_function_signature_resolves() -> Result<Void, Error> {
-    let lib = lib_of('struct Point { x: Int, y: Int }\n'
+    let lib = lib_of('struct Point { let x: Int; let y: Int; }\n'
         + 'fn origin(_ p: Point) -> Int { return p.x; }');
     match file_scope(lib, Option.None).resolve_function('origin') {
         Some(f) => {
@@ -63,7 +63,7 @@ fn test_function_signature_resolves() -> Result<Void, Error> {
 
 @test
 fn test_generic_struct_field_is_type_parameter() -> Result<Void, Error> {
-    let lib = lib_of('struct Box<T> { value: T }');
+    let lib = lib_of('struct Box<T> { let value: T; }');
     match lib.type_defs.get('Box') {
         Some(b) => {
             testing.assert_eq(actual: b.type_parameters, expected: ['T'])?;
@@ -104,7 +104,7 @@ fn test_enum_variants_resolve() -> Result<Void, Error> {
 
 @test
 fn test_impl_methods_attach() -> Result<Void, Error> {
-    let lib = lib_of('struct Point { x: Int, y: Int }\n'
+    let lib = lib_of('struct Point { let x: Int; let y: Int; }\n'
         + 'impl Point {\n'
         + '  pub fn x_of(self) -> Int { return self.x; }\n'
         + '  pub fn make() -> Point { return Point { x: 0, y: 0 }; }\n'
@@ -142,7 +142,7 @@ fn test_per_file_tables_populated() -> Result<Void, Error> {
     // The per-file type/const tables (Phase 2e S1) record each declaration under its
     // declaring file, referencing the same element as the flat tables. The anonymous
     // program keys under '' (file_key of None).
-    let lib = lib_of('struct Point { x: Int }\nconst K: Int = 1\n'
+    let lib = lib_of('struct Point { let x: Int; }\nconst K: Int = 1\n'
         + 'fn f() -> Int { return 0; }');
     match lib.file_type_defs.get(file_key(Option.None)) {
         Some(types) => {
@@ -196,7 +196,7 @@ fn test_reserved_flat_entry_pinned_to_first_registration() -> Result<Void, Error
     // therefore keeps pointing at the first owner.
     let core = parse_tokens(tokenize('pub enum Result { Good, Bad }').tokens).program;
     core.file_path = Option.Some('/core/result.hawk');
-    let user = parse_tokens(tokenize('struct Result { x: Int }').tokens).program;
+    let user = parse_tokens(tokenize('struct Result { let x: Int; }').tokens).program;
     user.file_path = Option.Some('/app/main.hawk');
     let lib = build_library(user, [core], {}, {});
     match lib.type_defs.get('Result') {
@@ -219,9 +219,9 @@ fn test_reserved_flat_entry_pinned_to_first_registration() -> Result<Void, Error
         None => { testing.assert(false, message: 'no /app/main.hawk table')?; },
     }
     // A non-reserved name keeps last-wins in the flat table.
-    let a = parse_tokens(tokenize('pub struct Config { x: Int }').tokens).program;
+    let a = parse_tokens(tokenize('pub struct Config { let x: Int; }').tokens).program;
     a.file_path = Option.Some('/a.hawk');
-    let b = parse_tokens(tokenize('pub struct Config { y: Int }').tokens).program;
+    let b = parse_tokens(tokenize('pub struct Config { let y: Int; }').tokens).program;
     b.file_path = Option.Some('/b.hawk');
     let lib2 = build_library(b, [a], {}, {});
     match lib2.type_defs.get('Config') {
@@ -288,7 +288,7 @@ fn test_elements_carry_symbol_identity() -> Result<Void, Error> {
     // and the declaration's name-token span — the (file, kind, name, span)
     // quadruple Phase 3 rename/references keys on. A path-less program keys as
     // file_key(None); the spans point at the exact name tokens.
-    let src = 'struct Point { x: Int }\n'
+    let src = 'struct Point { let x: Int; }\n'
         + 'enum Color { Red, Green }\n'
         + 'fn origin() -> Int { return 0; }\n'
         + 'const SIZE: Int = 3;\n'
@@ -342,7 +342,7 @@ fn test_elements_carry_symbol_identity() -> Result<Void, Error> {
 @test
 fn test_layered_build_matches_full_build() -> Result<Void, Error> {
     let dep_src = 'pub interface Greet { fn hello(self) -> Int }\n';
-    let main_src = 'struct Point { x: Int }\n'
+    let main_src = 'struct Point { let x: Int; }\n'
         + 'impl Greet for Point { pub fn hello(self) -> Int { return self.x; } }\n';
     // Two parses of the dep so the full and layered builds don't share
     // mutated programs.
@@ -378,7 +378,7 @@ fn test_layered_build_matches_full_build() -> Result<Void, Error> {
 // base element accumulates nothing.
 @test
 fn test_layer_primary_gates_foreign_impl() -> Result<Void, Error> {
-    let dep = prog_of('pub struct Point { x: Int }\n', '/dep.hawk');
+    let dep = prog_of('pub struct Point { let x: Int; }\n', '/dep.hawk');
     let surface: Map<String, Map<String, String>> = {};
     surface['/main.hawk'] = { 'Point': '/dep.hawk' };
     let base = build_import_library([dep], {}, surface);

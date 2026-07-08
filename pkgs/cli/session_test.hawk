@@ -210,7 +210,7 @@ fn test_repeated_checks_are_stable() -> Result<Void, Error> {
     let dir = fixture_dir('stable', {
         'shape.hawk': 'pub interface Shape { fn area(self) -> Int }\n',
         'main.hawk': 'import \'shape\' as _;\n'
-            + 'struct Sq { s: Int }\n'
+            + 'struct Sq { let s: Int; }\n'
             + 'impl Shape for Sq { pub fn area(self) -> Int { return self.s * self.s; } }\n'
             + 'fn main() -> Int { return Sq { s: 3 }.area() + missing; }\n',
     })?;
@@ -241,7 +241,7 @@ fn test_library_cache_evicts_on_dep_edit() -> Result<Void, Error> {
     let dir = fixture_dir('libevict', {
         'shape.hawk': 'pub interface Shape { fn area(self) -> Int }\n',
         'main.hawk': 'import \'shape\';\n'
-            + 'struct Sq { s: Int }\n'
+            + 'struct Sq { let s: Int; }\n'
             + 'impl shape.Shape for Sq { pub fn area(self) -> Int { return self.s; } }\n',
     })?;
     let sess = new_session(Option.None);

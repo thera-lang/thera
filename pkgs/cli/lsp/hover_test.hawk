@@ -34,7 +34,7 @@ fn at(_ src: String, _ marker: String, _ delta: Int) -> Int {
     return src.find(marker).unwrap_or(0) + delta;
 }
 
-const SRC: String = 'struct S { count: Int }\n'
+const SRC: String = 'struct S { let count: Int; }\n'
     + 'impl S {\n'
     + '    fn helper(self, _ n: Int) -> Int { return self.count + n; }\n'
     + '    fn go(self) -> Int { return self.helper(self.count); }\n'
@@ -116,7 +116,7 @@ fn test_hover_interface_method_definition_name() -> Result<Void, Error> {
 @test
 fn test_hover_impl_method_definition_name() -> Result<Void, Error> {
     // Hovering a method's name at its declaration inside an `impl` block, too.
-    let src = 'struct S { n: Int }\n'
+    let src = 'struct S { let n: Int; }\n'
         + 'interface Weighted { fn weight(self) -> Int; }\n'
         + 'impl Weighted for S { fn weight(self) -> Int { return self.n; } }\n';
     let code = rendered(src, at(src, 'fn weight(self) -> Int { return', 3));
@@ -182,7 +182,7 @@ fn test_hover_for_loop_variable_shows_element_type() -> Result<Void, Error> {
         + '    }\n'
         + '    return 0;\n'
         + '}\n'
-        + 'struct Task { title: String }\n';
+        + 'struct Task { let title: String; }\n';
     // At the declaration (`for x in xs`)...
     let decl_site = rendered_with_types(src, at(src, 'for x in xs', 4));
     testing.assert_eq(actual: decl_site, expected: '```hawk\nx: Task\n```')?;

@@ -8,7 +8,7 @@
 // identity, so redeclaring those is ordinary owner-correct shadowing.
 
 struct Result {    // expect error: `Result` is a reserved type name
-    x: Int,
+    let x: Int;
 }
 
 enum Option {      // expect error: `Option` is a reserved type name
@@ -21,11 +21,11 @@ interface Iterator {   // expect error: `Iterator` is a reserved type name
 }
 
 struct Error {     // expect error: `Error` is a reserved type name
-    message: String,
+    let message: String;
 }
 
 struct Void {      // expect error: `Void` is a reserved type name
-    x: Int,
+    let x: Int;
 }
 
 // A type *parameter* declares a type name for its scope, so the reservation
@@ -36,7 +36,7 @@ fn pick<Result>(_ x: Result) -> Result {   // expect error: `Result` is a reserv
 }
 
 struct Box<List> {   // expect error: `List` is a reserved type name
-    value: List,
+    let value: List;
 }
 
 // The core-semantic interfaces are reserved too (decision 2026-07): `Eq`,
@@ -48,17 +48,17 @@ interface Display {   // expect error: `Display` is a reserved type name
 }
 
 struct Ord {   // expect error: `Ord` is a reserved type name
-    v: Int,
+    let v: Int;
 }
 
 // Not reserved: a utility type that happens to share a core name.
 struct Args {
-    values: List<String>,
+    let values: List<String>;
 }
 
 // Not reserved: an ordinary user name.
 struct Config {
-    x: Int,
+    let x: Int;
 }
 
 fn main() -> Void { }

@@ -641,21 +641,20 @@ impl Parser {
         });
     }
 
-    // The `{ field, … }` body shared by `struct` and the legacy `type … = { … }`.
+    // The `{ field; … }` body of a `struct`. Each field is a `let`-declaration
+    // terminated by `;` (`let name: T;` / `let mut name: T;`) — the statement-style
+    // form that reads as a declaration and distinguishes a struct declaration from
+    // a struct instantiation (see docs/language.md, docs/grammar.md).
     fn parse_struct_fields(self) -> List<FieldDef> {
         let fields: List<FieldDef> = [];
-        let mut going = true;
-        while going && !self.panicking && !self.check(TokenKind.RBrace) && !self.at_end() {
-            // The field's first token (before any `let`/`mut`) — its `span` start,
-            // and where the `let`-insertion fix lands.
+        while !self.panicking && !self.check(TokenKind.RBrace) && !self.at_end() {
+            // The `let` keyword — the field's `span` start — is required.
             let start = self.current().span;
-            // Optional `let` before a field (`let x: T`, `let mut x: T`) — the
-            // migration phase toward a required keyword that differentiates a
-            // struct declaration from an instantiation (see roadmap → Language).
-            // It carries no semantic payload (mutability stays `mut`), so it is
-            // consumed and discarded.
-            self.match_kind(TokenKind.KwLet);
-            let is_mut = self.match_kind(TokenKind.KwMut);   // `[let] mut field: T`
+            if !self.match_kind(TokenKind.KwLet) {
+                self.fail('a struct field must be declared with `let` (e.g. `let x: T;`)');
+                return fields;
+            }
+            let is_mut = self.match_kind(TokenKind.KwMut);   // `let mut field: T;`
             let fname_tok = self.expect(TokenKind.Identifier, 'field name');
             self.expect(TokenKind.Colon, ':');
             let ftype = self.parse_type_ref();
@@ -663,14 +662,13 @@ impl Parser {
                 is_mut: is_mut, name: fname_tok.lexeme(), name_span: fname_tok.span,
                 type_ann: ftype, span: start.cover(type_span(ftype)),
             });
-            // A field is separated/terminated by `,` or `;`. `;` (statement-style,
-            // reading as a declaration list) is the migration target that pairs
-            // with `let`; `,` stays accepted during the migration (see roadmap →
-            // Language). Both may be mixed until the required-`;` flip.
-            let had_sep = self.match_kind(TokenKind.Comma) || self.match_kind(TokenKind.Semi);
-            if !had_sep {
-                going = false;
+            // A field is *terminated* by `;` (not separated by `,`). A dedicated
+            // message points a `,` at the target form.
+            if self.check(TokenKind.Comma) {
+                self.fail('struct fields are terminated with `;`, not `,`');
+                return fields;
             }
+            self.expect(TokenKind.Semi, '`;` after a struct field');
         }
         return fields;
     }

@@ -637,42 +637,22 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
 
 ### Language
 
-- **Add `let` to struct field definitions** (`struct Point { let x: Int }`).
-  Partly for consistency with other declarations, but mainly to differentiate a
-  struct *declaration* from a struct *instantiation* — the two bodies are
-  otherwise structurally identical (`{ IDENT: X, … }`), told apart only by
-  resolving the RHS as a type vs. a value. `let` is a reliable *local* marker, so
-  a fragment reads as a declaration without name resolution — the fragment-level
-  legibility Hawk optimizes for. The payoff needs `let` **required** (an optional
-  `let` signals nothing); "optional" is migration scaffolding only. `let` carries
-  no semantic payload (mutability stays `FieldDef.is_mut`, composing as
-  `let mut count: Int`), so no AST change is needed. Migration:
-  Folded in: the field **separator** `,` → `;` (statement-style, so a field reads
-  as the declaration `let x: T;` it now is). Bundled because the expensive parts —
-  the corpus sweep and the required-flip — happen once either way; splitting would
-  sweep every struct twice. Scoped to struct fields only — enum variant lists stay
-  comma-separated (an alternation, not a declaration sequence).
-  1. **Parser accepts optional `let` + either `,`/`;` separator** (both
-     consumed-and-discarded/normalized), sources still in old syntax — _done_.
-     Bootstrap snapshot refreshed so it can build `let`/`;` sources.
-  2. **Lint + fix** — _done_. Rules `struct-field-needs-let` and
-     `struct-field-needs-semicolon` (`pkgs/cli/lint`) with mechanical fixes
-     (`pkgs/cli/fix`/`edit`, driven by `hawk fix`) — insert `let`, rewrite the
-     `,`→`;` (or insert a trailing `;`). Chosen over teaching the whitespace-only
-     formatter to rewrite tokens. Both are source checks (the parser discards `let`
-     and accepts either separator, so the AST can't witness them) and transitional —
-     retired at step 4. `FieldDef` gained a `span` (full-field extent) so the `let`
-     lands before `mut` and the separator is located from the type's end.
-  3. **Migrate the corpus** — `hawk fix --write` over `pkgs/cli`, `sdk/std`,
-     `examples`. Since the sweep is parser-invisible (the front-end's bytecode is
-     unchanged), the `build_sdk.sh` fixpoint still holds and no snapshot refresh is
-     needed after it.
-  4. **Require `let` + `;`** — parser change (can be one flip or two separable
-     ones); sources already carry both. Refresh the snapshot; `build_sdk.sh`
-     fixpoint validates the tree. `examples/` is hand-migrated at this step.
-  - Update `grammar.md` (done) and language.md; add a `tests/lang` conformance case
-    (xfail flips to pass at step 4). Field hover rendering `let x: Int` (source
-    fidelity) is an optional cosmetic follow-up.
+- **Struct fields are `let`-declarations terminated by `;` — DONE.** A field is
+  `let name: T;` (`let mut name: T;` for a reassignable one): `struct Point { let
+  x: Int; let y: Int; }`. The `let`/`;` form reads as a declaration and
+  differentiates a struct *declaration* from a struct *instantiation* — the two
+  bodies (`{ x: … }`) were otherwise identical, told apart only by resolving each
+  RHS as a type vs. a value. Now a fragment reads as a declaration with no name
+  resolution — the fragment-level legibility Hawk optimizes for. Enum variant
+  lists stay comma-separated (an alternation, not a declaration sequence).
+  Delivered as a leniency→sweep→require migration: the parser first accepted the
+  new form alongside the old, transitional `hawk fix` rules (`struct-field-needs-
+  let`/`-semicolon`) swept `pkgs/cli` + `sdk/std` + `tests/lang`, then the parser
+  was made strict (clear per-error diagnostics: "must be declared with `let`" /
+  "terminated with `;`, not `,`") and the transitional lint/fix rules retired.
+  `FieldDef` kept its full-field `span`; conformance cases `type-struct-field-let`
+  / `-semicolon` pin the rejections. **Remaining:** `examples/` is hand-migrated
+  (the `let` is already in place — only `,` → `;` in field lists).
   - Interacts with the instance-level-mutability item below but doesn't foreclose
     it — `let` / `let mut` fields are the natural migration target either way.
 

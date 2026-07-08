@@ -149,16 +149,15 @@ param       = 'self'
             // `label name` gives a distinct external label; a single IDENT
             // means label == name.
 
-structDecl  = 'struct' IDENT typeParams? '{' ( field (sep field)* sep? )? '}'
-sep         = ',' | ';'                     // migration phase: both accepted (see
-                                            // roadmap → Language). Target is `;`
-                                            // (statement-style), paired with `let`.
-field       = 'let'? 'mut'? IDENT ':' type // `mut` allows the field to be reassigned;
-                                           // `let` is optional (migration phase) toward
-                                           // a required `let x: T;` declaration form
-              // A nominal record: `struct Point { x: Int, y: Int }`. Constructed
-              // with a struct literal `Point { x: 1, y: 2 }`; methods come from
-              // `impl` blocks. A fieldless `struct Marker {}` is legal (a
+structDecl  = 'struct' IDENT typeParams? '{' field* '}'
+field       = 'let' 'mut'? IDENT ':' type ';'
+              // Each field is a `let`-declaration terminated by `;` — `mut` opts
+              // into reassignment. The `let`/`;` form reads as a declaration and
+              // distinguishes a struct *declaration* from a struct *instantiation*
+              // (the two bodies are otherwise identical). Both are required.
+              // A nominal record: `struct Point { let x: Int; let y: Int; }`.
+              // Constructed with a struct literal `Point { x: 1, y: 2 }`; methods
+              // come from `impl` blocks. A fieldless `struct Marker {}` is legal (a
               // unit/marker type). (There is no `=`: `struct Name { … }`, not
               // `type Name = { … }` — the latter form was removed.)
 

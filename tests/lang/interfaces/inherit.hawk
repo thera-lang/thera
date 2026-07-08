@@ -7,7 +7,7 @@ interface Named: Display {
 }
 
 struct Tag {
-    n: Int,
+    let n: Int;
 }
 
 impl Display for Tag {

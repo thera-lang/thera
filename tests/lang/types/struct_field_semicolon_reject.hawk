@@ -1,0 +1,12 @@
+//! spec: type-struct-field-semicolon
+//! mode: check
+
+// Struct fields are *terminated* by `;`, not separated by `,`.
+struct Point {
+    let x: Int,   // expect error: terminated with `;`
+    let y: Int;
+}
+
+fn main() -> Int {
+    return 0;
+}

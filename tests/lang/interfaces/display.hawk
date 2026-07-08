@@ -2,8 +2,8 @@
 //! mode: run
 
 struct Point {
-    x: Int,
-    y: Int,
+    let x: Int;
+    let y: Int;
 }
 
 impl Display for Point {

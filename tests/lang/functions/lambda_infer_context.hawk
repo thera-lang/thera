@@ -9,7 +9,7 @@
 // dropped by inference and codegen — checked clean, failed to emit).
 
 struct Counter {
-    n: Int,
+    let n: Int;
 }
 
 impl Counter {

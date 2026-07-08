@@ -7,7 +7,7 @@
 // and corrupted the binding at runtime.)
 
 struct Point {
-    mut x: Int,
+    let mut x: Int;
 }
 
 fn main() -> Void {

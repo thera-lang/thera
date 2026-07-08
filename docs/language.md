@@ -227,14 +227,17 @@ unqualified.
 
 Structs are nominal types, declared with the `struct` keyword and a brace body
 (no `=`) — like `enum` and `interface`, and like Rust/Swift/Go, a deliberately
-*nominal* signal (two identically-shaped structs are distinct types). Fields are
-immutable by default; mark a field `mut` to allow reassigning it after
-construction (the field-level analogue of `let` vs `let mut`).
+*nominal* signal (two identically-shaped structs are distinct types). Each field
+is a `let`-declaration terminated by `;` (`let name: T;`) — the form reads as a
+declaration and distinguishes a struct *declaration* from a struct *instantiation*
+(the two brace bodies are otherwise identical). Fields are immutable by default;
+mark a field `let mut` to allow reassigning it after construction (the field-level
+analogue of `let` vs `let mut`).
 
 ```hawk
 struct Point {
-    x: Double,
-    y: Double,
+    let x: Double;
+    let y: Double;
 }
 
 let p = Point { x: 1.0, y: 2.0 };
@@ -242,8 +245,8 @@ println('${p.x}, ${p.y}');
 p.x = 3.0;            // error: `x` is not `mut`
 
 struct Cursor {
-    mut offset: Int,   // reassignable
-    source: String,    // immutable
+    let mut offset: Int;   // reassignable
+    let source: String;    // immutable
 }
 
 let c = Cursor { offset: 0, source: 'abc' };
@@ -512,9 +515,9 @@ Like `Result`, `Option` is an ordinary prelude enum, constructed qualified:
 
 ```hawk
 struct Config {
-    host:    String,
-    port:    Int,
-    log_dir: Option<String>,   // may be absent
+    let host:    String;
+    let port:    Int;
+    let log_dir: Option<String>;   // may be absent
 }
 ```
 
@@ -1261,7 +1264,7 @@ interface Animal {
     }
 }
 
-struct Dog { nick: String }
+struct Dog { let nick: String; }
 
 impl Animal for Dog {
     fn name(self) -> String { return self.nick; }
@@ -1294,7 +1297,7 @@ plain `impl TypeName` block:
 
 ```hawk
 struct Counter {
-    value: Int,
+    let value: Int;
 }
 
 impl Counter {
@@ -1350,8 +1353,8 @@ fields; `Display` must be implemented explicitly.
 //   Point { x: 1.0, y: 2.0 }
 
 struct Point {
-    x: Double,
-    y: Double,
+    let x: Double;
+    let y: Double;
 }
 
 // explicit Display for a user-facing format

@@ -2,7 +2,7 @@
 //! mode: run
 
 struct Bare {
-    n: Int,
+    let n: Int;
 }
 
 // `Bare` has no `Display` impl. Under total rendering, interpolating it is not a

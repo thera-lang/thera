@@ -278,7 +278,7 @@ fn test_definition_navigates_to_a_field() -> Result<Void, Error> {
     let opened = io.StringWriter.new();
     server.handle(opened, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
         + '{"textDocument":{"uri":"file:///f.hawk",'
-        + '"text":"struct S { n: Int }\\nimpl S { fn get(self) -> Int { return self.n; } }"}}}');
+        + '"text":"struct S { let n: Int; }\\nimpl S { fn get(self) -> Int { return self.n; } }"}}}');
     // Go-to-definition on the `n` of `self.n` (line 1, char 43) lands on the field
     // declaration up on line 0.
     let asked = io.StringWriter.new();
@@ -297,7 +297,7 @@ fn test_rename_renames_a_field() -> Result<Void, Error> {
     let opened = io.StringWriter.new();
     server.handle(opened, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
         + '{"textDocument":{"uri":"file:///f.hawk",'
-        + '"text":"struct S { n: Int }\\nfn mk() -> S { return S { n: 1 }; }'
+        + '"text":"struct S { let n: Int; }\\nfn mk() -> S { return S { n: 1 }; }'
         + '\\nimpl S { fn get(self) -> Int { return self.n; } }"}}}');
     // A field now has full symbol identity, so renaming one rewrites its whole
     // identity in one edit: the declaration (line 0), the `S { n: … }` literal use
@@ -326,12 +326,13 @@ fn test_references_to_a_field_are_semantic() -> Result<Void, Error> {
     // member access) — NOT `B.n`, which a lexical match would wrongly include.
     server.handle(opened, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
         + '{"textDocument":{"uri":"file:///r.hawk",'
-        + '"text":"struct A { n: Int }\\nstruct B { n: Int }'
+        + '"text":"struct A { let n: Int; }\\nstruct B { let n: Int; }'
         + '\\nfn use_a(_ a: A) -> Int { return a.n; }"}}}');
-    // References on `A`'s field declaration (line 0, character 11).
+    // References on `A`'s field declaration (line 0, character 15 — the `n` in
+    // `struct A { let n: Int; }`).
     let asked = io.StringWriter.new();
     server.handle(asked, '{"jsonrpc":"2.0","id":22,"method":"textDocument/references","params":'
-        + '{"textDocument":{"uri":"file:///r.hawk"},"position":{"line":0,"character":11},'
+        + '{"textDocument":{"uri":"file:///r.hawk"},"position":{"line":0,"character":15},'
         + '"context":{"includeDeclaration":true}}}');
     let out = asked.into_string().unwrap_or('');
     testing.assert_eq(actual: count_substr(out, '"range"'), expected: 2)?;

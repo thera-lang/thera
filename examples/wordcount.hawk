@@ -2,9 +2,9 @@ import std.cli;
 import std.fs;
 
 struct Counts {
-    let lines: Int,
-    let words: Int,
-    let bytes: Int,
+    let lines: Int;
+    let words: Int;
+    let bytes: Int;
 }
 
 fn count(_ text: String) -> Counts {

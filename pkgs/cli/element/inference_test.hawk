@@ -103,7 +103,7 @@ fn test_generic_enum_construction_recovers_arg() -> Result<Void, Error> {
 
 @test
 fn test_generic_struct_literal_recovers_arg() -> Result<Void, Error> {
-    let ctx = new_ctx(lib_of('struct Wrap<T> { value: T }'));
+    let ctx = new_ctx(lib_of('struct Wrap<T> { let value: T; }'));
     testing.assert_eq(actual: type_of('Wrap { value: true }', empty_scope(), ctx),
         expected: mk_iface(ctx, 'Wrap', [Type.Primitive(Primitive.Bool)]))?;
     return Result.Ok(void);
@@ -111,7 +111,7 @@ fn test_generic_struct_literal_recovers_arg() -> Result<Void, Error> {
 
 @test
 fn test_struct_field_access() -> Result<Void, Error> {
-    let ctx = new_ctx(lib_of('struct Point { x: Int, y: Double }'));
+    let ctx = new_ctx(lib_of('struct Point { let x: Int; let y: Double; }'));
     let scope = empty_scope();
     scope['p'] = mk_iface(ctx, 'Point', []);
     testing.assert_eq(actual: type_of('p.x', scope, ctx),
@@ -123,7 +123,7 @@ fn test_struct_field_access() -> Result<Void, Error> {
 
 @test
 fn test_method_return_type() -> Result<Void, Error> {
-    let ctx = new_ctx(lib_of('struct Point { x: Int, y: Int }\n'
+    let ctx = new_ctx(lib_of('struct Point { let x: Int; let y: Int; }\n'
         + 'impl Point { pub fn sum(self) -> Int { return self.x + self.y; } }'));
     let scope = empty_scope();
     scope['p'] = mk_iface(ctx, 'Point', []);

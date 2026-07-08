@@ -257,47 +257,13 @@ fn let_else_reindents_a_multiline_else() -> Result<Void, Error> {
 }
 
 @test
-fn adds_let_to_struct_fields() -> Result<Void, Error> {
-    // Each field gains `let` (if missing) and a `;` terminator; `mut` stays after
-    // the inserted `let`. An already-`let` field still gets its `,` → `;`.
-    return check(
-        'struct S {\n    a: Int,\n    mut b: String,\n    let c: Bool,\n}\n',
-        'struct S {\n    let a: Int;\n    let mut b: String;\n    let c: Bool;\n}\n');
-}
-
-@test
-fn adds_let_to_inline_struct_fields() -> Result<Void, Error> {
-    return check(
-        'struct P { x: Int, y: Int }\n',
-        'struct P { let x: Int; let y: Int; }\n');
-}
-
-@test
-fn migrates_struct_fields_to_let_and_semicolon() -> Result<Void, Error> {
-    // The combined sweep: each field gains `let` and a `;` terminator in one pass.
-    // `mut` stays after `let`; the last field's trailing comma becomes `;`.
-    return check(
-        'struct Rect {\n    top_left: Point,\n    mut width: Int,\n    height: Int,\n}\n',
-        'struct Rect {\n    let top_left: Point;\n    let mut width: Int;\n    let height: Int;\n}\n');
-}
-
-@test
-fn terminates_last_field_without_trailing_comma() -> Result<Void, Error> {
-    return check(
-        'struct S {\n    a: Int,\n    b: Bool\n}\n',
-        'struct S {\n    let a: Int;\n    let b: Bool;\n}\n');
-}
-
-@test
 fn only_filter_restricts_to_named_rules() -> Result<Void, Error> {
-    let src = 'struct S { x: Int }\n';
-    // Only the `let` rule fires — the separator is left as-is.
-    testing.assert_eq(
-        actual: fix_source(src, ['struct-field-needs-let']),
-        expected: 'struct S { let x: Int }\n')?;
-    // Only the semicolon rule fires — no `let` inserted.
-    testing.assert_eq(
-        actual: fix_source(src, ['struct-field-needs-semicolon']),
-        expected: 'struct S { x: Int; }\n')?;
+    // `--only` applies just the named rule(s); a non-matching filter is a no-op.
+    let src = 'fn f(_ o: Option<Int>) -> Int {\n'
+        + '    match o { Some(v) => { return v; }, None => {} }\n'
+        + '    return 0;\n}\n';
+    testing.assert_eq(actual: fix_source(src, ['match-to-unwrap-or']), expected: src)?;
+    testing.assert(fix_source(src, ['match-to-if-let']).contains('if let Some(v) = o'),
+        message: 'the named rule is applied')?;
     return Result.Ok(void);
 }

@@ -14,7 +14,7 @@ interface Animal {
 }
 
 struct Dog {
-    nick: String,
+    let nick: String;
 }
 
 impl Animal for Dog {
@@ -64,8 +64,8 @@ interface Seq<T> {
 }
 
 struct RangeSeq {
-    mut current: Int,
-    end: Int,
+    let mut current: Int;
+    let end: Int;
 }
 
 impl Seq<Int> for RangeSeq {
@@ -80,8 +80,8 @@ impl Seq<Int> for RangeSeq {
 }
 
 struct MapSeq<T, U> {
-    source: Seq<T>,
-    transform: (T) -> U,
+    let source: Seq<T>;
+    let transform: (T) -> U;
 }
 
 impl Seq<U> for MapSeq<T, U> {

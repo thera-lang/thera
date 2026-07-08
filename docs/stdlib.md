@@ -126,7 +126,7 @@ Runtime-backed opaque types in the prelude (`std.core/bytes.hawk`);
 `String.bytes()` returns `Bytes` (use `.to_list()` for the raw byte values).
 
 ```
-pub struct Bytes { /* opaque, runtime-backed */ }
+pub struct Bytes { let /* opaque; let runtime-backed */; }
 
 impl Bytes {
     pub fn len(self) -> Int;
@@ -142,7 +142,7 @@ impl Bytes {
 // Accumulate bytes, then freeze (the binary-writer vocabulary; write_u8 masks
 // to the low 8 bits). The fixed-width and LEB128 writers are pure Hawk over
 // write_u8 + bitwise ops.
-pub struct BytesBuilder { /* mutable */ }
+pub struct BytesBuilder { let /* mutable */; }
 impl BytesBuilder {
     pub fn new() -> BytesBuilder;
     pub fn write_u8(self, _ byte: Int) -> Void;
@@ -162,7 +162,7 @@ impl BytesBuilder {
 // (mut pos); each read advances and returns None at/over the end, so a truncated
 // stream is a clean None, not a trap. The integer decoders are exact inverses of
 // the writers above (a written value round-trips). Pure Hawk over Bytes.get.
-pub struct BytesReader { /* mutable cursor over a Bytes */ }
+pub struct BytesReader { let /* mutable cursor over a Bytes */; }
 impl BytesReader {
     pub fn new(_ data: Bytes) -> BytesReader;
     pub fn remaining(self) -> Int;
@@ -264,7 +264,7 @@ pub fn lines(_ src: Reader) -> BufReader;   // BufReader: Iterator<String> (+ re
 
 // In-memory Reader/Writer (test doubles for any Reader/Writer).
 pub fn from_string(_ s: String) -> Reader;  pub fn from_bytes(_ data: Bytes) -> Reader;
-pub struct StringWriter { /* wraps a BytesBuilder */ }
+pub struct StringWriter { let /* wraps a BytesBuilder */; }
 impl StringWriter { fn new(); fn into_string() -> Result<String, Error>; fn into_bytes() -> Bytes; }
 ```
 
@@ -330,7 +330,7 @@ pub fn copy(from src: String, to dst: String) -> Result<Void, FsError>;   // fil
 pub fn temp_dir() -> String;
 
 pub enum FileKind { File, Dir, Symlink, Other }
-pub struct Metadata { size: Int, kind: FileKind, modified: Option<time.DateTime> }
+pub struct Metadata { let size: Int; let kind: FileKind; let modified: Option<time.DateTime>; }
 
 pub enum FsError {                          // implements Error + Display
     NotFound(String), PermissionDenied(String), AlreadyExists(String),
@@ -453,8 +453,8 @@ pub fn exec(...) -> Result<Int, ProcessError>;            // same args; inherits
 
 pub fn start(...) -> Result<Process, ProcessError>;       // same args; pipes are piped
 
-pub struct ProcessResult { exit_code: Int, stdout: String, stderr: String }
-pub struct Process { id: Int }
+pub struct ProcessResult { let exit_code: Int; let stdout: String; let stderr: String; }
+pub struct Process { let id: Int; }
 
 impl Process {
     pub fn stdin(self) -> Writer;     // child stdin, as a Writer
@@ -489,9 +489,9 @@ math and the RFC 3339 format/parse are pure Hawk; only the monotonic clock and
 `sleep` need a native.
 
 ```
-pub struct Duration { /* nanoseconds */ }
-pub struct Instant { /* monotonic nanos, relative to a process baseline */ }
-pub struct DateTime { /* Unix milliseconds, UTC */ }
+pub struct Duration { let /* nanoseconds */; }
+pub struct Instant { let /* monotonic nanos; let relative to a process baseline */; }
+pub struct DateTime { let /* Unix milliseconds; let UTC */; }
 
 pub fn now_millis() -> Int;          // ambient wall clock, Unix millis
 pub fn now() -> DateTime;            // wall clock (UTC)
@@ -535,14 +535,14 @@ span (§ `std.fiber`).
 Purpose: explicit concurrency on the single thread.
 
 ```
-pub struct Fiber<T> { /* handle */ }            // implemented
+pub struct Fiber<T> { let /* handle */; }            // implemented
 pub fn spawn<T>(_ work: () -> T) -> Fiber<T>;    // implemented
 pub fn yield() -> Void;                          // implemented — cede the thread
 
 impl Fiber<T> { pub fn join(self) -> T; }   // implemented — the only way to get the result out
 
 // Channels for fiber-to-fiber handoff — implemented (buffered).
-pub struct Channel<T> { /* handle */ }
+pub struct Channel<T> { let /* handle */; }
 pub fn channel<T>(capacity: Int = 1) -> Channel<T>;   // buffer size, clamped to >= 1
 impl Channel<T> {
     pub fn send(self, _ value: T) -> Void;     // blocks while full; traps if closed
@@ -625,7 +625,7 @@ they were the driving use case for that feature.
 ### `std.random` — randomness _(implemented)_
 
 ```
-pub struct Rng { state: Int }   // seedable, state is a visible value
+pub struct Rng { let state: Int; }   // seedable, state is a visible value
 pub fn seeded(_ seed: Int) -> Rng;
 pub fn from_entropy() -> Rng;
 impl Rng {
@@ -805,9 +805,9 @@ clients that should **drive** the `std.fiber` API design before that surface is
 frozen (see § `std.fiber`).
 
 ```
-pub struct Request { method: String, url: String,
-                     headers: Map<String, String>, body: Bytes }
-pub struct Response { status: Int, headers: Map<String, String>, body: Bytes }
+pub struct Request { let method: String; let url: String;
+                     let headers: Map<String, String>; let body: Bytes; }
+pub struct Response { let status: Int; let headers: Map<String, String>; let body: Bytes; }
 
 pub fn get(_ url: String, headers: Map<String, String> = {}) -> Result<Response, HttpError>;
 pub fn post(_ url: String, body: Bytes, headers: Map<String, String> = {}) -> Result<Response, HttpError>;
@@ -842,7 +842,7 @@ pub fn json(_ status: Int, _ value: Json) -> Response;
 
 // A tiny built-in matcher (method + path) so a webhook / health-check needs no
 // third-party router. Anything richer (path params, middleware) is ecosystem.
-pub struct Router { /* method+path table */ }
+pub struct Router { let /* method+path table */; }
 impl Router {
     pub fn new() -> Router;
     pub fn route(self, _ method: String, _ path: String, _ handler: Handler) -> Router;
@@ -984,7 +984,7 @@ generated `--help`. The richer `Command` builder sits alongside the thin
 Hawk** (`sdk/std/cli/command.hawk`).
 
 ```
-pub struct Command { name, about, flags, options, positionals, subcommands }
+pub struct Command { name, about, flags, options, positionals, subcommands }   // field types elided
 impl Command {
     pub fn new(_ name: String) -> Command;                  // auto-registers --help/-h
     pub fn about(self, _ text: String) -> Command;
@@ -998,7 +998,7 @@ impl Command {
     pub fn help(self) -> String;                            // generated usage text
     pub fn help_for(self, _ name: String) -> String;        // a subcommand's help
 }
-pub struct Matches { /* typed accessors */ }
+pub struct Matches { let /* typed accessors */; }
 impl Matches {
     pub fn flag(self, _ name: String) -> Bool;              // resolves negation + default
     pub fn option(self, _ name: String) -> Option<String>;
@@ -1008,10 +1008,10 @@ impl Matches {
     pub fn matches(self) -> Option<Matches>;                // its parsed Matches
     pub fn selected(self) -> Option<Selection>;             // the two together
 }
-pub struct Selection { name: String, matches: Matches }
+pub struct Selection { let name: String; let matches: Matches; }
 pub enum Action { Proceed(Matches), Exit(Int) }             // run's outcome
 
-pub struct CliError { /* kind + command path */ }
+pub struct CliError { let /* kind + command path */; }
 impl CliError {
     pub fn kind(self) -> CliErrorKind;                      // the cause (matchable)
     pub fn command_path(self) -> List<String>;              // where it failed ([] = root)
@@ -1049,7 +1049,7 @@ decision" win, not a blocker.
 ```
 pub fn is_tty() -> Bool;                   // is stdout an interactive terminal?
 pub fn size() -> Option<TermSize>;         // None when stdout is not a terminal
-pub struct TermSize { cols: Int, rows: Int }
+pub struct TermSize { let cols: Int; let rows: Int; }
 
 pub fn style(_ text: String, color: Color, bold: Bool = false) -> String;  // ANSI, TTY-gated
 pub fn paint(_ text: String, color: Color, bold: Bool = false) -> String;  // ANSI, always
@@ -1102,7 +1102,7 @@ positions** (the string-offset convention, principle 8); slice them out with the
 companion `String.byte_slice`.
 
 ```
-pub struct Regex { /* opaque handle to the compiled pattern */ }
+pub struct Regex { let /* opaque handle to the compiled pattern */; }
 impl Regex {
     pub fn compile(_ pattern: String) -> Result<Regex, RegexError>;  // invalid pattern -> Err
     pub fn is_match(self, _ text: String) -> Bool;
@@ -1113,9 +1113,9 @@ impl Regex {
     pub fn replace_all(self, _ text: String, with replacement: String) -> String; // all
 }
 
-pub struct Match { text: String, start: Int, end: Int }   // start inclusive, end exclusive (bytes)
+pub struct Match { let text: String; let start: Int; let end: Int; }   // start inclusive, end exclusive (bytes)
 
-pub struct Captures { /* groups: List<Option<String>> */ }
+pub struct Captures { let /* groups: List<Option<String>> */; }
 impl Captures {
     pub fn text(self) -> Option<String>;                 // group 0 (the whole match)
     pub fn group(self, _ index: Int) -> Option<String>;  // None if absent / didn't participate

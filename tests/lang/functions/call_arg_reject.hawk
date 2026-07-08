@@ -8,7 +8,7 @@
 
 fn greet(_ name: String, times n: Int) -> Void { println('${name} x${n}'); }
 fn show<T: Display>(_ x: T) -> Void { println('${x}'); }
-struct Opaque { v: Int }
+struct Opaque { let v: Int; }
 
 fn main() -> Void {
     greet(

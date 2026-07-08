@@ -6,8 +6,8 @@
 // construction (where the argument is inferred from the fields). `NoShow` has no
 // `impl Display`, so it is rejected; `Int` carries one, so it is accepted.
 
-struct NoShow { n: Int }
-struct Box<T: Display> { v: T }
+struct NoShow { let n: Int; }
+struct Box<T: Display> { let v: T; }
 
 fn use_it(_ b: Box<NoShow>) -> Int {   // expect error: does not implement `Display`
     return b.v.n;

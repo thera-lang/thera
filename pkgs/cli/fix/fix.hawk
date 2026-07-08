@@ -151,28 +151,6 @@ fn let_else_body_text(_ e: Expr) -> String {
     };
 }
 
-// --- add `let` to a struct field ---
-
-// Insert `let ` at the field's start (before any `mut`), turning `x: T` into
-// `let x: T` and `mut x: T` into `let mut x: T` — the migration toward a required
-// keyword (see roadmap → Language). A pure insertion: nothing else on the line
-// moves, so no reformat is needed.
-pub fn field_let_edit(_ f: FieldDef) -> edit.TextEdit {
-    return edit.insert(f.span.offset, 'let ');
-}
-
-// Terminate a field with `;` — rewriting a `,` to `;`, or inserting `;` after the
-// last field's type. None when the field is already `;`-terminated or its layout
-// is one the mechanical fix leaves alone (`lint.field_terminator` → `Unclear`).
-pub fn field_semicolon_edit(_ f: FieldDef) -> Option<edit.TextEdit> {
-    return match lint.field_terminator(f) {
-        Comma(off) => Option.Some(edit.replace(off, off + 1, ';')),
-        Missing(off) => Option.Some(edit.insert(off, ';')),
-        Semi => Option.None,
-        Unclear => Option.None,
-    };
-}
-
 // --- driving edits ---
 
 // A located, ready-to-apply rewrite: the `rule` id it came from (matching the
@@ -322,28 +300,7 @@ fn fs_decl(_ d: Decl, _ out: List<FixSite>) -> Void {
         Const(c) => { fs_expr(c.value, out); },
         Let(l) => { fs_expr(l.value, out); },
         Import(_) => {},
-        Type(t) => {
-            for f in t.fields {
-                if !lint.field_has_let(f) {
-                    out.push(FixSite {
-                        rule: 'struct-field-needs-let',
-                        span: f.span,
-                        edit: field_let_edit(f),
-                        title: 'Add `let` to struct field',
-                        message: 'add `let` to field',
-                    });
-                }
-                if let Some(e) = field_semicolon_edit(f) {
-                    out.push(FixSite {
-                        rule: 'struct-field-needs-semicolon',
-                        span: f.span,
-                        edit: e,
-                        title: 'Terminate struct field with `;`',
-                        message: 'use `;` for field',
-                    });
-                }
-            }
-        },
+        Type(_) => {},
         Enum(_) => {},
     }
 }

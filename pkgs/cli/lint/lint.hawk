@@ -14,7 +14,6 @@
 
 import '../lexer/token' as _; // SourceSpan
 import '../ast/ast' as _;
-import std.char;
 
 // One located suggestion: which rule fired, where, and a human-readable message.
 // `rule` is a stable kebab-case id the CLI tallies by (and a code action would
@@ -216,93 +215,6 @@ fn detect_while_index(_ w: WhileStmt) -> Option<Suggestion> {
         },
         _ => Option.None,
     };
-}
-
-// A struct field written without a leading `let` — the migration form toward a
-// required keyword (see roadmap → Language). Purely a source check: the parser
-// consumes-and-discards the optional `let`, so `let x: T` and `x: T` yield
-// identical `FieldDef`s; the only witness is whether the field's source starts
-// with the keyword. This rule (and its fix) are transitional — retired once `let`
-// is required (a field without it then fails to parse, not lints).
-fn detect_field_needs_let(_ f: FieldDef) -> Option<Suggestion> {
-    if field_has_let(f) {
-        return Option.None;
-    }
-    return Option.Some(Suggestion {
-        rule: 'struct-field-needs-let',
-        span: f.span,
-        message: 'struct field should be declared with `let`',
-    });
-}
-
-// Whether the field's source begins with the `let` keyword. `f.span` starts
-// exactly at the field's first token, so a leading `let` (not an identifier that
-// merely starts with those letters, like `letter`) means the form is present.
-pub fn field_has_let(_ f: FieldDef) -> Bool {
-    let t = f.span.text();
-    if !t.starts_with('let') {
-        return false;
-    }
-    let cs = t.chars();
-    if cs.len() == 3 {
-        return true; // exactly `let` (degenerate)
-    }
-    // A keyword ends at a non-identifier char; `letter` continues as a name.
-    let next = cs[3];
-    return !(char.is_alphanumeric(next) || next == 95); // 95 = `_`
-}
-
-// A struct field not terminated by `;` — the statement-style form that pairs with
-// `let` (see roadmap → Language). Like the `let` rule, a source check: the parser
-// accepts either `,` or `;`, so the separator's identity lives only in the text.
-// Transitional — retired once `;` is required.
-fn detect_field_needs_semicolon(_ f: FieldDef) -> Option<Suggestion> {
-    return match field_terminator(f) {
-        // Already `;`, or an unusual layout the mechanical fix won't touch (so it
-        // is not reported as fixable).
-        Semi => Option.None,
-        Unclear => Option.None,
-        _ => Option.Some(Suggestion {
-            rule: 'struct-field-needs-semicolon',
-            span: f.span,
-            message: 'struct field should be terminated with `;`',
-        }),
-    };
-}
-
-// How a field is separated/terminated in the source, located by scanning past the
-// field's type (`f.span` ends at the type). The separator sits after optional
-// layout whitespace: a `,` to rewrite, a `;` already in the target form, or — for
-// a last field with no trailing separator — the closing `}`, at which point the
-// `;` is inserted at the type's end. Anything else (e.g. a comment before the
-// separator) is `Unclear` and left for hand-migration (precision over recall).
-pub enum FieldTerminator {
-    Semi,          // already `;`
-    Comma(Int),    // a `,` at this offset — rewrite to `;`
-    Missing(Int),  // no trailing separator before `}`; insert `;` at this offset
-    Unclear,       // an unexpected layout — leave it alone
-}
-
-pub fn field_terminator(_ f: FieldDef) -> FieldTerminator {
-    let chars = f.span.source.chars();
-    let n = chars.len();
-    let type_end = f.span.offset + f.span.length;
-    let mut i = type_end;
-    while i < n && is_layout_ws(chars[i]) {
-        i = i + 1;
-    }
-    if i >= n {
-        return FieldTerminator.Unclear;
-    }
-    let c = chars[i];
-    if c == 59 { return FieldTerminator.Semi; }             // `;`
-    if c == 44 { return FieldTerminator.Comma(i); }         // `,`
-    if c == 125 { return FieldTerminator.Missing(type_end); } // `}` — last field
-    return FieldTerminator.Unclear;
-}
-
-fn is_layout_ws(_ cp: Int) -> Bool {
-    return cp == char.SPACE || cp == char.TAB || cp == char.LF || cp == 13; // 13 = `\r`
 }
 
 // --- Fix-able sites ---
@@ -838,12 +750,7 @@ fn walk_decl(_ d: Decl, _ out: List<Suggestion>) -> Void {
         Const(c) => { walk_expr(c.value, out); },
         Let(l) => { walk_expr(l.value, out); },
         Import(_) => {},
-        Type(t) => {
-            for f in t.fields {
-                push_opt(detect_field_needs_let(f), out);
-                push_opt(detect_field_needs_semicolon(f), out);
-            }
-        },
+        Type(_) => {},
         Enum(_) => {},
     }
 }

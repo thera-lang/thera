@@ -6,10 +6,10 @@ pub fn provide() -> Int {
 }
 
 pub struct Gadget {
-    n: Int,
+    let n: Int;
 }
 
 // Not `pub`: reaching `provider.Hidden` from another file is a visibility error.
 struct Hidden {
-    n: Int,
+    let n: Int;
 }

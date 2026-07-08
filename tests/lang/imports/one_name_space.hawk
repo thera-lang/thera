@@ -13,7 +13,7 @@ fn max_of(_ a: Int, _ b: Int) -> Int { return if a > b { a } else { b }; }
 const max_of: Int = 3;   // expect error: duplicate name `max_of`: already bound as a function in this file
 
 struct Config {
-    x: Int,
+    let x: Int;
 }
 fn Config() -> Int { return 1; }   // expect error: duplicate name `Config`: already bound as a type in this file
 

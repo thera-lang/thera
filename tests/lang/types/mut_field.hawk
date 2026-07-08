@@ -2,8 +2,8 @@
 //! mode: run
 
 struct Counter {
-    mut value: Int,
-    label: String,
+    let mut value: Int;
+    let label: String;
 }
 
 fn main() -> Int {

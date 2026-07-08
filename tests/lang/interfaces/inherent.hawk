@@ -2,7 +2,7 @@
 //! mode: run
 
 struct Counter {
-    value: Int,
+    let value: Int;
 }
 
 // Inherent methods live in a plain `impl Type` block (no interface).

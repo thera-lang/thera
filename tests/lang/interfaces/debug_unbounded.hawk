@@ -2,8 +2,8 @@
 //! mode: run
 
 struct Point {
-    x: Int,
-    y: Int,
+    let x: Int;
+    let y: Int;
 }
 
 // `debug` is universal: callable on an *unbounded* type parameter (no `T: Debug`

@@ -230,7 +230,7 @@ fn test_parse_function_program() -> Result<Void, Error> {
 fn test_parse_each_declaration_kind() -> Result<Void, Error> {
     let src = 'import std.io;\n'
         + 'pub const MAX: Int = 10;\n'
-        + 'struct Point { x: Int, y: Int }\n'
+        + 'struct Point { let x: Int; let y: Int; }\n'
         + 'enum Color { Red, Green, Blue }\n'
         + 'interface Shape { fn area(self) -> Double; }\n'
         + 'fn area(_ s: Shape) -> Double { return s.area(); }\n'
@@ -243,21 +243,16 @@ fn test_parse_each_declaration_kind() -> Result<Void, Error> {
 }
 
 @test
-fn test_parse_optional_let_on_struct_fields() -> Result<Void, Error> {
-    // The migration phase: an optional `let` before a struct field (`let x: T`,
-    // `let mut x: T`) parses and mixes freely with the bare form. `let` carries no
-    // semantic payload — mutability stays with `mut`.
-    let src = 'struct S { let a: Int, let mut b: String, c: Bool, mut d: Int }\n';
+fn test_parse_struct_fields_let_semicolon_form() -> Result<Void, Error> {
+    // A struct field is a `let`-declaration terminated by `;`; `let mut` composes.
+    let src = 'struct S { let a: Int; let mut b: String; }\n';
     let r = parse_src(src);
-    testing.assert(!r.has_errors(), message: 'optional let on fields should parse')?;
+    testing.assert(!r.has_errors(), message: '`let x: T;` fields should parse')?;
     match r.program.decls[0] {
         Type(t) => {
-            testing.assert_eq(actual: t.fields.len(), expected: 4)?;
-            testing.assert_eq(actual: t.fields[0].name, expected: 'a')?;
+            testing.assert_eq(actual: t.fields.len(), expected: 2)?;
             testing.assert(!t.fields[0].is_mut, message: '`let a` is not mut')?;
             testing.assert(t.fields[1].is_mut, message: '`let mut b` is mut')?;
-            testing.assert(!t.fields[2].is_mut, message: '`c` is not mut')?;
-            testing.assert(t.fields[3].is_mut, message: '`mut d` is mut')?;
         },
         _ => { testing.assert(false, message: 'expected a struct decl')?; },
     }
@@ -265,25 +260,18 @@ fn test_parse_optional_let_on_struct_fields() -> Result<Void, Error> {
 }
 
 @test
-fn test_parse_semicolon_struct_fields() -> Result<Void, Error> {
-    // The migration target: `;`-terminated fields (statement-style), mixable with
-    // `,` during the migration. `let mut` composes.
-    let src = 'struct S {\n'
-        + '    let a: Int;\n'
-        + '    let mut b: String;\n'
-        + '    c: Bool,\n'      // `,` still accepted, mixed
-        + '    let d: Int\n'    // no trailing separator on the last field
-        + '}\n';
-    let r = parse_src(src);
-    testing.assert(!r.has_errors(), message: '`;`-terminated fields should parse')?;
-    match r.program.decls[0] {
-        Type(t) => {
-            testing.assert_eq(actual: t.fields.len(), expected: 4)?;
-            testing.assert(t.fields[1].is_mut, message: '`let mut b` is mut')?;
-            testing.assert_eq(actual: t.fields[3].name, expected: 'd')?;
-        },
-        _ => { testing.assert(false, message: 'expected a struct decl')?; },
-    }
+fn test_parse_struct_field_requires_let() -> Result<Void, Error> {
+    // A field without a leading `let` is a parse error.
+    let r = parse_src('struct S { x: Int; }\n');
+    testing.assert(r.has_errors(), message: 'a field must be declared with `let`')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_parse_struct_field_requires_semicolon() -> Result<Void, Error> {
+    // Fields are terminated with `;`, not separated by `,`.
+    let r = parse_src('struct S { let x: Int, let y: Int }\n');
+    testing.assert(r.has_errors(), message: '`,` between fields is rejected')?;
     return Result.Ok(void);
 }
 
@@ -291,8 +279,8 @@ fn test_parse_semicolon_struct_fields() -> Result<Void, Error> {
 fn test_parse_impl_nested_interface_arg() -> Result<Void, Error> {
     // A nested generic in an `impl` header's interface argument
     // (`Iterator<Indexed<T>>`) — the form that gates the `enumerate` adapter.
-    let src = 'struct Indexed<T> { index: Int, value: T }\n'
-        + 'struct EnumIter<T> { mut i: Int }\n'
+    let src = 'struct Indexed<T> { let index: Int; let value: T; }\n'
+        + 'struct EnumIter<T> { let mut i: Int; }\n'
         + 'impl Iterator<Indexed<T>> for EnumIter<T> {\n'
         + '  pub fn next(self) -> Option<Indexed<T>> { return Option.None; }\n'
         + '}';
@@ -305,7 +293,7 @@ fn test_parse_impl_nested_interface_arg() -> Result<Void, Error> {
 fn test_parse_impl_bounded_inherent_param() -> Result<Void, Error> {
     // The other arm of the same `<…>`: a bounded type-parameter declaration on an
     // inherent impl must still parse (no `for`).
-    let src = 'struct Box<T> { v: T }\n'
+    let src = 'struct Box<T> { let v: T; }\n'
         + 'impl Box<T: Display> { pub fn show(self) -> String { return \'box\'; } }';
     let r = parse_src(src);
     testing.assert(!r.has_errors(), message: 'bounded inherent impl param should parse')?;
@@ -363,7 +351,7 @@ fn test_token_prefixes_terminate() -> Result<Void, Error> {
         'fn f() -> Int { return match x { Some(v) => v, None => { throw e } }; }',
         'fn f() -> Int { let g = (z) => z + 1; return g(2); }',
         'fn f() -> Int { while c { if d { return 1; } } return 0; }',
-        'struct P { x: Int, mut y: Int } fn f() -> Int { let p = P { x: 1, y: 2 }; return p.x; }',
+        'struct P { let x: Int; let mut y: Int; } fn f() -> Int { let p = P { x: 1, y: 2 }; return p.x; }',
     ];
     let mut total = 0;
     for s in samples {
@@ -489,7 +477,7 @@ fn test_name_spans_recorded() -> Result<Void, Error> {
     // a NamedType's namespace, a call-arg label — are recorded, each pointing
     // at its exact source token.
     let r = parse_src('import std.fs as f;\n'
-        + 'struct P<T: Display> { mut x: fs.Path }\n'
+        + 'struct P<T: Display> { let mut x: fs.Path; }\n'
         + 'interface I : Display + Debug { fn go(self); }\n'
         + 'impl Display for P { fn show(self) -> String { return d(v: 1); } }');
     testing.assert(!r.has_errors(), message: 'fixture should parse')?;
