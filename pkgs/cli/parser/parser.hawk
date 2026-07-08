@@ -646,7 +646,13 @@ impl Parser {
         let fields: List<FieldDef> = [];
         let mut going = true;
         while going && !self.panicking && !self.check(TokenKind.RBrace) && !self.at_end() {
-            let is_mut = self.match_kind(TokenKind.KwMut);   // `mut field: T`
+            // Optional `let` before a field (`let x: T`, `let mut x: T`) — the
+            // migration phase toward a required keyword that differentiates a
+            // struct declaration from an instantiation (see roadmap → Language).
+            // It carries no semantic payload (mutability stays `mut`), so it is
+            // consumed and discarded.
+            self.match_kind(TokenKind.KwLet);
+            let is_mut = self.match_kind(TokenKind.KwMut);   // `[let] mut field: T`
             let fname_tok = self.expect(TokenKind.Identifier, 'field name');
             self.expect(TokenKind.Colon, ':');
             let ftype = self.parse_type_ref();

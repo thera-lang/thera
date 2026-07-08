@@ -637,9 +637,32 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
 
 ### Language
 
-- Consider adding 'let' to struct field definitions. Partly for consistency with
-  other declarations. But more because it helps differentiate between struct
-  declarations and struct instantiations.
+- **Add `let` to struct field definitions** (`struct Point { let x: Int }`).
+  Partly for consistency with other declarations, but mainly to differentiate a
+  struct *declaration* from a struct *instantiation* — the two bodies are
+  otherwise structurally identical (`{ IDENT: X, … }`), told apart only by
+  resolving the RHS as a type vs. a value. `let` is a reliable *local* marker, so
+  a fragment reads as a declaration without name resolution — the fragment-level
+  legibility Hawk optimizes for. The payoff needs `let` **required** (an optional
+  `let` signals nothing); "optional" is migration scaffolding only. `let` carries
+  no semantic payload (mutability stays `FieldDef.is_mut`, composing as
+  `let mut count: Int`), so no AST change is needed. Migration:
+  1. **Parser accepts optional `let`** (consumed-and-discarded), sources still in
+     old syntax. Refresh the bootstrap snapshot to this front-end **before** step 3.
+  2. **Lint + fix** — a "struct field missing `let`" rule (`pkgs/cli/lint`) with an
+     insert-`let` mechanical fix (`pkgs/cli/fix`/`edit`). Prefer this over teaching
+     the formatter to inject tokens (that would make the whitespace-only formatter
+     a semantic rewriter, then need un-teaching).
+  3. **Migrate the corpus** — run the fix over `pkgs/cli`, `sdk/std`, `examples`.
+     Since the snapshot (post-step-1) already accepts `let`, it can build the
+     rewritten front-end sources.
+  4. **Require `let`** — parser change; sources already carry it. Refresh the
+     snapshot again; the `build_sdk.sh` fixpoint validates the whole tree.
+  - Update `grammar.md` (`field = 'let' 'mut'? IDENT ':' type`) and language.md;
+    add a `tests/lang` conformance case (xfail flips to pass at step 4). Field
+    hover rendering `let x: Int` (source fidelity) is an optional cosmetic follow-up.
+  - Interacts with the instance-level-mutability item below but doesn't foreclose
+    it — `let` / `let mut` fields are the natural migration target either way.
 
 - Instance level mutability would be easier for agents to reason about. We
   should consider the impact, pros, and cons of switching from field level

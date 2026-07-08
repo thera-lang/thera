@@ -243,6 +243,28 @@ fn test_parse_each_declaration_kind() -> Result<Void, Error> {
 }
 
 @test
+fn test_parse_optional_let_on_struct_fields() -> Result<Void, Error> {
+    // The migration phase: an optional `let` before a struct field (`let x: T`,
+    // `let mut x: T`) parses and mixes freely with the bare form. `let` carries no
+    // semantic payload — mutability stays with `mut`.
+    let src = 'struct S { let a: Int, let mut b: String, c: Bool, mut d: Int }\n';
+    let r = parse_src(src);
+    testing.assert(!r.has_errors(), message: 'optional let on fields should parse')?;
+    match r.program.decls[0] {
+        Type(t) => {
+            testing.assert_eq(actual: t.fields.len(), expected: 4)?;
+            testing.assert_eq(actual: t.fields[0].name, expected: 'a')?;
+            testing.assert(!t.fields[0].is_mut, message: '`let a` is not mut')?;
+            testing.assert(t.fields[1].is_mut, message: '`let mut b` is mut')?;
+            testing.assert(!t.fields[2].is_mut, message: '`c` is not mut')?;
+            testing.assert(t.fields[3].is_mut, message: '`mut d` is mut')?;
+        },
+        _ => { testing.assert(false, message: 'expected a struct decl')?; },
+    }
+    return Result.Ok(void);
+}
+
+@test
 fn test_parse_impl_nested_interface_arg() -> Result<Void, Error> {
     // A nested generic in an `impl` header's interface argument
     // (`Iterator<Indexed<T>>`) — the form that gates the `enumerate` adapter.

@@ -150,7 +150,9 @@ param       = 'self'
             // means label == name.
 
 structDecl  = 'struct' IDENT typeParams? '{' ( field (',' field)* ','? )? '}'
-field       = 'mut'? IDENT ':' type        // `mut` allows the field to be reassigned
+field       = 'let'? 'mut'? IDENT ':' type // `mut` allows the field to be reassigned;
+                                           // `let` is optional (migration phase — see
+                                           // roadmap → Language — toward a required keyword)
               // A nominal record: `struct Point { x: Int, y: Int }`. Constructed
               // with a struct literal `Point { x: 1, y: 2 }`; methods come from
               // `impl` blocks. A fieldless `struct Marker {}` is legal (a
