@@ -1,0 +1,48 @@
+// The single diagnostic model (audit LD15). Every phase — lex, parse, check,
+// codegen, load — produces `Diagnostic` directly; the CLI, the compiler, and the
+// LSP are pure renderers over a `List<Diagnostic>` with no per-phase conversion.
+//
+// `file` is the diagnostic's owning file — the span's `file` (LD7), so an error in
+// an imported file is attributed to *that* file, not the entrypoint. None (a
+// file-less span, e.g. the hermetic pipeline's) falls back to the path the CLI
+// prints against.
+
+import 'lexer/token'; // SourceSpan
+
+// How loud a diagnostic is. Every compile-phase diagnostic is an `Error` today;
+// `Warning`/`Info` exist so lint-style suggestions can ride the same model later
+// (no consumer beyond the LSP severity map yet).
+pub enum Severity {
+    Error,
+    Warning,
+    Info,
+}
+
+// A uniform diagnostic across the phases (each phase's message is structurally a
+// message + a span; this is the common currency the front-end reports).
+pub struct Diagnostic {
+    message: String,
+    span: token.SourceSpan,
+    file: Option<String>,
+    severity: Severity,
+}
+
+impl Display for Diagnostic {
+    pub fn display(self) -> String {
+        return '${self.span}: ${self.message}';
+    }
+}
+
+// An `Error` diagnostic whose owning file is derived from the span (the span
+// knows its file; a file-less hermetic span yields None).
+pub fn at(_ message: String, _ span: token.SourceSpan) -> Diagnostic {
+    let file = if span.file == '' { Option.None } else { Option.Some(span.file) };
+    return Diagnostic { message: message, span: span, file: file, severity: Severity.Error };
+}
+
+// An `Error` diagnostic attributed to an explicit owning file — used by the
+// loader, which stamps each import-closure error with the file it came from
+// regardless of the span's own key.
+pub fn in_file(_ message: String, _ span: token.SourceSpan, _ file: String) -> Diagnostic {
+    return Diagnostic { message: message, span: span, file: Option.Some(file), severity: Severity.Error };
+}

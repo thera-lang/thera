@@ -12,7 +12,7 @@
 // Stage 1 covers functions, control flow, primitives, calls (free + native),
 // strings, lists/maps, indexing, fields, and propagation. Struct/enum
 // construction, `match`, method calls, and lambdas are staged follow-ups — they
-// record a `CodegenError` if reached.
+// record a `Diagnostic` if reached.
 
 import '../ast/ast' as _;
 import '../lexer/token' as _; // SourceSpan
@@ -24,19 +24,12 @@ import '../element/scope' as _;
 import '../element/resolver';
 import '../element/inference' as _;
 import 'module_scope' as _;
+import '../diagnostic'; // Diagnostic — the uniform phase error
 import std.env;   // the differential inference oracle (HAWK_INFER_ORACLE) reads a flag
-
-// A construct codegen does not yet handle (or an invariant a checked program
-// should already guarantee). Collected rather than thrown — Hawk has no
-// exceptions, and a fully-ported codegen produces none for a valid program.
-pub struct CodegenError {
-    message: String,
-    span: SourceSpan,
-}
 
 pub struct CodegenResult {
     module: Module,
-    errors: List<CodegenError>,
+    errors: List<diagnostic.Diagnostic>,
 }
 
 // The three jump kinds the backpatcher emits.
@@ -110,7 +103,7 @@ pub fn compile_program(_ program: Program, _ imports: List<Program>,
     // `build_dispatch` so the rows are in the table.
     scope.wire_default_methods();
 
-    let errors: List<CodegenError> = [];
+    let errors: List<diagnostic.Diagnostic> = [];
     let functions: List<FuncDef> = [];
     let mut i = 0;
     // Re-read `units.len()` each iteration: lifted lambdas append units that are
@@ -145,10 +138,9 @@ pub fn compile_program(_ program: Program, _ imports: List<Program>,
     // instead of shipping a module that traps "no method" at runtime (CG10).
     let dispatch = scope.build_dispatch();
     for row in dispatch.unresolved {
-        errors.push(CodegenError {
-            message: 'internal: unresolved dispatch row `${row.type_name}.${row.selector}`',
-            span: row.span,
-        });
+        errors.push(diagnostic.at(
+            'internal: unresolved dispatch row `${row.type_name}.${row.selector}`',
+            row.span));
     }
 
     return CodegenResult {
@@ -252,10 +244,10 @@ pub struct FnCompiler {
     // The file this unit was declared in — the scope a bare free-function
     // reference resolves against (same-file-first).
     mut file: Option<String>,
-    errors: List<CodegenError>,
+    errors: List<diagnostic.Diagnostic>,
 }
 
-pub fn new_fn_compiler(_ scope: ModuleScope, _ errors: List<CodegenError>) -> FnCompiler {
+pub fn new_fn_compiler(_ scope: ModuleScope, _ errors: List<diagnostic.Diagnostic>) -> FnCompiler {
     return FnCompiler {
         scope: scope,
         code: [],
@@ -430,7 +422,7 @@ impl FnCompiler {
     }
 
     fn error(self, _ message: String, _ span: SourceSpan) -> Void {
-        self.errors.push(CodegenError { message: message, span: span });
+        self.errors.push(diagnostic.at(message, span));
     }
 
     fn new_label(self) -> Int {
@@ -2637,7 +2629,7 @@ fn walk_stmt(_ s: Stmt, _ bound: Set<String>, _ v: TreeVisitor) -> Void {
 // an initializer cycle — a located compile error (cf. the cyclic-`const` guard).
 // Cross-module order falls out of registration order (imports before importers),
 // which the post-order preserves for globals with no edge between them.
-fn order_global_inits(_ scope: ModuleScope, _ errors: List<CodegenError>) -> List<GlobalInit> {
+fn order_global_inits(_ scope: ModuleScope, _ errors: List<diagnostic.Diagnostic>) -> List<GlobalInit> {
     let ordered: List<GlobalInit> = [];
     let state: Map<String, Int> = {}; // keyed like `global_key`; 1 = visiting, 2 = done
     let by_key: Map<String, GlobalInit> = {};
@@ -2657,14 +2649,13 @@ fn global_key(_ g: GlobalInit) -> String {
 }
 
 fn visit_global_init(_ g: GlobalInit, _ scope: ModuleScope, _ by_key: Map<String, GlobalInit>,
-    _ state: Map<String, Int>, _ ordered: List<GlobalInit>, _ errors: List<CodegenError>) -> Void {
+    _ state: Map<String, Int>, _ ordered: List<GlobalInit>, _ errors: List<diagnostic.Diagnostic>) -> Void {
     let key = global_key(g);
     if let Some(s) = state.get(key) {
         if s == 1 {
-            errors.push(CodegenError {
-                message: 'module-level `let` initializer cycle through `${g.name}`',
-                span: g.span,
-            });
+            errors.push(diagnostic.at(
+                'module-level `let` initializer cycle through `${g.name}`',
+                g.span));
         }
         return; // already done, or a cycle just reported
     }

@@ -19,14 +19,10 @@ import '../element/element' as _;
 import '../element/scope' as _;
 import '../element/resolver';
 import '../element/inference' as _;
-
-pub struct CheckError {
-    message: String,
-    span: SourceSpan,
-}
+import '../diagnostic'; // Diagnostic — the uniform phase error
 
 pub struct CheckResult {
-    errors: List<CheckError>,
+    errors: List<diagnostic.Diagnostic>,
     // The committed-type record built during the walk (CH19), in walk order:
     // every real expression node of each checked (non-skipped) file, plus `let`
     // name spans. A later entry for the same span supersedes an earlier one
@@ -44,7 +40,7 @@ pub fn has_errors(_ r: CheckResult) -> Bool {
 pub fn check(_ program: Program, _ imports: List<Program>,
     _ file_namespaces: Map<String, Map<String, LibraryNamespace>>,
     _ file_bare_surface: Map<String, Map<String, String>>) -> CheckResult {
-    let errors: List<CheckError> = [];
+    let errors: List<diagnostic.Diagnostic> = [];
     let records: List<TypeRecord> = [];
     let library = resolver.build_library(program, imports, file_namespaces, file_bare_surface);
     check_duplicates(errors, program, imports);
@@ -69,7 +65,7 @@ pub fn check_files(_ program: Program, _ imports: List<Program>,
     _ file_bare_surface: Map<String, Map<String, String>>,
     skip: Set<String> = Set.new(),
     prebuilt: Option<LibraryElement> = Option.None) -> CheckResult {
-    let errors: List<CheckError> = [];
+    let errors: List<diagnostic.Diagnostic> = [];
     let records: List<TypeRecord> = [];
     // `prebuilt` is the session's cached-base + layered-primary library (LD14)
     // — behavior-identical to the full build by the resolver's contract.
@@ -94,8 +90,8 @@ pub fn check_files(_ program: Program, _ imports: List<Program>,
     return CheckResult { errors: errors, records: records };
 }
 
-fn add_error(_ errors: List<CheckError>, _ message: String, _ span: SourceSpan) -> Void {
-    errors.push(CheckError { message: message, span: span });
+fn add_error(_ errors: List<diagnostic.Diagnostic>, _ message: String, _ span: SourceSpan) -> Void {
+    errors.push(diagnostic.at(message, span));
 }
 
 // ---- duplicate top-level definition detection ----
@@ -119,7 +115,7 @@ struct NameSite {
 // owner-correct (per-file bare / qualified / `TypeId`), so different files may
 // share a name. Reported against the colliding definition in the file being
 // checked.
-fn check_duplicates(_ errors: List<CheckError>, _ program: Program, _ imports: List<Program>) -> Void {
+fn check_duplicates(_ errors: List<diagnostic.Diagnostic>, _ program: Program, _ imports: List<Program>) -> Void {
     let names: Map<String, List<NameSite>> = {};
     for ip in imports {
         collect_names(ip, false, names);
@@ -139,7 +135,7 @@ fn check_duplicates(_ errors: List<CheckError>, _ program: Program, _ imports: L
 // `struct Config` checked clean but failed at codegen ("unknown struct
 // type"). The declaring file itself is exempt (its own names *are* the
 // surface's origin — a core file doesn't shadow the prelude it defines).
-fn check_shadowed_surface(_ errors: List<CheckError>, _ program: Program, _ library: LibraryElement) -> Void {
+fn check_shadowed_surface(_ errors: List<diagnostic.Diagnostic>, _ program: Program, _ library: LibraryElement) -> Void {
     let own = file_key(program.file_path);
     let Some(surface) = library.file_bare_surface.get(own) else {
         return;
@@ -194,7 +190,7 @@ fn self_referential_ns(_ program: Program, _ library: LibraryElement, _ ns: Stri
     };
 }
 
-fn flag_shadow(_ errors: List<CheckError>, _ surface: Map<String, String>, _ own: String,
+fn flag_shadow(_ errors: List<diagnostic.Diagnostic>, _ surface: Map<String, String>, _ own: String,
     _ name: String, _ span: SourceSpan) -> Void {
     // A reserved core type name already gets the dedicated (and more specific)
     // reserved-name error — don't stack the shadow error on top.
@@ -231,7 +227,7 @@ fn is_reserved_type_name(_ name: String) -> Bool {
 // heuristic. The owner file is pinned in the shared registry from the same
 // loader closure that minted `program.file_path`, so every analysis path (check,
 // LSP, test) agrees regardless of how the SDK root or file path was spelled.
-fn check_reserved_names(_ errors: List<CheckError>, _ program: Program, _ library: LibraryElement) -> Void {
+fn check_reserved_names(_ errors: List<diagnostic.Diagnostic>, _ program: Program, _ library: LibraryElement) -> Void {
     let this_file = file_key(program.file_path);
     for decl in program.decls {
         let found = match decl {
@@ -306,7 +302,7 @@ fn std_tail(_ p: String) -> Option<String> {
     return parts.last();
 }
 
-fn reserved_params(_ errors: List<CheckError>, _ type_params: List<TypeParam>) -> Void {
+fn reserved_params(_ errors: List<diagnostic.Diagnostic>, _ type_params: List<TypeParam>) -> Void {
     for tp in type_params {
         if is_reserved_type_name(tp.name) {
             add_error(errors, '`${tp.name}` is a reserved type name (a Hawk core type); '
@@ -401,7 +397,7 @@ fn add_name(_ m: Map<String, List<NameSite>>, _ name: String, _ site: NameSite) 
 
 // Report each primary-file introduction that collides with another
 // introduction of the same name (one name space: any kind collides).
-fn report_dups(_ errors: List<CheckError>, _ m: Map<String, List<NameSite>>) -> Void {
+fn report_dups(_ errors: List<diagnostic.Diagnostic>, _ m: Map<String, List<NameSite>>) -> Void {
     for name in m.keys() {
         if let Some(sites) = m.get(name) {
             if sites.len() >= 2 {
@@ -417,7 +413,7 @@ fn report_dups(_ errors: List<CheckError>, _ m: Map<String, List<NameSite>>) -> 
 // shadows. Each collision is reported once, at the offending (later) definition.
 // A same-kind collision keeps the familiar message; a cross-kind one names the
 // earlier introduction's kind.
-fn report_name(_ errors: List<CheckError>, _ name: String, _ sites: List<NameSite>) -> Void {
+fn report_name(_ errors: List<diagnostic.Diagnostic>, _ name: String, _ sites: List<NameSite>) -> Void {
     for p in sites.enumerate() {
         let s = p.value;
         if s.primary {
@@ -466,7 +462,7 @@ fn collides(_ a: NameSite, _ b: NameSite) -> Bool {
 
 // ---- declaration checking ----
 
-fn check_program(_ errors: List<CheckError>, _ program: Program, _ library: LibraryElement,
+fn check_program(_ errors: List<diagnostic.Diagnostic>, _ program: Program, _ library: LibraryElement,
     _ file: Option<String>, _ records: List<TypeRecord>) -> Void {
     for decl in program.decls {
         match decl {
@@ -490,12 +486,11 @@ fn check_program(_ errors: List<CheckError>, _ program: Program, _ library: Libr
                 // computed initializer belongs in a top-level `let` (computed once
                 // and stored). See docs/language.md.
                 if !is_manifest_const(x.value) {
-                    errors.push(CheckError {
-                        message: 'a `const` initializer must be a compile-time constant '
-                            + '(literals, arithmetic, or another `const`); use a top-level '
-                            + '`let` for a value computed once at load',
-                        span: expr_span(x.value),
-                    });
+                    errors.push(diagnostic.at(
+                        'a `const` initializer must be a compile-time constant '
+                        + '(literals, arithmetic, or another `const`); use a top-level '
+                        + '`let` for a value computed once at load',
+                        expr_span(x.value)));
                 }
             },
             Let(x) => {
@@ -520,7 +515,7 @@ fn check_program(_ errors: List<CheckError>, _ program: Program, _ library: Libr
     }
 }
 
-fn check_type_decl(_ errors: List<CheckError>, _ decl: TypeDecl, _ library: LibraryElement,
+fn check_type_decl(_ errors: List<diagnostic.Diagnostic>, _ decl: TypeDecl, _ library: LibraryElement,
     _ current_file: Option<String>) -> Void {
     let tps = type_param_set(decl.type_params);
     for f in decl.fields {
@@ -528,7 +523,7 @@ fn check_type_decl(_ errors: List<CheckError>, _ decl: TypeDecl, _ library: Libr
     }
 }
 
-fn check_fn(_ errors: List<CheckError>, _ fn_decl: FnDecl, _ library: LibraryElement,
+fn check_fn(_ errors: List<diagnostic.Diagnostic>, _ fn_decl: FnDecl, _ library: LibraryElement,
     _ self_type: Option<Type>, _ outer_type_params: Set<String>, _ file: Option<String>,
     _ records: List<TypeRecord>) -> Void {
     let type_params = union_type_params(outer_type_params, fn_decl.type_params);
@@ -568,7 +563,7 @@ fn check_fn(_ errors: List<CheckError>, _ fn_decl: FnDecl, _ library: LibraryEle
     }
 }
 
-fn check_fn_sig(_ errors: List<CheckError>, _ fn_decl: FnDecl,
+fn check_fn_sig(_ errors: List<diagnostic.Diagnostic>, _ fn_decl: FnDecl,
     _ library: LibraryElement, _ current_file: Option<String>, _ type_params: Set<String>) -> Void {
     for p in fn_decl.params {
         match p.type_ann {
@@ -624,7 +619,7 @@ fn check_missing_return_type(_ cc: CheckCtx, _ value: Option<Expr>) -> Void {
 // initializer (pass 4): inference stays under the hood so codegen never sees an
 // `Unknown` global, but the annotation is required at the source. See
 // language.md, "Type annotations & inference".
-fn check_global_annotation(_ errors: List<CheckError>, _ type_ann: Option<TypeRef>,
+fn check_global_annotation(_ errors: List<diagnostic.Diagnostic>, _ type_ann: Option<TypeRef>,
     _ name: String, _ name_span: SourceSpan, _ library: LibraryElement,
     _ file: Option<String>) -> Void {
     match type_ann {
@@ -637,7 +632,7 @@ fn check_global_annotation(_ errors: List<CheckError>, _ type_ann: Option<TypeRe
 
 // ---- interface declaration / conformance ----
 
-fn check_interface_decl(_ errors: List<CheckError>, _ decl: InterfaceDecl, _ library: LibraryElement,
+fn check_interface_decl(_ errors: List<diagnostic.Diagnostic>, _ decl: InterfaceDecl, _ library: LibraryElement,
     _ current_file: Option<String>) -> Void {
     let iface_tps = type_param_set(decl.type_params);
     for m in decl.methods {
@@ -680,7 +675,7 @@ fn extends_cycle(_ id: TypeId, _ library: LibraryElement) -> Bool {
     return false;
 }
 
-fn check_conformance(_ errors: List<CheckError>, _ decl: ImplDecl, _ library: LibraryElement,
+fn check_conformance(_ errors: List<diagnostic.Diagnostic>, _ decl: ImplDecl, _ library: LibraryElement,
     _ file: Option<String>) -> Void {
     let Some(iface_name) = decl.interface_name else { return; };
     let fs = file_scope(library, file);
@@ -827,7 +822,7 @@ fn copy_muts(_ m: Map<String, Bool>) -> Map<String, Bool> {
 // they can never desync (the hazard behind the old parallel `scope`/`muts`
 // params). Leaf checks that only read types take `cc.scope`/`cc.infer`/`cc.errors`.
 struct CheckCtx {
-    errors: List<CheckError>,
+    errors: List<diagnostic.Diagnostic>,
     infer: InferCtx,
     scope: Map<String, Type>,
     muts: Map<String, Bool>,
@@ -1397,7 +1392,7 @@ fn check_match(_ cc: CheckCtx, _ x: MatchExpr, _ expected: Option<Type>) -> Void
 // pattern's type must be able to equal the subject's (CH17:
 // `match n { 'x' => … }` on an Int can never match). Non-enum and unknown
 // subjects stay lenient.
-fn validate_pattern(_ errors: List<CheckError>, _ pattern: Pattern, _ subject: Type, _ ctx: InferCtx) -> Void {
+fn validate_pattern(_ errors: List<diagnostic.Diagnostic>, _ pattern: Pattern, _ subject: Type, _ ctx: InferCtx) -> Void {
     match pattern {
         Constructor(span, name, args) => {
             if let Interface(id, _) = subject {
@@ -1452,7 +1447,7 @@ fn variant_of(_ def: TypeDefElement, _ name: String) -> Option<EnumVariantElemen
 // an enum subject may instead cover every variant, and a Bool subject both
 // literals. Any other subject (Int, String, …) can't be enumerated and needs
 // the catch-all. Conservative on Unknown / type-parameter subjects.
-fn check_exhaustive(_ errors: List<CheckError>, _ x: MatchExpr, _ subject: Type, _ ctx: InferCtx) -> Void {
+fn check_exhaustive(_ errors: List<diagnostic.Diagnostic>, _ x: MatchExpr, _ subject: Type, _ ctx: InferCtx) -> Void {
     let variants = enum_variant_names(subject, ctx);
     let covered: Set<String> = Set.new();
     let mut true_seen = false;
@@ -1516,7 +1511,7 @@ fn enum_variant_names(_ subject: Type, _ ctx: InferCtx) -> List<String> {
 // A value-less arm (`Unit` block, or `Unknown` from a bare `return`/`throw`) is
 // exempt and leaves the reference unchanged; the first value-producing arm (or
 // the `expected` type) sets the reference every later value arm must match.
-fn unify_arm(_ errors: List<CheckError>, _ reference: Type, _ arm_type: Type,
+fn unify_arm(_ errors: List<diagnostic.Diagnostic>, _ reference: Type, _ arm_type: Type,
     _ body: Expr, _ ctx: InferCtx) -> Type {
     if !produces_value(arm_type) {
         return reference;
@@ -1541,7 +1536,7 @@ fn arms_compatible(_ a: Type, _ b: Type, _ lib: LibraryElement) -> Bool {
 
 // ---- call checking ----
 
-fn check_call_args(_ errors: List<CheckError>, _ fn_el: FunctionElement,
+fn check_call_args(_ errors: List<diagnostic.Diagnostic>, _ fn_el: FunctionElement,
     _ bindings: Map<String, Type>, _ args: List<CallArg>, _ arg_types: List<Type>,
     _ span: SourceSpan, _ ctx: InferCtx) -> Void {
     let params = non_self_params(fn_el.parameters);
@@ -1601,7 +1596,7 @@ fn check_call_args(_ errors: List<CheckError>, _ fn_el: FunctionElement,
 // as the rest of inference: an `Unknown` or still-generic binding never
 // conflicts, and cross-direction assignability (interface subtyping) counts as
 // agreement — first-binding-wins semantics elsewhere are unchanged.
-fn check_bounds(_ errors: List<CheckError>, _ fn_el: FunctionElement,
+fn check_bounds(_ errors: List<diagnostic.Diagnostic>, _ fn_el: FunctionElement,
     _ matched: List<Option<ParameterElement>>, _ recv_bindings: Map<String, Type>,
     _ args: List<CallArg>, _ arg_types: List<Type>, _ span: SourceSpan,
     _ ctx: InferCtx) -> Void {
@@ -1661,7 +1656,7 @@ fn check_bounds(_ errors: List<CheckError>, _ fn_el: FunctionElement,
 // Validate the receiver type arguments of a static call (`Set<String>.new()`):
 // each must be a known type, the count must match the receiver type's parameters,
 // and each must satisfy that parameter's bounds.
-fn check_recv_type_args(_ errors: List<CheckError>, _ x: CallExpr, _ ctx: InferCtx) -> Void {
+fn check_recv_type_args(_ errors: List<diagnostic.Diagnostic>, _ x: CallExpr, _ ctx: InferCtx) -> Void {
     if x.recv_type_args.len() == 0 {
         return;
     }
@@ -1699,7 +1694,7 @@ fn check_recv_type_args(_ errors: List<CheckError>, _ x: CallExpr, _ ctx: InferC
 // annotation rather than letting it propagate silently (the analogue of the
 // lambda-parameter "cannot infer" diagnostic). A parameter that appears in a
 // parameter position is bound by its argument and so never reported here.
-fn check_inferable_type_args(_ errors: List<CheckError>, _ fn_el: FunctionElement,
+fn check_inferable_type_args(_ errors: List<diagnostic.Diagnostic>, _ fn_el: FunctionElement,
     _ type_params: List<String>, _ call: CallExpr, _ expected: Option<Type>,
     _ arg_types: List<Type>, _ ctx: InferCtx) -> Void {
     if type_params.len() == 0 {
@@ -1740,7 +1735,7 @@ fn check_inferable_type_args(_ errors: List<CheckError>, _ fn_el: FunctionElemen
 // `satisfies_bound`: an `Unknown` or still-generic (`TypeParameter`) argument is
 // accepted — propagating a bound onto an enclosing function's own type parameter is
 // a separate, not-yet-done step (see roadmap.md).
-fn check_type_arg_bounds(_ errors: List<CheckError>, _ def: TypeDefElement,
+fn check_type_arg_bounds(_ errors: List<diagnostic.Diagnostic>, _ def: TypeDefElement,
     _ args: List<Type>, _ span: SourceSpan, _ library: LibraryElement) -> Void {
     let params = def.type_parameters;
     let mut i = 0;
@@ -1813,7 +1808,7 @@ fn satisfies_bound(_ t: Type, _ bound: TypeId, _ lib: LibraryElement) -> Bool {
 // must be reachable from this file, else it's a "qualify as `ns.T`" hint (when an
 // import exposes it) or an unknown type. Shared by `check_type_ref` (annotations)
 // and the `Struct` literal arm (constructions — `ns.Point { … }` parses).
-fn check_named_type(_ errors: List<CheckError>, _ name: String, _ namespace: Option<String>,
+fn check_named_type(_ errors: List<diagnostic.Diagnostic>, _ name: String, _ namespace: Option<String>,
     _ span: SourceSpan, _ library: LibraryElement, _ current_file: Option<String>,
     _ type_params: Set<String>) -> Void {
     match namespace {
@@ -1835,7 +1830,7 @@ fn check_named_type(_ errors: List<CheckError>, _ name: String, _ namespace: Opt
     }
 }
 
-fn check_type_ref(_ errors: List<CheckError>, _ type_ref: TypeRef,
+fn check_type_ref(_ errors: List<diagnostic.Diagnostic>, _ type_ref: TypeRef,
     _ library: LibraryElement, _ current_file: Option<String>, _ type_params: Set<String>) -> Void {
     match type_ref {
         Named(nt) => {
@@ -1892,7 +1887,7 @@ fn name_known(_ name: String, _ library: LibraryElement,
 // the rest of the checker shares. Previously operands were never checked:
 // `1 + 'a'` and `1 == 'a'` checked clean and trapped at runtime.
 
-fn check_binary_op(_ errors: List<CheckError>, _ span: SourceSpan, _ left: Expr, _ op: String,
+fn check_binary_op(_ errors: List<diagnostic.Diagnostic>, _ span: SourceSpan, _ left: Expr, _ op: String,
     _ right: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Void {
     let l = infer_expr(left, scope, ctx, Option.None);
     let r = infer_expr(right, scope, ctx, Option.None);
@@ -1939,7 +1934,7 @@ fn check_binary_op(_ errors: List<CheckError>, _ span: SourceSpan, _ left: Expr,
     }
 }
 
-fn check_unary_op(_ errors: List<CheckError>, _ op: String, _ operand: Expr,
+fn check_unary_op(_ errors: List<diagnostic.Diagnostic>, _ op: String, _ operand: Expr,
     _ scope: Map<String, Type>, _ ctx: InferCtx) -> Void {
     let t = infer_expr(operand, scope, ctx, Option.None);
     if is_lenient_operand(t) {
@@ -2020,7 +2015,7 @@ fn assign_context(_ target: Expr) -> String {
     };
 }
 
-fn expect_type(_ errors: List<CheckError>, _ actual: Type, _ expected: Type,
+fn expect_type(_ errors: List<diagnostic.Diagnostic>, _ actual: Type, _ expected: Type,
     _ context: String, _ span: SourceSpan, _ lib: LibraryElement) -> Void {
     if !is_assignable(actual, expected, lib) {
         add_error(errors, '${context}: expected ${type_to_string(expected)}, found ${type_to_string(actual)}', span);
@@ -2028,7 +2023,7 @@ fn expect_type(_ errors: List<CheckError>, _ actual: Type, _ expected: Type,
 }
 
 // A loop/branch condition must be `Bool`.
-fn check_condition(_ errors: List<CheckError>, _ condition: Expr,
+fn check_condition(_ errors: List<diagnostic.Diagnostic>, _ condition: Expr,
     _ scope: Map<String, Type>, _ ctx: InferCtx) -> Void {
     let t = infer_expr(condition, scope, ctx, Option.None);
     if !is_assignable(t, Type.Primitive(Primitive.Bool), ctx.library) {
@@ -2038,7 +2033,7 @@ fn check_condition(_ errors: List<CheckError>, _ condition: Expr,
 
 // Check `return value;` against the declared return type. Allows the implicit
 // `Ok` wrap — returning a `T` from a `Result<T, E>` function.
-fn check_return(_ errors: List<CheckError>, _ value: Expr, _ expected: Type,
+fn check_return(_ errors: List<diagnostic.Diagnostic>, _ value: Expr, _ expected: Type,
     _ span: SourceSpan, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Void {
     let actual = infer_expr(value, scope, ctx, Option.Some(expected));
     if is_assignable(actual, expected, ctx.library) {
@@ -2061,7 +2056,7 @@ fn check_return(_ errors: List<CheckError>, _ value: Expr, _ expected: Type,
 // `.ok()?`). The happy path otherwise lowers structurally (codegen is tag-based
 // and `Some`/`Ok` share tag 0, `None`/`Err` tag 1). Lenient when a type is
 // undetermined — a separate diagnostic already explains that.
-fn check_propagate(_ errors: List<CheckError>, _ inner: Expr, _ span: SourceSpan,
+fn check_propagate(_ errors: List<diagnostic.Diagnostic>, _ inner: Expr, _ span: SourceSpan,
     _ scope: Map<String, Type>, _ ctx: InferCtx) -> Void {
     let inner_ty = infer_expr(inner, scope, ctx, Option.None);
     if is_uncertain_type(inner_ty) {
@@ -2151,7 +2146,7 @@ fn qualifying_namespace(_ name: String, _ library: LibraryElement, _ current_fil
 // `pub`-visibility half of qualified-only (formerly `visibility_lint`). A
 // namespace the file doesn't import is not checked here (it isn't an access
 // against a known surface; bare/undefined cases are handled by the gates).
-fn check_member_visible(_ errors: List<CheckError>, _ ns: String, _ member: String,
+fn check_member_visible(_ errors: List<diagnostic.Diagnostic>, _ ns: String, _ member: String,
     _ span: SourceSpan, _ library: LibraryElement, _ current_file: Option<String>) -> Void {
     if let Some(surface) = file_scope(library, current_file).namespace_surface(ns) {
         if !namespace_exposes(surface, member) {
@@ -2165,7 +2160,7 @@ fn check_member_visible(_ errors: List<CheckError>, _ ns: String, _ member: Stri
 // call — the member must be public. Walks the receiver chain; an ordinary value
 // receiver (`value.method()`) is ignored (member visibility there is the receiver
 // type's concern, not a namespace's).
-fn check_qualified_receiver(_ errors: List<CheckError>, _ object: Expr, _ member: String,
+fn check_qualified_receiver(_ errors: List<diagnostic.Diagnostic>, _ object: Expr, _ member: String,
     _ span: SourceSpan, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Void {
     match namespace_of_access(object, scope, ctx) {
         Some(ns) => { check_member_visible(errors, ns, member, span, ctx.library, ctx.current_file); },

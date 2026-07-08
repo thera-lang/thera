@@ -335,12 +335,6 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   coverage of `module_scope` internals (name mangling, same-file-first
   resolution edge cases, dispatch-table building) still leans on the implicit
   end-to-end suites.
-- **Unify the diagnostic model (audit LD15 tail).** Attribution is now one
-  mechanism (`span.file`) and the per-phase converters live in one place, but
-  each phase still has its own error struct behind them and the target
-  `Diagnostic {file, span, message, severity, phase}` lacks the `severity`/
-  `phase` fields (no consumer yet). Finish the single model so check/emit/LSP
-  are pure renderers.
 - **Owner-qualified `FuncDef` names (audit CG-D4) — needs a portable file-key
   scheme.** Two libraries' `Point.area` emit identical `FuncDef` names (stack-
   trace / `--entry` ambiguity). _On hold:_ `FuncDef.name` is the only
@@ -782,6 +776,16 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **Unified diagnostic model (audit LD15 tail)** (2026-07). Every phase — lex,
+  parse, check, codegen, load — now produces one `Diagnostic {message, span,
+  file, severity}` directly (new `pkgs/cli/diagnostic.hawk`), retiring the five
+  per-phase error structs (`LexError`/`ParseError`/`CheckError`/`CodegenError`/
+  `LoadDiagnostic`) and the session-level converters that mapped them. `file` is
+  still derived from the span (the loader stamps an explicit file); `severity` is
+  a three-level enum (`Error`/`Warning`/`Info`) so lint-style suggestions can ride
+  the same model later — every compile-phase diagnostic is `Error` today, and the
+  LSP severity map is its first consumer. No `phase` field (no consumer). check/
+  emit/LSP are now pure renderers over a `List<Diagnostic>`.
 - **Complete field identity (LSP)** (2026-07). A struct field now has full
   symbol identity, so references and rename treat it like any other declaration.
   Hover/definition on a field's declaration name, its `S { field: … }` literal

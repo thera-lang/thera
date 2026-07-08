@@ -11,13 +11,14 @@ import '../parser/parser' as _;
 import '../element/element' as _;
 import '../element/inference' as _;
 import '../element/types' as _;
+import '../diagnostic' as _; // Diagnostic
 import 'checker' as _;
 
-fn errors_of(_ src: String) -> List<CheckError> {
+fn errors_of(_ src: String) -> List<Diagnostic> {
     return check(parse_tokens(tokenize(src).tokens).program, [], {}, {}).errors;
 }
 
-fn first_message(_ errs: List<CheckError>) -> String {
+fn first_message(_ errs: List<Diagnostic>) -> String {
     if errs.len() == 0 {
         return '<no errors>';
     }
@@ -26,8 +27,8 @@ fn first_message(_ errs: List<CheckError>) -> String {
 
 // Reserved-name diagnostics from a full closure check (`check_files`, the path
 // that runs the reserved-name check — `check` alone does not).
-fn reserved_errors(_ primary: Program, _ imports: List<Program>) -> List<CheckError> {
-    let out: List<CheckError> = [];
+fn reserved_errors(_ primary: Program, _ imports: List<Program>) -> List<Diagnostic> {
+    let out: List<Diagnostic> = [];
     for e in check_files(primary, imports, {}, {}).errors {
         if e.message.contains('is a reserved type name') {
             out.push(e);
@@ -539,7 +540,7 @@ fn program_at(_ src: String, _ path: String) -> Program {
 }
 
 // Whether any diagnostic mentions `needle`.
-fn any_message_contains(_ errs: List<CheckError>, _ needle: String) -> Bool {
+fn any_message_contains(_ errs: List<Diagnostic>, _ needle: String) -> Bool {
     for e in errs {
         if e.message.contains(needle) {
             return true;

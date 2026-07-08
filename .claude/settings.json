@@ -14,6 +14,7 @@
       "Bash(bin/hawk.sh run *)",
       "Bash(bin/hawk.sh test *)",
       "Bash(bin/test.sh)",
+      "Bash(build/sdk/bin/hawk test *)",
       "Bash(cargo build *)",
       "Bash(cargo clippy *)",
       "Bash(cargo fmt *)",

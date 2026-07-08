@@ -10,18 +10,7 @@
 import std.char;
 
 import 'token' as _; // lexer produces tokens — token's types are used throughout
-
-// A lexical error: a message and the span it occurred at.
-pub struct LexError {
-    message: String,
-    span: SourceSpan,
-}
-
-impl Display for LexError {
-    pub fn display(self) -> String {
-        return '${self.span}: ${self.message}';
-    }
-}
+import '../diagnostic'; // Diagnostic — the uniform phase error
 
 // The result of tokenizing: the tokens (always ending in `Eof`), the comments
 // captured on the side channel (in source order; never in the token stream), and
@@ -29,7 +18,7 @@ impl Display for LexError {
 pub struct LexResult {
     tokens: List<Token>,
     comments: List<Comment>,
-    errors: List<LexError>,
+    errors: List<diagnostic.Diagnostic>,
 }
 
 impl LexResult {
@@ -50,7 +39,7 @@ struct Lexer {
     mut col: Int,
     tokens: List<Token>,
     comments: List<Comment>,
-    errors: List<LexError>,
+    errors: List<diagnostic.Diagnostic>,
     mut ts_offset: Int,
     mut ts_line: Int,
     mut ts_col: Int,
@@ -181,10 +170,7 @@ impl Lexer {
     // Record an error at an explicit start position (used for escapes, which
     // start partway through a string token).
     fn error_at(self, _ message: String, _ o: Int, _ l: Int, _ c: Int) -> Void {
-        self.errors.push(LexError {
-            message: message,
-            span: self.span_from(o, l, c),
-        });
+        self.errors.push(diagnostic.at(message, self.span_from(o, l, c)));
     }
 
     // --- scanning ---

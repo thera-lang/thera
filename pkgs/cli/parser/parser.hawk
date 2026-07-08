@@ -18,21 +18,11 @@ import std.char;
 import '../lexer/token' as _;
 import '../lexer/lexer';
 import '../ast/ast' as _;
-
-pub struct ParseError {
-    message: String,
-    span: SourceSpan,
-}
-
-impl Display for ParseError {
-    pub fn display(self) -> String {
-        return '${self.span}: ${self.message}';
-    }
-}
+import '../diagnostic'; // Diagnostic — the uniform phase error
 
 pub struct ParseResult {
     program: Program,
-    errors: List<ParseError>,
+    errors: List<diagnostic.Diagnostic>,
 }
 
 impl ParseResult {
@@ -44,7 +34,7 @@ impl ParseResult {
 struct Parser {
     tokens: List<Token>,
     mut pos: Int,
-    errors: List<ParseError>,
+    errors: List<diagnostic.Diagnostic>,
     mut panicking: Bool,
 }
 
@@ -167,7 +157,7 @@ impl Parser {
         if self.panicking {
             return;
         }
-        self.errors.push(ParseError { message: message, span: span });
+        self.errors.push(diagnostic.at(message, span));
         self.panicking = true;
     }
 
@@ -2235,7 +2225,7 @@ impl Parser {
                 let expr_source = String.from_chars(cps.slice(interp_start, i - 1));
                 let lex_result = lexer.tokenize(expr_source);
                 for le in lex_result.errors {
-                    self.errors.push(ParseError { message: le.message, span: rebase_span(le.span, expr_source, region) });
+                    self.errors.push(diagnostic.at(le.message, rebase_span(le.span, expr_source, region)));
                 }
                 if lex_result.tokens.len() > 1 {
                     let sub = Parser {
@@ -2249,14 +2239,13 @@ impl Parser {
                         self.errors.push(e);
                     }
                     if !sub.panicking && !sub.current().is_eof() {
-                        self.errors.push(ParseError {
-                            message: 'unexpected token after interpolated expression: "${sub.current().span.text()}"',
-                            span: sub.current().span,
-                        });
+                        self.errors.push(diagnostic.at(
+                            'unexpected token after interpolated expression: "${sub.current().span.text()}"',
+                            sub.current().span));
                     }
                     parts.push(StringPart.Interp(region, expr));
                 } else {
-                    self.errors.push(ParseError { message: 'empty interpolation', span: region });
+                    self.errors.push(diagnostic.at('empty interpolation', region));
                     parts.push(StringPart.Text(region, ''));
                 }
             } else {

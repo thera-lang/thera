@@ -9,6 +9,7 @@ import 'lint/lint';
 import 'loader';
 import 'parser/parser';
 import 'session';
+import 'diagnostic'; // Diagnostic — the uniform phase error
 
 // Re-exposed one-shot entry points. `parse_cache`/`checked`/`overlays` are
 // caller-shared exactly as before — the throwaway session wraps the same maps,
@@ -16,7 +17,7 @@ import 'session';
 pub fn check_source_at(_ source: String, _ path: String, _ sdk_root: Option<String>,
     parse_cache: Map<String, loader.ParsedFile> = {},
     checked: Set<String> = Set.new(),
-    overlays: Map<String, String> = {}) -> List<session.Diagnostic> {
+    overlays: Map<String, String> = {}) -> List<diagnostic.Diagnostic> {
     let s = session.Session {
         sdk_root: sdk_root, overlays: overlays, parse_cache: parse_cache, checked: checked,
         import_graph: {}, surface_cache: {}, library_cache: {}, type_records: {},
@@ -36,7 +37,7 @@ pub fn compile_source_at(_ source: String, _ path: String, _ sdk_root: Option<St
 }
 
 // The hermetic (no-import) pipeline, for self-contained programs.
-pub fn check_source(_ source: String) -> List<session.Diagnostic> {
+pub fn check_source(_ source: String) -> List<diagnostic.Diagnostic> {
     return session.check_source(source);
 }
 
@@ -44,7 +45,7 @@ pub fn compile_source(_ source: String) -> session.CompileOutcome {
     return session.compile_source(source);
 }
 
-pub fn format_diagnostic(_ d: session.Diagnostic, _ file_path: String) -> String {
+pub fn format_diagnostic(_ d: diagnostic.Diagnostic, _ file_path: String) -> String {
     return session.format_diagnostic(d, file_path);
 }
 

@@ -221,8 +221,9 @@ fn test_broken_imports_are_diagnosed() -> Result<Void, Error> {
         message: 'read failure surfaced: ${read_d.message}')?;
     testing.assert_eq(actual: read_d.span.line, expected: 2)?;
     for d in loaded.diagnostics {
-        testing.assert(d.file.ends_with('/main.hawk'),
-            message: 'attributed to the importer: ${d.file}')?;
+        let file = d.file.unwrap_or('');
+        testing.assert(file.ends_with('/main.hawk'),
+            message: 'attributed to the importer: ${file}')?;
     }
 
     match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
@@ -262,17 +263,18 @@ fn test_surface_collisions_are_diagnosed() -> Result<Void, Error> {
     let mut barrel_seen = false;
     let mut bare_seen = false;
     for d in loaded.diagnostics {
+        let file = d.file.unwrap_or('');
         if d.message.contains('barrel') {
             barrel_seen = true;
             testing.assert(d.message.contains('`deep`'), message: 'barrel names the name: ${d.message}')?;
-            testing.assert(d.file.ends_with('/barrel.hawk'),
-                message: 'barrel collision attributed to the barrel: ${d.file}')?;
+            testing.assert(file.ends_with('/barrel.hawk'),
+                message: 'barrel collision attributed to the barrel: ${file}')?;
             testing.assert_eq(actual: d.span.line, expected: 2)?;
         }
         if d.message.contains('as _') {
             bare_seen = true;
-            testing.assert(d.file.ends_with('/main.hawk'),
-                message: 'bare collision attributed to the importer: ${d.file}')?;
+            testing.assert(file.ends_with('/main.hawk'),
+                message: 'bare collision attributed to the importer: ${file}')?;
             testing.assert_eq(actual: d.span.line, expected: 3)?;
         }
     }

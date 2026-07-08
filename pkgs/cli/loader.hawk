@@ -14,23 +14,13 @@ import 'lexer/token';
 import 'lexer/lexer';
 import 'parser/parser';
 import 'element/element';
+import 'diagnostic'; // Diagnostic — the uniform phase error
 
 import std.env;
 import std.fs;
 import std.path;
 
 const STD_PREFIX: String = 'std.';
-
-// A lex/parse diagnostic from a file in the import closure, stamped with its
-// owning file. The loader recovers past errors (the parser yields a best-effort
-// tree) and collects them here rather than dropping the file, so an error in an
-// imported file is surfaced and attributed to that file — not swallowed into a
-// misleading downstream "undefined name" in the importer.
-pub struct LoadDiagnostic {
-    message: String,
-    span: token.SourceSpan,
-    file: String,
-}
 
 // A loaded library and the libraries its imports resolve to, keyed by the import
 // path exactly as written (so a namespace can be derived per import and barrels
@@ -49,7 +39,7 @@ pub struct LoadedImports {
     programs: List<Program>,
     // Lex/parse diagnostics from every imported file (best-effort recovery), each
     // attributed to its file — surfaced by the driver alongside check/codegen ones.
-    diagnostics: List<LoadDiagnostic>,
+    diagnostics: List<diagnostic.Diagnostic>,
     file_namespaces: Map<String, Map<String, element.LibraryNamespace>>,
     // Per-file bare-legal cross-file surface: the names that resolve *unqualified*
     // from another library — the prelude (`std.core`) plus every `import … as _`.
@@ -190,7 +180,7 @@ fn resolve_library_file(_ base: String) -> Option<String> {
 // program across files is safe — as the loader already does within one closure.
 pub struct ParsedFile {
     program: Program,
-    diagnostics: List<LoadDiagnostic>,
+    diagnostics: List<diagnostic.Diagnostic>,
 }
 
 // Read and parse `path` **best-effort**: the parser recovers past errors, so the
@@ -211,14 +201,14 @@ fn parse_file(_ path: String) -> Result<ParsedFile, String> {
 // collected, stamped with `path`). `path` must be canonical — it becomes the
 // program's identity (the session's cached-parse entry point relies on this).
 pub fn parse_source(_ path: String, _ source: String) -> ParsedFile {
-    let diagnostics: List<LoadDiagnostic> = [];
+    let diagnostics: List<diagnostic.Diagnostic> = [];
     let lex = lexer.tokenize(source, file: path);
     for e in lex.errors {
-        diagnostics.push(LoadDiagnostic { message: e.message, span: e.span, file: path });
+        diagnostics.push(diagnostic.in_file(e.message, e.span, path));
     }
     let parsed = parser.parse_tokens(lex.tokens);
     for e in parsed.errors {
-        diagnostics.push(LoadDiagnostic { message: e.message, span: e.span, file: path });
+        diagnostics.push(diagnostic.in_file(e.message, e.span, path));
     }
     let prog = parsed.program;
     prog.file_path = Option.Some(path);
@@ -247,7 +237,7 @@ struct Loader {
     sdk_root: Option<String>,
     order: List<Program>,            // imported programs, deduped, in load order
     cache: Map<String, LibrarySource>, // resolved file -> library source (per call)
-    diagnostics: List<LoadDiagnostic>, // lex/parse errors collected across the closure
+    diagnostics: List<diagnostic.Diagnostic>, // lex/parse errors collected across the closure
     // Cross-call parse cache (resolved file -> ParsedFile), supplied by the caller.
     // A library reached from many files' closures is read+lexed+parsed once, not
     // once per importing file. Empty (fresh) by default → no cross-call sharing.
@@ -362,20 +352,15 @@ impl Loader {
                         match self.source_for(file) {
                             Ok(child) => { into.imports[x.path] = child; },
                             Err(msg) => {
-                                self.diagnostics.push(LoadDiagnostic {
-                                    message: 'cannot read import \'${x.path}\': ${msg}',
-                                    span: x.span,
-                                    file: importer,
-                                });
+                                self.diagnostics.push(diagnostic.in_file(
+                                    'cannot read import \'${x.path}\': ${msg}',
+                                    x.span, importer));
                             },
                         }
                     },
                     None => {
-                        self.diagnostics.push(LoadDiagnostic {
-                            message: self.unresolved_message(x.path),
-                            span: x.span,
-                            file: importer,
-                        });
+                        self.diagnostics.push(diagnostic.in_file(
+                            self.unresolved_message(x.path), x.span, importer));
                     },
                 }
             }
@@ -468,7 +453,7 @@ pub fn load_imports(_ entry: String, _ program: Program, _ sdk_root: Option<Stri
         let entry = match surface_cache.get(key) {
             Some(cached) => cached,
             None => {
-                let collision_diags: List<LoadDiagnostic> = [];
+                let collision_diags: List<diagnostic.Diagnostic> = [];
                 loader.collect_collisions(src, collision_diags);
                 let computed = FileSurface {
                     namespaces: loader.namespaces_of(src),
@@ -509,7 +494,7 @@ pub struct FileSurface {
     namespaces: Map<String, element.LibraryNamespace>,
     bare_surface: Map<String, String>,
     imports: List<String>,
-    diagnostics: List<LoadDiagnostic>,
+    diagnostics: List<diagnostic.Diagnostic>,
 }
 
 // The canonical keys `source`'s imports resolved to — one graph node's outgoing
@@ -595,7 +580,7 @@ impl Loader {
 // here: a file's *own* declarations may shadow the prelude (soft-reserved),
 // and the existing insertion order implements that precedence.
 impl Loader {
-    fn collect_collisions(self, _ src: LibrarySource, _ diags: List<LoadDiagnostic>) -> Void {
+    fn collect_collisions(self, _ src: LibrarySource, _ diags: List<diagnostic.Diagnostic>) -> Void {
         let file = element.file_key(src.program.file_path);
         // name -> origin file, for the barrel (public) and bare (`as _`) surfaces.
         let exposed: Map<String, String> = {};
@@ -615,11 +600,9 @@ impl Loader {
                             match exposed.get(n) {
                                 Some(prior) => {
                                     if prior != origin {
-                                        diags.push(LoadDiagnostic {
-                                            message: 'this `pub import` re-exposes `${n}`, which the barrel already exposes; a barrel must expose each public name from one file',
-                                            span: x.span,
-                                            file: file,
-                                        });
+                                        diags.push(diagnostic.in_file(
+                                            'this `pub import` re-exposes `${n}`, which the barrel already exposes; a barrel must expose each public name from one file',
+                                            x.span, file));
                                     }
                                 },
                                 None => { exposed[n] = origin; },
@@ -633,11 +616,9 @@ impl Loader {
                             match bare.get(n) {
                                 Some(prior) => {
                                     if prior != origin {
-                                        diags.push(LoadDiagnostic {
-                                            message: 'two `import … as _` imports expose `${n}` unqualified; import one of them with a namespace',
-                                            span: x.span,
-                                            file: file,
-                                        });
+                                        diags.push(diagnostic.in_file(
+                                            'two `import … as _` imports expose `${n}` unqualified; import one of them with a namespace',
+                                            x.span, file));
                                     }
                                 },
                                 None => { bare[n] = origin; },

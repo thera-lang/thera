@@ -5,7 +5,7 @@
 
 import std.json as _;
 
-import '../session';     // Diagnostic
+import '../diagnostic';  // Diagnostic, Severity
 import 'positions';       // span_to_range
 
 // The LSP `Diagnostic[]` for the document at (canonical) `canon`, as a JSON
@@ -13,7 +13,7 @@ import 'positions';       // span_to_range
 // the LSP publishes per-URI, so keep only this document's own diagnostics — an
 // imported file's surface when *it* is the open document. Attribution
 // (`d.file`) is canonical, so `canon` must be too.
-pub fn render_diagnostics(_ diags: List<session.Diagnostic>, _ canon: String) -> Json {
+pub fn render_diagnostics(_ diags: List<diagnostic.Diagnostic>, _ canon: String) -> Json {
     let items: List<Json> = [];
     for d in diags {
         if diagnostic_in_file(d, canon) {
@@ -25,18 +25,28 @@ pub fn render_diagnostics(_ diags: List<session.Diagnostic>, _ canon: String) ->
 
 // Whether `d` belongs to the (canonical) `path` — its own file, or unattributed
 // (the primary).
-fn diagnostic_in_file(_ d: session.Diagnostic, _ path: String) -> Bool {
+fn diagnostic_in_file(_ d: diagnostic.Diagnostic, _ path: String) -> Bool {
     return match d.file {
         Some(f) => f == path,
         None => true,
     };
 }
 
-fn diagnostic_to_json(_ d: session.Diagnostic) -> Json {
+fn diagnostic_to_json(_ d: diagnostic.Diagnostic) -> Json {
     return json.obj({
         'range': positions.span_to_range(d.span),
-        'severity': json.int(1), // DiagnosticSeverity.Error
+        'severity': json.int(lsp_severity(d.severity)),
         'source': json.str('hawk'),
         'message': json.str(d.message),
     });
+}
+
+// Hawk `Severity` -> the LSP `DiagnosticSeverity` code (1 Error, 2 Warning,
+// 3 Information). Every compile-phase diagnostic is an Error today.
+fn lsp_severity(_ s: diagnostic.Severity) -> Int {
+    return match s {
+        Error => 1,
+        Warning => 2,
+        Info => 3,
+    };
 }
