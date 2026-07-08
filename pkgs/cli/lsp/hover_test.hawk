@@ -121,6 +121,23 @@ fn rendered_with_types(_ src: String, _ offset: Int) -> String {
 }
 
 @test
+fn test_hover_bare_variant_pattern() -> Result<Void, Error> {
+    // A bare variant pattern in a match arm renders as the qualified variant,
+    // resolved via the subject's committed type.
+    let src = 'enum Priority { Low, Medium, High }\n'
+        + 'fn weight(_ p: Priority) -> Int {\n'
+        + '    return match p {\n'
+        + '        Low => 1,\n'
+        + '        Medium => 2,\n'
+        + '        High => 4,\n'
+        + '    };\n'
+        + '}\n';
+    let code = rendered_with_types(src, at(src, 'Medium => 2', 2));
+    testing.assert_eq(actual: code, expected: '```hawk\nPriority.Medium\n```')?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_hover_unannotated_local_shows_inferred_type() -> Result<Void, Error> {
     let src = 'fn f() -> Int { let xs = [1, 2]; return xs[0]; }';
     // At the use site (the `Ident`'s committed record)...

@@ -99,6 +99,65 @@ fn test_definition_of_enum_variant() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
+// A match on an enum value, its arms naming bare variant patterns — the head of
+// each arm's constructor pattern is the enum variant, navigable via the subject's
+// committed type.
+const MATCH_SRC: String = 'enum Priority { Low, Medium, High }\n'
+    + 'fn weight(_ p: Priority) -> Int {\n'
+    + '    return match p {\n'
+    + '        Low => 1,\n'
+    + '        Medium => 2,\n'
+    + '        High => 4,\n'
+    + '    };\n'
+    + '}\n';
+
+@test
+fn test_definition_of_bare_variant_pattern() -> Result<Void, Error> {
+    // The `Medium` pattern head navigates to the `Medium` variant declaration.
+    let use_off = at(MATCH_SRC, 'Medium => 2', 2);
+    let decl_off = at(MATCH_SRC, 'Low, Medium', 5);
+    testing.assert_eq(actual: typed_def_offset(MATCH_SRC, use_off), expected: decl_off)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_self_variant_pattern_resolves() -> Result<Void, Error> {
+    // A variant pattern on a `self` subject inside an `impl` method resolves via
+    // the method's `self` type — the reported feature_tour case.
+    let src = 'enum Priority { Low, Medium, High }\n'
+        + 'interface Weighted { fn weight(self) -> Int; }\n'
+        + 'impl Weighted for Priority {\n'
+        + '    fn weight(self) -> Int {\n'
+        + '        return match self {\n'
+        + '            Low => 1,\n'
+        + '            Medium => 2,\n'
+        + '            High => 4,\n'
+        + '        };\n'
+        + '    }\n'
+        + '}\n';
+    let use_off = at(src, 'High => 4', 2);
+    let decl_off = at(src, 'Medium, High', 8);
+    testing.assert_eq(actual: typed_def_offset(src, use_off), expected: decl_off)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_variant_pattern_binding_still_local() -> Result<Void, Error> {
+    // A binding inside a constructor pattern (`n` in `Some(n)`) is a local, not a
+    // variant — the pattern-head target must not swallow it.
+    let src = 'enum Box { Full(Int), Empty }\n'
+        + 'fn unwrap(_ b: Box) -> Int {\n'
+        + '    return match b {\n'
+        + '        Full(n) => n,\n'
+        + '        Empty => 0,\n'
+        + '    };\n'
+        + '}\n';
+    let use_off = at(src, 'Full(n) => n', 5); // the `n` binding in the pattern
+    let decl_off = at(src, 'Full(n)', 5);     // its own declaration site
+    testing.assert_eq(actual: typed_def_offset(src, use_off), expected: decl_off)?;
+    return Result.Ok(void);
+}
+
 @test
 fn test_definition_of_self_type() -> Result<Void, Error> {
     // `self` navigates to the enclosing type's declaration.
