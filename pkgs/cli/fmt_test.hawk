@@ -73,3 +73,58 @@ fn collapses_blank_runs_and_trailing() -> Result<Void, Error> {
 fn trims_trailing_whitespace() -> Result<Void, Error> {
     return check('fn f() {   \n    x();  \n}\n', 'fn f() {\n    x();\n}\n');
 }
+
+// --- Stage A: intra-line spacing ---
+
+@test
+fn spaces_signature_and_comparison() -> Result<Void, Error> {
+    // Squished/loose spacing collapses to canonical; `a < b` stays a spaced
+    // comparison (not a generic).
+    return check(
+        'fn  foo( a:Int,b:String )->Bool{\nreturn a<b ;\n}\n',
+        'fn foo(a: Int, b: String) -> Bool {\n    return a < b;\n}\n');
+}
+
+@test
+fn tightens_generics_and_generic_call() -> Result<Void, Error> {
+    // A generic type argument list and a generic static call tighten their angle
+    // brackets, while the surrounding `=`/`[]` keep normal spacing.
+    return check(
+        'fn f() {\nlet xs : List < Int > = [ ] ;\nlet s = Set < String > .new ( ) ;\n}\n',
+        'fn f() {\n    let xs: List<Int> = [];\n    let s = Set<String>.new();\n}\n');
+}
+
+@test
+fn distinguishes_unary_and_binary_minus() -> Result<Void, Error> {
+    return check(
+        'fn f() {\nlet a = - 1 ;\nlet b = 3 - 1 ;\nlet c = xs [ 0 ] - 1 ;\nlet d = f ( - 2 ) ;\n}\n',
+        'fn f() {\n    let a = -1;\n    let b = 3 - 1;\n'
+        + '    let c = xs[0] - 1;\n    let d = f(-2);\n}\n');
+}
+
+@test
+fn spaces_struct_literal_interior() -> Result<Void, Error> {
+    return check(
+        'fn f() {\nlet p = Point{x:1,y:2} ;\n}\n',
+        'fn f() {\n    let p = Point { x: 1, y: 2 };\n}\n');
+}
+
+@test
+fn keeps_shift_operators_tight() -> Result<Void, Error> {
+    // `<<`/`>>`/`>>>` are adjacent-token shift operators the parser recognizes by
+    // adjacency, and `>>` also closes nested generics — splitting either would
+    // change the parse, so adjacent angle brackets stay tight.
+    return check(
+        'fn f() {\nlet a = v >>> 8 ;\nlet b = x << 2 ;\nlet m : Map < K , List < Int > > = { } ;\n}\n',
+        'fn f() {\n    let a = v >>> 8;\n    let b = x << 2;\n'
+        + '    let m: Map<K, List<Int>> = {};\n}\n');
+}
+
+@test
+fn leaves_trailing_comment_untouched() -> Result<Void, Error> {
+    // The gap before a `//` comment holds a newline (comments end their line), so
+    // Stage A never touches it — but code spacing on the line is still fixed.
+    return check(
+        'fn f() {\nlet x=1 ; // set x\n}\n',
+        'fn f() {\n    let x = 1; // set x\n}\n');
+}

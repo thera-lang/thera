@@ -14,16 +14,24 @@
 // extra level, except inside `(`/`[` where the bracket already provides the hang.
 // Multi-line string literals are emitted verbatim so their contents are untouched.
 //
-// Intra-line spacing (`fn  foo( a:Int )` → `fn foo(a: Int)`) is deliberately NOT
-// yet normalized: token adjacency alone can't tell generics (`List<Int>`) from
-// comparison (`a < b`), nor unary from binary `-`, so that step waits on
-// AST-aware spacing. Moving only whole lines stays correct without it.
+// Intra-line spacing (`fn  foo( a:Int )` → `fn foo(a: Int)`) is normalized as a
+// first pass (`space_intra_line`, Stage A) before the indentation pass (Stage B).
+// It rewrites only the whitespace *between* adjacent same-line tokens — driven
+// from the token stream, never rebuilding line content — so comments (line-only
+// in Hawk, hence never between two same-line tokens) and every lexeme are left
+// untouched. The one role token adjacency can't classify — `List<Int>` vs
+// `a < b` — comes from the parser's generic-delimiter side channel; unary vs
+// binary `-` is decided locally. A round-trip token check guards every result,
+// so spacing can never change the token stream (and never break a compile). See
+// docs/fmt_v2.md.
 
 import std.fs;
 import std.char;
 
 import 'lexer/lexer';
 import 'lexer/token' as _;
+import 'parser/parser';
+import 'edit/edit';
 
 const INDENT: String = '    ';
 
@@ -48,12 +56,15 @@ pub fn check_file(_ path: String) -> Result<Bool, Error> {
 // Format a string of source code. Idempotent: formatting formatted source is a
 // no-op.
 pub fn format_source(_ source: String) -> String {
-    let lines = source.lines();
+    // Stage A (intra-line spacing) then Stage B (indentation). A is a no-op on
+    // source that doesn't parse (e.g. a fix fragment), so B still runs.
+    let spaced = space_intra_line(source);
+    let lines = spaced.lines();
     let n = lines.len();
     if n == 0 {
         return '';
     }
-    return emit(lines, scan_lines(source, n));
+    return emit(lines, scan_lines(spaced, n));
 }
 
 // Format `text` as a standalone fragment and re-indent it to sit at `indent` (a
@@ -78,6 +89,227 @@ pub fn format_fragment(_ text: String, _ indent: String) -> String {
         }
     }
     return out.join('\n');
+}
+
+// --- Stage A: intra-line spacing ---
+
+// Normalize horizontal spacing between adjacent tokens on the same line by
+// rewriting only the whitespace *gaps* between them (never rebuilding line
+// content, so comments and lexemes are untouched). Driven from the token stream,
+// with the parser's generic-delimiter side channel as the sole role oracle.
+// Returns `source` unchanged if it doesn't lex/parse cleanly (a fix fragment, or
+// a syntactically-invalid file), or if the rewrite fails the round-trip token
+// check — so it can never change the token stream, and never break a compile.
+fn space_intra_line(_ source: String) -> String {
+    let lex = lexer.tokenize(source);
+    if lex.errors.len() > 0 {
+        return source;
+    }
+    let parsed = parser.parse_tokens(lex.tokens);
+    if parsed.errors.len() > 0 {
+        return source;
+    }
+    let delims = parsed.generic_delims;
+    let toks = code_tokens(lex.tokens);
+    let prefix_unary = compute_prefix_unary(toks, delims);
+
+    let edits: List<edit.TextEdit> = [];
+    let mut i = 0;
+    while i + 1 < toks.len() {
+        let a = toks[i];
+        let b = toks[i + 1];
+        let a_end = a.span.offset + a.span.length;
+        let b_start = b.span.offset;
+        // Only touch a same-line, whitespace-only gap. A gap holding a newline
+        // (the author's line break, or a line comment that ended the line) is
+        // left to Stage B; a comment can never sit between two same-line tokens.
+        // `b_start == a_end` is an adjacent pair (empty gap) — still a candidate,
+        // since a missing space may need inserting (`Point{` → `Point {`).
+        if b_start >= a_end {
+            let gap = source.slice(a_end, b_start);
+            if gap_is_spacing(gap) {
+                let want = if space_between(a, b, prefix_unary[i], delims) == 1 {
+                    ' '
+                } else {
+                    ''
+                };
+                if gap != want {
+                    edits.push(edit.replace(a_end, b_start, want));
+                }
+            }
+        }
+        i = i + 1;
+    }
+    if edits.len() == 0 {
+        return source;
+    }
+    let result = edit.apply_edits(source, edits);
+    let relexed = lexer.tokenize(result);
+    // Round-trip guard: the rewrite must leave the token stream unchanged (kinds
+    // + lexemes) *and* the source still parseable. The parse check catches
+    // offset-only changes the lexer can't see — the parser recognizes shift
+    // operators (`>>`) by token adjacency, so a stray space would break the parse
+    // without changing any token. On any failure, keep the original untouched.
+    if !same_tokens(lex.tokens, relexed.tokens) {
+        return source;
+    }
+    if parser.parse_tokens(relexed.tokens).errors.len() > 0 {
+        return source;
+    }
+    return result;
+}
+
+// The lexed tokens without the trailing EOF (which has no meaningful span).
+fn code_tokens(_ tokens: List<Token>) -> List<Token> {
+    let out: List<Token> = [];
+    for t in tokens {
+        if t.kind != TokenKind.Eof {
+            out.push(t);
+        }
+    }
+    return out;
+}
+
+// Whether a between-token gap is pure horizontal whitespace (spaces/tabs) — the
+// only gaps Stage A rewrites. Empty is spacing; a newline or anything else is not.
+fn gap_is_spacing(_ gap: String) -> Bool {
+    for cp in gap.chars() {
+        if cp != char.SPACE && cp != char.TAB {
+            return false;
+        }
+    }
+    return true;
+}
+
+// For each token, whether it is a prefix-unary operator. `!`/`~` always are;
+// `-` is unary iff the previous token doesn't end a value (so `-x`, `= -1`,
+// `[-1]`, `return -1` are unary, but `a - b`, `xs[i] - 1` are binary).
+fn compute_prefix_unary(_ toks: List<Token>, _ delims: parser.GenericDelims) -> List<Bool> {
+    let out: List<Bool> = [];
+    let mut i = 0;
+    while i < toks.len() {
+        let k = toks[i].kind;
+        let is_pfx = if k == TokenKind.Bang || k == TokenKind.Tilde {
+            true
+        } else if k == TokenKind.Minus {
+            i == 0 || !is_value_ender(toks[i - 1], delims)
+        } else {
+            false
+        };
+        out.push(is_pfx);
+        i = i + 1;
+    }
+    return out;
+}
+
+// The canonical spacing (0 or 1) for the gap between adjacent tokens `a` and `b`.
+// Zero when `a` binds tightly to what follows or `b` binds tightly to what
+// precedes; one otherwise (the fusion-safe default — two word-ish tokens are
+// never tight, and the round-trip check backs it up).
+fn space_between(_ a: Token, _ b: Token, _ a_prefix_unary: Bool,
+    _ delims: parser.GenericDelims) -> Int {
+    // An empty brace pair is tight (`{}`, `Foo {}`, `=> {}`) — a non-empty one
+    // spaces its interior (`Foo { x }`), which the default 1 already gives.
+    if a.kind == TokenKind.LBrace && b.kind == TokenKind.RBrace {
+        return 0;
+    }
+    // Two adjacent angle brackets must stay tight: `<<`/`>>`/`>>>` are shift
+    // operators the *parser* recognizes by token adjacency (not a lexer token),
+    // and `>>` also closes nested generics (`List<List<Int>>`). Separating them
+    // would silently change the parse — and the lexer-level round-trip check
+    // below can't see it (the token kinds/lexemes are unchanged, only offsets).
+    if is_angle(a.kind) && is_angle(b.kind) {
+        return 0;
+    }
+    if no_space_after(a, a_prefix_unary, delims) {
+        return 0;
+    }
+    if no_space_before(a, b, delims) {
+        return 0;
+    }
+    return 1;
+}
+
+// `a` binds tightly to the following token (no space after it): an opener, a
+// `.`/`..`/`@`/`#`, a prefix-unary operator, or a generic-opening `<`.
+fn no_space_after(_ a: Token, _ a_prefix_unary: Bool, _ delims: parser.GenericDelims) -> Bool {
+    if a_prefix_unary {
+        return true;
+    }
+    return match a.kind {
+        LParen => true,
+        LBracket => true,
+        Dot => true,
+        DotDot => true,
+        At => true,
+        Hash => true,
+        Lt => delims.opens.has(a.span.offset), // generic open: `List<Int`
+        _ => false,
+    };
+}
+
+// `b` binds tightly to the preceding token (no space before it): a closer, a
+// separator/terminator (`,` `;` `:`), a `.`/`..`, a postfix `?`, a generic angle
+// bracket, or a `(`/`[` that opens a call/index (prev token ends a value).
+fn no_space_before(_ a: Token, _ b: Token, _ delims: parser.GenericDelims) -> Bool {
+    return match b.kind {
+        RParen => true,
+        RBracket => true,
+        Comma => true,
+        Semi => true,
+        Colon => true,
+        Dot => true,
+        DotDot => true,
+        Question => true,
+        Lt => delims.opens.has(b.span.offset), // `List<`: tight to the type name
+        Gt => delims.closes.has(b.span.offset), // `Int>`: tight to the last arg
+        LParen => is_value_ender(a, delims), // call `foo(` vs group `return (`
+        LBracket => is_value_ender(a, delims), // index `xs[` vs literal `= [`
+        _ => false,
+    };
+}
+
+// An angle-bracket token (`<` or `>`) — a generic delimiter, a comparison, or
+// part of a shift operator.
+fn is_angle(_ k: TokenKind) -> Bool {
+    return k == TokenKind.Lt || k == TokenKind.Gt;
+}
+
+// Whether `t` can end a value/primary — used to tell a call/index `(`/`[` from a
+// grouping/literal one, and a binary `-` from a unary one. A generic-closing `>`
+// ends a type-argument list (`foo<T>(…)`), so it counts.
+fn is_value_ender(_ t: Token, _ delims: parser.GenericDelims) -> Bool {
+    return match t.kind {
+        Identifier => true,
+        IntLiteral => true,
+        FloatLiteral => true,
+        StringLiteral => true,
+        RParen => true,
+        RBracket => true,
+        Question => true,
+        KwSelf => true,
+        KwTrue => true,
+        KwFalse => true,
+        KwVoid => true,
+        Gt => delims.closes.has(t.span.offset),
+        _ => false,
+    };
+}
+
+// Whether two token streams are lexically identical (kinds + lexemes) — the
+// guarantee Stage A's edits preserved. Whitespace/spans aside.
+fn same_tokens(_ xs: List<Token>, _ ys: List<Token>) -> Bool {
+    if xs.len() != ys.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < xs.len() {
+        if xs[i].kind != ys[i].kind || xs[i].lexeme() != ys[i].lexeme() {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
 }
 
 // Per-line facts gathered from the token stream, indexed 0-based by line.

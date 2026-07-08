@@ -62,15 +62,32 @@ skipped and behavior falls back to today's indentation-only pass (fmt is already
 scoped to syntactically-valid files, so requiring a parse for _spacing_ is
 acceptable).
 
-### Safety net: round-trip token check
+### Safety net: round-trip check
 
-The one real hazard is collapsing a gap to 0 and **fusing** two tokens (`let x`
-→ `letx`, `-` `>` → `->`, `=` `=` → `==`). Guard it structurally (never 0
-between two word-ish tokens, nor between two operator glyphs that could combine)
-**and** verify: after Stage A, re-tokenize the result and assert the token
-kind+lexeme sequence is identical to the input (whitespace aside). On any
-mismatch, drop that gap's edit (or bail the whole file, unchanged). This turns
-"never breaks a compile" into a _checked_ invariant, cheap enough to always run.
+The one obvious hazard is collapsing a gap to 0 and **fusing** two tokens (`let x`
+→ `letx`, `-` `>` → `->`, `=` `=` → `==`). Guard it structurally (never 0 between
+two word-ish tokens) **and** verify: after Stage A, re-tokenize the result and
+assert the token kind+lexeme sequence is identical to the input.
+
+But — discovered in implementation — a **lexer-level** round-trip is *not
+sufficient*. Hawk's shift operators `<<` / `>>` / `>>>` are **not** lexer tokens;
+the *parser* recognizes them by combining **adjacent** single `<`/`>` tokens
+(`shift_op_ahead`, gated on `adjacent()` = touching offsets). Spacing `v >>> 8`
+into `v > > > 8` leaves the token kinds/lexemes **identical** (three `Gt`) — the
+lexer round-trip passes — yet the parse breaks, because the `>`s are no longer
+adjacent. Two-part fix:
+
+1. **Adjacent angle brackets stay tight.** In valid source, two touching `<`/`>`
+   tokens are always either a shift operator or a nested-generic close
+   (`List<List<Int>>`); both want 0. So `is_angle(a) && is_angle(b) ⇒ 0` — the
+   rewrite never separates them.
+2. **Re-parse guard.** The round-trip also re-parses the result and requires no
+   new errors, catching any *offset-only* parser-level change the lexer can't see.
+   On any failure (token mismatch or parse error) Stage A returns the source
+   untouched. This makes "never breaks a compile" a genuinely _checked_ invariant.
+
+(A subtlety worth stating: an empty gap — two already-adjacent tokens — is still a
+candidate, since a *missing* space may need inserting, e.g. `Point{` → `Point {`.)
 
 ## Where the AST is actually needed
 
@@ -144,25 +161,30 @@ cleanups").
 | Binary ops `+ * / % == != && \|\| & \| ^ <= >=` | **1** both sides                                                                  | `a + b`                               |
 | Prefix `-` `!` `~` (local rule above)           | **0** after                                                                       | `-x`, `!ok`                           |
 | Generic `<` `>` (side-channel)                  | **0** inside                                                                      | `List<Int>`, `Map<String, Int>`       |
+| Adjacent `<`/`>` (shift / nested close)         | **0** (never separate — see safety net)                                           | `v >>> 8`, `List<List<Int>>`          |
 | `(` / `[` leading                               | **0** before iff prev ∈ {id, `)`, `]`, `?`, generic-`>`} (call/index), else **1** | `foo(x)` vs `= [1, 2]`                |
-| Just inside struct / map literal `{ }`          | **1** (corpus convention)                                                         | `Foo { field: v }`                    |
+| Just inside a *non-empty* struct / map literal `{ }` | **1**                                                                        | `Foo { field: v }`, `{ 'a': 1 }`      |
+| Empty braces `{}` (block / literal / arm body)  | **0**                                                                              | `{}`, `Foo {}`, `Some(_) => {}`       |
 
-A few genuine style calls (spaces inside `{ }` for struct/map literals: **yes**,
-confirmed in the corpus; inside `[ ]` / `( )`: **no**) should be **ratified
-empirically** — pick the value that minimizes corpus churn, then dogfood a
-whole-tree sweep, exactly as v1 was validated.
+**Style calls, ratified against the corpus** (dogfooded as a whole-tree sweep —
+the changes reduced to hand-alignment collapse plus these two, no broken code,
+suite green): struct **and** map literals both space a non-empty interior
+(`{ 'a': 1 }`, matching `Foo { x }` — Stage A can't tell a map `{` from a struct
+`{` by token alone, and the shared rule reads consistently); empty `{}` is tight;
+`[ ]` / `( )` interiors are never spaced.
 
 ## Sequencing
 
-1. **Parser side-channel** for `GenericDelims` (+ tests) — the only
-   non-formatter change; small, additive, and compile-path-invisible (like
-   comments).
+1. **Parser side-channel** for `GenericDelims` (+ tests) — the only non-formatter
+   change; small, additive, and compile-path-invisible (like comments). _Done._
 2. **Stage A** in `fmt.hawk`: token-pair rule table + role oracle + gap-edits +
-   round-trip token check.
-3. **Wire A before B** in `format_source`; parse-failure ⇒ skip A.
+   round-trip guard (token equality **and** re-parse — see safety net). _Done._
+3. **Wire A before B** in `format_source`; parse-failure ⇒ skip A (so a fix
+   fragment that doesn't parse standalone still gets indented). _Done._
 4. **Ratify the style calls** against the corpus, then land the whole-tree `fmt`
    sweep + a CI `fmt --check` (the roadmap's "format the corpus" follow-up
-   becomes actionable once spacing is canonical).
+   becomes actionable once spacing is canonical). _Style calls ratified + sweep
+   landed; CI check remaining._
 
 ## Relationship to doc-comment tooling
 
