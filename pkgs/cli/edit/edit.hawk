@@ -26,6 +26,11 @@ pub fn span_edit(_ span: SourceSpan, _ new_text: String) -> TextEdit {
     };
 }
 
+// A pure insertion of `text` at code-point `offset` (nothing is removed).
+pub fn insert(_ offset: Int, _ text: String) -> TextEdit {
+    return TextEdit { start: offset, end: offset, new_text: text };
+}
+
 // Apply non-overlapping edits to `source`, returning the rewritten text. Edits are
 // applied back-to-front (highest offset first) so each splice leaves the offsets
 // of the not-yet-applied edits valid. Overlapping edits are unsupported (the

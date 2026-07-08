@@ -151,6 +151,16 @@ fn let_else_body_text(_ e: Expr) -> String {
     };
 }
 
+// --- add `let` to a struct field ---
+
+// Insert `let ` at the field's start (before any `mut`), turning `x: T` into
+// `let x: T` and `mut x: T` into `let mut x: T` — the migration toward a required
+// keyword (see roadmap → Language). A pure insertion: nothing else on the line
+// moves, so no reformat is needed.
+pub fn field_let_edit(_ f: FieldDef) -> edit.TextEdit {
+    return edit.insert(f.span.offset, 'let ');
+}
+
 // --- driving edits ---
 
 // A located, ready-to-apply rewrite: the anchor `span` (for overlap tests / code
@@ -282,7 +292,18 @@ fn fs_decl(_ d: Decl, _ out: List<FixSite>) -> Void {
         Const(c) => { fs_expr(c.value, out); },
         Let(l) => { fs_expr(l.value, out); },
         Import(_) => {},
-        Type(_) => {},
+        Type(t) => {
+            for f in t.fields {
+                if !lint.field_has_let(f) {
+                    out.push(FixSite {
+                        span: f.span,
+                        edit: field_let_edit(f),
+                        title: 'Add `let` to struct field',
+                        message: 'add `let` to field',
+                    });
+                }
+            }
+        },
         Enum(_) => {},
     }
 }

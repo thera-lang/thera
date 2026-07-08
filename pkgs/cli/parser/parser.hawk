@@ -646,6 +646,9 @@ impl Parser {
         let fields: List<FieldDef> = [];
         let mut going = true;
         while going && !self.panicking && !self.check(TokenKind.RBrace) && !self.at_end() {
+            // The field's first token (before any `let`/`mut`) — its `span` start,
+            // and where the `let`-insertion fix lands.
+            let start = self.current().span;
             // Optional `let` before a field (`let x: T`, `let mut x: T`) — the
             // migration phase toward a required keyword that differentiates a
             // struct declaration from an instantiation (see roadmap → Language).
@@ -658,7 +661,7 @@ impl Parser {
             let ftype = self.parse_type_ref();
             fields.push(FieldDef {
                 is_mut: is_mut, name: fname_tok.lexeme(), name_span: fname_tok.span,
-                type_ann: ftype,
+                type_ann: ftype, span: start.cover(type_span(ftype)),
             });
             if !self.match_kind(TokenKind.Comma) {
                 going = false;

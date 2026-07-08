@@ -255,3 +255,20 @@ fn let_else_reindents_a_multiline_else() -> Result<Void, Error> {
         + '    return x;\n}\n';
     return check(src, want);
 }
+
+@test
+fn adds_let_to_struct_fields() -> Result<Void, Error> {
+    // Each field without `let` gains one; `mut` stays after the inserted `let`,
+    // and already-migrated fields are left byte-identical. Pure insertions, so no
+    // reindent.
+    return check(
+        'struct S {\n    a: Int,\n    mut b: String,\n    let c: Bool,\n}\n',
+        'struct S {\n    let a: Int,\n    let mut b: String,\n    let c: Bool,\n}\n');
+}
+
+@test
+fn adds_let_to_inline_struct_fields() -> Result<Void, Error> {
+    return check(
+        'struct P { x: Int, y: Int }\n',
+        'struct P { let x: Int, let y: Int }\n');
+}

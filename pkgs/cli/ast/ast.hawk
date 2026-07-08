@@ -76,12 +76,15 @@ pub struct TypeDecl {
     fields: List<FieldDef>,
 }
 
-// A struct field: a name and its declared type.
+// A struct field: a name and its declared type. `span` covers the whole field —
+// from its leading keyword (`let`/`mut`) or name through its type — while
+// `name_span` isolates just the name (for hover / go-to-definition).
 pub struct FieldDef {
     is_mut: Bool,
     name: String,
     name_span: SourceSpan,
     type_ann: TypeRef,
+    span: SourceSpan,
 }
 
 pub struct ImplDecl {

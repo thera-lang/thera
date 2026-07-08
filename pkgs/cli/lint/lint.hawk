@@ -14,6 +14,7 @@
 
 import '../lexer/token' as _; // SourceSpan
 import '../ast/ast' as _;
+import std.char;
 
 // One located suggestion: which rule fired, where, and a human-readable message.
 // `rule` is a stable kebab-case id the CLI tallies by (and a code action would
@@ -215,6 +216,40 @@ fn detect_while_index(_ w: WhileStmt) -> Option<Suggestion> {
         },
         _ => Option.None,
     };
+}
+
+// A struct field written without a leading `let` — the migration form toward a
+// required keyword (see roadmap → Language). Purely a source check: the parser
+// consumes-and-discards the optional `let`, so `let x: T` and `x: T` yield
+// identical `FieldDef`s; the only witness is whether the field's source starts
+// with the keyword. This rule (and its fix) are transitional — retired once `let`
+// is required (a field without it then fails to parse, not lints).
+fn detect_field_needs_let(_ f: FieldDef) -> Option<Suggestion> {
+    if field_has_let(f) {
+        return Option.None;
+    }
+    return Option.Some(Suggestion {
+        rule: 'struct-field-needs-let',
+        span: f.span,
+        message: 'struct field should be declared with `let`',
+    });
+}
+
+// Whether the field's source begins with the `let` keyword. `f.span` starts
+// exactly at the field's first token, so a leading `let` (not an identifier that
+// merely starts with those letters, like `letter`) means the form is present.
+pub fn field_has_let(_ f: FieldDef) -> Bool {
+    let t = f.span.text();
+    if !t.starts_with('let') {
+        return false;
+    }
+    let cs = t.chars();
+    if cs.len() == 3 {
+        return true; // exactly `let` (degenerate)
+    }
+    // A keyword ends at a non-identifier char; `letter` continues as a name.
+    let next = cs[3];
+    return !(char.is_alphanumeric(next) || next == 95); // 95 = `_`
 }
 
 // --- Fix-able sites ---
@@ -750,7 +785,11 @@ fn walk_decl(_ d: Decl, _ out: List<Suggestion>) -> Void {
         Const(c) => { walk_expr(c.value, out); },
         Let(l) => { walk_expr(l.value, out); },
         Import(_) => {},
-        Type(_) => {},
+        Type(t) => {
+            for f in t.fields {
+                push_opt(detect_field_needs_let(f), out);
+            }
+        },
         Enum(_) => {},
     }
 }

@@ -648,14 +648,18 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   no semantic payload (mutability stays `FieldDef.is_mut`, composing as
   `let mut count: Int`), so no AST change is needed. Migration:
   1. **Parser accepts optional `let`** (consumed-and-discarded), sources still in
-     old syntax. Refresh the bootstrap snapshot to this front-end **before** step 3.
-  2. **Lint + fix** — a "struct field missing `let`" rule (`pkgs/cli/lint`) with an
-     insert-`let` mechanical fix (`pkgs/cli/fix`/`edit`). Prefer this over teaching
-     the formatter to inject tokens (that would make the whitespace-only formatter
-     a semantic rewriter, then need un-teaching).
-  3. **Migrate the corpus** — run the fix over `pkgs/cli`, `sdk/std`, `examples`.
-     Since the snapshot (post-step-1) already accepts `let`, it can build the
-     rewritten front-end sources.
+     old syntax — _done_. Bootstrap snapshot refreshed to this front-end.
+  2. **Lint + fix** — _done_. The `struct-field-needs-let` rule (`pkgs/cli/lint`)
+     with an insert-`let` mechanical fix (`pkgs/cli/fix`/`edit`, driven by
+     `hawk fix`). Chosen over teaching the formatter to inject tokens (that would
+     make the whitespace-only formatter a semantic rewriter, then need un-teaching).
+     `FieldDef` gained a `span` (full-field extent) so the insertion lands before
+     `mut`; the rule is a source check (the parser discards `let`, so the AST can't
+     witness it) and is transitional — retired at step 4.
+  3. **Migrate the corpus** — run `hawk fix --write` over `pkgs/cli`, `sdk/std`,
+     `examples`. `examples/` _done_; front-end + stdlib still to sweep. Since the
+     snapshot (post-step-1) already accepts `let`, it can build the rewritten
+     front-end sources.
   4. **Require `let`** — parser change; sources already carry it. Refresh the
      snapshot again; the `build_sdk.sh` fixpoint validates the whole tree.
   - Update `grammar.md` (`field = 'let' 'mut'? IDENT ':' type`) and language.md;
