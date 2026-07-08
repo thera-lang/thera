@@ -91,6 +91,15 @@ else
 fi
 rm -rf "$fmt_dir"
 
+# The tree itself must stay a fmt fixpoint — `fmt --check` over the whole corpus
+# must report nothing. Guards against unformatted code landing (the CI gate).
+tree_out="$("$HAWK" fmt --check pkgs/cli sdk/std examples bench 2>/dev/null)"; tree_code=$?
+if [ "$tree_code" -eq 0 ] && [ -z "$tree_out" ]; then
+  echo "  ok   fmt --check: corpus is a fixpoint"
+else
+  echo "  FAIL fmt --check: unformatted files:"; printf '%s\n' "$tree_out"; fail=1
+fi
+
 echo "==> diagnostic attribution (imported-file error names the import)"
 # An error in an imported file must be attributed to *that* file, not the
 # entrypoint that triggered the compile — a diagnostic span carries source text,
