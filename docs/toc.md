@@ -31,8 +31,5 @@ is"; read top-down for progressive detail.
 - [parser-recovery.md](parser-recovery.md) — **parser error recovery**:
   resilient parsing design, AST preservation, and incremental implementation
   plan.
-- [fmt_v2.md](fmt_v2.md) — **formatter v2 (intra-line spacing)**: the plan for
-  normalizing horizontal spacing — the gap-edit model, the generic-delimiter
-  parser side-channel, and the spacing rule table.
 
 (A concise orientation for agents lives in the repo-root `CLAUDE.md`.)

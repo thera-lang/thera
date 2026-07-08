@@ -22,8 +22,8 @@
 // untouched. The one role token adjacency can't classify — `List<Int>` vs
 // `a < b` — comes from the parser's generic-delimiter side channel; unary vs
 // binary `-` is decided locally. A round-trip token check guards every result,
-// so spacing can never change the token stream (and never break a compile). See
-// docs/fmt_v2.md.
+// so spacing can never change the token stream (and never break a compile). The
+// formatter's philosophy (no config, bounded scope) is in docs/architecture.md.
 
 import std.fs;
 import std.char;

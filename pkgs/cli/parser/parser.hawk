@@ -39,7 +39,7 @@ impl ParseResult {
 // operators (`a < b`), which are indistinguishable by token adjacency alone. The
 // formatter uses this to space `List<Int>` tight but `a < b` loose. Nested `>>`
 // closers are separate `Gt` tokens (the lexer never combines them — see
-// `token.hawk`), so each is recorded by its own offset. See docs/fmt_v2.md.
+// `token.hawk`), so each is recorded by its own offset. Consumed by `fmt`.
 pub struct GenericDelims {
     let opens: Set<Int>;  // offsets of `<` used as a generic open
     let closes: Set<Int>; // offsets of `>` used as a generic close

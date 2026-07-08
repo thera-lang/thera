@@ -61,7 +61,7 @@ fn parse_all_prefixes(_ src: String) -> Int {
     return count;
 }
 
-// --- generic-delimiter side channel (GenericDelims / docs/fmt_v2.md) ---
+// --- generic-delimiter side channel (GenericDelims; consumed by `fmt`) ---
 
 // The code-point offset of the first `needle` in `src` (or -1). Tests use it to
 // name the `<`/`>` token they expect the parser to have classified.

@@ -2,7 +2,9 @@
 
 **What this is:** where Hawk is today and what's next. Design details for
 _completed_ work live in [architecture.md](architecture.md) and
-[language.md](language.md); this doc focuses on what's open.
+[language.md](language.md); this doc focuses on what's open. As an arc lands, its
+open-work entry is removed and condensed into a one-line note in the
+[Changelog](#changelog) at the end.
 
 ## Current state
 
@@ -403,60 +405,6 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
 
 ### Developer tooling
 
-- **Formatter (`hawk fmt`) — _indentation + intra-line spacing both landed._**
-  `fmt` was v0 (trailing-whitespace trim + final newline); it is now a
-  **line-preserving indentation formatter** (`pkgs/cli/fmt.hawk`). It keeps
-  every line break the author chose (no automatic line breaking / re-joining —
-  the deliberately-deferred source of formatter complexity) and normalizes the
-  vertical layout: re-indents each line, collapses blank runs to one, trims
-  trailing whitespace, single final newline. Indentation is a **token-only**
-  pass over a stack of per-bracket _anchors_ — a `{` block hangs from the
-  statement base, a `(`/`[` from its opener line's visual column, several opens
-  on one line indent the body just once (`push(Foo {`), a continuation line
-  (leading `.`/ operator/`->`, or after a line ending in a binary operator) gets
-  one extra level, and multi-line string literals are emitted **verbatim**.
-  Validated by formatting the whole corpus: a **no-op except legit
-  blank/whitespace cleanups**, save ~4 lines in test files where the author used
-  open-paren _alignment_ or a paren-relative value-continuation — styles the
-  canonical hanging-indent form deliberately replaces. Idempotent (re-formatting
-  is a fixpoint); moves only whole lines, so tokens are preserved and it can
-  never break a compile.
-  - **Intra-line spacing — _landed_** (`fn  foo( name:String )` →
-    `fn foo(name: String)`), the last piece of the "eliminate ~99% of format
-    discussion" goal. Design + rationale in [fmt_v2.md](fmt_v2.md): a **gap-edit**
-    pass (Stage A, before the indentation pass) that rewrites only the whitespace
-    between adjacent same-line tokens, driven from the token stream — not an AST
-    pretty-printer, which the AST's omission of keyword/delimiter tokens rules
-    out. Only `<`/`>` is irreducibly ambiguous (`List<Int>` vs `a < b`; unary `-`
-    is decidable locally), resolved by a **generic-delimiter parser side-channel**
-    (`ParseResult.generic_delims`, the `LexResult.comments` pattern). Comment-safe
-    with no attachment logic — Hawk's line-only comments never sit between two
-    same-line tokens — so it shipped ahead of the doc-comment work below. A
-    **round-trip guard** (token equality + re-parse) keeps the
-    never-break-a-compile guarantee; the re-parse is load-bearing because
-    `<<`/`>>`/`>>>` are parser-level combinations of adjacent `<`/`>` tokens that
-    a lexer-only check can't see (so adjacent angle brackets also stay tight).
-  - **Corpus formatted — _done._** The whole tree (`pkgs/cli`/`sdk/std`/
-    `examples`/`bench`) was swept through `hawk fmt` and is a fmt fixpoint;
-    `bin/test.sh` now gates it with a whole-tree `fmt --check`.
-  - **Prerequisite + sequencing — _side channel landed._** The lexer used to
-    _discard_ comments; it now captures them on a **parser-invisible side
-    channel** — the positioned-comment-list (gofmt) model, chosen over trivia on
-    `Token`. `lexer.tokenize` returns `LexResult.comments`: a source-ordered
-    `List<Comment>` (`{kind, span}`; `CommentKind` = `Line`/`Doc` `///`/
-    `ModuleDoc` `//!`, classified by marker, `////`+ = `Line`), each span the
-    `//`-through-end-of-line text. Comments are **not** tokens, so the parser
-    stays comment-blind and the compile path is **byte-identical** (fixpoint
-    holds). **Blank-line structure is derived**, not stored — every token and
-    comment carries a start line, so a blank between two elements is a
-    line-number gap (a multi-line token counts newlines in its own text); no
-    redundant tracking added. This keeps the formatter **orthogonal to parser
-    recovery** and holds as long as we **only format syntactically-valid
-    files**. Remaining for the formatter proper: **comment attachment** (leading
-    / trailing / dangling) — re-associating the positioned list to AST nodes by
-    span — the hardest design call, deferred to `fmt` itself. The same side
-    channel is what doc-comment tooling (attach `///` to AST nodes) consumes.
-
 - **Doc-comment tooling — convention specced, machinery pending.** The doc
   conventions are defined ([language.md](language.md#documentation)): `///` item
   docs, `//!` file/package docs, plain `//` never extracted; a summary-first
@@ -465,8 +413,9 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   files; a behavior-neutral source change — the lexer skips `///`/`//!` as
   ordinary comments, so it stayed fixpoint-clean). The **trivia side-channel
   prerequisite is now landed** — the lexer surfaces comments (incl. `///`/`//!`,
-  classified) on `LexResult.comments` (see the formatter prerequisite above), so
-  they are no longer discarded — but every downstream consumer remains
+  classified) on `LexResult.comments` as a source-ordered, parser-invisible list
+  (the gofmt positioned-comment model; compile path byte-identical), so they are
+  no longer discarded — but every downstream consumer remains
   **pending** (the side channel is collected, then dropped: each `parse_tokens`
   call site passes only `lex.tokens`). The remaining tooling: (1) **attach docs
   to AST nodes** — a pass re-associating each `///`/`//!` comment to the decl it
@@ -801,6 +750,18 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **Formatter (`hawk fmt`)** (2026-07). A line-preserving formatter
+  (`pkgs/cli/fmt.hawk`): re-indents each line (token-only anchor stack),
+  normalizes intra-line spacing (a token-driven **gap-edit** pass — rewrites only
+  the whitespace between adjacent same-line tokens, so comments and lexemes are
+  untouched), collapses blank runs, trims trailing whitespace. Keeps every
+  author-chosen line break — no line joining/splitting. The one spacing role the
+  token stream can't classify (`List<Int>` vs `a < b`) comes from a
+  **generic-delimiter parser side-channel** (`ParseResult.generic_delims`, the
+  `LexResult.comments` model); a round-trip guard (token equality + re-parse)
+  makes "never breaks a compile" a checked invariant. No config knobs, by design.
+  The corpus is a fmt fixpoint, gated by `bin/test.sh`. Philosophy (no config,
+  bounded scope) in [architecture.md](architecture.md#the-formatter-hawk-fmt).
 - **Unified diagnostic model (audit LD15 tail)** (2026-07). Every phase — lex,
   parse, check, codegen, load — now produces one `Diagnostic {message, span,
   file, severity}` directly (new `pkgs/cli/diagnostic.hawk`), retiring the five

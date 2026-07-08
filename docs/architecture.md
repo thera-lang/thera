@@ -321,6 +321,7 @@ constant pool.
 | `hawk check <target>` | type-check a `.hawk` file or directory; emit diagnostics, no artifact |
 | `hawk emit <file> <out.hawkbc>` | compile `<file>` to a `.hawkbc` bytecode file |
 | `hawk test <file>` | run the `@test` functions in a Hawk program |
+| `hawk fmt <file\|dir>…` | format source in place (`--check` reports unformatted files, writes nothing) |
 | `hawk lsp` | start the language server (LSP over stdin/stdout) |
 
 **stdout vs. stderr.** The rule: stdout carries a command's _expected output_;
@@ -364,6 +365,29 @@ the call site via the `#loc` caller-location metaconstant (see
 test failures, so an agent or editor parses both with a single rule. Multi-line
 messages indent continuation lines under the location; diagnostics are emitted in
 a deterministic order, and pass/fail is *also* on the exit code (above).
+
+### The formatter (`hawk fmt`)
+
+`hawk fmt` canonicalizes source layout, and the expectation is that **most Hawk
+projects run it** (in an editor on save, and as a CI `fmt --check` gate). It has
+**no configuration options, by design**: there is one canonical layout, so a
+project never spends effort choosing or arguing a style. The goal is to
+**eliminate essentially all formatting discussion from code review** — layout is
+the formatter's output, not a thing humans diff over.
+
+What it normalizes is deliberately bounded. It fixes **vertical layout** (line
+indentation, blank-run collapsing, trailing whitespace) and **intra-line
+spacing** (`fn  foo( a:Int )` → `fn foo(a: Int)`). It does **not**, for the most
+part, reflow across line boundaries — it keeps every line break the author chose,
+and does not join short lines or insert breaks into long ones. That restraint is
+partly implementation simplicity (reflow is where formatter complexity lives),
+but also a readability call: where a line breaks often carries intent (a grouped
+argument list, an aligned match, a chain the author split for clarity), and
+mechanically canonicalizing it tends to hurt readability as often as it helps. So
+the author owns line breaks; the formatter owns everything within and between
+them. It moves only whole lines and rewrites only inter-token whitespace, so it
+**never changes what the code means** (a token-equality + re-parse guard enforces
+this) — running it is always safe.
 
 ## Options considered and rejected
 
