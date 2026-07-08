@@ -91,6 +91,27 @@ fn test_hover_top_level_still_resolves() -> Result<Void, Error> {
 }
 
 @test
+fn test_hover_interface_method_definition_name() -> Result<Void, Error> {
+    // Hovering a method's name at its declaration inside an `interface` shows the
+    // method signature (a method has no bare top-level name to fall back on).
+    let src = 'interface Weighted { fn weight(self) -> Int; }\n';
+    let code = rendered(src, at(src, 'fn weight', 3));
+    testing.assert(code.contains('fn weight(self) -> Int'), message: 'interface method signature')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_hover_impl_method_definition_name() -> Result<Void, Error> {
+    // Hovering a method's name at its declaration inside an `impl` block, too.
+    let src = 'struct S { n: Int }\n'
+        + 'interface Weighted { fn weight(self) -> Int; }\n'
+        + 'impl Weighted for S { fn weight(self) -> Int { return self.n; } }\n';
+    let code = rendered(src, at(src, 'fn weight(self) -> Int { return', 3));
+    testing.assert(code.contains('fn weight(self) -> Int'), message: 'impl method signature')?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_hover_member_of_unknown_receiver_is_null() -> Result<Void, Error> {
     // A member of a non-`self` receiver needs inference — don't guess. `count` here
     // is a member access on `other`, and must NOT resolve to the struct field.

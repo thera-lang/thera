@@ -217,6 +217,13 @@ pub fn resolve_at(_ ctx: ResolveCtx, _ text: String, _ offset: Int) -> Option<Re
     if let Some(res) = structural_resolved(ctx, ref, offset) {
         return Option.Some(res);
     }
+    // A method's *own name* at its definition, inside an `impl` or `interface`
+    // (`fn weight(...)`). A top-level function's definition name resolves via the
+    // bare-name path below, but a method has no bare name, so it needs this — else
+    // hovering a method's declaration name renders nothing.
+    if let Some(res) = method_def_resolved(ctx, ref, offset) {
+        return Option.Some(res);
+    }
     // A local binding of the enclosing function — a parameter, `let`, loop
     // variable, pattern binding, or lambda parameter (LS2). Locals shadow
     // everything non-lexical, so this must come before top-level resolution:
@@ -1711,6 +1718,35 @@ fn decl_resolved(_ ref: NameRef, _ site: DeclSite) -> Resolved {
             name_span: decl_name_span(site.decl),
         }),
     };
+}
+
+// A method's own name at its definition site — the `weight` of `fn weight(...)`
+// inside an `impl` or `interface` whose span covers the cursor. Renders the
+// method's signature and lands on itself. None when the cursor is on no such
+// name (a top-level function, a parameter, the body).
+fn method_def_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ offset: Int) -> Option<Resolved> {
+    for decl in ctx.program.decls {
+        let methods = match decl {
+            Impl(i) => if span_covers(i.span, offset) { i.methods } else { [] },
+            Interface(it) => if span_covers(it.span, offset) { it.methods } else { [] },
+            _ => [],
+        };
+        for m in methods {
+            if span_covers(m.name_span, offset) {
+                return Option.Some(Resolved {
+                    ref_span: ref.span,
+                    render: describe_fn(m),
+                    symbol: Option.Some(SymbolId {
+                        file: paths.program_path(ctx.program),
+                        kind: SymbolKind.Method,
+                        name: m.name,
+                        name_span: Option.Some(m.name_span),
+                    }),
+                });
+            }
+        }
+    }
+    return Option.None;
 }
 
 // The resolved target for a method at `ms` (a `Type.method` or `self.method`).
