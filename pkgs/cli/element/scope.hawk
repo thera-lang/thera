@@ -25,8 +25,8 @@ import 'element' as _;
 // whose imports/ownership govern resolution. A real source path is never empty,
 // so `None` denotes the primary/anonymous program (see `file_key`).
 pub struct FileScope {
-    library: LibraryElement,
-    file: Option<String>,
+    let library: LibraryElement;
+    let file: Option<String>;
 }
 
 // --- TypeRef -> Type resolution (scope-aware, Phase 1 T4) ---

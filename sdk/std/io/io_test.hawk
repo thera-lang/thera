@@ -8,9 +8,9 @@ import 'io' as _;
 /// A Reader over an in-memory buffer that hands out at most `chunk` bytes per
 /// read — so the combinators' read-until-EOF loops are exercised across chunks.
 struct MemReader {
-    data: Bytes,
-    mut pos: Int,
-    chunk: Int,
+    let data: Bytes;
+    let mut pos: Int;
+    let chunk: Int;
 }
 
 impl Reader for MemReader {

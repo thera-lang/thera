@@ -21,8 +21,8 @@ import '../ast/ast' as _;
 import '../diagnostic'; // Diagnostic — the uniform phase error
 
 pub struct ParseResult {
-    program: Program,
-    errors: List<diagnostic.Diagnostic>,
+    let program: Program;
+    let errors: List<diagnostic.Diagnostic>;
 }
 
 impl ParseResult {
@@ -32,10 +32,10 @@ impl ParseResult {
 }
 
 struct Parser {
-    tokens: List<Token>,
-    mut pos: Int,
-    errors: List<diagnostic.Diagnostic>,
-    mut panicking: Bool,
+    let tokens: List<Token>;
+    let mut pos: Int;
+    let errors: List<diagnostic.Diagnostic>;
+    let mut panicking: Bool;
 }
 
 // Parse a token stream into a Program (plus any recovered errors). (Named

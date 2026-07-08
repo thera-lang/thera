@@ -169,8 +169,8 @@ fn test_for_loop_over_list_iter() -> Result<Void, Error> {
 /// A user-defined iterator, looped over by its *concrete* type (not the
 /// Iterator interface) — exercises the concrete-conformer dispatch path.
 struct Doubler {
-    mut next_val: Int,
-    limit: Int,
+    let mut next_val: Int;
+    let limit: Int;
 }
 
 impl Iterator<Int> for Doubler {

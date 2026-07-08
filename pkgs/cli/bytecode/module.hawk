@@ -8,17 +8,17 @@ import 'instr';
 // A struct/enum layout entry. For now the runtime only needs the name and the
 // field count (the type table).
 pub struct TypeDef {
-    name: String,
-    field_count: Int,
+    let name: String;
+    let field_count: Int;
 }
 
 // A single function: its name, arity, local-slot count (params included), and
 // instruction stream. Locals are slots [0, local_count).
 pub struct FuncDef {
-    name: String,
-    param_count: Int,
-    local_count: Int,
-    code: List<instr.Instr>,
+    let name: String;
+    let param_count: Int;
+    let local_count: Int;
+    let code: List<instr.Instr>;
 }
 
 // Struct and enum type ids occupy separate numeric spaces (struct ids index the
@@ -32,17 +32,17 @@ pub const ENUM_DISPATCH_BASE: Int = 1 << 31;
 // struct; `ENUM_DISPATCH_BASE | ty` for an enum) is `functions[func]`.
 // `call.virtual <selector>` looks the target up by the receiver's type id.
 pub struct DispatchEntry {
-    type_id: Int,
-    selector: String,
-    func: Int,
+    let type_id: Int;
+    let selector: String;
+    let func: Int;
 }
 
 // A compiled module: its functions, type table, virtual-dispatch table, and the
 // number of module-global slots (top-level `let`; see docs/bytecode.md). The
 // initializers run in a synthesized `<init>` function the runtime calls by name.
 pub struct Module {
-    functions: List<FuncDef>,
-    types: List<TypeDef>,
-    dispatch: List<DispatchEntry>,
-    global_count: Int,
+    let functions: List<FuncDef>;
+    let types: List<TypeDef>;
+    let dispatch: List<DispatchEntry>;
+    let global_count: Int;
 }

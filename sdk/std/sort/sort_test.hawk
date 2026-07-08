@@ -37,7 +37,7 @@ fn test_min_max() -> Result<Void, Error> {
 }
 
 /// A user type with an `impl Ord` sorts and compares like a primitive.
-struct Version { major: Int, minor: Int }
+struct Version { let major: Int; let minor: Int; }
 
 impl Ord for Version {
     fn compare(self, _ other: Version) -> Ordering {

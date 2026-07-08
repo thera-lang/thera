@@ -21,24 +21,24 @@ import 'positions';       // position_to_offset
 pub struct Analysis {
     // uri -> current text (open-buffer overlays over what's on disk). The same
     // texts are mirrored into the session's overlay map under canonical keys.
-    docs: Map<String, String>,
-    session: session.Session,
+    let docs: Map<String, String>;
+    let session: session.Session;
     // uri -> the last document version the client sent (didOpen/didChange). Echoed
     // back on `publishDiagnostics` so the client can discard diagnostics computed
     // against a superseded revision — harmless while diagnostics are synchronous,
     // load-bearing once Phase 2 makes them async (LS9).
-    versions: Map<String, Int>,
+    let versions: Map<String, Int>;
     // Documents (URIs) edited since the last diagnostics flush. Lives beside
     // the caches so invalidation state is one object (LS-D1): an edit marks
     // here in the same call that evicts the session's caches, and Phase 2's
     // dependency-graph invalidation will mark importers dirty through the same
     // set. The server's flush drains it via `take_dirty`.
-    dirty: Set<String>,
+    let dirty: Set<String>;
     // The workspace root directories the client opened (from `initialize`'s
     // `workspaceFolders`/`rootUri`). Empty until `initialize` arrives, or when
     // the client is folder-less (a single loose file). These bound the on-disk
     // scan that makes references/rename project-wide — see `workspace_files`.
-    mut roots: List<String>,
+    let mut roots: List<String>;
 }
 
 pub fn new_analysis(_ sdk_root: Option<String>) -> Analysis {
@@ -55,18 +55,18 @@ pub fn new_analysis(_ sdk_root: Option<String>) -> Analysis {
 // owner-correct resolution surfaces (LS1) — and a cursor offset: the shared
 // input to the position-based requests (hover, definition).
 pub struct DocAnalysis {
-    ctx: resolve.ResolveCtx,
-    text: String,
-    offset: Int,
+    let ctx: resolve.ResolveCtx;
+    let text: String;
+    let offset: Int;
 }
 
 // One file in a project-wide references/rename scan: its display `uri` (for
 // returned Locations), filesystem `path` (for owner comparison + closure), and
 // the `text` to resolve against (open-buffer overlay or on-disk contents).
 struct ScanFile {
-    uri: String,
-    path: String,
-    text: String,
+    let uri: String;
+    let path: String;
+    let text: String;
 }
 
 impl Analysis {

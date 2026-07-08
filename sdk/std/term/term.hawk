@@ -30,8 +30,8 @@ pub fn size() -> Option<TermSize> {
 
 /// The terminal dimensions: `cols` columns wide by `rows` rows tall.
 pub struct TermSize {
-    cols: Int,
-    rows: Int,
+    let cols: Int;
+    let rows: Int;
 }
 
 // The native returns the raw `[cols, rows]` pair (or None); `size` assembles the

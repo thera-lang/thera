@@ -177,7 +177,7 @@ pub fn stderr() -> Writer {
 /// A Writer that captures everything written, for building a string via the
 /// Writer protocol — and the test double for any code that takes a `Writer`.
 pub struct StringWriter {
-    builder: BytesBuilder,
+    let builder: BytesBuilder;
 }
 
 impl StringWriter {
@@ -206,8 +206,8 @@ impl Writer for StringWriter {
 /// A Reader over an in-memory buffer — the read-side double for any `Reader`,
 /// and a way to run line/stream code over a literal string.
 struct InMemReader {
-    data: Bytes,
-    mut pos: Int,
+    let data: Bytes;
+    let mut pos: Int;
 }
 
 impl Reader for InMemReader {
@@ -269,12 +269,12 @@ fn strip_cr(_ b: Bytes) -> Bytes {
 /// Lines are split on `\n`; a trailing `\r` (CRLF) is stripped, and a final line
 /// without a newline is still yielded.
 pub struct BufReader {
-    source: Reader,
-    mut buf: Bytes,      // bytes read from `source` but not yet returned
-    mut scanned: Int,    // length of `buf` already scanned for `\n` (none below)
-    mut eof: Bool,       // `source` is exhausted
-    mut err: Option<Error>,
-    chunk: Int,          // bytes requested per underlying read
+    let source: Reader;
+    let mut buf: Bytes;      // bytes read from `source` but not yet returned
+    let mut scanned: Int;    // length of `buf` already scanned for `\n` (none below)
+    let mut eof: Bool;       // `source` is exhausted
+    let mut err: Option<Error>;
+    let chunk: Int;          // bytes requested per underlying read
 }
 
 impl BufReader {

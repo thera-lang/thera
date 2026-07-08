@@ -23,14 +23,14 @@ import std.io;
 
 /// The result of running a command to completion.
 pub struct ProcessResult {
-    exit_code: Int,
-    stdout: String,
-    stderr: String,
+    let exit_code: Int;
+    let stdout: String;
+    let stderr: String;
 }
 
 /// A handle to a spawned child process.
 pub struct Process {
-    id: Int,
+    let id: Int;
 }
 
 // --- errors ---
@@ -113,7 +113,7 @@ native fn _stderr_read(_ id: Int, _ max: Int) -> Result<Bytes, String>
 // --- child pipes as std.io streams ---
 
 /// A child's stdin, as a `Writer`. Each write is flushed.
-struct ProcessStdin { id: Int }
+struct ProcessStdin { let id: Int; }
 impl io.Writer for ProcessStdin {
     pub fn write(self, _ data: Bytes) -> Result<Int, Error> {
         return match _stdin_write(self.id, data) {
@@ -124,7 +124,7 @@ impl io.Writer for ProcessStdin {
 }
 
 /// A child's stdout, as a `Reader`. An empty read is EOF.
-struct ProcessStdout { id: Int }
+struct ProcessStdout { let id: Int; }
 impl io.Reader for ProcessStdout {
     pub fn read(self, max: Int) -> Result<Bytes, Error> {
         return match _stdout_read(self.id, max) {
@@ -135,7 +135,7 @@ impl io.Reader for ProcessStdout {
 }
 
 /// A child's stderr, as a `Reader`. An empty read is EOF.
-struct ProcessStderr { id: Int }
+struct ProcessStderr { let id: Int; }
 impl io.Reader for ProcessStderr {
     pub fn read(self, max: Int) -> Result<Bytes, Error> {
         return match _stderr_read(self.id, max) {

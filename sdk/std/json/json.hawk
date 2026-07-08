@@ -175,9 +175,9 @@ fn int_if_integral(_ x: Double) -> Option<Int> {
 
 /// A cursor over the input's code points.
 struct Scanner {
-    chars: List<Int>,
-    mut pos: Int,
-    len: Int,
+    let chars: List<Int>;
+    let mut pos: Int;
+    let len: Int;
 }
 
 pub fn parse(_ text: String) -> Result<Json, JsonError> {

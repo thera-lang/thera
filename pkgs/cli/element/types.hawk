@@ -22,8 +22,8 @@ pub enum Primitive {
 // `owner_file`), so all constructions of the same name carry the same owner and
 // structural `==` stays correct while type names remain globally unique.
 pub struct TypeId {
-    owner: String,
-    name: String,
+    let owner: String;
+    let name: String;
 }
 
 pub enum Type {

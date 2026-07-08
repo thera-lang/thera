@@ -12,9 +12,9 @@ import std.char;
 // Replace `source[start, end)` (code-point offsets, `end` exclusive) with
 // `new_text`. `start == end` is a pure insertion.
 pub struct TextEdit {
-    start: Int,
-    end: Int,
-    new_text: String,
+    let start: Int;
+    let end: Int;
+    let new_text: String;
 }
 
 // The edit that replaces the text a span covers with `new_text`.
@@ -55,8 +55,8 @@ pub fn apply_edits(_ source: String, _ edits: List<TextEdit>) -> String {
 // a `\n` ends a line). LSP positions are 0-based UTF-16 — that conversion belongs
 // to the LSP layer; this is the code-point view the front-end works in.
 pub struct Position {
-    line: Int,
-    column: Int,
+    let line: Int;
+    let column: Int;
 }
 
 // The (line, column) of a code-point `offset` in `source`, clamped to its length.

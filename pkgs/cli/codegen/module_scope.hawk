@@ -29,8 +29,8 @@ pub const TAG_NONE: Int = 1; // Option.None (Some = 0); see sdk/std/core/option.
 // Layout of a struct type: its index in the module type table and its field
 // names in declaration order (which fixes the field indices).
 pub struct StructInfo {
-    index: Int,
-    field_names: List<String>,
+    let index: Int;
+    let field_names: List<String>;
 }
 
 // A module-global initializer to run in the `<init>` thunk: the slot it fills,
@@ -38,11 +38,11 @@ pub struct StructInfo {
 // initializer expression, and the file it was declared in (so references inside
 // the initializer resolve against the right scope).
 pub struct GlobalInit {
-    slot: Int,
-    name: String,
-    span: SourceSpan,
-    value: Expr,
-    file: Option<String>,
+    let slot: Int;
+    let name: String;
+    let span: SourceSpan;
+    let value: Expr;
+    let file: Option<String>;
 }
 
 pub fn field_index_of(_ info: StructInfo, _ name: String) -> Int {
@@ -58,8 +58,8 @@ pub fn field_index_of(_ info: StructInfo, _ name: String) -> Int {
 // declaration order (which fixes the variant tags). Built-in Result/Option use
 // the fixed ids 0/1 and aren't registered here.
 pub struct EnumInfo {
-    ty: Int,
-    variants: List<EnumVariant>,
+    let ty: Int;
+    let variants: List<EnumVariant>;
 }
 
 // The tag (variant index) of `name`, or -1 if it isn't a variant.
@@ -86,10 +86,10 @@ pub fn field_count_of(_ info: EnumInfo, _ name: String) -> Int {
 // receiver type is carried owner-qualified (owner + name) so two libraries' same-
 // named types dispatch to their own methods (Phase 1 T4 follow-up).
 pub struct PendingDispatch {
-    owner: String,
-    type_name: String,
-    selector: String,
-    span: SourceSpan, // the impl method (or wired default) the row came from
+    let owner: String;
+    let type_name: String;
+    let selector: String;
+    let span: SourceSpan; // the impl method (or wired default) the row came from
 }
 
 // A concrete type's interface implementations — a set of interface identities
@@ -97,9 +97,9 @@ pub struct PendingDispatch {
 // Carries the split owner/name so the default-method wiring can rebuild the
 // dispatch row.
 pub struct ImplInfo {
-    owner: String,
-    type_name: String,
-    interfaces: Set<TypeId>,
+    let owner: String;
+    let type_name: String;
+    let interfaces: Set<TypeId>;
 }
 
 // The owner-qualified key of a value-level identity (a const's cycle guard, a
@@ -114,64 +114,64 @@ pub fn type_key(_ owner: String, _ name: String) -> String {
 // registration; `library` backs the on-demand inference codegen consumes for
 // opcode selection (Hawk has no `Expr.resolvedType`).
 pub struct ModuleScope {
-    units: List<FnDecl>,              // index -> declaration
-    unit_names: List<String>,         // index -> mangled name (e.g. Point.area)
-    unit_self_types: List<Option<String>>, // index -> receiver type, if a method
-    unit_files: List<Option<String>>, // index -> declaring file (for name scoping)
+    let units: List<FnDecl>;              // index -> declaration
+    let unit_names: List<String>;         // index -> mangled name (e.g. Point.area)
+    let unit_self_types: List<Option<String>>; // index -> receiver type, if a method
+    let unit_files: List<Option<String>>; // index -> declaring file (for name scoping)
     // Free functions resolve same-file-first, then via this file's **bare surface**
     // (prelude / `as _` imports) to the *owning* file's table — owner-correct, with
     // no global last-wins fallback, so two libraries' same-named free functions
     // resolve to distinct units (and a private helper can't leak cross-file).
     // Mirrors the element model's `FileScope.bare_owner`.
-    file_functions: Map<String, Map<String, Int>>,
-    method_table: Map<TypeId, Map<String, Int>>, // type -> method -> idx
+    let file_functions: Map<String, Map<String, Int>>;
+    let method_table: Map<TypeId, Map<String, Int>>; // type -> method -> idx
     // Type tables keyed by **owning file** then name (owner-correct, Phase 1 T3):
     // a `Type`'s `TypeId` resolves to its runtime layout via `owner`, so two
     // libraries' same-named types stay distinct. No global by-name fallback — a
     // wrong owner misses (and the SDK fixpoint would break), the same discipline
     // that validates values (`file_functions`) and the element model (T2).
-    structs: Map<String, Map<String, StructInfo>>, // owner -> name -> info
-    enums: Map<String, Map<String, EnumInfo>>,     // owner -> name -> info
-    types: List<TypeDef>,
+    let structs: Map<String, Map<String, StructInfo>>; // owner -> name -> info
+    let enums: Map<String, Map<String, EnumInfo>>;     // owner -> name -> info
+    let types: List<TypeDef>;
     // Top-level constants, keyed by **owning file** then name (owner-correct,
     // like `structs`/`file_functions`): two libraries' same-named consts inline
     // their own initializers, and cycle detection can't conflate them.
-    consts: Map<String, Map<String, Expr>>,
+    let consts: Map<String, Map<String, Expr>>;
     // Module globals (top-level `let`; see docs/bytecode.md), keyed by
     // **owning file** then name (owner-correct): owner -> name -> slot for
     // reference emission, plus the initializers to run in the `<init>` thunk.
-    globals: Map<String, Map<String, Int>>,
-    global_inits: List<GlobalInit>,
-    mut next_global_slot: Int,
+    let globals: Map<String, Map<String, Int>>;
+    let global_inits: List<GlobalInit>;
+    let mut next_global_slot: Int;
     // Top-level `native fn`s, keyed by **owning file** then Hawk name (owner-
     // correct): name -> the runtime symbol it binds to. A library's ordinary
     // `pub fn get` can no longer be hijacked by an unrelated import's native
     // `get`, and two libraries' same-named natives bind their own symbols.
-    native_fns: Map<String, Map<String, String>>,
-    native_static_methods: Map<String, Map<String, String>>,
-    native_instance_methods: Map<String, Map<String, String>>,
-    interface_impls: Map<TypeId, ImplInfo>, // type identity -> impls
-    interface_methods: Map<TypeId, Set<String>>,
-    pending_dispatch: List<PendingDispatch>,
-    interface_supers: Map<TypeId, List<TypeId>>,
-    mut next_enum_ty: Int,
-    boxed_params: Map<Int, Set<String>>,
-    mut cell_type: Option<Int>,
+    let native_fns: Map<String, Map<String, String>>;
+    let native_static_methods: Map<String, Map<String, String>>;
+    let native_instance_methods: Map<String, Map<String, String>>;
+    let interface_impls: Map<TypeId, ImplInfo>; // type identity -> impls
+    let interface_methods: Map<TypeId, Set<String>>;
+    let pending_dispatch: List<PendingDispatch>;
+    let interface_supers: Map<TypeId, List<TypeId>>;
+    let mut next_enum_ty: Int;
+    let boxed_params: Map<Int, Set<String>>;
+    let mut cell_type: Option<Int>;
     // Lifted-lambda units carry their parameter types here (capture + own
     // params), so the lambda's body can be typed when compiled as its own unit
     // — the pure-inference analogue of the Dart inferrer's annotation.
-    lambda_param_types: Map<Int, Map<String, Type>>,
+    let lambda_param_types: Map<Int, Map<String, Type>>;
     // Lifted-lambda units also carry the enclosing function's type-parameter
     // bounds (e.g. `T: Ord`), so a bound method called on a captured/own param of
     // type `T` inside the lambda still resolves through its bound when the lambda
     // is compiled as its own (type-parameter-less) unit.
-    lambda_bounds: Map<Int, Map<String, List<TypeId>>>,
+    let lambda_bounds: Map<Int, Map<String, List<TypeId>>>;
     // The `self_type` codegen actually put in each unit's inference context,
     // recorded during compilation so the differential oracle can observe (not
     // model) what codegen built and compare it to the checker-correct value.
-    unit_ctx_self: Map<Int, Option<Type>>,
+    let unit_ctx_self: Map<Int, Option<Type>>;
     // The resolved element model, for building an `InferCtx` per unit.
-    library: element.LibraryElement,
+    let library: element.LibraryElement;
 }
 
 pub fn new_module_scope(_ library: element.LibraryElement) -> ModuleScope {
@@ -722,8 +722,8 @@ impl ModuleScope {
 // `build_dispatch`'s result: the resolved dispatch table, plus any rows that
 // should have resolved but didn't (internal inconsistencies the caller reports).
 pub struct DispatchBuild {
-    entries: List<DispatchEntry>,
-    unresolved: List<PendingDispatch>,
+    let entries: List<DispatchEntry>;
+    let unresolved: List<PendingDispatch>;
 }
 
 // --- decorator / native-symbol helpers ---

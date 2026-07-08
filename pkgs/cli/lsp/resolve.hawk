@@ -34,14 +34,14 @@ import 'paths';              // program_path
 
 // The identifier under the cursor: its name and source span.
 pub struct NameRef {
-    name: String,
-    span: SourceSpan,
+    let name: String;
+    let span: SourceSpan;
 }
 
 // A resolved declaration together with the path of the file it lives in.
 pub struct DeclSite {
-    decl: Decl,
-    file: String,
+    let decl: Decl;
+    let file: String;
 }
 
 // The owner-correct resolution inputs for a document (LS1): the parsed primary,
@@ -49,15 +49,15 @@ pub struct DeclSite {
 // each file sees (name -> owning file) and each file's import namespaces (with
 // per-member origin). The same maps the compiler resolves with.
 pub struct ResolveCtx {
-    program: Program,
-    imports: List<Program>,
-    file_namespaces: Map<String, Map<String, element.LibraryNamespace>>,
-    file_bare_surface: Map<String, Map<String, String>>,
+    let program: Program;
+    let imports: List<Program>;
+    let file_namespaces: Map<String, Map<String, element.LibraryNamespace>>;
+    let file_bare_surface: Map<String, Map<String, String>>;
     // The primary file's committed-type record from the last check (CH19;
     // `Session.records_for`) — the inference-at-offset surface. May be empty
     // (no check yet, or a caller without a session); renders degrade to the
     // written annotation or the bare name.
-    primary_types: List<inference.TypeRecord>,
+    let primary_types: List<inference.TypeRecord>;
 }
 
 // What kind of thing a resolved symbol is. Distinguishes same-named symbols and
@@ -88,10 +88,10 @@ pub enum SymbolKind {
 // so its declaration, member accesses, and `S { field: … }` uses all share one
 // identity — fully renamable.
 pub struct SymbolId {
-    file: String,
-    kind: SymbolKind,
-    name: String,
-    name_span: Option<SourceSpan>,
+    let file: String;
+    let kind: SymbolKind;
+    let name: String;
+    let name_span: Option<SourceSpan>;
 }
 
 impl SymbolId {
@@ -131,9 +131,9 @@ impl SymbolId {
 // symbol via `def_file`/`def_span`, which are None when the symbol has no
 // navigable name span (a builtin).
 pub struct Resolved {
-    ref_span: SourceSpan,
-    render: String,
-    symbol: Option<SymbolId>,
+    let ref_span: SourceSpan;
+    let render: String;
+    let symbol: Option<SymbolId>;
 }
 
 impl Resolved {
@@ -465,8 +465,8 @@ fn name_at_in(_ toks: List<Token>, _ text: String, _ offset: Int) -> Option<Name
 // (to rebase spans found within it). The interp spans are already absolute
 // document offsets (the lexer stamps them), so slicing recovers the expression.
 struct InterpCtx {
-    text: String,
-    base: Int,
+    let text: String;
+    let base: Int;
 }
 
 fn interp_at(_ tok: Token, _ text: String, _ offset: Int) -> Option<InterpCtx> {
@@ -568,15 +568,15 @@ fn receiver_at_in(_ toks: List<Token>, _ text: String, _ offset: Int) -> Receive
 // so member/owner lookup uses the bare name directly, rather than round-tripping
 // a `List<T>` display string back through a strip-at-`<`.
 struct SelfType {
-    name: String,    // `List` — the bare type name, for owner/member resolution
-    display: String, // `List<T>` — the hover render
+    let name: String;    // `List` — the bare type name, for owner/member resolution
+    let display: String; // `List<T>` — the hover render
 }
 
 // The enclosing method's `self` type and the enclosing function/method — the
 // context a name resolves against.
 struct Enclosing {
-    self_type: Option<SelfType>,
-    fn_decl: Option<FnDecl>,
+    let self_type: Option<SelfType>;
+    let fn_decl: Option<FnDecl>;
 }
 
 fn enclosing_ctx(_ program: Program, _ offset: Int) -> Enclosing {
@@ -705,8 +705,8 @@ fn variant_resolved(_ ctx: ResolveCtx, _ ref: NameRef, _ owner: String, _ enum_n
 // written annotation (its *inferred* type still needs inference-at-offset —
 // the render degrades to the bare name).
 struct BindingSite {
-    span: SourceSpan,
-    type_ann: Option<TypeRef>,
+    let span: SourceSpan;
+    let type_ann: Option<TypeRef>;
 }
 
 // The local binding `ref` resolves to inside `fn_decl`, or None: parameters,
@@ -1570,8 +1570,8 @@ fn type_param_of(_ tps: List<TypeParam>, _ name: String) -> Option<TypeParam> {
 // --- member / variant / field lookup (file-aware, for navigation) ---
 
 struct MethodSite {
-    fn_decl: FnDecl,
-    file: String,
+    let fn_decl: FnDecl;
+    let file: String;
 }
 
 // A method of the type (`owner`, `type_name`): searched in every closure file's
@@ -1610,8 +1610,8 @@ fn methods_of(_ ctx: ResolveCtx, _ p: Program, _ owner: String, _ type_name: Str
 }
 
 struct FieldSite {
-    field: FieldDef,
-    file: String,
+    let field: FieldDef;
+    let file: String;
 }
 
 // A struct field lives with its type's declaration — the owner file only. The
@@ -1635,8 +1635,8 @@ fn find_field(_ ctx: ResolveCtx, _ owner: String, _ type_name: String, _ field: 
 }
 
 struct VariantSite {
-    variant: EnumVariant,
-    file: String,
+    let variant: EnumVariant;
+    let file: String;
 }
 
 // An enum's variants live with its declaration — the owner file only.

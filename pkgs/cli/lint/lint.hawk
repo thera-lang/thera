@@ -20,9 +20,9 @@ import std.char;
 // `rule` is a stable kebab-case id the CLI tallies by (and a code action would
 // key off).
 pub struct Suggestion {
-    rule: String,
-    span: SourceSpan,
-    message: String,
+    let rule: String;
+    let span: SourceSpan;
+    let message: String;
 }
 
 // Walk a whole program, collecting every suggestion. The entry point the CLI and
@@ -41,47 +41,47 @@ pub fn lint_program(_ p: Program) -> List<Suggestion> {
 // the scrutinee, the kept binding pattern, and the kept arm's body. Shared by the
 // diagnostic (below) and the `fix` transform.
 pub struct IfLetMatch {
-    match_span: SourceSpan,
-    subject: Expr,
-    keep_pattern: Pattern,
-    keep_body: Expr,
+    let match_span: SourceSpan;
+    let subject: Expr;
+    let keep_pattern: Pattern;
+    let keep_body: Expr;
 }
 
 // A `match` convertible to `.unwrap_or(…)` / `.unwrap_or_else(…)`. `fallback` is
 // the fallback arm's value; `err_binding` is the `Err(e)` binding (`Ok`/`Result`
 // only), which the rewrite threads into `unwrap_or_else`'s closure.
 pub struct UnwrapOrMatch {
-    match_span: SourceSpan,
-    subject: Expr,
-    is_result: Bool,
-    fallback: Expr,
-    err_binding: Option<String>,
+    let match_span: SourceSpan;
+    let subject: Expr;
+    let is_result: Bool;
+    let fallback: Expr;
+    let err_binding: Option<String>;
 }
 
 // A `match` convertible to `.map(…)`: the payload binding and the mapped
 // expression from the `Some(v) => Option.Some(EXPR)` arm.
 pub struct MapMatch {
-    match_span: SourceSpan,
-    subject: Expr,
-    bind: String,
-    mapped: Expr,
+    let match_span: SourceSpan;
+    let subject: Expr;
+    let bind: String;
+    let mapped: Expr;
 }
 
 // A `match` convertible to `?`: the error-propagating shape reduces to the
 // scrutinee with a trailing `?`, so the site needs only its span and subject.
 pub struct QuestionMatch {
-    match_span: SourceSpan,
-    subject: Expr,
+    let match_span: SourceSpan;
+    let subject: Expr;
 }
 
 // A `let x = match … { … }` convertible to `let CTOR(x) = SUBJ else { … }`. The
 // whole `let` statement is replaced, so the site carries its span and binding.
 pub struct LetElseMatch {
-    let_span: SourceSpan,
-    name: String,
-    ctor: String,
-    subject: Expr,
-    else_body: Expr,
+    let let_span: SourceSpan;
+    let name: String;
+    let ctor: String;
+    let subject: Expr;
+    let else_body: Expr;
 }
 
 // `match X { Some(v) => { … }, None => {} }` → `if let Some(v) = X { … }`.

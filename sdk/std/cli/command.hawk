@@ -60,43 +60,43 @@
 /// (the `default:` builder argument); a `negatable` flag also accepts
 /// `--no-<name>`, which reports false.
 pub struct Flag {
-    name: String,
-    help: String,
-    abbr: String,
-    negatable: Bool,
-    fallback: Bool,
+    let name: String;
+    let help: String;
+    let abbr: String;
+    let negatable: Bool;
+    let fallback: Bool;
 }
 
 /// A `--name value` option (carries a string value).
 pub struct Opt {
-    name: String,
-    help: String,
-    abbr: String,
+    let name: String;
+    let help: String;
+    let abbr: String;
 }
 
 /// A positional argument (named for `--help`; read back by index).
 pub struct Positional {
-    name: String,
-    help: String,
+    let name: String;
+    let help: String;
 }
 
 /// A command: its declared flags/options/positionals and any subcommands. Build
 /// one with the fluent `Command.new(...).flag(...).option(...)` builder.
 pub struct Command {
-    name: String,
-    mut about_text: String,
+    let name: String;
+    let mut about_text: String;
     /// A longer description, shown only in this command's own `--help` (not in a
     /// parent's command list) — progressive disclosure: the one-line `about` for
     /// the at-a-glance view, the `details` block when you ask for the command.
-    mut details_text: String,
-    flags: List<Flag>,
-    options: List<Opt>,
-    positionals: List<Positional>,
-    subcommands: List<Command>,
+    let mut details_text: String;
+    let flags: List<Flag>;
+    let options: List<Opt>;
+    let positionals: List<Positional>;
+    let subcommands: List<Command>;
     /// When true, the first positional token (and everything after it, flags
     /// included) is captured verbatim as positionals — for a launcher command
     /// that forwards a trailing argv to a wrapped program (`run <file> [args]`).
-    mut trailing_var_arg: Bool,
+    let mut trailing_var_arg: Bool;
 }
 
 /// What kind of thing `parse` rejected. The payload is the offending token
@@ -116,8 +116,8 @@ pub enum CliErrorKind {
 /// so it can be returned as `Result<_, Error>` at a boundary while callers who
 /// want the cause still `match` on `.kind()`.
 pub struct CliError {
-    kind: CliErrorKind,
-    path: List<String>,
+    let kind: CliErrorKind;
+    let path: List<String>;
 }
 
 impl CliError {
@@ -171,18 +171,18 @@ fn cli_error(_ kind: CliErrorKind) -> CliError {
 /// positionals, and (if one was selected) the chosen subcommand and its own
 /// `Matches`.
 pub struct Matches {
-    flag_values: Map<String, Bool>,
-    option_values: Map<String, String>,
-    positional_values: List<String>,
-    mut sub_name: Option<String>,
-    mut sub: Option<Matches>,
+    let flag_values: Map<String, Bool>;
+    let option_values: Map<String, String>;
+    let positional_values: List<String>;
+    let mut sub_name: Option<String>;
+    let mut sub: Option<Matches>;
 }
 
 /// A selected subcommand paired with its parsed `Matches` — what
 /// `Matches.selected()` returns so a dispatcher has both at once.
 pub struct Selection {
-    name: String,
-    matches: Matches,
+    let name: String;
+    let matches: Matches;
 }
 
 /// The outcome of the `run` entry adapter. Either the parse succeeded and no

@@ -26,14 +26,14 @@ import 'scope' as _;
 // impl, and the enclosing function's return type (the expected type of a bare
 // `return`'s value).
 pub struct InferCtx {
-    library: LibraryElement,
-    type_params: Set<String>,
-    self_type: Option<Type>,
-    return_type: Option<Type>,
-    type_param_bounds: Map<String, List<TypeId>>,
+    let library: LibraryElement;
+    let type_params: Set<String>;
+    let self_type: Option<Type>;
+    let return_type: Option<Type>;
+    let type_param_bounds: Map<String, List<TypeId>>;
     // The file of the function being inferred — the scope a bare free-function
     // reference resolves against (same-file-first).
-    mut current_file: Option<String>,
+    let mut current_file: Option<String>;
     // The committed-type memo for *this function's* nodes, keyed by `span_key`
     // (CH19). Write-once, checker-owned: only the checker's `record_type` writes
     // (its walk visits each real node exactly once, with the correct expected
@@ -45,20 +45,20 @@ pub struct InferCtx {
     // O(file); one function's nodes keep the scans short, and every duplicate
     // re-inference site is intra-function anyway. Callers that never populate
     // it (codegen, tests) pay one `len()` check per inference.
-    types: Map<Int, Type>,
+    let types: Map<Int, Type>;
     // Every committed type, appended in walk order across the whole check run —
     // a list, so accumulation is O(1) per node (no big-map insert scans).
     // Consumers scan it per query; a later entry for the same span supersedes
     // an earlier one (the `let` refinement override).
-    record_sink: List<TypeRecord>,
+    let record_sink: List<TypeRecord>;
 }
 
 // One committed-type fact: the node at `file`/`offset`/`length` has type `ty`.
 pub struct TypeRecord {
-    file: String,
-    offset: Int,
-    length: Int,
-    ty: Type,
+    let file: String;
+    let offset: Int;
+    let length: Int;
+    let ty: Type;
 }
 
 // A context for inferring at the top level (no enclosing generics/self/return).
@@ -194,8 +194,8 @@ fn infer_map(_ entries: List<MapEntry>, _ scope: Map<String, Type>, _ ctx: Infer
 // share (CH20), honoring a `ns.Point` qualifier — so `a.Point` and `b.Point`
 // construct distinct types (Phase 1 T4).
 pub struct StructDefRef {
-    id: TypeId,
-    element: TypeDefElement,
+    let id: TypeId;
+    let element: TypeDefElement;
 }
 
 pub fn resolve_struct_literal(_ fs: FileScope, _ x: StructExpr) -> Option<StructDefRef> {
@@ -1482,8 +1482,8 @@ pub fn lookup_method(_ recv: Type, _ field: String, _ arg_count: Int, _ ctx: Inf
 // method's parameter types makes receiver generics concrete, e.g. `push`'s `T`
 // becomes `Int` on a `List<Int>`).
 pub struct MethodResolution {
-    method: FunctionElement,
-    bindings: Map<String, Type>,
+    let method: FunctionElement;
+    let bindings: Map<String, Type>;
 }
 
 // Resolve a user/native impl method `field` on receiver type `recv`. None when
@@ -1574,8 +1574,8 @@ pub fn resolve_static_receiver(_ obj: Expr, _ field: String, _ scope: Map<String
 // receiver to bind them. Used by the checker to validate arguments and to
 // diagnose a return-only type parameter that nothing pins.
 pub struct StaticCall {
-    fn_el: FunctionElement,
-    type_params: List<String>,
+    let fn_el: FunctionElement;
+    let type_params: List<String>;
 }
 
 // Resolve a `recv.field(...)` callee that is a namespace function or a static

@@ -19,9 +19,9 @@ import '../lexer/token' as _; // SourceSpan, used by every node
 // --- Top level ---
 
 pub struct Program {
-    decls: List<Decl>,
+    let decls: List<Decl>;
     // Set by the loader after parsing; the parser leaves it None.
-    mut file_path: Option<String>,
+    let mut file_path: Option<String>;
 }
 
 // --- Declarations ---
@@ -38,151 +38,151 @@ pub enum Decl {
 }
 
 pub struct ImportDecl {
-    span: SourceSpan,
-    path: String, // e.g. 'std.fs' or 'wordcount'
-    path_span: SourceSpan,
-    alias: Option<String>,
-    alias_span: Option<SourceSpan>, // the alias identifier (Some iff `alias` is)
-    is_pub: Bool, // `pub import` re-exports the target's public symbols
+    let span: SourceSpan;
+    let path: String; // e.g. 'std.fs' or 'wordcount'
+    let path_span: SourceSpan;
+    let alias: Option<String>;
+    let alias_span: Option<SourceSpan>; // the alias identifier (Some iff `alias` is)
+    let is_pub: Bool; // `pub import` re-exports the target's public symbols
     // `import 'x' as _;` — bind no namespace; bring the library's public names
     // into this file's scope *unqualified* (see docs/language.md). `alias` is None.
-    unqualified: Bool,
+    let unqualified: Bool;
 }
 
 pub struct FnDecl {
-    span: SourceSpan,
-    decorators: List<Decorator>,
-    is_pub: Bool,
-    is_native: Bool,
-    name: String,
-    name_span: SourceSpan,
-    type_params: List<TypeParam>,
-    params: List<Param>,
-    return_type: Option<TypeRef>,
-    body: Option<Block>, // None for a native fn
+    let span: SourceSpan;
+    let decorators: List<Decorator>;
+    let is_pub: Bool;
+    let is_native: Bool;
+    let name: String;
+    let name_span: SourceSpan;
+    let type_params: List<TypeParam>;
+    let params: List<Param>;
+    let return_type: Option<TypeRef>;
+    let body: Option<Block>; // None for a native fn
 }
 
 pub struct TypeDecl {
-    span: SourceSpan,
-    is_pub: Bool,
+    let span: SourceSpan;
+    let is_pub: Bool;
     // A `native type` (`native type List<T>`): an opaque, runtime-represented
     // type with no field layout — a declaration site for the built-in types whose
     // representation lives in the runtime. `fields` is empty; methods come from
     // `impl` blocks like any other type.
-    is_native: Bool,
-    name: String,
-    name_span: SourceSpan,
-    type_params: List<TypeParam>,
-    fields: List<FieldDef>,
+    let is_native: Bool;
+    let name: String;
+    let name_span: SourceSpan;
+    let type_params: List<TypeParam>;
+    let fields: List<FieldDef>;
 }
 
 // A struct field: a name and its declared type. `span` covers the whole field —
 // from its leading keyword (`let`/`mut`) or name through its type — while
 // `name_span` isolates just the name (for hover / go-to-definition).
 pub struct FieldDef {
-    is_mut: Bool,
-    name: String,
-    name_span: SourceSpan,
-    type_ann: TypeRef,
-    span: SourceSpan,
+    let is_mut: Bool;
+    let name: String;
+    let name_span: SourceSpan;
+    let type_ann: TypeRef;
+    let span: SourceSpan;
 }
 
 pub struct ImplDecl {
-    span: SourceSpan,
-    type_name: String,
-    name_span: SourceSpan, // span of type_name
-    type_params: List<TypeParam>,
-    interface_name: Option<String>, // None = inherent impl
-    interface_name_span: Option<SourceSpan>, // Some iff `interface_name` is
+    let span: SourceSpan;
+    let type_name: String;
+    let name_span: SourceSpan; // span of type_name
+    let type_params: List<TypeParam>;
+    let interface_name: Option<String>; // None = inherent impl
+    let interface_name_span: Option<SourceSpan>; // Some iff `interface_name` is
     // The namespace qualifying the interface name (`impl io.Reader for X`), if
     // any — the interface resolves through it, like a `ns.T` annotation.
-    interface_namespace: Option<String>,
+    let interface_namespace: Option<String>;
     // The interface's type args, e.g. <Int> in `impl Iterator<Int> for RangeIter`.
-    interface_args: List<TypeRef>,
-    methods: List<FnDecl>,
+    let interface_args: List<TypeRef>;
+    let methods: List<FnDecl>;
 }
 
 pub struct InterfaceDecl {
-    span: SourceSpan,
-    is_pub: Bool,
-    name: String,
-    name_span: SourceSpan,
-    type_params: List<TypeParam>,
-    super_interfaces: List<String>, // extended interfaces, e.g. Display + Debug
-    super_spans: List<SourceSpan>, // one per super_interfaces entry
-    methods: List<FnDecl>,
+    let span: SourceSpan;
+    let is_pub: Bool;
+    let name: String;
+    let name_span: SourceSpan;
+    let type_params: List<TypeParam>;
+    let super_interfaces: List<String>; // extended interfaces, e.g. Display + Debug
+    let super_spans: List<SourceSpan>; // one per super_interfaces entry
+    let methods: List<FnDecl>;
 }
 
 pub struct ConstDecl {
-    span: SourceSpan,
-    is_pub: Bool,
-    name: String,
-    name_span: SourceSpan,
-    type_ann: Option<TypeRef>,
-    value: Expr,
+    let span: SourceSpan;
+    let is_pub: Bool;
+    let name: String;
+    let name_span: SourceSpan;
+    let type_ann: Option<TypeRef>;
+    let value: Expr;
 }
 
 // A module-level `let NAME[: Type] = expr;` — an immutable binding computed once
 // at load into a stored global slot (see docs/language.md). There is no
 // top-level `let mut` (the parser rejects it), so this carries no `is_mut`.
 pub struct LetDecl {
-    span: SourceSpan,
-    is_pub: Bool,
-    name: String,
-    name_span: SourceSpan,
-    type_ann: Option<TypeRef>,
-    value: Expr,
+    let span: SourceSpan;
+    let is_pub: Bool;
+    let name: String;
+    let name_span: SourceSpan;
+    let type_ann: Option<TypeRef>;
+    let value: Expr;
 }
 
 pub struct EnumDecl {
-    span: SourceSpan,
-    is_pub: Bool,
-    name: String,
-    name_span: SourceSpan,
-    type_params: List<TypeParam>,
-    variants: List<EnumVariant>,
+    let span: SourceSpan;
+    let is_pub: Bool;
+    let name: String;
+    let name_span: SourceSpan;
+    let type_params: List<TypeParam>;
+    let variants: List<EnumVariant>;
 }
 
 pub struct EnumVariant {
-    span: SourceSpan,
-    name: String,
-    name_span: SourceSpan,
-    fields: List<TypeRef>, // positional payload types; empty = no payload
+    let span: SourceSpan;
+    let name: String;
+    let name_span: SourceSpan;
+    let fields: List<TypeRef>; // positional payload types; empty = no payload
 }
 
 // --- Helpers attached to declarations ---
 
 pub struct Decorator {
-    span: SourceSpan,
-    name: String,
-    args: List<Expr>,
+    let span: SourceSpan;
+    let name: String;
+    let args: List<Expr>;
 }
 
 pub struct TypeParam {
-    span: SourceSpan,
-    name: String,
-    bounds: List<String>, // e.g. ['Eq', 'Debug']
-    bound_spans: List<SourceSpan>, // one per bounds entry
+    let span: SourceSpan;
+    let name: String;
+    let bounds: List<String>; // e.g. ['Eq', 'Debug']
+    let bound_spans: List<SourceSpan>; // one per bounds entry
 }
 
 pub struct Param {
-    span: SourceSpan,
+    let span: SourceSpan;
     // External label: None means suppressed (`_`); Some(name) when no separate
     // label was given (label == name); Some(other) for a distinct external label.
-    label: Option<String>,
-    is_self: Bool,
-    name: String,
-    name_span: SourceSpan,
-    type_ann: Option<TypeRef>,
-    default_value: Option<Expr>,
+    let label: Option<String>;
+    let is_self: Bool;
+    let name: String;
+    let name_span: SourceSpan;
+    let type_ann: Option<TypeRef>;
+    let default_value: Option<Expr>;
 }
 
 // A name with its exact source span — the unit reference-side tooling keys on
 // (PA11). Adopted incrementally: today the member of `Expr.Field`; other
 // name-carrying nodes record parallel `*_span` fields.
 pub struct Identifier {
-    name: String,
-    span: SourceSpan,
+    let name: String;
+    let span: SourceSpan;
 }
 
 // --- Type references ---
@@ -193,21 +193,21 @@ pub enum TypeRef {
 }
 
 pub struct NamedType {
-    span: SourceSpan,
-    name: String,
-    args: List<TypeRef>,
+    let span: SourceSpan;
+    let name: String;
+    let args: List<TypeRef>;
     // The import namespace a qualified reference was written with (`time` in
     // `time.Clock`), or None for a bare name. Resolution is by `name` alone; the
     // qualifier is carried for diagnostics.
-    namespace: Option<String>,
-    namespace_span: Option<SourceSpan>, // Some iff `namespace` is
+    let namespace: Option<String>;
+    let namespace_span: Option<SourceSpan>; // Some iff `namespace` is
 }
 
 // A function type, e.g. `(Int, String) -> Bool` or `() -> Int`.
 pub struct FunctionType {
-    span: SourceSpan,
-    params: List<TypeRef>,
-    return_type: TypeRef,
+    let span: SourceSpan;
+    let params: List<TypeRef>;
+    let return_type: TypeRef;
 }
 
 // --- Statements ---
@@ -242,49 +242,49 @@ pub fn assign_value(_ target: Expr, _ op: Option<String>, _ value: Expr) -> Expr
 }
 
 pub struct LetStmt {
-    span: SourceSpan,
-    is_mut: Bool,
-    name: String,
-    name_span: SourceSpan,
-    type_ann: Option<TypeRef>,
-    value: Expr,
+    let span: SourceSpan;
+    let is_mut: Bool;
+    let name: String;
+    let name_span: SourceSpan;
+    let type_ann: Option<TypeRef>;
+    let value: Expr;
 }
 
 pub struct IfStmt {
-    span: SourceSpan,
-    condition: Expr,
-    then_block: Block,
-    else_block: Option<Block>,
+    let span: SourceSpan;
+    let condition: Expr;
+    let then_block: Block;
+    let else_block: Option<Block>;
 }
 
 pub struct ForStmt {
-    span: SourceSpan,
-    pattern: Pattern,
-    iterable: Expr,
-    body: Block,
+    let span: SourceSpan;
+    let pattern: Pattern;
+    let iterable: Expr;
+    let body: Block;
 }
 
 pub struct WhileStmt {
-    span: SourceSpan,
-    condition: Expr,
-    body: Block,
+    let span: SourceSpan;
+    let condition: Expr;
+    let body: Block;
 }
 
 pub struct Block {
-    start_span: SourceSpan,
-    end_span: SourceSpan,
-    stmts: List<Stmt>,
+    let start_span: SourceSpan;
+    let end_span: SourceSpan;
+    let stmts: List<Stmt>;
     // The block's tail expression: a final expression with no trailing `;` whose
     // value is the block's value. Populated only for blocks parsed in expression
     // position (a BlockExpr or a `{…}` match arm); None for statement-position
     // blocks (fn/if/while/for bodies). See docs/language.md.
-    tail: Option<Expr>,
+    let tail: Option<Expr>;
     // True when a phase fabricated the block with no source braces of its own:
     // the `else if` chain wrapper (PA8 — otherwise indistinguishable from a
     // source `else { if … }`), an `if let`'s missing-else Unit block, a
     // `let … else` assertion body, a lifted lambda's body. fmt/lint/LSP
     // consumers must not attribute source text to a synthetic block.
-    synthetic: Bool,
+    let synthetic: Bool;
 }
 
 // --- Patterns ---
@@ -334,45 +334,45 @@ pub enum StringPart {
 }
 
 pub struct MapEntry {
-    key: Expr,
-    value: Expr,
+    let key: Expr;
+    let value: Expr;
 }
 
 pub struct StructExpr {
-    span: SourceSpan,
-    type_name: String,
+    let span: SourceSpan;
+    let type_name: String;
     // The import namespace a qualified construction was written with (`element` in
     // `element.LibraryNamespace { … }`), or None for a bare type. Resolution is by
     // `type_name` alone; the qualifier is carried for diagnostics (as in NamedType).
-    namespace: Option<String>,
-    fields: List<FieldInit>,
+    let namespace: Option<String>;
+    let fields: List<FieldInit>;
 }
 
 // A struct-literal field initializer: `name: value`.
 pub struct FieldInit {
-    name: String,
-    name_span: SourceSpan,
-    value: Expr,
+    let name: String;
+    let name_span: SourceSpan;
+    let value: Expr;
 }
 
 pub struct CallExpr {
-    span: SourceSpan,
-    callee: Expr,
+    let span: SourceSpan;
+    let callee: Expr;
     // Type arguments on the callee itself — a generic free function or method
     // (`foo<Int>(x)`, `xs.map<U>(f)`).
-    type_args: List<TypeRef>,
+    let type_args: List<TypeRef>;
     // Type arguments on the *receiver type* of a static call — `Set<String>.new()`
     // binds the owner `Set<T>`'s `T`, which the method's own `type_args` cannot.
     // Empty for every other call form.
-    recv_type_args: List<TypeRef>,
-    args: List<CallArg>,
+    let recv_type_args: List<TypeRef>;
+    let args: List<CallArg>;
 }
 
 pub struct CallArg {
-    span: SourceSpan,
-    label: Option<String>,
-    label_span: Option<SourceSpan>, // Some iff `label` is
-    value: Expr,
+    let span: SourceSpan;
+    let label: Option<String>;
+    let label_span: Option<SourceSpan>; // Some iff `label` is
+    let value: Expr;
 }
 
 // How a `MatchExpr` came to be: written as a `match`, or synthesized by the
@@ -387,30 +387,30 @@ pub enum MatchOrigin {
 }
 
 pub struct MatchExpr {
-    span: SourceSpan,
-    origin: MatchOrigin,
-    subject: Expr,
-    arms: List<MatchArm>,
+    let span: SourceSpan;
+    let origin: MatchOrigin;
+    let subject: Expr;
+    let arms: List<MatchArm>;
 }
 
 pub struct MatchArm {
-    span: SourceSpan,
-    pattern: Pattern,
-    body: Expr,
+    let span: SourceSpan;
+    let pattern: Pattern;
+    let body: Expr;
 }
 
 // A single lambda parameter: a name with an optional type annotation (None when
 // omitted, to be filled by inference from context).
 pub struct LambdaParam {
-    span: SourceSpan,
-    name: String,
-    type_ann: Option<TypeRef>,
+    let span: SourceSpan;
+    let name: String;
+    let type_ann: Option<TypeRef>;
 }
 
 pub struct LambdaExpr {
-    span: SourceSpan,
-    params: List<LambdaParam>,
-    body: Expr,
+    let span: SourceSpan;
+    let params: List<LambdaParam>;
+    let body: Expr;
 }
 
 // `if` in expression position — its value is the chosen branch's value. Distinct
@@ -419,10 +419,10 @@ pub struct LambdaExpr {
 // statement `if`. An `else if` chain is the else block's tail. See
 // docs/language.md.
 pub struct IfExpr {
-    span: SourceSpan,
-    condition: Expr,
-    then_block: Block,
-    else_block: Option<Block>,
+    let span: SourceSpan;
+    let condition: Expr;
+    let then_block: Block;
+    let else_block: Option<Block>;
 }
 
 // --- Span accessors (Dart's `.span` getters, as free functions over the enums) ---

@@ -43,7 +43,7 @@ native fn seed_entropy() -> Int
 /// A seedable pseudo-random generator. Hold one and draw from it; each draw
 /// advances its state in place.
 pub struct Rng {
-    mut state: Int,
+    let mut state: Int;
 }
 
 /// A generator seeded deterministically: the same seed always yields the same

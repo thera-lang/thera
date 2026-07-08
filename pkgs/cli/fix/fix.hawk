@@ -175,14 +175,30 @@ pub fn field_semicolon_edit(_ f: FieldDef) -> Option<edit.TextEdit> {
 
 // --- driving edits ---
 
-// A located, ready-to-apply rewrite: the anchor `span` (for overlap tests / code
-// actions), the `edit`, a human `title` (the code-action label), and a short
+// A located, ready-to-apply rewrite: the `rule` id it came from (matching the
+// `lint` rule ids, for `--only` filtering), the anchor `span` (for overlap tests /
+// code actions), the `edit`, a human `title` (the code-action label), and a short
 // `message` (the `hawk fix` preview line).
 pub struct FixSite {
-    span: SourceSpan,
-    edit: edit.TextEdit,
-    title: String,
-    message: String,
+    let rule: String;
+    let span: SourceSpan;
+    let edit: edit.TextEdit;
+    let title: String;
+    let message: String;
+}
+
+// Keep only the sites whose rule is in `only`; an empty `only` keeps them all.
+fn sites_matching(_ sites: List<FixSite>, _ only: List<String>) -> List<FixSite> {
+    if only.len() == 0 {
+        return sites;
+    }
+    let out: List<FixSite> = [];
+    for s in sites {
+        if only.contains(s.rule) {
+            out.push(s);
+        }
+    }
+    return out;
 }
 
 // Every available rewrite in `program`, in source order. At most one per `match`
@@ -195,11 +211,12 @@ pub fn fix_sites(_ p: Program) -> List<FixSite> {
     return out;
 }
 
-// The edits every available rewrite would make to `source`, in source order. Empty
-// for unparseable source — fixes require a valid tree.
-pub fn fix_edits(_ source: String) -> List<edit.TextEdit> {
+// The edits every available rewrite would make to `source`, in source order —
+// restricted to the rules in `only` (all rules when `only` is empty). Empty for
+// unparseable source (fixes require a valid tree).
+pub fn fix_edits(_ source: String, only: List<String> = []) -> List<edit.TextEdit> {
     let edits: List<edit.TextEdit> = [];
-    for site in parse_fix_sites(source) {
+    for site in sites_matching(parse_fix_sites(source), only) {
         edits.push(site.edit);
     }
     return edits;
@@ -228,11 +245,11 @@ pub fn parse_fix_sites(_ source: String) -> List<FixSite> {
 // a non-overlapping batch and repeats: rewriting the outer match leaves the inner
 // one verbatim in the result, where the next pass converts it. This converges —
 // every pass turns a `Source` match into an `IfLet`, which never re-fires.
-pub fn fix_source(_ source: String) -> String {
+pub fn fix_source(_ source: String, only: List<String> = []) -> String {
     let mut cur = source;
     let mut guard = 0;
     while guard < 1000 {
-        let edits = non_overlapping(fix_edits(cur));
+        let edits = non_overlapping(fix_edits(cur, only));
         if edits.len() == 0 {
             return cur;
         }
@@ -258,15 +275,16 @@ fn non_overlapping(_ edits: List<edit.TextEdit>) -> List<edit.TextEdit> {
 
 // A fix's location and label, for previewing what `hawk fix` would change.
 pub struct FixLocation {
-    line: Int,
-    column: Int,
-    message: String,
+    let line: Int;
+    let column: Int;
+    let message: String;
 }
 
-// The located fixes in `source` (parallel to `fix_edits`), for preview output.
-pub fn fix_locations(_ source: String) -> List<FixLocation> {
+// The located fixes in `source` (parallel to `fix_edits`), restricted to `only`
+// (all rules when empty), for preview output.
+pub fn fix_locations(_ source: String, only: List<String> = []) -> List<FixLocation> {
     let out: List<FixLocation> = [];
-    for site in parse_fix_sites(source) {
+    for site in sites_matching(parse_fix_sites(source), only) {
         let pos = edit.offset_to_line_col(source, site.edit.start);
         out.push(FixLocation {
             line: pos.line,
@@ -308,6 +326,7 @@ fn fs_decl(_ d: Decl, _ out: List<FixSite>) -> Void {
             for f in t.fields {
                 if !lint.field_has_let(f) {
                     out.push(FixSite {
+                        rule: 'struct-field-needs-let',
                         span: f.span,
                         edit: field_let_edit(f),
                         title: 'Add `let` to struct field',
@@ -316,6 +335,7 @@ fn fs_decl(_ d: Decl, _ out: List<FixSite>) -> Void {
                 }
                 if let Some(e) = field_semicolon_edit(f) {
                     out.push(FixSite {
+                        rule: 'struct-field-needs-semicolon',
                         span: f.span,
                         edit: e,
                         title: 'Terminate struct field with `;`',
@@ -347,6 +367,7 @@ fn fs_stmt(_ s: Stmt, _ out: List<FixSite>) -> Void {
         Let(l) => {
             if let Some(site) = lint.match_let_else(l) {
                 out.push(FixSite {
+                    rule: 'match-to-let-else',
                     span: site.let_span,
                     edit: let_else_edit(site),
                     title: 'Convert `match` to `let … else`',
@@ -384,6 +405,7 @@ fn fs_stmt(_ s: Stmt, _ out: List<FixSite>) -> Void {
 fn fs_match(_ m: MatchExpr, _ out: List<FixSite>) -> Void {
     if let Some(site) = lint.match_if_let(m) {
         out.push(FixSite {
+            rule: 'match-to-if-let',
             span: m.span,
             edit: if_let_edit(site),
             title: 'Convert `match` to `if let`',
@@ -391,6 +413,7 @@ fn fs_match(_ m: MatchExpr, _ out: List<FixSite>) -> Void {
         });
     } else if let Some(site) = lint.match_question(m) {
         out.push(FixSite {
+            rule: 'match-to-question',
             span: m.span,
             edit: question_edit(site),
             title: 'Convert `match` to `?`',
@@ -398,6 +421,7 @@ fn fs_match(_ m: MatchExpr, _ out: List<FixSite>) -> Void {
         });
     } else if let Some(site) = lint.match_unwrap_or(m) {
         out.push(FixSite {
+            rule: 'match-to-unwrap-or',
             span: m.span,
             edit: unwrap_or_edit(site),
             title: 'Convert `match` to `unwrap_or`',
@@ -405,6 +429,7 @@ fn fs_match(_ m: MatchExpr, _ out: List<FixSite>) -> Void {
         });
     } else if let Some(site) = lint.match_map(m) {
         out.push(FixSite {
+            rule: 'match-to-map',
             span: m.span,
             edit: map_edit(site),
             title: 'Convert `match` to `map`',

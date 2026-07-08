@@ -22,12 +22,12 @@ import '../element/inference' as _;
 import '../diagnostic'; // Diagnostic — the uniform phase error
 
 pub struct CheckResult {
-    errors: List<diagnostic.Diagnostic>,
+    let errors: List<diagnostic.Diagnostic>;
     // The committed-type record built during the walk (CH19), in walk order:
     // every real expression node of each checked (non-skipped) file, plus `let`
     // name spans. A later entry for the same span supersedes an earlier one
     // (the `let` refinement override).
-    records: List<TypeRecord>,
+    let records: List<TypeRecord>;
 }
 
 pub fn has_errors(_ r: CheckResult) -> Bool {
@@ -98,11 +98,11 @@ fn add_error(_ errors: List<diagnostic.Diagnostic>, _ message: String, _ span: S
 
 // A top-level declaration's site, for collision reporting.
 struct NameSite {
-    file: Option<String>,
-    span: SourceSpan,
-    is_pub: Bool,
-    primary: Bool,
-    kind: String, // 'function' | 'type' | 'constant' | 'global' | 'namespace'
+    let file: Option<String>;
+    let span: SourceSpan;
+    let is_pub: Bool;
+    let primary: Bool;
+    let kind: String; // 'function' | 'type' | 'constant' | 'global' | 'namespace'
 }
 
 // Flag top-level names introduced more than once. **One name space per scope**
@@ -313,8 +313,8 @@ fn reserved_params(_ errors: List<diagnostic.Diagnostic>, _ type_params: List<Ty
 
 // A name with the span to report it at.
 struct NamedSpan {
-    name: String,
-    span: SourceSpan,
+    let name: String;
+    let span: SourceSpan;
 }
 
 // A `const` initializer must be *manifest* — a compile-time constant safe to
@@ -822,17 +822,17 @@ fn copy_muts(_ m: Map<String, Bool>) -> Map<String, Bool> {
 // they can never desync (the hazard behind the old parallel `scope`/`muts`
 // params). Leaf checks that only read types take `cc.scope`/`cc.infer`/`cc.errors`.
 struct CheckCtx {
-    errors: List<diagnostic.Diagnostic>,
-    infer: InferCtx,
-    scope: Map<String, Type>,
-    muts: Map<String, Bool>,
+    let errors: List<diagnostic.Diagnostic>;
+    let infer: InferCtx;
+    let scope: Map<String, Type>;
+    let muts: Map<String, Bool>;
     // A shared 1-shot box guarding the "returns a value but has no return type"
     // boundary diagnostic (see [check_missing_return_type]). Empty means "active,
     // not yet reported" — the state a function body with an omitted return type
     // starts in. A non-empty box suppresses the diagnostic: a function reports it
     // at most once, and non-function-body contexts (a `const`/`let` initializer)
     // start pre-filled so a stray `return` there never trips it.
-    no_return_reported: List<Bool>,
+    let no_return_reported: List<Bool>;
 }
 
 impl CheckCtx {

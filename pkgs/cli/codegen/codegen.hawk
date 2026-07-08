@@ -28,8 +28,8 @@ import '../diagnostic'; // Diagnostic — the uniform phase error
 import std.env;   // the differential inference oracle (HAWK_INFER_ORACLE) reads a flag
 
 pub struct CodegenResult {
-    module: Module,
-    errors: List<diagnostic.Diagnostic>,
+    let module: Module;
+    let errors: List<diagnostic.Diagnostic>;
 }
 
 // The three jump kinds the backpatcher emits.
@@ -42,9 +42,9 @@ pub enum Jk {
 // A placeholder jump awaiting its target: the instruction position to patch, the
 // label it targets, and which jump opcode to emit.
 pub struct Fixup {
-    pos: Int,
-    label: Int,
-    kind: Jk,
+    let pos: Int;
+    let label: Int;
+    let kind: Jk;
 }
 
 // The lexical maps saved at a scope boundary (a block, a match arm, a for loop).
@@ -54,8 +54,8 @@ pub struct Fixup {
 // reused — only name visibility restores — so a shadowed outer binding reads its
 // own slot again after the block instead of the inner one's.
 struct SavedScope {
-    slots: Map<String, Int>,
-    types: Map<String, Type>,
+    let slots: Map<String, Int>;
+    let types: Map<String, Type>;
 }
 
 // The compiler's full per-position context, saved when compilation crosses into
@@ -65,11 +65,11 @@ struct SavedScope {
 // are the one seam that moves them), and the lexical maps and type-parameter
 // bounds, which a top-level initializer must not see.
 struct FileContext {
-    file: Option<String>,
-    ctx: InferCtx,
-    slots: Map<String, Int>,
-    types: Map<String, Type>,
-    bounds: Map<String, List<TypeId>>,
+    let file: Option<String>;
+    let ctx: InferCtx;
+    let slots: Map<String, Int>;
+    let types: Map<String, Type>;
+    let bounds: Map<String, List<TypeId>>;
 }
 
 // --- entry point ---
@@ -228,23 +228,23 @@ fn register_module(_ scope: ModuleScope, _ program: Program) -> Void {
 // --- the per-function compiler ---
 
 pub struct FnCompiler {
-    scope: ModuleScope,
-    code: List<Instr>,
-    mut slots: Map<String, Int>,
-    mut type_scope: Map<String, Type>,
-    mut type_param_bounds: Map<String, List<TypeId>>,
-    consts_in_progress: Set<String>,
-    boxed_locals: Set<String>,
-    mut local_count: Int,
-    mut param_count: Int,
-    mut returns_result: Bool,
-    labels: List<Option<Int>>,
-    fixups: List<Fixup>,
-    mut ctx: InferCtx,
+    let scope: ModuleScope;
+    let code: List<Instr>;
+    let mut slots: Map<String, Int>;
+    let mut type_scope: Map<String, Type>;
+    let mut type_param_bounds: Map<String, List<TypeId>>;
+    let consts_in_progress: Set<String>;
+    let boxed_locals: Set<String>;
+    let mut local_count: Int;
+    let mut param_count: Int;
+    let mut returns_result: Bool;
+    let labels: List<Option<Int>>;
+    let fixups: List<Fixup>;
+    let mut ctx: InferCtx;
     // The file this unit was declared in — the scope a bare free-function
     // reference resolves against (same-file-first).
-    mut file: Option<String>,
-    errors: List<diagnostic.Diagnostic>,
+    let mut file: Option<String>;
+    let errors: List<diagnostic.Diagnostic>;
 }
 
 pub fn new_fn_compiler(_ scope: ModuleScope, _ errors: List<diagnostic.Diagnostic>) -> FnCompiler {
@@ -2137,8 +2137,8 @@ impl FnCompiler {
 
 // A resolved enum variant reference (its enum info and the variant's tag).
 pub struct EnumVariantRef {
-    info: EnumInfo,
-    tag: Int,
+    let info: EnumInfo;
+    let tag: Int;
 }
 
 // A match large enough to dispatch on a hoisted enum tag rather than the per-arm
@@ -2149,8 +2149,8 @@ pub const MATCH_DISPATCH_MIN_CASES: Int = 6;
 // A planned binary-search dispatch: each non-final arm keyed by its variant tag,
 // plus the final catch-all arm.
 pub struct DispatchPlan {
-    cases: Map<Int, MatchArm>,
-    default_arm: MatchArm,
+    let cases: Map<Int, MatchArm>;
+    let default_arm: MatchArm;
 }
 
 // The invariant context of a match's enum-dispatch emission, shared by
@@ -2158,11 +2158,11 @@ pub struct DispatchPlan {
 // tag subrange (`lo`/`hi`) changes; everything here stays constant, so it rides
 // in one struct rather than as five repeated parameters.
 struct MatchCtx {
-    subject: Int,           // slot holding the subject value
-    subject_ty: Type,       // the subject's full (instantiated) type
-    tag_slot: Int,          // slot holding the hoisted `enum.tag`
-    end: Int,               // the merge label each arm body jumps to
-    expected: Option<Type>, // the expected result type of an arm body
+    let subject: Int;           // slot holding the subject value
+    let subject_ty: Type;       // the subject's full (instantiated) type
+    let tag_slot: Int;          // slot holding the hoisted `enum.tag`
+    let end: Int;               // the merge label each arm body jumps to
+    let expected: Option<Type>; // the expected result type of an arm body
 }
 
 // The number of non-final arms that emit a top-level tag test in the linear
@@ -2455,8 +2455,8 @@ interface TreeVisitor {
 // first-reference order (the capture layout must be deterministic). Descends
 // into nested lambdas (their inner references can still be free here).
 struct FreeVars {
-    free: List<String>,
-    seen: Set<String>,
+    let free: List<String>;
+    let seen: Set<String>;
 }
 
 impl TreeVisitor for FreeVars {
@@ -2473,8 +2473,8 @@ impl TreeVisitor for FreeVars {
 // Collects a function's own `mut` locals and its top-level lambdas (a lambda's
 // body belongs to the lifted unit, so it is not descended into).
 struct BoxScan {
-    muts: Set<String>,
-    lambdas: List<LambdaExpr>,
+    let muts: Set<String>;
+    let lambdas: List<LambdaExpr>;
 }
 
 impl TreeVisitor for BoxScan {

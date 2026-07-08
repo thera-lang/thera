@@ -130,16 +130,16 @@ pub fn keyword_kind(_ text: String) -> Option<TokenKind> {
 // A region of source: the originating text plus the code-point offset, length,
 // and the 1-based (line, column) of its start.
 pub struct SourceSpan {
-    source: String,
+    let source: String;
     // The canonical key of the file this span lies in (LD7/LD17), or `''`
     // when the producer had no file (a hermetic/text-only tokenize). This is
     // what attributes a diagnostic to its owning file — never the source
     // *text* (identical file contents would collide).
-    file: String,
-    offset: Int,
-    length: Int,
-    line: Int,
-    column: Int,
+    let file: String;
+    let offset: Int;
+    let length: Int;
+    let line: Int;
+    let column: Int;
 }
 
 impl SourceSpan {
@@ -205,8 +205,8 @@ pub enum CommentKind {
 }
 
 pub struct Comment {
-    kind: CommentKind,
-    span: SourceSpan,
+    let kind: CommentKind;
+    let span: SourceSpan;
 }
 
 // Classify a line comment by its marker. `text` is the comment verbatim (starting
@@ -225,17 +225,17 @@ pub fn classify_comment(_ text: String) -> CommentKind {
 // A lexical token: its kind, its source span, and (for string literals and
 // identifiers) its content. Other kinds carry no value — use `lexeme`/`span`.
 pub struct Token {
-    kind: TokenKind,
-    span: SourceSpan,
+    let kind: TokenKind;
+    let span: SourceSpan;
     // String-literal content (with ${...} kept verbatim) or identifier text;
     // None for every other kind.
-    value: Option<String>,
+    let value: Option<String>;
     // For a string literal: the source span of each `${...}` interpolation's
     // expression (between the `${` and its matching `}`), in value order. The
     // parser's splitter rebases each sub-parse onto these, so diagnostics and
     // AST spans inside interpolations point at the real file (PA2). Empty for
     // every other kind.
-    interps: List<SourceSpan>,
+    let interps: List<SourceSpan>;
 }
 
 impl Token {

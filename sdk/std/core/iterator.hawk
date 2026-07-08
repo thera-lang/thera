@@ -80,8 +80,8 @@ pub interface Iterator<T> {
 // --- adapter implementations (private; reached only through the methods) ---
 
 struct MapIter<T, U> {
-    source: Iterator<T>,
-    transform: (T) -> U,
+    let source: Iterator<T>;
+    let transform: (T) -> U;
 }
 
 impl Iterator<U> for MapIter<T, U> {
@@ -94,8 +94,8 @@ impl Iterator<U> for MapIter<T, U> {
 }
 
 struct FilterIter<T> {
-    source: Iterator<T>,
-    keep: (T) -> Bool,
+    let source: Iterator<T>;
+    let keep: (T) -> Bool;
 }
 
 impl Iterator<T> for FilterIter<T> {
@@ -118,8 +118,8 @@ impl Iterator<T> for FilterIter<T> {
 }
 
 struct TakeIter<T> {
-    source: Iterator<T>,
-    mut remaining: Int,
+    let source: Iterator<T>;
+    let mut remaining: Int;
 }
 
 impl Iterator<T> for TakeIter<T> {
@@ -134,13 +134,13 @@ impl Iterator<T> for TakeIter<T> {
 
 /// An element paired with its 0-based position, produced by `enumerate`.
 pub struct Indexed<T> {
-    index: Int,
-    value: T,
+    let index: Int;
+    let value: T;
 }
 
 struct EnumerateIter<T> {
-    source: Iterator<T>,
-    mut index: Int,
+    let source: Iterator<T>;
+    let mut index: Int;
 }
 
 impl Iterator<Indexed<T>> for EnumerateIter<T> {
@@ -162,8 +162,8 @@ impl Iterator<Indexed<T>> for EnumerateIter<T> {
 // `List.enumerate` (in list.hawk) constructs it across the file boundary — like
 // `Indexed`, it is part of `enumerate`'s public surface.
 pub struct ListEnumerateIter<T> {
-    list: List<T>,
-    mut pos: Int,
+    let list: List<T>;
+    let mut pos: Int;
 }
 
 impl Iterator<Indexed<T>> for ListEnumerateIter<T> {

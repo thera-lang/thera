@@ -18,8 +18,8 @@
 
 /// An iterator over the half-open integer range `[start, end)`.
 struct RangeIter {
-    mut current: Int,
-    end: Int,
+    let mut current: Int;
+    let end: Int;
 }
 
 impl Iterator<Int> for RangeIter {
@@ -40,8 +40,8 @@ pub fn range(_ start: Int, _ end: Int) -> Iterator<Int> {
 
 /// An iterator over the elements of a list, in order.
 struct ListIter<T> {
-    items: List<T>,
-    mut pos: Int,
+    let items: List<T>;
+    let mut pos: Int;
 }
 
 impl Iterator<T> for ListIter<T> {

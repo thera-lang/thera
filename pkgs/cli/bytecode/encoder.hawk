@@ -35,8 +35,8 @@ const SECTION_SYMBOLS: Int = 7;
 // so the encoded pool matches the runtime's. A linear scan keeps the port free
 // of map-field mutation; the pool is small.
 struct StringPool {
-    strings: List<String>,      // pool entries, in first-seen (insertion) order
-    index: Map<String, Int>,    // entry -> its pool index, mirroring `strings`
+    let strings: List<String>;      // pool entries, in first-seen (insertion) order
+    let index: Map<String, Int>;    // entry -> its pool index, mirroring `strings`
 }
 
 impl StringPool {

@@ -84,9 +84,9 @@ fn to_fs_error(_ raw: String) -> FsError {
 pub enum FileKind { File, Dir, Symlink, Other }
 
 pub struct Metadata {
-    size: Int,                       // size in bytes
-    kind: FileKind,
-    modified: Option<time.DateTime>, // last-modified time (None if the platform can't report it)
+    let size: Int;                       // size in bytes
+    let kind: FileKind;
+    let modified: Option<time.DateTime>; // last-modified time (None if the platform can't report it)
 }
 
 // The native reports last-modified as Unix milliseconds, using 0 to mean
@@ -290,8 +290,8 @@ pub fn copy(from src: String, to dst: String) -> Result<Void, FsError> {
 /// is an error). **Close it when done** — an unclosed file leaks its descriptor
 /// until the process exits.
 pub struct File {
-    handle: Int,
-    path: String,
+    let handle: Int;
+    let path: String;
 }
 
 impl File {
@@ -420,8 +420,8 @@ pub fn temp_file(prefix: String = 'tmp') -> Result<File, FsError> {
 /// entries with `symlink_metadata`), so a symlinked directory is yielded as a
 /// leaf and a link cycle can't loop the traversal.
 pub struct WalkIter {
-    stack: List<String>,  // frontier of discovered paths to visit (LIFO)
-    mut err: Option<FsError>,
+    let stack: List<String>;  // frontier of discovered paths to visit (LIFO)
+    let mut err: Option<FsError>;
 }
 
 impl WalkIter {

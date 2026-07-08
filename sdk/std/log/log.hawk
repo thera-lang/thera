@@ -53,9 +53,9 @@ pub enum Format { Text, Json }
 // the config mutates in place. Library-private — the sanctioned way to change it
 // is the application-only `set_*` functions below.
 struct Config {
-    mut default_level: Level,
-    filters: Map<String, Level>, // per-source overrides; content mutates in place
-    mut format: Format,
+    let mut default_level: Level;
+    let filters: Map<String, Level>; // per-source overrides; content mutates in place
+    let mut format: Format;
 }
 
 let config: Config = Config {
@@ -157,7 +157,7 @@ pub interface Logger {
 
 // The process-backed logger: consults the global config, writes to stderr.
 struct NamedLogger {
-    name: String,
+    let name: String;
 }
 
 // Write a rendered line + newline to `sink`, discarding any write failure — a
@@ -195,10 +195,10 @@ impl Logger for NamedLogger {
 // A self-contained logger: its own writer, threshold, and format; ignores the
 // global config. The capability / test form.
 struct WriterLogger {
-    name: String,
-    sink: io.Writer,
-    min_level: Level,
-    format: Format,
+    let name: String;
+    let sink: io.Writer;
+    let min_level: Level;
+    let format: Format;
 }
 
 fn emit_writer(_ logger: WriterLogger, _ level: Level, _ msg: String) -> Void {

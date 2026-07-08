@@ -26,8 +26,8 @@ import 'session';      // the analysis session (check/compile + shared caches)
 // (LD11: a count would collide with a trap's exit 1 and wrap at u8, so 256
 // failures would read as a pass).
 struct TestCounts {
-    total: Int,
-    failed: Bool,
+    let total: Int;
+    let failed: Bool;
 }
 
 // --- run ---

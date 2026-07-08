@@ -82,8 +82,8 @@ pub fn format_fragment(_ text: String, _ indent: String) -> String {
 
 // Per-line facts gathered from the token stream, indexed 0-based by line.
 struct LineInfo {
-    indent: List<Int>,    // indent level to render the line at
-    verbatim: List<Bool>, // line is part of a multi-line string literal
+    let indent: List<Int>;    // indent level to render the line at
+    let verbatim: List<Bool>; // line is part of a multi-line string literal
 }
 
 // Walk the tokens, grouped by line, maintaining a stack of *anchors* — one per

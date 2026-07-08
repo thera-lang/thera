@@ -16,9 +16,9 @@ import '../diagnostic'; // Diagnostic — the uniform phase error
 // captured on the side channel (in source order; never in the token stream), and
 // any errors.
 pub struct LexResult {
-    tokens: List<Token>,
-    comments: List<Comment>,
-    errors: List<diagnostic.Diagnostic>,
+    let tokens: List<Token>;
+    let comments: List<Comment>;
+    let errors: List<diagnostic.Diagnostic>;
 }
 
 impl LexResult {
@@ -31,18 +31,18 @@ impl LexResult {
 // `ts_*` fields hold the start of the token currently being scanned, so `emit`
 // and `error` can form its span without threading the start through every call.
 struct Lexer {
-    source: String,
-    file: String, // canonical key stamped onto every span ('' = text-only)
-    chars: List<Int>,
-    mut pos: Int,
-    mut line: Int,
-    mut col: Int,
-    tokens: List<Token>,
-    comments: List<Comment>,
-    errors: List<diagnostic.Diagnostic>,
-    mut ts_offset: Int,
-    mut ts_line: Int,
-    mut ts_col: Int,
+    let source: String;
+    let file: String; // canonical key stamped onto every span ('' = text-only)
+    let chars: List<Int>;
+    let mut pos: Int;
+    let mut line: Int;
+    let mut col: Int;
+    let tokens: List<Token>;
+    let comments: List<Comment>;
+    let errors: List<diagnostic.Diagnostic>;
+    let mut ts_offset: Int;
+    let mut ts_line: Int;
+    let mut ts_col: Int;
 }
 
 // Tokenize `source` into a `LexResult` (tokens end with `Eof`).

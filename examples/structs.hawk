@@ -30,7 +30,7 @@ impl Display for Point {
 }
 
 struct Rect {
-    let top_left: Point,
+    let top_left: Point;
     let width: Int,
     let height: Int,
 }

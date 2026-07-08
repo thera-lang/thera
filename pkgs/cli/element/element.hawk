@@ -30,95 +30,95 @@ pub enum TypeDefKind {
 
 // A resolved positional payload type list lives on each variant.
 pub struct EnumVariantElement {
-    name: String,
-    name_span: SourceSpan, // the declaration's name token (identity; EL13)
-    fields: List<Type>, // resolved payload types; empty = payload-free
+    let name: String;
+    let name_span: SourceSpan; // the declaration's name token (identity; EL13)
+    let fields: List<Type>; // resolved payload types; empty = payload-free
 }
 
 pub struct ParameterElement {
-    label: Option<String>, // external label; None when suppressed (`_`)
-    is_self: Bool,
-    name: String,
-    ty: Type,
-    has_default: Bool,
+    let label: Option<String>; // external label; None when suppressed (`_`)
+    let is_self: Bool;
+    let name: String;
+    let ty: Type;
+    let has_default: Bool;
 }
 
 // A free function or a method. `owner` is the type name for a method (None for a
 // free function); `is_static` is a method with no `self`.
 pub struct FunctionElement {
-    name: String,
+    let name: String;
     // Symbol identity (EL13): the canonical key of the declaring file, and the
     // declaration's name-token span. With `owner`, a method's identity is
     // (file, owner, name); a free function's is (file, name). Synthesized
     // entries carry BUILTIN_OWNER / `no_span()`.
-    file: String,
-    name_span: SourceSpan,
-    type_parameters: List<String>,
+    let file: String;
+    let name_span: SourceSpan;
+    let type_parameters: List<String>;
     // Interface bounds per type parameter (`fn f<T: Display>` -> {T: [Display]}),
     // by resolved identity (the interface the declaring file sees).
-    type_parameter_bounds: Map<String, List<TypeId>>,
-    parameters: List<ParameterElement>,
-    return_type: Type,
-    owner: Option<String>,
-    is_static: Bool,
+    let type_parameter_bounds: Map<String, List<TypeId>>;
+    let parameters: List<ParameterElement>;
+    let return_type: Type;
+    let owner: Option<String>;
+    let is_static: Bool;
 }
 
 pub struct ConstElement {
-    name: String,
+    let name: String;
     // Symbol identity (EL13). Consts and module-level `let`s share this
     // element; both are (file, name) value bindings.
-    file: String,
-    name_span: SourceSpan,
+    let file: String;
+    let name_span: SourceSpan;
     // The declared (annotated) type, or — for an un-annotated global — the type
     // inferred from its initializer by the resolver's pass 4
     // (`inference.infer_program_globals`), since resolution itself reads only an
     // annotation. Mutable so that pass can fill it in place.
-    mut ty: Type,
+    let mut ty: Type;
 }
 
 // A declared (or built-in) type definition: struct, enum, interface, or built-in
 // generic. The mutable lists/maps are filled during resolution.
 pub struct TypeDefElement {
-    name: String,
+    let name: String;
     // The declaration's name-token span (identity, with `owner_file`; EL13).
-    name_span: SourceSpan,
+    let name_span: SourceSpan;
     // The file (key) that declares this type — its nominal owner. Stamped into a
     // `TypeId` when a source name resolves to this element (see types.named_type),
     // so `A.Foo` and `B.Foo` stay distinct once type-name uniqueness is lifted.
-    owner_file: String,
-    kind: TypeDefKind,
-    type_parameters: List<String>,
+    let owner_file: String;
+    let kind: TypeDefKind;
+    let type_parameters: List<String>;
     // Interface bounds on the type's own parameters (`type Box<T: Display>` ->
     // {T: [Display]}), enforced where a concrete type argument is supplied. The
     // analogue of `FunctionElement.type_parameter_bounds`. Bound identity is the
     // resolved `TypeId` (the interface the *declaring file* sees).
-    type_parameter_bounds: Map<String, List<TypeId>>,
-    methods: List<FunctionElement>, // from impl blocks / interface decls
+    let type_parameter_bounds: Map<String, List<TypeId>>;
+    let methods: List<FunctionElement>; // from impl blocks / interface decls
     // `impl Interface for Type` conformances, by resolved interface identity
     // (the interface the *impl's file* sees — two libraries' same-named
     // interfaces stay distinct).
-    interfaces: List<TypeId>,
+    let interfaces: List<TypeId>;
     // For each implemented interface (keyed by `id_key`), the resolved type
     // arguments of the conformance (`impl Iterator<Int> for T` ->
     // {core#Iterator: [Int]}). Lets a default method called on a *concrete*
     // receiver bind the interface's type parameters (the receiver itself
     // doesn't carry them).
-    interface_args: Map<String, List<Type>>,
+    let interface_args: Map<String, List<Type>>;
     // Struct fields: name -> resolved type (insertion order preserved).
-    fields: Map<String, Type>,
+    let fields: Map<String, Type>;
     // The subset of `fields` declared `mut` (reassignable after construction).
-    mut_fields: Set<String>,
+    let mut_fields: Set<String>;
     // Enum variants, in declaration order.
-    variants: List<EnumVariantElement>,
+    let variants: List<EnumVariantElement>;
     // Interface: the (transitively flattened) super-interfaces by resolved
     // identity, and the method names declared directly on this interface
     // (conformance needs only these).
-    mut super_interfaces: List<TypeId>,
-    own_methods: List<String>,
+    let mut super_interfaces: List<TypeId>;
+    let own_methods: List<String>;
     // Interface: the subset of methods that carry a default body, so an `impl`
     // need not provide them (conformance skips these). Includes defaults
     // inherited from super-interfaces after the pass-3 flatten.
-    default_methods: List<String>,
+    let default_methods: List<String>;
 }
 
 // --- constructors for skeleton elements (resolver pass 1) ---
@@ -220,12 +220,12 @@ pub fn implements_core(_ lib: LibraryElement, _ e: TypeDefElement, _ name: Strin
 // The public surface a namespace exposes: its public names, plus any exposed by
 // more than one re-exported library (a barrel collision).
 pub struct LibraryNamespace {
-    names: Set<String>,
-    collisions: Set<String>,
+    let names: Set<String>;
+    let collisions: Set<String>;
     // Public name -> the file (key) that declares it, so a qualified `ns.name`
     // resolves to the owning library's element rather than the flat global table
     // (Phase 2e). Populated by the loader; unused until S3.
-    origin: Map<String, String>,
+    let origin: Map<String, String>;
 }
 
 pub fn namespace_exposes(_ ns: LibraryNamespace, _ name: String) -> Bool {
@@ -238,28 +238,28 @@ pub struct LibraryElement {
     // (a namespace-qualified receiver type, a field's type) carries only the name,
     // so type lookup is global by name (type-name uniqueness pending — see
     // roadmap.md). Values resolve per-file (below).
-    type_defs: Map<String, TypeDefElement>,
+    let type_defs: Map<String, TypeDefElement>;
     // Per-file free functions / type definitions / consts (file key -> name ->
     // element). Value resolution is owner-correct through these — a bare or
     // qualified value reaches its declaring file's element, not a flat global table
     // — which is what lets two libraries share a top-level value name. The
     // file_type_defs entries reference the same objects as the flat `type_defs` (so
     // a cross-file `impl` mutates the one type element).
-    file_functions: Map<String, Map<String, FunctionElement>>,
-    file_type_defs: Map<String, Map<String, TypeDefElement>>,
-    file_consts: Map<String, Map<String, ConstElement>>,
+    let file_functions: Map<String, Map<String, FunctionElement>>;
+    let file_type_defs: Map<String, Map<String, TypeDefElement>>;
+    let file_consts: Map<String, Map<String, ConstElement>>;
     // Per-file import namespaces (file key -> namespace -> surface). A namespace
     // resolves only in the file that imported it — there is no closure-wide union.
     // (This replaced a closure-wide `modules` set of value-side namespace aliases.)
-    file_namespaces: Map<String, Map<String, LibraryNamespace>>,
+    let file_namespaces: Map<String, Map<String, LibraryNamespace>>;
     // Per-file bare-legal cross-file surface (prelude + `as _` imports) and the set
     // of top-level names each file declares. Together these gate bare resolution:
     // a bare name is legal only if it is same-file (`file_owned`), bare-legal from
     // another library (`file_bare_surface`), a built-in, or in scope. The bare
     // surface maps each legal name to its owning file (key), so bare resolution can
     // reach the owning element (Phase 2e S4); `bare_surface_has` reads only the keys.
-    file_bare_surface: Map<String, Map<String, String>>,
-    file_owned: Map<String, Set<String>>,
+    let file_bare_surface: Map<String, Map<String, String>>;
+    let file_owned: Map<String, Set<String>>;
 }
 
 // The namespaces visible in `file` — the import bindings of that file alone.

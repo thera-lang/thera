@@ -5,7 +5,7 @@
 //! keeps the backing a plain map). Iteration order is insertion order, matching
 //! the backing map.
 pub struct Set<T> {
-    items: Map<T, Bool>,
+    let items: Map<T, Bool>;
 }
 
 impl Set<T> {

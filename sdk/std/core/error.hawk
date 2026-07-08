@@ -37,7 +37,7 @@ pub fn error(_ message: String) -> Error {
 /// instead of constructing it — but `pub` so other `std` modules can build the
 /// simple error without each defining their own.
 pub struct ErrorMessage {
-    text: String,
+    let text: String;
 }
 
 impl Error for ErrorMessage {

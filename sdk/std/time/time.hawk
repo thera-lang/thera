@@ -67,7 +67,7 @@ native fn _sleep_millis(_ millis: Int) -> Void
 // --- Duration: a signed span, stored as nanoseconds ---
 
 pub struct Duration {
-    nanos: Int,
+    let nanos: Int;
 }
 
 impl Duration {
@@ -117,7 +117,7 @@ impl Duration {
 // --- Instant: a monotonic point in time, for measuring elapsed spans ---
 
 pub struct Instant {
-    nanos: Int,   // monotonic, relative to an arbitrary process baseline
+    let nanos: Int;   // monotonic, relative to an arbitrary process baseline
 }
 
 /// The current monotonic instant. Only differences are meaningful.
@@ -147,7 +147,7 @@ pub fn sleep(_ d: Duration) -> Void {
 // --- DateTime: a wall-clock instant, UTC, stored as Unix milliseconds ---
 
 pub struct DateTime {
-    millis: Int,   // Unix epoch milliseconds, UTC
+    let millis: Int;   // Unix epoch milliseconds, UTC
 }
 
 /// The current wall-clock time (UTC).

@@ -15,7 +15,7 @@ import '../parser/parser';
 
 // A one-shot in-memory `Reader`: hands out `data` in `max`-sized chunks, then
 // EOF — so `serve`'s read loop can be driven without a real stream.
-struct BurstReader { data: Bytes, mut pos: Int }
+struct BurstReader { let data: Bytes; let mut pos: Int; }
 impl io.Reader for BurstReader {
     pub fn read(self, max: Int) -> Result<Bytes, Error> {
         let end = (self.pos + max).min(self.data.len());

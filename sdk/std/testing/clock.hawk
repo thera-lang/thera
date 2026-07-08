@@ -17,7 +17,7 @@ import std.time;
 /// testing.assert_eq(actual: stamp(clock), expected: 'at=1000')?;
 /// ```
 struct FixedClock {
-    millis: Int,
+    let millis: Int;
 }
 
 impl time.Clock for FixedClock {

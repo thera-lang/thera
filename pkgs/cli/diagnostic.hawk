@@ -21,10 +21,10 @@ pub enum Severity {
 // A uniform diagnostic across the phases (each phase's message is structurally a
 // message + a span; this is the common currency the front-end reports).
 pub struct Diagnostic {
-    message: String,
-    span: token.SourceSpan,
-    file: Option<String>,
-    severity: Severity,
+    let message: String;
+    let span: token.SourceSpan;
+    let file: Option<String>;
+    let severity: Severity;
 }
 
 impl Display for Diagnostic {

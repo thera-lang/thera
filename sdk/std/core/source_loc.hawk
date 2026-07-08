@@ -12,9 +12,9 @@
 //! Renders as `file:line:column` — the same shape `hawk check` prints — so test
 //! failures and compiler diagnostics share one format.
 pub struct SourceLoc {
-    file: String,
-    line: Int,
-    column: Int,
+    let file: String;
+    let line: Int;
+    let column: Int;
 }
 
 impl Display for SourceLoc {

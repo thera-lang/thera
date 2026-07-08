@@ -14,7 +14,7 @@ import std.json as _;
 // complete message body (the JSON text) at a time. `pending` holds bytes read
 // past the last returned message (the start of the next one).
 pub struct MsgBuffer {
-    mut pending: Bytes,
+    let mut pending: Bytes;
 }
 
 pub fn new_buffer() -> MsgBuffer {
@@ -63,8 +63,8 @@ impl MsgBuffer {
 // framed, plus the remaining buffer — after consuming the message **and any
 // malformed header blocks in front of it** (so callers always store `rest`).
 struct Extraction {
-    body: Option<String>,
-    rest: Bytes,
+    let body: Option<String>;
+    let rest: Bytes;
 }
 
 // Try to peel one complete framed message off the front of `buf`. A complete

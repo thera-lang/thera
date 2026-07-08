@@ -25,36 +25,36 @@ import 'diagnostic'; // Diagnostic — the uniform phase error, produced by ever
 // The outcome of compiling a source: any diagnostics, and the encoded `.hawkbc`
 // bytes when there were none.
 pub struct CompileOutcome {
-    diagnostics: List<diagnostic.Diagnostic>,
-    bytes: Option<Bytes>,
+    let diagnostics: List<diagnostic.Diagnostic>;
+    let bytes: Option<Bytes>;
 }
 
 // A parsed primary program plus its loaded import closure — what position-based
 // LSP queries consume (the resolution surfaces ride on `loaded`).
 pub struct Closure {
-    program: Program,
-    loaded: loader.LoadedImports,
+    let program: Program;
+    let loaded: loader.LoadedImports;
 }
 
 pub struct Session {
-    sdk_root: Option<String>,
+    let sdk_root: Option<String>;
     // Canonical path -> current text: open-buffer overlays over disk, consulted
     // by the loader before reading a file (an unsaved import is analyzed as the
     // user sees it).
-    overlays: Map<String, String>,
+    let overlays: Map<String, String>;
     // Canonical path -> parsed AST, reused across requests so the import
     // closure (the `std.core` prelude above all) is parsed once and only
     // re-parsed when its file changes.
-    parse_cache: Map<String, loader.ParsedFile>,
+    let parse_cache: Map<String, loader.ParsedFile>;
     // Canonical keys of closure files that already checked clean this session —
     // skipped on later checks, so a batch (or a keystroke) costs the changed
     // files, not the whole closure. Files with diagnostics are never marked.
-    checked: Set<String>,
+    let checked: Set<String>;
     // The merged forward import graph across every closure this session has
     // loaded: canonical key -> that file's last-known resolved import edges
     // (`LoadedImports.file_imports`, replaced entry-wise per load). Reversed
     // on demand by `dependents_of`, the invalidation cone for an edit.
-    import_graph: Map<String, List<String>>,
+    let import_graph: Map<String, List<String>>;
     // Canonical path -> the file's derived surfaces (`loader.FileSurface`) —
     // reused across requests so a load re-derives only changed files'
     // surfaces. Evicted over the invalidation cone: a file's surfaces depend
@@ -62,26 +62,26 @@ pub struct Session {
     // the SDK invalidate-all rule covers that implicit edge). Like the parse
     // cache, only overlay events invalidate — out-of-band disk edits are
     // invisible to a long-lived session.
-    surface_cache: Map<String, loader.FileSurface>,
+    let surface_cache: Map<String, loader.FileSurface>;
     // Closure signature (sorted member keys) -> the imports-only element
     // model, reused across requests so a keystroke re-resolves the primary,
     // not the whole closure (`resolver.layer_primary` stacks the primary on
     // the cached base without mutating it — the frozen-base invariant).
     // Evicted when any member is invalidated.
-    library_cache: Map<String, CachedLibrary>,
+    let library_cache: Map<String, CachedLibrary>;
     // Canonical path -> the file's committed-type record from the last check
     // that walked it (CH19), serving `type_at`/`records_for`. As fresh as that
     // check: evicted over the invalidation cone with `checked`; files the
     // checker skipped (the SDK, files already clean before records existed)
     // have no entry.
-    type_records: Map<String, List<inference.TypeRecord>>,
+    let type_records: Map<String, List<inference.TypeRecord>>;
 }
 
 // One cached imports-only library plus its member set (for eviction: an entry
 // dies when any member file is invalidated).
 pub struct CachedLibrary {
-    members: Set<String>,
-    library: element.LibraryElement,
+    let members: Set<String>;
+    let library: element.LibraryElement;
 }
 
 pub fn new_session(_ sdk_root: Option<String>) -> Session {

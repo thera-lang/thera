@@ -196,8 +196,8 @@ impl BytesBuilder {
 /// are the exact inverses of `BytesBuilder`'s writers, so a value written there
 /// round-trips through here. Pure Hawk over `Bytes.get` + bitwise ops.
 pub struct BytesReader {
-    data: Bytes,
-    mut pos: Int,
+    let data: Bytes;
+    let mut pos: Int;
 }
 
 impl BytesReader {

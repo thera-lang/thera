@@ -57,15 +57,15 @@ impl Display for RegexError {
 /// A single match: the matched substring and its half-open byte range
 /// `[start, end)` in the searched text.
 pub struct Match {
-    text: String,
-    start: Int,
-    end: Int,
+    let text: String;
+    let start: Int;
+    let end: Int;
 }
 
 /// The capture groups of one match. Group 0 is the whole match; `1..` are the
 /// numbered subgroups in order. A group that did not participate is `None`.
 pub struct Captures {
-    groups: List<Option<String>>,
+    let groups: List<Option<String>>;
 }
 
 impl Captures {
@@ -92,7 +92,7 @@ impl Captures {
 /// A compiled regular expression. Construct with [compile], then match against
 /// text. Cheap to copy (it is a handle to the runtime's compiled pattern).
 pub struct Regex {
-    handle: Int,
+    let handle: Int;
 }
 
 impl Regex {

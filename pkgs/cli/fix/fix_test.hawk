@@ -287,3 +287,17 @@ fn terminates_last_field_without_trailing_comma() -> Result<Void, Error> {
         'struct S {\n    a: Int,\n    b: Bool\n}\n',
         'struct S {\n    let a: Int;\n    let b: Bool;\n}\n');
 }
+
+@test
+fn only_filter_restricts_to_named_rules() -> Result<Void, Error> {
+    let src = 'struct S { x: Int }\n';
+    // Only the `let` rule fires — the separator is left as-is.
+    testing.assert_eq(
+        actual: fix_source(src, ['struct-field-needs-let']),
+        expected: 'struct S { let x: Int }\n')?;
+    // Only the semicolon rule fires — no `let` inserted.
+    testing.assert_eq(
+        actual: fix_source(src, ['struct-field-needs-semicolon']),
+        expected: 'struct S { x: Int; }\n')?;
+    return Result.Ok(void);
+}

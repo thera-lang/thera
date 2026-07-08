@@ -35,8 +35,8 @@ import 'workspace_symbols';
 // burst of keystrokes collapse into a single re-check per document (see
 // `serve`).
 pub struct Server {
-    analysis: Analysis,
-    mut shutdown_received: Bool,
+    let analysis: Analysis;
+    let mut shutdown_received: Bool;
 }
 
 pub fn new_server(_ sdk_root: Option<String>) -> Server {

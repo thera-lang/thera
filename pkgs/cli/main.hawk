@@ -103,6 +103,7 @@ NOTE: this command\'s UX is still TBD. It previews by default (writes nothing); 
 - stderr: per-file read/write errors
 - exit code: 0 (2 on a missing target)')
             .flag('write', help: 'modify files in place instead of previewing')
+            .option('only', help: 'restrict to a comma-separated list of rule ids (e.g. struct-field-needs-let)')
             .positional('target', help: 'a .hawk file or directory to fix'))
         .subcommand(cli.Command.new('lsp')
             .about('start the Hawk language server')
@@ -204,7 +205,11 @@ fn run_on_file(_ name: String, _ sub: cli.Matches) -> Result<Int, Error> {
             eprintln('hawk fix: expected a <file|dir> argument');
             return Result.Ok(2);
         }
-        return do_fix(positionals, write: sub.flag('write'));
+        let only = match sub.option('only') {
+            Some(s) => s.split(','),
+            None => [],
+        };
+        return do_fix(positionals, write: sub.flag('write'), only: only);
     }
     match sub.positional(0) {
         Some(file) => {
@@ -437,7 +442,7 @@ fn do_lint(_ targets: List<String>) -> Result<Int, Error> {
 // `hawk fix <file|dir>...` — apply idiomatic-rewrite fixes, or (by default)
 // preview them. UX is provisional (see the subcommand help). Read-only unless
 // `write`; exits 0 (advisory — fixes are opportunistic, not a gate).
-fn do_fix(_ targets: List<String>, write: Bool = false) -> Result<Int, Error> {
+fn do_fix(_ targets: List<String>, write: Bool = false, only: List<String> = []) -> Result<Int, Error> {
     let files: List<String> = [];
     let mut missing = false;
     for target in targets {
@@ -463,12 +468,12 @@ fn do_fix(_ targets: List<String>, write: Bool = false) -> Result<Int, Error> {
     for file in runner.sort_dedup(files) {
         match fs.read_text(file) {
             Ok(source) => {
-                let locs = fix.fix_locations(source);
+                let locs = fix.fix_locations(source, only);
                 if locs.len() > 0 {
                     total = total + locs.len();
                     changed = changed + 1;
                     if write {
-                        match fs.write_text(file, fix.fix_source(source)) {
+                        match fs.write_text(file, fix.fix_source(source, only)) {
                             Ok(_) => { println('Fixed ${file} (${locs.len()})'); },
                             Err(e) => { eprintln('hawk fix: cannot write ${file}: ${e}'); },
                         }

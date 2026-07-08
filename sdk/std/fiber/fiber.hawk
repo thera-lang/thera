@@ -9,7 +9,7 @@
 
 /// A handle to a spawned fiber computing a `T`.
 pub struct Fiber<T> {
-    id: Int,
+    let id: Int;
 }
 
 /// Schedule `work` to run as a new fiber; returns a handle to it. The fiber makes
@@ -34,7 +34,7 @@ pub fn yield() -> Void {
 
 /// A channel carrying values of type `T` between fibers, over a bounded buffer.
 pub struct Channel<T> {
-    id: Int,
+    let id: Int;
 }
 
 /// Create a channel buffering up to `capacity` values (clamped to at least 1). A
