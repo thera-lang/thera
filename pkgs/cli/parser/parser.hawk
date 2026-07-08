@@ -663,7 +663,12 @@ impl Parser {
                 is_mut: is_mut, name: fname_tok.lexeme(), name_span: fname_tok.span,
                 type_ann: ftype, span: start.cover(type_span(ftype)),
             });
-            if !self.match_kind(TokenKind.Comma) {
+            // A field is separated/terminated by `,` or `;`. `;` (statement-style,
+            // reading as a declaration list) is the migration target that pairs
+            // with `let`; `,` stays accepted during the migration (see roadmap →
+            // Language). Both may be mixed until the required-`;` flip.
+            let had_sep = self.match_kind(TokenKind.Comma) || self.match_kind(TokenKind.Semi);
+            if !had_sep {
                 going = false;
             }
         }

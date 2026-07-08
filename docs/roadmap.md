@@ -647,24 +647,32 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   `let` signals nothing); "optional" is migration scaffolding only. `let` carries
   no semantic payload (mutability stays `FieldDef.is_mut`, composing as
   `let mut count: Int`), so no AST change is needed. Migration:
-  1. **Parser accepts optional `let`** (consumed-and-discarded), sources still in
-     old syntax — _done_. Bootstrap snapshot refreshed to this front-end.
-  2. **Lint + fix** — _done_. The `struct-field-needs-let` rule (`pkgs/cli/lint`)
-     with an insert-`let` mechanical fix (`pkgs/cli/fix`/`edit`, driven by
-     `hawk fix`). Chosen over teaching the formatter to inject tokens (that would
-     make the whitespace-only formatter a semantic rewriter, then need un-teaching).
-     `FieldDef` gained a `span` (full-field extent) so the insertion lands before
-     `mut`; the rule is a source check (the parser discards `let`, so the AST can't
-     witness it) and is transitional — retired at step 4.
-  3. **Migrate the corpus** — run `hawk fix --write` over `pkgs/cli`, `sdk/std`,
-     `examples`. `examples/` _done_; front-end + stdlib still to sweep. Since the
-     snapshot (post-step-1) already accepts `let`, it can build the rewritten
-     front-end sources.
-  4. **Require `let`** — parser change; sources already carry it. Refresh the
-     snapshot again; the `build_sdk.sh` fixpoint validates the whole tree.
-  - Update `grammar.md` (`field = 'let' 'mut'? IDENT ':' type`) and language.md;
-    add a `tests/lang` conformance case (xfail flips to pass at step 4). Field
-    hover rendering `let x: Int` (source fidelity) is an optional cosmetic follow-up.
+  Folded in: the field **separator** `,` → `;` (statement-style, so a field reads
+  as the declaration `let x: T;` it now is). Bundled because the expensive parts —
+  the corpus sweep and the required-flip — happen once either way; splitting would
+  sweep every struct twice. Scoped to struct fields only — enum variant lists stay
+  comma-separated (an alternation, not a declaration sequence).
+  1. **Parser accepts optional `let` + either `,`/`;` separator** (both
+     consumed-and-discarded/normalized), sources still in old syntax — _done_.
+     Bootstrap snapshot refreshed so it can build `let`/`;` sources.
+  2. **Lint + fix** — _done_. Rules `struct-field-needs-let` and
+     `struct-field-needs-semicolon` (`pkgs/cli/lint`) with mechanical fixes
+     (`pkgs/cli/fix`/`edit`, driven by `hawk fix`) — insert `let`, rewrite the
+     `,`→`;` (or insert a trailing `;`). Chosen over teaching the whitespace-only
+     formatter to rewrite tokens. Both are source checks (the parser discards `let`
+     and accepts either separator, so the AST can't witness them) and transitional —
+     retired at step 4. `FieldDef` gained a `span` (full-field extent) so the `let`
+     lands before `mut` and the separator is located from the type's end.
+  3. **Migrate the corpus** — `hawk fix --write` over `pkgs/cli`, `sdk/std`,
+     `examples`. Since the sweep is parser-invisible (the front-end's bytecode is
+     unchanged), the `build_sdk.sh` fixpoint still holds and no snapshot refresh is
+     needed after it.
+  4. **Require `let` + `;`** — parser change (can be one flip or two separable
+     ones); sources already carry both. Refresh the snapshot; `build_sdk.sh`
+     fixpoint validates the tree. `examples/` is hand-migrated at this step.
+  - Update `grammar.md` (done) and language.md; add a `tests/lang` conformance case
+    (xfail flips to pass at step 4). Field hover rendering `let x: Int` (source
+    fidelity) is an optional cosmetic follow-up.
   - Interacts with the instance-level-mutability item below but doesn't foreclose
     it — `let` / `let mut` fields are the natural migration target either way.
 

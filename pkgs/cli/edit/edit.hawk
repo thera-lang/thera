@@ -31,6 +31,11 @@ pub fn insert(_ offset: Int, _ text: String) -> TextEdit {
     return TextEdit { start: offset, end: offset, new_text: text };
 }
 
+// Replace the code-point range `[start, end)` with `new_text`.
+pub fn replace(_ start: Int, _ end: Int, _ text: String) -> TextEdit {
+    return TextEdit { start: start, end: end, new_text: text };
+}
+
 // Apply non-overlapping edits to `source`, returning the rewritten text. Edits are
 // applied back-to-front (highest offset first) so each splice leaves the offsets
 // of the not-yet-applied edits valid. Overlapping edits are unsupported (the

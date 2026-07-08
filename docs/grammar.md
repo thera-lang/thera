@@ -149,10 +149,13 @@ param       = 'self'
             // `label name` gives a distinct external label; a single IDENT
             // means label == name.
 
-structDecl  = 'struct' IDENT typeParams? '{' ( field (',' field)* ','? )? '}'
+structDecl  = 'struct' IDENT typeParams? '{' ( field (sep field)* sep? )? '}'
+sep         = ',' | ';'                     // migration phase: both accepted (see
+                                            // roadmap → Language). Target is `;`
+                                            // (statement-style), paired with `let`.
 field       = 'let'? 'mut'? IDENT ':' type // `mut` allows the field to be reassigned;
-                                           // `let` is optional (migration phase — see
-                                           // roadmap → Language — toward a required keyword)
+                                           // `let` is optional (migration phase) toward
+                                           // a required `let x: T;` declaration form
               // A nominal record: `struct Point { x: Int, y: Int }`. Constructed
               // with a struct literal `Point { x: 1, y: 2 }`; methods come from
               // `impl` blocks. A fieldless `struct Marker {}` is legal (a

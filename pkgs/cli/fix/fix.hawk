@@ -161,6 +161,18 @@ pub fn field_let_edit(_ f: FieldDef) -> edit.TextEdit {
     return edit.insert(f.span.offset, 'let ');
 }
 
+// Terminate a field with `;` — rewriting a `,` to `;`, or inserting `;` after the
+// last field's type. None when the field is already `;`-terminated or its layout
+// is one the mechanical fix leaves alone (`lint.field_terminator` → `Unclear`).
+pub fn field_semicolon_edit(_ f: FieldDef) -> Option<edit.TextEdit> {
+    return match lint.field_terminator(f) {
+        Comma(off) => Option.Some(edit.replace(off, off + 1, ';')),
+        Missing(off) => Option.Some(edit.insert(off, ';')),
+        Semi => Option.None,
+        Unclear => Option.None,
+    };
+}
+
 // --- driving edits ---
 
 // A located, ready-to-apply rewrite: the anchor `span` (for overlap tests / code
@@ -300,6 +312,14 @@ fn fs_decl(_ d: Decl, _ out: List<FixSite>) -> Void {
                         edit: field_let_edit(f),
                         title: 'Add `let` to struct field',
                         message: 'add `let` to field',
+                    });
+                }
+                if let Some(e) = field_semicolon_edit(f) {
+                    out.push(FixSite {
+                        span: f.span,
+                        edit: e,
+                        title: 'Terminate struct field with `;`',
+                        message: 'use `;` for field',
                     });
                 }
             }
