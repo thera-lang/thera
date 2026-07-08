@@ -179,7 +179,7 @@ fn test_channel_buffer_and_drain() -> Result<Void, Error> {
     while going {
         match ch.receive() {
             Some(v) => { got.push('${v}'); },
-            None    => { going = false; },
+            None => { going = false; },
         }
     }
     testing.assert_eq(actual: got.join(','), expected: '1,2,3')?;
@@ -205,7 +205,7 @@ fn test_channel_producer_consumer() -> Result<Void, Error> {
     while going {
         match ch.receive() {
             Some(v) => { sum = sum + v; },
-            None    => { going = false; },
+            None => { going = false; },
         }
     }
     producer.join();

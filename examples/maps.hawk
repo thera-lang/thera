@@ -28,7 +28,7 @@ fn main() -> Result<Int, Error> {
     }
 
     // Mutation.
-    let mut counts = {'a': 0, 'b': 0};
+    let mut counts = { 'a': 0, 'b': 0 };
     counts['a'] = 1;
     counts['b'] = 2;
     println('a=${counts['a']}, b=${counts['b']}');

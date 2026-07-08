@@ -62,7 +62,7 @@ pub fn assert_ne<T: Eq + Debug>(actual: T, unexpected: T, at: SourceLoc = #loc) 
 pub fn assert_ok<T, E: Debug>(_ result: Result<T, E>, at: SourceLoc = #loc) -> Result<T, Error> {
     match result {
         Ok(value) => return Result.Ok(value),
-        Err(e)    => throw error('${at}: assert_ok failed: got Err(${e.debug()})'),
+        Err(e) => throw error('${at}: assert_ok failed: got Err(${e.debug()})'),
     }
 }
 
@@ -73,7 +73,7 @@ pub fn assert_ok<T, E: Debug>(_ result: Result<T, E>, at: SourceLoc = #loc) -> R
 /// ```
 pub fn assert_err<T, E>(_ result: Result<T, E>, at: SourceLoc = #loc) -> Result<Void, Error> {
     match result {
-        Ok(_)  => throw error('${at}: assert_err failed: got Ok'),
+        Ok(_) => throw error('${at}: assert_err failed: got Ok'),
         Err(_) => return Result.Ok(void),
     }
 }

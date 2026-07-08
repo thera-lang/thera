@@ -176,7 +176,7 @@ fn test_lines_iteration_defers_error() -> Result<Void, Error> {
     testing.assert_eq(actual: got, expected: [])?;
     let msg = match r.error() {
         Some(e) => e.message(),
-        None    => 'no error',
+        None => 'no error',
     };
     testing.assert_eq(actual: msg, expected: 'boom')?;
     return Result.Ok(void);

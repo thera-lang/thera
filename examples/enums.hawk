@@ -18,16 +18,16 @@ fn describe_direction(d: Direction) -> String {
     return match d {
         North => 'heading north',
         South => 'heading south',
-        East  => 'heading east',
-        West  => 'heading west',
+        East => 'heading east',
+        West => 'heading west',
     };
 }
 
 fn area(s: Shape) -> Int {
     return match s {
-        Circle(r)  => r * r,
+        Circle(r) => r * r,
         Rect(w, h) => w * h,
-        Point      => 0,
+        Point => 0,
     };
 }
 

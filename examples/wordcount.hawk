@@ -19,7 +19,7 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
     let args = cli.Args.new(parameters);
     let path = args.positional(0).ok_or('usage: wordcount <file>')?;
     let text = fs.read_text(path)?;
-    let c    = count(text);
+    let c = count(text);
 
     println('${c.lines}\tlines');
     println('${c.words}\twords');

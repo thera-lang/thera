@@ -191,15 +191,15 @@ fn first_high(_ tasks: List<Task>) -> Option<Task> {
 
 /// Parse a textual level into a `Priority`, erroring on an unknown string.
 fn parse_level(_ s: String) -> Result<Priority, Error> {
-    if s == 'low'  { return Result.Ok(Priority.Low); }
-    if s == 'mid'  { return Result.Ok(Priority.Medium); }
+    if s == 'low' { return Result.Ok(Priority.Low); }
+    if s == 'mid' { return Result.Ok(Priority.Medium); }
     if s == 'high' { return Result.Ok(Priority.High); }
     throw error('unknown level: ${s}');
 }
 
 fn main() -> Result<Int, Error> {
     // --- collections + inferred locals ---
-    let scores = {'alice': 82, 'bob': 47, 'carol': 95};   // Map<String, Int>
+    let scores = { 'alice': 82, 'bob': 47, 'carol': 95 };   // Map<String, Int>
     let names = scores.keys();                            // List<String>
 
     // filter with a context-typed lambda parameter, capturing a global.
@@ -263,7 +263,7 @@ fn main() -> Result<Int, Error> {
     }
     match first_high(tasks) {
         Some(t) => println('most urgent: ${t.title}'),
-        None    => println('nothing urgent'),
+        None => println('nothing urgent'),
     }
 
     // --- three iteration styles: range literal, iter.range, enumerate ---

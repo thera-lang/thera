@@ -169,7 +169,7 @@ fn test_pop_as_stack() -> Result<Void, Error> {
     while going {
         match stack.pop() {
             Some(x) => { out.push(x); },
-            None    => { going = false; },
+            None => { going = false; },
         }
     }
     testing.assert_eq(actual: out, expected: ['b', 'a'])?;

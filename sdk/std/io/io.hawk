@@ -339,7 +339,7 @@ impl Iterator<String> for BufReader {
     pub fn next(self) -> Option<String> {
         return match self.read_line() {
             Ok(line) => line,
-            Err(e)   => {
+            Err(e) => {
                 self.err = Option.Some(e);
                 Option.None
             },

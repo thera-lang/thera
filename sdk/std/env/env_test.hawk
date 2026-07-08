@@ -8,7 +8,7 @@ import std.testing;
 fn read_port(_ e: env.Env, _ fallback: Int) -> Int {
     match e.get('PORT') {
         Some(v) => return v.to_int().unwrap_or(fallback),
-        None    => return fallback,
+        None => return fallback,
     }
 }
 

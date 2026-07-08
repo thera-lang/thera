@@ -248,7 +248,7 @@ fn test_file_use_after_close_errors() -> Result<Void, Error> {
 fn test_open_missing_is_not_found() -> Result<Void, Error> {
     let dir = workspace('hawk_fs_open_missing')?;
     let is_nf = match fs.open(path.join(dir, 'nope.txt')) {
-        Ok(_)  => false,
+        Ok(_) => false,
         Err(e) => is_not_found(e),
     };
     testing.assert(is_nf, message: 'opening a missing file should be NotFound')?;
@@ -322,7 +322,7 @@ fn test_walk_missing_root_records_error() -> Result<Void, Error> {
     testing.assert_eq(actual: w.collect().len(), expected: 0)?;
     let is_nf = match w.error() {
         Some(e) => is_not_found(e),
-        None    => false,
+        None => false,
     };
     testing.assert(is_nf, message: 'expected a NotFound error from walking a missing root')?;
     fs.remove_dir_all(dir)?;

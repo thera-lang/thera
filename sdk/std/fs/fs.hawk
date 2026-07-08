@@ -347,9 +347,9 @@ impl io.Seek for File {
     pub fn seek(self, _ to: io.SeekFrom) -> Result<Int, Error> {
         // Decode `SeekFrom` into the native's (whence, offset) pair (0/1/2).
         let raw = match to {
-            Start(n)   => _file_seek(self.handle, 0, n),
+            Start(n) => _file_seek(self.handle, 0, n),
             Current(n) => _file_seek(self.handle, 1, n),
-            End(n)     => _file_seek(self.handle, 2, n),
+            End(n) => _file_seek(self.handle, 2, n),
         };
         return match raw {
             Ok(pos) => Result.Ok(pos),
@@ -435,7 +435,7 @@ impl WalkIter {
             },
             Err(e) => {
                 match self.err {
-                    None    => { self.err = Option.Some(e); },
+                    None => { self.err = Option.Some(e); },
                     Some(_) => {},
                 }
             },
@@ -452,7 +452,7 @@ impl WalkIter {
 impl Iterator<String> for WalkIter {
     pub fn next(self) -> Option<String> {
         return match self.stack.pop() {
-            None    => Option.None,
+            None => Option.None,
             Some(p) => {
                 // Descend into directories (pushes their entries, so a directory
                 // is yielded before its contents). `symlink_metadata` doesn't
@@ -465,7 +465,7 @@ impl Iterator<String> for WalkIter {
                     },
                     Err(e) => {
                         match self.err {
-                            None    => { self.err = Option.Some(e); },
+                            None => { self.err = Option.Some(e); },
                             Some(_) => {},
                         }
                     },
