@@ -403,8 +403,8 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
 
 ### Developer tooling
 
-- **Formatter (`hawk fmt`) — _v1 landed (indentation); intra-line spacing still
-  open._** `fmt` was v0 (trailing-whitespace trim + final newline); it is now a
+- **Formatter (`hawk fmt`) — _indentation + intra-line spacing both landed._**
+  `fmt` was v0 (trailing-whitespace trim + final newline); it is now a
   **line-preserving indentation formatter** (`pkgs/cli/fmt.hawk`). It keeps
   every line break the author chose (no automatic line breaking / re-joining —
   the deliberately-deferred source of formatter complexity) and normalizes the
@@ -421,23 +421,24 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   canonical hanging-indent form deliberately replaces. Idempotent (re-formatting
   is a fixpoint); moves only whole lines, so tokens are preserved and it can
   never break a compile.
-  - **Still open — intra-line spacing** (`fn  foo( name:String )` →
-    `fn foo(name: String)`). Deferred because token adjacency alone can't tell
-    generics (`List<Int>`) from comparison (`a < b`), nor unary from binary `-`;
-    doing it safely wants role-aware spacing, not the token-only pass. This is
-    the remaining piece of the "eliminate ~99% of format discussion" goal.
-    **Design specced** in [fmt_v2.md](fmt_v2.md): a **gap-edit** model (rewrite
-    only the whitespace between adjacent same-line tokens, driven from the token
-    stream — not an AST pretty-printer, which the AST's omission of
-    keyword/delimiter tokens rules out) with a round-trip token check preserving
-    the never-break-a-compile guarantee. Only `<`/`>` is irreducibly ambiguous
-    (unary `-` is decidable locally), resolved by a **generic-delimiter parser
-    side-channel** (the `LexResult.comments` pattern). Comment-safe with no
-    attachment logic — Hawk's line-only comments never sit between two same-line
-    tokens — so it's independent of the doc-comment attachment work below.
-  - **Follow-up — format the corpus.** Dogfood `hawk fmt` over `pkgs/cli`/
-    `sdk/std`/`examples` in one sweep so the tree is a fmt fixpoint (safe:
-    whitespace-only, fixpoint-clean); pairs with a CI `fmt --check`.
+  - **Intra-line spacing — _landed_** (`fn  foo( name:String )` →
+    `fn foo(name: String)`), the last piece of the "eliminate ~99% of format
+    discussion" goal. Design + rationale in [fmt_v2.md](fmt_v2.md): a **gap-edit**
+    pass (Stage A, before the indentation pass) that rewrites only the whitespace
+    between adjacent same-line tokens, driven from the token stream — not an AST
+    pretty-printer, which the AST's omission of keyword/delimiter tokens rules
+    out. Only `<`/`>` is irreducibly ambiguous (`List<Int>` vs `a < b`; unary `-`
+    is decidable locally), resolved by a **generic-delimiter parser side-channel**
+    (`ParseResult.generic_delims`, the `LexResult.comments` pattern). Comment-safe
+    with no attachment logic — Hawk's line-only comments never sit between two
+    same-line tokens — so it shipped ahead of the doc-comment work below. A
+    **round-trip guard** (token equality + re-parse) keeps the
+    never-break-a-compile guarantee; the re-parse is load-bearing because
+    `<<`/`>>`/`>>>` are parser-level combinations of adjacent `<`/`>` tokens that
+    a lexer-only check can't see (so adjacent angle brackets also stay tight).
+  - **Corpus formatted — _done._** The whole tree (`pkgs/cli`/`sdk/std`/
+    `examples`/`bench`) was swept through `hawk fmt` and is a fmt fixpoint;
+    `bin/test.sh` now gates it with a whole-tree `fmt --check`.
   - **Prerequisite + sequencing — _side channel landed._** The lexer used to
     _discard_ comments; it now captures them on a **parser-invisible side
     channel** — the positioned-comment-list (gofmt) model, chosen over trivia on
