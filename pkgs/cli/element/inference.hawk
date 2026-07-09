@@ -1116,17 +1116,25 @@ pub fn variant_field_types(_ subject: Type, _ name: String, _ ctx: InferCtx) -> 
 // --- type helpers ---
 
 // The element type of a for-loop iterable: a `List<T>`'s element, an
-// `Iterator<T>`'s yield, else `Int` (a range). A `List` whose type args are
-// absent (e.g. the receiver of a generic `List` method, which codegen types as
-// a bare `List`) yields `Unknown`, mirroring `index_result` — only a genuinely
-// unknown iterable (a range, inferred as `Unknown`) falls back to `Int`.
+// `Iterator<T>`'s yield, else — for a bare `Unknown` — `Int` (a range, which has
+// no first-class type yet and infers as `Unknown`, so `Int` recovers its element).
+// Any *other* unresolved iterable — an `Interface` whose identity didn't resolve
+// as `List`/`Iterator` — yields `Unknown`, not `Int`: inventing `Int` would
+// cascade into misleading "no method X on Int" errors on what is really an
+// unknown element (the `Int` here is range recovery, not a general default).
 pub fn for_element_type(_ iter_type: Type, _ ctx: InferCtx) -> Type {
     if let Interface(name, args) = iter_type {
         if is_core_id(ctx.library, name, 'List') {
             return arg_at(args, 0);
         };
     }
-    return iterator_element(iter_type, ctx).unwrap_or_else(() => Type.Primitive(Primitive.Int));
+    if let Some(e) = iterator_element(iter_type, ctx) {
+        return e;
+    }
+    return match iter_type {
+        Unknown => Type.Primitive(Primitive.Int), // a range's element
+        _ => Type.Unknown,                         // an unresolved iterable — don't invent Int
+    };
 }
 
 // The element type of an iterable that is (or conforms to) `Iterator<T>`: the
