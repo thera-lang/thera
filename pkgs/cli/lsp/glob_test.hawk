@@ -1,0 +1,47 @@
+// Tests for the LSP's minimal glob matcher (glob.hawk).
+
+import std.testing;
+
+import 'glob';
+
+@test
+fn test_double_star_matches_across_segments() -> Result<Void, Error> {
+    testing.assert(glob.matches('tests/lang/**', 'tests/lang/foo.hawk'),
+        message: 'a file directly under the dir')?;
+    testing.assert(glob.matches('tests/lang/**', 'tests/lang/sub/bar.hawk'),
+        message: 'a file in a nested dir (** crosses /)')?;
+    testing.assert(!glob.matches('tests/lang/**', 'pkgs/cli/foo.hawk'),
+        message: 'an unrelated path does not match')?;
+    testing.assert(!glob.matches('tests/lang/**', 'tests/langx/foo.hawk'),
+        message: 'a sibling prefix does not match')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_single_star_stops_at_separator() -> Result<Void, Error> {
+    testing.assert(glob.matches('src/*.hawk', 'src/main.hawk'),
+        message: '* matches within a segment')?;
+    testing.assert(!glob.matches('src/*.hawk', 'src/sub/main.hawk'),
+        message: '* does not cross /')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_question_and_literals() -> Result<Void, Error> {
+    testing.assert(glob.matches('a?c', 'abc'), message: '? matches one char')?;
+    testing.assert(!glob.matches('a?c', 'a/c'), message: '? does not match /')?;
+    testing.assert(glob.matches('exact/name.hawk', 'exact/name.hawk'),
+        message: 'a literal path matches itself')?;
+    testing.assert(!glob.matches('exact/name.hawk', 'exact/other.hawk'),
+        message: 'a literal path is exact')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_double_star_middle() -> Result<Void, Error> {
+    testing.assert(glob.matches('a/**/b.hawk', 'a/b.hawk'),
+        message: 'the spanned segment is optional')?;
+    testing.assert(glob.matches('a/**/b.hawk', 'a/x/y/b.hawk'),
+        message: 'the spanned segment can be several deep')?;
+    return Result.Ok(void);
+}

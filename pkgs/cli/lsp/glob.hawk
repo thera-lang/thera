@@ -1,0 +1,62 @@
+// Minimal glob matching for the LSP's `hawk.exclude` patterns — the
+// workspace-relative path filters a client sends (e.g. `tests/lang/**`). Supports
+// `*` (any run within a path segment), `**` (any run, crossing `/`), and `?` (one
+// non-`/` character); every other character is literal. Deliberately small — no
+// brace expansion or character classes — matching the subset the VS Code
+// extension used before the filter moved to the server.
+
+// The code point of a one-character string — the glob metacharacters.
+fn cp(_ s: String) -> Int {
+    return s.chars()[0];
+}
+
+// Whether `path` matches `pattern` (both `/`-separated, workspace-relative).
+pub fn matches(_ pattern: String, _ path: String) -> Bool {
+    return match_at(pattern.chars(), 0, path.chars(), 0);
+}
+
+// Match the pattern suffix `p[pi..]` against the path suffix `s[si..]`.
+fn match_at(_ p: List<Int>, _ pi: Int, _ s: List<Int>, _ si: Int) -> Bool {
+    if pi == p.len() {
+        return si == s.len();
+    }
+    let pc = p[pi];
+    if pc == cp('*') {
+        if pi + 1 < p.len() && p[pi + 1] == cp('*') {
+            // `**` — any run, including `/`. Swallow a `/` right after it so
+            // `a/**/b` matches `a/b` (the spanned segment is optional).
+            let mut after = pi + 2;
+            if after < p.len() && p[after] == cp('/') {
+                after = after + 1;
+            }
+            return match_star(p, after, s, si, true);
+        }
+        // `*` — any run that doesn't cross a `/`.
+        return match_star(p, pi + 1, s, si, false);
+    }
+    if pc == cp('?') {
+        return si < s.len() && s[si] != cp('/') && match_at(p, pi + 1, s, si + 1);
+    }
+    return si < s.len() && s[si] == pc && match_at(p, pi + 1, s, si + 1);
+}
+
+// Try matching `p[after..]` at every path position from `si` on. `cross` lets the
+// wildcard consume `/` (for `**`); otherwise it halts at the first `/` (for `*`).
+fn match_star(_ p: List<Int>, _ after: Int, _ s: List<Int>, _ si: Int, _ cross: Bool) -> Bool {
+    let mut k = si;
+    let mut found = false;
+    let mut stop = false;
+    while !stop {
+        if match_at(p, after, s, k) {
+            found = true;
+            stop = true;
+        } else if k >= s.len() {
+            stop = true;
+        } else if !cross && s[k] == cp('/') {
+            stop = true;
+        } else {
+            k = k + 1;
+        }
+    }
+    return found;
+}

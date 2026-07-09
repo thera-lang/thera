@@ -380,18 +380,16 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   - **Further renderers — completion, signature help, semantic tokens.** Thin
     query-layer renderers; completion + signatureHelp additionally need the
     parser recovery below.
-  - **Segregate intentional-error test fixtures.** Workspace diagnostics now
-    surface every file's errors — including the conformance fixtures under
-    `tests/lang/`, which are _deliberately_ broken (an `xfail` spec, an `// expect:`
-    error directive). Today the editor hides them client-side via the extension's
-    `hawk.exclude` glob (a blunt path filter, and the server still analyzes them).
-    Better: split "should analyze clean" fixtures from "carries intentional
-    diagnostics" ones — by directory or a per-file marker the harness already reads
-    — so the workspace scan can skip the latter at the source. Removes the need for
-    an editor-side exclude and stops wasting analysis on files whose errors are the
-    point. (A server-side `exclude`, sent via `initializationOptions`, is the
-    interim: uniform across push/pull and client-agnostic, unlike the current
-    client glob.)
+  - **Segregate intentional-error test fixtures.** Workspace diagnostics surface
+    every file's errors — including the conformance fixtures under `tests/lang/`,
+    which are _deliberately_ broken (an `xfail` spec, an `// expect:` error
+    directive). A server-side `hawk.exclude` now hides them (see _Changelog_), but
+    that's a blunt path filter the user has to configure, and the server still
+    analyzes the files. Better: split "should analyze clean" fixtures from "carries
+    intentional diagnostics" ones — by directory or a per-file marker the harness
+    already reads — so the workspace scan skips the latter at the source, with no
+    exclude glob to maintain and no wasted analysis on files whose errors are the
+    point.
 - **Parser error recovery for the LSP.** The LSP's normal input is
   _syntactically broken_ code mid-edit; the parser should synthesize a
   best-effort tree (recover past the error) so semantic resolution still runs
@@ -741,6 +739,19 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **Pull-only diagnostics + server-side `exclude` (LSP)** (2026-07). The server
+  no longer pushes `publishDiagnostics` at all — it went **pull-only**, so open
+  files and the workspace flow through the one channel (`textDocument/diagnostic`
+  / `workspace/diagnostic`), and an edit's only proactive signal is the
+  `workspace/diagnostic/refresh` nudge. This removes the push/pull duplication (a
+  file no longer got diagnostics on two channels). Diagnostic filtering also moved
+  from the VS Code extension to the server: the client sends its `hawk.exclude`
+  globs via `initializationOptions` (live changes via `workspace/didChangeConfiguration`),
+  and the server withholds matching files from both reports — uniform across
+  channels and client-agnostic, replacing the extension's per-channel glob
+  middleware. A small workspace-relative glob matcher (`pkgs/cli/lsp/glob.hawk`,
+  `*` / `**` / `?`) does the matching. Closing a file now marks a change (a
+  re-pull nudge) rather than clearing via push.
 - **Workspace-wide diagnostics — pull model (LSP)** (2026-07). Diagnostics are
   no longer limited to open files. The server advertises a 3.17 `diagnosticProvider`
   (`interFileDependencies` + `workspaceDiagnostics`) and answers

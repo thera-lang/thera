@@ -15,6 +15,7 @@ import 'references';       // collect_in / matching_spans (semantic)
 import 'rename';           // edits_for / is_identifier (semantic rename)
 import 'workspace';       // hawk_files (on-disk project scan)
 import 'diagnostics';     // render_diagnostics
+import 'glob';             // exclude-pattern matching
 import 'paths';             // uri_to_path
 import 'positions';       // position_to_offset
 
@@ -23,10 +24,9 @@ pub struct Analysis {
     // texts are mirrored into the session's overlay map under canonical keys.
     let docs: Map<String, String>;
     let session: session.Session;
-    // uri -> the last document version the client sent (didOpen/didChange). Echoed
-    // back on `publishDiagnostics` so the client can discard diagnostics computed
-    // against a superseded revision — harmless while diagnostics are synchronous,
-    // load-bearing once Phase 2 makes them async (LS9).
+    // uri -> the last document version the client sent (didOpen/didChange).
+    // Reported as the `version` of an open buffer's `workspace/diagnostic` item so
+    // the client can discard results computed against a superseded revision (LS9).
     let versions: Map<String, Int>;
     // Documents (URIs) edited since the last diagnostics flush. Lives beside
     // the caches so invalidation state is one object (LS-D1): an edit marks
@@ -39,6 +39,13 @@ pub struct Analysis {
     // the client is folder-less (a single loose file). These bound the on-disk
     // scan that makes references/rename project-wide — see `workspace_files`.
     let mut roots: List<String>;
+    // Workspace-relative `hawk.exclude` globs (from `initialize`'s
+    // `initializationOptions`, updated by `workspace/didChangeConfiguration`). A
+    // file matching one has its diagnostics withheld — used to hide the
+    // intentionally-broken conformance fixtures under `tests/lang/`. The file is
+    // still analyzed (imports of it resolve); only its *reported* diagnostics are
+    // dropped. Empty = nothing excluded.
+    let mut exclude: List<String>;
 }
 
 pub fn new_analysis(_ sdk_root: Option<String>) -> Analysis {
@@ -48,6 +55,7 @@ pub fn new_analysis(_ sdk_root: Option<String>) -> Analysis {
         versions: {},
         dirty: Set.new(),
         roots: [],
+        exclude: [],
     };
 }
 
@@ -97,9 +105,11 @@ impl Analysis {
         self.mark_open_dependents_dirty(uri);
     }
 
-    // Forget `uri` (closed): analyses revert to the on-disk content — a
-    // change of view for open importers, which are marked dirty — and any
-    // pending dirty mark is dropped (no stale publish for a closed document).
+    // Forget `uri` (closed): analyses revert to the on-disk content — a change of
+    // view for the file and its open importers. The close is itself a change, so
+    // it marks dirty (the flush nudges a re-pull): the client refetches, and a
+    // loose file drops out of the workspace report. (Under the push model this
+    // instead *cleared* the dirty mark; pull inverts it.)
     pub fn close_document(self, _ uri: String) -> Void {
         match self.docs.remove(uri) {
             Some(_) => {},
@@ -107,8 +117,8 @@ impl Analysis {
         }
         self.versions.remove(uri);
         self.session.remove_overlay(paths.uri_to_path(uri));
+        self.dirty.add(uri);
         self.mark_open_dependents_dirty(uri);
-        self.dirty.remove(uri);
     }
 
     // Mark every *open* document in `uri`'s invalidation cone dirty: an edit
@@ -138,11 +148,6 @@ impl Analysis {
         return self.docs.get(uri);
     }
 
-    // The last version the client sent for `uri`, echoed on `publishDiagnostics`.
-    pub fn version_of(self, _ uri: String) -> Option<Int> {
-        return self.versions.get(uri);
-    }
-
     pub fn uris(self) -> List<String> {
         return self.docs.keys();
     }
@@ -155,6 +160,40 @@ impl Analysis {
 
     pub fn roots(self) -> List<String> {
         return self.roots;
+    }
+
+    // Record the `hawk.exclude` globs (`initialize` / `didChangeConfiguration`).
+    // Idempotent — a new set replaces the old.
+    pub fn set_exclude(self, _ patterns: List<String>) -> Void {
+        self.exclude = patterns;
+    }
+
+    // Whether `path`'s diagnostics are suppressed by a `hawk.exclude` glob —
+    // matched against the file's path relative to the workspace root that contains
+    // it (the form the client's globs are written in, e.g. `tests/lang/**`).
+    pub fn is_excluded(self, _ path: String) -> Bool {
+        if self.exclude.len() == 0 {
+            return false;
+        }
+        let rel = self.workspace_relative(loader.canonical_path(path));
+        for pattern in self.exclude {
+            if glob.matches(pattern, rel) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // `canon` (canonical) relative to the first root that contains it, `/`-joined;
+    // the path unchanged when it's under no root (a loose file).
+    fn workspace_relative(self, _ canon: String) -> String {
+        for root in self.roots {
+            let prefix = loader.canonical_path(root) + '/';
+            if canon.starts_with(prefix) {
+                return canon.slice(prefix.len(), canon.len());
+            }
+        }
+        return canon;
     }
 
     // The parsed AST of an open document, through the session's parse cache —
@@ -358,11 +397,10 @@ impl Analysis {
         return RenameOutcome.Edit(obj({ 'changes': obj(changes) }));
     }
 
-    // The `diagnostics` array (as JSON) for `uri`'s `text`. The open document
-    // itself is always rechecked: its overlay text is this request's input,
-    // never a cached result, so its key must not linger in the session's
-    // checked-clean set (edits evict it; `force_recheck` covers a re-publish
-    // without an edit).
+    // The `diagnostics` array (as JSON) for `uri`'s `text` — the items of a pull
+    // `textDocument/diagnostic` report. The document is always rechecked: its
+    // overlay text is the request's input, never a cached result, so its key must
+    // not linger in the checked-clean set (`force_recheck` evicts it).
     pub fn diagnostics(self, _ uri: String, _ text: String) -> Json {
         let p = paths.uri_to_path(uri);
         self.session.force_recheck(p);
@@ -376,6 +414,11 @@ impl Analysis {
     // closed file can be pulled). The `unchanged` optimization (a `resultId` the
     // client echoes back) is a follow-up; this always returns a full report.
     pub fn document_report(self, _ uri: String) -> Json {
+        // An excluded file reports clean, so the editor shows nothing for it (the
+        // file is still analyzed for importers — this only withholds its report).
+        if self.is_excluded(paths.uri_to_path(uri)) {
+            return obj({ 'kind': str('full'), 'items': arr([]) });
+        }
         let text = match self.docs.get(uri) {
             Some(t) => t,
             None => match fs.read_text(paths.uri_to_path(uri)) {
@@ -405,18 +448,24 @@ impl Analysis {
         let by_file: Map<String, List<Json>> = {};
         let seen: Set<String> = Set.new();
         for f in files {
-            if !self.session.is_sdk_file(f.path) {
+            // Skip SDK and excluded files as scan primaries — they get no report.
+            // (An excluded file's error can still be grouped from a non-excluded
+            // importer's check; the emit loop drops those by skipping excluded
+            // owners.)
+            if !self.session.is_sdk_file(f.path) && !self.is_excluded(f.path) {
                 diagnostics.group_by_file(self.session.check(f.text, f.path),
                     loader.canonical_path(f.path), by_file, seen);
             }
         }
         // One report per scanned file (empty items = clean), keyed by canonical
-        // path so an open buffer and its on-disk copy don't double-report.
+        // path so an open buffer and its on-disk copy don't double-report. Excluded
+        // files are omitted entirely — their diagnostics stay hidden.
         let items: List<Json> = [];
         let emitted: Set<String> = Set.new();
         for f in files {
             let canon = loader.canonical_path(f.path);
-            if !self.session.is_sdk_file(f.path) && !emitted.has(canon) {
+            if !self.session.is_sdk_file(f.path) && !self.is_excluded(f.path)
+                && !emitted.has(canon) {
                 emitted.add(canon);
                 items.push(obj({
                     'kind': str('full'),

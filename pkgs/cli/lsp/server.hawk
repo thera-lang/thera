@@ -1,8 +1,9 @@
 // The Hawk language server: a JSON-RPC dispatch loop over stdio that answers a
 // small slice of the LSP. Slice 1 covers the lifecycle (`initialize` /
 // `shutdown` / `exit`), full-document sync (`didOpen` / `didChange` /
-// `didClose`), and live `publishDiagnostics`. Document symbols, hover, and
-// definition land in later slices.
+// `didClose`), and pull-model diagnostics (`textDocument/diagnostic` +
+// `workspace/diagnostic`, with a `workspace/diagnostic/refresh` nudge on edits).
+// Document symbols, hover, and definition land in later slices.
 //
 // This is the Hawk port of the Dart `lsp/server.dart` (which rode on
 // `package:lsp_server`); here the transport is our own jsonrpc.hawk.
@@ -95,9 +96,9 @@ pub fn serve(_ reader: io.Reader, _ writer: io.Writer, _ sdk_root: Option<String
 }
 
 impl Server {
-    // Handle one raw message body and publish any diagnostics it dirtied. This is
-    // the per-message entry point (used directly for one-shot requests); `serve`
-    // instead batches with `ingest` + `flush` to coalesce a burst of edits.
+    // Handle one raw message body and nudge a re-pull if it dirtied a document.
+    // This is the per-message entry point (used directly for one-shot requests);
+    // `serve` instead batches with `ingest` + `flush` to coalesce a burst of edits.
     // Returns false when the server should stop (an `exit` notification).
     pub fn handle(self, _ writer: io.Writer, _ body: String) -> Bool {
         let going = self.ingest(writer, body);
@@ -106,9 +107,9 @@ impl Server {
     }
 
     // Dispatch one message, applying its state and marking any edited document
-    // dirty, but **deferring** diagnostics to the next `flush`. Returns false on
-    // `exit`. (Requests like hover still answer inline — only the diagnostics
-    // publish is deferred.)
+    // dirty, but **deferring** the refresh nudge to the next `flush`. Returns false
+    // on `exit`. (Requests like hover still answer inline — only the diagnostics
+    // refresh is deferred.)
     fn ingest(self, _ writer: io.Writer, _ body: String) -> Bool {
         // An unparseable body gets a JSON-RPC ParseError (id null), not a
         // silent drop — the client learns its message was lost (LS9).
@@ -139,10 +140,19 @@ impl Server {
         if method == 'initialize' {
             self.analysis.set_roots(workspace_roots(params));
             self.client_refresh_support = client_supports_diagnostic_refresh(params);
+            self.analysis.set_exclude(string_array(params.get('initializationOptions').get('exclude')));
             send_response(writer, id, initialize_result());
             return true;
         }
         if method == 'initialized' {
+            return true;
+        }
+        // A live `hawk.exclude` change: update the filter and nudge a re-pull so
+        // the client re-fetches with it applied (settings shape: `{ hawk: { … } }`).
+        if method == 'workspace/didChangeConfiguration' {
+            self.analysis.set_exclude(
+                string_array(params.get('settings').get('hawk').get('exclude')));
+            self.request_workspace_refresh(writer);
             return true;
         }
         if method == 'shutdown' {
@@ -221,13 +231,11 @@ impl Server {
         }
         if method == 'textDocument/didClose' {
             if let Some(uri) = params.get('textDocument').get('uri').as_string() {
+                // Pull model: no explicit clear. Closing reverts the file to its
+                // on-disk content (marking dirty), and the flush nudges a re-pull —
+                // the client refetches the document/workspace diagnostics, and a
+                // loose (un-rooted) file simply drops out of the workspace report.
                 self.analysis.close_document(uri);
-                // An empty publish releases the closed document's squiggles —
-                // without it they persist in the editor forever (LS9).
-                send_notification(writer, 'textDocument/publishDiagnostics', json.obj({
-                    'uri': json.str(uri),
-                    'diagnostics': json.arr([]),
-                }));
             }
             return true;
         }
@@ -242,8 +250,8 @@ impl Server {
 
     // Store `text` for `uri` (when both are present); `set_document` marks it
     // dirty for the next `flush` and evicts the file's cached parse so an
-    // importer's next check re-sees the change. The publish is deferred (not
-    // done here) so a burst of edits coalesces into one re-check.
+    // importer's next check re-sees the change. The refresh nudge is deferred (not
+    // done here) so a burst of edits coalesces into one re-pull.
     fn update_document(self, _ uri: Option<String>, _ text: Option<String>, _ version: Option<Int>) -> Void {
         if let Some(u) = uri {
             if let Some(t) = text {
@@ -356,33 +364,23 @@ impl Server {
         }
     }
 
-    // Publish diagnostics for every document dirtied since the last flush
-    // (`take_dirty` drains the analysis's set). A document edited several times
-    // in one batch is re-checked once; one closed before the flush was already
-    // dropped from the set (no stale publish).
-    //
-    // Open documents keep the low-latency *push* path. A change may also alter an
-    // unopened importer's diagnostics, which push can't reach — so, once per flush
-    // that saw an edit, nudge the client to re-pull the workspace (`workspace/
-    // diagnostic/refresh`). The re-pull is cheap: only the edited cone was evicted
-    // from the checked-clean set, so unchanged files are cache hits. (Making the
-    // nudge fire only when cross-file results could actually change, and adding
-    // per-file `resultId` caching so unchanged files aren't re-emitted, are
-    // follow-ups.)
+    // Diagnostics are pull-model (LSP 3.17): the server never pushes
+    // `publishDiagnostics`. A flush that saw an edit only nudges a refresh-capable
+    // client to re-pull (`take_dirty` drains the set; `serve` coalesces a burst of
+    // edits into one flush, hence one nudge). The client then re-pulls the open
+    // documents and the workspace, which our `textDocument/diagnostic` /
+    // `workspace/diagnostic` handlers answer — reusing the session's checked-clean
+    // cache, so only the edited cone recomputes.
     fn flush(self, _ writer: io.Writer) -> Void {
-        let dirty = self.analysis.take_dirty();
-        for uri in dirty {
-            if let Some(text) = self.analysis.text(uri) { self.publish(writer, uri, text); }
-        }
-        if dirty.len() > 0 {
+        if self.analysis.take_dirty().len() > 0 {
             self.request_workspace_refresh(writer);
         }
     }
 
-    // Ask the client to re-pull workspace diagnostics — the pull model's proactive
-    // signal (we don't push per-file for unopened files). A server-initiated
-    // request; the client's response carries no `method`, so `ingest` drops it. A
-    // no-op when the client didn't advertise refresh support.
+    // Ask the client to re-pull all diagnostics — the pull model's proactive
+    // signal (the server pushes nothing). A server-initiated request; the client's
+    // response carries no `method`, so `ingest` drops it. A no-op when the client
+    // didn't advertise refresh support (it then pulls on its own cadence).
     fn request_workspace_refresh(self, _ writer: io.Writer) -> Void {
         if !self.client_refresh_support {
             return;
@@ -395,19 +393,6 @@ impl Server {
             'method': json.str('workspace/diagnostic/refresh'),
         }));
     }
-
-    fn publish(self, _ writer: io.Writer, _ uri: String, _ text: String) -> Void {
-        let params: Map<String, Json> = {
-            'uri': json.str(uri),
-            'diagnostics': self.analysis.diagnostics(uri, text),
-        };
-        // Echo the document version (when the client sent one) so it can discard
-        // diagnostics for a superseded revision (LS9).
-        if let Some(v) = self.analysis.version_of(uri) {
-            params['version'] = json.int(v);
-        }
-        send_notification(writer, 'textDocument/publishDiagnostics', json.obj(params));
-    }
 }
 
 // --- JSON-RPC envelope helpers ---
@@ -417,14 +402,6 @@ fn send_response(_ writer: io.Writer, _ id: Json, _ result: Json) -> Void {
         'jsonrpc': json.str('2.0'),
         'id': id,
         'result': result,
-    }));
-}
-
-fn send_notification(_ writer: io.Writer, _ method: String, _ params: Json) -> Void {
-    jsonrpc.send_message(writer, json.obj({
-        'jsonrpc': json.str('2.0'),
-        'method': json.str(method),
-        'params': params,
     }));
 }
 
@@ -487,6 +464,23 @@ fn initialize_result() -> Json {
 fn client_supports_diagnostic_refresh(_ params: Json) -> Bool {
     return params.get('capabilities').get('workspace').get('diagnostics')
         .get('refreshSupport').as_bool().unwrap_or(false);
+}
+
+// The string elements of a JSON array (non-strings and a non-array skipped) — the
+// `hawk.exclude` glob list, from `initializationOptions` or a settings payload.
+fn string_array(_ j: Json) -> List<String> {
+    let out: List<String> = [];
+    match j.as_array() {
+        Some(items) => {
+            for it in items {
+                if let Some(s) = it.as_string() {
+                    out.push(s);
+                }
+            }
+        },
+        None => {},
+    }
+    return out;
 }
 
 fn workspace_roots(_ params: Json) -> List<String> {
