@@ -118,6 +118,47 @@ fn test_rename_scans_on_disk_workspace_files() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
+// References/rename scope to the target's dependency cone but stay complete: a
+// closed importer that was never loaded is still found (the forward graph is
+// indexed over the whole scan before it's reversed), while an unrelated file that
+// declares a same-named symbol without importing the target is excluded.
+@test
+fn test_references_cover_the_dependency_cone() -> Result<Void, Error> {
+    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_cone_test');
+    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    fs.create_dir_all(dir)?;
+    let a_text = 'pub fn foo() -> Int { return 1; }\n';
+    fs.write_text(dir + '/a.hawk', a_text)?;
+    // b imports a and calls foo (a real reference in a never-opened file).
+    fs.write_text(dir + '/b.hawk', 'import \'a\';\nfn use_it() -> Int { return a.foo(); }\n')?;
+    // d declares its own `foo` and never imports a — a different symbol that must
+    // not appear (it's outside the cone, and a distinct SymbolId regardless).
+    fs.write_text(dir + '/d.hawk', 'fn foo() -> Int { return 2; }\n')?;
+
+    let analysis = new_analysis(Option.None);
+    analysis.set_roots([dir]);
+    let a_uri = paths.path_to_uri(dir + '/a.hawk');
+    let b_uri = paths.path_to_uri(dir + '/b.hawk');
+    let d_uri = paths.path_to_uri(dir + '/d.hawk');
+    analysis.set_document(a_uri, a_text, Option.None); // only a is open
+
+    // References on `foo`'s declaration (line 0, char 8): the decl in a + the call
+    // in the closed b — two occurrences — and nothing from d.
+    let pos = obj({ 'line': int(0), 'character': int(8) });
+    let refs = analysis.references_at(a_uri, pos, true).as_array().unwrap_or([]);
+    let uris: Set<String> = Set.new();
+    for loc in refs {
+        uris.add(loc.get('uri').as_string().unwrap_or(''));
+    }
+    testing.assert_eq(actual: refs.len(), expected: 2)?;
+    testing.assert(uris.has(a_uri), message: 'includes the declaration in a.hawk')?;
+    testing.assert(uris.has(b_uri), message: 'includes the closed importer b.hawk (cone is complete)')?;
+    testing.assert(!uris.has(d_uri), message: 'excludes d.hawk (a same-named symbol outside the cone)')?;
+
+    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    return Result.Ok(void);
+}
+
 // The SDK is read-only to rename: renaming a symbol declared under `sdk/std`
 // (reached by `import std.*`) is refused with a null result rather than a
 // partial edit that rewrites callers but not the trusted library declaration.

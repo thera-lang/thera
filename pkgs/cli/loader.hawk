@@ -503,6 +503,40 @@ pub struct FileSurface {
     let diagnostics: List<diagnostic.Diagnostic>;
 }
 
+// The canonical file keys `program`'s **direct** imports resolve to — a cheap
+// forward-edge probe that skips the whole closure load (no child sources,
+// surfaces, element model, or recursion). Resolves each import specifier the same
+// way the full loader does (`std.*` at the SDK std root, else relative to
+// `entry`'s directory), so it yields exactly the keys `load_imports` records in
+// `file_imports`. Powers the LSP's workspace edge index — the references/rename
+// dependency cone — without paying for every file's closure. `entry` is the
+// importing file's path; a specifier that resolves to no file is dropped.
+pub fn import_edges(_ entry: String, _ program: Program, _ sdk_root: Option<String>) -> List<String> {
+    let probe = Loader {
+        sdk_root: sdk_root,
+        order: [],
+        cache: {},
+        diagnostics: [],
+        parse_cache: {},
+        overlays: {},
+        surfaces: {},
+    };
+    let base = path.dirname(entry);
+    let seen: Set<String> = Set.new();
+    let edges: List<String> = [];
+    for decl in program.decls {
+        if let Import(x) = decl {
+            if let Some(key) = probe.resolve(x.path, base) {
+                if !seen.has(key) {
+                    seen.add(key);
+                    edges.push(key);
+                }
+            }
+        }
+    }
+    return edges;
+}
+
 // The canonical keys `source`'s imports resolved to — one graph node's outgoing
 // edges, deduped, in declaration order (`source.imports` is keyed by the import
 // path as written; two spellings of one file collapse to one edge).

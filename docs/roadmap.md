@@ -365,10 +365,6 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   value+type resolution, the resolved-library cache with dependency-graph
   invalidation, `type_at` (inference-at-offset), and semantic references/rename
   all shipped (see _Changelog_). The remaining follow-ups, all deferred:
-  - **References/rename — dependency-cone pruning.** The project-wide scan
-    builds every workspace file's closure to resolve it; scope it to the
-    target's dependency cone (via the session import graph) so cost scales with
-    reachability, not project size.
   - **Primitive-receiver member resolution.** Hover / definition / member
     resolution on a primitive receiver (`"s".split()`) don't resolve — a
     `Primitive` value carries no `TypeId`. Ties to _Primitive vtables_
@@ -725,6 +721,20 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **References/rename — dependency-cone pruning (LSP)** (2026-07). The
+  project-wide scan no longer builds every workspace file's closure. Both
+  requests now scope the expensive resolution to the target's **dependency
+  cone** — its declaring file plus its transitive importers
+  (`session.dependents_of`), intersected with the scan — so a file that can't
+  see the declaration (a same-named identifier there is a distinct `SymbolId`)
+  is skipped without a closure load. Completeness is preserved by first indexing
+  the workspace's forward import edges with a cheap edges-only probe
+  (`loader.import_edges` — resolves specifiers, no child sources/surfaces/element
+  model; `session.index_edges` fills only files never loaded, so a warm request
+  does no extra work), then reversing that graph: a closed, never-opened importer
+  is still found. An edit drops the file's forward edges (`invalidate`) so a
+  changed import list re-probes. Cost now scales with the target's reachability,
+  not project size, with the same results as the old whole-project scan.
 - **Session tokenization dedup — cached tokens (LSP, audit LS-D1 tail)**
   (2026-07). Tokens are now the materialized bottom rung of the analysis ladder:
   `parse_source` retains its lex on `ParsedFile.tokens` (paired with the AST by

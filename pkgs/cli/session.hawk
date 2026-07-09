@@ -132,6 +132,13 @@ impl Session {
             Some(_) => {},
             None => {},
         }
+        // The edit may have changed `p`'s own imports, so its forward edges are
+        // stale — drop them so `index_edges` (or the next closure load) re-probes.
+        // Only `p`'s own edges can change; importers' edges still point at `p`.
+        match self.import_graph.remove(key) {
+            Some(_) => {},
+            None => {},
+        }
         for k in self.dependents_of(key) {
             self.checked.remove(k);
             match self.surface_cache.remove(k) {
@@ -266,6 +273,25 @@ impl Session {
             Some(prefix) => loader.canonical_path(p).starts_with(prefix),
             None => false,
         };
+    }
+
+    // Record the forward import edges of every file in `files` the graph doesn't
+    // already know — the cheap edges-only probe (`loader.import_edges`), not a
+    // full closure load. The references/rename cone (`dependents_of`) reverses
+    // this graph, so it must cover the whole scan set to be complete; this fills
+    // the gaps for files never loaded (or edited since — `invalidate` drops their
+    // entry) so a cold reference request doesn't miss an unopened importer.
+    // `files` maps canonical path -> current text (an open buffer's overlay or the
+    // on-disk contents). Already-known files are skipped, so a warm request does
+    // no work here. The probed parse populates the parse cache, so the cone files
+    // that go on to resolve reuse it (no re-parse).
+    pub fn index_edges(self, _ files: Map<String, String>) -> Void {
+        for key in files.keys() {
+            if !self.import_graph.has(key) {
+                let pf = self.parsed_primary(key, files.get(key).unwrap_or(''));
+                self.import_graph[key] = loader.import_edges(key, pf.program, self.sdk_root);
+            }
+        }
     }
 
     // Merge one load's dependency edges into the session graph (entry-wise

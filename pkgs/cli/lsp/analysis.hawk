@@ -194,9 +194,8 @@ impl Analysis {
     // is still covered. With no roots announced (a folder-less client), this is
     // just the open documents, the pre-workspace-scan behavior.
     //
-    // Correctness-first: it builds each file's closure to resolve it, so the
-    // cost scales with the project, not with the reference set. Pruning to the
-    // target's dependency cone (via the session's import graph) is a follow-up.
+    // Only `cone_files` builds each returned file's closure to resolve it, so the
+    // expensive work scales with the target's reachability, not the whole project.
     fn scan_files(self) -> List<ScanFile> {
         let by_path: Map<String, ScanFile> = {};
         for p in workspace.hawk_files(self.roots) {
@@ -217,6 +216,39 @@ impl Analysis {
                 ScanFile { uri: u, path: p, text: self.docs.get(u).unwrap_or('') };
         }
         return by_path.values();
+    }
+
+    // The scan files that can *see* `target`'s declaration — its own file plus its
+    // transitive importers (`session.dependents_of`), intersected with the
+    // workspace scan. A file outside this cone doesn't import the declaring file,
+    // so a same-named identifier there is a *different* symbol (SymbolId identity)
+    // that references/rename would resolve and reject anyway — pruning it skips the
+    // closure load and per-identifier resolution entirely, so cost scales with the
+    // target's reachability, not project size.
+    //
+    // The forward graph is indexed over the whole scan first (a cheap edges-only
+    // probe — `session.index_edges`), so reversing it yields a *complete* cone: a
+    // workspace file that imports the target but was never loaded this session is
+    // still found. That keeps this exactly as correct as the old whole-project
+    // scan, only cheaper.
+    fn cone_files(self, _ target: resolve.SymbolId) -> List<ScanFile> {
+        let files = self.scan_files();
+        let texts: Map<String, String> = {};
+        for f in files {
+            texts[loader.canonical_path(f.path)] = f.text;
+        }
+        self.session.index_edges(texts);
+        let cone: Set<String> = Set.new();
+        for k in self.session.dependents_of(target.file()) {
+            cone.add(k);
+        }
+        let out: List<ScanFile> = [];
+        for f in files {
+            if cone.has(loader.canonical_path(f.path)) {
+                out.push(f);
+            }
+        }
+        return out;
     }
 
     // Parse an open document and load its import closure, resolving `position` to a
@@ -259,7 +291,7 @@ impl Analysis {
             None => return arr([]),
         };
         let out: List<Json> = [];
-        for f in self.scan_files() {
+        for f in self.cone_files(target) {
             references.collect_in(self.ctx_for(f.path, f.text), f.text, f.uri, target, include_decl, out);
         }
         return arr(out);
@@ -298,7 +330,7 @@ impl Analysis {
         let target_key = loader.canonical_path(target.file());
         let mut collided: Option<String> = Option.None;
         let changes: Map<String, Json> = {};
-        for f in self.scan_files() {
+        for f in self.cone_files(target) {
             // Never rewrite an SDK file, even when it references the target — its
             // uses stay pinned to the old name (belt-and-suspenders with the
             // decl-owner refusal above).
