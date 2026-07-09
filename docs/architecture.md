@@ -97,7 +97,7 @@ up `(type_id, selector)` in the module's dispatch table. **Built-in fallbacks**
 cover primitives' `Display`/`Eq`/`Debug` and the structural `eq`/`debug` derives
 when no impl row matches. (The alternative — monomorphization / dictionary
 passing — is heavier; type-id keying is cheap and a natural fit for the tagged
-`Value`.) The interface *semantics* — conformance, inheritance, the
+`Value`.) The interface _semantics_ — conformance, inheritance, the
 structural-by-default derives — are in [language.md](language.md).
 
 ## Garbage collection
@@ -211,61 +211,63 @@ across both tiers.
 ## Concurrency: the fiber scheduler
 
 _Design sketch — not yet implemented (`std.fiber` is the surface; see
-[language.md](language.md) §Concurrency and [stdlib.md](stdlib.md) §`std.fiber`)._
+[language.md](language.md) §Concurrency and [stdlib.md](stdlib.md)
+§`std.fiber`)._
 
 Hawk's concurrency is single-threaded cooperative fibers: blocking-looking I/O
 parks the calling fiber and resumes another, with no `async`/`await` coloring.
 The runtime structure already built for the GC makes this cheap to implement.
 
 **Why it's cheap here.** Hawk calls don't use the Rust call stack — `run_loop`
-keeps an explicit `frames: Vec<Frame>` (each `Frame` owning its `pc`, locals, and
-operand stack) and pushes/pops it on `Call`/`Return`; a `Return` with no caller
-frame already exits the loop. So a fiber's **entire** resumable state is that
-frame stack — an ordinary heap-side value the scheduler can set aside and pick up
-later. No OS threads, no stack copying, no `unsafe` stack switching: the property
-that usually makes green threads hard is already paid for. This is a **stackless**
-coroutine design — the fiber _is_ its `Vec<Frame>`.
+keeps an explicit `frames: Vec<Frame>` (each `Frame` owning its `pc`, locals,
+and operand stack) and pushes/pops it on `Call`/`Return`; a `Return` with no
+caller frame already exits the loop. So a fiber's **entire** resumable state is
+that frame stack — an ordinary heap-side value the scheduler can set aside and
+pick up later. No OS threads, no stack copying, no `unsafe` stack switching: the
+property that usually makes green threads hard is already paid for. This is a
+**stackless** coroutine design — the fiber _is_ its `Vec<Frame>`.
 
 **Pieces.**
 
-- `Fiber { id, frames: Vec<Frame>, status }`, `status ∈ { Ready, Running,
-  Blocked(reason), Done(Value) }`. The running fiber's frames live in the `Vm`; a
-  parked fiber's frames are stored back in its `Fiber`.
-- `Scheduler { fibers: Slab<Fiber>, ready: VecDeque<FiberId>, poller }` on one OS
-  thread. Loop: take a `Ready` fiber, run it until it parks or finishes, repeat;
-  when `ready` is empty but fibers are blocked on I/O, block the thread in the
-  poller until a source is ready, wake the owners, continue. The program ends when
-  the **main** fiber (fiber 0) returns — surviving fibers are abandoned (Go
-  semantics).
+- `Fiber { id, frames: Vec<Frame>, status }`,
+  `status ∈ { Ready, Running, Blocked(reason), Done(Value) }`. The running
+  fiber's frames live in the `Vm`; a parked fiber's frames are stored back in
+  its `Fiber`.
+- `Scheduler { fibers: Slab<Fiber>, ready: VecDeque<FiberId>, poller }` on one
+  OS thread. Loop: take a `Ready` fiber, run it until it parks or finishes,
+  repeat; when `ready` is empty but fibers are blocked on I/O, block the thread
+  in the poller until a source is ready, wake the owners, continue. The program
+  ends when the **main** fiber (fiber 0) returns — surviving fibers are
+  abandoned (Go semantics).
 
 **Parking = returning to the scheduler.** `run_loop` already returns when the
 frame stack empties (fiber done). Add a second exit: a native that would block
 returns a `Park(reason)` signal instead of a value; `run_loop` hands the current
-fiber's `Vec<Frame>` back to its `Fiber`, marks it `Blocked(reason)`, and returns
-to the scheduler. Resuming is just re-entering `run_loop` with those frames
-reinstated and the awaited result pushed onto the operand stack. Nothing else is
-saved — the frames _are_ the continuation.
+fiber's `Vec<Frame>` back to its `Fiber`, marks it `Blocked(reason)`, and
+returns to the scheduler. Resuming is just re-entering `run_loop` with those
+frames reinstated and the awaited result pushed onto the operand stack. Nothing
+else is saved — the frames _are_ the continuation.
 
 **The one constraint — park only at the top of the loop.** A fiber can park only
-when the Rust stack is _just_ `run_loop`, not when a native has re-entered it (the
-structural-`debug`/virtual-dispatch path that pushes onto the same frame stack
-within one Rust call — see GC above). Blocking I/O is always called at Hawk level,
-so this is the normal case; the rule is simply "a blocking native is never invoked
-from inside a nested interpreter re-entry." (If that ever needs lifting, the
-nested path can be reworked to loop instead of recurse.)
+when the Rust stack is _just_ `run_loop`, not when a native has re-entered it
+(the structural-`debug`/virtual-dispatch path that pushes onto the same frame
+stack within one Rust call — see GC above). Blocking I/O is always called at
+Hawk level, so this is the normal case; the rule is simply "a blocking native is
+never invoked from inside a nested interpreter re-entry." (If that ever needs
+lifting, the nested path can be reworked to loop instead of recurse.)
 
-**Yield points.** Cooperative — a fiber holds the thread until it parks: blocking
-I/O (parks on readiness), `join` on an unfinished fiber, channel `send`/`receive`
-on a full/empty channel, and an explicit `fiber.yield()`. No preemption, so a
-CPU-bound fiber that never parks starves the rest (acceptable for the model; if it
-bites, the interpreter's existing loop back-edge counter — already there for
-JIT tier-up — can force an occasional yield).
+**Yield points.** Cooperative — a fiber holds the thread until it parks:
+blocking I/O (parks on readiness), `join` on an unfinished fiber, channel
+`send`/`receive` on a full/empty channel, and an explicit `fiber.yield()`. No
+preemption, so a CPU-bound fiber that never parks starves the rest (acceptable
+for the model; if it bites, the interpreter's existing loop back-edge counter —
+already there for JIT tier-up — can force an occasional yield).
 
 **GC roots span all fibers.** Today the collector's roots are the running frame
-stack. With fibers they become the union over **every** live fiber's frames, plus
-values buffered in channels. That is the one substantive GC change — and it's
-small: the safepoint already sits at the `run_loop` top, so the root walk just
-iterates the scheduler's fibers instead of one stack.
+stack. With fibers they become the union over **every** live fiber's frames,
+plus values buffered in channels. That is the one substantive GC change — and
+it's small: the safepoint already sits at the `run_loop` top, so the root walk
+just iterates the scheduler's fibers instead of one stack.
 
 **Channels.** `Channel<T>` = a bounded `VecDeque<Value>` plus queues of blocked
 senders and receivers. `send` parks the sender when full; `receive` parks the
@@ -279,22 +281,22 @@ target is `Done`, else parks the caller on its completion; a finishing fiber
 re-queues its joiners with its result.
 
 **I/O integration — two stages.** (1) A simple first cut keeps syscalls blocking
-but runs them on a small worker-thread pool, parking the Hawk fiber until a worker
-signals completion — the single-thread _Hawk_ guarantee still holds (workers run
-no Hawk code) and it needs no event loop, so it unblocks `std.fiber`/`std.http`
-soonest. (2) The scaling goal is readiness-based non-blocking I/O via
-`kqueue`/`epoll` in the scheduler's poller, so thousands of fibers park on one
-thread. Both preserve the "blocking-looking, never blocks the thread" contract.
-This is also a runtime-dependency question — a poller crate (`mio`) vs.
-hand-rolled `kqueue`/`epoll` to keep dependencies minimal. (The runtime is no
-longer strictly dependency-free: `std.hash` took the first external crates —
-RustCrypto digests — as a deliberate best-of-breed call; new dependencies stay
-few and deliberate.)
+but runs them on a small worker-thread pool, parking the Hawk fiber until a
+worker signals completion — the single-thread _Hawk_ guarantee still holds
+(workers run no Hawk code) and it needs no event loop, so it unblocks
+`std.fiber`/`std.http` soonest. (2) The scaling goal is readiness-based
+non-blocking I/O via `kqueue`/`epoll` in the scheduler's poller, so thousands of
+fibers park on one thread. Both preserve the "blocking-looking, never blocks the
+thread" contract. This is also a runtime-dependency question — a poller crate
+(`mio`) vs. hand-rolled `kqueue`/`epoll` to keep dependencies minimal. (The
+runtime is no longer strictly dependency-free: `std.hash` took the first
+external crates — RustCrypto digests — as a deliberate best-of-breed call; new
+dependencies stay few and deliberate.)
 
-This design is the reason the [language.md](language.md) `async`/`await` fallback
-should stay a fallback: the stackless-fiber model delivers the same
-blocking-looking I/O with no function coloring, and the frame-stack groundwork is
-already in place.
+This design is the reason the [language.md](language.md) `async`/`await`
+fallback should stay a fallback: the stackless-fiber model delivers the same
+blocking-looking I/O with no function coloring, and the frame-stack groundwork
+is already in place.
 
 ## Persistence and the native ABI
 
@@ -315,14 +317,14 @@ constant pool.
 
 `bin/hawk` exposes the toolchain as subcommands:
 
-| command | what it does |
-| --- | --- |
-| `hawk run <file> [args…]` | compile `<file>` to bytecode and run it; trailing args pass to the program |
-| `hawk check <target>` | type-check a `.hawk` file or directory; emit diagnostics, no artifact |
-| `hawk emit <file> <out.hawkbc>` | compile `<file>` to a `.hawkbc` bytecode file |
-| `hawk test <file>` | run the `@test` functions in a Hawk program |
-| `hawk fmt <file\|dir>…` | format source in place (`--check` reports unformatted files, writes nothing) |
-| `hawk lsp` | start the language server (LSP over stdin/stdout) |
+| command                         | what it does                                                                 |
+| ------------------------------- | ---------------------------------------------------------------------------- |
+| `hawk run <file> [args…]`       | compile `<file>` to bytecode and run it; trailing args pass to the program   |
+| `hawk check <target>`           | type-check a `.hawk` file or directory; emit diagnostics, no artifact        |
+| `hawk emit <file> <out.hawkbc>` | compile `<file>` to a `.hawkbc` bytecode file                                |
+| `hawk test <file>`              | run the `@test` functions in a Hawk program                                  |
+| `hawk fmt <file\|dir>…`         | format source in place (`--check` reports unformatted files, writes nothing) |
+| `hawk lsp`                      | start the language server (LSP over stdin/stdout)                            |
 
 **stdout vs. stderr.** The rule: stdout carries a command's _expected output_;
 stderr carries the _unexpected_ (progress, operational failures, crashes). Which
@@ -331,19 +333,19 @@ is which turns on whether the command's product is an **artifact** or its
 
 - `check` and `test` are **analyzers** — they emit no artifact, so their results
   (diagnostics for `check`; the `ok`/`FAIL` lines + summary for `test`) **are**
-  the product and go to **stdout**. This matches linters (eslint, ruff, mypy) and
-  test runners (`cargo test`, `go test`, pytest), and keeps a future
+  the product and go to **stdout**. This matches linters (eslint, ruff, mypy)
+  and test runners (`cargo test`, `go test`, pytest), and keeps a future
   `--json`/SARIF mode on the same stream so `hawk check --json | jq` works.
   Pass/fail is _also_ on the **exit code** (`check`: 0 clean / 1 diagnostics / 2
   missing or unreadable target — operational trumps diagnostics; `test`: 0 all
-  passed / 1 any failed or none found — never a count, which would collide
-  with a trap's exit 1 and wrap at u8). Note the asymmetry this implies:
-  a test file that fails to **compile** produces no test results — that's an
-  operational failure of the run, so `hawk test` sends those compile
-  diagnostics to **stderr**, even though `hawk check` would put the identical
-  lines on stdout (where they are the product). Deliberate, not drift.
-- `emit` is a **compiler** — its product is the `.hawkbc`, so its diagnostics are
-  "why the build failed" and go to **stderr** (the rustc/clang convention),
+  passed / 1 any failed or none found — never a count, which would collide with
+  a trap's exit 1 and wrap at u8). Note the asymmetry this implies: a test file
+  that fails to **compile** produces no test results — that's an operational
+  failure of the run, so `hawk test` sends those compile diagnostics to
+  **stderr**, even though `hawk check` would put the identical lines on stdout
+  (where they are the product). Deliberate, not drift.
+- `emit` is a **compiler** — its product is the `.hawkbc`, so its diagnostics
+  are "why the build failed" and go to **stderr** (the rustc/clang convention),
   leaving stdout clean.
 - `lsp` owns **stdout** for the JSON-RPC wire protocol; human-facing output
   (build/compile progress) goes to stderr.
@@ -352,19 +354,19 @@ is which turns on whether the command's product is an **artifact** or its
   progress (`bin/hawk.sh`).
 
 **Diagnostic format.** Every diagnostic — a `check` type error, an `emit` build
-failure, a `run`/`test` compile error — is one line: **`path:line:column:
-message`** (`users.hawk:42:5: undefined name: total`). The file is resolved to
-where the error *originates*: an error in an imported file names **that** file,
-not the entrypoint that triggered the compile (a diagnostic span carries its
-source text, and the driver maps it back to the owning file). This is the
-editor- and `grep`-friendly convention rustc/gcc/clang/eslint use, and it is the
-**same shape `hawk test` prints for a failing assertion** — `std.testing` stamps
-the call site via the `#loc` caller-location metaconstant (see
-[roadmap.md](roadmap.md)), so `assert_eq failed` is reported as
+failure, a `run`/`test` compile error — is one line:
+**`path:line:column: message`** (`users.hawk:42:5: undefined name: total`). The
+file is resolved to where the error _originates_: an error in an imported file
+names **that** file, not the entrypoint that triggered the compile (a diagnostic
+span carries its source text, and the driver maps it back to the owning file).
+This is the editor- and `grep`-friendly convention rustc/gcc/clang/eslint use,
+and it is the **same shape `hawk test` prints for a failing assertion** —
+`std.testing` stamps the call site via the `#loc` caller-location metaconstant
+(see [roadmap.md](roadmap.md)), so `assert_eq failed` is reported as
 `users_test.hawk:42:5: assert_eq failed …`. One format spans compiler errors and
 test failures, so an agent or editor parses both with a single rule. Multi-line
-messages indent continuation lines under the location; diagnostics are emitted in
-a deterministic order, and pass/fail is *also* on the exit code (above).
+messages indent continuation lines under the location; diagnostics are emitted
+in a deterministic order, and pass/fail is _also_ on the exit code (above).
 
 ### The formatter (`hawk fmt`)
 
@@ -378,16 +380,16 @@ the formatter's output, not a thing humans diff over.
 What it normalizes is deliberately bounded. It fixes **vertical layout** (line
 indentation, blank-run collapsing, trailing whitespace) and **intra-line
 spacing** (`fn  foo( a:Int )` → `fn foo(a: Int)`). It does **not**, for the most
-part, reflow across line boundaries — it keeps every line break the author chose,
-and does not join short lines or insert breaks into long ones. That restraint is
-partly implementation simplicity (reflow is where formatter complexity lives),
-but also a readability call: where a line breaks often carries intent (a grouped
-argument list, an aligned match, a chain the author split for clarity), and
-mechanically canonicalizing it tends to hurt readability as often as it helps. So
-the author owns line breaks; the formatter owns everything within and between
-them. It moves only whole lines and rewrites only inter-token whitespace, so it
-**never changes what the code means** (a token-equality + re-parse guard enforces
-this) — running it is always safe.
+part, reflow across line boundaries — it keeps every line break the author
+chose, and does not join short lines or insert breaks into long ones. That
+restraint is partly implementation simplicity (reflow is where formatter
+complexity lives), but also a readability call: where a line breaks often
+carries intent (a grouped argument list, an aligned match, a chain the author
+split for clarity), and mechanically canonicalizing it tends to hurt readability
+as often as it helps. So the author owns line breaks; the formatter owns
+everything within and between them. It moves only whole lines and rewrites only
+inter-token whitespace, so it **never changes what the code means** (a
+token-equality + re-parse guard enforces this) — running it is always safe.
 
 ## Options considered and rejected
 

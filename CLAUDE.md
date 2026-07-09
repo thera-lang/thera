@@ -18,8 +18,8 @@ Full design docs: start at **[docs/toc.md](docs/toc.md)**.
   Each library lives in its own named subdir (`sdk/std/path/path.hawk`), with
   Hawk tests beside it as `<name>_test.hawk`.
 - `bootstrap/frontend.hawkbc` — the checked-in self-hosting bootstrap (the
-  front-end compiled to bytecode); compiles the next revision of the front-end so
-  the build needs no external toolchain. See `bootstrap/README.md`.
+  front-end compiled to bytecode); compiles the next revision of the front-end
+  so the build needs no external toolchain. See `bootstrap/README.md`.
 - `examples/` — example `.hawk` programs. `bench/` — perf/GC benchmark
   harnesses. `bin/` — dev entry scripts.
 - `docs/` — design docs.
@@ -57,10 +57,11 @@ cargo run -- emit-demo /tmp/x.hawkbc   # write a sample module
 cargo run -- /tmp/x.hawkbc             # load + run it
 ```
 
-The self-hosted front-end runs current Hawk via `bin/hawk.sh <run|check|test|emit>
-<args>` — it compiles the current `pkgs/cli` with the checked-in bootstrap
-snapshot and runs the result on `hawkrt` (caching the dev front-end in `build/`,
-rebuilt when `pkgs/cli`/`sdk/std` change). No external toolchain.
+The self-hosted front-end runs current Hawk via
+`bin/hawk.sh <run|check|test|emit> <args>` — it compiles the current `pkgs/cli`
+with the checked-in bootstrap snapshot and runs the result on `hawkrt` (caching
+the dev front-end in `build/`, rebuilt when `pkgs/cli`/`sdk/std` change). No
+external toolchain.
 
 `bin/test.sh` runs everything: cargo tests, the `pkgs/cli` and `sdk/std` @test
 suites, and the examples.
@@ -68,10 +69,10 @@ suites, and the examples.
 `bin/build_sdk.sh` assembles the binary SDK in `build/sdk/`: `bin/hawk` (the
 runtime with the compiled front-end embedded) + `std/` + a `version` stamp. So
 `hawkrt` = bare runtime (from `cargo build`); `hawk` = runtime + embedded
-front-end (the SDK launcher). The build bootstraps from `bootstrap/frontend.hawkbc`
-and ends with a fixpoint check (the SDK re-emits its own front-end and the bytes
-must match). Refresh the snapshot after front-end changes (see
-`bootstrap/README.md`).
+front-end (the SDK launcher). The build bootstraps from
+`bootstrap/frontend.hawkbc` and ends with a fixpoint check (the SDK re-emits its
+own front-end and the bytes must match). Refresh the snapshot after front-end
+changes (see `bootstrap/README.md`).
 
 ## Working conventions
 

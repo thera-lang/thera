@@ -2,8 +2,8 @@
 
 **What this is:** where Hawk is today and what's next. Design details for
 _completed_ work live in [architecture.md](architecture.md) and
-[language.md](language.md); this doc focuses on what's open. As an arc lands, its
-open-work entry is removed and condensed into a one-line note in the
+[language.md](language.md); this doc focuses on what's open. As an arc lands,
+its open-work entry is removed and condensed into a one-line note in the
 [Changelog](#changelog) at the end.
 
 ## Current state
@@ -100,20 +100,21 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   `Channel<T>`). Design in [architecture.md](architecture.md) §Concurrency.
   Next:
   - **Phase 3 — park on real I/O.** _Done._ Two park kinds, both on the
-    deliver-on-resume model (the native's result is delivered when the fiber resumes,
-    not recomputed): a `Timer(deadline)` request for `time.sleep` (parks on a
-    scheduler timer, so other fibers run during a sleep; the driver sleeps the thread
-    until the earliest deadline when nothing else is runnable), and an
-    `Await{job, finish}` request that offloads a blocking syscall to a **worker-thread
-    pool** (4 threads, lazily created) — the worker returns owned Rust data and the
-    `Value` is built back on the Hawk thread (the heap is thread-local), keeping the
-    single Hawk thread. A program left with only timer- or I/O-blocked fibers is no
-    longer a deadlock. Parked: `fs` path ops, `stdin` read, `fs.open`/`create` +
-    `File` read/write/seek, and `std.process` `run`/`exec`/`wait` + pipe I/O. Handle
-    resources (open files, process pipes) use a **take-out/return** discipline — the
-    resource leaves the registry for the op's duration so no lock is held across the
-    blocking call — which lets one fiber feed a child's stdin while another drains
-    its stdout (validated by a >pipe-buffer cross-fiber round-trip through `cat`).
+    deliver-on-resume model (the native's result is delivered when the fiber
+    resumes, not recomputed): a `Timer(deadline)` request for `time.sleep`
+    (parks on a scheduler timer, so other fibers run during a sleep; the driver
+    sleeps the thread until the earliest deadline when nothing else is
+    runnable), and an `Await{job, finish}` request that offloads a blocking
+    syscall to a **worker-thread pool** (4 threads, lazily created) — the worker
+    returns owned Rust data and the `Value` is built back on the Hawk thread
+    (the heap is thread-local), keeping the single Hawk thread. A program left
+    with only timer- or I/O-blocked fibers is no longer a deadlock. Parked: `fs`
+    path ops, `stdin` read, `fs.open`/`create` + `File` read/write/seek, and
+    `std.process` `run`/`exec`/`wait` + pipe I/O. Handle resources (open files,
+    process pipes) use a **take-out/return** discipline — the resource leaves
+    the registry for the op's duration so no lock is held across the blocking
+    call — which lets one fiber feed a child's stdin while another drains its
+    stdout (validated by a >pipe-buffer cross-fiber round-trip through `cat`).
     Left thread-blocking on purpose (fast, non-blocking syscalls): `fs.exists`,
     `process.start`/`kill`/`close_stdin`.
   - **Phase 4 — readiness poller** (`kqueue`/`epoll`) for sockets, to scale to
@@ -415,18 +416,18 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   prerequisite is now landed** — the lexer surfaces comments (incl. `///`/`//!`,
   classified) on `LexResult.comments` as a source-ordered, parser-invisible list
   (the gofmt positioned-comment model; compile path byte-identical), so they are
-  no longer discarded — but every downstream consumer remains
-  **pending** (the side channel is collected, then dropped: each `parse_tokens`
-  call site passes only `lex.tokens`). The remaining tooling: (1) **attach docs
-  to AST nodes** — a pass re-associating each `///`/`//!` comment to the decl it
-  precedes by span, threaded onto the AST (or a side table) — the one piece the
-  side channel directly unblocks; (2) **LSP hover** surfaces the item/file doc
-  (today `hover.hawk` shows the signature only); (3) a **doc generator**
-  extracts a package's `pub` surface + barrel `//!` into an index for agent
-  navigation (no `doc` subcommand yet); (4) **reference resolution + lint** —
-  resolve `[Symbol]` references (link them in hover/doc-gen, flag ones that no
-  longer resolve), plus a lint for `pub` symbols whose doc only restates the
-  signature, and normalization of doc layout. (Not yet migrated: `pkgs/cli/` and
+  no longer discarded — but every downstream consumer remains **pending** (the
+  side channel is collected, then dropped: each `parse_tokens` call site passes
+  only `lex.tokens`). The remaining tooling: (1) **attach docs to AST nodes** —
+  a pass re-associating each `///`/`//!` comment to the decl it precedes by
+  span, threaded onto the AST (or a side table) — the one piece the side channel
+  directly unblocks; (2) **LSP hover** surfaces the item/file doc (today
+  `hover.hawk` shows the signature only); (3) a **doc generator** extracts a
+  package's `pub` surface + barrel `//!` into an index for agent navigation (no
+  `doc` subcommand yet); (4) **reference resolution + lint** — resolve
+  `[Symbol]` references (link them in hover/doc-gen, flag ones that no longer
+  resolve), plus a lint for `pub` symbols whose doc only restates the signature,
+  and normalization of doc layout. (Not yet migrated: `pkgs/cli/` and
   `examples/`, deliberately deferred — the public API surface was the priority.)
 
 - **Tools — refactorings (suggestion diagnostics + code actions).** Now that the
@@ -596,25 +597,6 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
 
 ### Language
 
-- **Struct fields are `let`-declarations terminated by `;` — DONE.** A field is
-  `let name: T;` (`let mut name: T;` for a reassignable one): `struct Point { let
-  x: Int; let y: Int; }`. The `let`/`;` form reads as a declaration and
-  differentiates a struct *declaration* from a struct *instantiation* — the two
-  bodies (`{ x: … }`) were otherwise identical, told apart only by resolving each
-  RHS as a type vs. a value. Now a fragment reads as a declaration with no name
-  resolution — the fragment-level legibility Hawk optimizes for. Enum variant
-  lists stay comma-separated (an alternation, not a declaration sequence).
-  Delivered as a leniency→sweep→require migration: the parser first accepted the
-  new form alongside the old, transitional `hawk fix` rules (`struct-field-needs-
-  let`/`-semicolon`) swept `pkgs/cli` + `sdk/std` + `tests/lang`, then the parser
-  was made strict (clear per-error diagnostics: "must be declared with `let`" /
-  "terminated with `;`, not `,`") and the transitional lint/fix rules retired.
-  `FieldDef` kept its full-field `span`; conformance cases `type-struct-field-let`
-  / `-semicolon` pin the rejections. **Remaining:** `examples/` is hand-migrated
-  (the `let` is already in place — only `,` → `;` in field lists).
-  - Interacts with the instance-level-mutability item below but doesn't foreclose
-    it — `let` / `let mut` fields are the natural migration target either way.
-
 - Instance level mutability would be easier for agents to reason about. We
   should consider the impact, pros, and cons of switching from field level
   mutability to instance level mutability.
@@ -752,25 +734,33 @@ conformance specs. Newest first.
 
 - **Formatter (`hawk fmt`)** (2026-07). A line-preserving formatter
   (`pkgs/cli/fmt.hawk`): re-indents each line (token-only anchor stack),
-  normalizes intra-line spacing (a token-driven **gap-edit** pass — rewrites only
-  the whitespace between adjacent same-line tokens, so comments and lexemes are
-  untouched), collapses blank runs, trims trailing whitespace. Keeps every
+  normalizes intra-line spacing (a token-driven **gap-edit** pass — rewrites
+  only the whitespace between adjacent same-line tokens, so comments and lexemes
+  are untouched), collapses blank runs, trims trailing whitespace. Keeps every
   author-chosen line break — no line joining/splitting. The one spacing role the
   token stream can't classify (`List<Int>` vs `a < b`) comes from a
   **generic-delimiter parser side-channel** (`ParseResult.generic_delims`, the
   `LexResult.comments` model); a round-trip guard (token equality + re-parse)
-  makes "never breaks a compile" a checked invariant. No config knobs, by design.
-  The corpus is a fmt fixpoint, gated by `bin/test.sh`. Philosophy (no config,
-  bounded scope) in [architecture.md](architecture.md#the-formatter-hawk-fmt).
+  makes "never breaks a compile" a checked invariant. No config knobs, by
+  design. The corpus is a fmt fixpoint, gated by `bin/test.sh`. Philosophy (no
+  config, bounded scope) in
+  [architecture.md](architecture.md#the-formatter-hawk-fmt).
+- **Struct fields are `let`-declarations terminated by `;` — DONE.** A field is
+  `let name: T;` (`let mut name: T;` for a reassignable one):
+  `struct Point { let x: Int; let y: Int; }`. The `let`/`;` form reads as a
+  declaration and differentiates a struct _declaration_ from a struct
+  _instantiation_ — the two bodies (`{ x: … }`) were otherwise identical, told
+  apart only by resolving each RHS as a type vs. a value.
 - **Unified diagnostic model (audit LD15 tail)** (2026-07). Every phase — lex,
-  parse, check, codegen, load — now produces one `Diagnostic {message, span,
-  file, severity}` directly (new `pkgs/cli/diagnostic.hawk`), retiring the five
-  per-phase error structs (`LexError`/`ParseError`/`CheckError`/`CodegenError`/
-  `LoadDiagnostic`) and the session-level converters that mapped them. `file` is
-  still derived from the span (the loader stamps an explicit file); `severity` is
-  a three-level enum (`Error`/`Warning`/`Info`) so lint-style suggestions can ride
-  the same model later — every compile-phase diagnostic is `Error` today, and the
-  LSP severity map is its first consumer. No `phase` field (no consumer). check/
+  parse, check, codegen, load — now produces one
+  `Diagnostic {message, span, file, severity}` directly (new
+  `pkgs/cli/diagnostic.hawk`), retiring the five per-phase error structs
+  (`LexError`/`ParseError`/`CheckError`/`CodegenError`/ `LoadDiagnostic`) and
+  the session-level converters that mapped them. `file` is still derived from
+  the span (the loader stamps an explicit file); `severity` is a three-level
+  enum (`Error`/`Warning`/`Info`) so lint-style suggestions can ride the same
+  model later — every compile-phase diagnostic is `Error` today, and the LSP
+  severity map is its first consumer. No `phase` field (no consumer). check/
   emit/LSP are now pure renderers over a `List<Diagnostic>`.
 - **Complete field identity (LSP)** (2026-07). A struct field now has full
   symbol identity, so references and rename treat it like any other declaration.

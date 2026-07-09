@@ -100,11 +100,11 @@ importers, a global before the one that uses it); an initializer-dependency
 ## Type annotations & inference
 
 Hawk's annotation discipline is **hard at the boundaries, soft in the center**.
-A declaration's *public shape* — the types a reader sees without looking inside —
-is always spelled out; the types of intermediate values *within* a function body
-are inferred. The aim is that a reader (human or LLM) never has to guess a type
-that crosses a boundary, and never has to restate one an initializer already
-makes obvious.
+A declaration's _public shape_ — the types a reader sees without looking inside
+— is always spelled out; the types of intermediate values _within_ a function
+body are inferred. The aim is that a reader (human or LLM) never has to guess a
+type that crosses a boundary, and never has to restate one an initializer
+already makes obvious.
 
 **Annotations are required at these four boundaries:**
 
@@ -206,10 +206,10 @@ let tags: Set<String>        = Set.from(['cli', 'tool', 'cli']);  // {'cli', 'to
 `.hawkbc` format). It is an **immutable** byte sequence — `len`, `get` (→
 `Option<Int>`), `slice`, `concat`, `to_string` (→ `Result`, UTF-8 validated),
 `to_list`, plus `Bytes.empty()` / `Bytes.from_list(...)`. Build one up with the
-mutable `BytesBuilder` (`write_u8` / `write_bytes` / `write_str`, the fixed-width
-`write_u16/u32/u64` and `write_f64` in `_le`/`_be` endianness, varints, then
-`finish()` → `Bytes`). Both live in `std.core`, so they're available
-unqualified.
+mutable `BytesBuilder` (`write_u8` / `write_bytes` / `write_str`, the
+fixed-width `write_u16/u32/u64` and `write_f64` in `_le`/`_be` endianness,
+varints, then `finish()` → `Bytes`). Both live in `std.core`, so they're
+available unqualified.
 
 ### Open questions
 
@@ -227,12 +227,12 @@ unqualified.
 
 Structs are nominal types, declared with the `struct` keyword and a brace body
 (no `=`) — like `enum` and `interface`, and like Rust/Swift/Go, a deliberately
-*nominal* signal (two identically-shaped structs are distinct types). Each field
+_nominal_ signal (two identically-shaped structs are distinct types). Each field
 is a `let`-declaration terminated by `;` (`let name: T;`) — the form reads as a
-declaration and distinguishes a struct *declaration* from a struct *instantiation*
-(the two brace bodies are otherwise identical). Fields are immutable by default;
-mark a field `let mut` to allow reassigning it after construction (the field-level
-analogue of `let` vs `let mut`).
+declaration and distinguishes a struct _declaration_ from a struct
+_instantiation_ (the two brace bodies are otherwise identical). Fields are
+immutable by default; mark a field `let mut` to allow reassigning it after
+construction (the field-level analogue of `let` vs `let mut`).
 
 ```hawk
 struct Point {
@@ -253,9 +253,9 @@ let c = Cursor { offset: 0, source: 'abc' };
 c.offset = c.offset + 1;   // ok
 ```
 
-Mutability gates *which fields may be reassigned*, not sharing: a `mut` field on a
-struct reached through two bindings is observed by both (heap values are shared
-references — see [Variables](#variables)).
+Mutability gates _which fields may be reassigned_, not sharing: a `mut` field on
+a struct reached through two bindings is observed by both (heap values are
+shared references — see [Variables](#variables)).
 
 ---
 
@@ -316,10 +316,10 @@ captured `mut` locals into a heap cell and closes over the cell (see
 ### Named parameters
 
 By design, **the function author chooses each parameter's call form, and the
-call site has exactly one valid form** — there is no caller-side choice, so every
-call to a given function looks the same. That consistency matters for readers
-(human and LLM), while still letting the author put labels where they aid
-readability and drop them where they are noise.
+call site has exactly one valid form** — there is no caller-side choice, so
+every call to a given function looks the same. That consistency matters for
+readers (human and LLM), while still letting the author put labels where they
+aid readability and drop them where they are noise.
 
 A parameter is **labeled by default**: its name becomes the call-site label and
 callers must write it. Labels make calls self-documenting — especially for
@@ -332,7 +332,7 @@ greet(name: 'alice', times: 3);
 ```
 
 Mark a parameter **positional** with a leading `_` (read it as "the external
-label is _none_"). The label is then *forbidden* and the argument is passed by
+label is _none_"). The label is then _forbidden_ and the argument is passed by
 position — for when the call already reads unambiguously without it:
 
 ```hawk
@@ -363,12 +363,13 @@ Here `default` is the label at the call site; `value` is the name used inside
 the function body (avoiding a clash with a potential `default` keyword).
 
 > **Enforcement status.** The single-call-form model above is the design intent;
-> the checker is currently **more permissive** than it. Today a labeled parameter
-> may *also* be passed positionally, and labeled arguments may be reordered — so
-> more than one call form compiles for the same function. Tightening to one
-> canonical form (a labeled parameter's label is required; positional is
-> forbidden for it), migrating the call sites that rely on the looseness, and the
-> style guidance above are tracked in [roadmap.md](roadmap.md).
+> the checker is currently **more permissive** than it. Today a labeled
+> parameter may _also_ be passed positionally, and labeled arguments may be
+> reordered — so more than one call form compiles for the same function.
+> Tightening to one canonical form (a labeled parameter's label is required;
+> positional is forbidden for it), migrating the call sites that rely on the
+> looseness, and the style guidance above are tracked in
+> [roadmap.md](roadmap.md).
 
 ---
 
@@ -418,12 +419,12 @@ let user = handle.join()?;
 ```
 
 The runtime design for this — fibers as stackless coroutines over the
-interpreter's explicit frame stack, the scheduler, parking, and I/O — is sketched
-in [architecture.md](architecture.md) §Concurrency. A **first cut is implemented**:
-`std.fiber` provides `spawn`/`join`/`yield` and buffered channels over the
-cooperative scheduler. Still pending: parking on real blocking I/O (so an I/O call
-transparently yields the fiber) and a readiness poller for sockets — see
-[roadmap.md](roadmap.md).
+interpreter's explicit frame stack, the scheduler, parking, and I/O — is
+sketched in [architecture.md](architecture.md) §Concurrency. A **first cut is
+implemented**: `std.fiber` provides `spawn`/`join`/`yield` and buffered channels
+over the cooperative scheduler. Still pending: parking on real blocking I/O (so
+an I/O call transparently yields the fiber) and a readiness poller for sockets —
+see [roadmap.md](roadmap.md).
 
 **Fallback:** if the fiber runtime proves too costly to implement in the POC,
 the language will fall back to explicit `async`/`await`. In that model,
@@ -475,8 +476,8 @@ fn first_word(_ line: String) -> Option<String> {
 `?` propagates **within one enum family**: an `Option` `?` is valid only in an
 `Option`-returning function, a `Result` `?` only in a `Result`-returning one.
 Mixing them is a compile error, because converting one to the other needs a
-choice the `?` can't make for you — turn an absence into an error explicitly with
-`.ok_or(<error>)?`, or drop an error to an absence with `.ok()?`:
+choice the `?` can't make for you — turn an absence into an error explicitly
+with `.ok_or(<error>)?`, or drop an error to an absence with `.ok()?`:
 
 ```hawk
 fn load(args: Args) -> Result<Int, Error> {
@@ -543,11 +544,12 @@ let dir = config.log_dir.ok_or(error('log_dir is required'))?;
 
 Beyond these, `Option` carries the usual **combinators** — `map`, `and_then`,
 `unwrap_or`, `unwrap_or_else` (plus `ok_or` above and `is_some`/`is_none`) — for
-transforming or defaulting a value inline without a `match`. `Result` carries the
-matching set (`map`, `map_err`, `and_then`, `unwrap_or`, `unwrap_or_else`, `ok`,
-plus `is_ok`/`is_err`). Reach for a combinator when you want to transform or
-default a value in a single expression; see [Choosing a form](#choosing-a-form)
-for when to prefer it over `if let` / `let … else` / `?` / `match`.
+transforming or defaulting a value inline without a `match`. `Result` carries
+the matching set (`map`, `map_err`, `and_then`, `unwrap_or`, `unwrap_or_else`,
+`ok`, plus `is_ok`/`is_err`). Reach for a combinator when you want to transform
+or default a value in a single expression; see
+[Choosing a form](#choosing-a-form) for when to prefer it over `if let` /
+`let … else` / `?` / `match`.
 
 ---
 
@@ -580,12 +582,12 @@ when a missing element would mean a bug.
 `hawk: trap: <message>` and exits non-zero. The message is human-readable and
 names the specifics:
 
-| Fault                | Message                                                       |
-| -------------------- | ------------------------------------------------------------- |
-| list index out of range | `index out of range: the index is <i> but the length is <n>` |
-| missing map key      | `key not found: <key>` (string keys are quoted, e.g. `'bob'`) |
-| integer divide-by-zero | `division by zero`                                          |
-| send on a closed channel | `send on a closed channel`                                |
+| Fault                    | Message                                                       |
+| ------------------------ | ------------------------------------------------------------- |
+| list index out of range  | `index out of range: the index is <i> but the length is <n>`  |
+| missing map key          | `key not found: <key>` (string keys are quoted, e.g. `'bob'`) |
+| integer divide-by-zero   | `division by zero`                                            |
+| send on a closed channel | `send on a closed channel`                                    |
 
 > Integer overflow does **not** trap: `Int` arithmetic wraps around (two's
 > complement). Divide-by-zero is the trapping case above.
@@ -615,10 +617,10 @@ for i in 0..10 {
 
 ### `if let`
 
-`if let PATTERN = SUBJECT { … }` runs the block — binding the pattern's variables
-in it — only when `SUBJECT` matches `PATTERN`. It is the **conditional-binding**
-form: the canonical way to act on a present `Option` (or any single enum variant)
-without a full `match`.
+`if let PATTERN = SUBJECT { … }` runs the block — binding the pattern's
+variables in it — only when `SUBJECT` matches `PATTERN`. It is the
+**conditional-binding** form: the canonical way to act on a present `Option` (or
+any single enum variant) without a full `match`.
 
 ```hawk
 // act on a present value (no `else` needed — runs for effect)
@@ -645,9 +647,9 @@ genuinely choosing among several variants.
 
 ### `let … else`
 
-`let PATTERN = SUBJECT else { … }` binds the pattern's variable for the **rest of
-the block** when the subject matches, and runs the `else` block when it doesn't.
-The `else` must **diverge** (end in `return` or `throw`) — that is what
+`let PATTERN = SUBJECT else { … }` binds the pattern's variable for the **rest
+of the block** when the subject matches, and runs the `else` block when it
+doesn't. The `else` must **diverge** (end in `return` or `throw`) — that is what
 guarantees the binding is available below. It is the **bind-or-bail guard**: the
 way to pull a value out of an `Option`/`Result` and handle absence up front,
 keeping the happy path un-indented.
@@ -664,12 +666,12 @@ fn read_port(args: Args) -> Result<Int, Error> {
 }
 ```
 
-A no-binding pattern is allowed as a pure assertion (`let Ok(_) = r else { … };`).
-The binding target is a refutable (constructor) pattern — an uppercase
-`Some`/`Ok`/… — which is how it is told apart from an ordinary `let x = …`.
-Reach for `let … else` over `if let` when the match should bind for the rest of
-the function and the failure case exits; reach for `if let` when you act only in
-the present case and fall through otherwise.
+A no-binding pattern is allowed as a pure assertion
+(`let Ok(_) = r else { … };`). The binding target is a refutable (constructor)
+pattern — an uppercase `Some`/`Ok`/… — which is how it is told apart from an
+ordinary `let x = …`. Reach for `let … else` over `if let` when the match should
+bind for the rest of the function and the failure case exits; reach for `if let`
+when you act only in the present case and fall through otherwise.
 
 > v1 limitations: the pattern binds **at most one** variable (use `match` for
 > several), and the `else` block must end in a literal `return`/`throw`
@@ -681,13 +683,13 @@ the present case and fall through otherwise.
 `Option` and `Result` can be handled several ways. Reach for the one that fits
 the shape — there is **one obvious choice per situation**:
 
-| situation                                  | use                                          |
-| ------------------------------------------ | -------------------------------------------- |
-| act on a present value (one variant)       | [`if let`](#if-let)                          |
-| bind for the rest of the block, else exit  | [`let … else`](#let--else)                   |
-| propagate the failure to the caller        | [`?`](#error-handling)                       |
-| transform or default a value inline        | a combinator — `map` / `and_then` / `unwrap_or` / `ok_or` / … |
-| genuinely choosing among ≥2 variants       | `match`                                      |
+| situation                                 | use                                                           |
+| ----------------------------------------- | ------------------------------------------------------------- |
+| act on a present value (one variant)      | [`if let`](#if-let)                                           |
+| bind for the rest of the block, else exit | [`let … else`](#let--else)                                    |
+| propagate the failure to the caller       | [`?`](#error-handling)                                        |
+| transform or default a value inline       | a combinator — `map` / `and_then` / `unwrap_or` / `ok_or` / … |
+| genuinely choosing among ≥2 variants      | `match`                                                       |
 
 Use `match` when you are truly branching on multiple variants. If you find
 yourself writing a `_ => {}` or `None => {}` catch-all only to satisfy
@@ -808,10 +810,11 @@ import std.fs as fs;
 testing.assert_eq(actual: result, expected: 5)?;
 ```
 
-`as _` binds **no** prefix and instead brings the library's public names into the
-file **unqualified** — the opt-in escape hatch for a library used pervasively,
-where qualifying every reference would be noise. The default stays qualified; see
-[Name resolution & scoping](#name-resolution--scoping) for the full rules.
+`as _` binds **no** prefix and instead brings the library's public names into
+the file **unqualified** — the opt-in escape hatch for a library used
+pervasively, where qualifying every reference would be noise. The default stays
+qualified; see [Name resolution & scoping](#name-resolution--scoping) for the
+full rules.
 
 ```hawk
 import 'ast' as _;            // Expr, Stmt, Decl, … usable bare in this file
@@ -903,19 +906,19 @@ fn pad2(_ n: Int) -> String { ... }                // file-private helper
 `foo_test.hawk` and imports it normally (`import 'foo'`). The one special case
 is visibility: because the names match, the test additionally sees `foo.hawk`'s
 **private** top-level names as **bare** names — `internal_helper()` is callable
-from `foo_test.hawk` and nowhere else (its public names are still reached through
-the `foo` namespace, as in any other importer). The filename convention grants
-the access, avoiding a general package-private axis.
+from `foo_test.hawk` and nowhere else (its public names are still reached
+through the `foo` namespace, as in any other importer). The filename convention
+grants the access, avoiding a general package-private axis.
 
 Visibility and qualification are **front-end** concerns — name resolution
 applies them and they are erased in `.hawkbc` (calls are by index; the bytecode
-has no notion of "private" or namespaces). The precise resolution rules — bare vs.
-qualified, the prelude, and the algorithm — are in [Name resolution &
-scoping](#name-resolution--scoping). Qualified-only access and `pub` privacy
-**are enforced**: a bare cross-library reference, a qualified access to a
-non-public member, and a bare reference to a value owned by an un-imported
-library are all `check` errors, namespaces are per-file, and resolution is
-owner-correct for values *and* types.
+has no notion of "private" or namespaces). The precise resolution rules — bare
+vs. qualified, the prelude, and the algorithm — are in
+[Name resolution & scoping](#name-resolution--scoping). Qualified-only access
+and `pub` privacy **are enforced**: a bare cross-library reference, a qualified
+access to a non-public member, and a bare reference to a value owned by an
+un-imported library are all `check` errors, namespaces are per-file, and
+resolution is owner-correct for values _and_ types.
 
 ---
 
@@ -929,49 +932,50 @@ order.
 
 ### Lexical scope
 
-Parameters and `let` bindings introduce value names, in scope from the binding to
-the end of the enclosing block. `if`/`while`/`for` bodies, `match` arms, and
+Parameters and `let` bindings introduce value names, in scope from the binding
+to the end of the enclosing block. `if`/`while`/`for` bodies, `match` arms, and
 block expressions each open a nested scope; a binding introduced inside does not
-escape it (a `match` arm's constructor pattern binds its payload within that arm,
-a `for` pattern within the loop body). An inner binding may **shadow** an outer
-one of the same name, and a local binding shadows any same-named top-level or
-prelude value — so `f(x)` where `f` is a `let`-bound lambda or a function-typed
-parameter calls the binding, never a same-named top-level function. Inside an
-instance method, `self` is the receiver binding and `Self` is its type.
+escape it (a `match` arm's constructor pattern binds its payload within that
+arm, a `for` pattern within the loop body). An inner binding may **shadow** an
+outer one of the same name, and a local binding shadows any same-named top-level
+or prelude value — so `f(x)` where `f` is a `let`-bound lambda or a
+function-typed parameter calls the binding, never a same-named top-level
+function. Inside an instance method, `self` is the receiver binding and `Self`
+is its type.
 
 ### One name space per scope
 
 A scope introduces a given name **at most once, across all declaration kinds**.
 Two same-file top-level declarations of the same name collide even when their
 kinds differ — `fn max` + `const max`, `fn Config` + `struct Config`,
-`import std.fs;` + `fn fs` — each a duplicate-name error, exactly like a same-kind
-duplicate. A top-level declaration also may not take a name the file's **bare
-surface** already provides (a prelude name, or one brought in by an `as _`
-import). The rationale is *one name, one meaning*: a reader never needs the
-syntactic position to know which declaration a name denotes. (One exemption: a
-barrel's `pub import 'error';` may bind the namespace `error` while re-exporting
-that library's eponymous `fn error` — a self-referential pair reaching the same
-library.)
+`import std.fs;` + `fn fs` — each a duplicate-name error, exactly like a
+same-kind duplicate. A top-level declaration also may not take a name the file's
+**bare surface** already provides (a prelude name, or one brought in by an
+`as _` import). The rationale is _one name, one meaning_: a reader never needs
+the syntactic position to know which declaration a name denotes. (One exemption:
+a barrel's `pub import 'error';` may bind the namespace `error` while
+re-exporting that library's eponymous `fn error` — a self-referential pair
+reaching the same library.)
 
-Syntactic position still selects which *space* a name is looked up in — a value
+Syntactic position still selects which _space_ a name is looked up in — a value
 (functions incl. `native fn`, consts, locals), a type
-(`type`/`enum`/`interface`, built-ins, type parameters), or an import namespace —
-but a name is introduced into its scope only once regardless.
+(`type`/`enum`/`interface`, built-ins, type parameters), or an import namespace
+— but a name is introduced into its scope only once regardless.
 
 ### Reserved type names
 
 The type names the language itself speaks are **reserved**: user code may not
 declare a `type`/`enum`/`interface` — or a type parameter — named
 
-> `Result`, `Option`, `Ordering`, `List`, `Map`, `Set`, `String`, `Int`,
-> `Bool`, `Double`, `Bytes`, `Iterator`, `Error`, `SourceLoc`, `Void`, `Eq`,
-> `Ord`, `Display`, `Debug`
+> `Result`, `Option`, `Ordering`, `List`, `Map`, `Set`, `String`, `Int`, `Bool`,
+> `Double`, `Bytes`, `Iterator`, `Error`, `SourceLoc`, `Void`, `Eq`, `Ord`,
+> `Display`, `Debug`
 
 — a check error. These names appear in signatures (`Void`), sugar
 (`?`/implicit-`Ok`, `#loc`), literals, and protocols (`for` iteration, `==`,
 sorting, `${}` rendering, the structural derives, `error(...)`), so a user
 redeclaration would make the reserved meaning ambiguous at every use site. The
-list is deliberately *not* the whole core surface: semantics attach to the core
+list is deliberately _not_ the whole core surface: semantics attach to the core
 types **by identity, never by name**, so utility types that merely live in
 `std.core` (`BytesBuilder`, `Args`, `Indexed`, …) are ordinary names a user
 library may redeclare. Value names (`fn`/`const`) are not reserved — casing
@@ -985,11 +989,11 @@ first match; failing all steps is a located error.
 - **A bare value name** (`name`, or the callee of `name(...)`): (1) an in-scope
   local binding → it; (2) a same-file top-level `fn`/`const` → it; (3) a public
   `fn`/`const` from an `as _` import → it; (4) a prelude public `fn`/`const` →
-  it; else **undefined**. A bare name is *never* resolved against a namespaced
+  it; else **undefined**. A bare name is _never_ resolved against a namespaced
   import — it must be qualified.
 - **A qualified value** (`ns.name`): `ns` must be an import namespace of the
-  current file (not shadowed by a local named `ns`), and `name` must be in `ns`'s
-  public surface; it resolves to that library's `pub` declaration.
+  current file (not shadowed by a local named `ns`), and `name` must be in
+  `ns`'s public surface; it resolves to that library's `pub` declaration.
 - **A bare type name** (annotation, struct literal, static receiver): (1) an
   in-scope type parameter / `Self`; (2) a same-file `type`/`enum`/`interface`;
   (3) a public type from an `as _` import; (4) a prelude public type; (5) a
@@ -997,38 +1001,40 @@ first match; failing all steps is a located error.
   own types the order is unobservable — their names are reserved, so steps 2–4
   never capture one.)
 - **A qualified type** (`ns.T`): as `ns.name`, resolved in the type space.
-- **Members** (`recv.m(...)`, `recv.f`, `T.m(...)`, `E.V(...)`): resolved through
-  the receiver or type — its static type and visible `impl`s — not a namespace.
-  Interface references (an `impl I for T`, a super-interface, a `<T: I>` bound)
-  resolve in their declaring file's scope by the bare-type algorithm, and
-  interface **identity** is the resolved declaration (owner + name), so two
-  libraries' same-named interfaces never entangle. See [Interfaces](#interfaces).
+- **Members** (`recv.m(...)`, `recv.f`, `T.m(...)`, `E.V(...)`): resolved
+  through the receiver or type — its static type and visible `impl`s — not a
+  namespace. Interface references (an `impl I for T`, a super-interface, a
+  `<T: I>` bound) resolve in their declaring file's scope by the bare-type
+  algorithm, and interface **identity** is the resolved declaration (owner +
+  name), so two libraries' same-named interfaces never entangle. See
+  [Interfaces](#interfaces).
 
 Qualification therefore applies to **free functions, consts, and type names** —
 the things a library owns at top level. Methods and variants are selected within
-an already-resolved receiver/type, not separately namespace-qualified. Resolution
-is **owner-correct**: two libraries may share a top-level name (`std.json.parse`
-vs `std.toml.parse`), each qualified reference dispatching to its own library.
+an already-resolved receiver/type, not separately namespace-qualified.
+Resolution is **owner-correct**: two libraries may share a top-level name
+(`std.json.parse` vs `std.toml.parse`), each qualified reference dispatching to
+its own library.
 
 ---
 
 ## Documentation
 
 Documentation is written for an audience of LLMs and coding agents first. The
-guiding principle is **progressive disclosure**: a reader should be able to grasp
-a file, then a symbol, by reading as little as possible — one summary sentence —
-and descend into detail only when they need it.
+guiding principle is **progressive disclosure**: a reader should be able to
+grasp a file, then a symbol, by reading as little as possible — one summary
+sentence — and descend into detail only when they need it.
 
 ### Three comment forms
 
-Hawk distinguishes documentation from ordinary comments lexically, so tooling can
-extract one without scraping the other:
+Hawk distinguishes documentation from ordinary comments lexically, so tooling
+can extract one without scraping the other:
 
-| Form  | Role | Attaches to |
-| ----- | ---- | ----------- |
-| `///` | **item doc** | the declaration immediately below it |
-| `//!` | **file doc** | the enclosing file (sits at the top, above the first declaration) |
-| `//`  | ordinary comment | nothing — an internal aside, never extracted |
+| Form  | Role             | Attaches to                                                       |
+| ----- | ---------------- | ----------------------------------------------------------------- |
+| `///` | **item doc**     | the declaration immediately below it                              |
+| `//!` | **file doc**     | the enclosing file (sits at the top, above the first declaration) |
+| `//`  | ordinary comment | nothing — an internal aside, never extracted                      |
 
 ```hawk
 //! std.fs — filesystem access: read and write files, list directories,
@@ -1047,34 +1053,38 @@ pub native fn read_text(_ path: String) -> Result<String, Error>
 
 A declaration's doc is the contiguous run of `///` lines directly above it; a
 blank line or an ordinary `//` line ends the run. Because `//` is never
-extracted, an internal note may sit directly above a declaration without becoming
-its documentation — the disambiguation a position-only rule (Go's "the comment
-above the symbol") cannot provide.
+extracted, an internal note may sit directly above a declaration without
+becoming its documentation — the disambiguation a position-only rule (Go's "the
+comment above the symbol") cannot provide.
 
-A directory library's **barrel** `//!` header is the **package doc** — the single
-thing an agent reads to understand a whole library. A recommended `Import as:`
-line gives the exact import to copy. (This is the only doc convention above the
-symbol level; directory overviews and generated indexes are deferred.)
+A directory library's **barrel** `//!` header is the **package doc** — the
+single thing an agent reads to understand a whole library. A recommended
+`Import as:` line gives the exact import to copy. (This is the only doc
+convention above the symbol level; directory overviews and generated indexes are
+deferred.)
 
 ### The summary sentence
 
-The **first sentence** of any doc (through the first `.`) is its summary. It must:
+The **first sentence** of any doc (through the first `.`) is its summary. It
+must:
 
 - **stand alone** — it appears by itself in one-line contexts (a symbol index,
-  editor hover, a package's table of contents), with no further lines for support;
+  editor hover, a package's table of contents), with no further lines for
+  support;
 - **add information beyond the name** — if the name and signature already say
-  everything, write no doc at all rather than restate them. A doc that only echoes
-  the signature (`/// Returns the length.` on `len(self) -> Int`) is worse than
-  none.
+  everything, write no doc at all rather than restate them. A doc that only
+  echoes the signature (`/// Returns the length.` on `len(self) -> Int`) is
+  worse than none.
 
 A blank `///` line separates the summary from any further paragraphs. Functions
 lead with the result as a noun phrase ("The substring of code points in
 `[start, end)`."), not "This function returns…".
 
-> **When to document.** Every `pub` symbol should carry a doc comment *unless its
-> name and signature are fully self-describing*. Private symbols are documented
-> only where the intent is non-obvious. Brevity is a feature: the goal is the
-> shortest doc that adds something a reader couldn't get from the signature.
+> **When to document.** Every `pub` symbol should carry a doc comment _unless
+> its name and signature are fully self-describing_. Private symbols are
+> documented only where the intent is non-obvious. Brevity is a feature: the
+> goal is the shortest doc that adds something a reader couldn't get from the
+> signature.
 
 ### Markdown
 
@@ -1085,36 +1095,37 @@ outside it is treated as plain text):
 - **Links & references:** `[text](path)` is an ordinary Markdown link, used to
   cross-reference other docs. `[Symbol]` (no trailing `(…)`) is a **resolvable
   symbol reference** — a shorthand naming a declared symbol the way code does
-  (`[Display]`, `[String.slice]`, `[fs.read_text]`), resolved from the documented
-  file's scope. The two are not interchangeable: `` `code` `` is **inert text**
-  the tooling never checks, whereas `[Symbol]` is a **checked, navigable
-  reference** — doc tooling links it, and a lint flags a `[Symbol]` that no longer
-  resolves (doc-rot protection). Use `[Symbol]` when you want a reference to be
-  navigable and verified; use backticks for any other code-shaped text. Backticks
-  always work, so the bracket form is a pure opt-in upgrade, never required.
+  (`[Display]`, `[String.slice]`, `[fs.read_text]`), resolved from the
+  documented file's scope. The two are not interchangeable: `` `code` `` is
+  **inert text** the tooling never checks, whereas `[Symbol]` is a **checked,
+  navigable reference** — doc tooling links it, and a lint flags a `[Symbol]`
+  that no longer resolves (doc-rot protection). Use `[Symbol]` when you want a
+  reference to be navigable and verified; use backticks for any other
+  code-shaped text. Backticks always work, so the bracket form is a pure opt-in
+  upgrade, never required.
 - **Lists:** `-` bullets and `1.` ordered lists.
-- **Code blocks:** fenced only, tagged with the language —
-  ```` ```hawk ````. Indented code blocks are **not** supported (they force an
-  ambiguous indent-width rule under the `///` prefix); a fence is delimited, needs
-  no measuring, and is the form LLMs read and emit most reliably. A fence may be
-  left **untagged** when its content is preformatted text that is *not* Hawk code
-  — a syntax table, a grammar fragment, or sample program output — so the `hawk`
-  tag never falsely implies something is runnable.
+- **Code blocks:** fenced only, tagged with the language — ` ```hawk `. Indented
+  code blocks are **not** supported (they force an ambiguous indent-width rule
+  under the `///` prefix); a fence is delimited, needs no measuring, and is the
+  form LLMs read and emit most reliably. A fence may be left **untagged** when
+  its content is preformatted text that is _not_ Hawk code — a syntax table, a
+  grammar fragment, or sample program output — so the `hawk` tag never falsely
+  implies something is runnable.
 
-There are **no ATX headers** (`#`, `##`) in doc comments — `#` would invite long,
-sectioned docs that cut against the brevity goal, and a symbol's name is already
-its title. When a longer doc genuinely needs sections, use a small fixed set of
-**bold-label paragraphs** instead:
+There are **no ATX headers** (`#`, `##`) in doc comments — `#` would invite
+long, sectioned docs that cut against the brevity goal, and a symbol's name is
+already its title. When a longer doc genuinely needs sections, use a small fixed
+set of **bold-label paragraphs** instead:
 
-| Label | Use |
-| ----- | --- |
-| `**Example:**` | a usage example (usually a fenced `hawk` block) |
-| `**Errors:**` | the conditions under which a `Result` returns `Err` |
-| `**Traps:**` | the conditions under which the call traps (see [Runtime faults](#runtime-faults)) |
-| `**Note:**` | a caveat or non-obvious consequence |
-| `**See:**` | a cross-reference to a related symbol (`[Symbol]`) or doc |
+| Label          | Use                                                                               |
+| -------------- | --------------------------------------------------------------------------------- |
+| `**Example:**` | a usage example (usually a fenced `hawk` block)                                   |
+| `**Errors:**`  | the conditions under which a `Result` returns `Err`                               |
+| `**Traps:**`   | the conditions under which the call traps (see [Runtime faults](#runtime-faults)) |
+| `**Note:**`    | a caveat or non-obvious consequence                                               |
+| `**See:**`     | a cross-reference to a related symbol (`[Symbol]`) or doc                         |
 
-```hawk
+````hawk
 /// The element at `index`, or `None` if `index` is out of range.
 ///
 /// **Example:**
@@ -1124,15 +1135,15 @@ its title. When a longer doc genuinely needs sections, use a small fixed set of
 /// xs.get(9);    // None
 /// ```
 pub fn get(self, _ index: Int) -> Option<T> { ... }
-```
+````
 
 ### Parameters
 
-Document parameters **in prose**, naming them in backticks (`` `index` ``) — there
-is no `@param` tag vocabulary. Document a parameter only when its name and type do
-not already convey its role: units, valid ranges, edge behavior, or how it relates
-to another parameter. The return value is described in the summary, not in a
-separate tag.
+Document parameters **in prose**, naming them in backticks (`` `index` ``) —
+there is no `@param` tag vocabulary. Document a parameter only when its name and
+type do not already convey its role: units, valid ranges, edge behavior, or how
+it relates to another parameter. The return value is described in the summary,
+not in a separate tag.
 
 ```hawk
 /// The substring of code points in the half-open range `[start, end)`.
@@ -1141,11 +1152,11 @@ separate tag.
 pub fn slice(self, _ start: Int, _ end: Int) -> String { ... }
 ```
 
-> **Enforcement status.** The conventions above are adoptable in source today: the
-> lexer skips every `//…` line, so `///` and `//!` already lex cleanly as
-> comments. The supporting *machinery* — attaching docs to AST nodes, surfacing
-> them in LSP hover, a doc generator, formatter and lint awareness, and migrating
-> the existing `//` headers in `sdk/std/` — is tracked in
+> **Enforcement status.** The conventions above are adoptable in source today:
+> the lexer skips every `//…` line, so `///` and `//!` already lex cleanly as
+> comments. The supporting _machinery_ — attaching docs to AST nodes, surfacing
+> them in LSP hover, a doc generator, formatter and lint awareness, and
+> migrating the existing `//` headers in `sdk/std/` — is tracked in
 > [roadmap.md](roadmap.md).
 
 ---
@@ -1241,12 +1252,12 @@ impl Greet for User {
 ```
 
 The interface name resolves like any type name — same file, bare surface
-(prelude / `as _`), or qualified through an import namespace: `impl io.Reader
-for File` implements `std.io`'s `Reader`. Interface **identity** is the
-resolved declaration (owner + name), not the spelling: two libraries may each
-declare a `Shape`, and a conformance, bound, or interface-typed parameter binds
-to the one its own file resolves — never to a same-named interface elsewhere
-(see [Name resolution & scoping](#name-resolution--scoping)).
+(prelude / `as _`), or qualified through an import namespace:
+`impl io.Reader for File` implements `std.io`'s `Reader`. Interface **identity**
+is the resolved declaration (owner + name), not the spelling: two libraries may
+each declare a `Shape`, and a conformance, bound, or interface-typed parameter
+binds to the one its own file resolves — never to a same-named interface
+elsewhere (see [Name resolution & scoping](#name-resolution--scoping)).
 
 ### Default methods
 
@@ -1282,13 +1293,13 @@ impl Animal for Cat {
 Defaults dispatch dynamically, like any interface method: a call resolves to the
 type's override if it has one, otherwise the interface's default. The default's
 own calls to required methods (`self.name()` above) dispatch on the concrete
-value at runtime. This works on both interface-typed receivers (`fn f(a: Animal)`
-→ `a.greet()`) and concrete ones (`Dog { … }.greet()`).
+value at runtime. This works on both interface-typed receivers
+(`fn f(a: Animal)` → `a.greet()`) and concrete ones (`Dog { … }.greet()`).
 
-The standard `Iterator<T>` uses this: its only required method is `next`, and the
-adapters (`map`/`filter`/`take`/`enumerate`) and consumers (`collect`/`count`)
-are all default methods — so every iterator is fluent without each implementer
-re-spelling them. See [stdlib.md](stdlib.md).
+The standard `Iterator<T>` uses this: its only required method is `next`, and
+the adapters (`map`/`filter`/`take`/`enumerate`) and consumers
+(`collect`/`count`) are all default methods — so every iterator is fluent
+without each implementer re-spelling them. See [stdlib.md](stdlib.md).
 
 ### Inherent methods
 
@@ -1567,9 +1578,9 @@ The Rust crate builds **`hawkrt`** — the _bare runtime_: it loads and runs a
 compiled front-end (`frontend.hawkbc`) into it, and ships it as **`hawk`** — the
 full launcher. So `hawk` is `hawkrt` + an embedded front-end: invoked on a
 `.hawkbc` (or `--entry`) it behaves as the bare runtime; invoked on a subcommand
-(`run`, `check`, `test`, `emit`, `fmt`, `lsp`) it boots its embedded front-end. The
-distinction lets a `cargo build` (which yields `hawkrt`) be unambiguously the
-runtime, while `hawk` is unambiguously the runtime + front-end.
+(`run`, `check`, `test`, `emit`, `fmt`, `lsp`) it boots its embedded front-end.
+The distinction lets a `cargo build` (which yields `hawkrt`) be unambiguously
+the runtime, while `hawk` is unambiguously the runtime + front-end.
 
 ### Distributed layout
 

@@ -43,9 +43,9 @@ file_doc   = '//!' (any char except newline)*       // documents the file
 whitespace = ' ' | '\t' | '\r' | '\n'
 ```
 
-There are **no block comments** (`/* … */`). The `///` and `//!` forms are
-**doc comments** — lexically still line comments, but carrying documentation
-that tooling extracts; see [language.md](language.md#documentation) for the
+There are **no block comments** (`/* … */`). The `///` and `//!` forms are **doc
+comments** — lexically still line comments, but carrying documentation that
+tooling extracts; see [language.md](language.md#documentation) for the
 conventions. `//` is an ordinary comment and is never extracted.
 
 ### Keywords
@@ -340,9 +340,9 @@ when it sees `{}` or a string/int key followed by `:`, otherwise a **block
 expression**. The exception is a position that grammatically expects a block
 first — a **`match` arm** (`pattern '=>' ( exprBlock | expr )`, which tries
 `exprBlock` before `expr`): there a bare `=> {}` is an **empty block** (value
-`Void`), *not* an empty map. So an empty-map arm must be spelled `=> { {} }` (a
-block whose tail is the map literal) or with a typed binding — a known sharp edge
-tracked in [roadmap.md](roadmap.md).
+`Void`), _not_ an empty map. So an empty-map arm must be spelled `=> { {} }` (a
+block whose tail is the map literal) or with a typed binding — a known sharp
+edge tracked in [roadmap.md](roadmap.md).
 
 ## Operator precedence (summary)
 
@@ -387,8 +387,8 @@ checklist; items that are planned link to [roadmap.md](roadmap.md).
 - Integer bases & separators: `0b…`, `0o…` (binary/octal), digit separators
   (`1_000`); integer/float **exponents** (`1e9`); float shorthands `1.` and
   `.5`. (Hex `0x…` _is_ supported.)
-- String: `\0` escape, raw or triple-quoted strings. (`\u{…}` and `\xNN`
-  _are_ supported.)
+- String: `\0` escape, raw or triple-quoted strings. (`\u{…}` and `\xNN` _are_
+  supported.)
 - Tuple literals/types `(a, b)` — `(…)` is grouping or lambda params only.
 
 **Statements & control flow**
@@ -409,11 +409,11 @@ checklist; items that are planned link to [roadmap.md](roadmap.md).
 - Generic call type-arguments use a lookahead heuristic
   (`looks_like_type_arg_list`) that bails on **nested** generics in call
   position, e.g. `f<Result<T, E>>(…)` — and therefore also the receiver form
-  `Map<String, List<Int>>.new()`, which is unwritable today. Annotated
-  positions (`let`, params) handle nesting fine; only the `name<…>(…)` /
-  `Type<…>.m(…)` call forms are limited.
-- The `<` disambiguation: `name<Idents…>` followed by `(` or `.` commits to
-  type arguments (so a comparison chain `a < b > c` parses as comparisons —
+  `Map<String, List<Int>>.new()`, which is unwritable today. Annotated positions
+  (`let`, params) handle nesting fine; only the `name<…>(…)` / `Type<…>.m(…)`
+  call forms are limited.
+- The `<` disambiguation: `name<Idents…>` followed by `(` or `.` commits to type
+  arguments (so a comparison chain `a < b > c` parses as comparisons —
   ill-typed, but syntactically comparisons). The residual `a < b > (c)`
   ambiguity resolves the generic-call way (as in C#); the checker then rejects
   type arguments on a non-generic callee, so the comparison reading must be

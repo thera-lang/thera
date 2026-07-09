@@ -354,19 +354,19 @@ error with its kind and a private helper maps it to the variant, so callers get
 symlinks (so `kind` reports the target); `symlink_metadata` inspects the link
 itself (`FileKind.Symlink`). `modified` is an `Option<time.DateTime>` — `None`
 when the platform can't report a last-modified time (no misleading `1970`
-sentinel). `temp_file` creates a uniquely-named file in `temp_dir()` and opens it
-read+write, atomically (never clobbers an existing file); read `File.path()` to
-locate it — temp files are not auto-deleted, so `fs.remove(f.path())` when done.
-`walk` is a thin `Iterator` over `list_dir`/`symlink_metadata` (a lazy `WalkIter`
-yielding every descendant path, directories before their contents; symlinks are
-not followed, so a link cycle can't loop; an unreadable directory is skipped and
-the first failure kept for `.error()`). `open`/`create`
-return a `File` — a handle implementing `std.io`'s `Reader`/`Writer`/`Seek`/
-`Closer` — so `io.lines(fs.open(p)?)` streams a file line by line without
-loading it whole, and `seek` (via `io.SeekFrom`) moves the cursor. `open` is
-read-only, `create` write-only-truncating; the OS enforces the mode. The handle
-lives in a runtime registry; **`close()` when done** — there are no GC
-finalizers, so an unclosed file leaks its descriptor until the process exits.
+sentinel). `temp_file` creates a uniquely-named file in `temp_dir()` and opens
+it read+write, atomically (never clobbers an existing file); read `File.path()`
+to locate it — temp files are not auto-deleted, so `fs.remove(f.path())` when
+done. `walk` is a thin `Iterator` over `list_dir`/`symlink_metadata` (a lazy
+`WalkIter` yielding every descendant path, directories before their contents;
+symlinks are not followed, so a link cycle can't loop; an unreadable directory
+is skipped and the first failure kept for `.error()`). `open`/`create` return a
+`File` — a handle implementing `std.io`'s `Reader`/`Writer`/`Seek`/ `Closer` —
+so `io.lines(fs.open(p)?)` streams a file line by line without loading it whole,
+and `seek` (via `io.SeekFrom`) moves the cursor. `open` is read-only, `create`
+write-only-truncating; the OS enforces the mode. The handle lives in a runtime
+registry; **`close()` when done** — there are no GC finalizers, so an unclosed
+file leaks its descriptor until the process exits.
 
 ### `std.path` — pure path manipulation _(implemented, pure Hawk)_
 
