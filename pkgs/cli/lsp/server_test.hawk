@@ -4,6 +4,7 @@
 
 import std.testing;
 import std.io;
+import std.fs;
 
 import 'server' as _;
 import 'jsonrpc';
@@ -59,7 +60,74 @@ fn test_initialize_advertises_capabilities() -> Result<Void, Error> {
     testing.assert(out.contains('Content-Length:'), message: 'framed reply')?;
     testing.assert(out.contains('"capabilities"'), message: 'has capabilities')?;
     testing.assert(out.contains('textDocumentSync'), message: 'declares document sync')?;
+    testing.assert(out.contains('diagnosticProvider'), message: 'declares pull diagnostics')?;
+    testing.assert(out.contains('workspaceDiagnostics'), message: 'declares workspace diagnostics')?;
     testing.assert(out.contains('"id":1') || out.contains('"id": 1'), message: 'echoes the id')?;
+    return Result.Ok(void);
+}
+
+// A `workspace/diagnostic` pull reports every workspace file's own diagnostics,
+// including files that were never opened — the project-wide behavior. A file with
+// an error yields a full report with items; a clean file a full report with none.
+@test
+fn test_workspace_diagnostic_covers_unopened_files() -> Result<Void, Error> {
+    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_ws_diag_test');
+    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    fs.create_dir_all(dir)?;
+    fs.write_text(dir + '/good.hawk', 'fn ok() -> Int { return 1; }\n')?;
+    // An undefined name — a pure scope error the checker flags without a prelude.
+    fs.write_text(dir + '/bad.hawk', 'fn oops() -> Int { return missing; }\n')?;
+
+    let server = new_server(Option.None);
+    server.handle(io.StringWriter.new(), '{"jsonrpc":"2.0","id":1,"method":"initialize","params":'
+        + '{"rootUri":"file://' + dir + '"}}');
+    // No didOpen — the workspace pull must still analyze both files.
+    let out = io.StringWriter.new();
+    server.handle(out, '{"jsonrpc":"2.0","id":2,"method":"workspace/diagnostic","params":'
+        + '{"previousResultIds":[]}}');
+    let body = out.into_string().unwrap_or('');
+    testing.assert(body.contains('bad.hawk'), message: 'reports the unopened bad.hawk')?;
+    testing.assert(body.contains('good.hawk'), message: 'reports the clean good.hawk too')?;
+    testing.assert(body.contains('"kind":"full"') || body.contains('"kind": "full"'),
+        message: 'full document reports')?;
+    // The error text surfaces (bad.hawk's report carries a diagnostic item).
+    testing.assert(body.contains('"message"'), message: 'bad.hawk carries a diagnostic')?;
+
+    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    return Result.Ok(void);
+}
+
+// A refresh-capable client gets a `workspace/diagnostic/refresh` nudge after an
+// edit (the pull model's proactive signal), so it re-pulls project-wide results.
+@test
+fn test_edit_nudges_refresh_when_supported() -> Result<Void, Error> {
+    let server = new_server(Option.None);
+    server.handle(io.StringWriter.new(), '{"jsonrpc":"2.0","id":1,"method":"initialize","params":'
+        + '{"capabilities":{"workspace":{"diagnostics":{"refreshSupport":true}}}}}');
+    server.handle(io.StringWriter.new(), '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"file:///r.hawk","text":"fn f() -> Int { return 1; }"}}}');
+    // An edit flushes: it should both publish r.hawk and nudge a workspace re-pull.
+    let out = io.StringWriter.new();
+    server.handle(out, '{"jsonrpc":"2.0","method":"textDocument/didChange","params":'
+        + '{"textDocument":{"uri":"file:///r.hawk"},"contentChanges":[{"text":"fn f() -> Int { return 2; }"}]}}');
+    let body = out.into_string().unwrap_or('');
+    testing.assert(body.contains('workspace/diagnostic/refresh'), message: 'nudges a re-pull')?;
+    return Result.Ok(void);
+}
+
+// A client that did not advertise refresh support gets no nudge (it pulls on its
+// own cadence) — we don't emit an unsolicited server request.
+@test
+fn test_no_refresh_nudge_without_support() -> Result<Void, Error> {
+    let server = new_server(Option.None);
+    server.handle(io.StringWriter.new(), '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}');
+    server.handle(io.StringWriter.new(), '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"file:///r.hawk","text":"fn f() -> Int { return 1; }"}}}');
+    let out = io.StringWriter.new();
+    server.handle(out, '{"jsonrpc":"2.0","method":"textDocument/didChange","params":'
+        + '{"textDocument":{"uri":"file:///r.hawk"},"contentChanges":[{"text":"fn f() -> Int { return 2; }"}]}}');
+    let body = out.into_string().unwrap_or('');
+    testing.assert(!body.contains('workspace/diagnostic/refresh'), message: 'no unsolicited nudge')?;
     return Result.Ok(void);
 }
 

@@ -369,4 +369,66 @@ impl Analysis {
         return diagnostics.render_diagnostics(self.session.check(text, p),
             loader.canonical_path(p));
     }
+
+    // A full `DocumentDiagnosticReport` (LSP pull model) for one document — the
+    // answer to `textDocument/diagnostic`. Reuses the same per-file check the push
+    // path uses; reads the open buffer when present, else the on-disk contents (a
+    // closed file can be pulled). The `unchanged` optimization (a `resultId` the
+    // client echoes back) is a follow-up; this always returns a full report.
+    pub fn document_report(self, _ uri: String) -> Json {
+        let text = match self.docs.get(uri) {
+            Some(t) => t,
+            None => match fs.read_text(paths.uri_to_path(uri)) {
+                Ok(t) => t,
+                Err(_) => '',
+            },
+        };
+        return obj({
+            'kind': str('full'),
+            'items': self.diagnostics(uri, text),
+        });
+    }
+
+    // A `WorkspaceDiagnosticReport` (LSP pull model) — one full report per
+    // workspace file (and open buffer), each carrying that file's own diagnostics.
+    // This is what makes diagnostics project-wide with no file open. It reuses the
+    // session's shared check and checked-clean dedup — the `hawk check <dir>` loop
+    // — so a shared import is checked once per pass, not once per importer; a
+    // clean file gets an empty full report so the client releases prior squiggles.
+    // Synchronous for now: a large workspace blocks the request until done
+    // (backgrounding via fibers, and per-file `resultId` caching, are follow-ups).
+    pub fn workspace_report(self) -> Json {
+        let files = self.scan_files();
+        // Check each file once, folding every diagnostic under its owning file
+        // (deduped by identity — an imported file's error surfaces from several
+        // importers). The primary attributes its own unattributed diagnostics.
+        let by_file: Map<String, List<Json>> = {};
+        let seen: Set<String> = Set.new();
+        for f in files {
+            if !self.session.is_sdk_file(f.path) {
+                diagnostics.group_by_file(self.session.check(f.text, f.path),
+                    loader.canonical_path(f.path), by_file, seen);
+            }
+        }
+        // One report per scanned file (empty items = clean), keyed by canonical
+        // path so an open buffer and its on-disk copy don't double-report.
+        let items: List<Json> = [];
+        let emitted: Set<String> = Set.new();
+        for f in files {
+            let canon = loader.canonical_path(f.path);
+            if !self.session.is_sdk_file(f.path) && !emitted.has(canon) {
+                emitted.add(canon);
+                items.push(obj({
+                    'kind': str('full'),
+                    'uri': str(f.uri),
+                    'version': match self.versions.get(f.uri) {
+                        Some(v) => int(v),
+                        None => null(),
+                    },
+                    'items': arr(by_file.get(canon).unwrap_or([])),
+                }));
+            }
+        }
+        return obj({ 'items': arr(items) });
+    }
 }

@@ -23,6 +23,33 @@ pub fn render_diagnostics(_ diags: List<diagnostic.Diagnostic>, _ canon: String)
     return json.arr(items);
 }
 
+// Fold a closure check's diagnostics into `into` (canonical file -> LSP JSON
+// items), rendering each and deduping by identity via `seen`. A diagnostic with
+// no `file` is the checked file's own, so `primary` (canonical) attributes it.
+// Merging into shared accumulators lets a workspace pass combine many files'
+// checks — where one imported file's error surfaces from several importers — into
+// one report per owning file. Companion to `render_diagnostics` (the single-file,
+// per-URI path); this is the project-wide, group-by-owner path.
+pub fn group_by_file(_ diags: List<diagnostic.Diagnostic>, _ primary: String,
+    _ into: Map<String, List<Json>>, _ seen: Set<String>) -> Void {
+    for d in diags {
+        let owner = match d.file {
+            Some(f) => f,
+            None => primary,
+        };
+        let key = '${owner}:${d.span.offset}:${d.span.length}:${d.message}';
+        if !seen.has(key) {
+            seen.add(key);
+            if !into.has(owner) {
+                into[owner] = [];
+            }
+            if let Some(list) = into.get(owner) {
+                list.push(diagnostic_to_json(d));
+            }
+        }
+    }
+}
+
 // Whether `d` belongs to the (canonical) `path` — its own file, or unattributed
 // (the primary).
 fn diagnostic_in_file(_ d: diagnostic.Diagnostic, _ path: String) -> Bool {

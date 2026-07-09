@@ -23,6 +23,13 @@ import 'element/types';
 import 'loader';
 import 'diagnostic'; // Diagnostic — the uniform phase error, produced by every phase
 
+// The most distinct closure signatures the imports-only library cache retains
+// before evicting the least-recently-used entry. Sized to comfortably exceed the
+// distinct import-sets of a real project (files sharing imports share a
+// signature), so workspace-wide analysis effectively never evicts; a size-aware
+// policy can refine this later.
+const LIBRARY_CACHE_CAP: Int = 1024;
+
 // The outcome of compiling a source: any diagnostics, and the encoded `.hawkbc`
 // bytes when there were none.
 pub struct CompileOutcome {
@@ -153,6 +160,19 @@ impl Session {
         }
     }
 
+    // Drop the least-recently-used cached library — the front entry, since a hit
+    // moves its signature to the back (see `library_for`). Bounds the cache
+    // without the old clear-all, which threw away every warm base at once.
+    fn evict_lru_library(self) -> Void {
+        let keys = self.library_cache.keys();
+        if keys.len() > 0 {
+            match self.library_cache.remove(keys[0]) {
+                Some(_) => {},
+                None => {},
+            }
+        }
+    }
+
     // Drop every cached imports-only library whose closure contains `k`.
     fn evict_libraries_with(self, _ k: String) -> Void {
         let stale: List<String> = [];
@@ -193,13 +213,22 @@ impl Session {
         }
         let signature = keys.sort((a, b) => a.compare(b) == Ordering.Less).join('\n');
         let base = match self.library_cache.get(signature) {
-            Some(c) => c.library,
+            Some(c) => {
+                // Mark as most-recently-used: the map is insertion-ordered, so
+                // remove + re-insert moves this signature to the end (`evict_lru`
+                // drops the front). No rebuild — the frozen base is reused as-is.
+                self.library_cache.remove(signature);
+                self.library_cache[signature] = c;
+                c.library
+            },
             None => {
-                // A crude cap for batch runs over many distinct closures —
-                // the LSP holds a handful of signatures; an uncapped batch
-                // would hold one full element model per target.
-                if self.library_cache.len() >= 32 {
-                    self.library_cache.clear();
+                // Bound the cache with LRU eviction (not clear-all): workspace-wide
+                // analysis holds one signature per distinct import-set, so the cap
+                // is high enough not to bite most projects — a real project rarely
+                // has this many distinct closures. A smarter size-aware policy is a
+                // follow-up.
+                if self.library_cache.len() >= LIBRARY_CACHE_CAP {
+                    self.evict_lru_library();
                 }
                 let built = resolver.build_import_library(loaded.programs,
                     loaded.file_namespaces, loaded.file_bare_surface);

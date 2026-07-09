@@ -365,6 +365,14 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   value+type resolution, the resolved-library cache with dependency-graph
   invalidation, `type_at` (inference-at-offset), and semantic references/rename
   all shipped (see _Changelog_). The remaining follow-ups, all deferred:
+  - **Workspace diagnostics — backgrounding + `resultId` caching.** The pull-model
+    `workspace/diagnostic` path landed (see _Changelog_), but it runs
+    **synchronously** on the request loop — a large workspace's first pass blocks
+    other requests until done. Move the workspace check onto the runtime's
+    cooperative fibers so it streams/yields, and add per-file `resultId` caching so
+    a re-pull re-emits only changed files (today every file gets a fresh full
+    report). Also make the refresh nudge fire only when a change could actually
+    alter *cross-file* results.
   - **Primitive-receiver member resolution.** Hover / definition / member
     resolution on a primitive receiver (`"s".split()`) don't resolve — a
     `Primitive` value carries no `TypeId`. Ties to _Primitive vtables_
@@ -721,6 +729,23 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **Workspace-wide diagnostics — pull model (LSP)** (2026-07). Diagnostics are
+  no longer limited to open files. The server advertises a 3.17 `diagnosticProvider`
+  (`interFileDependencies` + `workspaceDiagnostics`) and answers
+  `textDocument/diagnostic` (one document) and `workspace/diagnostic` (every
+  workspace file, opened or not — a full report per file, empty items = clean).
+  The workspace pull reuses the session's shared check and checked-clean dedup —
+  the same `hawk check <dir>` loop — so a shared import is checked once per pass,
+  not once per importer, and `diagnostics.group_by_file` folds each file's own
+  errors out of the closure result (the push path filtered them to one URI). The
+  proactive signal is the pull model's `workspace/diagnostic/refresh` nudge, sent
+  once per edit-flush to a refresh-capable client, which then re-pulls (the edited
+  cone recomputes, the rest are checked-set hits) — so push stays for open files
+  and pull carries the project. The `library_cache` is now **LRU** with a high cap
+  (1024) instead of clear-all-at-32, so workspace analysis doesn't thrash it.
+  Deferred: running the workspace check on fibers (it's synchronous today, so a
+  big first pass blocks the loop) and `resultId` caching so a re-pull re-emits only
+  changed files.
 - **References/rename — dependency-cone pruning (LSP)** (2026-07). The
   project-wide scan no longer builds every workspace file's closure. Both
   requests now scope the expensive resolution to the target's **dependency
