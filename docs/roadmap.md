@@ -739,6 +739,20 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **Per-file SDK resolution — cross-path core identity (loader)** (2026-07). A
+  file that lives *inside* an SDK's `std` tree now resolves its `std.*` imports
+  (and the auto-imported `std.core` prelude) from **that same tree** rather than
+  the configured SDK root (`loader.own_std_dir`). This fixes the LSP-editing-the-repo
+  case: with the prelude resolved from an installed SDK but the file from the repo
+  copy, the core types (`List<T>`, …) existed twice with distinct identities, so a
+  core file's own generic methods stopped type-checking against their own `List<T>`
+  and every top-level decl looked like it shadowed the prelude copy of itself.
+  `hawk check sdk/std` via a foreign SDK is now clean (was ~8 false diagnostics).
+  Ordinary project files (not under a `std` tree) are unaffected — they keep
+  resolving against the configured SDK — and the normal build resolves identically
+  (fixpoint holds). Also: an unresolved for-loop iterable now types its element as
+  `Unknown`, not `Int` (the `Int` fallback is scoped to ranges), so a genuinely
+  unknown element no longer cascades into "no method X on Int".
 - **Pull-only diagnostics + server-side `exclude` (LSP)** (2026-07). The server
   no longer pushes `publishDiagnostics` at all — it went **pull-only**, so open
   files and the workspace flow through the one channel (`textDocument/diagnostic`

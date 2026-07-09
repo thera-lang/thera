@@ -321,6 +321,38 @@ fn test_unresolved_std_import_says_why() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
+// A file living *inside* an SDK's std tree resolves its `std.*` imports from that
+// same tree — even when the configured SDK root is elsewhere (or None). This is
+// what keeps the LSP from loading a second copy of the core types when it edits
+// the repo's own sdk/std against a different installed SDK.
+@test
+fn test_std_import_resolves_from_the_file_s_own_sdk() -> Result<Void, Error> {
+    let dir = canonical_path(fs.temp_dir() + '/hawk_loader_perfile_sdk_test');
+    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    // A minimal SDK tree: a `greet` std lib in its own named subdir, and a file
+    // that lives beside it under `std/` and imports it.
+    fs_ok(fs.create_dir_all(dir + '/std/greet'), 'create greet lib dir')?;
+    fs_ok(fs.create_dir_all(dir + '/std/app'), 'create app dir')?;
+    fs_ok(fs.write_text(dir + '/std/greet/greet.hawk', 'pub fn hi() -> Int { return 1; }\n'),
+        'write greet')?;
+    let app_path = dir + '/std/app/app.hawk';
+    let app_src = 'import \'std.greet\';\nfn main() -> Int { return greet.hi(); }\n';
+    fs_ok(fs.write_text(app_path, app_src), 'write app')?;
+
+    // Configured SDK root is None — yet `std.greet` resolves, because app.hawk is
+    // itself inside `<dir>/std`, so per-file resolution finds greet next door. The
+    // only diagnostic tolerated is a missing auto-imported `std.core` (this tree
+    // has none); `std.greet` must NOT be among the failures.
+    let loaded = load_imports(app_path, parse_tokens(tokenize(app_src).tokens).program, Option.None);
+    for d in loaded.diagnostics {
+        testing.assert(!d.message.contains('std.greet'),
+            message: 'std.greet should resolve from the file\'s own SDK, but: ${d.message}')?;
+    }
+
+    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    return Result.Ok(void);
+}
+
 @test
 fn test_pub_import_reexports_through_barrel() -> Result<Void, Error> {
     // A barrel: `pub import 'inner'` re-exports inner's public surface alongside

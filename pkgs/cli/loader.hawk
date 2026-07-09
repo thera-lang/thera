@@ -113,6 +113,32 @@ fn walk_up_for_std(_ start: String) -> Option<String> {
     return Option.None;
 }
 
+// The std directory that *contains* `base_dir`, or None when `base_dir` isn't
+// inside an SDK's std tree. Powers per-file `std.*` resolution: a file living
+// under some `…/std/` resolves the prelude from that same tree (its own siblings)
+// rather than a configured, possibly-foreign SDK. `walk_up_for_std` finds the
+// nearest SDK root above `base_dir`; the containment check ensures `base_dir` is
+// genuinely *within* that root's std (not merely a sibling of one), so ordinary
+// project files — which may have an unrelated SDK somewhere above — keep resolving
+// against the configured SDK.
+fn own_std_dir(_ base_dir: String) -> Option<String> {
+    if base_dir == '' {
+        return Option.None;
+    }
+    let Some(root) = walk_up_for_std(base_dir) else {
+        return Option.None;
+    };
+    let Some(std) = std_root(root) else {
+        return Option.None;
+    };
+    let here = canonical_path(base_dir);
+    let std_canon = canonical_path(std);
+    if here == std_canon || here.starts_with(std_canon + '/') {
+        return Option.Some(std);
+    }
+    return Option.None;
+}
+
 // --- canonical file identity ---
 
 // The loader's canonical identity form for a source-file path: **absolute**
@@ -263,16 +289,27 @@ struct Loader {
 }
 
 impl Loader {
-    // Resolve an import path to a source file. `std.*` anchors at the SDK std
-    // root (dots become separators); any other path is relative to the importing
-    // file's directory.
+    // Resolve an import path to a source file. `std.*` anchors at an SDK std root
+    // (dots become separators); any other path is relative to the importing file's
+    // directory.
     fn resolve(self, _ import_path: String, _ base_dir: String) -> Option<String> {
         if import_path.starts_with(STD_PREFIX) {
+            let rel = import_path.slice(STD_PREFIX.len(), import_path.len()).split('.').join('/');
+            // Per-file SDK: if the importing file lives *inside* an SDK's std tree,
+            // resolve `std.*` from that tree — so a file under `sdk/std` uses its own
+            // siblings as the prelude, not a foreign installed SDK. Without this, an
+            // LSP whose configured SDK differs from the repo it's editing loads two
+            // copies of the core types (one from each tree) with distinct identities,
+            // and generic method bodies stop type-checking against their own `List<T>`.
+            if let Some(std) = own_std_dir(base_dir) {
+                if let Some(f) = resolve_library_file(std + '/' + rel) {
+                    return canonical_resolved(Option.Some(f));
+                }
+            }
             match self.sdk_root {
                 Some(root) => {
                     match std_root(root) {
                         Some(std) => {
-                            let rel = import_path.slice(STD_PREFIX.len(), import_path.len()).split('.').join('/');
                             return canonical_resolved(resolve_library_file(std + '/' + rel));
                         },
                         None => { return Option.None; },
@@ -427,7 +464,10 @@ pub fn load_imports(_ entry: String, _ program: Program, _ sdk_root: Option<Stri
     // misses and no prelude loads; explicit `std.*` imports get the "no Hawk SDK
     // found" diagnostic in `link_imports`, and the CLI warns once at startup.)
     let core_names: Map<String, String> = {};
-    if let Some(core) = loader.resolve('std.core', '') {
+    // Resolve the auto-imported prelude relative to the primary's own directory, so
+    // per-file SDK resolution applies: a primary under `sdk/std` gets its prelude
+    // from that same tree (`own_std_dir`), keeping one identity for the core types.
+    if let Some(core) = loader.resolve('std.core', path.dirname(canon)) {
         if let Ok(core_src) = loader.source_for(core) {
             let core_surface = loader.surface_of(core_src);
             let core_key = element.file_key(core_src.program.file_path);
