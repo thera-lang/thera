@@ -1,0 +1,39 @@
+//! spec: cf-break-continue
+//! mode: run
+
+fn main() -> Int {
+    // `continue` in a range for-loop skips the rest of the body but still
+    // advances the counter (it must not spin on the same index).
+    let mut sum = 0;
+    for i in 0..10 {
+        if i % 2 == 0 {
+            continue;
+        }
+        sum = sum + i;
+    }
+    println('${sum}');           // expect: 25
+
+    // `continue` in a list for-loop.
+    let xs = [10, 20, 30, 40];
+    let mut count = 0;
+    for x in xs {
+        if x == 20 {
+            continue;
+        }
+        count = count + 1;
+    }
+    println('${count}');         // expect: 3
+
+    // `continue` in a while loop re-tests the condition.
+    let mut i = 0;
+    let mut acc = 0;
+    while i < 5 {
+        i = i + 1;
+        if i == 3 {
+            continue;
+        }
+        acc = acc + i;
+    }
+    println('${acc}');           // expect: 12
+    return 0;
+}

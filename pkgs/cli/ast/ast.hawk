@@ -228,6 +228,11 @@ pub enum Stmt {
     If(IfStmt),
     For(ForStmt),
     While(WhileStmt),
+    // Loop control: exit the enclosing loop (`break`) or advance to its next
+    // iteration (`continue`). Statement-only, unlabeled — the checker rejects
+    // one outside a loop. Each carries just its span.
+    Break(SourceSpan),
+    Continue(SourceSpan),
 }
 
 // The value an assignment stores: the RHS for a plain `=`, or the synthesized

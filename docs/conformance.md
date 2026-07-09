@@ -131,7 +131,7 @@ and [grammar.md](grammar.md) (syntax).
 | `cf-match-variant-check` | grammar.md Patterns   | a constructor pattern (incl. nested payloads; capitalized bare = zero-arg constructor) must name a real variant — a `check` diagnostic | ✓      |
 | `cf-match-literal`       | grammar.md Patterns   | int/string/bool literal patterns (not float)                                                                                           | ✓      |
 | `cf-match-literal-type`  | grammar.md Patterns   | a literal pattern whose type can never equal the subject's is a `check` error                                                          | ✓      |
-| `cf-break-continue`      | grammar.md Not-yet    | `break`/`continue` (unimplemented)                                                                                                     | ⓧ      |
+| `cf-break-continue`      | grammar.md Statements | `break` exits / `continue` advances the innermost loop (while/range/list); statement-only, a `check` error outside a loop or across a closure | ✓      |
 
 ## Error handling
 

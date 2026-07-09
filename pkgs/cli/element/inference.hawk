@@ -421,6 +421,8 @@ fn stmt_return_type(_ stmt: Stmt, _ scope: Map<String, Type>, _ ctx: InferCtx,
         Throw(_, _) => Type.Unknown,
         Expr(_, _) => Type.Unknown,
         Assign(_, _, _, _) => Type.Unknown,
+        Break(_) => Type.Unknown,
+        Continue(_) => Type.Unknown,
     };
 }
 

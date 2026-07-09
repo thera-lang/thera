@@ -353,6 +353,8 @@ fn fs_stmt(_ s: Stmt, _ out: List<FixSite>) -> Void {
             fs_expr(w.condition, out);
             fs_block(w.body, out);
         },
+        Break(_) => {},
+        Continue(_) => {},
     }
 }
 

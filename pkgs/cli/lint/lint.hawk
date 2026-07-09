@@ -796,6 +796,8 @@ fn walk_stmt(_ s: Stmt, _ out: List<Suggestion>) -> Void {
             walk_expr(w.condition, out);
             walk_block(w.body, out);
         },
+        Break(_) => {},
+        Continue(_) => {},
     }
 }
 

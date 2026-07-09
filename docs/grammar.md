@@ -53,8 +53,9 @@ conventions. `//` is an ordinary comment and is never extracted.
 All reserved; none may be used as identifiers:
 
 ```
-as  const  else  enum  false  fn  for  if  impl  import  in  interface
-let  match  mut  native  pub  return  self  struct  throw  true  type  void  while
+as  break  const  continue  else  enum  false  fn  for  if  impl  import  in
+interface  let  match  mut  native  pub  return  self  struct  throw  true  type
+void  while
 ```
 
 (`true`, `false`, `void`, `self` are keywords that appear in expression
@@ -218,7 +219,7 @@ block     = '{' statement* '}'
 // values with `return`.)
 exprBlock = '{' statement* expr? '}'
 
-statement = letStmt | constStmt | returnStmt | throwStmt
+statement = letStmt | constStmt | returnStmt | throwStmt | breakStmt | continueStmt
           | ifStmt | forStmt | whileStmt | assignOrExpr
 
 letStmt   = 'let' 'mut'? IDENT (':' type)? '=' expr ';'
@@ -228,6 +229,10 @@ letStmt   = 'let' 'mut'? IDENT (':' type)? '=' expr ';'
 constStmt = 'const' IDENT (':' type)? '=' expr ';'       // a local immutable binding
 returnStmt= 'return' expr? ';'
 throwStmt = 'throw' expr ';'
+breakStmt = 'break' ';'                                   // exit the enclosing loop
+continueStmt = 'continue' ';'                             // next iteration of the loop
+            // Statement-only, unlabeled; a check error outside a loop body (and
+            // never crosses a closure — a loop in an enclosing scope doesn't count).
 ifStmt    = 'if' ( exprNB | 'let' pattern '=' exprNB )    // `if let` = cond. binding
             block ( 'else' ( ifStmt | block ) )?         //   (desugars to `match`)
 forStmt   = 'for' pattern 'in' exprNB block
@@ -245,8 +250,7 @@ assignOp     = '=' | '+=' | '-=' | '*=' | '/=' | '%='
 `exprNB` is `expr` parsed with **struct literals suppressed**, so that
 `if foo { … }` reads `foo` as the condition rather than `foo { … }` as a struct
 literal. It is the same grammar as `expr` minus the bare `IDENT '{' … '}'`
-production. There are no `break` / `continue` statements (exit a loop by
-restructuring or `return`).
+production.
 
 ### Patterns
 
@@ -393,7 +397,8 @@ checklist; items that are planned link to [roadmap.md](roadmap.md).
 
 **Statements & control flow**
 
-- `break` / `continue` (and labeled loops); a `loop { }` form.
+- Labeled loops (`break`/`continue` target the innermost loop only); a
+  `loop { }` form. (Unlabeled `break` / `continue` _are_ supported.)
 - `if` and `match` work in both statement position (`ifStmt`, a bare `match`)
   and expression position (`ifExpr`, `matchExpr`); the value forms are
   tail-valued (docs/language.md). There are no block-less `if` bodies (the body

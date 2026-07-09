@@ -47,6 +47,17 @@ pub struct Fixup {
     let kind: Jk;
 }
 
+// The jump targets of an enclosing loop, pushed onto `FnCompiler.loops` while its
+// body is compiled so a nested `break`/`continue` can find them. `break` jumps to
+// `break_label` (the loop exit); `continue` jumps to `continue_label` — which is
+// the loop head for `while`/iterator loops, but the *increment* step for the
+// counted `range`/`list` loops (jumping to the head there would skip the advance
+// and spin forever).
+pub struct LoopCtx {
+    let continue_label: Int;
+    let break_label: Int;
+}
+
 // The lexical maps saved at a scope boundary (a block, a match arm, a for loop).
 // Codegen applies the checker's `copy_scope` discipline to its slot and type
 // maps in tandem: entering copies both (inner declarations and pattern bindings
@@ -240,6 +251,10 @@ pub struct FnCompiler {
     let mut returns_result: Bool;
     let labels: List<Option<Int>>;
     let fixups: List<Fixup>;
+    // A stack of enclosing loops (innermost last) — the targets a `break`/
+    // `continue` in the loop body jumps to. Empty outside any loop; a lifted
+    // lambda starts fresh, so control never crosses a closure boundary.
+    let loops: List<LoopCtx>;
     let mut ctx: InferCtx;
     // The file this unit was declared in — the scope a bare free-function
     // reference resolves against (same-file-first).
@@ -261,6 +276,7 @@ pub fn new_fn_compiler(_ scope: ModuleScope, _ errors: List<diagnostic.Diagnosti
         returns_result: false,
         labels: [],
         fixups: [],
+        loops: [],
         ctx: new_ctx(scope.library),
         file: Option.None,
         errors: errors,
@@ -664,7 +680,11 @@ impl FnCompiler {
                 self.bind(start);
                 self.expr(x.condition);
                 self.emit_jump(Jk.IfFalse, end);
+                // `continue` re-tests at the head; `break` exits. The head
+                // already re-evaluates the condition, so `continue` → start.
+                self.loops.push(LoopCtx { continue_label: start, break_label: end });
                 self.scoped_block(x.body);
+                self.loops.pop();
                 self.emit_jump(Jk.Jump, start);
                 self.bind(end);
             },
@@ -679,6 +699,20 @@ impl FnCompiler {
             },
             Throw(_, value) => {
                 self.emit_throw(value);
+            },
+            Break(span) => {
+                // Jump to the innermost loop's exit. The checker rejects a
+                // `break` outside a loop, so an empty stack is an internal bug.
+                match self.loops.last() {
+                    Some(l) => { self.emit_jump(Jk.Jump, l.break_label); },
+                    None => { self.error('internal: `break` outside of a loop', span); },
+                }
+            },
+            Continue(span) => {
+                match self.loops.last() {
+                    Some(l) => { self.emit_jump(Jk.Jump, l.continue_label); },
+                    None => { self.error('internal: `continue` outside of a loop', span); },
+                }
             },
             Expr(_, e) => {
                 // The result of an expression statement is discarded.
@@ -827,12 +861,18 @@ impl FnCompiler {
 
             let start = self.new_label();
             let end = self.new_label();
+            // `continue` targets the increment, not the head: jumping to `start`
+            // would skip `counter += 1` and spin forever.
+            let cont = self.new_label();
             self.bind(start);
             self.emit(Instr.Load(counter));
             self.emit(Instr.Load(limit));
             self.emit(Instr.Simple(Op.LtI64));
             self.emit_jump(Jk.IfFalse, end);
+            self.loops.push(LoopCtx { continue_label: cont, break_label: end });
             self.block(body);
+            self.loops.pop();
+            self.bind(cont);
             self.emit(Instr.Load(counter));
             self.emit(Instr.ConstInt(1));
             self.emit(Instr.Simple(Op.AddI64));
@@ -852,6 +892,8 @@ impl FnCompiler {
 
         let start = self.new_label();
         let end = self.new_label();
+        // `continue` targets `i += 1`, not the head — see `range_for`.
+        let cont = self.new_label();
         self.bind(start);
         self.emit(Instr.Load(i));
         self.emit(Instr.Load(list));
@@ -863,7 +905,10 @@ impl FnCompiler {
         self.emit(Instr.Load(i));
         self.emit(Instr.Simple(Op.ListGet));
         self.emit(Instr.Store(elem));
+        self.loops.push(LoopCtx { continue_label: cont, break_label: end });
         self.block(body);
+        self.loops.pop();
+        self.bind(cont);
         self.emit(Instr.Load(i));
         self.emit(Instr.ConstInt(1));
         self.emit(Instr.Simple(Op.AddI64));
@@ -893,7 +938,10 @@ impl FnCompiler {
         self.emit(Instr.Load(opt));
         self.emit(Instr.EnumGet(0));
         self.emit(Instr.Store(elem));
+        // The advance is the `next` call at the head, so `continue` → start.
+        self.loops.push(LoopCtx { continue_label: start, break_label: end });
         self.block(body);
+        self.loops.pop();
         self.emit_jump(Jk.Jump, start);
         self.bind(end);
     }
@@ -1880,7 +1928,12 @@ impl FnCompiler {
                 Some(ifaces) => {
                     let mut found = false;
                     for i in ifaces {
-                        if let Some(s) = self.scope.interface_methods.get(i) { if s.has(field) { found = true; } }
+                        if let Some(s) = self.scope.interface_methods.get(i) {
+                            if s.has(field) {
+                                found = true;
+                                break;
+                            }
+                        }
                     }
                     found
                 },
@@ -2619,6 +2672,8 @@ fn walk_stmt(_ s: Stmt, _ bound: Set<String>, _ v: TreeVisitor) -> Void {
             pattern_bindings(x.pattern, loop_bound);
             walk_block(x.body, loop_bound, v);
         },
+        Break(_) => {},
+        Continue(_) => {},
     }
 }
 

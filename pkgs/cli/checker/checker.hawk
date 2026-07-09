@@ -491,7 +491,7 @@ fn check_program(_ errors: List<diagnostic.Diagnostic>, _ program: Program, _ li
                 check_global_annotation(errors, x.type_ann, x.name, x.name_span, library, file);
                 let ctx = new_ctx(library, record_sink: records);
                 ctx.current_file = file;
-                check_expr(CheckCtx { errors: errors, infer: ctx, scope: empty_scope(), muts: {}, no_return_reported: [true] }, x.value, Option.None);
+                check_expr(CheckCtx { errors: errors, infer: ctx, scope: empty_scope(), muts: {}, no_return_reported: [true], in_loop: false }, x.value, Option.None);
                 // A `const` is a manifest constant, inlined at every use site; a
                 // computed initializer belongs in a top-level `let` (computed once
                 // and stored). See docs/language.md.
@@ -510,7 +510,7 @@ fn check_program(_ errors: List<diagnostic.Diagnostic>, _ program: Program, _ li
                 check_global_annotation(errors, x.type_ann, x.name, x.name_span, library, file);
                 let ctx = new_ctx(library, record_sink: records);
                 ctx.current_file = file;
-                check_expr(CheckCtx { errors: errors, infer: ctx, scope: empty_scope(), muts: {}, no_return_reported: [true] }, x.value, Option.None);
+                check_expr(CheckCtx { errors: errors, infer: ctx, scope: empty_scope(), muts: {}, no_return_reported: [true], in_loop: false }, x.value, Option.None);
             },
             Enum(x) => {
                 let tps = type_param_set(x.type_params);
@@ -568,7 +568,7 @@ fn check_fn(_ errors: List<diagnostic.Diagnostic>, _ fn_decl: FnDecl, _ library:
                     muts[p.name] = false;
                 }
             }
-            check_block(CheckCtx { errors: errors, infer: ctx, scope: scope, muts: muts, no_return_reported: [] }, body);
+            check_block(CheckCtx { errors: errors, infer: ctx, scope: scope, muts: muts, no_return_reported: [], in_loop: false }, body);
         },
     }
 }
@@ -843,6 +843,12 @@ struct CheckCtx {
     // at most once, and non-function-body contexts (a `const`/`let` initializer)
     // start pre-filled so a stray `return` there never trips it.
     let no_return_reported: List<Bool>;
+    // Whether the statement being checked is inside a loop body — gates the
+    // `break`/`continue`-outside-a-loop diagnostic. Set true when descending
+    // into a `for`/`while` body; a function or lambda boundary resets it to
+    // false (control can't cross a closure), so the four boundary-seeding
+    // `CheckCtx` constructions start it false.
+    let in_loop: Bool;
 }
 
 impl CheckCtx {
@@ -856,6 +862,7 @@ impl CheckCtx {
             scope: copy_scope(self.scope),
             muts: copy_muts(self.muts),
             no_return_reported: self.no_return_reported,
+            in_loop: self.in_loop,
         };
     }
 
@@ -869,6 +876,20 @@ impl CheckCtx {
             scope: scope,
             muts: self.muts,
             no_return_reported: self.no_return_reported,
+            in_loop: self.in_loop,
+        };
+    }
+
+    // The same context marked as inside a loop body — seeds the `in_loop` flag
+    // for a `for`/`while` body so a nested `break`/`continue` is accepted.
+    fn entering_loop(self) -> CheckCtx {
+        return CheckCtx {
+            errors: self.errors,
+            infer: self.infer,
+            scope: self.scope,
+            muts: self.muts,
+            no_return_reported: self.no_return_reported,
+            in_loop: true,
         };
     }
 }
@@ -1007,15 +1028,21 @@ fn check_stmt(_ cc: CheckCtx, _ stmt: Stmt, _ stmts: List<Stmt>, _ index: Int) -
             }
             // The loop variable isn't tracked in `muts`, so reassigning it isn't
             // flagged; reassigning an enclosing immutable binding still is.
-            check_block(loop_cc, x.body);
+            check_block(loop_cc.entering_loop(), x.body);
         },
         While(x) => {
             check_expr(cc, x.condition, Option.None);
             check_condition(errors, x.condition, scope, ctx);
-            check_block(cc, x.body);
+            check_block(cc.entering_loop(), x.body);
         },
         Throw(_, value) => {
             check_expr(cc, value, Option.None);
+        },
+        Break(span) => {
+            if !cc.in_loop { add_error(errors, '`break` outside of a loop', span); }
+        },
+        Continue(span) => {
+            if !cc.in_loop { add_error(errors, '`continue` outside of a loop', span); }
         },
     }
 }
@@ -1371,7 +1398,7 @@ fn check_lambda(_ cc: CheckCtx, _ x: LambdaExpr, _ expected: Option<Type>) -> Vo
     // A lambda body carries its own inferred return type (`body_ctx` above), so
     // the missing-return diagnostic never applies here; a fresh box keeps it
     // independent of the enclosing function's.
-    let body_cc = CheckCtx { errors: errors, infer: body_ctx, scope: lambda_scope, muts: {}, no_return_reported: [] };
+    let body_cc = CheckCtx { errors: errors, infer: body_ctx, scope: lambda_scope, muts: {}, no_return_reported: [], in_loop: false };
     check_expr(body_cc, x.body, expected_function_return(expected));
 }
 

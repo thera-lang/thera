@@ -44,19 +44,17 @@ fn match_at(_ p: List<Int>, _ pi: Int, _ s: List<Int>, _ si: Int) -> Bool {
 // wildcard consume `/` (for `**`); otherwise it halts at the first `/` (for `*`).
 fn match_star(_ p: List<Int>, _ after: Int, _ s: List<Int>, _ si: Int, _ cross: Bool) -> Bool {
     let mut k = si;
-    let mut found = false;
-    let mut stop = false;
-    while !stop {
+    while true {
         if match_at(p, after, s, k) {
-            found = true;
-            stop = true;
-        } else if k >= s.len() {
-            stop = true;
-        } else if !cross && s[k] == cp('/') {
-            stop = true;
-        } else {
-            k = k + 1;
+            return true;
         }
+        if k >= s.len() {
+            break;
+        }
+        if !cross && s[k] == cp('/') {
+            break;
+        }
+        k = k + 1;
     }
-    return found;
+    return false;
 }

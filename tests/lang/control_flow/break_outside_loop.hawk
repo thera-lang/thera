@@ -1,0 +1,11 @@
+//! spec: cf-break-continue
+//! mode: check
+
+fn main() -> Int {
+    // `break`/`continue` are statement-only loop control; using one outside a
+    // loop body is a check error. A loop nested in a closure doesn't count —
+    // control can't cross the closure boundary.
+    break;                       // expect error: `break` outside of a loop
+    continue;                    // expect error: `continue` outside of a loop
+    return 0;
+}

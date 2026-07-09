@@ -1,0 +1,38 @@
+//! spec: cf-break-continue
+//! mode: run
+
+fn main() -> Int {
+    // `break` in a range for-loop stops iteration early.
+    let mut sum = 0;
+    for i in 0..10 {
+        if i == 5 {
+            break;
+        }
+        sum = sum + i;
+    }
+    println('${sum}');           // expect: 10
+
+    // `break` in a while loop.
+    let mut n = 0;
+    while true {
+        n = n + 1;
+        if n >= 3 {
+            break;
+        }
+    }
+    println('${n}');             // expect: 3
+
+    // `break` in a list for-loop, and it exits only the innermost loop.
+    let xs = [1, 2, 3, 4];
+    let mut hits = 0;
+    for x in xs {
+        for y in xs {
+            if y == 2 {
+                break;
+            }
+            hits = hits + 1;
+        }
+    }
+    println('${hits}');          // expect: 4
+    return 0;
+}

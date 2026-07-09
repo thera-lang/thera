@@ -615,6 +615,29 @@ for i in 0..10 {
 }
 ```
 
+### `break` and `continue`
+
+Inside a loop, `break` exits the loop immediately and `continue` skips to its
+next iteration. Both are statements (they produce no value) and both act on the
+**innermost enclosing loop** — there are no loop labels.
+
+```hawk
+let mut total = 0;
+for n in values {
+    if n < 0 {
+        continue;          // skip negatives
+    }
+    if n > 1000 {
+        break;             // stop at the first large value
+    }
+    total = total + n;
+}
+```
+
+A `break` or `continue` outside a loop is a compile error, and neither crosses a
+closure boundary — a loop in an enclosing scope does not make one inside a lambda
+legal. To leave an enclosing loop from deeper nesting, restructure or `return`.
+
 ### `if let`
 
 `if let PATTERN = SUBJECT { … }` runs the block — binding the pattern's

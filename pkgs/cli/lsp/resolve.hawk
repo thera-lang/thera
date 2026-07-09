@@ -860,6 +860,8 @@ fn bindings_in_stmt(_ st: Stmt, _ ref: NameRef, _ out: List<BindingSite>) -> Voi
                 if block_covers(x.body, ref.span.offset) { bindings_in_block(x.body, ref, out); }
             }
         },
+        Break(_) => {},
+        Continue(_) => {},
     }
 }
 
@@ -1057,6 +1059,8 @@ fn member_receiver_in_stmt(_ st: Stmt, _ offset: Int) -> Option<SourceSpan> {
             if let Some(s) = member_receiver_in_expr(x.iterable, offset) { return Option.Some(s); }
             member_receiver_in_block(x.body, offset)
         },
+        Break(_) => Option.None,
+        Continue(_) => Option.None,
     };
 }
 
@@ -1427,6 +1431,8 @@ fn structural_in_stmt(_ st: Stmt, _ offset: Int) -> Option<StructuralTarget> {
             if let Some(t) = structural_in_expr(x.iterable, offset) { return Option.Some(t); }
             structural_in_block(x.body, offset)
         },
+        Break(_) => Option.None,
+        Continue(_) => Option.None,
     };
 }
 

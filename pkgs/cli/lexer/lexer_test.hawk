@@ -36,6 +36,12 @@ fn test_every_keyword_lexes_as_its_kind() -> Result<Void, Error> {
         expected: [TokenKind.Identifier, TokenKind.Eof])?;
     testing.assert_eq(actual: kinds('struct'),
         expected: [TokenKind.KwStruct, TokenKind.Eof])?;
+    testing.assert_eq(actual: kinds('break'),
+        expected: [TokenKind.KwBreak, TokenKind.Eof])?;
+    testing.assert_eq(actual: kinds('breaks'),
+        expected: [TokenKind.Identifier, TokenKind.Eof])?;
+    testing.assert_eq(actual: kinds('continue'),
+        expected: [TokenKind.KwContinue, TokenKind.Eof])?;
     return Result.Ok(void);
 }
 

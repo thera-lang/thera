@@ -14,7 +14,9 @@ pub enum TokenKind {
 
     // Keywords
     KwAs,
+    KwBreak,
     KwConst,
+    KwContinue,
     KwElse,
     KwEnum,
     KwFalse,
@@ -99,7 +101,9 @@ pub enum TokenKind {
 pub fn keyword_kind(_ text: String) -> Option<TokenKind> {
     return match text {
         'as' => Option.Some(TokenKind.KwAs),
+        'break' => Option.Some(TokenKind.KwBreak),
         'const' => Option.Some(TokenKind.KwConst),
+        'continue' => Option.Some(TokenKind.KwContinue),
         'else' => Option.Some(TokenKind.KwElse),
         'enum' => Option.Some(TokenKind.KwEnum),
         'false' => Option.Some(TokenKind.KwFalse),

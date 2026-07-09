@@ -1133,6 +1133,12 @@ impl Parser {
         if k == TokenKind.KwWhile {
             return self.parse_while_stmt();
         }
+        if k == TokenKind.KwBreak {
+            return self.parse_break_stmt();
+        }
+        if k == TokenKind.KwContinue {
+            return self.parse_continue_stmt();
+        }
         let start = self.current().span;
         let expr = self.parse_expr();
         return self.finish_expr_stmt(start, expr);
@@ -1147,7 +1153,9 @@ impl Parser {
             || k == TokenKind.KwReturn
             || k == TokenKind.KwThrow
             || k == TokenKind.KwFor
-            || k == TokenKind.KwWhile;
+            || k == TokenKind.KwWhile
+            || k == TokenKind.KwBreak
+            || k == TokenKind.KwContinue;
     }
 
     // Finish an already-parsed leading `expr` (at `start`) as an assignment or an
@@ -1434,6 +1442,18 @@ impl Parser {
                 return Stmt.Expr(expr_span(e), e); // defensive; unreachable
             },
         }
+    }
+
+    fn parse_break_stmt(self) -> Stmt {
+        let start = self.advance(); // 'break'
+        self.expect(TokenKind.Semi, "';'");
+        return Stmt.Break(start.span.cover(self.prev_span()));
+    }
+
+    fn parse_continue_stmt(self) -> Stmt {
+        let start = self.advance(); // 'continue'
+        self.expect(TokenKind.Semi, "';'");
+        return Stmt.Continue(start.span.cover(self.prev_span()));
     }
 
     fn parse_if_stmt(self) -> Stmt {
@@ -2392,6 +2412,8 @@ fn stmt_span(_ s: Stmt) -> SourceSpan {
         If(x) => x.span,
         For(x) => x.span,
         While(x) => x.span,
+        Break(sp) => sp,
+        Continue(sp) => sp,
     };
 }
 
