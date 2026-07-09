@@ -186,8 +186,8 @@ impl Server {
             return true;
         }
         if method == 'textDocument/rename' {
-            send_response(writer, id, self.rename(params.get('textDocument').get('uri').as_string(),
-                params.get('position'), params.get('newName').as_string()));
+            self.emit_rename(writer, id, params.get('textDocument').get('uri').as_string(),
+                params.get('position'), params.get('newName').as_string());
             return true;
         }
         if method == 'textDocument/didClose' {
@@ -304,17 +304,27 @@ impl Server {
         };
     }
 
-    // Rename at a position: a WorkspaceEdit rewriting every occurrence that
-    // resolves to the same declaration across the open documents (semantic), or
-    // null when the cursor names no renamable symbol or the new name is invalid.
-    fn rename(self, _ uri: Option<String>, _ position: Json, _ new_name: Option<String>) -> Json {
-        return match uri {
+    // Rename at a position, emitting the JSON-RPC reply directly: a WorkspaceEdit
+    // result for an edit, a null result for a benign decline (no renamable symbol,
+    // an illegal name, an SDK symbol), or an error response for a pre-flight name
+    // collision (the new name is already bound in an affected scope — see
+    // rename.collision). A collision is an error, not a null result, so the editor
+    // shows the reason instead of silently doing nothing.
+    fn emit_rename(self, _ writer: io.Writer, _ id: Json, _ uri: Option<String>,
+        _ position: Json, _ new_name: Option<String>) -> Void {
+        let outcome = match uri {
             Some(u) => match new_name {
                 Some(n) => self.analysis.rename_at(u, position, n),
-                None => json.null(),
+                None => RenameOutcome.Decline,
             },
-            None => json.null(),
+            None => RenameOutcome.Decline,
         };
+        match outcome {
+            Edit(edit) => send_response(writer, id, edit),
+            Decline => send_response(writer, id, json.null()),
+            // -32803 RequestFailed (LSP): a valid request we chose not to fulfill.
+            Collision(message) => send_error(writer, id, -32803, message),
+        }
     }
 
     // Publish diagnostics for every document dirtied since the last flush

@@ -69,6 +69,18 @@ struct ScanFile {
     let text: String;
 }
 
+// The result of a rename request: an `Edit` to apply (a WorkspaceEdit as JSON), a
+// benign `Decline` (no renamable symbol at the cursor, an illegal new name, or an
+// SDK/no-match case — a null LSP result), or a pre-flight `Collision` (the new
+// name is already bound in an affected scope — an LSP error carrying the message).
+// Keeping the three apart lets the server surface a collision as a visible error
+// rather than a silent no-op — the point of the pre-flight check (rename.collision).
+pub enum RenameOutcome {
+    Edit(Json),
+    Decline,
+    Collision(String),
+}
+
 impl Analysis {
     // Open or update `uri`'s text: the session's overlay is the loader's view
     // of the buffer, and setting it evicts the file's cached parse and
@@ -257,45 +269,60 @@ impl Analysis {
     // or the new name isn't a legal identifier. Rewrites exactly the occurrences
     // that resolve to the same declaration (its own name included), across the
     // project (open documents + on-disk files under the roots, like references).
-    // A pre-rename collision check (the new name already bound in an affected
-    // scope) is a follow-up — the checker flags any clash on the next publish.
-    pub fn rename_at(self, _ uri: String, _ position: Json, _ new_name: String) -> Json {
+    // A pre-flight collision check runs against the target's own file: if the new
+    // name is already bound in its top-level name space, the rename is a
+    // `Collision` (the server surfaces the reason) rather than an edit the checker
+    // would reject on the next publish (see rename.collision).
+    pub fn rename_at(self, _ uri: String, _ position: Json, _ new_name: String) -> RenameOutcome {
         if !rename.is_identifier(new_name) {
-            return null();
+            return RenameOutcome.Decline;
         }
         let target = match self.analyze_at(Option.Some(uri), position) {
             Some(a) => match resolve.resolve_at(a.ctx, a.text, a.offset) {
                 Some(r) => match r.symbol() {
                     Some(s) => s,
-                    None => return null(),
+                    None => return RenameOutcome.Decline,
                 },
-                None => return null(),
+                None => return RenameOutcome.Decline,
             },
-            None => return null(),
+            None => return RenameOutcome.Decline,
         };
         // The SDK is read-only: renaming a symbol declared under `sdk/std` would
         // have to edit trusted, fixpoint-validated library sources (and the
         // committed bootstrap tracks them). Refuse rather than produce a partial
         // edit that rewrites the callers but not the declaration.
         if self.session.is_sdk_file(target.file()) {
-            return null();
+            return RenameOutcome.Decline;
         }
+        let target_key = loader.canonical_path(target.file());
+        let mut collided: Option<String> = Option.None;
         let changes: Map<String, Json> = {};
         for f in self.scan_files() {
             // Never rewrite an SDK file, even when it references the target — its
             // uses stay pinned to the old name (belt-and-suspenders with the
             // decl-owner refusal above).
             if !self.session.is_sdk_file(f.path) {
-                let spans = references.matching_spans(self.ctx_for(f.path, f.text), f.text, f.path, target, true);
+                let ctx = self.ctx_for(f.path, f.text);
+                // The collision is a property of the declaring file's name space,
+                // so check it there (the same file this loop rewrites the decl in).
+                if loader.canonical_path(f.path) == target_key {
+                    if let Some(msg) = rename.collision(ctx, target, new_name) {
+                        collided = Option.Some(msg);
+                    }
+                }
+                let spans = references.matching_spans(ctx, f.text, f.path, target, true);
                 if spans.len() > 0 {
                     changes[f.uri] = rename.edits_for(spans, new_name);
                 }
             }
         }
-        if changes.keys().len() == 0 {
-            return null();
+        if let Some(msg) = collided {
+            return RenameOutcome.Collision(msg);
         }
-        return obj({ 'changes': obj(changes) });
+        if changes.keys().len() == 0 {
+            return RenameOutcome.Decline;
+        }
+        return RenameOutcome.Edit(obj({ 'changes': obj(changes) }));
     }
 
     // The `diagnostics` array (as JSON) for `uri`'s `text`. The open document

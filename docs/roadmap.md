@@ -369,9 +369,6 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     builds every workspace file's closure to resolve it; scope it to the
     target's dependency cone (via the session import graph) so cost scales with
     reachability, not project size.
-  - **Pre-rename collision check.** Rename doesn't yet verify the new name isn't
-    already bound in an affected scope — today the checker flags any clash on
-    the next publish. Add a pre-flight check.
   - **Primitive-receiver member resolution.** Hover / definition / member
     resolution on a primitive receiver (`"s".split()`) don't resolve — a
     `Primitive` value carries no `TypeId`. Ties to _Primitive vtables_
@@ -732,6 +729,17 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **Pre-rename collision check (LSP)** (2026-07). `textDocument/rename` now
+  pre-flights the new name: renaming a top-level symbol onto a name already
+  bound in its file's one name space — a same-file declaration, a prelude /
+  `as _` bare-surface name, or a bound import namespace — is declined with an
+  error response naming the clash, instead of writing an edit the checker would
+  reject on the next publish. `rename.collision` reuses `find_decl_site` for the
+  predicate (the same bare resolution the checker's duplicate/shadow checks
+  agree with); `rename_at` returns a three-way `RenameOutcome`
+  (`Edit`/`Decline`/`Collision`) the server maps to a WorkspaceEdit, a null
+  result, or a `RequestFailed` error. Scoped to file-scope targets — a local
+  shadows legally, so it isn't pre-checked.
 - **Formatter (`hawk fmt`)** (2026-07). A line-preserving formatter
   (`pkgs/cli/fmt.hawk`): re-indents each line (token-only anchor stack),
   normalizes intra-line spacing (a token-driven **gap-edit** pass — rewrites

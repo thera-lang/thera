@@ -106,8 +106,10 @@ fn test_rename_scans_on_disk_workspace_files() -> Result<Void, Error> {
     analysis.set_document(a_uri, a_text, Option.None);
 
     let pos = obj({ 'line': int(0), 'character': int(8) });
-    let edit = analysis.rename_at(a_uri, pos, 'bar');
-    let changes = edit.get('changes');
+    let changes = match analysis.rename_at(a_uri, pos, 'bar') {
+        Edit(e) => e.get('changes'),
+        _ => return Result.Err(error('expected a WorkspaceEdit')),
+    };
     testing.assert(!changes.is_null(), message: 'a WorkspaceEdit is produced')?;
     testing.assert(!changes.get(a_uri).is_null(), message: 'edits a.hawk (the declaration)')?;
     testing.assert(!changes.get(b_uri).is_null(), message: 'edits the closed b.hawk (a caller)')?;
@@ -137,10 +139,36 @@ fn test_rename_of_an_sdk_symbol_is_refused() -> Result<Void, Error> {
 
     // Rename on `thing` in `mylib.thing()` (line 1, inside the name at char 31).
     let pos = obj({ 'line': int(1), 'character': int(31) });
-    let edit = analysis.rename_at(main_uri, pos, 'renamed');
-    testing.assert(edit.is_null(), message: 'renaming an SDK symbol is declined')?;
+    match analysis.rename_at(main_uri, pos, 'renamed') {
+        Decline => {},
+        _ => return Result.Err(error('renaming an SDK symbol should be declined')),
+    }
 
     match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    return Result.Ok(void);
+}
+
+// The pre-flight collision check: renaming a top-level symbol onto a name already
+// bound in the same file's one name space is a `Collision` (the checker would
+// reject the edit on the next publish), while a fresh name is a clean `Edit`.
+@test
+fn test_rename_collision_is_flagged() -> Result<Void, Error> {
+    let analysis = new_analysis(Option.None);
+    let uri = 'file:///c.hawk';
+    let text = 'fn foo() -> Int { return 1; }\nfn bar() -> Int { return 2; }\n';
+    analysis.set_document(uri, text, Option.None);
+
+    // Rename `foo` (line 0, inside its name at char 4) onto the existing `bar`.
+    let pos = obj({ 'line': int(0), 'character': int(4) });
+    match analysis.rename_at(uri, pos, 'bar') {
+        Collision(_) => {},
+        _ => return Result.Err(error('renaming onto an existing top-level name should collide')),
+    }
+    // A fresh name has no clash — a normal edit.
+    match analysis.rename_at(uri, pos, 'baz') {
+        Edit(_) => {},
+        _ => return Result.Err(error('renaming to a fresh name should produce an edit')),
+    }
     return Result.Ok(void);
 }
 

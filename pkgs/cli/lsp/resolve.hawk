@@ -116,6 +116,10 @@ impl SymbolId {
         return self.name_span;
     }
 
+    pub fn kind(self) -> SymbolKind {
+        return self.kind;
+    }
+
     pub fn file(self) -> String {
         return self.file;
     }
@@ -365,6 +369,13 @@ fn owner_key_from(_ ctx: ResolveCtx, _ p: Program, _ name: String) -> Option<Str
         Some(s) => s.get(name),
         None => Option.None,
     };
+}
+
+// Whether the primary file binds an import namespace named `name` (an
+// `import … as name` / trailing-segment binding). Used by the rename pre-flight
+// to treat a bound namespace as an occupant of the file's one name space.
+pub fn file_binds_namespace(_ ctx: ResolveCtx, _ name: String) -> Bool {
+    return namespace_surface(ctx, name).is_some();
 }
 
 // The public surface bound to namespace `ns` in the primary file, or None.

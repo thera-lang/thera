@@ -340,6 +340,25 @@ fn test_references_to_a_field_are_semantic() -> Result<Void, Error> {
 }
 
 @test
+fn test_rename_collision_is_an_error() -> Result<Void, Error> {
+    let server = new_server(Option.None);
+    let opened = io.StringWriter.new();
+    server.handle(opened, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"file:///r.hawk",'
+        + '"text":"fn foo() -> Int { return 1; }\\nfn bar() -> Int { return 2; }"}}}');
+    // Rename the top-level `foo` (line 0, character 4) onto the existing `bar`:
+    // an error response, not a silent null result, so the editor shows the reason.
+    let asked = io.StringWriter.new();
+    server.handle(asked, '{"jsonrpc":"2.0","id":32,"method":"textDocument/rename","params":'
+        + '{"textDocument":{"uri":"file:///r.hawk"},"position":{"line":0,"character":4},"newName":"bar"}}');
+    let out = asked.into_string().unwrap_or('');
+    testing.assert(out.contains('"error"'), message: 'a collision is an error response')?;
+    testing.assert(!out.contains('"result"'), message: 'no WorkspaceEdit result is emitted')?;
+    testing.assert(out.contains('already bound'), message: 'the reason names the collision')?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_rename_to_a_keyword_is_rejected() -> Result<Void, Error> {
     let server = new_server(Option.None);
     let opened = io.StringWriter.new();
