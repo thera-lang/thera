@@ -181,9 +181,13 @@ fn self_referential_ns(_ program: Program, _ library: LibraryElement, _ ns: Stri
         },
         None => Option.None,
     };
+    // Same-std-source as well as exact equality: the bare name and the namespace
+    // member may resolve to the same core source reached by two paths (the
+    // auto-imported prelude from one SDK, the file's own re-export from the repo
+    // tree) — the LSP-editing-the-repo case, as in [flag_shadow]/[reserved_site].
     return match bare_origin {
         Some(b) => match ns_member_origin {
-            Some(m) => b == m,
+            Some(m) => b == m || same_std_source(b, m),
             None => false,
         },
         None => false,
@@ -198,7 +202,13 @@ fn flag_shadow(_ errors: List<diagnostic.Diagnostic>, _ surface: Map<String, Str
         return;
     }
     if let Some(origin) = surface.get(name) {
-        if origin != own {
+        // Exempt the declaring file itself — its own names *are* the surface's
+        // origin. Exact-key equality misses the case where the prelude was
+        // resolved from one SDK (`<install>/std/core/bytes.hawk`) but the file
+        // being checked is the same source in another tree
+        // (`<repo>/sdk/std/core/bytes.hawk`) — the LSP-editing-the-repo case; the
+        // same-std-source check (as in [reserved_site]) covers it.
+        if origin != own && !same_std_source(origin, own) {
             add_error(errors,
                 'top-level `${name}` shadows a name the prelude or an `as _` import already provides; rename it (one name space per scope)',
                 span);
