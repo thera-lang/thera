@@ -376,10 +376,6 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   - **Further renderers — completion, signature help, semantic tokens.** Thin
     query-layer renderers; completion + signatureHelp additionally need the
     parser recovery below.
-  - **Session tokenization dedup (audit LS-D1 tail).** The closure parse still
-    tokenizes the primary separately; collapsing the last redundant tokenization
-    needs the session to expose a parse's tokens so `DocAnalysis` can carry
-    them.
 - **Parser error recovery for the LSP.** The LSP's normal input is
   _syntactically broken_ code mid-edit; the parser should synthesize a
   best-effort tree (recover past the error) so semantic resolution still runs
@@ -729,6 +725,19 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **Session tokenization dedup — cached tokens (LSP, audit LS-D1 tail)**
+  (2026-07). Tokens are now the materialized bottom rung of the analysis ladder:
+  `parse_source` retains its lex on `ParsedFile.tokens` (paired with the AST by
+  construction), the session carries the primary's tokens on `Closure`, and
+  `ResolveCtx` hands them to the resolver. `resolve.primary_tokens` reads that
+  cached tokenization instead of re-lexing — so hover/definition lex the buffer
+  once per request (was twice: parse + resolve), and references/rename lex each
+  scanned file once instead of once per candidate occurrence (the loop and every
+  `resolve_at` inside it now share `ctx.tokens`). A cache hit is consistent with
+  the request's text by construction (both flow from one `parsed_primary`);
+  callers without cached tokens (hermetic tests) pass an empty list and the
+  resolver lexes on demand — correct, just un-cached. Eviction is free: tokens
+  ride the parse cache's existing invalidation cone.
 - **Pre-rename collision check (LSP)** (2026-07). `textDocument/rename` now
   pre-flights the new name: renaming a top-level symbol onto a name already
   bound in its file's one name space — a same-file declaration, a prelude /

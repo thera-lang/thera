@@ -173,6 +173,7 @@ impl Analysis {
         let closure = self.session.load_closure(text, path);
         return resolve.ResolveCtx {
             program: closure.program,
+            tokens: closure.tokens,
             imports: closure.loaded.programs,
             file_namespaces: closure.loaded.file_namespaces,
             file_bare_surface: closure.loaded.file_bare_surface,

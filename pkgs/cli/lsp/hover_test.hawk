@@ -20,6 +20,7 @@ fn rendered(_ src: String, _ offset: Int) -> String {
     let bare: Map<String, Map<String, String>> = {};
     let ctx = ResolveCtx {
         program: program,
+        tokens: lexer.tokenize(src).tokens, // the parse's tokens, paired with `src`
         imports: imports,
         file_namespaces: nss,
         file_bare_surface: bare,
@@ -145,6 +146,7 @@ fn rendered_with_types(_ src: String, _ offset: Int) -> String {
     let bare: Map<String, Map<String, String>> = {};
     let ctx = ResolveCtx {
         program: program,
+        tokens: lexer.tokenize(src).tokens, // the parse's tokens, paired with `src`
         imports: imports,
         file_namespaces: nss,
         file_bare_surface: bare,

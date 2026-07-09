@@ -50,6 +50,14 @@ pub struct DeclSite {
 // per-member origin). The same maps the compiler resolves with.
 pub struct ResolveCtx {
     let program: Program;
+    // The primary's cached tokenization, paired with the `text` every resolver
+    // entry is called with (both are products of one parse of one source — the
+    // same pairing invariant `program` already relies on). Lets the position
+    // queries read the tokens the parse already produced instead of re-lexing per
+    // request. Empty when the caller has no cached tokens (a hermetic test); then
+    // `primary_tokens` lexes `text` on demand, so resolution is never wrong, only
+    // un-cached.
+    let tokens: List<Token>;
     let imports: List<Program>;
     let file_namespaces: Map<String, Map<String, element.LibraryNamespace>>;
     let file_bare_surface: Map<String, Map<String, String>>;
@@ -171,9 +179,11 @@ impl Resolved {
 // The target the name at `offset` resolves to, or None. The single resolution
 // authority behind hover and definition.
 pub fn resolve_at(_ ctx: ResolveCtx, _ text: String, _ offset: Int) -> Option<Resolved> {
-    // Tokenize the document once and share it between name and receiver
-    // resolution — a hover used to tokenize the buffer twice here (LS-D1).
-    let toks = lexer.tokenize(text).tokens;
+    // Share one tokenization between name and receiver resolution — the parse's
+    // cached tokens when the caller carried them (`ctx.tokens`), else a fresh lex
+    // (LS-D1: a hover used to tokenize the buffer twice here, and the parse a
+    // third time).
+    let toks = primary_tokens(ctx, text);
     let ref = match name_at_in(toks, text, offset) {
         Some(r) => r,
         None => return Option.None,
@@ -253,6 +263,20 @@ pub fn resolve_at(_ ctx: ResolveCtx, _ text: String, _ offset: Int) -> Option<Re
         Some(site) => Option.Some(decl_resolved(ref, site)),
         None => Option.None,
     };
+}
+
+// The primary's tokens for `text`: the ctx's cached tokenization when present
+// (retained on `ParsedFile.tokens` from the parse), else a fresh lex. A cached
+// hit is always consistent with `text` — both are products of one parse of one
+// source (`load_closure` builds `ctx.tokens` and the `text` argument from the same
+// `parsed_primary`), so this reuses, never mismatches. Shared by `resolve_at` and
+// the references/rename scan so a document is lexed once per request, not per
+// candidate occurrence.
+pub fn primary_tokens(_ ctx: ResolveCtx, _ text: String) -> List<Token> {
+    if ctx.tokens.len() > 0 {
+        return ctx.tokens;
+    }
+    return lexer.tokenize(text).tokens;
 }
 
 // A member on a plain named receiver: the receiver is an import namespace

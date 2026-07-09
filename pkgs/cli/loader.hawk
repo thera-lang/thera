@@ -180,6 +180,12 @@ fn resolve_library_file(_ base: String) -> Option<String> {
 // program across files is safe — as the loader already does within one closure.
 pub struct ParsedFile {
     let program: Program;
+    // The file's tokens — retained from the same lex that fed the parse, so the
+    // position-based LSP queries (hover / definition / references / rename) read
+    // this cached tokenization instead of re-lexing the buffer per request (the
+    // lowest rung of the analysis ladder). Paired with `program` by construction:
+    // both are products of one `parse_source` over one source string.
+    let tokens: List<token.Token>;
     let diagnostics: List<diagnostic.Diagnostic>;
 }
 
@@ -212,7 +218,7 @@ pub fn parse_source(_ path: String, _ source: String) -> ParsedFile {
     }
     let prog = parsed.program;
     prog.file_path = Option.Some(path);
-    return ParsedFile { program: prog, diagnostics: diagnostics };
+    return ParsedFile { program: prog, tokens: lex.tokens, diagnostics: diagnostics };
 }
 
 // Lex and parse `path`, or None if it can't be read or has lex/parse errors.

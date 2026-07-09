@@ -11,6 +11,7 @@
 
 import 'ast/ast' as _; // Program, Decl
 import 'lexer/lexer';
+import 'lexer/token'; // Token — the primary's cached tokenization rides on Closure
 import 'parser/parser';
 import 'checker/checker';
 import 'codegen/codegen';
@@ -30,9 +31,12 @@ pub struct CompileOutcome {
 }
 
 // A parsed primary program plus its loaded import closure — what position-based
-// LSP queries consume (the resolution surfaces ride on `loaded`).
+// LSP queries consume (the resolution surfaces ride on `loaded`). `tokens` is the
+// primary's cached tokenization (from the same parse as `program`), carried so the
+// resolver reads it instead of re-lexing the buffer per request.
 pub struct Closure {
     let program: Program;
+    let tokens: List<token.Token>;
     let loaded: loader.LoadedImports;
 }
 
@@ -305,11 +309,11 @@ impl Session {
     // caches and overlays — the shared setup for the LSP's position-based
     // queries (hover, definition).
     pub fn load_closure(self, _ text: String, _ p: String) -> Closure {
-        let program = self.parse(text, p);
-        let loaded = loader.load_imports(p, program, self.sdk_root,
+        let pf = self.parsed_primary(loader.canonical_path(p), text);
+        let loaded = loader.load_imports(p, pf.program, self.sdk_root,
             parse_cache: self.parse_cache, overlays: self.overlays, surface_cache: self.surface_cache);
         self.record_graph(loaded);
-        return Closure { program: program, loaded: loaded };
+        return Closure { program: pf.program, tokens: pf.tokens, loaded: loaded };
     }
 
     // Type-check `source` (located at `p`) with its full import closure. The

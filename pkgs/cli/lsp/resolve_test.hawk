@@ -26,6 +26,7 @@ fn typed_ctx(_ program: Program) -> ResolveCtx {
     let bare: Map<String, Map<String, String>> = {};
     return ResolveCtx {
         program: program,
+        tokens: [], // no cached tokens — resolve_at lexes the source on demand
         imports: [],
         file_namespaces: nss,
         file_bare_surface: bare,
@@ -39,6 +40,7 @@ fn ctx_of(_ program: Program, _ imports: List<Program>) -> ResolveCtx {
     let bare: Map<String, Map<String, String>> = {};
     return ResolveCtx {
         program: program,
+        tokens: [], // no cached tokens — resolve_at lexes the source on demand
         imports: imports,
         file_namespaces: nss,
         file_bare_surface: bare,
@@ -487,6 +489,7 @@ fn cross_ctx(_ primary: Program) -> ResolveCtx {
     nss['/app/main.hawk'] = ns_map;
     return ResolveCtx {
         program: primary,
+        tokens: [], // no cached tokens — resolve_at lexes the source on demand
         imports: [a, b],
         file_namespaces: nss,
         file_bare_surface: bare,

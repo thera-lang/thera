@@ -9,7 +9,6 @@
 
 import std.json;
 
-import '../lexer/lexer';
 import '../lexer/token' as _;
 import 'positions';
 import 'resolve';
@@ -23,7 +22,10 @@ import 'paths';
 pub fn matching_spans(_ ctx: resolve.ResolveCtx, _ text: String, _ doc_path: String,
     _ target: resolve.SymbolId, _ include_decl: Bool) -> List<SourceSpan> {
     let spans: List<SourceSpan> = [];
-    for tok in lexer.tokenize(text).tokens {
+    // One tokenization for the whole scan of this document — `resolve_at` below
+    // reads the same `ctx.tokens`, so a rename over N candidates lexes the file
+    // once, not once per candidate (LS-D1).
+    for tok in resolve.primary_tokens(ctx, text) {
         if tok.kind == TokenKind.Identifier && tok.lexeme() == target.name() {
             match resolve.resolve_at(ctx, text, tok.span.offset) {
                 Some(r) => match r.symbol() {

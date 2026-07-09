@@ -482,8 +482,10 @@ fn test_did_change_evicts_the_parse_cache() -> Result<Void, Error> {
     // parses through the cache).
     let server = new_server(Option.None);
     let path = paths.uri_to_path('file:///c.hawk');
-    let prog = parser.parse_tokens(lexer.tokenize('fn g() -> Int { return 1; }').tokens).program;
-    server.analysis.session.parse_cache[path] = loader.ParsedFile { program: prog, diagnostics: [] };
+    let seed_lex = lexer.tokenize('fn g() -> Int { return 1; }');
+    let prog = parser.parse_tokens(seed_lex.tokens).program;
+    server.analysis.session.parse_cache[path] =
+        loader.ParsedFile { program: prog, tokens: seed_lex.tokens, diagnostics: [] };
     testing.assert(server.analysis.session.parse_cache.get(path).is_some(), message: 'seed is cached')?;
 
     server.handle(io.StringWriter.new(),
