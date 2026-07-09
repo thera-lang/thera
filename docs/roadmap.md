@@ -380,6 +380,18 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   - **Further renderers — completion, signature help, semantic tokens.** Thin
     query-layer renderers; completion + signatureHelp additionally need the
     parser recovery below.
+  - **Segregate intentional-error test fixtures.** Workspace diagnostics now
+    surface every file's errors — including the conformance fixtures under
+    `tests/lang/`, which are _deliberately_ broken (an `xfail` spec, an `// expect:`
+    error directive). Today the editor hides them client-side via the extension's
+    `hawk.exclude` glob (a blunt path filter, and the server still analyzes them).
+    Better: split "should analyze clean" fixtures from "carries intentional
+    diagnostics" ones — by directory or a per-file marker the harness already reads
+    — so the workspace scan can skip the latter at the source. Removes the need for
+    an editor-side exclude and stops wasting analysis on files whose errors are the
+    point. (A server-side `exclude`, sent via `initializationOptions`, is the
+    interim: uniform across push/pull and client-agnostic, unlike the current
+    client glob.)
 - **Parser error recovery for the LSP.** The LSP's normal input is
   _syntactically broken_ code mid-edit; the parser should synthesize a
   best-effort tree (recover past the error) so semantic resolution still runs
