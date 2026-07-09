@@ -13,7 +13,7 @@ Full design docs: start at **[docs/toc.md](docs/toc.md)**.
   (the bare runtime).
 - `pkgs/cli/` — **the active front-end**, written in Hawk: lexer → parser →
   resolver → checker → inference → codegen → encoder, plus the
-  `check`/`emit`/`run`/`test`/`lsp` CLI. It self-hosts.
+  `check`/`emit`/`run`/`test`/`fmt`/`lsp` CLI. It self-hosts.
 - `sdk/std/` — Hawk standard library sources (`.hawk`, with `native fn` decls).
   Each library lives in its own named subdir (`sdk/std/path/path.hawk`), with
   Hawk tests beside it as `<name>_test.hawk`.
