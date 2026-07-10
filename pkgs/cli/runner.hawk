@@ -460,8 +460,8 @@ fn temp_dir_unique(_ prefix: String) -> Result<String, Error> {
 
 fn cleanup_dir(_ dir: String) -> Void {
     match fs.remove_dir_all(dir) {
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => void,
+        Err(_) => void,
     }
 }
 

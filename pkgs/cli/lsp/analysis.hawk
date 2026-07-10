@@ -169,8 +169,8 @@ impl Analysis {
     // instead *cleared* the dirty mark; pull inverts it.)
     pub fn close_document(self, _ uri: String) -> Void {
         match self.docs.remove(uri) {
-            Some(_) => {},
-            None => {},
+            Some(_) => void,
+            None => void,
         }
         self.versions.remove(uri);
         self.session.remove_overlay(paths.uri_to_path(uri));
@@ -181,8 +181,8 @@ impl Analysis {
         // conservatively cross-file — always nudge, and forget the signature.
         self.ws_dirty = true;
         match self.surface_sigs.remove(loader.canonical_path(paths.uri_to_path(uri))) {
-            Some(_) => {},
-            None => {},
+            Some(_) => void,
+            None => void,
         }
     }
 
@@ -342,7 +342,7 @@ impl Analysis {
                     Ok(text) => {
                         by_path[key] = ScanFile { uri: paths.path_to_uri(p), path: p, text: text };
                     },
-                    Err(_) => {},  // unreadable file — skip it
+                    Err(_) => void,  // unreadable file — skip it
                 }
             }
         }

@@ -182,6 +182,50 @@ fn flags_map() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
+// --- => {} → => void ---
+
+@test
+fn flags_empty_block_arm() -> Result<Void, Error> {
+    // A three-arm match keeps its empty arm (no `if let` rewrite), so the
+    // style rule fires on the `{}`.
+    let src = 'fn g(_ r: Result<Int, Int>) -> Int {\n'
+        + '    match r { Ok(v) => { return v; }, Err(e) => { return e; }, _ => {} }\n'
+        + '    return 0;\n}\n';
+    let sugs = lint(src);
+    testing.assert_eq(actual: count_rule(sugs, 'void-arm'), expected: 1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn ignores_void_arm_spelling() -> Result<Void, Error> {
+    // The suggested spelling itself doesn't fire.
+    let src = 'fn g(_ r: Result<Int, Int>) -> Int {\n'
+        + '    match r { Ok(v) => { return v; }, Err(e) => { return e; }, _ => void }\n'
+        + '    return 0;\n}\n';
+    let sugs = lint(src);
+    testing.assert_eq(actual: count_rule(sugs, 'void-arm'), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn void_arm_defers_to_if_let() -> Result<Void, Error> {
+    // When the `if let` rewrite claims the match, its empty arm disappears —
+    // suggesting `=> void` there too would be noise.
+    let sugs = lint(wrap('    match o { Some(v) => { return v; }, None => {} }'));
+    testing.assert_eq(actual: count_rule(sugs, 'match-to-if-let'), expected: 1)?;
+    testing.assert_eq(actual: count_rule(sugs, 'void-arm'), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn void_arm_ignores_desugared_if_let() -> Result<Void, Error> {
+    // A statement `if let` with no `else` desugars to a match with a fabricated
+    // empty wildcard arm — never flagged.
+    let sugs = lint(wrap('    if let Some(v) = o { return v; }'));
+    testing.assert_eq(actual: count_rule(sugs, 'void-arm'), expected: 0)?;
+    return Result.Ok(void);
+}
+
 // --- while i < xs.len() ---
 
 @test

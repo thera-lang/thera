@@ -161,7 +161,7 @@ fn check_shadowed_surface(_ errors: List<diagnostic.Diagnostic>, _ program: Prog
                     }
                 }
             },
-            Impl(_) => {},
+            Impl(_) => void,
         }
     }
 }
@@ -374,7 +374,7 @@ fn collect_names(_ p: Program, _ primary: Bool, _ names: Map<String, List<NameSi
                     add_name(names, ns, site(p, primary, x.span, false, 'namespace'));
                 }
             },
-            Impl(_) => {},
+            Impl(_) => void,
         }
     }
 }
@@ -520,7 +520,7 @@ fn check_program(_ errors: List<diagnostic.Diagnostic>, _ program: Program, _ li
                     }
                 }
             },
-            Import(x) => {},
+            Import(x) => void,
         }
     }
 }
@@ -610,9 +610,9 @@ fn check_missing_return_type(_ cc: CheckCtx, _ value: Option<Expr>) -> Void {
     if cc.infer.return_type.is_some() { return; }
     if cc.no_return_reported.len() > 0 { return; }
     match value {
-        None => {},          // bare `return;` → Void
+        None => void,          // bare `return;` → Void
         Some(v) => match v {
-            Unit(_) => {},   // `return void;` → Void
+            Unit(_) => void,   // `return void;` → Void
             _ => {
                 add_error(cc.errors,
                     'this function returns a value but has no return type; add one, e.g. -> Int',
@@ -920,7 +920,7 @@ fn check_block(_ cc: CheckCtx, _ block: Block,
                         add_error(errors, 'an `if` used as a value needs an `else` branch', ix.span);
                     };
                 },
-                Some(_) => {},
+                Some(_) => void,
             }
         }
         check_expr(inner, tail, tail_expected);
@@ -987,7 +987,7 @@ fn check_stmt(_ cc: CheckCtx, _ stmt: Stmt, _ stmts: List<Stmt>, _ index: Int) -
                         add_error(errors, 'cannot assign to field `${field.name}`: it is not declared `mut`', field.span);
                     }
                 },
-                _ => {},
+                _ => void,
             }
             // The assignment target's type is the expected type for the value, so
             // a generic constructor on the RHS (`s = Set.new()`, `m[k] = Set.new()`,
@@ -1183,13 +1183,13 @@ fn check_expr_inner(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> V
                                 // labels, types) against the signature.
                                 Method(res) => check_call_args(errors, res.method, res.bindings, x.args, arg_types, x.span, ctx),
                                 // Resolves, but nothing to arg-check.
-                                Lenient => {},
+                                Lenient => void,
                                 Missing => add_error(errors, 'no method "${field}" on ${type_to_string(recv_type)}', fid.span),
                             };
                         },
                     }
                 },
-                _ => {},
+                _ => void,
             }
         },
         Field(_, object, fid) => {
@@ -1354,11 +1354,11 @@ fn check_expr_inner(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> V
         Throw(_, value) => {
             check_expr(cc, value, Option.None);
         },
-        Int(_, _) => {},
-        Float(_, _) => {},
-        Bool(_, _) => {},
-        Unit(_) => {},
-        Loc(_) => {}, // `#loc` is always valid; codegen resolves it
+        Int(_, _) => void,
+        Float(_, _) => void,
+        Bool(_, _) => void,
+        Unit(_) => void,
+        Loc(_) => void, // `#loc` is always valid; codegen resolves it
     }
 }
 
@@ -1382,7 +1382,7 @@ fn check_lambda(_ cc: CheckCtx, _ x: LambdaExpr, _ expected: Option<Type>) -> Vo
                         'cannot infer the type of lambda parameter \'${p.name}\'; add a type annotation, e.g. (${p.name}: Int) => ...',
                         x.span);
                 },
-                _ => {},
+                _ => void,
             },
         }
         lambda_scope[p.name] = pt;
@@ -1467,8 +1467,8 @@ fn validate_pattern(_ errors: List<diagnostic.Diagnostic>, _ pattern: Pattern, _
                     span);
             }
         },
-        Ident(_, _) => {},
-        Wildcard(_) => {},
+        Ident(_, _) => void,
+        Wildcard(_) => void,
     }
 }
 
@@ -1562,7 +1562,7 @@ fn unify_arm(_ errors: List<diagnostic.Diagnostic>, _ reference: Type, _ arm_typ
     }
     match reference {
         Unknown => { return arm_type; },
-        _ => {},
+        _ => void,
     }
     if !arms_compatible(arm_type, reference, ctx.library) {
         add_error(errors,
@@ -1822,7 +1822,7 @@ fn satisfies_bound(_ t: Type, _ bound: TypeId, _ lib: LibraryElement) -> Bool {
                 None => false,
             };
         },
-        _ => {},
+        _ => void,
     }
     // An interface-typed value satisfies a bound it *is* or transitively extends.
     if let Interface(id, _) = t {

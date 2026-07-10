@@ -436,7 +436,7 @@ impl WalkIter {
             Err(e) => {
                 match self.err {
                     None => { self.err = Option.Some(e); },
-                    Some(_) => {},
+                    Some(_) => void,
                 }
             },
         }
@@ -466,7 +466,7 @@ impl Iterator<String> for WalkIter {
                     Err(e) => {
                         match self.err {
                             None => { self.err = Option.Some(e); },
-                            Some(_) => {},
+                            Some(_) => void,
                         }
                     },
                 }

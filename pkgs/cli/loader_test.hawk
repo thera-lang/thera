@@ -90,7 +90,7 @@ fn test_canonical_path_absolutizes_and_normalizes() -> Result<Void, Error> {
 @test
 fn test_canonical_identity_across_root_spellings() -> Result<Void, Error> {
     let dir = canonical_path(fs.temp_dir() + '/hawk_loader_canonical_test');
-    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} } // stale fixture
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void } // stale fixture
     fs_ok(fs.create_dir_all(dir + '/sub'), 'create fixture dir')?;
     fs_ok(fs.write_text(dir + '/root.hawk',
         'import \'sub/child\';\npub fn ping() -> Int { return 1; }\n'), 'write root')?;
@@ -117,7 +117,7 @@ fn test_canonical_identity_across_root_spellings() -> Result<Void, Error> {
     check_root_closure(by_dot?)?;
     check_root_closure(by_bare?)?;
 
-    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     return Result.Ok(void);
 }
 
@@ -192,7 +192,7 @@ fn fs_ok(_ r: Result<Void, fs.FsError>, _ what: String) -> Result<Void, Error> {
 @test
 fn test_broken_imports_are_diagnosed() -> Result<Void, Error> {
     let dir = canonical_path(fs.temp_dir() + '/hawk_loader_broken_import_test');
-    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} } // stale fixture
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void } // stale fixture
     fs_ok(fs.create_dir_all(dir), 'create fixture dir')?;
     let secret = dir + '/secret.hawk';
     fs_ok(fs.write_text(secret, 'pub fn s() -> Int { return 1; }\n'), 'write secret')?;
@@ -209,7 +209,7 @@ fn test_broken_imports_are_diagnosed() -> Result<Void, Error> {
     };
     let prog = parse_tokens(tokenize(src).tokens).program;
     let loaded = load_imports(dir + '/main.hawk', prog, Option.None);
-    match process.run('chmod', args: ['644', secret]) { Ok(_) => {}, Err(_) => {} }
+    match process.run('chmod', args: ['644', secret]) { Ok(_) => void, Err(_) => void }
 
     testing.assert_eq(actual: loaded.diagnostics.len(), expected: 2)?;
     let resolve_d = loaded.diagnostics[0];
@@ -226,7 +226,7 @@ fn test_broken_imports_are_diagnosed() -> Result<Void, Error> {
             message: 'attributed to the importer: ${file}')?;
     }
 
-    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     return Result.Ok(void);
 }
 
@@ -238,7 +238,7 @@ fn test_broken_imports_are_diagnosed() -> Result<Void, Error> {
 @test
 fn test_surface_collisions_are_diagnosed() -> Result<Void, Error> {
     let dir = canonical_path(fs.temp_dir() + '/hawk_loader_surface_collision_test');
-    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     fs_ok(fs.create_dir_all(dir), 'create fixture dir')?;
     fs_ok(fs.write_text(dir + '/inner_a.hawk', 'pub fn deep() -> Int { return 1; }\n'), 'write inner_a')?;
     fs_ok(fs.write_text(dir + '/inner_b.hawk', 'pub fn deep() -> Int { return 2; }\n'), 'write inner_b')?;
@@ -280,7 +280,7 @@ fn test_surface_collisions_are_diagnosed() -> Result<Void, Error> {
     }
     testing.assert(barrel_seen && bare_seen, message: 'both collision kinds diagnosed')?;
 
-    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     return Result.Ok(void);
 }
 
@@ -289,7 +289,7 @@ fn test_surface_collisions_are_diagnosed() -> Result<Void, Error> {
 @test
 fn test_unresolved_std_import_says_why() -> Result<Void, Error> {
     let dir = canonical_path(fs.temp_dir() + '/hawk_loader_std_import_test');
-    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     fs_ok(fs.create_dir_all(dir), 'create fixture dir')?;
     let main_path = dir + '/main.hawk';
     fs_ok(fs.write_text(main_path, 'import \'std.nonexistent\';\nfn main() -> Void { }\n'),
@@ -314,10 +314,10 @@ fn test_unresolved_std_import_says_why() -> Result<Void, Error> {
             testing.assert(with_sdk.diagnostics[0].message.contains('not in the SDK'),
                 message: 'missing module named: ${with_sdk.diagnostics[0].message}')?;
         },
-        None => {}, // no SDK on this machine — the first half still covered it
+        None => void, // no SDK on this machine — the first half still covered it
     }
 
-    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     return Result.Ok(void);
 }
 
@@ -328,7 +328,7 @@ fn test_unresolved_std_import_says_why() -> Result<Void, Error> {
 @test
 fn test_std_import_resolves_from_the_file_s_own_sdk() -> Result<Void, Error> {
     let dir = canonical_path(fs.temp_dir() + '/hawk_loader_perfile_sdk_test');
-    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     // A minimal SDK tree: a `greet` std lib in its own named subdir, and a file
     // that lives beside it under `std/` and imports it.
     fs_ok(fs.create_dir_all(dir + '/std/greet'), 'create greet lib dir')?;
@@ -349,7 +349,7 @@ fn test_std_import_resolves_from_the_file_s_own_sdk() -> Result<Void, Error> {
             message: 'std.greet should resolve from the file\'s own SDK, but: ${d.message}')?;
     }
 
-    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     return Result.Ok(void);
 }
 
@@ -401,7 +401,7 @@ fn test_pub_import_diamond_is_not_a_collision() -> Result<Void, Error> {
 @test
 fn test_surface_cache_round_trip() -> Result<Void, Error> {
     let dir = canonical_path(fs.temp_dir() + '/hawk_loader_surface_cache_test');
-    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} } // stale fixture
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void } // stale fixture
     fs_ok(fs.create_dir_all(dir), 'create fixture dir')?;
     fs_ok(fs.write_text(dir + '/util.hawk', 'pub fn helper() -> Int { return 1; }\n'), 'write util')?;
     let main_src = 'import \'util\';\nfn main() -> Int { return util.helper(); }\n';
@@ -426,7 +426,7 @@ fn test_surface_cache_round_trip() -> Result<Void, Error> {
         .map((m) => m.has('__marker')).unwrap_or(false);
     testing.assert(served, message: 'second load serves the cached entry')?;
 
-    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     return Result.Ok(void);
 }
 
@@ -435,7 +435,7 @@ fn test_surface_cache_round_trip() -> Result<Void, Error> {
 @test
 fn test_surface_collision_diagnostics_replay_on_hit() -> Result<Void, Error> {
     let dir = canonical_path(fs.temp_dir() + '/hawk_loader_collision_replay_test');
-    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} } // stale fixture
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void } // stale fixture
     fs_ok(fs.create_dir_all(dir), 'create fixture dir')?;
     fs_ok(fs.write_text(dir + '/a.hawk', 'pub fn clash() -> Int { return 1; }\n'), 'write a')?;
     fs_ok(fs.write_text(dir + '/b.hawk', 'pub fn clash() -> Int { return 2; }\n'), 'write b')?;
@@ -452,6 +452,6 @@ fn test_surface_collision_diagnostics_replay_on_hit() -> Result<Void, Error> {
     testing.assert(warm.diagnostics[0].message.contains('clash'),
         message: 'replayed diagnostic names the colliding fn')?;
 
-    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     return Result.Ok(void);
 }

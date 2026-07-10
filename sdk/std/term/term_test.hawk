@@ -59,7 +59,7 @@ fn test_size_is_wellformed() -> Result<Void, Error> {
             testing.assert(sz.cols > 0, message: 'cols should be positive')?;
             testing.assert(sz.rows > 0, message: 'rows should be positive')?;
         },
-        None => {},
+        None => void,
     }
     return Result.Ok(void);
 }

@@ -630,7 +630,7 @@ fn first_body_stmt(_ src: String) -> Option<Stmt> {
 @test
 fn test_compound_assign_keeps_shape() -> Result<Void, Error> {
     match first_body_stmt('fn f() { let mut x = 1; }') {
-        Some(_) => {},
+        Some(_) => void,
         None => { return Result.Err(error('no body stmt')); },
     }
     let r = parse_src('fn f(_ m: Int) { m += 2; }');

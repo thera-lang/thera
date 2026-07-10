@@ -61,7 +61,7 @@ pub fn build_symbols(_ program: Program) -> Json {
                 symbols.push(make_symbol(impl_label(d), decl_kind(decl), false, d.span, d.name_span,
                     Option.Some(method_symbols(d.methods))));
             },
-            Import(_) => {},
+            Import(_) => void,
         }
     }
     return json.arr(symbols);

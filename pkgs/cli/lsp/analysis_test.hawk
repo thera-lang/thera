@@ -16,7 +16,7 @@ import '../loader';
 @test
 fn test_imported_open_buffer_overlays_disk() -> Result<Void, Error> {
     let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_overlay_test');
-    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} } // stale fixture
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void } // stale fixture
     if let Err(e) = fs.create_dir_all(dir) {
         return Result.Err(error('create fixture dir: ${e.message()}'));
     }
@@ -49,7 +49,7 @@ fn test_imported_open_buffer_overlays_disk() -> Result<Void, Error> {
     let reverted = analysis.diagnostics(a_uri, a_text);
     testing.assert_eq(actual: reverted.as_array().map((xs) => xs.len()).unwrap_or(-1), expected: 0)?;
 
-    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     return Result.Ok(void);
 }
 
@@ -60,7 +60,7 @@ fn test_imported_open_buffer_overlays_disk() -> Result<Void, Error> {
 @test
 fn test_references_scan_on_disk_workspace_files() -> Result<Void, Error> {
     let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_xref_test');
-    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     fs.create_dir_all(dir)?;
     let a_text = 'pub fn foo() -> Int { return 1; }\n';
     fs.write_text(dir + '/a.hawk', a_text)?;
@@ -84,7 +84,7 @@ fn test_references_scan_on_disk_workspace_files() -> Result<Void, Error> {
     testing.assert(uris.has(a_uri), message: 'declaration in a.hawk')?;
     testing.assert(uris.has(b_uri), message: 'use in the closed b.hawk')?;
 
-    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     return Result.Ok(void);
 }
 
@@ -93,7 +93,7 @@ fn test_references_scan_on_disk_workspace_files() -> Result<Void, Error> {
 @test
 fn test_rename_scans_on_disk_workspace_files() -> Result<Void, Error> {
     let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_rename_scan_test');
-    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     fs.create_dir_all(dir)?;
     let a_text = 'pub fn foo() -> Int { return 1; }\n';
     fs.write_text(dir + '/a.hawk', a_text)?;
@@ -114,7 +114,7 @@ fn test_rename_scans_on_disk_workspace_files() -> Result<Void, Error> {
     testing.assert(!changes.get(a_uri).is_null(), message: 'edits a.hawk (the declaration)')?;
     testing.assert(!changes.get(b_uri).is_null(), message: 'edits the closed b.hawk (a caller)')?;
 
-    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     return Result.Ok(void);
 }
 
@@ -125,7 +125,7 @@ fn test_rename_scans_on_disk_workspace_files() -> Result<Void, Error> {
 @test
 fn test_references_cover_the_dependency_cone() -> Result<Void, Error> {
     let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_cone_test');
-    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     fs.create_dir_all(dir)?;
     let a_text = 'pub fn foo() -> Int { return 1; }\n';
     fs.write_text(dir + '/a.hawk', a_text)?;
@@ -155,7 +155,7 @@ fn test_references_cover_the_dependency_cone() -> Result<Void, Error> {
     testing.assert(uris.has(b_uri), message: 'includes the closed importer b.hawk (cone is complete)')?;
     testing.assert(!uris.has(d_uri), message: 'excludes d.hawk (a same-named symbol outside the cone)')?;
 
-    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     return Result.Ok(void);
 }
 
@@ -165,7 +165,7 @@ fn test_references_cover_the_dependency_cone() -> Result<Void, Error> {
 @test
 fn test_rename_of_an_sdk_symbol_is_refused() -> Result<Void, Error> {
     let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_sdk_rename_test');
-    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     fs.create_dir_all(dir + '/sdk/std/core')?;
     fs.create_dir_all(dir + '/sdk/std/mylib')?;
     fs.write_text(dir + '/sdk/std/core/core.hawk', '// empty prelude\n')?;
@@ -181,11 +181,11 @@ fn test_rename_of_an_sdk_symbol_is_refused() -> Result<Void, Error> {
     // Rename on `thing` in `mylib.thing()` (line 1, inside the name at char 31).
     let pos = obj({ 'line': int(1), 'character': int(31) });
     match analysis.rename_at(main_uri, pos, 'renamed') {
-        Decline => {},
+        Decline => void,
         _ => return Result.Err(error('renaming an SDK symbol should be declined')),
     }
 
-    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     return Result.Ok(void);
 }
 
@@ -202,12 +202,12 @@ fn test_rename_collision_is_flagged() -> Result<Void, Error> {
     // Rename `foo` (line 0, inside its name at char 4) onto the existing `bar`.
     let pos = obj({ 'line': int(0), 'character': int(4) });
     match analysis.rename_at(uri, pos, 'bar') {
-        Collision(_) => {},
+        Collision(_) => void,
         _ => return Result.Err(error('renaming onto an existing top-level name should collide')),
     }
     // A fresh name has no clash — a normal edit.
     match analysis.rename_at(uri, pos, 'baz') {
-        Edit(_) => {},
+        Edit(_) => void,
         _ => return Result.Err(error('renaming to a fresh name should produce an edit')),
     }
     return Result.Ok(void);
@@ -218,7 +218,7 @@ fn test_rename_collision_is_flagged() -> Result<Void, Error> {
 @test
 fn test_dependency_edit_marks_importer_dirty() -> Result<Void, Error> {
     let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_dirty_cone_test');
-    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} } // stale fixture
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void } // stale fixture
     if let Err(e) = fs.create_dir_all(dir) {
         return Result.Err(error('create fixture dir: ${e.message()}'));
     }
@@ -246,6 +246,6 @@ fn test_dependency_edit_marks_importer_dirty() -> Result<Void, Error> {
     testing.assert(dirty.contains(b_uri), message: 'edited doc is dirty')?;
     testing.assert(dirty.contains(a_uri), message: 'open importer is dirty')?;
 
-    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     return Result.Ok(void);
 }

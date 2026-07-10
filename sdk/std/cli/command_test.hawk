@@ -316,7 +316,7 @@ fn column_of(_ text: String, _ needle: String) -> Result<Int, Error> {
     for line in text.lines() {
         match line.find(needle) {
             Some(col) => return Result.Ok(col),
-            None => {},
+            None => void,
         }
     }
     return Result.Err(error('needle not found: ${needle}'));

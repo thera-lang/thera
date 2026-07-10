@@ -121,8 +121,8 @@ impl Session {
     // Drop `p`'s overlay (closed buffer): analyses revert to disk content.
     pub fn remove_overlay(self, _ p: String) -> Void {
         match self.overlays.remove(loader.canonical_path(p)) {
-            Some(_) => {},
-            None => {},
+            Some(_) => void,
+            None => void,
         }
         self.invalidate(p);
     }
@@ -136,25 +136,25 @@ impl Session {
     pub fn invalidate(self, _ p: String) -> Void {
         let key = loader.canonical_path(p);
         match self.parse_cache.remove(key) {
-            Some(_) => {},
-            None => {},
+            Some(_) => void,
+            None => void,
         }
         // The edit may have changed `p`'s own imports, so its forward edges are
         // stale — drop them so `index_edges` (or the next closure load) re-probes.
         // Only `p`'s own edges can change; importers' edges still point at `p`.
         match self.import_graph.remove(key) {
-            Some(_) => {},
-            None => {},
+            Some(_) => void,
+            None => void,
         }
         for k in self.dependents_of(key) {
             self.checked.remove(k);
             match self.surface_cache.remove(k) {
-                Some(_) => {},
-                None => {},
+                Some(_) => void,
+                None => void,
             }
             match self.type_records.remove(k) {
-                Some(_) => {},
-                None => {},
+                Some(_) => void,
+                None => void,
             }
             self.evict_libraries_with(k);
         }
@@ -167,8 +167,8 @@ impl Session {
         let keys = self.library_cache.keys();
         if keys.len() > 0 {
             match self.library_cache.remove(keys[0]) {
-                Some(_) => {},
-                None => {},
+                Some(_) => void,
+                None => void,
             }
         }
     }
@@ -183,8 +183,8 @@ impl Session {
         }
         for sig in stale {
             match self.library_cache.remove(sig) {
-                Some(_) => {},
-                None => {},
+                Some(_) => void,
+                None => void,
             }
         }
     }

@@ -64,7 +64,7 @@ impl Outbox {
             Some(c) => c.send(message),
             None => match self.writer {
                 Some(w) => jsonrpc.send_message(w, message),
-                None => {},
+                None => void,
             },
         }
     }
@@ -74,7 +74,7 @@ impl Outbox {
     pub fn shutdown(self) -> Void {
         match self.ch {
             Some(c) => c.close(),
-            None => {},
+            None => void,
         }
         if let Some(f) = self.pump {
             f.join();

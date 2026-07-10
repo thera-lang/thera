@@ -34,9 +34,9 @@ pub fn matching_spans(_ ctx: resolve.ResolveCtx, _ text: String, _ doc_path: Str
                             spans.push(tok.span);
                         }
                     },
-                    None => {},
+                    None => void,
                 },
-                None => {},
+                None => void,
             }
         }
     }

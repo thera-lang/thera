@@ -299,9 +299,9 @@ fn fs_decl(_ d: Decl, _ out: List<FixSite>) -> Void {
         },
         Const(c) => { fs_expr(c.value, out); },
         Let(l) => { fs_expr(l.value, out); },
-        Import(_) => {},
-        Type(_) => {},
-        Enum(_) => {},
+        Import(_) => void,
+        Type(_) => void,
+        Enum(_) => void,
     }
 }
 
@@ -353,8 +353,8 @@ fn fs_stmt(_ s: Stmt, _ out: List<FixSite>) -> Void {
             fs_expr(w.condition, out);
             fs_block(w.body, out);
         },
-        Break(_) => {},
-        Continue(_) => {},
+        Break(_) => void,
+        Continue(_) => void,
     }
 }
 
@@ -457,12 +457,12 @@ fn fs_expr(_ e: Expr, _ out: List<FixSite>) -> Void {
         },
         Return(_, v) => { fs_opt_expr(v, out); },
         Throw(_, inner) => { fs_expr(inner, out); },
-        Int(_, _) => {},
-        Float(_, _) => {},
-        Bool(_, _) => {},
-        Unit(_) => {},
-        Ident(_, _) => {},
-        Loc(_) => {},
+        Int(_, _) => void,
+        Float(_, _) => void,
+        Bool(_, _) => void,
+        Unit(_) => void,
+        Ident(_, _) => void,
+        Loc(_) => void,
     }
 }
 

@@ -465,7 +465,7 @@ impl Command {
                 }
                 return Action.Proceed(m);
             },
-            None => {},
+            None => void,
         }
         // No subcommand: top-level `--help` is a success; a bare invocation of a
         // command that *expects* a subcommand is a usage error; a flat command

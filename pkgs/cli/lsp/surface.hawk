@@ -58,7 +58,7 @@ fn body_ranges(_ program: Program) -> List<BodyRange> {
                     push_body(m, out);
                 }
             },
-            _ => {},
+            _ => void,
         }
     }
     return out;

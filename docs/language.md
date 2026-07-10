@@ -716,9 +716,14 @@ the shape — there is **one obvious choice per situation**:
 | genuinely choosing among ≥2 variants      | `match`                                                       |
 
 Use `match` when you are truly branching on multiple variants. If you find
-yourself writing a `_ => {}` or `None => {}` catch-all only to satisfy
+yourself writing a `_ => void` or `None => void` catch-all only to satisfy
 exhaustiveness, one of the other forms is the better fit — that catch-all is the
 tell.
+
+When a genuine multi-variant `match` does have an arm with nothing to do, write
+it **`=> void`** — the explicit unit value — not `=> {}`: the empty block says
+"nothing here" ambiguously (accident? placeholder?), while `void` states the
+intent. `hawk lint`'s `void-arm` rule flags the `=> {}` spelling.
 
 ---
 

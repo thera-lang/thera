@@ -2460,8 +2460,8 @@ fn collect_binding_idents(_ p: Pattern, _ out: List<Pattern>) -> Void {
                 collect_binding_idents(a, out);
             }
         },
-        Wildcard(_) => {},
-        Literal(_, _) => {},
+        Wildcard(_) => void,
+        Literal(_, _) => void,
     }
 }
 

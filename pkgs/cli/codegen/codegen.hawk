@@ -231,7 +231,7 @@ fn register_module(_ scope: ModuleScope, _ program: Program) -> Void {
                     }
                 }
             },
-            Import(x) => {},
+            Import(x) => void,
         }
     }
 }
@@ -1324,7 +1324,7 @@ impl FnCompiler {
     fn emit_pattern(self, _ pattern: Pattern, _ value_slot: Int, _ value_ty: Type,
         _ fail: Option<Int>, _ tag_slot: Option<Int>) -> Void {
         match pattern {
-            Wildcard(_) => {}, // matches anything, binds nothing
+            Wildcard(_) => void, // matches anything, binds nothing
             Ident(_, name) => { self.slots[name] = value_slot; }, // bind the whole value
             Literal(_, literal) => {
                 if let Some(f) = fail {
@@ -1352,7 +1352,7 @@ impl FnCompiler {
                 for p in args.enumerate() {
                     let arg = p.value;
                     match arg {
-                        Wildcard(_) => {}, // field ignored; skip extraction
+                        Wildcard(_) => void, // field ignored; skip extraction
                         _ => {
                             let field_slot = self.fresh_slot();
                             self.emit(Instr.Load(value_slot));
@@ -1723,7 +1723,7 @@ impl FnCompiler {
                     }
                 }
             },
-            _ => {},
+            _ => void,
         }
         return Option.None;
     }
@@ -2169,7 +2169,7 @@ impl FnCompiler {
                     }
                 }
             },
-            _ => {},
+            _ => void,
         }
         return Option.None;
     }
@@ -2233,8 +2233,8 @@ fn top_level_tag_tests(_ e: MatchExpr) -> Int {
 fn all_irrefutable_args(_ args: List<Pattern>) -> Bool {
     for a in args {
         match a {
-            Wildcard(_) => {},
-            Ident(_, _) => {},
+            Wildcard(_) => void,
+            Ident(_, _) => void,
             _ => { return false; },
         }
     }
@@ -2547,8 +2547,8 @@ fn pattern_bindings(_ p: Pattern, _ into: Set<String>) -> Void {
                 pattern_bindings(a, into);
             }
         },
-        Wildcard(_) => {},
-        Literal(_, _) => {},
+        Wildcard(_) => void,
+        Literal(_, _) => void,
     }
 }
 
@@ -2563,11 +2563,11 @@ fn walk_block(_ b: Block, _ bound: Set<String>, _ v: TreeVisitor) -> Void {
 fn walk_expr(_ e: Expr, _ bound: Set<String>, _ v: TreeVisitor) -> Void {
     match e {
         Ident(_, name) => { if !bound.has(name) { v.free_ref(name); } },
-        Int(_, _) => {},
-        Float(_, _) => {},
-        Bool(_, _) => {},
-        Unit(_) => {},
-        Loc(_) => {}, // a leaf metaconstant
+        Int(_, _) => void,
+        Float(_, _) => void,
+        Bool(_, _) => void,
+        Unit(_) => void,
+        Loc(_) => void, // a leaf metaconstant
         Str(_, parts) => {
             for p in parts {
                 if let Interp(_, ie) = p { walk_expr(ie, bound, v); }
@@ -2672,8 +2672,8 @@ fn walk_stmt(_ s: Stmt, _ bound: Set<String>, _ v: TreeVisitor) -> Void {
             pattern_bindings(x.pattern, loop_bound);
             walk_block(x.body, loop_bound, v);
         },
-        Break(_) => {},
-        Continue(_) => {},
+        Break(_) => void,
+        Continue(_) => void,
     }
 }
 

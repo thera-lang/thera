@@ -146,7 +146,7 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
 fn sdk_root_or_warn() -> Option<String> {
     let root = loader.find_sdk_root();
     match root {
-        Some(_) => {},
+        Some(_) => void,
         None => {
             eprintln('hawk: warning: no Hawk SDK found - std.* imports will not resolve');
         },

@@ -83,7 +83,7 @@ fn test_initialize_advertises_capabilities() -> Result<Void, Error> {
 @test
 fn test_workspace_diagnostic_covers_unopened_files() -> Result<Void, Error> {
     let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_ws_diag_test');
-    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     fs.create_dir_all(dir)?;
     fs.write_text(dir + '/good.hawk', 'fn ok() -> Int { return 1; }\n')?;
     // An undefined name — a pure scope error the checker flags without a prelude.
@@ -104,7 +104,7 @@ fn test_workspace_diagnostic_covers_unopened_files() -> Result<Void, Error> {
     // The error text surfaces (bad.hawk's report carries a diagnostic item).
     testing.assert(body.contains('"message"'), message: 'bad.hawk carries a diagnostic')?;
 
-    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     return Result.Ok(void);
 }
 
@@ -113,7 +113,7 @@ fn test_workspace_diagnostic_covers_unopened_files() -> Result<Void, Error> {
 @test
 fn test_server_side_exclude_hides_diagnostics() -> Result<Void, Error> {
     let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_exclude_test');
-    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     fs.create_dir_all(dir + '/tests/lang')?;
     fs.write_text(dir + '/good.hawk', 'fn ok() -> Int { return 1; }\n')?;
     // Deliberately broken, under the excluded dir — a conformance fixture stand-in.
@@ -129,7 +129,7 @@ fn test_server_side_exclude_hides_diagnostics() -> Result<Void, Error> {
     testing.assert(!out.contains('bad.hawk'), message: 'the excluded file is omitted')?;
     testing.assert(!out.contains('undefined name: missing'), message: 'its diagnostic is hidden')?;
 
-    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     return Result.Ok(void);
 }
 
@@ -138,7 +138,7 @@ fn test_server_side_exclude_hides_diagnostics() -> Result<Void, Error> {
 @test
 fn test_did_change_configuration_updates_exclude() -> Result<Void, Error> {
     let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_exclude_live_test');
-    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     fs.create_dir_all(dir + '/tests/lang')?;
     fs.write_text(dir + '/tests/lang/bad.hawk', 'fn oops() -> Int { return missing; }\n')?;
 
@@ -157,7 +157,7 @@ fn test_did_change_configuration_updates_exclude() -> Result<Void, Error> {
         + '{"previousResultIds":[]}}');
     testing.assert(!after.contains('bad.hawk'), message: 'dropped after the exclude is set')?;
 
-    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     return Result.Ok(void);
 }
 
@@ -810,7 +810,7 @@ fn test_close_drops_a_loose_file_from_the_workspace_pull() -> Result<Void, Error
 @test
 fn test_serve_backgrounds_the_workspace_scan() -> Result<Void, Error> {
     let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_serve_ws_test');
-    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     fs.create_dir_all(dir)?;
     fs.write_text(dir + '/bad.hawk', 'fn oops() -> Int { return missing; }\n')?;
 
@@ -824,7 +824,7 @@ fn test_serve_backgrounds_the_workspace_scan() -> Result<Void, Error> {
     testing.assert(out.contains('undefined name: missing'), message: 'its diagnostic reaches the wire')?;
     testing.assert(out.contains('"id":2') || out.contains('"id": 2'), message: 'replies to the pull id')?;
 
-    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     return Result.Ok(void);
 }
 

@@ -261,7 +261,7 @@ pub fn infer_program_globals(_ library: LibraryElement, _ program: Program) -> V
         match decl {
             Const(x) => fill_global(library, program, x.name, x.type_ann, x.value, scope, ctx),
             Let(x) => fill_global(library, program, x.name, x.type_ann, x.value, scope, ctx),
-            _ => {},
+            _ => void,
         }
     }
 }
@@ -325,7 +325,7 @@ fn infer_match(_ x: MatchExpr, _ scope: Map<String, Type>, _ ctx: InferCtx,
         let arm_type = infer_expr(arm.body, arm_scope, ctx, expected);
         match result {
             Unknown => { result = arm_type; },
-            _ => {},
+            _ => void,
         }
     }
     return result;
@@ -724,7 +724,7 @@ fn infer_call(_ x: CallExpr, _ scope: Map<String, Type>, _ ctx: InferCtx,
     match callee {
         Ident(_, name) => { return infer_call_ident(name, arg_types, x.type_args, expected, scope, ctx); },
         Field(_, obj, field) => { return infer_call_field(obj, field.name, arg_types, x.type_args, x.recv_type_args, expected, scope, ctx); },
-        _ => {},
+        _ => void,
     }
 
     // Any other callee expression of function type (e.g. an indexed/returned
@@ -983,7 +983,7 @@ fn callee_params(_ callee: Expr, _ args: List<CallArg>,
                     StaticMethod(_, method) => { params = Option.Some(method.parameters); },
                     NamespaceFn(fn_el) => { params = Option.Some(fn_el.parameters); },
                 },
-                None => {},
+                None => void,
             }
             // User method on the receiver's type, instantiated with its type args.
             match params {
@@ -1014,13 +1014,13 @@ fn callee_params(_ callee: Expr, _ args: List<CallArg>,
                         None => {
                             if let Function(ps, _) = field_type(recv, field, ctx) { return Option.Some(plain_params(ps)); }
                         },
-                        Some(_) => {},
+                        Some(_) => void,
                     }
                 },
-                Some(_) => {},
+                Some(_) => void,
             }
         },
-        _ => {},
+        _ => void,
     }
     return params.map((ps) => non_self_params(ps));
 }
@@ -1082,8 +1082,8 @@ pub fn bind_match_pattern(_ pattern: Pattern, _ subject: Type,
                 bind_match_pattern(p.value, t, scope, ctx);
             }
         },
-        Wildcard(_) => {},
-        Literal(_, _) => {},
+        Wildcard(_) => void,
+        Literal(_, _) => void,
     }
 }
 
@@ -1311,7 +1311,7 @@ fn type_def_for_expr(_ object: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx
                 };
             }
         },
-        _ => {},
+        _ => void,
     }
     return Option.None;
 }

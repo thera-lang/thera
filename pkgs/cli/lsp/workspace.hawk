@@ -46,7 +46,7 @@ fn walk_dir(_ dir: String, _ seen: Set<String>, _ out: List<String>) -> Void {
                     }
                 },
             },
-            Err(_) => {},  // vanished/inaccessible entry — skip it
+            Err(_) => void,  // vanished/inaccessible entry — skip it
         }
     }
 }

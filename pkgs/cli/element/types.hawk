@@ -151,7 +151,7 @@ pub fn is_assignable(_ source: Type, _ target: Type, _ lib: LibraryElement) -> B
         TypeParameter(_) => {
             return true;
         },
-        _ => {},
+        _ => void,
     }
     match target {
         Unknown => {
@@ -160,7 +160,7 @@ pub fn is_assignable(_ source: Type, _ target: Type, _ lib: LibraryElement) -> B
         TypeParameter(_) => {
             return true;
         },
-        _ => {},
+        _ => void,
     }
     if source == target {
         return true;
@@ -300,7 +300,7 @@ pub fn unify(_ param: Type, _ actual: Type, _ bindings: Map<String, Type>) -> Vo
                 }
             }
         },
-        Primitive(_) => {},
-        Unknown => {},
+        Primitive(_) => void,
+        Unknown => void,
     }
 }

@@ -199,7 +199,7 @@ pub fn resolve_at(_ ctx: ResolveCtx, _ text: String, _ offset: Int) -> Option<Re
     // A member access `RECEIVER.name`, by receiver kind (LS3: a computed
     // receiver needs inference — resolve to nothing rather than guessing).
     match receiver_at_in(toks, text, offset) {
-        NotMember => {},
+        NotMember => void,
         SelfRecv => {
             return match enc.self_type {
                 Some(st) => member_resolved(ctx, ref, st.name),
@@ -634,7 +634,7 @@ fn enclosing_ctx(_ program: Program, _ offset: Int) -> Enclosing {
                     return Enclosing { self_type: Option.Some(st), fn_decl: method_at(it.methods, offset) };
                 }
             },
-            _ => {},
+            _ => void,
         }
     }
     return Enclosing { self_type: Option.None, fn_decl: Option.None };
@@ -860,8 +860,8 @@ fn bindings_in_stmt(_ st: Stmt, _ ref: NameRef, _ out: List<BindingSite>) -> Voi
                 if block_covers(x.body, ref.span.offset) { bindings_in_block(x.body, ref, out); }
             }
         },
-        Break(_) => {},
-        Continue(_) => {},
+        Break(_) => void,
+        Continue(_) => void,
     }
 }
 
@@ -945,7 +945,7 @@ fn bindings_in_expr(_ e: Expr, _ ref: NameRef, _ out: List<BindingSite>) -> Void
             if let Some(v) = value { bindings_in_expr(v, ref, out); }
         },
         Throw(_, value) => { bindings_in_expr(value, ref, out); },
-        _ => {},
+        _ => void,
     }
 }
 
@@ -961,8 +961,8 @@ fn bindings_in_pattern(_ pat: Pattern, _ ref: NameRef, _ out: List<BindingSite>)
                 bindings_in_pattern(a, ref, out);
             }
         },
-        Wildcard(_) => {},
-        Literal(_, _) => {},
+        Wildcard(_) => void,
+        Literal(_, _) => void,
     }
 }
 
@@ -1593,7 +1593,7 @@ fn enclosing_type_param(_ program: Program, _ name: String, _ offset: Int) -> Op
                     if let Some(tp) = type_param_of(it.type_params, name) { return Option.Some(tp); }
                 }
             },
-            _ => {},
+            _ => void,
         }
     }
     return Option.None;

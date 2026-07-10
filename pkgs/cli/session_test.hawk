@@ -16,8 +16,8 @@ import 'session' as _;
 fn fixture_dir(_ tag: String, _ files: Map<String, String>) -> Result<String, Error> {
     let dir = loader.canonical_path(fs.temp_dir() + '/hawk_session_${tag}_test');
     match fs.remove_dir_all(dir) {
-        Ok(_) => {},
-        Err(_) => {}, // stale fixture only
+        Ok(_) => void,
+        Err(_) => void, // stale fixture only
     }
     fs.create_dir_all(dir)?;
     for name in files.keys() {
@@ -28,8 +28,8 @@ fn fixture_dir(_ tag: String, _ files: Map<String, String>) -> Result<String, Er
 
 fn cleanup(_ dir: String) -> Void {
     match fs.remove_dir_all(dir) {
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => void,
+        Err(_) => void,
     }
 }
 

@@ -564,7 +564,7 @@ fn string_array(_ j: Json) -> List<String> {
                 }
             }
         },
-        None => {},
+        None => void,
     }
     return out;
 }
@@ -585,7 +585,7 @@ fn previous_result_ids(_ params: Json) -> Map<String, String> {
                 }
             }
         },
-        None => {},
+        None => void,
     }
     return out;
 }

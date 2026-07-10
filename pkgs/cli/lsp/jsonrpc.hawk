@@ -148,8 +148,8 @@ pub fn frame(_ body: String) -> String {
 
 fn write_all(_ writer: io.Writer, _ data: Bytes) -> Void {
     match writer.write(data) {
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => void,
+        Err(_) => void,
     }
 }
 

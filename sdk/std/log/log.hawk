@@ -165,8 +165,8 @@ struct NamedLogger {
 // a `Result`, so a broken pipe is a dropped record here, not a trap.)
 fn write_line(_ sink: io.Writer, _ line: String) -> Void {
     match sink.write('${line}\n'.bytes()) {
-        Ok(_) => {},
-        Err(_) => {},
+        Ok(_) => void,
+        Err(_) => void,
     };
 }
 
@@ -310,7 +310,7 @@ pub fn set_format(_ f: Format) -> Void {
 pub fn configure_from_env(_ var: String = 'HAWK_LOG') -> Void {
     match env.get(var) {
         Some(spec) => apply_spec(spec),
-        None => {},
+        None => void,
     };
 }
 
@@ -328,12 +328,12 @@ fn apply_directive(_ directive: String) -> Void {
     if fields.len() == 2 {
         match parse_level(fields[1].trim()) {
             Some(level) => set_level_for(fields[0].trim(), level),
-            None => {},
+            None => void,
         };
     } else {
         match parse_level(directive) {
             Some(level) => set_level(level),
-            None => {},
+            None => void,
         };
     }
 }

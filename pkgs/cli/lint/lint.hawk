@@ -11,6 +11,8 @@
 // a floor. The rules partition: a given `match` matches at most one of them (an
 // empty arm → `if let`; an error-propagating arm → `?`; a diverging arm in a
 // `let` initializer → `let … else`; a value-returning fallback → `unwrap_or`).
+// The one per-arm style rule — `=> {}` → `=> void` — defers to `if let` (whose
+// rewrite removes the empty arm entirely).
 
 import '../lexer/token' as _; // SourceSpan
 import '../ast/ast' as _;
@@ -196,6 +198,36 @@ fn detect_match_to_map(_ m: MatchExpr) -> Option<Suggestion> {
         });
     }
     return Option.None;
+}
+
+// `pat => {}` → `pat => void`. A no-result arm written as an empty block reads
+// as an accident (and, once map literals move to brackets, stays one keystroke
+// from an empty map — see the map-literal roadmap item); the idiomatic spelling
+// is the explicit unit value. Fires once per empty-block arm, on source matches
+// only (a desugared `if let` fabricates empty else-blocks), and the caller
+// skips matches the `if let` rule already claims — its rewrite removes the arm.
+fn detect_void_arms(_ m: MatchExpr, _ out: List<Suggestion>) -> Void {
+    if !is_source_match(m) {
+        return;
+    }
+    for arm in m.arms {
+        if is_empty_block_body(arm.body) {
+            out.push(Suggestion {
+                rule: 'void-arm',
+                span: expr_span(arm.body),
+                message: 'a no-result arm is written `=> void`, not `=> {}`',
+            });
+        }
+    }
+}
+
+// An arm body that is literally an empty *source* block `{}` — not `void` (the
+// suggested spelling), and not a desugar's fabricated empty block.
+fn is_empty_block_body(_ e: Expr) -> Bool {
+    return match e {
+        Block(_, b) => !b.synthetic && block_is_empty(b),
+        _ => false,
+    };
 }
 
 // `while i < xs.len() { … }` → a `for` loop. Flags the manual-index condition
@@ -749,9 +781,9 @@ fn walk_decl(_ d: Decl, _ out: List<Suggestion>) -> Void {
         },
         Const(c) => { walk_expr(c.value, out); },
         Let(l) => { walk_expr(l.value, out); },
-        Import(_) => {},
-        Type(_) => {},
-        Enum(_) => {},
+        Import(_) => void,
+        Type(_) => void,
+        Enum(_) => void,
     }
 }
 
@@ -796,8 +828,8 @@ fn walk_stmt(_ s: Stmt, _ out: List<Suggestion>) -> Void {
             walk_expr(w.condition, out);
             walk_block(w.body, out);
         },
-        Break(_) => {},
-        Continue(_) => {},
+        Break(_) => void,
+        Continue(_) => void,
     }
 }
 
@@ -846,10 +878,14 @@ fn walk_expr(_ e: Expr, _ out: List<Suggestion>) -> Void {
             walk_expr(hi, out);
         },
         Match(x) => {
-            push_opt(detect_match_to_if_let(x), out);
+            let if_let = detect_match_to_if_let(x);
+            push_opt(if_let, out);
             push_opt(detect_match_to_question(x), out);
             push_opt(detect_match_to_unwrap_or(x), out);
             push_opt(detect_match_to_map(x), out);
+            if if_let.is_none() {
+                detect_void_arms(x, out);
+            }
             walk_expr(x.subject, out);
             for arm in x.arms {
                 walk_expr(arm.body, out);
@@ -864,12 +900,12 @@ fn walk_expr(_ e: Expr, _ out: List<Suggestion>) -> Void {
         },
         Return(_, v) => { walk_opt_expr(v, out); },
         Throw(_, inner) => { walk_expr(inner, out); },
-        Int(_, _) => {},
-        Float(_, _) => {},
-        Bool(_, _) => {},
-        Unit(_) => {},
-        Ident(_, _) => {},
-        Loc(_) => {},
+        Int(_, _) => void,
+        Float(_, _) => void,
+        Bool(_, _) => void,
+        Unit(_) => void,
+        Ident(_, _) => void,
+        Loc(_) => void,
     }
 }
 

@@ -13,8 +13,8 @@ import 'fs' as _;
 fn workspace(_ name: String) -> Result<String, Error> {
     let dir = path.join(fs.temp_dir(), name);
     match fs.remove_dir_all(dir) {
-        Ok(_) => {},
-        Err(_) => {}, // didn't exist — fine
+        Ok(_) => void,
+        Err(_) => void, // didn't exist — fine
     }
     fs.create_dir_all(dir)?;
     return Result.Ok(dir);
@@ -142,7 +142,7 @@ fn test_symlink_metadata_detects_a_link() -> Result<Void, Error> {
             // ...while metadata follows it through to the target file.
             testing.assert_eq(actual: fs.metadata(link)?.kind, expected: FileKind.File)?;
         },
-        Err(_) => {},
+        Err(_) => void,
     }
     // For a plain file, symlink_metadata agrees with metadata.
     testing.assert_eq(actual: fs.symlink_metadata(target)?.kind, expected: FileKind.File)?;

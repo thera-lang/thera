@@ -335,6 +335,19 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   (`fn f<U>(x: U) -> Box<U>` doesn't require `U: Display`); and
   `expected_arg_types` still handles only the namespace callee head inline.
   (Generics are **invariant by design** — no variance work planned.)
+- **Flag a non-diverging `Void` arm in a value-position `match`.** `unify_arm`
+  (checker.hawk) exempts value-less arms so a side-effecting match still checks,
+  but the exemption covers two very different things: a _diverging_ arm
+  (`return`/`throw` — genuinely fine) and a plain `Void` arm (`None => {}` /
+  `None => void` — which **does** flow its unit value out). When the match's
+  value is used (`let a = match o { Some(m) => m, None => {} }`), the `Void` arm
+  type-checks yet traps at runtime (`map.len: expected map`). Split the
+  exemption: keep diverging arms exempt, and make a non-diverging `Void`-typed
+  arm a check error when the match is in value position (annotated context, or
+  another arm establishes a non-`Void` reference type). Both `=> {}` and
+  `=> void` spellings hit this identically. Feeds the diagnostics-audit rung of
+  the language review; related to the map-literal ambiguity item above (whose
+  resolution changes what `=> {}` means, but not the `=> void` case).
 - **Let a user scope shadow a prelude _value_ name.** Today
   `check_shadowed_surface` flags any top-level decl whose name is in the file's
   bare surface (prelude + `as _` imports), so a `pub fn error` collides with the
@@ -678,11 +691,11 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     variable; `_` reads as "external label = none", consistent with the
     `external internal` slot.)
 
-- **Map-literal vs block (`{…}`) — resolve the ambiguity.** In expression
-  position the parser commits to a **map** only on `{}` or a first key that is a
-  string/int literal (optionally `-`-negated) followed by `:`; any other `{` is
-  a block. The grammar review (2026-07) sized the consequences — three distinct
-  pinches, worst first:
+- **Map-literal vs block (`{…}`) — decided: bracket maps; migration pending.**
+  In expression position the parser commits to a **map** only on `{}` or a first
+  key that is a string/int literal (optionally `-`-negated) followed by `:`; any
+  other `{` is a block. The grammar review (2026-07) sized the consequences —
+  three distinct pinches, worst first:
   - **The `match`-arm edge.** `pat => ( exprBlock | expr )` tries `exprBlock`
     first, so in arm position **any** `{` is a block: a bare `pat => {}` is an
     empty **block** (value `Void`), not an empty map — and nasty when mixed with
@@ -699,14 +712,36 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   - The commit heuristic itself is a rule LLMs must _know_, not infer — it has
     no analogue in the training corpus.
 
-  Candidates: **(a) bracket map literals, Swift-style** — `[k: v]`, empty `[:]`
-  — unify collections on `[`, remove the `{` ambiguity, the arm edge, and the
-  first-key restriction entirely, and are familiar from Swift/Dart corpora; (b)
-  a distinct empty-map token only (`[:]` / `{:}`) — fixes the silent-`Void`
-  case, leaves the other two; (c) commit to map on any `expr ':'` lookahead — no
-  new syntax, but a hairier heuristic and the arm edge remains. Pick by the
-  **LLM lens**: one obvious way to write a map, valid everywhere an expression
-  is, no silent `Void`. (Review leaning: (a).)
+  **DECIDED (2026-07-10): bracket map literals, Swift-style** — `[k: v]`, empty
+  `[:]`; braces become blocks everywhere. Struct instantiation keeps braces
+  (`Point { x: 1 }` — disambiguated by the type name, never part of this
+  ambiguity), so the visual language becomes _named + braces = record shape;
+  brackets = collection_. Rationale (2026-07 research): the corpus is
+  Rust-shaped, not Python-shaped (~216 `=> {}` void arms vs ~70 non-empty map
+  literals — braces-as-blocks is the dominant idiom), and bracket maps are the
+  only option that (i) kills all three pinches, (ii) states as one rule with
+  zero positional caveats ("collections are brackets; braces are blocks"), (iii)
+  makes the parser strictly _simpler_ (after `[`, parse an expression; `:`
+  decides map vs list — LL, no heuristic; `is_map_literal_start` deleted), and
+  (iv) fails loud everywhere — a Python-habit `{'a': 1}` becomes a parse error
+  with a self-describing hint ("map literals are written `[k: v]`"), never
+  silent runtime wrongness. Rejected: smart-brace probing (keeps `{}` positional
+  wart or fights the `=> {}` idiom), empty-token-only (fixes one of three
+  pinches), type-directed arm parse (parser would need types).
+
+  Sequencing (the standard ratchet):
+  1. **Steer no-result arms to `=> void`** — corpus sweep + lint rule + docs
+     (independent of the syntax change; shrinks the `{}` surface). _Done — see
+     Changelog._ (Many of these small `match` statements predate `if let` / the
+     Option combinators and have more idiomatic rewrites — the existing if-let
+     lint already counts them; independent follow-up.)
+  2. **Parser accepts `[k: v]` / `[:]`** alongside brace maps (both lower to the
+     same MapLit); fmt support; tests.
+  3. **Migrate the corpus** (`{}` → `[:]`, `{k: v}` → `[k: v]`, ~290 mechanical
+     sites), rebuild, refresh the bootstrap snapshot.
+  4. **Drop brace maps**, leaving the error hint (the old `is_map_literal_start`
+     shape-detector becomes the diagnostic); update grammar.md / language.md /
+     conformance tests.
 
 - **Generic operators** (`<T: Add>`, operators-as-traits) — the remaining piece
   of the generics arc (bound enforcement + `call.virtual` dispatch on `T` are
@@ -781,6 +816,17 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **`=> void` for no-result arms (idiom + lint + sweep)** (2026-07). Step 1 of
+  the map-literal migration (the decided bracket-maps item above): a no-result
+  match arm is written `=> void` — the explicit unit value — not `=> {}` (an
+  empty block, semantically identical but ambiguous-looking, and one keystroke
+  from an empty map). The corpus's ~230 `=> {}` sites were swept to `=> void`
+  (string fixtures that deliberately pin the `{}` shape kept); a new per-arm
+  lint rule `void-arm` flags the old spelling (source matches only; defers to
+  `match-to-if-let`, whose rewrite removes the arm); language.md's _Choosing a
+  form_ documents the idiom. Corpus-wide `void-arm` tally after the sweep: 0.
+  (The ~28 remaining `match-to-if-let` sites — small matches predating `if let`
+  / the Option combinators — are an independent follow-up.)
 - **Grammar-review syntax tightenings (parser)** (2026-07). Three items from the
   2026-07 grammar review landed. (1) **Nested generics in call-position type
   args**: `looks_like_type_arg_list` is now a balanced `<`/`>` scan (over

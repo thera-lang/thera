@@ -567,7 +567,7 @@ fn test_unimported_name_does_not_resolve() -> Result<Void, Error> {
     let use_off = src.find('width;').unwrap_or(0);
     match resolve.resolve_at(cross_ctx(primary), src, use_off) {
         Some(_) => { testing.assert(false, message: 'unimported width must not resolve')?; },
-        None => {},
+        None => void,
     }
     return Result.Ok(void);
 }

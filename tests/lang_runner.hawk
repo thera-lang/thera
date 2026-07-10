@@ -156,7 +156,7 @@ fn parse_test(_ path: String) -> Result<Test, Error> {
                     else if key == 'spec' { spec = value; }
                     else if key == 'xfail' { xfail = Option.Some(value); }
                 },
-                None => {},
+                None => void,
             }
         } else {
             match after_marker(raw, '// expect error:') {
@@ -169,7 +169,7 @@ fn parse_test(_ path: String) -> Result<Test, Error> {
                                 Some(code) => {
                                     match code.to_int() {
                                         Some(c) => { exit_code = Option.Some(c); },
-                                        None => {},
+                                        None => void,
                                     }
                                 },
                                 None => {
@@ -178,7 +178,7 @@ fn parse_test(_ path: String) -> Result<Test, Error> {
                                         None => {
                                             match after_marker(raw, '// expect:') {
                                                 Some(text) => { stdout.push(text); },
-                                                None => {},
+                                                None => void,
                                             }
                                         },
                                     }
@@ -285,7 +285,7 @@ fn run_run(_ hawk: String, _ test: Test) -> Verdict {
                 return Verdict.Fail('exit code: expected ${code}, got ${result.exit_code}\nstderr:\n${result.stderr}');
             }
         },
-        None => {},
+        None => void,
     }
     // `// expect stderr: <substr>` — each substring must appear on stderr.
     for needle in test.stderr {
@@ -332,11 +332,11 @@ fn parse_diagnostics(_ stdout: String, _ path: String) -> List<Diagnostic> {
                     if locus.len() >= 2 {
                         match locus[1].to_int() {
                             Some(n) => { out.push(Diagnostic { line: n, message: parts.after }); },
-                            None => {},
+                            None => void,
                         }
                     }
                 },
-                None => {},
+                None => void,
             }
         }
     }
@@ -532,11 +532,11 @@ fn collect_hawk_files(_ dir: String, _ found: List<String>) -> Void {
                             },
                         }
                     },
-                    Err(_) => {},
+                    Err(_) => void,
                 }
             }
         },
-        Err(_) => {},
+        Err(_) => void,
     }
 }
 

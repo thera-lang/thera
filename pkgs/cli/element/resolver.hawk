@@ -326,7 +326,7 @@ fn register_skeletons(_ type_defs: Map<String, TypeDefElement>,
                 record_flat_type(type_defs, x.name, el);
                 record_file_type(file_type_defs, p.file_path, x.name, el);
             },
-            _ => {},
+            _ => void,
         }
     }
 }
@@ -413,7 +413,7 @@ fn resolve_members(_ library: LibraryElement, _ p: Program) -> Void {
                     }
                 }
             },
-            Import(x) => {},
+            Import(x) => void,
         }
     }
 }
@@ -456,7 +456,7 @@ fn flatten_interface_closure(_ def: TypeDefElement, _ library: LibraryElement) -
                     }
                     for m in super_def.methods {
                         match find_method(def, m.name) {
-                            Some(_) => {},
+                            Some(_) => void,
                             None => {
                                 def.methods.push(m);
                                 // A defaulted super method stays defaulted in
