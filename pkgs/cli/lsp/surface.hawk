@@ -1,0 +1,75 @@
+// A file's *importer-visible surface signature*: its source text with function
+// and method **body interiors** elided. Importers type-check against a file's
+// declarations and their types — names, signatures, field/variant/const types —
+// never against a function body, so a body-only edit cannot change any importer's
+// diagnostics. Eliding exactly the fn/method bodies (and nothing else — a `const`
+// or top-level `let` initializer stays, since a const inlines into its importers)
+// yields a string that differs across an edit iff a cross-file-relevant part of
+// the file changed. The LSP compares it before/after an edit to decide whether a
+// workspace re-pull is warranted (server.flush) — a body edit only touches the
+// edited file's own diagnostics, which the client re-pulls per document.
+//
+// Conservative by construction: it elides *less* than the true public surface
+// (it keeps private decls, comments, and formatting outside bodies), so it can
+// only over-report a change (a needless nudge), never miss one (a stale importer).
+
+import '../ast/ast' as _; // Program, Decl, FnDecl, Block
+
+struct BodyRange {
+    let start: Int;
+    let end: Int;
+}
+
+// The signature of `program` (parsed from `source`): `source` with every fn/method
+// body region replaced by a fixed placeholder. `source` must be the exact text
+// `program` was parsed from, so the span offsets line up.
+pub fn surface_signature(_ program: Program, _ source: String) -> String {
+    let ranges = body_ranges(program).sort((a, b) => a.start < b.start);
+    let mut sig = '';
+    let mut pos = 0;
+    for r in ranges {
+        if r.start > pos {
+            sig = sig + source.slice(pos, r.start);
+        }
+        sig = sig + '{}'; // placeholder for the elided body
+        if r.end > pos {
+            pos = r.end;
+        }
+    }
+    sig = sig + source.slice(pos, source.len());
+    return sig;
+}
+
+// The source ranges of every fn/method body: top-level functions, inherent/trait
+// `impl` methods, and interface default methods. Non-overlapping (a method body is
+// not inside another body) and naturally in source order, but sorted defensively.
+fn body_ranges(_ program: Program) -> List<BodyRange> {
+    let out: List<BodyRange> = [];
+    for d in program.decls {
+        match d {
+            Fn(f) => push_body(f, out),
+            Impl(i) => {
+                for m in i.methods {
+                    push_body(m, out);
+                }
+            },
+            Interface(i) => {
+                for m in i.methods {
+                    push_body(m, out);
+                }
+            },
+            _ => {},
+        }
+    }
+    return out;
+}
+
+// Record `f`'s body range (a `native fn` has none, so nothing is elided).
+fn push_body(_ f: FnDecl, _ out: List<BodyRange>) -> Void {
+    if let Some(b) = f.body {
+        out.push(BodyRange {
+            start: b.start_span.offset,
+            end: b.end_span.offset + b.end_span.length,
+        });
+    }
+}

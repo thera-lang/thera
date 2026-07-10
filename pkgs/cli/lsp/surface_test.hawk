@@ -1,0 +1,51 @@
+// Tests for the public-surface signature: a body-only edit must leave it
+// unchanged (no importer can observe the body), while a signature or a
+// surface-level (`const` value, field type) change must move it.
+
+import std.testing;
+
+import 'surface';
+import '../lexer/lexer';
+import '../parser/parser';
+
+fn sig(_ src: String) -> String {
+    return surface.surface_signature(parser.parse_tokens(lexer.tokenize(src).tokens).program, src);
+}
+
+@test
+fn test_body_change_keeps_signature() -> Result<Void, Error> {
+    testing.assert_eq(
+        actual: sig('fn f() -> Int { return 1; }'),
+        expected: sig('fn f() -> Int { let x = 40; return x + 2; }'))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_method_body_change_keeps_signature() -> Result<Void, Error> {
+    let base = 'struct S { let n: Int; }\nimpl S { pub fn get(self) -> Int { return self.n; } }';
+    let edited = 'struct S { let n: Int; }\nimpl S { pub fn get(self) -> Int { return self.n + 0; } }';
+    testing.assert_eq(actual: sig(base), expected: sig(edited))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_param_change_moves_signature() -> Result<Void, Error> {
+    testing.assert(sig('fn f() -> Int { return 1; }') != sig('fn f(_ n: Int) -> Int { return 1; }'),
+        message: 'adding a parameter changes the surface')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_field_type_change_moves_signature() -> Result<Void, Error> {
+    testing.assert(sig('struct S { let n: Int; }') != sig('struct S { let n: String; }'),
+        message: 'a field type change changes the surface')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_const_value_change_moves_signature() -> Result<Void, Error> {
+    // A `const` inlines into its importers, so its value is part of the surface.
+    testing.assert(sig('pub const K: Int = 1;') != sig('pub const K: Int = 2;'),
+        message: 'a const value change changes the surface')?;
+    return Result.Ok(void);
+}

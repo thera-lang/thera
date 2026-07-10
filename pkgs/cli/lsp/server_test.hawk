@@ -162,20 +162,41 @@ fn test_did_change_configuration_updates_exclude() -> Result<Void, Error> {
 }
 
 // A refresh-capable client gets a `workspace/diagnostic/refresh` nudge after an
-// edit (the pull model's proactive signal), so it re-pulls project-wide results.
+// edit that changes the file's *public surface* — importers' diagnostics may
+// change, so the project view must re-pull.
 @test
-fn test_edit_nudges_refresh_when_supported() -> Result<Void, Error> {
+fn test_surface_edit_nudges_refresh_when_supported() -> Result<Void, Error> {
     let server = new_server(Option.None);
     server.handle(io.StringWriter.new(), '{"jsonrpc":"2.0","id":1,"method":"initialize","params":'
         + '{"capabilities":{"workspace":{"diagnostics":{"refreshSupport":true}}}}}');
     server.handle(io.StringWriter.new(), '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
         + '{"textDocument":{"uri":"file:///r.hawk","text":"fn f() -> Int { return 1; }"}}}');
-    // An edit flushes: it should both publish r.hawk and nudge a workspace re-pull.
+    // Change the signature (add a parameter) — a public-surface change.
+    let out = io.StringWriter.new();
+    server.handle(out, '{"jsonrpc":"2.0","method":"textDocument/didChange","params":'
+        + '{"textDocument":{"uri":"file:///r.hawk"},"contentChanges":[{"text":"fn f(_ n: Int) -> Int { return 1; }"}]}}');
+    let body = out.into_string().unwrap_or('');
+    testing.assert(body.contains('workspace/diagnostic/refresh'), message: 'a surface edit nudges a re-pull')?;
+    return Result.Ok(void);
+}
+
+// A body-only edit does NOT nudge a workspace re-pull: it can only change the
+// edited file's own diagnostics (which the client re-pulls per document), never an
+// importer's, so a project-wide re-check would be wasted. This is the point of
+// gating the nudge on a surface change.
+@test
+fn test_body_edit_does_not_nudge() -> Result<Void, Error> {
+    let server = new_server(Option.None);
+    server.handle(io.StringWriter.new(), '{"jsonrpc":"2.0","id":1,"method":"initialize","params":'
+        + '{"capabilities":{"workspace":{"diagnostics":{"refreshSupport":true}}}}}');
+    server.handle(io.StringWriter.new(), '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"file:///r.hawk","text":"fn f() -> Int { return 1; }"}}}');
+    // Same signature, different body — no importer can observe this.
     let out = io.StringWriter.new();
     server.handle(out, '{"jsonrpc":"2.0","method":"textDocument/didChange","params":'
         + '{"textDocument":{"uri":"file:///r.hawk"},"contentChanges":[{"text":"fn f() -> Int { return 2; }"}]}}');
     let body = out.into_string().unwrap_or('');
-    testing.assert(body.contains('workspace/diagnostic/refresh'), message: 'nudges a re-pull')?;
+    testing.assert(!body.contains('workspace/diagnostic/refresh'), message: 'a body edit does not nudge')?;
     return Result.Ok(void);
 }
 
@@ -246,6 +267,80 @@ fn test_document_pull_reports_errors() -> Result<Void, Error> {
     testing.assert(out.contains('undefined name: missing'), message: 'the pull reports the error')?;
     testing.assert(out.contains('"kind":"full"') || out.contains('"kind": "full"'),
         message: 'a full document report')?;
+    return Result.Ok(void);
+}
+
+// The value of the first `"resultId":"…"` in a response body (empty if none) —
+// so a test can echo the server's resultId back on a re-pull.
+fn first_result_id(_ body: String) -> String {
+    let key = '"resultId":"';
+    return match body.find(key) {
+        Some(i) => {
+            let rest = body.slice(i + key.len(), body.len());
+            match rest.find('"') {
+                Some(j) => rest.slice(0, j),
+                None => '',
+            }
+        },
+        None => '',
+    };
+}
+
+// Pull caching (LSP 3.17): re-pulling an unchanged document, echoing the server's
+// resultId, returns a light `unchanged` report instead of re-sending the items.
+@test
+fn test_document_pull_unchanged_on_repull() -> Result<Void, Error> {
+    let server = new_server(Option.None);
+    let _o = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"file:///u.hawk","text":"fn add(_ a: Int, _ b: Int) -> Int { return a + b; }"}}}');
+    let first = capture(server, '{"jsonrpc":"2.0","id":1,"method":"textDocument/diagnostic","params":'
+        + '{"textDocument":{"uri":"file:///u.hawk"}}}');
+    testing.assert(first.contains('"kind":"full"'), message: 'first pull is a full report')?;
+    let rid = first_result_id(first);
+    testing.assert(!rid.is_empty(), message: 'the full report carries a resultId')?;
+    // Re-pull with identical content, echoing the resultId — an unchanged report.
+    let second = capture(server, '{"jsonrpc":"2.0","id":2,"method":"textDocument/diagnostic","params":'
+        + '{"textDocument":{"uri":"file:///u.hawk"},"previousResultId":"' + rid + '"}}');
+    testing.assert(second.contains('"kind":"unchanged"'), message: 're-pull of an unchanged doc is unchanged')?;
+    testing.assert(!second.contains('"items"'), message: 'an unchanged report omits items')?;
+    return Result.Ok(void);
+}
+
+// After an edit, the same re-pull (still echoing the *old* resultId) is a full
+// report again — the content changed, so the cached resultId no longer matches.
+@test
+fn test_document_pull_full_again_after_edit() -> Result<Void, Error> {
+    let server = new_server(Option.None);
+    let _o = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"file:///u.hawk","text":"fn f() -> Int { return 1; }"}}}');
+    let first = capture(server, '{"jsonrpc":"2.0","id":1,"method":"textDocument/diagnostic","params":'
+        + '{"textDocument":{"uri":"file:///u.hawk"}}}');
+    let rid = first_result_id(first);
+    // Introduce an error, then re-pull echoing the stale resultId.
+    let _c = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didChange","params":'
+        + '{"textDocument":{"uri":"file:///u.hawk"},"contentChanges":[{"text":"fn f() -> Int { return missing; }"}]}}');
+    let second = capture(server, '{"jsonrpc":"2.0","id":2,"method":"textDocument/diagnostic","params":'
+        + '{"textDocument":{"uri":"file:///u.hawk"},"previousResultId":"' + rid + '"}}');
+    testing.assert(second.contains('"kind":"full"'), message: 'a changed doc re-pulls full')?;
+    testing.assert(second.contains('undefined name: missing'), message: 'the new diagnostic is sent')?;
+    return Result.Ok(void);
+}
+
+// Pull caching for the workspace request: re-pulling with the per-file
+// `previousResultIds` returns `unchanged` for a file whose diagnostics didn't move.
+@test
+fn test_workspace_pull_unchanged_on_repull() -> Result<Void, Error> {
+    let server = new_server(Option.None);
+    let _o = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"file:///w.hawk","text":"fn ok() -> Int { return 1; }"}}}');
+    let first = capture(server, '{"jsonrpc":"2.0","id":1,"method":"workspace/diagnostic","params":'
+        + '{"previousResultIds":[]}}');
+    testing.assert(first.contains('w.hawk'), message: 'first workspace pull reports the file')?;
+    testing.assert(first.contains('"kind":"full"'), message: 'as a full report')?;
+    let rid = first_result_id(first);
+    let second = capture(server, '{"jsonrpc":"2.0","id":2,"method":"workspace/diagnostic","params":'
+        + '{"previousResultIds":[{"uri":"file:///w.hawk","value":"' + rid + '"}]}}');
+    testing.assert(second.contains('"kind":"unchanged"'), message: 're-pull of the unchanged file is unchanged')?;
     return Result.Ok(void);
 }
 
@@ -595,9 +690,11 @@ fn test_serve_coalesces_a_burst_of_edits() -> Result<Void, Error> {
             + '{"textDocument":{"uri":"' + uri + '","text":"fn f() -> Int { return 0; }"}}}');
     let mut i = 1;
     while i <= 5 {
+        // Each edit renames the function — a public-surface change, so each on its
+        // own would warrant a nudge; the burst must still collapse to exactly one.
         stream = stream + jsonrpc.frame('{"jsonrpc":"2.0","method":"textDocument/didChange","params":'
             + '{"textDocument":{"uri":"' + uri + '"},'
-            + '"contentChanges":[{"text":"fn f() -> Int { return ${i}; }"}]}}');
+            + '"contentChanges":[{"text":"fn f${i}() -> Int { return 0; }"}]}}');
         i = i + 1;
     }
     let reader = BurstReader { data: stream.bytes(), pos: 0 };

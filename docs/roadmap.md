@@ -122,6 +122,31 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     dependency).
   - **Refinements:** per-channel waiter lists, true 0-capacity rendezvous
     channels, `select`, and exit semantics for surviving spawned fibers.
+- **Fiber synchronization primitives — the combinator layer.** The *core* async
+  values already exist: `Fiber<T>` + `join` **is** a Future (uncolored; and
+  `join` is idempotent/multicast — `sched_result` reads `Done(v)` by `&self`, so
+  any fiber can await the same result repeatedly, giving a broadcast/shared future
+  for free), and `channel<T>(1)` is a Completer. What's thin is the second-order
+  layer built on them:
+  - **`select` / race — the load-bearing gap.** A fiber can block on exactly one
+    source today (`join` one fiber, `receive` one channel); there's no "first of A
+    or B ready" wait. Everything below reduces to it — timeouts, cancellation-aware
+    waits, first-result-wins, N-channel muxing. Needs runtime support (park on
+    multiple wakeup sources); ties to the "per-channel waiter lists" refinement
+    above. Do this first.
+  - **Cancellation token** — a reusable `cancel()` / `is_cancelled()` / selectable
+    `done` (the LSP hand-rolled a generation counter for exactly this). The poll
+    form works today; the wait-or-cancel form wants `select`.
+  - **Timeout** — `with_timeout(work, dur)` = `select(result, timer)`; timer
+    parking already exists, so it falls out of `select`.
+  - **Structured concurrency** — `join_all`, and a scope that joins-or-cancels its
+    children when the parent returns so a worker can't leak (the LSP `serve` drain
+    does this by hand); ties to "exit semantics for surviving spawned fibers".
+  - **Bounded concurrency** — a semaphore / `parallel_map(items, concurrency, f)`,
+    buildable on a token channel today.
+  - *No `Mutex`/lock is warranted:* cooperative single-threading makes shared-state
+    mutation between yield points race-free; a lock only matters to hold a section
+    *across* a yield, which is a one-token semaphore.
 - **Interpreter performance — profiled (2026-06); the easy wins are in.**
   Probes: the front-end **self-compile** (`hawk emit pkgs/cli/main.hawk`) ≈ 11.6
   s release, and **mandelbrot** ≈ 0.81 s (a call-free arithmetic/loop guard).
@@ -365,14 +390,12 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   value+type resolution, the resolved-library cache with dependency-graph
   invalidation, `type_at` (inference-at-offset), and semantic references/rename
   all shipped (see _Changelog_). The remaining follow-ups, all deferred:
-  - **Workspace diagnostics — `resultId` caching + smarter refresh.** The
-    workspace check now runs on a background fiber (see _Changelog_), so a large
-    first pass no longer blocks the request loop. Two follow-ups remain: add
-    per-file `resultId` caching so a re-pull re-emits only *changed* files (today
-    every file gets a fresh full report), and make the refresh nudge fire only when
-    a change could actually alter *cross-file* results (today any edit nudges a full
-    re-pull). A further refinement would stream partial results via a
-    `partialResultToken` (`$/progress`) instead of one report at the end.
+  - **Workspace diagnostics — streaming partial results.** Backgrounding on a
+    fiber, per-file `resultId` caching (a re-pull re-emits only *changed* files),
+    and a surface-gated refresh nudge (only a public-surface edit, not a body edit,
+    triggers a workspace re-pull) all landed (see _Changelog_). The remaining
+    refinement: stream partial results via a `partialResultToken` (`$/progress`)
+    instead of one report at the end, so a huge first scan appears progressively.
   - **Primitive-receiver member resolution.** Hover / definition / member
     resolution on a primitive receiver (`"s".split()`) don't resolve — a
     `Primitive` value carries no `TypeId`. Ties to _Primitive vtables_
@@ -739,6 +762,25 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **Workspace diagnostics — `resultId` caching + surface-gated nudge (LSP)**
+  (2026-07). Two refinements on the pull-diagnostics path. (1) **Per-file
+  `resultId` caching** (LSP 3.17): the server stamps each file's report with an
+  opaque resultId and caches the exact rendered items it stands for; a re-pull that
+  echoes the resultId (via `previousResultId` / `previousResultIds`) gets a light
+  `unchanged` report for any file whose items are byte-identical, instead of
+  re-sending them. Exact content comparison, not a hash — a collision would wrongly
+  report `unchanged` (a stale squiggle). The cache is self-correcting (every
+  decision compares current content), so no explicit invalidation is needed, and it
+  is shared across the document and workspace channels (same content → same id).
+  (2) **Surface-gated refresh nudge**: an edit now nudges a workspace re-pull only
+  when it could alter *another* file's diagnostics — a change to the file's
+  public-surface *signature* (`pkgs/cli/lsp/surface.hawk`: the source with fn/method
+  body interiors elided, since importers type-check against declarations, never
+  bodies). A body-only edit — typing inside a function — no longer triggers a
+  project-wide re-check; the file's own diagnostics still reach the editor via the
+  client's per-document pull. Conservative by construction (elides less than the
+  true surface), so it can only over-nudge, never miss a cross-file change. A close
+  still nudges unconditionally (a loose file drops out of the report).
 - **Workspace diagnostics — backgrounded on a fiber (LSP)** (2026-07). The
   `workspace/diagnostic` scan no longer runs synchronously on the request loop: it
   runs on a background fiber (`server.start_workspace_scan`) that `yield`s between

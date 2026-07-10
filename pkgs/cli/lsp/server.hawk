@@ -160,14 +160,14 @@ impl Server {
     // scheduler runs it during the loop's stdin parks; under `handle` it's joined
     // for a synchronous reply. The reply may arrive out of order (a hover answered
     // meanwhile), which JSON-RPC allows — responses correlate by `id`.
-    fn start_workspace_scan(self, _ id: Json) -> Void {
+    fn start_workspace_scan(self, _ id: Json, _ prev_ids: Map<String, String>) -> Void {
         // Bump first, then reclaim any prior scan: it sees the new generation and
         // bails at its next yield, so at most one worker is ever in flight.
         self.ws_generation = self.ws_generation + 1;
         self.join_current_worker();
         let gen = self.ws_generation;
         let worker = fiber.spawn(() => {
-            match self.analysis.workspace_report_interruptible(() => self.ws_generation == gen) {
+            match self.analysis.workspace_report_interruptible(prev_ids, () => self.ws_generation == gen) {
                 Some(report) => send_response(self.outbox, id, report),
                 // -32801 ContentModified: a newer pull/cancel replaced this scan.
                 // The client re-pulls (also nudged by the edit's refresh) for fresh
@@ -291,14 +291,15 @@ impl Server {
         // diagnostic` is what makes diagnostics project-wide with no file open.
         if method == 'textDocument/diagnostic' {
             if let Some(uri) = params.get('textDocument').get('uri').as_string() {
-                send_response(self.outbox, id, self.analysis.document_report(uri));
+                send_response(self.outbox, id,
+                    self.analysis.document_report(uri, params.get('previousResultId').as_string()));
             } else {
                 send_response(self.outbox, id, json.null());
             }
             return true;
         }
         if method == 'workspace/diagnostic' {
-            self.start_workspace_scan(id);
+            self.start_workspace_scan(id, previous_result_ids(params));
             return true;
         }
         // A cancel targets the only cancellable background op — the in-flight
@@ -452,7 +453,11 @@ impl Server {
     // `workspace/diagnostic` handlers answer — reusing the session's checked-clean
     // cache, so only the edited cone recomputes.
     fn flush(self) -> Void {
-        if self.analysis.take_dirty().len() > 0 {
+        // Nudge only when a change could alter *another* file's diagnostics — a
+        // public-surface edit or a close. A body-only edit touches just the edited
+        // file's own diagnostics, which the client re-pulls per document; nudging a
+        // full workspace re-pull for it would be wasted work.
+        if self.analysis.pending_workspace_refresh() {
             self.request_workspace_refresh();
         }
     }
@@ -556,6 +561,27 @@ fn string_array(_ j: Json) -> List<String> {
             for it in items {
                 if let Some(s) = it.as_string() {
                     out.push(s);
+                }
+            }
+        },
+        None => {},
+    }
+    return out;
+}
+
+// The client's `previousResultIds` from a `workspace/diagnostic` request, as a
+// URI -> resultId map (an array of `{ uri, value }`). Tells the server which
+// resultId the client last holds per file, so an unchanged file returns a light
+// `unchanged` report instead of re-sending items. Missing/malformed entries drop.
+fn previous_result_ids(_ params: Json) -> Map<String, String> {
+    let out: Map<String, String> = {};
+    match params.get('previousResultIds').as_array() {
+        Some(entries) => {
+            for e in entries {
+                if let Some(uri) = e.get('uri').as_string() {
+                    if let Some(value) = e.get('value').as_string() {
+                        out[uri] = value;
+                    }
                 }
             }
         },

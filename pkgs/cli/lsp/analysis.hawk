@@ -16,6 +16,7 @@ import 'references';       // collect_in / matching_spans (semantic)
 import 'rename';           // edits_for / is_identifier (semantic rename)
 import 'workspace';       // hawk_files (on-disk project scan)
 import 'diagnostics';     // render_diagnostics
+import 'surface';         // surface_signature (cross-file-change detection)
 import 'glob';             // exclude-pattern matching
 import 'paths';             // uri_to_path
 import 'positions';       // position_to_offset
@@ -47,6 +48,37 @@ pub struct Analysis {
     // still analyzed (imports of it resolve); only its *reported* diagnostics are
     // dropped. Empty = nothing excluded.
     let mut exclude: List<String>;
+    // Canonical path -> its last public-surface signature (surface.hawk). Compared
+    // on each edit: a difference means the change could alter *importers'*
+    // diagnostics (cross-file), so a workspace re-pull is warranted; a body-only
+    // edit leaves it identical and the nudge is suppressed.
+    let surface_sigs: Map<String, String>;
+    // Set when a change since the last flush could alter another file's
+    // diagnostics — a public-surface edit or a document close. The server's flush
+    // nudges a workspace re-pull only when it's set. A body-only edit leaves it
+    // false (that file's own diagnostics are re-pulled per document by the client).
+    let mut ws_dirty: Bool;
+    // Canonical path -> the last diagnostic report we emitted: the opaque
+    // `resultId` and the exact rendered items (as a JSON string) it stands for. On
+    // a re-pull, a file whose current items match and whose client-held resultId
+    // equals ours returns a light `unchanged` report instead of re-sending items
+    // (LSP 3.17). Exact content comparison — a hash could collide and wrongly
+    // report `unchanged` (a stale squiggle).
+    let diag_reports: Map<String, DiagReport>;
+    // The next opaque resultId to hand out (monotonic; stringified).
+    let mut next_result_id: Int;
+}
+
+// The last report emitted for a file — its resultId and the exact items it names.
+struct DiagReport {
+    let result_id: String;
+    let content: String;
+}
+
+// A full-vs-unchanged decision for one file's pull report.
+struct ReportResult {
+    let result_id: String;
+    let unchanged: Bool;
 }
 
 pub fn new_analysis(_ sdk_root: Option<String>) -> Analysis {
@@ -57,6 +89,10 @@ pub fn new_analysis(_ sdk_root: Option<String>) -> Analysis {
         dirty: Set.new(),
         roots: [],
         exclude: [],
+        surface_sigs: {},
+        ws_dirty: false,
+        diag_reports: {},
+        next_result_id: 0,
     };
 }
 
@@ -104,6 +140,26 @@ impl Analysis {
         self.session.set_overlay(paths.uri_to_path(uri), text);
         self.dirty.add(uri);
         self.mark_open_dependents_dirty(uri);
+        self.note_surface_change(uri, text);
+    }
+
+    // Compare `uri`'s new public-surface signature to its last one: a difference
+    // (or a first sighting) means the edit could change importers' diagnostics, so
+    // a workspace refresh is warranted (`ws_dirty`). A body-only edit leaves the
+    // signature identical and the flag untouched. The parse populates the session's
+    // parse cache, so the diagnostics check that follows reuses it (no re-parse).
+    fn note_surface_change(self, _ uri: String, _ text: String) -> Void {
+        let path = paths.uri_to_path(uri);
+        let canon = loader.canonical_path(path);
+        let sig = surface.surface_signature(self.session.parse(text, path), text);
+        let changed = match self.surface_sigs.get(canon) {
+            Some(prev) => prev != sig,
+            None => true,
+        };
+        if changed {
+            self.ws_dirty = true;
+        }
+        self.surface_sigs[canon] = sig;
     }
 
     // Forget `uri` (closed): analyses revert to the on-disk content — a change of
@@ -120,6 +176,14 @@ impl Analysis {
         self.session.remove_overlay(paths.uri_to_path(uri));
         self.dirty.add(uri);
         self.mark_open_dependents_dirty(uri);
+        // A close changes the project view (a loose file drops out of the workspace
+        // report; a rooted file reverts to its on-disk content), so it's
+        // conservatively cross-file — always nudge, and forget the signature.
+        self.ws_dirty = true;
+        match self.surface_sigs.remove(loader.canonical_path(paths.uri_to_path(uri))) {
+            Some(_) => {},
+            None => {},
+        }
     }
 
     // Mark every *open* document in `uri`'s invalidation cone dirty: an edit
@@ -143,6 +207,39 @@ impl Analysis {
         let uris = self.dirty.to_list();
         self.dirty.clear();
         return uris;
+    }
+
+    // Whether a change since the last flush could alter another file's diagnostics
+    // — a public-surface edit or a document close (see `ws_dirty`). Drains the
+    // per-document change set too (its identities aren't consumed once the nudge is
+    // surface-gated), and clears the flag. The server's flush nudges iff this is true.
+    pub fn pending_workspace_refresh(self) -> Bool {
+        self.dirty.clear();
+        let ws = self.ws_dirty;
+        self.ws_dirty = false;
+        return ws;
+    }
+
+    // Decide full-vs-`unchanged` for `canon`'s current `items` against the client's
+    // `prev` resultId (LSP 3.17 pull caching). Reuses the cached resultId — and
+    // reports `unchanged` — only when the items are byte-identical to what we last
+    // emitted *and* the client echoed that id (so it genuinely holds this content);
+    // otherwise assigns a fresh id, caches the items, and re-sends. Updates the cache.
+    fn report_result(self, _ canon: String, _ items: Json, _ prev: Option<String>) -> ReportResult {
+        let content = json.stringify(items);
+        if let Some(stored) = self.diag_reports.get(canon) {
+            if stored.content == content {
+                let client_has_it = match prev {
+                    Some(p) => p == stored.result_id,
+                    None => false,
+                };
+                return ReportResult { result_id: stored.result_id, unchanged: client_has_it };
+            }
+        }
+        let id = '${self.next_result_id}';
+        self.next_result_id = self.next_result_id + 1;
+        self.diag_reports[canon] = DiagReport { result_id: id, content: content };
+        return ReportResult { result_id: id, unchanged: false };
     }
 
     pub fn text(self, _ uri: String) -> Option<String> {
@@ -409,16 +506,27 @@ impl Analysis {
             loader.canonical_path(p));
     }
 
-    // A full `DocumentDiagnosticReport` (LSP pull model) for one document — the
-    // answer to `textDocument/diagnostic`. Reuses the same per-file check the push
-    // path uses; reads the open buffer when present, else the on-disk contents (a
-    // closed file can be pulled). The `unchanged` optimization (a `resultId` the
-    // client echoes back) is a follow-up; this always returns a full report.
-    pub fn document_report(self, _ uri: String) -> Json {
-        // An excluded file reports clean, so the editor shows nothing for it (the
-        // file is still analyzed for importers — this only withholds its report).
+    // A `DocumentDiagnosticReport` (LSP pull model) for one document — the answer
+    // to `textDocument/diagnostic`. Reuses the same per-file check; reads the open
+    // buffer when present, else the on-disk contents (a closed file can be pulled).
+    // With the client's `prev` resultId, an unchanged file returns a light
+    // `unchanged` report instead of re-sending items (LSP 3.17 pull caching).
+    pub fn document_report(self, _ uri: String, _ prev: Option<String>) -> Json {
+        let canon = loader.canonical_path(paths.uri_to_path(uri));
+        let items = self.document_items(uri);
+        let r = self.report_result(canon, items, prev);
+        if r.unchanged {
+            return obj({ 'kind': str('unchanged'), 'resultId': str(r.result_id) });
+        }
+        return obj({ 'kind': str('full'), 'resultId': str(r.result_id), 'items': items });
+    }
+
+    // The rendered diagnostic items for `uri` (a JSON array). An excluded file
+    // reports clean — the editor shows nothing for it, though it's still analyzed
+    // for its importers (this only withholds its own report).
+    fn document_items(self, _ uri: String) -> Json {
         if self.is_excluded(paths.uri_to_path(uri)) {
-            return obj({ 'kind': str('full'), 'items': arr([]) });
+            return arr([]);
         }
         let text = match self.docs.get(uri) {
             Some(t) => t,
@@ -427,10 +535,7 @@ impl Analysis {
                 Err(_) => '',
             },
         };
-        return obj({
-            'kind': str('full'),
-            'items': self.diagnostics(uri, text),
-        });
+        return self.diagnostics(uri, text);
     }
 
     // A `WorkspaceDiagnosticReport` (LSP pull model) — one full report per
@@ -444,9 +549,11 @@ impl Analysis {
     // every few files so the request loop stays responsive while it works, and
     // consults `still_current` at each file — returning None (the caller replies
     // ContentModified) when a newer pull or a cancel has superseded this scan.
-    // Per-file `resultId` caching so a re-pull re-emits only changed files is a
-    // follow-up; this always returns a full report.
-    pub fn workspace_report_interruptible(self, _ still_current: () -> Bool) -> Option<Json> {
+    // `prev_ids` maps each URI to the resultId the client last holds for it; a file
+    // whose current items match returns a light `unchanged` item (LSP 3.17 pull
+    // caching) instead of re-sending, so a re-pull re-emits only changed files.
+    pub fn workspace_report_interruptible(self, _ prev_ids: Map<String, String>,
+        _ still_current: () -> Bool) -> Option<Json> {
         // Bail before even scanning if a newer pull/cancel already won — so a
         // superseded worker never touches the disk, and an empty workspace (no
         // files to loop over) still honors supersession.
@@ -491,15 +598,28 @@ impl Analysis {
             if !self.session.is_sdk_file(f.path) && !self.is_excluded(f.path)
                 && !emitted.has(canon) {
                 emitted.add(canon);
-                items.push(obj({
-                    'kind': str('full'),
-                    'uri': str(f.uri),
-                    'version': match self.versions.get(f.uri) {
-                        Some(v) => int(v),
-                        None => null(),
-                    },
-                    'items': arr(by_file.get(canon).unwrap_or([])),
-                }));
+                let file_items = arr(by_file.get(canon).unwrap_or([]));
+                let ver = match self.versions.get(f.uri) {
+                    Some(v) => int(v),
+                    None => null(),
+                };
+                let r = self.report_result(canon, file_items, prev_ids.get(f.uri));
+                if r.unchanged {
+                    items.push(obj({
+                        'kind': str('unchanged'),
+                        'uri': str(f.uri),
+                        'version': ver,
+                        'resultId': str(r.result_id),
+                    }));
+                } else {
+                    items.push(obj({
+                        'kind': str('full'),
+                        'uri': str(f.uri),
+                        'version': ver,
+                        'resultId': str(r.result_id),
+                        'items': file_items,
+                    }));
+                }
             }
         }
         return Option.Some(obj({ 'items': arr(items) }));
