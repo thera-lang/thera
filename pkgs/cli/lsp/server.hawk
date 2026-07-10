@@ -10,10 +10,12 @@
 
 import std.json as _;
 import std.io;             // io.Reader, io.Writer
+import std.fiber;          // background workspace-diagnostic worker
 
 import '../ast/ast' as _;       // Program
 
 import 'jsonrpc';
+import 'outbox';           // the single serialized outbound message sink
 import 'paths';
 import 'symbols';
 import 'analysis' as _;
@@ -37,6 +39,13 @@ import 'workspace_symbols';
 // `serve`).
 pub struct Server {
     let analysis: Analysis;
+    // Every outgoing message funnels through here so the dispatch loop and a
+    // background `workspace/diagnostic` worker never interleave bytes of one framed
+    // message. `serve` installs an async outbox (a writer fiber draining a channel);
+    // `handle` (tests/one-shot) installs a direct one that writes straight through.
+    // A fresh server holds a discard outbox until one of those runs — no message is
+    // sent in that window. See outbox.hawk.
+    let mut outbox: outbox.Outbox;
     let mut shutdown_received: Bool;
     // Whether the client supports `workspace/diagnostic/refresh` (from
     // `initialize`). When it does, an edit sends that one nudge instead of pushing
@@ -48,14 +57,25 @@ pub struct Server {
     // refresh` today). Its own id space; the client's response is a message with
     // no `method`, which `ingest` drops.
     let mut next_request_id: Int;
+    // The in-flight background `workspace/diagnostic` worker, if any. A new pull
+    // (or a cancel) supersedes it via `ws_generation`; `serve` joins it on exit so
+    // its reply flushes, and `handle` joins it inline for a synchronous one-shot.
+    let mut current_worker: Option<fiber.Fiber<Void>>;
+    // Bumped on each workspace pull and on `$/cancelRequest`; a worker whose
+    // captured generation no longer matches bails with ContentModified. This is the
+    // supersession signal — the last pull wins, older scans stop wasting work.
+    let mut ws_generation: Int;
 }
 
 pub fn new_server(_ sdk_root: Option<String>) -> Server {
     return Server {
         analysis: new_analysis(sdk_root),
+        outbox: outbox.discard_outbox(),
         shutdown_received: false,
         client_refresh_support: false,
         next_request_id: 1,
+        current_worker: Option.None,
+        ws_generation: 0,
     };
 }
 
@@ -64,11 +84,16 @@ pub fn new_server(_ sdk_root: Option<String>) -> Server {
 pub fn serve(_ reader: io.Reader, _ writer: io.Writer, _ sdk_root: Option<String>) -> Void {
     let buf = jsonrpc.new_buffer();
     let server = new_server(sdk_root);
+    // Async transport: a writer fiber serializes all output, so a background
+    // workspace scan (start_workspace_scan) can reply concurrently with the loop.
+    // The loop's stdin reads park (freeing the scheduler), which is when both the
+    // writer fiber and any workspace worker make progress.
+    server.outbox = outbox.async_outbox(writer);
     let mut going = true;
     while going {
         match buf.read_message(reader) {
             Some(body) => {
-                going = server.ingest(writer, body);
+                going = server.ingest(body);
                 // Drain any messages that already arrived in the same read — a
                 // burst of keystrokes — applying their state but deferring
                 // diagnostics, so a backlog of edits collapses into one re-check
@@ -78,14 +103,14 @@ pub fn serve(_ reader: io.Reader, _ writer: io.Writer, _ sdk_root: Option<String
                 while more {
                     match buf.try_message() {
                         Some(extra) => {
-                            going = server.ingest(writer, extra);
+                            going = server.ingest(extra);
                             more = going;
                         },
                         None => { more = false; },
                     }
                 }
                 if going {
-                    server.flush(writer);
+                    server.flush();
                 }
             },
             None => {
@@ -93,6 +118,10 @@ pub fn serve(_ reader: io.Reader, _ writer: io.Writer, _ sdk_root: Option<String
             },
         }
     }
+    // Drain on exit: finish the in-flight workspace worker (its reply enqueues),
+    // then close the outbox and wait for the writer fiber to flush everything left.
+    server.join_current_worker();
+    server.outbox.shutdown();
 }
 
 impl Server {
@@ -101,39 +130,82 @@ impl Server {
     // `serve` instead batches with `ingest` + `flush` to coalesce a burst of edits.
     // Returns false when the server should stop (an `exit` notification).
     pub fn handle(self, _ writer: io.Writer, _ body: String) -> Bool {
-        let going = self.ingest(writer, body);
-        self.flush(writer);
+        // A direct outbox writes straight through on this fiber, so the in-process
+        // tests observe output synchronously.
+        self.outbox = outbox.direct_outbox(writer);
+        let going = self.ingest(body);
+        self.flush();
+        // Drive a spawned workspace scan to completion so this one-shot path is
+        // synchronous — it replies through the direct outbox before we return.
+        self.join_current_worker();
         return going;
+    }
+
+    // Finish the in-flight workspace worker (if any): join blocks the caller until
+    // the worker reaches its next yield/finishes, so its reply is enqueued. Used at
+    // `serve` exit and after each one-shot `handle`; also reclaims a superseded
+    // worker (it bails at its next yield once `ws_generation` moved on).
+    fn join_current_worker(self) -> Void {
+        if let Some(w) = self.current_worker {
+            w.join();
+            self.current_worker = Option.None;
+        }
+    }
+
+    // Run the project-wide diagnostic scan as a background fiber so the dispatch
+    // loop keeps servicing hover/edits/completion while it works. The worker yields
+    // between files (see analysis.workspace_report_interruptible) and delivers its
+    // report — or a ContentModified error if a newer pull/cancel superseded it —
+    // through the shared outbox, keyed by this request's `id`. Under `serve` the
+    // scheduler runs it during the loop's stdin parks; under `handle` it's joined
+    // for a synchronous reply. The reply may arrive out of order (a hover answered
+    // meanwhile), which JSON-RPC allows — responses correlate by `id`.
+    fn start_workspace_scan(self, _ id: Json) -> Void {
+        // Bump first, then reclaim any prior scan: it sees the new generation and
+        // bails at its next yield, so at most one worker is ever in flight.
+        self.ws_generation = self.ws_generation + 1;
+        self.join_current_worker();
+        let gen = self.ws_generation;
+        let worker = fiber.spawn(() => {
+            match self.analysis.workspace_report_interruptible(() => self.ws_generation == gen) {
+                Some(report) => send_response(self.outbox, id, report),
+                // -32801 ContentModified: a newer pull/cancel replaced this scan.
+                // The client re-pulls (also nudged by the edit's refresh) for fresh
+                // results — eventual consistency, not a lost report.
+                None => send_error(self.outbox, id, -32801, 'content modified'),
+            }
+        });
+        self.current_worker = Option.Some(worker);
     }
 
     // Dispatch one message, applying its state and marking any edited document
     // dirty, but **deferring** the refresh nudge to the next `flush`. Returns false
     // on `exit`. (Requests like hover still answer inline — only the diagnostics
     // refresh is deferred.)
-    fn ingest(self, _ writer: io.Writer, _ body: String) -> Bool {
+    fn ingest(self, _ body: String) -> Bool {
         // An unparseable body gets a JSON-RPC ParseError (id null), not a
         // silent drop — the client learns its message was lost (LS9).
         let Ok(msg) = json.parse(body) else {
-            send_error(writer, json.null(), -32700, 'parse error');
+            send_error(self.outbox, json.null(), -32700, 'parse error');
             return true;
         };
         // A request has both `method` and `id`; a notification has `method` and
         // no `id`; a response (no `method`) we ignore — the only requests we send
         // are `workspace/diagnostic/refresh`, whose result we don't act on.
         return match msg.get('method').as_string() {
-            Some(method) => self.dispatch(writer, method, msg.get('id'), msg.get('params')),
+            Some(method) => self.dispatch(method, msg.get('id'), msg.get('params')),
             None => true,
         };
     }
 
     // `id` is a JSON Null for a notification, present for a request.
-    fn dispatch(self, _ writer: io.Writer, _ method: String, _ id: Json, _ params: Json) -> Bool {
+    fn dispatch(self, _ method: String, _ id: Json, _ params: Json) -> Bool {
         // After `shutdown`, only `exit` is meaningful: further requests are
         // answered with InvalidRequest and notifications are dropped, per the
         // LSP lifecycle.
         if self.shutdown_received && method != 'exit' {
             if !id.is_null() {
-                send_error(writer, id, -32600, 'invalid request: server is shut down');
+                send_error(self.outbox, id, -32600, 'invalid request: server is shut down');
             }
             return true;
         }
@@ -141,7 +213,7 @@ impl Server {
             self.analysis.set_roots(workspace_roots(params));
             self.client_refresh_support = client_supports_diagnostic_refresh(params);
             self.analysis.set_exclude(string_array(params.get('initializationOptions').get('exclude')));
-            send_response(writer, id, initialize_result());
+            send_response(self.outbox, id, initialize_result());
             return true;
         }
         if method == 'initialized' {
@@ -152,12 +224,12 @@ impl Server {
         if method == 'workspace/didChangeConfiguration' {
             self.analysis.set_exclude(
                 string_array(params.get('settings').get('hawk').get('exclude')));
-            self.request_workspace_refresh(writer);
+            self.request_workspace_refresh();
             return true;
         }
         if method == 'shutdown' {
             self.shutdown_received = true;
-            send_response(writer, id, json.null());
+            send_response(self.outbox, id, json.null());
             return true;
         }
         if method == 'exit' {
@@ -177,40 +249,40 @@ impl Server {
             return true;
         }
         if method == 'textDocument/documentSymbol' {
-            send_response(writer, id, self.document_symbols(params.get('textDocument').get('uri').as_string()));
+            send_response(self.outbox, id, self.document_symbols(params.get('textDocument').get('uri').as_string()));
             return true;
         }
         if method == 'textDocument/hover' {
-            send_response(writer, id,
+            send_response(self.outbox, id,
                 self.hover(params.get('textDocument').get('uri').as_string(), params.get('position')));
             return true;
         }
         if method == 'textDocument/definition' {
-            send_response(writer, id,
+            send_response(self.outbox, id,
                 self.definition(params.get('textDocument').get('uri').as_string(), params.get('position')));
             return true;
         }
         if method == 'textDocument/formatting' {
-            send_response(writer, id, self.formatting(params.get('textDocument').get('uri').as_string()));
+            send_response(self.outbox, id, self.formatting(params.get('textDocument').get('uri').as_string()));
             return true;
         }
         if method == 'textDocument/codeAction' {
-            send_response(writer, id,
+            send_response(self.outbox, id,
                 self.code_action(params.get('textDocument').get('uri').as_string(),
                     params.get('range'), params.get('context')));
             return true;
         }
         if method == 'workspace/symbol' {
-            send_response(writer, id, self.workspace_symbol(params.get('query').as_string()));
+            send_response(self.outbox, id, self.workspace_symbol(params.get('query').as_string()));
             return true;
         }
         if method == 'textDocument/references' {
-            send_response(writer, id, self.references(params.get('textDocument').get('uri').as_string(),
+            send_response(self.outbox, id, self.references(params.get('textDocument').get('uri').as_string(),
                 params.get('position'), params.get('context')));
             return true;
         }
         if method == 'textDocument/rename' {
-            self.emit_rename(writer, id, params.get('textDocument').get('uri').as_string(),
+            self.emit_rename(id, params.get('textDocument').get('uri').as_string(),
                 params.get('position'), params.get('newName').as_string());
             return true;
         }
@@ -219,14 +291,22 @@ impl Server {
         // diagnostic` is what makes diagnostics project-wide with no file open.
         if method == 'textDocument/diagnostic' {
             if let Some(uri) = params.get('textDocument').get('uri').as_string() {
-                send_response(writer, id, self.analysis.document_report(uri));
+                send_response(self.outbox, id, self.analysis.document_report(uri));
             } else {
-                send_response(writer, id, json.null());
+                send_response(self.outbox, id, json.null());
             }
             return true;
         }
         if method == 'workspace/diagnostic' {
-            send_response(writer, id, self.analysis.workspace_report());
+            self.start_workspace_scan(id);
+            return true;
+        }
+        // A cancel targets the only cancellable background op — the in-flight
+        // workspace scan. Bumping the generation makes it bail (ContentModified);
+        // inline requests have already completed, so a cancel for one is moot.
+        if method == '$/cancelRequest' {
+            self.ws_generation = self.ws_generation + 1;
+            self.join_current_worker();
             return true;
         }
         if method == 'textDocument/didClose' {
@@ -243,7 +323,7 @@ impl Server {
         // doesn't hang (a null *result* would claim we handled it); a
         // notification (Null id) is simply dropped.
         if !id.is_null() {
-            send_error(writer, id, -32601, 'method not found: ${method}');
+            send_error(self.outbox, id, -32601, 'method not found: ${method}');
         }
         return true;
     }
@@ -347,7 +427,7 @@ impl Server {
     // collision (the new name is already bound in an affected scope — see
     // rename.collision). A collision is an error, not a null result, so the editor
     // shows the reason instead of silently doing nothing.
-    fn emit_rename(self, _ writer: io.Writer, _ id: Json, _ uri: Option<String>,
+    fn emit_rename(self, _ id: Json, _ uri: Option<String>,
         _ position: Json, _ new_name: Option<String>) -> Void {
         let outcome = match uri {
             Some(u) => match new_name {
@@ -357,10 +437,10 @@ impl Server {
             None => RenameOutcome.Decline,
         };
         match outcome {
-            Edit(edit) => send_response(writer, id, edit),
-            Decline => send_response(writer, id, json.null()),
+            Edit(edit) => send_response(self.outbox, id, edit),
+            Decline => send_response(self.outbox, id, json.null()),
             // -32803 RequestFailed (LSP): a valid request we chose not to fulfill.
-            Collision(message) => send_error(writer, id, -32803, message),
+            Collision(message) => send_error(self.outbox, id, -32803, message),
         }
     }
 
@@ -371,9 +451,9 @@ impl Server {
     // documents and the workspace, which our `textDocument/diagnostic` /
     // `workspace/diagnostic` handlers answer — reusing the session's checked-clean
     // cache, so only the edited cone recomputes.
-    fn flush(self, _ writer: io.Writer) -> Void {
+    fn flush(self) -> Void {
         if self.analysis.take_dirty().len() > 0 {
-            self.request_workspace_refresh(writer);
+            self.request_workspace_refresh();
         }
     }
 
@@ -381,13 +461,13 @@ impl Server {
     // signal (the server pushes nothing). A server-initiated request; the client's
     // response carries no `method`, so `ingest` drops it. A no-op when the client
     // didn't advertise refresh support (it then pulls on its own cadence).
-    fn request_workspace_refresh(self, _ writer: io.Writer) -> Void {
+    fn request_workspace_refresh(self) -> Void {
         if !self.client_refresh_support {
             return;
         }
         let id = self.next_request_id;
         self.next_request_id = id + 1;
-        jsonrpc.send_message(writer, json.obj({
+        self.outbox.send(json.obj({
             'jsonrpc': json.str('2.0'),
             'id': json.int(id),
             'method': json.str('workspace/diagnostic/refresh'),
@@ -397,8 +477,8 @@ impl Server {
 
 // --- JSON-RPC envelope helpers ---
 
-fn send_response(_ writer: io.Writer, _ id: Json, _ result: Json) -> Void {
-    jsonrpc.send_message(writer, json.obj({
+fn send_response(_ ob: outbox.Outbox, _ id: Json, _ result: Json) -> Void {
+    ob.send(json.obj({
         'jsonrpc': json.str('2.0'),
         'id': id,
         'result': result,
@@ -406,9 +486,10 @@ fn send_response(_ writer: io.Writer, _ id: Json, _ result: Json) -> Void {
 }
 
 // A JSON-RPC error response (`code` from the spec's reserved range:
-// -32700 ParseError, -32601 MethodNotFound, -32600 InvalidRequest).
-fn send_error(_ writer: io.Writer, _ id: Json, _ code: Int, _ message: String) -> Void {
-    jsonrpc.send_message(writer, json.obj({
+// -32700 ParseError, -32601 MethodNotFound, -32600 InvalidRequest, and the LSP
+// extensions -32801 ContentModified / -32803 RequestFailed).
+fn send_error(_ ob: outbox.Outbox, _ id: Json, _ code: Int, _ message: String) -> Void {
+    ob.send(json.obj({
         'jsonrpc': json.str('2.0'),
         'id': id,
         'error': json.obj({

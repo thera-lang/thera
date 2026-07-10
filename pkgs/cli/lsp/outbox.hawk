@@ -1,0 +1,83 @@
+// The LSP server's single outbound message sink. Every reply, error, and
+// notification the server emits goes through an `Outbox`, so the two producers —
+// the request-dispatch loop and a background `workspace/diagnostic` worker fiber
+// — never interleave the bytes of one framed JSON-RPC message on the wire.
+//
+// Two live modes. `serve` installs an *async* outbox: a dedicated writer fiber
+// drains a channel and does the actual framed writes, so producers just enqueue
+// (a `send` that only blocks when the buffer fills, which cedes to the writer)
+// and the single consumer serializes output. `handle` (the one-shot/test entry)
+// installs a *direct* outbox that writes straight through on the calling fiber —
+// no scheduler needed, so the in-process tests observe output synchronously. A
+// freshly constructed server holds a *discard* outbox until one of those installs
+// the real one; nothing is sent in that window.
+
+import std.io;
+import std.json as _;
+import std.fiber;
+
+import 'jsonrpc';
+
+pub struct Outbox {
+    // Async mode: framed messages are enqueued here for the writer fiber to write.
+    let ch: Option<fiber.Channel<Json>>;
+    // Direct mode: write straight to this writer on the calling fiber.
+    let writer: Option<io.Writer>;
+    // The writer fiber draining `ch` (async mode only) — joined on `shutdown` so
+    // buffered messages flush before `serve` returns.
+    let pump: Option<fiber.Fiber<Void>>;
+}
+
+// An outbox that drops everything — the pre-install sentinel a fresh server holds.
+pub fn discard_outbox() -> Outbox {
+    return Outbox { ch: Option.None, writer: Option.None, pump: Option.None };
+}
+
+// A synchronous outbox: `send` frames and writes on the calling fiber. Used by
+// `handle` (tests / one-shot), which drives the server without a scheduler.
+pub fn direct_outbox(_ writer: io.Writer) -> Outbox {
+    return Outbox { ch: Option.None, writer: Option.Some(writer), pump: Option.None };
+}
+
+// An asynchronous outbox: a writer fiber drains the channel and does the writes,
+// so concurrent producers only enqueue and their output never interleaves.
+pub fn async_outbox(_ writer: io.Writer) -> Outbox {
+    let ch: fiber.Channel<Json> = fiber.channel(64);
+    let pump = fiber.spawn(() => {
+        let mut going = true;
+        while going {
+            match ch.receive() {
+                Some(msg) => jsonrpc.send_message(writer, msg),
+                None => { going = false; },  // channel closed and drained
+            }
+        }
+    });
+    return Outbox { ch: Option.Some(ch), writer: Option.None, pump: Option.Some(pump) };
+}
+
+impl Outbox {
+    // Emit one framed JSON-RPC message. Async: enqueue (blocks only when the
+    // buffer is full, ceding to the writer fiber). Direct: write inline. Discard:
+    // drop.
+    pub fn send(self, _ message: Json) -> Void {
+        match self.ch {
+            Some(c) => c.send(message),
+            None => match self.writer {
+                Some(w) => jsonrpc.send_message(w, message),
+                None => {},
+            },
+        }
+    }
+
+    // Close the channel and wait for the writer fiber to flush what's queued
+    // (async mode); a no-op for direct/discard. Called once, on `serve` exit.
+    pub fn shutdown(self) -> Void {
+        match self.ch {
+            Some(c) => c.close(),
+            None => {},
+        }
+        if let Some(f) = self.pump {
+            f.join();
+        }
+    }
+}

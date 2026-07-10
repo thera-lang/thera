@@ -365,14 +365,14 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   value+type resolution, the resolved-library cache with dependency-graph
   invalidation, `type_at` (inference-at-offset), and semantic references/rename
   all shipped (see _Changelog_). The remaining follow-ups, all deferred:
-  - **Workspace diagnostics — backgrounding + `resultId` caching.** The pull-model
-    `workspace/diagnostic` path landed (see _Changelog_), but it runs
-    **synchronously** on the request loop — a large workspace's first pass blocks
-    other requests until done. Move the workspace check onto the runtime's
-    cooperative fibers so it streams/yields, and add per-file `resultId` caching so
-    a re-pull re-emits only changed files (today every file gets a fresh full
-    report). Also make the refresh nudge fire only when a change could actually
-    alter *cross-file* results.
+  - **Workspace diagnostics — `resultId` caching + smarter refresh.** The
+    workspace check now runs on a background fiber (see _Changelog_), so a large
+    first pass no longer blocks the request loop. Two follow-ups remain: add
+    per-file `resultId` caching so a re-pull re-emits only *changed* files (today
+    every file gets a fresh full report), and make the refresh nudge fire only when
+    a change could actually alter *cross-file* results (today any edit nudges a full
+    re-pull). A further refinement would stream partial results via a
+    `partialResultToken` (`$/progress`) instead of one report at the end.
   - **Primitive-receiver member resolution.** Hover / definition / member
     resolution on a primitive receiver (`"s".split()`) don't resolve — a
     `Primitive` value carries no `TypeId`. Ties to _Primitive vtables_
@@ -739,6 +739,20 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **Workspace diagnostics — backgrounded on a fiber (LSP)** (2026-07). The
+  `workspace/diagnostic` scan no longer runs synchronously on the request loop: it
+  runs on a background fiber (`server.start_workspace_scan`) that `yield`s between
+  files, so a large project's first pass no longer blocks hover/edits/completion.
+  The scheduler runs the worker during the loop's stdin parks; the worker delivers
+  its report through a new **outbox** (`pkgs/cli/lsp/outbox.hawk`) — a single
+  serialized outbound sink so the dispatch loop and the worker never interleave
+  bytes of one framed message. `serve` installs an *async* outbox (a writer fiber
+  draining a channel, joined on exit so buffered replies flush); `handle` (the
+  one-shot/test path) installs a *direct* one and joins the worker inline, so the
+  in-process tests stay synchronous. Supersession is a generation counter: a newer
+  pull or a `$/cancelRequest` bumps it, and the stale worker bails with
+  `ContentModified` (-32801) — the client keeps the latest (eventual consistency).
+  Still deferred: per-file `resultId` caching and a smarter refresh nudge.
 - **Per-file SDK resolution — cross-path core identity (loader)** (2026-07). A
   file that lives *inside* an SDK's `std` tree now resolves its `std.*` imports
   (and the auto-imported `std.core` prelude) from **that same tree** rather than
@@ -780,9 +794,8 @@ conformance specs. Newest first.
   cone recomputes, the rest are checked-set hits) — so push stays for open files
   and pull carries the project. The `library_cache` is now **LRU** with a high cap
   (1024) instead of clear-all-at-32, so workspace analysis doesn't thrash it.
-  Deferred: running the workspace check on fibers (it's synchronous today, so a
-  big first pass blocks the loop) and `resultId` caching so a re-pull re-emits only
-  changed files.
+  (Backgrounding the workspace check on a fiber landed later — see the top of this
+  changelog; `resultId` caching is still deferred.)
 - **References/rename — dependency-cone pruning (LSP)** (2026-07). The
   project-wide scan no longer builds every workspace file's closure. Both
   requests now scope the expensive resolution to the target's **dependency

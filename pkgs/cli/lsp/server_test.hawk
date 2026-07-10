@@ -46,6 +46,17 @@ fn count_substr(_ haystack: String, _ needle: String) -> Int {
     return count;
 }
 
+// Drive `serve` over a stream of already-framed messages (a `BurstReader` that
+// then EOFs) and return everything the server wrote. Unlike `handled`/`capture`
+// (which go through the synchronous `handle`), this runs the real async transport:
+// the background workspace worker and the writer fiber, drained on the `exit`/EOF.
+fn served(_ frames: String) -> String {
+    let reader = BurstReader { data: frames.bytes(), pos: 0 };
+    let out = io.StringWriter.new();
+    serve(reader, out, Option.None);
+    return out.into_string().unwrap_or('');
+}
+
 // Run one message through a fresh server and return everything it wrote.
 fn handled(_ body: String) -> String {
     let server = new_server(Option.None);
@@ -692,6 +703,63 @@ fn test_close_drops_a_loose_file_from_the_workspace_pull() -> Result<Void, Error
     let after = capture(server, '{"jsonrpc":"2.0","id":3,"method":"workspace/diagnostic","params":'
         + '{"previousResultIds":[]}}');
     testing.assert(!after.contains('stale.hawk'), message: 'the closed loose file drops out')?;
+    return Result.Ok(void);
+}
+
+// The async path: `workspace/diagnostic` runs on a background fiber under `serve`,
+// and the writer fiber flushes its report on drain. This exercises the real
+// scheduler (not the synchronous `handle` join): the worker must complete and its
+// reply reach the wire.
+@test
+fn test_serve_backgrounds_the_workspace_scan() -> Result<Void, Error> {
+    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_serve_ws_test');
+    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    fs.create_dir_all(dir)?;
+    fs.write_text(dir + '/bad.hawk', 'fn oops() -> Int { return missing; }\n')?;
+
+    let stream = jsonrpc.frame('{"jsonrpc":"2.0","id":1,"method":"initialize","params":'
+        + '{"rootUri":"file://' + dir + '"}}')
+        + jsonrpc.frame('{"jsonrpc":"2.0","id":2,"method":"workspace/diagnostic","params":'
+            + '{"previousResultIds":[]}}')
+        + jsonrpc.frame('{"jsonrpc":"2.0","method":"exit"}');
+    let out = served(stream);
+    testing.assert(out.contains('bad.hawk'), message: 'the backgrounded scan reports bad.hawk')?;
+    testing.assert(out.contains('undefined name: missing'), message: 'its diagnostic reaches the wire')?;
+    testing.assert(out.contains('"id":2') || out.contains('"id": 2'), message: 'replies to the pull id')?;
+
+    match fs.remove_dir_all(dir) { Ok(_) => {}, Err(_) => {} }
+    return Result.Ok(void);
+}
+
+// A second `workspace/diagnostic` supersedes the first: the older scan bails with
+// a ContentModified error (-32801) and the newer one produces the report. The
+// client keeps the latest — eventual consistency, no lost report.
+@test
+fn test_serve_supersedes_the_older_workspace_pull() -> Result<Void, Error> {
+    let stream = jsonrpc.frame('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}')
+        + jsonrpc.frame('{"jsonrpc":"2.0","id":2,"method":"workspace/diagnostic","params":'
+            + '{"previousResultIds":[]}}')
+        + jsonrpc.frame('{"jsonrpc":"2.0","id":3,"method":"workspace/diagnostic","params":'
+            + '{"previousResultIds":[]}}')
+        + jsonrpc.frame('{"jsonrpc":"2.0","method":"exit"}');
+    let out = served(stream);
+    testing.assert_eq(actual: count_substr(out, '-32801'), expected: 1)?;
+    testing.assert(out.contains('"id":2') || out.contains('"id": 2'), message: 'the superseded pull is answered')?;
+    testing.assert(out.contains('"id":3') || out.contains('"id": 3'), message: 'the newer pull is answered')?;
+    return Result.Ok(void);
+}
+
+// A `$/cancelRequest` stops the in-flight workspace scan, which then replies with
+// ContentModified rather than a (now-unwanted) report.
+@test
+fn test_serve_cancels_the_workspace_scan() -> Result<Void, Error> {
+    let stream = jsonrpc.frame('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}')
+        + jsonrpc.frame('{"jsonrpc":"2.0","id":2,"method":"workspace/diagnostic","params":'
+            + '{"previousResultIds":[]}}')
+        + jsonrpc.frame('{"jsonrpc":"2.0","method":"$/cancelRequest","params":{"id":2}}')
+        + jsonrpc.frame('{"jsonrpc":"2.0","method":"exit"}');
+    let out = served(stream);
+    testing.assert(out.contains('-32801'), message: 'the cancelled scan replies ContentModified')?;
     return Result.Ok(void);
 }
 
