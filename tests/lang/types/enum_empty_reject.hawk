@@ -1,0 +1,11 @@
+//! spec: type-enum-nonempty
+//! mode: check
+
+// An enum must declare at least one variant (grammar.md, enumDecl): a
+// zero-variant enum is uninhabited — almost always an editing accident — and
+// is a parse error.
+enum Never {} // expect error: at least one variant
+
+fn main() -> Int {
+    return 0;
+}

@@ -335,15 +335,6 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   (`fn f<U>(x: U) -> Box<U>` doesn't require `U: Display`); and
   `expected_arg_types` still handles only the namespace callee head inline.
   (Generics are **invariant by design** — no variance work planned.)
-- **Generic-call type args: support nested generics.** The
-  `looks_like_type_arg_list` lookahead (`pkgs/cli/parser/parser.hawk`) bails on
-  any non-identifier inside `<…>`, so `f<Result<T, E>>(…)` and
-  `Map<String, List<Int>>.new()` are unwritable — annotated positions (`let`,
-  params) handle nesting fine; only the call forms are limited (grammar.md →
-  Parser limitations). The follow-token discipline (`>` then `(` or `.`) already
-  carries the disambiguation, so extend the scan to a balanced `<`/`>` walk over
-  `IDENT`/`.`/`,` while keeping the same commit rule. Small and self-contained;
-  removes a form LLMs reach for constantly (grammar review, 2026-07).
 - **Let a user scope shadow a prelude _value_ name.** Today
   `check_shadowed_surface` flags any top-level decl whose name is in the file's
   bare surface (prelude + `as _` imports), so a `pub fn error` collides with the
@@ -717,24 +708,6 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   **LLM lens**: one obvious way to write a map, valid everywhere an expression
   is, no silent `Void`. (Review leaning: (a).)
 
-- **Require `,` after non-block `match` arms.** The arm separator is fully
-  optional today — `1 => 'one' 2 => 'two'` parses (grammar review, 2026-07).
-  It's unambiguous _now_ only because no pattern can start with `(`; the day
-  parenthesized patterns or or-patterns land, `A => f (x) => …` reads `(x)` as a
-  call on `f`. Adopt the Rust rule — `,` required after an expression-bodied
-  arm, optional after a `{…}` arm — before pattern syntax grows. Also the more
-  familiar form. Corpus impact should be ~nil (existing style always writes the
-  comma); tighten parser + grammar.md's `arm` production together.
-
-- **Reject zero-variant enums (or bless them).** `enum Never {}` currently
-  parses _and_ checks clean (grammar review, 2026-07 — the parser's variant loop
-  accepts an empty body; grammar.md now documents the implementation behavior).
-  There is no never-type story that would give an uninhabited type meaning, so
-  today it's almost certainly an editing accident that fails only at
-  construction/match sites. Decide: make it a parse or check error (recommended
-  absent a never type), or keep it and define its semantics (not constructible,
-  `match` needs no arms).
-
 - **Generic operators** (`<T: Add>`, operators-as-traits) — the remaining piece
   of the generics arc (bound enforcement + `call.virtual` dispatch on `T` are
   done). This is also where the language's **implicit operator/literal
@@ -808,6 +781,21 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **Grammar-review syntax tightenings (parser)** (2026-07). Three items from the
+  2026-07 grammar review landed. (1) **Nested generics in call-position type
+  args**: `looks_like_type_arg_list` is now a balanced `<`/`>` scan (over
+  identifiers / `.` / `,`) keeping the same `(`/`.` follow-token commit rule, so
+  `f<Result<T, E>>(…)` and `Map<String, List<Int>>.new()` parse. Function types
+  in call-position type args stay unrecognized — admitting `(` would swallow
+  parenthesized comparisons; annotated positions handle them fine. (2) **`,`
+  required after expression-bodied `match` arms** (optional after a `{…}` arm
+  and before the closing `}`) — the Rust rule, pre-empting the ambiguity
+  or-/parenthesized patterns would create; the error marks the arm's end, where
+  the comma belongs. Corpus impact was zero. (3) **Zero-variant enums rejected**
+  (`enum Never {}` parsed and checked clean; uninhabited, and there is no
+  never-type story). Conformance: `gen-call-nested-args`, `cf-match-arm-comma`,
+  `type-enum-nonempty`; grammar.md updated alongside. The map-literal-vs-block
+  ambiguity — the review's big design item — stays open above.
 - **Workspace diagnostics — `resultId` caching + surface-gated nudge (LSP)**
   (2026-07). Two refinements on the pull-diagnostics path. (1) **Per-file
   `resultId` caching** (LSP 3.17): the server stamps each file's report with an

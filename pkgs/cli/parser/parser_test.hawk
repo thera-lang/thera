@@ -336,6 +336,44 @@ fn test_parse_struct_field_requires_semicolon() -> Result<Void, Error> {
 }
 
 @test
+fn test_parse_enum_requires_variant() -> Result<Void, Error> {
+    // A zero-variant enum is rejected — uninhabited, almost always an accident.
+    let r = parse_src('enum Never {}\n');
+    testing.assert(r.has_errors(), message: 'a zero-variant enum is rejected')?;
+    let ok = parse_src('enum One { Only }\n');
+    testing.assert(!ok.has_errors(), message: 'a one-variant enum parses')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_match_arm_comma_required_after_expr_arm() -> Result<Void, Error> {
+    // The `,` after an expression-bodied arm is required…
+    let r = parse_src("fn f(_ x: Int) -> String { return match x { 1 => 'one' _ => 'other' }; }");
+    testing.assert(r.has_errors(), message: 'comma-less expression arms are rejected')?;
+    // …but optional after a `{…}` block arm and before the closing `}`.
+    let ok = parse_src("fn f(_ x: Int) -> String { return match x { 1 => { 'one' } _ => 'other' }; }");
+    testing.assert(!ok.has_errors(), message: 'a block arm needs no comma')?;
+    let last = parse_src("fn f(_ x: Int) -> String { return match x { _ => 'other' }; }");
+    testing.assert(!last.has_errors(), message: 'the last arm needs no trailing comma')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_generic_call_nested_type_args() -> Result<Void, Error> {
+    // Nested generics in call-position type-argument lists, both call forms:
+    // `g<Result<Int, String>>(…)` and `Map<String, List<Int>>.new()`.
+    let r = parse_src('fn f() -> Void { let x = g<Result<Int, String>>(1); }');
+    testing.assert(!r.has_errors(), message: 'nested generic call should parse')?;
+    let recv = parse_src('fn f() -> Void { let m = Map<String, List<Int>>.new(); }');
+    testing.assert(!recv.has_errors(), message: 'nested receiver type args should parse')?;
+    // A comparison chain is still comparisons — no `<` classified as generic.
+    let cmp = parse_src('fn f(_ a: Int, _ b: Int, _ c: Int) -> Void { let x = a < b > c; }');
+    testing.assert(!cmp.has_errors(), message: 'comparison chain should parse')?;
+    testing.assert_eq(actual: cmp.generic_delims.opens.len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_parse_impl_nested_interface_arg() -> Result<Void, Error> {
     // A nested generic in an `impl` header's interface argument
     // (`Iterator<Indexed<T>>`) — the form that gates the `enumerate` adapter.

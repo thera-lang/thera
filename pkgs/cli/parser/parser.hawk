@@ -1013,6 +1013,13 @@ impl Parser {
             }
         }
         let rbrace = self.expect(TokenKind.RBrace, '}');
+        // A zero-variant enum is uninhabited — almost certainly an editing
+        // accident (there is no never-type story that would give it meaning).
+        if variants.len() == 0 {
+            self.fail_at('an enum must declare at least one variant',
+                start.cover(rbrace.span));
+            return self.err_decl();
+        }
         return Decl.Enum(EnumDecl {
             span: start.cover(rbrace.span),
             is_pub: is_pub,
@@ -1907,45 +1914,41 @@ impl Parser {
         return args;
     }
 
-    // Heuristic lookahead: after `<`, a `TypeName>` or `TypeName, TypeName>`
-    // *followed by `(` or `.`* looks like a type-argument list (`f<Int>(...)`,
-    // `Set<String>.new(...)`) rather than a comparison. Requiring the follow
-    // token keeps comparison chains (`a < b > c`) parsing as comparisons (PA3);
-    // the residual `a < b > (c)` ambiguity resolves the generic-call way (as in
-    // C#) and the checker rejects type arguments on a non-generic callee — see
-    // grammar.md's generic-call caveat.
+    // Heuristic lookahead: after `<`, a balanced type-argument-shaped token run
+    // (identifiers, `.`, `,`, nested `<`/`>`) whose closing `>` is *followed by
+    // `(` or `.`* looks like a type-argument list — `f<Int>(...)`,
+    // `f<Result<T, E>>(...)`, `Map<String, List<Int>>.new(...)` — rather than a
+    // comparison. Requiring the follow token keeps comparison chains
+    // (`a < b > c`) parsing as comparisons (PA3); the residual `a < b > (c)`
+    // ambiguity resolves the generic-call way (as in C#) and the checker rejects
+    // type arguments on a non-generic callee — see grammar.md's generic-call
+    // caveat. Function types (`(Int) -> Int`) are not recognized here — allowing
+    // `(` inside would swallow parenthesized comparisons — so they still can't
+    // appear in call-position type args (annotated positions handle them fine).
     fn looks_like_type_arg_list(self) -> Bool {
         let mut i = self.pos + 1; // after <
-        if i >= self.tokens.len() {
-            return false;
-        }
-        let mut result: Option<Bool> = Option.None;
-        while result == Option.None {
-            let t = self.tokens[i];
-            if t.kind != TokenKind.Identifier {
-                result = Option.Some(false);
-            } else {
-                i = i + 1;
-                if i >= self.tokens.len() {
-                    result = Option.Some(false);
-                } else {
-                    let after = self.tokens[i].kind;
-                    if after == TokenKind.Gt {
-                        let follow = if i + 1 < self.tokens.len() {
-                            self.tokens[i + 1].kind
-                        } else {
-                            TokenKind.Eof
-                        };
-                        result = Option.Some(follow == TokenKind.LParen || follow == TokenKind.Dot);
-                    } else if after == TokenKind.Comma {
-                        i = i + 1;
+        let mut depth = 1;
+        while i < self.tokens.len() {
+            let k = self.tokens[i].kind;
+            if k == TokenKind.Gt {
+                depth = depth - 1;
+                if depth == 0 {
+                    let follow = if i + 1 < self.tokens.len() {
+                        self.tokens[i + 1].kind
                     } else {
-                        result = Option.Some(false); // nested generics: too complex here
-                    }
+                        TokenKind.Eof
+                    };
+                    return follow == TokenKind.LParen || follow == TokenKind.Dot;
                 }
+            } else if k == TokenKind.Lt {
+                depth = depth + 1;
+            } else if k != TokenKind.Identifier && k != TokenKind.Comma
+                && k != TokenKind.Dot {
+                return false;
             }
+            i = i + 1;
         }
-        return result.unwrap_or(false);
+        return false;
     }
 
     fn parse_type_arg_list(self) -> List<TypeRef> {
@@ -2230,13 +2233,23 @@ impl Parser {
         while !self.panicking && !self.check(TokenKind.RBrace) && !self.at_end() {
             let pattern = self.parse_pattern();
             self.expect(TokenKind.FatArrow, '=>');
+            let is_block = self.check(TokenKind.LBrace);
             let mut body = self.err_expr();
-            if self.check(TokenKind.LBrace) {
+            if is_block {
                 let block_start = self.current();
                 let block = self.parse_expr_block();
                 body = Expr.Block(block_start.span.cover(block_span(block)), block);
             } else {
                 body = self.parse_expr();
+            }
+            // The `,` separates arms: required after an expression-bodied arm
+            // (the error marks the arm's end — where the `,` belongs), optional
+            // after a `{…}` block arm or before the closing `}` (so a trailing
+            // comma stays optional). Pre-empts the ambiguity or-patterns /
+            // parenthesized patterns would create (`A => f (x) => …`).
+            if !self.panicking && !is_block && !self.check(TokenKind.Comma)
+                && !self.check(TokenKind.RBrace) {
+                self.fail_at('expected `,` after a match arm', self.prev_span());
             }
             self.match_kind(TokenKind.Comma);
             arms.push(MatchArm {

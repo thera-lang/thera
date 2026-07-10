@@ -1,0 +1,28 @@
+//! spec: gen-call-nested-args
+//! mode: run
+
+// Nested generics in call-position type-argument lists: an explicit type
+// argument on a generic function (`make<List<Int>>()`) and the receiver form
+// (`Set<List<Int>>.new()`). Annotated positions always handled nesting; the
+// call forms are pinned here.
+fn make<T>() -> List<T> {
+    return [];
+}
+
+fn main() -> Int {
+    let xs = make<List<Int>>();
+    xs.push([1, 2]);
+    println('${xs[0].len()}'); // expect: 2
+
+    let s = Set<List<Int>>.new();
+    s.add([1]);
+    s.add([1]);
+    println('${s.len()}'); // expect: 1
+
+    // The `<` disambiguation is unchanged: a chain with no `(`/`.` after the
+    // `>` still parses as comparisons.
+    let a = 1;
+    let b = 2;
+    println('${(a < b) == (b < a)}'); // expect: false
+    return 0;
+}

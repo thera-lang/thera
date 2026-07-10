@@ -68,6 +68,7 @@ and [grammar.md](grammar.md) (syntax).
 | `type-set`                    | Collections            | `Set<T>` uniqueness via `Set.from`                                                                                                     | ✓      |
 | `gen-static-context`          | Collections / Generics | a generic static method (`Set.new()`) infers its owner `T` from call context                                                           | ✓      |
 | `gen-static-recv-args`        | Collections / Generics | receiver type args on a static call (`Set<String>.new()`) bind the owner parameter                                                     | ✓      |
+| `gen-call-nested-args`        | Collections / Generics | nested generics in call-position type args (`make<List<Int>>()`, `Set<List<Int>>.new()`); comparison chains unaffected                 | ✓      |
 | `type-bytes`                  | Types → Bytes          | `Bytes` len / `to_string` / `from_list` / `empty`                                                                                      | ◐      |
 | `type-native`                 | Types → Built-ins      | `native type` decl: opaque, impl-extensible, no field layout                                                                           | ✓      |
 | `type-struct`                 | Structs                | `struct` decl, struct literal, field access                                                                                            | ✓      |
@@ -77,6 +78,7 @@ and [grammar.md](grammar.md) (syntax).
 | `type-struct-immut`           | Structs                | struct fields immutable by default (non-`mut` assign = error)                                                                          | ✓      |
 | `type-mut-field`              | Structs                | a `mut field: T` may be reassigned after construction                                                                                  | ✓      |
 | `type-struct-fields-required` | Structs                | a struct literal must provide every declared field — a `check` diagnostic                                                              | ✓      |
+| `type-enum-nonempty`          | Enums                  | an enum must declare at least one variant — a zero-variant enum is a parse error                                                       | ✓      |
 | `type-reserved-names`         | language.md            | the language's own type names (Result, Option, List, Void, …) may not be declared in user code; core utility names (Args, …) stay free | ✓      |
 | `type-fn-variance`            | Types                  | function-type assignability: contravariant parameters, covariant result                                                                | ✓      |
 | `type-field-nonstruct`        | Structs                | a bare field access on a non-struct value is rejected                                                                                  | ✓      |
@@ -116,22 +118,23 @@ and [grammar.md](grammar.md) (syntax).
 
 ## Control flow
 
-| ID                       | Spec                  | Pins                                                                                                                                          | Status |
-| ------------------------ | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| `cf-if`                  | Control flow          | `if`/`else` statement form                                                                                                                    | ✓      |
-| `cf-if-let`              | Control flow          | `if let PAT = e { … }` conditional binding (statement/value/`else if let`/nested)                                                             | ✓      |
-| `cf-if-let-needs-else`   | Control flow          | value `if let` with no `else` is an error                                                                                                     | ✓      |
-| `cf-let-else`            | Control flow          | `let PAT = e else { … }` bind-or-diverge guard (single/assertion/`throw`)                                                                     | ✓      |
-| `cf-let-else-diverge`    | Control flow          | `let … else` whose `else` doesn't diverge is an error                                                                                         | ✓      |
-| `cf-for`                 | Control flow          | `for x in` over lists and ranges                                                                                                              | ✓      |
-| `cf-while`               | grammar.md Statements | `while` loop                                                                                                                                  | ✓      |
-| `cf-match`               | grammar.md Patterns   | match dispatch; exhaustiveness assumption                                                                                                     | ✓      |
-| `cf-match-nested`        | grammar.md Patterns   | nested constructor patterns bind at leaves                                                                                                    | ✓      |
-| `cf-match-exhaustive`    | grammar.md Patterns   | a match must be exhaustive: enum = all variants or catch-all; Bool = both literals; other subjects = catch-all                                | ✓      |
-| `cf-match-variant-check` | grammar.md Patterns   | a constructor pattern (incl. nested payloads; capitalized bare = zero-arg constructor) must name a real variant — a `check` diagnostic        | ✓      |
-| `cf-match-literal`       | grammar.md Patterns   | int/string/bool literal patterns (not float)                                                                                                  | ✓      |
-| `cf-match-literal-type`  | grammar.md Patterns   | a literal pattern whose type can never equal the subject's is a `check` error                                                                 | ✓      |
-| `cf-break-continue`      | grammar.md Statements | `break` exits / `continue` advances the innermost loop (while/range/list); statement-only, a `check` error outside a loop or across a closure | ✓      |
+| ID                       | Spec                   | Pins                                                                                                                                          | Status |
+| ------------------------ | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| `cf-if`                  | Control flow           | `if`/`else` statement form                                                                                                                    | ✓      |
+| `cf-if-let`              | Control flow           | `if let PAT = e { … }` conditional binding (statement/value/`else if let`/nested)                                                             | ✓      |
+| `cf-if-let-needs-else`   | Control flow           | value `if let` with no `else` is an error                                                                                                     | ✓      |
+| `cf-let-else`            | Control flow           | `let PAT = e else { … }` bind-or-diverge guard (single/assertion/`throw`)                                                                     | ✓      |
+| `cf-let-else-diverge`    | Control flow           | `let … else` whose `else` doesn't diverge is an error                                                                                         | ✓      |
+| `cf-for`                 | Control flow           | `for x in` over lists and ranges                                                                                                              | ✓      |
+| `cf-while`               | grammar.md Statements  | `while` loop                                                                                                                                  | ✓      |
+| `cf-match`               | grammar.md Patterns    | match dispatch; exhaustiveness assumption                                                                                                     | ✓      |
+| `cf-match-nested`        | grammar.md Patterns    | nested constructor patterns bind at leaves                                                                                                    | ✓      |
+| `cf-match-exhaustive`    | grammar.md Patterns    | a match must be exhaustive: enum = all variants or catch-all; Bool = both literals; other subjects = catch-all                                | ✓      |
+| `cf-match-variant-check` | grammar.md Patterns    | a constructor pattern (incl. nested payloads; capitalized bare = zero-arg constructor) must name a real variant — a `check` diagnostic        | ✓      |
+| `cf-match-arm-comma`     | grammar.md Expressions | the `,` after an expression-bodied match arm is required (trailing comma optional; block arms need none) — a parse error                      | ✓      |
+| `cf-match-literal`       | grammar.md Patterns    | int/string/bool literal patterns (not float)                                                                                                  | ✓      |
+| `cf-match-literal-type`  | grammar.md Patterns    | a literal pattern whose type can never equal the subject's is a `check` error                                                                 | ✓      |
+| `cf-break-continue`      | grammar.md Statements  | `break` exits / `continue` advances the innermost loop (while/range/list); statement-only, a `check` error outside a loop or across a closure | ✓      |
 
 ## Error handling
 

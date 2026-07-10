@@ -174,10 +174,10 @@ nativeTypeDecl = 'native' 'type' IDENT typeParams? ';'?
               // representation lives in the runtime. Methods come from `impl`
               // blocks; it cannot be built with a struct literal.
 
-enumDecl    = 'enum' IDENT typeParams? '{' ( variant (',' variant)* )? '}'
+enumDecl    = 'enum' IDENT typeParams? '{' variant (',' variant)* '}'
 variant     = IDENT ( '(' type (',' type)* ')' )?       // positional payload
-              // A zero-variant `enum Never {}` currently parses (and checks);
-              // whether to reject it is an open question — see roadmap.md.
+              // At least one variant is required — a zero-variant enum is a
+              // parse error (uninhabited; there is no never type).
 
 interfaceDecl = 'interface' IDENT typeParams? superInterfaces? '{' ifaceMethod* '}'
 superInterfaces = ':' IDENT ('+' IDENT)*    // extended interfaces, e.g. `: Display + Debug`
@@ -364,10 +364,10 @@ mapEntry  = expr ':' expr
 structBody= '{' ( field (',' field)* )? '}'        field = IDENT ':' expr
 
 matchExpr = 'match' exprNB '{' arm* '}'
-arm       = pattern '=>' ( exprBlock | expr ) ','?
-            // A block arm is tail-valued. The `,` is a *separator*, and today it
-            // is entirely optional (even between arms); requiring it after
-            // expression-bodied arms is tracked in roadmap.md.
+arm       = pattern '=>' ( exprBlock ','? | expr ',' )
+            // A block arm is tail-valued and needs no `,`; an expression arm
+            // requires one. The last arm (before `}`) may omit it either way —
+            // a trailing comma is optional, as everywhere.
 
 // `if` in expression position (docs/language.md). Branches are tail-valued
 // `exprBlock`s; `else` is required where the value is used (a primary `if`, or
@@ -458,15 +458,17 @@ checklist; items that are planned link to [roadmap.md](roadmap.md).
 **Parser limitations (not language decisions)**
 
 - Generic call type-arguments use a lookahead heuristic
-  (`looks_like_type_arg_list`) that bails on **nested** generics in call
-  position, e.g. `f<Result<T, E>>(…)` — and therefore also the receiver form
-  `Map<String, List<Int>>.new()`, which is unwritable today. Annotated positions
-  (`let`, params) handle nesting fine; only the `name<…>(…)` / `Type<…>.m(…)`
-  call forms are limited. A fix (a balanced-bracket lookahead) is tracked in
-  [roadmap.md](roadmap.md).
-- The `<` disambiguation: `name<Idents…>` followed by `(` or `.` commits to type
-  arguments (so a comparison chain `a < b > c` parses as comparisons —
+  (`looks_like_type_arg_list`): after a `<`, a balanced run of identifiers / `.`
+  / `,` / nested `<`/`>` whose closing `>` is followed by `(` or `.` commits to
+  type arguments — so nested generics work in call position
+  (`f<Result<T, E>>(…)`, `Map<String, List<Int>>.new()`). **Function types** are
+  not recognized there (`f<(Int) -> Int>(…)` stays a comparison parse —
+  admitting `(` would swallow parenthesized comparisons); annotated positions
+  (`let`, params) handle them fine.
+- The `<` disambiguation: a type-shaped `<…>` followed by `(` or `.` commits to
+  type arguments (so a comparison chain `a < b > c` parses as comparisons —
   ill-typed, but syntactically comparisons). The residual `a < b > (c)`
-  ambiguity resolves the generic-call way (as in C#); the checker then rejects
-  type arguments on a non-generic callee, so the comparison reading must be
-  written parenthesized: `(a < b) > (c)`.
+  ambiguity (and its qualified/nested cousins, e.g. `a < b.c > (d)`) resolves
+  the generic-call way (as in C#); the checker then rejects type arguments on a
+  non-generic callee, so the comparison reading must be written parenthesized:
+  `(a < b) > (c)`.

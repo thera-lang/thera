@@ -1,0 +1,14 @@
+//! spec: cf-match-arm-comma
+//! mode: check
+
+// The `,` after an expression-bodied match arm is required (grammar.md, arm):
+// it separates arms. A trailing comma before `}` stays optional, and a `{…}`
+// block arm needs none (like a block statement, it ends itself).
+fn main() -> Int {
+    let x = match 1 {
+        1 => 'one' // expect error: `,` after a match arm
+        _ => 'other'
+    };
+    println(x);
+    return 0;
+}
