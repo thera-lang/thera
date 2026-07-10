@@ -335,6 +335,15 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   (`fn f<U>(x: U) -> Box<U>` doesn't require `U: Display`); and
   `expected_arg_types` still handles only the namespace callee head inline.
   (Generics are **invariant by design** — no variance work planned.)
+- **Generic-call type args: support nested generics.** The
+  `looks_like_type_arg_list` lookahead (`pkgs/cli/parser/parser.hawk`) bails on
+  any non-identifier inside `<…>`, so `f<Result<T, E>>(…)` and
+  `Map<String, List<Int>>.new()` are unwritable — annotated positions (`let`,
+  params) handle nesting fine; only the call forms are limited (grammar.md →
+  Parser limitations). The follow-token discipline (`>` then `(` or `.`) already
+  carries the disambiguation, so extend the scan to a balanced `<`/`>` walk over
+  `IDENT`/`.`/`,` while keeping the same commit rule. Small and self-contained;
+  removes a form LLMs reach for constantly (grammar review, 2026-07).
 - **Let a user scope shadow a prelude _value_ name.** Today
   `check_shadowed_surface` flags any top-level decl whose name is in the file's
   bare surface (prelude + `as _` imports), so a `pub fn error` collides with the
@@ -678,22 +687,53 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     variable; `_` reads as "external label = none", consistent with the
     `external internal` slot.)
 
-- **Disambiguate the empty `{}` in a `match` arm (map-literal vs block).** In
-  expression position `{}` is an empty **map** (`return {}`, `let m = {}`, a
-  call argument, an `if`-branch tail `{ {} }` all work). The sharp edge is a
-  **`match` arm**: `pat => ( exprBlock | expr )` tries `exprBlock` first, so a
-  bare `pat => {}` is an empty **block** (value `Void`), not an empty map. This
-  is nasty when mixed with a non-`Void` arm: match-arm unification exempts
-  `Void` arms, so `match x { Some(m) => m, None => {} }` type-checks as `Map`
-  yet the `None` path returns `Void` and only **traps at runtime**
-  (`map.keys: expected map`). Today's workarounds: spell it `=> { {} }` (a block
-  whose tail is the map) or bind it first (`let none: Map<…> = {}; … none`) —
-  both indirect and easy to forget. Want an empty map that is **unambiguous on
-  its own**: a distinct empty-map token (e.g. `[:]` as in Swift/Dart, or `{:}`),
-  `Map.new()`, or having the arm parser treat a bare `=> {}` as a map when the
-  arm's expected type is a map. Pick by the **LLM lens**: one obvious way to
-  write an empty map, no silent `Void`. (A non-empty `{ … }` is never
-  ambiguous.)
+- **Map-literal vs block (`{…}`) — resolve the ambiguity.** In expression
+  position the parser commits to a **map** only on `{}` or a first key that is a
+  string/int literal (optionally `-`-negated) followed by `:`; any other `{` is
+  a block. The grammar review (2026-07) sized the consequences — three distinct
+  pinches, worst first:
+  - **The `match`-arm edge.** `pat => ( exprBlock | expr )` tries `exprBlock`
+    first, so in arm position **any** `{` is a block: a bare `pat => {}` is an
+    empty **block** (value `Void`), not an empty map — and nasty when mixed with
+    a non-`Void` arm, since match-arm unification exempts `Void` arms:
+    `match x { Some(m) => m, None => {} }` type-checks as `Map` yet the `None`
+    path returns `Void` and only **traps at runtime**
+    (`map.keys: expected map`). A _non-empty_ map arm (`pat => {'a': 1}`) at
+    least fails at parse time. Workarounds: wrap (`=> { {…} }`) or bind first
+    (`let none: Map<…> = {}; … none`) — both indirect and easy to forget.
+  - **The first-key restriction.** A map whose first key isn't a literal cannot
+    be written directly: `{k: 1, 'b': 2}` with a variable `k` is a parse error
+    (`expected ';', found ':'`). Workarounds (reorder a literal key first, or
+    `Map.new()` + inserts) are invisible traps for a generator.
+  - The commit heuristic itself is a rule LLMs must _know_, not infer — it has
+    no analogue in the training corpus.
+
+  Candidates: **(a) bracket map literals, Swift-style** — `[k: v]`, empty `[:]`
+  — unify collections on `[`, remove the `{` ambiguity, the arm edge, and the
+  first-key restriction entirely, and are familiar from Swift/Dart corpora; (b)
+  a distinct empty-map token only (`[:]` / `{:}`) — fixes the silent-`Void`
+  case, leaves the other two; (c) commit to map on any `expr ':'` lookahead — no
+  new syntax, but a hairier heuristic and the arm edge remains. Pick by the
+  **LLM lens**: one obvious way to write a map, valid everywhere an expression
+  is, no silent `Void`. (Review leaning: (a).)
+
+- **Require `,` after non-block `match` arms.** The arm separator is fully
+  optional today — `1 => 'one' 2 => 'two'` parses (grammar review, 2026-07).
+  It's unambiguous _now_ only because no pattern can start with `(`; the day
+  parenthesized patterns or or-patterns land, `A => f (x) => …` reads `(x)` as a
+  call on `f`. Adopt the Rust rule — `,` required after an expression-bodied
+  arm, optional after a `{…}` arm — before pattern syntax grows. Also the more
+  familiar form. Corpus impact should be ~nil (existing style always writes the
+  comma); tighten parser + grammar.md's `arm` production together.
+
+- **Reject zero-variant enums (or bless them).** `enum Never {}` currently
+  parses _and_ checks clean (grammar review, 2026-07 — the parser's variant loop
+  accepts an empty body; grammar.md now documents the implementation behavior).
+  There is no never-type story that would give an uninhabited type meaning, so
+  today it's almost certainly an editing accident that fails only at
+  construction/match sites. Decide: make it a parse or check error (recommended
+  absent a never type), or keep it and define its semantics (not constructible,
+  `match` needs no arms).
 
 - **Generic operators** (`<T: Add>`, operators-as-traits) — the remaining piece
   of the generics arc (bound enforcement + `call.virtual` dispatch on `T` are

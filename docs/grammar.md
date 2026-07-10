@@ -96,16 +96,20 @@ digits on both sides of the `.` (`1.0`, not `1.` or `.5`), with no exponent.
 Strings use `'` or `"` (single quotes by convention). Escapes are the seven
 simple ones plus `\xNN` (a byte) and `\u{…}` (1–6 hex digits naming a Unicode
 scalar value); an unrecognized escape is an **error** (no silent pass-through).
-`${ … }` embeds an arbitrary expression.
+`${ … }` embeds an arbitrary expression; a bare `$` not followed by `{` is
+ordinary text (`\$` escapes a literal `${`).
 
 ### Operators & punctuation
 
 ```
-{  }  (  )  [  ]  ,  ;  :  .  ..  ->  =>  ?  @  _
+{  }  (  )  [  ]  ,  ;  :  .  ..  ->  =>  ?  @  #  _
 +  -  *  /  %  =  ==  !=  <  >  <=  >=  &&  ||  !
 +=  -=  *=  /=  %=
 &  |  ^  ~          // bitwise
 ```
+
+`#` introduces a **compiler metaconstant** (`#loc` — see
+[Expressions](#expressions)); `@` introduces a decorator.
 
 The shift operators `<< >> >>>` are not lexed as tokens; the parser forms them
 from adjacent `<`/`>` (see the precedence section). (`DIGIT` is `0`–`9`;
@@ -135,6 +139,8 @@ instead).
 
 ```
 importDecl  = 'import' ( STRING | IDENT ('.' IDENT)* ) ( 'as' ( IDENT | '_' ) )? ';'?
+              // A STRING path must be a plain literal — `${…}` interpolation in
+              // an import path is a parse error.
 
 fnDecl      = 'native'? 'fn' IDENT typeParams? '(' paramList? ')'
               ( '->' type )? ( block | ';'? )
@@ -168,8 +174,10 @@ nativeTypeDecl = 'native' 'type' IDENT typeParams? ';'?
               // representation lives in the runtime. Methods come from `impl`
               // blocks; it cannot be built with a struct literal.
 
-enumDecl    = 'enum' IDENT typeParams? '{' variant (',' variant)* ','? '}'
+enumDecl    = 'enum' IDENT typeParams? '{' ( variant (',' variant)* )? '}'
 variant     = IDENT ( '(' type (',' type)* ')' )?       // positional payload
+              // A zero-variant `enum Never {}` currently parses (and checks);
+              // whether to reject it is an open question — see roadmap.md.
 
 interfaceDecl = 'interface' IDENT typeParams? superInterfaces? '{' ifaceMethod* '}'
 superInterfaces = ':' IDENT ('+' IDENT)*    // extended interfaces, e.g. `: Display + Debug`
@@ -178,10 +186,18 @@ ifaceMethod = 'pub'? 'fn' IDENT typeParams? '(' paramList? ')' ('->' type)? ( bl
               // that don't define it (docs/language.md, Interfaces). Without,
               // a required signature.
 
-implDecl    = 'impl' qualName typeParams?       // typeParams = interface type args
-              ( 'for' qualName typeParams? )?    //   in `impl Iface<Int> for T`
+implDecl    = 'impl' qualName implGenerics?
+              ( 'for' qualName typeParams? )?
               '{' method* '}'
-method      = decorator* 'pub'? 'native'? fnDecl_tail   // a fn, possibly native
+implGenerics = '<' implGeneric (',' implGeneric)* '>'
+implGeneric  = type ( ':' IDENT ('+' IDENT)* )?
+              // The `<…>` after the first name is read per the header's shape:
+              // in `impl Iface<…> for T` it is the interface's *type arguments*
+              // (full types, nesting OK — `impl Iterator<Indexed<T>> for E<T>`);
+              // in an inherent `impl T<…>` each element must be a bare parameter
+              // name with optional bounds (`impl Box<T: Display>`) — enforced by
+              // the parser once it knows whether `for` follows.
+method      = decorator* 'pub'? fnDecl                    // a fn, possibly native
 qualName    = IDENT ('.' IDENT)?                          // e.g. Clock | time.Clock
 
 constDecl   = 'const' IDENT (':' type)? '=' expr ';'?
@@ -193,6 +209,13 @@ letDecl     = 'let' IDENT (':' type)? '=' expr ';'?
 ```
 
 A trailing `;` is optional almost everywhere it can appear.
+
+**Trailing commas.** Every comma-separated list — call arguments, parameter
+lists, type parameters/arguments, list and map literal elements, enum variants
+and their payloads, struct-literal fields, constructor-pattern arguments, lambda
+parameters, decorator arguments — accepts an optional **trailing comma**. The
+productions leave this implicit rather than writing `','?` into each one.
+(Struct _declaration_ fields are `;`-terminated, not a comma list.)
 
 ### Types
 
@@ -221,6 +244,7 @@ exprBlock = '{' statement* expr? '}'
 
 statement = letStmt | constStmt | returnStmt | throwStmt | breakStmt | continueStmt
           | ifStmt | forStmt | whileStmt | assignOrExpr
+          | ';'                                           // stray empty statement, tolerated
 
 letStmt   = 'let' 'mut'? IDENT (':' type)? '=' expr ';'
           | 'let' pattern '=' expr 'else' block ';'?      // `let … else` guard;
@@ -239,8 +263,9 @@ forStmt   = 'for' pattern 'in' exprNB block
 whileStmt = 'while' exprNB block
 
 // The ';' is required, EXCEPT after a block-terminated expression statement
-// (a bare `match`, ending in '}'), which — like if/for/while — needs none. A
-// missing ';' is a parse error (so two adjacent literals do not silently merge).
+// (a bare `match`/`if`, ending in '}'), which — like if/for/while — needs none.
+// An *assignment* always requires the ';'. A missing ';' is a parse error (so
+// two adjacent literals do not silently merge).
 assignOrExpr = expr ( assignOp expr )? ';'?
 assignOp     = '=' | '+=' | '-=' | '*=' | '/=' | '%='
             // an assignment target must be an identifier, field access, or
@@ -249,8 +274,9 @@ assignOp     = '=' | '+=' | '-=' | '*=' | '/=' | '%='
 
 `exprNB` is `expr` parsed with **struct literals suppressed**, so that
 `if foo { … }` reads `foo` as the condition rather than `foo { … }` as a struct
-literal. It is the same grammar as `expr` minus the bare `IDENT '{' … '}'`
-production.
+literal. It is the same grammar as `expr` minus the `qualName structBody`
+production (both the bare `Type { … }` and qualified `ns.Type { … }` forms);
+parenthesizing restores it — `if x == (Point { x: 1 }) { … }` — as in Rust.
 
 ### Patterns
 
@@ -269,8 +295,10 @@ and bind at the leaves — `match e { Bin(Add, Num(a), Num(b)) => … }` tests t
 `Bin` tag, the nested `Add`/`Num` tags, and binds `a`/`b`. A non-matching nested
 pattern falls through to the next arm (matches are assumed exhaustive; end with
 a catch-all `_` when the patterns are refutable). Literal patterns cover ints,
-strings, and booleans (not floats) and may appear at any depth. There are no
-or-patterns, guards, range, or struct/field patterns.
+strings, and booleans (not floats) and may appear at any depth. A string pattern
+must be a plain literal (`${…}` interpolation is a parse error), and there is no
+negated form (a leading `-` is not part of a pattern, so `-1 => …` doesn't
+parse). There are no or-patterns, guards, range, or struct/field patterns.
 
 ### Expressions
 
@@ -296,6 +324,10 @@ unary      = ( '!' | '-' | '~' ) unary                   // prefix, right-assoc
 postfix    = primary postfixOp*
 postfixOp  = '.' IDENT                                    // field or method name
            | typeArgs? '(' callArgs? ')'                  // call (optionally generic)
+           | typeArgs '.' IDENT typeArgs? '(' callArgs? ')'
+                // receiver type args on a static call — `Set<String>.new(…)`:
+                // the first `<…>` binds the receiver type's parameters; the
+                // method may carry its own `<…>`
            | '[' expr ']'                                 // index
            | '?'                                          // error propagation
 callArgs   = callArg (',' callArg)*
@@ -304,10 +336,11 @@ callArg    = ( IDENT ':' )? expr                          // optional argument l
 
 ```
 primary  = INT | FLOAT | STRING | 'true' | 'false' | 'self' | 'void'
+         | '#' IDENT                                      // metaconstant (`#loc` only)
          | '(' expr ')'                                   // grouping
          | '(' lambdaParams? ')' '=>' expr                // lambda
          | IDENT '=>' expr                                // single-param lambda
-         | IDENT structBody                               // struct literal (when permitted)
+         | qualName structBody                            // struct literal (when permitted)
          | IDENT                                          // name
          | listLit | mapLit
          | matchExpr
@@ -324,11 +357,17 @@ mapEntry  = expr ':' expr
             // A `{` opens a map literal only when it looks like one: `{}` or a
             // first key that is a string/int literal (optionally `-`-negated)
             // followed by `:`; any other `{` in expression position is a block.
-            // Later keys are unrestricted exprs.
-structBody= '{' ( field (',' field)* ','? )? '}'   field = IDENT ':' expr
+            // Later keys are unrestricted exprs. Consequence: a map whose *first*
+            // key is not a literal cannot be written directly (`{k: 1}` with a
+            // variable `k` is a parse error) — put a literal key first or build
+            // with `Map.new()`. Tracked in roadmap.md (map-literal ambiguity).
+structBody= '{' ( field (',' field)* )? '}'        field = IDENT ':' expr
 
 matchExpr = 'match' exprNB '{' arm* '}'
-arm       = pattern '=>' ( exprBlock | expr ) ','?      // a block arm is tail-valued
+arm       = pattern '=>' ( exprBlock | expr ) ','?
+            // A block arm is tail-valued. The `,` is a *separator*, and today it
+            // is entirely optional (even between arms); requiring it after
+            // expression-bodied arms is tracked in roadmap.md.
 
 // `if` in expression position (docs/language.md). Branches are tail-valued
 // `exprBlock`s; `else` is required where the value is used (a primary `if`, or
@@ -343,10 +382,16 @@ with `{`; in **expression (`primary`) position** the parser commits to a **map**
 when it sees `{}` or a string/int key followed by `:`, otherwise a **block
 expression**. The exception is a position that grammatically expects a block
 first — a **`match` arm** (`pattern '=>' ( exprBlock | expr )`, which tries
-`exprBlock` before `expr`): there a bare `=> {}` is an **empty block** (value
-`Void`), _not_ an empty map. So an empty-map arm must be spelled `=> { {} }` (a
-block whose tail is the map literal) or with a typed binding — a known sharp
-edge tracked in [roadmap.md](roadmap.md).
+`exprBlock` before `expr`): there **any** `{` is a block, so a bare `=> {}` is
+an **empty block** (value `Void`), _not_ an empty map, and a non-empty map
+(`=> {'a': 1}`) is a parse error. A map-literal arm must be wrapped —
+`=> { {…} }` (a block whose tail is the map literal) — or bound first with a
+typed `let`. A known sharp edge tracked in [roadmap.md](roadmap.md).
+
+`#loc` is the one **compiler metaconstant** (`'#' IDENT`; any other name is a
+parse error). It evaluates to a `SourceLoc` for the expression's own source
+position — and as a parameter _default_ it captures the **caller's** location
+(see [language.md](language.md)).
 
 ## Operator precedence (summary)
 
@@ -406,8 +451,9 @@ checklist; items that are planned link to [roadmap.md](roadmap.md).
 
 **Patterns**
 
-- Float literal patterns; or-patterns (`A | B`), guards (`pat if cond`), range
-  patterns, struct/field destructuring, and `name @ subpattern` bindings.
+- Float and negative-int literal patterns; or-patterns (`A | B`), guards
+  (`pat if cond`), range patterns, struct/field destructuring, and
+  `name @ subpattern` bindings.
 
 **Parser limitations (not language decisions)**
 
@@ -416,7 +462,8 @@ checklist; items that are planned link to [roadmap.md](roadmap.md).
   position, e.g. `f<Result<T, E>>(…)` — and therefore also the receiver form
   `Map<String, List<Int>>.new()`, which is unwritable today. Annotated positions
   (`let`, params) handle nesting fine; only the `name<…>(…)` / `Type<…>.m(…)`
-  call forms are limited.
+  call forms are limited. A fix (a balanced-bracket lookahead) is tracked in
+  [roadmap.md](roadmap.md).
 - The `<` disambiguation: `name<Idents…>` followed by `(` or `.` commits to type
   arguments (so a comparison chain `a < b > c` parses as comparisons —
   ill-typed, but syntactically comparisons). The residual `a < b > (c)`
