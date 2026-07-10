@@ -1187,6 +1187,14 @@ impl Parser {
             // The statement span covers through the `;` (PA7), like Let/Return.
             return Stmt.Assign(start.cover(self.prev_span()), expr, compound, rhs);
         }
+        // A `:` after an expression statement is never legal — it is the
+        // removed brace-map shape with a non-literal key (`{k: v}`), read as a
+        // block whose first statement is `k`. Raise the migration hint rather
+        // than a baffling "expected ';', found ':'".
+        if self.check(TokenKind.Colon) {
+            self.fail('map literals are written `[k: v]`, not `{…}` (braces are blocks)');
+            return self.err_stmt();
+        }
         // A block-terminated expression statement (a bare `match`/`if` ending in
         // `}`) needs no trailing ';'; everything else requires one.
         if is_block_terminated(expr) {
@@ -2061,8 +2069,12 @@ impl Parser {
             return self.parse_list_literal();
         }
         if k == TokenKind.LBrace {
-            if self.is_map_literal_start() {
-                return self.parse_map_literal();
+            // Braces are blocks; the removed brace-map form gets a targeted
+            // hint (the map-literal migration, roadmap.md). An empty `{}` is
+            // an empty block (value `Void`).
+            if self.at_legacy_brace_map() {
+                self.fail('map literals are written `[k: v]` (`[:]` when empty), not `{…}`');
+                return self.err_expr();
             }
             let block = self.parse_expr_block();
             return Expr.Block(t.span.cover(block_span(block)), block);
@@ -2152,39 +2164,21 @@ impl Parser {
         return result.unwrap_or(false);
     }
 
-    // True when the current `{` opens a map literal (`{}` or `{ key: value, ...}`
-    // with a — possibly negated — string/int literal key) rather than a block.
-    fn is_map_literal_start(self) -> Bool {
+    // True when the current `{` opens what *looks like* the removed brace-map
+    // form — a (possibly `-`-negated) string/int literal key followed by `:`.
+    // This was the old brace-map commit heuristic; it survives only as the
+    // shape detector behind the migration hint. (An empty `{}` is a block, not
+    // flagged; a non-literal key falls to the block parse, where the `:` after
+    // an expression statement raises the same hint — see `finish_expr_stmt`.)
+    fn at_legacy_brace_map(self) -> Bool {
         let peek1 = self.peek_tok(1);
-        if peek1.kind == TokenKind.RBrace {
-            return true;
-        }
         if peek1.kind == TokenKind.StringLiteral || peek1.kind == TokenKind.IntLiteral {
             return self.peek_tok(2).kind == TokenKind.Colon;
         }
-        // A negative int key: `{-1: …}` used to fall through to the block
-        // parse and fail with a baffling "expected ';', found ':'" (PA13).
         if peek1.kind == TokenKind.Minus && self.peek_tok(2).kind == TokenKind.IntLiteral {
             return self.peek_tok(3).kind == TokenKind.Colon;
         }
         return false;
-    }
-
-    fn parse_map_literal(self) -> Expr {
-        let start = self.advance(); // '{'
-        let entries: List<MapEntry> = [];
-        let mut going = true;
-        while going && !self.panicking && !self.check(TokenKind.RBrace) && !self.at_end() {
-            let key = self.parse_expr();
-            self.expect(TokenKind.Colon, ':');
-            let value = self.parse_expr();
-            entries.push(MapEntry { key: key, value: value });
-            if !self.match_kind(TokenKind.Comma) {
-                going = false;
-            }
-        }
-        let rbrace = self.expect(TokenKind.RBrace, '}');
-        return Expr.MapLit(start.span.cover(rbrace.span), entries);
     }
 
     // A `[` literal: a list (`[a, b]`), a bracket map (`[k: v, …]`), or the

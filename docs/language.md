@@ -200,10 +200,11 @@ let scores: Map<String, Int> = ['alice': 10, 'bob': 7];
 let tags: Set<String>        = Set.from(['cli', 'tool', 'cli']);  // {'cli', 'tool'}
 ```
 
-> **Migration in progress:** map literals use **brackets** — `['a': 1]`, empty
-> `[:]` — so that `{…}` always means a block and map keys are unrestricted
-> expressions. The legacy brace form (`{'a': 1}`) still parses but is deprecated
-> and will be removed (see the map-literal item in [roadmap.md](roadmap.md)).
+Map literals use **brackets** — `['a': 1]`, empty `[:]` — so `{…}` always means
+a block (or a struct body), map keys are unrestricted expressions, and a map
+literal is valid anywhere an expression is (including a bare match-arm body).
+The pre-migration brace form (`{'a': 1}`) is a parse error with a hint pointing
+at the bracket syntax.
 
 ### Bytes
 

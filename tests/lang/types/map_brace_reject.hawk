@@ -1,0 +1,11 @@
+//! spec: type-map-brace-reject
+//! mode: check
+
+// The brace-map form was removed (the map-literal migration): braces in
+// expression position are always blocks, and the old form gets a targeted
+// hint pointing at the bracket syntax. (`{}` stays legal — it is an empty
+// *block*, value `Void`.)
+fn main() -> Int {
+    let m = {'a': 1}; // expect error: map literals are written `[k: v]`
+    return 0;
+}

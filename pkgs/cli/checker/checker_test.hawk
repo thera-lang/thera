@@ -526,7 +526,7 @@ fn test_index_assignment_target_pins_generic() -> Result<Void, Error> {
     // pinning the constructor's parameter (the module_scope.hawk:245 shape).
     let errs = errors_of('struct Box<T> { let value: T; }\n'
         + 'impl Box<T> { fn make() -> Box<T> { return Box { value: 0 }; } }\n'
-        + 'fn f() { let m: Map<String, Box<Int>> = {}; m[\'a\'] = Box.make(); }');
+        + 'fn f() { let m: Map<String, Box<Int>> = [:]; m[\'a\'] = Box.make(); }');
     testing.assert_eq(actual: errs.len(), expected: 0)?;
     return Result.Ok(void);
 }

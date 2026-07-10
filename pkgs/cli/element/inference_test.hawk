@@ -59,7 +59,7 @@ fn test_list_literal_is_list_of_element() -> Result<Void, Error> {
 @test
 fn test_map_literal_is_map_of_key_value() -> Result<Void, Error> {
     let ctx = new_ctx(lib_of(''));
-    testing.assert_eq(actual: type_of('{ 1: true }', empty_scope(), ctx),
+    testing.assert_eq(actual: type_of('[1: true]', empty_scope(), ctx),
         expected: mk_iface(ctx, 'Map', [
             Type.Primitive(Primitive.Int),
             Type.Primitive(Primitive.Bool),
@@ -202,7 +202,7 @@ fn test_forward_flow_empty_map_pinned_by_index_assign() -> Result<Void, Error> {
     // An indexed assignment recovers both the key and value type of an empty map.
     let ctx = new_ctx(lib_of(''));
     testing.assert_eq(
-        actual: type_of('{ let m = {}; m[\'a\'] = 10; m[\'a\'] }', empty_scope(), ctx),
+        actual: type_of('{ let m = [:]; m[\'a\'] = 10; m[\'a\'] }', empty_scope(), ctx),
         expected: Type.Primitive(Primitive.Int))?;
     return Result.Ok(void);
 }

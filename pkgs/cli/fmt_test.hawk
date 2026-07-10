@@ -115,9 +115,9 @@ fn keeps_shift_operators_tight() -> Result<Void, Error> {
     // adjacency, and `>>` also closes nested generics — splitting either would
     // change the parse, so adjacent angle brackets stay tight.
     return check(
-        'fn f() {\nlet a = v >>> 8 ;\nlet b = x << 2 ;\nlet m : Map < K , List < Int > > = { } ;\n}\n',
+        'fn f() {\nlet a = v >>> 8 ;\nlet b = x << 2 ;\nlet m : Map < K , List < Int > > = [ : ] ;\n}\n',
         'fn f() {\n    let a = v >>> 8;\n    let b = x << 2;\n'
-        + '    let m: Map<K, List<Int>> = {};\n}\n');
+        + '    let m: Map<K, List<Int>> = [:];\n}\n');
 }
 
 @test

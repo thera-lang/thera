@@ -179,8 +179,6 @@ fn test_range() -> Result<Void, Error> {
 @test
 fn test_collections_and_struct() -> Result<Void, Error> {
     testing.assert_eq(actual: expr_str('[1, 2, 3]'), expected: '[1, 2, 3]')?;
-    testing.assert_eq(actual: expr_str("{'a': 1, 'b': 2}"),
-        expected: '{"a": 1, "b": 2}')?;
     testing.assert_eq(actual: expr_str('Point { x: 1, y: 2 }'),
         expected: 'Point { x: 1, y: 2 }')?;
     // A namespace-qualified construction of an imported type.
@@ -191,24 +189,41 @@ fn test_collections_and_struct() -> Result<Void, Error> {
 
 @test
 fn test_bracket_map_literals() -> Result<Void, Error> {
-    // The bracket forms (map-literal migration, step 2): `[k: v]` and the empty
-    // `[:]` lower to the same MapLit as the brace form (describe renders the
-    // canonical brace shape).
+    // The map-literal forms: `[k: v]` and the empty `[:]`.
     testing.assert_eq(actual: expr_str("['a': 1, 'b': 2]"),
-        expected: '{"a": 1, "b": 2}')?;
-    testing.assert_eq(actual: expr_str('[:]'), expected: '{}')?;
+        expected: '["a": 1, "b": 2]')?;
+    testing.assert_eq(actual: expr_str('[:]'), expected: '[:]')?;
     // No key restriction: an arbitrary expression key commits on the `:`.
-    testing.assert_eq(actual: expr_str('[k: 1]'), expected: '{k: 1}')?;
+    testing.assert_eq(actual: expr_str('[k: 1]'), expected: '[k: 1]')?;
     testing.assert_eq(actual: expr_str("[f(x): g(y)]"),
-        expected: '{f(x): g(y)}')?;
+        expected: '[f(x): g(y)]')?;
     // Nesting composes both ways.
     testing.assert_eq(actual: expr_str("['xs': [1, 2]]"),
-        expected: '{"xs": [1, 2]}')?;
+        expected: '["xs": [1, 2]]')?;
     testing.assert_eq(actual: expr_str("[['a': 1], [:]]"),
-        expected: '[{"a": 1}, {}]')?;
+        expected: '[["a": 1], [:]]')?;
     // A later entry missing its `:` is a parse error, not a silent list.
     let bad = parse_src("fn f() -> Void { let m = [1: 'a', 2]; }");
     testing.assert(bad.has_errors(), message: 'entry without `:` is rejected')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_brace_map_rejected_with_hint() -> Result<Void, Error> {
+    // The removed brace-map form gets the migration hint, for both the
+    // literal-key shape (the old commit heuristic, now the detector) and a
+    // non-literal key (caught at the `:` after an expression statement).
+    let lit = parse_src("fn f() -> Void { let m = {'a': 1}; }");
+    testing.assert(lit.has_errors(), message: 'literal-key brace map is rejected')?;
+    testing.assert(lit.errors[0].message.contains('[k: v]'),
+        message: 'the error points at the bracket form')?;
+    let vkey = parse_src('fn f(_ k: String) -> Void { let m = {k: 1}; }');
+    testing.assert(vkey.has_errors(), message: 'variable-key brace map is rejected')?;
+    testing.assert(vkey.errors[0].message.contains('[k: v]'),
+        message: 'the error points at the bracket form')?;
+    // An empty `{}` is an empty block (value Void), not a map and not an error.
+    let empty = parse_src('fn f() -> Void { let x = {}; }');
+    testing.assert(!empty.has_errors(), message: '`{}` is an empty block')?;
     return Result.Ok(void);
 }
 

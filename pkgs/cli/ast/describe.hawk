@@ -21,7 +21,11 @@ pub fn describe_expr(_ e: Expr) -> String {
         Unit(_) => 'void',
         Str(_, parts) => '"' + describe_parts(parts) + '"',
         ListLit(_, items) => '[' + join_exprs(items) + ']',
-        MapLit(_, entries) => '{' + describe_entries(entries) + '}',
+        MapLit(_, entries) => if entries.len() == 0 {
+            '[:]'
+        } else {
+            '[' + describe_entries(entries) + ']'
+        },
         Struct(x) => '${describe_qualifier(x.namespace)}${x.type_name} { ${describe_field_inits(x.fields)} }',
         Ident(_, name) => name,
         Call(x) => describe_expr(x.callee) + describe_type_args(x.type_args)

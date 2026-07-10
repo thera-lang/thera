@@ -346,8 +346,8 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   arm a check error when the match is in value position (annotated context, or
   another arm establishes a non-`Void` reference type). Both `=> {}` and
   `=> void` spellings hit this identically. Feeds the diagnostics-audit rung of
-  the language review; related to the map-literal ambiguity item above (whose
-  resolution changes what `=> {}` means, but not the `=> void` case).
+  the language review. (The map-literal migration kept `=> {}` a `Void` block,
+  so both spellings remain live cases.)
 - **Let a user scope shadow a prelude _value_ name.** Today
   `check_shadowed_surface` flags any top-level decl whose name is in the file's
   bare surface (prelude + `as _` imports), so a `pub fn error` collides with the
@@ -691,69 +691,23 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     variable; `_` reads as "external label = none", consistent with the
     `external internal` slot.)
 
-- **Map-literal vs block (`{…}`) — decided: bracket maps; migration pending.**
-  In expression position the parser commits to a **map** only on `{}` or a first
-  key that is a string/int literal (optionally `-`-negated) followed by `:`; any
-  other `{` is a block. The grammar review (2026-07) sized the consequences —
-  three distinct pinches, worst first:
-  - **The `match`-arm edge.** `pat => ( exprBlock | expr )` tries `exprBlock`
-    first, so in arm position **any** `{` is a block: a bare `pat => {}` is an
-    empty **block** (value `Void`), not an empty map — and nasty when mixed with
-    a non-`Void` arm, since match-arm unification exempts `Void` arms:
-    `match x { Some(m) => m, None => {} }` type-checks as `Map` yet the `None`
-    path returns `Void` and only **traps at runtime**
-    (`map.keys: expected map`). A _non-empty_ map arm (`pat => {'a': 1}`) at
-    least fails at parse time. Workarounds: wrap (`=> { {…} }`) or bind first
-    (`let none: Map<…> = {}; … none`) — both indirect and easy to forget.
-  - **The first-key restriction.** A map whose first key isn't a literal cannot
-    be written directly: `{k: 1, 'b': 2}` with a variable `k` is a parse error
-    (`expected ';', found ':'`). Workarounds (reorder a literal key first, or
-    `Map.new()` + inserts) are invisible traps for a generator.
-  - The commit heuristic itself is a rule LLMs must _know_, not infer — it has
-    no analogue in the training corpus.
-
-  **DECIDED (2026-07-10): bracket map literals, Swift-style** — `[k: v]`, empty
-  `[:]`; braces become blocks everywhere. Struct instantiation keeps braces
-  (`Point { x: 1 }` — disambiguated by the type name, never part of this
-  ambiguity), so the visual language becomes _named + braces = record shape;
-  brackets = collection_. Rationale (2026-07 research): the corpus is
-  Rust-shaped, not Python-shaped (~216 `=> {}` void arms vs ~70 non-empty map
-  literals — braces-as-blocks is the dominant idiom), and bracket maps are the
-  only option that (i) kills all three pinches, (ii) states as one rule with
-  zero positional caveats ("collections are brackets; braces are blocks"), (iii)
-  makes the parser strictly _simpler_ (after `[`, parse an expression; `:`
-  decides map vs list — LL, no heuristic; `is_map_literal_start` deleted), and
-  (iv) fails loud everywhere — a Python-habit `{'a': 1}` becomes a parse error
-  with a self-describing hint ("map literals are written `[k: v]`"), never
-  silent runtime wrongness. Rejected: smart-brace probing (keeps `{}` positional
-  wart or fights the `=> {}` idiom), empty-token-only (fixes one of three
-  pinches), type-directed arm parse (parser would need types).
-
-  Sequencing (the standard ratchet):
-  1. **Steer no-result arms to `=> void`** — corpus sweep + lint rule + docs
-     (independent of the syntax change; shrinks the `{}` surface). _Done — see
-     Changelog._ (Many of these small `match` statements predate `if let` / the
-     Option combinators and have more idiomatic rewrites — the existing if-let
-     lint already counts them; independent follow-up.)
-  2. **Parser accepts `[k: v]` / `[:]`** alongside brace maps (both lower to the
-     same MapLit); fmt support; tests. _Done_ — after `[`, one expression is
-     parsed and a following `:` commits to a map (no heuristic; fmt's
-     token-spacing rules already render `[:]` / `['a': 1]` unchanged).
-  3. **Migrate the corpus** (`{}` → `[:]`, `{k: v}` → `[k: v]`, ~290 mechanical
-     sites), rebuild, refresh the bootstrap snapshot. _Done_ — via a one-shot
-     AST-driven rewriter (walk each file's parsed AST, edit only the MapLit
-     delimiter characters, verify by reparse), so blocks/struct literals were
-     untouchable by construction and string fixtures pinning the brace shape
-     survived; docs examples flipped alongside.
-  4. **Drop brace maps**, leaving the error hint (the old `is_map_literal_start`
-     shape-detector becomes the diagnostic); update grammar.md / language.md /
-     conformance tests.
+- **Map/Set `Display`/`Debug` rendering vs bracket map syntax.** The runtime
+  renders a map as `{'x': 1, 'y': 2}` and a set as `{1, 2}` — brace notation
+  that no longer matches the source syntax now that map literals are brackets
+  (`['x': 1]`) and braces always mean blocks. An LLM reading program output and
+  echoing it back as code gets a parse error (with the bracket hint, so it
+  self-corrects — low severity). Decide: flip map rendering to `['x': 1]` /
+  `[:]` for source round-trip coherence (and pick something for `Set` — it has
+  no literal), or keep the brace notation as output-only convention. Touches the
+  runtime `stringify`/debug natives and the `display_collections` conformance
+  test; `json.stringify` is unaffected (real JSON). Surfaced by the map-literal
+  migration (2026-07).
 
 - **Generic operators** (`<T: Add>`, operators-as-traits) — the remaining piece
   of the generics arc (bound enforcement + `call.virtual` dispatch on `T` are
   done). This is also where the language's **implicit operator/literal
   lowerings** would gain a Hawk-level surface: `==`, `+`/interpolation,
-  `[]`/`[]=`, and the `{}` map literal are emitted by codegen straight to
+  `[]`/`[]=`, and the `[k: v]` map literal are emitted by codegen straight to
   runtime natives (`eq`, `str_concat`, `stringify`,
   `list_index`/`list_set`/`map_index`, `map_new`/`map_set`) with no named Hawk
   method behind them — the one category of addressable behaviour not represented
@@ -822,6 +776,30 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **Bracket map literals — `[k: v]` / `[:]`; braces are always blocks
+  (language)** (2026-07). The map-literal migration completed: map literals are
+  written `['a': 1]` (empty `[:]`), and a `{` in expression position is always a
+  block (`{}` = empty block, value `Void`). **Decision** (2026-07-10
+  grammar-review research): the brace-map form carried three pinches — any `{`
+  in a match arm was a block (so `pat => {}` silently made a `Void` arm and a
+  non-empty map arm couldn't be written), a map whose first key wasn't a literal
+  was unwritable, and the commit heuristic itself was a rule with no
+  training-corpus analogue. Bracket maps kill all three, state as one rule
+  ("collections are brackets; braces are blocks" — struct instantiation keeps
+  braces, disambiguated by the type name), and made the parser simpler: after
+  `[`, one expression is parsed and a following `:` commits to a map — no
+  heuristic, keys are unrestricted expressions. Rejected: smart-brace probing,
+  empty-token-only, type-directed arm parse. **Migration**: corpus swept by a
+  one-shot AST-driven rewriter (edit only the MapLit delimiter characters,
+  verify by reparse) — ~330 sites, with `bootstrap/frontend.hawkbc` coming out
+  byte-identical (no spans in `.hawkbc`), proving zero bytecode change; docs
+  examples flipped. **Removal**: the brace form is now a targeted parse error —
+  the old commit heuristic survives as the shape detector
+  (`at_legacy_brace_map`), and a non-literal key is caught at the `:` after an
+  expression statement; both hint "map literals are written `[k: v]`".
+  Conformance: `type-map-bracket`, `type-map-brace-reject`; AST `describe`
+  renders maps in bracket form. Follow-up: Map/Set runtime rendering still uses
+  brace notation (see Open work).
 - **`=> void` for no-result arms (idiom + lint + sweep)** (2026-07). Step 1 of
   the map-literal migration (the decided bracket-maps item above): a no-result
   match arm is written `=> void` — the explicit unit value — not `=> {}` (an

@@ -67,6 +67,7 @@ and [grammar.md](grammar.md) (syntax).
 | `type-map`                    | Collections            | `Map<K,V>` literal, keyed access                                                                                                       | ✓      |
 | `type-map-bracket`            | Collections            | bracket map literals `[k: v, …]` / empty `[:]`: unrestricted keys, valid in any expression position (incl. match arms)                 | ✓      |
 | `type-set`                    | Collections            | `Set<T>` uniqueness via `Set.from`                                                                                                     | ✓      |
+| `type-map-brace-reject`       | Collections            | the removed brace-map form (`{'a': 1}`) is a parse error with a bracket-form hint; `{}` is an empty block                              | ✓      |
 | `gen-static-context`          | Collections / Generics | a generic static method (`Set.new()`) infers its owner `T` from call context                                                           | ✓      |
 | `gen-static-recv-args`        | Collections / Generics | receiver type args on a static call (`Set<String>.new()`) bind the owner parameter                                                     | ✓      |
 | `gen-call-nested-args`        | Collections / Generics | nested generics in call-position type args (`make<List<Int>>()`, `Set<List<Int>>.new()`); comparison chains unaffected                 | ✓      |
