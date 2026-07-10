@@ -635,8 +635,9 @@ for n in values {
 ```
 
 A `break` or `continue` outside a loop is a compile error, and neither crosses a
-closure boundary — a loop in an enclosing scope does not make one inside a lambda
-legal. To leave an enclosing loop from deeper nesting, restructure or `return`.
+closure boundary — a loop in an enclosing scope does not make one inside a
+lambda legal. To leave an enclosing loop from deeper nesting, restructure or
+`return`.
 
 ### `if let`
 

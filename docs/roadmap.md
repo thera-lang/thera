@@ -122,31 +122,32 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     dependency).
   - **Refinements:** per-channel waiter lists, true 0-capacity rendezvous
     channels, `select`, and exit semantics for surviving spawned fibers.
-- **Fiber synchronization primitives — the combinator layer.** The *core* async
+- **Fiber synchronization primitives — the combinator layer.** The _core_ async
   values already exist: `Fiber<T>` + `join` **is** a Future (uncolored; and
   `join` is idempotent/multicast — `sched_result` reads `Done(v)` by `&self`, so
-  any fiber can await the same result repeatedly, giving a broadcast/shared future
-  for free), and `channel<T>(1)` is a Completer. What's thin is the second-order
-  layer built on them:
+  any fiber can await the same result repeatedly, giving a broadcast/shared
+  future for free), and `channel<T>(1)` is a Completer. What's thin is the
+  second-order layer built on them:
   - **`select` / race — the load-bearing gap.** A fiber can block on exactly one
-    source today (`join` one fiber, `receive` one channel); there's no "first of A
-    or B ready" wait. Everything below reduces to it — timeouts, cancellation-aware
-    waits, first-result-wins, N-channel muxing. Needs runtime support (park on
-    multiple wakeup sources); ties to the "per-channel waiter lists" refinement
-    above. Do this first.
-  - **Cancellation token** — a reusable `cancel()` / `is_cancelled()` / selectable
-    `done` (the LSP hand-rolled a generation counter for exactly this). The poll
-    form works today; the wait-or-cancel form wants `select`.
+    source today (`join` one fiber, `receive` one channel); there's no "first of
+    A or B ready" wait. Everything below reduces to it — timeouts,
+    cancellation-aware waits, first-result-wins, N-channel muxing. Needs runtime
+    support (park on multiple wakeup sources); ties to the "per-channel waiter
+    lists" refinement above. Do this first.
+  - **Cancellation token** — a reusable `cancel()` / `is_cancelled()` /
+    selectable `done` (the LSP hand-rolled a generation counter for exactly
+    this). The poll form works today; the wait-or-cancel form wants `select`.
   - **Timeout** — `with_timeout(work, dur)` = `select(result, timer)`; timer
     parking already exists, so it falls out of `select`.
-  - **Structured concurrency** — `join_all`, and a scope that joins-or-cancels its
-    children when the parent returns so a worker can't leak (the LSP `serve` drain
-    does this by hand); ties to "exit semantics for surviving spawned fibers".
-  - **Bounded concurrency** — a semaphore / `parallel_map(items, concurrency, f)`,
-    buildable on a token channel today.
-  - *No `Mutex`/lock is warranted:* cooperative single-threading makes shared-state
-    mutation between yield points race-free; a lock only matters to hold a section
-    *across* a yield, which is a one-token semaphore.
+  - **Structured concurrency** — `join_all`, and a scope that joins-or-cancels
+    its children when the parent returns so a worker can't leak (the LSP `serve`
+    drain does this by hand); ties to "exit semantics for surviving spawned
+    fibers".
+  - **Bounded concurrency** — a semaphore /
+    `parallel_map(items, concurrency, f)`, buildable on a token channel today.
+  - _No `Mutex`/lock is warranted:_ cooperative single-threading makes
+    shared-state mutation between yield points race-free; a lock only matters to
+    hold a section _across_ a yield, which is a one-token semaphore.
 - **Interpreter performance — profiled (2026-06); the easy wins are in.**
   Probes: the front-end **self-compile** (`hawk emit pkgs/cli/main.hawk`) ≈ 11.6
   s release, and **mandelbrot** ≈ 0.81 s (a call-free arithmetic/loop guard).
@@ -391,14 +392,15 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   invalidation, `type_at` (inference-at-offset), and semantic references/rename
   all shipped (see _Changelog_). The remaining follow-ups, all deferred:
   - **Workspace diagnostics — streaming partial results (for consideration).**
-    Backgrounding on a fiber, per-file `resultId` caching (a re-pull re-emits only
-    *changed* files), and a surface-gated refresh nudge (only a public-surface edit,
-    not a body edit, triggers a workspace re-pull) all landed (see _Changelog_). One
-    optional refinement remains: stream partial results via a `partialResultToken`
-    (`$/progress`) as each batch finishes, instead of one report at the end, so a
-    huge first scan appears progressively. Lower priority — backgrounding already
-    won the perceived-performance battle (requests no longer block behind the full
-    workspace analysis); this only smooths the *initial* scan's fill-in, so it's
+    Backgrounding on a fiber, per-file `resultId` caching (a re-pull re-emits
+    only _changed_ files), and a surface-gated refresh nudge (only a
+    public-surface edit, not a body edit, triggers a workspace re-pull) all
+    landed (see _Changelog_). One optional refinement remains: stream partial
+    results via a `partialResultToken` (`$/progress`) as each batch finishes,
+    instead of one report at the end, so a huge first scan appears
+    progressively. Lower priority — backgrounding already won the
+    perceived-performance battle (requests no longer block behind the full
+    workspace analysis); this only smooths the _initial_ scan's fill-in, so it's
     worth doing only if that first pass feels slow in practice.
   - **Primitive-receiver member resolution.** Hover / definition / member
     resolution on a primitive receiver (`"s".split()`) don't resolve — a
@@ -408,15 +410,15 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     query-layer renderers; completion + signatureHelp additionally need the
     parser recovery below.
   - **Segregate intentional-error test fixtures.** Workspace diagnostics surface
-    every file's errors — including the conformance fixtures under `tests/lang/`,
-    which are _deliberately_ broken (an `xfail` spec, an `// expect:` error
-    directive). A server-side `hawk.exclude` now hides them (see _Changelog_), but
-    that's a blunt path filter the user has to configure, and the server still
-    analyzes the files. Better: split "should analyze clean" fixtures from "carries
-    intentional diagnostics" ones — by directory or a per-file marker the harness
-    already reads — so the workspace scan skips the latter at the source, with no
-    exclude glob to maintain and no wasted analysis on files whose errors are the
-    point.
+    every file's errors — including the conformance fixtures under
+    `tests/lang/`, which are _deliberately_ broken (an `xfail` spec, an
+    `// expect:` error directive). A server-side `hawk.exclude` now hides them
+    (see _Changelog_), but that's a blunt path filter the user has to configure,
+    and the server still analyzes the files. Better: split "should analyze
+    clean" fixtures from "carries intentional diagnostics" ones — by directory
+    or a per-file marker the harness already reads — so the workspace scan skips
+    the latter at the source, with no exclude glob to maintain and no wasted
+    analysis on files whose errors are the point.
 - **Parser error recovery for the LSP.** The LSP's normal input is
   _syntactically broken_ code mid-edit; the parser should synthesize a
   best-effort tree (recover past the error) so semantic resolution still runs
@@ -769,79 +771,84 @@ conformance specs. Newest first.
 - **Workspace diagnostics — `resultId` caching + surface-gated nudge (LSP)**
   (2026-07). Two refinements on the pull-diagnostics path. (1) **Per-file
   `resultId` caching** (LSP 3.17): the server stamps each file's report with an
-  opaque resultId and caches the exact rendered items it stands for; a re-pull that
-  echoes the resultId (via `previousResultId` / `previousResultIds`) gets a light
-  `unchanged` report for any file whose items are byte-identical, instead of
-  re-sending them. Exact content comparison, not a hash — a collision would wrongly
-  report `unchanged` (a stale squiggle). The cache is self-correcting (every
-  decision compares current content), so no explicit invalidation is needed, and it
-  is shared across the document and workspace channels (same content → same id).
-  (2) **Surface-gated refresh nudge**: an edit now nudges a workspace re-pull only
-  when it could alter *another* file's diagnostics — a change to the file's
-  public-surface *signature* (`pkgs/cli/lsp/surface.hawk`: the source with fn/method
-  body interiors elided, since importers type-check against declarations, never
-  bodies). A body-only edit — typing inside a function — no longer triggers a
-  project-wide re-check; the file's own diagnostics still reach the editor via the
-  client's per-document pull. Conservative by construction (elides less than the
-  true surface), so it can only over-nudge, never miss a cross-file change. A close
-  still nudges unconditionally (a loose file drops out of the report).
+  opaque resultId and caches the exact rendered items it stands for; a re-pull
+  that echoes the resultId (via `previousResultId` / `previousResultIds`) gets a
+  light `unchanged` report for any file whose items are byte-identical, instead
+  of re-sending them. Exact content comparison, not a hash — a collision would
+  wrongly report `unchanged` (a stale squiggle). The cache is self-correcting
+  (every decision compares current content), so no explicit invalidation is
+  needed, and it is shared across the document and workspace channels (same
+  content → same id). (2) **Surface-gated refresh nudge**: an edit now nudges a
+  workspace re-pull only when it could alter _another_ file's diagnostics — a
+  change to the file's public-surface _signature_ (`pkgs/cli/lsp/surface.hawk`:
+  the source with fn/method body interiors elided, since importers type-check
+  against declarations, never bodies). A body-only edit — typing inside a
+  function — no longer triggers a project-wide re-check; the file's own
+  diagnostics still reach the editor via the client's per-document pull.
+  Conservative by construction (elides less than the true surface), so it can
+  only over-nudge, never miss a cross-file change. A close still nudges
+  unconditionally (a loose file drops out of the report).
 - **Workspace diagnostics — backgrounded on a fiber (LSP)** (2026-07). The
-  `workspace/diagnostic` scan no longer runs synchronously on the request loop: it
-  runs on a background fiber (`server.start_workspace_scan`) that `yield`s between
-  files, so a large project's first pass no longer blocks hover/edits/completion.
-  The scheduler runs the worker during the loop's stdin parks; the worker delivers
-  its report through a new **outbox** (`pkgs/cli/lsp/outbox.hawk`) — a single
-  serialized outbound sink so the dispatch loop and the worker never interleave
-  bytes of one framed message. `serve` installs an *async* outbox (a writer fiber
-  draining a channel, joined on exit so buffered replies flush); `handle` (the
-  one-shot/test path) installs a *direct* one and joins the worker inline, so the
-  in-process tests stay synchronous. Supersession is a generation counter: a newer
-  pull or a `$/cancelRequest` bumps it, and the stale worker bails with
-  `ContentModified` (-32801) — the client keeps the latest (eventual consistency).
-  Still deferred: per-file `resultId` caching and a smarter refresh nudge.
+  `workspace/diagnostic` scan no longer runs synchronously on the request loop:
+  it runs on a background fiber (`server.start_workspace_scan`) that `yield`s
+  between files, so a large project's first pass no longer blocks
+  hover/edits/completion. The scheduler runs the worker during the loop's stdin
+  parks; the worker delivers its report through a new **outbox**
+  (`pkgs/cli/lsp/outbox.hawk`) — a single serialized outbound sink so the
+  dispatch loop and the worker never interleave bytes of one framed message.
+  `serve` installs an _async_ outbox (a writer fiber draining a channel, joined
+  on exit so buffered replies flush); `handle` (the one-shot/test path) installs
+  a _direct_ one and joins the worker inline, so the in-process tests stay
+  synchronous. Supersession is a generation counter: a newer pull or a
+  `$/cancelRequest` bumps it, and the stale worker bails with `ContentModified`
+  (-32801) — the client keeps the latest (eventual consistency). Still deferred:
+  per-file `resultId` caching and a smarter refresh nudge.
 - **Per-file SDK resolution — cross-path core identity (loader)** (2026-07). A
-  file that lives *inside* an SDK's `std` tree now resolves its `std.*` imports
+  file that lives _inside_ an SDK's `std` tree now resolves its `std.*` imports
   (and the auto-imported `std.core` prelude) from **that same tree** rather than
-  the configured SDK root (`loader.own_std_dir`). This fixes the LSP-editing-the-repo
-  case: with the prelude resolved from an installed SDK but the file from the repo
-  copy, the core types (`List<T>`, …) existed twice with distinct identities, so a
-  core file's own generic methods stopped type-checking against their own `List<T>`
-  and every top-level decl looked like it shadowed the prelude copy of itself.
-  `hawk check sdk/std` via a foreign SDK is now clean (was ~8 false diagnostics).
-  Ordinary project files (not under a `std` tree) are unaffected — they keep
-  resolving against the configured SDK — and the normal build resolves identically
-  (fixpoint holds). Also: an unresolved for-loop iterable now types its element as
-  `Unknown`, not `Int` (the `Int` fallback is scoped to ranges), so a genuinely
-  unknown element no longer cascades into "no method X on Int".
+  the configured SDK root (`loader.own_std_dir`). This fixes the
+  LSP-editing-the-repo case: with the prelude resolved from an installed SDK but
+  the file from the repo copy, the core types (`List<T>`, …) existed twice with
+  distinct identities, so a core file's own generic methods stopped
+  type-checking against their own `List<T>` and every top-level decl looked like
+  it shadowed the prelude copy of itself. `hawk check sdk/std` via a foreign SDK
+  is now clean (was ~8 false diagnostics). Ordinary project files (not under a
+  `std` tree) are unaffected — they keep resolving against the configured SDK —
+  and the normal build resolves identically (fixpoint holds). Also: an
+  unresolved for-loop iterable now types its element as `Unknown`, not `Int`
+  (the `Int` fallback is scoped to ranges), so a genuinely unknown element no
+  longer cascades into "no method X on Int".
 - **Pull-only diagnostics + server-side `exclude` (LSP)** (2026-07). The server
   no longer pushes `publishDiagnostics` at all — it went **pull-only**, so open
-  files and the workspace flow through the one channel (`textDocument/diagnostic`
-  / `workspace/diagnostic`), and an edit's only proactive signal is the
-  `workspace/diagnostic/refresh` nudge. This removes the push/pull duplication (a
-  file no longer got diagnostics on two channels). Diagnostic filtering also moved
-  from the VS Code extension to the server: the client sends its `hawk.exclude`
-  globs via `initializationOptions` (live changes via `workspace/didChangeConfiguration`),
-  and the server withholds matching files from both reports — uniform across
-  channels and client-agnostic, replacing the extension's per-channel glob
-  middleware. A small workspace-relative glob matcher (`pkgs/cli/lsp/glob.hawk`,
-  `*` / `**` / `?`) does the matching. Closing a file now marks a change (a
-  re-pull nudge) rather than clearing via push.
+  files and the workspace flow through the one channel
+  (`textDocument/diagnostic` / `workspace/diagnostic`), and an edit's only
+  proactive signal is the `workspace/diagnostic/refresh` nudge. This removes the
+  push/pull duplication (a file no longer got diagnostics on two channels).
+  Diagnostic filtering also moved from the VS Code extension to the server: the
+  client sends its `hawk.exclude` globs via `initializationOptions` (live
+  changes via `workspace/didChangeConfiguration`), and the server withholds
+  matching files from both reports — uniform across channels and
+  client-agnostic, replacing the extension's per-channel glob middleware. A
+  small workspace-relative glob matcher (`pkgs/cli/lsp/glob.hawk`, `*` / `**` /
+  `?`) does the matching. Closing a file now marks a change (a re-pull nudge)
+  rather than clearing via push.
 - **Workspace-wide diagnostics — pull model (LSP)** (2026-07). Diagnostics are
-  no longer limited to open files. The server advertises a 3.17 `diagnosticProvider`
-  (`interFileDependencies` + `workspaceDiagnostics`) and answers
-  `textDocument/diagnostic` (one document) and `workspace/diagnostic` (every
-  workspace file, opened or not — a full report per file, empty items = clean).
-  The workspace pull reuses the session's shared check and checked-clean dedup —
-  the same `hawk check <dir>` loop — so a shared import is checked once per pass,
-  not once per importer, and `diagnostics.group_by_file` folds each file's own
-  errors out of the closure result (the push path filtered them to one URI). The
-  proactive signal is the pull model's `workspace/diagnostic/refresh` nudge, sent
-  once per edit-flush to a refresh-capable client, which then re-pulls (the edited
-  cone recomputes, the rest are checked-set hits) — so push stays for open files
-  and pull carries the project. The `library_cache` is now **LRU** with a high cap
-  (1024) instead of clear-all-at-32, so workspace analysis doesn't thrash it.
-  (Backgrounding the workspace check on a fiber landed later — see the top of this
-  changelog; `resultId` caching is still deferred.)
+  no longer limited to open files. The server advertises a 3.17
+  `diagnosticProvider` (`interFileDependencies` + `workspaceDiagnostics`) and
+  answers `textDocument/diagnostic` (one document) and `workspace/diagnostic`
+  (every workspace file, opened or not — a full report per file, empty items =
+  clean). The workspace pull reuses the session's shared check and checked-clean
+  dedup — the same `hawk check <dir>` loop — so a shared import is checked once
+  per pass, not once per importer, and `diagnostics.group_by_file` folds each
+  file's own errors out of the closure result (the push path filtered them to
+  one URI). The proactive signal is the pull model's
+  `workspace/diagnostic/refresh` nudge, sent once per edit-flush to a
+  refresh-capable client, which then re-pulls (the edited cone recomputes, the
+  rest are checked-set hits) — so push stays for open files and pull carries the
+  project. The `library_cache` is now **LRU** with a high cap (1024) instead of
+  clear-all-at-32, so workspace analysis doesn't thrash it. (Backgrounding the
+  workspace check on a fiber landed later — see the top of this changelog;
+  `resultId` caching is still deferred.)
 - **References/rename — dependency-cone pruning (LSP)** (2026-07). The
   project-wide scan no longer builds every workspace file's closure. Both
   requests now scope the expensive resolution to the target's **dependency
@@ -850,12 +857,13 @@ conformance specs. Newest first.
   see the declaration (a same-named identifier there is a distinct `SymbolId`)
   is skipped without a closure load. Completeness is preserved by first indexing
   the workspace's forward import edges with a cheap edges-only probe
-  (`loader.import_edges` — resolves specifiers, no child sources/surfaces/element
-  model; `session.index_edges` fills only files never loaded, so a warm request
-  does no extra work), then reversing that graph: a closed, never-opened importer
-  is still found. An edit drops the file's forward edges (`invalidate`) so a
-  changed import list re-probes. Cost now scales with the target's reachability,
-  not project size, with the same results as the old whole-project scan.
+  (`loader.import_edges` — resolves specifiers, no child
+  sources/surfaces/element model; `session.index_edges` fills only files never
+  loaded, so a warm request does no extra work), then reversing that graph: a
+  closed, never-opened importer is still found. An edit drops the file's forward
+  edges (`invalidate`) so a changed import list re-probes. Cost now scales with
+  the target's reachability, not project size, with the same results as the old
+  whole-project scan.
 - **Session tokenization dedup — cached tokens (LSP, audit LS-D1 tail)**
   (2026-07). Tokens are now the materialized bottom rung of the analysis ladder:
   `parse_source` retains its lex on `ParsedFile.tokens` (paired with the AST by
