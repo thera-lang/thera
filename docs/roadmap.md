@@ -390,12 +390,16 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   value+type resolution, the resolved-library cache with dependency-graph
   invalidation, `type_at` (inference-at-offset), and semantic references/rename
   all shipped (see _Changelog_). The remaining follow-ups, all deferred:
-  - **Workspace diagnostics — streaming partial results.** Backgrounding on a
-    fiber, per-file `resultId` caching (a re-pull re-emits only *changed* files),
-    and a surface-gated refresh nudge (only a public-surface edit, not a body edit,
-    triggers a workspace re-pull) all landed (see _Changelog_). The remaining
-    refinement: stream partial results via a `partialResultToken` (`$/progress`)
-    instead of one report at the end, so a huge first scan appears progressively.
+  - **Workspace diagnostics — streaming partial results (for consideration).**
+    Backgrounding on a fiber, per-file `resultId` caching (a re-pull re-emits only
+    *changed* files), and a surface-gated refresh nudge (only a public-surface edit,
+    not a body edit, triggers a workspace re-pull) all landed (see _Changelog_). One
+    optional refinement remains: stream partial results via a `partialResultToken`
+    (`$/progress`) as each batch finishes, instead of one report at the end, so a
+    huge first scan appears progressively. Lower priority — backgrounding already
+    won the perceived-performance battle (requests no longer block behind the full
+    workspace analysis); this only smooths the *initial* scan's fill-in, so it's
+    worth doing only if that first pass feels slow in practice.
   - **Primitive-receiver member resolution.** Hover / definition / member
     resolution on a primitive receiver (`"s".split()`) don't resolve — a
     `Primitive` value carries no `TypeId`. Ties to _Primitive vtables_
