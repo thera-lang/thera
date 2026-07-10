@@ -31,7 +31,7 @@ fn test_public_surface_collects_only_pub_decls() -> Result<Void, Error> {
         + 'pub struct T { let x: Int; }\n'
         + 'pub const C: Int = 1;\n'
         + 'const D: Int = 2;', 'lib.hawk');
-    let surface = public_surface_of(LibrarySource { program: prog, imports: {} });
+    let surface = public_surface_of(LibrarySource { program: prog, imports: [:] });
     testing.assert(surface.names.has('a'), message: 'pub fn a is exposed')?;
     testing.assert(!surface.names.has('b'), message: 'private fn b is hidden')?;
     testing.assert(surface.names.has('T'), message: 'pub type T is exposed')?;
@@ -44,11 +44,11 @@ fn test_public_surface_collects_only_pub_decls() -> Result<Void, Error> {
 fn test_namespaces_for_binds_import_to_surface() -> Result<Void, Error> {
     let child = LibrarySource {
         program: prog_of('pub fn helper() { }\nfn secret() { }', 'util.hawk'),
-        imports: {},
+        imports: [:],
     };
     let main_src = LibrarySource {
         program: prog_of('import \'util\';\nfn main() { }', 'main.hawk'),
-        imports: {},
+        imports: [:],
     };
     main_src.imports['util'] = child;
     match namespaces_for(main_src).get('util') {
@@ -357,10 +357,10 @@ fn test_std_import_resolves_from_the_file_s_own_sdk() -> Result<Void, Error> {
 fn test_pub_import_reexports_through_barrel() -> Result<Void, Error> {
     // A barrel: `pub import 'inner'` re-exports inner's public surface alongside
     // the barrel's own public declarations.
-    let inner = LibrarySource { program: prog_of('pub fn deep() { }', 'inner.hawk'), imports: {} };
+    let inner = LibrarySource { program: prog_of('pub fn deep() { }', 'inner.hawk'), imports: [:] };
     let barrel = LibrarySource {
         program: prog_of('pub import \'inner\';\npub fn own() { }', 'barrel.hawk'),
-        imports: {},
+        imports: [:],
     };
     barrel.imports['inner'] = inner;
     let surface = public_surface_of(barrel);
@@ -377,14 +377,14 @@ fn test_pub_import_diamond_is_not_a_collision() -> Result<Void, Error> {
     // the deep file once. (Pins the semantics the loader's per-call surface
     // memo must preserve: naively merging per-child surfaces would flag a
     // false collision here.)
-    let deep = LibrarySource { program: prog_of('pub fn shared() { }', 'deep.hawk'), imports: {} };
-    let left = LibrarySource { program: prog_of('pub import \'deep\';', 'left.hawk'), imports: {} };
+    let deep = LibrarySource { program: prog_of('pub fn shared() { }', 'deep.hawk'), imports: [:] };
+    let left = LibrarySource { program: prog_of('pub import \'deep\';', 'left.hawk'), imports: [:] };
     left.imports['deep'] = deep;
-    let right = LibrarySource { program: prog_of('pub import \'deep\';', 'right.hawk'), imports: {} };
+    let right = LibrarySource { program: prog_of('pub import \'deep\';', 'right.hawk'), imports: [:] };
     right.imports['deep'] = deep;
     let barrel = LibrarySource {
         program: prog_of('pub import \'left\';\npub import \'right\';', 'barrel.hawk'),
-        imports: {},
+        imports: [:],
     };
     barrel.imports['left'] = left;
     barrel.imports['right'] = right;
@@ -407,7 +407,7 @@ fn test_surface_cache_round_trip() -> Result<Void, Error> {
     let main_src = 'import \'util\';\nfn main() -> Int { return util.helper(); }\n';
     fs_ok(fs.write_text(dir + '/main.hawk', main_src), 'write main')?;
 
-    let cache: Map<String, FileSurface> = {};
+    let cache: Map<String, FileSurface> = [:];
     let first = load_imports(dir + '/main.hawk',
         parse_tokens(tokenize(main_src).tokens).program, Option.None, surface_cache: cache);
     testing.assert_eq(actual: first.diagnostics.len(), expected: 0)?;
@@ -442,7 +442,7 @@ fn test_surface_collision_diagnostics_replay_on_hit() -> Result<Void, Error> {
     let main_src = 'import \'a\' as _;\nimport \'b\' as _;\nfn main() -> Void { }\n';
     fs_ok(fs.write_text(dir + '/main.hawk', main_src), 'write main')?;
 
-    let cache: Map<String, FileSurface> = {};
+    let cache: Map<String, FileSurface> = [:];
     let cold = load_imports(dir + '/main.hawk',
         parse_tokens(tokenize(main_src).tokens).program, Option.None, surface_cache: cache);
     let warm = load_imports(dir + '/main.hawk',

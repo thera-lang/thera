@@ -266,9 +266,9 @@ pub fn new_fn_compiler(_ scope: ModuleScope, _ errors: List<diagnostic.Diagnosti
     return FnCompiler {
         scope: scope,
         code: [],
-        slots: {},
-        type_scope: {},
-        type_param_bounds: {},
+        slots: [:],
+        type_scope: [:],
+        type_param_bounds: [:],
         consts_in_progress: Set.new(),
         boxed_locals: Set.new(),
         local_count: 0,
@@ -337,7 +337,7 @@ impl FnCompiler {
             current_file: self.file,
             // Codegen never records committed types — an empty memo keeps its
             // inference identical to the pre-CH19 behavior (the fixpoint substrate).
-            types: {},
+            types: [:],
             record_sink: [],
         };
 
@@ -396,8 +396,8 @@ impl FnCompiler {
             self.ctx.current_file = init.file;
             // Each initializer compiles in a fresh lexical scope — a binding from
             // one initializer's pattern/block must not leak into the next.
-            self.slots = {};
-            self.type_scope = {};
+            self.slots = [:];
+            self.type_scope = [:];
             let start = self.code.len();
             self.expr(init.value);
             self.reject_effectful_natives(start, init.span);
@@ -523,9 +523,9 @@ impl FnCompiler {
         let ctx = new_ctx(self.scope.library);
         ctx.current_file = file;
         self.ctx = ctx;
-        self.slots = {};
-        self.type_scope = {};
-        self.type_param_bounds = {};
+        self.slots = [:];
+        self.type_scope = [:];
+        self.type_param_bounds = [:];
         return saved;
     }
 
@@ -1096,7 +1096,7 @@ impl FnCompiler {
             Function(ps, _) => ps,
             _ => [],
         };
-        let stash: Map<String, Type> = {};
+        let stash: Map<String, Type> = [:];
         for c in captures {
             stash[c] = self.type_scope.get(c).unwrap_or(Type.Unknown);
         }
@@ -1225,7 +1225,7 @@ impl FnCompiler {
             if e.arms.len() - 1 < MATCH_DISPATCH_MIN_CASES {
                 return Option.None;
             }
-            let cases: Map<Int, MatchArm> = {};
+            let cases: Map<Int, MatchArm> = [:];
             let mut i = 0;
             let mut ok = true;
             while ok && i < e.arms.len() - 1 {
@@ -2064,7 +2064,7 @@ impl FnCompiler {
     // value expressions in parameter order (named-argument + default resolution).
     fn resolve_args(self, _ params: List<Param>, _ call_args: List<CallArg>, _ span: SourceSpan) -> List<Expr> {
         let positional: List<Expr> = [];
-        let named: Map<String, Expr> = {};
+        let named: Map<String, Expr> = [:];
         for a in call_args {
             match a.label {
                 Some(l) => { named[l] = a.value; },
@@ -2481,7 +2481,7 @@ fn copy_set(_ s: Set<String>) -> Set<String> {
 
 // The slot-map analogue of inference's `copy_scope`.
 fn copy_slots(_ m: Map<String, Int>) -> Map<String, Int> {
-    let out: Map<String, Int> = {};
+    let out: Map<String, Int> = [:];
     for k in m.keys() {
         if let Some(v) = m.get(k) { out[k] = v; }
     }
@@ -2686,8 +2686,8 @@ fn walk_stmt(_ s: Stmt, _ bound: Set<String>, _ v: TreeVisitor) -> Void {
 // which the post-order preserves for globals with no edge between them.
 fn order_global_inits(_ scope: ModuleScope, _ errors: List<diagnostic.Diagnostic>) -> List<GlobalInit> {
     let ordered: List<GlobalInit> = [];
-    let state: Map<String, Int> = {}; // keyed like `global_key`; 1 = visiting, 2 = done
-    let by_key: Map<String, GlobalInit> = {};
+    let state: Map<String, Int> = [:]; // keyed like `global_key`; 1 = visiting, 2 = done
+    let by_key: Map<String, GlobalInit> = [:];
     for g in scope.global_inits {
         by_key[global_key(g)] = g;
     }

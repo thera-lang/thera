@@ -8,4 +8,4 @@
 
 import 'no_such_library';   // expect error: cannot resolve import 'no_such_library'
 
-fn main() -> Void { }
+fn main() -> Void {}

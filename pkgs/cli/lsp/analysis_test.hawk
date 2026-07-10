@@ -74,7 +74,7 @@ fn test_references_scan_on_disk_workspace_files() -> Result<Void, Error> {
     analysis.set_document(a_uri, a_text, Option.None);
 
     // References on `foo`'s declaration name (line 0, inside `foo` at char 8).
-    let pos = obj({ 'line': int(0), 'character': int(8) });
+    let pos = obj(['line': int(0), 'character': int(8)]);
     let locs = analysis.references_at(a_uri, pos, true).as_array().unwrap_or([]);
     testing.assert_eq(actual: locs.len(), expected: 2)?;
     let uris: Set<String> = Set.new();
@@ -105,7 +105,7 @@ fn test_rename_scans_on_disk_workspace_files() -> Result<Void, Error> {
     let b_uri = paths.path_to_uri(dir + '/b.hawk');
     analysis.set_document(a_uri, a_text, Option.None);
 
-    let pos = obj({ 'line': int(0), 'character': int(8) });
+    let pos = obj(['line': int(0), 'character': int(8)]);
     let changes = match analysis.rename_at(a_uri, pos, 'bar') {
         Edit(e) => e.get('changes'),
         _ => return Result.Err(error('expected a WorkspaceEdit')),
@@ -144,7 +144,7 @@ fn test_references_cover_the_dependency_cone() -> Result<Void, Error> {
 
     // References on `foo`'s declaration (line 0, char 8): the decl in a + the call
     // in the closed b — two occurrences — and nothing from d.
-    let pos = obj({ 'line': int(0), 'character': int(8) });
+    let pos = obj(['line': int(0), 'character': int(8)]);
     let refs = analysis.references_at(a_uri, pos, true).as_array().unwrap_or([]);
     let uris: Set<String> = Set.new();
     for loc in refs {
@@ -179,7 +179,7 @@ fn test_rename_of_an_sdk_symbol_is_refused() -> Result<Void, Error> {
     analysis.set_document(main_uri, main_text, Option.None);
 
     // Rename on `thing` in `mylib.thing()` (line 1, inside the name at char 31).
-    let pos = obj({ 'line': int(1), 'character': int(31) });
+    let pos = obj(['line': int(1), 'character': int(31)]);
     match analysis.rename_at(main_uri, pos, 'renamed') {
         Decline => void,
         _ => return Result.Err(error('renaming an SDK symbol should be declined')),
@@ -200,7 +200,7 @@ fn test_rename_collision_is_flagged() -> Result<Void, Error> {
     analysis.set_document(uri, text, Option.None);
 
     // Rename `foo` (line 0, inside its name at char 4) onto the existing `bar`.
-    let pos = obj({ 'line': int(0), 'character': int(4) });
+    let pos = obj(['line': int(0), 'character': int(4)]);
     match analysis.rename_at(uri, pos, 'bar') {
         Collision(_) => void,
         _ => return Result.Err(error('renaming onto an existing top-level name should collide')),

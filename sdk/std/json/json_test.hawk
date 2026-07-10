@@ -89,11 +89,11 @@ fn test_control_chars_in_strings_rejected() -> Result<Void, Error> {
 
 @test
 fn test_stringify_compact() -> Result<Void, Error> {
-    let doc = obj({
+    let doc = obj([
         'a': int(1),
         'b': arr([int(2), int(3)]),
         'c': bool(true),
-    });
+    ]);
     testing.assert_eq(actual: stringify(doc), expected: '{"a":1,"b":[2,3],"c":true}')?;
     return Result.Ok(void);
 }
@@ -126,7 +126,7 @@ fn test_empty_containers() -> Result<Void, Error> {
 
 @test
 fn test_pretty_printing() -> Result<Void, Error> {
-    let doc = obj({ 'a': int(1), 'b': arr([int(2)]) });
+    let doc = obj(['a': int(1), 'b': arr([int(2)])]);
     let expected = '{\n  "a": 1,\n  "b": [\n    2\n  ]\n}';
     testing.assert_eq(actual: stringify(doc, pretty: true), expected: expected)?;
     return Result.Ok(void);

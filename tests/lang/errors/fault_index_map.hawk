@@ -2,7 +2,7 @@
 //! mode: run
 
 fn main() -> Int {
-    let scores = {'alice': 10};
+    let scores = ['alice': 10];
     // Indexing a missing key traps; use `.get()` for the checked form.
     let x = scores['bob'];   // expect trap: key not found: 'bob'
     println('${x}');

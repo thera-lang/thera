@@ -180,28 +180,28 @@ pub fn new_module_scope(_ library: element.LibraryElement) -> ModuleScope {
         unit_names: [],
         unit_self_types: [],
         unit_files: [],
-        file_functions: {},
-        method_table: {},
-        structs: {},
-        enums: {},
+        file_functions: [:],
+        method_table: [:],
+        structs: [:],
+        enums: [:],
         types: [],
-        consts: {},
-        globals: {},
+        consts: [:],
+        globals: [:],
         global_inits: [],
         next_global_slot: 0,
-        native_fns: {},
-        native_static_methods: {},
-        native_instance_methods: {},
-        interface_impls: {},
-        interface_methods: {},
+        native_fns: [:],
+        native_static_methods: [:],
+        native_instance_methods: [:],
+        interface_impls: [:],
+        interface_methods: [:],
         pending_dispatch: [],
-        interface_supers: {},
+        interface_supers: [:],
         next_enum_ty: 3,
-        boxed_params: {},
+        boxed_params: [:],
         cell_type: Option.None,
-        lambda_param_types: {},
-        lambda_bounds: {},
-        unit_ctx_self: {},
+        lambda_param_types: [:],
+        lambda_bounds: [:],
+        unit_ctx_self: [:],
         library: library,
     };
 }
@@ -219,7 +219,7 @@ impl ModuleScope {
         let index = self.units.len();
         let key = element.file_key(file);
         if !self.file_functions.has(key) {
-            self.file_functions[key] = {};
+            self.file_functions[key] = [:];
         }
         if let Some(m) = self.file_functions.get(key) {
             m[decl.name] = index;
@@ -270,7 +270,7 @@ impl ModuleScope {
     pub fn add_native(self, _ decl: FnDecl, _ file: Option<String>) -> Void {
         let owner = element.file_key(file);
         if !self.native_fns.has(owner) {
-            self.native_fns[owner] = {};
+            self.native_fns[owner] = [:];
         }
         if let Some(m) = self.native_fns.get(owner) {
             m[decl.name] = extern_symbol(decl);
@@ -309,7 +309,7 @@ impl ModuleScope {
         let owner = element.file_key(file);
         let field_names = decl.fields.map((f) => f.name);
         if !self.structs.has(owner) {
-            self.structs[owner] = {};
+            self.structs[owner] = [:];
         }
         if let Some(m) = self.structs.get(owner) {
             m[decl.name] = StructInfo {
@@ -340,7 +340,7 @@ impl ModuleScope {
             t
         };
         if !self.enums.has(owner) {
-            self.enums[owner] = {};
+            self.enums[owner] = [:];
         }
         if let Some(m) = self.enums.get(owner) {
             m[decl.name] = EnumInfo { ty: ty, variants: decl.variants };
@@ -406,7 +406,7 @@ impl ModuleScope {
     pub fn add_const(self, _ decl: ConstDecl, _ file: Option<String>) -> Void {
         let owner = element.file_key(file);
         if !self.consts.has(owner) {
-            self.consts[owner] = {};
+            self.consts[owner] = [:];
         }
         if let Some(m) = self.consts.get(owner) {
             m[decl.name] = decl.value;
@@ -452,7 +452,7 @@ impl ModuleScope {
         self.next_global_slot = slot + 1;
         let owner = element.file_key(file);
         if !self.globals.has(owner) {
-            self.globals[owner] = {};
+            self.globals[owner] = [:];
         }
         if let Some(m) = self.globals.get(owner) {
             m[decl.name] = slot;
@@ -500,7 +500,7 @@ impl ModuleScope {
 
     pub fn add_native_static_method(self, _ type_name: String, _ method: FnDecl) -> Void {
         if !self.native_static_methods.has(type_name) {
-            self.native_static_methods[type_name] = {};
+            self.native_static_methods[type_name] = [:];
         }
         if let Some(m) = self.native_static_methods.get(type_name) {
             m[method.name] = extern_symbol(method);
@@ -509,7 +509,7 @@ impl ModuleScope {
 
     pub fn add_native_instance_method(self, _ type_name: String, _ method: FnDecl) -> Void {
         if !self.native_instance_methods.has(type_name) {
-            self.native_instance_methods[type_name] = {};
+            self.native_instance_methods[type_name] = [:];
         }
         if let Some(m) = self.native_instance_methods.get(type_name) {
             m[method.name] = extern_symbol(method);
@@ -538,7 +538,7 @@ impl ModuleScope {
             Option.None
         };
         if !self.method_table.has(key) {
-            self.method_table[key] = {};
+            self.method_table[key] = [:];
         }
         if let Some(m) = self.method_table.get(key) {
             m[method.name] = self.units.len();
@@ -672,7 +672,7 @@ impl ModuleScope {
         if let Some(idx) = unit {
             let key = TypeId { owner: owner, name: type_name };
             if !self.method_table.has(key) {
-                self.method_table[key] = {};
+                self.method_table[key] = [:];
             }
             if let Some(tm) = self.method_table.get(key) {
                 if !tm.has(method) {

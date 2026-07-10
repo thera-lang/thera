@@ -62,14 +62,14 @@ pub struct TypeRecord {
 }
 
 // A context for inferring at the top level (no enclosing generics/self/return).
-pub fn new_ctx(_ library: LibraryElement, types: Map<Int, Type> = {},
+pub fn new_ctx(_ library: LibraryElement, types: Map<Int, Type> = [:],
     record_sink: List<TypeRecord> = []) -> InferCtx {
     return InferCtx {
         library: library,
         type_params: Set.new(),
         self_type: Option.None,
         return_type: Option.None,
-        type_param_bounds: {},
+        type_param_bounds: [:],
         current_file: Option.None,
         types: types,
         record_sink: record_sink,
@@ -216,7 +216,7 @@ pub fn resolve_struct_literal(_ fs: FileScope, _ x: StructExpr) -> Option<Struct
 // own field walk) and unified into the struct's type parameters.
 pub fn struct_type_args(_ element: TypeDefElement, _ fields: List<FieldInit>,
     _ scope: Map<String, Type>, _ ctx: InferCtx) -> List<Type> {
-    let bindings: Map<String, Type> = {};
+    let bindings: Map<String, Type> = [:];
     for fi in fields {
         // The field's declared type is the expected type for its value.
         let declared = element.fields.get(fi.name);
@@ -256,7 +256,7 @@ fn infer_ident(_ name: String, _ scope: Map<String, Type>, _ ctx: InferCtx) -> T
 pub fn infer_program_globals(_ library: LibraryElement, _ program: Program) -> Void {
     let ctx = new_ctx(library);
     ctx.current_file = program.file_path;
-    let scope: Map<String, Type> = {};
+    let scope: Map<String, Type> = [:];
     for decl in program.decls {
         match decl {
             Const(x) => fill_global(library, program, x.name, x.type_ann, x.value, scope, ctx),
@@ -916,7 +916,7 @@ fn dispatches_virtually(_ recv: Type, _ ctx: InferCtx) -> Bool {
 // lambda argument sees them bound.
 pub fn expected_arg_types(_ callee: Expr, _ args: List<CallArg>,
     _ scope: Map<String, Type>, _ ctx: InferCtx) -> Option<List<Type>> {
-    let bindings: Map<String, Type> = {};
+    let bindings: Map<String, Type> = [:];
     return match callee_params(callee, args, scope, ctx, bindings) {
         Some(positional) => {
             bind_from_args(positional, args, scope, ctx, bindings);
@@ -935,7 +935,7 @@ pub fn expected_arg_types(_ callee: Expr, _ args: List<CallArg>,
 // Instantiation as in `expected_arg_types`.
 pub fn expected_param_types(_ callee: Expr, _ args: List<CallArg>,
     _ scope: Map<String, Type>, _ ctx: InferCtx) -> Option<List<Type>> {
-    let bindings: Map<String, Type> = {};
+    let bindings: Map<String, Type> = [:];
     return match callee_params(callee, args, scope, ctx, bindings) {
         Some(positional) => {
             bind_from_args(positional, args, scope, ctx, bindings);
@@ -1168,7 +1168,7 @@ fn iterator_element(_ t: Type, _ ctx: InferCtx) -> Option<Type> {
 // only fills an as-yet-unbound parameter, so the priority order holds.
 pub fn call_bindings(_ fn_el: FunctionElement, _ type_args: List<TypeRef>,
     _ arg_types: List<Type>, _ expected: Option<Type>, _ ctx: InferCtx) -> Map<String, Type> {
-    return call_bindings_into({}, fn_el, type_args, arg_types, expected, ctx);
+    return call_bindings_into([:], fn_el, type_args, arg_types, expected, ctx);
 }
 
 // As `call_bindings`, but starting from an existing `bindings` map — so a static
@@ -1199,7 +1199,7 @@ fn call_bindings_into(_ bindings: Map<String, Type>, _ fn_el: FunctionElement,
 // reports an arity mismatch separately).
 fn owner_bindings_from(_ recv_type_args: List<TypeRef>, _ owner_params: List<String>,
     _ ctx: InferCtx) -> Map<String, Type> {
-    let bindings: Map<String, Type> = {};
+    let bindings: Map<String, Type> = [:];
     let mut i = 0;
     while i < recv_type_args.len() && i < owner_params.len() {
         bindings[owner_params[i]] = resolve_type_ref_in(recv_type_args[i], ctx_scope(ctx), ctx.type_params, ctx.self_type);
@@ -1328,7 +1328,7 @@ fn enum_variant_type(_ object: Expr, _ variant: String, _ arg_types: List<Type>,
             }
             match find_variant(element, variant) {
                 Some(v) => {
-                    let bindings: Map<String, Type> = {};
+                    let bindings: Map<String, Type> = [:];
                     let mut i = 0;
                     while i < arg_types.len() && i < v.fields.len() {
                         unify(v.fields[i], arg_types[i], bindings);
@@ -1504,7 +1504,7 @@ pub struct MethodResolution {
 // element's recorded conformance arguments (`impl Iterator<Int>` -> {T: Int}).
 fn default_method_bindings(_ element: TypeDefElement, _ iface: TypeId,
     _ iface_def: TypeDefElement) -> Map<String, Type> {
-    let bindings: Map<String, Type> = {};
+    let bindings: Map<String, Type> = [:];
     if let Some(args) = element.interface_args.get(id_key(iface)) {
         let params = iface_def.type_parameters;
         let mut i = 0;
@@ -1638,7 +1638,7 @@ fn is_enum_type(_ ty: Type, _ ctx: InferCtx) -> Bool {
 // its owner-qualified `TypeId` (CH6) — a wrong owner misses rather than binding
 // against a same-named type from another library.
 fn receiver_bindings(_ id: TypeId, _ args: List<Type>, _ ctx: InferCtx) -> Map<String, Type> {
-    let bindings: Map<String, Type> = {};
+    let bindings: Map<String, Type> = [:];
     if let Some(def) = ctx_scope(ctx).resolve_type_def(id) {
         let params = def.type_parameters;
         let mut i = 0;
@@ -1703,7 +1703,7 @@ fn is_comparison(_ op: String) -> Bool {
 }
 
 fn empty_bindings() -> Map<String, Type> {
-    let m: Map<String, Type> = {};
+    let m: Map<String, Type> = [:];
     return m;
 }
 
@@ -1714,7 +1714,7 @@ fn merge_into(_ dst: Map<String, Type>, _ src: Map<String, Type>) -> Void {
 }
 
 pub fn copy_scope(_ m: Map<String, Type>) -> Map<String, Type> {
-    let out: Map<String, Type> = {};
+    let out: Map<String, Type> = [:];
     for k in m.keys() {
         if let Some(v) = m.get(k) { out[k] = v; }
     }

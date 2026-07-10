@@ -73,21 +73,21 @@ pub fn span_to_range(_ span: SourceSpan) -> Json {
         }
     }
     if span.source == '' {
-        return json.obj({
+        return json.obj([
             'start': position(span.line - 1, span.column - 1),
             'end': position(end_line - 1, span.column - 1),
-        });
+        ]);
     }
     let end_offset = span.offset + span.length;
-    return json.obj({
+    return json.obj([
         'start': position(span.line - 1, utf16_len(span.source.slice(line_start, span.offset))),
         'end': position(end_line - 1, utf16_len(span.source.slice(end_line_start, end_offset))),
-    });
+    ]);
 }
 
 fn position(_ line: Int, _ character: Int) -> Json {
-    return json.obj({
+    return json.obj([
         'line': json.int(line),
         'character': json.int(character),
-    });
+    ]);
 }

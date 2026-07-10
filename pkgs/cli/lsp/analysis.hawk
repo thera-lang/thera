@@ -83,15 +83,15 @@ struct ReportResult {
 
 pub fn new_analysis(_ sdk_root: Option<String>) -> Analysis {
     return Analysis {
-        docs: {},
+        docs: [:],
         session: session.new_session(sdk_root),
-        versions: {},
+        versions: [:],
         dirty: Set.new(),
         roots: [],
         exclude: [],
-        surface_sigs: {},
+        surface_sigs: [:],
         ws_dirty: false,
-        diag_reports: {},
+        diag_reports: [:],
         next_result_id: 0,
     };
 }
@@ -334,7 +334,7 @@ impl Analysis {
     // Only `cone_files` builds each returned file's closure to resolve it, so the
     // expensive work scales with the target's reachability, not the whole project.
     fn scan_files(self) -> List<ScanFile> {
-        let by_path: Map<String, ScanFile> = {};
+        let by_path: Map<String, ScanFile> = [:];
         for p in workspace.hawk_files(self.roots) {
             let key = loader.canonical_path(p);
             if !by_path.has(key) {
@@ -370,7 +370,7 @@ impl Analysis {
     // scan, only cheaper.
     fn cone_files(self, _ target: resolve.SymbolId) -> List<ScanFile> {
         let files = self.scan_files();
-        let texts: Map<String, String> = {};
+        let texts: Map<String, String> = [:];
         for f in files {
             texts[loader.canonical_path(f.path)] = f.text;
         }
@@ -466,7 +466,7 @@ impl Analysis {
         }
         let target_key = loader.canonical_path(target.file());
         let mut collided: Option<String> = Option.None;
-        let changes: Map<String, Json> = {};
+        let changes: Map<String, Json> = [:];
         for f in self.cone_files(target) {
             // Never rewrite an SDK file, even when it references the target — its
             // uses stay pinned to the old name (belt-and-suspenders with the
@@ -492,7 +492,7 @@ impl Analysis {
         if changes.keys().len() == 0 {
             return RenameOutcome.Decline;
         }
-        return RenameOutcome.Edit(obj({ 'changes': obj(changes) }));
+        return RenameOutcome.Edit(obj(['changes': obj(changes)]));
     }
 
     // The `diagnostics` array (as JSON) for `uri`'s `text` — the items of a pull
@@ -516,9 +516,9 @@ impl Analysis {
         let items = self.document_items(uri);
         let r = self.report_result(canon, items, prev);
         if r.unchanged {
-            return obj({ 'kind': str('unchanged'), 'resultId': str(r.result_id) });
+            return obj(['kind': str('unchanged'), 'resultId': str(r.result_id)]);
         }
-        return obj({ 'kind': str('full'), 'resultId': str(r.result_id), 'items': items });
+        return obj(['kind': str('full'), 'resultId': str(r.result_id), 'items': items]);
     }
 
     // The rendered diagnostic items for `uri` (a JSON array). An excluded file
@@ -564,7 +564,7 @@ impl Analysis {
         // Check each file once, folding every diagnostic under its owning file
         // (deduped by identity — an imported file's error surfaces from several
         // importers). The primary attributes its own unattributed diagnostics.
-        let by_file: Map<String, List<Json>> = {};
+        let by_file: Map<String, List<Json>> = [:];
         let seen: Set<String> = Set.new();
         let mut i = 0;
         for f in files {
@@ -605,23 +605,23 @@ impl Analysis {
                 };
                 let r = self.report_result(canon, file_items, prev_ids.get(f.uri));
                 if r.unchanged {
-                    items.push(obj({
+                    items.push(obj([
                         'kind': str('unchanged'),
                         'uri': str(f.uri),
                         'version': ver,
                         'resultId': str(r.result_id),
-                    }));
+                    ]));
                 } else {
-                    items.push(obj({
+                    items.push(obj([
                         'kind': str('full'),
                         'uri': str(f.uri),
                         'version': ver,
                         'resultId': str(r.result_id),
                         'items': file_items,
-                    }));
+                    ]));
                 }
             }
         }
-        return Option.Some(obj({ 'items': arr(items) }));
+        return Option.Some(obj(['items': arr(items)]));
     }
 }

@@ -60,7 +60,7 @@ struct Config {
 
 let config: Config = Config {
     default_level: Level.Info,
-    filters: {},
+    filters: [:],
     format: Format.Text,
 };
 
@@ -134,11 +134,11 @@ fn text_line(_ name: String, _ level: Level, _ msg: String) -> String {
 
 fn json_line(_ name: String, _ level: Level, _ msg: String) -> String {
     // Build via std.json so the message and name are correctly escaped.
-    let obj = json.obj({
+    let obj = json.obj([
         'level': json.str(level_tag(level)),
         'logger': json.str(name),
         'msg': json.str(msg),
-    });
+    ]);
     return json.stringify(obj);
 }
 

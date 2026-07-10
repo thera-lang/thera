@@ -284,8 +284,8 @@ impl Command {
     /// Parse `args` against this command's declarations.
     pub fn parse(self, _ args: List<String>) -> Result<Matches, CliError> {
         let m = Matches {
-            flag_values: {},
-            option_values: {},
+            flag_values: [:],
+            option_values: [:],
             positional_values: [],
             sub_name: Option.None,
             sub: Option.None,

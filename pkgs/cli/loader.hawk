@@ -340,7 +340,7 @@ impl Loader {
                 for d in pf.diagnostics {
                     self.diagnostics.push(d);
                 }
-                let source = LibrarySource { program: pf.program, imports: {} };
+                let source = LibrarySource { program: pf.program, imports: [:] };
                 self.cache[file] = source;
                 self.link_imports(pf.program, path.dirname(file), source);
                 self.order.push(pf.program);
@@ -439,19 +439,19 @@ impl Loader {
 // directory (the pre-canonical `dirname('root.hawk')` was `''`, which sent
 // imports to the filesystem root).
 pub fn load_imports(_ entry: String, _ program: Program, _ sdk_root: Option<String>,
-    parse_cache: Map<String, ParsedFile> = {},
-    overlays: Map<String, String> = {},
-    surface_cache: Map<String, FileSurface> = {}) -> LoadedImports {
+    parse_cache: Map<String, ParsedFile> = [:],
+    overlays: Map<String, String> = [:],
+    surface_cache: Map<String, FileSurface> = [:]) -> LoadedImports {
     let canon = canonical_path(entry);
     program.file_path = Option.Some(canon);
     let loader = Loader {
         sdk_root: sdk_root,
         order: [],
-        cache: {},
+        cache: [:],
         diagnostics: [],
         parse_cache: parse_cache,
         overlays: overlays,
-        surfaces: {},
+        surfaces: [:],
     };
 
     // std.core is auto-imported into every program — load it so its types (Error),
@@ -463,7 +463,7 @@ pub fn load_imports(_ entry: String, _ program: Program, _ sdk_root: Option<Stri
     // (With no SDK — `sdk_root: None`, the deliberate hermetic mode — the resolve
     // misses and no prelude loads; explicit `std.*` imports get the "no Hawk SDK
     // found" diagnostic in `link_imports`, and the CLI warns once at startup.)
-    let core_names: Map<String, String> = {};
+    let core_names: Map<String, String> = [:];
     // Resolve the auto-imported prelude relative to the primary's own directory, so
     // per-file SDK resolution applies: a primary under `sdk/std` gets its prelude
     // from that same tree (`own_std_dir`), keeping one identity for the core types.
@@ -480,7 +480,7 @@ pub fn load_imports(_ entry: String, _ program: Program, _ sdk_root: Option<Stri
     // The primary program is already parsed; link its imports so its namespaces
     // can be derived. Cached under the canonical key, so an import that resolves
     // back to the root (a cycle) reuses this in-memory program.
-    let root = LibrarySource { program: program, imports: {} };
+    let root = LibrarySource { program: program, imports: [:] };
     loader.cache[canon] = root;
     loader.link_imports(program, path.dirname(canon), root);
 
@@ -490,9 +490,9 @@ pub fn load_imports(_ entry: String, _ program: Program, _ sdk_root: Option<Stri
     // each compiled file's own bindings. The bare-legal surface is built alongside.
     // A `surface_cache` hit skips the whole per-file derivation (its collision
     // diagnostics replay from the entry); a miss computes and stores.
-    let file_namespaces: Map<String, Map<String, element.LibraryNamespace>> = {};
-    let file_bare_surface: Map<String, Map<String, String>> = {};
-    let file_imports: Map<String, List<String>> = {};
+    let file_namespaces: Map<String, Map<String, element.LibraryNamespace>> = [:];
+    let file_bare_surface: Map<String, Map<String, String>> = [:];
+    let file_imports: Map<String, List<String>> = [:];
     for file in loader.cache.keys() {
         let src = loader.cache[file];
         let key = element.file_key(src.program.file_path);
@@ -555,11 +555,11 @@ pub fn import_edges(_ entry: String, _ program: Program, _ sdk_root: Option<Stri
     let probe = Loader {
         sdk_root: sdk_root,
         order: [],
-        cache: {},
+        cache: [:],
         diagnostics: [],
-        parse_cache: {},
-        overlays: {},
-        surfaces: {},
+        parse_cache: [:],
+        overlays: [:],
+        surfaces: [:],
     };
     let base = path.dirname(entry);
     let seen: Set<String> = Set.new();
@@ -607,7 +607,7 @@ impl Loader {
         // name -> owning file (key). The prelude names own to std.core; an `as _`
         // import's public names own to that import's file; a `foo_test.hawk`'s
         // white-box view owns to `foo.hawk`.
-        let names: Map<String, String> = {};
+        let names: Map<String, String> = [:];
         for n in core_names.keys() {
             names[n] = core_names[n];
         }
@@ -663,8 +663,8 @@ impl Loader {
     fn collect_collisions(self, _ src: LibrarySource, _ diags: List<diagnostic.Diagnostic>) -> Void {
         let file = element.file_key(src.program.file_path);
         // name -> origin file, for the barrel (public) and bare (`as _`) surfaces.
-        let exposed: Map<String, String> = {};
-        let bare: Map<String, String> = {};
+        let exposed: Map<String, String> = [:];
+        let bare: Map<String, String> = [:];
         for decl in src.program.decls {
             if let Some(n) = public_name(decl) {
                 exposed[n] = element.file_key(src.program.file_path);
@@ -713,7 +713,7 @@ impl Loader {
     // The namespaces bound by `root`'s own imports — the memoized twin of the
     // free `namespaces_for` (which stays for surface-shape callers/tests).
     fn namespaces_of(self, _ root: LibrarySource) -> Map<String, element.LibraryNamespace> {
-        let result: Map<String, element.LibraryNamespace> = {};
+        let result: Map<String, element.LibraryNamespace> = [:];
         for decl in root.program.decls {
             if let Import(x) = decl {
                 if let Some(child) = root.imports.get(x.path) { result[namespace_of(x)] = self.surface_of(child); }
@@ -774,7 +774,7 @@ fn any_top_name(_ decl: Decl) -> Option<String> {
 // The namespaces bound by `root`'s own imports: import namespace (alias, or the
 // trailing path segment) -> the imported library's public surface.
 pub fn namespaces_for(_ root: LibrarySource) -> Map<String, element.LibraryNamespace> {
-    let result: Map<String, element.LibraryNamespace> = {};
+    let result: Map<String, element.LibraryNamespace> = [:];
     for decl in root.program.decls {
         if let Import(x) = decl {
             if let Some(child) = root.imports.get(x.path) { result[namespace_of(x)] = public_surface_of(child); }
@@ -788,7 +788,7 @@ pub fn namespaces_for(_ root: LibrarySource) -> Map<String, element.LibraryNames
 pub fn public_surface_of(_ lib: LibrarySource) -> element.LibraryNamespace {
     let names: Set<String> = Set.new();
     let collisions: Set<String> = Set.new();
-    let origin: Map<String, String> = {};
+    let origin: Map<String, String> = [:];
     let visited: Set<String> = Set.new();
     collect_surface(lib, names, collisions, origin, visited);
     return element.LibraryNamespace { names: names, collisions: collisions, origin: origin };

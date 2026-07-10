@@ -139,7 +139,7 @@ struct Policy {
 
 let POLICY: Policy = Policy {
     default_priority: Priority.Medium,
-    overrides: {},
+    overrides: [:],
 };
 
 // ---------------------------------------------------------------------------
@@ -199,7 +199,7 @@ fn parse_level(_ s: String) -> Result<Priority, Error> {
 
 fn main() -> Result<Int, Error> {
     // --- collections + inferred locals ---
-    let scores = { 'alice': 82, 'bob': 47, 'carol': 95 };   // Map<String, Int>
+    let scores = ['alice': 82, 'bob': 47, 'carol': 95];   // Map<String, Int>
     let names = scores.keys();                            // List<String>
 
     // filter with a context-typed lambda parameter, capturing a global.

@@ -11,7 +11,7 @@ fn main() -> Void {
     let a = 1;
     let b = 2;
     let c = 3;
-    let r = a < b > (c); // expect error: `a` is not a generic function
+    let r = a<b>(c); // expect error: `a` is not a generic function
     // Without the `(`, a chain parses as comparisons — here ill-typed
     // (`Bool > Int`), which is the comparison reading, not a call.
     let s = a < b > c; // expect error: operator `>`

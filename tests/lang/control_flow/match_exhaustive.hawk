@@ -75,4 +75,4 @@ fn bool_full(_ b: Bool) -> Int {
     };
 }
 
-fn main() -> Void { }
+fn main() -> Void {}

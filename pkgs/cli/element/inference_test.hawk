@@ -14,7 +14,7 @@ import 'resolver' as _;
 import 'inference' as _;
 
 fn lib_of(_ src: String) -> LibraryElement {
-    return build_library(parse_tokens(tokenize(src).tokens).program, [], {}, {});
+    return build_library(parse_tokens(tokenize(src).tokens).program, [], [:], [:]);
 }
 
 fn type_of(_ src: String, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
@@ -22,7 +22,7 @@ fn type_of(_ src: String, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
 }
 
 fn empty_scope() -> Map<String, Type> {
-    let s: Map<String, Type> = {};
+    let s: Map<String, Type> = [:];
     return s;
 }
 
@@ -312,7 +312,7 @@ fn test_memo_hit_wins_regardless_of_expected() -> Result<Void, Error> {
     // A committed record answers for its node no matter what the caller
     // expects — the committed value was computed with the correct expectation.
     let expr = parse_expression(tokenize('1 + 2').tokens);
-    let types: Map<Int, Type> = {};
+    let types: Map<Int, Type> = [:];
     types[span_key(expr_span(expr))] = Type.Primitive(Primitive.Str);
     let ctx = new_ctx(lib_of(''), types: types);
     testing.assert_eq(actual: infer_in(expr, empty_scope(), ctx),

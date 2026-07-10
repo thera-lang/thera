@@ -22,4 +22,4 @@ fn greeter() -> Int { return 2; }   // expect error: duplicate name `greeter`: a
 let cache: Int = 1;
 let cache: Int = 2;   // expect error: duplicate global `cache`: also defined in this file
 
-fn main() -> Void { }
+fn main() -> Void {}

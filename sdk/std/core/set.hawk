@@ -11,7 +11,7 @@ pub struct Set<T> {
 impl Set<T> {
     /// An empty set.
     pub fn new() -> Set<T> {
-        return Set { items: {} };
+        return Set { items: [:] };
     }
 
     /// A set of the elements of `items`; duplicates collapse.
@@ -20,7 +20,7 @@ impl Set<T> {
     /// let s = Set.from([1, 2, 2, 3]);   // {1, 2, 3}
     /// ```
     pub fn from(_ items: List<T>) -> Set<T> {
-        let result = Set { items: {} };
+        let result = Set { items: [:] };
         for item in items {
             result.add(item);
         }

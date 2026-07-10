@@ -320,7 +320,7 @@ impl Scanner {
 
     fn parse_object(self) -> Result<Json, JsonError> {
         self.pos = self.pos + 1; // consume '{'
-        let mut fields: Map<String, Json> = {};
+        let mut fields: Map<String, Json> = [:];
         self.skip_ws();
         if self.peek() == char.RBRACE {
             self.pos = self.pos + 1;

@@ -63,8 +63,8 @@ fn is_declaration(_ tok: Token, _ doc_path: String, _ target: resolve.SymbolId) 
 }
 
 fn location(_ uri: String, _ span: SourceSpan) -> json.Json {
-    return json.obj({
+    return json.obj([
         'uri': json.str(uri),
         'range': positions.span_to_range(span),
-    });
+    ]);
 }

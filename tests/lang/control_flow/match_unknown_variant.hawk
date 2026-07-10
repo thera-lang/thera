@@ -32,4 +32,4 @@ fn g(_ w: Wrap) -> String {
     };
 }
 
-fn main() -> Void { }
+fn main() -> Void {}

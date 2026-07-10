@@ -702,20 +702,19 @@ return `Json` (Null on miss) rather than `Option`, so navigation chains —
 `decode`).
 
 **Encoding ergonomics — three layers.** Building a heterogeneous value needs
-`Json` (Hawk has no heterogeneous map/list literal — a raw
-`{ 'a': 1, 'b': true }` is a `Map`, not a `Json`, and won't pass to
-`stringify`). The layers:
+`Json` (Hawk has no heterogeneous map/list literal — a raw `['a': 1, 'b': true]`
+is a `Map`, not a `Json`, and won't pass to `stringify`). The layers:
 
 1. **Constructors (today):**
-   `json.obj({ 'two': json.int(123), 'three': json.double(1.2) })` — container
+   `json.obj(['two': json.int(123), 'three': json.double(1.2)])` — container
    literals stay; only the leaves wrap.
 2. **Auto-boxing (proposed — §Sequencing):** an expected-type-directed coercion
    that extends the existing implicit `Ok`-wrap to `Json`: where a `Json` is
    expected, a literal/primitive boxes into its variant (`Int`→`Json.Int`, a
    list literal→`Json.Array` recursively, a `String`-keyed map
-   literal→`Json.Object`), so `let doc: Json = { 'two': 123, 'three': 1.2 }`
-   just works. Encode-only; scoped to the blessed `Json` type. The most
-   LLM-friendly for ad-hoc inline JSON.
+   literal→`Json.Object`), so `let doc: Json = ['two': 123, 'three': 1.2]` just
+   works. Encode-only; scoped to the blessed `Json` type. The most LLM-friendly
+   for ad-hoc inline JSON.
 3. **Reflection `encode<T>`/`decode<T>` (research-later — §Sequencing):** typed
    struct ↔ JSON with no manual wrapping, and the only path to typed
    **decoding**.
@@ -809,8 +808,8 @@ pub struct Request { let method: String; let url: String;
                      let headers: Map<String, String>; let body: Bytes; }
 pub struct Response { let status: Int; let headers: Map<String, String>; let body: Bytes; }
 
-pub fn get(_ url: String, headers: Map<String, String> = {}) -> Result<Response, HttpError>;
-pub fn post(_ url: String, body: Bytes, headers: Map<String, String> = {}) -> Result<Response, HttpError>;
+pub fn get(_ url: String, headers: Map<String, String> = [:]) -> Result<Response, HttpError>;
+pub fn post(_ url: String, body: Bytes, headers: Map<String, String> = [:]) -> Result<Response, HttpError>;
 pub fn send(_ request: Request) -> Result<Response, HttpError>;
 
 impl Response {
@@ -949,7 +948,7 @@ default.
 practice (Go `slog`) is key-value records, not bare strings — valuable for an
 agent-facing language whose logs are often re-parsed, and the `Json` format
 already emits one object per line. But call-side fields
-(`logger.info('query done', { 'rows': 42, 'ms': 12 })`) want the same
+(`logger.info('query done', ['rows': 42, 'ms': 12])`) want the same
 expected-type-directed auto-boxing JSON encoding needs (§ Sequencing #1) rather
 than a second heterogeneous-map path; until that lands the message is a plain
 interpolated string. Sequenced after it, not before.
@@ -1186,7 +1185,7 @@ remains:
      boxes into the matching variant; a **list literal** elaborates each element
      against `Json` and boxes to `Json.Array`; a **`String`-keyed map literal**
      boxes its values to `Json.Object`. So
-     `let doc: Json = { 'two': 123, 'tags': ['a', 'b'], 'ok': true }` works.
+     `let doc: Json = ['two': 123, 'tags': ['a', 'b'], 'ok': true]` works.
      Scoped to literals/primitives in `Json` context (not arbitrary coercion),
      and **encode-only**. It introduces Hawk's first implicit _primitive_ boxing
      — softened by the `Ok`-wrap precedent (same mechanism, another blessed

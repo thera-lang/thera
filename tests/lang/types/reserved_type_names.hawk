@@ -61,4 +61,4 @@ struct Config {
     let x: Int;
 }
 
-fn main() -> Void { }
+fn main() -> Void {}

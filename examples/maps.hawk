@@ -7,12 +7,12 @@
 
 fn main() -> Result<Int, Error> {
     // Map literal — insertion order is preserved.
-    let keywords = {
+    let keywords = [
         'fn': 1,
         'let': 2,
         'return': 3,
         'if': 4,
-    };
+    ];
 
     println('len: ${keywords.len()}');
     println('has fn: ${keywords.has('fn')}');
@@ -28,7 +28,7 @@ fn main() -> Result<Int, Error> {
     }
 
     // Mutation.
-    let mut counts = { 'a': 0, 'b': 0 };
+    let mut counts = ['a': 0, 'b': 0];
     counts['a'] = 1;
     counts['b'] = 2;
     println('a=${counts['a']}, b=${counts['b']}');

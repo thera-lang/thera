@@ -16,12 +16,12 @@ import '../bytecode/encoder' as _;
 import 'codegen' as _;
 
 fn emit_bytes(_ src: String) -> List<Int> {
-    let result = compile_program(parse_tokens(tokenize(src).tokens).program, [], {}, {});
+    let result = compile_program(parse_tokens(tokenize(src).tokens).program, [], [:], [:]);
     return encode_module(result.module).to_list();
 }
 
 fn errors_of(_ src: String) -> Int {
-    return compile_program(parse_tokens(tokenize(src).tokens).program, [], {}, {}).errors.len();
+    return compile_program(parse_tokens(tokenize(src).tokens).program, [], [:], [:]).errors.len();
 }
 
 // --- instruction-level lowering inspection ---
@@ -32,7 +32,7 @@ fn errors_of(_ src: String) -> Int {
 // with a located, readable assertion instead of only as a fixpoint/example break.
 
 fn module_of(_ src: String) -> Module {
-    return compile_program(parse_tokens(tokenize(src).tokens).program, [], {}, {}).module;
+    return compile_program(parse_tokens(tokenize(src).tokens).program, [], [:], [:]).module;
 }
 
 // The instruction stream of the unit named `fn_name` (a free function's bare
@@ -189,8 +189,8 @@ fn test_same_file_first_resolution_byte_identical() -> Result<Void, Error> {
     let main_prog = program_of(
         'fn combine(_ x: Int) -> Int { return x * 100; }\n'
         + 'fn use_both() -> Int { return combine(3) + lib_pick(4, 5); }', 'main.hawk');
-    let bare_surface = { 'main.hawk': { 'lib_pick': 'lib.hawk' } };
-    let result = compile_program(main_prog, [lib], {}, bare_surface);
+    let bare_surface = ['main.hawk': ['lib_pick': 'lib.hawk']];
+    let result = compile_program(main_prog, [lib], [:], bare_surface);
     testing.assert_eq(actual: result.errors.len(), expected: 0)?;
     testing.assert_eq(actual: encode_module(result.module).to_list(), expected: [72, 65, 87, 75, 2, 0, 0, 0, 2, 1, 0, 3, 1, 0, 1, 48, 4, 2, 2, 4, 6, 0, 6, 1, 36, 1, 2, 45, 2, 2, 4, 6, 0, 6, 1, 8, 45, 1, 1, 4, 6, 0, 1, 228, 0, 10, 45, 0, 0, 7, 1, 3, 36, 2, 1, 1, 4, 1, 5, 36, 0, 2, 8, 45, 7, 35, 4, 8, 108, 105, 98, 95, 112, 105, 99, 107, 7, 99, 111, 109, 98, 105, 110, 101, 7, 99, 111, 109, 98, 105, 110, 101, 8, 117, 115, 101, 95, 98, 111, 116, 104])?;
     return Result.Ok(void);

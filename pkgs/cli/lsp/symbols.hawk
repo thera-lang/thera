@@ -94,12 +94,12 @@ fn variant_symbols(_ variants: List<EnumVariant>) -> List<Json> {
 // only for container symbols (enums/interfaces/impls).
 fn make_symbol(_ name: String, _ kind: Int, _ is_pub: Bool, _ range_span: SourceSpan,
     _ sel_span: SourceSpan, _ children: Option<List<Json>>) -> Json {
-    let m: Map<String, Json> = {
+    let m: Map<String, Json> = [
         'name': json.str(name),
         'kind': json.int(kind),
         'range': positions.span_to_range(range_span),
         'selectionRange': positions.span_to_range(sel_span),
-    };
+    ];
     if is_pub {
         m['detail'] = json.str('pub');
     }

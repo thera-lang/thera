@@ -40,11 +40,11 @@ fn cleanup(_ dir: String) -> Void {
 // — before batch A, `c` stayed in `checked` and the breakage was skipped.
 @test
 fn test_dependency_edit_rechecks_importers() -> Result<Void, Error> {
-    let dir = fixture_dir('stale', {
+    let dir = fixture_dir('stale', [
         'b.hawk': 'pub fn helper() -> Int { return 1; }\n',
         'c.hawk': 'import \'b\';\npub fn go() -> Int { return b.helper(); }\n',
         'a.hawk': 'import \'b\';\nimport \'c\';\nfn main() -> Int { return c.go() + b.helper(); }\n',
-    })?;
+    ])?;
     let sess = new_session(Option.None);
     let a_path = '${dir}/a.hawk';
     let a_src = fs.read_text(a_path)?;
@@ -70,11 +70,11 @@ fn test_dependency_edit_rechecks_importers() -> Result<Void, Error> {
 
 @test
 fn test_dependents_of_is_transitive() -> Result<Void, Error> {
-    let dir = fixture_dir('cone', {
+    let dir = fixture_dir('cone', [
         'b.hawk': 'pub fn helper() -> Int { return 1; }\n',
         'c.hawk': 'import \'b\';\npub fn go() -> Int { return b.helper(); }\n',
         'a.hawk': 'import \'c\';\nfn main() -> Int { return c.go(); }\n',
-    })?;
+    ])?;
     let sess = new_session(Option.None);
     let a_path = '${dir}/a.hawk';
     let diags = sess.check(fs.read_text(a_path)?, a_path);
@@ -97,9 +97,9 @@ fn test_dependents_of_is_transitive() -> Result<Void, Error> {
 // the graph.
 @test
 fn test_sdk_file_invalidates_every_known_file() -> Result<Void, Error> {
-    let dir = fixture_dir('sdk', {
+    let dir = fixture_dir('sdk', [
         'main.hawk': 'fn main() -> Int { return 1; }\n',
-    })?;
+    ])?;
     // A fake SDK: `<dir>/sdk/std/core/core.hawk` (empty prelude is fine — the
     // loader just needs the layout).
     fs.create_dir_all('${dir}/sdk/std/core')?;
@@ -123,9 +123,9 @@ fn test_sdk_file_invalidates_every_known_file() -> Result<Void, Error> {
 // no SDK, nothing is an SDK file.
 @test
 fn test_is_sdk_file_classifies_by_std_root() -> Result<Void, Error> {
-    let dir = fixture_dir('is_sdk', {
+    let dir = fixture_dir('is_sdk', [
         'main.hawk': 'fn main() -> Int { return 1; }\n',
-    })?;
+    ])?;
     fs.create_dir_all('${dir}/sdk/std/core')?;
     fs.write_text('${dir}/sdk/std/core/core.hawk', '// empty prelude\n')?;
 
@@ -149,10 +149,10 @@ fn test_is_sdk_file_classifies_by_std_root() -> Result<Void, Error> {
 // the new surface (here: a renamed export) — LD14 batch B.
 @test
 fn test_dependency_edit_refreshes_surfaces() -> Result<Void, Error> {
-    let dir = fixture_dir('surface', {
+    let dir = fixture_dir('surface', [
         'util.hawk': 'pub fn helper() -> Int { return 1; }\n',
         'main.hawk': 'import \'util\' as _;\nfn main() -> Int { return helper(); }\n',
-    })?;
+    ])?;
     let sess = new_session(Option.None);
     let main_path = '${dir}/main.hawk';
     let main_src = fs.read_text(main_path)?;
@@ -181,10 +181,10 @@ fn test_dependency_edit_refreshes_surfaces() -> Result<Void, Error> {
 // test file's surface (its import edge is in the graph).
 @test
 fn test_whitebox_surface_refreshes_on_dep_edit() -> Result<Void, Error> {
-    let dir = fixture_dir('whitebox', {
+    let dir = fixture_dir('whitebox', [
         'foo.hawk': 'fn secret() -> Int { return 1; }\npub fn go() -> Int { return secret(); }\n',
         'foo_test.hawk': 'import \'foo\' as _;\nfn probe() -> Int { return secret(); }\n',
-    })?;
+    ])?;
     let sess = new_session(Option.None);
     let t_path = '${dir}/foo_test.hawk';
     let t_src = fs.read_text(t_path)?;
@@ -207,13 +207,13 @@ fn test_whitebox_surface_refreshes_on_dep_edit() -> Result<Void, Error> {
 // guard: an accumulating base would change resolution or duplicate methods).
 @test
 fn test_repeated_checks_are_stable() -> Result<Void, Error> {
-    let dir = fixture_dir('stable', {
+    let dir = fixture_dir('stable', [
         'shape.hawk': 'pub interface Shape { fn area(self) -> Int }\n',
         'main.hawk': 'import \'shape\' as _;\n'
-            + 'struct Sq { let s: Int; }\n'
-            + 'impl Shape for Sq { pub fn area(self) -> Int { return self.s * self.s; } }\n'
-            + 'fn main() -> Int { return Sq { s: 3 }.area() + missing; }\n',
-    })?;
+        + 'struct Sq { let s: Int; }\n'
+        + 'impl Shape for Sq { pub fn area(self) -> Int { return self.s * self.s; } }\n'
+        + 'fn main() -> Int { return Sq { s: 3 }.area() + missing; }\n',
+    ])?;
     let sess = new_session(Option.None);
     let main_path = '${dir}/main.hawk';
     let main_src = fs.read_text(main_path)?;
@@ -238,12 +238,12 @@ fn test_repeated_checks_are_stable() -> Result<Void, Error> {
 // the new dependency (its renamed method is required by the impl).
 @test
 fn test_library_cache_evicts_on_dep_edit() -> Result<Void, Error> {
-    let dir = fixture_dir('libevict', {
+    let dir = fixture_dir('libevict', [
         'shape.hawk': 'pub interface Shape { fn area(self) -> Int }\n',
         'main.hawk': 'import \'shape\';\n'
-            + 'struct Sq { let s: Int; }\n'
-            + 'impl shape.Shape for Sq { pub fn area(self) -> Int { return self.s; } }\n',
-    })?;
+        + 'struct Sq { let s: Int; }\n'
+        + 'impl shape.Shape for Sq { pub fn area(self) -> Int { return self.s; } }\n',
+    ])?;
     let sess = new_session(Option.None);
     let main_path = '${dir}/main.hawk';
     let main_src = fs.read_text(main_path)?;
@@ -272,10 +272,10 @@ fn render(_ t: Option<types.Type>) -> String {
 // containing the offset wins, and offsets outside any expression have no type.
 @test
 fn test_type_at_returns_committed_types() -> Result<Void, Error> {
-    let dir = fixture_dir('typeat', {
+    let dir = fixture_dir('typeat', [
         'u.hawk': 'pub fn num() -> Int { return 40; }\n',
         'm.hawk': 'import \'u\';\nfn main() -> Bool { return u.num() < 3; }\n',
-    })?;
+    ])?;
     let sess = new_session(Option.None);
     let p = '${dir}/m.hawk';
     let src = fs.read_text(p)?;
@@ -298,10 +298,10 @@ fn test_type_at_returns_committed_types() -> Result<Void, Error> {
 // `check` call.
 @test
 fn test_type_records_evict_and_repopulate() -> Result<Void, Error> {
-    let dir = fixture_dir('typeevict', {
+    let dir = fixture_dir('typeevict', [
         'u.hawk': 'pub fn num() -> Int { return 40; }\n',
         'm.hawk': 'import \'u\';\nfn main() -> Int { return u.num() + 2; }\n',
-    })?;
+    ])?;
     let sess = new_session(Option.None);
     let p = '${dir}/m.hawk';
     let src = fs.read_text(p)?;

@@ -151,11 +151,11 @@ fn empty_def(_ owner: String, _ name: String, _ kind: TypeDefKind, _ type_params
         owner_file: owner,
         kind: kind,
         type_parameters: type_params,
-        type_parameter_bounds: {},
+        type_parameter_bounds: [:],
         methods: [],
         interfaces: [],
-        interface_args: {},
-        fields: {},
+        interface_args: [:],
+        fields: [:],
         mut_fields: Set.new(),
         variants: [],
         super_interfaces: [],
@@ -268,7 +268,7 @@ pub fn namespaces_in(_ lib: LibraryElement, _ file: Option<String>) -> Map<Strin
     // A file absent from the table (e.g. an in-process build with no closure) has
     // no namespaces — an empty map. (`{}` here as a bare arm would be a block, so
     // bind it with a type annotation to get a map literal.)
-    let none: Map<String, LibraryNamespace> = {};
+    let none: Map<String, LibraryNamespace> = [:];
     return none;
 }
 

@@ -28,8 +28,8 @@ pub fn handle_definition(_ ctx: resolve.ResolveCtx, _ text: String, _ offset: In
 }
 
 fn location(_ file: String, _ span: SourceSpan) -> Json {
-    return json.obj({
+    return json.obj([
         'uri': json.str(paths.path_to_uri(file)),
         'range': positions.span_to_range(span),
-    });
+    ]);
 }

@@ -116,7 +116,7 @@ struct NameSite {
 // share a name. Reported against the colliding definition in the file being
 // checked.
 fn check_duplicates(_ errors: List<diagnostic.Diagnostic>, _ program: Program, _ imports: List<Program>) -> Void {
-    let names: Map<String, List<NameSite>> = {};
+    let names: Map<String, List<NameSite>> = [:];
     for ip in imports {
         collect_names(ip, false, names);
     }
@@ -491,7 +491,7 @@ fn check_program(_ errors: List<diagnostic.Diagnostic>, _ program: Program, _ li
                 check_global_annotation(errors, x.type_ann, x.name, x.name_span, library, file);
                 let ctx = new_ctx(library, record_sink: records);
                 ctx.current_file = file;
-                check_expr(CheckCtx { errors: errors, infer: ctx, scope: empty_scope(), muts: {}, no_return_reported: [true], in_loop: false }, x.value, Option.None);
+                check_expr(CheckCtx { errors: errors, infer: ctx, scope: empty_scope(), muts: [:], no_return_reported: [true], in_loop: false }, x.value, Option.None);
                 // A `const` is a manifest constant, inlined at every use site; a
                 // computed initializer belongs in a top-level `let` (computed once
                 // and stored). See docs/language.md.
@@ -510,7 +510,7 @@ fn check_program(_ errors: List<diagnostic.Diagnostic>, _ program: Program, _ li
                 check_global_annotation(errors, x.type_ann, x.name, x.name_span, library, file);
                 let ctx = new_ctx(library, record_sink: records);
                 ctx.current_file = file;
-                check_expr(CheckCtx { errors: errors, infer: ctx, scope: empty_scope(), muts: {}, no_return_reported: [true], in_loop: false }, x.value, Option.None);
+                check_expr(CheckCtx { errors: errors, infer: ctx, scope: empty_scope(), muts: [:], no_return_reported: [true], in_loop: false }, x.value, Option.None);
             },
             Enum(x) => {
                 let tps = type_param_set(x.type_params);
@@ -552,14 +552,14 @@ fn check_fn(_ errors: List<diagnostic.Diagnostic>, _ fn_decl: FnDecl, _ library:
                 current_file: file,
                 // A fresh per-function memo (short scans — the runtime Map is an
                 // association vector); the sink accumulates across the whole run.
-                types: {},
+                types: [:],
                 record_sink: records,
             };
             let scope = empty_scope();
             // Track binding mutability alongside `scope` (both live in the
             // function's `CheckCtx`, copied together per block). Parameters are
             // immutable.
-            let muts: Map<String, Bool> = {};
+            let muts: Map<String, Bool> = [:];
             for p in fn_decl.params {
                 if p.is_self {
                     if let Some(st) = self_type { scope['self'] = st; }
@@ -715,7 +715,7 @@ fn check_conformance(_ errors: List<diagnostic.Diagnostic>, _ decl: ImplDecl, _ 
                 return;
             }
             let impl_tps = type_param_set(decl.type_params);
-            let iface_bindings: Map<String, Type> = {};
+            let iface_bindings: Map<String, Type> = [:];
             for p in iface_params.enumerate() {
                 iface_bindings[p.value] = resolve_type_ref_in(
                     decl.interface_args[p.index], fs, impl_tps, Option.Some(impl_type));
@@ -818,7 +818,7 @@ fn type_matches(_ a: Type, _ b: Type) -> Bool {
 // A shallow copy of a mutability map (name -> may-be-reassigned), mirroring
 // `copy_scope` so a block can extend its bindings without affecting the parent.
 fn copy_muts(_ m: Map<String, Bool>) -> Map<String, Bool> {
-    let out: Map<String, Bool> = {};
+    let out: Map<String, Bool> = [:];
     for k in m.keys() {
         if let Some(v) = m.get(k) { out[k] = v; }
     }
@@ -1145,7 +1145,7 @@ fn check_expr_inner(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> V
                                     '"${name}" takes ${fn_el.type_parameters.len()} type argument(s), but ${x.type_args.len()} were given',
                                     x.span);
                             }
-                            check_call_args(errors, fn_el, {}, x.args, arg_types, x.span, ctx);
+                            check_call_args(errors, fn_el, [:], x.args, arg_types, x.span, ctx);
                             check_inferable_type_args(errors, fn_el, fn_el.type_parameters, x, expected, arg_types, ctx);
                         },
                         None => {
@@ -1173,7 +1173,7 @@ fn check_expr_inner(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> V
                     check_qualified_receiver(errors, recv, field, fid.span, scope, ctx);
                     match resolve_ns_or_static_call(recv, field, scope, ctx) {
                         Some(target) => {
-                            check_call_args(errors, target.fn_el, {}, x.args, arg_types, x.span, ctx);
+                            check_call_args(errors, target.fn_el, [:], x.args, arg_types, x.span, ctx);
                             check_inferable_type_args(errors, target.fn_el, target.type_params, x, expected, arg_types, ctx);
                         },
                         None => {
@@ -1398,7 +1398,7 @@ fn check_lambda(_ cc: CheckCtx, _ x: LambdaExpr, _ expected: Option<Type>) -> Vo
     // A lambda body carries its own inferred return type (`body_ctx` above), so
     // the missing-return diagnostic never applies here; a fresh box keeps it
     // independent of the enclosing function's.
-    let body_cc = CheckCtx { errors: errors, infer: body_ctx, scope: lambda_scope, muts: {}, no_return_reported: [], in_loop: false };
+    let body_cc = CheckCtx { errors: errors, infer: body_ctx, scope: lambda_scope, muts: [:], no_return_reported: [], in_loop: false };
     check_expr(body_cc, x.body, expected_function_return(expected));
 }
 
@@ -1459,7 +1459,7 @@ fn validate_pattern(_ errors: List<diagnostic.Diagnostic>, _ pattern: Pattern, _
             // A literal's type never depends on local bindings, so an empty
             // scope suffices. Lenient both ways: an unresolved literal type
             // (`Pattern.Literal` can wrap richer exprs) or subject stays quiet.
-            let lt = infer_expr(lit, {}, ctx, Option.None);
+            let lt = infer_expr(lit, [:], ctx, Option.None);
             if !is_lenient_operand(lt) && !is_lenient_operand(subject)
                 && !arms_compatible(lt, subject, ctx.library) {
                 add_error(errors,
@@ -1647,8 +1647,8 @@ fn check_bounds(_ errors: List<diagnostic.Diagnostic>, _ fn_el: FunctionElement,
     if fn_el.type_parameters.len() == 0 {
         return;
     }
-    let bindings: Map<String, Type> = {};
-    let bound_at: Map<String, SourceSpan> = {};
+    let bindings: Map<String, Type> = [:];
+    let bound_at: Map<String, SourceSpan> = [:];
     for ip in args.enumerate() {
         if let Some(p) = matched[ip.index] {
             // Make receiver generics concrete first, so unification recovers
@@ -1656,7 +1656,7 @@ fn check_bounds(_ errors: List<diagnostic.Diagnostic>, _ fn_el: FunctionElement,
             // The argument types are the ones the call was checked with — not a
             // fresh expected-free re-inference (the CH19 divergence).
             let actual = if ip.index < arg_types.len() { arg_types[ip.index] } else { Type.Unknown };
-            let arg_bindings: Map<String, Type> = {};
+            let arg_bindings: Map<String, Type> = [:];
             unify(substitute(p.ty, recv_bindings), actual, arg_bindings);
             for tp in arg_bindings.keys() {
                 if let Some(nt) = arg_bindings.get(tp) {
@@ -2250,7 +2250,7 @@ fn union_type_params(_ outer: Set<String>, _ own: List<TypeParam>) -> Set<String
 }
 
 fn fn_param_bounds(_ decl: FnDecl, _ fs: FileScope) -> Map<String, List<TypeId>> {
-    let b: Map<String, List<TypeId>> = {};
+    let b: Map<String, List<TypeId>> = [:];
     for tp in decl.type_params {
         b[tp.name] = tp.bounds.map((n) => resolver.bound_id(fs, n));
     }
@@ -2258,7 +2258,7 @@ fn fn_param_bounds(_ decl: FnDecl, _ fs: FileScope) -> Map<String, List<TypeId>>
 }
 
 fn empty_scope() -> Map<String, Type> {
-    let s: Map<String, Type> = {};
+    let s: Map<String, Type> = [:];
     return s;
 }
 

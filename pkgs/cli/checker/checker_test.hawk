@@ -15,7 +15,7 @@ import '../diagnostic' as _; // Diagnostic
 import 'checker' as _;
 
 fn errors_of(_ src: String) -> List<Diagnostic> {
-    return check(parse_tokens(tokenize(src).tokens).program, [], {}, {}).errors;
+    return check(parse_tokens(tokenize(src).tokens).program, [], [:], [:]).errors;
 }
 
 fn first_message(_ errs: List<Diagnostic>) -> String {
@@ -29,7 +29,7 @@ fn first_message(_ errs: List<Diagnostic>) -> String {
 // that runs the reserved-name check — `check` alone does not).
 fn reserved_errors(_ primary: Program, _ imports: List<Program>) -> List<Diagnostic> {
     let out: List<Diagnostic> = [];
-    for e in check_files(primary, imports, {}, {}).errors {
+    for e in check_files(primary, imports, [:], [:]).errors {
         if e.message.contains('is a reserved type name') {
             out.push(e);
         }
@@ -559,7 +559,7 @@ fn test_pub_function_shared_across_files_is_allowed() -> Result<Void, Error> {
     let a = program_at('pub fn parse() -> Int { return 1; }', 'a.hawk');
     let b = program_at('pub fn parse() -> Int { return 2; }', 'b.hawk');
     let main = program_at('fn run() -> Int { return 0; }', 'main.hawk');
-    let errs = check(main, [a, b], {}, {}).errors;
+    let errs = check(main, [a, b], [:], [:]).errors;
     testing.assert(!any_message_contains(errs, 'duplicate function `parse`'),
         message: 'two libraries sharing a pub function name must not collide')?;
     return Result.Ok(void);
@@ -574,7 +574,7 @@ fn test_pathless_programs_do_not_alias() -> Result<Void, Error> {
     let dep = parse_tokens(tokenize('fn helper() -> Int { return 1; }').tokens).program;
     let main = parse_tokens(tokenize('fn helper() -> Int { return 2; }\n'
         + 'fn run() -> Int { return helper(); }').tokens).program;
-    let errs = check(main, [dep], {}, {}).errors;
+    let errs = check(main, [dep], [:], [:]).errors;
     testing.assert_eq(actual: errs.len(), expected: 0)?;
     return Result.Ok(void);
 }
@@ -586,7 +586,7 @@ fn test_private_function_collision_across_files_is_allowed() -> Result<Void, Err
     let lib = program_at('fn helper() -> Int { return 1; }', 'lib.hawk');
     let main = program_at('fn helper() -> Int { return 2; }\n'
         + 'fn run() -> Int { return helper(); }', 'main.hawk');
-    let errs = check(main, [lib], {}, {}).errors;
+    let errs = check(main, [lib], [:], [:]).errors;
     testing.assert_eq(actual: errs.len(), expected: 0)?;
     return Result.Ok(void);
 }
@@ -600,7 +600,7 @@ fn test_duplicate_type_across_files_is_allowed() -> Result<Void, Error> {
     let lib = program_at('pub struct Point { let x: Int; }', 'lib.hawk');
     let main = program_at('struct Point { let y: Int; }\n'
         + 'fn run() -> Int { return 0; }', 'main.hawk');
-    let errs = check(main, [lib], {}, {}).errors;
+    let errs = check(main, [lib], [:], [:]).errors;
     testing.assert(!any_message_contains(errs, 'duplicate type `Point`'),
         message: 'two libraries sharing a type name must not collide')?;
     return Result.Ok(void);
@@ -631,7 +631,7 @@ fn test_redefinition_in_same_file_is_flagged() -> Result<Void, Error> {
 // ---- the committed-type record (CH19) ----
 
 fn records_of(_ src: String) -> List<TypeRecord> {
-    return check(parse_tokens(tokenize(src).tokens).program, [], {}, {}).records;
+    return check(parse_tokens(tokenize(src).tokens).program, [], [:], [:]).records;
 }
 
 // The rendered committed type of the first occurrence of `text` in `src`.

@@ -4,7 +4,7 @@ import 'types' as _;
 import 'element' as _;
 
 fn defs() -> Map<String, TypeDefElement> {
-    let m: Map<String, TypeDefElement> = {};
+    let m: Map<String, TypeDefElement> = [:];
     m['List'] = new_builtin('t', 'List', ['T']);
     m['Display'] = new_interface('t', 'Display', []);
     m['Error'] = new_interface('t', 'Error', []);
@@ -15,13 +15,13 @@ fn defs() -> Map<String, TypeDefElement> {
 // by file key 't' (matching the fixture TypeIds) — `is_assignable` resolves
 // identities through the per-file tables.
 fn lib_with(_ m: Map<String, TypeDefElement>) -> LibraryElement {
-    let file_type_defs: Map<String, Map<String, TypeDefElement>> = {};
+    let file_type_defs: Map<String, Map<String, TypeDefElement>> = [:];
     file_type_defs['t'] = m;
-    let file_functions: Map<String, Map<String, FunctionElement>> = {};
-    let file_consts: Map<String, Map<String, ConstElement>> = {};
-    let file_namespaces: Map<String, Map<String, LibraryNamespace>> = {};
-    let file_bare_surface: Map<String, Map<String, String>> = {};
-    let file_owned: Map<String, Set<String>> = {};
+    let file_functions: Map<String, Map<String, FunctionElement>> = [:];
+    let file_consts: Map<String, Map<String, ConstElement>> = [:];
+    let file_namespaces: Map<String, Map<String, LibraryNamespace>> = [:];
+    let file_bare_surface: Map<String, Map<String, String>> = [:];
+    let file_owned: Map<String, Set<String>> = [:];
     return LibraryElement {
         type_defs: m,
         file_functions: file_functions,
@@ -99,7 +99,7 @@ fn test_is_assignable_owner_distinct() -> Result<Void, Error> {
 
 @test
 fn test_substitute_and_unify() -> Result<Void, Error> {
-    let bindings: Map<String, Type> = {};
+    let bindings: Map<String, Type> = [:];
     unify(Type.Interface(TypeId { owner: 't', name: 'List' }, [Type.TypeParameter('T')]),
         Type.Interface(TypeId { owner: 't', name: 'List' }, [Type.Primitive(Primitive.Int)]), bindings);
     testing.assert_eq(actual: bindings.get('T'),

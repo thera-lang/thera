@@ -472,43 +472,43 @@ impl Server {
         }
         let id = self.next_request_id;
         self.next_request_id = id + 1;
-        self.outbox.send(json.obj({
+        self.outbox.send(json.obj([
             'jsonrpc': json.str('2.0'),
             'id': json.int(id),
             'method': json.str('workspace/diagnostic/refresh'),
-        }));
+        ]));
     }
 }
 
 // --- JSON-RPC envelope helpers ---
 
 fn send_response(_ ob: outbox.Outbox, _ id: Json, _ result: Json) -> Void {
-    ob.send(json.obj({
+    ob.send(json.obj([
         'jsonrpc': json.str('2.0'),
         'id': id,
         'result': result,
-    }));
+    ]));
 }
 
 // A JSON-RPC error response (`code` from the spec's reserved range:
 // -32700 ParseError, -32601 MethodNotFound, -32600 InvalidRequest, and the LSP
 // extensions -32801 ContentModified / -32803 RequestFailed).
 fn send_error(_ ob: outbox.Outbox, _ id: Json, _ code: Int, _ message: String) -> Void {
-    ob.send(json.obj({
+    ob.send(json.obj([
         'jsonrpc': json.str('2.0'),
         'id': id,
-        'error': json.obj({
+        'error': json.obj([
             'code': json.int(code),
             'message': json.str(message),
-        }),
-    }));
+        ]),
+    ]));
 }
 
 // --- LSP payloads ---
 
 fn initialize_result() -> Json {
-    return json.obj({
-        'capabilities': json.obj({
+    return json.obj([
+        'capabilities': json.obj([
             // The protocol default, declared explicitly: positions crossing
             // the boundary are UTF-16 code units (see positions.hawk, LS6).
             'positionEncoding': json.str('utf-16'),
@@ -525,16 +525,16 @@ fn initialize_result() -> Json {
             // file's diagnostics can change when *another* file changes (so it
             // re-pulls the workspace on our refresh nudge); `workspaceDiagnostics`
             // advertises the `workspace/diagnostic` request that spans the project.
-            'diagnosticProvider': json.obj({
+            'diagnosticProvider': json.obj([
                 'interFileDependencies': json.bool(true),
                 'workspaceDiagnostics': json.bool(true),
-            }),
-        }),
-        'serverInfo': json.obj({
+            ]),
+        ]),
+        'serverInfo': json.obj([
             'name': json.str('hawk'),
             'version': json.str('0.1.0'),
-        }),
-    });
+        ]),
+    ]);
 }
 
 // --- helpers ---
@@ -574,7 +574,7 @@ fn string_array(_ j: Json) -> List<String> {
 // resultId the client last holds per file, so an unchanged file returns a light
 // `unchanged` report instead of re-sending items. Missing/malformed entries drop.
 fn previous_result_ids(_ params: Json) -> Map<String, String> {
-    let out: Map<String, String> = {};
+    let out: Map<String, String> = [:];
     match params.get('previousResultIds').as_array() {
         Some(entries) => {
             for e in entries {

@@ -62,7 +62,7 @@ fn test_capability_real_dispatches() -> Result<Void, Error> {
 
 @test
 fn test_fixed_env_injects_values() -> Result<Void, Error> {
-    let e = testing.fixed_env({ 'PORT': '8080', 'HOST': 'local' }, ['serve', '--fast']);
+    let e = testing.fixed_env(['PORT': '8080', 'HOST': 'local'], ['serve', '--fast']);
     testing.assert_eq(actual: read_port(e, 0), expected: 8080)?;
     testing.assert_eq(actual: e.get('HOST').unwrap_or('?'), expected: 'local')?;
     return Result.Ok(void);
@@ -70,16 +70,16 @@ fn test_fixed_env_injects_values() -> Result<Void, Error> {
 
 @test
 fn test_fixed_env_missing_is_none() -> Result<Void, Error> {
-    let e = testing.fixed_env({ 'PORT': '8080' }, []);
+    let e = testing.fixed_env(['PORT': '8080'], []);
     testing.assert(e.get('ABSENT').is_none())?;
     // Logic falls back when the variable is absent.
-    testing.assert_eq(actual: read_port(testing.fixed_env({}, []), 3000), expected: 3000)?;
+    testing.assert_eq(actual: read_port(testing.fixed_env([:], []), 3000), expected: 3000)?;
     return Result.Ok(void);
 }
 
 @test
 fn test_fixed_env_args() -> Result<Void, Error> {
-    let e = testing.fixed_env({}, ['build', '--release', 'target']);
+    let e = testing.fixed_env([:], ['build', '--release', 'target']);
     testing.assert_eq(actual: e.args().len(), expected: 3)?;
     testing.assert_eq(actual: e.args()[1], expected: '--release')?;
     return Result.Ok(void);

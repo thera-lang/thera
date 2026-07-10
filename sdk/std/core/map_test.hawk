@@ -5,7 +5,7 @@ import std.testing;
 
 @test
 fn test_literal_get_has() -> Result<Void, Error> {
-    let m = { 'a': 1, 'b': 2, 'c': 3 };
+    let m = ['a': 1, 'b': 2, 'c': 3];
     testing.assert_eq(actual: m.len(), expected: 3)?;
     testing.assert(!m.is_empty())?;
     testing.assert_eq(actual: m.get('b'), expected: Option.Some(2))?;
@@ -17,7 +17,7 @@ fn test_literal_get_has() -> Result<Void, Error> {
 
 @test
 fn test_empty() -> Result<Void, Error> {
-    let m: Map<String, Int> = {};
+    let m: Map<String, Int> = [:];
     testing.assert_eq(actual: m.len(), expected: 0)?;
     testing.assert(m.is_empty())?;
     testing.assert_eq(actual: m.get('x'), expected: Option.None)?;
@@ -26,7 +26,7 @@ fn test_empty() -> Result<Void, Error> {
 
 @test
 fn test_insert_and_update() -> Result<Void, Error> {
-    let mut m: Map<String, Int> = {};
+    let mut m: Map<String, Int> = [:];
     m['x'] = 1;
     m['y'] = 2;
     testing.assert_eq(actual: m.len(), expected: 2)?;
@@ -39,7 +39,7 @@ fn test_insert_and_update() -> Result<Void, Error> {
 
 @test
 fn test_remove() -> Result<Void, Error> {
-    let mut m = { 'a': 1, 'b': 2 };
+    let mut m = ['a': 1, 'b': 2];
     testing.assert_eq(actual: m.remove('a'), expected: Option.Some(1))?;
     testing.assert_eq(actual: m.remove('a'), expected: Option.None)?; // already gone
     testing.assert(!m.has('a'))?;
@@ -49,7 +49,7 @@ fn test_remove() -> Result<Void, Error> {
 
 @test
 fn test_get_or() -> Result<Void, Error> {
-    let m = { 'a': 1, 'b': 2 };
+    let m = ['a': 1, 'b': 2];
     testing.assert_eq(actual: m.get_or('a', 0), expected: 1)?;
     testing.assert_eq(actual: m.get_or('z', 0), expected: 0)?; // absent -> default
     return Result.Ok(void);
@@ -57,7 +57,7 @@ fn test_get_or() -> Result<Void, Error> {
 
 @test
 fn test_keys_values_keep_insertion_order() -> Result<Void, Error> {
-    let m = { 'first': 10, 'second': 20, 'third': 30 };
+    let m = ['first': 10, 'second': 20, 'third': 30];
     testing.assert_eq(actual: m.keys(),
         expected: ['first', 'second', 'third'])?;
     testing.assert_eq(actual: m.values(), expected: [10, 20, 30])?;
@@ -66,7 +66,7 @@ fn test_keys_values_keep_insertion_order() -> Result<Void, Error> {
 
 @test
 fn test_clear_empties_in_place() -> Result<Void, Error> {
-    let mut m = { 'a': 1, 'b': 2, 'c': 3 };
+    let mut m = ['a': 1, 'b': 2, 'c': 3];
     let alias = m;            // same underlying map (reference type)
     m.clear();
     testing.assert(m.is_empty())?;

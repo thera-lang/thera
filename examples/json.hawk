@@ -30,12 +30,12 @@ fn main() -> Result<Int, Error> {
 
     // Build a derived document with the lowercase constructors. Hawk has no
     // heterogeneous literal, so each leaf is wrapped in its Json variant.
-    let summary = json.obj({
+    let summary = json.obj([
         'service': json.str(service),
         'endpoint': json.str('http://localhost:${port}'),
         'tag_count': json.int(tags.len()),
         'healthy': json.bool(true),
-    });
+    ]);
 
     println('');
     println(json.stringify(summary, pretty: true));

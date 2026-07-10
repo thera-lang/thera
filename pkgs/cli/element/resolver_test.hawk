@@ -13,7 +13,7 @@ import 'resolver' as _;
 import 'scope' as _;
 
 fn lib_of(_ src: String) -> LibraryElement {
-    return build_library(parse_tokens(tokenize(src).tokens).program, [], {}, {});
+    return build_library(parse_tokens(tokenize(src).tokens).program, [], [:], [:]);
 }
 
 // Parse `src` stamped with `path` — for the multi-file / layered-build tests,
@@ -198,7 +198,7 @@ fn test_reserved_flat_entry_pinned_to_first_registration() -> Result<Void, Error
     core.file_path = Option.Some('/core/result.hawk');
     let user = parse_tokens(tokenize('struct Result { let x: Int; }').tokens).program;
     user.file_path = Option.Some('/app/main.hawk');
-    let lib = build_library(user, [core], {}, {});
+    let lib = build_library(user, [core], [:], [:]);
     match lib.type_defs.get('Result') {
         Some(d) => {
             testing.assert_eq(actual: d.owner_file, expected: '/core/result.hawk')?;
@@ -223,7 +223,7 @@ fn test_reserved_flat_entry_pinned_to_first_registration() -> Result<Void, Error
     a.file_path = Option.Some('/a.hawk');
     let b = parse_tokens(tokenize('pub struct Config { let y: Int; }').tokens).program;
     b.file_path = Option.Some('/b.hawk');
-    let lib2 = build_library(b, [a], {}, {});
+    let lib2 = build_library(b, [a], [:], [:]);
     match lib2.type_defs.get('Config') {
         Some(d) => { testing.assert_eq(actual: d.owner_file, expected: '/b.hawk')?; },
         None => { testing.assert(false, message: 'Config not in type_defs')?; },
@@ -238,7 +238,7 @@ fn test_pathless_programs_get_distinct_keys() -> Result<Void, Error> {
     // programs must never merge into one per-file table.
     let dep = parse_tokens(tokenize('fn helper() -> Int { return 1; }').tokens).program;
     let main = parse_tokens(tokenize('fn helper() -> Int { return 2; }').tokens).program;
-    let lib = build_library(main, [dep], {}, {});
+    let lib = build_library(main, [dep], [:], [:]);
     testing.assert_eq(actual: main.file_path, expected: Option.Some('<anon>'))?;
     testing.assert_eq(actual: dep.file_path, expected: Option.Some('<anon:2>'))?;
     match lib.file_functions.get('<anon>') {
@@ -264,7 +264,7 @@ fn test_reserved_pin_allows_same_owner_reregistration() -> Result<Void, Error> {
     first.file_path = Option.Some('/core/result.hawk');
     let again = parse_tokens(tokenize('pub enum Result { Good, Bad }').tokens).program;
     again.file_path = Option.Some('/core/result.hawk');
-    let lib = build_library(again, [first], {}, {});
+    let lib = build_library(again, [first], [:], [:]);
     match lib.file_type_defs.get('/core/result.hawk') {
         Some(m) => match m.get('Result') {
             Some(per_file) => { per_file.own_methods.push('probe'); },
@@ -348,11 +348,11 @@ fn test_layered_build_matches_full_build() -> Result<Void, Error> {
     // mutated programs.
     let dep_a = prog_of(dep_src, '/dep.hawk');
     let dep_b = prog_of(dep_src, '/dep.hawk');
-    let surface: Map<String, Map<String, String>> = {};
-    surface['/main.hawk'] = { 'Greet': '/dep.hawk' };
-    let full = build_library(prog_of(main_src, '/main.hawk'), [dep_a], {}, surface);
-    let base = build_import_library([dep_b], {}, surface);
-    let layered = match layer_primary(base, prog_of(main_src, '/main.hawk'), {}, surface) {
+    let surface: Map<String, Map<String, String>> = [:];
+    surface['/main.hawk'] = ['Greet': '/dep.hawk'];
+    let full = build_library(prog_of(main_src, '/main.hawk'), [dep_a], [:], surface);
+    let base = build_import_library([dep_b], [:], surface);
+    let layered = match layer_primary(base, prog_of(main_src, '/main.hawk'), [:], surface) {
         Some(lib) => lib,
         None => { return Result.Err(error('layer_primary unexpectedly fell back')); },
     };
@@ -379,14 +379,14 @@ fn test_layered_build_matches_full_build() -> Result<Void, Error> {
 @test
 fn test_layer_primary_gates_foreign_impl() -> Result<Void, Error> {
     let dep = prog_of('pub struct Point { let x: Int; }\n', '/dep.hawk');
-    let surface: Map<String, Map<String, String>> = {};
-    surface['/main.hawk'] = { 'Point': '/dep.hawk' };
-    let base = build_import_library([dep], {}, surface);
+    let surface: Map<String, Map<String, String>> = [:];
+    surface['/main.hawk'] = ['Point': '/dep.hawk'];
+    let base = build_import_library([dep], [:], surface);
     let before = base.file_type_defs['/dep.hawk']['Point'].methods.len();
 
     let main_src = 'impl Point { pub fn shout(self) -> Int { return 1; } }\n';
-    let first = layer_primary(base, prog_of(main_src, '/main.hawk'), {}, surface);
-    let second = layer_primary(base, prog_of(main_src, '/main.hawk'), {}, surface);
+    let first = layer_primary(base, prog_of(main_src, '/main.hawk'), [:], surface);
+    let second = layer_primary(base, prog_of(main_src, '/main.hawk'), [:], surface);
     testing.assert(first.is_none(), message: 'foreign impl falls back')?;
     testing.assert(second.is_none(), message: 'falls back on repeat too')?;
     testing.assert_eq(actual: base.file_type_defs['/dep.hawk']['Point'].methods.len(),
@@ -398,9 +398,9 @@ fn test_layer_primary_gates_foreign_impl() -> Result<Void, Error> {
 // rather than mutating the shared floor element.
 @test
 fn test_layer_primary_gates_builtin_impl() -> Result<Void, Error> {
-    let base = build_import_library([], {}, {});
+    let base = build_import_library([], [:], [:]);
     let main_src = 'impl Int { pub fn shout(self) -> Int { return self; } }\n';
-    let layered = layer_primary(base, prog_of(main_src, '/main.hawk'), {}, {});
+    let layered = layer_primary(base, prog_of(main_src, '/main.hawk'), [:], [:]);
     testing.assert(layered.is_none(), message: 'builtin impl falls back')?;
     return Result.Ok(void);
 }
@@ -411,13 +411,13 @@ fn test_layer_primary_gates_builtin_impl() -> Result<Void, Error> {
 @test
 fn test_layer_primary_flattens_into_primary_only() -> Result<Void, Error> {
     let dep = prog_of('pub interface Base { fn root(self) -> Int }\n', '/dep.hawk');
-    let surface: Map<String, Map<String, String>> = {};
-    surface['/main.hawk'] = { 'Base': '/dep.hawk' };
-    let base = build_import_library([dep], {}, surface);
+    let surface: Map<String, Map<String, String>> = [:];
+    surface['/main.hawk'] = ['Base': '/dep.hawk'];
+    let base = build_import_library([dep], [:], surface);
     let super_methods = base.file_type_defs['/dep.hawk']['Base'].methods.len();
 
     let main_src = 'interface Sub: Base { fn extra(self) -> Int }\n';
-    let layered = match layer_primary(base, prog_of(main_src, '/main.hawk'), {}, surface) {
+    let layered = match layer_primary(base, prog_of(main_src, '/main.hawk'), [:], surface) {
         Some(lib) => lib,
         None => { return Result.Err(error('layer_primary unexpectedly fell back')); },
     };

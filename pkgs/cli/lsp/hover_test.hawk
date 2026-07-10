@@ -16,8 +16,8 @@ import 'resolve' as _;
 fn rendered(_ src: String, _ offset: Int) -> String {
     let program = parser.parse_tokens(lexer.tokenize(src).tokens).program;
     let imports: List<Program> = [];
-    let nss: Map<String, Map<String, LibraryNamespace>> = {};
-    let bare: Map<String, Map<String, String>> = {};
+    let nss: Map<String, Map<String, LibraryNamespace>> = [:];
+    let bare: Map<String, Map<String, String>> = [:];
     let ctx = ResolveCtx {
         program: program,
         tokens: lexer.tokenize(src).tokens, // the parse's tokens, paired with `src`
@@ -142,15 +142,15 @@ fn test_hover_member_of_unknown_receiver_is_null() -> Result<Void, Error> {
 fn rendered_with_types(_ src: String, _ offset: Int) -> String {
     let program = parser.parse_tokens(lexer.tokenize(src).tokens).program;
     let imports: List<Program> = [];
-    let nss: Map<String, Map<String, LibraryNamespace>> = {};
-    let bare: Map<String, Map<String, String>> = {};
+    let nss: Map<String, Map<String, LibraryNamespace>> = [:];
+    let bare: Map<String, Map<String, String>> = [:];
     let ctx = ResolveCtx {
         program: program,
         tokens: lexer.tokenize(src).tokens, // the parse's tokens, paired with `src`
         imports: imports,
         file_namespaces: nss,
         file_bare_surface: bare,
-        primary_types: checker.check(program, [], {}, {}).records,
+        primary_types: checker.check(program, [], [:], [:]).records,
     };
     return hover.handle_hover(ctx, src, offset)
         .get('contents').get('value').as_string().unwrap_or('');

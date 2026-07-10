@@ -22,22 +22,22 @@ fn program_of(_ src: String) -> Program {
 // way `analyze_at` does (straight from the hermetic checker) — so inferred-
 // receiver resolution can consult it.
 fn typed_ctx(_ program: Program) -> ResolveCtx {
-    let nss: Map<String, Map<String, LibraryNamespace>> = {};
-    let bare: Map<String, Map<String, String>> = {};
+    let nss: Map<String, Map<String, LibraryNamespace>> = [:];
+    let bare: Map<String, Map<String, String>> = [:];
     return ResolveCtx {
         program: program,
         tokens: [], // no cached tokens — resolve_at lexes the source on demand
         imports: [],
         file_namespaces: nss,
         file_bare_surface: bare,
-        primary_types: checker.check(program, [], {}, {}).records,
+        primary_types: checker.check(program, [], [:], [:]).records,
     };
 }
 
 // A hermetic single-file resolution context (no imports, empty surfaces).
 fn ctx_of(_ program: Program, _ imports: List<Program>) -> ResolveCtx {
-    let nss: Map<String, Map<String, LibraryNamespace>> = {};
-    let bare: Map<String, Map<String, String>> = {};
+    let nss: Map<String, Map<String, LibraryNamespace>> = [:];
+    let bare: Map<String, Map<String, String>> = [:];
     return ResolveCtx {
         program: program,
         tokens: [], // no cached tokens — resolve_at lexes the source on demand
@@ -476,16 +476,16 @@ fn cross_ctx(_ primary: Program) -> ResolveCtx {
     let a = program_at('pub fn helper(_ n: Int) -> Int { return n; }\n'
         + 'pub const width: Int = 4;\n', '/libs/a.hawk');
     let b = program_at('pub fn helper(_ s: String) -> String { return s; }\n', '/libs/b.hawk');
-    let bare: Map<String, Map<String, String>> = {};
-    bare['/app/main.hawk'] = { 'helper': '/libs/b.hawk' };
+    let bare: Map<String, Map<String, String>> = [:];
+    bare['/app/main.hawk'] = ['helper': '/libs/b.hawk'];
     let surface = LibraryNamespace {
         names: Set.from(['helper', 'width']),
         collisions: Set.new(),
-        origin: { 'helper': '/libs/a.hawk', 'width': '/libs/a.hawk' },
+        origin: ['helper': '/libs/a.hawk', 'width': '/libs/a.hawk'],
     };
-    let ns_map: Map<String, LibraryNamespace> = {};
+    let ns_map: Map<String, LibraryNamespace> = [:];
     ns_map['util'] = surface;
-    let nss: Map<String, Map<String, LibraryNamespace>> = {};
+    let nss: Map<String, Map<String, LibraryNamespace>> = [:];
     nss['/app/main.hawk'] = ns_map;
     return ResolveCtx {
         program: primary,

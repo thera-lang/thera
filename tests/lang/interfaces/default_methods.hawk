@@ -55,7 +55,7 @@ interface Seq<T> {
         let mut going = true;
         while going {
             match self.next() {
-                None    => { going = false; },
+                None => { going = false; },
                 Some(v) => { out.push(v); },
             }
         }
@@ -87,7 +87,7 @@ struct MapSeq<T, U> {
 impl Seq<U> for MapSeq<T, U> {
     fn next(self) -> Option<U> {
         return match self.source.next() {
-            None    => Option.None,
+            None => Option.None,
             Some(v) => Option.Some((self.transform)(v)),
         };
     }

@@ -13,7 +13,7 @@ import 'resolver' as _;
 import 'scope' as _;
 
 fn lib_of(_ src: String) -> LibraryElement {
-    return build_library(parse_tokens(tokenize(src).tokens).program, [], {}, {});
+    return build_library(parse_tokens(tokenize(src).tokens).program, [], [:], [:]);
 }
 
 // A LibraryElement whose anonymous file binds namespace `ns` exposing `names`.
@@ -22,15 +22,15 @@ fn lib_with_namespace(_ src: String, _ ns: String, _ names: List<String>) -> Lib
     for n in names {
         surface.add(n);
     }
-    let origin: Map<String, String> = {};
+    let origin: Map<String, String> = [:];
     for n in names {
         origin[n] = 'provider';
     }
-    let nss: Map<String, LibraryNamespace> = {};
+    let nss: Map<String, LibraryNamespace> = [:];
     nss[ns] = LibraryNamespace { names: surface, collisions: Set.new(), origin: origin };
-    let file_ns: Map<String, Map<String, LibraryNamespace>> = {};
+    let file_ns: Map<String, Map<String, LibraryNamespace>> = [:];
     file_ns[file_key(Option.None)] = nss;
-    return build_library(parse_tokens(tokenize(src).tokens).program, [], file_ns, {});
+    return build_library(parse_tokens(tokenize(src).tokens).program, [], file_ns, [:]);
 }
 
 @test

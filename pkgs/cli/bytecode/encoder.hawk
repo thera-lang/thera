@@ -65,7 +65,7 @@ pub fn encode_module(_ m: module.Module) -> Bytes {
     // First pass: intern every string the module references — type names, string
     // literals, and the names of called natives/selectors — in the same order
     // the runtime does, so the pools (and therefore the bytes) match exactly.
-    let pool = StringPool { strings: [], index: {} };
+    let pool = StringPool { strings: [], index: [:] };
     for t in m.types {
         pool.intern(t.name);
     }

@@ -16,7 +16,7 @@ import 'inference'; // pass 4: module-global type inference (no cycle — see sc
 // The built-in type-definition elements, by name. These back an InterfaceType
 // (the generics) and are the attachment point for `impl` blocks / static methods.
 pub fn builtin_type_defs() -> Map<String, TypeDefElement> {
-    let m: Map<String, TypeDefElement> = {};
+    let m: Map<String, TypeDefElement> = [:];
     // Primitives — the attachment point for impl/static methods. They implement
     // `Display` explicitly (`impl Display for Int`, … in std.core); seed that
     // conformance here so hermetic contexts that don't link the prelude still see
@@ -239,7 +239,7 @@ fn stamp_anon_imports(_ imports: List<Program>) -> Void {
 
 // A shallow copy: the outer map is fresh, the values are shared references.
 fn map_copy<K, V>(_ m: Map<K, V>) -> Map<K, V> {
-    let out: Map<K, V> = {};
+    let out: Map<K, V> = [:];
     for k in m.keys() {
         out[k] = m[k];
     }
@@ -253,9 +253,9 @@ fn library_over(_ programs: List<Program>,
     _ file_namespaces: Map<String, Map<String, LibraryNamespace>>,
     _ file_bare_surface: Map<String, Map<String, String>>) -> LibraryElement {
     let type_defs = builtin_type_defs();
-    let file_type_defs: Map<String, Map<String, TypeDefElement>> = {};
+    let file_type_defs: Map<String, Map<String, TypeDefElement>> = [:];
     // The top-level names each file declares — the same-file half of bare resolution.
-    let file_owned: Map<String, Set<String>> = {};
+    let file_owned: Map<String, Set<String>> = [:];
 
     for p in programs {
         collect_owned(file_owned, p);
@@ -271,9 +271,9 @@ fn library_over(_ programs: List<Program>,
     // interface closure) are visible through it; this is the same object returned.
     let library = LibraryElement {
         type_defs: type_defs,
-        file_functions: {},
+        file_functions: [:],
         file_type_defs: file_type_defs,
-        file_consts: {},
+        file_consts: [:],
         file_namespaces: file_namespaces,
         file_bare_surface: file_bare_surface,
         file_owned: file_owned,
@@ -482,7 +482,7 @@ fn record_file_type(_ tbl: Map<String, Map<String, TypeDefElement>>, _ file: Opt
     _ name: String, _ el: TypeDefElement) -> Void {
     let key = file_key(file);
     if !tbl.has(key) {
-        tbl[key] = {};
+        tbl[key] = [:];
     }
     if let Some(m) = tbl.get(key) { m[name] = el; }
 }
@@ -506,7 +506,7 @@ fn record_file_function(_ tbl: Map<String, Map<String, FunctionElement>>, _ file
     _ name: String, _ el: FunctionElement) -> Void {
     let key = file_key(file);
     if !tbl.has(key) {
-        tbl[key] = {};
+        tbl[key] = [:];
     }
     if let Some(m) = tbl.get(key) { m[name] = el; }
 }
@@ -515,7 +515,7 @@ fn record_file_const(_ tbl: Map<String, Map<String, ConstElement>>, _ file: Opti
     _ name: String, _ el: ConstElement) -> Void {
     let key = file_key(file);
     if !tbl.has(key) {
-        tbl[key] = {};
+        tbl[key] = [:];
     }
     if let Some(m) = tbl.get(key) { m[name] = el; }
 }
@@ -666,7 +666,7 @@ fn fill_type_param_bounds(_ el: TypeDefElement, _ tps: List<TypeParam>, _ fs: Fi
 }
 
 fn type_param_bounds(_ decl: FnDecl, _ fs: FileScope) -> Map<String, List<TypeId>> {
-    let b: Map<String, List<TypeId>> = {};
+    let b: Map<String, List<TypeId>> = [:];
     for tp in decl.type_params {
         b[tp.name] = tp.bounds.map((n) => bound_id(fs, n));
     }

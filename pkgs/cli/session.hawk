@@ -98,13 +98,13 @@ pub struct CachedLibrary {
 pub fn new_session(_ sdk_root: Option<String>) -> Session {
     return Session {
         sdk_root: sdk_root,
-        overlays: {},
-        parse_cache: {},
+        overlays: [:],
+        parse_cache: [:],
         checked: Set.new(),
-        import_graph: {},
-        surface_cache: {},
-        library_cache: {},
-        type_records: {},
+        import_graph: [:],
+        surface_cache: [:],
+        library_cache: [:],
+        type_records: [:],
     };
 }
 
@@ -264,7 +264,7 @@ impl Session {
         // Reverse adjacency, rebuilt per call: edits are rare next to loads,
         // and rebuilding sidesteps the bookkeeping when a file's edge list is
         // replaced wholesale.
-        let importers_of: Map<String, List<String>> = {};
+        let importers_of: Map<String, List<String>> = [:];
         for importer in self.import_graph.keys() {
             for dep in self.import_graph[importer] {
                 if !importers_of.has(dep) {
@@ -455,7 +455,7 @@ impl Session {
     // group by file, then replace those files' entries wholesale (files the
     // checker skipped don't appear and keep their stored records).
     fn store_records(self, _ records: List<inference.TypeRecord>) -> Void {
-        let by_file: Map<String, List<inference.TypeRecord>> = {};
+        let by_file: Map<String, List<inference.TypeRecord>> = [:];
         for r in records {
             match by_file.get(r.file) {
                 Some(l) => { l.push(r); },
@@ -513,7 +513,7 @@ pub fn check_source(_ source: String) -> List<diagnostic.Diagnostic> {
     if parsed.errors.len() > 0 {
         return parsed.errors;
     }
-    return checker.check(parsed.program, [], {}, {}).errors;
+    return checker.check(parsed.program, [], [:], [:]).errors;
 }
 
 // Compile `source` to `.hawkbc` bytes with no import closure. Each phase
@@ -527,11 +527,11 @@ pub fn compile_source(_ source: String) -> CompileOutcome {
     if parsed.errors.len() > 0 {
         return failed(parsed.errors);
     }
-    let checked = checker.check(parsed.program, [], {}, {});
+    let checked = checker.check(parsed.program, [], [:], [:]);
     if checked.errors.len() > 0 {
         return failed(checked.errors);
     }
-    let cg = codegen.compile_program(parsed.program, [], {}, {});
+    let cg = codegen.compile_program(parsed.program, [], [:], [:]);
     if cg.errors.len() > 0 {
         return failed(cg.errors);
     }

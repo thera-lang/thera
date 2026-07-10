@@ -67,7 +67,7 @@ fn test_run_missing_command_is_not_found() -> Result<Void, Error> {
 
 @test
 fn test_env_is_passed() -> Result<Void, Error> {
-    let env = {};
+    let env = [:];
     env['HAWK_GREETING'] = 'hi-there';
     let r = process.run('sh', args: ['-c', 'printf %s "$HAWK_GREETING"'],
         env: Option.Some(env))?;

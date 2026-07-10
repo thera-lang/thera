@@ -740,7 +740,11 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
      parsed and a following `:` commits to a map (no heuristic; fmt's
      token-spacing rules already render `[:]` / `['a': 1]` unchanged).
   3. **Migrate the corpus** (`{}` → `[:]`, `{k: v}` → `[k: v]`, ~290 mechanical
-     sites), rebuild, refresh the bootstrap snapshot.
+     sites), rebuild, refresh the bootstrap snapshot. _Done_ — via a one-shot
+     AST-driven rewriter (walk each file's parsed AST, edit only the MapLit
+     delimiter characters, verify by reparse), so blocks/struct literals were
+     untouchable by construction and string fixtures pinning the brace shape
+     survived; docs examples flipped alongside.
   4. **Drop brace maps**, leaving the error hint (the old `is_map_literal_start`
      shape-detector becomes the diagnostic); update grammar.md / language.md /
      conformance tests.

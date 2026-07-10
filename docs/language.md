@@ -191,20 +191,19 @@ characters.
 | Type        | Description                           | Example               |
 | ----------- | ------------------------------------- | --------------------- |
 | `List<T>`   | Ordered sequence                      | `[1, 2, 3]`           |
-| `Map<K, V>` | Key-value store                       | `{'a': 1, 'b': 2}`    |
+| `Map<K, V>` | Key-value store                       | `['a': 1, 'b': 2]`    |
 | `Set<T>`    | Unordered collection of unique values | `Set.from([1, 2, 3])` |
 
 ```hawk
 let names: List<String>      = ['alice', 'bob'];
-let scores: Map<String, Int> = {'alice': 10, 'bob': 7};
+let scores: Map<String, Int> = ['alice': 10, 'bob': 7];
 let tags: Set<String>        = Set.from(['cli', 'tool', 'cli']);  // {'cli', 'tool'}
 ```
 
-> **Migration in progress:** map literals are moving from braces to **brackets**
-> — `['a': 1, 'b': 2]`, empty `[:]` — so that `{…}` always means a block and map
-> keys are unrestricted expressions (see the map-literal item in
-> [roadmap.md](roadmap.md)). Both forms parse today; prefer the bracket form in
-> new code. The examples in this document flip when the corpus migrates.
+> **Migration in progress:** map literals use **brackets** — `['a': 1]`, empty
+> `[:]` — so that `{…}` always means a block and map keys are unrestricted
+> expressions. The legacy brace form (`{'a': 1}`) still parses but is deprecated
+> and will be removed (see the map-literal item in [roadmap.md](roadmap.md)).
 
 ### Bytes
 
@@ -791,7 +790,7 @@ let nums = [1, 2, 3];
 let x = nums[0];          // 1
 let y = nums[9];          // traps — index out of range
 
-let scores = {'alice': 10};
+let scores = ['alice': 10];
 let a = scores['alice'];  // 10
 let b = scores['bob'];    // traps — missing key
 ```

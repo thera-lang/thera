@@ -20,11 +20,11 @@ pub fn handle_hover(_ ctx: resolve.ResolveCtx, _ text: String, _ offset: Int) ->
 }
 
 fn hover_result(_ code: String, _ span: SourceSpan) -> Json {
-    return json.obj({
-        'contents': json.obj({
+    return json.obj([
+        'contents': json.obj([
             'kind': json.str('markdown'),
             'value': json.str('```hawk\n${code}\n```'),
-        }),
+        ]),
         'range': positions.span_to_range(span),
-    });
+    ]);
 }

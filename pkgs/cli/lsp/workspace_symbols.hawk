@@ -20,14 +20,14 @@ pub fn handle_workspace_symbols(_ programs: List<Program>, _ query: String) -> j
             if let Some(name) = resolve.decl_name(decl) {
                 if q == '' || name.to_lowercase().contains(q) {
                     if let Some(span) = resolve.decl_name_span(decl) {
-                        result.push(json.obj({
+                        result.push(json.obj([
                             'name': json.str(name),
                             'kind': json.int(symbols.decl_kind(decl)),
-                            'location': json.obj({
+                            'location': json.obj([
                                 'uri': json.str(doc_uri),
                                 'range': positions.span_to_range(span),
-                            }),
-                        }));
+                            ]),
+                        ]));
                     }
                 }
             }

@@ -410,7 +410,7 @@ fn do_lint(_ targets: List<String>) -> Result<Int, Error> {
         return Result.Ok(2);
     }
 
-    let tally: Map<String, Int> = {};
+    let tally: Map<String, Int> = [:];
     let mut total = 0;
     for file in runner.sort_dedup(files) {
         match fs.read_text(file) {

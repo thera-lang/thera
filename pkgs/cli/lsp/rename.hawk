@@ -18,10 +18,10 @@ import 'resolve';
 pub fn edits_for(_ spans: List<SourceSpan>, _ new_name: String) -> json.Json {
     let edits: List<json.Json> = [];
     for s in spans {
-        edits.push(json.obj({
+        edits.push(json.obj([
             'range': positions.span_to_range(s),
             'newText': json.str(new_name),
-        }));
+        ]));
     }
     return json.arr(edits);
 }
