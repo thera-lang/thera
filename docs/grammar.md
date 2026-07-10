@@ -352,15 +352,24 @@ lambdaParams = lambdaParam (',' lambdaParam)*
 lambdaParam  = IDENT (':' type)?
 
 listLit   = '[' ( expr (',' expr)* )? ']'
-mapLit    = '{' ( mapEntry (',' mapEntry)* )? '}'
+mapLit    = '[' ':' ']'                                   // the empty map
+          | '[' mapEntry (',' mapEntry)* ']'              // bracket map
+          | '{' ( mapEntry (',' mapEntry)* )? '}'         // brace map (legacy; being retired)
 mapEntry  = expr ':' expr
-            // A `{` opens a map literal only when it looks like one: `{}` or a
-            // first key that is a string/int literal (optionally `-`-negated)
-            // followed by `:`; any other `{` in expression position is a block.
-            // Later keys are unrestricted exprs. Consequence: a map whose *first*
-            // key is not a literal cannot be written directly (`{k: 1}` with a
-            // variable `k` is a parse error) — put a literal key first or build
-            // with `Map.new()`. Tracked in roadmap.md (map-literal ambiguity).
+            // The bracket forms are the target syntax (the map-literal
+            // migration, roadmap.md): after `[`, the parser reads one
+            // expression and the next token decides — `:` commits to a map,
+            // anything else continues a list. Keys are therefore unrestricted
+            // expressions, and the forms work everywhere an expression does
+            // (including as a bare match-arm body).
+            //
+            // The legacy `{` form opens a map only when it looks like one:
+            // `{}` or a first key that is a string/int literal (optionally
+            // `-`-negated) followed by `:`; any other `{` in expression
+            // position is a block. Consequence: a brace map whose *first* key
+            // is not a literal cannot be written. Both brace pinches are
+            // solved by the bracket forms, which replace the brace map
+            // entirely at the end of the migration.
 structBody= '{' ( field (',' field)* )? '}'        field = IDENT ':' expr
 
 matchExpr = 'match' exprNB '{' arm* '}'
@@ -377,16 +386,18 @@ ifExpr    = 'if' exprNB exprBlock ( 'else' ( ifExpr | exprBlock ) )?
 ```
 
 A method call is `postfix` chaining: `recv '.' method` forms a field access, and
-a following `'(' … ')'` makes it a call. A map literal and a block both start
-with `{`; in **expression (`primary`) position** the parser commits to a **map**
-when it sees `{}` or a string/int key followed by `:`, otherwise a **block
-expression**. The exception is a position that grammatically expects a block
-first — a **`match` arm** (`pattern '=>' ( exprBlock | expr )`, which tries
-`exprBlock` before `expr`): there **any** `{` is a block, so a bare `=> {}` is
-an **empty block** (value `Void`), _not_ an empty map, and a non-empty map
-(`=> {'a': 1}`) is a parse error. A map-literal arm must be wrapped —
-`=> { {…} }` (a block whose tail is the map literal) — or bound first with a
-typed `let`. A known sharp edge tracked in [roadmap.md](roadmap.md).
+a following `'(' … ')'` makes it a call.
+
+The legacy **brace map** and a block both start with `{`; in **expression
+(`primary`) position** the parser commits to a **map** when it sees `{}` or a
+string/int key followed by `:`, otherwise a **block expression**. The exception
+is a position that grammatically expects a block first — a **`match` arm**
+(`pattern '=>' ( exprBlock | expr )`, which tries `exprBlock` before `expr`):
+there **any** `{` is a block, so a bare `=> {}` is an **empty block** (value
+`Void`), _not_ an empty map, and a non-empty brace map (`=> {'a': 1}`) is a
+parse error. The **bracket forms have none of these edges** — `=> [:]` and
+`=> ['a': 1]` are maps in any position — which is why they replace the brace map
+(the migration is tracked in [roadmap.md](roadmap.md)).
 
 `#loc` is the one **compiler metaconstant** (`'#' IDENT`; any other name is a
 parse error). It evaluates to a `SourceLoc` for the expression's own source

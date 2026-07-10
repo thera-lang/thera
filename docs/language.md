@@ -200,6 +200,12 @@ let scores: Map<String, Int> = {'alice': 10, 'bob': 7};
 let tags: Set<String>        = Set.from(['cli', 'tool', 'cli']);  // {'cli', 'tool'}
 ```
 
+> **Migration in progress:** map literals are moving from braces to **brackets**
+> — `['a': 1, 'b': 2]`, empty `[:]` — so that `{…}` always means a block and map
+> keys are unrestricted expressions (see the map-literal item in
+> [roadmap.md](roadmap.md)). Both forms parse today; prefer the bracket form in
+> new code. The examples in this document flip when the corpus migrates.
+
 ### Bytes
 
 `Bytes` is the core type for raw binary data (binary I/O, HTTP bodies, the

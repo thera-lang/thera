@@ -65,6 +65,7 @@ and [grammar.md](grammar.md) (syntax).
 | `type-string-noindex`         | Types → Primitives     | `s[i]` on a String is disallowed                                                                                                       | ✓      |
 | `type-list`                   | Collections            | `List<T>` literal, `len`, indexing                                                                                                     | ✓      |
 | `type-map`                    | Collections            | `Map<K,V>` literal, keyed access                                                                                                       | ✓      |
+| `type-map-bracket`            | Collections            | bracket map literals `[k: v, …]` / empty `[:]`: unrestricted keys, valid in any expression position (incl. match arms)                 | ✓      |
 | `type-set`                    | Collections            | `Set<T>` uniqueness via `Set.from`                                                                                                     | ✓      |
 | `gen-static-context`          | Collections / Generics | a generic static method (`Set.new()`) infers its owner `T` from call context                                                           | ✓      |
 | `gen-static-recv-args`        | Collections / Generics | receiver type args on a static call (`Set<String>.new()`) bind the owner parameter                                                     | ✓      |

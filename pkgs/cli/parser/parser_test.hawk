@@ -190,6 +190,29 @@ fn test_collections_and_struct() -> Result<Void, Error> {
 }
 
 @test
+fn test_bracket_map_literals() -> Result<Void, Error> {
+    // The bracket forms (map-literal migration, step 2): `[k: v]` and the empty
+    // `[:]` lower to the same MapLit as the brace form (describe renders the
+    // canonical brace shape).
+    testing.assert_eq(actual: expr_str("['a': 1, 'b': 2]"),
+        expected: '{"a": 1, "b": 2}')?;
+    testing.assert_eq(actual: expr_str('[:]'), expected: '{}')?;
+    // No key restriction: an arbitrary expression key commits on the `:`.
+    testing.assert_eq(actual: expr_str('[k: 1]'), expected: '{k: 1}')?;
+    testing.assert_eq(actual: expr_str("[f(x): g(y)]"),
+        expected: '{f(x): g(y)}')?;
+    // Nesting composes both ways.
+    testing.assert_eq(actual: expr_str("['xs': [1, 2]]"),
+        expected: '{"xs": [1, 2]}')?;
+    testing.assert_eq(actual: expr_str("[['a': 1], [:]]"),
+        expected: '[{"a": 1}, {}]')?;
+    // A later entry missing its `:` is a parse error, not a silent list.
+    let bad = parse_src("fn f() -> Void { let m = [1: 'a', 2]; }");
+    testing.assert(bad.has_errors(), message: 'entry without `:` is rejected')?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_lambdas() -> Result<Void, Error> {
     testing.assert_eq(actual: expr_str('n => n + 1'),
         expected: 'n => (n + 1)')?;

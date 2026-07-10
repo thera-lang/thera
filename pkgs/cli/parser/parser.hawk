@@ -2187,18 +2187,52 @@ impl Parser {
         return Expr.MapLit(start.span.cover(rbrace.span), entries);
     }
 
+    // A `[` literal: a list (`[a, b]`), a bracket map (`[k: v, …]`), or the
+    // empty map (`[:]`). The first element decides — an expression followed by
+    // `:` commits to a map. No lookahead heuristic and no key restriction (keys
+    // are arbitrary expressions): both element kinds start with an expression,
+    // so the parser reads one and lets the next token pick the shape. The
+    // bracket forms are step 2 of the map-literal migration (roadmap.md); they
+    // lower to the same MapLit as the brace form, which step 4 retires.
     fn parse_list_literal(self) -> Expr {
         let start = self.advance(); // [
+        // `[:]` — the empty map.
+        if self.check(TokenKind.Colon) && self.next_tok().kind == TokenKind.RBracket {
+            self.advance(); // :
+            let rbracket = self.advance(); // ]
+            return Expr.MapLit(start.span.cover(rbracket.span), []);
+        }
         let items: List<Expr> = [];
         let mut going = true;
         while going && !self.panicking && !self.check(TokenKind.RBracket) && !self.at_end() {
-            items.push(self.parse_expr());
+            let item = self.parse_expr();
+            // The first element followed by `:` commits to a map literal.
+            if items.len() == 0 && self.check(TokenKind.Colon) {
+                return self.parse_bracket_map(start, item);
+            }
+            items.push(item);
             if !self.match_kind(TokenKind.Comma) {
                 going = false;
             }
         }
         let rbracket = self.expect(TokenKind.RBracket, ']');
         return Expr.ListLit(start.span.cover(rbracket.span), items);
+    }
+
+    // The rest of a bracket map literal, after `[` and the first key — the
+    // cursor is on the committing `:`.
+    fn parse_bracket_map(self, _ start: Token, _ first_key: Expr) -> Expr {
+        self.advance(); // :
+        let entries: List<MapEntry> = [];
+        entries.push(MapEntry { key: first_key, value: self.parse_expr() });
+        while self.match_kind(TokenKind.Comma) && !self.panicking
+            && !self.check(TokenKind.RBracket) && !self.at_end() {
+            let key = self.parse_expr();
+            self.expect(TokenKind.Colon, "':' in a map entry");
+            entries.push(MapEntry { key: key, value: self.parse_expr() });
+        }
+        let rbracket = self.expect(TokenKind.RBracket, ']');
+        return Expr.MapLit(start.span.cover(rbracket.span), entries);
     }
 
     fn parse_struct_literal(self, _ namespace: Option<String>, _ type_name: String, _ start: SourceSpan) -> Expr {

@@ -736,7 +736,9 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
      Option combinators and have more idiomatic rewrites — the existing if-let
      lint already counts them; independent follow-up.)
   2. **Parser accepts `[k: v]` / `[:]`** alongside brace maps (both lower to the
-     same MapLit); fmt support; tests.
+     same MapLit); fmt support; tests. _Done_ — after `[`, one expression is
+     parsed and a following `:` commits to a map (no heuristic; fmt's
+     token-spacing rules already render `[:]` / `['a': 1]` unchanged).
   3. **Migrate the corpus** (`{}` → `[:]`, `{k: v}` → `[k: v]`, ~290 mechanical
      sites), rebuild, refresh the bootstrap snapshot.
   4. **Drop brace maps**, leaving the error hint (the old `is_map_literal_start`

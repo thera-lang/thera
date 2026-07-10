@@ -1,0 +1,35 @@
+//! spec: type-map-bracket
+//! mode: run
+
+// Bracket map literals — `[k: v, …]` and the empty `[:]` (grammar.md). The
+// first element decides the shape: an expression followed by `:` commits to a
+// map, so keys are unrestricted expressions and the forms work everywhere an
+// expression does — including positions the brace form cannot express (a
+// variable first key; a map directly as a match-arm body).
+fn main() -> Int {
+    // A variable first key.
+    let k = 'alpha';
+    let m = [k: 1, 'beta': 2];
+    println('${m.len()} ${m['alpha']}'); // expect: 2 1
+
+    // The empty map.
+    let e: Map<String, Int> = [:];
+    e['x'] = 42;
+    println('${e['x']}'); // expect: 42
+
+    // A map directly as a match-arm body.
+    let x = match 1 {
+        1 => ['one': 1],
+        _ => [:],
+    };
+    println('${x.len()}'); // expect: 1
+
+    // Nesting composes with lists in both directions.
+    let lom = [['a': 1], [:]];
+    println('${lom.len()} ${lom[0]['a']}'); // expect: 2 1
+
+    // Lists and indexing are unaffected.
+    let xs = [1, 2, 3];
+    println('${xs.len()} ${xs[0]}'); // expect: 3 1
+    return 0;
+}
