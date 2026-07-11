@@ -609,7 +609,7 @@ fn check_fn_sig(_ errors: List<diagnostic.Diagnostic>, _ fn_decl: FnDecl,
 fn check_missing_return_type(_ cc: CheckCtx, _ value: Option<Expr>) -> Void {
     if cc.infer.return_type.is_some() { return; }
     if cc.no_return_reported.len() > 0 { return; }
-    if let Some(v) = value { 
+    if let Some(v) = value {
         match v {
             Unit(_) => void,   // `return void;` → Void
             _ => {
@@ -618,7 +618,7 @@ fn check_missing_return_type(_ cc: CheckCtx, _ value: Option<Expr>) -> Void {
                     expr_span(v));
                 cc.no_return_reported.push(true);
             },
-        } 
+        }
     }
 }
 

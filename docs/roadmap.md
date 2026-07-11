@@ -93,6 +93,20 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     `signatures_match`'s `i_params[i]` vs `o_params[i]`. Deferred with that
     migration (no consumer until then); decide `Pair` vs `Tuple` first.
 
+- **`String.slice` cost.** `String.slice` is `String.from_chars(self.chars()
+  .slice(start, end))` — `chars()` materializes the *whole* string as a
+  `List<Int>` on every call, so a slice is O(string length) regardless of the
+  slice's size, and `SourceSpan.text()` (a `source.slice`) inherits it. Callers
+  that slice per token/offset over a large source are therefore quadratic. This
+  bit the **lexer** (`scan_ident` did a `span.text()` per identifier → O(idents ×
+  source length)) and the **formatter** (a `source.slice` per token gap, plus a
+  per-edit rebuild in `apply_edits` and per-token `lexeme()` in its round-trip
+  guard) — `hawk fmt` on a 110 KB file went from ~4 s to ~0.2 s once these call
+  sites read from a single materialized `chars` list by index instead. Worth
+  making `slice`/`text()` themselves cheaper — a byte-offset walk from the start
+  is O(end) rather than O(len), and a native could do better — so per-call
+  slicing isn't a latent O(n²) trap for future callers.
+
 ### Runtime (Rust)
 
 - **Fibers — phases 3–4.** Phases 0–2 are done (scheduler-drivable `run_loop`;

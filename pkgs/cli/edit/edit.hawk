@@ -37,16 +37,40 @@ pub fn replace(_ start: Int, _ end: Int, _ text: String) -> TextEdit {
 }
 
 // Apply non-overlapping edits to `source`, returning the rewritten text. Edits are
-// applied back-to-front (highest offset first) so each splice leaves the offsets
-// of the not-yet-applied edits valid. Overlapping edits are unsupported (the
+// sorted by offset and spliced in a single left-to-right pass — the source's code
+// points are materialized once, and each edit contributes the unedited run before
+// it followed by its replacement text. Overlapping edits are unsupported (the
 // caller serializes/dedupes first).
+//
+// A per-edit `slice`-and-concat would rebuild the whole string on every edit —
+// O(edits × source length), quadratic over a large file with many edits — so we
+// accumulate the result's code points in one pass instead.
 pub fn apply_edits(_ source: String, _ edits: List<TextEdit>) -> String {
-    let ordered = edits.sort((a, b) => a.start > b.start);
-    let mut result = source;
-    for e in ordered {
-        result = result.slice(0, e.start) + e.new_text + result.slice(e.end, result.len());
+    if edits.len() == 0 {
+        return source;
     }
-    return result;
+    let ordered = edits.sort((a, b) => a.start < b.start);
+    let chars = source.chars();
+    let n = chars.len();
+    let out: List<Int> = [];
+    let mut cursor = 0;
+    for e in ordered {
+        let mut i = cursor;
+        while i < e.start {
+            out.push(chars[i]);
+            i = i + 1;
+        }
+        for cp in e.new_text.chars() {
+            out.push(cp);
+        }
+        cursor = e.end;
+    }
+    let mut i = cursor;
+    while i < n {
+        out.push(chars[i]);
+        i = i + 1;
+    }
+    return String.from_chars(out);
 }
 
 // --- line/column conversion (for the LSP boundary) ---

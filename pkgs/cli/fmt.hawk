@@ -113,6 +113,11 @@ fn space_intra_line(_ source: String) -> String {
     let toks = code_tokens(lex.tokens);
     let prefix_unary = compute_prefix_unary(toks, delims);
 
+    // The source as a code-point list, materialized once. Slicing the source per
+    // token (`source.slice`) would rebuild this list on every call — O(source
+    // length) each, quadratic over the whole file — so instead we index this list
+    // directly to inspect the gap between each token pair.
+    let chars = source.chars();
     let edits: List<edit.TextEdit> = [];
     let mut i = 0;
     while i + 1 < toks.len() {
@@ -125,17 +130,18 @@ fn space_intra_line(_ source: String) -> String {
         // left to Stage B; a comment can never sit between two same-line tokens.
         // `b_start == a_end` is an adjacent pair (empty gap) — still a candidate,
         // since a missing space may need inserting (`Point{` → `Point {`).
-        if b_start >= a_end {
-            let gap = source.slice(a_end, b_start);
-            if gap_is_spacing(gap) {
-                let want = if space_between(a, b, prefix_unary[i], delims) == 1 {
-                    ' '
-                } else {
-                    ''
-                };
-                if gap != want {
-                    edits.push(edit.replace(a_end, b_start, want));
-                }
+        if b_start >= a_end && gap_is_spacing(chars, a_end, b_start) {
+            let want_space = space_between(a, b, prefix_unary[i], delims) == 1;
+            // Whether the gap already is the wanted spacing: a single space when
+            // one is wanted, an empty gap when none is. Anything else (a tab, a
+            // run of spaces, or a missing space) needs an edit.
+            let matches = if want_space {
+                b_start - a_end == 1 && chars[a_end] == char.SPACE
+            } else {
+                b_start == a_end
+            };
+            if !matches {
+                edits.push(edit.replace(a_end, b_start, if want_space { ' ' } else { '' }));
             }
         }
         i = i + 1;
@@ -150,7 +156,9 @@ fn space_intra_line(_ source: String) -> String {
     // offset-only changes the lexer can't see — the parser recognizes shift
     // operators (`>>`) by token adjacency, so a stray space would break the parse
     // without changing any token. On any failure, keep the original untouched.
-    if !same_tokens(lex.tokens, relexed.tokens) {
+    // The two `chars` lists let `same_tokens` read each token's text by index
+    // rather than re-slicing the source per token.
+    if !same_tokens(lex.tokens, chars, relexed.tokens, result.chars()) {
         return source;
     }
     if parser.parse_tokens(relexed.tokens).errors.len() > 0 {
@@ -170,13 +178,18 @@ fn code_tokens(_ tokens: List<Token>) -> List<Token> {
     return out;
 }
 
-// Whether a between-token gap is pure horizontal whitespace (spaces/tabs) — the
-// only gaps Stage A rewrites. Empty is spacing; a newline or anything else is not.
-fn gap_is_spacing(_ gap: String) -> Bool {
-    for cp in gap.chars() {
+// Whether the between-token gap `chars[start, end)` is pure horizontal whitespace
+// (spaces/tabs) — the only gaps Stage A rewrites. Empty is spacing; a newline or
+// anything else is not. Takes the source code points + range (not a sliced-out
+// string) so the caller need not rebuild the source per token.
+fn gap_is_spacing(_ chars: List<Int>, _ start: Int, _ end: Int) -> Bool {
+    let mut i = start;
+    while i < end {
+        let cp = chars[i];
         if cp != char.SPACE && cp != char.TAB {
             return false;
         }
+        i = i + 1;
     }
     return true;
 }
@@ -297,14 +310,48 @@ fn is_value_ender(_ t: Token, _ delims: parser.GenericDelims) -> Bool {
 }
 
 // Whether two token streams are lexically identical (kinds + lexemes) — the
-// guarantee Stage A's edits preserved. Whitespace/spans aside.
-fn same_tokens(_ xs: List<Token>, _ ys: List<Token>) -> Bool {
+// guarantee Stage A's edits preserved. Whitespace/spans aside. `xc`/`yc` are the
+// two sources as code-point lists (materialized once by the caller), so a token's
+// text is read by index rather than sliced out of the source per token.
+fn same_tokens(_ xs: List<Token>, _ xc: List<Int>, _ ys: List<Token>, _ yc: List<Int>) -> Bool {
     if xs.len() != ys.len() {
         return false;
     }
     let mut i = 0;
     while i < xs.len() {
-        if xs[i].kind != ys[i].kind || xs[i].lexeme() != ys[i].lexeme() {
+        let x = xs[i];
+        let y = ys[i];
+        if x.kind != y.kind || !same_lexeme(x, xc, y, yc) {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+// Whether two same-kind tokens have identical text. A value-carrying token (an
+// identifier or string literal) compares by its stored content; any other kind by
+// the code points its span covers, read from the caller's char list by index
+// (O(span length), not O(source length) as `span.text()` would cost per token).
+fn same_lexeme(_ x: Token, _ xc: List<Int>, _ y: Token, _ yc: List<Int>) -> Bool {
+    return match x.value {
+        Some(xv) => match y.value {
+            Some(yv) => xv == yv,
+            None => false,
+        },
+        None => same_span_chars(xc, x.span, yc, y.span),
+    };
+}
+
+// Whether the code points the two spans cover are equal, comparing by index into
+// the pre-materialized char lists (no substring allocation).
+fn same_span_chars(_ xc: List<Int>, _ xs: SourceSpan, _ yc: List<Int>, _ ys: SourceSpan) -> Bool {
+    if xs.length != ys.length {
+        return false;
+    }
+    let mut i = 0;
+    while i < xs.length {
+        if xc[xs.offset + i] != yc[ys.offset + i] {
             return false;
         }
         i = i + 1;
@@ -332,6 +379,9 @@ fn scan_lines(_ source: String, _ n: Int) -> LineInfo {
         toks_by_line.push(row);
         i = i + 1;
     }
+    // Materialized once so a string literal's line span is counted by index rather
+    // than by re-slicing the source per token (`span.text()`).
+    let chars = source.chars();
     for tok in lexer.tokenize(source).tokens {
         if tok.kind != TokenKind.Eof {
             let idx = tok.span.line - 1;
@@ -340,7 +390,8 @@ fn scan_lines(_ source: String, _ n: Int) -> LineInfo {
                 // Only a multi-line string pins its lines verbatim; a single-line
                 // string (nl == 0) is just a token and its line formats normally.
                 if tok.kind == TokenKind.StringLiteral {
-                    let nl = count_newlines(tok.span.text());
+                    let nl = count_newlines(chars, tok.span.offset,
+                        tok.span.offset + tok.span.length);
                     if nl > 0 {
                         let mut k = 0;
                         while k <= nl {
@@ -571,12 +622,14 @@ fn pop_kind(_ kinds: List<TokenKind>) -> Void {
     kinds.pop();
 }
 
-fn count_newlines(_ s: String) -> Int {
+fn count_newlines(_ chars: List<Int>, _ start: Int, _ end: Int) -> Int {
     let mut c = 0;
-    for cp in s.chars() {
-        if cp == char.LF {
+    let mut i = start;
+    while i < end {
+        if chars[i] == char.LF {
             c = c + 1;
         }
+        i = i + 1;
     }
     return c;
 }

@@ -150,6 +150,14 @@ impl Lexer {
         };
     }
 
+    // The source text a span covers, read from the already-materialized `chars`
+    // by index. `SourceSpan.text()` would re-slice the whole source (each call is
+    // O(source length)); reusing `self.chars` keeps per-token extraction O(span
+    // length), so lexing stays linear over a large file.
+    fn span_text(self, _ span: SourceSpan) -> String {
+        return String.from_chars(self.chars.slice(span.offset, span.offset + span.length));
+    }
+
     // --- token emission ---
 
     // Emit a value-less token spanning from the current token start to `pos`.
@@ -216,7 +224,7 @@ impl Lexer {
             column: start_col,
         };
         self.comments.push(Comment {
-            kind: classify_comment(span.text()),
+            kind: classify_comment(self.span_text(span)),
             span: span,
         });
     }
@@ -566,7 +574,7 @@ impl Lexer {
             self.advance();
         }
         let span = self.span_from(self.ts_offset, self.ts_line, self.ts_col);
-        let text = span.text();
+        let text = self.span_text(span);
         if text == "_" {
             self.tokens.push(Token {
                 kind: TokenKind.Underscore,
