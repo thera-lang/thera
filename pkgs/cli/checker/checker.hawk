@@ -609,15 +609,17 @@ fn check_fn_sig(_ errors: List<diagnostic.Diagnostic>, _ fn_decl: FnDecl,
 fn check_missing_return_type(_ cc: CheckCtx, _ value: Option<Expr>) -> Void {
     if cc.infer.return_type.is_some() { return; }
     if cc.no_return_reported.len() > 0 { return; }
-    if let Some(v) = value { match v {
-        Unit(_) => void,   // `return void;` → Void
-        _ => {
-            add_error(cc.errors,
-                'this function returns a value but has no return type; add one, e.g. -> Int',
-                expr_span(v));
-            cc.no_return_reported.push(true);
-        },
-    } }
+    if let Some(v) = value { 
+        match v {
+            Unit(_) => void,   // `return void;` → Void
+            _ => {
+                add_error(cc.errors,
+                    'this function returns a value but has no return type; add one, e.g. -> Int',
+                    expr_span(v));
+                cc.no_return_reported.push(true);
+            },
+        } 
+    }
 }
 
 // A module-level `let`/`const` is a boundary — part of the file's surface, read

@@ -756,15 +756,17 @@ fn infer_call_field(_ obj: Expr, _ field: String, _ arg_types: List<Type>,
     // the method's own type args, the argument types, and the expected type — so the
     // owner parameter (`Set.new() -> Set<T>`) is bound whether written explicitly or
     // recovered from context. The namespace path is context-aware in the same way.
-    if let Some(sr) = resolve_static_receiver(obj, field, scope, ctx) { match sr {
-        StaticMethod(type_def, method) => {
-            return substitute(method.return_type,
-                static_call_bindings(method, type_def.type_parameters, recv_type_args, type_args, arg_types, expected, ctx));
-        },
-        NamespaceFn(fn_el) => {
-            return instantiate_return_ctx(fn_el, type_args, arg_types, expected, ctx);
-        },
-    } }
+    if let Some(sr) = resolve_static_receiver(obj, field, scope, ctx) {
+        match sr {
+            StaticMethod(type_def, method) => {
+                return substitute(method.return_type,
+                    static_call_bindings(method, type_def.type_parameters, recv_type_args, type_args, arg_types, expected, ctx));
+            },
+            NamespaceFn(fn_el) => {
+                return instantiate_return_ctx(fn_el, type_args, arg_types, expected, ctx);
+            },
+        }
+    }
 
     let recv_type = infer_expr(obj, scope, ctx, Option.None);
 
@@ -839,10 +841,12 @@ pub fn infer_callee_kind(_ obj: Expr, _ field: String, _ arg_count: Int,
             if let Some(_) = find_variant(type_def, field) { return CalleeKind.EnumCtor; }
         }
     }
-    if let Some(sr) = resolve_static_receiver(obj, field, scope, ctx) { match sr {
-        StaticMethod(_, _) => { return CalleeKind.StaticMethod; },
-        NamespaceFn(_) => { return CalleeKind.Namespace; },
-    } }
+    if let Some(sr) = resolve_static_receiver(obj, field, scope, ctx) {
+        match sr {
+            StaticMethod(_, _) => { return CalleeKind.StaticMethod; },
+            NamespaceFn(_) => { return CalleeKind.Namespace; },
+        }
+    }
 
     let recv_type = infer_expr(obj, scope, ctx, Option.None);
 
@@ -978,10 +982,12 @@ fn callee_params(_ callee: Expr, _ args: List<CallArg>,
             // has no value receiver: its params come straight from the resolved
             // callee (CH8; previously only the `ns.fn` half existed, so a
             // lambda argument to a static method never got an expected type).
-            if let Some(sr) = resolve_static_receiver(obj, field, scope, ctx) { match sr {
-                StaticMethod(_, method) => { params = Option.Some(method.parameters); },
-                NamespaceFn(fn_el) => { params = Option.Some(fn_el.parameters); },
-            } }
+            if let Some(sr) = resolve_static_receiver(obj, field, scope, ctx) {
+                match sr {
+                    StaticMethod(_, method) => { params = Option.Some(method.parameters); },
+                    NamespaceFn(fn_el) => { params = Option.Some(fn_el.parameters); },
+                }
+            }
             // User method on the receiver's type, instantiated with its type args.
             match params {
                 None => {

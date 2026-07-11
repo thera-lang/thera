@@ -32,19 +32,21 @@ fn walk_dir(_ dir: String, _ seen: Set<String>, _ out: List<String>) -> Void {
     };
     for name in entries {
         let full = path.join(dir, name);
-        if let Ok(md) = fs.metadata(full) { match md.kind {
-            Dir => {
-                if !skip_dir(name) {
-                    walk_dir(full, seen, out);
-                }
-            },
-            _ => {
-                if name.ends_with('.hawk') && !seen.has(full) {
-                    seen.add(full);
-                    out.push(full);
-                }
-            },
-        } }
+        if let Ok(md) = fs.metadata(full) {
+            match md.kind {
+                Dir => {
+                    if !skip_dir(name) {
+                        walk_dir(full, seen, out);
+                    }
+                },
+                _ => {
+                    if name.ends_with('.hawk') && !seen.has(full) {
+                        seen.add(full);
+                        out.push(full);
+                    }
+                },
+            }
+        }
     }
 }
 
