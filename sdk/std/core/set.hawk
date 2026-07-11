@@ -64,10 +64,10 @@ impl Set<T> {
 }
 
 impl Display for Set<T> {
-    /// `{a, b, c}` — elements rendered via `Debug`, in insertion order. (Empty
-    /// set: `{}`.)
+    /// `(a, b, c)` — elements rendered via `Debug`, in insertion order. (Empty
+    /// set: `()`.)
     fn display(self) -> String {
-        let mut s = '{';
+        let mut s = '(';
         let mut first = true;
         for item in self.to_list() {
             if !first {
@@ -76,6 +76,6 @@ impl Display for Set<T> {
             s = s + item.debug();
             first = false;
         }
-        return s + '}';
+        return s + ')';
     }
 }

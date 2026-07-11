@@ -80,10 +80,12 @@ impl Map<K, V> {
 }
 
 impl Display for Map<K, V> {
-    /// `{k: v, ...}` — keys and values rendered via `Debug`, in insertion order.
-    /// (Empty map: `{}`.)
+    /// `[k: v, ...]` — keys and values rendered via `Debug`, in insertion order.
+    /// (Empty map: `[:]`.)
     fn display(self) -> String {
-        let mut s = '{';
+        if self.is_empty() { return '[:]'; }
+
+        let mut s = '[';
         let mut first = true;
         for key in self.keys() {
             if !first {
@@ -92,6 +94,6 @@ impl Display for Map<K, V> {
             s = s + key.debug() + ': ' + self[key].debug();
             first = false;
         }
-        return s + '}';
+        return s + ']';
     }
 }
