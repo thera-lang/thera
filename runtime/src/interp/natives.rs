@@ -100,6 +100,7 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("str_lines", native_str_lines),
     ("str_split_whitespace", native_str_split_whitespace),
     ("str_split", native_str_split),
+    ("str_slice", native_str_slice),
     ("str_chars", native_str_chars),
     ("str_bytes", native_str_bytes),
     ("str_from_chars", native_str_from_chars),
@@ -2608,6 +2609,40 @@ fn native_process_stderr_read(_out: &mut dyn Write, args: &[Value]) -> Result<Va
     drop(registry);
     park_pipe_read(id, stream, max, |running, s| running.stderr = s);
     Ok(Value::Unit)
+}
+
+// --- string slices ---
+
+/// The substring of the code points in the half-open range `[start, end)`, by
+/// code-point index. The native behind `String.slice`: it walks to the byte
+/// offsets of code points `start` and `end` in a single pass — O(end), not
+/// O(string length) — rather than materializing the whole string as a code-point
+/// list. Indices are clamped: a negative start is 0, an end past the string stops
+/// at its end, and a reversed or empty range yields `''`.
+fn native_str_slice(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (sv, startv, endv) = args3(args, "str_slice")?;
+    let s = str_contents(sv)?;
+    let start = as_int(startv, "str_slice")?.max(0);
+    let end = as_int(endv, "str_slice")?.max(0);
+    if end <= start {
+        return Ok(Value::new_str(""));
+    }
+    let start = start as usize;
+    let end = end as usize;
+    // Default to the string's end so an out-of-range index clamps to a
+    // shorter/empty slice (start past the end leaves both at `len` → `''`).
+    let mut byte_start = s.len();
+    let mut byte_end = s.len();
+    for (cp_idx, (byte_idx, _)) in s.char_indices().enumerate() {
+        if cp_idx == start {
+            byte_start = byte_idx;
+        }
+        if cp_idx == end {
+            byte_end = byte_idx;
+            break;
+        }
+    }
+    Ok(Value::new_str(&s[byte_start..byte_end]))
 }
 
 // --- string byte-offset slice (companion to `str_byte_len`) ---

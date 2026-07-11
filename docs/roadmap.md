@@ -93,19 +93,21 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     `signatures_match`'s `i_params[i]` vs `o_params[i]`. Deferred with that
     migration (no consumer until then); decide `Pair` vs `Tuple` first.
 
-- **`String.slice` cost.** `String.slice` is `String.from_chars(self.chars()
-  .slice(start, end))` — `chars()` materializes the *whole* string as a
-  `List<Int>` on every call, so a slice is O(string length) regardless of the
-  slice's size, and `SourceSpan.text()` (a `source.slice`) inherits it. Callers
-  that slice per token/offset over a large source are therefore quadratic. This
-  bit the **lexer** (`scan_ident` did a `span.text()` per identifier → O(idents ×
-  source length)) and the **formatter** (a `source.slice` per token gap, plus a
-  per-edit rebuild in `apply_edits` and per-token `lexeme()` in its round-trip
-  guard) — `hawk fmt` on a 110 KB file went from ~4 s to ~0.2 s once these call
-  sites read from a single materialized `chars` list by index instead. Worth
-  making `slice`/`text()` themselves cheaper — a byte-offset walk from the start
-  is O(end) rather than O(len), and a native could do better — so per-call
-  slicing isn't a latent O(n²) trap for future callers.
+- **`String.slice` cost — _done._** `String.slice` was
+  `String.from_chars(self.chars().slice(start, end))` — `chars()` materialized
+  the *whole* string as a `List<Int>` on every call, so a slice was O(string
+  length) regardless of the slice's size, and `SourceSpan.text()` (a
+  `source.slice`) inherited it. `slice` is now a native (`str_slice`) that walks
+  `char_indices` to the range's end in a single pass — O(end), and it allocates
+  only the result rather than a code-point list the size of the whole string.
+  This still walks from the front (a byte/code-point offset can't be found in
+  O(1) over UTF-8), so slicing at ever-increasing offsets over one large string
+  stays superlinear in aggregate — the earlier call-site fixes (the lexer and
+  formatter reading from a single materialized `chars` list by index; see
+  _Changelog_) remain the right pattern for hot per-token loops — but the common
+  case (a short slice, or one near the front) and the per-call allocation are
+  fixed, so per-call slicing is no longer a latent O(n²) trap for future
+  callers.
 
 ### Runtime (Rust)
 
@@ -765,6 +767,16 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **Front-end O(n²) source-slicing removed** (2026-07). `String.slice` /
+  `SourceSpan.text()` rematerialized the whole string via `chars()` on every
+  call, so slicing per token was quadratic in file size. Fixed in two layers:
+  the hot call sites (lexer `scan_ident`, and the formatter's `space_intra_line`
+  / `same_tokens` / `scan_lines` / `apply_edits`) now materialize the source's
+  code points once and index that list; and `String.slice` itself is now a
+  native (`str_slice`) that walks to the range's end in one O(end) pass instead
+  of building a whole-string code-point list. `hawk fmt` on a 110 KB file dropped
+  from ~4 s to ~0.2 s (~20×) and now scales linearly. See _Stdlib_ → `String.slice
+  cost` for the residual O(end) note.
 - **Map-literal migration follow-ups (checker diagnostic, rendering, legacy
   sites)** (2026-07). Three tails of the migration closed. (1) **`Void`-arm
   diagnostic**: `check_void_arms` splits the `unify_arm` value-less-arm
