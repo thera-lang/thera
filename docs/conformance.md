@@ -134,6 +134,7 @@ and [grammar.md](grammar.md) (syntax).
 | `cf-match-exhaustive`    | grammar.md Patterns    | a match must be exhaustive: enum = all variants or catch-all; Bool = both literals; other subjects = catch-all                                | ✓      |
 | `cf-match-variant-check` | grammar.md Patterns    | a constructor pattern (incl. nested payloads; capitalized bare = zero-arg constructor) must name a real variant — a `check` diagnostic        | ✓      |
 | `cf-match-arm-comma`     | grammar.md Expressions | the `,` after an expression-bodied match arm is required (trailing comma optional; block arms need none) — a parse error                      | ✓      |
+| `cf-match-void-arm`      | Control flow / checker | a non-diverging `Void` arm in a value-producing match is a check error; diverging arms and all-`Void` matches stay exempt                     | ✓      |
 | `cf-match-literal`       | grammar.md Patterns    | int/string/bool literal patterns (not float)                                                                                                  | ✓      |
 | `cf-match-literal-type`  | grammar.md Patterns    | a literal pattern whose type can never equal the subject's is a `check` error                                                                 | ✓      |
 | `cf-break-continue`      | grammar.md Statements  | `break` exits / `continue` advances the innermost loop (while/range/list); statement-only, a `check` error outside a loop or across a closure | ✓      |

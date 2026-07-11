@@ -1412,6 +1412,7 @@ fn check_match(_ cc: CheckCtx, _ x: MatchExpr, _ expected: Option<Type>) -> Void
     check_expr(cc, x.subject, Option.None);
     let subject_type = infer_expr(x.subject, scope, ctx, Option.None);
     let mut reference: Type = expected.unwrap_or(Type.Unknown);
+    let arm_types: List<Type> = [];
     for arm in x.arms {
         validate_pattern(errors, arm.pattern, subject_type, ctx);
         // The arm's pattern bindings extend a fresh scope; mutability tracking
@@ -1420,9 +1421,106 @@ fn check_match(_ cc: CheckCtx, _ x: MatchExpr, _ expected: Option<Type>) -> Void
         bind_match_pattern(arm.pattern, subject_type, arm_cc.scope, ctx);
         check_expr(arm_cc, arm.body, expected);
         let arm_type = infer_expr(arm.body, arm_cc.scope, ctx, expected);
+        arm_types.push(arm_type);
         reference = unify_arm(errors, reference, arm_type, arm.body, ctx);
     }
+    check_void_arms(errors, x, reference, arm_types);
     check_exhaustive(errors, x, subject_type, ctx);
+}
+
+// A value-producing match must produce the value from *every* path. The
+// `unify_arm` exemption for value-less arms covers two very different things:
+// a *diverging* arm (`return`/`throw` — exits the function, genuinely fine)
+// and a plain `Void` arm (`=> void`, `=> {}` — which **does** flow its unit
+// value out, and traps only at the use site, e.g. `map.len: expected map`).
+// Once the reference type shows the match produces a value (an annotated
+// context, or any value-producing arm), flag each non-diverging `Void` arm.
+// Source matches only: a desugared statement `if let` fabricates a Unit
+// wildcard arm by design (its value is discarded).
+fn check_void_arms(_ errors: List<diagnostic.Diagnostic>, _ x: MatchExpr,
+    _ reference: Type, _ arm_types: List<Type>) -> Void {
+    match x.origin {
+        Source => void,
+        _ => {
+            return;
+        },
+    }
+    if !produces_value(reference) {
+        return;
+    }
+    // A bare, unbound type parameter demands nothing yet — it can still bind
+    // to `Unit` (e.g. a match as the body of a lambda passed to a generic
+    // `fiber.spawn(() -> T)`), so it is lenient here, like `Unknown`.
+    if let TypeParameter(_) = reference {
+        return;
+    }
+    for p in x.arms.enumerate() {
+        if is_unit_type(arm_types[p.index]) && !expr_always_exits(p.value.body) {
+            add_error(errors,
+                'this arm produces no value, but the match produces ${type_to_string(reference)}; produce the value, or exit with `return`/`throw`',
+                expr_span(p.value.body));
+        }
+    }
+}
+
+fn is_unit_type(_ t: Type) -> Bool {
+    return match t {
+        Primitive(p) => match p {
+            Unit => true,
+            _ => false,
+        },
+        _ => false,
+    };
+}
+
+// Whether an expression is guaranteed to exit the enclosing function —
+// `return`/`throw` directly, a block that ends in one, or an `if`/`match` all
+// of whose paths do. Conservative in the safe-to-flag direction: a body that
+// only *sometimes* exits flows its value out on the other paths, so it does
+// not count as exiting. (A tail-less block infers `Unit` whether or not it
+// exits — `{ return v; }` — so `check_void_arms` needs this syntactic view.)
+fn expr_always_exits(_ e: Expr) -> Bool {
+    return match e {
+        Return(_, _) => true,
+        Throw(_, _) => true,
+        Block(_, b) => block_always_exits(b),
+        If(ix) => match ix.else_block {
+            Some(eb) => block_always_exits(ix.then_block) && block_always_exits(eb),
+            None => false,
+        },
+        Match(mx) => {
+            for arm in mx.arms {
+                if !expr_always_exits(arm.body) {
+                    return false;
+                }
+            }
+            mx.arms.len() > 0
+        },
+        _ => false,
+    };
+}
+
+fn block_always_exits(_ b: Block) -> Bool {
+    if let Some(t) = b.tail {
+        return expr_always_exits(t);
+    }
+    if b.stmts.len() == 0 {
+        return false;
+    }
+    return stmt_always_exits(b.stmts[b.stmts.len() - 1]);
+}
+
+fn stmt_always_exits(_ s: Stmt) -> Bool {
+    return match s {
+        Return(_, _) => true,
+        Throw(_, _) => true,
+        Expr(_, e) => expr_always_exits(e),
+        If(ix) => match ix.else_block {
+            Some(eb) => block_always_exits(ix.then_block) && block_always_exits(eb),
+            None => false,
+        },
+        _ => false,
+    };
 }
 
 // A constructor pattern must name a variant of its (known-enum) subject; its
@@ -1552,6 +1650,8 @@ fn enum_variant_names(_ subject: Type, _ ctx: InferCtx) -> List<String> {
 // A value-less arm (`Unit` block, or `Unknown` from a bare `return`/`throw`) is
 // exempt and leaves the reference unchanged; the first value-producing arm (or
 // the `expected` type) sets the reference every later value arm must match.
+// (`check_void_arms` then splits the exemption: a *non-diverging* `Void` arm in
+// a value-producing match is flagged after the fold.)
 fn unify_arm(_ errors: List<diagnostic.Diagnostic>, _ reference: Type, _ arm_type: Type,
     _ body: Expr, _ ctx: InferCtx) -> Type {
     if !produces_value(arm_type) {

@@ -386,12 +386,58 @@ fn test_match_later_arm_violates_expected_type() -> Result<Void, Error> {
 }
 
 @test
-fn test_match_unit_arm_is_exempt() -> Result<Void, Error> {
-    // A value-less arm (an empty block → Unit) doesn't conflict with a value arm,
-    // so a side-effecting/partial match still checks.
+fn test_match_void_arm_in_value_match_is_flagged() -> Result<Void, Error> {
+    // A non-diverging `Void` arm in a value-producing match flows its unit
+    // value out and traps only at the use site — a check error, both spellings.
     let errs = errors_of('fn f(_ n: Int) -> Int {\n'
         + '  let x = match n { 0 => 1, _ => {} };\n'
         + '  return n;\n'
+        + '}');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert(first_message(errs).contains('produces no value'),
+        message: 'the void-arm diagnostic names the problem')?;
+    let errs2 = errors_of('fn f(_ n: Int) -> Int {\n'
+        + '  let x = match n { 0 => 1, _ => void };\n'
+        + '  return n;\n'
+        + '}');
+    testing.assert_eq(actual: errs2.len(), expected: 1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_match_all_void_arms_is_clean() -> Result<Void, Error> {
+    // A side-effecting match whose arms all produce nothing stays clean — the
+    // match produces no value, so there is nothing a `Void` arm can corrupt.
+    let errs = errors_of('fn g() -> Void {}\n'
+        + 'fn f(_ n: Int) -> Int {\n'
+        + '  match n { 0 => g(), _ => void }\n'
+        + '  return n;\n'
+        + '}');
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_match_diverging_block_arm_is_exempt() -> Result<Void, Error> {
+    // A block-bodied diverging arm infers `Unit` (a tail-less block), but it
+    // exits the function — the syntactic always-exits view keeps it exempt.
+    let errs = errors_of('fn f(_ n: Int) -> Int {\n'
+        + '  let x = match n { 0 => 1, _ => { return 0; } };\n'
+        + '  return x;\n'
+        + '}');
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_if_let_discarded_value_is_clean() -> Result<Void, Error> {
+    // A statement `if let` whose then-branch tail is a discarded value desugars
+    // to a match with a fabricated Unit wildcard arm — never flagged (the
+    // diagnostic is Source-origin only).
+    let errs = errors_of('enum E { A(Int), B }\n'
+        + 'fn f(_ e: E) -> Int {\n'
+        + '  if let A(v) = e { v }\n'
+        + '  return 0;\n'
         + '}');
     testing.assert_eq(actual: errs.len(), expected: 0)?;
     return Result.Ok(void);

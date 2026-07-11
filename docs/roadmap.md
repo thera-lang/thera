@@ -335,19 +335,6 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   (`fn f<U>(x: U) -> Box<U>` doesn't require `U: Display`); and
   `expected_arg_types` still handles only the namespace callee head inline.
   (Generics are **invariant by design** — no variance work planned.)
-- **Flag a non-diverging `Void` arm in a value-position `match`.** `unify_arm`
-  (checker.hawk) exempts value-less arms so a side-effecting match still checks,
-  but the exemption covers two very different things: a _diverging_ arm
-  (`return`/`throw` — genuinely fine) and a plain `Void` arm (`None => {}` /
-  `None => void` — which **does** flow its unit value out). When the match's
-  value is used (`let a = match o { Some(m) => m, None => {} }`), the `Void` arm
-  type-checks yet traps at runtime (`map.len: expected map`). Split the
-  exemption: keep diverging arms exempt, and make a non-diverging `Void`-typed
-  arm a check error when the match is in value position (annotated context, or
-  another arm establishes a non-`Void` reference type). Both `=> {}` and
-  `=> void` spellings hit this identically. Feeds the diagnostics-audit rung of
-  the language review. (The map-literal migration kept `=> {}` a `Void` block,
-  so both spellings remain live cases.)
 - **Let a user scope shadow a prelude _value_ name.** Today
   `check_shadowed_surface` flags any top-level decl whose name is in the file's
   bare surface (prelude + `as _` imports), so a `pub fn error` collides with the
@@ -691,18 +678,6 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     variable; `_` reads as "external label = none", consistent with the
     `external internal` slot.)
 
-- **Map/Set `Display`/`Debug` rendering vs bracket map syntax.** The runtime
-  renders a map as `{'x': 1, 'y': 2}` and a set as `{1, 2}` — brace notation
-  that no longer matches the source syntax now that map literals are brackets
-  (`['x': 1]`) and braces always mean blocks. An LLM reading program output and
-  echoing it back as code gets a parse error (with the bracket hint, so it
-  self-corrects — low severity). Decide: flip map rendering to `['x': 1]` /
-  `[:]` for source round-trip coherence (and pick something for `Set` — it has
-  no literal), or keep the brace notation as output-only convention. Touches the
-  runtime `stringify`/debug natives and the `display_collections` conformance
-  test; `json.stringify` is unaffected (real JSON). Surfaced by the map-literal
-  migration (2026-07).
-
 - **Generic operators** (`<T: Add>`, operators-as-traits) — the remaining piece
   of the generics arc (bound enforcement + `call.virtual` dispatch on `T` are
   done). This is also where the language's **implicit operator/literal
@@ -776,6 +751,29 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **Map-literal migration follow-ups (checker diagnostic, rendering, legacy
+  sites)** (2026-07). Three tails of the migration closed. (1) **`Void`-arm
+  diagnostic**: `check_void_arms` splits the `unify_arm` value-less-arm
+  exemption — a _diverging_ arm (`return`/`throw`, or a block/`if`/`match` all
+  of whose paths exit, per the new syntactic `expr_always_exits` view; a
+  tail-less block infers `Unit` whether or not it exits) stays exempt, but a
+  plain `Void` arm (`=> void` / `=> {}`) in a value-producing match is now a
+  check error — it flows its unit value out and previously trapped only at the
+  use site (`map.len: expected map`). Source-origin matches only (a statement
+  `if let` fabricates a Unit wildcard arm by design), and a bare unbound
+  `TypeParameter` reference stays lenient like `Unknown` (a match as a lambda
+  body passed to a generic `fiber.spawn(() -> T)` can still bind `T = Unit`).
+  Conformance: `cf-match-void-arm`. (2) **Map/Set `Display`** now follows the
+  source syntax: `['x': 1]` / `[:]` (round-trips as code); `Set` renders
+  `(1, 2, 3)`. (3) **Legacy `match` sites converted to `if let`** — the 28
+  pre-`if let` two-arm matches, via `hawk fix --only match-to-if-let --write` +
+  one hand rewrite. Doing so surfaced and fixed a **position bug in the fix
+  machinery**: the `if let` rewrite (an else-less `if`) was offered from _any_
+  expression position but only parses as a statement or a block tail — rewriting
+  a match arm body produced unparseable code. `fs_if_let` now gates it to those
+  positions (also covering the LSP code action, which drives the same
+  `fix_sites`); the value-preserving rules (`?`/`unwrap_or`/`map`) still apply
+  anywhere.
 - **Bracket map literals — `[k: v]` / `[:]`; braces are always blocks
   (language)** (2026-07). The map-literal migration completed: map literals are
   written `['a': 1]` (empty `[:]`), and a `{` in expression position is always a

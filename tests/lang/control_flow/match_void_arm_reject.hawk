@@ -1,0 +1,30 @@
+//! spec: cf-match-void-arm
+//! mode: check
+
+// A non-diverging `Void` arm in a value-producing match is a check error: the
+// arm flows its unit value out, so the match's "value" would only trap at the
+// use site. Diverging arms (`return`/`throw`, or a block ending in one) stay
+// exempt, as do side-effecting matches whose arms all produce nothing.
+fn main() -> Int {
+    let o: Option<Map<String, Int>> = Option.None;
+
+    // The correct spellings: produce the value, or exit.
+    let a = match o {
+        Some(m) => m,
+        None => [:],
+    };
+    println('${a.len()}');
+    let c = match o {
+        Some(m) => m,
+        None => { return 0; },
+    };
+    println('${c.len()}');
+
+    // The trap: a `Void` arm in a match whose value is used.
+    let b = match o {
+        Some(m) => m,
+        None => void, // expect error: produces no value
+    };
+    println('${b.len()}');
+    return 0;
+}
