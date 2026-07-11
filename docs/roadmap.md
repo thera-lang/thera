@@ -758,16 +758,10 @@ implementation work stay open here until decided.
 
 **Open — design/behavior follow-ups from the 2026-07 review:**
 
-- **Iterator consumer naming — `collect()` vs `to_list()`.** The drain consumer
-  is `collect()` (Rust-familiar), while `Set.to_list()` and `Bytes.to_list()`
-  spell the same conversion `to_list` — a naming inconsistency as well as a
-  design call. `to_list` may give an LLM reading a call site a stronger cue
-  about the produced type; `collect` generalizes if other collection targets
-  ever appear. Decide one name and align the outliers. _(Stdlib)_
 - **Lazy `List.map`/`filter`?** Both are eager (each returns a new `List`) —
   simple, and right for small lists. Returning an `Iterator` instead would fuse
   chains (`xs.map(f).filter(g)` with no intermediate list) at the cost of a
-  `.collect()` at most call sites, plus inference/ergonomics churn. Evaluate
+  `.to_list()` at most call sites, plus inference/ergonomics churn. Evaluate
   against real corpus profiles before moving anything. _(Stdlib)_
 - **`hawk test` UX.** Make success output quieter — the per-test `ok` lines and
   per-file headers are tokens an agent doesn't need; a green run should approach
@@ -780,6 +774,15 @@ implementation work stay open here until decided.
 
 **Done — implemented follow-ups:**
 
+- **Iterator consumer naming: `collect()` → `to_list()`** (2026-07). Decided for
+  `to_list`: it matches the established `to_X` conversion convention
+  (`Set.to_list()`, `Bytes.to_list()`, `to_int`/`to_double`), states its result
+  type at the call site (the local-reasoning property), and avoids the
+  false-friend problem — Rust's `collect` is type-directed and Java's takes a
+  collector argument, machinery Hawk doesn't have, so sharing the name without
+  the semantics would mislead agents. Future targets follow the same pattern
+  (`to_set()` when a use case appears). The rename covered the interface default
+  method and every call site; no snapshot refresh (not new syntax).
 - **`Trap::OutOfMemory` / `Trap::StackOverflow`** (2026-07). Memory and
   frame-stack exhaustion now trap with the ordinary `hawk: trap:` formatting
   instead of aborting the process: a collection that still leaves more live
@@ -793,8 +796,9 @@ conformance.md brought in line with the implementation; each item verified
 against the code before the edit):
 
 - Pipelines: `List.map`/`filter` documented as eager; lazy pipelines via the
-  `Iterator` adapters + `collect()` (the old text's `.to_list()` example didn't
-  compile).
+  `Iterator` adapters + the drain consumer (the old text's `.to_list()` example
+  didn't compile at the time; the consumer was then named `collect()`, since
+  renamed `to_list()` — see the naming decision above).
 - Interpolation documented as **total** — `Display` when present, derived
   `Debug` otherwise, never a compile error; derived `Debug` shown with its
   actual positional rendering.
@@ -908,6 +912,13 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **`Iterator.collect()` renamed `to_list()`** (2026-07). The drain consumer now
+  follows the `to_X` conversion convention (`Set.to_list()`, `Bytes.to_list()`,
+  `to_int`/`to_double`) instead of borrowing Rust's `collect` without its
+  type-directed semantics. Interface default method + all call sites renamed;
+  language.md §Pipelines and stdlib.md updated, with the rationale recorded in
+  the spec and the punchlist Done entry.
 
 - **OOM + stack-overflow traps; string-indexing hint** (2026-07). Memory and
   frame-stack exhaustion are real traps now, not process aborts: the heap has a

@@ -24,15 +24,15 @@ fn test_range_empty() -> Result<Void, Error> {
 }
 
 @test
-fn test_collect_range() -> Result<Void, Error> {
-    testing.assert_eq(actual: iter.range(1, 4).collect(), expected: [1, 2, 3])?;
+fn test_to_list_range() -> Result<Void, Error> {
+    testing.assert_eq(actual: iter.range(1, 4).to_list(), expected: [1, 2, 3])?;
     return Result.Ok(void);
 }
 
 @test
-fn test_collect_from_list_roundtrips() -> Result<Void, Error> {
+fn test_to_list_from_list_roundtrips() -> Result<Void, Error> {
     let xs = ['a', 'b', 'c'];
-    testing.assert_eq(actual: iter.from_list(xs).collect(), expected: xs)?;
+    testing.assert_eq(actual: iter.from_list(xs).to_list(), expected: xs)?;
     return Result.Ok(void);
 }
 
@@ -53,42 +53,42 @@ fn test_count_drains() -> Result<Void, Error> {
 
 @test
 fn test_map_squares() -> Result<Void, Error> {
-    let out = iter.range(1, 5).map((n) => n * n).collect();
+    let out = iter.range(1, 5).map((n) => n * n).to_list();
     testing.assert_eq(actual: out, expected: [1, 4, 9, 16])?;
     return Result.Ok(void);
 }
 
 @test
 fn test_map_changes_element_type() -> Result<Void, Error> {
-    let out = iter.range(0, 3).map((n) => 'n${n}').collect();
+    let out = iter.range(0, 3).map((n) => 'n${n}').to_list();
     testing.assert_eq(actual: out, expected: ['n0', 'n1', 'n2'])?;
     return Result.Ok(void);
 }
 
 @test
 fn test_filter_keeps_matching() -> Result<Void, Error> {
-    let out = iter.range(0, 10).filter((n) => n % 2 == 0).collect();
+    let out = iter.range(0, 10).filter((n) => n % 2 == 0).to_list();
     testing.assert_eq(actual: out, expected: [0, 2, 4, 6, 8])?;
     return Result.Ok(void);
 }
 
 @test
 fn test_take_limits() -> Result<Void, Error> {
-    let out = iter.range(0, 100).take(3).collect();
+    let out = iter.range(0, 100).take(3).to_list();
     testing.assert_eq(actual: out, expected: [0, 1, 2])?;
     return Result.Ok(void);
 }
 
 @test
 fn test_take_more_than_available() -> Result<Void, Error> {
-    let out = iter.range(0, 2).take(5).collect();
+    let out = iter.range(0, 2).take(5).to_list();
     testing.assert_eq(actual: out, expected: [0, 1])?;
     return Result.Ok(void);
 }
 
 @test
 fn test_enumerate_pairs_index_and_value() -> Result<Void, Error> {
-    let pairs = iter.from_list(['a', 'b', 'c']).enumerate().collect();
+    let pairs = iter.from_list(['a', 'b', 'c']).enumerate().to_list();
     testing.assert_eq(actual: pairs.len(), expected: 3)?;
     testing.assert_eq(actual: pairs[0].index, expected: 0)?;
     testing.assert_eq(actual: pairs[0].value, expected: 'a')?;
@@ -110,7 +110,7 @@ fn test_enumerate_composes_with_adapters() -> Result<Void, Error> {
         .enumerate()
         .filter((p) => p.index % 2 == 0)
         .map((p) => p.value)
-        .collect();
+        .to_list();
     testing.assert_eq(actual: out, expected: ['a', 'c'])?;
     return Result.Ok(void);
 }
@@ -122,7 +122,7 @@ fn test_chained_filter_map_take() -> Result<Void, Error> {
         .filter((n) => n % 2 == 0)
         .map((n) => n * n)
         .take(3)
-        .collect();
+        .to_list();
     testing.assert_eq(actual: out, expected: [0, 4, 16])?;
     return Result.Ok(void);
 }
@@ -197,9 +197,9 @@ fn test_for_loop_over_concrete_iterator() -> Result<Void, Error> {
 
 @test
 fn test_concrete_iterator_uses_default_adapters() -> Result<Void, Error> {
-    // A user iterator gets `map`/`collect` for free from the interface default.
+    // A user iterator gets `map`/`to_list` for free from the interface default.
     let d = Doubler { next_val: 1, limit: 20 };
-    let out = d.map((n) => n + 1).collect();
+    let out = d.map((n) => n + 1).to_list();
     testing.assert_eq(actual: out, expected: [2, 3, 5, 9, 17])?;
     return Result.Ok(void);
 }

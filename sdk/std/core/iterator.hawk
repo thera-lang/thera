@@ -8,7 +8,7 @@
 //!
 //! Beyond the one required `next`, the interface provides **default methods** —
 //! lazy adapters (`map`/`filter`/`take`/`enumerate`) and eager consumers
-//! (`collect`/`count`) — so any iterator is fluent without an import:
+//! (`to_list`/`count`) — so any iterator is fluent without an import:
 //!
 //! ```hawk
 //! import std.iter
@@ -16,7 +16,7 @@
 //! let evens = iter.range(0, 10)
 //!     .filter((n) => n % 2 == 0)
 //!     .map((n) => n * n)
-//!     .collect();                 // [0, 4, 16, 36, 64]
+//!     .to_list();                 // [0, 4, 16, 36, 64]
 //! ```
 //!
 //! Iterators are stateful: `next` advances an internal cursor, so an iterator is
@@ -51,7 +51,7 @@ pub interface Iterator<T> {
     // --- eager consumers: each drains `self` ---
 
     /// Drain to exhaustion, gathering the elements into a list (in order).
-    fn collect(self) -> List<T> {
+    fn to_list(self) -> List<T> {
         let out = [];
         let mut going = true;
         while going {

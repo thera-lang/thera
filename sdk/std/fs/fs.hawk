@@ -9,7 +9,7 @@
 //! for name in fs.list_dir('.')? { ... }
 //!
 //! // every .hawk file under src/, recursively
-//! let sources = fs.walk('src').filter((p) => p.ends_with('.hawk')).collect();
+//! let sources = fs.walk('src').filter((p) => p.ends_with('.hawk')).to_list();
 //!
 //! // stream a file line by line without loading it whole
 //! let f = fs.open('big.log')?;

@@ -74,7 +74,7 @@ fn test_io_error_message() -> Result<Void, Error> {
 
 @test
 fn test_lines_lf() -> Result<Void, Error> {
-    let got = lines(from_string('a\nb\nc')).collect();
+    let got = lines(from_string('a\nb\nc')).to_list();
     testing.assert_eq(actual: got, expected: ['a', 'b', 'c'])?;
     return Result.Ok(void);
 }
@@ -82,35 +82,35 @@ fn test_lines_lf() -> Result<Void, Error> {
 @test
 fn test_lines_trailing_newline_no_empty_tail() -> Result<Void, Error> {
     // A terminating newline ends the last line; it does not add an empty one.
-    let got = lines(from_string('a\nb\n')).collect();
+    let got = lines(from_string('a\nb\n')).to_list();
     testing.assert_eq(actual: got, expected: ['a', 'b'])?;
     return Result.Ok(void);
 }
 
 @test
 fn test_lines_no_trailing_newline_yields_last() -> Result<Void, Error> {
-    let got = lines(from_string('a\nb')).collect();
+    let got = lines(from_string('a\nb')).to_list();
     testing.assert_eq(actual: got, expected: ['a', 'b'])?;
     return Result.Ok(void);
 }
 
 @test
 fn test_lines_crlf_stripped() -> Result<Void, Error> {
-    let got = lines(from_string('a\r\nb\r\nc\r\n')).collect();
+    let got = lines(from_string('a\r\nb\r\nc\r\n')).to_list();
     testing.assert_eq(actual: got, expected: ['a', 'b', 'c'])?;
     return Result.Ok(void);
 }
 
 @test
 fn test_lines_blank_lines_preserved() -> Result<Void, Error> {
-    let got = lines(from_string('a\n\nb\n')).collect();
+    let got = lines(from_string('a\n\nb\n')).to_list();
     testing.assert_eq(actual: got, expected: ['a', '', 'b'])?;
     return Result.Ok(void);
 }
 
 @test
 fn test_lines_empty_input() -> Result<Void, Error> {
-    let got = lines(from_string('')).collect();
+    let got = lines(from_string('')).to_list();
     testing.assert_eq(actual: got, expected: [])?;
     return Result.Ok(void);
 }
@@ -118,7 +118,7 @@ fn test_lines_empty_input() -> Result<Void, Error> {
 @test
 fn test_lines_span_chunk_boundaries() -> Result<Void, Error> {
     // 2 bytes per underlying read: lines (and the CRLF pair) straddle chunks.
-    let got = lines(mem_reader('line1\r\nline2\nlast', 2)).collect();
+    let got = lines(mem_reader('line1\r\nline2\nlast', 2)).to_list();
     testing.assert_eq(actual: got, expected: ['line1', 'line2', 'last'])?;
     return Result.Ok(void);
 }
@@ -138,7 +138,7 @@ fn test_lines_adapter_chain() -> Result<Void, Error> {
     // Comment/blank stripping over lines, the canonical use.
     let kept = lines(from_string('# title\n\nalpha\n# note\nbeta\n'))
         .filter((s) => s.len() > 0 && !s.starts_with('#'))
-        .collect();
+        .to_list();
     testing.assert_eq(actual: kept, expected: ['alpha', 'beta'])?;
     return Result.Ok(void);
 }
@@ -172,7 +172,7 @@ fn test_read_line_surfaces_error() -> Result<Void, Error> {
 fn test_lines_iteration_defers_error() -> Result<Void, Error> {
     // The Iterator impl treats a read error as end-of-stream and stashes it.
     let r = lines(FailReader {});
-    let got = r.collect();
+    let got = r.to_list();
     testing.assert_eq(actual: got, expected: [])?;
     let msg = match r.error() {
         Some(e) => e.message(),

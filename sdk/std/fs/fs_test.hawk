@@ -208,7 +208,7 @@ fn test_file_lines_streamed() -> Result<Void, Error> {
     let p = path.join(dir, 'lines.txt');
     fs.write_text(p, 'a\nb\nc\n')?;
     let f = fs.open(p)?;
-    let got = io.lines(f).collect(); // streams the real file handle, no read-all
+    let got = io.lines(f).to_list(); // streams the real file handle, no read-all
     testing.assert_eq(actual: got, expected: ['a', 'b', 'c'])?;
     fs.remove_dir_all(dir)?;
     return Result.Ok(void);
@@ -270,7 +270,7 @@ fn build_tree(_ name: String) -> Result<String, Error> {
 @test
 fn test_walk_recurses_files_and_dirs() -> Result<Void, Error> {
     let dir = build_tree('hawk_fs_walk_all')?;
-    let got = fs.walk(dir).collect(); // order is unspecified — check membership
+    let got = fs.walk(dir).to_list(); // order is unspecified — check membership
     let sub = path.join(dir, 'sub');
     let deep = path.join(sub, 'deep');
     testing.assert_eq(actual: got.len(), expected: 5)?;
@@ -286,7 +286,7 @@ fn test_walk_recurses_files_and_dirs() -> Result<Void, Error> {
 @test
 fn test_walk_filter_to_files() -> Result<Void, Error> {
     let dir = build_tree('hawk_fs_walk_files')?;
-    let files = fs.walk(dir).filter((p) => p.ends_with('.txt')).collect();
+    let files = fs.walk(dir).filter((p) => p.ends_with('.txt')).to_list();
     testing.assert_eq(actual: files.len(), expected: 3)?;
     fs.remove_dir_all(dir)?;
     return Result.Ok(void);
@@ -316,7 +316,7 @@ fn test_walk_for_loop() -> Result<Void, Error> {
 fn test_walk_missing_root_records_error() -> Result<Void, Error> {
     let dir = workspace('hawk_fs_walk_missing')?;
     let w = fs.walk(path.join(dir, 'does_not_exist'));
-    testing.assert_eq(actual: w.collect().len(), expected: 0)?;
+    testing.assert_eq(actual: w.to_list().len(), expected: 0)?;
     let is_nf = match w.error() {
         Some(e) => is_not_found(e),
         None => false,

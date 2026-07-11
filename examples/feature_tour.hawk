@@ -273,7 +273,7 @@ fn main() -> Result<Int, Error> {
     }
     println('triangular(${LABELS.len()}) = ${triangular}');
 
-    let squares = iter.range(1, 4).map(n => n * n).collect();   // List<Int>
+    let squares = iter.range(1, 4).map(n => n * n).to_list();   // List<Int>
     println('squares: ${squares}');
 
     for indexed in LABELS.enumerate() {

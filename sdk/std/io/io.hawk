@@ -25,7 +25,7 @@
 //!
 //! let nonblank = io.lines(io.from_string(text))
 //!     .filter((s) => s.len() > 0)
-//!     .collect();
+//!     .to_list();
 //! ```
 //!
 //! (The typed `write_u16…`/`BytesReader` binary family and streaming files are

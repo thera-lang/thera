@@ -16,7 +16,7 @@ fn test_slice() -> Result<Void, Error> {
 @test
 fn test_enumerate_pairs_index_and_value() -> Result<Void, Error> {
     // Collected: each element paired with its 0-based position.
-    let pairs = ['a', 'b', 'c'].enumerate().collect();
+    let pairs = ['a', 'b', 'c'].enumerate().to_list();
     testing.assert_eq(actual: pairs.len(), expected: 3)?;
     testing.assert_eq(actual: pairs[0].index, expected: 0)?;
     testing.assert_eq(actual: pairs[0].value, expected: 'a')?;
@@ -48,8 +48,8 @@ fn test_enumerate_empty_is_empty() -> Result<Void, Error> {
 @test
 fn test_enumerate_is_lazy_and_composes() -> Result<Void, Error> {
     // A lazy adapter like `Iterator.enumerate` — the interface default methods
-    // (`filter`/`collect`) compose on it.
-    let evens = [5, 6, 7, 8].enumerate().filter((p) => p.value % 2 == 0).collect();
+    // (`filter`/`to_list`) compose on it.
+    let evens = [5, 6, 7, 8].enumerate().filter((p) => p.value % 2 == 0).to_list();
     testing.assert_eq(actual: evens.len(), expected: 2)?;
     testing.assert_eq(actual: evens[0].index, expected: 1)?;
     testing.assert_eq(actual: evens[0].value, expected: 6)?;

@@ -50,7 +50,7 @@ interface Seq<T> {
         return MapSeq { source: self, transform: f };
     }
 
-    fn collect(self) -> List<T> {
+    fn to_list(self) -> List<T> {
         let out = [];
         let mut going = true;
         while going {
@@ -105,7 +105,7 @@ fn main() -> Int {
     println(announce(Cat {}));   // expect: meow
 
     // generic default adapter + consumer, with an un-annotated lambda param
-    let doubled = range(0, 4).map((x) => x * 2).collect();
+    let doubled = range(0, 4).map((x) => x * 2).to_list();
     println('${doubled}');       // expect: [0, 2, 4, 6]
     return 0;
 }

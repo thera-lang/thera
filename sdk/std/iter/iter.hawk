@@ -3,15 +3,15 @@
 //! Import as: import std.iter
 //!
 //! The `Iterator<T>` protocol itself lives in the prelude (std.core), along with
-//! its adapters (`map`/`filter`/`take`) and consumers (`collect`/`count`) — all
-//! default methods, so `for x in it` and `it.map(…).collect()` work without an
+//! its adapters (`map`/`filter`/`take`) and consumers (`to_list`/`count`) — all
+//! default methods, so `for x in it` and `it.map(…).to_list()` work without an
 //! import. This module provides the *sources* that build an iterator.
 //!
 //! ```hawk
 //! for x in iter.range(0, 3) { println(x); }            // 0, 1, 2
-//! let xs = iter.from_list([1, 2, 3]).collect();        // [1, 2, 3]
+//! let xs = iter.from_list([1, 2, 3]).to_list();        // [1, 2, 3]
 //! let ys = iter.range(0, 5).filter((n) => n % 2 == 0)
-//!     .map((n) => n * n).collect();                    // [0, 4, 16]
+//!     .map((n) => n * n).to_list();                    // [0, 4, 16]
 //! ```
 
 // --- sources ---

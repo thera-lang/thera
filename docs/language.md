@@ -892,7 +892,7 @@ let doubled = nums.map(n => n * 2);         // List<Int>
 
 For **lazy** pipelines over large or streaming sequences there is `Iterator<T>`
 (a `std.core` interface): the adapters `map` / `filter` / `take` / `enumerate`
-wrap without evaluating, and the consumers `collect()` (→ `List<T>`) and
+wrap without evaluating, and the consumers `to_list()` (→ `List<T>`) and
 `count()` drain. Iterators come from `List.enumerate()`, from `std.iter`
 (`iter.from_list(xs)`, `iter.range(a, b)`), and from streaming sources like
 `io.lines` and `fs.walk`:
@@ -903,8 +903,14 @@ import std.iter;
 let first_evens = iter.range(0, 1000000)
     .filter(n => n % 2 == 0)
     .take(5)
-    .collect();                             // [0, 2, 4, 6, 8] — lazily
+    .to_list();                             // [0, 2, 4, 6, 8] — lazily
 ```
+
+The consumer is named for its result — `to_list`, matching `Set.to_list()` and
+`Bytes.to_list()` — rather than a polymorphic `collect()`: Rust's `collect` is
+type-directed and Java's takes a collector argument, machinery Hawk doesn't
+have, so each Hawk consumer states its target in its name (a future `to_set()`
+would follow the same pattern).
 
 ---
 

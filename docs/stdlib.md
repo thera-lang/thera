@@ -271,7 +271,7 @@ impl StringWriter { fn new(); fn into_string() -> Result<String, Error>; fn into
 `io.lines` and `BufReader` are **done**: `lines(src)` returns a `BufReader` — a
 `Reader` wrapper that buffers and yields a line per `next`, so it is an
 `Iterator<String>`. `for line in io.lines(f)` and
-`io.lines(f).filter(…) .map(…).collect()` both drive it;
+`io.lines(f).filter(…) .map(…).to_list()` both drive it;
 `read_line() -> Result<Option<String>, Error>` is the honest primitive
 (iteration treats a read error as end-of-stream and stashes it for `.error()`).
 Lines split on `\n`, a trailing `\r` (CRLF) strips, and a final unterminated
@@ -288,7 +288,7 @@ a follow-up.)
 
 Purpose: the sources that seed the `Iterator<T>` protocol. `Iterator<T>` itself
 is a generic interface in the **prelude** (`fn next(self) -> Option<T>`), with
-the `map`/`filter`/`take`/`enumerate` adapters and the `collect`/`count`
+the `map`/`filter`/`take`/`enumerate` adapters and the `to_list`/`count`
 consumers shipping as **interface default methods** — so any iterator is fluent
 without an import, and `for x in it` drives any iterator. `std.iter` holds only
 the two sources:
@@ -298,7 +298,7 @@ pub fn range(_ start: Int, _ end: Int) -> Iterator<Int>;   // [start, end)
 pub fn from_list<T>(_ items: List<T>) -> Iterator<T>;
 ```
 
-So `iter.range(0, 10).filter((n) => n % 2 == 0).map((n) => n * n).collect()`
+So `iter.range(0, 10).filter((n) => n % 2 == 0).map((n) => n * n).to_list()`
 runs entirely off the prelude protocol; `std.iter` just supplies the seeds.
 
 ### `std.fs` — filesystem _(implemented, incl. streaming files)_
