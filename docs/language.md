@@ -158,6 +158,50 @@ where a reader needs it, and stay out of the way everywhere else.
 
 ---
 
+## The type system at a glance
+
+_A descriptive summary of the type system as implemented — not additional rules.
+The linked sections are normative; the corners that are deliberately or
+currently loose are called out honestly and tracked in
+[roadmap.md](roadmap.md)._
+
+Every Hawk type takes one of five shapes:
+
+| Shape          | Examples                          | Notes                                                                                                                                                                 |
+| -------------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Primitive      | `Int`, `Bool`, `Void`             | five of them — see [Primitives](#primitives)                                                                                                                          |
+| Named type     | `Shape`, `List<Int>`, `Option<T>` | every struct, enum, interface, and built-in; **nominal** — identity is the declaring file plus the name, so two libraries may declare the same name without colliding |
+| Type parameter | the `T` in `fn first<T>(…)`       | opaque inside a generic declaration — see [Generics](#generics)                                                                                                       |
+| Function type  | `(Int, String) -> Bool`           | the type of lambdas and function references — see [Functions](#functions)                                                                                             |
+| Unknown        | —                                 | the checker's internal "couldn't determine" marker; never written in source                                                                                           |
+
+**Subtyping exists in exactly three places.** A concrete type is assignable to
+an interface it `impl`s; a sub-interface is assignable to the interfaces it
+extends; and function types relate contravariantly in their parameters,
+covariantly in their results. There is nothing else — no numeric coercion (`Int`
+never silently widens to `Double`), no top type, no implicit conversions of any
+kind. The full relation is specified in [Assignability](#assignability).
+
+**Inference is local and bidirectional.** Expected types flow down (a lambda's
+parameter types from the callee's signature, an enum construction's type
+arguments from its context); initializer types flow up (`let n = xs.len()` is
+`Int`); an underdetermined empty literal is pinned by its first use (see
+[Type annotations & inference](#type-annotations--inference)). There is no
+whole-program constraint solving: a type is always derivable from what's on the
+page nearby, which is the property that lets a reader — human or LLM — reason
+about any line with only local context.
+
+**`Unknown` is the escape hatch, and honesty about it is policy.** An expression
+the checker can't type becomes `Unknown`, which is lenient on both sides of
+assignability so one inference gap never cascades into a page of false errors.
+The cost is false negatives: a hole the checker doesn't see surfaces as a
+runtime trap instead (the runtime stays memory-safe — every operation is
+tag-checked, so a type hole can misbehave but never corrupt memory). The
+standing direction is to shrink `Unknown` with targeted diagnostics rather than
+reject it wholesale — see roadmap.md.
+
+---
+
 ## Types
 
 ### Primitives
@@ -1504,6 +1548,123 @@ when the concrete type is not statically known: **interface-typed values**
 (`fn show(x: Display)`, `List<Display>`) and **bounded generics**
 (`fn dump<T: Display>(x: T)`, bounds enforced at call sites). The mechanism is
 type-id-keyed — see [architecture.md](architecture.md).
+
+---
+
+## Generics
+
+Functions, methods (instance and static), structs, enums, and interfaces may
+declare **type parameters** in angle brackets. There are no generic top-level
+bindings and no higher-kinded parameters (no `F<T>` where `F` is itself a
+parameter).
+
+```hawk
+struct Pair<A, B> {
+    let first: A;
+    let second: B;
+}
+
+enum MaybeBoth<T> {
+    One(T),
+    Both(T, T),
+}
+
+interface Container<T> {
+    fn get(self, _ index: Int) -> Option<T>;
+}
+
+fn swap<A, B>(_ p: Pair<A, B>) -> Pair<B, A> {
+    return Pair { first: p.second, second: p.first };
+}
+```
+
+### Bounds
+
+A type parameter may require interfaces of its instantiations: `<T: Display>`,
+`+`-joined for several (`<T: Eq + Debug>`). Bounds are **enforced where the
+parameter is instantiated** — at the call site for a function's type parameters,
+and wherever a concrete type argument is supplied for a bounded
+struct/enum/interface parameter (a struct literal, an annotation, an explicit
+type argument):
+
+```hawk
+fn show_all<T: Display>(_ xs: List<T>) -> Void {
+    for x in xs {
+        print(x.display());
+    }
+}
+```
+
+Passing a `List<Plain>` where `Plain` has no `Display` impl is a check error at
+the call site ("type argument does not implement `Display`"). Primitives satisfy
+the built-in `Eq`/`Display`/`Debug`; structs and enums satisfy `Eq`/`Debug` via
+the structural derives; anything else needs an explicit `impl` (see
+[Interfaces](#interfaces)).
+
+Inside the generic body, a **bounded** parameter exposes exactly its bounds'
+methods, dispatched dynamically (see [Dispatch](#dispatch)); calling a method no
+bound declares is an error. An **unbounded** `T` is opaque: a value of it can be
+stored, passed, returned, compared where the context allows — and rendered,
+since `display()`/`debug()` are total (every value renders via its impl or the
+derived fallback). One phase wrinkle: a method call on an unbounded `T` is today
+rejected at emit time rather than by `hawk check` (tracked in roadmap.md).
+
+### Type arguments
+
+Type arguments are normally **inferred at the use site** — from the argument
+types, the receiver, and the expected type, in that priority order. The expected
+type matters when a parameter appears only in the return type:
+`let s: Set<Int> = Set.new();` pins `T = Int` from the annotation.
+
+When context doesn't decide, spell the arguments explicitly — on a call
+(`make<Int>(3)`) or on a static-method receiver (`Set<String>.new()`). And when
+neither context nor explicit arguments pin a parameter, that is a "cannot infer
+type argument" diagnostic — never a guess (the same rule as
+[local inference](#type-annotations--inference)).
+
+### Erasure
+
+Type arguments are a compile-time construct: checked statically, absent at
+runtime. A `List<Int>` and a `List<String>` are the same runtime shape, and
+there is no runtime type-argument test. Bounded-parameter method calls compile
+to dynamic dispatch (`call.virtual` — see [architecture.md](architecture.md)),
+so generic code is one compiled body, not a per-instantiation copy.
+
+---
+
+## Assignability
+
+One relation drives every typed boundary — bindings, call arguments, `return`
+values, struct-literal fields: **may a value of type `S` be used where `T` is
+expected?** It holds when any of these applies, and nothing else converts:
+
+1. **Identity.** `S` and `T` are the same type: same shape, same named-type
+   identity (declaring file + name), pairwise-identical type arguments.
+2. **Leniency.** Either side is `Unknown` — deliberate, so an inference gap
+   never produces a false error (see
+   [the note above](#the-type-system-at-a-glance)). Either side is a type
+   parameter — **looser than intended**: today this accepts `return x;` inside
+   `fn f<T>(_ x: T) -> Int`, which traps at runtime; tightening it is tracked in
+   roadmap.md.
+3. **Interface conformance.** `T` is an interface and `S` `impl`s it, or `S` is
+   an interface that extends `T` (transitively). _Loose corner:_ the target's
+   type arguments are not yet compared, so a type whose impl is `Iterator<Int>`
+   is currently accepted where `Iterator<String>` is expected (tracked in
+   roadmap.md).
+4. **Same named type, assignable arguments.** `List<Cat>` is accepted where
+   `List<Animal>` is expected — type arguments are **covariant** today. That is
+   sound for reading and unsound under mutation (pushing a `Dog` through the
+   `List<Animal>` view corrupts the typing of the original binding, though never
+   memory). The variance decision — leaning toward no variance annotations, with
+   a special-cased read-only widening instead — is tracked in roadmap.md.
+5. **Functions.** Parameters are contravariant, the result covariant: where a
+   `(Cat) -> Animal` is expected, an `(Animal) -> Cat` is accepted — it handles
+   every `Cat` it will be given and returns only `Animal`s. The unsafe
+   directions are rejected.
+
+Everything else is a type error. In particular there is no `Int` → `Double`
+coercion (call `.to_double()`), no universal top type to erase to, and no union
+or intersection types.
 
 ---
 

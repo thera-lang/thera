@@ -820,6 +820,72 @@ against the code before the edit):
 - overview.md: the Tier-1 JIT consistently marked planned; interface dispatch
   updated to the implemented `call.virtual`.
 
+### Type system punchlist
+
+Findings from the 2026-07 type-system review (a design-completeness pass over
+the implemented system; every hole below was verified empirically — each checks
+clean today and goes wrong at runtime). The review also settled the "formal
+treatment?" question: no lambda-calculus formalization — the system is simple
+enough to specify in prose, and `Unknown`'s deliberate leniency makes the
+classical soundness theorem false by construction; the spec (language.md
+§Generics / §Assignability) plus the `tests/lang/` conformance suite are the
+vehicle.
+
+**Open — targeted checker fixes** (each local, in the shrink-the-holes model):
+
+- **List/map literal tails are unchecked.** `[1, 'two']` infers `List<Int>` from
+  the first element and never validates the rest; indexing traps at runtime.
+  Check each subsequent element/entry against the first's type.
+- **Interface conformance ignores the target's type arguments.** A struct whose
+  impl is `Iterator<Int>` is accepted where `Iterator<String>` is expected —
+  `is_assignable`'s conformance branch never compares the target args against
+  the recorded `interface_args`. Compare them.
+- **`TypeParameter` → concrete assignability.**
+  `fn f<T>(_ x: T) -> Int { return x; }` checks clean and traps at the call. The
+  leniency is only needed concrete-→-`T` (instantiation, validated at call
+  sites); a `T` source against a concrete target should be an error.
+- **Unbounded-`T` method calls are rejected at emit, not check.** `x.foo()` on
+  an unbounded `T` passes `hawk check` (lenient receiver) but errors in codegen
+  (`no method "foo" on T`) — the phases disagree; `check` should catch it.
+
+**Open — design decisions:**
+
+- **Variance for generic type arguments.** Arguments are covariant today, even
+  under mutation: `List<Cat>` is accepted where `List<Animal>` is expected, and
+  pushing a `Dog` through the widened view poisons the original binding — the
+  probe then silently ran `Cat.speak` on the `Dog` (static dispatch trusted the
+  type). Spike **invariance** against the corpus to size the fallout. Preferred
+  direction: **no variance annotations**; instead a special-cased read-only
+  widening (e.g. a `List<Dog>` usable where an `Iterator<Animal>` is expected)
+  so the safe read pattern stays ergonomic.
+- **Honest runtime wording for tag-mismatch traps.** A type hole surfaces as
+  `trap: internal error (malformed bytecode): expected Int, found Ref(0)` —
+  which tells an agent the compiler is broken, not that a type error slipped
+  through. Reword to a "runtime type error: expected Int, found String" shape.
+  _(Runtime)_
+- **Open type-shape items:** a `Never`/bottom type (divergence currently rides
+  on `Unknown` leniency — e.g. a `throw` arm); a first-class `Range` type
+  (ranges infer `Unknown`; the for-loop special-cases the element back to
+  `Int`); type aliases; `throw` in branch-tail position (the AST has a `Throw`
+  expression, the parser rejects the tail form).
+
+**Small:**
+
+- The string-indexing hint still suggests `.graphemes()`
+  (pkgs/cli/checker/checker.hawk), which no longer exists — point at `.chars()`
+  / `.slice` instead.
+
+**Done:**
+
+- language.md gained a descriptive **"The type system at a glance"** summary
+  plus normative **Generics** and **Assignability** sections (2026-07) — the
+  loose corners above are called out honestly in place.
+- Verified solid during the review (no change needed): branch/arm type agreement
+  is checked (`if`/`else` and `match`), cross-type `==` is rejected, unsafe
+  function-type variance is rejected, bounds are enforced at call sites and
+  declaration instantiations (including struct literals), and annotated bindings
+  catch initializer mismatches.
+
 ## Runtime staging (longer view)
 
 See [architecture.md](architecture.md) for the design behind each tier.
@@ -839,6 +905,19 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **Type-system review + spec sections** (2026-07). A design-completeness pass
+  over the implemented type system (the five-shape lattice, assignability,
+  generics/bounds, local bidirectional inference). Verified solid: branch/arm
+  join checking, cross-type `==` rejection, function-type variance, bound
+  enforcement, annotated-binding mismatches. Four holes found empirically (all
+  check-clean today, trap or misbehave at runtime): unchecked list/map literal
+  tails, conformance assignability ignoring the target's interface args,
+  `TypeParameter`-source leniency, and covariant generic args under mutation.
+  Decided against a formal (lambda-calculus) treatment — prose spec +
+  conformance tests instead; language.md gained "The type system at a glance",
+  **Generics**, and **Assignability** sections. The fixes and design calls live
+  in _Type system punchlist_.
 
 - **Language-spec self-consistency review + doc sweep** (2026-07). language.md
   and the supporting docs were cross-checked against the implementation — stdlib

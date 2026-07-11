@@ -8,8 +8,8 @@ is"; read top-down for progressive detail.
   the runtime, and the key design trade-offs.
 - [language.md](language.md) — the language **reference**: syntax and semantics
   (types, functions, control flow, tail expressions, error handling, interfaces,
-  visibility & libraries, name resolution & scoping), the standard `hawk` tool,
-  the SDK layout, and open design questions.
+  generics & assignability, visibility & libraries, name resolution & scoping),
+  the standard `hawk` tool, the SDK layout, and open design questions.
 - [grammar.md](grammar.md) — the **EBNF grammar**: the keyword set, the
   operator/precedence table, every production, and a parser-completeness
   checklist of what's not yet in the syntax.
