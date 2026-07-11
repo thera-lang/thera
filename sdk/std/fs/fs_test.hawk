@@ -135,14 +135,11 @@ fn test_symlink_metadata_detects_a_link() -> Result<Void, Error> {
     let link = path.join(dir, 'link.txt');
     // Create a symlink with POSIX `ln -s`; if it isn't available, skip the
     // symlink-specific assertions (still exercises the non-symlink path below).
-    match process.run('ln', args: ['-s', target, link]) {
-        Ok(_) => {
-            // symlink_metadata inspects the link itself...
-            testing.assert_eq(actual: fs.symlink_metadata(link)?.kind, expected: FileKind.Symlink)?;
-            // ...while metadata follows it through to the target file.
-            testing.assert_eq(actual: fs.metadata(link)?.kind, expected: FileKind.File)?;
-        },
-        Err(_) => void,
+    if let Ok(_) = process.run('ln', args: ['-s', target, link]) {
+        // symlink_metadata inspects the link itself...
+        testing.assert_eq(actual: fs.symlink_metadata(link)?.kind, expected: FileKind.Symlink)?;
+        // ...while metadata follows it through to the target file.
+        testing.assert_eq(actual: fs.metadata(link)?.kind, expected: FileKind.File)?;
     }
     // For a plain file, symlink_metadata agrees with metadata.
     testing.assert_eq(actual: fs.symlink_metadata(target)?.kind, expected: FileKind.File)?;

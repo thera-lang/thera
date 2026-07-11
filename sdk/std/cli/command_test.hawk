@@ -314,10 +314,7 @@ fn exit_code(_ a: Action) -> Int {
 /// or an error if absent — for asserting help columns line up.
 fn column_of(_ text: String, _ needle: String) -> Result<Int, Error> {
     for line in text.lines() {
-        match line.find(needle) {
-            Some(col) => return Result.Ok(col),
-            None => void,
-        }
+        if let Some(col) = line.find(needle) { return Result.Ok(col); }
     }
     return Result.Err(error('needle not found: ${needle}'));
 }

@@ -316,7 +316,32 @@ fn fs_block(_ b: Block, _ out: List<FixSite>) -> Void {
     for s in b.stmts {
         fs_stmt(s, out);
     }
-    if let Some(e) = b.tail { fs_expr(e, out); }
+    if let Some(e) = b.tail {
+        // A block-tail match may take the `if let` rewrite too: an else-less
+        // `if` is legal as a block tail, and the rewrite desugars to the very
+        // same match, so it is semantics-preserving wherever it parses.
+        if let Match(m) = e {
+            fs_if_let(m, out);
+        }
+        fs_expr(e, out);
+    }
+}
+
+// Offer the `if let` rewrite for a match in a position where an else-less
+// `if` parses: a statement or a block tail. `fs_match` — reached from every
+// other expression position (an arm body, an initializer, an argument) —
+// offers only the value-preserving rules; see there. The rules partition, so
+// the follow-on `fs_expr` walk never adds a second site for the same match.
+fn fs_if_let(_ m: MatchExpr, _ out: List<FixSite>) -> Void {
+    if let Some(site) = lint.match_if_let(m) {
+        out.push(FixSite {
+            rule: 'match-to-if-let',
+            span: m.span,
+            edit: if_let_edit(site),
+            title: 'Convert `match` to `if let`',
+            message: 'match → if let',
+        });
+    }
 }
 
 fn fs_stmt(_ s: Stmt, _ out: List<FixSite>) -> Void {
@@ -335,7 +360,14 @@ fn fs_stmt(_ s: Stmt, _ out: List<FixSite>) -> Void {
         },
         Return(_, v) => { fs_opt_expr(v, out); },
         Throw(_, e) => { fs_expr(e, out); },
-        Expr(_, e) => { fs_expr(e, out); },
+        Expr(_, e) => {
+            // A match that *is* the statement may take the `if let` rewrite
+            // (see `fs_if_let`).
+            if let Match(m) = e {
+                fs_if_let(m, out);
+            }
+            fs_expr(e, out);
+        },
         Assign(_, target, _, value) => {
             fs_expr(target, out);
             fs_expr(value, out);
@@ -358,19 +390,16 @@ fn fs_stmt(_ s: Stmt, _ out: List<FixSite>) -> Void {
     }
 }
 
-// The applicable rewrite for a `match` (at most one — the rules partition), or
-// nothing. `let … else` is handled at the `let` (it needs the binding), so a
-// diverging-arm match here matches no rule.
+// The applicable *value-position* rewrite for a `match` (at most one — the
+// rules partition), or nothing. `?`, `unwrap_or`, and `map` produce
+// expressions, so they apply wherever the match sits. The `if let` rewrite
+// applies only where an else-less `if` parses — a statement or a block tail —
+// and is offered by `fs_if_let` from those positions (a regression once
+// rewrote a match *arm body* into an else-less `if let`, which does not parse
+// in value position). `let … else` is handled at the `let` (it needs the
+// binding), so a diverging-arm match here matches no rule.
 fn fs_match(_ m: MatchExpr, _ out: List<FixSite>) -> Void {
-    if let Some(site) = lint.match_if_let(m) {
-        out.push(FixSite {
-            rule: 'match-to-if-let',
-            span: m.span,
-            edit: if_let_edit(site),
-            title: 'Convert `match` to `if let`',
-            message: 'match → if let',
-        });
-    } else if let Some(site) = lint.match_question(m) {
+    if let Some(site) = lint.match_question(m) {
         out.push(FixSite {
             rule: 'match-to-question',
             span: m.span,

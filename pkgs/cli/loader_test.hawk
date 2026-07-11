@@ -306,15 +306,12 @@ fn test_unresolved_std_import_says_why() -> Result<Void, Error> {
         message: 'missing SDK named: ${no_sdk.diagnostics[0].message}')?;
 
     // A real SDK: the module itself is the problem.
-    match find_sdk_root() {
-        Some(root) => {
-            let with_sdk = load_imports(main_path, parse_tokens(tokenize(src).tokens).program,
-                Option.Some(root));
-            testing.assert_eq(actual: with_sdk.diagnostics.len(), expected: 1)?;
-            testing.assert(with_sdk.diagnostics[0].message.contains('not in the SDK'),
-                message: 'missing module named: ${with_sdk.diagnostics[0].message}')?;
-        },
-        None => void, // no SDK on this machine — the first half still covered it
+    if let Some(root) = find_sdk_root() {
+        let with_sdk = load_imports(main_path, parse_tokens(tokenize(src).tokens).program,
+            Option.Some(root));
+        testing.assert_eq(actual: with_sdk.diagnostics.len(), expected: 1)?;
+        testing.assert(with_sdk.diagnostics[0].message.contains('not in the SDK'),
+            message: 'missing module named: ${with_sdk.diagnostics[0].message}')?;
     }
 
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }

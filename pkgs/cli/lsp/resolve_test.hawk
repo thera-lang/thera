@@ -565,10 +565,7 @@ fn test_unimported_name_does_not_resolve() -> Result<Void, Error> {
     let src = 'fn main() -> Void { let w = width; }\n';
     let primary = program_at(src, '/app/main.hawk');
     let use_off = src.find('width;').unwrap_or(0);
-    match resolve.resolve_at(cross_ctx(primary), src, use_off) {
-        Some(_) => { testing.assert(false, message: 'unimported width must not resolve')?; },
-        None => void,
-    }
+    if let Some(_) = resolve.resolve_at(cross_ctx(primary), src, use_off) { testing.assert(false, message: 'unimported width must not resolve')?; }
     return Result.Ok(void);
 }
 

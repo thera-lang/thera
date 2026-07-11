@@ -27,17 +27,11 @@ pub fn matching_spans(_ ctx: resolve.ResolveCtx, _ text: String, _ doc_path: Str
     // once, not once per candidate (LS-D1).
     for tok in resolve.primary_tokens(ctx, text) {
         if tok.kind == TokenKind.Identifier && tok.lexeme() == target.name() {
-            match resolve.resolve_at(ctx, text, tok.span.offset) {
-                Some(r) => match r.symbol() {
-                    Some(s) => {
-                        if s.same(target) && (include_decl || !is_declaration(tok, doc_path, target)) {
-                            spans.push(tok.span);
-                        }
-                    },
-                    None => void,
-                },
-                None => void,
-            }
+            if let Some(r) = resolve.resolve_at(ctx, text, tok.span.offset) { if let Some(s) = r.symbol() {
+                if s.same(target) && (include_decl || !is_declaration(tok, doc_path, target)) {
+                    spans.push(tok.span);
+                }
+            } }
         }
     }
     return spans;

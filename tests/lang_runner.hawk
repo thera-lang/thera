@@ -148,15 +148,12 @@ fn parse_test(_ path: String) -> Result<Test, Error> {
         if trimmed.starts_with('//!') {
             is_test = true;
             let body = trimmed.slice(3, trimmed.len()).trim();
-            match split_once(body, ':') {
-                Some(kv) => {
-                    let key = kv.before.trim();
-                    let value = kv.after.trim();
-                    if key == 'mode' { mode = value; }
-                    else if key == 'spec' { spec = value; }
-                    else if key == 'xfail' { xfail = Option.Some(value); }
-                },
-                None => void,
+            if let Some(kv) = split_once(body, ':') {
+                let key = kv.before.trim();
+                let value = kv.after.trim();
+                if key == 'mode' { mode = value; }
+                else if key == 'spec' { spec = value; }
+                else if key == 'xfail' { xfail = Option.Some(value); }
             }
         } else {
             match after_marker(raw, '// expect error:') {
@@ -167,19 +164,13 @@ fn parse_test(_ path: String) -> Result<Test, Error> {
                         None => {
                             match after_marker(raw, '// expect exit:') {
                                 Some(code) => {
-                                    match code.to_int() {
-                                        Some(c) => { exit_code = Option.Some(c); },
-                                        None => void,
-                                    }
+                                    if let Some(c) = code.to_int() { exit_code = Option.Some(c); }
                                 },
                                 None => {
                                     match after_marker(raw, '// expect stderr:') {
                                         Some(needle) => { stderr.push(needle); },
                                         None => {
-                                            match after_marker(raw, '// expect:') {
-                                                Some(text) => { stdout.push(text); },
-                                                None => void,
-                                            }
+                                            if let Some(text) = after_marker(raw, '// expect:') { stdout.push(text); }
                                         },
                                     }
                                 },
@@ -279,13 +270,10 @@ fn run_run(_ hawk: String, _ test: Test) -> Verdict {
     }
 
     // `// expect exit: <n>` — exact process exit code.
-    match test.exit_code {
-        Some(code) => {
-            if result.exit_code != code {
-                return Verdict.Fail('exit code: expected ${code}, got ${result.exit_code}\nstderr:\n${result.stderr}');
-            }
-        },
-        None => void,
+    if let Some(code) = test.exit_code {
+        if result.exit_code != code {
+            return Verdict.Fail('exit code: expected ${code}, got ${result.exit_code}\nstderr:\n${result.stderr}');
+        }
     }
     // `// expect stderr: <substr>` — each substring must appear on stderr.
     for needle in test.stderr {
@@ -326,17 +314,11 @@ fn parse_diagnostics(_ stdout: String, _ path: String) -> List<Diagnostic> {
             // Split off the message at the first ': ' (colon-space), which the
             // formatter always places after `:col`. The left part is
             // `path:line:col`; its second-from-left ':'-field is the line.
-            match split_once(raw, ': ') {
-                Some(parts) => {
-                    let locus = parts.before.split(':');
-                    if locus.len() >= 2 {
-                        match locus[1].to_int() {
-                            Some(n) => { out.push(Diagnostic { line: n, message: parts.after }); },
-                            None => void,
-                        }
-                    }
-                },
-                None => void,
+            if let Some(parts) = split_once(raw, ': ') {
+                let locus = parts.before.split(':');
+                if locus.len() >= 2 {
+                    if let Some(n) = locus[1].to_int() { out.push(Diagnostic { line: n, message: parts.after }); }
+                }
             }
         }
     }
@@ -517,26 +499,20 @@ fn render_lines(_ expected: List<String>, _ got: List<String>) -> String {
 // --- file discovery ---
 
 fn collect_hawk_files(_ dir: String, _ found: List<String>) -> Void {
-    match fs.list_dir(dir) {
-        Ok(names) => {
-            for name in names {
-                let full = path.join(dir, name);
-                match fs.metadata(full) {
-                    Ok(meta) => {
-                        match meta.kind {
-                            Dir => { collect_hawk_files(full, found); },
-                            _ => {
-                                if name.ends_with('.hawk') {
-                                    found.push(full);
-                                }
-                            },
+    if let Ok(names) = fs.list_dir(dir) {
+        for name in names {
+            let full = path.join(dir, name);
+            if let Ok(meta) = fs.metadata(full) {
+                match meta.kind {
+                    Dir => { collect_hawk_files(full, found); },
+                    _ => {
+                        if name.ends_with('.hawk') {
+                            found.push(full);
                         }
                     },
-                    Err(_) => void,
                 }
             }
-        },
-        Err(_) => void,
+        }
     }
 }
 

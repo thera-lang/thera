@@ -128,6 +128,26 @@ fn handles_nested_convertible_matches() -> Result<Void, Error> {
 }
 
 @test
+fn skips_a_match_in_value_position() -> Result<Void, Error> {
+    // The `if let` rewrite is statement-only: an else-less `if` cannot stand
+    // where a value is consumed. A convertible-shaped match as an *arm body*
+    // or a `let` initializer must be left alone (regression: an arm body was
+    // once rewritten into `if let … { … }` with no `else`, which does not
+    // parse in value position).
+    let arm_body = 'fn f(_ o: Option<Option<Int>>) -> Void {\n'
+        + '    match o {\n'
+        + '        Some(x) => use(x),\n'
+        + '        None => match g() { Some(v) => use(v), None => void },\n'
+        + '    }\n}\n';
+    testing.assert_eq(actual: fix_source(arm_body), expected: arm_body)?;
+    let initializer = 'fn f(_ o: Option<Int>) -> Int {\n'
+        + '    let x = match o { Some(v) => { v }, None => {} };\n'
+        + '    return 0;\n}\n';
+    testing.assert_eq(actual: fix_source(initializer), expected: initializer)?;
+    return Result.Ok(void);
+}
+
+@test
 fn handles_a_complex_subject() -> Result<Void, Error> {
     // The scrutinee is sliced verbatim, however complex.
     return check(

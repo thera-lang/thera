@@ -457,15 +457,12 @@ impl Command {
         };
         // A selected subcommand: its own `--help` prints its help; otherwise the
         // client dispatches on the resolved matches.
-        match m.selected() {
-            Some(sel) => {
-                if sel.matches.flag('help') {
-                    println(self.help_for(sel.name));
-                    return Action.Exit(0);
-                }
-                return Action.Proceed(m);
-            },
-            None => void,
+        if let Some(sel) = m.selected() {
+            if sel.matches.flag('help') {
+                println(self.help_for(sel.name));
+                return Action.Exit(0);
+            }
+            return Action.Proceed(m);
         }
         // No subcommand: top-level `--help` is a success; a bare invocation of a
         // command that *expects* a subcommand is a usage error; a flat command

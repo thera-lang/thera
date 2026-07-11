@@ -54,12 +54,9 @@ fn test_style_tracks_tty() -> Result<Void, Error> {
 @test
 fn test_size_is_wellformed() -> Result<Void, Error> {
     // Whatever the environment, a reported size has positive dimensions.
-    match term.size() {
-        Some(sz) => {
-            testing.assert(sz.cols > 0, message: 'cols should be positive')?;
-            testing.assert(sz.rows > 0, message: 'rows should be positive')?;
-        },
-        None => void,
+    if let Some(sz) = term.size() {
+        testing.assert(sz.cols > 0, message: 'cols should be positive')?;
+        testing.assert(sz.rows > 0, message: 'rows should be positive')?;
     }
     return Result.Ok(void);
 }

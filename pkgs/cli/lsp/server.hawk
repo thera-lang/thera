@@ -556,15 +556,12 @@ fn client_supports_diagnostic_refresh(_ params: Json) -> Bool {
 // `hawk.exclude` glob list, from `initializationOptions` or a settings payload.
 fn string_array(_ j: Json) -> List<String> {
     let out: List<String> = [];
-    match j.as_array() {
-        Some(items) => {
-            for it in items {
-                if let Some(s) = it.as_string() {
-                    out.push(s);
-                }
+    if let Some(items) = j.as_array() {
+        for it in items {
+            if let Some(s) = it.as_string() {
+                out.push(s);
             }
-        },
-        None => void,
+        }
     }
     return out;
 }
@@ -575,17 +572,14 @@ fn string_array(_ j: Json) -> List<String> {
 // `unchanged` report instead of re-sending items. Missing/malformed entries drop.
 fn previous_result_ids(_ params: Json) -> Map<String, String> {
     let out: Map<String, String> = [:];
-    match params.get('previousResultIds').as_array() {
-        Some(entries) => {
-            for e in entries {
-                if let Some(uri) = e.get('uri').as_string() {
-                    if let Some(value) = e.get('value').as_string() {
-                        out[uri] = value;
-                    }
+    if let Some(entries) = params.get('previousResultIds').as_array() {
+        for e in entries {
+            if let Some(uri) = e.get('uri').as_string() {
+                if let Some(value) = e.get('value').as_string() {
+                    out[uri] = value;
                 }
             }
-        },
-        None => void,
+        }
     }
     return out;
 }

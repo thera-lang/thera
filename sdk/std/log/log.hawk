@@ -308,10 +308,7 @@ pub fn set_format(_ f: Format) -> Void {
 ///
 ///     HAWK_LOG=info,myapp.db=debug,http=warn
 pub fn configure_from_env(_ var: String = 'HAWK_LOG') -> Void {
-    match env.get(var) {
-        Some(spec) => apply_spec(spec),
-        None => void,
-    };
+    if let Some(spec) = env.get(var) { apply_spec(spec) };
 }
 
 fn apply_spec(_ spec: String) -> Void {
@@ -326,15 +323,9 @@ fn apply_spec(_ spec: String) -> Void {
 fn apply_directive(_ directive: String) -> Void {
     let fields = directive.split('=');
     if fields.len() == 2 {
-        match parse_level(fields[1].trim()) {
-            Some(level) => set_level_for(fields[0].trim(), level),
-            None => void,
-        };
+        if let Some(level) = parse_level(fields[1].trim()) { set_level_for(fields[0].trim(), level) };
     } else {
-        match parse_level(directive) {
-            Some(level) => set_level(level),
-            None => void,
-        };
+        if let Some(level) = parse_level(directive) { set_level(level) };
     }
 }
 

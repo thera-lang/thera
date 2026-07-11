@@ -62,9 +62,10 @@ impl Outbox {
     pub fn send(self, _ message: Json) -> Void {
         match self.ch {
             Some(c) => c.send(message),
-            None => match self.writer {
-                Some(w) => jsonrpc.send_message(w, message),
-                None => void,
+            None => {
+                if let Some(w) = self.writer {
+                    jsonrpc.send_message(w, message);
+                }
             },
         }
     }
@@ -72,10 +73,7 @@ impl Outbox {
     // Close the channel and wait for the writer fiber to flush what's queued
     // (async mode); a no-op for direct/discard. Called once, on `serve` exit.
     pub fn shutdown(self) -> Void {
-        match self.ch {
-            Some(c) => c.close(),
-            None => void,
-        }
+        if let Some(c) = self.ch { c.close() }
         if let Some(f) = self.pump {
             f.join();
         }

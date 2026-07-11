@@ -978,13 +978,10 @@ fn callee_params(_ callee: Expr, _ args: List<CallArg>,
             // has no value receiver: its params come straight from the resolved
             // callee (CH8; previously only the `ns.fn` half existed, so a
             // lambda argument to a static method never got an expected type).
-            match resolve_static_receiver(obj, field, scope, ctx) {
-                Some(sr) => match sr {
-                    StaticMethod(_, method) => { params = Option.Some(method.parameters); },
-                    NamespaceFn(fn_el) => { params = Option.Some(fn_el.parameters); },
-                },
-                None => void,
-            }
+            if let Some(sr) = resolve_static_receiver(obj, field, scope, ctx) { match sr {
+                StaticMethod(_, method) => { params = Option.Some(method.parameters); },
+                NamespaceFn(fn_el) => { params = Option.Some(fn_el.parameters); },
+            } }
             // User method on the receiver's type, instantiated with its type args.
             match params {
                 None => {

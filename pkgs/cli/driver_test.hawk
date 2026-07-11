@@ -84,10 +84,7 @@ fn test_imported_file_check_errors_surface() -> Result<Void, Error> {
     // compile: the same error blocks codegen — nothing ships to bytecode.
     let outcome = compile_source_at(main_src, main_path, Option.None);
     testing.assert(outcome.diagnostics.len() > 0, message: 'compile is blocked')?;
-    match outcome.bytes {
-        Some(_) => { testing.assert(false, message: 'no bytes for a broken closure')?; },
-        None => void,
-    }
+    if let Some(_) = outcome.bytes { testing.assert(false, message: 'no bytes for a broken closure')?; }
 
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     return Result.Ok(void);

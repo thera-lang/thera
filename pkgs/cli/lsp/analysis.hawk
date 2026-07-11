@@ -338,11 +338,8 @@ impl Analysis {
         for p in workspace.hawk_files(self.roots) {
             let key = loader.canonical_path(p);
             if !by_path.has(key) {
-                match fs.read_text(p) {
-                    Ok(text) => {
-                        by_path[key] = ScanFile { uri: paths.path_to_uri(p), path: p, text: text };
-                    },
-                    Err(_) => void,  // unreadable file — skip it
+                if let Ok(text) = fs.read_text(p) {
+                    by_path[key] = ScanFile { uri: paths.path_to_uri(p), path: p, text: text };
                 }
             }
         }
