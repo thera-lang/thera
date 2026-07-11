@@ -129,8 +129,9 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
   `fs.read_text` returns a `Result` and the `?` propagates any filesystem errors
   instantly.
 - **Lines 24–26:** Interpolation in string literals (single quotes) is supported
-  via `${}`. This interpolation requires that the interpolated variables
-  implement the standard `Display` interface.
+  via `${}`. Interpolation renders a value through the standard `Display`
+  interface when the type implements it, falling back to its derived `Debug`
+  form otherwise — rendering is total, so any value can be interpolated.
 
 ---
 
@@ -289,7 +290,7 @@ domain's need for instant startup and stable execution.
            ▼                                                   ▼
 ┌──────────────────────┐                             ┌──────────────────────┐
 │  Tier-0 Interpreter  │ ──[Function Call Counter]──►│  Tier-1 Cranelift JIT│
-│                      │                             │                      │
+│                      │                             │       (planned)      │
 │ • Tagged Value model │                             │ • Untagged Lowering  │
 │ • Instant execution  │                             │ • Native Machine Code│
 │ • Runs run-once code │                             │ • Hot loops / frames │
@@ -305,19 +306,20 @@ domain's need for instant startup and stable execution.
 
 ### The Tiered Virtual Machine
 
-To deliver on startup performance and steady-state execution, Hawk employs a
-tiered VM pipeline:
+To deliver on startup performance and steady-state execution, Hawk is designed
+around a tiered VM pipeline (Tier 0 is built and runs everything today; the JIT
+tier is planned):
 
 1. **Tier-0 Bytecode Interpreter:** When a program starts, it is compiled into a
    lightweight stack-based bytecode format (`.hawkbc`) and run immediately by a
    fast loop interpreter written in Rust. Since most CLI script paths execute
    exactly once, the interpreter bypasses JIT compilation overhead, running the
    code instantly at zero compilation cost.
-2. **Tier-1 Cranelift JIT:** Functions contain call counters and loop back-edge
-   counters. When a block of code crosses a specific execution threshold
-   (identifying it as "hot"), the Cranelift JIT compiler compiles that function
-   in the background. Subsequent calls are dispatched directly to the compiled
-   native machine code.
+2. **Tier-1 Cranelift JIT (planned):** Functions will carry call counters and
+   loop back-edge counters. When a block of code crosses a specific execution
+   threshold (identifying it as "hot"), the Cranelift JIT compiler compiles that
+   function in the background, and subsequent calls dispatch directly to the
+   compiled native machine code.
 3. **Speculation-Free Lowering:** Because Hawk is statically typed and the
    bytecode retains concrete types, the Cranelift compiler performs
    straightforward, typed lowering. The VM has no need for complex speculation
@@ -402,15 +404,16 @@ capture-by-reference (like JavaScript closures).
 Interfaces describe type capabilities (e.g., `Display` and `Eq`). Virtual
 dispatch usually requires a dynamic vtable search.
 
-- **The Decision:** Hawk optimizes for concrete types. Today, the front-end
-  compiler resolves methods statically at compile time wherever the concrete
-  receiver type is known, emitting direct `call` instructions (including for
-  interpolation and `==`).
-- **Future JIT Devirtualization:** A dynamic vtable instruction
-  (`call.interface`) is reserved for type-erased values (trait objects). When
-  compiled, the Cranelift JIT devirtualizes these calls to direct or inline
-  invocations wherever the receiver type can be statically proved, preserving
-  compilation simplicity while maintaining peak performance.
+- **The Decision:** Hawk optimizes for concrete types. The front-end compiler
+  resolves methods statically at compile time wherever the concrete receiver
+  type is known, emitting direct `call` instructions (including for
+  interpolation and `==`). Dispatch goes dynamic only where the concrete type is
+  not statically known — interface-typed values and bounded generics — via a
+  `call.virtual` instruction keyed on the receiver's runtime type id.
+- **Future JIT Devirtualization:** When the JIT tier lands, the Cranelift
+  compiler can devirtualize `call.virtual` sites to direct or inline invocations
+  wherever the receiver type can be statically proved, preserving compilation
+  simplicity while maintaining peak performance.
 
 ### III. Braces vs. Significant Whitespace
 
@@ -440,8 +443,8 @@ dispatch usually requires a dynamic vtable search.
 - **The Rationale:** Direct byte or character indexing on UTF-8 strings often
   cuts emoji or multi-byte characters in half, producing corrupt string states.
   To prevent agents from writing buggy indexing logic, Hawk requires explicit
-  iteration via `.chars()` (Unicode code points) or `.graphemes()`
-  (user-perceived characters), making unicode safety the default.
+  code-point iteration via `.chars()` (with `.slice()` taking code-point
+  ranges), making unicode safety the default.
 
 ### VI. Rejected Architectures
 

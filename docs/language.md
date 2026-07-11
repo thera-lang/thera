@@ -12,8 +12,10 @@ every production in EBNF — is in [grammar.md](grammar.md). For the _why_ see
 ## Style
 
 - **Indent:** 4 spaces (no tabs).
-- **Line length:** 100 characters. Soft limit — the formatter wraps where it
-  improves readability but does not enforce a hard break at 100.
+- **Line length:** 100 characters, as an authoring guideline. The formatter
+  never reflows lines — it keeps every line break the author chose and
+  normalizes only indentation and intra-line spacing (see
+  [architecture.md](architecture.md) §The formatter).
 
 ---
 
@@ -61,7 +63,7 @@ values.
 
 > **Enforcement status.** Immutability is enforced uniformly: reassigning a
 > non-`mut` `let` or parameter, or assigning a non-`mut` struct field, is a
-> compile error. A field opts into reassignment with `mut field: T` (see
+> compile error. A field opts into reassignment with `let mut field: T;` (see
 > [Structs](#structs)).
 
 ### Module-level bindings
@@ -182,17 +184,19 @@ let path = dir + '/' + name + '.hawk';
 ```
 
 Strings are UTF-8 and are **not** integer-indexable — `s[i]` is disallowed,
-since it would let code split a multi-byte character in half. Iterate explicitly
-instead: `.chars()` yields Unicode code points, `.graphemes()` user-perceived
-characters.
+since it would let code split a multi-byte character in half. Work in code
+points explicitly instead: `.chars()` yields the Unicode code points (as `Int`s
+— `std.char` has classification helpers, and `String.from_chars` rebuilds a
+string), and `.slice(start, end)` takes a code-point range, so neither can split
+a character.
 
 ### Collection types
 
-| Type        | Description                           | Example               |
-| ----------- | ------------------------------------- | --------------------- |
-| `List<T>`   | Ordered sequence                      | `[1, 2, 3]`           |
-| `Map<K, V>` | Key-value store                       | `['a': 1, 'b': 2]`    |
-| `Set<T>`    | Unordered collection of unique values | `Set.from([1, 2, 3])` |
+| Type        | Description                 | Example               |
+| ----------- | --------------------------- | --------------------- |
+| `List<T>`   | Ordered sequence            | `[1, 2, 3]`           |
+| `Map<K, V>` | Key-value store             | `['a': 1, 'b': 2]`    |
+| `Set<T>`    | Collection of unique values | `Set.from([1, 2, 3])` |
 
 ```hawk
 let names: List<String>      = ['alice', 'bob'];
@@ -205,6 +209,13 @@ a block (or a struct body), map keys are unrestricted expressions, and a map
 literal is valid anywhere an expression is (including a bare match-arm body).
 The pre-migration brace form (`{'a': 1}`) is a parse error with a hint pointing
 at the bracket syntax.
+
+**Ordering.** As _types_, `Map` and `Set` promise keyed access and uniqueness —
+not a particular ordering; code shouldn't lean on element order as part of the
+abstract contract (leaving room for domain-specific implementations, e.g. a
+sorted map). The **built-in** implementations do preserve **insertion order**
+deterministically — iteration, `keys()`/`values()`, and `Display` all render in
+the order entries were added — which keeps program output reproducible.
 
 ### Bytes
 
@@ -387,10 +398,14 @@ there are no `async`/`await` keywords and no `Future<T>` return types. When a
 fiber blocks on I/O, the runtime parks it and resumes another; the calling code
 never observes the difference.
 
-Because only one fiber runs at a time, there is no shared mutable state between
-concurrent fibers and no need for synchronization primitives (mutexes,
-semaphores, channels). This avoids the deadlock and data-race hazards of a
-multi-threaded model while keeping the programming model simple.
+Fibers share the program's one heap, but only one fiber ever runs, and a fiber
+gives up control only at well-defined **yield points** — blocking I/O, channel
+operations, `join`, an explicit `fiber.yield()`. Between yield points execution
+is atomic, so there are no data races and no locks: a mutex would only matter
+for holding state _across_ a yield, which a one-token channel expresses on the
+rare occasion it's needed. Fibers coordinate by **communicating** — a result
+returned through `join()`, or values passed over a channel — not by guarding
+shared state.
 
 ```hawk
 // These two functions look identical at the type level.
@@ -413,8 +428,8 @@ fn main() -> Result<Int, Error> {
 }
 ```
 
-Spawning a fiber runs work concurrently on the same thread. Results are returned
-via `join()` — the only way to get data out of a fiber:
+Spawning a fiber runs work concurrently on the same thread; `join()` returns its
+result:
 
 ```hawk
 import std.fiber;
@@ -424,18 +439,21 @@ let handle = fiber.spawn(() => fetch_user(id: 42));
 let user = handle.join()?;
 ```
 
-The runtime design for this — fibers as stackless coroutines over the
-interpreter's explicit frame stack, the scheduler, parking, and I/O — is
-sketched in [architecture.md](architecture.md) §Concurrency. A **first cut is
-implemented**: `std.fiber` provides `spawn`/`join`/`yield` and buffered channels
-over the cooperative scheduler. Still pending: parking on real blocking I/O (so
-an I/O call transparently yields the fiber) and a readiness poller for sockets —
-see [roadmap.md](roadmap.md).
+For streams of values (or many-to-one hand-off), a buffered **channel** connects
+fibers: `fiber.channel<T>(capacity: n)` returns a `Channel<T>` whose `send`
+parks the sender when the buffer is full and whose `receive` parks the receiver
+when it is empty, returning `None` once the channel is closed and drained.
+(`send` on a closed channel is a [runtime fault](#runtime-faults).)
 
-**Fallback:** if the fiber runtime proves too costly to implement in the POC,
-the language will fall back to explicit `async`/`await`. In that model,
-functions that perform I/O are marked `async` and callers use `await` — the
-traditional colored-function approach. The goal is to avoid this.
+This is **implemented**: `std.fiber` provides `spawn`/`join`/`yield` and
+buffered channels over the cooperative scheduler; `time.sleep` parks on a
+scheduler timer; and blocking filesystem, stdin, and process calls are offloaded
+to a small worker-thread pool so they park only the calling fiber (no Hawk code
+ever leaves the one thread). Still pending: a readiness poller for sockets (the
+`std.http` scaling path) and the second-order combinators (`select`, timeouts,
+cancellation) — see [roadmap.md](roadmap.md). The runtime design — fibers as
+stackless coroutines over the interpreter's explicit frame stack, the scheduler,
+parking, and I/O — is in [architecture.md](architecture.md) §Concurrency.
 
 ---
 
@@ -577,7 +595,11 @@ Conditions that trap:
 - indexing past the end of a list, or with a missing map key (`list[i]`,
   `map[key]`) — see [Collections](#collections)
 - integer divide-by-zero
-- exhausting memory or the call stack
+- sending on a closed channel — see [Concurrency](#concurrency)
+
+(Exhausting memory or the interpreter's frame stack currently aborts the process
+without the trap formatting below; surfacing those as traps is tracked in
+[roadmap.md](roadmap.md).)
 
 Where a recoverable alternative makes sense, the API offers one alongside the
 faulting form — e.g. `list.get(i)` returns `Option<T>` instead of trapping.
@@ -814,11 +836,27 @@ returns `Option`.
 
 ### Pipelines
 
-Common pipeline methods (lazy; call `.to_list()` to materialise):
+`List.map` and `List.filter` are **eager** — each returns a new `List`:
 
 ```hawk
-let evens = nums.filter(n => n % 2 == 0).to_list();
-let doubled = nums.map(n => n * 2).to_list();
+let evens = nums.filter(n => n % 2 == 0);   // List<Int>
+let doubled = nums.map(n => n * 2);         // List<Int>
+```
+
+For **lazy** pipelines over large or streaming sequences there is `Iterator<T>`
+(a `std.core` interface): the adapters `map` / `filter` / `take` / `enumerate`
+wrap without evaluating, and the consumers `collect()` (→ `List<T>`) and
+`count()` drain. Iterators come from `List.enumerate()`, from `std.iter`
+(`iter.from_list(xs)`, `iter.range(a, b)`), and from streaming sources like
+`io.lines` and `fs.walk`:
+
+```hawk
+import std.iter;
+
+let first_evens = iter.range(0, 1000000)
+    .filter(n => n % 2 == 0)
+    .take(5)
+    .collect();                             // [0, 2, 4, 6, 8] — lazily
 ```
 
 ---
@@ -1226,17 +1264,27 @@ struct NativeHandle {}   // opaque; not constructed directly in Hawk
 
 ## Process execution
 
-`process.run` executes a subprocess and returns `Result<Output, Error>`.
-`Output` has `stdout`, `stderr` (strings), and `exit_code` (Int).
+`process.run` executes a subprocess to completion and returns
+`Result<ProcessResult, ProcessError>`. `ProcessResult` has `stdout`, `stderr`
+(strings), and `exit_code` (`Int`). A non-zero exit code is **data**, not an
+error — the `Err` case is failing to run the command at all (executable not
+found, spawn failure); `ProcessError` implements `Error`, so `?` propagates it
+like any other.
 
 ```hawk
 import std.process;
 
 let out = process.run('git', args: ['status', '--short'])?;
+if out.exit_code != 0 {
+    throw error('git failed: ${out.stderr}');
+}
 println(out.stdout);
 ```
 
-A non-zero exit code is returned as an `Error` by default.
+Two siblings cover the other spawn shapes: `process.exec` runs a child that
+**inherits** the terminal (nothing captured; returns its exit code), and
+`process.start` returns a `Process` handle whose `stdin`/`stdout`/`stderr` are
+`std.io` `Writer`/`Reader` pipes for streaming. See [stdlib.md](stdlib.md).
 
 ---
 
@@ -1387,16 +1435,18 @@ and available everywhere without an explicit import.
   (`${value}`) and `println`. Opt-in; implement when the type has a meaningful
   human-readable form.
 - **`Debug`** — developer-facing representation. Used by assertion failure
-  messages, logging, and diagnostic output. Shows internal structure (field
-  names and values). Auto-derived for structs; can be overridden.
+  messages, logging, and diagnostic output. Shows internal structure.
+  Auto-derived for structs; can be overridden. The derive currently renders
+  fields **positionally** (`Point { 1.0, 2.0 }` — including the field names is a
+  [roadmap.md](roadmap.md) item).
 
 Primitive types (`Int`, `Double`, `Bool`, `String`) implement both
-automatically. Structs get a default `Debug` implementation that prints all
-fields; `Display` must be implemented explicitly.
+automatically. Structs get a default `Debug` implementation; `Display` must be
+implemented explicitly.
 
 ```hawk
-// auto-derived Debug for a struct prints all fields:
-//   Point { x: 1.0, y: 2.0 }
+// auto-derived Debug for a struct prints its fields (positionally):
+//   Point { 1.0, 2.0 }
 
 struct Point {
     let x: Double;
@@ -1411,8 +1461,11 @@ impl Display for Point {
 }
 ```
 
-String interpolation (`${}`) requires `Display`. Attempting to interpolate a
-type that does not implement `Display` is a compile error.
+String interpolation (`${}`) renders with a value's `Display` when it has one
+and falls back to its `Debug` otherwise — rendering is **total**, so
+interpolating any value works and is never a compile error. Implement `Display`
+where a type has a meaningful user-facing form; the `Debug` fallback keeps
+diagnostics and quick `println` debugging frictionless.
 
 `Eq` works the same way: `==`/`!=` use a type's explicit `impl Eq` when present,
 otherwise the structural derive (primitives, and structs/enums whose fields are
@@ -1525,51 +1578,55 @@ The `hawk` command-line tool is the primary interface for working with Hawk
 programs. Its **primary design goal is to be useful to LLMs**; its secondary
 goal is to be useful to humans.
 
-That principle shapes output defaults: commands are silent on success and emit
-only on failure. This keeps LLM context clean — no output means no problem.
-Verbose mode is available when a human wants more detail.
+That principle shapes output defaults: `check`, `emit`, and `fmt` are silent on
+success and emit only on failure — no output means no problem, and an agent's
+context stays clean. (`hawk test` currently prints a full report even on
+success; quieting its green path — and a `--verbose` mode for the human who
+wants the detail — is tracked in [roadmap.md](roadmap.md).)
 
 ### Commands
 
-| Command      | Description                          |
-| ------------ | ------------------------------------ |
-| `hawk run`   | Run a source file                    |
-| `hawk check` | Type-check without running           |
-| `hawk test`  | Run tests                            |
-| `hawk fmt`   | Format source files in place         |
-| `hawk emit`  | Compile to a `.hawkbc` bytecode file |
-| `hawk lsp`   | Start the language server            |
+| Command      | Description                                             |
+| ------------ | ------------------------------------------------------- |
+| `hawk run`   | Run a source file                                       |
+| `hawk check` | Type-check without running                              |
+| `hawk test`  | Run tests                                               |
+| `hawk fmt`   | Format source files in place (`--check` to only report) |
+| `hawk lint`  | Report non-idiomatic code shapes with a known rewrite   |
+| `hawk fix`   | Apply lint rewrites (previews by default; UX is TBD)    |
+| `hawk emit`  | Compile to a `.hawkbc` bytecode file                    |
+| `hawk lsp`   | Start the language server                               |
 
 ### `hawk test`
 
-Discovers and runs all `*_test.hawk` files reachable from the current directory
-(or a given path).
-
-**Default mode (LLM-optimised):** silent on success; prints only failures. Exit
-code is 0 if all tests pass, non-zero otherwise. An LLM can run `hawk test` and
-treat any output as a signal requiring attention.
-
-**Verbose mode (`--verbose`):** prints a summary line (tests run, passed,
-failed) and one line per test executed.
+`hawk test <file|dir>` runs the `@test` functions in a `*_test.hawk` file, or in
+every `*_test.hawk` found under a directory. The target argument is required.
+Output is a per-file report — a path header, one `ok`/`FAIL` line per test, then
+a summary — with each failure's detail indented under its `FAIL` line in the
+standard `path:line:column: message` diagnostic shape:
 
 ```
-$ hawk test                          # silent — all passed
-$ hawk test                          # one failure
-FAIL src/math_test.hawk::test_add
-  assert_eq failed: got 4, expected 5
-  at src/math_test.hawk:6
+$ hawk test src
+src/math_test.hawk
+  FAIL  test_add
+          src/math_test.hawk:7:5: assert_eq failed
+            actual:   5
+            expected: 4
+  ok    test_trim
 
-$ hawk test --verbose
-src/math_test.hawk::test_add         ok
-src/math_test.hawk::test_add_neg     ok
-src/util_test.hawk::test_trim        ok
-3 passed, 0 failed
+1 of 1 file had failures.
 ```
 
-Additional flags:
+A passing test's captured stdout is discarded (a failing test's is shown); pass
+`--show-output` to see it for passing tests too. The exit code is 0 when every
+test passes, 1 when any fail or none are found — never a count. A test file that
+fails to **compile** produces no results: those diagnostics go to stderr as an
+operational failure (see [architecture.md](architecture.md) for the
+stdout/stderr rules).
 
-- `hawk test <path>` — run tests under a specific file or directory
-- `hawk test --filter <pattern>` — run only tests whose name matches
+Open UX items (tracked in [roadmap.md](roadmap.md)): a quieter success mode (the
+`ok` lines are tokens an agent doesn't need), a `--verbose` flag for the
+opposite preference, and defaulting the target to the current directory.
 
 ---
 
@@ -1585,23 +1642,21 @@ discovery) needs to know about the difference.
 ```
 <repo>/
   bin/             ← dev-mode entry point scripts
-  runtime/         ← Rust runtime: bytecode interpreter, GC, Cranelift JIT
+  runtime/         ← Rust runtime: bytecode interpreter, GC, fiber scheduler
                      (builds `hawkrt`, the bare runtime)
   pkgs/
     cli/           ← Hawk front-end + CLI harness (written in Hawk)
   sdk/
     std/
-      core/core.hawk        ← auto-imported prelude (barrel; re-exports below)
-        core/interfaces.hawk    Eq, Display, Debug
-        core/error.hawk         Error
-        core/string.hawk        String.* static/native helpers
-        core/list.hawk          List.* helpers
-        core/map.hawk           Map.* helpers
+      core/core.hawk        ← auto-imported prelude (barrel; re-exports its
+                              siblings: interfaces, error, string, list, map,
+                              set, option, result, bytes, iterator, …)
       cli/cli.hawk          ← import std.cli (barrel re-exporting args.hawk)
-        cli/args.hawk
       fs/fs.hawk            ← import std.fs
-      testing/testing.hawk  ← import std.testing
-      ...                   ← (process, regex, … as they land)
+      testing/testing.hawk  ← import std.testing (barrel: assert, clock, env)
+      ...                   ← char, encoding, env, fiber, hash, io, iter, json,
+                              log, math, path, process, random, regex, sort,
+                              term, time
   examples/
   docs/
 ```
@@ -1613,9 +1668,10 @@ The Rust crate builds **`hawkrt`** — the _bare runtime_: it loads and runs a
 compiled front-end (`frontend.hawkbc`) into it, and ships it as **`hawk`** — the
 full launcher. So `hawk` is `hawkrt` + an embedded front-end: invoked on a
 `.hawkbc` (or `--entry`) it behaves as the bare runtime; invoked on a subcommand
-(`run`, `check`, `test`, `emit`, `fmt`, `lsp`) it boots its embedded front-end.
-The distinction lets a `cargo build` (which yields `hawkrt`) be unambiguously
-the runtime, while `hawk` is unambiguously the runtime + front-end.
+(`run`, `check`, `test`, `emit`, `fmt`, `lint`, `fix`, `lsp`) it boots its
+embedded front-end. The distinction lets a `cargo build` (which yields `hawkrt`)
+be unambiguously the runtime, while `hawk` is unambiguously the runtime +
+front-end.
 
 ### Distributed layout
 

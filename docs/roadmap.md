@@ -95,7 +95,7 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
 
 - **`String.slice` cost — _done._** `String.slice` was
   `String.from_chars(self.chars().slice(start, end))` — `chars()` materialized
-  the *whole* string as a `List<Int>` on every call, so a slice was O(string
+  the _whole_ string as a `List<Int>` on every call, so a slice was O(string
   length) regardless of the slice's size, and `SourceSpan.text()` (a
   `source.slice`) inherited it. `slice` is now a native (`str_slice`) that walks
   `char_indices` to the range's end in a single pass — O(end), and it allocates
@@ -747,6 +747,79 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   `Index`/`IndexSet`. Also a prerequisite for a Hawk `Map` (which additionally
   needs map-literal lowering and a native↔Hawk-map bridge).
 
+### Language spec punchlist
+
+The standing worklist for keeping the language spec — [language.md](language.md)
+and its companion docs — consistent with the implementation. Populated by
+periodic self-consistency reviews (the grammar pass, the 2026-07 spec pass, the
+future diagnostics audit) and worked through iteratively: doc-only corrections
+are applied directly and recorded below; findings that imply design or
+implementation work stay open here until decided.
+
+**Open — design/behavior follow-ups from the 2026-07 review:**
+
+- **Iterator consumer naming — `collect()` vs `to_list()`.** The drain consumer
+  is `collect()` (Rust-familiar), while `Set.to_list()` and `Bytes.to_list()`
+  spell the same conversion `to_list` — a naming inconsistency as well as a
+  design call. `to_list` may give an LLM reading a call site a stronger cue
+  about the produced type; `collect` generalizes if other collection targets
+  ever appear. Decide one name and align the outliers. _(Stdlib)_
+- **Lazy `List.map`/`filter`?** Both are eager (each returns a new `List`) —
+  simple, and right for small lists. Returning an `Iterator` instead would fuse
+  chains (`xs.map(f).filter(g)` with no intermediate list) at the cost of a
+  `.collect()` at most call sites, plus inference/ergonomics churn. Evaluate
+  against real corpus profiles before moving anything. _(Stdlib)_
+- **`hawk test` UX.** Make success output quieter — the per-test `ok` lines and
+  per-file headers are tokens an agent doesn't need; a green run should approach
+  silence — with a `--verbose` flag restoring today's full report. Also
+  re-evaluate the no-argument default (error today; defaulting to the current
+  directory may be friendlier). _(Developer tooling)_
+- **`Trap::OutOfMemory`.** Heap/stack exhaustion currently aborts the process
+  without the `hawk: trap:` formatting; surface it as a real trap. Pairs with
+  the heap-ceiling item in [architecture.md](architecture.md) §Where the
+  collector goes next. _(Runtime)_
+- **`Debug` field names** — already tracked as _Richer structural `Debug`_
+  (Language, above): the derive renders positionally because the runtime type
+  table doesn't carry field names.
+
+**Done — the 2026-07 doc sweep** (language.md, overview.md, architecture.md,
+conformance.md brought in line with the implementation; each item verified
+against the code before the edit):
+
+- Pipelines: `List.map`/`filter` documented as eager; lazy pipelines via the
+  `Iterator` adapters + `collect()` (the old text's `.to_list()` example didn't
+  compile).
+- Interpolation documented as **total** — `Display` when present, derived
+  `Debug` otherwise, never a compile error; derived `Debug` shown with its
+  actual positional rendering.
+- `std.process`: `ProcessResult`/`ProcessError`, a non-zero exit code is data
+  (not an `Err`), `exec`/`start` covered.
+- `hawk test`: required target, the real report format, `--show-output`;
+  `lint`/`fix` added to the command tables (language.md, architecture.md, and
+  the SDK-layout subcommand list).
+- Strings: the nonexistent `.graphemes()` dropped (language.md + overview.md);
+  code-point iteration (`.chars()`, `std.char`) is the story.
+- `Map`/`Set` ordering: unordered as the abstract contract, insertion-ordered
+  (deterministic) in the built-in implementations.
+- Style: the formatter never reflows lines (indentation + intra-line spacing
+  only).
+- SDK layout: the `runtime/` JIT annotation removed; the stdlib tree refreshed
+  to the ~21 shipped libraries.
+- Runtime faults: closed-channel send added to the trap-conditions list;
+  memory/stack exhaustion noted as aborting (not trapping) today.
+- Concurrency: rewritten for the implemented fiber runtime — channels are part
+  of the model (communication over shared-state guarding),
+  atomic-between-yield-points replaces the false "no shared mutable state"
+  claim, I/O-parking status is current, and the `async`/`await` fallback
+  paragraph is retired; architecture.md's "not yet implemented" fiber banner
+  replaced with real status.
+- conformance.md: the stale `vis-whitebox-test` "unpinnable here" finding moved
+  to resolved (it's pinned — the white-box grant keys off the filename, not the
+  command); `type-mut-field` spelling aligned to `let mut x: T;` (matching
+  language.md §Variables).
+- overview.md: the Tier-1 JIT consistently marked planned; interface dispatch
+  updated to the implemented `call.virtual`.
+
 ## Runtime staging (longer view)
 
 See [architecture.md](architecture.md) for the design behind each tier.
@@ -767,6 +840,21 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **Language-spec self-consistency review + doc sweep** (2026-07). language.md
+  and the supporting docs were cross-checked against the implementation — stdlib
+  surfaces, the CLI, the runtime — with every suspect behavioral claim verified
+  empirically before reporting. The confirmed-stale sections were rewritten
+  (Pipelines, interpolation/`Debug`, `std.process`, `hawk test` + command
+  tables, Concurrency/fibers, `Map`/`Set` ordering, Style/formatter, SDK layout,
+  runtime-fault conditions, `.graphemes()`, `let mut` field spelling; plus
+  architecture.md's fiber banner, conformance.md's stale white-box finding, and
+  overview.md's JIT tense/`call.virtual`). Verified accurate with no change
+  needed: the trap-message table, the reserved-name list, the `Option`/`Result`
+  combinator sets, the `std.testing` assertion table, `Args`, `Bytes`, and the
+  entry-point forms. The full item list and the open design follow-ups (iterator
+  consumer naming, lazy `List` transforms, `hawk test` UX, `Trap::OutOfMemory`)
+  live in _Language spec punchlist_.
+
 - **Front-end O(n²) source-slicing removed** (2026-07). `String.slice` /
   `SourceSpan.text()` rematerialized the whole string via `chars()` on every
   call, so slicing per token was quadratic in file size. Fixed in two layers:
@@ -774,9 +862,9 @@ conformance specs. Newest first.
   / `same_tokens` / `scan_lines` / `apply_edits`) now materialize the source's
   code points once and index that list; and `String.slice` itself is now a
   native (`str_slice`) that walks to the range's end in one O(end) pass instead
-  of building a whole-string code-point list. `hawk fmt` on a 110 KB file dropped
-  from ~4 s to ~0.2 s (~20×) and now scales linearly. See _Stdlib_ → `String.slice
-  cost` for the residual O(end) note.
+  of building a whole-string code-point list. `hawk fmt` on a 110 KB file
+  dropped from ~4 s to ~0.2 s (~20×) and now scales linearly. See _Stdlib_ →
+  `String.slice cost` for the residual O(end) note.
 - **Map-literal migration follow-ups (checker diagnostic, rendering, legacy
   sites)** (2026-07). Three tails of the migration closed. (1) **`Void`-arm
   diagnostic**: `check_void_arms` splits the `unify_arm` value-less-arm

@@ -78,7 +78,7 @@ and [grammar.md](grammar.md) (syntax).
 | `type-struct-field-let`       | Structs                | a struct field must be declared with `let` (`let x: T;`) — parse error otherwise                                                       | ✓      |
 | `type-struct-field-semicolon` | Structs                | struct fields are terminated with `;`, not separated by `,` — parse error otherwise                                                    | ✓      |
 | `type-struct-immut`           | Structs                | struct fields immutable by default (non-`mut` assign = error)                                                                          | ✓      |
-| `type-mut-field`              | Structs                | a `mut field: T` may be reassigned after construction                                                                                  | ✓      |
+| `type-mut-field`              | Structs                | a `let mut` field (`let mut x: T;`) may be reassigned after construction                                                               | ✓      |
 | `type-struct-fields-required` | Structs                | a struct literal must provide every declared field — a `check` diagnostic                                                              | ✓      |
 | `type-enum-nonempty`          | Enums                  | an enum must declare at least one variant — a zero-variant enum is a parse error                                                       | ✓      |
 | `type-reserved-names`         | language.md            | the language's own type names (Result, Option, List, Void, …) may not be declared in user code; core utility names (Args, …) stay free | ✓      |
@@ -229,15 +229,15 @@ remains open is below.
   checker is lenient on unknown callees (part of the Unknown-leniency
   feedback-loop work). Shrinking this is its own arc.
 
-- **`vis-whitebox-test` — intentionally untested in this harness** (✗). A
-  `foo_test.hawk` seeing `foo.hawk`'s privates is exercised by the project's
-  real `_test.hawk` suites, but not pinnable in `tests/lang/`, since this
-  harness drives `hawk run`/`check`, not `hawk test`.
-
 ### Resolved (changelog)
 
 Each is now pinned by the cited conformance test(s); see git history for the
 implementation detail.
+
+- **`vis-whitebox-test`** — once believed unpinnable here (the harness drives
+  `hawk run`/`check`, not `hawk test`), but the white-box grant keys off the
+  **filename**, not the command: `tests/lang/imports/widget_test.hawk` calls its
+  sibling's private `internal_value()` bare under `hawk run` and pins it.
 
 - **`mod-qualified-only`, `vis-pub`** — a bare cross-library reference and a
   qualified access to a non-public member are both `check` errors

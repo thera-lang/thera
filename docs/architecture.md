@@ -210,9 +210,12 @@ across both tiers.
 
 ## Concurrency: the fiber scheduler
 
-_Design sketch — not yet implemented (`std.fiber` is the surface; see
-[language.md](language.md) §Concurrency and [stdlib.md](stdlib.md)
-§`std.fiber`)._
+_Status: implemented through I/O parking — the scheduler, `spawn`/`join`/
+`yield`, buffered channels, timer parking (`time.sleep`), and worker-pool
+offload for blocking fs/stdin/process calls are all in (see
+[roadmap.md](roadmap.md) §Fibers for the phase detail); the readiness poller for
+sockets is the open phase. The narrative below is the design reference — written
+ahead of the implementation, and how it works as built._
 
 Hawk's concurrency is single-threaded cooperative fibers: blocking-looking I/O
 parks the calling fiber and resumes another, with no `async`/`await` coloring.
@@ -280,18 +283,18 @@ invokes the `work` closure, enqueues it `Ready`, and returns a `Fiber<T>` handle
 target is `Done`, else parks the caller on its completion; a finishing fiber
 re-queues its joiners with its result.
 
-**I/O integration — two stages.** (1) A simple first cut keeps syscalls blocking
-but runs them on a small worker-thread pool, parking the Hawk fiber until a
-worker signals completion — the single-thread _Hawk_ guarantee still holds
-(workers run no Hawk code) and it needs no event loop, so it unblocks
-`std.fiber`/`std.http` soonest. (2) The scaling goal is readiness-based
-non-blocking I/O via `kqueue`/`epoll` in the scheduler's poller, so thousands of
-fibers park on one thread. Both preserve the "blocking-looking, never blocks the
-thread" contract. This is also a runtime-dependency question — a poller crate
-(`mio`) vs. hand-rolled `kqueue`/`epoll` to keep dependencies minimal. (The
-runtime is no longer strictly dependency-free: `std.hash` took the first
-external crates — RustCrypto digests — as a deliberate best-of-breed call; new
-dependencies stay few and deliberate.)
+**I/O integration — two stages.** (1) _Implemented:_ a first cut keeps syscalls
+blocking but runs them on a small worker-thread pool, parking the Hawk fiber
+until a worker signals completion — the single-thread _Hawk_ guarantee still
+holds (workers run no Hawk code) and it needs no event loop, so it unblocked
+`std.fiber` soonest. (2) The scaling goal is readiness-based non-blocking I/O
+via `kqueue`/`epoll` in the scheduler's poller, so thousands of fibers park on
+one thread. Both preserve the "blocking-looking, never blocks the thread"
+contract. This is also a runtime-dependency question — a poller crate (`mio`)
+vs. hand-rolled `kqueue`/`epoll` to keep dependencies minimal. (The runtime is
+no longer strictly dependency-free: `std.hash` took the first external crates —
+RustCrypto digests — as a deliberate best-of-breed call; new dependencies stay
+few and deliberate.)
 
 This design is the reason the [language.md](language.md) `async`/`await`
 fallback should stay a fallback: the stackless-fiber model delivers the same
@@ -322,8 +325,10 @@ constant pool.
 | `hawk run <file> [args…]`       | compile `<file>` to bytecode and run it; trailing args pass to the program   |
 | `hawk check <target>`           | type-check a `.hawk` file or directory; emit diagnostics, no artifact        |
 | `hawk emit <file> <out.hawkbc>` | compile `<file>` to a `.hawkbc` bytecode file                                |
-| `hawk test <file>`              | run the `@test` functions in a Hawk program                                  |
+| `hawk test <file\|dir>`         | run the `@test` functions in a file, or in `*_test.hawk` under a directory   |
 | `hawk fmt <file\|dir>…`         | format source in place (`--check` reports unformatted files, writes nothing) |
+| `hawk lint <file\|dir>`         | report non-idiomatic code shapes with a known rewrite (read-only)            |
+| `hawk fix <file\|dir>`          | apply the lint rewrites (previews by default; `--write` edits; UX is TBD)    |
 | `hawk lsp`                      | start the language server (LSP over stdin/stdout)                            |
 
 **stdout vs. stderr.** The rule: stdout carries a command's _expected output_;
@@ -363,10 +368,12 @@ This is the editor- and `grep`-friendly convention rustc/gcc/clang/eslint use,
 and it is the **same shape `hawk test` prints for a failing assertion** —
 `std.testing` stamps the call site via the `#loc` caller-location metaconstant
 (see [roadmap.md](roadmap.md)), so `assert_eq failed` is reported as
-`users_test.hawk:42:5: assert_eq failed …`. One format spans compiler errors and
-test failures, so an agent or editor parses both with a single rule. Multi-line
-messages indent continuation lines under the location; diagnostics are emitted
-in a deterministic order, and pass/fail is _also_ on the exit code (above).
+`users_test.hawk:42:5: assert_eq failed …` (indented under its test's `FAIL`
+line in the per-file report — see [language.md](language.md) §`hawk test` for
+the report layout). One format spans compiler errors and test failures, so an
+agent or editor parses both with a single rule. Multi-line messages indent
+continuation lines under the location; diagnostics are emitted in a
+deterministic order, and pass/fail is _also_ on the exit code (above).
 
 ### The formatter (`hawk fmt`)
 
