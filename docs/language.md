@@ -640,10 +640,11 @@ Conditions that trap:
   `map[key]`) — see [Collections](#collections)
 - integer divide-by-zero
 - sending on a closed channel — see [Concurrency](#concurrency)
-
-(Exhausting memory or the interpreter's frame stack currently aborts the process
-without the trap formatting below; surfacing those as traps is tracked in
-[roadmap.md](roadmap.md).)
+- running out of memory: a garbage collection that still leaves more live data
+  than the heap limit (1 GiB by default; the `HAWK_MAX_HEAP_MB` environment
+  variable overrides it)
+- runaway recursion: the call stack reaching its depth ceiling (a backstop set
+  far above any legitimate depth)
 
 Where a recoverable alternative makes sense, the API offers one alongside the
 faulting form — e.g. `list.get(i)` returns `Option<T>` instead of trapping.
@@ -654,12 +655,14 @@ when a missing element would mean a bug.
 `hawk: trap: <message>` and exits non-zero. The message is human-readable and
 names the specifics:
 
-| Fault                    | Message                                                       |
-| ------------------------ | ------------------------------------------------------------- |
-| list index out of range  | `index out of range: the index is <i> but the length is <n>`  |
-| missing map key          | `key not found: <key>` (string keys are quoted, e.g. `'bob'`) |
-| integer divide-by-zero   | `division by zero`                                            |
-| send on a closed channel | `send on a closed channel`                                    |
+| Fault                    | Message                                                                               |
+| ------------------------ | ------------------------------------------------------------------------------------- |
+| list index out of range  | `index out of range: the index is <i> but the length is <n>`                          |
+| missing map key          | `key not found: <key>` (string keys are quoted, e.g. `'bob'`)                         |
+| integer divide-by-zero   | `division by zero`                                                                    |
+| send on a closed channel | `send on a closed channel`                                                            |
+| out of memory            | `out of memory: the live heap is <n> MiB but the limit is <m> MiB (HAWK_MAX_HEAP_MB)` |
+| runaway recursion        | `stack overflow: the call stack reached <n> frames`                                   |
 
 > Integer overflow does **not** trap: `Int` arithmetic wraps around (two's
 > complement). Divide-by-zero is the trapping case above.

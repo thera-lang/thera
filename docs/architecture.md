@@ -184,10 +184,15 @@ priority order:
   allocation sites, calls, and backward jumps, rather than before every
   instruction. This avoids polling overhead on straight-line non-allocating
   code.
-- **A heap ceiling / soft limit.** The threshold only grows; a cap (and a
-  soft-limit the runtime backs toward under memory pressure) would bound peak
-  footprint rather than just collection frequency. Pairs with surfacing slab
-  growth failure as a `Trap::OutOfMemory` instead of a process abort.
+- **A heap ceiling / soft limit.** _The hard ceiling is implemented:_ a
+  collection that still leaves more live bytes than the limit
+  (`HAWK_MAX_HEAP_MB`, default 1 GiB) raises `Trap::OutOfMemory` at the
+  safepoint — the ordinary trap formatting, not a process abort — and an
+  allocation past the ceiling arms a collection even when the adaptive threshold
+  sits higher. (Runaway recursion is bounded the same way: a call past the
+  frame-stack depth ceiling raises `Trap::StackOverflow`.) Still open: a _soft_
+  limit the runtime backs toward under memory pressure, bounding peak footprint
+  rather than just failing honestly at the cap.
 - **Generational collection.** The `gc_stress` workload is the textbook case —
   nearly everything dies young. A young/old split with a minor collection over
   just the young set would cut work dramatically on allocation-heavy code. It

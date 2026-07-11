@@ -40,10 +40,29 @@ pub enum Trap {
     /// `channel.send` on a channel that has been closed (a program contract
     /// violation, like sending on a closed Go channel).
     ClosedChannel,
+    /// A collection left more live bytes than the heap ceiling allows — the
+    /// program's reachable data no longer fits (`HAWK_MAX_HEAP_MB`, default
+    /// 1 GiB). Raised at the safepoint right after a full collection, so only
+    /// genuinely-live bytes count against the limit.
+    OutOfMemory {
+        live_bytes: usize,
+        limit_bytes: usize,
+    },
+    /// The call stack reached [`MAX_CALL_DEPTH`] frames — runaway recursion,
+    /// trapped instead of growing the frame stack until the process dies.
+    StackOverflow,
     /// The bytecode was malformed (stack underflow, type mismatch, bad slot).
     /// Valid bytecode from a correct producer never triggers this.
     Bug(String),
 }
+
+/// Call-depth ceiling: a call that would push past this many frames traps
+/// ([`Trap::StackOverflow`]). A runaway backstop, not a resource governor —
+/// set far above any legitimate depth (the self-hosted front-end's
+/// recursive-descent parser stays well under 1k, and the explicit frame stack
+/// comfortably holds hundreds of thousands of frames); runaway recursion hits
+/// it in well under a second and a few tens of MiB.
+pub const MAX_CALL_DEPTH: usize = 1_000_000;
 
 /// The human-readable fault message shown to the user (`hawk: trap: <this>`).
 /// The format is specified in docs/language.md, "Runtime faults". This is
@@ -60,9 +79,29 @@ impl std::fmt::Display for Trap {
             }
             Trap::MissingKey { key } => write!(f, "key not found: {key}"),
             Trap::ClosedChannel => write!(f, "send on a closed channel"),
+            Trap::OutOfMemory {
+                live_bytes,
+                limit_bytes,
+            } => write!(
+                f,
+                "out of memory: the live heap is {} but the limit is {} (HAWK_MAX_HEAP_MB)",
+                fmt_mib(*live_bytes),
+                fmt_mib(*limit_bytes)
+            ),
+            Trap::StackOverflow => {
+                write!(
+                    f,
+                    "stack overflow: the call stack reached {MAX_CALL_DEPTH} frames"
+                )
+            }
             Trap::Bug(msg) => write!(f, "internal error (malformed bytecode): {msg}"),
         }
     }
+}
+
+/// `bytes` as a MiB figure for trap messages.
+fn fmt_mib(bytes: usize) -> String {
+    format!("{:.1} MiB", bytes as f64 / (1 << 20) as f64)
 }
 
 pub(crate) fn bug(msg: impl Into<String>) -> Trap {
@@ -970,6 +1009,14 @@ impl<'a> Vm<'a> {
                     let mut roots: Vec<Value> = vstack.clone();
                     gather_scheduler_roots(&mut roots);
                     heap::collect(roots.into_iter());
+                    // The heap ceiling is enforced here — right after a full
+                    // collection — so only genuinely-live bytes count against it.
+                    if let Some((live_bytes, limit_bytes)) = heap::over_ceiling() {
+                        return Err(Trap::OutOfMemory {
+                            live_bytes,
+                            limit_bytes,
+                        });
+                    }
                 }
             };
         }
@@ -982,6 +1029,22 @@ impl<'a> Vm<'a> {
                 self.vstack = vstack;
                 self.frames = frames;
                 return Ok($outcome);
+            }};
+        }
+
+        // Switch into a callee frame: suspend the current frame onto the frame
+        // stack — depth-capped, so runaway recursion traps rather than growing
+        // the stack until the process dies — and continue in the callee's code.
+        macro_rules! enter_call {
+            ($callee:expr) => {{
+                if frames.len() >= MAX_CALL_DEPTH {
+                    return Err(Trap::StackOverflow);
+                }
+                frames.push(std::mem::replace(&mut frame, $callee));
+                code = &module.functions[frame.func].code;
+                if profiling {
+                    crate::profile::on_call(frame.func);
+                }
             }};
         }
 
@@ -1176,11 +1239,7 @@ impl<'a> Vm<'a> {
                     // no allocation.
                     let callee =
                         Self::enter_frame(&mut vstack, module, *func as usize, *argc as usize)?;
-                    frames.push(std::mem::replace(&mut frame, callee));
-                    code = &module.functions[frame.func].code;
-                    if profiling {
-                        crate::profile::on_call(frame.func);
-                    }
+                    enter_call!(callee);
                 }
                 Instr::CallNative { native, argc } => {
                     poll_gc!();
@@ -1243,11 +1302,7 @@ impl<'a> Vm<'a> {
                     let total = captures.len() + argc;
                     vstack.splice(closure_slot..closure_slot + 1, captures);
                     let callee = Self::enter_frame(&mut vstack, module, func as usize, total)?;
-                    frames.push(std::mem::replace(&mut frame, callee));
-                    code = &module.functions[frame.func].code;
-                    if profiling {
-                        crate::profile::on_call(frame.func);
-                    }
+                    enter_call!(callee);
                 }
                 Instr::CallVirtual { selector, argc } => {
                     poll_gc!();
@@ -1268,11 +1323,7 @@ impl<'a> Vm<'a> {
                             // Args in place become the callee's locals.
                             let callee =
                                 Self::enter_frame(&mut vstack, module, func as usize, argc)?;
-                            frames.push(std::mem::replace(&mut frame, callee));
-                            code = &module.functions[frame.func].code;
-                            if profiling {
-                                crate::profile::on_call(frame.func);
-                            }
+                            enter_call!(callee);
                         }
                         // The fallback may re-enter the interpreter (a nested
                         // `debug`), which takes `self.vstack`/`self.frames` again —
@@ -2243,7 +2294,8 @@ mod tests {
             ],
         );
         let module = Module::new(vec![countdown]);
-        // 250k frames deep — well past what the native stack could hold.
+        // 250k frames deep — well past what the native stack could hold, and
+        // comfortably under MAX_CALL_DEPTH (the runaway-recursion backstop).
         assert_eq!(
             super::run(&module, 0, &[Value::Int(250_000)]),
             Ok(Value::Int(0)),
@@ -2674,6 +2726,38 @@ mod tests {
             b.ret();
         });
         assert_eq!(r, Err(Trap::IndexOutOfBounds { index: 5, len: 1 }));
+    }
+
+    #[test]
+    fn runaway_recursion_traps_stack_overflow() {
+        // `fn f() { f(); }` — no base case; the frame stack hits the depth
+        // ceiling and traps instead of growing until the process dies.
+        let r = run_fn(|b| {
+            b.call(0, 0);
+            b.ret();
+        });
+        assert_eq!(r, Err(Trap::StackOverflow));
+    }
+
+    #[test]
+    fn unbounded_allocation_traps_out_of_memory() {
+        // Keep doubling a live string: once a collection can no longer bring
+        // the live heap under the (test-lowered) ceiling, the program traps
+        // at the next safepoint rather than growing without bound.
+        heap::set_max_heap(256 * 1024);
+        let r = run_fn(|b| {
+            b.const_str("xxxxxxxxxxxxxxxx");
+            b.store(0);
+            let top = b.label();
+            b.bind(top);
+            b.load(0);
+            b.load(0);
+            b.call_native(NATIVE_STR_CONCAT, 2);
+            b.store(0);
+            b.jump(top);
+        });
+        heap::set_max_heap(usize::MAX); // unconstrain later tests on this thread
+        assert!(matches!(r, Err(Trap::OutOfMemory { .. })), "got {r:?}");
     }
 
     #[test]

@@ -1224,7 +1224,7 @@ fn check_expr_inner(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> V
             // A String is UTF-8 and not integer-indexable (it could split a
             // multi-byte character). Reject `s[i]` at check, not only at codegen.
             if let Primitive(Str) = infer_expr(object, scope, ctx, Option.None) {
-                add_error(errors, 'indexing on String is not supported (use `.chars()` or `.graphemes()`)', span);
+                add_error(errors, 'indexing on String is not supported (use `.chars()` or `.slice(start, end)`)', span);
             }
         },
         Binary(span, left, op, right) => {

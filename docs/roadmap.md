@@ -774,13 +774,19 @@ implementation work stay open here until decided.
   silence — with a `--verbose` flag restoring today's full report. Also
   re-evaluate the no-argument default (error today; defaulting to the current
   directory may be friendlier). _(Developer tooling)_
-- **`Trap::OutOfMemory`.** Heap/stack exhaustion currently aborts the process
-  without the `hawk: trap:` formatting; surface it as a real trap. Pairs with
-  the heap-ceiling item in [architecture.md](architecture.md) §Where the
-  collector goes next. _(Runtime)_
 - **`Debug` field names** — already tracked as _Richer structural `Debug`_
   (Language, above): the derive renders positionally because the runtime type
   table doesn't carry field names.
+
+**Done — implemented follow-ups:**
+
+- **`Trap::OutOfMemory` / `Trap::StackOverflow`** (2026-07). Memory and
+  frame-stack exhaustion now trap with the ordinary `hawk: trap:` formatting
+  instead of aborting the process: a collection that still leaves more live
+  bytes than the heap ceiling (`HAWK_MAX_HEAP_MB`, default 1 GiB) raises
+  `OutOfMemory`, and a call past the frame-depth backstop (1M frames) raises
+  `StackOverflow`. The _soft_ heap limit remains open in
+  [architecture.md](architecture.md) §Where the collector goes next.
 
 **Done — the 2026-07 doc sweep** (language.md, overview.md, architecture.md,
 conformance.md brought in line with the implementation; each item verified
@@ -869,14 +875,11 @@ vehicle.
   `Int`); type aliases; `throw` in branch-tail position (the AST has a `Throw`
   expression, the parser rejects the tail form).
 
-**Small:**
-
-- The string-indexing hint still suggests `.graphemes()`
-  (pkgs/cli/checker/checker.hawk), which no longer exists — point at `.chars()`
-  / `.slice` instead.
-
 **Done:**
 
+- The string-indexing hint no longer suggests the nonexistent `.graphemes()`
+  (2026-07): it points at `.chars()` / `.slice(start, end)`
+  (pkgs/cli/checker/checker.hawk).
 - language.md gained a descriptive **"The type system at a glance"** summary
   plus normative **Generics** and **Assignability** sections (2026-07) — the
   loose corners above are called out honestly in place.
@@ -905,6 +908,17 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **OOM + stack-overflow traps; string-indexing hint** (2026-07). Memory and
+  frame-stack exhaustion are real traps now, not process aborts: the heap has a
+  live-bytes ceiling (`HAWK_MAX_HEAP_MB`, default 1 GiB) enforced at the
+  safepoint right after a collection (`Trap::OutOfMemory` — only genuinely-live
+  bytes count), an allocation past the ceiling arms a collection even below the
+  adaptive threshold, and a call past the 1M-frame depth backstop raises
+  `Trap::StackOverflow` (the 250k-deep recursion test still passes — the
+  explicit frame stack is the point). Both messages follow the trap table in
+  language.md §Runtime faults. Also: the string-indexing hint now suggests
+  `.chars()` / `.slice(start, end)` instead of the retired `.graphemes()`.
 
 - **Type-system review + spec sections** (2026-07). A design-completeness pass
   over the implemented type system (the five-shape lattice, assignability,

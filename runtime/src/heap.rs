@@ -40,6 +40,12 @@ use crate::value::{Obj, Value};
 /// bytes, so small programs (and tests) don't collect constantly.
 const MIN_GC_BYTES: usize = 1 << 20; // 1 MiB
 
+/// Default ceiling on the **live** heap: when a collection still leaves more
+/// than this many bytes reachable, the program is out of memory and the
+/// interpreter traps (`Trap::OutOfMemory`) instead of growing until the OS
+/// kills the process. Overridable per run via `HAWK_MAX_HEAP_MB`.
+const DEFAULT_MAX_HEAP_BYTES: usize = 1 << 30; // 1 GiB
+
 /// The slab: object slots plus the bookkeeping a mark-sweep needs.
 struct Heap {
     /// Object slots. `None` is a free hole (its index is on `free`).
@@ -82,6 +88,38 @@ thread_local! {
     /// Nonzero while collection is suspended (the re-entrant `debug`/`display`
     /// fallback). A `Cell`, like `GC_PENDING`, for a borrow-free safepoint check.
     static GC_PAUSED: Cell<usize> = const { Cell::new(0) };
+
+    /// Ceiling on the live heap in bytes (see [`over_ceiling`]). Thread-local
+    /// like the heap it bounds; initialized from `HAWK_MAX_HEAP_MB`, tests set
+    /// it directly via [`set_max_heap`].
+    static MAX_HEAP: Cell<usize> = Cell::new(max_heap_from_env());
+}
+
+/// The heap ceiling `HAWK_MAX_HEAP_MB` requests, or the default. An unparsable
+/// value falls back to the default rather than erroring — the ceiling is a
+/// safety net, not configuration the program's correctness depends on.
+fn max_heap_from_env() -> usize {
+    std::env::var("HAWK_MAX_HEAP_MB")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .map(|mb| mb.saturating_mul(1 << 20))
+        .unwrap_or(DEFAULT_MAX_HEAP_BYTES)
+}
+
+/// Set the live-heap ceiling in bytes. For tests and embedders; the CLI path
+/// configures it via the `HAWK_MAX_HEAP_MB` environment variable.
+pub fn set_max_heap(bytes: usize) {
+    MAX_HEAP.set(bytes);
+}
+
+/// The live bytes and the ceiling, when the live set exceeds it — the signal
+/// the interpreter turns into `Trap::OutOfMemory`. `None` while the heap fits.
+/// Meaningful right after a [`collect`] (between collections `heap_bytes`
+/// includes garbage that a sweep may yet reclaim).
+pub fn over_ceiling() -> Option<(usize, usize)> {
+    let limit = MAX_HEAP.get();
+    let live = HEAP.with(|h| h.borrow().heap_bytes);
+    (live > limit).then_some((live, limit))
 }
 
 thread_local! {
@@ -154,7 +192,11 @@ pub fn alloc(obj: Obj) -> Value {
     HEAP.with(|h| {
         let mut heap = h.borrow_mut();
         heap.heap_bytes += obj.heap_bytes();
-        if heap.heap_bytes >= heap.next_gc_bytes {
+        // Arm at the adaptive threshold, or at the hard ceiling — the latter so
+        // a heap past its limit collects at the next safepoint even when the
+        // threshold sits above the ceiling (the safepoint then traps if the
+        // *live* set is what's over; see `over_ceiling`).
+        if heap.heap_bytes >= heap.next_gc_bytes || heap.heap_bytes >= MAX_HEAP.get() {
             GC_PENDING.set(true);
         }
         let handle = match heap.free.pop() {
@@ -523,6 +565,27 @@ mod tests {
         assert!(global_set(99, Value::Unit).is_none());
 
         set_globals(0); // tidy up for later work on this thread
+    }
+
+    #[test]
+    fn ceiling_arms_collection_and_reports_the_live_overage() {
+        set_max_heap(1); // one byte: any allocation is over the ceiling
+        let _garbage = Value::new_str("data");
+        assert!(
+            GC_PENDING.get(),
+            "an alloc past the ceiling should arm collection"
+        );
+        // The over-allocation was garbage: a collection brings the live set
+        // back under the ceiling, so no overage is reported.
+        collect(std::iter::empty());
+        assert!(over_ceiling().is_none());
+        // A *live* overage survives its collection and is reported.
+        let kept = Value::new_str("data");
+        collect([kept].into_iter());
+        let (live, limit) = over_ceiling().expect("live bytes exceed the ceiling");
+        assert!(live > limit);
+        set_max_heap(usize::MAX); // unconstrain later tests on this thread
+        GC_PENDING.set(false);
     }
 
     #[test]
