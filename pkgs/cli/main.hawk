@@ -45,12 +45,12 @@ Set HAWK_PROFILE=1 to write a deterministic per-function profile to stderr at ex
         .subcommand(cli.Command.new('check')
             .about('type-check programs without running them')
             .details(
-'Type-checks each target (a .hawk file, or a directory searched for *.hawk) without executing — the analyzer for CI and pre-commit hooks.
+'Type-checks each target (a .hawk file, or a directory searched for *.hawk) without executing — the analyzer for CI and pre-commit hooks. No target checks the current directory.
 
-- stdout: one diagnostic per line, `path:line:col: message` (nothing when clean)
+- stdout: one diagnostic per line, `path:line:col: message`, then a `Checked N source files; M issues found.` summary
 - stderr: operational errors (a missing or unreadable target)
 - exit code: 0 clean, 1 if any diagnostics, 2 if a target is missing or a file is unreadable')
-            .positional('target', help: 'a .hawk file or directory to check'))
+            .positional('target', help: 'a .hawk file or directory to check (default: the current directory)'))
         .subcommand(cli.Command.new('emit')
             .about('compile a Hawk program to a .hawkbc file')
             .details(
@@ -64,13 +64,16 @@ Set HAWK_PROFILE=1 to write a deterministic per-function profile to stderr at ex
         .subcommand(cli.Command.new('test')
             .about('run the @test functions in a program')
             .details(
-'Compiles and runs every @test function in the targets (a file, or *_test.hawk under a directory) and prints a per-test report.
+'Compiles and runs every @test function in the targets (a file, or *_test.hawk under a directory). No target tests the current directory.
 
-- stdout: the report — a per-file path header, then `  ok <name>` / `  FAIL <name>` per test, then a summary line
-- stderr: operational errors
+The default output is quiet: a block per failing test (`<name>: failed` with the error indented under it), then a `Ran N tests for M test files; K failures.` summary. A green run prints only the summary. --verbose restores the full per-file, per-test report.
+
+- stdout: the report (see above)
+- stderr: compile diagnostics and operational errors
 - exit code: 0 if all tests pass, 1 if any fail or none are found')
-            .flag('show-output', help: 'show captured stdout for passing tests too (failing tests always show it)')
-            .positional('file', help: 'the .hawk file or directory to test'))
+            .flag('show-output', help: 'show captured stdout for passing tests too (failing tests always show it); implies --verbose')
+            .flag('verbose', help: 'print the full per-file, per-test report')
+            .positional('file', help: 'the .hawk file or directory to test (default: the current directory)'))
         .subcommand(cli.Command.new('fmt')
             .about('format source files in place')
             .details(
@@ -86,12 +89,12 @@ With --check, no file is modified: the unformatted files are listed instead, one
         .subcommand(cli.Command.new('lint')
             .about('report non-idiomatic code shapes with a known rewrite')
             .details(
-'Scans each target (a file, or *.hawk under a directory) for code shapes that have a more idiomatic, mechanical rewrite (e.g. a two-arm `match` with an empty catch-all arm that could be `if let`). Read-only — it reports and tallies sites; it does not modify files.
+'Scans each target (a file, or *.hawk under a directory) for code shapes that have a more idiomatic, mechanical rewrite (e.g. a two-arm `match` with an empty catch-all arm that could be `if let`). Read-only — it reports and tallies sites; it does not modify files. No target lints the current directory.
 
 - stdout: one `path:line:col: message` per site, then a per-rule tally
 - stderr: per-file read errors
 - exit code: 0')
-            .positional('target', help: 'a .hawk file or directory to lint'))
+            .positional('target', help: 'a .hawk file or directory to lint (default: the current directory)'))
         .subcommand(cli.Command.new('fix')
             .about('apply idiomatic-rewrite fixes (UX is provisional)')
             .details(
@@ -173,18 +176,11 @@ fn run_subcommand(_ name: String, _ sub: cli.Matches) -> Result<Int, Error> {
 fn run_on_file(_ name: String, _ sub: cli.Matches) -> Result<Int, Error> {
     let positionals = sub.positionals();
     if name == 'test' {
-        if positionals.len() == 0 {
-            eprintln('hawk test: expected a <file|dir> argument');
-            return Result.Ok(2);
-        }
-        return runner.test_paths(positionals, sdk_root_or_warn(), show_output: sub.flag('show-output'));
+        return runner.test_paths(default_cwd(positionals), sdk_root_or_warn(),
+            show_output: sub.flag('show-output'), verbose: sub.flag('verbose'));
     }
     if name == 'check' {
-        if positionals.len() == 0 {
-            eprintln('hawk check: expected a <file|dir> argument');
-            return Result.Ok(2);
-        }
-        return do_check(positionals, sdk_root_or_warn());
+        return do_check(default_cwd(positionals), sdk_root_or_warn());
     }
     if name == 'fmt' {
         if positionals.len() == 0 {
@@ -194,11 +190,7 @@ fn run_on_file(_ name: String, _ sub: cli.Matches) -> Result<Int, Error> {
         return do_fmt(positionals, check: sub.flag('check'));
     }
     if name == 'lint' {
-        if positionals.len() == 0 {
-            eprintln('hawk lint: expected a <file|dir> argument');
-            return Result.Ok(2);
-        }
-        return do_lint(positionals);
+        return do_lint(default_cwd(positionals));
     }
     if name == 'fix' {
         if positionals.len() == 0 {
@@ -237,12 +229,24 @@ fn run_on_file(_ name: String, _ sub: cli.Matches) -> Result<Int, Error> {
     }
 }
 
-// `hawk check <file|dir>...` — type-check each target, printing
-// `file:line:col: message` for every diagnostic. A directory is searched
-// recursively for `*.hawk`; a file is checked directly. Exit 0 when clean, 1
-// when any diagnostics, 2 when a target is missing or a file is unreadable
-// (operational trumps diagnostics — LD12: an unreadable file used to count
-// as a diagnostic and exit 1).
+// The analyzer commands (test/check/lint) default to the current directory
+// when no target is given — the friendly no-argument invocation for a project
+// checkout — while the commands that write (`fmt`, `fix`) or need an output
+// path (`emit`) keep their targets explicit.
+fn default_cwd(_ positionals: List<String>) -> List<String> {
+    if positionals.len() == 0 {
+        return ['.'];
+    }
+    return positionals;
+}
+
+// `hawk check [file|dir]...` — type-check each target, printing
+// `file:line:col: message` for every diagnostic and a closing summary line
+// (proof of work even when clean). A directory is searched recursively for
+// `*.hawk`; a file is checked directly; no target means the current directory.
+// Exit 0 when clean, 1 when any diagnostics, 2 when a target is missing or a
+// file is unreadable (operational trumps diagnostics — LD12: an unreadable
+// file used to count as a diagnostic and exit 1).
 fn do_check(_ targets: List<String>, _ sdk_root: Option<String>) -> Result<Int, Error> {
     // Resolve targets to a sorted, de-duplicated list of files (dirs recurse for
     // `*.hawk`); a missing target is a usage error.
@@ -277,7 +281,8 @@ fn do_check(_ targets: List<String>, _ sdk_root: Option<String>) -> Result<Int, 
     let printed: Set<String> = Set.new();
     let mut total = 0;
     let mut unreadable = false;
-    for file in runner.sort_dedup(files) {
+    let sorted = runner.sort_dedup(files);
+    for file in sorted {
         match fs.read_text(file) {
             Ok(source) => {
                 // Diagnostics are `check`'s product (it emits no artifact), so
@@ -304,6 +309,14 @@ fn do_check(_ targets: List<String>, _ sdk_root: Option<String>) -> Result<Int, 
     if unreadable {
         return Result.Ok(2);
     }
+    // The closing summary: proof the analyzer ran even when there is nothing
+    // to report (somewhat duplicative of the exit code, but a bare exit is
+    // indistinguishable from a tool that silently did no work).
+    if total > 0 {
+        println('');
+    }
+    println('Checked ${sorted.len()} source ${runner.plural(sorted.len(), 'file')}; '
+        + '${total} ${runner.plural(total, 'issue')} found.');
     if total > 0 {
         return Result.Ok(1);
     }

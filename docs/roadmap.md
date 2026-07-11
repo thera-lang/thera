@@ -763,17 +763,23 @@ implementation work stay open here until decided.
   chains (`xs.map(f).filter(g)` with no intermediate list) at the cost of a
   `.to_list()` at most call sites, plus inference/ergonomics churn. Evaluate
   against real corpus profiles before moving anything. _(Stdlib)_
-- **`hawk test` UX.** Make success output quieter — the per-test `ok` lines and
-  per-file headers are tokens an agent doesn't need; a green run should approach
-  silence — with a `--verbose` flag restoring today's full report. Also
-  re-evaluate the no-argument default (error today; defaulting to the current
-  directory may be friendlier). _(Developer tooling)_
 - **`Debug` field names** — already tracked as _Richer structural `Debug`_
   (Language, above): the derive renders positionally because the runtime type
   table doesn't carry field names.
 
 **Done — implemented follow-ups:**
 
+- **`hawk test` / `hawk check` UX for LLM output** (2026-07). The analyzers no
+  longer emit lines just for doing work: `hawk test` prints only failing-test
+  blocks (`<name>: failed` + the `path:line:col:` detail indented) and one
+  closing summary (`Ran N tests for M test files; K failures.`); a green run is
+  the summary alone. `--verbose` (implied by `--show-output`) restores the
+  per-file `ok`/`FAIL` report. `hawk check` closes with
+  `Checked N source files; M issues found.` — proof of work even when clean.
+  `test`/`check`/`lint` now default to the current directory (the writing
+  commands keep explicit targets). Mechanically, the test child's output is now
+  captured (`process.run`) and the driver emits a `__hawk_failed <n>` stdout
+  trailer the runner strips — the exit code stays pass/fail only (LD11).
 - **Iterator consumer naming: `collect()` → `to_list()`** (2026-07). Decided for
   `to_list`: it matches the established `to_X` conversion convention
   (`Set.to_list()`, `Bytes.to_list()`, `to_int`/`to_double`), states its result
@@ -912,6 +918,16 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **`hawk test`/`check`/`lint` UX for LLM output** (2026-07). The analyzers stop
+  emitting lines just for doing work: quiet-by-default reports (failure blocks
+  only), a one-line proof-of-work summary
+  (`Ran N tests for M test files; K failures.` /
+  `Checked N source files; M issues found.`), `--verbose` for the classic
+  per-test report, and no-argument invocations defaulting to the current
+  directory. The test runner now captures the child's output and reads the
+  per-test failure count from a stdout trailer (the exit code stays pass/fail
+  only). Spec in language.md §The `hawk` tool / §`hawk test`.
 
 - **`Iterator.collect()` renamed `to_list()`** (2026-07). The drain consumer now
   follows the `to_X` conversion convention (`Set.to_list()`, `Bytes.to_list()`,

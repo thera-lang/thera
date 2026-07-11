@@ -1748,55 +1748,64 @@ The `hawk` command-line tool is the primary interface for working with Hawk
 programs. Its **primary design goal is to be useful to LLMs**; its secondary
 goal is to be useful to humans.
 
-That principle shapes output defaults: `check`, `emit`, and `fmt` are silent on
-success and emit only on failure — no output means no problem, and an agent's
-context stays clean. (`hawk test` currently prints a full report even on
-success; quieting its green path — and a `--verbose` mode for the human who
-wants the detail — is tracked in [roadmap.md](roadmap.md).)
+That principle shapes output defaults: the tool never emits lines just for doing
+work. Failures and findings print (one or two lines each, in the
+`path:line:col:` diagnostic shape); a green run reduces to a **single closing
+summary line** (`Ran 12 tests for 3 test files; 0 failures.`,
+`Checked 8 source files; 0 issues found.`) — proof the tool actually ran,
+somewhat duplicative of the exit code but distinguishable from a tool that
+silently did nothing. `emit` and `fmt` stay fully silent on success (their
+product is the artifact / the formatted file).
+
+The analyzer commands — `check`, `test`, `lint` — also **default to the current
+directory** when no target is given, so the bare invocation does the obvious
+thing in a project checkout. The writing commands (`fmt`, `fix`) keep their
+targets explicit.
 
 ### Commands
 
-| Command      | Description                                             |
-| ------------ | ------------------------------------------------------- |
-| `hawk run`   | Run a source file                                       |
-| `hawk check` | Type-check without running                              |
-| `hawk test`  | Run tests                                               |
-| `hawk fmt`   | Format source files in place (`--check` to only report) |
-| `hawk lint`  | Report non-idiomatic code shapes with a known rewrite   |
-| `hawk fix`   | Apply lint rewrites (previews by default; UX is TBD)    |
-| `hawk emit`  | Compile to a `.hawkbc` bytecode file                    |
-| `hawk lsp`   | Start the language server                               |
+| Command      | Description                                                  |
+| ------------ | ------------------------------------------------------------ |
+| `hawk run`   | Run a source file                                            |
+| `hawk check` | Type-check without running (defaults to the cwd)             |
+| `hawk test`  | Run tests (defaults to the cwd; `--verbose` for full report) |
+| `hawk fmt`   | Format source files in place (`--check` to only report)      |
+| `hawk lint`  | Report non-idiomatic code shapes (defaults to the cwd)       |
+| `hawk fix`   | Apply lint rewrites (previews by default; UX is TBD)         |
+| `hawk emit`  | Compile to a `.hawkbc` bytecode file                         |
+| `hawk lsp`   | Start the language server                                    |
 
 ### `hawk test`
 
-`hawk test <file|dir>` runs the `@test` functions in a `*_test.hawk` file, or in
-every `*_test.hawk` found under a directory. The target argument is required.
-Output is a per-file report — a path header, one `ok`/`FAIL` line per test, then
-a summary — with each failure's detail indented under its `FAIL` line in the
-standard `path:line:column: message` diagnostic shape:
+`hawk test [file|dir]` runs the `@test` functions in a `*_test.hawk` file, or in
+every `*_test.hawk` found under a directory (the current directory when no
+target is given). The default output is quiet: a block per **failing** test —
+its name, with the failure detail indented under it in the standard
+`path:line:column: message` diagnostic shape — then one summary line. A green
+run prints only the summary:
 
 ```
 $ hawk test src
-src/math_test.hawk
-  FAIL  test_add
-          src/math_test.hawk:7:5: assert_eq failed
-            actual:   5
-            expected: 4
-  ok    test_trim
+test_add: failed
+  src/math_test.hawk:7:5: assert_eq failed
+    actual:   5
+    expected: 4
 
-1 of 1 file had failures.
+Ran 2 tests for 1 test file; 1 failure.
+
+$ hawk test src        # after the fix
+Ran 2 tests for 1 test file; 0 failures.
 ```
 
-A passing test's captured stdout is discarded (a failing test's is shown); pass
-`--show-output` to see it for passing tests too. The exit code is 0 when every
-test passes, 1 when any fail or none are found — never a count. A test file that
-fails to **compile** produces no results: those diagnostics go to stderr as an
-operational failure (see [architecture.md](architecture.md) for the
-stdout/stderr rules).
-
-Open UX items (tracked in [roadmap.md](roadmap.md)): a quieter success mode (the
-`ok` lines are tokens an agent doesn't need), a `--verbose` flag for the
-opposite preference, and defaulting the target to the current directory.
+`--verbose` restores the full per-file report (a path header, one `ok`/`FAIL`
+line per test). A passing test's captured stdout is discarded (a failing test's
+is shown); pass `--show-output` to see it for passing tests too (it implies
+`--verbose` — quiet mode has no passing-test line to attach it to). The exit
+code is 0 when every test passes, 1 when any fail or none are found — never a
+count. A test file that fails to **compile** produces no results: those
+diagnostics go to stderr as an operational failure (see
+[architecture.md](architecture.md) for the stdout/stderr rules), and the summary
+appends `; N files failed to compile`.
 
 ---
 

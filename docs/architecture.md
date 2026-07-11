@@ -325,16 +325,16 @@ constant pool.
 
 `bin/hawk` exposes the toolchain as subcommands:
 
-| command                         | what it does                                                                 |
-| ------------------------------- | ---------------------------------------------------------------------------- |
-| `hawk run <file> [args…]`       | compile `<file>` to bytecode and run it; trailing args pass to the program   |
-| `hawk check <target>`           | type-check a `.hawk` file or directory; emit diagnostics, no artifact        |
-| `hawk emit <file> <out.hawkbc>` | compile `<file>` to a `.hawkbc` bytecode file                                |
-| `hawk test <file\|dir>`         | run the `@test` functions in a file, or in `*_test.hawk` under a directory   |
-| `hawk fmt <file\|dir>…`         | format source in place (`--check` reports unformatted files, writes nothing) |
-| `hawk lint <file\|dir>`         | report non-idiomatic code shapes with a known rewrite (read-only)            |
-| `hawk fix <file\|dir>`          | apply the lint rewrites (previews by default; `--write` edits; UX is TBD)    |
-| `hawk lsp`                      | start the language server (LSP over stdin/stdout)                            |
+| command                         | what it does                                                                              |
+| ------------------------------- | ----------------------------------------------------------------------------------------- |
+| `hawk run <file> [args…]`       | compile `<file>` to bytecode and run it; trailing args pass to the program                |
+| `hawk check [target]`           | type-check a `.hawk` file or directory (default: cwd); diagnostics + summary              |
+| `hawk emit <file> <out.hawkbc>` | compile `<file>` to a `.hawkbc` bytecode file                                             |
+| `hawk test [file\|dir]`         | run the `@test` functions in a file, or in `*_test.hawk` under a directory (default: cwd) |
+| `hawk fmt <file\|dir>…`         | format source in place (`--check` reports unformatted files, writes nothing)              |
+| `hawk lint [file\|dir]`         | report non-idiomatic code shapes with a known rewrite (read-only; default: cwd)           |
+| `hawk fix <file\|dir>`          | apply the lint rewrites (previews by default; `--write` edits; UX is TBD)                 |
+| `hawk lsp`                      | start the language server (LSP over stdin/stdout)                                         |
 
 **stdout vs. stderr.** The rule: stdout carries a command's _expected output_;
 stderr carries the _unexpected_ (progress, operational failures, crashes). Which
@@ -342,18 +342,19 @@ is which turns on whether the command's product is an **artifact** or its
 **diagnostics**:
 
 - `check` and `test` are **analyzers** — they emit no artifact, so their results
-  (diagnostics for `check`; the `ok`/`FAIL` lines + summary for `test`) **are**
-  the product and go to **stdout**. This matches linters (eslint, ruff, mypy)
-  and test runners (`cargo test`, `go test`, pytest), and keeps a future
-  `--json`/SARIF mode on the same stream so `hawk check --json | jq` works.
-  Pass/fail is _also_ on the **exit code** (`check`: 0 clean / 1 diagnostics / 2
-  missing or unreadable target — operational trumps diagnostics; `test`: 0 all
-  passed / 1 any failed or none found — never a count, which would collide with
-  a trap's exit 1 and wrap at u8). Note the asymmetry this implies: a test file
-  that fails to **compile** produces no test results — that's an operational
-  failure of the run, so `hawk test` sends those compile diagnostics to
-  **stderr**, even though `hawk check` would put the identical lines on stdout
-  (where they are the product). Deliberate, not drift.
+  (diagnostics for `check`; the failure blocks for `test`; each command's
+  closing summary line) **are** the product and go to **stdout**. This matches
+  linters (eslint, ruff, mypy) and test runners (`cargo test`, `go test`,
+  pytest), and keeps a future `--json`/SARIF mode on the same stream so
+  `hawk check --json | jq` works. Pass/fail is _also_ on the **exit code**
+  (`check`: 0 clean / 1 diagnostics / 2 missing or unreadable target —
+  operational trumps diagnostics; `test`: 0 all passed / 1 any failed or none
+  found — never a count, which would collide with a trap's exit 1 and wrap at
+  u8). Note the asymmetry this implies: a test file that fails to **compile**
+  produces no test results — that's an operational failure of the run, so
+  `hawk test` sends those compile diagnostics to **stderr**, even though
+  `hawk check` would put the identical lines on stdout (where they are the
+  product). Deliberate, not drift.
 - `emit` is a **compiler** — its product is the `.hawkbc`, so its diagnostics
   are "why the build failed" and go to **stderr** (the rustc/clang convention),
   leaving stdout clean.
@@ -373,12 +374,12 @@ This is the editor- and `grep`-friendly convention rustc/gcc/clang/eslint use,
 and it is the **same shape `hawk test` prints for a failing assertion** —
 `std.testing` stamps the call site via the `#loc` caller-location metaconstant
 (see [roadmap.md](roadmap.md)), so `assert_eq failed` is reported as
-`users_test.hawk:42:5: assert_eq failed …` (indented under its test's `FAIL`
-line in the per-file report — see [language.md](language.md) §`hawk test` for
-the report layout). One format spans compiler errors and test failures, so an
-agent or editor parses both with a single rule. Multi-line messages indent
-continuation lines under the location; diagnostics are emitted in a
-deterministic order, and pass/fail is _also_ on the exit code (above).
+`users_test.hawk:42:5: assert_eq failed …` (indented under the failing test's
+name — see [language.md](language.md) §`hawk test` for the report layout). One
+format spans compiler errors and test failures, so an agent or editor parses
+both with a single rule. Multi-line messages indent continuation lines under the
+location; diagnostics are emitted in a deterministic order, and pass/fail is
+_also_ on the exit code (above).
 
 ### The formatter (`hawk fmt`)
 
