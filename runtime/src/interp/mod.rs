@@ -51,8 +51,18 @@ pub enum Trap {
     /// The call stack reached [`MAX_CALL_DEPTH`] frames — runaway recursion,
     /// trapped instead of growing the frame stack until the process dies.
     StackOverflow,
-    /// The bytecode was malformed (stack underflow, type mismatch, bad slot).
-    /// Valid bytecode from a correct producer never triggers this.
+    /// A value reached an operation that requires a different type — a type
+    /// error that slipped past the checker (its deliberate `Unknown` leniency,
+    /// or a checker gap). The bytecode is a *faithful* compile of the program;
+    /// it is the program's static types that were wrong, so this is reported as
+    /// a program fault, not a producer bug. `expected`/`found` are Hawk type
+    /// names (`found` via the v3 type/enum name tables). See docs/language.md,
+    /// "Runtime faults".
+    TypeError { expected: String, found: String },
+    /// The bytecode was malformed (stack underflow, bad slot/index, unknown
+    /// native). Valid bytecode from a correct producer never triggers this —
+    /// unlike [`Trap::TypeError`], which a correct producer *can* emit for a
+    /// wrongly-typed program.
     Bug(String),
 }
 
@@ -94,6 +104,9 @@ impl std::fmt::Display for Trap {
                     "stack overflow: the call stack reached {MAX_CALL_DEPTH} frames"
                 )
             }
+            Trap::TypeError { expected, found } => {
+                write!(f, "runtime type error: expected {expected}, found {found}")
+            }
             Trap::Bug(msg) => write!(f, "internal error (malformed bytecode): {msg}"),
         }
     }
@@ -106,6 +119,49 @@ fn fmt_mib(bytes: usize) -> String {
 
 pub(crate) fn bug(msg: impl Into<String>) -> Trap {
     Trap::Bug(msg.into())
+}
+
+/// The Hawk type name of a heap object, for runtime type-error messages. Struct
+/// and enum values resolve to their declared names via the v3 name tables when a
+/// `module` is given; without one (e.g. a native, which has no module handle)
+/// they fall back to a generic `struct`/`enum`.
+pub(crate) fn obj_type_name(obj: &Obj, module: Option<&Module>) -> String {
+    match obj {
+        Obj::Str(_) => "String".to_string(),
+        Obj::Bytes(_) => "Bytes".to_string(),
+        Obj::BytesBuilder(_) => "BytesBuilder".to_string(),
+        Obj::List(_) => "List".to_string(),
+        Obj::Map(_) => "Map".to_string(),
+        Obj::Closure { .. } => "a function".to_string(),
+        Obj::Struct { ty, .. } => module
+            .and_then(|m| m.types.get(*ty as usize))
+            .map_or_else(|| "a struct".to_string(), |t| t.name.clone()),
+        Obj::Enum(e) => module
+            .and_then(|m| m.enum_def(e.ty))
+            .map_or_else(|| "an enum".to_string(), |d| d.name.clone()),
+    }
+}
+
+/// The Hawk type name of any value — primitives directly, heap values via
+/// [`obj_type_name`]. Drives the `found` half of a [`Trap::TypeError`].
+pub(crate) fn value_type_name(v: &Value, module: Option<&Module>) -> String {
+    match v {
+        Value::Int(_) => "Int".to_string(),
+        Value::Double(_) => "Double".to_string(),
+        Value::Bool(_) => "Bool".to_string(),
+        Value::Unit => "Unit".to_string(),
+        Value::Ref(h) => heap::with_obj(*h, |obj| obj_type_name(obj, module)),
+    }
+}
+
+/// A [`Trap::TypeError`]: operation wanted `expected`, but `found` had another
+/// runtime type. The type-checked pops raise this instead of [`Trap::Bug`] so a
+/// type hole reads as a program-level type error, not a compiler bug.
+pub(crate) fn type_error(expected: &str, found: &Value, module: &Module) -> Trap {
+    Trap::TypeError {
+        expected: expected.to_string(),
+        found: value_type_name(found, Some(module)),
+    }
 }
 
 mod natives;
@@ -889,7 +945,7 @@ impl<'a> Vm<'a> {
         // unwound to empty on completion.
         let active = match state {
             FiberState::NotStarted(closure) => {
-                let (func, locals) = closure_parts(&closure)?;
+                let (func, locals) = closure_parts(&closure, module)?;
                 Self::push_frame(&mut self.vstack, module, func as usize, &locals)?
             }
             FiberState::Suspended { vstack, mut frames } => {
@@ -1106,119 +1162,119 @@ impl<'a> Vm<'a> {
 
                 // --- integer arithmetic (wrapping) ---
                 Instr::AddI64 => {
-                    let (a, b) = pop_two_int(&mut vstack)?;
+                    let (a, b) = pop_two_int(&mut vstack, module)?;
                     vstack.push(Value::Int(a.wrapping_add(b)));
                 }
                 Instr::SubI64 => {
-                    let (a, b) = pop_two_int(&mut vstack)?;
+                    let (a, b) = pop_two_int(&mut vstack, module)?;
                     vstack.push(Value::Int(a.wrapping_sub(b)));
                 }
                 Instr::MulI64 => {
-                    let (a, b) = pop_two_int(&mut vstack)?;
+                    let (a, b) = pop_two_int(&mut vstack, module)?;
                     vstack.push(Value::Int(a.wrapping_mul(b)));
                 }
                 Instr::DivI64 => {
-                    let (a, b) = pop_two_int(&mut vstack)?;
+                    let (a, b) = pop_two_int(&mut vstack, module)?;
                     if b == 0 {
                         return Err(Trap::DivByZero);
                     }
                     vstack.push(Value::Int(a.wrapping_div(b)));
                 }
                 Instr::ModI64 => {
-                    let (a, b) = pop_two_int(&mut vstack)?;
+                    let (a, b) = pop_two_int(&mut vstack, module)?;
                     if b == 0 {
                         return Err(Trap::DivByZero);
                     }
                     vstack.push(Value::Int(a.wrapping_rem(b)));
                 }
                 Instr::NegI64 => {
-                    let a = pop_int(&mut vstack)?;
+                    let a = pop_int(&mut vstack, module)?;
                     vstack.push(Value::Int(a.wrapping_neg()));
                 }
 
                 // --- integer bitwise ---
                 Instr::AndI64 => {
-                    let (a, b) = pop_two_int(&mut vstack)?;
+                    let (a, b) = pop_two_int(&mut vstack, module)?;
                     vstack.push(Value::Int(a & b));
                 }
                 Instr::OrI64 => {
-                    let (a, b) = pop_two_int(&mut vstack)?;
+                    let (a, b) = pop_two_int(&mut vstack, module)?;
                     vstack.push(Value::Int(a | b));
                 }
                 Instr::XorI64 => {
-                    let (a, b) = pop_two_int(&mut vstack)?;
+                    let (a, b) = pop_two_int(&mut vstack, module)?;
                     vstack.push(Value::Int(a ^ b));
                 }
                 Instr::BNotI64 => {
-                    let a = pop_int(&mut vstack)?;
+                    let a = pop_int(&mut vstack, module)?;
                     vstack.push(Value::Int(!a));
                 }
                 // Shift amount is masked to 0..=63 (the low 6 bits), so a shift is
                 // always well-defined (matches Java/JS/Dart).
                 Instr::ShlI64 => {
-                    let (a, b) = pop_two_int(&mut vstack)?;
+                    let (a, b) = pop_two_int(&mut vstack, module)?;
                     vstack.push(Value::Int(a.wrapping_shl((b & 63) as u32)));
                 }
                 Instr::ShrI64 => {
-                    let (a, b) = pop_two_int(&mut vstack)?;
+                    let (a, b) = pop_two_int(&mut vstack, module)?;
                     vstack.push(Value::Int(a.wrapping_shr((b & 63) as u32)));
                 }
                 Instr::UShrI64 => {
-                    let (a, b) = pop_two_int(&mut vstack)?;
+                    let (a, b) = pop_two_int(&mut vstack, module)?;
                     vstack.push(Value::Int(((a as u64) >> ((b & 63) as u32)) as i64));
                 }
 
                 // --- float arithmetic ---
                 Instr::AddF64 => {
-                    let (a, b) = pop_two_double(&mut vstack)?;
+                    let (a, b) = pop_two_double(&mut vstack, module)?;
                     vstack.push(Value::Double(a + b));
                 }
                 Instr::SubF64 => {
-                    let (a, b) = pop_two_double(&mut vstack)?;
+                    let (a, b) = pop_two_double(&mut vstack, module)?;
                     vstack.push(Value::Double(a - b));
                 }
                 Instr::MulF64 => {
-                    let (a, b) = pop_two_double(&mut vstack)?;
+                    let (a, b) = pop_two_double(&mut vstack, module)?;
                     vstack.push(Value::Double(a * b));
                 }
                 Instr::DivF64 => {
-                    let (a, b) = pop_two_double(&mut vstack)?;
+                    let (a, b) = pop_two_double(&mut vstack, module)?;
                     vstack.push(Value::Double(a / b));
                 }
                 Instr::NegF64 => {
-                    let a = pop_double(&mut vstack)?;
+                    let a = pop_double(&mut vstack, module)?;
                     vstack.push(Value::Double(-a));
                 }
 
                 // --- integer comparison ---
-                Instr::EqI64 => cmp_int(&mut vstack, |a, b| a == b)?,
-                Instr::NeI64 => cmp_int(&mut vstack, |a, b| a != b)?,
-                Instr::LtI64 => cmp_int(&mut vstack, |a, b| a < b)?,
-                Instr::LeI64 => cmp_int(&mut vstack, |a, b| a <= b)?,
-                Instr::GtI64 => cmp_int(&mut vstack, |a, b| a > b)?,
-                Instr::GeI64 => cmp_int(&mut vstack, |a, b| a >= b)?,
+                Instr::EqI64 => cmp_int(&mut vstack, module, |a, b| a == b)?,
+                Instr::NeI64 => cmp_int(&mut vstack, module, |a, b| a != b)?,
+                Instr::LtI64 => cmp_int(&mut vstack, module, |a, b| a < b)?,
+                Instr::LeI64 => cmp_int(&mut vstack, module, |a, b| a <= b)?,
+                Instr::GtI64 => cmp_int(&mut vstack, module, |a, b| a > b)?,
+                Instr::GeI64 => cmp_int(&mut vstack, module, |a, b| a >= b)?,
 
                 // --- float comparison ---
-                Instr::EqF64 => cmp_double(&mut vstack, |a, b| a == b)?,
-                Instr::NeF64 => cmp_double(&mut vstack, |a, b| a != b)?,
-                Instr::LtF64 => cmp_double(&mut vstack, |a, b| a < b)?,
-                Instr::LeF64 => cmp_double(&mut vstack, |a, b| a <= b)?,
-                Instr::GtF64 => cmp_double(&mut vstack, |a, b| a > b)?,
-                Instr::GeF64 => cmp_double(&mut vstack, |a, b| a >= b)?,
+                Instr::EqF64 => cmp_double(&mut vstack, module, |a, b| a == b)?,
+                Instr::NeF64 => cmp_double(&mut vstack, module, |a, b| a != b)?,
+                Instr::LtF64 => cmp_double(&mut vstack, module, |a, b| a < b)?,
+                Instr::LeF64 => cmp_double(&mut vstack, module, |a, b| a <= b)?,
+                Instr::GtF64 => cmp_double(&mut vstack, module, |a, b| a > b)?,
+                Instr::GeF64 => cmp_double(&mut vstack, module, |a, b| a >= b)?,
 
                 // --- boolean ---
                 Instr::Not => {
-                    let b = pop_bool(&mut vstack)?;
+                    let b = pop_bool(&mut vstack, module)?;
                     vstack.push(Value::Bool(!b));
                 }
 
                 // --- conversions ---
                 Instr::I64ToF64 => {
-                    let a = pop_int(&mut vstack)?;
+                    let a = pop_int(&mut vstack, module)?;
                     vstack.push(Value::Double(a as f64));
                 }
                 Instr::F64ToI64 => {
-                    let a = pop_double(&mut vstack)?;
+                    let a = pop_double(&mut vstack, module)?;
                     vstack.push(Value::Int(a as i64));
                 }
 
@@ -1298,7 +1354,7 @@ impl<'a> Vm<'a> {
                         .len()
                         .checked_sub(argc + 1)
                         .ok_or_else(|| bug("call.indirect: operand stack underflow"))?;
-                    let (func, captures) = closure_parts(&vstack[closure_slot])?;
+                    let (func, captures) = closure_parts(&vstack[closure_slot], module)?;
                     let total = captures.len() + argc;
                     vstack.splice(closure_slot..closure_slot + 1, captures);
                     let callee = Self::enter_frame(&mut vstack, module, func as usize, total)?;
@@ -1360,12 +1416,12 @@ impl<'a> Vm<'a> {
                     vstack.push(Value::new_enum(*ty, *variant, fields));
                 }
                 Instr::EnumTag => {
-                    let variant = pop_enum_variant(&mut vstack)?;
+                    let variant = pop_enum_variant(&mut vstack, module)?;
                     vstack.push(Value::Int(variant as i64));
                 }
                 Instr::EnumGet(idx) => {
                     let v = pop(&mut vstack)?;
-                    vstack.push(enum_field(&v, *idx as usize)?);
+                    vstack.push(enum_field(&v, *idx as usize, module)?);
                 }
 
                 // --- structs ---
@@ -1385,12 +1441,12 @@ impl<'a> Vm<'a> {
                 }
                 Instr::FieldGet(idx) => {
                     let v = pop(&mut vstack)?;
-                    vstack.push(struct_field(&v, *idx as usize)?);
+                    vstack.push(struct_field(&v, *idx as usize, Some(module))?);
                 }
                 Instr::FieldSet(idx) => {
                     let value = pop(&mut vstack)?;
                     let obj = pop(&mut vstack)?;
-                    set_struct_field(&obj, *idx as usize, value)?;
+                    set_struct_field(&obj, *idx as usize, value, module)?;
                 }
 
                 // --- collections ---
@@ -1405,20 +1461,23 @@ impl<'a> Vm<'a> {
                     vstack.push(Value::new_list(items));
                 }
                 Instr::ListGet => {
-                    let idx = pop_int(&mut vstack)?;
+                    let idx = pop_int(&mut vstack, module)?;
                     let list = pop(&mut vstack)?;
                     let elem = match list {
                         Value::Ref(h) => heap::with_obj(h, |obj| match obj {
                             Obj::List(items) => Ok(items[checked_list_index(idx, items.len())?]),
-                            _ => Err(bug("list.get: expected a list")),
+                            other => Err(Trap::TypeError {
+                                expected: "a List".to_string(),
+                                found: obj_type_name(other, Some(module)),
+                            }),
                         })?,
-                        _ => return Err(bug("list.get: expected a list")),
+                        v => return Err(type_error("a List", &v, module)),
                     };
                     vstack.push(elem);
                 }
                 Instr::ListSet => {
                     let value = pop(&mut vstack)?;
-                    let idx = pop_int(&mut vstack)?;
+                    let idx = pop_int(&mut vstack, module)?;
                     let list = pop(&mut vstack)?;
                     match list {
                         Value::Ref(h) => heap::with_obj_mut(h, |obj| match obj {
@@ -1427,9 +1486,12 @@ impl<'a> Vm<'a> {
                                 items[i] = value;
                                 Ok(())
                             }
-                            _ => Err(bug("list.set: expected a list")),
+                            other => Err(Trap::TypeError {
+                                expected: "a List".to_string(),
+                                found: obj_type_name(other, Some(module)),
+                            }),
                         })?,
-                        _ => return Err(bug("list.set: expected a list")),
+                        v => return Err(type_error("a List", &v, module)),
                     }
                 }
                 Instr::ListLen => {
@@ -1437,9 +1499,12 @@ impl<'a> Vm<'a> {
                     let len = match list {
                         Value::Ref(h) => heap::with_obj(h, |obj| match obj {
                             Obj::List(items) => Ok(items.len() as i64),
-                            _ => Err(bug("list.len: expected a list")),
+                            other => Err(Trap::TypeError {
+                                expected: "a List".to_string(),
+                                found: obj_type_name(other, Some(module)),
+                            }),
                         })?,
-                        _ => return Err(bug("list.len: expected a list")),
+                        v => return Err(type_error("a List", &v, module)),
                     };
                     vstack.push(Value::Int(len));
                 }
@@ -1464,7 +1529,7 @@ impl<'a> Vm<'a> {
                     frame.pc = *target;
                 }
                 Instr::JumpIfTrue(target) => {
-                    if pop_bool(&mut vstack)? {
+                    if pop_bool(&mut vstack, module)? {
                         if *target < frame.pc {
                             poll_gc!();
                         }
@@ -1472,7 +1537,7 @@ impl<'a> Vm<'a> {
                     }
                 }
                 Instr::JumpIfFalse(target) => {
-                    if !pop_bool(&mut vstack)? {
+                    if !pop_bool(&mut vstack, module)? {
                         if *target < frame.pc {
                             poll_gc!();
                         }
@@ -1672,10 +1737,10 @@ fn pop(stack: &mut Vec<Value>) -> Result<Value, Trap> {
 }
 
 #[inline(always)]
-fn pop_int(stack: &mut Vec<Value>) -> Result<i64, Trap> {
+fn pop_int(stack: &mut Vec<Value>, module: &Module) -> Result<i64, Trap> {
     match pop(stack)? {
         Value::Int(n) => Ok(n),
-        v => Err(bug(format!("expected Int, found {v:?}"))),
+        v => Err(type_error("Int", &v, module)),
     }
 }
 
@@ -1690,33 +1755,33 @@ fn checked_list_index(i: i64, len: usize) -> Result<usize, Trap> {
 }
 
 #[inline(always)]
-fn pop_double(stack: &mut Vec<Value>) -> Result<f64, Trap> {
+fn pop_double(stack: &mut Vec<Value>, module: &Module) -> Result<f64, Trap> {
     match pop(stack)? {
         Value::Double(x) => Ok(x),
-        v => Err(bug(format!("expected Double, found {v:?}"))),
+        v => Err(type_error("Double", &v, module)),
     }
 }
 
 #[inline(always)]
-fn pop_bool(stack: &mut Vec<Value>) -> Result<bool, Trap> {
+fn pop_bool(stack: &mut Vec<Value>, module: &Module) -> Result<bool, Trap> {
     match pop(stack)? {
         Value::Bool(b) => Ok(b),
-        v => Err(bug(format!("expected Bool, found {v:?}"))),
+        v => Err(type_error("Bool", &v, module)),
     }
 }
 
 /// Pop two ints `a` (pushed first) and `b` (pushed second / on top).
 #[inline(always)]
-fn pop_two_int(stack: &mut Vec<Value>) -> Result<(i64, i64), Trap> {
-    let b = pop_int(stack)?;
-    let a = pop_int(stack)?;
+fn pop_two_int(stack: &mut Vec<Value>, module: &Module) -> Result<(i64, i64), Trap> {
+    let b = pop_int(stack, module)?;
+    let a = pop_int(stack, module)?;
     Ok((a, b))
 }
 
 #[inline(always)]
-fn pop_two_double(stack: &mut Vec<Value>) -> Result<(f64, f64), Trap> {
-    let b = pop_double(stack)?;
-    let a = pop_double(stack)?;
+fn pop_two_double(stack: &mut Vec<Value>, module: &Module) -> Result<(f64, f64), Trap> {
+    let b = pop_double(stack, module)?;
+    let a = pop_double(stack, module)?;
     Ok((a, b))
 }
 
@@ -1732,33 +1797,31 @@ fn hex_join(bytes: &[u8]) -> String {
 
 /// Pop an enum value and return its variant tag.
 #[inline(always)]
-fn pop_enum_variant(stack: &mut Vec<Value>) -> Result<u16, Trap> {
+fn pop_enum_variant(stack: &mut Vec<Value>, module: &Module) -> Result<u16, Trap> {
     match pop(stack)? {
         Value::Ref(h) => heap::with_obj(h, |obj| match obj {
             Obj::Enum(e) => Ok(e.variant),
-            Obj::Str(_)
-            | Obj::Bytes(_)
-            | Obj::BytesBuilder(_)
-            | Obj::List(_)
-            | Obj::Map(_)
-            | Obj::Struct { .. }
-            | Obj::Closure { .. } => Err(bug("enum.tag: expected enum")),
+            other => Err(Trap::TypeError {
+                expected: "an enum".to_string(),
+                found: obj_type_name(other, Some(module)),
+            }),
         }),
-        v => Err(bug(format!("expected enum, found {v:?}"))),
+        v => Err(type_error("an enum", &v, module)),
     }
 }
 
 /// Unpack a closure value into its function index and a fresh copy of its
 /// captured environment (which becomes the callee's leading local slots).
-fn closure_parts(v: &Value) -> Result<(u32, Vec<Value>), Trap> {
+fn closure_parts(v: &Value, module: &Module) -> Result<(u32, Vec<Value>), Trap> {
     match v {
         Value::Ref(h) => heap::with_obj(*h, |obj| match obj {
             Obj::Closure { func, captures } => Ok((*func, captures.clone())),
-            _ => Err(bug("call.indirect: expected a closure")),
+            other => Err(Trap::TypeError {
+                expected: "a function".to_string(),
+                found: obj_type_name(other, Some(module)),
+            }),
         }),
-        v => Err(bug(format!(
-            "call.indirect: expected a closure, found {v:?}"
-        ))),
+        v => Err(type_error("a function", v, module)),
     }
 }
 
@@ -1803,7 +1866,7 @@ fn dispatch_type_id(v: &Value) -> Option<u32> {
 }
 
 /// Read payload field `idx` of an enum value.
-fn enum_field(v: &Value, idx: usize) -> Result<Value, Trap> {
+fn enum_field(v: &Value, idx: usize, module: &Module) -> Result<Value, Trap> {
     match v {
         Value::Ref(h) => heap::with_obj(*h, |obj| match obj {
             Obj::Enum(e) => e
@@ -1811,40 +1874,39 @@ fn enum_field(v: &Value, idx: usize) -> Result<Value, Trap> {
                 .get(idx)
                 .copied()
                 .ok_or_else(|| bug(format!("enum.get: field {idx} out of range"))),
-            Obj::Str(_)
-            | Obj::Bytes(_)
-            | Obj::BytesBuilder(_)
-            | Obj::List(_)
-            | Obj::Map(_)
-            | Obj::Struct { .. }
-            | Obj::Closure { .. } => Err(bug("enum.get: expected enum")),
+            other => Err(Trap::TypeError {
+                expected: "an enum".to_string(),
+                found: obj_type_name(other, Some(module)),
+            }),
         }),
-        v => Err(bug(format!("enum.get: expected enum, found {v:?}"))),
+        v => Err(type_error("an enum", v, module)),
     }
 }
 
-/// Read field `idx` of a struct value.
-pub(super) fn struct_field(v: &Value, idx: usize) -> Result<Value, Trap> {
+/// Read field `idx` of a struct value. `module` is optional because natives call
+/// this without one (they construct the struct themselves); it only enriches the
+/// type name in the mismatch message.
+pub(super) fn struct_field(v: &Value, idx: usize, module: Option<&Module>) -> Result<Value, Trap> {
     match v {
         Value::Ref(h) => heap::with_obj(*h, |obj| match obj {
             Obj::Struct { fields, .. } => fields
                 .get(idx)
                 .copied()
                 .ok_or_else(|| bug(format!("field.get: field {idx} out of range"))),
-            Obj::Str(_)
-            | Obj::Bytes(_)
-            | Obj::BytesBuilder(_)
-            | Obj::List(_)
-            | Obj::Map(_)
-            | Obj::Enum(_)
-            | Obj::Closure { .. } => Err(bug("field.get: expected struct")),
+            other => Err(Trap::TypeError {
+                expected: "a struct".to_string(),
+                found: obj_type_name(other, module),
+            }),
         }),
-        v => Err(bug(format!("field.get: expected struct, found {v:?}"))),
+        v => Err(Trap::TypeError {
+            expected: "a struct".to_string(),
+            found: value_type_name(v, module),
+        }),
     }
 }
 
 /// Store `value` into field `idx` of a struct value (in place).
-fn set_struct_field(v: &Value, idx: usize, value: Value) -> Result<(), Trap> {
+fn set_struct_field(v: &Value, idx: usize, value: Value, module: &Module) -> Result<(), Trap> {
     match v {
         Value::Ref(h) => heap::with_obj_mut(*h, |obj| match obj {
             Obj::Struct { fields, .. } => {
@@ -1854,26 +1916,31 @@ fn set_struct_field(v: &Value, idx: usize, value: Value) -> Result<(), Trap> {
                 *slot = value;
                 Ok(())
             }
-            Obj::Str(_)
-            | Obj::Bytes(_)
-            | Obj::BytesBuilder(_)
-            | Obj::List(_)
-            | Obj::Map(_)
-            | Obj::Enum(_)
-            | Obj::Closure { .. } => Err(bug("field.set: expected struct")),
+            other => Err(Trap::TypeError {
+                expected: "a struct".to_string(),
+                found: obj_type_name(other, Some(module)),
+            }),
         }),
-        v => Err(bug(format!("field.set: expected struct, found {v:?}"))),
+        v => Err(type_error("a struct", v, module)),
     }
 }
 
-fn cmp_int(stack: &mut Vec<Value>, f: impl Fn(i64, i64) -> bool) -> Result<(), Trap> {
-    let (a, b) = pop_two_int(stack)?;
+fn cmp_int(
+    stack: &mut Vec<Value>,
+    module: &Module,
+    f: impl Fn(i64, i64) -> bool,
+) -> Result<(), Trap> {
+    let (a, b) = pop_two_int(stack, module)?;
     stack.push(Value::Bool(f(a, b)));
     Ok(())
 }
 
-fn cmp_double(stack: &mut Vec<Value>, f: impl Fn(f64, f64) -> bool) -> Result<(), Trap> {
-    let (a, b) = pop_two_double(stack)?;
+fn cmp_double(
+    stack: &mut Vec<Value>,
+    module: &Module,
+    f: impl Fn(f64, f64) -> bool,
+) -> Result<(), Trap> {
+    let (a, b) = pop_two_double(stack, module)?;
     stack.push(Value::Bool(f(a, b)));
     Ok(())
 }
@@ -2245,15 +2312,59 @@ mod tests {
     }
 
     #[test]
-    fn type_mismatch_is_a_bug() {
-        // AddI64 on a Bool is malformed bytecode.
+    fn type_mismatch_is_a_type_error() {
+        // AddI64 on a Bool is a type error that slipped the checker, not a
+        // producer bug — it surfaces as a `runtime type error`, naming the type.
         let code = [
             Instr::ConstBool(true),
             Instr::ConstInt(1),
             Instr::AddI64,
             Instr::Return,
         ];
-        assert!(matches!(run(&code), Err(Trap::Bug(_))));
+        assert_eq!(
+            run(&code),
+            Err(Trap::TypeError {
+                expected: "Int".to_string(),
+                found: "Bool".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn type_error_renders_as_a_runtime_type_error_not_an_internal_error() {
+        let t = Trap::TypeError {
+            expected: "Int".to_string(),
+            found: "String".to_string(),
+        };
+        assert_eq!(
+            t.to_string(),
+            "runtime type error: expected Int, found String"
+        );
+        // The old dishonest framing is reserved for genuine producer bugs.
+        assert_eq!(
+            bug("stack underflow").to_string(),
+            "internal error (malformed bytecode): stack underflow"
+        );
+    }
+
+    #[test]
+    fn type_error_names_a_struct_found_value_via_the_type_table() {
+        // field.get on an Int, in a module that declares a `Point` struct: the
+        // *found* value is an Int here, but the namer resolves struct/enum
+        // found-values to their declared names (v3 tables) — checked directly.
+        use crate::module::{EnumDef, TypeDef};
+        let m = Module::with_types(
+            vec![Function::new("f", 0, 0, vec![Instr::Return])],
+            vec![TypeDef::new("Point", 2)],
+        );
+        let point = Value::new_struct(0, vec![Value::Int(1), Value::Int(2)]);
+        assert_eq!(value_type_name(&point, Some(&m)), "Point");
+        let mut m2 = m;
+        m2.enums = vec![EnumDef::new(3, "Color", vec!["Red".to_string()])];
+        let red = Value::new_enum(3, 0, vec![]);
+        assert_eq!(value_type_name(&red, Some(&m2)), "Color");
+        // Without a module, struct/enum values fall back to a generic name.
+        assert_eq!(value_type_name(&red, None), "an enum");
     }
 
     // --- increment 3: functions & calls ---
@@ -2590,9 +2701,15 @@ mod tests {
     }
 
     #[test]
-    fn enum_tag_on_non_enum_is_a_bug() {
+    fn enum_tag_on_non_enum_is_a_type_error() {
         let code = [Instr::ConstInt(1), Instr::EnumTag, Instr::Return];
-        assert!(matches!(run(&code), Err(Trap::Bug(_))));
+        assert_eq!(
+            run(&code),
+            Err(Trap::TypeError {
+                expected: "an enum".to_string(),
+                found: "Int".to_string(),
+            })
+        );
     }
 
     // --- increment 5: intrinsics & observable output ---
@@ -2993,14 +3110,20 @@ mod tests {
     }
 
     #[test]
-    fn list_index_on_non_list_is_a_bug() {
+    fn list_index_on_non_list_is_a_type_error() {
         let r = run_fn(|b| {
             b.const_int(1); // not a list
             b.const_int(0);
             b.list_get();
             b.ret();
         });
-        assert!(matches!(r, Err(Trap::Bug(_))));
+        assert_eq!(
+            r,
+            Err(Trap::TypeError {
+                expected: "a List".to_string(),
+                found: "Int".to_string(),
+            })
+        );
     }
 
     // --- structs & the type table ---
@@ -3077,9 +3200,15 @@ mod tests {
     }
 
     #[test]
-    fn field_get_on_non_struct_is_a_bug() {
+    fn field_get_on_non_struct_is_a_type_error() {
         let code = [Instr::ConstInt(1), Instr::FieldGet(0), Instr::Return];
-        assert!(matches!(run(&code), Err(Trap::Bug(_))));
+        assert_eq!(
+            run(&code),
+            Err(Trap::TypeError {
+                expected: "a struct".to_string(),
+                found: "Int".to_string(),
+            })
+        );
     }
 
     // --- closures ---
@@ -3187,13 +3316,19 @@ mod tests {
     }
 
     #[test]
-    fn call_indirect_on_non_closure_is_a_bug() {
+    fn call_indirect_on_non_closure_is_a_type_error() {
         let r = run_fn(|b| {
             b.const_int(1); // not a closure
             b.call_indirect(0);
             b.ret();
         });
-        assert!(matches!(r, Err(Trap::Bug(_))));
+        assert_eq!(
+            r,
+            Err(Trap::TypeError {
+                expected: "a function".to_string(),
+                found: "Int".to_string(),
+            })
+        );
     }
 
     // --- dynamic dispatch (call.virtual) ---

@@ -2203,7 +2203,7 @@ fn proc_err(e: &std::io::Error, msg: String) -> Value {
 }
 
 fn get_process_id(process_val: &Value) -> Result<i64, Trap> {
-    let id_val = struct_field(process_val, 0)?;
+    let id_val = struct_field(process_val, 0, None)?;
     match id_val {
         Value::Int(id) => Ok(id),
         _ => Err(bug("expected process id to be an Int")),

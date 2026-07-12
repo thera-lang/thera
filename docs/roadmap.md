@@ -871,11 +871,14 @@ vehicle.
   direction: **no variance annotations**; instead a special-cased read-only
   widening (e.g. a `List<Dog>` usable where an `Iterator<Animal>` is expected)
   so the safe read pattern stays ergonomic.
-- **Honest runtime wording for tag-mismatch traps.** A type hole surfaces as
-  `trap: internal error (malformed bytecode): expected Int, found Ref(0)` —
-  which tells an agent the compiler is broken, not that a type error slipped
-  through. Reword to a "runtime type error: expected Int, found String" shape.
-  _(Runtime)_
+- **Honest wording for native-argument type mismatches.** _(Runtime, follow-up
+  to the tag-mismatch trap split below.)_ The interpreter's own tag-checked pops
+  now raise `Trap::TypeError` ("runtime type error: expected Int, found
+  String"), but the native arg-checks (`str_contents`, `as_int`/`as_double`,
+  `with_bytes`) still raise `Trap::Bug` ("internal error"). Converting them is
+  blocked only on unthreading their `who` context param from ~100 call sites —
+  do that, then route them through `TypeError` too (module-free type names,
+  since natives have no `Module` handle).
 - **Open type-shape items:** a `Never`/bottom type (divergence currently rides
   on `Unknown` leniency — e.g. a `throw` arm); a first-class `Range` type
   (ranges infer `Unknown`; the for-loop special-cases the element back to
@@ -915,6 +918,17 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **Honest tag-mismatch traps — `Trap::TypeError` split** (2026-07). A type hole
+  reaching the runtime (a value whose static type the checker got wrong) now
+  traps as `runtime type error: expected Int, found String` instead of
+  `internal error (malformed bytecode): expected Int, found Ref(0)` — which had
+  wrongly blamed the compiler. The interpreter's type-checked pops
+  (`pop_int`/`field.get`/`enum.get`/`call.indirect`/`list.*`) raise a new
+  `Trap::TypeError`; genuine structural malformations (stack underflow, bad
+  slot) keep `Trap::Bug`/"internal error". The `found` type is named via the v3
+  type/enum tables (`found Point`, not `Ref(0)`). Native arg-checks are a
+  tracked follow-up (Type system punchlist). Faults in language.md.
 
 - **Named structural `Debug` — field + variant names (bytecode v3)** (2026-07).
   The auto-derived `Debug` now renders structs by field name (`Point { x: 1, y:

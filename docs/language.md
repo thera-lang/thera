@@ -645,6 +645,11 @@ Conditions that trap:
   variable overrides it)
 - runaway recursion: the call stack reaching its depth ceiling (a backstop set
   far above any legitimate depth)
+- a **type error that slipped past the checker** — the type system is
+  deliberately lenient in places (see [Assignability](#assignability)), so a
+  value can reach an operation that its static type ruled out (e.g. a `String`
+  used where the checker inferred `Int`). This is a program error, not a compiler
+  fault; it traps rather than corrupting memory
 
 Where a recoverable alternative makes sense, the API offers one alongside the
 faulting form — e.g. `list.get(i)` returns `Option<T>` instead of trapping.
@@ -663,6 +668,14 @@ names the specifics:
 | send on a closed channel | `send on a closed channel`                                                            |
 | out of memory            | `out of memory: the live heap is <n> MiB but the limit is <m> MiB (HAWK_MAX_HEAP_MB)` |
 | runaway recursion        | `stack overflow: the call stack reached <n> frames`                                   |
+| type error (checker hole) | `runtime type error: expected <type>, found <type>` (both are Hawk type names)       |
+
+Distinct from the type-error message is `internal error (malformed bytecode):
+…`, reserved for a genuine producer bug — bytecode a correct compiler never
+emits. A `runtime type error` blames the program's (wrongly-accepted) types; an
+`internal error` blames the compiler. Seeing the former means a type annotation
+was wrong or a checker hole let bad code through; seeing the latter is a bug to
+report.
 
 > Integer overflow does **not** trap: `Int` arithmetic wraps around (two's
 > complement). Divide-by-zero is the trapping case above.

@@ -152,6 +152,7 @@ and [grammar.md](grammar.md) (syntax).
 | `err-implicit-ok`      | Error handling → throw  | `return n` implicitly `Result.Ok(n)`                       | ✓      |
 | `fault-index`          | Runtime faults          | out-of-range list index / missing map key trap             | ✓      |
 | `fault-div-zero`       | Runtime faults          | integer divide-by-zero traps                               | ✓      |
+| `fault-type-mismatch`  | Runtime faults          | a type hole traps as a `runtime type error` (named types)  | ✓      |
 | `fault-get-checked`    | Collections → get       | `.get(i)` returns `Option` instead of trapping             | ✓      |
 | `int-wraps`            | Runtime faults          | `Int` arithmetic wraps (no overflow trap)                  | ✓      |
 
