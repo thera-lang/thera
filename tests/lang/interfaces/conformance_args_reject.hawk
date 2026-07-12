@@ -1,0 +1,33 @@
+//! spec: iface-conformance-args
+//! mode: check
+
+// Conformance must agree on the interface's type arguments, not just its
+// identity: an `impl Box<Int>` is a `Box<Int>`, never a `Box<String>`.
+// Previously the args were ignored and the mismatch slipped through `check`.
+
+interface Box<T> {
+    fn get(self) -> T;
+}
+
+struct IntBox {
+    let v: Int;
+}
+
+impl Box<Int> for IntBox {
+    fn get(self) -> Int {
+        return self.v;
+    }
+}
+
+fn wants_ints(_ b: Box<Int>) -> Int {
+    return b.get();
+}
+
+fn wants_strings(_ b: Box<String>) -> Int {
+    return 0;
+}
+
+fn main() -> Void {
+    let ok = wants_ints(IntBox { v: 1 });           // matching args — fine
+    let bad = wants_strings(IntBox { v: 1 });        // expect error: argument to "wants_strings": expected Box<String>, found IntBox
+}

@@ -170,12 +170,16 @@ pub fn is_assignable(_ source: Type, _ target: Type, _ lib: LibraryElement) -> B
     // expected. Conformance and super entries are `TypeId`s, so this matches the
     // *interface the impl's file resolved*, never a same-named one elsewhere.
     // See docs/language.md.
-    if let Interface(tid, _) = target {
+    if let Interface(tid, targs) = target {
         if is_interface_id(lib, tid) {
             if let Interface(sid, _) = source {
                 if let Some(sdef) = def_by_id(lib, sid) {
                     if implements_interface(sdef, tid) {
-                        return true;
+                        // Conformance must also agree on the interface's type
+                        // arguments: an `impl Iterator<Int>` is not an
+                        // `Iterator<String>`. Compare the target's args against the
+                        // ones the impl recorded (see `conformance_args_match`).
+                        return conformance_args_match(sdef, tid, targs, lib);
                     }
                     if sdef.kind == TypeDefKind.Interface
                         && id_list_has(sdef.super_interfaces, tid) {
@@ -236,6 +240,33 @@ pub fn is_assignable(_ source: Type, _ target: Type, _ lib: LibraryElement) -> B
             return false;
         },
     }
+}
+
+// Whether an `impl` of interface `tid` on `sdef` satisfies a target that pins
+// the interface's type arguments (`Iterator<String>`). The conformance records
+// the args it was declared with (`impl Iterator<Int> for T` -> [Int], keyed by
+// `id_key`); each target arg must be satisfied by the corresponding recorded
+// arg. A generic impl records a `TypeParameter`, which stays lenient (its real
+// argument is bound elsewhere), and a bare-interface target (no args) or an
+// interface with no type parameters imposes no constraint.
+fn conformance_args_match(_ sdef: TypeDefElement, _ tid: TypeId,
+    _ targs: List<Type>, _ lib: LibraryElement) -> Bool {
+    if targs.len() == 0 {
+        return true;
+    }
+    if let Some(impl_args) = sdef.interface_args.get(id_key(tid)) {
+        // Arity is validated where the impl is declared; a surprise mismatch here
+        // stays lenient rather than a false rejection.
+        if impl_args.len() != targs.len() {
+            return true;
+        }
+        for p in targs.enumerate() {
+            if !is_assignable(impl_args[p.index], p.value, lib) {
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 // Whether `id` names an interface definition (owner-correct lookup).

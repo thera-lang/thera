@@ -176,6 +176,7 @@ and [grammar.md](grammar.md) (syntax).
 | `generic-bounds`       | Interfaces / Dispatch | `<T: Eq + Debug>` enforced at call sites                                                                                                                                               | ✓      |
 | `gen-param-methods`    | Interfaces / Dispatch | a method call on a type parameter resolves against its bounds; `display`/`debug` are universal, but any other method on an unbounded `T` is a `check` error (matching codegen)          | ✓      |
 | `generic-type-bounds`  | Interfaces / Dispatch | a bound on a generic type's own parameter (`Box<T: Display>`) is enforced on its type arguments                                                                                        | ✓      |
+| `iface-conformance-args` | Interfaces / Dispatch | interface conformance agrees on type arguments: an `impl Box<Int>` does not satisfy an expected `Box<String>`                                                                          | ✓      |
 
 ## Imports, scoping & visibility
 

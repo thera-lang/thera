@@ -892,6 +892,33 @@ fn test_reserved_name_exempt_across_sdk_locations() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
+@test
+fn test_conformance_type_args_must_match() -> Result<Void, Error> {
+    // An `impl Box<Int>` does not satisfy an expected `Box<String>`: the
+    // conformance's type arguments must agree, not just the interface identity.
+    let src = 'interface Box<T> { fn get(self) -> T; }\n'
+        + 'struct IntBox { let v: Int; }\n'
+        + 'impl Box<Int> for IntBox { fn get(self) -> Int { return self.v; } }\n'
+        + 'fn wants(_ b: Box<String>) -> Int { return 0; }\n'
+        + 'fn use_it() -> Int { return wants(IntBox { v: 1 }); }';
+    let errs = errors_of(src);
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs),
+        expected: 'argument to "wants": expected Box<String>, found IntBox')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_conformance_matching_type_args_clean() -> Result<Void, Error> {
+    let src = 'interface Box<T> { fn get(self) -> T; }\n'
+        + 'struct IntBox { let v: Int; }\n'
+        + 'impl Box<Int> for IntBox { fn get(self) -> Int { return self.v; } }\n'
+        + 'fn wants(_ b: Box<Int>) -> Int { return 0; }\n'
+        + 'fn use_it() -> Int { return wants(IntBox { v: 1 }); }';
+    testing.assert_eq(actual: errors_of(src).len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
 // ---- method calls on a bounded type parameter (T: Iface) ----
 
 @test

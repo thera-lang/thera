@@ -846,10 +846,6 @@ vehicle.
 
 **Open — targeted checker fixes** (each local, in the shrink-the-holes model):
 
-- **Interface conformance ignores the target's type arguments.** A struct whose
-  impl is `Iterator<Int>` is accepted where `Iterator<String>` is expected —
-  `is_assignable`'s conformance branch never compares the target args against
-  the recorded `interface_args`. Compare them.
 - **`TypeParameter` → concrete assignability.**
   `fn f<T>(_ x: T) -> Int { return x; }` checks clean and traps at the call. The
   leniency is only needed concrete-→-`T` (instantiation, validated at call
@@ -881,6 +877,15 @@ vehicle.
 
 **Done:**
 
+- **Interface conformance now checks the target's type arguments** (2026-07).
+  `is_assignable`'s conformance branch compared only interface *identity*, so an
+  `impl Box<Int>` was wrongly accepted where `Box<String>` was expected. It now
+  compares the target's args against the ones the impl recorded (`interface_args`,
+  keyed by `id_key`) via a new `conformance_args_match` — each target arg must be
+  satisfied by the corresponding recorded arg, with generic impls (recorded as a
+  `TypeParameter`) and bare-interface targets staying lenient. No corpus false
+  positives (the stdlib's generic `Iterator` impls stay clean). Spec
+  `iface-conformance-args`.
 - **Unbounded-`T` method calls are checked, not just rejected at emit**
   (2026-07). `x.foo()` on an unbounded `T` used to pass `check` (lenient
   receiver) and fail only in codegen (`no method "foo" on T`); `lookup_method`
