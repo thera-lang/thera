@@ -1,0 +1,26 @@
+//! spec: gen-param-methods
+//! mode: check
+
+// A type parameter has exactly its bounds' methods. A method named by none of
+// them — including an unbounded `T`, which has none — is a definitive miss, so
+// `check` rejects it (previously this passed `check` and only codegen rejected
+// it, `no method "…" on T`). The universal `display`/`debug` selectors are the
+// exception: they render any value, so they stay callable on any parameter.
+
+interface Weighted {
+    fn weight(self) -> Int;
+}
+
+fn on_bound<T: Weighted>(_ x: T) -> Int {
+    return x.weight();          // declared by the bound — fine
+}
+
+fn universal<T>(_ x: T) -> String {
+    return x.debug();           // universal — fine on an unbounded T
+}
+
+fn on_unbounded<T>(_ x: T) -> Int {
+    return x.tally();           // expect error: no method "tally" on T
+}
+
+fn main() -> Void {}

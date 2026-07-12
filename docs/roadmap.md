@@ -854,9 +854,6 @@ vehicle.
   `fn f<T>(_ x: T) -> Int { return x; }` checks clean and traps at the call. The
   leniency is only needed concrete-→-`T` (instantiation, validated at call
   sites); a `T` source against a concrete target should be an error.
-- **Unbounded-`T` method calls are rejected at emit, not check.** `x.foo()` on
-  an unbounded `T` passes `hawk check` (lenient receiver) but errors in codegen
-  (`no method "foo" on T`) — the phases disagree; `check` should catch it.
 
 **Open — design decisions:**
 
@@ -884,6 +881,14 @@ vehicle.
 
 **Done:**
 
+- **Unbounded-`T` method calls are checked, not just rejected at emit**
+  (2026-07). `x.foo()` on an unbounded `T` used to pass `check` (lenient
+  receiver) and fail only in codegen (`no method "foo" on T`); `lookup_method`
+  now returns a definitive miss, so the phases agree. A parameter has exactly its
+  bounds' methods; `display`/`debug` stay universal (callable on any parameter) —
+  which as a bonus fixes a latent bug where a *bounded* `T`'s `.debug()`/
+  `.display()` was wrongly rejected. No corpus false positives. Spec
+  `gen-param-methods`.
 - **List/map literal tails are now checked** (2026-07). A list literal is
   homogeneous: every element is checked assignable to the first element's type,
   and a map's keys/values likewise (checker.hawk `ListLit`/`MapLit` arms, reusing

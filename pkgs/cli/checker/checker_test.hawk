@@ -912,9 +912,24 @@ fn test_bounded_type_param_good_method_clean() -> Result<Void, Error> {
 }
 
 @test
-fn test_unbounded_type_param_method_is_lenient() -> Result<Void, Error> {
-    // An unbounded `T` has no resolvable receiver — stay lenient, no false error.
+fn test_unbounded_type_param_method_is_a_definitive_miss() -> Result<Void, Error> {
+    // An unbounded `T` has no methods, so a (non-universal) method call on it is
+    // a definitive miss — `check` catches it, matching codegen (which used to be
+    // the only phase to reject it).
     let errs = errors_of('fn f<T>(_ x: T) -> Int { return x.anything(); }');
-    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs), expected: 'no method "anything" on T')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_universal_method_on_type_param_is_clean() -> Result<Void, Error> {
+    // `display`/`debug` are universal — callable on any parameter, bounded or
+    // not (total rendering resolves impl-or-fallback at runtime).
+    testing.assert_eq(actual: errors_of('fn f<T>(_ x: T) -> String { return x.debug(); }').len(),
+        expected: 0)?;
+    testing.assert_eq(actual: errors_of('interface W { fn wt(self) -> Int; }\n'
+        + 'fn f<T: W>(_ x: T) -> String { return x.display(); }').len(),
+        expected: 0)?;
     return Result.Ok(void);
 }

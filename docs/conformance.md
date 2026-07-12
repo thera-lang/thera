@@ -174,6 +174,7 @@ and [grammar.md](grammar.md) (syntax).
 | `iface-identity`       | Interfaces            | interface identity is owner+name: conformance obligations, default-method units, and interface-typed params bind per-owner; `impl ns.Iface for T` names an interface through an import | ✓      |
 | `iface-bound-identity` | Interfaces / Dispatch | a type-parameter bound binds the interface its declaring file resolves — a conformer to a same-named interface elsewhere does not satisfy it                                           | ✓      |
 | `generic-bounds`       | Interfaces / Dispatch | `<T: Eq + Debug>` enforced at call sites                                                                                                                                               | ✓      |
+| `gen-param-methods`    | Interfaces / Dispatch | a method call on a type parameter resolves against its bounds; `display`/`debug` are universal, but any other method on an unbounded `T` is a `check` error (matching codegen)          | ✓      |
 | `generic-type-bounds`  | Interfaces / Dispatch | a bound on a generic type's own parameter (`Box<T: Display>`) is enforced on its type arguments                                                                                        | ✓      |
 
 ## Imports, scoping & visibility

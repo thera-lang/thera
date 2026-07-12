@@ -1463,28 +1463,35 @@ pub fn lookup_method(_ recv: Type, _ field: String, _ arg_count: Int, _ ctx: Inf
             };
         },
         None => {
-            // A method on a generic parameter bound by an interface (`x: T`,
-            // `T: Weighted`): resolve against the bounds' method sets (dynamic
-            // dispatch). A *bounded* parameter has exactly its bounds' methods, so
-            // a name in none of them is a definitive miss — not lenient. An
-            // unbounded `T` has no resolvable receiver, so it stays lenient below.
+            // A method on a generic parameter (`x: T`): a parameter has exactly
+            // its bounds' methods, so it resolves against the bounds' method sets
+            // (dynamic dispatch). This mirrors codegen's `emit_virtual_call`, so
+            // `check` and `emit` agree on what resolves.
             if let TypeParameter(tpname) = recv {
+                // `display`/`debug` are universal — total rendering resolves any
+                // value to its impl or the runtime's auto-derived fallback — so
+                // they are callable on any parameter, bounded or not.
+                if field == 'display' || field == 'debug' {
+                    return MethodLookup.Lenient;
+                }
                 if let Some(bounds) = ctx.type_param_bounds.get(tpname) {
-                    if bounds.len() > 0 {
-                        for bound in bounds {
-                            if let Some(bdef) = ctx_scope(ctx).resolve_type_def(bound) {
-                                if let Some(method) = find_method(bdef, field) {
-                                    return MethodLookup.Method(MethodResolution {
-                                        method: method, bindings: empty_bindings(),
-                                    });
-                                }
+                    for bound in bounds {
+                        if let Some(bdef) = ctx_scope(ctx).resolve_type_def(bound) {
+                            if let Some(method) = find_method(bdef, field) {
+                                return MethodLookup.Method(MethodResolution {
+                                    method: method, bindings: empty_bindings(),
+                                });
                             }
                         }
-                        return MethodLookup.Missing;
                     }
                 }
+                // A non-universal method named by none of the bounds — including an
+                // unbounded `T`, which has no methods at all — is a definitive
+                // miss. Codegen rejects it (`no method "…" on T`), so `check` must
+                // too, rather than staying lenient and disagreeing with `emit`.
+                return MethodLookup.Missing;
             }
-            // An unresolved/lenient receiver — leave it un-arg-checked.
+            // A non-parameter unresolved receiver (e.g. `Unknown`) stays lenient.
             return MethodLookup.Lenient;
         },
     }
