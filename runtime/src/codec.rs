@@ -15,7 +15,7 @@ use std::path::Path;
 
 use crate::instr::Instr;
 use crate::interp::{native_index, native_name};
-use crate::module::{DispatchEntry, Function, Module, TypeDef};
+use crate::module::{DispatchEntry, EnumDef, Function, Module, TypeDef};
 use crate::serialize::{DecodeError, Reader, Writer};
 
 /// An error loading a module from disk: either the file could not be read or
@@ -61,7 +61,13 @@ pub fn read_module_from_file(path: impl AsRef<Path>) -> Result<Module, LoadError
 }
 
 const MAGIC: &[u8] = b"HAWK";
-const VERSION: u32 = 2;
+/// Current wire version, written by `encode_module`.
+const VERSION: u32 = 3;
+/// Versions `decode_module` accepts. v2 lacks struct field names and the Enums
+/// section, so named `Debug` degrades to positional; v3 carries both. Accepting
+/// both keeps v2 `.hawkbc` loadable (and let the v3 runtime load the still-v2
+/// bootstrap snapshot while the format rolled over — see bootstrap/README.md).
+const SUPPORTED_VERSIONS: &[u32] = &[2, 3];
 
 /// Section ids. Unknown ids are skipped on decode via their byte length.
 mod section {
@@ -79,6 +85,10 @@ mod section {
     /// The function-name table (a symbol per function, parallel to Functions).
     /// Emitted by default, but separable so a future build can strip names.
     pub const SYMBOLS: u8 = 7;
+    /// Enum name tables: name + variant names per enum type id, for named
+    /// `Debug` rendering. Omitted when the module declares no enums. Added in
+    /// format v3 (alongside struct field names in the Types section).
+    pub const ENUMS: u8 = 8;
 }
 
 /// Collects and deduplicates string literals during encoding. Strings are
@@ -179,6 +189,15 @@ pub fn encode_module(m: &Module) -> Vec<u8> {
     let mut pool = StringPool::default();
     for t in &m.types {
         pool.intern(&t.name);
+        for fname in &t.field_names {
+            pool.intern(fname);
+        }
+    }
+    for e in &m.enums {
+        pool.intern(&e.name);
+        for v in &e.variants {
+            pool.intern(v);
+        }
     }
     for f in &m.functions {
         for instr in &f.code {
@@ -209,12 +228,31 @@ pub fn encode_module(m: &Module) -> Vec<u8> {
         consts.write_str(s);
     }
 
-    // Types section: name (pool index) + field count per type.
+    // Types section (v3): name (pool index) + field count, then `field_count`
+    // field-name pool indices. A type that carries no names writes its count as
+    // zero names, so `field_count` and the name list stay independently sized.
     let mut types = Writer::new();
     types.write_uvarint(m.types.len() as u64);
     for t in &m.types {
         types.write_uvarint(u64::from(pool.index[t.name.as_str()]));
         types.write_uvarint(u64::from(t.field_count));
+        types.write_uvarint(t.field_names.len() as u64);
+        for fname in &t.field_names {
+            types.write_uvarint(u64::from(pool.index[fname.as_str()]));
+        }
+    }
+
+    // Enums section (v3): per enum, its type id, name (pool index), and variant
+    // names (count + pool indices, addressed by tag).
+    let mut enums = Writer::new();
+    enums.write_uvarint(m.enums.len() as u64);
+    for e in &m.enums {
+        enums.write_uvarint(u64::from(e.ty));
+        enums.write_uvarint(u64::from(pool.index[e.name.as_str()]));
+        enums.write_uvarint(e.variants.len() as u64);
+        for v in &e.variants {
+            enums.write_uvarint(u64::from(pool.index[v.as_str()]));
+        }
     }
 
     // Functions section: bodies reference the pool by index. Names live in the
@@ -255,6 +293,9 @@ pub fn encode_module(m: &Module) -> Vec<u8> {
     w.write_u32_le(VERSION);
     write_section(&mut w, section::CONSTANTS, &consts.into_bytes());
     write_section(&mut w, section::TYPES, &types.into_bytes());
+    if !m.enums.is_empty() {
+        write_section(&mut w, section::ENUMS, &enums.into_bytes());
+    }
     write_section(&mut w, section::FUNCTIONS, &funcs.into_bytes());
     write_section(&mut w, section::SYMBOLS, &symbols.into_bytes());
     if !m.dispatch.is_empty() {
@@ -282,13 +323,14 @@ pub fn decode_module(bytes: &[u8]) -> Result<Module, DecodeError> {
         return Err(DecodeError::BadMagic);
     }
     let version = r.read_u32_le()?;
-    if version != VERSION {
+    if !SUPPORTED_VERSIONS.contains(&version) {
         return Err(DecodeError::UnsupportedVersion(version));
     }
 
     // Collect section payloads first (order-independent; unknown ids ignored).
     let mut consts_payload: Option<&[u8]> = None;
     let mut types_payload: Option<&[u8]> = None;
+    let mut enums_payload: Option<&[u8]> = None;
     let mut funcs_payload: Option<&[u8]> = None;
     let mut symbols_payload: Option<&[u8]> = None;
     let mut dispatch_payload: Option<&[u8]> = None;
@@ -301,6 +343,7 @@ pub fn decode_module(bytes: &[u8]) -> Result<Module, DecodeError> {
         match id {
             section::CONSTANTS => consts_payload = Some(payload),
             section::TYPES => types_payload = Some(payload),
+            section::ENUMS => enums_payload = Some(payload),
             section::FUNCTIONS => funcs_payload = Some(payload),
             section::SYMBOLS => symbols_payload = Some(payload),
             section::DISPATCH => dispatch_payload = Some(payload),
@@ -317,7 +360,7 @@ pub fn decode_module(bytes: &[u8]) -> Result<Module, DecodeError> {
     };
 
     let types = match types_payload {
-        Some(p) => decode_types(p, &pool)?,
+        Some(p) => decode_types(p, &pool, version)?,
         None => Vec::new(),
     };
 
@@ -342,6 +385,9 @@ pub fn decode_module(bytes: &[u8]) -> Result<Module, DecodeError> {
     }
 
     let mut module = Module::with_types(functions, types);
+    if let Some(p) = enums_payload {
+        module.enums = decode_enums(p, &pool)?;
+    }
     if let Some(p) = dispatch_payload {
         module.dispatch = decode_dispatch(p, &pool)?;
     }
@@ -388,20 +434,62 @@ fn decode_dispatch(payload: &[u8], pool: &[String]) -> Result<Vec<DispatchEntry>
     Ok(dispatch)
 }
 
-fn decode_types(payload: &[u8], pool: &[String]) -> Result<Vec<TypeDef>, DecodeError> {
+fn decode_types(
+    payload: &[u8],
+    pool: &[String],
+    version: u32,
+) -> Result<Vec<TypeDef>, DecodeError> {
+    let intern = |idx: usize| {
+        pool.get(idx)
+            .cloned()
+            .ok_or(DecodeError::ConstIndexOutOfRange)
+    };
     let mut r = Reader::new(payload);
     let count = r.read_uvarint()? as usize;
     let mut types = Vec::with_capacity(count);
     for _ in 0..count {
-        let name_idx = r.read_uvarint()? as usize;
-        let name = pool
-            .get(name_idx)
-            .ok_or(DecodeError::ConstIndexOutOfRange)?
-            .clone();
+        let name = intern(r.read_uvarint()? as usize)?;
         let field_count = r.read_uvarint()? as u16;
-        types.push(TypeDef::new(name, field_count));
+        // v2 stops at the field count; v3 follows it with the field names.
+        if version < 3 {
+            types.push(TypeDef::new(name, field_count));
+            continue;
+        }
+        let name_count = r.read_uvarint()? as usize;
+        let mut field_names = Vec::with_capacity(name_count);
+        for _ in 0..name_count {
+            field_names.push(intern(r.read_uvarint()? as usize)?);
+        }
+        // An empty name list keeps the positional rendering (as in v2).
+        if field_names.is_empty() {
+            types.push(TypeDef::new(name, field_count));
+        } else {
+            types.push(TypeDef::named(name, field_names));
+        }
     }
     Ok(types)
+}
+
+fn decode_enums(payload: &[u8], pool: &[String]) -> Result<Vec<EnumDef>, DecodeError> {
+    let intern = |idx: usize| {
+        pool.get(idx)
+            .cloned()
+            .ok_or(DecodeError::ConstIndexOutOfRange)
+    };
+    let mut r = Reader::new(payload);
+    let count = r.read_uvarint()? as usize;
+    let mut enums = Vec::with_capacity(count);
+    for _ in 0..count {
+        let ty = r.read_uvarint()? as u32;
+        let name = intern(r.read_uvarint()? as usize)?;
+        let variant_count = r.read_uvarint()? as usize;
+        let mut variants = Vec::with_capacity(variant_count);
+        for _ in 0..variant_count {
+            variants.push(intern(r.read_uvarint()? as usize)?);
+        }
+        enums.push(EnumDef::new(ty, name, variants));
+    }
+    Ok(enums)
 }
 
 fn decode_pool(payload: &[u8]) -> Result<Vec<String>, DecodeError> {
@@ -924,6 +1012,53 @@ mod tests {
         b.ret();
         let m = Module::with_types(vec![b.finish()], vec![TypeDef::new("Point", 2)]);
         assert_eq!(decode_module(&encode_module(&m)), Ok(m));
+    }
+
+    #[test]
+    fn module_with_field_and_variant_names_round_trips() {
+        let mut b = FnBuilder::new("make", 0);
+        b.const_int(1);
+        b.struct_new(0);
+        b.ret();
+        let mut m = Module::with_types(
+            vec![b.finish()],
+            vec![
+                TypeDef::named("Point", vec!["x".to_string(), "y".to_string()]),
+                TypeDef::new("Bare", 1), // no names: positional stays intact
+            ],
+        );
+        m.enums = vec![EnumDef::new(
+            3,
+            "Color",
+            vec!["Red".to_string(), "Green".to_string()],
+        )];
+        assert_eq!(decode_module(&encode_module(&m)), Ok(m));
+    }
+
+    #[test]
+    fn v2_module_without_names_still_decodes() {
+        // A hand-built v2 module: the Types section stops at the field count (no
+        // name list), and there is no Enums section. It must decode as a module
+        // whose type carries no field names (positional Debug preserved).
+        let mut consts = Writer::new();
+        consts.write_uvarint(1);
+        consts.write_str("Point");
+
+        let mut types = Writer::new();
+        types.write_uvarint(1); // one type
+        types.write_uvarint(0); // name -> pool[0]
+        types.write_uvarint(2); // field_count, and then... nothing (v2 layout)
+
+        let mut w = Writer::new();
+        w.write_raw(MAGIC);
+        w.write_u32_le(2); // v2 header
+        write_section(&mut w, super::section::CONSTANTS, &consts.into_bytes());
+        write_section(&mut w, super::section::TYPES, &types.into_bytes());
+
+        let decoded = decode_module(&w.into_bytes()).expect("v2 module should decode");
+        assert_eq!(decoded.types, vec![TypeDef::new("Point", 2)]);
+        assert!(decoded.types[0].field_names.is_empty());
+        assert!(decoded.enums.is_empty());
     }
 
     #[test]

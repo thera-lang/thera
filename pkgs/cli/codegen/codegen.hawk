@@ -158,6 +158,7 @@ pub fn compile_program(_ program: Program, _ imports: List<Program>,
         module: Module {
             functions: functions,
             types: scope.types,
+            enums: scope.emit_enums,
             dispatch: dispatch.entries,
             global_count: scope.next_global_slot,
         },

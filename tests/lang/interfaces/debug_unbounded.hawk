@@ -6,6 +6,11 @@ struct Point {
     let y: Int;
 }
 
+enum Shape {
+    Circle(Int),
+    Square,
+}
+
 // `debug` is universal: callable on an *unbounded* type parameter (no `T: Debug`
 // bound). It dispatches virtually and the runtime resolves it to the value's own
 // impl or the auto-derived structural `Debug` — the mechanism the collection
@@ -17,6 +22,10 @@ fn render<T>(_ x: T) -> String {
 fn main() -> Int {
     println(render(5));                     // expect: 5
     println(render('hi'));                  // expect: 'hi'
-    println(render(Point { x: 1, y: 2 }));  // expect: Point { 1, 2 }
+    // Structs render with field names, enums with variant names (from the v3
+    // type/enum name tables).
+    println(render(Point { x: 1, y: 2 }));  // expect: Point { x: 1, y: 2 }
+    println(render(Shape.Circle(3)));       // expect: Circle(3)
+    println(render(Shape.Square));          // expect: Square
     return 0;
 }

@@ -1608,24 +1608,41 @@ impl<'a> Vm<'a> {
                     format!("{{{}}}", parts.join(", "))
                 }
                 Obj::Struct { ty, fields } => {
-                    let name = module
-                        .types
-                        .get(ty as usize)
-                        .map_or("<struct>", |t| t.name.as_str());
+                    let def = module.types.get(ty as usize);
+                    let name = def.map_or("<struct>", |t| t.name.as_str()).to_string();
+                    // Named rendering (`P { x: 1, y: 2 }`) when the type carries
+                    // field names matching the arity; otherwise positional.
+                    let named = def
+                        .filter(|t| t.field_names.len() == fields.len())
+                        .map(|t| t.field_names.clone());
                     if fields.is_empty() {
                         format!("{name} {{}}")
+                    } else if let Some(names) = named {
+                        let mut parts = Vec::with_capacity(fields.len());
+                        for (n, v) in names.iter().zip(&fields) {
+                            parts.push(format!("{n}: {}", self.debug_value(module, v)?));
+                        }
+                        format!("{name} {{ {} }}", parts.join(", "))
                     } else {
                         format!("{name} {{ {} }}", self.debug_list(module, &fields)?)
                     }
                 }
                 Obj::Enum(e) => {
-                    let variant = match (e.ty, e.variant) {
-                        (TY_RESULT, TAG_OK) => "Ok".to_string(),
-                        (TY_RESULT, _) => "Err".to_string(),
-                        (TY_OPTION, TAG_SOME) => "Some".to_string(),
-                        (TY_OPTION, _) => "None".to_string(),
-                        (_, tag) => format!("variant{tag}"),
-                    };
+                    // Prefer the emitted enum table (covers user enums and core
+                    // ones like `Ordering`); fall back to the built-in names for
+                    // `Result`/`Option` (constructible without a module table),
+                    // then to a positional `variant<tag>`.
+                    let variant = module
+                        .enum_def(e.ty)
+                        .and_then(|d| d.variants.get(e.variant as usize))
+                        .cloned()
+                        .unwrap_or_else(|| match (e.ty, e.variant) {
+                            (TY_RESULT, TAG_OK) => "Ok".to_string(),
+                            (TY_RESULT, _) => "Err".to_string(),
+                            (TY_OPTION, TAG_SOME) => "Some".to_string(),
+                            (TY_OPTION, _) => "None".to_string(),
+                            (_, tag) => format!("variant{tag}"),
+                        });
                     if e.fields.is_empty() {
                         variant
                     } else {
@@ -3350,6 +3367,53 @@ mod tests {
         assert_eq!(
             super::run(&m, 0, &[Value::none()]),
             Ok(Value::new_str("None"))
+        );
+    }
+
+    #[test]
+    fn structural_debug_uses_field_and_variant_names_when_present() {
+        use crate::module::{EnumDef, TypeDef};
+        let dbg = debug_module().functions.remove(0);
+        // A type carrying field names renders them; enum table names its variants.
+        let mut m = Module::with_types(
+            vec![dbg],
+            vec![TypeDef::named(
+                "Point",
+                vec!["x".to_string(), "y".to_string()],
+            )],
+        );
+        m.enums = vec![EnumDef::new(
+            3,
+            "Color",
+            vec!["Red".to_string(), "Green".to_string()],
+        )];
+
+        let point = Value::new_struct(0, vec![Value::Int(1), Value::Int(2)]);
+        assert_eq!(
+            super::run(&m, 0, &[point]),
+            Ok(Value::new_str("Point { x: 1, y: 2 }"))
+        );
+        // A user enum renders its variant name by tag (bare, like Ok/Some).
+        let green = Value::new_enum(3, 1, vec![]);
+        assert_eq!(super::run(&m, 0, &[green]), Ok(Value::new_str("Green")));
+        let red_payload = Value::new_enum(3, 0, vec![Value::Int(9)]);
+        assert_eq!(
+            super::run(&m, 0, &[red_payload]),
+            Ok(Value::new_str("Red(9)"))
+        );
+    }
+
+    #[test]
+    fn structural_debug_falls_back_to_positional_without_names() {
+        // A type whose field-name count doesn't match its arity is rendered
+        // positionally — the v2-compatible fallback.
+        use crate::module::TypeDef;
+        let dbg = debug_module().functions.remove(0);
+        let m = Module::with_types(vec![dbg], vec![TypeDef::new("Dog", 2)]);
+        let dog = Value::new_struct(0, vec![Value::new_str("Rex"), Value::Int(3)]);
+        assert_eq!(
+            super::run(&m, 0, &[dog]),
+            Ok(Value::new_str("Dog { 'Rex', 3 }"))
         );
     }
 

@@ -13,7 +13,9 @@ import 'instr' as _; // emits instructions pervasively
 import 'module';
 
 const MAGIC: String = 'HAWK';
-const VERSION: Int = 2;
+// v3: struct field names in the Types section + an Enums section, for named
+// `Debug` rendering. See docs/bytecode.md and the runtime's `codec.rs`.
+const VERSION: Int = 3;
 
 // Section ids. Unknown ids are skipped on decode via their byte length.
 const SECTION_FUNCTIONS: Int = 1;
@@ -30,6 +32,9 @@ const SECTION_ENTRY: Int = 6;
 // The function-name table (one name per function, parallel to Functions).
 // Emitted by default, but separable so a future build can strip names.
 const SECTION_SYMBOLS: Int = 7;
+// Enum name tables (name + variant names per enum type id), for named `Debug`.
+// Omitted when the module declares no enums.
+const SECTION_ENUMS: Int = 8;
 
 // Collects and deduplicates strings during encoding, preserving first-seen order
 // so the encoded pool matches the runtime's. A linear scan keeps the port free
@@ -68,6 +73,15 @@ pub fn encode_module(_ m: module.Module) -> Bytes {
     let pool = StringPool { strings: [], index: [:] };
     for t in m.types {
         pool.intern(t.name);
+        for fname in t.field_names {
+            pool.intern(fname);
+        }
+    }
+    for e in m.enums {
+        pool.intern(e.name);
+        for v in e.variants {
+            pool.intern(v);
+        }
     }
     for f in m.functions {
         for instr in f.code {
@@ -96,12 +110,30 @@ pub fn encode_module(_ m: module.Module) -> Bytes {
         write_str_lp(consts, s);
     }
 
-    // Types section: name (pool index) + field count per type.
+    // Types section (v3): name (pool index) + field count, then `field_names`
+    // (count + pool indices). A type with no names writes a zero count.
     let types = BytesBuilder.new();
     types.write_uvarint(m.types.len());
     for t in m.types {
         types.write_uvarint(pool.index_of(t.name));
         types.write_uvarint(t.field_count);
+        types.write_uvarint(t.field_names.len());
+        for fname in t.field_names {
+            types.write_uvarint(pool.index_of(fname));
+        }
+    }
+
+    // Enums section (v3): per enum, its type id, name (pool index), and variant
+    // names (count + pool indices, addressed by tag).
+    let enums = BytesBuilder.new();
+    enums.write_uvarint(m.enums.len());
+    for e in m.enums {
+        enums.write_uvarint(e.ty);
+        enums.write_uvarint(pool.index_of(e.name));
+        enums.write_uvarint(e.variants.len());
+        for v in e.variants {
+            enums.write_uvarint(pool.index_of(v));
+        }
     }
 
     // Functions section: bodies reference the pool by index. Names live in the
@@ -138,6 +170,11 @@ pub fn encode_module(_ m: module.Module) -> Bytes {
     w.write_u32_le(VERSION);
     write_section(w, SECTION_CONSTANTS, consts.finish());
     write_section(w, SECTION_TYPES, types.finish());
+    // The enums section is omitted entirely when empty (keeping enum-free modules
+    // byte-identical).
+    if m.enums.len() != 0 {
+        write_section(w, SECTION_ENUMS, enums.finish());
+    }
     write_section(w, SECTION_FUNCTIONS, funcs.finish());
     write_section(w, SECTION_SYMBOLS, symbols.finish());
     // The dispatch section is omitted entirely when empty (keeping older modules

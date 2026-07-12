@@ -1498,8 +1498,9 @@ automatically. Structs get a default `Debug` implementation; `Display` must be
 implemented explicitly.
 
 ```hawk
-// auto-derived Debug for a struct prints its fields (positionally):
-//   Point { 1.0, 2.0 }
+// auto-derived Debug for a struct prints its fields by name:
+//   Point { x: 1.0, y: 2.0 }
+// (and a user enum by variant name, e.g. Circle(3.0) / Square)
 
 struct Point {
     let x: Double;

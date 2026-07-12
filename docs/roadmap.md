@@ -705,15 +705,6 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   in `sdk/std`. Operators-as-interfaces (`Eq`, `Add`, and `Indexable` below) is
   what turns those into ordinary Hawk methods; revisit the exact shape then (the
   `[]` half is the _Index operator_ item).
-- **Richer structural `Debug`.** The auto-derived `Debug` renders a struct
-  **positionally** (`Name { 1, 2 }`, no field names) and a user enum **by tag**
-  (`variant1`; only `Result`/`Option` variants are named) — the runtime type
-  table doesn't carry field/variant names. Now user-visible: total rendering
-  renders collection elements via `Debug`, so `${someEnumList}` shows
-  `[variant1, variant0]`. Add field/variant names to the rendering — needs the
-  names threaded into the runtime type table, or the bytecode-level name table
-  the Profiling/`.hawkbc` debug-info item would add. (`Display`-for-collections
-  and total rendering are done — see _Changelog_.)
 - **Primitive vtables — scope it (runtime / generics / soundness).** A primitive
   reached through _virtual_ dispatch — `call.virtual('display'|'eq'|'debug')`
   from a generic `<T: Display>` / interface-typed context where the runtime
@@ -756,14 +747,15 @@ future diagnostics audit) and worked through iteratively: doc-only corrections
 are applied directly and recorded below; findings that imply design or
 implementation work stay open here until decided.
 
-**Open — design/behavior follow-ups from the 2026-07 review:**
-
-- **`Debug` field names** — already tracked as _Richer structural `Debug`_
-  (Language, above): the derive renders positionally because the runtime type
-  table doesn't carry field names.
+**Open — design/behavior follow-ups from the 2026-07 review:** none currently —
+the review's follow-ups are all resolved (below).
 
 **Done — implemented follow-ups:**
 
+- **`Debug` field names — named structural `Debug` (bytecode v3)** (2026-07). The
+  derive renders struct field names and enum variant names instead of positional
+  `Name { 1, 2 }` / `variant1`; the names live in the runtime type table and a
+  new Enums section. See the _Named structural `Debug`_ changelog entry.
 - **Lazy `List.map`/`filter`? Decided: stay eager, add a `List.iter()` bridge**
   (2026-07). `map`/`filter` on a `List` keep returning a `List` — the closure
   property (result still indexes, has `len`, re-iterates, chains further list
@@ -923,6 +915,16 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **Named structural `Debug` — field + variant names (bytecode v3)** (2026-07).
+  The auto-derived `Debug` now renders structs by field name (`Point { x: 1, y:
+  2 }`) and user enums by variant name (`Circle(3)`, `Square`) instead of the old
+  positional `Point { 1, 2 }` / `variant1`. Bytecode v3 threads the names into
+  the runtime type table (`TypeDef.field_names`) and a new Enums section
+  (`EnumDef`: ty + name + variant names); the loader still accepts v2 (names
+  absent ⇒ positional). `Ordering` now names its variants too; the runtime keeps
+  a built-in `Ok`/`Some` fallback for `Result`/`Option`. This is the enabling
+  primitive for runtime reflection/introspection. Format in bytecode.md.
 
 - **`hawk test`/`check`/`lint` UX for LLM output** (2026-07). The analyzers stop
   emitting lines just for doing work: quiet-by-default reports (failure blocks

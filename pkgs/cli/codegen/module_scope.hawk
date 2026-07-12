@@ -133,6 +133,10 @@ pub struct ModuleScope {
     let structs: Map<String, Map<String, StructInfo>>; // owner -> name -> info
     let enums: Map<String, Map<String, EnumInfo>>;     // owner -> name -> info
     let types: List<TypeDef>;
+    // The enum name tables emitted as the module's Enums section (name + variant
+    // names per enum type id), for named `Debug` rendering. Accumulated as enums
+    // are registered, in parallel to `types` for structs.
+    let emit_enums: List<EnumDef>;
     // Top-level constants, keyed by **owning file** then name (owner-correct,
     // like `structs`/`file_functions`): two libraries' same-named consts inline
     // their own initializers, and cycle detection can't conflate them.
@@ -185,6 +189,7 @@ pub fn new_module_scope(_ library: element.LibraryElement) -> ModuleScope {
         structs: [:],
         enums: [:],
         types: [],
+        emit_enums: [],
         consts: [:],
         globals: [:],
         global_inits: [],
@@ -317,7 +322,11 @@ impl ModuleScope {
                 field_names: field_names,
             };
         }
-        self.types.push(TypeDef { name: decl.name, field_count: decl.fields.len() });
+        self.types.push(TypeDef {
+            name: decl.name,
+            field_count: decl.fields.len(),
+            field_names: field_names,
+        });
     }
 
     pub fn add_enum(self, _ decl: EnumDecl, _ file: Option<String>) -> Void {
@@ -345,6 +354,14 @@ impl ModuleScope {
         if let Some(m) = self.enums.get(owner) {
             m[decl.name] = EnumInfo { ty: ty, variants: decl.variants };
         }
+        // Record the enum's variant names for named `Debug` rendering. Emitted
+        // for every enum — user and core (so `Ordering` names its variants; the
+        // runtime keeps a built-in fallback for `Result`/`Option`).
+        self.emit_enums.push(EnumDef {
+            ty: ty,
+            name: decl.name,
+            variants: decl.variants.map((v) => v.name),
+        });
     }
 
     // The struct/enum layout for an owner-qualified type id — the runtime analogue
@@ -592,7 +609,9 @@ impl ModuleScope {
             return i;
         }
         let i = self.types.len();
-        self.types.push(TypeDef { name: '<cell>', field_count: 1 });
+        // No field names — the boxed-cell struct is internal and renders
+        // positionally if it ever reaches `Debug`.
+        self.types.push(TypeDef { name: '<cell>', field_count: 1, field_names: [] });
         self.cell_type = Option.Some(i);
         return i;
     }

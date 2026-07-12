@@ -10,6 +10,6 @@ struct Bare {
 // `${}` works for any value.
 fn main() -> Int {
     let b = Bare { n: 1 };
-    println('${b}');   // expect: Bare { 1 }
+    println('${b}');   // expect: Bare { n: 1 }
     return 0;
 }

@@ -5,11 +5,23 @@
 
 import 'instr';
 
-// A struct/enum layout entry. For now the runtime only needs the name and the
-// field count (the type table).
+// A struct layout entry in the type table: its name, field count, and field
+// names in declaration order. The names drive named `Debug` rendering
+// (`Point { x: 1, y: 2 }`); an empty `field_names` renders positionally.
 pub struct TypeDef {
     let name: String;
     let field_count: Int;
+    let field_names: List<String>;
+}
+
+// An enum's names, for named `Debug` rendering of its variants (`Red`,
+// `Circle(1.0)`). Enums have no type-table row (they live in a separate type-id
+// space), so this parallel table maps an enum type id to its name and variant
+// names, indexed by tag. Emitted as the Enums section.
+pub struct EnumDef {
+    let ty: Int;
+    let name: String;
+    let variants: List<String>; // variant names, indexed by tag
 }
 
 // A single function: its name, arity, local-slot count (params included), and
@@ -43,6 +55,7 @@ pub struct DispatchEntry {
 pub struct Module {
     let functions: List<FuncDef>;
     let types: List<TypeDef>;
+    let enums: List<EnumDef>;
     let dispatch: List<DispatchEntry>;
     let global_count: Int;
 }

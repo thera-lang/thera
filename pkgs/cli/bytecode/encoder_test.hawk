@@ -43,15 +43,15 @@ fn demo_module() -> Module {
             Instr.Simple(Op.Return),
         ],
     };
-    return Module { functions: [main_fn, double_fn], types: [], dispatch: [], global_count: 0 };
+    return Module { functions: [main_fn, double_fn], types: [], enums: [], dispatch: [], global_count: 0 };
 }
 
 @test
 fn test_demo_is_byte_identical_to_runtime() -> Result<Void, Error> {
-    // The v2 wire form: names moved to the Symbols section (7) and a trailing
+    // The v3 wire form: names moved to the Symbols section (7) and a trailing
     // Entry section (6) points at `main` (index 0, encoded as `index + 1`).
     let expected = [
-        72, 65, 87, 75, 2, 0, 0, 0,
+        72, 65, 87, 75, 3, 0, 0, 0,
         // constants: 4 strings
         2, 44, 4, 13, 100, 111, 117, 98, 108, 101, 40, 50, 49, 41, 32, 61, 32,
         9, 115, 116, 114, 105, 110, 103, 105, 102, 121,
@@ -85,22 +85,25 @@ fn test_types_and_dispatch_sections() -> Result<Void, Error> {
     };
     let m = Module {
         functions: [f],
-        types: [TypeDef { name: 'Point', field_count: 2 }],
+        types: [TypeDef { name: 'Point', field_count: 2, field_names: ['x', 'y'] }],
+        enums: [],
         dispatch: [DispatchEntry { type_id: 0, selector: 'show', func: 0 }],
         global_count: 0,
     };
+    // Field names are interned right after the type name (types pass), before the
+    // dispatch selector — so the pool is [Point, x, y, show].
     let expected = [
-        72, 65, 87, 75, 2, 0, 0, 0,
-        // constants: 2 strings — "Point" (idx 0), "show" (idx 1)
-        2, 12, 2, 5, 80, 111, 105, 110, 116, 4, 115, 104, 111, 119,
-        // types: 1 type, name-index 0, field-count 2
-        3, 3, 1, 0, 2,
+        72, 65, 87, 75, 3, 0, 0, 0,
+        // constants: 4 strings — "Point"(0), "x"(1), "y"(2), "show"(3)
+        2, 16, 4, 5, 80, 111, 105, 110, 116, 1, 120, 1, 121, 4, 115, 104, 111, 119,
+        // types: 1 type, name-index 0, field-count 2, name-count 2, [x=1, y=2]
+        3, 6, 1, 0, 2, 2, 1, 2,
         // functions: 1 fn (no name), 0/0, 2 instrs (const.unit=4, return=45)
         1, 6, 1, 0, 0, 2, 4, 45,
         // symbols: "f"
         7, 3, 1, 1, 102,
-        // dispatch: 1 row — type 0, selector-index 1, func 0
-        4, 4, 1, 0, 1, 0,
+        // dispatch: 1 row — type 0, selector-index 3, func 0
+        4, 4, 1, 0, 3, 0,
     ];
     testing.assert_eq(actual: encode_module(m).to_list(), expected: expected)?;
     return Result.Ok(void);
@@ -120,9 +123,9 @@ fn test_double_bool_and_negative_int() -> Result<Void, Error> {
             Instr.Simple(Op.Return),
         ],
     };
-    let m = Module { functions: [g], types: [], dispatch: [], global_count: 0 };
+    let m = Module { functions: [g], types: [], enums: [], dispatch: [], global_count: 0 };
     let expected = [
-        72, 65, 87, 75, 2, 0, 0, 0,
+        72, 65, 87, 75, 3, 0, 0, 0,
         2, 1, 0, // no pooled strings
         3, 1, 0, // no types
         1, 18, 1, 0, 0, 4,             // functions: 1 fn (no name), 0/0, 4 instrs

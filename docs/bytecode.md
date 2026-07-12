@@ -118,6 +118,7 @@ Module
   types       : [TypeDef]       // struct + enum shapes
   functions   : [Function]
   symbols     : [Str]           // one name per function (the Symbols section)
+  enums       : [EnumDef]       // enum name tables (the Enums section); may be empty
   dispatch    : [DispatchRow]   // (type_id, selector, func) — backs call.virtual
   global_count: u32             // size of the per-run globals vector; 0 if none
   entry?      : u32             // index of `main`     (the Entry section)
@@ -126,6 +127,12 @@ Module
 TypeDef
   name        : Str
   field_count : u16             // struct fields / enum-payload arity
+  field_names : [Str]           // field names in order (v3); empty ⇒ positional Debug
+
+EnumDef                         // one per enum type id (the Enums section, v3)
+  ty          : u32             // enum type id (the value model's tag space)
+  name        : Str
+  variants    : [Str]           // variant names, indexed by tag — for named Debug
 
 Function
   param_count : u16
@@ -176,12 +183,17 @@ loader can skip sections it does not understand (forward compatibility, and a
 home for optional debug info):
 
 ```
-Header:   magic "HAWK" + format version (u32, currently 2)
+Header:   magic "HAWK" + format version (u32, currently 3)
 Section:  id (u8) + byte_length (varint) + payload     // unknown ids skipped
   Functions : per fn { param_count, local_count, code }
   Constants : string constant pool — dedup'd string literals, referenced by
               index (see below). f64 / large ints are not pooled yet.
-  Types     : struct/enum layouts (TypeDef: name + field_count)
+  Types     : struct layouts (TypeDef: name + field_count + field_names). The
+              field names (v3) drive named `Debug` (`P { x: 1 }`); an empty name
+              list renders positionally.
+  Enums     : enum name tables (EnumDef: ty + name + variant names), for named
+              `Debug` of variants (`Circle(3)`); omitted when the module has no
+              enums.
   Symbols   : one function name per Functions entry (length-prefixed strings);
               emitted by default, but a self-contained section a build can drop.
   Dispatch  : the (type_id, selector, func) rows backing `call.virtual`
@@ -203,8 +215,11 @@ than deriving it from the Types section — an intended-but-not-yet-done
 compaction.
 
 The section framing is the version-evolution seam: v1 inlined names in Functions
-and had no Symbols/Entry; v2 (current) moved them out. Since the front-end and
-runtime ship together, the loader accepts only the current version.
+and had no Symbols/Entry; v2 moved them out; v3 (current) added struct field
+names to Types and the Enums name table, for named `Debug`. The front-end and
+runtime ship together, but the loader still accepts v2 (field/variant names
+absent ⇒ positional `Debug`) so older `.hawkbc` keeps loading — the same
+graceful-degradation the omitted-when-empty sections give.
 
 **Module globals & the init thunk.** Top-level `let` bindings become slots in a
 per-run **globals vector**, sized by the Globals section's count. The front-end

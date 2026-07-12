@@ -40,13 +40,54 @@ pub struct TypeDef {
     pub name: String,
     /// Number of fields, popped by `struct.new` and addressed by `field.get`.
     pub field_count: u16,
+    /// Field names in declaration order, for named `Debug` rendering
+    /// (`Point { x: 1, y: 2 }`). Empty when the module predates the v3 format or
+    /// omits names; `debug_value` then falls back to positional rendering. When
+    /// present, `field_names.len() == field_count`.
+    pub field_names: Box<[String]>,
 }
 
 impl TypeDef {
+    /// A type with no field names — positional `Debug` (`Name { 1, 2 }`).
     pub fn new(name: impl Into<String>, field_count: u16) -> Self {
         Self {
             name: name.into(),
             field_count,
+            field_names: Box::default(),
+        }
+    }
+
+    /// A type carrying its field names; `field_count` is taken from the names.
+    pub fn named(name: impl Into<String>, field_names: impl Into<Box<[String]>>) -> Self {
+        let field_names = field_names.into();
+        Self {
+            name: name.into(),
+            field_count: field_names.len() as u16,
+            field_names,
+        }
+    }
+}
+
+/// An enum type's names, for named `Debug` rendering of variants (`Red`,
+/// `Circle(1.0)`). Enums live in their own type-id space (they have no
+/// [`TypeDef`] row), so this parallel table maps an enum type id to its
+/// declared name and variant names, indexed by variant tag. Empty/absent for
+/// modules predating the v3 format — `debug_value` then falls back to the
+/// built-in `Ok`/`Some` names or a positional `variant<tag>`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EnumDef {
+    pub ty: u32,
+    pub name: String,
+    /// Variant names indexed by tag (`variants[tag]`).
+    pub variants: Box<[String]>,
+}
+
+impl EnumDef {
+    pub fn new(ty: u32, name: impl Into<String>, variants: impl Into<Box<[String]>>) -> Self {
+        Self {
+            ty,
+            name: name.into(),
+            variants: variants.into(),
         }
     }
 }
@@ -85,6 +126,9 @@ impl DispatchEntry {
 pub struct Module {
     pub functions: Vec<Function>,
     pub types: Vec<TypeDef>,
+    /// Enum name tables (name + variant names per enum type id), for named
+    /// `Debug` rendering. Empty until the front-end emits the Enums section.
+    pub enums: Vec<EnumDef>,
     /// The virtual-dispatch table consulted by `call.virtual` (empty until the
     /// front-end emits interface dispatch).
     pub dispatch: Vec<DispatchEntry>,
@@ -107,6 +151,7 @@ impl Module {
         Self {
             functions,
             types: Vec::new(),
+            enums: Vec::new(),
             dispatch: Vec::new(),
             global_count: 0,
             entry: None,
@@ -118,11 +163,17 @@ impl Module {
         Self {
             functions,
             types,
+            enums: Vec::new(),
             dispatch: Vec::new(),
             global_count: 0,
             entry: None,
             init: None,
         }
+    }
+
+    /// The enum name table for type id `ty`, if the module carries one.
+    pub fn enum_def(&self, ty: u32) -> Option<&EnumDef> {
+        self.enums.iter().find(|e| e.ty == ty)
     }
 
     /// Index of the function named `name`, if any.
