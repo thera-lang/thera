@@ -14,6 +14,43 @@ fn test_slice() -> Result<Void, Error> {
 }
 
 @test
+fn test_iter_roundtrips() -> Result<Void, Error> {
+    let xs = [1, 2, 3];
+    testing.assert_eq(actual: xs.iter().to_list(), expected: xs)?;
+    testing.assert_eq(actual: [].iter().count(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_iter_fuses_a_lazy_chain() -> Result<Void, Error> {
+    // The opt-in lazy path: map/filter fused in one walk, materialized once.
+    let out = [1, 2, 3, 4, 5]
+        .iter()
+        .map((n) => n * n)
+        .filter((n) => n > 4)
+        .to_list();
+    testing.assert_eq(actual: out, expected: [9, 16, 25])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_iter_take_short_circuits() -> Result<Void, Error> {
+    let out = [10, 20, 30, 40].iter().take(2).to_list();
+    testing.assert_eq(actual: out, expected: [10, 20])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_iter_drives_a_for_loop() -> Result<Void, Error> {
+    let mut sum = 0;
+    for n in [4, 5, 6].iter() {
+        sum = sum + n;
+    }
+    testing.assert_eq(actual: sum, expected: 15)?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_enumerate_pairs_index_and_value() -> Result<Void, Error> {
     // Collected: each element paired with its 0-based position.
     let pairs = ['a', 'b', 'c'].enumerate().to_list();

@@ -172,7 +172,32 @@ impl List<T> {
     /// }
     /// ```
     pub fn enumerate(self) -> Iterator<Indexed<T>> {
-        return ListEnumerateIter { list: self, pos: 0 };
+        return self.iter().enumerate();
+    }
+
+    /// A **lazy** `Iterator` over the elements, in order — the opt-in gateway to
+    /// the pull-based `Iterator` protocol (`map`/`filter`/`take`/`enumerate`,
+    /// then `to_list`/`count`).
+    ///
+    /// Prefer the eager `map`/`filter` below for the common case: they return a
+    /// plain `List`, so the result keeps indexing, `len`, re-iteration, and
+    /// further list methods. Reach for `iter()` when a *chain* of transforms
+    /// would otherwise build throwaway intermediate lists, when you want to stop
+    /// early (`take(n)`), or when the data is large enough that fusing the passes
+    /// matters — `iter()` runs the whole chain in one walk with no intermediates:
+    ///
+    /// ```hawk
+    /// // eager: one intermediate list, then the final list — fine for small input
+    /// let a = xs.map((n) => n * n).filter((n) => n > 10);
+    ///
+    /// // lazy: fused single pass, materialized once at the end
+    /// let b = xs.iter().map((n) => n * n).filter((n) => n > 10).to_list();
+    /// ```
+    ///
+    /// Note an `Iterator` is single-use (stateful: consumed as it is read), so
+    /// call `iter()` again for a fresh pass rather than reusing the value.
+    pub fn iter(self) -> Iterator<T> {
+        return ListIter { items: self, pos: 0 };
     }
 
     /// A new list with `f` applied to each element, in order.

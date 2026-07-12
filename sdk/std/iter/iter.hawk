@@ -38,23 +38,9 @@ pub fn range(_ start: Int, _ end: Int) -> Iterator<Int> {
     return RangeIter { current: start, end: end };
 }
 
-/// An iterator over the elements of a list, in order.
-struct ListIter<T> {
-    let items: List<T>;
-    let mut pos: Int;
-}
-
-impl Iterator<T> for ListIter<T> {
-    pub fn next(self) -> Option<T> {
-        // `get` returns None past the end; advancing `pos` regardless is
-        // harmless once exhausted (it just keeps returning None).
-        let item = self.items.get(self.pos);
-        self.pos = self.pos + 1;
-        return item;
-    }
-}
-
-/// An iterator yielding each element of `items`, in order.
+/// An iterator yielding each element of `items`, in order. A thin alias for the
+/// built-in `items.iter()` (see `List.iter`); prefer that method at call sites —
+/// this is here for symmetry with the other free-function sources.
 pub fn from_list<T>(_ items: List<T>) -> Iterator<T> {
-    return ListIter { items: items, pos: 0 };
+    return items.iter();
 }

@@ -758,17 +758,22 @@ implementation work stay open here until decided.
 
 **Open — design/behavior follow-ups from the 2026-07 review:**
 
-- **Lazy `List.map`/`filter`?** Both are eager (each returns a new `List`) —
-  simple, and right for small lists. Returning an `Iterator` instead would fuse
-  chains (`xs.map(f).filter(g)` with no intermediate list) at the cost of a
-  `.to_list()` at most call sites, plus inference/ergonomics churn. Evaluate
-  against real corpus profiles before moving anything. _(Stdlib)_
 - **`Debug` field names** — already tracked as _Richer structural `Debug`_
   (Language, above): the derive renders positionally because the runtime type
   table doesn't carry field names.
 
 **Done — implemented follow-ups:**
 
+- **Lazy `List.map`/`filter`? Decided: stay eager, add a `List.iter()` bridge**
+  (2026-07). `map`/`filter` on a `List` keep returning a `List` — the closure
+  property (result still indexes, has `len`, re-iterates, chains further list
+  methods), no per-call `.to_list()` tax, and no one-shot-consumption footgun,
+  all matching the dominant convention (JS/Ruby/Swift/Kotlin arrays are eager;
+  laziness is opt-in). The lazy path is now reached with `xs.iter()`, whose doc
+  is the discoverable "when/why you'd want a fused, short-circuiting pass" home.
+  `List.iter()` is the single list→`Iterator` bridge: `List.enumerate` composes
+  as `self.iter().enumerate()` (the bespoke `ListEnumerateIter` is gone) and
+  `iter.from_list` is now a thin alias for it.
 - **`hawk test` / `hawk check` UX for LLM output** (2026-07). The analyzers no
   longer emit lines just for doing work: `hawk test` prints only failing-test
   blocks (`<name>: failed` + the `path:line:col:` detail indented) and one

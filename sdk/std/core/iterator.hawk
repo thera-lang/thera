@@ -3,8 +3,9 @@
 //! `Iterator<T>` is Hawk's pull-based sequence protocol: `next()` yields the next
 //! element as `Some(v)`, or `None` once the sequence is exhausted. It is part of
 //! the prelude (always in scope) because the language drives it directly: a
-//! `for x in it` loop iterates any `Iterator`. Sources (`range`, `from_list`)
-//! live in `std.iter`.
+//! `for x in it` loop iterates any `Iterator`. A `List` bridges to this protocol
+//! with `xs.iter()` (in `list.hawk`); other sources (`range`, `from_list`) live
+//! in `std.iter`.
 //!
 //! Beyond the one required `next`, the interface provides **default methods** —
 //! lazy adapters (`map`/`filter`/`take`/`enumerate`) and eager consumers
@@ -156,23 +157,22 @@ impl Iterator<Indexed<T>> for EnumerateIter<T> {
     }
 }
 
-// The iterator backing `List.enumerate()` — walks a list by index, pairing each
-// element with its position. Kept here (a plain index cursor, no `List.iter()`
-// bridge) so the pairing lives beside `Indexed`/`EnumerateIter`. `pub` because
-// `List.enumerate` (in list.hawk) constructs it across the file boundary — like
-// `Indexed`, it is part of `enumerate`'s public surface.
-pub struct ListEnumerateIter<T> {
-    let list: List<T>;
+// The iterator backing `List.iter()` — a plain index cursor over a list. `pub`
+// because `List.iter` (in list.hawk) constructs it across the file boundary. It
+// is the single list→`Iterator` bridge: `List.enumerate`, `map`/`filter`
+// chains, and `iter.from_list` all flow through it, so the whole lazy protocol
+// walks a list from here.
+pub struct ListIter<T> {
+    let items: List<T>;
     let mut pos: Int;
 }
 
-impl Iterator<Indexed<T>> for ListEnumerateIter<T> {
-    pub fn next(self) -> Option<Indexed<T>> {
-        if self.pos >= self.list.len() {
-            return Option.None;
-        }
-        let i = self.pos;
+impl Iterator<T> for ListIter<T> {
+    pub fn next(self) -> Option<T> {
+        // `get` returns None past the end; advancing `pos` regardless is
+        // harmless once exhausted (it just keeps returning None).
+        let item = self.items.get(self.pos);
         self.pos = self.pos + 1;
-        return Option.Some(Indexed { index: i, value: self.list[i] });
+        return item;
     }
 }
