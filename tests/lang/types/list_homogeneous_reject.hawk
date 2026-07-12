@@ -1,0 +1,14 @@
+//! spec: type-list-homogeneous
+//! mode: check
+
+// A list literal is homogeneous: every element must match the first element's
+// type. Previously the tail was unchecked — `[1, 'two']` inferred `List<Int>`
+// and the bad element trapped at runtime; now `check` catches it.
+fn main() -> Void {
+    let a = [1, 'two'];              // expect error: list element: expected Int, found String
+    let b = [1, 2, 3];               // homogeneous — fine
+
+    // Maps are homogeneous in both key and value.
+    let c = ['a': 1, 'b': 'two'];    // expect error: map value: expected Int, found String
+    let d = ['a': 1, 'b': 2];        // fine
+}

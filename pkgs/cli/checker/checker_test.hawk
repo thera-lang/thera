@@ -45,6 +45,35 @@ fn test_clean_program_has_no_errors() -> Result<Void, Error> {
 }
 
 @test
+fn test_list_literal_tail_is_checked() -> Result<Void, Error> {
+    // A heterogeneous list literal is a check error (was an unchecked runtime
+    // trap): every element must match the first's inferred type.
+    let errs = errors_of('fn main() -> Void { let xs = [1, \'two\', 3]; }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs),
+        expected: 'list element: expected Int, found String')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_homogeneous_list_and_map_are_clean() -> Result<Void, Error> {
+    testing.assert_eq(actual: errors_of('fn main() -> Void { let xs = [1, 2, 3]; }').len(),
+        expected: 0)?;
+    testing.assert_eq(actual: errors_of('fn main() -> Void { let m = [\'a\': 1, \'b\': 2]; }').len(),
+        expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_map_literal_value_tail_is_checked() -> Result<Void, Error> {
+    let errs = errors_of('fn main() -> Void { let m = [\'a\': 1, \'b\': \'two\']; }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs),
+        expected: 'map value: expected Int, found String')?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_undefined_name() -> Result<Void, Error> {
     let errs = errors_of('fn f() -> Int { return missing; }');
     testing.assert_eq(actual: errs.len(), expected: 1)?;

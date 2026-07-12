@@ -1248,11 +1248,38 @@ fn check_expr_inner(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> V
             for item in items {
                 check_expr(cc, item, Option.None);
             }
+            // A list literal is homogeneous: every element must be assignable to
+            // the element type. That type is the context's expected `List<E>` when
+            // there is one (so a `List<Display>` holds mixed impls), else the first
+            // element's inferred type. Without this, `[1, 'two']` infers `List<Int>`
+            // and the bad tail traps at runtime.
+            if items.len() > 0 {
+                let elem = expected_type_arg(expected, 'List', 0)
+                    .unwrap_or_else(() => infer_expr(items[0], scope, ctx, Option.None));
+                for item in items {
+                    let it = infer_expr(item, scope, ctx, Option.None);
+                    expect_type(errors, it, elem, 'list element', expr_span(item), ctx.library);
+                }
+            }
         },
         MapLit(_, entries) => {
             for entry in entries {
                 check_expr(cc, entry.key, Option.None);
                 check_expr(cc, entry.value, Option.None);
+            }
+            // Homogeneous keys and values, against the expected `Map<K, V>` when the
+            // context supplies one, else the first entry's inferred key/value types.
+            if entries.len() > 0 {
+                let kref = expected_type_arg(expected, 'Map', 0)
+                    .unwrap_or_else(() => infer_expr(entries[0].key, scope, ctx, Option.None));
+                let vref = expected_type_arg(expected, 'Map', 1)
+                    .unwrap_or_else(() => infer_expr(entries[0].value, scope, ctx, Option.None));
+                for entry in entries {
+                    let kt = infer_expr(entry.key, scope, ctx, Option.None);
+                    let vt = infer_expr(entry.value, scope, ctx, Option.None);
+                    expect_type(errors, kt, kref, 'map key', expr_span(entry.key), ctx.library);
+                    expect_type(errors, vt, vref, 'map value', expr_span(entry.value), ctx.library);
+                }
             }
         },
         Struct(x) => {
@@ -2163,6 +2190,27 @@ fn expect_type(_ errors: List<diagnostic.Diagnostic>, _ actual: Type, _ expected
     if !is_assignable(actual, expected, lib) {
         add_error(errors, '${context}: expected ${type_to_string(expected)}, found ${type_to_string(actual)}', span);
     }
+}
+
+// Type argument `idx` of an expected `name<...>` type (`List`/`Map`), if the
+// context supplies one — the reference element type a collection literal checks
+// its elements against. `None` when there is no such expectation, so the literal
+// falls back to homogeneity against its first element. Using the expected
+// element type (not the first element) is what lets an annotated `List<Display>`
+// hold different impls while `[1, 'two']` (inferred, or expected `List<Int>`)
+// still fails.
+fn expected_type_arg(_ expected: Option<Type>, _ name: String, _ idx: Int) -> Option<Type> {
+    return match expected {
+        Some(t) => match t {
+            Interface(id, args) => if id.name == name && idx < args.len() {
+                Option.Some(args[idx])
+            } else {
+                Option.None
+            },
+            _ => Option.None,
+        },
+        None => Option.None,
+    };
 }
 
 // A loop/branch condition must be `Bool`.

@@ -1,14 +1,15 @@
 //! spec: fault-type-mismatch
 //! mode: run
 
+// An unbounded type parameter returned as a concrete type is not yet checked
+// (Type system punchlist), so this checks clean — a type hole. At runtime the
+// `String` flows out where an `Int` is promised, so using it as one traps. The
+// message is an honest *runtime type error* (the checker was too lenient), not
+// an "internal error", and it names the types.
+fn identity<T>(_ x: T) -> Int { return x; }
+
 fn main() -> Int {
-    // A list-literal tail is not yet checked, so this infers `List<Int>` and
-    // checks clean — a type hole. At runtime the second element is a `String`,
-    // so using it as an `Int` traps. The message is an honest *runtime type
-    // error* (the checker was too lenient), not an "internal error", and it
-    // names the types.
-    let xs = [1, 'two'];
-    let sum = xs[1] + 0;   // expect trap: runtime type error: expected Int, found String
-    println('${sum}');
+    let n = identity('hello') + 0;   // expect trap: runtime type error: expected Int, found String
+    println('${n}');
     return 0;
 }

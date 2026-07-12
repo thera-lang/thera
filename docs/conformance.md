@@ -64,6 +64,7 @@ and [grammar.md](grammar.md) (syntax).
 | `type-primitives`             | Types → Primitives     | Int/Double/Bool/String/Void behavior                                                                                                   | ✓      |
 | `type-string-noindex`         | Types → Primitives     | `s[i]` on a String is disallowed                                                                                                       | ✓      |
 | `type-list`                   | Collections            | `List<T>` literal, `len`, indexing                                                                                                     | ✓      |
+| `type-list-homogeneous`       | Collections            | a list/map literal is homogeneous: every element/entry is checked against the first's type — a `check` diagnostic                       | ✓      |
 | `type-map`                    | Collections            | `Map<K,V>` literal, keyed access                                                                                                       | ✓      |
 | `type-map-bracket`            | Collections            | bracket map literals `[k: v, …]` / empty `[:]`: unrestricted keys, valid in any expression position (incl. match arms)                 | ✓      |
 | `type-set`                    | Collections            | `Set<T>` uniqueness via `Set.from`                                                                                                     | ✓      |

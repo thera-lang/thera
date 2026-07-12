@@ -846,9 +846,6 @@ vehicle.
 
 **Open — targeted checker fixes** (each local, in the shrink-the-holes model):
 
-- **List/map literal tails are unchecked.** `[1, 'two']` infers `List<Int>` from
-  the first element and never validates the rest; indexing traps at runtime.
-  Check each subsequent element/entry against the first's type.
 - **Interface conformance ignores the target's type arguments.** A struct whose
   impl is `Iterator<Int>` is accepted where `Iterator<String>` is expected —
   `is_assignable`'s conformance branch never compares the target args against
@@ -887,6 +884,14 @@ vehicle.
 
 **Done:**
 
+- **List/map literal tails are now checked** (2026-07). A list literal is
+  homogeneous: every element is checked assignable to the first element's type,
+  and a map's keys/values likewise (checker.hawk `ListLit`/`MapLit` arms, reusing
+  `expect_type`). `[1, 'two']` is now a `check` error ("list element: expected
+  Int, found String") instead of a runtime trap. No corpus false positives (the
+  whole stdlib/examples/front-end stayed clean). Spec `type-list-homogeneous`;
+  the `fault-type-mismatch` runtime test moved onto the still-open
+  `TypeParameter`→concrete hole.
 - The string-indexing hint no longer suggests the nonexistent `.graphemes()`
   (2026-07): it points at `.chars()` / `.slice(start, end)`
   (pkgs/cli/checker/checker.hawk).
