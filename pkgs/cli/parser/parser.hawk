@@ -1152,13 +1152,14 @@ impl Parser {
     }
 
     // Whether `k` begins a statement-leading keyword (parsed as a statement,
-    // never a tail expression). `if` is excluded: in an expression block it is a
-    // value-producing IfExpr handled directly in parse_expr_block.
+    // never a tail expression). `if` and `throw` are excluded: in an expression
+    // block each is a value-producing expression (an `IfExpr`; a `throw` has the
+    // bottom type `Never`), so a trailing `else { throw … }` becomes the block's
+    // tail — parsed via the expression path in parse_expr_block.
     fn is_stmt_keyword(self, _ k: TokenKind) -> Bool {
         return k == TokenKind.KwLet
             || k == TokenKind.KwConst
             || k == TokenKind.KwReturn
-            || k == TokenKind.KwThrow
             || k == TokenKind.KwFor
             || k == TokenKind.KwWhile
             || k == TokenKind.KwBreak

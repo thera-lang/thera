@@ -572,6 +572,15 @@ fn parse_port(s: String) -> Result<Int, Error> {
 }
 ```
 
+A `throw` may also stand in **branch-tail (value) position**, not only as a
+`;`-terminated statement. Its type is the bottom type `Never` (see the
+[shapes table](#the-type-system-at-a-glance)), so the branch merge takes the
+other arm's type — the `else` below produces no value, and the `if` is an `Int`:
+
+```hawk
+let port = if n > 0 { n } else { throw error('port must be positive') };
+```
+
 ---
 
 ## Option

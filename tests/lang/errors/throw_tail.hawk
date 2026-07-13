@@ -1,0 +1,34 @@
+//! spec: err-throw-tail
+//! mode: run
+
+// A `throw` may stand in branch-tail (value) position, not just as a `;`-
+// terminated statement. Its type is the bottom type `Never`, so the branch
+// merge takes the *other* arm's concrete type — `if c { n } else { throw … }`
+// is an `Int`. Both the `if` tail and the `match`-arm block tail are covered.
+
+fn must_pos(_ n: Int) -> Result<Int, Error> {
+    // The `else` tail is `throw` (Never); the `if` is therefore `Int`.
+    let checked = if n > 0 { n } else { throw error('not positive') };
+    return Result.Ok(checked * 2);
+}
+
+fn unwrap(_ o: Option<Int>) -> Result<Int, Error> {
+    // Block-form arm tail: `{ throw … }` is the arm's value, still `Never`.
+    let v = match o {
+        Some(x) => x,
+        None => { throw error('missing') },
+    };
+    return Result.Ok(v);
+}
+
+fn main() -> Result<Int, Error> {
+    println('${must_pos(5)?}');          // expect: 10
+    println('${unwrap(Option.Some(9))?}'); // expect: 9
+
+    // The diverging tail actually fires when the guard fails.
+    match must_pos(-3) {
+        Ok(_) => println('unexpected'),
+        Err(e) => println('caught: ${e.message()}'), // expect: caught: not positive
+    }
+    return Result.Ok(0);
+}

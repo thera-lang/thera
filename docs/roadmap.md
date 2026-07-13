@@ -915,14 +915,20 @@ _not_ local, so it is deferred with its findings recorded.
   special-cases the element back to `Int`. A named `Range` type would carry the
   element type properly and let ranges flow as values.
 - **Type aliases.** No surface for naming a structural or generic type.
-- **`throw` in branch-tail position.** The AST has a `Throw` expression, but the
-  parser rejects the tail form (`x = if c { a } else { throw ... }`). Now the
-  natural follow-up to the landed `Never` type (below): a tail `throw` is the
-  canonical divergence case, and the type machinery already absorbs it — only the
-  parser's tail-position restriction remains.
 
 **Done:**
 
+- **`throw` in branch-tail position** (2026-07). `x = if c { a } else { throw … }`
+  and a `{ throw … }` match arm now parse, with the `throw` as the block's tail
+  value rather than a `;`-terminated statement. The only blocker was the parser:
+  `is_stmt_keyword` forced a leading `throw` down the statement path (requiring a
+  trailing `;`), so it never became a tail expression. Dropping `KwThrow` from
+  that set routes it through the expression path in `parse_expr_block` — the same
+  mechanism `if` already used. No other phase needed a change: `throw` was already
+  an `Expr` the codegen emitted in value position, and the landed `Never` type
+  makes the branch merge absorb it. `return` deliberately stays statement-only for
+  now (its value interacts with the function signature — a separate call). Spec
+  `err-throw-tail`.
 - **`Never` bottom type for divergence** (2026-07). `throw`/`return` inferred
   `Type.Unknown`, so a diverging branch composed only by riding on `Unknown`'s
   leniency — conflating "this path exits" with "type hole." They now infer
@@ -935,7 +941,7 @@ _not_ local, so it is deferred with its findings recorded.
   `produces_value(Never) = false`, so a diverging arm stays exempt from
   value-agreement exactly as the old `Unknown` divergence was (caught by the
   stdlib `Result`/`Option` and LSP test corpus, the only fallout). Spec
-  `type-never-divergence`. Unblocks tail-position `throw` (Open, above).
+  `type-never-divergence`. Unblocked tail-position `throw` (landed — see above).
 - **Interface conformance now checks the target's type arguments** (2026-07).
   `is_assignable`'s conformance branch compared only interface *identity*, so an
   `impl Box<Int>` was wrongly accepted where `Box<String>` was expected. It now

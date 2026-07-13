@@ -150,6 +150,7 @@ and [grammar.md](grammar.md) (syntax).
 | `err-propagate-option` | Error handling / Option | `?` on an `Option` propagates `None` (Option-returning fn) | ✓      |
 | `err-propagate-cross`  | Error handling          | cross-family `?` (Option `?` in a Result fn) is rejected   | ✓      |
 | `err-throw`            | Error handling → throw  | `throw e` ≡ `return Result.Err(e)`                         | ✓      |
+| `err-throw-tail`       | Error handling → throw  | a `throw` in branch-tail position (`else { throw … }`) is a value-producing `Never`, absorbed by the branch merge | ✓ |
 | `err-constructor`      | Error handling          | `error('…') -> Error` (lowercase) builds the simple error  | ✓      |
 | `err-implicit-ok`      | Error handling → throw  | `return n` implicitly `Result.Ok(n)`                       | ✓      |
 | `fault-index`          | Runtime faults          | out-of-range list index / missing map key trap             | ✓      |
