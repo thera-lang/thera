@@ -893,14 +893,6 @@ _not_ local, so it is deferred with its findings recorded.
 
 **Open — design decisions:**
 
-- **Variance for generic type arguments.** Arguments are covariant today, even
-  under mutation: `List<Cat>` is accepted where `List<Animal>` is expected, and
-  pushing a `Dog` through the widened view poisons the original binding — the
-  probe then silently ran `Cat.speak` on the `Dog` (static dispatch trusted the
-  type). Spike **invariance** against the corpus to size the fallout. Preferred
-  direction: **no variance annotations**; instead a special-cased read-only
-  widening (e.g. a `List<Dog>` usable where an `Iterator<Animal>` is expected)
-  so the safe read pattern stays ergonomic.
 - **Honest wording for native-argument type mismatches.** _(Runtime, follow-up
   to the tag-mismatch trap split below.)_ The interpreter's own tag-checked pops
   now raise `Trap::TypeError` ("runtime type error: expected Int, found
@@ -928,6 +920,24 @@ _not_ local, so it is deferred with its findings recorded.
 
 **Done:**
 
+- **Variance for generic type arguments** (2026-07). Arguments were covariant
+  everywhere, even for mutable containers — `List<Cat>` was accepted where
+  `List<Animal>` was expected, and pushing a `Dog` through the widened alias then
+  let a read through the original `List<Cat>` run `Cat`'s (statically-dispatched)
+  method on a `Dog`. An invariance spike against the whole corpus found the fault
+  line precisely: **2 fallout sites, both `Result<T, ConcreteError>` →
+  `Result<T, Error>`** (the error idiom), and **zero** mutable-container widenings.
+  So `is_assignable`'s same-constructor branch now partitions by variance —
+  `Result`/`Option`/`Iterator` (read-only, identity-checked) stay **covariant**;
+  `List`/`Map`/`Set` and every user generic are **invariant** (`Unknown`/
+  `TypeParameter` stay lenient, so generic code doesn't cascade). No variance
+  annotations (deliberate — `out`/`in` mean nothing to most readers); variance
+  *inference* from a user type's methods is a possible future step. The one
+  ergonomic dependency that surfaced — a polymorphic list *literal* — now types
+  against context (`infer_list`/`infer_map` adopt the expected element type), so
+  `let pets: List<Animal> = [Cat…, Dog…]` checks each element against `Animal`
+  directly instead of inferring `List<Cat>` and leaning on covariance. Spec
+  `gen-variance`; documented in language.md § Variance.
 - **Internal `Range` cleanup** (2026-07). A for-loop's element type for a range
   now keys off the iterable's *syntax* (`for_element_type` returns `Int` when the
   iterable is a `Range` expression) instead of recovering it from `Unknown`. That

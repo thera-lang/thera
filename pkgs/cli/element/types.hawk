@@ -206,11 +206,19 @@ pub fn is_assignable(_ source: Type, _ target: Type, _ lib: LibraryElement) -> B
             }
         }
     }
-    // Same-element generics: assignable element with pairwise-assignable args.
+    // Same-element generics: same constructor, args related per its *variance*.
     // Element identity is the full `TypeId` (owner + name), so two libraries'
     // same-named generic types (`a.Box<Int>` vs `b.Box<Int>`) stay distinct — an
     // owner-blind name compare here would unify them (a soundness hole under the
     // lifted type-name uniqueness).
+    //
+    // The read-only built-ins (`Result`/`Option`/`Iterator`) are **covariant** in
+    // their args — `Result<CliError…>` widens to `Result<Error…>`, the idiom the
+    // error model relies on — because their type parameter is never writable.
+    // Every mutable container (`List`/`Map`/`Set`) and every user-defined generic
+    // is **invariant**: a `List<Cat>` is not a `List<Animal>`, so a `Dog` can't be
+    // written through a widened alias and read back as a `Cat`. See
+    // docs/language.md § Variance.
     match source {
         Interface(sid, sargs) => {
             match target {
@@ -221,8 +229,16 @@ pub fn is_assignable(_ source: Type, _ target: Type, _ lib: LibraryElement) -> B
                     if sargs.len() != targs.len() {
                         return false;
                     }
+                    let covariant = is_covariant_constructor(lib, sid);
                     for p in sargs.enumerate() {
-                        if !is_assignable(p.value, targs[p.index], lib) {
+                        let t = targs[p.index];
+                        if !is_assignable(p.value, t, lib) {
+                            return false;
+                        }
+                        // Invariance also requires the reverse. `Unknown` /
+                        // `TypeParameter` stay lenient through `is_assignable`, so
+                        // generic code and inference holes don't cascade.
+                        if !covariant && !is_assignable(t, p.value, lib) {
                             return false;
                         }
                     }
@@ -284,6 +300,19 @@ fn conformance_args_match(_ sdef: TypeDefElement, _ tid: TypeId,
         }
     }
     return true;
+}
+
+// Whether the type constructor `id` is **covariant** in its type arguments: a
+// read-only built-in whose parameter is never written, so widening it can't
+// smuggle a wrong value back through an alias. Exactly `Result`, `Option`, and
+// `Iterator` (identity-checked, so a same-named user type doesn't qualify).
+// Everything else — mutable containers and user generics — is invariant. Variance
+// inference (deriving this from a user type's own methods) is a possible future
+// step; for now the safe default is invariant. See docs/language.md § Variance.
+fn is_covariant_constructor(_ lib: LibraryElement, _ id: TypeId) -> Bool {
+    return is_core_id(lib, id, 'Result')
+        || is_core_id(lib, id, 'Option')
+        || is_core_id(lib, id, 'Iterator');
 }
 
 // Whether `id` names an interface definition (owner-correct lookup).

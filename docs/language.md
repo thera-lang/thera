@@ -1694,12 +1694,11 @@ expected?** It holds when any of these applies, and nothing else converts:
    compared against the ones the impl recorded — an `impl Iterator<Int>` is *not*
    accepted where `Iterator<String>` is expected — with generic impls (recorded
    as a type parameter) and bare-interface targets staying lenient.
-4. **Same named type, assignable arguments.** `List<Cat>` is accepted where
-   `List<Animal>` is expected — type arguments are **covariant** today. That is
-   sound for reading and unsound under mutation (pushing a `Dog` through the
-   `List<Animal>` view corrupts the typing of the original binding, though never
-   memory). The variance decision — leaning toward no variance annotations, with
-   a special-cased read-only widening instead — is tracked in roadmap.md.
+4. **Same named type, args related by variance.** For the same constructor, the
+   type arguments relate per its **variance** (see [Variance](#variance) below):
+   the read-only built-ins widen covariantly (`Result<CliError…>` is a
+   `Result<Error…>`), while mutable containers and user generics are invariant
+   (`List<Cat>` is *not* a `List<Animal>`).
 5. **Functions.** Parameters are contravariant, the result covariant: where a
    `(Cat) -> Animal` is expected, an `(Animal) -> Cat` is accepted — it handles
    every `Cat` it will be given and returns only `Animal`s. The unsafe
@@ -1712,6 +1711,47 @@ expected?** It holds when any of these applies, and nothing else converts:
 Everything else is a type error. In particular there is no `Int` → `Double`
 coercion (call `.to_double()`), no universal top type to erase to, and no union
 or intersection types.
+
+### Variance
+
+When one generic type is assignable to another of the **same constructor**
+(rule 4 above), whether the type arguments may differ is the constructor's
+*variance*. Hawk fixes this per built-in — there are **no variance annotations**
+(`out`/`in`), and nothing to write:
+
+| Constructor | Variance | |
+| --- | --- | --- |
+| `Result<T, E>`, `Option<T>`, `Iterator<T>` | **covariant** | args may widen: `Result<CliError…>` is a `Result<Error…>` |
+| `List<T>`, `Map<K, V>`, `Set<T>` | **invariant** | args must match exactly: `List<Cat>` is *not* a `List<Animal>` |
+| every user-defined generic (`Box<T>`, …) | **invariant** | the safe default |
+
+The rule follows from one question: **can you write a `T` back through the
+type?** The covariant three are read-only in their parameter — a `Result`/`Option`
+holds a value you only read out, an `Iterator` only yields — so widening the
+argument is sound and gives the "errors as values" model its ergonomics: a
+function returning `Result<T, Error>` may `Result.Err(someConcreteError)`
+directly. A `List`/`Map`/`Set` has `push`/`insert`/index-assignment, so widening
+would be a soundness hole:
+
+```hawk
+let cats: List<Cat> = [Cat { name: 'mo' }];
+let animals: List<Animal> = cats;   // rejected — List is invariant
+// If this were allowed, `animals.push(Dog { … })` would smuggle a Dog into
+// `cats`, and reading `cats[i].meow()` would run a Cat method on a Dog.
+```
+
+This costs nothing in practice because a **polymorphic literal types against its
+context** — the widening a covariant `List` would give you is unnecessary:
+
+```hawk
+let pets: List<Animal> = [Cat { name: 'mo' }, Dog { name: 'rex' }]; // fine
+```
+
+The literal `[Cat…, Dog…]` is checked as a `List<Animal>` from the start (each
+element against `Animal`), rather than inferred as a `List<Cat>` and then widened.
+Deriving variance from a *user* type's own methods (so an immutable `Box<T>`
+could be covariant too) is possible but not yet done — invariant-by-default is
+the current rule.
 
 ---
 

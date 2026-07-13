@@ -1,0 +1,37 @@
+//! spec: gen-variance
+//! mode: check
+
+// Generic type arguments: the read-only built-ins (`Result`/`Option`/`Iterator`)
+// are covariant in their args — the widening the error model relies on — while
+// mutable containers (`List`/`Map`/`Set`) and user generics are invariant, so a
+// concrete-element collection can't be laundered into a supertype-element one and
+// written through. A polymorphic *literal* still types directly against context.
+
+interface Animal {
+    fn speak(self) -> String;
+}
+
+struct Cat {
+    let n: String;
+}
+
+impl Animal for Cat {
+    fn speak(self) -> String {
+        return 'meow';
+    }
+}
+
+fn main() -> Void {
+    // Covariant: an `Option<Cat>` widens to an `Option<Animal>` (read-only).
+    let c: Option<Cat> = Option.Some(Cat { n: 'mo' });
+    let a: Option<Animal> = c;
+
+    // A polymorphic list *literal* types directly against its context — no
+    // covariance needed, so this is fine even though `List` is invariant.
+    let pets: List<Animal> = [Cat { n: 'mo' }];
+
+    // Invariant: a `List<Cat>` *value* is not a `List<Animal>` — widening it would
+    // let a non-`Cat` be written through the alias and read back as a `Cat`.
+    let cats: List<Cat> = [Cat { n: 'rex' }];
+    let animals: List<Animal> = cats; // expect error: binding 'animals': expected List<Animal>, found List<Cat>
+}

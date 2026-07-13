@@ -85,6 +85,7 @@ and [grammar.md](grammar.md) (syntax).
 | `type-enum-nonempty`          | Enums                  | an enum must declare at least one variant — a zero-variant enum is a parse error                                                       | ✓      |
 | `type-reserved-names`         | language.md            | the language's own type names (Result, Option, List, Void, …) may not be declared in user code; core utility names (Args, …) stay free | ✓      |
 | `type-fn-variance`            | Types                  | function-type assignability: contravariant parameters, covariant result                                                                | ✓      |
+| `gen-variance`                | Types → Variance       | generic args: `Result`/`Option`/`Iterator` covariant (read-only), `List`/`Map`/`Set` & user generics invariant; literals type against context | ✓ |
 | `type-field-nonstruct`        | Structs                | a bare field access on a non-struct value is rejected                                                                                  | ✓      |
 | `type-impl-param-bare`        | Impl blocks            | an inherent `impl Type<…>` element must be a bare parameter name (a type expression is an error, not silently flattened)               | ✓      |
 | `type-never-divergence`       | Types                  | a diverging arm (`throw`/`return`) has bottom type `Never`, absorbed by the arm/branch merge so the expression takes the concrete type | ✓      |

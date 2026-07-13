@@ -138,8 +138,8 @@ pub fn infer_expr(_ expr: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx,
         Bool(_, _) => Type.Primitive(Primitive.Bool),
         Unit(_) => Type.Primitive(Primitive.Unit),
         Str(_, _) => Type.Primitive(Primitive.Str),
-        ListLit(_, items) => infer_list(items, scope, ctx),
-        MapLit(_, entries) => infer_map(entries, scope, ctx),
+        ListLit(_, items) => infer_list(items, scope, ctx, expected),
+        MapLit(_, entries) => infer_map(entries, scope, ctx, expected),
         Struct(x) => infer_struct(x, scope, ctx),
         Ident(_, name) => infer_ident(name, scope, ctx),
         Call(x) => infer_call(x, scope, ctx, expected),
@@ -169,7 +169,16 @@ fn iface(_ ctx: InferCtx, _ name: String, _ args: List<Type>) -> Type {
     return named_type(ctx.library.type_defs, name, args);
 }
 
-fn infer_list(_ items: List<Expr>, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
+// A list literal adopts the expected element type when the context supplies one
+// (bidirectional: `[Dog, Cat]` in a `List<Display>` context *is* a `List<Display>`,
+// not a `List<Dog>`). This is what lets a polymorphic list literal type without
+// leaning on covariance — `List` is invariant, so a `List<Dog>` would not widen.
+// Element fitness against that type is enforced by the checker's homogeneity check.
+fn infer_list(_ items: List<Expr>, _ scope: Map<String, Type>, _ ctx: InferCtx,
+    _ expected: Option<Type>) -> Type {
+    if let Some(e) = expected_arg(expected, 'List', 0, ctx) {
+        return iface(ctx, 'List', [e]);
+    }
     let element = if items.len() == 0 {
         Type.Unknown
     } else {
@@ -178,13 +187,37 @@ fn infer_list(_ items: List<Expr>, _ scope: Map<String, Type>, _ ctx: InferCtx) 
     return iface(ctx, 'List', [element]);
 }
 
-fn infer_map(_ entries: List<MapEntry>, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
+fn infer_map(_ entries: List<MapEntry>, _ scope: Map<String, Type>, _ ctx: InferCtx,
+    _ expected: Option<Type>) -> Type {
+    // Same bidirectional rule as `infer_list`, for both key and value.
+    let exp_key = expected_arg(expected, 'Map', 0, ctx);
+    let exp_val = expected_arg(expected, 'Map', 1, ctx);
+    if let Some(k) = exp_key {
+        if let Some(v) = exp_val {
+            return iface(ctx, 'Map', [k, v]);
+        }
+    }
     if entries.len() == 0 {
         return iface(ctx, 'Map', [Type.Unknown, Type.Unknown]);
     }
     let key = infer_expr(entries[0].key, scope, ctx, Option.None);
     let value = infer_expr(entries[0].value, scope, ctx, Option.None);
     return iface(ctx, 'Map', [key, value]);
+}
+
+// Type argument `idx` of an expected `name<…>` (`List`/`Map`), when the context
+// supplies such a type — the element type a collection literal adopts. None when
+// there is no matching expectation (fall back to inferring from the elements).
+fn expected_arg(_ expected: Option<Type>, _ name: String, _ idx: Int,
+    _ ctx: InferCtx) -> Option<Type> {
+    if let Some(t) = expected {
+        if let Interface(id, args) = t {
+            if is_core_id(ctx.library, id, name) && args.len() > idx {
+                return Option.Some(args[idx]);
+            }
+        }
+    }
+    return Option.None;
 }
 
 // A struct literal's constructed type resolved owner-correct from a file scope:
