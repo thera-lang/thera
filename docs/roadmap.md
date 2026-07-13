@@ -749,9 +749,9 @@ implementation work stay open here until decided.
 
 **Open — design/behavior follow-ups from the 2026-07 review:** none currently —
 the review's follow-ups all landed, summarized in the [Changelog](#changelog):
-the doc sweep, the eager-`List` + `List.iter()` bridge decision, `hawk
-test`/`check` LLM-output UX, `collect()`→`to_list()`, named structural `Debug`,
-and the OOM/stack-overflow traps.
+the doc sweep, the eager-`List` + `List.iter()` bridge decision,
+`hawk test`/`check` LLM-output UX, `collect()`→`to_list()`, named structural
+`Debug`, and the OOM/stack-overflow traps.
 
 ### Type system punchlist
 
@@ -759,17 +759,16 @@ Findings from the 2026-07 type-system review (a design-completeness pass over
 the implemented system; every hole it found was verified empirically — each
 checked clean but went wrong at runtime). Most are now closed (see _Changelog_);
 what remains below is deferred with findings, or an open design call. The review
-also settled the "formal
-treatment?" question: no lambda-calculus formalization — the system is simple
-enough to specify in prose, and `Unknown`'s deliberate leniency makes the
-classical soundness theorem false by construction; the spec (language.md
-§Generics / §Assignability) plus the `tests/lang/` conformance suite are the
-vehicle.
+also settled the "formal treatment?" question: no lambda-calculus formalization
+— the system is simple enough to specify in prose, and `Unknown`'s deliberate
+leniency makes the classical soundness theorem false by construction; the spec
+(language.md §Generics / §Assignability) plus the `tests/lang/` conformance
+suite are the vehicle.
 
 **Open — targeted checker fixes.** The three local, low-risk fixes from this set
 are landed (see _Changelog_ → _Type-checker holes closed_); the one below is the
-outlier — the spike showed it is _not_ local, so it is deferred with its findings
-recorded.
+outlier — the spike showed it is _not_ local, so it is deferred with its
+findings recorded.
 
 - **`TypeParameter` → concrete assignability** — _deferred; spiked 2026-07._
   `fn f<T>(_ x: T) -> Int { return x; }` checks clean and traps at the call: a
@@ -782,28 +781,28 @@ recorded.
   errors — **1 genuine hole** (the planted `fault-type-mismatch` test) and **12
   false positives** in legitimate code, in three patterns:
   - **A. Bounded `T` → its bound** (5) — `sorted<T: Ord>` passing a `T` where
-    `Ord` is expected. `T: Ord` *is* an `Ord`, but `is_assignable` has no bounds
+    `Ord` is expected. `T: Ord` _is_ an `Ord`, but `is_assignable` has no bounds
     context.
-  - **B. Type param under function contravariance** (7) — `xs.fold(0, (acc,x) =>
-    …)`: the lambda `(Int,T)->Int` vs `fold<A>`'s `(A,T)->A`. Param
-    contravariance flips the *target* param `A` into *source* position in the
-    recursive call.
-  - **C. Unbound inference param in generic args** (1) — `some.and_then((_n) =>
-    Option.None)` bound to `Option<Int>` → `Option<U>` vs `Option<Int>`; `U`
-    should unify to `Int` but `None` pins nothing.
+  - **B. Type param under function contravariance** (7) —
+    `xs.fold(0, (acc,x) => …)`: the lambda `(Int,T)->Int` vs `fold<A>`'s
+    `(A,T)->A`. Param contravariance flips the _target_ param `A` into _source_
+    position in the recursive call.
+  - **C. Unbound inference param in generic args** (1) —
+    `some.and_then((_n) => Option.None)` bound to `Option<Int>` → `Option<U>` vs
+    `Option<Int>`; `U` should unify to `Int` but `None` pins nothing.
 
   **Why it can't live in `is_assignable`:** source-side `TypeParameter` leniency
-  is load-bearing *inside the recursion* — B and C arise only deep in it
+  is load-bearing _inside the recursion_ — B and C arise only deep in it
   (function contravariance, generic-arg pairing), not from "using a `T` value as
-  concrete." The real hole is a value whose type is *exactly* `TypeParameter(T)`
+  concrete." The real hole is a value whose type is _exactly_ `TypeParameter(T)`
   in a value-flow position (return / assign / arg) at the **top level**.
 
   **Recommended approach when revisited:** a dedicated check at the value-flow
   sites (`check_return`, `expect_type` for let/assign/args), **not** in
-  `is_assignable`, that fires only when the source type is a *bare*
+  `is_assignable`, that fires only when the source type is a _bare_
   `TypeParameter` (excludes B/C — their sources are `(…)->…` and `Option<U>`,
-  never bare) and is **bounds-aware** — a `T: Ord` source satisfies `Ord` and its
-  supers (excludes A). Bounds live in the checker's `type_param_bounds` (the
+  never bare) and is **bounds-aware** — a `T: Ord` source satisfies `Ord` and
+  its supers (excludes A). Bounds live in the checker's `type_param_bounds` (the
   table the unbounded-`T` method fix reads), which is why the check must be at
   the site, not in `is_assignable`. Residual false-positive risk: ~zero.
 
@@ -817,27 +816,28 @@ recorded.
 **Open — design decisions:**
 
 - **Honest wording for native-argument type mismatches.** _(Runtime, follow-up
-  to the tag-mismatch trap split — see _Changelog_.)_ The interpreter's own tag-checked pops
-  now raise `Trap::TypeError` ("runtime type error: expected Int, found
-  String"), but the native arg-checks (`str_contents`, `as_int`/`as_double`,
-  `with_bytes`) still raise `Trap::Bug` ("internal error"). Converting them is
-  blocked only on unthreading their `who` context param from ~100 call sites —
-  do that, then route them through `TypeError` too (module-free type names,
-  since natives have no `Module` handle).
+  to the tag-mismatch trap split — see \_Changelog_.)\_ The interpreter's own
+  tag-checked pops now raise `Trap::TypeError` ("runtime type error: expected
+  Int, found String"), but the native arg-checks (`str_contents`,
+  `as_int`/`as_double`, `with_bytes`) still raise `Trap::Bug` ("internal
+  error"). Converting them is blocked only on unthreading their `who` context
+  param from ~100 call sites — do that, then route them through `TypeError` too
+  (module-free type names, since natives have no `Module` handle).
 
 **Deferred type-shape items:**
 
 - **A first-class `Range` type** (deferred — no forcing function). The internal
-  range cleanup landed (see _Changelog_); making `Range` a *nameable value type* (store,
-  pass, return, `.contains`/`.to_list`) has no corpus demand — all range use is
-  `for i in a..b`. Revisit when a feature wants ranges as values, the obvious one
-  being range-based slicing (`list[2..5]`), which needs slice support anyway.
+  range cleanup landed (see _Changelog_); making `Range` a _nameable value type_
+  (store, pass, return, `.contains`/`.to_list`) has no corpus demand — all range
+  use is `for i in a..b`. Revisit when a feature wants ranges as values, the
+  obvious one being range-based slicing (`list[2..5]`), which needs slice
+  support anyway.
 - **Type aliases** — **deferred indefinitely, by design.** An alias is a
-  *transparent* name (`type Fallible = Result<Void, Error>`), which adds exactly
+  _transparent_ name (`type Fallible = Result<Void, Error>`), which adds exactly
   the indirection Hawk's local-reasoning thesis is built to avoid: an LLM seeing
   `Fallible` must resolve it elsewhere. The verbosity win (the top candidate,
-  `Result<Void, Error>`, is frequent but not *complex*) doesn't outweigh giving a
-  reader more work; genuinely meaningful nested types are better served by a
+  `Result<Void, Error>`, is frequent but not _complex_) doesn't outweigh giving
+  a reader more work; genuinely meaningful nested types are better served by a
   nominal `struct`. Recorded as a language non-goal in
   [language.md](language.md). Would need a very compelling use case to reopen.
 
@@ -866,43 +866,45 @@ Brief summaries of finished arcs; design details live in
 conformance specs. Newest first.
 
 - **Generic-argument variance — invariant containers, covariant read-only
-  builtins** (2026-07). Type arguments were covariant everywhere, so a `List<Cat>`
-  was accepted where `List<Animal>` was expected and a `Dog` written through the
-  widened alias could be read back as a `Cat` (a real, if narrow, soundness hole —
-  the poisoned read runs a statically-dispatched `Cat` method on a `Dog`). An
-  invariance spike found the fault line exactly: the only corpus reliance on
-  covariance was `Result<T, ConcreteError>` → `Result<T, Error>` (the error idiom),
-  never a mutable container. So `is_assignable`'s same-constructor branch now
-  partitions by variance — `Result`/`Option`/`Iterator` (read-only) stay
-  **covariant**, `List`/`Map`/`Set` and every user generic are **invariant** — with
-  no `out`/`in` annotations. The one thing that relied on container covariance, a
-  polymorphic list literal, now types against context (`let pets: List<Animal> =
-  [Cat…, Dog…]` checks each element against `Animal`). Spec `gen-variance`;
-  language.md § Variance.
+  builtins** (2026-07). Type arguments were covariant everywhere, so a
+  `List<Cat>` was accepted where `List<Animal>` was expected and a `Dog` written
+  through the widened alias could be read back as a `Cat` (a real, if narrow,
+  soundness hole — the poisoned read runs a statically-dispatched `Cat` method
+  on a `Dog`). An invariance spike found the fault line exactly: the only corpus
+  reliance on covariance was `Result<T, ConcreteError>` → `Result<T, Error>`
+  (the error idiom), never a mutable container. So `is_assignable`'s
+  same-constructor branch now partitions by variance —
+  `Result`/`Option`/`Iterator` (read-only) stay **covariant**,
+  `List`/`Map`/`Set` and every user generic are **invariant** — with no
+  `out`/`in` annotations. The one thing that relied on container covariance, a
+  polymorphic list literal, now types against context
+  (`let pets: List<Animal> = [Cat…, Dog…]` checks each element against
+  `Animal`). Spec `gen-variance`; language.md § Variance.
 
 - **Divergence typing — `Never` bottom type + tail `throw`** (2026-07). `throw`/
   `return` inferred `Unknown`, so a diverging branch composed only by leaning on
   `Unknown`'s leniency (conflating "this path exits" with "type hole"). They now
   infer a real bottom type `Never` — assignable to every type, from none;
-  inference-only, no surface syntax — absorbed by the arm/branch merge so `if c { 5
-  } else { throw }` is `Int`, which also shrinks the `Unknown` population. On the
-  back of that, `throw` is now valid in branch-tail (value) position (`x = if c { a
-  } else { throw … }`), a one-keyword parser change since the type machinery
-  already absorbs it. Specs `type-never-divergence`, `err-throw-tail`.
+  inference-only, no surface syntax — absorbed by the arm/branch merge so
+  `if c { 5 } else { throw }` is `Int`, which also shrinks the `Unknown`
+  population. On the back of that, `throw` is now valid in branch-tail (value)
+  position (`x = if c { a } else { throw … }`), a one-keyword parser change
+  since the type machinery already absorbs it. Specs `type-never-divergence`,
+  `err-throw-tail`.
 
 - **Type-checker holes closed** (2026-07). Four check-clean-but-wrong-at-runtime
-  holes from the type-system review, each fixed with zero corpus false positives:
-  list/map literal tails are checked for homogeneity (`[1, 'two']` is now a `check`
-  error — `type-list-homogeneous`); interface conformance compares the target's
-  type arguments (`impl Box<Int>` no longer satisfies `Box<String>` —
-  `iface-conformance-args`); an unbounded-`T` method call is rejected at `check`
-  rather than only at emit, with `display`/`debug` staying universal
-  (`gen-param-methods`); and a for-loop's range element types from the iterable's
-  *syntax* instead of an `Unknown => Int` fallback that also fired on genuine holes,
-  with `Int` range bounds now enforced (`expr-range-bound`). The fifth hole —
-  bare-`TypeParameter`-source assignability — was spiked and deferred (a 12:1
-  false-positive ratio for the naive narrowing; findings kept in _Type system
-  punchlist_).
+  holes from the type-system review, each fixed with zero corpus false
+  positives: list/map literal tails are checked for homogeneity (`[1, 'two']` is
+  now a `check` error — `type-list-homogeneous`); interface conformance compares
+  the target's type arguments (`impl Box<Int>` no longer satisfies `Box<String>`
+  — `iface-conformance-args`); an unbounded-`T` method call is rejected at
+  `check` rather than only at emit, with `display`/`debug` staying universal
+  (`gen-param-methods`); and a for-loop's range element types from the
+  iterable's _syntax_ instead of an `Unknown => Int` fallback that also fired on
+  genuine holes, with `Int` range bounds now enforced (`expr-range-bound`). The
+  fifth hole — bare-`TypeParameter`-source assignability — was spiked and
+  deferred (a 12:1 false-positive ratio for the naive narrowing; findings kept
+  in _Type system punchlist_).
 
 - **Honest tag-mismatch traps — `Trap::TypeError` split** (2026-07). A type hole
   reaching the runtime (a value whose static type the checker got wrong) now
@@ -916,14 +918,15 @@ conformance specs. Newest first.
   tracked follow-up (Type system punchlist). Faults in language.md.
 
 - **Named structural `Debug` — field + variant names (bytecode v3)** (2026-07).
-  The auto-derived `Debug` now renders structs by field name (`Point { x: 1, y:
-  2 }`) and user enums by variant name (`Circle(3)`, `Square`) instead of the old
-  positional `Point { 1, 2 }` / `variant1`. Bytecode v3 threads the names into
-  the runtime type table (`TypeDef.field_names`) and a new Enums section
-  (`EnumDef`: ty + name + variant names); the loader still accepts v2 (names
-  absent ⇒ positional). `Ordering` now names its variants too; the runtime keeps
-  a built-in `Ok`/`Some` fallback for `Result`/`Option`. This is the enabling
-  primitive for runtime reflection/introspection. Format in bytecode.md.
+  The auto-derived `Debug` now renders structs by field name
+  (`Point { x: 1, y: 2 }`) and user enums by variant name (`Circle(3)`,
+  `Square`) instead of the old positional `Point { 1, 2 }` / `variant1`.
+  Bytecode v3 threads the names into the runtime type table
+  (`TypeDef.field_names`) and a new Enums section (`EnumDef`: ty + name +
+  variant names); the loader still accepts v2 (names absent ⇒ positional).
+  `Ordering` now names its variants too; the runtime keeps a built-in
+  `Ok`/`Some` fallback for `Result`/`Option`. This is the enabling primitive for
+  runtime reflection/introspection. Format in bytecode.md.
 
 - **`hawk test`/`check`/`lint` UX for LLM output** (2026-07). The analyzers stop
   emitting lines just for doing work: quiet-by-default reports (failure blocks
@@ -948,8 +951,9 @@ conformance specs. Newest first.
   convention (JS/Ruby/Swift/Kotlin) and avoiding a one-shot-consumption footgun;
   the lazy, fused, short-circuiting path is reached explicitly via `xs.iter()`,
   whose doc is the discoverable "when/why" home. `List.iter()` is the single
-  list→`Iterator` bridge — `List.enumerate` composes as `self.iter().enumerate()`
-  (the bespoke `ListEnumerateIter` is gone) and `iter.from_list` is a thin alias.
+  list→`Iterator` bridge — `List.enumerate` composes as
+  `self.iter().enumerate()` (the bespoke `ListEnumerateIter` is gone) and
+  `iter.from_list` is a thin alias.
 
 - **OOM + stack-overflow traps; string-indexing hint** (2026-07). Memory and
   frame-stack exhaustion are real traps now, not process aborts: the heap has a
