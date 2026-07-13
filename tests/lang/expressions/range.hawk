@@ -8,5 +8,21 @@ fn main() -> Int {
         s = '${s}${i}';
     }
     println(s);   // expect: 0123
+
+    // The loop variable is `Int` — used arithmetically here, which only checks
+    // because a range's element types as `Int` (from its syntax, not a fallback).
+    let mut sum = 0;
+    let xs = [10, 20, 30];
+    for i in 0..xs.len() {   // bound derived from a call, still `Int`
+        sum = sum + xs[i];
+    }
+    println('${sum}');       // expect: 60
+
+    // A reversed range is empty (half-open, no iteration).
+    let mut n = 0;
+    for _ in 5..5 {
+        n = n + 1;
+    }
+    println('${n}');         // expect: 0
     return 0;
 }

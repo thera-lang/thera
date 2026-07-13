@@ -589,7 +589,7 @@ fn pinning_candidate(_ name: String, _ stmt: Stmt, _ current: Type,
             // types against the iteration element, not `Unknown`.
             let body_scope = copy_scope(scope);
             let iter_type = infer_expr(x.iterable, scope, ctx, Option.None);
-            bind_for_pattern(x.pattern, iter_type, body_scope, ctx);
+            bind_for_pattern(x.pattern, x.iterable, iter_type, body_scope, ctx);
             pinning_in_block(name, x.body, current, body_scope, ctx)
         },
         _ => Option.None,
@@ -1090,9 +1090,9 @@ pub fn bind_match_pattern(_ pattern: Pattern, _ subject: Type,
 // Bind a for-loop pattern's variable to the iteration element type. (The checker
 // drives this when type-checking a loop body; inference doesn't walk statement
 // bodies itself.)
-pub fn bind_for_pattern(_ pattern: Pattern, _ iter_type: Type,
+pub fn bind_for_pattern(_ pattern: Pattern, _ iterable: Expr, _ iter_type: Type,
     _ scope: Map<String, Type>, _ ctx: InferCtx) -> Void {
-    let element = for_element_type(iter_type, ctx);
+    let element = for_element_type(iterable, iter_type, ctx);
     if let Ident(_, name) = pattern { scope[name] = element; }
 }
 
@@ -1117,14 +1117,16 @@ pub fn variant_field_types(_ subject: Type, _ name: String, _ ctx: InferCtx) -> 
 
 // --- type helpers ---
 
-// The element type of a for-loop iterable: a `List<T>`'s element, an
-// `Iterator<T>`'s yield, else — for a bare `Unknown` — `Int` (a range, which has
-// no first-class type yet and infers as `Unknown`, so `Int` recovers its element).
-// Any *other* unresolved iterable — an `Interface` whose identity didn't resolve
-// as `List`/`Iterator` — yields `Unknown`, not `Int`: inventing `Int` would
-// cascade into misleading "no method X on Int" errors on what is really an
-// unknown element (the `Int` here is range recovery, not a general default).
-pub fn for_element_type(_ iter_type: Type, _ ctx: InferCtx) -> Type {
+// The element type of a for-loop iterable: `Int` for a range (`a..b`), a
+// `List<T>`'s element, or an `Iterator<T>`'s yield. The range case keys off the
+// iterable's *syntax* (`Range` has no first-class type), so it never has to
+// recover its element from an `Unknown` type — which is why an unresolved
+// iterable now honestly yields `Unknown` rather than a fabricated `Int` (which
+// would cascade into misleading "no method X on Int" errors on a real hole).
+pub fn for_element_type(_ iterable: Expr, _ iter_type: Type, _ ctx: InferCtx) -> Type {
+    if let Range(_, _, _) = iterable {
+        return Type.Primitive(Primitive.Int);
+    }
     if let Interface(name, args) = iter_type {
         if is_core_id(ctx.library, name, 'List') {
             return arg_at(args, 0);
@@ -1133,10 +1135,7 @@ pub fn for_element_type(_ iter_type: Type, _ ctx: InferCtx) -> Type {
     if let Some(e) = iterator_element(iter_type, ctx) {
         return e;
     }
-    return match iter_type {
-        Unknown => Type.Primitive(Primitive.Int), // a range's element
-        _ => Type.Unknown,                         // an unresolved iterable — don't invent Int
-    };
+    return Type.Unknown; // an unresolved iterable — don't invent a type
 }
 
 // The element type of an iterable that is (or conforms to) `Iterator<T>`: the

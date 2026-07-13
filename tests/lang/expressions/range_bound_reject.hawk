@@ -1,0 +1,19 @@
+//! spec: expr-range-bound
+//! mode: check
+
+// A range iterates the integers `[start, end)`, so both bounds must be `Int`.
+// A non-Int bound is a `check` error — previously it slipped through and only
+// misbehaved at runtime. (One offending bound per range here, so each line
+// carries exactly one diagnostic.)
+
+fn main() -> Void {
+    let s = 'z';
+    for c in s..10 {      // expect error: range bound: expected Int, found String
+        println('${c}');
+    }
+
+    let x = 1.5;
+    for i in 0..x {       // expect error: range bound: expected Int, found Double
+        println('${i}');
+    }
+}

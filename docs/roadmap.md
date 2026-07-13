@@ -909,15 +909,34 @@ _not_ local, so it is deferred with its findings recorded.
   blocked only on unthreading their `who` context param from ~100 call sites —
   do that, then route them through `TypeError` too (module-free type names,
   since natives have no `Module` handle).
-**Open type-shape items:**
 
-- **A first-class `Range` type.** Ranges infer `Unknown`; the for-loop
-  special-cases the element back to `Int`. A named `Range` type would carry the
-  element type properly and let ranges flow as values.
-- **Type aliases.** No surface for naming a structural or generic type.
+**Deferred type-shape items:**
+
+- **A first-class `Range` type** (deferred — no forcing function). The internal
+  range cleanup landed (see Done); making `Range` a *nameable value type* (store,
+  pass, return, `.contains`/`.to_list`) has no corpus demand — all range use is
+  `for i in a..b`. Revisit when a feature wants ranges as values, the obvious one
+  being range-based slicing (`list[2..5]`), which needs slice support anyway.
+- **Type aliases** — **deferred indefinitely, by design.** An alias is a
+  *transparent* name (`type Fallible = Result<Void, Error>`), which adds exactly
+  the indirection Hawk's local-reasoning thesis is built to avoid: an LLM seeing
+  `Fallible` must resolve it elsewhere. The verbosity win (the top candidate,
+  `Result<Void, Error>`, is frequent but not *complex*) doesn't outweigh giving a
+  reader more work; genuinely meaningful nested types are better served by a
+  nominal `struct`. Recorded as a language non-goal in
+  [language.md](language.md). Would need a very compelling use case to reopen.
 
 **Done:**
 
+- **Internal `Range` cleanup** (2026-07). A for-loop's element type for a range
+  now keys off the iterable's *syntax* (`for_element_type` returns `Int` when the
+  iterable is a `Range` expression) instead of recovering it from `Unknown`. That
+  removed a fragile overload — `for_element_type`'s `Unknown => Int` fallback also
+  fired for a genuinely-unresolved iterable, fabricating `Int` on a real type hole
+  — so an unknown iterable now honestly yields `Unknown`. The checker also enforces
+  both range bounds are `Int` (`'a'..'z'` / `0..1.5` are now `check` errors, not
+  runtime surprises). Ranges stay for-loop-iterable-only (no value form — see
+  Deferred). Spec `expr-range-bound`.
 - **`throw` in branch-tail position** (2026-07). `x = if c { a } else { throw … }`
   and a `{ throw … }` match arm now parse, with the `throw` as the block's tail
   value rather than a `;`-terminated statement. The only blocker was the parser:

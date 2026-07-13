@@ -192,6 +192,16 @@ whole-program constraint solving: a type is always derivable from what's on the
 page nearby, which is the property that lets a reader — human or LLM — reason
 about any line with only local context.
 
+**No type aliases — a deliberate non-goal.** Hawk has no `type Name = <some
+type>` form, and is unlikely to grow one. An alias is a *transparent* name: it
+reads well for a human skimming, but it adds precisely the indirection the
+local-reasoning property above is built to avoid — an LLM meeting `Fallible` in a
+signature has to go resolve it to `Result<Void, Error>` elsewhere. The verbosity
+it would save is real but shallow (the commonest candidate, `Result<Void,
+Error>`, is frequent, not complex), and a type that genuinely carries meaning is
+better declared as a nominal `struct` with named fields. Giving the reader more
+to resolve is a steeper cost than the keystrokes saved.
+
 **`Unknown` is the escape hatch, and honesty about it is policy.** An expression
 the checker can't type becomes `Unknown`, which is lenient on both sides of
 assignability so one inference gap never cascades into a page of false errors.

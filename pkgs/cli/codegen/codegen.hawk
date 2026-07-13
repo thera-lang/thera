@@ -835,7 +835,7 @@ impl FnCompiler {
     // to its slot. Reuses inference's element-typing.
     fn bind_loop_var(self, _ var_name: Option<String>, _ iter: Expr) -> Int {
         let iter_type = infer_expr(iter, self.type_scope, self.ctx, Option.None);
-        let element = for_element_type(iter_type, self.ctx);
+        let element = for_element_type(iter, iter_type, self.ctx);
         return match var_name {
             Some(name) => {
                 self.type_scope[name] = element;
