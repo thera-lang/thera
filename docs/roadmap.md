@@ -844,12 +844,52 @@ classical soundness theorem false by construction; the spec (language.md
 §Generics / §Assignability) plus the `tests/lang/` conformance suite are the
 vehicle.
 
-**Open — targeted checker fixes** (each local, in the shrink-the-holes model):
+**Open — targeted checker fixes.** The three local, low-risk fixes from this set
+are landed (see _Done_); the one below is the outlier — the spike showed it is
+_not_ local, so it is deferred with its findings recorded.
 
-- **`TypeParameter` → concrete assignability.**
-  `fn f<T>(_ x: T) -> Int { return x; }` checks clean and traps at the call. The
-  leniency is only needed concrete-→-`T` (instantiation, validated at call
-  sites); a `T` source against a concrete target should be an error.
+- **`TypeParameter` → concrete assignability** — _deferred; spiked 2026-07._
+  `fn f<T>(_ x: T) -> Int { return x; }` checks clean and traps at the call: a
+  `T`-typed value flows into a concrete-typed position. The leniency is only
+  needed concrete-→-`T` (instantiation, validated at call sites); a bare `T`
+  source against a concrete target should be an error.
+
+  **Spike (naive narrowing = remove the source-side `TypeParameter → true` in
+  `is_assignable`): not viable.** Over the whole corpus it produced 13 new
+  errors — **1 genuine hole** (the planted `fault-type-mismatch` test) and **12
+  false positives** in legitimate code, in three patterns:
+  - **A. Bounded `T` → its bound** (5) — `sorted<T: Ord>` passing a `T` where
+    `Ord` is expected. `T: Ord` *is* an `Ord`, but `is_assignable` has no bounds
+    context.
+  - **B. Type param under function contravariance** (7) — `xs.fold(0, (acc,x) =>
+    …)`: the lambda `(Int,T)->Int` vs `fold<A>`'s `(A,T)->A`. Param
+    contravariance flips the *target* param `A` into *source* position in the
+    recursive call.
+  - **C. Unbound inference param in generic args** (1) — `some.and_then((_n) =>
+    Option.None)` bound to `Option<Int>` → `Option<U>` vs `Option<Int>`; `U`
+    should unify to `Int` but `None` pins nothing.
+
+  **Why it can't live in `is_assignable`:** source-side `TypeParameter` leniency
+  is load-bearing *inside the recursion* — B and C arise only deep in it
+  (function contravariance, generic-arg pairing), not from "using a `T` value as
+  concrete." The real hole is a value whose type is *exactly* `TypeParameter(T)`
+  in a value-flow position (return / assign / arg) at the **top level**.
+
+  **Recommended approach when revisited:** a dedicated check at the value-flow
+  sites (`check_return`, `expect_type` for let/assign/args), **not** in
+  `is_assignable`, that fires only when the source type is a *bare*
+  `TypeParameter` (excludes B/C — their sources are `(…)->…` and `Option<U>`,
+  never bare) and is **bounds-aware** — a `T: Ord` source satisfies `Ord` and its
+  supers (excludes A). Bounds live in the checker's `type_param_bounds` (the
+  table the unbounded-`T` method fix reads), which is why the check must be at
+  the site, not in `is_assignable`. Residual false-positive risk: ~zero.
+
+  **Why deferred:** the corpus has **zero** real instances of the hole (only the
+  planted test), it can't cause memory unsafety (it traps cleanly with the
+  honest `runtime type error: expected Int, found String` message — see the
+  _Honest tag-mismatch traps_ changelog), and the fix needs bounds threaded to
+  the value-flow checks — a materially larger, lower-payoff change than the
+  other three targeted fixes (all landed). Revisit if a forcing case appears.
 
 **Open — design decisions:**
 
