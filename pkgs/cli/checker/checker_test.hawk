@@ -812,6 +812,45 @@ fn test_value_return_reported_once_per_function() -> Result<Void, Error> {
 }
 
 @test
+fn test_missing_return_on_a_path() -> Result<Void, Error> {
+    // Definite return: a value-returning fn whose body can fall off the end.
+    let errs = errors_of('fn f(_ b: Bool) -> Int { if b { return 1; } }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs),
+        expected: 'missing return: not every path through \'f\' returns a value (declared `-> Int`)')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_missing_return_no_return_at_all() -> Result<Void, Error> {
+    let errs = errors_of('fn f() -> Int { let x = 1; }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_bare_return_in_value_fn() -> Result<Void, Error> {
+    let errs = errors_of('fn f() -> Int { return; }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs),
+        expected: '`return` needs a value: the function returns Int')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_all_paths_exit_is_clean() -> Result<Void, Error> {
+    // Every path returns or throws; `while true` without a break never
+    // completes normally (and with a break, the fall-through is back).
+    let errs = errors_of('fn f(_ b: Bool) -> Int { if b { return 1; } else { return 2; } }\n'
+        + 'fn g() -> Int { while true { return 1; } }\n'
+        + 'fn t(_ b: Bool) -> Int { if b { throw 0 - 1; } else { return 2; } }');
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    let breaks = errors_of('fn f() -> Int { while true { break; } }');
+    testing.assert_eq(actual: breaks.len(), expected: 1)?;
+    return Result.Ok(void);
+}
+
+@test
 fn test_void_returns_are_clean() -> Result<Void, Error> {
     // Bare `return;`, `return void;`, and no return at all all stay `Void`.
     let errs = errors_of('fn a(_ x: Int) { if x > 0 { return; } }\n'

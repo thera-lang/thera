@@ -250,6 +250,9 @@ pub struct FnCompiler {
     let mut local_count: Int;
     let mut param_count: Int;
     let mut returns_result: Bool;
+    // The return type is `Result<Void, _>` — a bare `return;` / fall-through
+    // wraps its unit as the implicit `Ok(void)` (see `emit_return`).
+    let mut result_void: Bool;
     let labels: List<Option<Int>>;
     let fixups: List<Fixup>;
     // A stack of enclosing loops (innermost last) — the targets a `break`/
@@ -275,6 +278,7 @@ pub fn new_fn_compiler(_ scope: ModuleScope, _ errors: List<diagnostic.Diagnosti
         local_count: 0,
         param_count: 0,
         returns_result: false,
+        result_void: false,
         labels: [],
         fixups: [],
         loops: [],
@@ -329,6 +333,19 @@ impl FnCompiler {
             },
             None => false,
         };
+        // `Result<Void, _>` additionally Ok-wraps a *unit* return — a bare
+        // `return;` or falling off the end means `Ok(void)`, so the ceremony-free
+        // `fn step() -> Result<Void, Error> { inner()?; }` returns a Result, not
+        // a raw unit. Gated on the success payload being Void: for any other
+        // payload a unit return is a checker error, and wrapping it would forge
+        // an `Ok` with a wrong-typed value.
+        self.result_void = self.returns_result && match return_type {
+            Some(rt) => match rt {
+                Interface(_, args) => args.len() > 0 && is_unit_ty(args[0]),
+                _ => false,
+            },
+            None => false,
+        };
         self.ctx = InferCtx {
             library: self.scope.library,
             type_params: type_params,
@@ -373,9 +390,16 @@ impl FnCompiler {
         }
 
         if let Some(body) = fn_decl.body { self.block(body); }
-        // Guarantee the stream ends with a return (a Void fall-through returns Unit).
-        if self.code.len() == 0 || !self.ends_in_return() {
+        // Guarantee the stream ends with a return (a Void fall-through returns
+        // Unit; a `Result<Void, _>` fall-through returns the implicit
+        // `Ok(void)`). Needed even when the last instruction is a `Return`, if
+        // a forward jump lands past it (`fn f() { if b { return; } }` — the
+        // false path resumes at end-of-stream, so the epilogue is reachable).
+        if self.code.len() == 0 || !self.ends_in_return() || self.jump_targets_end() {
             self.emit(Instr.Simple(Op.ConstUnit));
+            if self.result_void {
+                self.emit(Instr.EnumNew(TY_RESULT, TAG_OK, 1));
+            }
             self.emit(Instr.Simple(Op.Return));
         }
         self.resolve_jumps();
@@ -543,6 +567,19 @@ impl FnCompiler {
             Simple(op) => op == Op.Return,
             _ => false,
         };
+    }
+
+    // Whether any bound label targets the current end of the stream — a forward
+    // jump that lands past the last instruction keeps the epilogue reachable.
+    fn jump_targets_end(self) -> Bool {
+        for l in self.labels {
+            if let Some(pos) = l {
+                if pos == self.code.len() {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     fn is_namespace(self, _ name: String) -> Bool {
@@ -769,10 +806,16 @@ impl FnCompiler {
     }
 
     // Emit a `return`, applying implicit `Ok` wrapping when the function returns
-    // `Result` and the value isn't already a `Result`.
+    // `Result` and the value isn't already a `Result`. A bare `return;` in a
+    // `Result<Void, _>` function wraps its unit the same way — `Ok(void)`.
     fn emit_return(self, _ value: Option<Expr>) -> Void {
         match value {
-            None => { self.emit(Instr.Simple(Op.ConstUnit)); },
+            None => {
+                self.emit(Instr.Simple(Op.ConstUnit));
+                if self.result_void {
+                    self.emit(Instr.EnumNew(TY_RESULT, TAG_OK, 1));
+                }
+            },
             Some(v) => {
                 self.expr_expecting(v, self.ctx.return_type);
                 if self.returns_result && !self.is_core(v, 'Result') {
@@ -2383,6 +2426,17 @@ fn run_infer_oracle(_ scope: ModuleScope) -> Void {
 
 fn file_label(_ f: Option<String>) -> String {
     return f.unwrap_or('(no file)');
+}
+
+// The core `Void`/unit type.
+fn is_unit_ty(_ t: Type) -> Bool {
+    return match t {
+        Primitive(p) => match p {
+            Unit => true,
+            _ => false,
+        },
+        _ => false,
+    };
 }
 
 fn name_of_type(_ t: Type) -> Option<String> {

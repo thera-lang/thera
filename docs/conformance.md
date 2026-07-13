@@ -47,8 +47,8 @@ and [grammar.md](grammar.md) (syntax).
 | `expr-bitwise`         | Operator precedence    | `&` `\|` `^` `~` (Int)                                                                                                                                | ✓      |
 | `expr-shift`           | Operator precedence    | `<<` `>>` (arith) `>>>` (logical), mask 0..63, Int-only                                                                                               | ✓      |
 | `expr-comparison`      | Operator precedence    | `== != < > <= >=`                                                                                                                                     | ✓      |
-| `expr-range`           | Operator precedence    | `a..b`, non-associative; half-open, `Int` element                                                                                                    | ◐      |
-| `expr-range-bound`     | Operator precedence    | a range's bounds must both be `Int` — a non-Int bound is a `check` error, not a runtime surprise                                                       | ✓      |
+| `expr-range`           | Operator precedence    | `a..b`, non-associative; half-open, `Int` element                                                                                                     | ◐      |
+| `expr-range-bound`     | Operator precedence    | a range's bounds must both be `Int` — a non-Int bound is a `check` error, not a runtime surprise                                                      | ✓      |
 | `expr-concat`          | language.md Types      | `+` concatenates strings                                                                                                                              | ✓      |
 | `expr-operator-types`  | Operator precedence    | operands type-checked: same-typed Int/Double (+String for `+`), Bool for logical/`!`, Int for `%`/bitwise, agreeing `==`/`!=`; no Int↔Double coercion | ✓      |
 | `expr-lt-ambiguity`    | Expressions / Generics | `name<...>` commits to type args only before `(`/`.`; `a < b > (c)` is a checked error, chains parse as comparisons                                   | ✓      |
@@ -60,35 +60,35 @@ and [grammar.md](grammar.md) (syntax).
 
 ## Types & values
 
-| ID                            | Spec (language.md)     | Pins                                                                                                                                   | Status |
-| ----------------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| `type-primitives`             | Types → Primitives     | Int/Double/Bool/String/Void behavior                                                                                                   | ✓      |
-| `type-string-noindex`         | Types → Primitives     | `s[i]` on a String is disallowed                                                                                                       | ✓      |
-| `type-list`                   | Collections            | `List<T>` literal, `len`, indexing                                                                                                     | ✓      |
-| `type-list-homogeneous`       | Collections            | a list/map literal is homogeneous: every element/entry is checked against the first's type — a `check` diagnostic                       | ✓      |
-| `type-map`                    | Collections            | `Map<K,V>` literal, keyed access                                                                                                       | ✓      |
-| `type-map-bracket`            | Collections            | bracket map literals `[k: v, …]` / empty `[:]`: unrestricted keys, valid in any expression position (incl. match arms)                 | ✓      |
-| `type-set`                    | Collections            | `Set<T>` uniqueness via `Set.from`                                                                                                     | ✓      |
-| `type-map-brace-reject`       | Collections            | the removed brace-map form (`{'a': 1}`) is a parse error with a bracket-form hint; `{}` is an empty block                              | ✓      |
-| `gen-static-context`          | Collections / Generics | a generic static method (`Set.new()`) infers its owner `T` from call context                                                           | ✓      |
-| `gen-static-recv-args`        | Collections / Generics | receiver type args on a static call (`Set<String>.new()`) bind the owner parameter                                                     | ✓      |
-| `gen-call-nested-args`        | Collections / Generics | nested generics in call-position type args (`make<List<Int>>()`, `Set<List<Int>>.new()`); comparison chains unaffected                 | ✓      |
-| `type-bytes`                  | Types → Bytes          | `Bytes` len / `to_string` / `from_list` / `empty`                                                                                      | ◐      |
-| `type-native`                 | Types → Built-ins      | `native type` decl: opaque, impl-extensible, no field layout                                                                           | ✓      |
-| `type-struct`                 | Structs                | `struct` decl, struct literal, field access                                                                                            | ✓      |
-| `type-struct-keyword`         | Structs                | the removed `type Name = { … }` form is a parse error                                                                                  | ✓      |
-| `type-struct-field-let`       | Structs                | a struct field must be declared with `let` (`let x: T;`) — parse error otherwise                                                       | ✓      |
-| `type-struct-field-semicolon` | Structs                | struct fields are terminated with `;`, not separated by `,` — parse error otherwise                                                    | ✓      |
-| `type-struct-immut`           | Structs                | struct fields immutable by default (non-`mut` assign = error)                                                                          | ✓      |
-| `type-mut-field`              | Structs                | a `let mut` field (`let mut x: T;`) may be reassigned after construction                                                               | ✓      |
-| `type-struct-fields-required` | Structs                | a struct literal must provide every declared field — a `check` diagnostic                                                              | ✓      |
-| `type-enum-nonempty`          | Enums                  | an enum must declare at least one variant — a zero-variant enum is a parse error                                                       | ✓      |
-| `type-reserved-names`         | language.md            | the language's own type names (Result, Option, List, Void, …) may not be declared in user code; core utility names (Args, …) stay free | ✓      |
-| `type-fn-variance`            | Types                  | function-type assignability: contravariant parameters, covariant result                                                                | ✓      |
-| `gen-variance`                | Types → Variance       | generic args: `Result`/`Option`/`Iterator` covariant (read-only), `List`/`Map`/`Set` & user generics invariant; literals type against context | ✓ |
-| `type-field-nonstruct`        | Structs                | a bare field access on a non-struct value is rejected                                                                                  | ✓      |
-| `type-impl-param-bare`        | Impl blocks            | an inherent `impl Type<…>` element must be a bare parameter name (a type expression is an error, not silently flattened)               | ✓      |
-| `type-never-divergence`       | Types                  | a diverging arm (`throw`/`return`) has bottom type `Never`, absorbed by the arm/branch merge so the expression takes the concrete type | ✓      |
+| ID                            | Spec (language.md)     | Pins                                                                                                                                          | Status |
+| ----------------------------- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| `type-primitives`             | Types → Primitives     | Int/Double/Bool/String/Void behavior                                                                                                          | ✓      |
+| `type-string-noindex`         | Types → Primitives     | `s[i]` on a String is disallowed                                                                                                              | ✓      |
+| `type-list`                   | Collections            | `List<T>` literal, `len`, indexing                                                                                                            | ✓      |
+| `type-list-homogeneous`       | Collections            | a list/map literal is homogeneous: every element/entry is checked against the first's type — a `check` diagnostic                             | ✓      |
+| `type-map`                    | Collections            | `Map<K,V>` literal, keyed access                                                                                                              | ✓      |
+| `type-map-bracket`            | Collections            | bracket map literals `[k: v, …]` / empty `[:]`: unrestricted keys, valid in any expression position (incl. match arms)                        | ✓      |
+| `type-set`                    | Collections            | `Set<T>` uniqueness via `Set.from`                                                                                                            | ✓      |
+| `type-map-brace-reject`       | Collections            | the removed brace-map form (`{'a': 1}`) is a parse error with a bracket-form hint; `{}` is an empty block                                     | ✓      |
+| `gen-static-context`          | Collections / Generics | a generic static method (`Set.new()`) infers its owner `T` from call context                                                                  | ✓      |
+| `gen-static-recv-args`        | Collections / Generics | receiver type args on a static call (`Set<String>.new()`) bind the owner parameter                                                            | ✓      |
+| `gen-call-nested-args`        | Collections / Generics | nested generics in call-position type args (`make<List<Int>>()`, `Set<List<Int>>.new()`); comparison chains unaffected                        | ✓      |
+| `type-bytes`                  | Types → Bytes          | `Bytes` len / `to_string` / `from_list` / `empty`                                                                                             | ◐      |
+| `type-native`                 | Types → Built-ins      | `native type` decl: opaque, impl-extensible, no field layout                                                                                  | ✓      |
+| `type-struct`                 | Structs                | `struct` decl, struct literal, field access                                                                                                   | ✓      |
+| `type-struct-keyword`         | Structs                | the removed `type Name = { … }` form is a parse error                                                                                         | ✓      |
+| `type-struct-field-let`       | Structs                | a struct field must be declared with `let` (`let x: T;`) — parse error otherwise                                                              | ✓      |
+| `type-struct-field-semicolon` | Structs                | struct fields are terminated with `;`, not separated by `,` — parse error otherwise                                                           | ✓      |
+| `type-struct-immut`           | Structs                | struct fields immutable by default (non-`mut` assign = error)                                                                                 | ✓      |
+| `type-mut-field`              | Structs                | a `let mut` field (`let mut x: T;`) may be reassigned after construction                                                                      | ✓      |
+| `type-struct-fields-required` | Structs                | a struct literal must provide every declared field — a `check` diagnostic                                                                     | ✓      |
+| `type-enum-nonempty`          | Enums                  | an enum must declare at least one variant — a zero-variant enum is a parse error                                                              | ✓      |
+| `type-reserved-names`         | language.md            | the language's own type names (Result, Option, List, Void, …) may not be declared in user code; core utility names (Args, …) stay free        | ✓      |
+| `type-fn-variance`            | Types                  | function-type assignability: contravariant parameters, covariant result                                                                       | ✓      |
+| `gen-variance`                | Types → Variance       | generic args: `Result`/`Option`/`Iterator` covariant (read-only), `List`/`Map`/`Set` & user generics invariant; literals type against context | ✓      |
+| `type-field-nonstruct`        | Structs                | a bare field access on a non-struct value is rejected                                                                                         | ✓      |
+| `type-impl-param-bare`        | Impl blocks            | an inherent `impl Type<…>` element must be a bare parameter name (a type expression is an error, not silently flattened)                      | ✓      |
+| `type-never-divergence`       | Types                  | a diverging arm (`throw`/`return`) has bottom type `Never`, absorbed by the arm/branch merge so the expression takes the concrete type        | ✓      |
 
 ## Variables & semantics
 
@@ -112,6 +112,7 @@ and [grammar.md](grammar.md) (syntax).
 | ID                    | Spec (language.md)      | Pins                                                                                                           | Status |
 | --------------------- | ----------------------- | -------------------------------------------------------------------------------------------------------------- | ------ |
 | `fn-decl`             | Functions               | params, return type, default `Void` return                                                                     | ✓      |
+| `fn-missing-return`   | Functions → Return      | definite return: every path through a value-returning fn must exit (fall-through / bare `return;` are errors)  | ✓      |
 | `fn-named-params`     | Named parameters        | label-by-name, `_` suppression, `external internal`                                                            | ✓      |
 | `fn-labeled-reorder`  | Named parameters        | labeled args in any order; an un-annotated lambda types (and compiles) against the parameter its label targets | ✓      |
 | `fn-call-args`        | Functions → Calls       | argument diagnostics (type mismatch, unknown label, bound violation) anchor to the offending argument          | ✓      |
@@ -145,41 +146,42 @@ and [grammar.md](grammar.md) (syntax).
 
 ## Error handling
 
-| ID                     | Spec (language.md)      | Pins                                                       | Status |
-| ---------------------- | ----------------------- | ---------------------------------------------------------- | ------ |
-| `err-result-option`    | Error handling / Option | `Result`/`Option` as qualified-constructed prelude enums   | ✓      |
-| `err-propagate`        | Error handling          | `?` propagates `Err` to the caller                         | ✓      |
-| `err-propagate-option` | Error handling / Option | `?` on an `Option` propagates `None` (Option-returning fn) | ✓      |
-| `err-propagate-cross`  | Error handling          | cross-family `?` (Option `?` in a Result fn) is rejected   | ✓      |
-| `err-throw`            | Error handling → throw  | `throw e` ≡ `return Result.Err(e)`                         | ✓      |
-| `err-throw-tail`       | Error handling → throw  | a `throw` in branch-tail position (`else { throw … }`) is a value-producing `Never`, absorbed by the branch merge | ✓ |
-| `err-constructor`      | Error handling          | `error('…') -> Error` (lowercase) builds the simple error  | ✓      |
-| `err-implicit-ok`      | Error handling → throw  | `return n` implicitly `Result.Ok(n)`                       | ✓      |
-| `fault-index`          | Runtime faults          | out-of-range list index / missing map key trap             | ✓      |
-| `fault-div-zero`       | Runtime faults          | integer divide-by-zero traps                               | ✓      |
-| `fault-type-mismatch`  | Runtime faults          | a type hole traps as a `runtime type error` (named types)  | ✓      |
-| `fault-get-checked`    | Collections → get       | `.get(i)` returns `Option` instead of trapping             | ✓      |
-| `int-wraps`            | Runtime faults          | `Int` arithmetic wraps (no overflow trap)                  | ✓      |
+| ID                     | Spec (language.md)      | Pins                                                                                                              | Status |
+| ---------------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------- | ------ |
+| `err-result-option`    | Error handling / Option | `Result`/`Option` as qualified-constructed prelude enums                                                          | ✓      |
+| `err-propagate`        | Error handling          | `?` propagates `Err` to the caller                                                                                | ✓      |
+| `err-propagate-option` | Error handling / Option | `?` on an `Option` propagates `None` (Option-returning fn)                                                        | ✓      |
+| `err-propagate-cross`  | Error handling          | cross-family `?` (Option `?` in a Result fn) is rejected                                                          | ✓      |
+| `err-throw`            | Error handling → throw  | `throw e` ≡ `return Result.Err(e)`                                                                                | ✓      |
+| `err-throw-tail`       | Error handling → throw  | a `throw` in branch-tail position (`else { throw … }`) is a value-producing `Never`, absorbed by the branch merge | ✓      |
+| `err-constructor`      | Error handling          | `error('…') -> Error` (lowercase) builds the simple error                                                         | ✓      |
+| `err-implicit-ok`      | Error handling → throw  | `return n` implicitly `Result.Ok(n)`                                                                              | ✓      |
+| `err-implicit-ok-void` | Error handling → throw  | `Result<Void, _>` fall-through / bare `return;` is `Ok(void)`                                                     | ✓      |
+| `fault-index`          | Runtime faults          | out-of-range list index / missing map key trap                                                                    | ✓      |
+| `fault-div-zero`       | Runtime faults          | integer divide-by-zero traps                                                                                      | ✓      |
+| `fault-type-mismatch`  | Runtime faults          | a type hole traps as a `runtime type error` (named types)                                                         | ✓      |
+| `fault-get-checked`    | Collections → get       | `.get(i)` returns `Option` instead of trapping                                                                    | ✓      |
+| `int-wraps`            | Runtime faults          | `Int` arithmetic wraps (no overflow trap)                                                                         | ✓      |
 
 ## Interfaces
 
-| ID                     | Spec (language.md)    | Pins                                                                                                                                                                                   | Status |
-| ---------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| `iface-impl`           | Interfaces            | `impl Iface for T` checked for every method                                                                                                                                            | ✓      |
-| `iface-inherent`       | Inherent methods      | `impl T { … }` inherent methods                                                                                                                                                        | ✓      |
-| `iface-static`         | Static methods        | no-`self` methods called on the type                                                                                                                                                   | ✓      |
-| `iface-display`        | Display and Debug     | `${}` uses `Display` if present, else `Debug` (total)                                                                                                                                  | ✓      |
-| `iface-debug`          | Display and Debug     | structural `Debug` derive for structs                                                                                                                                                  | ◐      |
-| `iface-eq`             | Display and Debug     | `==` structural by default; explicit `impl Eq` overrides                                                                                                                               | ✓      |
-| `iface-ord`            | Interfaces / Dispatch | `Ord.compare` → `Ordering`; primitives + user `impl Ord`; `<T: Ord>` dispatches dynamically                                                                                            | ✓      |
-| `iface-inherit`        | Interface inheritance | `interface E: Display + Debug` obligations & widened set                                                                                                                               | ✓      |
-| `iface-dispatch`       | Dispatch              | dynamic dispatch for interface-typed values & bounds                                                                                                                                   | ✓      |
-| `iface-default`        | Interfaces            | default methods (interface method bodies); optional in an `impl`, overridable, dispatched dynamically                                                                                  | ✓      |
-| `iface-identity`       | Interfaces            | interface identity is owner+name: conformance obligations, default-method units, and interface-typed params bind per-owner; `impl ns.Iface for T` names an interface through an import | ✓      |
-| `iface-bound-identity` | Interfaces / Dispatch | a type-parameter bound binds the interface its declaring file resolves — a conformer to a same-named interface elsewhere does not satisfy it                                           | ✓      |
-| `generic-bounds`       | Interfaces / Dispatch | `<T: Eq + Debug>` enforced at call sites                                                                                                                                               | ✓      |
-| `gen-param-methods`    | Interfaces / Dispatch | a method call on a type parameter resolves against its bounds; `display`/`debug` are universal, but any other method on an unbounded `T` is a `check` error (matching codegen)          | ✓      |
-| `generic-type-bounds`  | Interfaces / Dispatch | a bound on a generic type's own parameter (`Box<T: Display>`) is enforced on its type arguments                                                                                        | ✓      |
+| ID                       | Spec (language.md)    | Pins                                                                                                                                                                                   | Status |
+| ------------------------ | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| `iface-impl`             | Interfaces            | `impl Iface for T` checked for every method                                                                                                                                            | ✓      |
+| `iface-inherent`         | Inherent methods      | `impl T { … }` inherent methods                                                                                                                                                        | ✓      |
+| `iface-static`           | Static methods        | no-`self` methods called on the type                                                                                                                                                   | ✓      |
+| `iface-display`          | Display and Debug     | `${}` uses `Display` if present, else `Debug` (total)                                                                                                                                  | ✓      |
+| `iface-debug`            | Display and Debug     | structural `Debug` derive for structs                                                                                                                                                  | ◐      |
+| `iface-eq`               | Display and Debug     | `==` structural by default; explicit `impl Eq` overrides                                                                                                                               | ✓      |
+| `iface-ord`              | Interfaces / Dispatch | `Ord.compare` → `Ordering`; primitives + user `impl Ord`; `<T: Ord>` dispatches dynamically                                                                                            | ✓      |
+| `iface-inherit`          | Interface inheritance | `interface E: Display + Debug` obligations & widened set                                                                                                                               | ✓      |
+| `iface-dispatch`         | Dispatch              | dynamic dispatch for interface-typed values & bounds                                                                                                                                   | ✓      |
+| `iface-default`          | Interfaces            | default methods (interface method bodies); optional in an `impl`, overridable, dispatched dynamically                                                                                  | ✓      |
+| `iface-identity`         | Interfaces            | interface identity is owner+name: conformance obligations, default-method units, and interface-typed params bind per-owner; `impl ns.Iface for T` names an interface through an import | ✓      |
+| `iface-bound-identity`   | Interfaces / Dispatch | a type-parameter bound binds the interface its declaring file resolves — a conformer to a same-named interface elsewhere does not satisfy it                                           | ✓      |
+| `generic-bounds`         | Interfaces / Dispatch | `<T: Eq + Debug>` enforced at call sites                                                                                                                                               | ✓      |
+| `gen-param-methods`      | Interfaces / Dispatch | a method call on a type parameter resolves against its bounds; `display`/`debug` are universal, but any other method on an unbounded `T` is a `check` error (matching codegen)         | ✓      |
+| `generic-type-bounds`    | Interfaces / Dispatch | a bound on a generic type's own parameter (`Box<T: Display>`) is enforced on its type arguments                                                                                        | ✓      |
 | `iface-conformance-args` | Interfaces / Dispatch | interface conformance agrees on type arguments: an `impl Box<Int>` does not satisfy an expected `Box<String>`                                                                          | ✓      |
 
 ## Imports, scoping & visibility

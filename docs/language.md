@@ -192,15 +192,16 @@ whole-program constraint solving: a type is always derivable from what's on the
 page nearby, which is the property that lets a reader — human or LLM — reason
 about any line with only local context.
 
-**No type aliases — a deliberate non-goal.** Hawk has no `type Name = <some
-type>` form, and is unlikely to grow one. An alias is a *transparent* name: it
-reads well for a human skimming, but it adds precisely the indirection the
-local-reasoning property above is built to avoid — an LLM meeting `Fallible` in a
-signature has to go resolve it to `Result<Void, Error>` elsewhere. The verbosity
-it would save is real but shallow (the commonest candidate, `Result<Void,
-Error>`, is frequent, not complex), and a type that genuinely carries meaning is
-better declared as a nominal `struct` with named fields. Giving the reader more
-to resolve is a steeper cost than the keystrokes saved.
+**No type aliases — a deliberate non-goal.** Hawk has no
+`type Name = <some type>` form, and is unlikely to grow one. An alias is a
+_transparent_ name: it reads well for a human skimming, but it adds precisely
+the indirection the local-reasoning property above is built to avoid — an LLM
+meeting `Fallible` in a signature has to go resolve it to `Result<Void, Error>`
+elsewhere. The verbosity it would save is real but shallow (the commonest
+candidate, `Result<Void, Error>`, is frequent, not complex), and a type that
+genuinely carries meaning is better declared as a nominal `struct` with named
+fields. Giving the reader more to resolve is a steeper cost than the keystrokes
+saved.
 
 **`Unknown` is the escape hatch, and honesty about it is policy.** An expression
 the checker can't type becomes `Unknown`, which is lenient on both sides of
@@ -346,6 +347,23 @@ defaults to `Void`. The two forms below are equivalent:
 fn log(_ msg: String) -> Void { println(msg); }
 fn log(_ msg: String)         { println(msg); }
 ```
+
+**Definite return.** A function that declares a value-producing return type must
+exit on every path — each path through the body ends in a `return <value>` or a
+`throw` (a `while true` loop with no `break` also counts: it never completes
+normally). A path that falls off the end of the body, or a bare `return;`, is a
+check error:
+
+```hawk
+fn pick(_ b: Bool) -> Int {
+    if b { return 1; }
+}   // error: missing return: not every path through 'pick' returns a value
+```
+
+The exceptions are `Void` (completing normally _is_ the value) and
+`Result<Void, _>`, where completing normally means success: falling off the end
+or a bare `return;` is the implicit `Ok(void)` (see
+[Error handling](#error-handling)).
 
 Functions are first-class values. Lambdas use `=>`:
 
@@ -582,6 +600,17 @@ fn parse_port(s: String) -> Result<Int, Error> {
 }
 ```
 
+In a `Result<Void, _>`-returning function the implicit `Ok` extends to
+completing normally: falling off the end of the body, or a bare `return;`, is
+`Ok(void)`. So the common propagate-and-succeed shape needs no closing ceremony:
+
+```hawk
+fn save(config: Config) -> Result<Void, Error> {
+    let text = config.serialize()?;
+    fs.write_text('config.json', text)?;
+}   // completing normally is Result.Ok(void)
+```
+
 A `throw` may also stand in **branch-tail (value) position**, not only as a
 `;`-terminated statement. Its type is the bottom type `Never` (see the
 [shapes table](#the-type-system-at-a-glance)), so the branch merge takes the
@@ -668,8 +697,8 @@ Conditions that trap:
 - a **type error that slipped past the checker** — the type system is
   deliberately lenient in places (see [Assignability](#assignability)), so a
   value can reach an operation that its static type ruled out (e.g. a `String`
-  used where the checker inferred `Int`). This is a program error, not a compiler
-  fault; it traps rather than corrupting memory
+  used where the checker inferred `Int`). This is a program error, not a
+  compiler fault; it traps rather than corrupting memory
 
 Where a recoverable alternative makes sense, the API offers one alongside the
 faulting form — e.g. `list.get(i)` returns `Option<T>` instead of trapping.
@@ -680,22 +709,22 @@ when a missing element would mean a bug.
 `hawk: trap: <message>` and exits non-zero. The message is human-readable and
 names the specifics:
 
-| Fault                    | Message                                                                               |
-| ------------------------ | ------------------------------------------------------------------------------------- |
-| list index out of range  | `index out of range: the index is <i> but the length is <n>`                          |
-| missing map key          | `key not found: <key>` (string keys are quoted, e.g. `'bob'`)                         |
-| integer divide-by-zero   | `division by zero`                                                                    |
-| send on a closed channel | `send on a closed channel`                                                            |
-| out of memory            | `out of memory: the live heap is <n> MiB but the limit is <m> MiB (HAWK_MAX_HEAP_MB)` |
-| runaway recursion        | `stack overflow: the call stack reached <n> frames`                                   |
-| type error (checker hole) | `runtime type error: expected <type>, found <type>` (both are Hawk type names)       |
+| Fault                     | Message                                                                               |
+| ------------------------- | ------------------------------------------------------------------------------------- |
+| list index out of range   | `index out of range: the index is <i> but the length is <n>`                          |
+| missing map key           | `key not found: <key>` (string keys are quoted, e.g. `'bob'`)                         |
+| integer divide-by-zero    | `division by zero`                                                                    |
+| send on a closed channel  | `send on a closed channel`                                                            |
+| out of memory             | `out of memory: the live heap is <n> MiB but the limit is <m> MiB (HAWK_MAX_HEAP_MB)` |
+| runaway recursion         | `stack overflow: the call stack reached <n> frames`                                   |
+| type error (checker hole) | `runtime type error: expected <type>, found <type>` (both are Hawk type names)        |
 
-Distinct from the type-error message is `internal error (malformed bytecode):
-…`, reserved for a genuine producer bug — bytecode a correct compiler never
-emits. A `runtime type error` blames the program's (wrongly-accepted) types; an
-`internal error` blames the compiler. Seeing the former means a type annotation
-was wrong or a checker hole let bad code through; seeing the latter is a bug to
-report.
+Distinct from the type-error message is
+`internal error (malformed bytecode): …`, reserved for a genuine producer bug —
+bytecode a correct compiler never emits. A `runtime type error` blames the
+program's (wrongly-accepted) types; an `internal error` blames the compiler.
+Seeing the former means a type annotation was wrong or a checker hole let bad
+code through; seeing the latter is a bug to report.
 
 > Integer overflow does **not** trap: `Int` arithmetic wraps around (two's
 > complement). Divide-by-zero is the trapping case above.
@@ -1691,22 +1720,23 @@ expected?** It holds when any of these applies, and nothing else converts:
    roadmap.md.
 3. **Interface conformance.** `T` is an interface and `S` `impl`s it, or `S` is
    an interface that extends `T` (transitively). The target's type arguments are
-   compared against the ones the impl recorded — an `impl Iterator<Int>` is *not*
-   accepted where `Iterator<String>` is expected — with generic impls (recorded
-   as a type parameter) and bare-interface targets staying lenient.
+   compared against the ones the impl recorded — an `impl Iterator<Int>` is
+   _not_ accepted where `Iterator<String>` is expected — with generic impls
+   (recorded as a type parameter) and bare-interface targets staying lenient.
 4. **Same named type, args related by variance.** For the same constructor, the
    type arguments relate per its **variance** (see [Variance](#variance) below):
    the read-only built-ins widen covariantly (`Result<CliError…>` is a
    `Result<Error…>`), while mutable containers and user generics are invariant
-   (`List<Cat>` is *not* a `List<Animal>`).
+   (`List<Cat>` is _not_ a `List<Animal>`).
 5. **Functions.** Parameters are contravariant, the result covariant: where a
    `(Cat) -> Animal` is expected, an `(Animal) -> Cat` is accepted — it handles
    every `Cat` it will be given and returns only `Animal`s. The unsafe
    directions are rejected.
-6. **Divergence.** `S` is `Never` — the bottom type of a `throw`/`return`. A path
-   that never yields a value is usable where any `T` is expected, so a diverging
-   branch composes (`if c { 5 } else { throw … }` is `Int`). Nothing is assignable
-   *to* `Never`, but it has no surface syntax, so it never appears as a target.
+6. **Divergence.** `S` is `Never` — the bottom type of a `throw`/`return`. A
+   path that never yields a value is usable where any `T` is expected, so a
+   diverging branch composes (`if c { 5 } else { throw … }` is `Int`). Nothing
+   is assignable _to_ `Never`, but it has no surface syntax, so it never appears
+   as a target.
 
 Everything else is a type error. In particular there is no `Int` → `Double`
 coercion (call `.to_double()`), no universal top type to erase to, and no union
@@ -1714,24 +1744,24 @@ or intersection types.
 
 ### Variance
 
-When one generic type is assignable to another of the **same constructor**
-(rule 4 above), whether the type arguments may differ is the constructor's
-*variance*. Hawk fixes this per built-in — there are **no variance annotations**
+When one generic type is assignable to another of the **same constructor** (rule
+4 above), whether the type arguments may differ is the constructor's _variance_.
+Hawk fixes this per built-in — there are **no variance annotations**
 (`out`/`in`), and nothing to write:
 
-| Constructor | Variance | |
-| --- | --- | --- |
-| `Result<T, E>`, `Option<T>`, `Iterator<T>` | **covariant** | args may widen: `Result<CliError…>` is a `Result<Error…>` |
-| `List<T>`, `Map<K, V>`, `Set<T>` | **invariant** | args must match exactly: `List<Cat>` is *not* a `List<Animal>` |
-| every user-defined generic (`Box<T>`, …) | **invariant** | the safe default |
+| Constructor                                | Variance      |                                                                |
+| ------------------------------------------ | ------------- | -------------------------------------------------------------- |
+| `Result<T, E>`, `Option<T>`, `Iterator<T>` | **covariant** | args may widen: `Result<CliError…>` is a `Result<Error…>`      |
+| `List<T>`, `Map<K, V>`, `Set<T>`           | **invariant** | args must match exactly: `List<Cat>` is _not_ a `List<Animal>` |
+| every user-defined generic (`Box<T>`, …)   | **invariant** | the safe default                                               |
 
 The rule follows from one question: **can you write a `T` back through the
-type?** The covariant three are read-only in their parameter — a `Result`/`Option`
-holds a value you only read out, an `Iterator` only yields — so widening the
-argument is sound and gives the "errors as values" model its ergonomics: a
-function returning `Result<T, Error>` may `Result.Err(someConcreteError)`
-directly. A `List`/`Map`/`Set` has `push`/`insert`/index-assignment, so widening
-would be a soundness hole:
+type?** The covariant three are read-only in their parameter — a
+`Result`/`Option` holds a value you only read out, an `Iterator` only yields —
+so widening the argument is sound and gives the "errors as values" model its
+ergonomics: a function returning `Result<T, Error>` may
+`Result.Err(someConcreteError)` directly. A `List`/`Map`/`Set` has
+`push`/`insert`/index-assignment, so widening would be a soundness hole:
 
 ```hawk
 let cats: List<Cat> = [Cat { name: 'mo' }];
@@ -1748,10 +1778,10 @@ let pets: List<Animal> = [Cat { name: 'mo' }, Dog { name: 'rex' }]; // fine
 ```
 
 The literal `[Cat…, Dog…]` is checked as a `List<Animal>` from the start (each
-element against `Animal`), rather than inferred as a `List<Cat>` and then widened.
-Deriving variance from a *user* type's own methods (so an immutable `Box<T>`
-could be covariant too) is possible but not yet done — invariant-by-default is
-the current rule.
+element against `Animal`), rather than inferred as a `List<Cat>` and then
+widened. Deriving variance from a _user_ type's own methods (so an immutable
+`Box<T>` could be covariant too) is possible but not yet done —
+invariant-by-default is the current rule.
 
 ---
 

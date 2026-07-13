@@ -569,8 +569,49 @@ fn check_fn(_ errors: List<diagnostic.Diagnostic>, _ fn_decl: FnDecl, _ library:
                 }
             }
             check_block(CheckCtx { errors: errors, infer: ctx, scope: scope, muts: muts, no_return_reported: [], in_loop: false }, body);
+            // Definite return: a function that declares a value-producing
+            // return type must exit on every path — a path that falls off the
+            // end of the body would silently produce `()` (or trap). Exempt:
+            // `Void` (fall-through is the value), `Result<Void, _>` (the
+            // fall-through is the implicit `Ok(void)` — see `emit_return`),
+            // and undetermined types (their own diagnostics explain them).
+            if let Some(rt) = return_type {
+                if !may_complete_normally(rt, library) && !block_always_exits(body) {
+                    add_error(errors,
+                        'missing return: not every path through \'${fn_decl.name}\' returns a value (declared `-> ${type_to_string(rt)}`)',
+                        fn_decl.name_span);
+                }
+            }
         },
     }
+}
+
+// A bare `return;` in a value-returning function would silently return `()`
+// (same exemptions as falling off the end — see `may_complete_normally`).
+fn check_bare_return(_ cc: CheckCtx, _ span: SourceSpan) -> Void {
+    if let Some(rt) = cc.infer.return_type {
+        if !may_complete_normally(rt, cc.infer.library) {
+            add_error(cc.errors,
+                '`return` needs a value: the function returns ${type_to_string(rt)}',
+                span);
+        }
+    }
+}
+
+// Whether a function declaring return type `rt` may complete normally — fall
+// off the end of its body, or `return;` bare. `Void` functions may by
+// definition; `Result<Void, _>` may because the fall-through wraps as the
+// implicit `Ok(void)`, mirroring the implicit-`Ok` on `return <value>`;
+// `Unknown`/bare type parameters stay lenient.
+fn may_complete_normally(_ rt: Type, _ lib: LibraryElement) -> Bool {
+    if is_unit_type(rt) { return true; }
+    return match rt {
+        Unknown => true,
+        TypeParameter(_) => true,
+        Interface(id, args) => is_core_id(lib, id, 'Result')
+            && args.len() > 0 && is_unit_type(args[0]),
+        _ => false,
+    };
 }
 
 fn check_fn_sig(_ errors: List<diagnostic.Diagnostic>, _ fn_decl: FnDecl,
@@ -952,9 +993,12 @@ fn check_stmt(_ cc: CheckCtx, _ stmt: Stmt, _ stmts: List<Stmt>, _ index: Int) -
         },
         Return(span, value) => {
             check_missing_return_type(cc, value);
-            if let Some(v) = value {
-                check_expr(cc, v, ctx.return_type);
-                if let Some(rt) = ctx.return_type { check_return(errors, v, rt, span, scope, ctx); }
+            match value {
+                Some(v) => {
+                    check_expr(cc, v, ctx.return_type);
+                    if let Some(rt) = ctx.return_type { check_return(errors, v, rt, span, scope, ctx); }
+                },
+                None => { check_bare_return(cc, span); },
             }
         },
         Assign(_, target, op, rhs) => {
@@ -1380,9 +1424,12 @@ fn check_expr_inner(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> V
         },
         Return(span, value) => {
             check_missing_return_type(cc, value);
-            if let Some(v) = value {
-                check_expr(cc, v, ctx.return_type);
-                if let Some(rt) = ctx.return_type { check_return(errors, v, rt, span, scope, ctx); }
+            match value {
+                Some(v) => {
+                    check_expr(cc, v, ctx.return_type);
+                    if let Some(rt) = ctx.return_type { check_return(errors, v, rt, span, scope, ctx); }
+                },
+                None => { check_bare_return(cc, span); },
             }
         },
         Throw(_, value) => {
@@ -1555,6 +1602,53 @@ fn stmt_always_exits(_ s: Stmt) -> Bool {
         If(ix) => match ix.else_block {
             Some(eb) => block_always_exits(ix.then_block) && block_always_exits(eb),
             None => false,
+        },
+        // `while true { … }` completes normally only through a `break` at its
+        // own level. The break scan over-approximates in the lenient direction:
+        // a `break` buried somewhere it doesn't look (a `let` initializer
+        // block) makes the loop count as completing, never the reverse.
+        While(wx) => match wx.condition {
+            Bool(_, b) => b && !block_has_break(wx.body),
+            _ => false,
+        },
+        _ => false,
+    };
+}
+
+// Whether a block contains a `break` belonging to the *enclosing* loop — a
+// `break` inside a nested `while`/`for` exits that loop, so those bodies are
+// not descended into.
+fn block_has_break(_ b: Block) -> Bool {
+    for s in b.stmts {
+        if stmt_has_break(s) {
+            return true;
+        }
+    }
+    return b.tail.map((t) => expr_has_break(t)).unwrap_or(false);
+}
+
+fn stmt_has_break(_ s: Stmt) -> Bool {
+    return match s {
+        Break(_) => true,
+        If(ix) => block_has_break(ix.then_block)
+            || ix.else_block.map((b) => block_has_break(b)).unwrap_or(false),
+        Expr(_, e) => expr_has_break(e),
+        _ => false, // `While`/`For` own their breaks; other stmts hold only exprs
+    };
+}
+
+fn expr_has_break(_ e: Expr) -> Bool {
+    return match e {
+        Block(_, b) => block_has_break(b),
+        If(ix) => block_has_break(ix.then_block)
+            || ix.else_block.map((b) => block_has_break(b)).unwrap_or(false),
+        Match(mx) => {
+            for arm in mx.arms {
+                if expr_has_break(arm.body) {
+                    return true;
+                }
+            }
+            false
         },
         _ => false,
     };

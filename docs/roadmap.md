@@ -743,7 +743,7 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
 The standing worklist for keeping the language spec — [language.md](language.md)
 and its companion docs — consistent with the implementation. Populated by
 periodic self-consistency reviews (the grammar pass, the 2026-07 spec pass, the
-future diagnostics audit) and worked through iteratively: doc-only corrections
+2026-07 diagnostics audit) and worked through iteratively: doc-only corrections
 are applied directly and recorded below; findings that imply design or
 implementation work stay open here until decided.
 
@@ -845,6 +845,88 @@ The review's holes are all closed or deferred-with-findings above; the landed
 fixes are summarized in the [Changelog](#changelog) (variance, `Never` + tail
 `throw`, and the four type-checker holes).
 
+### Diagnostics punchlist
+
+Findings from the 2026-07 diagnostics review — the final rung of the language
+review arc (grammar → spec → type system → diagnostics). The question: do the
+diagnostics cover the language surface and prevent invalid code from being
+written? Method: inventory every diagnostic each phase can produce (~80 parser
+`expect` errors + targeted hints, ~50 checker messages, ~25 codegen emit-time
+errors), then verify suspected holes empirically — 41 invalid-program probes,
+each classified by what actually happens (check error / emit-only error / honest
+trap / misleading trap / silent wrong behavior). The core type-checking surface
+verified solid; the gaps cluster where the checker never looks.
+
+**Open — checker holes (invalid code checks clean):**
+
+- **Interface default-method bodies are never body-checked** — found while
+  landing definite-return. `check_interface_decl` runs `check_fn_sig` per method
+  but never `check_fn` on a default body, so
+  `fn greet(self) -> String { return undefined_helper(1 + 'two'); }` inside an
+  interface checks clean (codegen compiles the body, so genuinely broken code
+  surfaces only as an emit error or at runtime). Body-checking needs a
+  `self_type` for the interface itself (an interface-typed `self`) — small but
+  not mechanical; corpus fallout expected to be zero (the stdlib default methods
+  compile and run today), but verify. Definite-return then applies to default
+  methods for free (it lives in `check_fn`).
+- **Pattern arity is never checked.** Variant _names_ are validated, arg counts
+  are not: `Some(a, b)` traps `enum.get: field 1 out of range`
+  (malformed-bytecode wording again); `Two(a)` on a two-field variant silently
+  binds the first field; a bare `Some =>` silently matches without binding.
+- **Member/local uniqueness is top-level-only.** All silently accepted
+  (first-or-last-wins): duplicate struct fields, enum variants, parameters, type
+  parameters (`<T, T>`), struct-literal fields (`Point { x: 1, x: 2 }`), and
+  pattern bindings (`Two(a, a)`).
+- **Check/emit phase gaps — promote to check.** Statically-decidable errors only
+  codegen reports, so `hawk check` gives a false green: `for x in 5`, indexing a
+  struct, a range outside a for-loop head, indexed assignment on unsupported
+  types (codegen's `self.error` sites are the full checklist). Related, caught
+  by _neither_ phase: calling a non-function value (`let x = 5; x(3);` — honest
+  trap only) and `impl Display for Ghost` where `Ghost` doesn't exist (checks
+  clean and runs — the conformance path never resolves the target type name).
+
+**Open — design decision: dropped `Result`/`Option` (unused-result).**
+`might_fail();` bare in statement position silently discards the failure — the
+errors-as-values failure mode (a dropped value is a dropped error; a bare
+`testing.assert_eq(a, b);` without `?` silently passes). Precedent: Rust
+`#[must_use]` / Swift `@discardableResult`, both warnings. Decisions needed:
+severity (warning vs. the stronger LLM-native position, a hard error), scope
+(`Result` only, or `Option` too), and a **discard idiom** — `let _ = …` is a
+parse error today, so there is no way to say "drop this on purpose". Needs
+inference (is the statement `Result`-typed?), so it lives in the checker, not
+the syntactic lint — this would be the first producer of `Severity.Warning`. If
+it lands as a configurable warning it should carry a kebab-case rule name (see
+the ID note below).
+
+**Open — lint-tier (valid-but-suspect; no urgency):** unreachable match arms
+(duplicate literal arms; a `_` arm placed first shadows everything after it);
+unreachable statements after `return`/`throw`; effect-free expression statements
+(`1 + 2;`); unused variables/imports (no warnings of any kind exist today).
+
+**Small wrinkles:** same-scope rebinding (`let x = 1; let x = 'two';`) is
+accepted but language.md documents only inner-scope shadowing — either intend it
+(document) or reject it; self-import is silently accepted (benign); did-you-mean
+suggestions on `undefined name` / `no method` would be cheap (edit distance over
+the known-name set) and are modest-but-real LLM value.
+
+**Decided — diagnostic IDs.** Hard errors stay ID-less (message + span): they
+are not configurable, and for LLMs the message text is the search key — a
+`CAxxxx` code is context noise. Where selection _is_ meaningful the kebab-case
+slug is already the pattern (`hawk fix --only match-to-if-let`, conformance spec
+names); future configurable checker warnings should carry one too. No numeric
+code scheme.
+
+**Priority:** (1) ~~definite-return analysis~~ — _landed; see Changelog_; (2)
+pattern arity + duplicate members; (3) promote the emit-only errors to check,
+and body-check interface default methods; (4) decide unused-result; (5)
+lint-tier items whenever. 2–3 are hole-closing with ~zero false-positive risk
+(corpus-verify each, per the variance-spike discipline); 4 is the genuine design
+call.
+
+Already tracked elsewhere, not repeated here: imported-body check scope, cascade
+suppression, calling-convention enforcement, native-arg trap wording, and the
+deferred bare-`TypeParameter` narrowing.
+
 ## Runtime staging (longer view)
 
 See [architecture.md](architecture.md) for the design behind each tier.
@@ -864,6 +946,26 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **Definite-return analysis + `Result<Void, _>` implicit `Ok(void)`**
+  (2026-07). The top hole from the diagnostics review: a value-returning
+  function with a non-returning path checked clean — falling off the end after
+  `if b { return 1; }` trapped as
+  `internal error (malformed bytecode): pc ran off the end` (blaming the
+  compiler), a body with no `return` **silently** returned `()` into typed
+  positions, and `fn step() -> Result<Void, Error>` ending in a bare `inner()?;`
+  returned a raw unit that trapped at the _caller's_ match. Now: the checker
+  requires every path through a value-returning function to exit
+  (`return`/`throw`; a break-less `while true` counts — the scan is
+  lenient-direction only), a bare `return;` in such a function is an error, and
+  — the semantic half — a `Result<Void, _>` function completing normally is the
+  implicit `Ok(void)` (fall-through and bare `return;` both wrap, mirroring
+  implicit-`Ok` on `return <value>`), so the ceremony-free propagate-and-succeed
+  shape is _correct_ rather than rejected. Codegen's epilogue also handles a
+  forward jump landing past the last instruction (the `pc ran off the end`
+  shape, which also bit `Void` functions ending in `if b { return; }`). Zero
+  corpus false positives. Specs `fn-missing-return`, `err-implicit-ok-void`;
+  language.md §Functions → Definite return, §Error handling.
 
 - **Generic-argument variance — invariant containers, covariant read-only
   builtins** (2026-07). Type arguments were covariant everywhere, so a

@@ -1,0 +1,33 @@
+//! spec: err-implicit-ok-void
+//! mode: run
+
+// In a `Result<Void, _>`-returning function, completing normally — falling off
+// the end of the body, or a bare `return;` — is the implicit `Ok(void)`, the
+// unit analogue of `return n` wrapping as `Ok(n)` (err-implicit-ok). So the
+// ceremony-free error-propagation shape needs no explicit final return.
+
+fn inner() -> Result<Void, Error> {
+    println('inner ran');   // expect: inner ran
+}
+
+fn outer() -> Result<Void, Error> {
+    inner()?;
+}
+
+fn early(_ b: Bool) -> Result<Void, Error> {
+    if b {
+        return;
+    }
+    throw error('not reached');
+}
+
+fn main() -> Result<Void, Error> {
+    match outer() {
+        Ok(_) => { println('ok'); },   // expect: ok
+        Err(e) => { println('${e}'); },
+    }
+    match early(true) {
+        Ok(_) => { println('early ok'); },   // expect: early ok
+        Err(e) => { println('${e}'); },
+    }
+}

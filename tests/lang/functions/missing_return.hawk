@@ -1,0 +1,52 @@
+//! spec: fn-missing-return
+//! mode: check
+
+// Definite return: a function declaring a value-producing return type must
+// exit (return/throw) on every path — a path that falls off the end of the
+// body is a check error, not a silent `()` or a runtime trap.
+
+fn falls_off_branch(_ b: Bool) -> Int {   // expect error: missing return
+    if b {
+        return 1;
+    }
+}
+
+fn no_return_at_all() -> Int {   // expect error: missing return
+    println('working');
+}
+
+fn bare_return() -> Int {
+    return;   // expect error: `return` needs a value
+}
+
+// A `Result<Int, _>` fall-through has no implicit value to wrap (only
+// `Result<Void, _>` does — see err-implicit-ok-void).
+fn result_needs_value() -> Result<Int, Error> {   // expect error: missing return
+    println('working');
+}
+
+// Fine: every path exits, via return, throw, or a `while true` with no break.
+fn all_paths(_ o: Option<Int>) -> Int {
+    match o {
+        Some(v) => { return v; },
+        None => { throw error('none'); },
+    }
+}
+
+fn loops_forever() -> Int {
+    while true {
+        return 1;
+    }
+}
+
+// A `break` makes the `while true` completable, so the fall-through is back.
+fn loop_with_break() -> Int {   // expect error: missing return
+    while true {
+        break;
+    }
+}
+
+fn main() -> Int {
+    println('${all_paths(Option.Some(1)) + loops_forever()}');
+    return 0;
+}
