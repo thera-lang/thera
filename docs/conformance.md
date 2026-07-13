@@ -86,6 +86,7 @@ and [grammar.md](grammar.md) (syntax).
 | `type-fn-variance`            | Types                  | function-type assignability: contravariant parameters, covariant result                                                                | ✓      |
 | `type-field-nonstruct`        | Structs                | a bare field access on a non-struct value is rejected                                                                                  | ✓      |
 | `type-impl-param-bare`        | Impl blocks            | an inherent `impl Type<…>` element must be a bare parameter name (a type expression is an error, not silently flattened)               | ✓      |
+| `type-never-divergence`       | Types                  | a diverging arm (`throw`/`return`) has bottom type `Never`, absorbed by the arm/branch merge so the expression takes the concrete type | ✓      |
 
 ## Variables & semantics
 

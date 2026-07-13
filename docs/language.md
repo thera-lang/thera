@@ -165,7 +165,7 @@ The linked sections are normative; the corners that are deliberately or
 currently loose are called out honestly and tracked in
 [roadmap.md](roadmap.md)._
 
-Every Hawk type takes one of five shapes:
+Every Hawk type takes one of six shapes:
 
 | Shape          | Examples                          | Notes                                                                                                                                                                 |
 | -------------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -174,6 +174,7 @@ Every Hawk type takes one of five shapes:
 | Type parameter | the `T` in `fn first<T>(…)`       | opaque inside a generic declaration — see [Generics](#generics)                                                                                                       |
 | Function type  | `(Int, String) -> Bool`           | the type of lambdas and function references — see [Functions](#functions)                                                                                             |
 | Unknown        | —                                 | the checker's internal "couldn't determine" marker; never written in source                                                                                           |
+| Never          | —                                 | the **bottom** type of a diverging expression (`throw`/`return`); assignable to every type, from none; inference-only, never written in source                        |
 
 **Subtyping exists in exactly three places.** A concrete type is assignable to
 an interface it `impl`s; a sub-interface is assignable to the interfaces it
@@ -1670,10 +1671,10 @@ expected?** It holds when any of these applies, and nothing else converts:
    `fn f<T>(_ x: T) -> Int`, which traps at runtime; tightening it is tracked in
    roadmap.md.
 3. **Interface conformance.** `T` is an interface and `S` `impl`s it, or `S` is
-   an interface that extends `T` (transitively). _Loose corner:_ the target's
-   type arguments are not yet compared, so a type whose impl is `Iterator<Int>`
-   is currently accepted where `Iterator<String>` is expected (tracked in
-   roadmap.md).
+   an interface that extends `T` (transitively). The target's type arguments are
+   compared against the ones the impl recorded — an `impl Iterator<Int>` is *not*
+   accepted where `Iterator<String>` is expected — with generic impls (recorded
+   as a type parameter) and bare-interface targets staying lenient.
 4. **Same named type, assignable arguments.** `List<Cat>` is accepted where
    `List<Animal>` is expected — type arguments are **covariant** today. That is
    sound for reading and unsound under mutation (pushing a `Dog` through the
@@ -1684,6 +1685,10 @@ expected?** It holds when any of these applies, and nothing else converts:
    `(Cat) -> Animal` is expected, an `(Animal) -> Cat` is accepted — it handles
    every `Cat` it will be given and returns only `Animal`s. The unsafe
    directions are rejected.
+6. **Divergence.** `S` is `Never` — the bottom type of a `throw`/`return`. A path
+   that never yields a value is usable where any `T` is expected, so a diverging
+   branch composes (`if c { 5 } else { throw … }` is `Int`). Nothing is assignable
+   *to* `Never`, but it has no surface syntax, so it never appears as a target.
 
 Everything else is a type error. In particular there is no `Int` → `Double`
 coercion (call `.to_double()`), no universal top type to erase to, and no union

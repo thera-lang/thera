@@ -153,8 +153,8 @@ pub fn infer_expr(_ expr: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx,
         Lambda(x) => infer_lambda(x, scope, ctx, expected),
         Block(_, block) => infer_block(block, scope, ctx, expected),
         If(x) => infer_if(x, scope, ctx, expected),
-        Return(_, _) => Type.Unknown,
-        Throw(_, _) => Type.Unknown,
+        Return(_, _) => Type.Never, // diverges — never yields a value here
+        Throw(_, _) => Type.Never,
         Loc(_) => iface(ctx, 'SourceLoc', []), // the `#loc` metaconstant
     };
 }
@@ -323,10 +323,7 @@ fn infer_match(_ x: MatchExpr, _ scope: Map<String, Type>, _ ctx: InferCtx,
         let arm_scope = copy_scope(scope);
         bind_match_pattern(arm.pattern, subject_type, arm_scope, ctx);
         let arm_type = infer_expr(arm.body, arm_scope, ctx, expected);
-        match result {
-            Unknown => { result = arm_type; },
-            _ => void,
-        }
+        result = first_known(result, arm_type);
     }
     return result;
 }
@@ -418,7 +415,7 @@ fn stmt_return_type(_ stmt: Stmt, _ scope: Map<String, Type>, _ ctx: InferCtx,
         For(x) => collect_block_returns(x.body, scope, ctx, expected),
         While(x) => collect_block_returns(x.body, scope, ctx, expected),
         Let(_) => Type.Unknown,
-        Throw(_, _) => Type.Unknown,
+        Throw(_, _) => Type.Never, // a diverging statement contributes no return value
         Expr(_, _) => Type.Unknown,
         Assign(_, _, _, _) => Type.Unknown,
         Break(_) => Type.Unknown,
@@ -426,11 +423,17 @@ fn stmt_return_type(_ stmt: Stmt, _ scope: Map<String, Type>, _ ctx: InferCtx,
     };
 }
 
-// `a` unless it is `Unknown`, in which case `b` — the "first known type wins"
-// merge used to combine `return`/branch types.
+// Merge two branch/return types, left-biased: a concrete type wins over a
+// divergent (`Never`) or unresolved (`Unknown`) one, and a diverging branch
+// (`Never`) beats `Unknown`. So `if c { throw } else { 5 }` unifies to `Int` and
+// a two-throw `if` stays `Never` rather than decaying to `Unknown`.
 fn first_known(_ a: Type, _ b: Type) -> Type {
     return match a {
         Unknown => b,
+        Never => match b {
+            Unknown => a,
+            _ => b,
+        },
         _ => a,
     };
 }
@@ -462,13 +465,7 @@ fn infer_if(_ x: IfExpr, _ scope: Map<String, Type>, _ ctx: InferCtx,
     // statement — the checker rejects an else-less `if` in value position).
     let then_type = infer_block(x.then_block, scope, ctx, expected);
     return match x.else_block {
-        Some(eb) => {
-            let else_type = infer_block(eb, scope, ctx, expected);
-            match then_type {
-                Unknown => else_type,
-                _ => then_type,
-            }
-        },
+        Some(eb) => first_known(then_type, infer_block(eb, scope, ctx, expected)),
         None => Type.Primitive(Primitive.Unit),
     };
 }

@@ -2414,6 +2414,10 @@ fn empty_scope() -> Map<String, Type> {
 fn produces_value(_ t: Type) -> Bool {
     return match t {
         Unknown => false,
+        // A diverging expression (`throw`/`return`) yields no value on this path,
+        // so it is exempt from arm/branch value-agreement — the role `Unknown`
+        // played before divergence had its own bottom type.
+        Never => false,
         Primitive(p) => match p {
             Unit => false,
             _ => true,

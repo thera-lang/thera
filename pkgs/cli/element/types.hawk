@@ -36,6 +36,12 @@ pub enum Type {
     // The type of an expression the resolver couldn't determine; lenient on both
     // sides of assignability so it never cascades.
     Unknown,
+    // The bottom type — the type of a diverging expression (`throw`, `return`).
+    // Assignable *to* every type (a path that never yields a value can stand in
+    // anywhere) and assignable *from* nothing but itself. Inference-only: it has
+    // no surface syntax, so it never reaches a target (annotation/param) slot —
+    // which is what keeps the from-nothing rule from causing false rejections.
+    Never,
 }
 
 // Build a named `Type` for `name` with `args`, stamping the owning file read from
@@ -64,6 +70,7 @@ pub fn type_to_string(_ t: Type) -> String {
         Function(params, ret) => '(' + join_type_strings(params) + ') -> '
             + type_to_string(ret),
         Unknown => '?',
+        Never => 'Never',
     };
 }
 
@@ -151,6 +158,10 @@ pub fn is_assignable(_ source: Type, _ target: Type, _ lib: LibraryElement) -> B
         TypeParameter(_) => {
             return true;
         },
+        // Bottom: a diverging value is usable where any type is expected.
+        Never => {
+            return true;
+        },
         _ => void,
     }
     match target {
@@ -159,6 +170,12 @@ pub fn is_assignable(_ source: Type, _ target: Type, _ lib: LibraryElement) -> B
         },
         TypeParameter(_) => {
             return true;
+        },
+        // Nothing but a diverging value satisfies `Never` (source `Never`/`Unknown`
+        // already returned above); in practice `Never` never appears as a target,
+        // since it has no surface syntax.
+        Never => {
+            return false;
         },
         _ => void,
     }
@@ -292,6 +309,7 @@ pub fn substitute(_ ty: Type, _ bindings: Map<String, Type>) -> Type {
             substitute(ret, bindings)),
         Primitive(_) => ty,
         Unknown => ty,
+        Never => ty,
     };
 }
 
@@ -333,5 +351,6 @@ pub fn unify(_ param: Type, _ actual: Type, _ bindings: Map<String, Type>) -> Vo
         },
         Primitive(_) => void,
         Unknown => void,
+        Never => void,
     }
 }

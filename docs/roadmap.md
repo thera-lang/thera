@@ -909,14 +909,33 @@ _not_ local, so it is deferred with its findings recorded.
   blocked only on unthreading their `who` context param from ~100 call sites —
   do that, then route them through `TypeError` too (module-free type names,
   since natives have no `Module` handle).
-- **Open type-shape items:** a `Never`/bottom type (divergence currently rides
-  on `Unknown` leniency — e.g. a `throw` arm); a first-class `Range` type
-  (ranges infer `Unknown`; the for-loop special-cases the element back to
-  `Int`); type aliases; `throw` in branch-tail position (the AST has a `Throw`
-  expression, the parser rejects the tail form).
+**Open type-shape items:**
+
+- **A first-class `Range` type.** Ranges infer `Unknown`; the for-loop
+  special-cases the element back to `Int`. A named `Range` type would carry the
+  element type properly and let ranges flow as values.
+- **Type aliases.** No surface for naming a structural or generic type.
+- **`throw` in branch-tail position.** The AST has a `Throw` expression, but the
+  parser rejects the tail form (`x = if c { a } else { throw ... }`). Now the
+  natural follow-up to the landed `Never` type (below): a tail `throw` is the
+  canonical divergence case, and the type machinery already absorbs it — only the
+  parser's tail-position restriction remains.
 
 **Done:**
 
+- **`Never` bottom type for divergence** (2026-07). `throw`/`return` inferred
+  `Type.Unknown`, so a diverging branch composed only by riding on `Unknown`'s
+  leniency — conflating "this path exits" with "type hole." They now infer
+  `Type.Never`: assignable *to* every type, assignable *from* nothing, and
+  absorbed by the arm/branch merge (`first_known` now prefers a concrete type,
+  then `Never`, then `Unknown`), so `if c { 5 } else { throw }` unifies to `Int`
+  and shrinks the `Unknown` population. Inference-only — no surface syntax, so it
+  never reaches a target slot and can't cause a false rejection; no bytecode
+  impact (fixpoint holds, no snapshot refresh). The one gate that needed updating:
+  `produces_value(Never) = false`, so a diverging arm stays exempt from
+  value-agreement exactly as the old `Unknown` divergence was (caught by the
+  stdlib `Result`/`Option` and LSP test corpus, the only fallout). Spec
+  `type-never-divergence`. Unblocks tail-position `throw` (Open, above).
 - **Interface conformance now checks the target's type arguments** (2026-07).
   `is_assignable`'s conformance branch compared only interface *identity*, so an
   `impl Box<Int>` was wrongly accepted where `Box<String>` was expected. It now

@@ -1,0 +1,29 @@
+//! spec: type-never-divergence
+//! mode: run
+
+// A diverging arm (`throw`) has the bottom type `Never`, absorbed by the arm
+// merge so the enclosing `match`/`if` takes the *other* arm's concrete type —
+// divergence no longer rides on `Unknown` leniency. Value agreement still binds
+// the non-diverging arms (they must all produce that concrete type).
+
+fn unwrap_or_throw(_ o: Option<Int>) -> Result<Int, Error> {
+    // The `None` arm is `Never`, so the match is `Int` and `n` binds as `Int`
+    // (used arithmetically below — an `Unknown` here would silently allow anything).
+    let n = match o {
+        Some(v) => v,
+        None => throw error('missing'),
+    };
+    return Result.Ok(n + 1);
+}
+
+fn main() -> Result<Int, Error> {
+    let got = unwrap_or_throw(Option.Some(41))?;
+    println('${got}');   // expect: 42
+
+    // The diverging arm actually fires when the value is absent.
+    match unwrap_or_throw(Option.None) {
+        Ok(_) => println('unexpected'),
+        Err(e) => println('caught: ${e.message()}'),   // expect: caught: missing
+    }
+    return Result.Ok(0);
+}
