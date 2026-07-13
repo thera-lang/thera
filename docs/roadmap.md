@@ -748,96 +748,18 @@ are applied directly and recorded below; findings that imply design or
 implementation work stay open here until decided.
 
 **Open — design/behavior follow-ups from the 2026-07 review:** none currently —
-the review's follow-ups are all resolved (below).
-
-**Done — implemented follow-ups:**
-
-- **`Debug` field names — named structural `Debug` (bytecode v3)** (2026-07). The
-  derive renders struct field names and enum variant names instead of positional
-  `Name { 1, 2 }` / `variant1`; the names live in the runtime type table and a
-  new Enums section. See the _Named structural `Debug`_ changelog entry.
-- **Lazy `List.map`/`filter`? Decided: stay eager, add a `List.iter()` bridge**
-  (2026-07). `map`/`filter` on a `List` keep returning a `List` — the closure
-  property (result still indexes, has `len`, re-iterates, chains further list
-  methods), no per-call `.to_list()` tax, and no one-shot-consumption footgun,
-  all matching the dominant convention (JS/Ruby/Swift/Kotlin arrays are eager;
-  laziness is opt-in). The lazy path is now reached with `xs.iter()`, whose doc
-  is the discoverable "when/why you'd want a fused, short-circuiting pass" home.
-  `List.iter()` is the single list→`Iterator` bridge: `List.enumerate` composes
-  as `self.iter().enumerate()` (the bespoke `ListEnumerateIter` is gone) and
-  `iter.from_list` is now a thin alias for it.
-- **`hawk test` / `hawk check` UX for LLM output** (2026-07). The analyzers no
-  longer emit lines just for doing work: `hawk test` prints only failing-test
-  blocks (`<name>: failed` + the `path:line:col:` detail indented) and one
-  closing summary (`Ran N tests for M test files; K failures.`); a green run is
-  the summary alone. `--verbose` (implied by `--show-output`) restores the
-  per-file `ok`/`FAIL` report. `hawk check` closes with
-  `Checked N source files; M issues found.` — proof of work even when clean.
-  `test`/`check`/`lint` now default to the current directory (the writing
-  commands keep explicit targets). Mechanically, the test child's output is now
-  captured (`process.run`) and the driver emits a `__hawk_failed <n>` stdout
-  trailer the runner strips — the exit code stays pass/fail only (LD11).
-- **Iterator consumer naming: `collect()` → `to_list()`** (2026-07). Decided for
-  `to_list`: it matches the established `to_X` conversion convention
-  (`Set.to_list()`, `Bytes.to_list()`, `to_int`/`to_double`), states its result
-  type at the call site (the local-reasoning property), and avoids the
-  false-friend problem — Rust's `collect` is type-directed and Java's takes a
-  collector argument, machinery Hawk doesn't have, so sharing the name without
-  the semantics would mislead agents. Future targets follow the same pattern
-  (`to_set()` when a use case appears). The rename covered the interface default
-  method and every call site; no snapshot refresh (not new syntax).
-- **`Trap::OutOfMemory` / `Trap::StackOverflow`** (2026-07). Memory and
-  frame-stack exhaustion now trap with the ordinary `hawk: trap:` formatting
-  instead of aborting the process: a collection that still leaves more live
-  bytes than the heap ceiling (`HAWK_MAX_HEAP_MB`, default 1 GiB) raises
-  `OutOfMemory`, and a call past the frame-depth backstop (1M frames) raises
-  `StackOverflow`. The _soft_ heap limit remains open in
-  [architecture.md](architecture.md) §Where the collector goes next.
-
-**Done — the 2026-07 doc sweep** (language.md, overview.md, architecture.md,
-conformance.md brought in line with the implementation; each item verified
-against the code before the edit):
-
-- Pipelines: `List.map`/`filter` documented as eager; lazy pipelines via the
-  `Iterator` adapters + the drain consumer (the old text's `.to_list()` example
-  didn't compile at the time; the consumer was then named `collect()`, since
-  renamed `to_list()` — see the naming decision above).
-- Interpolation documented as **total** — `Display` when present, derived
-  `Debug` otherwise, never a compile error; derived `Debug` shown with its
-  actual positional rendering.
-- `std.process`: `ProcessResult`/`ProcessError`, a non-zero exit code is data
-  (not an `Err`), `exec`/`start` covered.
-- `hawk test`: required target, the real report format, `--show-output`;
-  `lint`/`fix` added to the command tables (language.md, architecture.md, and
-  the SDK-layout subcommand list).
-- Strings: the nonexistent `.graphemes()` dropped (language.md + overview.md);
-  code-point iteration (`.chars()`, `std.char`) is the story.
-- `Map`/`Set` ordering: unordered as the abstract contract, insertion-ordered
-  (deterministic) in the built-in implementations.
-- Style: the formatter never reflows lines (indentation + intra-line spacing
-  only).
-- SDK layout: the `runtime/` JIT annotation removed; the stdlib tree refreshed
-  to the ~21 shipped libraries.
-- Runtime faults: closed-channel send added to the trap-conditions list;
-  memory/stack exhaustion noted as aborting (not trapping) today.
-- Concurrency: rewritten for the implemented fiber runtime — channels are part
-  of the model (communication over shared-state guarding),
-  atomic-between-yield-points replaces the false "no shared mutable state"
-  claim, I/O-parking status is current, and the `async`/`await` fallback
-  paragraph is retired; architecture.md's "not yet implemented" fiber banner
-  replaced with real status.
-- conformance.md: the stale `vis-whitebox-test` "unpinnable here" finding moved
-  to resolved (it's pinned — the white-box grant keys off the filename, not the
-  command); `type-mut-field` spelling aligned to `let mut x: T;` (matching
-  language.md §Variables).
-- overview.md: the Tier-1 JIT consistently marked planned; interface dispatch
-  updated to the implemented `call.virtual`.
+the review's follow-ups all landed, summarized in the [Changelog](#changelog):
+the doc sweep, the eager-`List` + `List.iter()` bridge decision, `hawk
+test`/`check` LLM-output UX, `collect()`→`to_list()`, named structural `Debug`,
+and the OOM/stack-overflow traps.
 
 ### Type system punchlist
 
 Findings from the 2026-07 type-system review (a design-completeness pass over
-the implemented system; every hole below was verified empirically — each checks
-clean today and goes wrong at runtime). The review also settled the "formal
+the implemented system; every hole it found was verified empirically — each
+checked clean but went wrong at runtime). Most are now closed (see _Changelog_);
+what remains below is deferred with findings, or an open design call. The review
+also settled the "formal
 treatment?" question: no lambda-calculus formalization — the system is simple
 enough to specify in prose, and `Unknown`'s deliberate leniency makes the
 classical soundness theorem false by construction; the spec (language.md
@@ -845,8 +767,9 @@ classical soundness theorem false by construction; the spec (language.md
 vehicle.
 
 **Open — targeted checker fixes.** The three local, low-risk fixes from this set
-are landed (see _Done_); the one below is the outlier — the spike showed it is
-_not_ local, so it is deferred with its findings recorded.
+are landed (see _Changelog_ → _Type-checker holes closed_); the one below is the
+outlier — the spike showed it is _not_ local, so it is deferred with its findings
+recorded.
 
 - **`TypeParameter` → concrete assignability** — _deferred; spiked 2026-07._
   `fn f<T>(_ x: T) -> Int { return x; }` checks clean and traps at the call: a
@@ -894,7 +817,7 @@ _not_ local, so it is deferred with its findings recorded.
 **Open — design decisions:**
 
 - **Honest wording for native-argument type mismatches.** _(Runtime, follow-up
-  to the tag-mismatch trap split below.)_ The interpreter's own tag-checked pops
+  to the tag-mismatch trap split — see _Changelog_.)_ The interpreter's own tag-checked pops
   now raise `Trap::TypeError` ("runtime type error: expected Int, found
   String"), but the native arg-checks (`str_contents`, `as_int`/`as_double`,
   `with_bytes`) still raise `Trap::Bug` ("internal error"). Converting them is
@@ -905,7 +828,7 @@ _not_ local, so it is deferred with its findings recorded.
 **Deferred type-shape items:**
 
 - **A first-class `Range` type** (deferred — no forcing function). The internal
-  range cleanup landed (see Done); making `Range` a *nameable value type* (store,
+  range cleanup landed (see _Changelog_); making `Range` a *nameable value type* (store,
   pass, return, `.contains`/`.to_list`) has no corpus demand — all range use is
   `for i in a..b`. Revisit when a feature wants ranges as values, the obvious one
   being range-based slicing (`list[2..5]`), which needs slice support anyway.
@@ -918,95 +841,9 @@ _not_ local, so it is deferred with its findings recorded.
   nominal `struct`. Recorded as a language non-goal in
   [language.md](language.md). Would need a very compelling use case to reopen.
 
-**Done:**
-
-- **Variance for generic type arguments** (2026-07). Arguments were covariant
-  everywhere, even for mutable containers — `List<Cat>` was accepted where
-  `List<Animal>` was expected, and pushing a `Dog` through the widened alias then
-  let a read through the original `List<Cat>` run `Cat`'s (statically-dispatched)
-  method on a `Dog`. An invariance spike against the whole corpus found the fault
-  line precisely: **2 fallout sites, both `Result<T, ConcreteError>` →
-  `Result<T, Error>`** (the error idiom), and **zero** mutable-container widenings.
-  So `is_assignable`'s same-constructor branch now partitions by variance —
-  `Result`/`Option`/`Iterator` (read-only, identity-checked) stay **covariant**;
-  `List`/`Map`/`Set` and every user generic are **invariant** (`Unknown`/
-  `TypeParameter` stay lenient, so generic code doesn't cascade). No variance
-  annotations (deliberate — `out`/`in` mean nothing to most readers); variance
-  *inference* from a user type's methods is a possible future step. The one
-  ergonomic dependency that surfaced — a polymorphic list *literal* — now types
-  against context (`infer_list`/`infer_map` adopt the expected element type), so
-  `let pets: List<Animal> = [Cat…, Dog…]` checks each element against `Animal`
-  directly instead of inferring `List<Cat>` and leaning on covariance. Spec
-  `gen-variance`; documented in language.md § Variance.
-- **Internal `Range` cleanup** (2026-07). A for-loop's element type for a range
-  now keys off the iterable's *syntax* (`for_element_type` returns `Int` when the
-  iterable is a `Range` expression) instead of recovering it from `Unknown`. That
-  removed a fragile overload — `for_element_type`'s `Unknown => Int` fallback also
-  fired for a genuinely-unresolved iterable, fabricating `Int` on a real type hole
-  — so an unknown iterable now honestly yields `Unknown`. The checker also enforces
-  both range bounds are `Int` (`'a'..'z'` / `0..1.5` are now `check` errors, not
-  runtime surprises). Ranges stay for-loop-iterable-only (no value form — see
-  Deferred). Spec `expr-range-bound`.
-- **`throw` in branch-tail position** (2026-07). `x = if c { a } else { throw … }`
-  and a `{ throw … }` match arm now parse, with the `throw` as the block's tail
-  value rather than a `;`-terminated statement. The only blocker was the parser:
-  `is_stmt_keyword` forced a leading `throw` down the statement path (requiring a
-  trailing `;`), so it never became a tail expression. Dropping `KwThrow` from
-  that set routes it through the expression path in `parse_expr_block` — the same
-  mechanism `if` already used. No other phase needed a change: `throw` was already
-  an `Expr` the codegen emitted in value position, and the landed `Never` type
-  makes the branch merge absorb it. `return` deliberately stays statement-only for
-  now (its value interacts with the function signature — a separate call). Spec
-  `err-throw-tail`.
-- **`Never` bottom type for divergence** (2026-07). `throw`/`return` inferred
-  `Type.Unknown`, so a diverging branch composed only by riding on `Unknown`'s
-  leniency — conflating "this path exits" with "type hole." They now infer
-  `Type.Never`: assignable *to* every type, assignable *from* nothing, and
-  absorbed by the arm/branch merge (`first_known` now prefers a concrete type,
-  then `Never`, then `Unknown`), so `if c { 5 } else { throw }` unifies to `Int`
-  and shrinks the `Unknown` population. Inference-only — no surface syntax, so it
-  never reaches a target slot and can't cause a false rejection; no bytecode
-  impact (fixpoint holds, no snapshot refresh). The one gate that needed updating:
-  `produces_value(Never) = false`, so a diverging arm stays exempt from
-  value-agreement exactly as the old `Unknown` divergence was (caught by the
-  stdlib `Result`/`Option` and LSP test corpus, the only fallout). Spec
-  `type-never-divergence`. Unblocked tail-position `throw` (landed — see above).
-- **Interface conformance now checks the target's type arguments** (2026-07).
-  `is_assignable`'s conformance branch compared only interface *identity*, so an
-  `impl Box<Int>` was wrongly accepted where `Box<String>` was expected. It now
-  compares the target's args against the ones the impl recorded (`interface_args`,
-  keyed by `id_key`) via a new `conformance_args_match` — each target arg must be
-  satisfied by the corresponding recorded arg, with generic impls (recorded as a
-  `TypeParameter`) and bare-interface targets staying lenient. No corpus false
-  positives (the stdlib's generic `Iterator` impls stay clean). Spec
-  `iface-conformance-args`.
-- **Unbounded-`T` method calls are checked, not just rejected at emit**
-  (2026-07). `x.foo()` on an unbounded `T` used to pass `check` (lenient
-  receiver) and fail only in codegen (`no method "foo" on T`); `lookup_method`
-  now returns a definitive miss, so the phases agree. A parameter has exactly its
-  bounds' methods; `display`/`debug` stay universal (callable on any parameter) —
-  which as a bonus fixes a latent bug where a *bounded* `T`'s `.debug()`/
-  `.display()` was wrongly rejected. No corpus false positives. Spec
-  `gen-param-methods`.
-- **List/map literal tails are now checked** (2026-07). A list literal is
-  homogeneous: every element is checked assignable to the first element's type,
-  and a map's keys/values likewise (checker.hawk `ListLit`/`MapLit` arms, reusing
-  `expect_type`). `[1, 'two']` is now a `check` error ("list element: expected
-  Int, found String") instead of a runtime trap. No corpus false positives (the
-  whole stdlib/examples/front-end stayed clean). Spec `type-list-homogeneous`;
-  the `fault-type-mismatch` runtime test moved onto the still-open
-  `TypeParameter`→concrete hole.
-- The string-indexing hint no longer suggests the nonexistent `.graphemes()`
-  (2026-07): it points at `.chars()` / `.slice(start, end)`
-  (pkgs/cli/checker/checker.hawk).
-- language.md gained a descriptive **"The type system at a glance"** summary
-  plus normative **Generics** and **Assignability** sections (2026-07) — the
-  loose corners above are called out honestly in place.
-- Verified solid during the review (no change needed): branch/arm type agreement
-  is checked (`if`/`else` and `match`), cross-type `==` is rejected, unsafe
-  function-type variance is rejected, bounds are enforced at call sites and
-  declaration instantiations (including struct literals), and annotated bindings
-  catch initializer mismatches.
+The review's holes are all closed or deferred-with-findings above; the landed
+fixes are summarized in the [Changelog](#changelog) (variance, `Never` + tail
+`throw`, and the four type-checker holes).
 
 ## Runtime staging (longer view)
 
@@ -1027,6 +864,45 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **Generic-argument variance — invariant containers, covariant read-only
+  builtins** (2026-07). Type arguments were covariant everywhere, so a `List<Cat>`
+  was accepted where `List<Animal>` was expected and a `Dog` written through the
+  widened alias could be read back as a `Cat` (a real, if narrow, soundness hole —
+  the poisoned read runs a statically-dispatched `Cat` method on a `Dog`). An
+  invariance spike found the fault line exactly: the only corpus reliance on
+  covariance was `Result<T, ConcreteError>` → `Result<T, Error>` (the error idiom),
+  never a mutable container. So `is_assignable`'s same-constructor branch now
+  partitions by variance — `Result`/`Option`/`Iterator` (read-only) stay
+  **covariant**, `List`/`Map`/`Set` and every user generic are **invariant** — with
+  no `out`/`in` annotations. The one thing that relied on container covariance, a
+  polymorphic list literal, now types against context (`let pets: List<Animal> =
+  [Cat…, Dog…]` checks each element against `Animal`). Spec `gen-variance`;
+  language.md § Variance.
+
+- **Divergence typing — `Never` bottom type + tail `throw`** (2026-07). `throw`/
+  `return` inferred `Unknown`, so a diverging branch composed only by leaning on
+  `Unknown`'s leniency (conflating "this path exits" with "type hole"). They now
+  infer a real bottom type `Never` — assignable to every type, from none;
+  inference-only, no surface syntax — absorbed by the arm/branch merge so `if c { 5
+  } else { throw }` is `Int`, which also shrinks the `Unknown` population. On the
+  back of that, `throw` is now valid in branch-tail (value) position (`x = if c { a
+  } else { throw … }`), a one-keyword parser change since the type machinery
+  already absorbs it. Specs `type-never-divergence`, `err-throw-tail`.
+
+- **Type-checker holes closed** (2026-07). Four check-clean-but-wrong-at-runtime
+  holes from the type-system review, each fixed with zero corpus false positives:
+  list/map literal tails are checked for homogeneity (`[1, 'two']` is now a `check`
+  error — `type-list-homogeneous`); interface conformance compares the target's
+  type arguments (`impl Box<Int>` no longer satisfies `Box<String>` —
+  `iface-conformance-args`); an unbounded-`T` method call is rejected at `check`
+  rather than only at emit, with `display`/`debug` staying universal
+  (`gen-param-methods`); and a for-loop's range element types from the iterable's
+  *syntax* instead of an `Unknown => Int` fallback that also fired on genuine holes,
+  with `Int` range bounds now enforced (`expr-range-bound`). The fifth hole —
+  bare-`TypeParameter`-source assignability — was spiked and deferred (a 12:1
+  false-positive ratio for the naive narrowing; findings kept in _Type system
+  punchlist_).
 
 - **Honest tag-mismatch traps — `Trap::TypeError` split** (2026-07). A type hole
   reaching the runtime (a value whose static type the checker got wrong) now
@@ -1064,7 +940,16 @@ conformance specs. Newest first.
   `to_int`/`to_double`) instead of borrowing Rust's `collect` without its
   type-directed semantics. Interface default method + all call sites renamed;
   language.md §Pipelines and stdlib.md updated, with the rationale recorded in
-  the spec and the punchlist Done entry.
+  the spec.
+
+- **Eager `List` transforms + a `List.iter()` bridge** (2026-07). Settled that
+  `List.map`/`filter` stay **eager** (returning a `List` — the result still
+  indexes, has `len`, re-iterates, and chains), matching the dominant array
+  convention (JS/Ruby/Swift/Kotlin) and avoiding a one-shot-consumption footgun;
+  the lazy, fused, short-circuiting path is reached explicitly via `xs.iter()`,
+  whose doc is the discoverable "when/why" home. `List.iter()` is the single
+  list→`Iterator` bridge — `List.enumerate` composes as `self.iter().enumerate()`
+  (the bespoke `ListEnumerateIter` is gone) and `iter.from_list` is a thin alias.
 
 - **OOM + stack-overflow traps; string-indexing hint** (2026-07). Memory and
   frame-stack exhaustion are real traps now, not process aborts: the heap has a
@@ -1087,8 +972,10 @@ conformance specs. Newest first.
   `TypeParameter`-source leniency, and covariant generic args under mutation.
   Decided against a formal (lambda-calculus) treatment — prose spec +
   conformance tests instead; language.md gained "The type system at a glance",
-  **Generics**, and **Assignability** sections. The fixes and design calls live
-  in _Type system punchlist_.
+  **Generics**, and **Assignability** sections. The fixes have since landed (see
+  the type-system entries above); the remaining design calls — the deferred
+  bare-`TypeParameter` narrowing and the native-arg trap wording — stay open in
+  _Type system punchlist_.
 
 - **Language-spec self-consistency review + doc sweep** (2026-07). language.md
   and the supporting docs were cross-checked against the implementation — stdlib
@@ -1101,9 +988,9 @@ conformance specs. Newest first.
   overview.md's JIT tense/`call.virtual`). Verified accurate with no change
   needed: the trap-message table, the reserved-name list, the `Option`/`Result`
   combinator sets, the `std.testing` assertion table, `Args`, `Bytes`, and the
-  entry-point forms. The full item list and the open design follow-ups (iterator
-  consumer naming, lazy `List` transforms, `hawk test` UX, `Trap::OutOfMemory`)
-  live in _Language spec punchlist_.
+  entry-point forms. The design follow-ups it spawned (iterator consumer naming,
+  lazy `List` transforms, `hawk test` UX, `Trap::OutOfMemory`) have all since
+  landed — see the entries above.
 
 - **Front-end O(n²) source-slicing removed** (2026-07). `String.slice` /
   `SourceSpan.text()` rematerialized the whole string via `chars()` on every
