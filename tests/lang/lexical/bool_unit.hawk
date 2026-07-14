@@ -5,7 +5,7 @@ fn main() -> Int {
     println('${true}');       // expect: true
     println('${false}');      // expect: false
     // `void` is the single value of type Void.
-    let nothing = void;
+    let _nothing = void;
     println('void bound');    // expect: void bound
     return 0;
 }

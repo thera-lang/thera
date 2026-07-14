@@ -9,24 +9,24 @@
 // runtime.)
 
 fn main() -> Void {
-    let a = 1 + 'a';        // expect error: operator `+`: mismatched operand types Int and String
-    let a2 = 1 + true;      // expect error: operator `+` requires Int, Double or String operands, found Bool
-    let b = 1 + 2.0;        // expect error: operator `+`: mismatched operand types Int and Double
-    let c = 1 == 'a';       // expect error: operator `==`: mismatched operand types Int and String
-    let d = 'x' < 'y';      // expect error: operator `<` requires Int or Double operands, found String
-    let e = 2.5 % 2.0;      // expect error: operator `%` requires Int operands, found Double
-    let f = true && 1;      // expect error: operator `&&`: expected Bool, found Int
-    let g = !3;             // expect error: operator `!`: expected Bool, found Int
-    let h = -'s';           // expect error: operator `-` requires an Int or Double operand, found String
-    let i = 1.5 & 2.5;      // expect error: operator `&` requires Int operands, found Double
+    let _a = 1 + 'a';        // expect error: operator `+`: mismatched operand types Int and String
+    let _a2 = 1 + true;      // expect error: operator `+` requires Int, Double or String operands, found Bool
+    let _b = 1 + 2.0;        // expect error: operator `+`: mismatched operand types Int and Double
+    let _c = 1 == 'a';       // expect error: operator `==`: mismatched operand types Int and String
+    let _d = 'x' < 'y';      // expect error: operator `<` requires Int or Double operands, found String
+    let _e = 2.5 % 2.0;      // expect error: operator `%` requires Int operands, found Double
+    let _f = true && 1;      // expect error: operator `&&`: expected Bool, found Int
+    let _g = !3;             // expect error: operator `!`: expected Bool, found Int
+    let _h = -'s';           // expect error: operator `-` requires an Int or Double operand, found String
+    let _i = 1.5 & 2.5;      // expect error: operator `&` requires Int operands, found Double
 
     // The legal combinations.
-    let ok1 = 1 + 2;
-    let ok2 = 1.5 * 2.0;
-    let ok3 = 'a' + 'b';
-    let ok4 = 1 < 2 && 2.0 >= 1.0;
-    let ok5 = 'a' == 'b';
-    let ok6 = 7 % 2 + (1 << 3) + ~4;
-    let ok7 = -2.5;
-    let ok8 = !false;
+    let _ok1 = 1 + 2;
+    let _ok2 = 1.5 * 2.0;
+    let _ok3 = 'a' + 'b';
+    let _ok4 = 1 < 2 && 2.0 >= 1.0;
+    let _ok5 = 'a' == 'b';
+    let _ok6 = 7 % 2 + (1 << 3) + ~4;
+    let _ok7 = -2.5;
+    let _ok8 = !false;
 }

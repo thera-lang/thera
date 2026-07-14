@@ -5,6 +5,6 @@ fn main() -> Int {
     let s = 'hello';
     // Integer-indexing a String is disallowed (it could split a multi-byte
     // character) — rejected by `check`.
-    let c = s[0];   // expect error: indexing on String
+    let _c = s[0];   // expect error: indexing on String
     return 0;
 }

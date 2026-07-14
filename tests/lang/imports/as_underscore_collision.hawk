@@ -9,5 +9,5 @@ import 'libshare_a' as _;
 import 'libshare_b' as _;   // expect error: two `import … as _` imports expose `shared_util` unqualified
 
 fn main() -> Void {
-    let x = only_a() + only_b();
+    let _x = only_a() + only_b();
 }

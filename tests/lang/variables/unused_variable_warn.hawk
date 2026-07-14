@@ -1,0 +1,56 @@
+//! spec: warn-unused-variable
+//! mode: check
+
+// A `let` binding never referenced after its declaration is a warning.
+// Statement `let`s only — parameters and pattern bindings are not checked.
+// `_` and `_`-prefixed names are the intentional-discard escape, and any
+// later occurrence of the name counts as a reference (an assignment target,
+// an interpolation, a lambda capture) — the rule under-reports, never the
+// reverse.
+
+fn unused() -> Int {
+    let x = 1;   // expect warning: unused variable: `x` is never referenced
+    return 2;
+}
+
+fn unused_shadow(_ b: Bool) -> Int {
+    let x = 1;
+    let total = x + 1; // the outer x — the inner shadow below is still unused
+    if b {
+        let x = 99;   // expect warning: unused variable: `x` is never referenced
+        return 0;
+    }
+    return total;
+}
+
+fn escapes() -> Int {
+    let _ = compute(); // wildcard discard: exempt
+    let _hint = compute(); // `_`-prefixed: exempt
+    return 1;
+}
+
+fn references() -> String {
+    let name = 'hawk'; // an interpolation counts
+    let mut n = 0; // an assignment target counts
+    n = 2;
+    let base = 3; // a lambda capture counts
+    let f = (v: Int) => v + base;
+    return '${name} ${f(n)}';
+}
+
+fn compute() -> Int {
+    return 40;
+}
+
+// A `// ignore: unused-variable` comment suppresses the warning at that site.
+fn suppressed() -> Int {
+    // ignore: unused-variable
+    let scratch = compute();
+    return 2;
+}
+
+fn main() -> Int {
+    println('${unused()} ${unused_shadow(false)} ${escapes()}');
+    println('${references()} ${suppressed()}');
+    return 0;
+}

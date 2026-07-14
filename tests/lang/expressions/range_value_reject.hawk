@@ -6,6 +6,6 @@
 // emit-only error).
 
 fn main() -> Int {
-    let r = 1..5;   // expect error: a range is only valid as a for-loop iterable
+    let _r = 1..5;   // expect error: a range is only valid as a for-loop iterable
     return 0;
 }

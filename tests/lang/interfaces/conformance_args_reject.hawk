@@ -28,6 +28,6 @@ fn wants_strings(_ b: Box<String>) -> Int {
 }
 
 fn main() -> Void {
-    let ok = wants_ints(IntBox { v: 1 });           // matching args — fine
-    let bad = wants_strings(IntBox { v: 1 });        // expect error: argument to "wants_strings": expected Box<String>, found IntBox
+    let _ok = wants_ints(IntBox { v: 1 });           // matching args — fine
+    let _bad = wants_strings(IntBox { v: 1 });        // expect error: argument to "wants_strings": expected Box<String>, found IntBox
 }

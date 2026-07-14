@@ -10,6 +10,6 @@ struct Point {
 }
 
 fn main() -> Void {
-    let p = Point { x: 1 };    // expect error: missing field `y` in Point literal
-    let q = Point { x: 1, y: 2 };
+    let _p = Point { x: 1 };    // expect error: missing field `y` in Point literal
+    let _q = Point { x: 1, y: 2 };
 }

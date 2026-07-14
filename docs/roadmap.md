@@ -886,10 +886,14 @@ rendering + exit-code policy, kebab-case rule names, and per-site
 - ~~unreachable statements after `return`/`throw`~~ — _landed as
   `unreachable-code` (see Changelog)_
 - effect-free expression statements (`1 + 2;`)
-- unused variables (the false-positive-prone one — design its exemptions
-  carefully)
+- ~~unused variables (the false-positive-prone one — design its exemptions
+  carefully)~~ — _landed as `unused-variable` (see Changelog)_
 - extending `unused-import` to `as _` imports (needs surface data — which bare
-  names the import provides — rather than syntax).
+  names the import provides — rather than syntax). Sized: small/medium — the
+  loader already computes each `as _` import's public surface for the
+  bare-collision checks; the work is threading that surface (including barrel
+  re-exports) into `check_unused_imports` and intersecting it with the
+  already-collected identifier set.
 
 **Small wrinkles:** same-block rebinding and self-imports are now rejected
 (_landed — see Changelog_); the one remaining: did-you-mean suggestions on
@@ -932,6 +936,23 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **`unused-variable` warning** (2026-07). The fourth warning rule — flagged in
+  the review as the false-positive-prone one, so the exemptions carry the
+  design. Scope: **statement `let`s only** — parameters and pattern bindings
+  (their names are often fixed by a signature or an arity) and module globals
+  (cross-file consumers) are out. **`_`-prefixed names are exempt**
+  (`let _hint = …`), the Rust/Dart/TS intentional-discard convention LLMs
+  already know, alongside `let _ =`. The use-scan reuses the unused-import
+  identifier walk — _any_ later occurrence of the name counts, including an
+  assignment target and a use that actually resolves to an inner shadow — so the
+  rule under-reports but never flags a referenced binding. One reverse pass per
+  block keeps it O(n) and scope-correct: uses before a `let` can only refer to
+  an outer binding, so an unused inner shadow is still caught. Zero hits on
+  production code; the `let x = <expr under test>;` scaffolding idiom in 10
+  conformance fixtures and 22 hermetic checker tests was renamed to `_`-prefixed
+  form — the exemption's first dogfood. Spec `warn-unused-variable`; language.md
+  §Variables, §Errors and warnings.
 
 - **`unreachable-code` + `unreachable-arm` warnings** (2026-07). The second and
   third warning rules, both dead-code signals on the existing exit-analysis

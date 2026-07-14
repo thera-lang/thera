@@ -96,22 +96,23 @@ and [grammar.md](grammar.md) (syntax).
 
 ## Variables & semantics
 
-| ID                            | Spec (language.md) | Pins                                                                                           | Status |
-| ----------------------------- | ------------------ | ---------------------------------------------------------------------------------------------- | ------ |
-| `var-let-mut`                 | Variables          | immutable by default; `mut` allows reassign                                                    | ✓      |
-| `var-let-immutable`           | Variables          | reassigning a `let` (or a parameter) is an error                                               | ✓      |
-| `var-assign-type`             | Variables          | an assignment's value must match the target's type (binding, element, field)                   | ✓      |
-| `var-expr-position-immutable` | Variables          | immutability enforced inside expression-position blocks/`if`s/match arms                       | ✓      |
-| `var-references`              | Variables          | heap values are shared references                                                              | ✓      |
-| `var-wildcard-let`            | Variables          | `let _ = expr;` evaluates and discards: no binding, side effects run, annotation still checked | ✓      |
-| `var-same-block-rebind`       | Variables          | a second `let x` in the same block is an error; shadowing is legal only from a nested scope    | ✓      |
-| `var-block-scope`             | Variables          | block/arm/loop bindings shadow lexically; the outer binding (value and type) restores after    | ✓      |
-| `module-let-immutable`        | language.md        | no top-level `let mut`; module globals are immutable                                           | ✓      |
-| `module-let`                  | language.md        | top-level `let` computed once into a stored global slot                                        | ✓      |
-| `module-let-order`            | language.md        | initializers run in dependency order; a cycle is an error                                      | ◐      |
-| `module-let-cross-module`     | language.md        | imported globals initialize before an importer's that use them                                 | ✓      |
-| `const-manifest`              | language.md        | `const` must be compile-time evaluable; computed -> use `let`                                  | ✓      |
-| `const-inline-scope`          | language.md        | a const's inlined initializer evaluates in the const's own top-level scope, not the consumer's | ✓      |
+| ID                            | Spec (language.md)   | Pins                                                                                                                              | Status |
+| ----------------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| `var-let-mut`                 | Variables            | immutable by default; `mut` allows reassign                                                                                       | ✓      |
+| `var-let-immutable`           | Variables            | reassigning a `let` (or a parameter) is an error                                                                                  | ✓      |
+| `var-assign-type`             | Variables            | an assignment's value must match the target's type (binding, element, field)                                                      | ✓      |
+| `var-expr-position-immutable` | Variables            | immutability enforced inside expression-position blocks/`if`s/match arms                                                          | ✓      |
+| `var-references`              | Variables            | heap values are shared references                                                                                                 | ✓      |
+| `var-wildcard-let`            | Variables            | `let _ = expr;` evaluates and discards: no binding, side effects run, annotation still checked                                    | ✓      |
+| `var-same-block-rebind`       | Variables            | a second `let x` in the same block is an error; shadowing is legal only from a nested scope                                       | ✓      |
+| `warn-unused-variable`        | Variables / Warnings | a `let` binding never referenced is a **warning** (statement `let`s only; `_`-prefixed names exempt; any later occurrence counts) | ✓      |
+| `var-block-scope`             | Variables            | block/arm/loop bindings shadow lexically; the outer binding (value and type) restores after                                       | ✓      |
+| `module-let-immutable`        | language.md          | no top-level `let mut`; module globals are immutable                                                                              | ✓      |
+| `module-let`                  | language.md          | top-level `let` computed once into a stored global slot                                                                           | ✓      |
+| `module-let-order`            | language.md          | initializers run in dependency order; a cycle is an error                                                                         | ◐      |
+| `module-let-cross-module`     | language.md          | imported globals initialize before an importer's that use them                                                                    | ✓      |
+| `const-manifest`              | language.md          | `const` must be compile-time evaluable; computed -> use `let`                                                                     | ✓      |
+| `const-inline-scope`          | language.md          | a const's inlined initializer evaluates in the const's own top-level scope, not the consumer's                                    | ✓      |
 
 ## Functions
 

@@ -59,6 +59,10 @@ effects still run, and an annotation (`let _: T = expr;`) is still checked
 against the value. It is the explicit-drop spelling — most commonly the
 sanctioned way past the [unused-`Result`](#error-handling) diagnostic.
 
+A binding that is never referenced draws the `unused-variable`
+[warning](#errors-and-warnings); a `_`-prefixed name (`let _hint = expr;`) marks
+it intentionally unused and is exempt.
+
 `let` vs `mut` controls whether a _binding_ can be reassigned — it says nothing
 about the value itself. Heap values (`String`, `List`, `Map`, `Set`, structs,
 enums) are **shared references**: assigning or passing one copies the reference,
@@ -1968,6 +1972,12 @@ The warning rules:
   by an earlier arm (a bare name, or a constructor whose sub-patterns all bind),
   or a literal repeated from an earlier arm. A _refutable_ constructor arm
   (`Some(1)`) claims nothing, so later arms for its variant stay reachable.
+- **`unused-variable`** — a `let` binding never referenced after its
+  declaration. Statement `let`s only: parameters and pattern bindings are not
+  checked. `_` and `_`-prefixed names (`let _tmp = …`) are the
+  intentional-discard escape, and any later occurrence of the name counts as a
+  reference — an assignment target, an interpolation, a lambda capture, even a
+  use that resolves to an inner shadow.
 
 ### Commands
 

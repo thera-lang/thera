@@ -1362,6 +1362,35 @@ fn check_block(_ cc: CheckCtx, _ block: Block,
         check_expr(inner, tail, tail_expected);
     }
     check_unreachable_code(errors, block);
+    check_unused_variables(errors, block);
+}
+
+// warning: unused-variable — a `let` binding never referenced after its
+// declaration. Statement `let`s only: parameters and pattern bindings are
+// out of scope (their names are often fixed by a signature or an arity),
+// and module globals have cross-file consumers. `_` and `_`-prefixed names
+// are the intentional-discard escape. The use-scan reuses the
+// unused-import identifier walk, so *any* later occurrence of the name
+// counts — an assignment target, an occurrence that actually resolves to
+// an inner shadow — lenient: the rule under-reports but never flags a
+// referenced binding. One reverse pass: at each `let`, `used` holds
+// exactly the occurrences after it (uses before it can only refer to an
+// outer binding). Nested blocks run their own pass.
+fn check_unused_variables(_ errors: List<diagnostic.Diagnostic>, _ block: Block) -> Void {
+    let used: Set<String> = Set.new();
+    if let Some(t) = block.tail { used_in_expr(t, used); }
+    let n = block.stmts.len();
+    for k in 0..n {
+        let s = block.stmts[n - 1 - k];
+        if let Let(x) = s {
+            if !x.name.starts_with('_') && !used.has(x.name) {
+                errors.push(diagnostic.warning(
+                    'unused variable: `${x.name}` is never referenced',
+                    x.name_span, 'unused-variable'));
+            }
+        }
+        used_in_stmt(s, used);
+    }
 }
 
 // warning: unreachable-code — code after a statement that always transfers
