@@ -848,72 +848,21 @@ fixes are summarized in the [Changelog](#changelog) (variance, `Never` + tail
 
 ### Diagnostics punchlist
 
-Findings from the 2026-07 diagnostics review — the final rung of the language
-review arc (grammar → spec → type system → diagnostics). The question: do the
-diagnostics cover the language surface and prevent invalid code from being
-written? Method: inventory every diagnostic each phase can produce (~80 parser
-`expect` errors + targeted hints, ~50 checker messages, ~25 codegen emit-time
-errors), then verify suspected holes empirically — 41 invalid-program probes,
-each classified by what actually happens (check error / emit-only error / honest
-trap / misleading trap / silent wrong behavior). The core type-checking surface
-verified solid; the gaps cluster where the checker never looks.
+The still-open tail of the 2026-07 diagnostics review; everything else landed —
+see the Changelog's **Diagnostics review** entry for the arc summary. The
+warning machinery is live: add rules one at a time, corpus-sweeping each.
 
-**Open — checker holes (invalid code checks clean):** none — all landed (see
-Changelog): definite-return, pattern arity, member uniqueness, interface
-default-method body-checking, and the check/emit phase-gap promotion (for
-iterables, index receivers, range position, non-function callees, impl targets).
-
-**Decided + landed — dropped `Result` (unused-result).** See _Changelog_. The
-decision trio, informed by a corpus survey (a spike diagnostic over all 159
-files): **`Result`-only** (the survey found 2 dropped `Result`s — both genuine
-bugs in `fiber_test` — vs 8 dropped `Option`s, all intentional
-`pop()`/`remove()` effect-calls; Rust draws the same type line), a **hard
-error** rather than a warning (agents chase exit codes — a non-gating warning is
-invisible to the primary audience, and pre-1.0 there is no ecosystem to break),
-and **`let _ = expr;` as the discard idiom** (the Rust spelling — the strongest
-LLM prior — over Swift/Go's bare `_ =` or a Hawk-only `.ignore()`). Revisit only
-if `Option`-drop pain appears (the escape hatch then is a Swift-style
-per-function `@discardable`).
-
-**Open — warning-tier candidates (the machinery is live; add one at a time,
-corpus-sweeping each):** Unused _imports_ landed as the first warning (see
-_Changelog_), which also built the shared machinery: `Severity.Warning`
-rendering + exit-code policy, kebab-case rule names, and per-site
-`// ignore: <rule>` suppression
-
-- ~~unreachable match arms (duplicate literal arms; a `_` arm placed first
-  shadows everything after it)~~ — _landed as `unreachable-arm` (see Changelog)_
-- ~~unreachable statements after `return`/`throw`~~ — _landed as
-  `unreachable-code` (see Changelog)_
-- effect-free expression statements (`1 + 2;`)
-- ~~unused variables (the false-positive-prone one — design its exemptions
-  carefully)~~ — _landed as `unused-variable` (see Changelog)_
-- ~~extending `unused-import` to `as _` imports (needs surface data — which bare
-  names the import provides — rather than syntax)~~ — _landed (see Changelog)_
-- referencing a `_`-prefixed local: the marker declares the binding
-  intentionally unused (now spec'd in language.md §Variables), so a reference
-  contradicts it — a future warning candidate (the fix is renaming the binding).
-
-**Small wrinkles:** same-block rebinding and self-imports are now rejected
-(_landed — see Changelog_); did-you-mean suggestions on `undefined name` /
-`no method` would be cheap (edit distance over the known-name set) and are
-modest-but-real LLM value. And a semantic to decide: **qualified access through
-an `as _` import works today** (the loader binds the derived namespace for
-unqualified imports too — `import std.path as _;` + `path.join(…)` compiles, and
-`unused-import` counts it as a use); either bless that in the spec or reject it.
-
-**Decided — diagnostic IDs.** Hard errors stay ID-less (message + span): they
-are not configurable, and for LLMs the message text is the search key — a
-`CAxxxx` code is context noise. Where selection _is_ meaningful the kebab-case
-slug is already the pattern (`hawk fix --only match-to-if-let`, conformance spec
-names); future configurable checker warnings should carry one too. No numeric
-code scheme.
-
-**Priority:** (1) ~~definite-return analysis~~ — _landed_; (2) ~~pattern arity +
-duplicate members~~ — _landed_; (3) ~~promote the emit-only errors to check, and
-body-check interface default methods~~ — _landed_; (4) ~~decide unused-result~~
-— _decided and landed_; (5) lint-tier items whenever. Only the lint-tier items
-and small wrinkles remain.
+- **Effect-free expression statements** (`1 + 2;`) — the last warning candidate
+  from the original review.
+- **Referencing a `_`-prefixed local** — the marker declares the binding
+  intentionally unused (language.md §Variables), so a reference contradicts it;
+  a future warning candidate (the fix is renaming the binding).
+- **Did-you-mean suggestions** on `undefined name` / `no method` — cheap (edit
+  distance over the known-name set), modest-but-real LLM value.
+- **A semantic to decide:** qualified access through an `as _` import works
+  today (the loader binds the derived namespace for unqualified imports too —
+  `import std.path as _;` + `path.join(…)` compiles, and `unused-import` counts
+  it as a use); either bless that in the spec or reject it.
 
 Already tracked elsewhere, not repeated here: imported-body check scope, cascade
 suppression, calling-convention enforcement, native-arg trap wording, and the
@@ -938,6 +887,31 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **Diagnostics review — arc complete** (2026-07). The final rung of the staged
+  language review (grammar → spec → type system → diagnostics), asking: do the
+  diagnostics cover the language surface and prevent invalid code from being
+  written? Method: inventory every diagnostic each phase can produce (~80
+  parser, ~50 checker, ~25 codegen emit-time), then verify suspected holes with
+  41 invalid-program probes; every new diagnostic was corpus-swept against all
+  159 production files with a zero-false-positive bar. What landed (each with
+  its own entry below): the **checker holes closed** — definite-return analysis
+  (+ implicit `Ok(void)`), pattern arity, member uniqueness, interface
+  default-method body-checking, and the emit→check promotion (for-iterables,
+  index receivers, range position, non-function callees, impl targets); **unused
+  `Result` as a hard error** with `let _ =` as the discard idiom (the review's
+  one design call, decided by corpus survey); **same-block rebinding and
+  self-imports rejected**; the **warning tier** — severity plumbing, exit-0
+  policy, kebab-case rule names, `// ignore: <rule>` suppression — with four
+  rules (`unused-import` incl. `as _` attribution, `unreachable-code`,
+  `unreachable-arm`, `unused-variable`) and the `_`-prefix intentionally-unused
+  convention spec'd; and **`hawk fix` folded into `hawk lint --fix`**. Decided
+  along the way: hard errors stay ID-less (message + span — a `CAxxxx` code is
+  context noise for LLMs); kebab-case slugs only where selection is meaningful
+  (warning rules, lint rules). The sweeps themselves paid for the arc: two
+  dropped-`Result` bugs, seven dead imports, and a handful of dead locals found
+  and fixed in the corpus. The open tail lives in _Open work → Diagnostics
+  punchlist_.
 
 - **`unused-import` covers `as _` imports; `_`-prefix spec'd** (2026-07). The
   arc's final warning extension. An `as _` import is now attributed **by
