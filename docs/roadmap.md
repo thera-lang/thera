@@ -857,29 +857,10 @@ each classified by what actually happens (check error / emit-only error / honest
 trap / misleading trap / silent wrong behavior). The core type-checking surface
 verified solid; the gaps cluster where the checker never looks.
 
-**Open — checker holes (invalid code checks clean):**
-
-- **Interface default-method bodies are never body-checked** — found while
-  landing definite-return. `check_interface_decl` runs `check_fn_sig` per method
-  but never `check_fn` on a default body, so
-  `fn greet(self) -> String { return undefined_helper(1 + 'two'); }` inside an
-  interface checks clean (codegen compiles the body, so genuinely broken code
-  surfaces only as an emit error or at runtime). Body-checking needs a
-  `self_type` for the interface itself (an interface-typed `self`) — small but
-  not mechanical; corpus fallout expected to be zero (the stdlib default methods
-  compile and run today), but verify. Definite-return then applies to default
-  methods for free (it lives in `check_fn`).
-- ~~**Pattern arity is never checked.**~~ _Landed — see Changelog._
-- ~~**Member/local uniqueness is top-level-only.**~~ _Landed, including two
-  shapes follow-up probes added to the set (impl/interface method-name
-  duplicates and parameter-label duplicates) — see Changelog._
-- **Check/emit phase gaps — promote to check.** Statically-decidable errors only
-  codegen reports, so `hawk check` gives a false green: `for x in 5`, indexing a
-  struct, a range outside a for-loop head, indexed assignment on unsupported
-  types (codegen's `self.error` sites are the full checklist). Related, caught
-  by _neither_ phase: calling a non-function value (`let x = 5; x(3);` — honest
-  trap only) and `impl Display for Ghost` where `Ghost` doesn't exist (checks
-  clean and runs — the conformance path never resolves the target type name).
+**Open — checker holes (invalid code checks clean):** none — all landed (see
+Changelog): definite-return, pattern arity, member uniqueness, interface
+default-method body-checking, and the check/emit phase-gap promotion (for
+iterables, index receivers, range position, non-function callees, impl targets).
 
 **Open — design decision: dropped `Result`/`Option` (unused-result).**
 `might_fail();` bare in statement position silently discards the failure — the
@@ -913,10 +894,10 @@ names); future configurable checker warnings should carry one too. No numeric
 code scheme.
 
 **Priority:** (1) ~~definite-return analysis~~ — _landed_; (2) ~~pattern arity +
-duplicate members~~ — _landed_; (3) promote the emit-only errors to check, and
-body-check interface default methods; (4) decide unused-result; (5) lint-tier
-items whenever. 3 is hole-closing with ~zero false-positive risk (corpus-verify
-each, per the variance-spike discipline); 4 is the genuine design call.
+duplicate members~~ — _landed_; (3) ~~promote the emit-only errors to check, and
+body-check interface default methods~~ — _landed_; (4) decide unused-result; (5)
+lint-tier items whenever. 4 — the one genuine design call — is the punchlist's
+last substantive item.
 
 Already tracked elsewhere, not repeated here: imported-body check scope, cascade
 suppression, calling-convention enforcement, native-arg trap wording, and the
@@ -941,6 +922,25 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **Check/emit parity + interface default-method bodies** (2026-07).
+  Diagnostics-punchlist item 3, closing the punchlist's checker holes. Interface
+  **default-method bodies are now body-checked** — previously
+  `check_interface_decl` validated signatures only, so a default body could
+  reference undefined names, drop paths, or misuse types and still check clean
+  (surfacing only at emit or runtime). Methods now route through `check_fn` with
+  an interface-typed `self` (only the interface's own surface visible;
+  definite-return applies), spec'd in language.md §Default methods. And the
+  statically-decidable **emit-only errors moved into `check`**: a `for` iterable
+  must be a range/`List`/`Iterator`-conformer (`for x in 5`), only `List`/`Map`
+  are indexable (`p[0]` and `p[0] = v` on a struct; `String` keeps its tailored
+  hint), a range outside a for-loop head is positional error not a value, a
+  bare-name callee must be a function (`let x = 5; x(3);` — previously caught by
+  _neither_ phase), and an `impl` block's target type must exist
+  (`impl Display for Ghost` previously checked clean and ran). Zero corpus false
+  positives; the stdlib's Iterator default methods all check clean under the new
+  body pass. Specs `cf-for-iterable`, `expr-range-value`, `expr-index-receiver`,
+  `expr-call-non-fn`, `iface-impl-target`, `iface-default-body`.
 
 - **Pattern arity + member uniqueness** (2026-07). Diagnostics-punchlist item 2.
   A constructor pattern now binds exactly its variant's field count —

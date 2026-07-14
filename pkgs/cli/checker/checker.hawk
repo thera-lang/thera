@@ -530,6 +530,16 @@ fn check_program(_ errors: List<diagnostic.Diagnostic>, _ program: Program, _ li
                 check_type_param_uniqueness(errors, x.type_params);
                 check_unique(errors, 'method',
                     x.methods.map((m) => m.name), x.methods.map((m) => m.name_span));
+                // The impl's target type must exist — `impl Display for Ghost`
+                // checked clean (and ran!) with no `Ghost` anywhere; the
+                // conformance path validated only the interface side.
+                if primitive_type(x.type_name).is_none() {
+                    let fs = file_scope(library, file);
+                    let target = TypeId { owner: fs.resolve_type_owner(x.type_name, Option.None), name: x.type_name };
+                    if fs.resolve_type_def(target).is_none() {
+                        add_error(errors, 'unknown type: ${x.type_name}', x.name_span);
+                    }
+                }
                 let self_type = impl_self_type(x, library, file);
                 let type_params = type_param_set(x.type_params);
                 for m in x.methods {
@@ -537,7 +547,22 @@ fn check_program(_ errors: List<diagnostic.Diagnostic>, _ program: Program, _ li
                 }
                 if let Some(_) = x.interface_name { check_conformance(errors, x, library, file); }
             },
-            Interface(x) => { check_interface_decl(errors, x, library, file); },
+            Interface(x) => {
+                check_interface_decl(errors, x, library, file);
+                // Check each method through `check_fn` — signatures always, and
+                // a *default method's body* like any other body (previously
+                // never body-checked, so a broken default body surfaced only at
+                // emit or runtime). `self` is the interface itself: an
+                // interface-typed receiver, so sibling methods resolve via the
+                // ordinary interface-dispatch rules.
+                let self_type = Type.Interface(
+                    TypeId { owner: file_scope(library, file).resolve_type_owner(x.name, Option.None), name: x.name },
+                    x.type_params.map((tp) => Type.TypeParameter(tp.name)));
+                let iface_tps = type_param_set(x.type_params);
+                for m in x.methods {
+                    check_fn(errors, m, library, Option.Some(self_type), iface_tps, file, records);
+                }
+            },
             Const(x) => {
                 check_global_annotation(errors, x.type_ann, x.name, x.name_span, library, file);
                 let ctx = new_ctx(library, record_sink: records);
@@ -746,10 +771,8 @@ fn check_interface_decl(_ errors: List<diagnostic.Diagnostic>, _ decl: Interface
     check_type_param_uniqueness(errors, decl.type_params);
     check_unique(errors, 'method',
         decl.methods.map((m) => m.name), decl.methods.map((m) => m.name_span));
-    let iface_tps = type_param_set(decl.type_params);
-    for m in decl.methods {
-        check_fn_sig(errors, m, library, current_file, union_type_params(iface_tps, m.type_params));
-    }
+    // (Method signatures — and default-method *bodies* — are checked via
+    // `check_fn` from `check_program`, with the interface itself as `self`.)
     // Supers resolve like any bare type name — the interface this file's scope
     // sees; a super that exists somewhere in the closure but isn't reachable
     // here is unknown.
@@ -1120,7 +1143,16 @@ fn check_stmt(_ cc: CheckCtx, _ stmt: Stmt, _ stmts: List<Stmt>, _ index: Int) -
             if let Some(eb) = x.else_block { check_block(cc, eb); }
         },
         For(x) => {
-            check_expr(cc, x.iterable, Option.None);
+            // A range iterable is checked here (bounds only) rather than via
+            // `check_expr`, whose `Range` arm rejects a range outside a
+            // for-loop head — this *is* the one valid position.
+            match x.iterable {
+                Range(_, start, end) => { check_range_bounds(cc, start, end); },
+                _ => {
+                    check_expr(cc, x.iterable, Option.None);
+                    check_iterable(errors, x.iterable, scope, ctx);
+                },
+            }
             let iter_type = infer_expr(x.iterable, scope, ctx, Option.None);
             let loop_cc = cc.with_scope(copy_scope(scope));
             bind_for_pattern(x.pattern, x.iterable, iter_type, loop_cc.scope, ctx);
@@ -1263,6 +1295,21 @@ fn check_expr_inner(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> V
                                 add_error(errors,
                                     '`${name}` is not a generic function (type arguments require one); to compare, parenthesize: `(${name} < ...) > (...)`',
                                     x.span);
+                            } else if let Some(t) = scope.get(name) {
+                                // The callee is a local value: it must be
+                                // function-typed (a lambda / fn-typed param).
+                                // Calling an Int/String/… was caught by neither
+                                // phase — an honest but late runtime trap.
+                                match t {
+                                    Function(_, _) => void,
+                                    Unknown => void,
+                                    TypeParameter(_) => void,
+                                    _ => {
+                                        add_error(errors,
+                                            'cannot call `${name}`: it has type ${type_to_string(t)}, not a function',
+                                            x.span);
+                                    },
+                                }
                             }
                         },
                     }
@@ -1327,10 +1374,24 @@ fn check_expr_inner(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> V
         Index(span, object, index) => {
             check_expr(cc, object, Option.None);
             check_expr(cc, index, Option.None);
-            // A String is UTF-8 and not integer-indexable (it could split a
-            // multi-byte character). Reject `s[i]` at check, not only at codegen.
-            if let Primitive(Str) = infer_expr(object, scope, ctx, Option.None) {
-                add_error(errors, 'indexing on String is not supported (use `.chars()` or `.slice(start, end)`)', span);
+            // Only `List` and `Map` are indexable (this covers `a[i] = v`
+            // assignment targets too — the target routes through here). A
+            // String is UTF-8 and not integer-indexable (it could split a
+            // multi-byte character) and keeps its tailored hint; anything else
+            // was an emit-only error. Lenient on an undetermined receiver.
+            let recv = infer_expr(object, scope, ctx, Option.None);
+            match recv {
+                Primitive(p) => match p {
+                    Str => { add_error(errors, 'indexing on String is not supported (use `.chars()` or `.slice(start, end)`)', span); },
+                    _ => { add_error(errors, 'indexing on ${type_to_string(recv)} is not supported', span); },
+                },
+                Interface(id, _) => {
+                    if !is_core_id(ctx.library, id, 'List') && !is_core_id(ctx.library, id, 'Map') {
+                        add_error(errors, 'indexing on ${type_to_string(recv)} is not supported', span);
+                    }
+                },
+                Function(_, _) => { add_error(errors, 'indexing on ${type_to_string(recv)} is not supported', span); },
+                _ => void, // Unknown / type parameter / Never: lenient
             }
         },
         Binary(span, left, op, right) => {
@@ -1346,17 +1407,13 @@ fn check_expr_inner(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> V
             check_expr(cc, inner, Option.None);
             check_propagate(errors, inner, span, scope, ctx);
         },
-        Range(_, start, end) => {
-            check_expr(cc, start, Option.None);
-            check_expr(cc, end, Option.None);
-            // A range iterates the integers `[start, end)`; both bounds must be
-            // `Int`. Without this, `'a'..'z'` slipped through `check` and only
-            // misbehaved at runtime.
-            let int_t = Type.Primitive(Primitive.Int);
-            expect_type(errors, infer_expr(start, scope, ctx, Option.None), int_t,
-                'range bound', expr_span(start), ctx.library);
-            expect_type(errors, infer_expr(end, scope, ctx, Option.None), int_t,
-                'range bound', expr_span(end), ctx.library);
+        Range(span, start, end) => {
+            check_range_bounds(cc, start, end);
+            // A range is not a value — the only valid position is a for-loop
+            // head, which checks its bounds directly (above) and never routes
+            // here. Reaching this arm means the range is somewhere else (a
+            // `let`, an argument, …): a check error, not an emit-only one.
+            add_error(errors, 'a range is only valid as a for-loop iterable', span);
         },
         ListLit(_, items) => {
             for item in items {
@@ -2406,6 +2463,40 @@ fn expected_type_arg(_ expected: Option<Type>, _ name: String, _ idx: Int) -> Op
         },
         None => Option.None,
     };
+}
+
+// A range iterates the integers `[start, end)`; both bounds must be `Int`.
+// Without this, `'a'..'z'` slipped through `check` and only misbehaved at
+// runtime.
+fn check_range_bounds(_ cc: CheckCtx, _ start: Expr, _ end: Expr) -> Void {
+    check_expr(cc, start, Option.None);
+    check_expr(cc, end, Option.None);
+    let int_t = Type.Primitive(Primitive.Int);
+    expect_type(cc.errors, infer_expr(start, cc.scope, cc.infer, Option.None), int_t,
+        'range bound', expr_span(start), cc.infer.library);
+    expect_type(cc.errors, infer_expr(end, cc.scope, cc.infer, Option.None), int_t,
+        'range bound', expr_span(end), cc.infer.library);
+}
+
+// A `for` iterable (other than a literal range, handled at the loop head) must
+// be a `List` or conform to `Iterator` — the same set codegen lowers, so
+// `for x in 5` is a check error rather than an emit-only one. Lenient on an
+// undetermined type (`satisfies_bound` is lenient on `Unknown`/type params).
+fn check_iterable(_ errors: List<diagnostic.Diagnostic>, _ iterable: Expr,
+    _ scope: Map<String, Type>, _ ctx: InferCtx) -> Void {
+    let t = infer_expr(iterable, scope, ctx, Option.None);
+    if let Interface(id, _) = t {
+        if is_core_id(ctx.library, id, 'List') {
+            return;
+        }
+    }
+    let iterator = TypeId { owner: core_owner(ctx.library, 'Iterator'), name: 'Iterator' };
+    if satisfies_bound(t, iterator, ctx.library) {
+        return;
+    }
+    add_error(errors,
+        'cannot iterate ${type_to_string(t)} (only ranges, lists, and Iterators are supported)',
+        expr_span(iterable));
 }
 
 // A loop/branch condition must be `Bool`.

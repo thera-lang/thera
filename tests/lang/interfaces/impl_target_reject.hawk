@@ -1,0 +1,22 @@
+//! spec: iface-impl-target
+//! mode: check
+
+// An `impl` block's target type must exist — `impl Display for Ghost` with no
+// `Ghost` anywhere previously checked clean (and ran); only the interface side
+// was validated.
+
+impl Display for Ghost {   // expect error: unknown type: Ghost
+    pub fn display(self) -> String {
+        return 'boo';
+    }
+}
+
+impl Phantom {   // expect error: unknown type: Phantom
+    pub fn spook(self) -> String {
+        return 'boo';
+    }
+}
+
+fn main() -> Int {
+    return 0;
+}

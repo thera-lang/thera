@@ -1,0 +1,22 @@
+//! spec: expr-call-non-fn
+//! mode: check
+
+// A bare-name callee must be a function — a declared `fn`, or a local of
+// function type (a lambda, a fn-typed parameter). Calling any other local was
+// caught by neither check nor emit (an honest but late runtime trap).
+
+fn f() -> Int {
+    let x = 5;
+    return x(3);   // expect error: cannot call `x`: it has type Int, not a function
+}
+
+// Fine: lambdas and fn-typed parameters are callable.
+fn apply(_ g: (Int) -> Int) -> Int {
+    return g(3);
+}
+
+fn main() -> Int {
+    let double = (n: Int) => n * 2;
+    println('${double(2) + apply(double)}');
+    return 0;
+}

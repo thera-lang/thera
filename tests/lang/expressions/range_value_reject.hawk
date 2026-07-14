@@ -1,0 +1,11 @@
+//! spec: expr-range-value
+//! mode: check
+
+// A range is not a first-class value: the only valid position is a for-loop
+// head. Anywhere else — a binding, an argument — is a check error (was an
+// emit-only error).
+
+fn main() -> Int {
+    let r = 1..5;   // expect error: a range is only valid as a for-loop iterable
+    return 0;
+}

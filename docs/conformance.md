@@ -49,6 +49,9 @@ and [grammar.md](grammar.md) (syntax).
 | `expr-comparison`      | Operator precedence    | `== != < > <= >=`                                                                                                                                     | ✓      |
 | `expr-range`           | Operator precedence    | `a..b`, non-associative; half-open, `Int` element                                                                                                     | ◐      |
 | `expr-range-bound`     | Operator precedence    | a range's bounds must both be `Int` — a non-Int bound is a `check` error, not a runtime surprise                                                      | ✓      |
+| `expr-range-value`     | Operator precedence    | a range is only valid as a for-loop iterable — any other position is a `check` error                                                                  | ✓      |
+| `expr-index-receiver`  | Collections → Indexing | only `List`/`Map` are indexable (`a[i]` and `a[i] = v`); any other receiver is a `check` error                                                        | ✓      |
+| `expr-call-non-fn`     | Functions → Calls      | a bare-name callee must be a function (declared `fn` or fn-typed local); calling any other value is a `check` error                                   | ✓      |
 | `expr-concat`          | language.md Types      | `+` concatenates strings                                                                                                                              | ✓      |
 | `expr-operator-types`  | Operator precedence    | operands type-checked: same-typed Int/Double (+String for `+`), Bool for logical/`!`, Int for `%`/bitwise, agreeing `==`/`!=`; no Int↔Double coercion | ✓      |
 | `expr-lt-ambiguity`    | Expressions / Generics | `name<...>` commits to type args only before `(`/`.`; `a < b > (c)` is a checked error, chains parse as comparisons                                   | ✓      |
@@ -135,6 +138,7 @@ and [grammar.md](grammar.md) (syntax).
 | `cf-let-else-diverge`    | Control flow           | `let … else` whose `else` doesn't diverge is an error                                                                                         | ✓      |
 | `cf-for`                 | Control flow           | `for x in` over lists and ranges                                                                                                              | ✓      |
 | `cf-while`               | grammar.md Statements  | `while` loop                                                                                                                                  | ✓      |
+| `cf-for-iterable`        | Control flow           | a `for` iterable must be a range, a `List`, or conform to `Iterator` — anything else is a `check` error                                       | ✓      |
 | `cf-match`               | grammar.md Patterns    | match dispatch; exhaustiveness assumption                                                                                                     | ✓      |
 | `cf-match-nested`        | grammar.md Patterns    | nested constructor patterns bind at leaves                                                                                                    | ✓      |
 | `cf-match-exhaustive`    | grammar.md Patterns    | a match must be exhaustive: enum = all variants or catch-all; Bool = both literals; other subjects = catch-all                                | ✓      |
@@ -185,6 +189,8 @@ and [grammar.md](grammar.md) (syntax).
 | `gen-param-methods`      | Interfaces / Dispatch | a method call on a type parameter resolves against its bounds; `display`/`debug` are universal, but any other method on an unbounded `T` is a `check` error (matching codegen)         | ✓      |
 | `generic-type-bounds`    | Interfaces / Dispatch | a bound on a generic type's own parameter (`Box<T: Display>`) is enforced on its type arguments                                                                                        | ✓      |
 | `iface-conformance-args` | Interfaces / Dispatch | interface conformance agrees on type arguments: an `impl Box<Int>` does not satisfy an expected `Box<String>`                                                                          | ✓      |
+| `iface-impl-target`      | Interfaces            | an `impl` block's target type must exist (interface and inherent impls alike)                                                                                                          | ✓      |
+| `iface-default-body`     | Interfaces            | a default method's body is checked like any other body, with an interface-typed `self`                                                                                                 | ✓      |
 
 ## Imports, scoping & visibility
 

@@ -1,0 +1,27 @@
+//! spec: iface-default-body
+//! mode: check
+
+// An interface default method's body is checked like any other body (they were
+// previously never body-checked — broken code surfaced only at emit or
+// runtime). `self` is interface-typed, so sibling methods resolve.
+
+interface Greeter {
+    fn name(self) -> String;
+
+    fn greet(self) -> String {
+        return hello();   // expect error: undefined name: hello
+    }
+
+    fn shout(self) -> String {   // expect error: missing return
+        println(self.name());
+    }
+
+    // Fine: calls the required method through interface-typed `self`.
+    fn label(self) -> String {
+        return 'name: ' + self.name();
+    }
+}
+
+fn main() -> Int {
+    return 0;
+}

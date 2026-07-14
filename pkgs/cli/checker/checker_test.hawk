@@ -1072,3 +1072,82 @@ fn test_duplicate_pattern_binding() -> Result<Void, Error> {
         expected: 0)?;
     return Result.Ok(void);
 }
+
+// ---- emit→check promotion + default-method bodies (punchlist item 3) ----
+
+@test
+fn test_interface_default_body_is_checked() -> Result<Void, Error> {
+    let errs = errors_of('interface G { fn a(self) -> Int; fn b(self) -> Int { return missing(); } }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs), expected: 'undefined name: missing')?;
+    // A clean default body — including a sibling call through interface-typed
+    // `self` and definite-return — checks clean.
+    testing.assert_eq(actual: errors_of('interface G { fn a(self) -> Int; '
+        + 'fn b(self) -> Int { return self.a() + 1; } }').len(),
+        expected: 0)?;
+    // Definite-return applies to default bodies too.
+    testing.assert_eq(actual: first_message(errors_of('interface G { fn a(self) -> Int; '
+        + 'fn b(self) -> Int { let x = 1; } }')),
+        expected: 'missing return: not every path through \'b\' returns a value (declared `-> Int`)')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_for_iterable_is_checked() -> Result<Void, Error> {
+    let errs = errors_of('fn f() { for x in 5 { } }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs),
+        expected: 'cannot iterate Int (only ranges, lists, and Iterators are supported)')?;
+    testing.assert_eq(actual: errors_of('fn f() { for x in [1, 2] { } for i in 0..3 { } }').len(),
+        expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_range_only_in_for_head() -> Result<Void, Error> {
+    let errs = errors_of('fn f() { let r = 1..5; }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs),
+        expected: 'a range is only valid as a for-loop iterable')?;
+    // Bounds are still checked in the for-head position.
+    testing.assert_eq(actual: first_message(errors_of('fn f() { for i in 0..\'z\' { } }')),
+        expected: 'range bound: expected Int, found String')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_index_receiver_is_checked() -> Result<Void, Error> {
+    let errs = errors_of('struct P { let x: Int; }\n'
+        + 'fn f() -> Int { let p = P { x: 1 }; return p[0]; }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs), expected: 'indexing on P is not supported')?;
+    // Indexed assignment routes through the same check.
+    testing.assert_eq(actual: first_message(errors_of('struct P { let x: Int; }\n'
+        + 'fn f() { let p = P { x: 1 }; p[0] = 2; }')),
+        expected: 'indexing on P is not supported')?;
+    testing.assert_eq(actual: errors_of('fn f() -> Int { let xs = [1]; xs[0] = 2; return xs[0]; }').len(),
+        expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_call_of_non_function_local() -> Result<Void, Error> {
+    let errs = errors_of('fn f() -> Int { let x = 5; return x(3); }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs),
+        expected: 'cannot call `x`: it has type Int, not a function')?;
+    testing.assert_eq(actual: errors_of('fn f() -> Int { let g = (n: Int) => n; return g(3); }').len(),
+        expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_impl_target_must_exist() -> Result<Void, Error> {
+    let errs = errors_of('impl Ghost { fn f(self) -> Int { return 1; } }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs), expected: 'unknown type: Ghost')?;
+    testing.assert_eq(actual: errors_of('struct S { let n: Int; }\n'
+        + 'impl S { fn f(self) -> Int { return self.n; } }').len(),
+        expected: 0)?;
+    return Result.Ok(void);
+}

@@ -752,6 +752,11 @@ for i in 0..10 {
 }
 ```
 
+A `for` iterable is a range, a `List`, or any `Iterator` — anything else is a
+check error. A range (`a..b`, half-open, `Int` bounds) is **not a first-class
+value**: the for-loop head is its only valid position (`let r = 1..5;` is a
+check error), by design — see the roadmap's deferred `Range` item.
+
 ### `break` and `continue`
 
 Inside a loop, `break` exits the loop immediately and `continue` skips to its
@@ -1507,6 +1512,11 @@ type's override if it has one, otherwise the interface's default. The default's
 own calls to required methods (`self.name()` above) dispatch on the concrete
 value at runtime. This works on both interface-typed receivers
 (`fn f(a: Animal)` → `a.greet()`) and concrete ones (`Dog { … }.greet()`).
+
+Inside a default body, `self` is **interface-typed**: only the interface's own
+surface (its methods, including the other defaults) is visible — never a
+particular impl's fields. The body is checked like any other function body
+(types, names, definite return).
 
 The standard `Iterator<T>` uses this: its only required method is `next`, and
 the adapters (`map`/`filter`/`take`/`enumerate`) and consumers
