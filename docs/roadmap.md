@@ -869,14 +869,10 @@ verified solid; the gaps cluster where the checker never looks.
   not mechanical; corpus fallout expected to be zero (the stdlib default methods
   compile and run today), but verify. Definite-return then applies to default
   methods for free (it lives in `check_fn`).
-- **Pattern arity is never checked.** Variant _names_ are validated, arg counts
-  are not: `Some(a, b)` traps `enum.get: field 1 out of range`
-  (malformed-bytecode wording again); `Two(a)` on a two-field variant silently
-  binds the first field; a bare `Some =>` silently matches without binding.
-- **Member/local uniqueness is top-level-only.** All silently accepted
-  (first-or-last-wins): duplicate struct fields, enum variants, parameters, type
-  parameters (`<T, T>`), struct-literal fields (`Point { x: 1, x: 2 }`), and
-  pattern bindings (`Two(a, a)`).
+- ~~**Pattern arity is never checked.**~~ _Landed — see Changelog._
+- ~~**Member/local uniqueness is top-level-only.**~~ _Landed, including two
+  shapes follow-up probes added to the set (impl/interface method-name
+  duplicates and parameter-label duplicates) — see Changelog._
 - **Check/emit phase gaps — promote to check.** Statically-decidable errors only
   codegen reports, so `hawk check` gives a false green: `for x in 5`, indexing a
   struct, a range outside a for-loop head, indexed assignment on unsupported
@@ -916,12 +912,11 @@ slug is already the pattern (`hawk fix --only match-to-if-let`, conformance spec
 names); future configurable checker warnings should carry one too. No numeric
 code scheme.
 
-**Priority:** (1) ~~definite-return analysis~~ — _landed; see Changelog_; (2)
-pattern arity + duplicate members; (3) promote the emit-only errors to check,
-and body-check interface default methods; (4) decide unused-result; (5)
-lint-tier items whenever. 2–3 are hole-closing with ~zero false-positive risk
-(corpus-verify each, per the variance-spike discipline); 4 is the genuine design
-call.
+**Priority:** (1) ~~definite-return analysis~~ — _landed_; (2) ~~pattern arity +
+duplicate members~~ — _landed_; (3) promote the emit-only errors to check, and
+body-check interface default methods; (4) decide unused-result; (5) lint-tier
+items whenever. 3 is hole-closing with ~zero false-positive risk (corpus-verify
+each, per the variance-spike discipline); 4 is the genuine design call.
 
 Already tracked elsewhere, not repeated here: imported-body check scope, cascade
 suppression, calling-convention enforcement, native-arg trap wording, and the
@@ -946,6 +941,22 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **Pattern arity + member uniqueness** (2026-07). Diagnostics-punchlist item 2.
+  A constructor pattern now binds exactly its variant's field count —
+  `Some(a, b)` (trapped `enum.get: field 1 out of range`), `Two(a)` (silently
+  bound a prefix), and a bare payload variant `Some =>` (silently ignored the
+  payload) are all located check errors with a
+  `match it as \`Some(_)\`` hint — and a pattern binds each name at most once (`Two(a,
+  a)`). The member tier gained the one-name-space rule's analogue: duplicate
+  struct fields, enum variants, type parameters, parameters (internal names
+  \_and_ external labels), impl/interface method names, and struct-literal
+  fields are all
+  `duplicate … \`x\``errors at the second site (previously silently first- or last-wins). Corpus sweep found exactly one genuine hit — a parser test's`Assign(sp,
+  _,
+  _)`under-binding the 4-field`Stmt.Assign`— and zero false positives. Specs`cf-match-pattern-arity`, `type-member-unique`;
+  language.md §One name space per scope (member tier), §Choosing a form (pattern
+  arity).
 
 - **Definite-return analysis + `Result<Void, _>` implicit `Ok(void)`**
   (2026-07). The top hole from the diagnostics review: a value-returning

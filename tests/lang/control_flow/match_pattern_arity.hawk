@@ -1,0 +1,43 @@
+//! spec: cf-match-pattern-arity
+//! mode: check
+
+// A constructor pattern binds exactly its variant's field count — too few
+// silently bound a prefix, too many trapped at `enum.get`, and a bare payload
+// variant silently ignored its payload. A pattern also binds each name at
+// most once.
+
+enum Shape {
+    Point,
+    Circle(Int),
+    Rect(Int, Int),
+}
+
+fn f(_ s: Shape) -> Int {
+    return match s {
+        Rect(w) => w,   // expect error: variant `Rect` has 2 fields, but the pattern binds 1
+        Circle => 0,   // expect error: variant `Circle` has 1 field, but the pattern binds 0
+        Point(x) => x,   // expect error: variant `Point` has 0 fields, but the pattern binds 1
+        _ => 0,
+    };
+}
+
+fn g(_ s: Shape) -> Int {
+    return match s {
+        Rect(a, a) => a,   // expect error: duplicate binding `a` in pattern
+        _ => 0,
+    };
+}
+
+// Correct arities are clean; `_` counts as a bound position.
+fn h(_ s: Shape) -> Int {
+    return match s {
+        Point => 0,
+        Circle(r) => r,
+        Rect(w, _) => w,
+    };
+}
+
+fn main() -> Int {
+    println('${h(Shape.Rect(3, 4))}');
+    return 0;
+}

@@ -1,0 +1,57 @@
+//! spec: type-member-unique
+//! mode: check
+
+// Member-tier uniqueness (the one-name-space rule's member analogue): struct
+// fields, enum variants, type parameters, parameters (names and labels),
+// impl/interface method names, and struct-literal fields each collide within
+// their owner. Reported at the second site.
+
+struct P {
+    let x: Int;
+    let x: Int;   // expect error: duplicate field `x`
+}
+
+enum Color {
+    Red,
+    Red,   // expect error: duplicate variant `Red`
+    Blue,
+}
+
+fn twice<T, T>(_ v: Int) -> Int {   // expect error: duplicate type parameter `T`
+    return v * 2;
+}
+
+fn add(a: Int, a: Int) -> Int {   // expect error: duplicate parameter `a`
+    return a;
+}
+
+fn tag(k first: Int, k second: Int) -> Int {   // expect error: duplicate parameter label `k`
+    return first + second;
+}
+
+struct S {
+    let n: Int;
+}
+
+impl S {
+    fn f(self) -> Int {
+        return 1;
+    }
+
+    fn f(self) -> Int {   // expect error: duplicate method `f`
+        return 2;
+    }
+}
+
+interface I {
+    fn g(self) -> Int;
+    fn g(self) -> Int;   // expect error: duplicate method `g`
+}
+
+fn build() -> P {
+    return P { x: 1, x: 2 };   // expect error: duplicate field `x`
+}
+
+fn main() -> Int {
+    return 0;
+}

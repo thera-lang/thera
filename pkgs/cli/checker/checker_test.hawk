@@ -999,3 +999,76 @@ fn test_universal_method_on_type_param_is_clean() -> Result<Void, Error> {
         expected: 0)?;
     return Result.Ok(void);
 }
+
+// ---- member uniqueness + pattern arity (diagnostics punchlist item 2) ----
+
+@test
+fn test_duplicate_members_are_errors() -> Result<Void, Error> {
+    // Struct fields, enum variants, type parameters, impl/interface methods.
+    testing.assert_eq(actual: first_message(errors_of('struct P { let x: Int; let x: Int; }')),
+        expected: 'duplicate field `x`')?;
+    testing.assert_eq(actual: first_message(errors_of('enum E { Red, Red }')),
+        expected: 'duplicate variant `Red`')?;
+    testing.assert_eq(actual: first_message(errors_of('fn f<T, T>(_ x: Int) -> Int { return x; }')),
+        expected: 'duplicate type parameter `T`')?;
+    testing.assert_eq(actual: first_message(errors_of('struct S { let n: Int; }\n'
+        + 'impl S { fn f(self) -> Int { return 1; } fn f(self) -> Int { return 2; } }')),
+        expected: 'duplicate method `f`')?;
+    testing.assert_eq(actual: first_message(errors_of('interface I { fn f(self) -> Int; fn f(self) -> Int; }')),
+        expected: 'duplicate method `f`')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_duplicate_params_and_labels() -> Result<Void, Error> {
+    let errs = errors_of('fn f(a: Int, a: Int) -> Int { return a; }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?; // one error, as the name
+    testing.assert_eq(actual: first_message(errs), expected: 'duplicate parameter `a`')?;
+    testing.assert_eq(actual: first_message(errors_of('fn f(k a: Int, k b: Int) -> Int { return a + b; }')),
+        expected: 'duplicate parameter label `k`')?;
+    // Distinct labels over distinct names: clean.
+    testing.assert_eq(actual: errors_of('fn f(a: Int, b: Int) -> Int { return a + b; }').len(),
+        expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_duplicate_struct_literal_field() -> Result<Void, Error> {
+    let errs = errors_of('struct P { let x: Int; let y: Int; }\n'
+        + 'fn f() -> Int { let p = P { x: 1, x: 2, y: 3 }; return p.x; }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs), expected: 'duplicate field `x`')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_pattern_arity_is_checked() -> Result<Void, Error> {
+    let src = 'enum E { Two(Int, Int), None }\n';
+    // Too few, bare (0 args), too many; correct arity is clean.
+    testing.assert_eq(actual: first_message(errors_of(src
+        + 'fn f(_ e: E) -> Int { return match e { Two(a) => a, _ => 0 }; }')),
+        expected: 'variant `Two` has 2 fields, but the pattern binds 1; match it as `Two(_, _)`')?;
+    testing.assert_eq(actual: first_message(errors_of(src
+        + 'fn f(_ e: E) -> Int { return match e { Two => 1, _ => 0 }; }')),
+        expected: 'variant `Two` has 2 fields, but the pattern binds 0; match it as `Two(_, _)`')?;
+    testing.assert_eq(actual: first_message(errors_of(src
+        + 'fn f(_ e: E) -> Int { return match e { None(x) => x, _ => 0 }; }')),
+        expected: 'variant `None` has 0 fields, but the pattern binds 1; match it as `None`')?;
+    testing.assert_eq(actual: errors_of(src
+        + 'fn f(_ e: E) -> Int { return match e { Two(a, b) => a + b, _ => 0 }; }').len(),
+        expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_duplicate_pattern_binding() -> Result<Void, Error> {
+    let errs = errors_of('enum E { Two(Int, Int) }\n'
+        + 'fn f(_ e: E) -> Int { return match e { Two(a, a) => a }; }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs), expected: 'duplicate binding `a` in pattern')?;
+    // The same name in *different* arms is fine.
+    testing.assert_eq(actual: errors_of('enum E { L(Int), R(Int) }\n'
+        + 'fn f(_ e: E) -> Int { return match e { L(a) => a, R(a) => a }; }').len(),
+        expected: 0)?;
+    return Result.Ok(void);
+}

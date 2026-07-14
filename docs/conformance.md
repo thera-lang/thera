@@ -83,6 +83,7 @@ and [grammar.md](grammar.md) (syntax).
 | `type-mut-field`              | Structs                | a `let mut` field (`let mut x: T;`) may be reassigned after construction                                                                      | ✓      |
 | `type-struct-fields-required` | Structs                | a struct literal must provide every declared field — a `check` diagnostic                                                                     | ✓      |
 | `type-enum-nonempty`          | Enums                  | an enum must declare at least one variant — a zero-variant enum is a parse error                                                              | ✓      |
+| `type-member-unique`          | Structs / Enums        | member-tier uniqueness: duplicate struct fields, enum variants, type params, params (names + labels), impl/interface methods, literal fields  | ✓      |
 | `type-reserved-names`         | language.md            | the language's own type names (Result, Option, List, Void, …) may not be declared in user code; core utility names (Args, …) stay free        | ✓      |
 | `type-fn-variance`            | Types                  | function-type assignability: contravariant parameters, covariant result                                                                       | ✓      |
 | `gen-variance`                | Types → Variance       | generic args: `Result`/`Option`/`Iterator` covariant (read-only), `List`/`Map`/`Set` & user generics invariant; literals type against context | ✓      |
@@ -140,6 +141,7 @@ and [grammar.md](grammar.md) (syntax).
 | `cf-match-variant-check` | grammar.md Patterns    | a constructor pattern (incl. nested payloads; capitalized bare = zero-arg constructor) must name a real variant — a `check` diagnostic        | ✓      |
 | `cf-match-arm-comma`     | grammar.md Expressions | the `,` after an expression-bodied match arm is required (trailing comma optional; block arms need none) — a parse error                      | ✓      |
 | `cf-match-void-arm`      | Control flow / checker | a non-diverging `Void` arm in a value-producing match is a check error; diverging arms and all-`Void` matches stay exempt                     | ✓      |
+| `cf-match-pattern-arity` | Control flow / checker | a constructor pattern binds exactly its variant's field count (bare payload variants included); a pattern binds each name once                | ✓      |
 | `cf-match-literal`       | grammar.md Patterns    | int/string/bool literal patterns (not float)                                                                                                  | ✓      |
 | `cf-match-literal-type`  | grammar.md Patterns    | a literal pattern whose type can never equal the subject's is a `check` error                                                                 | ✓      |
 | `cf-break-continue`      | grammar.md Statements  | `break` exits / `continue` advances the innermost loop (while/range/list); statement-only, a `check` error outside a loop or across a closure | ✓      |

@@ -862,6 +862,13 @@ it **`=> void`** — the explicit unit value — not `=> {}`: the empty block sa
 "nothing here" ambiguously (accident? placeholder?), while `void` states the
 intent. `hawk lint`'s `void-arm` rule flags the `=> {}` spelling.
 
+**Pattern arity.** A constructor pattern binds **exactly** its variant's field
+count — `Rect(w, h)` for a two-field `Rect`, with `_` for a position you don't
+need (`Rect(w, _)`). Too few positions, too many, or a bare payload-carrying
+variant (`Some` instead of `Some(_)`) are check errors; a zero-field variant is
+matched bare (`Point`). A pattern also binds each name at most once —
+`Rect(a, a)` is an error.
+
 ---
 
 ## Tail expressions
@@ -1149,6 +1156,13 @@ Syntactic position still selects which _space_ a name is looked up in — a valu
 (functions incl. `native fn`, consts, locals), a type
 (`type`/`enum`/`interface`, built-ins, type parameters), or an import namespace
 — but a name is introduced into its scope only once regardless.
+
+The same rule applies at the **member tier**: within one owner, a struct's
+fields, an enum's variants, a declaration's type parameters, a function's
+parameters (both the internal names and the external labels), an
+`impl`/`interface` block's method names, a struct literal's fields, and a
+pattern's bindings must each be unique — a second introduction is a
+`duplicate …` error at that site.
 
 ### Reserved type names
 

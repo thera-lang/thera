@@ -470,6 +470,54 @@ fn collides(_ a: NameSite, _ b: NameSite) -> Bool {
     return file_key(a.file) == file_key(b.file);
 }
 
+// ---- member uniqueness ----
+
+// The one-name-space rule covers *top-level* names; this covers the member
+// tier, where a duplicate used to be silently accepted (first- or last-wins):
+// struct fields, enum variants, type parameters, impl/interface method names,
+// and struct-literal fields. Reported at the second (and later) site.
+fn check_unique(_ errors: List<diagnostic.Diagnostic>, _ what: String,
+    _ names: List<String>, _ spans: List<SourceSpan>) -> Void {
+    let seen: Set<String> = Set.new();
+    for p in names.enumerate() {
+        // An empty name is a parse-recovery placeholder — never a collision.
+        if p.value != '' && seen.has(p.value) {
+            add_error(errors, 'duplicate ${what} `${p.value}`', spans[p.index]);
+        }
+        seen.add(p.value);
+    }
+}
+
+// Parameters collide on either coordinate: the internal name (the body's
+// binding) or the external label (the call site's keyword). One error per
+// parameter — a same-name duplicate (`f(a: Int, a: Int)`, where the label
+// duplicates too) reports once, as the name.
+fn check_param_uniqueness(_ errors: List<diagnostic.Diagnostic>, _ params: List<Param>) -> Void {
+    let names: Set<String> = Set.new();
+    let labels: Set<String> = Set.new();
+    for p in params {
+        if p.name == '' {
+            continue; // parse-recovery param
+        }
+        if names.has(p.name) {
+            add_error(errors, 'duplicate parameter `${p.name}`', p.name_span);
+        } else if let Some(l) = p.label {
+            if labels.has(l) {
+                add_error(errors, 'duplicate parameter label `${l}`', p.name_span);
+            }
+        }
+        names.add(p.name);
+        if let Some(l) = p.label {
+            labels.add(l);
+        }
+    }
+}
+
+fn check_type_param_uniqueness(_ errors: List<diagnostic.Diagnostic>, _ type_params: List<TypeParam>) -> Void {
+    check_unique(errors, 'type parameter',
+        type_params.map((tp) => tp.name), type_params.map((tp) => tp.span));
+}
+
 // ---- declaration checking ----
 
 fn check_program(_ errors: List<diagnostic.Diagnostic>, _ program: Program, _ library: LibraryElement,
@@ -479,6 +527,9 @@ fn check_program(_ errors: List<diagnostic.Diagnostic>, _ program: Program, _ li
             Fn(x) => { check_fn(errors, x, library, Option.None, Set.new(), file, records); },
             Type(x) => { check_type_decl(errors, x, library, file); },
             Impl(x) => {
+                check_type_param_uniqueness(errors, x.type_params);
+                check_unique(errors, 'method',
+                    x.methods.map((m) => m.name), x.methods.map((m) => m.name_span));
                 let self_type = impl_self_type(x, library, file);
                 let type_params = type_param_set(x.type_params);
                 for m in x.methods {
@@ -513,6 +564,9 @@ fn check_program(_ errors: List<diagnostic.Diagnostic>, _ program: Program, _ li
                 check_expr(CheckCtx { errors: errors, infer: ctx, scope: empty_scope(), muts: [:], no_return_reported: [true], in_loop: false }, x.value, Option.None);
             },
             Enum(x) => {
+                check_type_param_uniqueness(errors, x.type_params);
+                check_unique(errors, 'variant',
+                    x.variants.map((v) => v.name), x.variants.map((v) => v.name_span));
                 let tps = type_param_set(x.type_params);
                 for v in x.variants {
                     for f in v.fields {
@@ -527,6 +581,9 @@ fn check_program(_ errors: List<diagnostic.Diagnostic>, _ program: Program, _ li
 
 fn check_type_decl(_ errors: List<diagnostic.Diagnostic>, _ decl: TypeDecl, _ library: LibraryElement,
     _ current_file: Option<String>) -> Void {
+    check_type_param_uniqueness(errors, decl.type_params);
+    check_unique(errors, 'field',
+        decl.fields.map((f) => f.name), decl.fields.map((f) => f.name_span));
     let tps = type_param_set(decl.type_params);
     for f in decl.fields {
         check_type_ref(errors, f.type_ann, library, current_file, tps);
@@ -616,6 +673,8 @@ fn may_complete_normally(_ rt: Type, _ lib: LibraryElement) -> Bool {
 
 fn check_fn_sig(_ errors: List<diagnostic.Diagnostic>, _ fn_decl: FnDecl,
     _ library: LibraryElement, _ current_file: Option<String>, _ type_params: Set<String>) -> Void {
+    check_type_param_uniqueness(errors, fn_decl.type_params);
+    check_param_uniqueness(errors, fn_decl.params);
     for p in fn_decl.params {
         match p.type_ann {
             Some(ref) => check_type_ref(errors, ref, library, current_file, type_params),
@@ -684,6 +743,9 @@ fn check_global_annotation(_ errors: List<diagnostic.Diagnostic>, _ type_ann: Op
 
 fn check_interface_decl(_ errors: List<diagnostic.Diagnostic>, _ decl: InterfaceDecl, _ library: LibraryElement,
     _ current_file: Option<String>) -> Void {
+    check_type_param_uniqueness(errors, decl.type_params);
+    check_unique(errors, 'method',
+        decl.methods.map((m) => m.name), decl.methods.map((m) => m.name_span));
     let iface_tps = type_param_set(decl.type_params);
     for m in decl.methods {
         check_fn_sig(errors, m, library, current_file, union_type_params(iface_tps, m.type_params));
@@ -1340,6 +1402,10 @@ fn check_expr_inner(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> V
             // of `ns`. Gate it like any other named type so an unreachable/un-
             // imported type isn't silently resolved against the closure's flat table.
             check_named_type(errors, x.type_name, x.namespace, x.span, ctx.library, ctx.current_file, ctx.type_params);
+            // A field given twice is an error regardless of whether the type
+            // resolves (the second value silently lost to first-wins).
+            check_unique(errors, 'field',
+                x.fields.map((fi) => fi.name), x.fields.map((fi) => fi.name_span));
             // Owner-correct (Phase 1 T4): validate the literal's fields against the
             // definition in its *owning* library (the shared resolver picks it,
             // honoring a `ns.Point` qualifier), so two libraries' same-named
@@ -1498,7 +1564,7 @@ fn check_match(_ cc: CheckCtx, _ x: MatchExpr, _ expected: Option<Type>) -> Void
     let mut reference: Type = expected.unwrap_or(Type.Unknown);
     let arm_types: List<Type> = [];
     for arm in x.arms {
-        validate_pattern(errors, arm.pattern, subject_type, ctx);
+        validate_pattern(errors, arm.pattern, subject_type, Set.new(), ctx);
         // The arm's pattern bindings extend a fresh scope; mutability tracking
         // is shared (a pattern binds a type, not mutability — CH18).
         let arm_cc = cc.with_scope(copy_scope(scope));
@@ -1654,15 +1720,20 @@ fn expr_has_break(_ e: Expr) -> Bool {
     };
 }
 
-// A constructor pattern must name a variant of its (known-enum) subject; its
-// payload sub-patterns are validated against that variant's field types. The
-// checker analogue of codegen's `variant_tag` error, so a typo'd variant
-// (`Rd` — a capitalized bare pattern parses as a zero-arg constructor) is a
-// located `check` diagnostic rather than a codegen-only failure. A literal
-// pattern's type must be able to equal the subject's (CH17:
-// `match n { 'x' => … }` on an Int can never match). Non-enum and unknown
-// subjects stay lenient.
-fn validate_pattern(_ errors: List<diagnostic.Diagnostic>, _ pattern: Pattern, _ subject: Type, _ ctx: InferCtx) -> Void {
+// A constructor pattern must name a variant of its (known-enum) subject, and
+// bind exactly that variant's field count; its payload sub-patterns are
+// validated against the variant's field types. The checker analogue of
+// codegen's `variant_tag` error, so a typo'd variant (`Rd` — a capitalized
+// bare pattern parses as a zero-arg constructor) is a located `check`
+// diagnostic rather than a codegen-only failure — and a bare `Some` (0 args)
+// or `Two(a)` (too few) is an arity error rather than a silent partial bind
+// or an `enum.get` trap. A literal pattern's type must be able to equal the
+// subject's (CH17: `match n { 'x' => … }` on an Int can never match). An
+// `Ident` is always a binding (uppercase-first parses as `Constructor`);
+// binding the same name twice in one pattern is an error (`bound` accumulates
+// across the arm's whole pattern). Non-enum and unknown subjects stay lenient.
+fn validate_pattern(_ errors: List<diagnostic.Diagnostic>, _ pattern: Pattern, _ subject: Type,
+    _ bound: Set<String>, _ ctx: InferCtx) -> Void {
     match pattern {
         Constructor(span, name, args) => {
             if let Interface(id, _) = subject {
@@ -1670,14 +1741,31 @@ fn validate_pattern(_ errors: List<diagnostic.Diagnostic>, _ pattern: Pattern, _
                     if def.kind == TypeDefKind.Enum {
                         match variant_of(def, name) {
                             Some(v) => {
+                                if args.len() != v.fields.len() {
+                                    let n = v.fields.len();
+                                    let shape = if n == 0 {
+                                        '`${name}`'
+                                    } else {
+                                        '`${name}(${v.fields.map((_f) => '_').join(', ')})`'
+                                    };
+                                    add_error(errors,
+                                        'variant `${name}` has ${n} ${if n == 1 { 'field' } else { 'fields' }}, but the pattern binds ${args.len()}; match it as ${shape}',
+                                        span);
+                                }
                                 for p in args.enumerate() {
                                     let ft = if p.index < v.fields.len() { v.fields[p.index] } else { Type.Unknown };
-                                    validate_pattern(errors, p.value, ft, ctx);
+                                    validate_pattern(errors, p.value, ft, bound, ctx);
                                 }
                             },
                             None => { add_error(errors, 'unknown variant `${name}`', span); },
                         }
                     }
+                }
+            } else {
+                // The subject didn't resolve to an enum — still validate the
+                // sub-patterns (dup bindings don't need the subject).
+                for arg in args {
+                    validate_pattern(errors, arg, Type.Unknown, bound, ctx);
                 }
             }
         },
@@ -1693,7 +1781,12 @@ fn validate_pattern(_ errors: List<diagnostic.Diagnostic>, _ pattern: Pattern, _
                     span);
             }
         },
-        Ident(_, _) => void,
+        Ident(span, name) => {
+            if bound.has(name) {
+                add_error(errors, 'duplicate binding `${name}` in pattern', span);
+            }
+            bound.add(name);
+        },
         Wildcard(_) => void,
     }
 }
