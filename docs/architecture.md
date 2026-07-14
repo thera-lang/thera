@@ -333,7 +333,7 @@ constant pool.
 | `hawk test [file\|dir]`         | run the `@test` functions in a file, or in `*_test.hawk` under a directory (default: cwd) |
 | `hawk fmt <file\|dir>…`         | format source in place (`--check` reports unformatted files, writes nothing)              |
 | `hawk lint [file\|dir]`         | report non-idiomatic code shapes with a known rewrite (read-only; default: cwd)           |
-| `hawk fix <file\|dir>`          | apply the lint rewrites (previews by default; `--write` edits; UX is TBD)                 |
+| `hawk lint --fix <file\|dir>`   | apply the safe lint rewrites in place (explicit target required)                          |
 | `hawk lsp`                      | start the language server (LSP over stdin/stdout)                                         |
 
 **stdout vs. stderr.** The rule: stdout carries a command's _expected output_;

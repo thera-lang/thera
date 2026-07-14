@@ -1,7 +1,7 @@
 // Suggestion diagnostics — a read-only pass that locates non-idiomatic code
 // shapes that have a mechanical, more-idiomatic rewrite (e.g. a two-arm `match`
 // with an empty catch-all arm → `if let`). This is the shared shape-matching the
-// future `hawk fix` / LSP code actions are built from; for now it only *reports*
+// `hawk lint --fix` / LSP code actions are built from; by default it only *reports*
 // (and the CLI tallies) convertible sites, to measure how many wins each rewrite
 // would actually yield before any rewriter is built.
 //

@@ -1,5 +1,5 @@
 // LSP `textDocument/codeAction`: offers the idiomatic-rewrite refactorings (the
-// same ones `hawk lint`/`hawk fix` surface) as editor code actions, driving the
+// same ones `hawk lint`/`hawk lint --fix` surface) as editor code actions, driving the
 // shared transform machinery in `fix` (`match → if let`/`unwrap_or`/`map`/
 // `let … else`).
 //

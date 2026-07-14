@@ -1924,8 +1924,8 @@ product is the artifact / the formatted file).
 
 The analyzer commands — `check`, `test`, `lint` — also **default to the current
 directory** when no target is given, so the bare invocation does the obvious
-thing in a project checkout. The writing commands (`fmt`, `fix`) keep their
-targets explicit.
+thing in a project checkout. The writing commands (`fmt`, `lint --fix`) keep
+their targets explicit.
 
 ### Errors and warnings
 
@@ -1959,16 +1959,16 @@ referenced in the file. (`pub import` re-exports, `as _` imports, and — in a
 
 ### Commands
 
-| Command      | Description                                                  |
-| ------------ | ------------------------------------------------------------ |
-| `hawk run`   | Run a source file                                            |
-| `hawk check` | Type-check without running (defaults to the cwd)             |
-| `hawk test`  | Run tests (defaults to the cwd; `--verbose` for full report) |
-| `hawk fmt`   | Format source files in place (`--check` to only report)      |
-| `hawk lint`  | Report non-idiomatic code shapes (defaults to the cwd)       |
-| `hawk fix`   | Apply lint rewrites (previews by default; UX is TBD)         |
-| `hawk emit`  | Compile to a `.hawkbc` bytecode file                         |
-| `hawk lsp`   | Start the language server                                    |
+| Command           | Description                                                  |
+| ----------------- | ------------------------------------------------------------ |
+| `hawk run`        | Run a source file                                            |
+| `hawk check`      | Type-check without running (defaults to the cwd)             |
+| `hawk test`       | Run tests (defaults to the cwd; `--verbose` for full report) |
+| `hawk fmt`        | Format source files in place (`--check` to only report)      |
+| `hawk lint`       | Report non-idiomatic code shapes (defaults to the cwd)       |
+| `hawk lint --fix` | Apply the safe lint rewrites (explicit target required)      |
+| `hawk emit`       | Compile to a `.hawkbc` bytecode file                         |
+| `hawk lsp`        | Start the language server                                    |
 
 ### `hawk test`
 

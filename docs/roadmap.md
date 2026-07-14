@@ -553,10 +553,11 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     walk emits at most one rewrite per `match` (the rules partition) plus
     `let … else` at the enclosing `let`. The transforms are vehicle-independent;
     a `hawk fix` CLI and an LSP code action both drive them.
-  - **`hawk fix` CLI — _landed (`if let`, `?`, `unwrap_or`, `map`,
-    `let … else`)._** `hawk fix <file|dir>…` (main.hawk) drives the machinery:
-    previews by default (one `path:line:col: match → …` per fix), `--write`
-    applies. UX is flagged provisional in `--help` (the LSP code action is the
+  - **`hawk fix` CLI — _landed, since folded into `hawk lint --fix` (2026-07:
+    one analysis command, the eslint/ruff/clippy shape; the provisional UX
+    resolved)._** Originally `hawk fix <file|dir>…` (main.hawk) drives the
+    machinery: the lint report is the preview, `--fix` applies (an explicit
+    target required — it writes). Historical detail (the LSP code action is the
     primary per-site vehicle). `fix_source` loops non-overlapping edit batches
     to a fixpoint so **nested** convertible matches converge (an inner match
     becomes visible once its enclosing match is rewritten — a bug the dogfooding
