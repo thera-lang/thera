@@ -6,6 +6,9 @@ fn main() -> Int {
     // loop body is a check error. A loop nested in a closure doesn't count —
     // control can't cross the closure boundary.
     break;                       // expect error: `break` outside of a loop
+    // The `break` above also makes this line unreachable; that warning is
+    // not this fixture's subject.
+    // ignore: unreachable-code
     continue;                    // expect error: `continue` outside of a loop
     return 0;
 }

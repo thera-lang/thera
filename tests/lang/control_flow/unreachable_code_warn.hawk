@@ -1,0 +1,51 @@
+//! spec: warn-unreachable-code
+//! mode: check
+
+// Code after a statement that always transfers control (`return`/`throw`, a
+// `break`/`continue`, an `if` whose branches all exit) never runs — a
+// warning, reported once per block on the first dead statement.
+
+fn after_return() -> Int {
+    return 1;
+    let x = 2;   // expect warning: unreachable code: the statement above always exits
+    return x; // dead too, but the block already warned above
+}
+
+fn after_break() -> Int {
+    let mut i = 0;
+    while true {
+        break;
+        i = i + 1;   // expect warning: unreachable code: the statement above always exits
+    }
+    return i;
+}
+
+fn after_exiting_if(_ b: Bool) -> Int {
+    if b {
+        return 1;
+    } else {
+        return 2;
+    }
+    return 3;   // expect warning: unreachable code: the statement above always exits
+}
+
+// An else-less `if` falls through: the return after it is live.
+fn fall_through(_ b: Bool) -> Int {
+    if b {
+        return 1;
+    }
+    return 2;
+}
+
+// A `// ignore: unreachable-code` comment suppresses the warning at that site.
+fn suppressed() -> Int {
+    return 1;
+    // ignore: unreachable-code
+    return 2;
+}
+
+fn main() -> Int {
+    println('${after_return()} ${after_break()} ${after_exiting_if(false)}');
+    println('${fall_through(true)} ${suppressed()}');
+    return 0;
+}

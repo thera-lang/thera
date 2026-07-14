@@ -1361,6 +1361,37 @@ fn check_block(_ cc: CheckCtx, _ block: Block,
         }
         check_expr(inner, tail, tail_expected);
     }
+    check_unreachable_code(errors, block);
+}
+
+// warning: unreachable-code — code after a statement that always transfers
+// control (`return`/`throw`, a `break`/`continue`, an `if` whose branches all
+// exit, a break-less `while true`) never runs. One warning per block, on the
+// first dead statement (or the dead tail expression); nested blocks report
+// their own. Reuses `stmt_always_exits`, so it inherits its lenient
+// direction: a statement that only *might* exit never triggers this.
+fn check_unreachable_code(_ errors: List<diagnostic.Diagnostic>, _ block: Block) -> Void {
+    for p in block.stmts.enumerate() {
+        let ends = stmt_always_exits(p.value) || match p.value {
+            Break(_) => true,
+            Continue(_) => true,
+            _ => false,
+        };
+        if !ends {
+            continue;
+        }
+        let span = if p.index + 1 < block.stmts.len() {
+            stmt_span(block.stmts[p.index + 1])
+        } else {
+            match block.tail {
+                Some(t) => expr_span(t),
+                None => { return; },
+            }
+        };
+        errors.push(diagnostic.warning(
+            'unreachable code: the statement above always exits', span, 'unreachable-code'));
+        return;
+    }
 }
 
 fn check_stmt(_ cc: CheckCtx, _ stmt: Stmt, _ stmts: List<Stmt>, _ index: Int) -> Void {
@@ -1952,6 +1983,7 @@ fn check_match(_ cc: CheckCtx, _ x: MatchExpr, _ expected: Option<Type>) -> Void
     }
     check_void_arms(errors, x, reference, arm_types);
     check_exhaustive(errors, x, subject_type, ctx);
+    check_unreachable_arms(errors, x, subject_type, ctx);
 }
 
 // A value-producing match must produce the value from *every* path. The
@@ -2232,6 +2264,118 @@ fn check_exhaustive(_ errors: List<diagnostic.Diagnostic>, _ x: MatchExpr, _ sub
     add_error(errors,
         'match on ${type_to_string(subject)} is not exhaustive: add a catch-all arm (`_` or a binding)',
         x.span);
+}
+
+// warning: unreachable-arm — an arm no value can reach: any arm after a
+// catch-all (`_`, or a binding — and full coverage counts: every enum
+// variant matched, or `true` and `false` on a Bool subject), a variant
+// already fully matched by an earlier arm (a bare name, or a constructor
+// whose sub-patterns all bind — sub-position identifiers always bind,
+// codegen's rule), or a literal repeated from an earlier arm. A *refutable*
+// constructor arm (`Some(1)`) claims nothing, so later arms for its variant
+// stay reachable — the rule under-reports but never flags a live arm.
+// Source matches only: `if let` / `let … else` fabricate their own
+// wildcard arm by design.
+fn check_unreachable_arms(_ errors: List<diagnostic.Diagnostic>, _ x: MatchExpr,
+    _ subject: Type, _ ctx: InferCtx) -> Void {
+    match x.origin {
+        Source => void,
+        _ => {
+            return;
+        },
+    }
+    let variants = enum_variant_names(subject, ctx);
+    let is_bool = match subject {
+        Primitive(p) => match p {
+            Bool => true,
+            _ => false,
+        },
+        _ => false,
+    };
+    let covered: Set<String> = Set.new();
+    let literals: Set<String> = Set.new();
+    let mut caught_all = false;
+    for arm in x.arms {
+        let mut reason: Option<String> = Option.None;
+        if caught_all {
+            reason = Option.Some('an arm above already matches every value');
+        }
+        match arm.pattern {
+            Wildcard(_) => { caught_all = true; },
+            Ident(_, name) => {
+                if variants.contains(name) {
+                    // A bare variant name covers that variant (and nothing else).
+                    if reason.is_none() && covered.has(name) {
+                        reason = Option.Some('variant `${name}` is already matched above');
+                    }
+                    covered.add(name);
+                } else {
+                    caught_all = true; // a binding matches everything
+                }
+            },
+            Constructor(_, name, args) => {
+                if reason.is_none() && covered.has(name) {
+                    reason = Option.Some('variant `${name}` is already matched above');
+                }
+                if args.filter((a) => pattern_is_irrefutable(a)).len() == args.len() {
+                    covered.add(name);
+                }
+            },
+            Literal(_, lit) => {
+                if let Some(key) = literal_key(lit) {
+                    if reason.is_none() && literals.has(key) {
+                        reason = Option.Some('this literal is already matched above');
+                    }
+                    literals.add(key);
+                }
+            },
+        }
+        if is_bool && literals.has('b:true') && literals.has('b:false') {
+            caught_all = true;
+        }
+        if variants.len() > 0 && variants.filter((v) => !covered.has(v)).len() == 0 {
+            caught_all = true;
+        }
+        if let Some(r) = reason {
+            errors.push(diagnostic.warning('unreachable match arm: ${r}',
+                pattern_span(arm.pattern), 'unreachable-arm'));
+        }
+    }
+}
+
+// Whether a *sub-position* pattern matches unconditionally. An identifier in
+// sub-position always binds (never a variant test — `emit_pattern`'s rule),
+// so only literals and constructors are refutable.
+fn pattern_is_irrefutable(_ p: Pattern) -> Bool {
+    return match p {
+        Wildcard(_) => true,
+        Ident(_, _) => true,
+        _ => false,
+    };
+}
+
+// A dedup key for a literal pattern's value, or None when the literal can't
+// be keyed statically (an interpolated string). Kind-prefixed so values of
+// different types never collide.
+fn literal_key(_ e: Expr) -> Option<String> {
+    return match e {
+        Int(_, v) => Option.Some('i:${v}'),
+        Float(_, d) => Option.Some('d:${d}'),
+        Bool(_, b) => Option.Some('b:${b}'),
+        Str(_, parts) => {
+            let mut text = '';
+            for part in parts {
+                match part {
+                    Text(_, t) => { text = text + t; },
+                    Interp(_, _) => {
+                        return Option.None;
+                    },
+                }
+            }
+            Option.Some('s:${text}')
+        },
+        _ => Option.None,
+    };
 }
 
 // The subject's enum variant names, when it is an enum (else empty).

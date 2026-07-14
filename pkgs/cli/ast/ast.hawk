@@ -467,6 +467,21 @@ pub fn type_span(_ t: TypeRef) -> SourceSpan {
     };
 }
 
+pub fn stmt_span(_ s: Stmt) -> SourceSpan {
+    return match s {
+        Let(x) => x.span,
+        Return(sp, _) => sp,
+        Throw(sp, _) => sp,
+        Expr(sp, _) => sp,
+        Assign(sp, _, _, _) => sp,
+        If(x) => x.span,
+        For(x) => x.span,
+        While(x) => x.span,
+        Break(sp) => sp,
+        Continue(sp) => sp,
+    };
+}
+
 pub fn pattern_span(_ p: Pattern) -> SourceSpan {
     return match p {
         Wildcard(s) => s,

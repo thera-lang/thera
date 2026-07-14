@@ -1953,9 +1953,21 @@ import std.fs; // ignore: unused-import
 Errors have no rule names and cannot be suppressed. `run`/`emit` do not print
 warnings — `check` is the analysis surface.
 
-The warning rules: **`unused-import`** — an import whose namespace is never
-referenced in the file. (`pub import` re-exports, `as _` imports, and — in a
-`<base>_test.hawk` file — the module under test are exempt.)
+The warning rules:
+
+- **`unused-import`** — an import whose namespace is never referenced in the
+  file. (`pub import` re-exports, `as _` imports, and — in a `<base>_test.hawk`
+  file — the module under test are exempt.)
+- **`unreachable-code`** — code after a statement that always transfers control
+  (`return`/`throw`, `break`/`continue`, an `if` whose branches all exit, a
+  break-less `while true`) never runs. Reported once per block, on the first
+  dead statement.
+- **`unreachable-arm`** — a `match` arm no value can reach: any arm after a
+  catch-all (`_` or a binding — and full coverage counts the same: every variant
+  matched, or `true` and `false` on a `Bool`), a variant already fully matched
+  by an earlier arm (a bare name, or a constructor whose sub-patterns all bind),
+  or a literal repeated from an earlier arm. A _refutable_ constructor arm
+  (`Some(1)`) claims nothing, so later arms for its variant stay reachable.
 
 ### Commands
 

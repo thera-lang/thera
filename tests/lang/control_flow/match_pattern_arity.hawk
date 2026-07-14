@@ -17,6 +17,9 @@ fn f(_ s: Shape) -> Int {
         Rect(w) => w,   // expect error: variant `Rect` has 2 fields, but the pattern binds 1
         Circle => 0,   // expect error: variant `Circle` has 1 field, but the pattern binds 0
         Point(x) => x,   // expect error: variant `Point` has 0 fields, but the pattern binds 1
+        // The broken arms above still cover every variant, so `_` draws the
+        // unreachable-arm warning; not this fixture's subject.
+        // ignore: unreachable-arm
         _ => 0,
     };
 }

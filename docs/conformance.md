@@ -131,26 +131,28 @@ and [grammar.md](grammar.md) (syntax).
 
 ## Control flow
 
-| ID                       | Spec                   | Pins                                                                                                                                          | Status |
-| ------------------------ | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| `cf-if`                  | Control flow           | `if`/`else` statement form                                                                                                                    | ✓      |
-| `cf-if-let`              | Control flow           | `if let PAT = e { … }` conditional binding (statement/value/`else if let`/nested)                                                             | ✓      |
-| `cf-if-let-needs-else`   | Control flow           | value `if let` with no `else` is an error                                                                                                     | ✓      |
-| `cf-let-else`            | Control flow           | `let PAT = e else { … }` bind-or-diverge guard (single/assertion/`throw`)                                                                     | ✓      |
-| `cf-let-else-diverge`    | Control flow           | `let … else` whose `else` doesn't diverge is an error                                                                                         | ✓      |
-| `cf-for`                 | Control flow           | `for x in` over lists and ranges                                                                                                              | ✓      |
-| `cf-while`               | grammar.md Statements  | `while` loop                                                                                                                                  | ✓      |
-| `cf-for-iterable`        | Control flow           | a `for` iterable must be a range, a `List`, or conform to `Iterator` — anything else is a `check` error                                       | ✓      |
-| `cf-match`               | grammar.md Patterns    | match dispatch; exhaustiveness assumption                                                                                                     | ✓      |
-| `cf-match-nested`        | grammar.md Patterns    | nested constructor patterns bind at leaves                                                                                                    | ✓      |
-| `cf-match-exhaustive`    | grammar.md Patterns    | a match must be exhaustive: enum = all variants or catch-all; Bool = both literals; other subjects = catch-all                                | ✓      |
-| `cf-match-variant-check` | grammar.md Patterns    | a constructor pattern (incl. nested payloads; capitalized bare = zero-arg constructor) must name a real variant — a `check` diagnostic        | ✓      |
-| `cf-match-arm-comma`     | grammar.md Expressions | the `,` after an expression-bodied match arm is required (trailing comma optional; block arms need none) — a parse error                      | ✓      |
-| `cf-match-void-arm`      | Control flow / checker | a non-diverging `Void` arm in a value-producing match is a check error; diverging arms and all-`Void` matches stay exempt                     | ✓      |
-| `cf-match-pattern-arity` | Control flow / checker | a constructor pattern binds exactly its variant's field count (bare payload variants included); a pattern binds each name once                | ✓      |
-| `cf-match-literal`       | grammar.md Patterns    | int/string/bool literal patterns (not float)                                                                                                  | ✓      |
-| `cf-match-literal-type`  | grammar.md Patterns    | a literal pattern whose type can never equal the subject's is a `check` error                                                                 | ✓      |
-| `cf-break-continue`      | grammar.md Statements  | `break` exits / `continue` advances the innermost loop (while/range/list); statement-only, a `check` error outside a loop or across a closure | ✓      |
+| ID                       | Spec                    | Pins                                                                                                                                                   | Status |
+| ------------------------ | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------ |
+| `cf-if`                  | Control flow            | `if`/`else` statement form                                                                                                                             | ✓      |
+| `cf-if-let`              | Control flow            | `if let PAT = e { … }` conditional binding (statement/value/`else if let`/nested)                                                                      | ✓      |
+| `cf-if-let-needs-else`   | Control flow            | value `if let` with no `else` is an error                                                                                                              | ✓      |
+| `cf-let-else`            | Control flow            | `let PAT = e else { … }` bind-or-diverge guard (single/assertion/`throw`)                                                                              | ✓      |
+| `cf-let-else-diverge`    | Control flow            | `let … else` whose `else` doesn't diverge is an error                                                                                                  | ✓      |
+| `cf-for`                 | Control flow            | `for x in` over lists and ranges                                                                                                                       | ✓      |
+| `cf-while`               | grammar.md Statements   | `while` loop                                                                                                                                           | ✓      |
+| `cf-for-iterable`        | Control flow            | a `for` iterable must be a range, a `List`, or conform to `Iterator` — anything else is a `check` error                                                | ✓      |
+| `cf-match`               | grammar.md Patterns     | match dispatch; exhaustiveness assumption                                                                                                              | ✓      |
+| `cf-match-nested`        | grammar.md Patterns     | nested constructor patterns bind at leaves                                                                                                             | ✓      |
+| `cf-match-exhaustive`    | grammar.md Patterns     | a match must be exhaustive: enum = all variants or catch-all; Bool = both literals; other subjects = catch-all                                         | ✓      |
+| `cf-match-variant-check` | grammar.md Patterns     | a constructor pattern (incl. nested payloads; capitalized bare = zero-arg constructor) must name a real variant — a `check` diagnostic                 | ✓      |
+| `cf-match-arm-comma`     | grammar.md Expressions  | the `,` after an expression-bodied match arm is required (trailing comma optional; block arms need none) — a parse error                               | ✓      |
+| `cf-match-void-arm`      | Control flow / checker  | a non-diverging `Void` arm in a value-producing match is a check error; diverging arms and all-`Void` matches stay exempt                              | ✓      |
+| `cf-match-pattern-arity` | Control flow / checker  | a constructor pattern binds exactly its variant's field count (bare payload variants included); a pattern binds each name once                         | ✓      |
+| `cf-match-literal`       | grammar.md Patterns     | int/string/bool literal patterns (not float)                                                                                                           | ✓      |
+| `cf-match-literal-type`  | grammar.md Patterns     | a literal pattern whose type can never equal the subject's is a `check` error                                                                          | ✓      |
+| `warn-unreachable-arm`   | Control flow / Warnings | an arm after a catch-all (incl. full coverage), a re-matched variant, or a repeated literal is a **warning**; refutable constructor arms claim nothing | ✓      |
+| `warn-unreachable-code`  | Control flow / Warnings | code after a statement that always transfers control (`return`/`throw`/`break`/`continue`, all-exiting `if`) is a **warning**, once per block          | ✓      |
+| `cf-break-continue`      | grammar.md Statements   | `break` exits / `continue` advances the innermost loop (while/range/list); statement-only, a `check` error outside a loop or across a closure          | ✓      |
 
 ## Error handling
 

@@ -1280,6 +1280,67 @@ fn test_used_imports_are_clean() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
+// ---- warnings: unreachable-code + unreachable-arm ----
+
+@test
+fn test_unreachable_code_warns() -> Result<Void, Error> {
+    // Two dead statements after the `return`, but one warning per block —
+    // on the first.
+    let errs = errors_of('fn f() -> Int {\n  return 1;\n  let x = 2;\n  return x;\n}');
+    testing.assert_eq(actual: warning_messages(errs),
+        expected: ['unreachable code: the statement above always exits'])?;
+    // After a `break`, and after an `if` whose branches both return.
+    testing.assert_eq(actual: warning_messages(errors_of(
+        'fn f() -> Int {\n  let mut i = 0;\n  while true {\n    break;\n    i = i + 1;\n  }\n  return i;\n}')).len(),
+        expected: 1)?;
+    testing.assert_eq(actual: warning_messages(errors_of(
+        'fn f(_ b: Bool) -> Int {\n  if b { return 1; } else { return 2; }\n  return 3;\n}')).len(),
+        expected: 1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_reachable_code_is_clean() -> Result<Void, Error> {
+    // An else-less `if` falls through, so the following return is live.
+    testing.assert_eq(actual: warning_messages(errors_of(
+        'fn f(_ b: Bool) -> Int {\n  if b { return 1; }\n  return 2;\n}')).len(),
+        expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_unreachable_arm_warns() -> Result<Void, Error> {
+    // A catch-all first shadows everything after it.
+    testing.assert_eq(actual: warning_messages(errors_of(
+        'fn f(_ n: Int) -> Int {\n  return match n {\n    _ => 0,\n    1 => 1,\n  };\n}')),
+        expected: ['unreachable match arm: an arm above already matches every value'])?;
+    // A repeated literal.
+    testing.assert_eq(actual: warning_messages(errors_of(
+        'fn f(_ n: Int) -> Int {\n  return match n {\n    1 => 1,\n    1 => 2,\n    _ => 0,\n  };\n}')),
+        expected: ['unreachable match arm: this literal is already matched above'])?;
+    // A variant fully matched by an all-binding constructor arm.
+    testing.assert_eq(actual: warning_messages(errors_of(
+        'enum E { A(Int), B }\nfn f(_ e: E) -> Int {\n  return match e {\n    A(x) => x,\n    A(y) => y,\n    B => 0,\n  };\n}')),
+        expected: ['unreachable match arm: variant `A` is already matched above'])?;
+    // Full coverage counts as a catch-all: both bools, or every variant.
+    testing.assert_eq(actual: warning_messages(errors_of(
+        'fn f(_ b: Bool) -> Int {\n  return match b {\n    true => 1,\n    false => 0,\n    _ => 9,\n  };\n}')).len(),
+        expected: 1)?;
+    testing.assert_eq(actual: warning_messages(errors_of(
+        'enum E { A, B }\nfn f(_ e: E) -> Int {\n  return match e {\n    A => 0,\n    B => 1,\n    _ => 2,\n  };\n}')).len(),
+        expected: 1)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_refutable_constructor_arm_claims_nothing() -> Result<Void, Error> {
+    // `A(1)` matches only one value of the payload, so a later `A(x)` is live.
+    testing.assert_eq(actual: warning_messages(errors_of(
+        'enum E { A(Int), B }\nfn f(_ e: E) -> Int {\n  return match e {\n    A(1) => 9,\n    A(x) => x,\n    B => 0,\n  };\n}')).len(),
+        expected: 0)?;
+    return Result.Ok(void);
+}
+
 @test
 fn test_ignore_comment_suppresses_warning() -> Result<Void, Error> {
     // Same line, and the line above.

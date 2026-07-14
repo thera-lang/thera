@@ -876,15 +876,20 @@ if `Option`-drop pain appears (the escape hatch then is a Swift-style
 per-function `@discardable`).
 
 **Open — warning-tier candidates (the machinery is live; add one at a time,
-corpus-sweeping each):** unreachable match arms (duplicate literal arms; a `_`
-arm placed first shadows everything after it); unreachable statements after
-`return`/`throw`; effect-free expression statements (`1 + 2;`); unused variables
-(the false-positive-prone one — design its exemptions carefully). Unused
-_imports_ landed as the first warning (see _Changelog_), which also built the
-shared machinery: `Severity.Warning` rendering + exit-code policy, kebab-case
-rule names, and per-site `// ignore: <rule>` suppression. Also open: extending
-`unused-import` to `as _` imports (needs surface data — which bare names the
-import provides — rather than syntax).
+corpus-sweeping each):** Unused _imports_ landed as the first warning (see
+_Changelog_), which also built the shared machinery: `Severity.Warning`
+rendering + exit-code policy, kebab-case rule names, and per-site
+`// ignore: <rule>` suppression
+
+- ~~unreachable match arms (duplicate literal arms; a `_` arm placed first
+  shadows everything after it)~~ — _landed as `unreachable-arm` (see Changelog)_
+- ~~unreachable statements after `return`/`throw`~~ — _landed as
+  `unreachable-code` (see Changelog)_
+- effect-free expression statements (`1 + 2;`)
+- unused variables (the false-positive-prone one — design its exemptions
+  carefully)
+- extending `unused-import` to `as _` imports (needs surface data — which bare
+  names the import provides — rather than syntax).
 
 **Small wrinkles:** same-block rebinding and self-imports are now rejected
 (_landed — see Changelog_); the one remaining: did-you-mean suggestions on
@@ -927,6 +932,26 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **`unreachable-code` + `unreachable-arm` warnings** (2026-07). The second and
+  third warning rules, both dead-code signals on the existing exit-analysis
+  machinery. **`unreachable-code`**: a statement (or block tail) after one that
+  always transfers control — `return`/`throw`, `break`/`continue`, an `if` whose
+  branches all exit, a break-less `while true` (reusing `stmt_always_exits`, so
+  it inherits its lenient direction) — reported once per block, on the first
+  dead statement. **`unreachable-arm`**: a match arm no value can reach — any
+  arm after a catch-all (`_` or a binding; full coverage counts the same: all
+  variants matched, or both `Bool` literals), a variant already fully matched by
+  an earlier arm (bare name, or a constructor whose sub-patterns all bind —
+  sub-position identifiers always bind, codegen's rule), or a repeated literal
+  (kind-prefixed keys; interpolated strings are never keyed). A _refutable_
+  constructor arm (`Some(1)`) claims nothing, so later arms for its variant stay
+  reachable — under-reports, never flags a live arm. Source matches only
+  (`if let`/`let … else` fabricate their own wildcard arm). Zero corpus hits on
+  production code; the two deliberately-broken fixtures the rules also caught
+  now carry ignore comments. `stmt_span` moved from the parser to `ast.hawk` as
+  the third span accessor. Specs `warn-unreachable-code`,
+  `warn-unreachable-arm`; language.md §Errors and warnings.
 
 - **Warning-severity diagnostics + `unused-import` + `// ignore:` suppression**
   (2026-07). The diagnostic model's dormant `Severity.Warning` gained its first

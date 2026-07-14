@@ -1,0 +1,68 @@
+//! spec: warn-unreachable-arm
+//! mode: check
+
+// An arm no value can reach is a warning: any arm after a catch-all (`_` or
+// a binding — and full coverage counts the same), a variant already fully
+// matched by an earlier arm, or a literal repeated from an earlier arm. A
+// *refutable* constructor arm (`Circle(1)`) claims nothing, so later arms
+// for its variant stay reachable.
+
+enum Shape {
+    Point,
+    Circle(Int),
+}
+
+fn by_variant(_ s: Shape) -> Int {
+    return match s {
+        Circle(r) => r,
+        Circle(r2) => r2 + 1,   // expect warning: unreachable match arm: variant `Circle` is already matched above
+        Point => 0,
+    };
+}
+
+fn by_literal(_ n: Int) -> String {
+    return match n {
+        1 => 'one',
+        1 => 'again',   // expect warning: unreachable match arm: this literal is already matched above
+        _ => 'other',
+    };
+}
+
+fn after_catch_all(_ n: Int) -> Int {
+    return match n {
+        _ => 0,
+        1 => 1,   // expect warning: unreachable match arm: an arm above already matches every value
+    };
+}
+
+fn full_coverage(_ s: Shape) -> Int {
+    return match s {
+        Point => 0,
+        Circle(r) => r,
+        _ => 9,   // expect warning: unreachable match arm: an arm above already matches every value
+    };
+}
+
+fn refutable_is_live(_ s: Shape) -> Int {
+    return match s {
+        Circle(1) => 100,
+        Circle(r) => r, // reachable: `Circle(1)` above claims nothing
+        Point => 0,
+    };
+}
+
+// A `// ignore: unreachable-arm` comment suppresses the warning at that site.
+fn suppressed(_ n: Int) -> Int {
+    return match n {
+        _ => 0,
+        // ignore: unreachable-arm
+        1 => 1,
+    };
+}
+
+fn main() -> Int {
+    println('${by_variant(Shape.Circle(3))} ${after_catch_all(1)}');
+    println('${by_literal(1)} ${full_coverage(Shape.Point)}');
+    println('${refutable_is_live(Shape.Point)} ${suppressed(2)}');
+    return 0;
+}
