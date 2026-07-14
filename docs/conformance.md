@@ -215,6 +215,7 @@ and [grammar.md](grammar.md) (syntax).
 | `mod-native-name-isolation` | language.md          | a `native fn` binds within its own library: `ns.fn(...)` resolves on `ns`'s surface, never a flat native table (no cross-import hijack)           | ✓      |
 | `mod-import-resolve-error`  | Imports              | an import that doesn't resolve is a located diagnostic at the import decl (not a silent no-op / downstream `undefined name`)                      | ✓      |
 | `mod-import-self`           | Imports              | a direct self-import is rejected at the import decl; longer cycles through other files stay legal                                                 | ✓      |
+| `warn-unused-import`        | Imports / Warnings   | an import whose namespace is never referenced is a **warning** (non-blocking, named rule); `// ignore: unused-import` suppresses it at the site   | ✓      |
 | `mod-import-literal-path`   | Imports              | an import path is a literal: an interpolated path is a parse error                                                                                | ✓      |
 | `mod-one-name-space`        | language.md          | one name space per scope: a file introduces a top-level name once, across all kinds (fn/type/const/let/import namespace)                          | ✓      |
 | `mod-bare-collision`        | language.md          | two `import … as _` exposing one public name is an error at the second import (barrel collisions likewise, at the barrel — unit-tested)           | ✓      |

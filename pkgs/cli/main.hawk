@@ -17,6 +17,7 @@ import std.cli;
 import std.fs;
 import std.io;
 
+import 'diagnostic';
 import 'driver';
 import 'fix/fix';
 import 'fmt';
@@ -280,6 +281,7 @@ fn do_check(_ targets: List<String>, _ sdk_root: Option<String>) -> Result<Int, 
     let sess = session.new_session(sdk_root);
     let printed: Set<String> = Set.new();
     let mut total = 0;
+    let mut warnings = 0;
     let mut unreadable = false;
     let sorted = runner.sort_dedup(files);
     for file in sorted {
@@ -296,7 +298,11 @@ fn do_check(_ targets: List<String>, _ sdk_root: Option<String>) -> Result<Int, 
                     if !printed.has(line) {
                         printed.add(line);
                         println(line);
-                        total = total + 1;
+                        if diagnostic.is_error(d) {
+                            total = total + 1;
+                        } else {
+                            warnings = warnings + 1;
+                        }
                     }
                 }
             },
@@ -311,12 +317,18 @@ fn do_check(_ targets: List<String>, _ sdk_root: Option<String>) -> Result<Int, 
     }
     // The closing summary: proof the analyzer ran even when there is nothing
     // to report (somewhat duplicative of the exit code, but a bare exit is
-    // indistinguishable from a tool that silently did no work).
-    if total > 0 {
+    // indistinguishable from a tool that silently did no work). Warnings are
+    // a separate trailing segment, present only when nonzero — and they don't
+    // affect the exit code (errors gate, warnings inform).
+    if total + warnings > 0 {
         println('');
     }
-    println('Checked ${sorted.len()} source ${runner.plural(sorted.len(), 'file')}; '
-        + '${total} ${runner.plural(total, 'issue')} found.');
+    let mut summary = 'Checked ${sorted.len()} source ${runner.plural(sorted.len(), 'file')}; '
+        + '${total} ${runner.plural(total, 'issue')} found';
+    if warnings > 0 {
+        summary = '${summary}; ${warnings} ${runner.plural(warnings, 'warning')}';
+    }
+    println('${summary}.');
     if total > 0 {
         return Result.Ok(1);
     }

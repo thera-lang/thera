@@ -7,6 +7,8 @@
 // binds. Same-kind duplicates keep their familiar message; cross-kind ones
 // name the earlier introduction.
 
+// The import is the fixture's subject, not a usage example.
+// ignore: unused-import
 import 'greeter';
 
 fn max_of(_ a: Int, _ b: Int) -> Int { return if a > b { a } else { b }; }

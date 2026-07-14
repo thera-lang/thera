@@ -37,6 +37,7 @@ Anchored to the line they appear on:
 ```hawk
 println('${1 + 2}');     // expect: 3                  (run)   one ordered stdout line
 let x = if c { 1 };      // expect error: missing else  (check)  diagnostic on this line, message contains the text
+import std.fs;           // expect warning: unused import (check)  a `warning:`-tagged diagnostic on this line
 let y = nums[9];         // expect trap: out of range    (run)   the program traps; stderr contains the text
 ```
 

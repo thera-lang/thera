@@ -10,7 +10,6 @@
 
 import std.char;
 
-import '../lexer/token';
 import 'ast' as _; // a pure AST renderer — ast's node types are used pervasively
 
 pub fn describe_expr(_ e: Expr) -> String {

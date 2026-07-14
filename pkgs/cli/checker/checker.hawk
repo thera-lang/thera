@@ -31,7 +31,7 @@ pub struct CheckResult {
 }
 
 pub fn has_errors(_ r: CheckResult) -> Bool {
-    return r.errors.len() > 0;
+    return diagnostic.error_count(r.errors) > 0;
 }
 
 // Type-check `program`. `imports` are pre-registered (their declarations resolve
@@ -45,12 +45,13 @@ pub fn check(_ program: Program, _ imports: List<Program>,
     let library = resolver.build_library(program, imports, file_namespaces, file_bare_surface);
     check_duplicates(errors, program, imports);
     check_shadowed_surface(errors, program, library);
+    check_unused_imports(errors, program);
     // Qualified-only resolution is enforced inline by `check_program`: the gates
     // reject a bare-but-qualifiable name ("qualify as `ns.name`") and a qualified
     // `ns.name` to a non-public member ("`name` is not a public member of `ns`").
     // The two transitional lints (`qualify_lint`/`visibility_lint`) are retired.
     check_program(errors, program, library, program.file_path, records);
-    return CheckResult { errors: errors, records: records };
+    return CheckResult { errors: filter_suppressed(errors), records: records };
 }
 
 // Check the whole closure against one shared element model: the primary program
@@ -75,6 +76,7 @@ pub fn check_files(_ program: Program, _ imports: List<Program>,
         check_duplicates(errors, program, imports);
         check_reserved_names(errors, program, library);
         check_shadowed_surface(errors, program, library);
+        check_unused_imports(errors, program);
         check_program(errors, program, library, program.file_path, records);
     }
     for ip in imports {
@@ -84,14 +86,307 @@ pub fn check_files(_ program: Program, _ imports: List<Program>,
             check_duplicates(errors, ip, []);
             check_reserved_names(errors, ip, library);
             check_shadowed_surface(errors, ip, library);
+            check_unused_imports(errors, ip);
             check_program(errors, ip, library, ip.file_path, records);
         }
     }
-    return CheckResult { errors: errors, records: records };
+    return CheckResult { errors: filter_suppressed(errors), records: records };
 }
 
 fn add_error(_ errors: List<diagnostic.Diagnostic>, _ message: String, _ span: SourceSpan) -> Void {
     errors.push(diagnostic.at(message, span));
+}
+
+// ---- warning suppression (`// ignore: <rule>`) ----
+
+// A warning is suppressed by a `// ignore: <rule>` comment on the diagnostic's
+// own line or the line above (several rules comma-separated). Errors carry no
+// rule and are never suppressable. The filter reads the span's source text
+// directly — spans carry the whole file — so no comment threading through the
+// loader/parser is needed.
+fn filter_suppressed(_ diags: List<diagnostic.Diagnostic>) -> List<diagnostic.Diagnostic> {
+    return diags.filter((d) => !is_suppressed(d));
+}
+
+fn is_suppressed(_ d: diagnostic.Diagnostic) -> Bool {
+    let Some(rule) = d.rule else { return false; };
+    let lines = d.span.source.split('\n');
+    let idx = d.span.line - 1; // span lines are 1-based
+    if idx < 0 || idx >= lines.len() {
+        return false;
+    }
+    if line_ignores(lines[idx], rule) {
+        return true;
+    }
+    return idx > 0 && line_ignores(lines[idx - 1], rule);
+}
+
+fn line_ignores(_ line: String, _ rule: String) -> Bool {
+    let marker = '// ignore:';
+    let Some(i) = line.find(marker) else { return false; };
+    let tail = line.slice(i + marker.len(), line.len());
+    for part in tail.split(',') {
+        if part.trim_start().trim_end() == rule {
+            return true;
+        }
+    }
+    return false;
+}
+
+// ---- unused imports (warning: unused-import) ----
+
+// An `import` whose bound namespace is never referenced anywhere in the file
+// is a warning. The use-scan is a syntactic over-approximation in the lenient
+// direction: *any* identifier occurrence of the namespace name — a qualified
+// `fs.read_text(…)`, a type `fs.FsError`, even a same-named local that
+// shadows it — counts as a use, so the rule can under-report but never
+// false-positive. Exempt: `pub import` (a re-export is itself the use),
+// `as _` imports (their names arrive bare; attributing a bare use to the
+// import needs surface data, not syntax — a candidate refinement), and — in a
+// `<base>_test.hawk` file — the `<base>` import, whose surface the test
+// runner exposes bare the same way.
+fn check_unused_imports(_ errors: List<diagnostic.Diagnostic>, _ program: Program) -> Void {
+    let imports: List<ImportDecl> = [];
+    for decl in program.decls {
+        if let Import(x) = decl {
+            if !x.is_pub && !x.unqualified {
+                imports.push(x);
+            }
+        }
+    }
+    if imports.len() == 0 {
+        return;
+    }
+    let under_test = test_base_of(program.file_path);
+    let used: Set<String> = Set.new();
+    for decl in program.decls {
+        used_in_decl(decl, used);
+    }
+    for x in imports {
+        let ns = x.alias.unwrap_or_else(() => last_dot_segment(x.path));
+        if under_test == Option.Some(ns) {
+            continue; // the module under test — its names arrive bare
+        }
+        if !used.has(ns) {
+            errors.push(diagnostic.warning(
+                'unused import: `${x.path}` is never referenced', x.span, 'unused-import'));
+        }
+    }
+}
+
+// `<base>` for a `<base>_test.hawk` file path, else None (the loader's
+// test-file rule, mirrored: such a file sees `<base>`'s surface unqualified).
+fn test_base_of(_ file: Option<String>) -> Option<String> {
+    let Some(f) = file else { return Option.None; };
+    let slashes = f.split('/');
+    let name = slashes[slashes.len() - 1];
+    let suffix = '_test.hawk';
+    if name.len() > suffix.len()
+        && name.slice(name.len() - suffix.len(), name.len()) == suffix {
+        return Option.Some(name.slice(0, name.len() - suffix.len()));
+    }
+    return Option.None;
+}
+
+// The trailing `.`-segment of an import path's basename (`std.fs` → `fs`,
+// `util/strings` → `strings`) — the loader's namespace derivation, mirrored.
+fn last_dot_segment(_ p: String) -> String {
+    let slashes = p.split('/');
+    let parts = slashes[slashes.len() - 1].split('.');
+    return parts[parts.len() - 1];
+}
+
+// --- the identifier-use walk backing `check_unused_imports`: collect every
+// name that could reference an import namespace — expression `Ident`s (a
+// qualified `ns.member` is `Field(Ident(ns), …)`) and the namespace qualifier
+// of type references and struct literals. Patterns bind rather than reference,
+// so they are skipped. ---
+
+fn used_in_decl(_ decl: Decl, _ used: Set<String>) -> Void {
+    match decl {
+        Fn(x) => { used_in_fn(x, used); },
+        Type(x) => {
+            for f in x.fields {
+                used_in_type_ref(f.type_ann, used);
+            }
+        },
+        Impl(x) => {
+            for a in x.interface_args {
+                used_in_type_ref(a, used);
+            }
+            if let Some(ns) = x.interface_namespace { used.add(ns); }
+            for m in x.methods {
+                used_in_fn(m, used);
+            }
+        },
+        Interface(x) => {
+            for m in x.methods {
+                used_in_fn(m, used);
+            }
+        },
+        Const(x) => {
+            if let Some(t) = x.type_ann { used_in_type_ref(t, used); }
+            used_in_expr(x.value, used);
+        },
+        Let(x) => {
+            if let Some(t) = x.type_ann { used_in_type_ref(t, used); }
+            used_in_expr(x.value, used);
+        },
+        Enum(x) => {
+            for v in x.variants {
+                for f in v.fields {
+                    used_in_type_ref(f, used);
+                }
+            }
+        },
+        Import(_) => void,
+    }
+}
+
+fn used_in_fn(_ f: FnDecl, _ used: Set<String>) -> Void {
+    for p in f.params {
+        if let Some(t) = p.type_ann { used_in_type_ref(t, used); }
+        if let Some(d) = p.default_value { used_in_expr(d, used); }
+    }
+    if let Some(t) = f.return_type { used_in_type_ref(t, used); }
+    if let Some(b) = f.body { used_in_block(b, used); }
+}
+
+fn used_in_type_ref(_ t: TypeRef, _ used: Set<String>) -> Void {
+    match t {
+        Named(n) => {
+            if let Some(ns) = n.namespace { used.add(ns); }
+            for a in n.args {
+                used_in_type_ref(a, used);
+            }
+        },
+        Function(f) => {
+            for p in f.params {
+                used_in_type_ref(p, used);
+            }
+            used_in_type_ref(f.return_type, used);
+        },
+    }
+}
+
+fn used_in_block(_ b: Block, _ used: Set<String>) -> Void {
+    for s in b.stmts {
+        used_in_stmt(s, used);
+    }
+    if let Some(t) = b.tail { used_in_expr(t, used); }
+}
+
+fn used_in_stmt(_ s: Stmt, _ used: Set<String>) -> Void {
+    match s {
+        Let(x) => {
+            if let Some(t) = x.type_ann { used_in_type_ref(t, used); }
+            used_in_expr(x.value, used);
+        },
+        Return(_, value) => {
+            if let Some(v) = value { used_in_expr(v, used); }
+        },
+        Assign(_, target, _, rhs) => {
+            used_in_expr(target, used);
+            used_in_expr(rhs, used);
+        },
+        Expr(_, e) => { used_in_expr(e, used); },
+        If(x) => {
+            used_in_expr(x.condition, used);
+            used_in_block(x.then_block, used);
+            if let Some(eb) = x.else_block { used_in_block(eb, used); }
+        },
+        While(x) => {
+            used_in_expr(x.condition, used);
+            used_in_block(x.body, used);
+        },
+        For(x) => {
+            used_in_expr(x.iterable, used);
+            used_in_block(x.body, used);
+        },
+        Throw(_, value) => { used_in_expr(value, used); },
+        Break(_) => void,
+        Continue(_) => void,
+    }
+}
+
+fn used_in_expr(_ e: Expr, _ used: Set<String>) -> Void {
+    match e {
+        Ident(_, name) => { used.add(name); },
+        Str(_, parts) => {
+            for p in parts {
+                if let Interp(_, ix) = p {
+                    used_in_expr(ix, used);
+                }
+            }
+        },
+        ListLit(_, items) => {
+            for item in items {
+                used_in_expr(item, used);
+            }
+        },
+        MapLit(_, entries) => {
+            for entry in entries {
+                used_in_expr(entry.key, used);
+                used_in_expr(entry.value, used);
+            }
+        },
+        Struct(x) => {
+            if let Some(ns) = x.namespace { used.add(ns); }
+            for fi in x.fields {
+                used_in_expr(fi.value, used);
+            }
+        },
+        Call(x) => {
+            used_in_expr(x.callee, used);
+            for t in x.type_args {
+                used_in_type_ref(t, used);
+            }
+            for t in x.recv_type_args {
+                used_in_type_ref(t, used);
+            }
+            for a in x.args {
+                used_in_expr(a.value, used);
+            }
+        },
+        Field(_, object, _) => { used_in_expr(object, used); },
+        Index(_, object, index) => {
+            used_in_expr(object, used);
+            used_in_expr(index, used);
+        },
+        Binary(_, left, _, right) => {
+            used_in_expr(left, used);
+            used_in_expr(right, used);
+        },
+        Unary(_, _, operand) => { used_in_expr(operand, used); },
+        Propagate(_, inner) => { used_in_expr(inner, used); },
+        Range(_, start, end) => {
+            used_in_expr(start, used);
+            used_in_expr(end, used);
+        },
+        Match(mx) => {
+            used_in_expr(mx.subject, used);
+            for arm in mx.arms {
+                used_in_expr(arm.body, used);
+            }
+        },
+        Lambda(lx) => {
+            for p in lx.params {
+                if let Some(t) = p.type_ann { used_in_type_ref(t, used); }
+            }
+            used_in_expr(lx.body, used);
+        },
+        Block(_, b) => { used_in_block(b, used); },
+        If(ix) => {
+            used_in_expr(ix.condition, used);
+            used_in_block(ix.then_block, used);
+            if let Some(eb) = ix.else_block { used_in_block(eb, used); }
+        },
+        Return(_, value) => {
+            if let Some(v) = value { used_in_expr(v, used); }
+        },
+        Throw(_, value) => { used_in_expr(value, used); },
+        _ => void, // literals (`Int`/`Float`/`Bool`/`Unit`/`Loc`) reference nothing
+    }
 }
 
 // ---- duplicate top-level definition detection ----

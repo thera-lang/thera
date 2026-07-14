@@ -1927,6 +1927,36 @@ directory** when no target is given, so the bare invocation does the obvious
 thing in a project checkout. The writing commands (`fmt`, `fix`) keep their
 targets explicit.
 
+### Errors and warnings
+
+Diagnostics come in two severities. An **error** is invalid code: it blocks
+`run`/`emit`/`test` and makes `hawk check` exit 1. A **warning** is legal code
+that is probably a mistake: `hawk check` (and the LSP) report it, but nothing is
+blocked and the exit code stays 0 — a signal, not a gate. A warning line is
+tagged and closes with its **rule name**:
+
+```
+$ hawk check
+main.hawk:1:1: warning: unused import: `std.fs` is never referenced (unused-import)
+
+Checked 3 source files; 0 issues found; 1 warning.
+```
+
+A warning can be **suppressed at the site** with an ignore comment naming its
+rule, on the diagnostic's line or the line above (several rules
+comma-separated):
+
+```hawk
+import std.fs; // ignore: unused-import
+```
+
+Errors have no rule names and cannot be suppressed. `run`/`emit` do not print
+warnings — `check` is the analysis surface.
+
+The warning rules: **`unused-import`** — an import whose namespace is never
+referenced in the file. (`pub import` re-exports, `as _` imports, and — in a
+`<base>_test.hawk` file — the module under test are exempt.)
+
 ### Commands
 
 | Command      | Description                                                  |

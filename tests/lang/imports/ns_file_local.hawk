@@ -1,6 +1,8 @@
 //! spec: mod-ns-file-local
 //! mode: check
 
+// The import is the fixture's subject, not a usage example.
+// ignore: unused-import
 import 'middle';
 
 fn main() -> Int {

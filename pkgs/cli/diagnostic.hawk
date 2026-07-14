@@ -9,9 +9,10 @@
 
 import 'lexer/token'; // SourceSpan
 
-// How loud a diagnostic is. Every compile-phase diagnostic is an `Error` today;
-// `Warning`/`Info` exist so lint-style suggestions can ride the same model later
-// (no consumer beyond the LSP severity map yet).
+// How loud a diagnostic is. An `Error` is invalid code and blocks
+// compile/run; a `Warning` is legal-but-probably-a-bug — reported by `hawk
+// check` (and the LSP) without gating anything. `Info` is reserved for
+// lint-style suggestions riding the same model later.
 pub enum Severity {
     Error,
     Warning,
@@ -25,6 +26,10 @@ pub struct Diagnostic {
     let span: token.SourceSpan;
     let file: Option<String>;
     let severity: Severity;
+    // The kebab-case rule name, for suppressable diagnostics (warnings): the
+    // key a `// ignore: <rule>` comment names. Errors carry None — they are
+    // not suppressable and not configurable.
+    let rule: Option<String>;
 }
 
 impl Display for Diagnostic {
@@ -37,12 +42,33 @@ impl Display for Diagnostic {
 // knows its file; a file-less hermetic span yields None).
 pub fn at(_ message: String, _ span: token.SourceSpan) -> Diagnostic {
     let file = if span.file == '' { Option.None } else { Option.Some(span.file) };
-    return Diagnostic { message: message, span: span, file: file, severity: Severity.Error };
+    return Diagnostic { message: message, span: span, file: file, severity: Severity.Error, rule: Option.None };
 }
 
 // An `Error` diagnostic attributed to an explicit owning file — used by the
 // loader, which stamps each import-closure error with the file it came from
 // regardless of the span's own key.
 pub fn in_file(_ message: String, _ span: token.SourceSpan, _ file: String) -> Diagnostic {
-    return Diagnostic { message: message, span: span, file: Option.Some(file), severity: Severity.Error };
+    return Diagnostic { message: message, span: span, file: Option.Some(file), severity: Severity.Error, rule: Option.None };
+}
+
+// A `Warning` diagnostic: a named, suppressable rule (`// ignore: <rule>` on
+// the offending line, or the line above, silences it at that site).
+pub fn warning(_ message: String, _ span: token.SourceSpan, _ rule: String) -> Diagnostic {
+    let file = if span.file == '' { Option.None } else { Option.Some(span.file) };
+    return Diagnostic { message: message, span: span, file: file, severity: Severity.Warning, rule: Option.Some(rule) };
+}
+
+// Whether `d` is an error (the severity that gates compile/run/exit codes) —
+// the filter every gate uses now that warnings share the diagnostics list.
+pub fn is_error(_ d: Diagnostic) -> Bool {
+    return match d.severity {
+        Error => true,
+        _ => false,
+    };
+}
+
+// How many entries are errors (gates key on this, not `len()`).
+pub fn error_count(_ diags: List<Diagnostic>) -> Int {
+    return diags.filter((d) => is_error(d)).len();
 }

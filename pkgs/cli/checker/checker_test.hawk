@@ -1225,3 +1225,73 @@ fn test_inner_scope_shadowing_is_legal() -> Result<Void, Error> {
     testing.assert_eq(actual: errs.len(), expected: 0)?;
     return Result.Ok(void);
 }
+
+// ---- warnings: unused-import + `// ignore:` suppression ----
+
+// The error-severity count of a mixed list (mirrors diagnostic.error_count;
+// local so the test file needs no extra import surface).
+fn diag_error_count(_ errs: List<Diagnostic>) -> Int {
+    let mut n = 0;
+    for e in errs {
+        if let Error = e.severity {
+            n = n + 1;
+        }
+    }
+    return n;
+}
+
+fn warning_messages(_ errs: List<Diagnostic>) -> List<String> {
+    let out: List<String> = [];
+    for e in errs {
+        if let Warning = e.severity {
+            out.push(e.message);
+        }
+    }
+    return out;
+}
+
+@test
+fn test_unused_import_warns() -> Result<Void, Error> {
+    let errs = errors_of('import \'helper\';\nfn f() -> Int { return 1; }');
+    testing.assert_eq(actual: warning_messages(errs),
+        expected: ['unused import: `helper` is never referenced'])?;
+    // Warnings are not errors: the check result carries no error-severity entry.
+    testing.assert_eq(actual: diag_error_count(errs), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_used_imports_are_clean() -> Result<Void, Error> {
+    // Qualified value use, qualified type use, and an alias each count.
+    testing.assert_eq(actual: warning_messages(errors_of(
+        'import \'helper\';\nfn f() -> Int { return helper.go(); }')).len(),
+        expected: 0)?;
+    testing.assert_eq(actual: warning_messages(errors_of(
+        'import \'helper\';\nfn f(_ x: helper.Thing) -> Int { return 1; }')).len(),
+        expected: 0)?;
+    testing.assert_eq(actual: warning_messages(errors_of(
+        'import \'helper\' as h;\nfn f() -> Int { return h.go(); }')).len(),
+        expected: 0)?;
+    // `pub import` (a re-export) and `as _` (bare surface) are exempt.
+    testing.assert_eq(actual: warning_messages(errors_of('pub import \'helper\';')).len(),
+        expected: 0)?;
+    testing.assert_eq(actual: warning_messages(errors_of('import \'helper\' as _;')).len(),
+        expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_ignore_comment_suppresses_warning() -> Result<Void, Error> {
+    // Same line, and the line above.
+    testing.assert_eq(actual: warning_messages(errors_of(
+        'import \'helper\'; // ignore: unused-import\nfn f() -> Int { return 1; }')).len(),
+        expected: 0)?;
+    testing.assert_eq(actual: warning_messages(errors_of(
+        '// ignore: unused-import\nimport \'helper\';\nfn f() -> Int { return 1; }')).len(),
+        expected: 0)?;
+    // A different rule name does not suppress it.
+    testing.assert_eq(actual: warning_messages(errors_of(
+        'import \'helper\'; // ignore: other-rule\nfn f() -> Int { return 1; }')).len(),
+        expected: 1)?;
+    return Result.Ok(void);
+}

@@ -434,7 +434,9 @@ impl Session {
             loaded.file_namespaces, loaded.file_bare_surface, skip: skip,
             prebuilt: self.library_for(program, canon, loaded));
         self.store_records(result.records);
-        if import_diags.len() > 0 || result.errors.len() > 0 {
+        // Warnings ride the same list but don't gate compilation — only
+        // error-severity diagnostics (and import-closure failures) block.
+        if import_diags.len() > 0 || diagnostic.error_count(result.errors) > 0 {
             for d in result.errors {
                 import_diags.push(d);
             }
@@ -528,7 +530,7 @@ pub fn compile_source(_ source: String) -> CompileOutcome {
         return failed(parsed.errors);
     }
     let checked = checker.check(parsed.program, [], [:], [:]);
-    if checked.errors.len() > 0 {
+    if diagnostic.error_count(checked.errors) > 0 {
         return failed(checked.errors);
     }
     let cg = codegen.compile_program(parsed.program, [], [:], [:]);
@@ -545,6 +547,9 @@ pub fn compile_source(_ source: String) -> CompileOutcome {
 // (`d.file`) is canonical (absolute); printing shows the primary file exactly as
 // the user spelled it (`file_path`, the compiler convention), and any other
 // attributed file relative to the current directory when it lies under it.
+// An error line carries no severity token (the default reading); a warning is
+// tagged `warning:` and closes with its rule name — the key a
+// `// ignore: <rule>` comment names to suppress it.
 pub fn format_diagnostic(_ d: diagnostic.Diagnostic, _ file_path: String) -> String {
     let file = match d.file {
         Some(f) => {
@@ -556,7 +561,15 @@ pub fn format_diagnostic(_ d: diagnostic.Diagnostic, _ file_path: String) -> Str
         },
         None => file_path,
     };
-    return '${file}:${d.span}: ${d.message}';
+    let tag = match d.severity {
+        Warning => 'warning: ',
+        _ => '',
+    };
+    let rule = match d.rule {
+        Some(r) => ' (${r})',
+        None => '',
+    };
+    return '${file}:${d.span}: ${tag}${d.message}${rule}';
 }
 
 // --- helpers ---

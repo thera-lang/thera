@@ -67,7 +67,7 @@ fn test_imported_file_check_errors_surface() -> Result<Void, Error> {
     if let Err(e) = fs.write_text(dir + '/dep.hawk', broken) {
         return Result.Err(error('write dep: ${e.message()}'));
     }
-    let main_src = 'import \'dep\';\nfn main() -> Void { }\n';
+    let main_src = 'import \'dep\'; // ignore: unused-import\nfn main() -> Void { }\n';
     let main_path = dir + '/main.hawk';
     if let Err(e) = fs.write_text(main_path, main_src) {
         return Result.Err(error('write main: ${e.message()}'));
@@ -106,7 +106,9 @@ fn test_checked_set_records_only_clean_files() -> Result<Void, Error> {
     if let Err(e) = fs.write_text(dir + '/broken.hawk', 'pub fn bad() -> Int { return missing_name; }\n') {
         return Result.Err(error('write broken: ${e.message()}'));
     }
-    let main_src = 'import \'clean\';\nimport \'broken\';\nfn main() -> Void { }\n';
+    let main_src = 'import \'clean\'; // ignore: unused-import\n'
+        + 'import \'broken\'; // ignore: unused-import\n'
+        + 'fn main() -> Void { }\n';
     let main_path = dir + '/main.hawk';
     if let Err(e) = fs.write_text(main_path, main_src) {
         return Result.Err(error('write main: ${e.message()}'));
@@ -179,7 +181,9 @@ fn test_identical_imports_attribute_independently() -> Result<Void, Error> {
     if let Err(e) = fs.write_text(dir + '/b/dep.hawk', broken) {
         return Result.Err(error('write b/dep: ${e.message()}'));
     }
-    let main_src = 'import \'a/dep\' as da;\nimport \'b/dep\' as db;\nfn main() -> Void { }\n';
+    let main_src = 'import \'a/dep\' as da; // ignore: unused-import\n'
+        + 'import \'b/dep\' as db; // ignore: unused-import\n'
+        + 'fn main() -> Void { }\n';
     let main_path = dir + '/main.hawk';
     if let Err(e) = fs.write_text(main_path, main_src) {
         return Result.Err(error('write main: ${e.message()}'));

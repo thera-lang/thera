@@ -14,6 +14,7 @@
 // Inline expectations (anchored to the line they appear on):
 //   // expect: <text>                 (run)   one ordered stdout line
 //   // expect error: <substring>      (check) a diagnostic on this line, message contains <substring>
+//   // expect warning: <substring>    (check) a `warning:`-tagged diagnostic on this line
 //   // expect trap: <substring>       (run)   the program traps; stderr contains <substring>
 //
 // xfail turns the spec-vs-implementation gap into a signal: an xfail test that
@@ -159,18 +160,26 @@ fn parse_test(_ path: String) -> Result<Test, Error> {
             match after_marker(raw, '// expect error:') {
                 Some(needle) => { errors.push(ExpectError { line: line_no, needle: needle }); },
                 None => {
-                    match after_marker(raw, '// expect trap:') {
-                        Some(needle) => { traps.push(needle); },
+                    // A warning expectation prefixes the needle with the
+                    // rendered `warning:` tag, so a fixture can't accidentally
+                    // pass on a same-text *error*.
+                    match after_marker(raw, '// expect warning:') {
+                        Some(needle) => { errors.push(ExpectError { line: line_no, needle: 'warning: ${needle}' }); },
                         None => {
-                            match after_marker(raw, '// expect exit:') {
-                                Some(code) => {
-                                    if let Some(c) = code.to_int() { exit_code = Option.Some(c); }
-                                },
+                            match after_marker(raw, '// expect trap:') {
+                                Some(needle) => { traps.push(needle); },
                                 None => {
-                                    match after_marker(raw, '// expect stderr:') {
-                                        Some(needle) => { stderr.push(needle); },
+                                    match after_marker(raw, '// expect exit:') {
+                                        Some(code) => {
+                                            if let Some(c) = code.to_int() { exit_code = Option.Some(c); }
+                                        },
                                         None => {
-                                            if let Some(text) = after_marker(raw, '// expect:') { stdout.push(text); }
+                                            match after_marker(raw, '// expect stderr:') {
+                                                Some(needle) => { stderr.push(needle); },
+                                                None => {
+                                                    if let Some(text) = after_marker(raw, '// expect:') { stdout.push(text); }
+                                                },
+                                            }
                                         },
                                     }
                                 },

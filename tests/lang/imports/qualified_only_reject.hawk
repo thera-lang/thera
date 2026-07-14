@@ -1,6 +1,8 @@
 //! spec: mod-qualified-only
 //! mode: check
 
+// The import is the fixture's subject, not a usage example.
+// ignore: unused-import
 import std.math;
 
 fn main() -> Int {

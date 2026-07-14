@@ -5,6 +5,8 @@
 // scope) and is rejected at the import declaration. Longer cycles through
 // other files remain legal.
 
+// The import is the fixture's subject, not a usage example.
+// ignore: unused-import
 import 'import_self_reject';   // expect error: a file cannot import itself
 
 fn main() -> Int {

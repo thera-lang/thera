@@ -874,10 +874,16 @@ LLM prior — over Swift/Go's bare `_ =` or a Hawk-only `.ignore()`). Revisit on
 if `Option`-drop pain appears (the escape hatch then is a Swift-style
 per-function `@discardable`).
 
-**Open — lint-tier (valid-but-suspect; no urgency):** unreachable match arms
-(duplicate literal arms; a `_` arm placed first shadows everything after it);
-unreachable statements after `return`/`throw`; effect-free expression statements
-(`1 + 2;`); unused variables/imports (no warnings of any kind exist today).
+**Open — warning-tier candidates (the machinery is live; add one at a time,
+corpus-sweeping each):** unreachable match arms (duplicate literal arms; a `_`
+arm placed first shadows everything after it); unreachable statements after
+`return`/`throw`; effect-free expression statements (`1 + 2;`); unused variables
+(the false-positive-prone one — design its exemptions carefully). Unused
+_imports_ landed as the first warning (see _Changelog_), which also built the
+shared machinery: `Severity.Warning` rendering + exit-code policy, kebab-case
+rule names, and per-site `// ignore: <rule>` suppression. Also open: extending
+`unused-import` to `as _` imports (needs surface data — which bare names the
+import provides — rather than syntax).
 
 **Small wrinkles:** same-block rebinding and self-imports are now rejected
 (_landed — see Changelog_); the one remaining: did-you-mean suggestions on
@@ -920,6 +926,27 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **Warning-severity diagnostics + `unused-import` + `// ignore:` suppression**
+  (2026-07). The diagnostic model's dormant `Severity.Warning` gained its first
+  producer and full plumbing. Semantics: an error is invalid code (blocks
+  `run`/`emit`/`test`, exits 1); a **warning** is legal-but-probably-a-bug —
+  `hawk check` and the LSP report it (`path:line:col: warning: … (<rule>)`),
+  nothing gates, exit stays 0, and the summary appends `; N warnings`. Every
+  gate now filters by severity (`diagnostic.error_count`), so warnings ride the
+  same diagnostics list end to end. Warnings carry **kebab-case rule names** and
+  are suppressable per site with `// ignore: <rule>` on the line or the line
+  above — implemented as a source-reading post-filter (spans carry the file
+  text), the comment side-channel's first compile-path consumer in spirit with
+  no threading. First rule: **`unused-import`** — a namespace import never
+  referenced (any identifier occurrence counts: qualified calls, qualified
+  types; exempt: `pub import`, `as _`, and a test file's module-under-test,
+  whose surface arrives bare). The corpus sweep found two genuinely dead imports
+  (removed) and one design-relevant false positive (the test-file exemption,
+  added); seven `tests/lang` fixtures whose imports are the _subject_ now carry
+  ignore comments — the suppression mechanism's first dogfood. The conformance
+  runner learned `// expect warning:`. Specs `warn-unused-import`; language.md
+  §Errors and warnings.
 
 - **Same-block rebinding + self-imports rejected** (2026-07). Two wrinkles from
   the diagnostics review. A second `let x` in the **same block** is now a check

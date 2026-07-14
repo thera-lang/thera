@@ -10,7 +10,6 @@
 
 import '../ast/ast' as _;
 import '../lexer/token' as _; // SourceSpan
-import '../bytecode/instr';
 import '../bytecode/module' as _;
 import '../element/types' as _;
 import '../element/element';

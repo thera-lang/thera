@@ -6,6 +6,8 @@
 // no-op; when the namespace *was* used, the only symptom was a misleading
 // downstream `undefined name`).
 
+// The import is the fixture's subject, not a usage example.
+// ignore: unused-import
 import 'no_such_library';   // expect error: cannot resolve import 'no_such_library'
 
 fn main() -> Void {}
