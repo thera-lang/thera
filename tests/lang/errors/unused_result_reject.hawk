@@ -1,0 +1,30 @@
+//! spec: err-unused-result
+//! mode: check
+
+// A `Result` in statement position is a dropped error — a check error. Handle
+// it (`?`, `match`, `if let`) or discard it explicitly with `let _ = …`.
+// Deliberately `Result`-only: a dropped `Option` stays legal (`xs.pop();`).
+
+fn might_fail() -> Result<Int, Error> {
+    return Result.Ok(3);
+}
+
+fn f() {
+    might_fail();   // expect error: unused `Result`
+}
+
+// Fine: every handled form, the explicit discard, and a dropped Option.
+fn ok() -> Result<Void, Error> {
+    might_fail()?;
+    let _ = might_fail();
+    if let Err(e) = might_fail() {
+        println('${e}');
+    }
+    let xs = [1, 2, 3];
+    xs.pop();
+}
+
+fn main() -> Int {
+    let _ = ok();
+    return 0;
+}

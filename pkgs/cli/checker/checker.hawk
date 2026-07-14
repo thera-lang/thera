@@ -1063,6 +1063,13 @@ fn check_stmt(_ cc: CheckCtx, _ stmt: Stmt, _ stmts: List<Stmt>, _ index: Int) -
             let annotated = x.type_ann.map((ref) => resolve_type_ref_in(ref, file_scope(ctx.library, ctx.current_file), ctx.type_params, ctx.self_type));
             check_expr(cc, x.value, annotated);
             let actual = infer_expr(x.value, scope, ctx, annotated);
+            // `let _ = …` evaluates and discards: no binding, no forward-flow
+            // refinement, no name record — the annotation (if any) is still
+            // checked against the value.
+            if x.name == '_' {
+                if let Some(a) = annotated { expect_type(errors, actual, a, 'binding \'_\'', x.span, ctx.library); }
+                return;
+            }
             // Forward-flow: an underdetermined binding (`let xs = []`) takes its
             // element type from its first pinning use later in the block.
             let bound = annotated.unwrap_or_else(() => refine_binding_type(x.name, actual, stmts, index + 1, scope, ctx));
@@ -1135,6 +1142,7 @@ fn check_stmt(_ cc: CheckCtx, _ stmt: Stmt, _ stmts: List<Stmt>, _ index: Int) -
         },
         Expr(_, e) => {
             check_expr(cc, e, Option.None);
+            check_unused_result(errors, e, scope, ctx);
         },
         If(x) => {
             check_expr(cc, x.condition, Option.None);
@@ -2497,6 +2505,25 @@ fn check_iterable(_ errors: List<diagnostic.Diagnostic>, _ iterable: Expr,
     add_error(errors,
         'cannot iterate ${type_to_string(t)} (only ranges, lists, and Iterators are supported)',
         expr_span(iterable));
+}
+
+// A `Result` in statement position is a dropped error — the errors-as-values
+// analogue of an unchecked exception vanishing (a failed call reads as
+// handled, and nothing ever surfaces). A statement must handle it or discard
+// it explicitly with `let _ = …`. Deliberately `Result`-only: a dropped
+// `Option` is an idiom, not a bug (`xs.pop();`, `m.remove(k);` — mutators
+// returning the removed value as a convenience), matching the corpus and the
+// Rust precedent. See language.md §Error handling.
+fn check_unused_result(_ errors: List<diagnostic.Diagnostic>, _ e: Expr,
+    _ scope: Map<String, Type>, _ ctx: InferCtx) -> Void {
+    let t = infer_expr(e, scope, ctx, Option.None);
+    if let Interface(id, _) = t {
+        if is_core_id(ctx.library, id, 'Result') {
+            add_error(errors,
+                'unused `Result`: handle it (`?`, `match`, `if let`) or discard it explicitly with `let _ = …`',
+                expr_span(e));
+        }
+    }
 }
 
 // A loop/branch condition must be `Bool`.

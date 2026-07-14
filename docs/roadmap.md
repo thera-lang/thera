@@ -862,18 +862,17 @@ Changelog): definite-return, pattern arity, member uniqueness, interface
 default-method body-checking, and the check/emit phase-gap promotion (for
 iterables, index receivers, range position, non-function callees, impl targets).
 
-**Open — design decision: dropped `Result`/`Option` (unused-result).**
-`might_fail();` bare in statement position silently discards the failure — the
-errors-as-values failure mode (a dropped value is a dropped error; a bare
-`testing.assert_eq(a, b);` without `?` silently passes). Precedent: Rust
-`#[must_use]` / Swift `@discardableResult`, both warnings. Decisions needed:
-severity (warning vs. the stronger LLM-native position, a hard error), scope
-(`Result` only, or `Option` too), and a **discard idiom** — `let _ = …` is a
-parse error today, so there is no way to say "drop this on purpose". Needs
-inference (is the statement `Result`-typed?), so it lives in the checker, not
-the syntactic lint — this would be the first producer of `Severity.Warning`. If
-it lands as a configurable warning it should carry a kebab-case rule name (see
-the ID note below).
+**Decided + landed — dropped `Result` (unused-result).** See _Changelog_. The
+decision trio, informed by a corpus survey (a spike diagnostic over all 159
+files): **`Result`-only** (the survey found 2 dropped `Result`s — both genuine
+bugs in `fiber_test` — vs 8 dropped `Option`s, all intentional
+`pop()`/`remove()` effect-calls; Rust draws the same type line), a **hard
+error** rather than a warning (agents chase exit codes — a non-gating warning is
+invisible to the primary audience, and pre-1.0 there is no ecosystem to break),
+and **`let _ = expr;` as the discard idiom** (the Rust spelling — the strongest
+LLM prior — over Swift/Go's bare `_ =` or a Hawk-only `.ignore()`). Revisit only
+if `Option`-drop pain appears (the escape hatch then is a Swift-style
+per-function `@discardable`).
 
 **Open — lint-tier (valid-but-suspect; no urgency):** unreachable match arms
 (duplicate literal arms; a `_` arm placed first shadows everything after it);
@@ -895,9 +894,9 @@ code scheme.
 
 **Priority:** (1) ~~definite-return analysis~~ — _landed_; (2) ~~pattern arity +
 duplicate members~~ — _landed_; (3) ~~promote the emit-only errors to check, and
-body-check interface default methods~~ — _landed_; (4) decide unused-result; (5)
-lint-tier items whenever. 4 — the one genuine design call — is the punchlist's
-last substantive item.
+body-check interface default methods~~ — _landed_; (4) ~~decide unused-result~~
+— _decided and landed_; (5) lint-tier items whenever. Only the lint-tier items
+and small wrinkles remain.
 
 Already tracked elsewhere, not repeated here: imported-body check scope, cascade
 suppression, calling-convention enforcement, native-arg trap wording, and the
@@ -922,6 +921,15 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **Unused `Result` is a check error; `let _ =` discard** (2026-07).
+  Diagnostics-punchlist item 4, the review's one design call. A `Result` in
+  statement position — `might_fail();` — silently dropped its failure (the
+  errors-as-values analogue of an unchecked exception vanishing; a bare
+  `testing.assert_eq(a, b);` without `?` "passed"). It is now a **hard error**
+  (`unused \`Result\`: handle it (\`?\`, \`match\`, \`if let\`) or discard it
+  explicitly with \`let _ = …\``), paired with the new discard idiom: `let _ =
+  expr;` evaluates and discards — no binding, side effects run, an annotation still checks. Scope is deliberately **`Result`-only**: the corpus survey found dropped `Result`s were 2-for-2 genuine bugs (both in `fiber_test`, now fixed — the pipe-writer fiber asserts its write count) while dropped `Option`s were 8-for-8 idiomatic `pop()`/`remove()`effect-calls, matching Rust's must-use line. Hard-error over warning because agents chase exit codes, and pre-1.0 there is no ecosystem to break. Specs`err-unused-result`, `var-wildcard-let`; language.md §Error handling + §Variables; grammar.md `letStmt`.
 
 - **Check/emit parity + interface default-method bodies** (2026-07).
   Diagnostics-punchlist item 3, closing the punchlist's checker holes. Interface

@@ -103,6 +103,7 @@ and [grammar.md](grammar.md) (syntax).
 | `var-assign-type`             | Variables          | an assignment's value must match the target's type (binding, element, field)                   | ✓      |
 | `var-expr-position-immutable` | Variables          | immutability enforced inside expression-position blocks/`if`s/match arms                       | ✓      |
 | `var-references`              | Variables          | heap values are shared references                                                              | ✓      |
+| `var-wildcard-let`            | Variables          | `let _ = expr;` evaluates and discards: no binding, side effects run, annotation still checked | ✓      |
 | `var-block-scope`             | Variables          | block/arm/loop bindings shadow lexically; the outer binding (value and type) restores after    | ✓      |
 | `module-let-immutable`        | language.md        | no top-level `let mut`; module globals are immutable                                           | ✓      |
 | `module-let`                  | language.md        | top-level `let` computed once into a stored global slot                                        | ✓      |
@@ -163,6 +164,7 @@ and [grammar.md](grammar.md) (syntax).
 | `err-constructor`      | Error handling          | `error('…') -> Error` (lowercase) builds the simple error                                                         | ✓      |
 | `err-implicit-ok`      | Error handling → throw  | `return n` implicitly `Result.Ok(n)`                                                                              | ✓      |
 | `err-implicit-ok-void` | Error handling → throw  | `Result<Void, _>` fall-through / bare `return;` is `Ok(void)`                                                     | ✓      |
+| `err-unused-result`    | Error handling          | a `Result` in statement position is a check error; `Option` statements stay legal; `let _ = …` is the discard     | ✓      |
 | `fault-index`          | Runtime faults          | out-of-range list index / missing map key trap                                                                    | ✓      |
 | `fault-div-zero`       | Runtime faults          | integer divide-by-zero traps                                                                                      | ✓      |
 | `fault-type-mismatch`  | Runtime faults          | a type hole traps as a `runtime type error` (named types)                                                         | ✓      |

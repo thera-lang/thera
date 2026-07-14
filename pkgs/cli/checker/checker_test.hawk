@@ -1151,3 +1151,50 @@ fn test_impl_target_must_exist() -> Result<Void, Error> {
         expected: 0)?;
     return Result.Ok(void);
 }
+
+// ---- unused Result + `let _ =` discard (diagnostics punchlist item 4) ----
+
+@test
+fn test_unused_result_is_an_error() -> Result<Void, Error> {
+    let errs = errors_of('fn g() -> Result<Int, Error> { return Result.Ok(1); }\n'
+        + 'fn f() { g(); }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs),
+        expected: 'unused `Result`: handle it (`?`, `match`, `if let`) or discard it explicitly with `let _ = …`')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_unused_option_is_legal() -> Result<Void, Error> {
+    // Deliberately Result-only: pop/remove-style mutators return the removed
+    // value as a convenience, and dropping it is idiomatic.
+    let errs = errors_of('fn g() -> Option<Int> { return Option.None; }\n'
+        + 'fn f() { g(); }');
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_wildcard_let_discards() -> Result<Void, Error> {
+    // `let _ = …` is the explicit discard: no binding, no unused-Result error.
+    let errs = errors_of('fn g() -> Result<Int, Error> { return Result.Ok(1); }\n'
+        + 'fn f() { let _ = g(); }');
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    // An annotation on the wildcard is still checked.
+    let bad = errors_of('fn f() { let _: Int = true; }');
+    testing.assert_eq(actual: bad.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(bad),
+        expected: 'binding \'_\': expected Int, found Bool')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_handled_result_forms_are_clean() -> Result<Void, Error> {
+    let errs = errors_of('fn g() -> Result<Int, Error> { return Result.Ok(1); }\n'
+        + 'fn f() -> Result<Void, Error> {\n'
+        + '    g()?;\n'
+        + '    if let Err(_) = g() { let n = 0; }\n'
+        + '}');
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    return Result.Ok(void);
+}

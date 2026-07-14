@@ -53,6 +53,12 @@ let mut count = 0;
 count = count + 1;
 ```
 
+`let _ = expr;` evaluates the initializer and **discards** its value: no binding
+is introduced (`_` cannot be referenced, and `mut` doesn't apply), the side
+effects still run, and an annotation (`let _: T = expr;`) is still checked
+against the value. It is the explicit-drop spelling — most commonly the
+sanctioned way past the [unused-`Result`](#error-handling) diagnostic.
+
 `let` vs `mut` controls whether a _binding_ can be reassigned — it says nothing
 about the value itself. Heap values (`String`, `List`, `Map`, `Set`, structs,
 enums) are **shared references**: assigning or passing one copies the reference,
@@ -583,6 +589,23 @@ fn load(args: Args) -> Result<Int, Error> {
     return raw.to_int().ok_or(error('not a number'));
 }
 ```
+
+**A `Result` must not be dropped.** A `Result` in statement position — a call
+whose failure would silently evaporate — is a **check error**: with errors as
+values, a dropped value is a dropped error, the exact failure mode exceptions
+are blamed for. Handle it (`?`, `match`, `if let Err`), or discard it
+explicitly:
+
+```hawk
+fn cleanup(_ path: String) {
+    fs.remove(path);           // error: unused `Result`
+    let _ = fs.remove(path);   // fine — explicitly discarded
+}
+```
+
+The rule is deliberately `Result`-only. A dropped `Option` is an idiom, not a
+bug — mutators like `xs.pop()` and `m.remove(k)` return the removed value as a
+convenience, and calling them for effect is normal.
 
 ### `throw`
 

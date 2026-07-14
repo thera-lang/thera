@@ -247,6 +247,7 @@ statement = letStmt | constStmt | returnStmt | throwStmt | breakStmt | continueS
           | ';'                                           // stray empty statement, tolerated
 
 letStmt   = 'let' 'mut'? IDENT (':' type)? '=' expr ';'
+          | 'let' '_' (':' type)? '=' expr ';'            // evaluate + discard (no binding)
           | 'let' pattern '=' expr 'else' block ';'?      // `let … else` guard;
             // refutable (uppercase) pattern, `else` must diverge; desugars to
             // `match`. v1: binds ≤1 variable.

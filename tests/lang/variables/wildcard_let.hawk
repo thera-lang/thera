@@ -1,0 +1,18 @@
+//! spec: var-wildcard-let
+//! mode: run
+
+// `let _ = expr;` evaluates the initializer and discards its value: no
+// binding is introduced (`_` cannot be referenced), the side effects still
+// run, and an annotation is still checked against the value.
+
+fn noisy() -> Result<Int, Error> {
+    println('noisy ran');   // expect: noisy ran
+    return Result.Ok(7);
+}
+
+fn main() -> Int {
+    let _ = noisy();
+    let _: Int = 1 + 2;
+    println('done');   // expect: done
+    return 0;
+}

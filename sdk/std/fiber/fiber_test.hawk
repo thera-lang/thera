@@ -150,14 +150,19 @@ fn test_pipe_streams_across_fibers_without_deadlock() -> Result<Void, Error> {
     }
     let sent = payload.bytes().len();
 
+    // The writer reports how many bytes it wrote (−1 on any failure), so a
+    // failed pipe write fails the test instead of silently dropping its
+    // `Result` — the unused-`Result` diagnostic caught the original bare calls.
     let writer = fiber.spawn(() => {
-        child.stdin().write(payload.bytes());
-        child.close_stdin();
-        return 0;
+        let wrote = child.stdin().write(payload.bytes()).unwrap_or(0 - 1);
+        if child.close_stdin().is_err() {
+            return 0 - 1;
+        }
+        return wrote;
     });
     let reader = fiber.spawn(() => io.read_all(child.stdout()));
 
-    writer.join();
+    testing.assert_eq(actual: writer.join(), expected: sent)?;
     let got = reader.join()?;
     child.wait()?;
 

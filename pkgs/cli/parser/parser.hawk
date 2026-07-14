@@ -1325,7 +1325,15 @@ impl Parser {
             return self.parse_let_else(start);
         }
         let is_mut = self.match_kind(TokenKind.KwMut);
-        let name_tok = self.expect(TokenKind.Identifier, 'variable name');
+        // `let _ = expr;` evaluates the initializer and discards its value —
+        // the explicit-drop spelling (the sanctioned way past the unused-
+        // `Result` diagnostic). No binding is introduced, so `mut` (and a
+        // later use of `_`) can't apply; `let mut _` fails the expect below.
+        let name_tok = if !is_mut && self.check(TokenKind.Underscore) {
+            self.advance()
+        } else {
+            self.expect(TokenKind.Identifier, 'variable name')
+        };
         let mut type_ann = Option.None;
         if self.match_kind(TokenKind.Colon) {
             type_ann = Option.Some(self.parse_type_ref());

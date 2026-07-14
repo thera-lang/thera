@@ -673,17 +673,22 @@ impl FnCompiler {
                 // not-yet-bound name. A captured `mut` local is boxed.
                 let annotated = x.type_ann.map((ref) => resolve_type_ref_in(ref, file_scope(self.scope.library, self.file), self.ctx.type_params, self.ctx.self_type));
                 self.expr_expecting(x.value, annotated);
-                // An explicit annotation is the binding's type (matching the
-                // inference engine); fall back to the initializer's inferred type.
-                let ty = annotated.unwrap_or_else(() => refine_binding_type(x.name,
-                    infer_expr(x.value, self.type_scope, self.ctx, Option.None),
-                    stmts, index + 1, self.type_scope, self.ctx));
-                if self.boxed_locals.has(x.name) {
-                    self.emit(Instr.StructNew(self.scope.cell_type_index()));
+                // `let _ = …`: evaluated for effect, value discarded — no slot.
+                if x.name == '_' {
+                    self.emit(Instr.Simple(Op.Pop));
+                } else {
+                    // An explicit annotation is the binding's type (matching the
+                    // inference engine); fall back to the initializer's inferred type.
+                    let ty = annotated.unwrap_or_else(() => refine_binding_type(x.name,
+                        infer_expr(x.value, self.type_scope, self.ctx, Option.None),
+                        stmts, index + 1, self.type_scope, self.ctx));
+                    if self.boxed_locals.has(x.name) {
+                        self.emit(Instr.StructNew(self.scope.cell_type_index()));
+                    }
+                    let slot = self.declare_local(x.name);
+                    self.type_scope[x.name] = ty;
+                    self.emit(Instr.Store(slot));
                 }
-                let slot = self.declare_local(x.name);
-                self.type_scope[x.name] = ty;
-                self.emit(Instr.Store(slot));
             },
             Assign(span, target, op, rhs) => {
                 // Emit the stored value — for a compound assignment, the
