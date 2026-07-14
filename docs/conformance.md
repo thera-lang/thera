@@ -104,6 +104,7 @@ and [grammar.md](grammar.md) (syntax).
 | `var-expr-position-immutable` | Variables          | immutability enforced inside expression-position blocks/`if`s/match arms                       | ✓      |
 | `var-references`              | Variables          | heap values are shared references                                                              | ✓      |
 | `var-wildcard-let`            | Variables          | `let _ = expr;` evaluates and discards: no binding, side effects run, annotation still checked | ✓      |
+| `var-same-block-rebind`       | Variables          | a second `let x` in the same block is an error; shadowing is legal only from a nested scope    | ✓      |
 | `var-block-scope`             | Variables          | block/arm/loop bindings shadow lexically; the outer binding (value and type) restores after    | ✓      |
 | `module-let-immutable`        | language.md        | no top-level `let mut`; module globals are immutable                                           | ✓      |
 | `module-let`                  | language.md        | top-level `let` computed once into a stored global slot                                        | ✓      |
@@ -213,6 +214,7 @@ and [grammar.md](grammar.md) (syntax).
 | `mod-shared-global-name`    | language.md          | two libraries may share a module-global name: distinct slots, both initializers run, owner-keyed init order and dependency edges                  | ✓      |
 | `mod-native-name-isolation` | language.md          | a `native fn` binds within its own library: `ns.fn(...)` resolves on `ns`'s surface, never a flat native table (no cross-import hijack)           | ✓      |
 | `mod-import-resolve-error`  | Imports              | an import that doesn't resolve is a located diagnostic at the import decl (not a silent no-op / downstream `undefined name`)                      | ✓      |
+| `mod-import-self`           | Imports              | a direct self-import is rejected at the import decl; longer cycles through other files stay legal                                                 | ✓      |
 | `mod-import-literal-path`   | Imports              | an import path is a literal: an interpolated path is a parse error                                                                                | ✓      |
 | `mod-one-name-space`        | language.md          | one name space per scope: a file introduces a top-level name once, across all kinds (fn/type/const/let/import namespace)                          | ✓      |
 | `mod-bare-collision`        | language.md          | two `import … as _` exposing one public name is an error at the second import (barrel collisions likewise, at the barrel — unit-tested)           | ✓      |

@@ -879,11 +879,10 @@ per-function `@discardable`).
 unreachable statements after `return`/`throw`; effect-free expression statements
 (`1 + 2;`); unused variables/imports (no warnings of any kind exist today).
 
-**Small wrinkles:** same-scope rebinding (`let x = 1; let x = 'two';`) is
-accepted but language.md documents only inner-scope shadowing — either intend it
-(document) or reject it; self-import is silently accepted (benign); did-you-mean
-suggestions on `undefined name` / `no method` would be cheap (edit distance over
-the known-name set) and are modest-but-real LLM value.
+**Small wrinkles:** same-block rebinding and self-imports are now rejected
+(_landed — see Changelog_); the one remaining: did-you-mean suggestions on
+`undefined name` / `no method` would be cheap (edit distance over the known-name
+set) and are modest-but-real LLM value.
 
 **Decided — diagnostic IDs.** Hard errors stay ID-less (message + span): they
 are not configurable, and for LLMs the message text is the search key — a
@@ -921,6 +920,18 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **Same-block rebinding + self-imports rejected** (2026-07). Two wrinkles from
+  the diagnostics review. A second `let x` in the **same block** is now a check
+  error
+  (`` `x` is already bound in this block; rename it (an inner block may shadow) ``)
+  — shadowing remains legal from any nested scope (a block, an arm, a loop
+  body), a body `let` may shadow a parameter, and `_` never collides. And a
+  direct **self-import** (an import path resolving back to the importing file)
+  is rejected at the import decl (`a file cannot import itself`); longer cycles
+  through other files stay legal. Zero corpus hits for either. Specs
+  `var-same-block-rebind`, `mod-import-self`; language.md §Lexical scope,
+  §Import resolution.
 
 - **Unused `Result` is a check error; `let _ =` discard** (2026-07).
   Diagnostics-punchlist item 4, the review's one design call. A `Result` in

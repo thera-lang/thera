@@ -1056,6 +1056,10 @@ when you need it.
 There are two forms of import: **stdlib** (`std.*`) and **relative file** (a
 quoted path).
 
+A direct **self-import** — a file whose import path resolves back to that same
+file — is a check error (`a file cannot import itself`): its own names are
+already in scope. Longer cycles through other files remain legal.
+
 **Stdlib imports** resolve against the SDK's standard library directory. Its
 exact location differs between the in-repo and distributed layouts (see
 [SDK layout](#sdk-layout)):
@@ -1165,6 +1169,12 @@ or prelude value — so `f(x)` where `f` is a `let`-bound lambda or a
 function-typed parameter calls the binding, never a same-named top-level
 function. Inside an instance method, `self` is the receiver binding and `Self`
 is its type.
+
+Shadowing requires that nesting: a second `let x` in the **same block** is a
+check error (`` `x` is already bound in this block ``) — rebind from a nested
+scope, where the inner binding visibly ends, or use a new name. (A function body
+is a nested scope of its parameter list, so `let x = x + 1;` over a parameter is
+legal shadowing.)
 
 ### One name space per scope
 

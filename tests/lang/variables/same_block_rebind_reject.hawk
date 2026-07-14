@@ -1,0 +1,31 @@
+//! spec: var-same-block-rebind
+//! mode: check
+
+// One binding per name per block: a second `let x` in the same block is an
+// error. Shadowing is legal only from a nested scope — a block, a match arm,
+// a loop body — where the inner binding visibly ends. A parameter may be
+// shadowed by a body `let` (the body is an inner scope), and `_` binds
+// nothing, so repeating it never collides.
+
+fn f() -> Int {
+    let x = 1;
+    let x = 2;   // expect error: `x` is already bound in this block
+    return x;
+}
+
+fn ok(_ x: Int) -> Int {
+    let x = x + 1;   // param shadow: the body is an inner scope
+    let y = 1;
+    if x > 0 {
+        let y = 2;   // nested-block shadow
+        return y;
+    }
+    let _ = 1;
+    let _ = 2;
+    return y;
+}
+
+fn main() -> Int {
+    println('${ok(1)}');
+    return 0;
+}

@@ -1030,6 +1030,22 @@ fn check_block(_ cc: CheckCtx, _ block: Block,
     let errors = inner.errors;
     let scope = inner.scope;
     let ctx = inner.infer;
+    // One binding per name per block: a second `let x` in the *same* block is
+    // an error — shadowing is legal only from a nested scope (a block, an arm,
+    // a loop body), where the inner binding visibly ends. `_` binds nothing.
+    let declared: Set<String> = Set.new();
+    for s in block.stmts {
+        if let Let(x) = s {
+            if x.name != '_' {
+                if declared.has(x.name) {
+                    add_error(errors,
+                        '`${x.name}` is already bound in this block; rename it (an inner block may shadow)',
+                        x.name_span);
+                }
+                declared.add(x.name);
+            }
+        }
+    }
     for p in block.stmts.enumerate() {
         check_stmt(inner, p.value, block.stmts, p.index);
     }

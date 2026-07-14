@@ -1198,3 +1198,30 @@ fn test_handled_result_forms_are_clean() -> Result<Void, Error> {
     testing.assert_eq(actual: errs.len(), expected: 0)?;
     return Result.Ok(void);
 }
+
+// ---- same-block rebinding (diagnostics punchlist wrinkle) ----
+
+@test
+fn test_same_block_rebinding_is_an_error() -> Result<Void, Error> {
+    let errs = errors_of('fn f() { let x = 1; let x = 2; }');
+    testing.assert_eq(actual: errs.len(), expected: 1)?;
+    testing.assert_eq(actual: first_message(errs),
+        expected: '`x` is already bound in this block; rename it (an inner block may shadow)')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_inner_scope_shadowing_is_legal() -> Result<Void, Error> {
+    // A nested block/arm/loop is its own scope; a param may be shadowed by a
+    // body `let`; `_` binds nothing so repeating it never collides.
+    let errs = errors_of('fn f(_ x: Int) -> Int {\n'
+        + '    let x = x + 1;\n'
+        + '    let y = 1;\n'
+        + '    if x > 0 { let y = 2; return y; }\n'
+        + '    let _ = 1;\n'
+        + '    let _ = 2;\n'
+        + '    return y;\n'
+        + '}');
+    testing.assert_eq(actual: errs.len(), expected: 0)?;
+    return Result.Ok(void);
+}

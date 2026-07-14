@@ -1,0 +1,12 @@
+//! spec: mod-import-self
+//! mode: check
+
+// A direct self-import is meaningless (a file's own names are already in
+// scope) and is rejected at the import declaration. Longer cycles through
+// other files remain legal.
+
+import 'import_self_reject';   // expect error: a file cannot import itself
+
+fn main() -> Int {
+    return 0;
+}

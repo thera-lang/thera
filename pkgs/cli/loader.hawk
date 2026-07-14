@@ -392,13 +392,22 @@ impl Loader {
             if let Import(x) = decl {
                 match self.resolve(x.path, base_dir) {
                     Some(file) => {
-                        match self.source_for(file) {
-                            Ok(child) => { into.imports[x.path] = child; },
-                            Err(msg) => {
-                                self.diagnostics.push(diagnostic.in_file(
-                                    'cannot read import \'${x.path}\': ${msg}',
-                                    x.span, importer));
-                            },
+                        // A direct self-import is meaningless (a file's own
+                        // names are already in scope) — reject it rather than
+                        // silently linking a no-op edge. Longer cycles through
+                        // other files stay legal (the cache breaks them).
+                        if element.file_key(Option.Some(file)) == importer {
+                            self.diagnostics.push(diagnostic.in_file(
+                                'a file cannot import itself', x.span, importer));
+                        } else {
+                            match self.source_for(file) {
+                                Ok(child) => { into.imports[x.path] = child; },
+                                Err(msg) => {
+                                    self.diagnostics.push(diagnostic.in_file(
+                                        'cannot read import \'${x.path}\': ${msg}',
+                                        x.span, importer));
+                                },
+                            }
                         }
                     },
                     None => {
