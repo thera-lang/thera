@@ -45,7 +45,7 @@ pub fn check(_ program: Program, _ imports: List<Program>,
     let library = resolver.build_library(program, imports, file_namespaces, file_bare_surface);
     check_duplicates(errors, program, imports);
     check_shadowed_surface(errors, program, library);
-    check_unused_imports(errors, program);
+    check_unused_imports(errors, program, library);
     // Qualified-only resolution is enforced inline by `check_program`: the gates
     // reject a bare-but-qualifiable name ("qualify as `ns.name`") and a qualified
     // `ns.name` to a non-public member ("`name` is not a public member of `ns`").
@@ -76,7 +76,7 @@ pub fn check_files(_ program: Program, _ imports: List<Program>,
         check_duplicates(errors, program, imports);
         check_reserved_names(errors, program, library);
         check_shadowed_surface(errors, program, library);
-        check_unused_imports(errors, program);
+        check_unused_imports(errors, program, library);
         check_program(errors, program, library, program.file_path, records);
     }
     for ip in imports {
@@ -86,7 +86,7 @@ pub fn check_files(_ program: Program, _ imports: List<Program>,
             check_duplicates(errors, ip, []);
             check_reserved_names(errors, ip, library);
             check_shadowed_surface(errors, ip, library);
-            check_unused_imports(errors, ip);
+            check_unused_imports(errors, ip, library);
             check_program(errors, ip, library, ip.file_path, records);
         }
     }
@@ -135,21 +135,23 @@ fn line_ignores(_ line: String, _ rule: String) -> Bool {
 
 // ---- unused imports (warning: unused-import) ----
 
-// An `import` whose bound namespace is never referenced anywhere in the file
-// is a warning. The use-scan is a syntactic over-approximation in the lenient
-// direction: *any* identifier occurrence of the namespace name — a qualified
-// `fs.read_text(…)`, a type `fs.FsError`, even a same-named local that
-// shadows it — counts as a use, so the rule can under-report but never
-// false-positive. Exempt: `pub import` (a re-export is itself the use),
-// `as _` imports (their names arrive bare; attributing a bare use to the
-// import needs surface data, not syntax — a candidate refinement), and — in a
-// `<base>_test.hawk` file — the `<base>` import, whose surface the test
-// runner exposes bare the same way.
-fn check_unused_imports(_ errors: List<diagnostic.Diagnostic>, _ program: Program) -> Void {
+// An `import` that is never referenced anywhere in the file is a warning. A
+// namespace import is referenced through its namespace name; an `as _`
+// import is referenced through any name on its public surface (which the
+// loader records under the import's derived namespace — see
+// `check_unused_bare_import`). The use-scan is a syntactic
+// over-approximation in the lenient direction: *any* identifier occurrence
+// of a candidate name — a qualified `fs.read_text(…)`, a bare `Thing`
+// annotation, even a same-named local that shadows it — counts as a use, so
+// the rule can under-report but never false-positive. Exempt: `pub import`
+// (a re-export is itself the use) and — in a `<base>_test.hawk` file — the
+// `<base>` import, whose full surface the test runner exposes bare.
+fn check_unused_imports(_ errors: List<diagnostic.Diagnostic>, _ program: Program,
+    _ library: LibraryElement) -> Void {
     let imports: List<ImportDecl> = [];
     for decl in program.decls {
         if let Import(x) = decl {
-            if !x.is_pub && !x.unqualified {
+            if !x.is_pub {
                 imports.push(x);
             }
         }
@@ -167,11 +169,37 @@ fn check_unused_imports(_ errors: List<diagnostic.Diagnostic>, _ program: Progra
         if under_test == Option.Some(ns) {
             continue; // the module under test — its names arrive bare
         }
-        if !used.has(ns) {
+        if x.unqualified {
+            check_unused_bare_import(errors, x, ns, used, library, program.file_path);
+        } else if !used.has(ns) {
             errors.push(diagnostic.warning(
                 'unused import: `${x.path}` is never referenced', x.span, 'unused-import'));
         }
     }
+}
+
+// The `as _` half of `check_unused_imports`: the import is used when any
+// name on its public surface occurs in the file — or the derived namespace
+// itself does (the loader binds the namespace for unqualified imports too,
+// so a qualified `path.join(…)` through an `as _` import works and counts).
+// The loader records every import's surface in `file_namespaces` under that
+// derived namespace, so attribution needs no new plumbing. With no surface
+// recorded (a hermetic check, an import that failed to resolve) the rule
+// stays silent rather than guessing.
+fn check_unused_bare_import(_ errors: List<diagnostic.Diagnostic>, _ x: ImportDecl,
+    _ ns: String, _ used: Set<String>, _ library: LibraryElement,
+    _ file: Option<String>) -> Void {
+    if used.has(ns) {
+        return;
+    }
+    let Some(surface) = namespaces_in(library, file).get(ns) else { return; };
+    for n in surface.names.to_list() {
+        if used.has(n) {
+            return;
+        }
+    }
+    errors.push(diagnostic.warning(
+        'unused import: nothing from `${x.path}` is referenced', x.span, 'unused-import'));
 }
 
 // `<base>` for a `<base>_test.hawk` file path, else None (the loader's
@@ -197,29 +225,38 @@ fn last_dot_segment(_ p: String) -> String {
 }
 
 // --- the identifier-use walk backing `check_unused_imports`: collect every
-// name that could reference an import namespace — expression `Ident`s (a
-// qualified `ns.member` is `Field(Ident(ns), …)`) and the namespace qualifier
-// of type references and struct literals. Patterns bind rather than reference,
-// so they are skipped. ---
+// name that could reference an import — expression `Ident`s (a qualified
+// `ns.member` is `Field(Ident(ns), …)`), the namespace qualifier *and* bare
+// name of type references and struct literals (a bare `Thing` may arrive via
+// an `as _` import's surface), interface names (impl targets, supers, generic
+// bounds). Patterns bind rather than reference, so they are skipped. ---
 
 fn used_in_decl(_ decl: Decl, _ used: Set<String>) -> Void {
     match decl {
         Fn(x) => { used_in_fn(x, used); },
         Type(x) => {
+            used_in_type_params(x.type_params, used);
             for f in x.fields {
                 used_in_type_ref(f.type_ann, used);
             }
         },
         Impl(x) => {
+            used.add(x.type_name);
+            used_in_type_params(x.type_params, used);
             for a in x.interface_args {
                 used_in_type_ref(a, used);
             }
+            if let Some(i) = x.interface_name { used.add(i); }
             if let Some(ns) = x.interface_namespace { used.add(ns); }
             for m in x.methods {
                 used_in_fn(m, used);
             }
         },
         Interface(x) => {
+            used_in_type_params(x.type_params, used);
+            for s in x.super_interfaces {
+                used.add(s);
+            }
             for m in x.methods {
                 used_in_fn(m, used);
             }
@@ -233,6 +270,7 @@ fn used_in_decl(_ decl: Decl, _ used: Set<String>) -> Void {
             used_in_expr(x.value, used);
         },
         Enum(x) => {
+            used_in_type_params(x.type_params, used);
             for v in x.variants {
                 for f in v.fields {
                     used_in_type_ref(f, used);
@@ -243,7 +281,16 @@ fn used_in_decl(_ decl: Decl, _ used: Set<String>) -> Void {
     }
 }
 
+fn used_in_type_params(_ params: List<TypeParam>, _ used: Set<String>) -> Void {
+    for tp in params {
+        for b in tp.bounds {
+            used.add(b);
+        }
+    }
+}
+
 fn used_in_fn(_ f: FnDecl, _ used: Set<String>) -> Void {
+    used_in_type_params(f.type_params, used);
     for p in f.params {
         if let Some(t) = p.type_ann { used_in_type_ref(t, used); }
         if let Some(d) = p.default_value { used_in_expr(d, used); }
@@ -255,6 +302,7 @@ fn used_in_fn(_ f: FnDecl, _ used: Set<String>) -> Void {
 fn used_in_type_ref(_ t: TypeRef, _ used: Set<String>) -> Void {
     match t {
         Named(n) => {
+            used.add(n.name);
             if let Some(ns) = n.namespace { used.add(ns); }
             for a in n.args {
                 used_in_type_ref(a, used);
@@ -331,6 +379,7 @@ fn used_in_expr(_ e: Expr, _ used: Set<String>) -> Void {
             }
         },
         Struct(x) => {
+            used.add(x.type_name);
             if let Some(ns) = x.namespace { used.add(ns); }
             for fi in x.fields {
                 used_in_expr(fi.value, used);

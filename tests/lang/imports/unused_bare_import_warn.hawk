@@ -1,0 +1,15 @@
+//! spec: warn-unused-import
+//! mode: check
+
+// `as _` imports are covered by unused-import too, attributed by surface:
+// the import is used when any name it provides is referenced bare (or the
+// derived namespace is used qualified), and unused only when nothing it
+// provides appears in the file.
+
+import 'libshare_a' as _;   // expect warning: unused import: nothing from `libshare_a` is referenced
+import 'greeter' as _; // used: hello() below
+
+fn main() -> Int {
+    println(hello());
+    return 0;
+}

@@ -1272,10 +1272,53 @@ fn test_used_imports_are_clean() -> Result<Void, Error> {
     testing.assert_eq(actual: warning_messages(errors_of(
         'import \'helper\' as h;\nfn f() -> Int { return h.go(); }')).len(),
         expected: 0)?;
-    // `pub import` (a re-export) and `as _` (bare surface) are exempt.
+    // `pub import` (a re-export is itself the use) is exempt; an `as _` import
+    // with no recorded surface (this harness registers none) is skipped.
     testing.assert_eq(actual: warning_messages(errors_of('pub import \'helper\';')).len(),
         expected: 0)?;
     testing.assert_eq(actual: warning_messages(errors_of('import \'helper\' as _;')).len(),
+        expected: 0)?;
+    return Result.Ok(void);
+}
+
+// A `file_namespaces` table registering an anonymous primary's `helper`
+// import with the given public surface — the loader-side data the `as _`
+// attribution reads, built by hand for the hermetic harness.
+fn helper_surface(_ names: List<String>) -> Map<String, Map<String, LibraryNamespace>> {
+    let set: Set<String> = Set.new();
+    for n in names {
+        set.add(n);
+    }
+    let ns = LibraryNamespace { names: set, collisions: Set.new(), origin: [:] };
+    return ['<anon>': ['helper': ns]];
+}
+
+fn bare_errors_of(_ src: String, _ names: List<String>) -> List<Diagnostic> {
+    return check(parse_tokens(tokenize(src).tokens).program, [], helper_surface(names), [:]).errors;
+}
+
+@test
+fn test_as_underscore_unused_import_warns() -> Result<Void, Error> {
+    // Nothing from the import's surface (nor its derived namespace) occurs.
+    testing.assert_eq(actual: warning_messages(bare_errors_of(
+        'import \'helper\' as _;\nfn f() -> Int { return 1; }', ['go', 'Thing'])),
+        expected: ['unused import: nothing from `helper` is referenced'])?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_as_underscore_used_import_is_clean() -> Result<Void, Error> {
+    // A bare call of a surface name.
+    testing.assert_eq(actual: warning_messages(bare_errors_of(
+        'import \'helper\' as _;\nfn f() -> Int { return go(); }', ['go', 'Thing'])).len(),
+        expected: 0)?;
+    // A bare type annotation.
+    testing.assert_eq(actual: warning_messages(bare_errors_of(
+        'import \'helper\' as _;\nfn f(_ t: Thing) -> Int { return 1; }', ['go', 'Thing'])).len(),
+        expected: 0)?;
+    // Qualified use through the derived namespace works today, so it counts.
+    testing.assert_eq(actual: warning_messages(bare_errors_of(
+        'import \'helper\' as _;\nfn f() -> Int { return helper.go(); }', ['go', 'Thing'])).len(),
         expected: 0)?;
     return Result.Ok(void);
 }

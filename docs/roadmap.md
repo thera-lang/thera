@@ -888,17 +888,19 @@ rendering + exit-code policy, kebab-case rule names, and per-site
 - effect-free expression statements (`1 + 2;`)
 - ~~unused variables (the false-positive-prone one — design its exemptions
   carefully)~~ — _landed as `unused-variable` (see Changelog)_
-- extending `unused-import` to `as _` imports (needs surface data — which bare
-  names the import provides — rather than syntax). Sized: small/medium — the
-  loader already computes each `as _` import's public surface for the
-  bare-collision checks; the work is threading that surface (including barrel
-  re-exports) into `check_unused_imports` and intersecting it with the
-  already-collected identifier set.
+- ~~extending `unused-import` to `as _` imports (needs surface data — which bare
+  names the import provides — rather than syntax)~~ — _landed (see Changelog)_
+- referencing a `_`-prefixed local: the marker declares the binding
+  intentionally unused (now spec'd in language.md §Variables), so a reference
+  contradicts it — a future warning candidate (the fix is renaming the binding).
 
 **Small wrinkles:** same-block rebinding and self-imports are now rejected
-(_landed — see Changelog_); the one remaining: did-you-mean suggestions on
-`undefined name` / `no method` would be cheap (edit distance over the known-name
-set) and are modest-but-real LLM value.
+(_landed — see Changelog_); did-you-mean suggestions on `undefined name` /
+`no method` would be cheap (edit distance over the known-name set) and are
+modest-but-real LLM value. And a semantic to decide: **qualified access through
+an `as _` import works today** (the loader binds the derived namespace for
+unqualified imports too — `import std.path as _;` + `path.join(…)` compiles, and
+`unused-import` counts it as a use); either bless that in the spec or reject it.
 
 **Decided — diagnostic IDs.** Hard errors stay ID-less (message + span): they
 are not configurable, and for LLMs the message text is the search key — a
@@ -936,6 +938,25 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **`unused-import` covers `as _` imports; `_`-prefix spec'd** (2026-07). The
+  arc's final warning extension. An `as _` import is now attributed **by
+  surface**: it is used when any name it provides occurs in the file, or when
+  its derived namespace is used qualified (which works today — see the open
+  wrinkle), and flagged (``unused import: nothing from `x` is referenced``)
+  otherwise. No new plumbing: the loader already records every import's public
+  surface — barrels flattened — in `file_namespaces` under the derived
+  namespace; with no surface recorded (hermetic check, unresolved import) the
+  rule stays silent. The use-walker also collects bare type-ish names now
+  (`NamedType.name`, struct-literal type names, impl targets and interface
+  names, super-interfaces, generic bounds), which the namespace-only attribution
+  never needed. The sweep found **five genuinely dead `as _` imports** (removed)
+  and one spelling fix (`lsp/workspace.hawk` imported `std.path as _` but used
+  it qualified — now a plain import). And language.md §Variables now specs the
+  `_`-prefix convention: a leading underscore declares a local intentionally
+  unused; referencing one contradicts the marker (a future warning candidate,
+  tracked above). Spec `warn-unused-import` (new `as _` fixture); language.md
+  §Variables, §Errors and warnings.
 
 - **`unused-variable` warning** (2026-07). The fourth warning rule — flagged in
   the review as the false-positive-prone one, so the exemptions carry the

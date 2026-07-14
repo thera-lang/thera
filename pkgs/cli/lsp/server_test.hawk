@@ -9,7 +9,6 @@ import std.fs;
 import 'server' as _;
 import 'jsonrpc';
 import 'paths';
-import '../ast/ast' as _; // Decl
 import '../loader';
 import '../lexer/lexer';
 import '../parser/parser';

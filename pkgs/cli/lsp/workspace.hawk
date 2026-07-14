@@ -9,7 +9,7 @@
 // impose is pruning noise directories (`build`, dot-dirs) from the walk.
 
 import std.fs;
-import std.path as _;
+import std.path;
 
 // Every `.hawk` source under `roots`, recursively — the project's on-disk
 // files. Dot-directories (`.git`, `.dart_tool`, editor state) and `build`

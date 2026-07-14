@@ -59,9 +59,13 @@ effects still run, and an annotation (`let _: T = expr;`) is still checked
 against the value. It is the explicit-drop spelling — most commonly the
 sanctioned way past the [unused-`Result`](#error-handling) diagnostic.
 
-A binding that is never referenced draws the `unused-variable`
-[warning](#errors-and-warnings); a `_`-prefixed name (`let _hint = expr;`) marks
-it intentionally unused and is exempt.
+A local whose name begins with an underscore (`let _hint = expr;`) declares the
+binding **intentionally unused** — the leading `_` is a statement of intent, not
+just a naming style. A binding without the marker that is never referenced draws
+the `unused-variable` [warning](#errors-and-warnings); a `_`-prefixed binding is
+exempt. The intent cuts both ways: a `_`-prefixed local still binds and can
+technically be referenced, but referencing one contradicts the marker (a future
+warning may flag it — rename the binding instead).
 
 `let` vs `mut` controls whether a _binding_ can be reassigned — it says nothing
 about the value itself. Heap values (`String`, `List`, `Map`, `Set`, structs,
@@ -1959,9 +1963,11 @@ warnings — `check` is the analysis surface.
 
 The warning rules:
 
-- **`unused-import`** — an import whose namespace is never referenced in the
-  file. (`pub import` re-exports, `as _` imports, and — in a `<base>_test.hawk`
-  file — the module under test are exempt.)
+- **`unused-import`** — an import that is never referenced in the file. A
+  namespace import is referenced through its namespace name (`fs.read_text(…)`,
+  a `fs.FsError` annotation); an `as _` import through any name on its public
+  surface — or its derived namespace, used qualified. (`pub import` re-exports
+  and — in a `<base>_test.hawk` file — the module under test are exempt.)
 - **`unreachable-code`** — code after a statement that always transfers control
   (`return`/`throw`, `break`/`continue`, an `if` whose branches all exit, a
   break-less `while true`) never runs. Reported once per block, on the first

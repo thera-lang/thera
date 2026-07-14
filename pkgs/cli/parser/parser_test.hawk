@@ -4,7 +4,6 @@
 
 import std.testing;
 
-import '../lexer/token' as _;
 import '../lexer/lexer' as _;
 import '../ast/ast' as _;
 import '../ast/describe' as _;

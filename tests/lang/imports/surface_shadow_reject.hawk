@@ -7,6 +7,9 @@
 // kind: this file checked clean but failed at codegen with "unknown struct
 // type: Config").
 
+// The file only *shadows* what the import provides (never legitimately uses
+// it), so unused-import also fires; not this fixture's subject.
+// ignore: unused-import
 import 'shadow/widgets' as _;
 
 fn Config() -> Int { return 41; } // expect error: top-level `Config` shadows a name the prelude or an `as _` import already provides

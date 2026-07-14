@@ -2,7 +2,6 @@
 // parameters, and `Enum.Variant` — the non-top-level names that now resolve.
 
 import std.testing;
-import std.json as _;
 
 import '../ast/ast' as _; // Program
 import '../element/element' as _; // LibraryNamespace
