@@ -792,8 +792,10 @@ checksum, not a hash.
 
 ### `std.http` / `std.http.server` — HTTP client + simple server
 
-_Status: the **wire codec** and the **server** are implemented; the **client** and
-TLS are not yet. `std.net` (provisional) carries both._
+_Status: the **wire codec**, the **server**, and the **client** are implemented,
+over the provisional `std.net`. **TLS is not**, so the client is `http://`-only —
+an `https://` URL parses and then fails at `send` saying so. Also deferred with
+it: redirect following, connection pooling, and streaming bodies._
 
 Purpose: make HTTP requests (the client) and answer them (a simple server). Both
 are **core**; raw sockets and full server _frameworks_ stay ecosystem. Both

@@ -1,0 +1,366 @@
+//! Tests for the std.http client. Every request goes to *our own server*, spawned
+//! on a loopback port in the same process — the hermetic loop the build order was
+//! chosen for: no network, no fixture server, and the two halves check each other.
+//!
+//! Note what that does and does not prove. It exercises the client against a
+//! correct peer; it cannot catch the two of us agreeing on the same misreading of
+//! HTTP. `wire_test.hawk` is the guard for that — it pins each direction against
+//! literal bytes, so a shared misconception has to survive being spelled out.
+
+import std.testing;
+import std.io;
+import std.net;
+import std.fiber;
+import std.json as _;
+
+// Through the public barrel, not the `client` sibling: `http.get(...)` is the
+// surface users touch, so it is the one worth testing.
+import std.http;
+
+import 'wire';
+import 'server';
+
+/// Serve `handler` on loopback and return its base `http://127.0.0.1:<port>`.
+fn serving(_ handler: (wire.Request) -> Result<wire.Response, Error>) -> Result<String, Error> {
+    let listener = net.listen('127.0.0.1:0')?;
+    let addr = listener.local_addr()?;
+    fiber.spawn(() => server.serve_listener(listener, handler));
+    return Result.Ok('http://' + addr);
+}
+
+/// Echoes the request back as JSON, so a test can assert on what the server
+/// actually received — the client's real output.
+fn echo(_ req: wire.Request) -> Result<wire.Response, Error> {
+    let seen: Map<String, json.Json> = [:];
+    for key in req.headers.keys() {
+        seen[key] = json.str(req.headers[key]);
+    }
+    return Result.Ok(server.json(200, json.obj([
+        'method': json.str(req.method),
+        'url': json.str(req.url),
+        'body': json.str(req.body.to_string()?),
+        'headers': json.obj(seen),
+    ])));
+}
+
+/// A field of the echo handler's JSON report.
+fn field(_ resp: wire.Response, _ name: String) -> Result<String, Error> {
+    let doc = resp.json()?;
+    return match doc {
+        Object(fields) => match fields.get(name) {
+            Some(v) => match v {
+                Str(s) => Result.Ok(s),
+                _ => Result.Err(error('${name} is not a string')),
+            },
+            None => Result.Err(error('no field ${name}')),
+        },
+        _ => Result.Err(error('not a JSON object')),
+    };
+}
+
+/// A header as the server saw it.
+fn seen_header(_ resp: wire.Response, _ name: String) -> Result<String, Error> {
+    let doc = resp.json()?;
+    return match doc {
+        Object(fields) => match fields.get('headers') {
+            Some(hs) => match hs {
+                Object(m) => match m.get(name) {
+                    Some(v) => match v {
+                        Str(s) => Result.Ok(s),
+                        _ => Result.Err(error('${name} is not a string')),
+                    },
+                    None => Result.Ok('(absent)'),
+                },
+                _ => Result.Err(error('headers is not an object')),
+            },
+            None => Result.Err(error('no headers field')),
+        },
+        _ => Result.Err(error('not a JSON object')),
+    };
+}
+
+// --- the basics ---
+
+@test
+fn gets_a_response() -> Result<Void, Error> {
+    let base = serving((_req) => Result.Ok(server.text(200, 'hello')))?;
+    let resp = http.get(base + '/greet')?;
+    testing.assert_eq(resp.status, 200)?;
+    testing.assert(resp.is_ok(), message: '200 is ok')?;
+    return testing.assert_eq(resp.text()?, 'hello');
+}
+
+/// The request line carries the path, not the whole URL — the absolute form is for
+/// proxies only, and a server matching on it would 404 every route.
+@test
+fn the_request_line_carries_the_path_not_the_url() -> Result<Void, Error> {
+    let base = serving(echo)?;
+    let resp = http.get(base + '/a/b?q=1&r=2')?;
+    return testing.assert_eq(field(resp, 'url')?, '/a/b?q=1&r=2');
+}
+
+@test
+fn posts_a_body() -> Result<Void, Error> {
+    let base = serving(echo)?;
+    let resp = http.post(base + '/submit', body: 'the payload'.bytes())?;
+    testing.assert_eq(field(resp, 'method')?, 'POST')?;
+    testing.assert_eq(field(resp, 'body')?, 'the payload')?;
+    // wire derives content-length from the body.
+    return testing.assert_eq(seen_header(resp, 'content-length')?, '11');
+}
+
+@test
+fn reads_a_json_response() -> Result<Void, Error> {
+    let base = serving((_req) => Result.Ok(server.json(200, json.obj([
+        'n': json.int(7),
+        'ok': json.bool(true),
+    ]))))?;
+    let doc = http.get(base + '/j')?.json()?;
+    let n = match doc {
+        Object(fields) => match fields.get('n') {
+            Some(v) => match v {
+                Int(i) => i,
+                _ => 0,
+            },
+            None => 0,
+        },
+        _ => 0,
+    };
+    return testing.assert_eq(n, 7);
+}
+
+/// A 4xx is a perfectly good response, not an error: errors are values, and
+/// HttpError is for exchanges that did not happen.
+@test
+fn a_404_is_a_response_not_an_error() -> Result<Void, Error> {
+    let base = serving((_req) => Result.Ok(server.text(404, 'nope')))?;
+    let resp = http.get(base + '/missing')?;
+    testing.assert_eq(resp.status, 404)?;
+    testing.assert(!resp.is_ok(), message: '404 is not ok')?;
+    return testing.assert_eq(resp.text()?, 'nope');
+}
+
+/// Nor does the client chase a 3xx — it hands the redirect back for the caller to
+/// act on.
+@test
+fn a_redirect_is_not_followed() -> Result<Void, Error> {
+    let base = serving((_req) => {
+        let r = server.empty(302);
+        r.headers['location'] = '/elsewhere';
+        return Result.Ok(r);
+    })?;
+    let resp = http.get(base + '/start')?;
+    testing.assert_eq(resp.status, 302)?;
+    return testing.assert_eq(resp.headers['location'], '/elsewhere');
+}
+
+// --- headers ---
+
+/// `host` is mandatory in HTTP/1.1, and comes from the URL.
+@test
+fn sends_a_host_header_from_the_url() -> Result<Void, Error> {
+    let base = serving(echo)?;
+    let resp = http.get(base + '/x')?;
+    // `base` is 'http://127.0.0.1:<port>' — the authority is what host must read.
+    let authority = base.slice('http://'.len(), base.len());
+    return testing.assert_eq(seen_header(resp, 'host')?, authority);
+}
+
+@test
+fn sends_a_default_user_agent() -> Result<Void, Error> {
+    let base = serving(echo)?;
+    let resp = http.get(base + '/x')?;
+    return testing.assert_eq(seen_header(resp, 'user-agent')?, http.USER_AGENT);
+}
+
+@test
+fn caller_headers_are_sent_and_win_over_the_defaults() -> Result<Void, Error> {
+    let base = serving(echo)?;
+    let resp = http.get(base + '/x', headers: [
+        'X-Marker': 'mine',
+        'User-Agent': 'custom/9',
+    ])?;
+    // Names normalize to lowercase on the way out...
+    testing.assert_eq(seen_header(resp, 'x-marker')?, 'mine')?;
+    // ...and a caller who sets user-agent means it.
+    return testing.assert_eq(seen_header(resp, 'user-agent')?, 'custom/9');
+}
+
+/// No pooling, so the client says so — it lets the server release the connection
+/// at once rather than hold it for a reuse that will never come.
+@test
+fn sends_connection_close() -> Result<Void, Error> {
+    let base = serving(echo)?;
+    let resp = http.get(base + '/x')?;
+    return testing.assert_eq(seen_header(resp, 'connection')?, 'close');
+}
+
+// --- chunked ---
+
+/// The client must read a chunked response — the framing a real server uses when
+/// it doesn't know the length up front. Sent here by hand, since our own server
+/// always sets content-length.
+@test
+fn reads_a_chunked_response() -> Result<Void, Error> {
+    let listener = net.listen('127.0.0.1:0')?;
+    let addr = listener.local_addr()?;
+    fiber.spawn(() => {
+        let conn = listener.accept()?;
+        // Drain the request head so the client's write completes.
+        let _ = wire.Wire.new(conn).read_request()?;
+        io.write_all(to: conn, ('HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n'
+            + '4\r\nchun\r\n' + '4\r\nked!\r\n' + '0\r\n\r\n').bytes())?;
+        return conn.close();
+    });
+    let resp = http.get('http://' + addr + '/c')?;
+    return testing.assert_eq(resp.text()?, 'chunked!');
+}
+
+// --- URL handling ---
+
+@test
+fn a_url_without_a_path_requests_root() -> Result<Void, Error> {
+    let base = serving(echo)?;
+    // No trailing slash: the request line still has to say `/`.
+    let resp = http.get(base)?;
+    return testing.assert_eq(field(resp, 'url')?, '/');
+}
+
+/// A fragment is client-side only and never goes on the wire.
+@test
+fn a_fragment_is_not_sent() -> Result<Void, Error> {
+    let base = serving(echo)?;
+    let resp = http.get(base + '/page?a=1#section')?;
+    return testing.assert_eq(field(resp, 'url')?, '/page?a=1');
+}
+
+/// https parses fine — it fails for the honest reason, named precisely, rather
+/// than as a connect failure that would send someone debugging their network.
+@test
+fn https_reports_that_tls_is_missing() -> Result<Void, Error> {
+    let msg = match http.get('https://example.com/') {
+        Ok(_) => '(unexpectedly succeeded)',
+        Err(e) => e.message(),
+    };
+    return testing.assert(msg.contains('https is not supported'), message: 'got: ' + msg);
+}
+
+@test
+fn a_relative_url_is_rejected() -> Result<Void, Error> {
+    let failed = match http.get('/just/a/path') {
+        Ok(_) => false,
+        Err(e) => e.message().contains('absolute'),
+    };
+    return testing.assert(failed, message: 'expected an absolute-URL error');
+}
+
+@test
+fn an_unsupported_scheme_is_rejected() -> Result<Void, Error> {
+    let failed = match http.get('ftp://example.com/f') {
+        Ok(_) => false,
+        Err(e) => e.message().contains('scheme'),
+    };
+    return testing.assert(failed, message: 'expected a scheme error');
+}
+
+/// Credentials in a URL are deprecated; passing them through as part of the host
+/// would surface as a baffling DNS failure.
+@test
+fn credentials_in_a_url_are_rejected() -> Result<Void, Error> {
+    let failed = match http.get('http://user:pass@example.com/') {
+        Ok(_) => false,
+        Err(e) => e.message().contains('credentials'),
+    };
+    return testing.assert(failed, message: 'expected a credentials error');
+}
+
+@test
+fn a_malformed_port_is_rejected() -> Result<Void, Error> {
+    let failed = match http.get('http://example.com:notaport/') {
+        Ok(_) => false,
+        Err(e) => e.message().contains('port'),
+    };
+    return testing.assert(failed, message: 'expected a port error');
+}
+
+// --- connection failures ---
+
+/// Nothing listening: a Connect error, not a hang and not a bogus Response.
+@test
+fn a_refused_connection_is_a_connect_error() -> Result<Void, Error> {
+    // Bind then close, so the port is real but unserved.
+    let held = net.listen('127.0.0.1:0')?;
+    let addr = held.local_addr()?;
+    held.close()?;
+    let failed = match http.get('http://' + addr + '/x') {
+        Ok(_) => false,
+        Err(e) => match e {
+            Connect(_) => true,
+            _ => false,
+        },
+    };
+    return testing.assert(failed, message: 'expected HttpError.Connect');
+}
+
+/// A peer that hangs up mid-response is a Body error — the framing was fine and
+/// the bytes stopped, which is a different fault from a malformed message.
+@test
+fn a_truncated_response_is_a_body_error() -> Result<Void, Error> {
+    let listener = net.listen('127.0.0.1:0')?;
+    let addr = listener.local_addr()?;
+    fiber.spawn(() => {
+        let conn = listener.accept()?;
+        let _ = wire.Wire.new(conn).read_request()?;
+        // Promise ten bytes, send four, hang up.
+        io.write_all(to: conn, 'HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nfour'.bytes())?;
+        return conn.close();
+    });
+    let failed = match http.get('http://' + addr + '/t') {
+        Ok(_) => false,
+        Err(e) => match e {
+            Body(_) => true,
+            _ => false,
+        },
+    };
+    return testing.assert(failed, message: 'expected HttpError.Body');
+}
+
+/// A peer that isn't speaking HTTP is a Protocol error — the distinction that says
+/// whose bug it is.
+@test
+fn a_non_http_peer_is_a_protocol_error() -> Result<Void, Error> {
+    let listener = net.listen('127.0.0.1:0')?;
+    let addr = listener.local_addr()?;
+    fiber.spawn(() => {
+        let conn = listener.accept()?;
+        io.write_all(to: conn, 'GARBAGE\r\n\r\n'.bytes())?;
+        return conn.close();
+    });
+    let failed = match http.get('http://' + addr + '/g') {
+        Ok(_) => false,
+        Err(e) => match e {
+            Protocol(_) => true,
+            _ => false,
+        },
+    };
+    return testing.assert(failed, message: 'expected HttpError.Protocol');
+}
+
+// --- concurrency ---
+
+/// The payoff of parking on readiness: many in-flight requests over one thread,
+/// each fiber blocking only itself.
+@test
+fn many_requests_run_concurrently() -> Result<Void, Error> {
+    let base = serving(echo)?;
+    let mut calls = [];
+    for i in 0..10 {
+        let path = '/n' + i.display();
+        calls.push(fiber.spawn(() => http.get(base + path)));
+    }
+    for p in calls.enumerate() {
+        let resp = p.value.join()?;
+        testing.assert_eq(field(resp, 'url')?, '/n' + p.index.display())?;
+    }
+    return Result.Ok(void);
+}

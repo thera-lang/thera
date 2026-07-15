@@ -12,6 +12,7 @@
 //! a `Response`, the client does the reverse — so both live together.
 
 import std.io;
+import std.json;
 
 const CRLF: String = '\r\n';
 
@@ -89,6 +90,41 @@ impl Response {
     pub fn is_ok(self) -> Bool {
         return self.status >= 200 && self.status < 300;
     }
+
+    /// The body decoded as UTF-8 text.
+    pub fn text(self) -> Result<String, Error> {
+        return self.body.to_string();
+    }
+
+    /// The body parsed as JSON. Does **not** check `content-type` — a server that
+    /// mislabels JSON is common, and the parse is the real test.
+    pub fn json(self) -> Result<json.Json, Error> {
+        return parse_json_body(self.body);
+    }
+}
+
+impl Request {
+    /// The body decoded as UTF-8 text.
+    pub fn text(self) -> Result<String, Error> {
+        return self.body.to_string();
+    }
+
+    /// The body parsed as JSON — the common case for a handler receiving a
+    /// webhook or an API call.
+    pub fn json(self) -> Result<json.Json, Error> {
+        return parse_json_body(self.body);
+    }
+}
+
+// These are *readers*, and Hawk has no overloading, so `std.http.server`'s
+// response *constructors* are free functions named distinctly (`server.text`,
+// `server.json`) — see docs/stdlib.md § `std.http`.
+fn parse_json_body(_ body: Bytes) -> Result<json.Json, Error> {
+    let text = body.to_string()?;
+    return match json.parse(text) {
+        Ok(v) => Result.Ok(v),
+        Err(e) => Result.Err(e),
+    };
 }
 
 // --- headers ---

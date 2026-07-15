@@ -4,11 +4,19 @@
 //! Import as: import std.http
 //!
 //! ```hawk
-//! let resp = http.get('https://example.com/api/thing')?;
+//! let resp = http.get('http://example.com/api/thing')?;
 //! if resp.is_ok() {
 //!     let doc = resp.json()?;
 //! }
+//!
+//! let made = http.post('http://example.com/things', body: payload.bytes(),
+//!     headers: ['content-type': 'application/json'])?;
 //! ```
+//!
+//! **`http://` only for now** — there is no TLS yet, so an `https://` URL parses
+//! and then fails at `send` saying exactly that. A 4xx/5xx is a `Response`, not an
+//! error: `HttpError` is for exchanges that did not happen. Redirects are not
+//! followed, and there is no connection pooling (one connection per request).
 //!
 //! This is a barrel: it re-exports its sibling files (see docs/language.md) and
 //! defines nothing of its own. The split is deliberate — `std.http.server` imports
@@ -21,3 +29,4 @@
 //! § `std.http`.
 
 pub import 'wire'; // Request, Response, HttpError, status codes, the HTTP/1.1 codec
+pub import 'client'; // get / post / send
