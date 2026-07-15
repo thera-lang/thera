@@ -947,10 +947,11 @@ deferred bare-`TypeParameter` narrowing.
 
 ### Networking punchlist
 
-Scheduled for **immediately after the `std.http` arc** — both are known gaps in
-the phase-4 poller that landed with it (see the Changelog's **Readiness poller**
-entry), and both are things a real server hits rather than latent tidiness. The
-poller is correct without them; it is not yet _scalable_ or _cancellable_.
+The agreed order is **(1) per-fd routing → (2) `select` → (3) TLS**. The first two
+are known gaps in the phase-4 poller that landed with the `std.http` arc (see the
+Changelog's **Readiness poller** entry), and both are things a real server hits
+rather than latent tidiness: the poller is correct, but not yet _scalable_ or
+_cancellable_. The third finishes the client.
 
 1. **Per-fd wakeup routing.** Any readiness event currently wakes *every*
    socket-parked fiber (`wake_all_poll`), each of which retries its syscall and
@@ -969,9 +970,59 @@ poller is correct without them; it is not yet _scalable_ or _cancellable_.
    deliberately absent — and `std.http` grow a connect/read timeout, which a
    client wants on day one.
 
+3. **TLS for the client** — the last piece of `std.http`. An `https://` URL parses
+   today and fails at `send` saying TLS isn't implemented.
+
+   **Decided (2026-07): `rustls` with its default provider, `aws-lc-rs`.** The
+   research, so it doesn't get re-derived:
+
+   - **BoringSSL is not an alternative to rustls — it is what rustls is.** Both
+     viable providers are BoringSSL lineage: `aws-lc-rs` pulls AWS-LC (Amazon's
+     fork of BoringSSL), and `ring` is an extraction of BoringSSL's crypto core.
+     The choice is *which descendant*, not whether.
+   - **The deciding criterion is security response, not size.** `ring` is a fine
+     crate but is effectively single-maintainer with historically intermittent
+     releases; `aws-lc-rs` has a funded team, a formal security process, FIPS
+     validation, formal-verification work, and AWS-scale production use. Holes get
+     weaponized fast, so bus factor *is* the risk. It is also rustls's own default,
+     which is a security argument by itself: best-tested path, advisories target
+     it, and deviating from a security library's default needs a positive reason.
+   - **The arguments against it were measured and don't hold.** Clean release
+     build: `ring` 6s vs `aws-lc-rs` 17s — and only on *clean* builds, which is
+     noise against `bin/test.sh`. No cmake needed (`aws-lc-sys` picked a cc-based
+     builder). And it is *not* a new toolchain requirement: rustc already links
+     through `cc`.
+   - **No feature gate.** With AOT far out and `cc` already required, gating only
+     buys a "why doesn't https work in this build" mystery — and a silent fallback
+     to `http://` is itself a security failure.
+   - **Take rustls's version policy as-is**: TLS 1.2 + 1.3, no SSLv3/1.0/1.1.
+   - **Not in scope, deliberately:** consolidating `std.hash` onto the provider's
+     digests. Neither provider exposes MD5 (`ring` refuses broken primitives;
+     AWS-LC has it in C but `aws-lc-rs` doesn't surface it) and neither has CRC32,
+     so `md-5` and `crc32fast` survive regardless — 4 crates become 3, at the cost
+     of coupling hashing to the TLS stack. The existing implementations work; this
+     is not worth the churn.
+
+   **Ship the update mechanism with it.** "Best-of-breed, updated frequently" is a
+   process, and there is none today: no CI, no dependabot, no
+   `cargo-audit`/`cargo-deny`. A best-of-breed library pinned at a vulnerable
+   version is just a vulnerable version with good provenance. Wire an advisory
+   check into the build/CI as part of this increment, not after it.
+
+   **Trust store — placeholder, needs its own analysis.** Start with
+   `rustls-native-certs`: both options cost a crate and a few lines, so pick the
+   one that is also better on the two axes the follow-up will weigh — it tracks OS
+   root updates (so a distrusted CA actually becomes distrusted, where
+   `webpki-roots` freezes the set at compile time and would need a Hawk release to
+   revoke one), and it works behind the corporate MITM proxies an agent/CLI tool
+   routinely meets. **Follow-up:** compare properly on security and ergonomics
+   (bundled-vs-OS trust, revocation/OCSP, custom CAs, containers with no OS store,
+   and whether an explicit `SSLKEYLOGFILE`/custom-root escape hatch is warranted).
+
 Ordering: (1) is self-contained and can land as soon as the arc frees up. (2) is
 gated on `select`, so it is really a request to schedule `select` — the timeout
-surface is the easy half.
+surface is the easy half. (3) is unblocked but sequenced last so the client's
+timeouts land with it rather than after.
 
 ## Runtime staging (longer view)
 
