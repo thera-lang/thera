@@ -1,0 +1,310 @@
+//! std.net — TCP sockets: `listen`/`accept` for servers, `connect` for clients,
+//! and a `TcpStream` that is an ordinary `Reader` + `Writer` + `Closer`.
+//!
+//! Import as: import std.net
+//!
+//! ```hawk
+//! // a client
+//! let sock = net.connect('example.com', 80)?;
+//! io.write_all(sock, 'GET / HTTP/1.0\r\n\r\n'.to_bytes())?;
+//! let reply = io.read_all(sock)?;
+//! sock.close()?;
+//!
+//! // a server: one fiber per connection
+//! let listener = net.listen('127.0.0.1:8080')?;
+//! loop {
+//!     let conn = listener.accept()?;
+//!     fiber.spawn(() => handle(conn));
+//! }
+//! ```
+//!
+//! **Provisional — this surface is expected to change.** It exists to carry
+//! `std.http` (see docs/stdlib.md § `std.http`), and only what the HTTP client and
+//! server need is implemented. Raw sockets are otherwise *not* core
+//! (docs/stdlib.md § "What is intentionally not in core"): they are here to be
+//! built on, not yet to be committed to. Notably absent, and all likely additions
+//! when this is revisited: **UDP**, **deadlines/timeouts** (which want the
+//! scheduler's `select`, docs/roadmap.md), **half-close** (`shutdown`), socket
+//! options (`nodelay`, `keepalive`), and **TLS**. Take a dependency on the shape
+//! of this module only if you are prepared to update it.
+//!
+//! Concurrency: every call parks the calling fiber rather than blocking the
+//! thread, so blocking-looking code stays concurrent (docs/stdlib.md
+//! § Cross-cutting #5). Unlike `fs.File`, one fiber may read a `TcpStream` while
+//! another writes it.
+
+import std.io;
+
+// --- errors ---
+
+pub enum NetError {
+    /// Nothing is listening at the address (ECONNREFUSED).
+    Refused(String),
+    /// The peer reset, aborted, or vanished mid-stream.
+    Reset(String),
+    /// The address is already bound by another socket (EADDRINUSE).
+    AddrInUse(String),
+    /// The address can't be bound here — e.g. an IP this host doesn't own.
+    AddrUnavailable(String),
+    /// The host name did not resolve.
+    Dns(String),
+    /// Not a well-formed `<ip>:<port>`.
+    Addr(String),
+    /// The socket is closed (a use-after-`close`).
+    Closed(String),
+    /// The OS refused the operation (a privileged port, a sandbox).
+    PermissionDenied(String),
+    TimedOut(String),
+    Other(String),
+}
+
+impl Error for NetError {
+    pub fn message(self) -> String {
+        return match self {
+            Refused(m) => m,
+            Reset(m) => m,
+            AddrInUse(m) => m,
+            AddrUnavailable(m) => m,
+            Dns(m) => m,
+            Addr(m) => m,
+            Closed(m) => m,
+            PermissionDenied(m) => m,
+            TimedOut(m) => m,
+            Other(m) => m,
+        };
+    }
+}
+
+impl Display for NetError {
+    pub fn display(self) -> String {
+        return self.message();
+    }
+}
+
+// The native error payload is "<kind>\u{1}<message>"; map the kind tag to the
+// matching variant so callers can `match` on the cause.
+fn to_net_error(_ raw: String) -> NetError {
+    let parts = raw.split('\u{1}');
+    let kind = parts.get(0).unwrap_or('other');
+    let msg = parts.get(1).unwrap_or(raw);
+    if kind == 'refused' {
+        return NetError.Refused(msg);
+    }
+    if kind == 'reset' {
+        return NetError.Reset(msg);
+    }
+    if kind == 'addr_in_use' {
+        return NetError.AddrInUse(msg);
+    }
+    if kind == 'addr_unavailable' {
+        return NetError.AddrUnavailable(msg);
+    }
+    if kind == 'dns' {
+        return NetError.Dns(msg);
+    }
+    if kind == 'addr' {
+        return NetError.Addr(msg);
+    }
+    if kind == 'closed' {
+        return NetError.Closed(msg);
+    }
+    if kind == 'permission_denied' {
+        return NetError.PermissionDenied(msg);
+    }
+    if kind == 'timed_out' {
+        return NetError.TimedOut(msg);
+    }
+    return NetError.Other(msg);
+}
+
+// --- native bindings (private; errors come back kind-tagged) ---
+
+@extern('socket_listen')
+native fn _listen(_ addr: String) -> Result<Int, String>
+
+@extern('socket_accept')
+native fn _accept(_ handle: Int) -> Result<Int, String>
+
+@extern('socket_connect')
+native fn _connect(_ addr: String) -> Result<Int, String>
+
+@extern('socket_connect_finish')
+native fn _connect_finish(_ handle: Int) -> Result<Void, String>
+
+@extern('socket_read')
+native fn _read(_ handle: Int, _ max: Int) -> Result<Bytes, String>
+
+@extern('socket_write')
+native fn _write(_ handle: Int, _ data: Bytes) -> Result<Int, String>
+
+@extern('socket_close')
+native fn _close(_ handle: Int) -> Result<Void, String>
+
+@extern('socket_local_addr')
+native fn _local_addr(_ handle: Int) -> Result<String, String>
+
+@extern('socket_peer_addr')
+native fn _peer_addr(_ handle: Int) -> Result<String, String>
+
+@extern('socket_resolve')
+native fn _resolve(_ host: String, _ port: Int) -> Result<String, String>
+
+// --- streams ---
+
+/// A connected TCP socket: a `Reader` + `Writer` + `Closer` over a runtime socket
+/// handle, so every `std.io` helper (`io.copy`, `io.lines`, `io.write_all`) works
+/// on it. **Close it when done** — an unclosed socket leaks its descriptor until
+/// the process exits.
+///
+/// One fiber may `read` while another `write`s: the ops are non-blocking under the
+/// hood and park on readiness, so neither excludes the other.
+pub struct TcpStream {
+    let handle: Int;
+}
+
+impl io.Reader for TcpStream {
+    /// Up to `max` bytes. An **empty** result means the peer closed its end (EOF),
+    /// which is the normal end of a stream — not an error.
+    pub fn read(self, max: Int) -> Result<Bytes, Error> {
+        return match _read(self.handle, max) {
+            Ok(b) => Result.Ok(b),
+            Err(e) => Result.Err(to_net_error(e)),
+        };
+    }
+}
+
+impl io.Writer for TcpStream {
+    /// Writes what the socket accepts now and returns that count, which may be
+    /// **short** — the kernel's send buffer is finite. Use `io.write_all` unless
+    /// you are handling the remainder yourself.
+    pub fn write(self, _ data: Bytes) -> Result<Int, Error> {
+        return match _write(self.handle, data) {
+            Ok(n) => Result.Ok(n),
+            Err(e) => Result.Err(to_net_error(e)),
+        };
+    }
+}
+
+impl io.Closer for TcpStream {
+    pub fn close(self) -> Result<Void, Error> {
+        return match _close(self.handle) {
+            Ok(_) => Result.Ok(void),
+            Err(e) => Result.Err(to_net_error(e)),
+        };
+    }
+}
+
+impl TcpStream {
+    /// This end's `<ip>:<port>`.
+    pub fn local_addr(self) -> Result<String, NetError> {
+        return match _local_addr(self.handle) {
+            Ok(a) => Result.Ok(a),
+            Err(e) => Result.Err(to_net_error(e)),
+        };
+    }
+
+    /// The remote end's `<ip>:<port>`.
+    pub fn peer_addr(self) -> Result<String, NetError> {
+        return match _peer_addr(self.handle) {
+            Ok(a) => Result.Ok(a),
+            Err(e) => Result.Err(to_net_error(e)),
+        };
+    }
+}
+
+// --- listeners ---
+
+/// A bound, listening TCP socket. `accept` it in a loop; **close it when done**.
+pub struct TcpListener {
+    let handle: Int;
+}
+
+impl TcpListener {
+    /// Wait for the next inbound connection. Parks the calling fiber until one
+    /// arrives, so an accept loop costs nothing while idle.
+    pub fn accept(self) -> Result<TcpStream, NetError> {
+        return match _accept(self.handle) {
+            Ok(h) => Result.Ok(TcpStream { handle: h }),
+            Err(e) => Result.Err(to_net_error(e)),
+        };
+    }
+
+    /// The bound `<ip>:<port>`. The way to learn the real port when you bound to
+    /// port 0 and let the OS choose (the idiom for tests).
+    pub fn local_addr(self) -> Result<String, NetError> {
+        return match _local_addr(self.handle) {
+            Ok(a) => Result.Ok(a),
+            Err(e) => Result.Err(to_net_error(e)),
+        };
+    }
+}
+
+impl io.Closer for TcpListener {
+    pub fn close(self) -> Result<Void, Error> {
+        return match _close(self.handle) {
+            Ok(_) => Result.Ok(void),
+            Err(e) => Result.Err(to_net_error(e)),
+        };
+    }
+}
+
+// --- entry points ---
+
+/// Bind and listen on `addr`, an `<ip>:<port>` (`'127.0.0.1:8080'` for loopback
+/// only, `'0.0.0.0:8080'` for every interface). Port **0** asks the OS to pick a
+/// free port — read it back with `local_addr`.
+///
+/// Takes an address, not a host name: binding is to an interface this host owns,
+/// so there is nothing to resolve. `connect` is the one that takes a host.
+pub fn listen(_ addr: String) -> Result<TcpListener, NetError> {
+    return match _listen(addr) {
+        Ok(h) => Result.Ok(TcpListener { handle: h }),
+        Err(e) => Result.Err(to_net_error(e)),
+    };
+}
+
+/// Resolve `host` and connect to it, trying each address until one answers.
+/// `host` may be a name (`'example.com'`) or a literal IP.
+pub fn connect(_ host: String, _ port: Int) -> Result<TcpStream, NetError> {
+    let addrs = resolve(host, port)?;
+    // `resolve` yields at least one address (it errors otherwise), so `last` is a
+    // real error by construction.
+    let mut last = NetError.Dns('no addresses for ' + host);
+    for addr in addrs {
+        match connect_addr(addr) {
+            Ok(s) => { return Result.Ok(s); },
+            Err(e) => { last = e; },
+        }
+    }
+    return Result.Err(last);
+}
+
+/// Connect to a single already-resolved `<ip>:<port>`. `connect` is the one to
+/// reach for; this skips resolution (and its fallback across addresses).
+pub fn connect_addr(_ addr: String) -> Result<TcpStream, NetError> {
+    // Two natives: `_connect` starts the connect and hands back the socket, then
+    // `_connect_finish` parks until the handshake lands. They are split because a
+    // parked native re-runs on wake, and re-issuing connect(2) on a pending socket
+    // reports EALREADY rather than retrying it.
+    let handle = match _connect(addr) {
+        Ok(h) => h,
+        Err(e) => { return Result.Err(to_net_error(e)); },
+    };
+    match _connect_finish(handle) {
+        Ok(_) => { return Result.Ok(TcpStream { handle: handle }); },
+        Err(e) => {
+            // Don't leak the descriptor when the connect fails.
+            let _ = _close(handle);
+            return Result.Err(to_net_error(e));
+        },
+    }
+}
+
+/// Resolve `host` to its `<ip>:<port>` addresses (DNS, or the hosts file). Errors
+/// if the name resolves to nothing.
+pub fn resolve(_ host: String, _ port: Int) -> Result<List<String>, NetError> {
+    return match _resolve(host, port) {
+        Ok(joined) => Result.Ok(joined.split('\u{1}')),
+        Err(e) => Result.Err(to_net_error(e)),
+    };
+}

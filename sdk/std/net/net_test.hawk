@@ -1,0 +1,205 @@
+//! Tests for std.net. These open real sockets, but only ever on loopback and only
+//! ever on an OS-assigned port (bind to `:0`, read the real port back with
+//! `local_addr`), so they need no network and can't collide with a parallel run.
+
+import std.testing;
+import std.io;
+import std.fiber;
+
+import 'net' as _;
+
+/// A listener on loopback, on an OS-assigned port. Dial it at `local_addr()`.
+fn loopback() -> Result<net.TcpListener, Error> {
+    return Result.Ok(net.listen('127.0.0.1:0')?);
+}
+
+@test
+fn connect_and_echo() -> Result<Void, Error> {
+    let listener = loopback()?;
+    let addr = listener.local_addr()?;
+
+    // The server half: accept one connection, echo what it sends, then close.
+    let server = fiber.spawn(() => {
+        let conn = listener.accept()?;
+        let got = conn.read(max: 64)?;
+        io.write_all(to: conn, got)?;
+        conn.close()?;
+        return Result.Ok(void);
+    });
+
+    let client = net.connect('127.0.0.1', port_of(addr)?)?;
+    io.write_all(to: client, 'ping'.bytes())?;
+    let echoed = io.read_all(client)?;
+    testing.assert_eq(echoed.to_string()?, 'ping')?;
+
+    client.close()?;
+    server.join()?;
+    listener.close()?;
+    return Result.Ok(void);
+}
+
+/// The read half sees EOF (an empty read) once the peer closes — the normal end of
+/// a stream, not an error.
+@test
+fn read_returns_empty_at_eof() -> Result<Void, Error> {
+    let listener = loopback()?;
+    let addr = listener.local_addr()?;
+
+    let server = fiber.spawn(() => {
+        let conn = listener.accept()?;
+        conn.close()?; // close immediately, without sending
+        return Result.Ok(void);
+    });
+
+    let client = net.connect_addr(addr)?;
+    let got = io.read_all(client)?;
+    testing.assert_eq(got.len(), 0)?;
+
+    client.close()?;
+    server.join()?;
+    listener.close()?;
+    return Result.Ok(void);
+}
+
+/// The point of parking on readiness rather than blocking the thread: many
+/// connections are in flight at once over a single OS thread. With a blocking
+/// accept on the four-thread worker pool, this would deadlock.
+@test
+fn many_concurrent_connections() -> Result<Void, Error> {
+    let listener = loopback()?;
+    let addr = listener.local_addr()?;
+    let count = 20;
+
+    let server = fiber.spawn(() => {
+        let mut accepted = 0;
+        while accepted < count {
+            let conn = listener.accept()?;
+            // One fiber per connection — the shape `std.http.server` will use.
+            fiber.spawn(() => {
+                let got = conn.read(max: 64)?;
+                io.write_all(to: conn, got)?;
+                return conn.close();
+            });
+            accepted = accepted + 1;
+        }
+        return Result.Ok(void);
+    });
+
+    let mut clients = [];
+    for i in 0..count {
+        let c = net.connect_addr(addr)?;
+        io.write_all(to: c, ('hello ' + i.display()).bytes())?;
+        clients.push(c);
+    }
+    for p in clients.enumerate() {
+        let reply = p.value.read(max: 64)?;
+        testing.assert_eq(reply.to_string()?, 'hello ' + p.index.display())?;
+        p.value.close()?;
+    }
+
+    server.join()?;
+    listener.close()?;
+    return Result.Ok(void);
+}
+
+/// A short write must not lose the tail: push far more than a send buffer holds
+/// and read it all back. This is what `io.write_all`'s loop exists for, and it also
+/// drives `socket_write`'s park path — the payload has to outrun the buffer by
+/// enough that the writer blocks, not merely writes short (macOS auto-tunes
+/// loopback buffers into the hundreds of KB, so 400 KB was not enough).
+///
+/// The payload is periodic rather than uniform so that a chunk delivered out of
+/// order, or twice, changes the bytes and not just the length.
+@test
+fn large_transfer_survives_short_writes() -> Result<Void, Error> {
+    let listener = loopback()?;
+    let addr = listener.local_addr()?;
+    let payload = 'abcdefghij'.repeat(400000); // 4 MB
+
+    let server = fiber.spawn(() => {
+        let conn = listener.accept()?;
+        io.write_all(to: conn, payload.bytes())?;
+        return conn.close();
+    });
+
+    let client = net.connect_addr(addr)?;
+    let got = io.read_all(client)?;
+    testing.assert_eq(got.len(), payload.len())?;
+    testing.assert_eq(got.to_string()?, payload)?;
+
+    client.close()?;
+    server.join()?;
+    listener.close()?;
+    return Result.Ok(void);
+}
+
+@test
+fn connect_to_a_closed_port_is_refused() -> Result<Void, Error> {
+    // Bind then immediately close, so the port is real but unserved.
+    let listener = loopback()?;
+    let addr = listener.local_addr()?;
+    listener.close()?;
+
+    let refused = match net.connect_addr(addr) {
+        Ok(_) => false,
+        Err(e) => match e {
+            Refused(_) => true,
+            _ => false,
+        },
+    };
+    return testing.assert(refused, message: 'expected NetError.Refused');
+}
+
+@test
+fn a_bad_address_is_an_addr_error() -> Result<Void, Error> {
+    let bad = match net.listen('not-an-address') {
+        Ok(_) => false,
+        Err(e) => match e {
+            Addr(_) => true,
+            _ => false,
+        },
+    };
+    return testing.assert(bad, message: 'expected NetError.Addr');
+}
+
+@test
+fn resolving_a_bogus_host_is_a_dns_error() -> Result<Void, Error> {
+    let failed = match net.resolve('no.such.host.invalid', 80) {
+        Ok(_) => false,
+        Err(e) => match e {
+            Dns(_) => true,
+            _ => false,
+        },
+    };
+    return testing.assert(failed, message: 'expected NetError.Dns');
+}
+
+@test
+fn localhost_resolves_to_loopback() -> Result<Void, Error> {
+    let addrs = net.resolve('localhost', 8080)?;
+    return testing.assert(addrs.len() > 0, message: 'localhost should resolve');
+}
+
+@test
+fn using_a_closed_socket_is_an_error() -> Result<Void, Error> {
+    let listener = net.listen('127.0.0.1:0')?;
+    listener.close()?;
+    let closed = match listener.local_addr() {
+        Ok(_) => false,
+        Err(e) => match e {
+            Closed(_) => true,
+            _ => false,
+        },
+    };
+    return testing.assert(closed, message: 'expected NetError.Closed');
+}
+
+/// The port half of an `<ip>:<port>`.
+fn port_of(_ addr: String) -> Result<Int, Error> {
+    let parts = addr.split(':');
+    let last = parts.get(parts.len() - 1).unwrap_or('');
+    return match last.to_int() {
+        Some(n) => Result.Ok(n),
+        None => Result.Err(error('no port in ' + addr)),
+    };
+}

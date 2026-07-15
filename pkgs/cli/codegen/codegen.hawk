@@ -2790,6 +2790,7 @@ fn visit_global_init(_ g: GlobalInit, _ scope: ModuleScope, _ by_key: Map<String
 fn forbidden_in_initializer(_ sym: String) -> Bool {
     return sym.starts_with('time_')
         || sym.starts_with('fs_')
+        || sym.starts_with('socket_')
         || sym == 'random_seed_entropy'
         || sym == 'env_set'
         || sym == 'env_set_current_dir'

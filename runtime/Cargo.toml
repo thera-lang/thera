@@ -28,6 +28,12 @@ regex = "1"
 # std.term — terminal dimensions across unix + windows (the runtime's 3rd
 # deliberate dependency; see docs/stdlib.md §std.term). `is_tty` is std alone.
 terminal_size = "0.4"
+# std.net — the readiness poller (kqueue/epoll/IOCP) the socket natives park on;
+# the scheduler's phase-4 event loop (the runtime's 4th deliberate dependency;
+# see docs/stdlib.md §std.http and docs/roadmap.md §Concurrency). Hand-rolling it
+# needs `libc` for the syscalls either way, so mio costs one extra crate (`log`)
+# over two hand-written unsafe backends — and covers windows, which they wouldn't.
+mio = { version = "1", features = ["net", "os-poll"] }
 
 [profile.dev]
 # This makes the debug interpreter loop closer to the performance of the release

@@ -101,6 +101,26 @@ pub fn read_all(_ src: Reader) -> Result<Bytes, Error> {
     return Result.Ok(acc.finish());
 }
 
+/// Write **all** of `data` to `dst`, however many writes that takes.
+///
+/// `Writer.write` may accept fewer bytes than it is offered — a socket's send
+/// buffer is finite, and a non-blocking one takes only what fits right now. This
+/// loops over the remainder; prefer it to a bare `write` unless you are handling
+/// the short-write case yourself.
+pub fn write_all(to dst: Writer, _ data: Bytes) -> Result<Void, Error> {
+    let end = data.len();
+    let mut sent = 0;
+    while sent < end {
+        let n = dst.write(data.slice(sent, end))?;
+        if n <= 0 {
+            // A writer that accepts nothing, without erroring, would spin here.
+            return Result.Err(error('write accepted no bytes'));
+        }
+        sent = sent + n;
+    }
+    return Result.Ok(void);
+}
+
 /// Copy `src` to `dst` until EOF; returns the number of bytes copied.
 pub fn copy(to dst: Writer, from src: Reader) -> Result<Int, Error> {
     let mut total = 0;
@@ -110,7 +130,10 @@ pub fn copy(to dst: Writer, from src: Reader) -> Result<Int, Error> {
         if chunk.len() == 0 {
             going = false;
         } else {
-            total = total + dst.write(chunk)?;
+            // `write_all`, not `write`: a short write would silently drop the tail
+            // of the chunk (and miscount the total).
+            write_all(to: dst, chunk)?;
+            total = total + chunk.len();
         }
     }
     return Result.Ok(total);

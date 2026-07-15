@@ -107,7 +107,7 @@ enough to reduce hallucination.
 | ------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Prelude**   | none (auto)     | primitives, `List`/`Map`/`Set`, `Option`/`Result`, `Error` + `Eq`/`Display`/`Debug`/`Ord`, `println`/`print`/`eprintln`/`eprint`, `String` methods |
 | **Core std**  | `import std.x`  | `io iter fs path env process time fiber math random sort json encoding hash http log cli term char regex testing`                                  |
-| **Ecosystem** | package manager | databases, YAML/TOML/CSV, HTTP server _frameworks_ (a simple server is core), raw sockets, compression, full crypto/TLS, UUID, templating, …       |
+| **Ecosystem** | package manager | databases, YAML/TOML/CSV, HTTP server _frameworks_ (a simple server is core), raw sockets (a provisional `std.net` backs `std.http`), compression, full crypto/TLS, UUID, templating, … |
 
 The line between core and ecosystem: core covers what a typical CLI tool or
 agent script needs **in almost every project**. The ecosystem covers the
@@ -578,12 +578,19 @@ fibers, and the I/O staging — is sketched in [architecture.md](architecture.md
 (§ Cross-cutting #5) — blocking I/O parks the fiber instead of the thread — only
 becomes real once the scheduler lands, so `std.http` and any other library that
 wants concurrent, blocking-looking I/O depends on `std.fiber` first; the two
-should be sequenced together (see § Sequencing). And because the fiber API is
+should be sequenced together (see § Sequencing). That parking now covers every
+blocking family: timers, the `fs`/`process` syscalls (a worker pool), and
+**sockets** (a readiness poller — see roadmap.md phase 4, and the provisional
+`std.net`). And because the fiber API is
 load-bearing for that whole tier, its design should be driven by **iterative
 feedback from real IO use cases** (a concurrent HTTP fetch, a server accept
 loop, piping between processes) rather than fixed up front — prototype against
 those clients and let them shape `spawn`/`join`/channels (and whether `select`
-is needed) before freezing the surface.
+is needed) before freezing the surface. The first such client has landed: the
+accept loop in `std.net`'s tests drove `ParkRequest::Ready`'s retry-on-wake shape
+(and, in passing, exposed that `io.copy` assumed writes never go short — true of
+files, false of sockets). It also sharpened the case for **`select`**: a socket
+has no timeout without it.
 
 ### `std.math` — numeric functions _(implemented)_
 
@@ -1156,6 +1163,20 @@ So the boundary is explicit (and so an agent knows where to look):
   sockets** → ecosystem. The HTTP _client_ and a _simple_ server (`std.http` /
   `std.http.server` — bind + handle + a tiny path matcher) **are core**; see §
   `std.http`.
+
+  A **provisional** `std.net` does exist — TCP `listen`/`accept`/`connect` plus a
+  `TcpStream` that is a `Reader`+`Writer`+`Closer` — but only as the layer
+  `std.http` is built on, and only as much of it as HTTP needs (no UDP, no
+  deadlines, no half-close, no socket options, no TLS). It is documented in its
+  own module header as expected to change, and is **not** a committed surface:
+  treat it as internal until this entry says otherwise. Promoting it is the
+  natural pivot if the demand shows up — and the demand to watch for is specific,
+  because natives are bound by name in the runtime with **no FFI path for
+  third-party packages**: until `std.net` is committed, "other network protocols
+  → ecosystem" is aspirational, since nobody outside this repo can build a
+  WebSocket, Redis, or Postgres client without it. The first real non-HTTP
+  protocol need is the forcing function; the same "pivot when demonstrated, not
+  speculatively" rule as TOML above applies.
 - **Databases / SQLite** → ecosystem.
 - **Full cryptography / TLS primitives, signing** → ecosystem (digests +
   randomness are core; TLS for `http` is a runtime native).
@@ -1207,17 +1228,42 @@ remains:
    macros/codegen (a last resort) — compile-time reflection is the principled
    substitute.
 
-2. **Fiber I/O parking, then `std.http`.** The clock, entropy, hash, and
-   scheduler natives have all landed (`std.time`, `std.random`, `std.hash`, and
-   `std.fiber`'s `spawn`/`join`/`yield` + channels). What remains is
-   **`std.http`** (client + simple server, both committed to core), which needs
-   runtime **sockets + TLS** and — crucially — depends on `std.fiber` **parking
-   on real I/O**: blocking-looking I/O is only "invisible" once the scheduler
-   parks a fiber on I/O rather than the thread (principle #5, still deferred).
-   So sequence fiber I/O parking **before** `std.http`, and let real IO clients
-   (a concurrent fetch, a server accept loop) drive the fiber API's design
-   rather than fixing it up front (see § `std.fiber`). The same parking work
-   lets `std.time`'s `sleep` park instead of blocking the thread.
+2. **`std.http`.** The clock, entropy, hash, and scheduler natives have all
+   landed (`std.time`, `std.random`, `std.hash`, and `std.fiber`'s
+   `spawn`/`join`/`yield` + channels), and so has the parking this tier waited
+   on: `std.time`'s `sleep` and the blocking `fs`/`process` syscalls park on a
+   worker pool, and **sockets park on a readiness poller** (roadmap phase 4), so
+   blocking-looking socket I/O is now genuinely "invisible" (principle #5). The
+   provisional `std.net` sits on top of that.
+
+   What remains is **`std.http`** itself (client + simple server, both committed
+   to core). The order to build it in, and why:
+   - **The wire codec first** — `Request`/`Response`, status codes, and HTTP/1.1
+     framing (`Content-Length`, chunked). Pure Hawk over `io.Reader`/`Writer`, so
+     it unit-tests against `Bytes`/`StringWriter` with no sockets at all.
+   - **Then the server**, which is not gated on TLS (terminated upstream) and
+     writes the harder half of that codec — parsing an untrusted request is
+     strictly harder than serializing one. Its accept loop is also the named
+     driver for the fiber API (§ `std.fiber`).
+   - **Then the plaintext client**, which is the codec's mirror image and can be
+     tested hermetically against the server in-process (spawn a listener fiber,
+     fetch from it, join) — a loop that only exists in this order.
+   - **Then TLS**, the separable increment, and the only part needing a new
+     runtime native.
+
+   Layout: `std.http` is the **client** plus the public types, as a barrel over
+   private `wire`/`client` siblings (the `std.core` pattern); `std.http.server`
+   imports the `wire` sibling directly, so it never pulls in the client or TLS.
+   `wire` is the shared third library — it just isn't a third public name, since
+   the namespace is the last dotted segment and `http.get(url)` should stay the
+   spelling of the most-written line in the surface.
+
+   One correction to the sketch in § `std.http` above: `headers: Map<String,
+   String>` models neither the case-insensitivity of header names nor the headers
+   that legitimately repeat. Rather than grow a bespoke header type, **normalize**
+   to what `Map` represents well — lowercase names on parse, repeats comma-joined
+   — and document it. (`Set-Cookie` is the one header that cannot be comma-joined;
+   it needs a carve-out.)
 
 3. **Visibility enforcement** ([language.md](language.md)). Some modules (e.g.
    `std.process`) have native bindings that should be module-private; today the

@@ -133,11 +133,43 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     stdout (validated by a >pipe-buffer cross-fiber round-trip through `cat`).
     Left thread-blocking on purpose (fast, non-blocking syscalls): `fs.exists`,
     `process.start`/`kill`/`close_stdin`.
-  - **Phase 4 — readiness poller** (`kqueue`/`epoll`) for sockets, to scale to
-    many connections (`mio` vs. hand-rolled — the first real runtime
-    dependency).
+  - **Phase 4 — readiness poller.** _Done_ (`mio`, so `kqueue`/`epoll`/IOCP; the
+    hand-rolled alternative needs `libc` for the syscalls anyway, making the real
+    cost one extra crate versus two unsafe backends and no windows). Sockets are
+    **non-blocking**, so unlike every other blocking family their syscalls run
+    inline on the Hawk thread and never reach the worker pool — a blocking
+    `accept` would pin one of its four threads indefinitely, and four such ops
+    would stall every other fiber's I/O. Instead `EWOULDBLOCK` parks the fiber
+    (`ParkRequest::Ready`) and the `call.native` re-runs when the kernel reports
+    readiness — `BlockRetry`'s discipline, woken by the poller. The driver's idle
+    loop keeps **one** wait point (`poll()` bounded by the earliest timer), with
+    worker completions interrupting it through a `Waker`, so there is no poller
+    thread and the runtime stays single-threaded.
+
+    Two properties keep this small. Sockets carry **no readiness state** despite
+    mio being edge-triggered: a fiber only parks *after* its syscall returned
+    `EWOULDBLOCK`, so any earlier edge was stale and the next transition fires a
+    fresh one — the syscall is the ground truth, and every socket native
+    therefore attempts its op *before* parking (a correctness rule, not a fast
+    path). And because the ops never leave the Hawk thread, sockets need none of
+    phase 3's take-out/return discipline, so concurrent read + write on one
+    socket from two fibers works (unlike a `File`, where it does not).
+
+    The retry means every socket native must be **idempotent**: `read`/`accept`
+    are naturally so; `write` is safe only because it returns a *count* and lets
+    `io.write_all` loop (a write-all native would re-send bytes on retry); and
+    `connect` is split into `socket_connect` + `socket_connect_finish` because
+    re-issuing `connect(2)` on a pending fd reports `EALREADY`. DNS is the one
+    socket op still on the worker pool — it blocks with no fd to poll, but is
+    bounded, so it cannot pin a worker the way `accept` would.
   - **Refinements:** per-channel waiter lists, true 0-capacity rendezvous
-    channels, `select`, and exit semantics for surviving spawned fibers.
+    channels, `select`, and exit semantics for surviving spawned fibers. The
+    poller wants the same waiter-list refinement, and for the same reason: any
+    readiness event currently wakes *every* socket-parked fiber (`wake_all_poll`,
+    matching `wake_all`'s coarseness), so each retries its syscall and the ones
+    that aren't ready re-park. Correct, but O(parked) work per event — it will
+    want per-fd routing (the mio `Token` is already the socket handle) before a
+    server holds many idle connections open.
 - **Fiber synchronization primitives — the combinator layer.** The _core_ async
   values already exist: `Fiber<T>` + `join` **is** a Future (uncolored; and
   `join` is idempotent/multicast — `sched_result` reads `Done(v)` by `&self`, so
@@ -868,6 +900,34 @@ Already tracked elsewhere, not repeated here: imported-body check scope, cascade
 suppression, calling-convention enforcement, native-arg trap wording, and the
 deferred bare-`TypeParameter` narrowing.
 
+### Networking punchlist
+
+Scheduled for **immediately after the `std.http` arc** — both are known gaps in
+the phase-4 poller that landed with it (see the Changelog's **Readiness poller**
+entry), and both are things a real server hits rather than latent tidiness. The
+poller is correct without them; it is not yet _scalable_ or _cancellable_.
+
+1. **Per-fd wakeup routing.** Any readiness event currently wakes *every*
+   socket-parked fiber (`wake_all_poll`), each of which retries its syscall and
+   re-parks if it wasn't the one that became ready — O(parked) work per event.
+   Fine for a handful of connections, quadratic for a server holding many idle
+   ones, which is exactly `std.http.server`'s shape. The routing key already
+   exists: the mio `Token` **is** the socket handle. Pairs naturally with the
+   per-channel waiter lists under _Fibers → Refinements_ — same coarseness, same
+   fix, and worth doing together.
+2. **Socket timeouts**, which reduce to **`select`** (already the load-bearing
+   gap under _Fiber synchronization primitives_). A socket has no deadline today:
+   a fiber parked on a peer that never sends waits forever, with no way to cancel
+   it. `select` is the prerequisite, timeouts fall out of it
+   (`with_timeout(work, dur)` = `select(result, timer)`), and only then can
+   `std.net` grow the `SetDeadline`-shaped surface its module header lists as
+   deliberately absent — and `std.http` grow a connect/read timeout, which a
+   client wants on day one.
+
+Ordering: (1) is self-contained and can land as soon as the arc frees up. (2) is
+gated on `select`, so it is really a request to schedule `select` — the timeout
+surface is the easy half.
+
 ## Runtime staging (longer view)
 
 See [architecture.md](architecture.md) for the design behind each tier.
@@ -887,6 +947,41 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **Readiness poller + `std.net`** (2026-07). Fibers phase 4, and the socket
+  layer under the coming `std.http`. `mio` joins as the 4th runtime dependency —
+  the call was never "dep vs. no dep", since hand-rolling `kqueue`/`epoll` needs
+  `libc` for the syscalls anyway: the real cost was one extra crate (`log`)
+  against two unsafe backends and no windows. Sockets are **non-blocking** and so
+  never touch the phase-3 worker pool — a blocking `accept` would pin one of its
+  four threads indefinitely, and four would stall every other fiber's I/O.
+  `EWOULDBLOCK` parks the fiber (`ParkRequest::Ready`) and the `call.native`
+  re-runs on readiness: `BlockRetry`'s discipline, woken by the poller. The
+  driver keeps **one** wait point (`poll()`, timer-bounded, with worker
+  completions interrupting via a `Waker`), so there is no poller thread and the
+  runtime stays single-threaded.
+
+  Two findings made it smaller than budgeted. Sockets need **no readiness state**
+  despite mio being edge-triggered — the usual lost-edge hazard can't occur when
+  a fiber parks only *after* its syscall returned `EWOULDBLOCK`, since any
+  earlier edge was stale by construction; the syscall is the ground truth, which
+  promotes "attempt before parking" to a correctness rule. And because the ops
+  never leave the Hawk thread, sockets skip phase 3's take-out/return discipline
+  entirely, so concurrent read + write on one socket from two fibers works
+  (unlike a `File`). The retry does make **idempotency** a rule: `write` returns a
+  *count* rather than writing all (a write-all native would re-send on retry),
+  and `connect` splits into `socket_connect` + `socket_connect_finish` because
+  re-issuing `connect(2)` on a pending fd reports `EALREADY`. DNS stays on the
+  worker pool — blocking, but bounded.
+
+  `std.net` is deliberately **provisional** (docs/stdlib.md § "not in core"): a
+  Go-shaped `listen`/`connect`/`accept` with `TcpStream` as an ordinary
+  `Reader`+`Writer`+`Closer`, carrying only what `std.http` needs — no UDP,
+  deadlines, half-close, socket options, or TLS. Its first client already paid
+  off: the accept loop drove the retry-on-wake shape, and exposed that **`io.copy`
+  assumed writes never go short** — true of files, false of sockets, and a silent
+  byte-dropping bug for any short-writing `Writer` (fixed; `io.write_all` added
+  and `copy` routed through it). Open tail: _Open work → Networking punchlist_.
 
 - **Diagnostics review — arc complete** (2026-07). The final rung of the staged
   language review (grammar → spec → type system → diagnostics), asking: do the

@@ -227,6 +227,16 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("regex_captures", native_regex_captures),
     ("regex_replace", native_regex_replace),
     ("regex_replace_all", native_regex_replace_all),
+    ("socket_listen", native_socket_listen),
+    ("socket_accept", native_socket_accept),
+    ("socket_connect", native_socket_connect),
+    ("socket_connect_finish", native_socket_connect_finish),
+    ("socket_read", native_socket_read),
+    ("socket_write", native_socket_write),
+    ("socket_close", native_socket_close),
+    ("socket_local_addr", native_socket_local_addr),
+    ("socket_peer_addr", native_socket_peer_addr),
+    ("socket_resolve", native_socket_resolve),
 ];
 
 /// The native functions the runtime ships with, in index order.
@@ -2790,6 +2800,341 @@ fn native_regex_replace_all(_out: &mut dyn Write, args: &[Value]) -> Result<Valu
     with_regex(handle, "regex_replace_all", |re| {
         Value::new_str(re.replace_all(&text, repl.as_str()).into_owned())
     })
+}
+
+// --- socket natives ---
+//
+// The internal layer under `std.net` (and, above it, `std.http`). Unlike every
+// other blocking family here, sockets do **not** use the worker pool: their fds are
+// non-blocking, so each syscall runs inline on the Hawk thread and returns at once.
+// A `WouldBlock` parks the fiber on the readiness poller instead (`park_ready`),
+// and the `call.native` re-runs when the kernel reports readiness. A blocking
+// `accept` on the four-thread pool would pin a worker indefinitely and stall every
+// other fiber's I/O — see interp/mod.rs §the readiness poller.
+//
+// Two consequences of "the native re-runs on wake" shape this surface, and both
+// are load-bearing:
+//
+//  1. **Every native must attempt its syscall before parking.** That is what makes
+//     a dropped edge harmless (see `ParkRequest::Ready`), so it is a correctness
+//     requirement, not a fast path.
+//  2. **Every native must be idempotent across the retry.** `read`/`accept` are
+//     naturally so. `write` is only safe because it returns a *count* and lets the
+//     Hawk side loop (`io.write_all`) — a write-all native here would re-send the
+//     bytes it already wrote on every retry. `connect` is split in two for the same
+//     reason: `socket_connect` starts it and `socket_connect_finish` polls for the
+//     result, because re-issuing `connect(2)` on a pending fd gets `EALREADY`, not
+//     a fresh attempt.
+//
+// Because the ops never leave the Hawk thread, sockets need none of the
+// take-out/return discipline the `File` registry uses, and concurrent read + write
+// on one socket from two fibers works (unlike a `File`, where it does not).
+
+use mio::Interest;
+use mio::net::{TcpListener, TcpStream};
+use std::cell::{Cell, RefCell};
+use std::io::ErrorKind;
+use std::net::{SocketAddr, ToSocketAddrs};
+
+/// A registered socket. The `mio` types own the fd and set O_NONBLOCK themselves.
+enum Socket {
+    Listener(TcpListener),
+    Stream(TcpStream),
+}
+
+thread_local! {
+    /// Open sockets by handle. Thread-local, not a process-global `Mutex` like the
+    /// `File`/process registries: socket ops never run on a worker thread, and the
+    /// poller these are registered with is itself thread-local.
+    static SOCKETS: RefCell<HashMap<i64, Socket>> = RefCell::new(HashMap::new());
+    /// Handles start at 1: each doubles as its `mio::Token`, and token 0 is the
+    /// poller's waker (`WAKE_TOKEN`).
+    static NEXT_SOCKET_ID: Cell<i64> = const { Cell::new(1) };
+}
+
+/// Drop every open socket. Called when the scheduler resets around a run, so fds
+/// don't leak into a later run on this thread (the poller is reset alongside, which
+/// drops the registrations).
+pub(super) fn reset_sockets() {
+    SOCKETS.with(|s| s.borrow_mut().clear());
+    NEXT_SOCKET_ID.with(|n| n.set(1));
+}
+
+/// Build an `Err` for a socket error, kind-tagged `"<kind>\u{1}<message>"` like
+/// `fs_err`; the Hawk side maps the kind to a `NetError` variant.
+fn socket_err(e: &std::io::Error) -> Value {
+    let kind = match e.kind() {
+        ErrorKind::ConnectionRefused => "refused",
+        ErrorKind::ConnectionReset => "reset",
+        ErrorKind::ConnectionAborted => "reset",
+        ErrorKind::BrokenPipe => "reset",
+        ErrorKind::AddrInUse => "addr_in_use",
+        ErrorKind::AddrNotAvailable => "addr_unavailable",
+        ErrorKind::TimedOut => "timed_out",
+        ErrorKind::PermissionDenied => "permission_denied",
+        _ => "other",
+    };
+    Value::err(Value::new_str(format!("{kind}\u{1}{e}")))
+}
+
+/// An `Err` for a handle that isn't an open socket — a use-after-close.
+fn socket_closed_err() -> Value {
+    Value::err(Value::new_str("closed\u{1}socket is closed"))
+}
+
+/// An `Err` for a malformed address, tagged so the Hawk side can report it as a
+/// distinct `NetError::Addr` rather than a generic I/O failure.
+fn socket_addr_err(addr: &str) -> Value {
+    Value::err(Value::new_str(format!(
+        "addr\u{1}not an <ip>:<port> address: {addr}"
+    )))
+}
+
+/// Register `source` with the readiness poller for read+write and file it in the
+/// registry under a fresh handle. Registered once, for both directions, so a park
+/// never has to re-arm anything.
+fn register_socket(mut sock: Socket) -> Result<Value, Trap> {
+    let id = NEXT_SOCKET_ID.with(|n| {
+        let id = n.get();
+        n.set(id + 1);
+        id
+    });
+    let token = mio::Token(id as usize);
+    let interest = Interest::READABLE | Interest::WRITABLE;
+    let registered = super::with_registry(|r| match &mut sock {
+        Socket::Listener(l) => r.register(l, token, interest),
+        Socket::Stream(s) => r.register(s, token, interest),
+    });
+    if let Err(e) = registered {
+        return Ok(socket_err(&e));
+    }
+    SOCKETS.with(|s| s.borrow_mut().insert(id, sock));
+    Ok(Value::ok(Value::Int(id)))
+}
+
+/// Run `f` against the socket `handle` names. `Err(socket_closed_err())` if the
+/// handle is closed or of the wrong kind — the registry borrow is held across `f`,
+/// which is safe because `f` only ever performs a non-blocking syscall.
+fn with_socket<T>(handle: i64, f: impl FnOnce(&mut Socket) -> T) -> Option<T> {
+    SOCKETS.with(|s| s.borrow_mut().get_mut(&handle).map(f))
+}
+
+/// `net.listen(addr)` — bind + listen on `<ip>:<port>`, returning a handle.
+fn native_socket_listen(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let addr = str_contents(expect_one(args, "socket_listen")?)?;
+    let Ok(parsed) = addr.parse::<SocketAddr>() else {
+        return Ok(socket_addr_err(&addr));
+    };
+    match TcpListener::bind(parsed) {
+        Ok(l) => register_socket(Socket::Listener(l)),
+        Err(e) => Ok(socket_err(&e)),
+    }
+}
+
+/// `listener.accept()` — the next inbound connection's handle. Parks on the poller
+/// until one arrives; idempotent (each retry takes a fresh connection or blocks).
+fn native_socket_accept(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let handle = as_int(expect_one(args, "socket_accept")?, "socket_accept")?;
+    let accepted = with_socket(handle, |sock| match sock {
+        Socket::Listener(l) => l.accept().map(|(stream, _peer)| stream),
+        Socket::Stream(_) => Err(std::io::Error::other("not a listener")),
+    });
+    match accepted {
+        None => Ok(socket_closed_err()),
+        Some(Ok(stream)) => register_socket(Socket::Stream(stream)),
+        Some(Err(e)) if e.kind() == ErrorKind::WouldBlock => {
+            super::park_ready();
+            Ok(Value::Unit) // discarded: the native re-runs on wake
+        }
+        Some(Err(e)) => Ok(socket_err(&e)),
+    }
+}
+
+/// `net.connect(addr)` — *start* a non-blocking connect to `<ip>:<port>`, returning
+/// the handle immediately. The connect is still in flight: `socket_connect_finish`
+/// waits for it. Split in two because `connect(2)` is not idempotent, and this
+/// native's retry-on-wake would re-issue it (see the module note above).
+fn native_socket_connect(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let addr = str_contents(expect_one(args, "socket_connect")?)?;
+    let Ok(parsed) = addr.parse::<SocketAddr>() else {
+        return Ok(socket_addr_err(&addr));
+    };
+    // Returns at once with the connect in progress; readiness (or failure) shows up
+    // on the poller as writability.
+    match TcpStream::connect(parsed) {
+        Ok(s) => register_socket(Socket::Stream(s)),
+        Err(e) => Ok(socket_err(&e)),
+    }
+}
+
+/// Wait for a `socket_connect` to resolve: `Ok(void)` once connected, or the
+/// connect's error. Idempotent — it only ever *inspects* the socket, so re-running
+/// it on wake is free.
+fn native_socket_connect_finish(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let handle = as_int(
+        expect_one(args, "socket_connect_finish")?,
+        "socket_connect_finish",
+    )?;
+    let state = with_socket(handle, |sock| match sock {
+        Socket::Stream(s) => {
+            // A failed connect surfaces here (SO_ERROR), not from `peer_addr`.
+            match s.take_error() {
+                Ok(Some(e)) | Err(e) => return Err(e),
+                Ok(None) => {}
+            }
+            // `peer_addr` is the ground truth for "has it landed yet": still
+            // in-flight until the handshake completes.
+            s.peer_addr().map(|_| ())
+        }
+        Socket::Listener(_) => Err(std::io::Error::other("not a stream")),
+    });
+    match state {
+        None => Ok(socket_closed_err()),
+        Some(Ok(())) => Ok(Value::ok(Value::Unit)),
+        Some(Err(e))
+            if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::NotConnected =>
+        {
+            super::park_ready();
+            Ok(Value::Unit) // discarded: the native re-runs on wake
+        }
+        Some(Err(e)) => Ok(socket_err(&e)),
+    }
+}
+
+/// `stream.read(max)` — up to `max` bytes; an empty `Bytes` means the peer closed
+/// (EOF). Parks until readable; idempotent (a retry consumed nothing).
+fn native_socket_read(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (hv, maxv) = args2(args, "socket_read")?;
+    let handle = as_int(hv, "socket_read")?;
+    let max = as_int(maxv, "socket_read")?.max(0) as usize;
+    if max == 0 {
+        return Ok(Value::ok(Value::new_bytes(Vec::new())));
+    }
+    let read = with_socket(handle, |sock| match sock {
+        Socket::Stream(s) => {
+            let mut buf = vec![0u8; max.min(1 << 20)];
+            s.read(&mut buf).map(|n| {
+                buf.truncate(n);
+                buf
+            })
+        }
+        Socket::Listener(_) => Err(std::io::Error::other("not a stream")),
+    });
+    match read {
+        None => Ok(socket_closed_err()),
+        Some(Ok(buf)) => Ok(Value::ok(Value::new_bytes(buf))),
+        Some(Err(e)) if e.kind() == ErrorKind::WouldBlock => {
+            super::park_ready();
+            Ok(Value::Unit) // discarded: the native re-runs on wake
+        }
+        Some(Err(e)) => Ok(socket_err(&e)),
+    }
+}
+
+/// `stream.write(data)` — returns the number of bytes *actually* written, which may
+/// be short. Returning a count (rather than writing all of `data`) is what keeps
+/// this idempotent under the retry: nothing is written on a `WouldBlock`, and the
+/// Hawk side (`io.write_all`) loops over the remainder.
+fn native_socket_write(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (hv, dv) = args2(args, "socket_write")?;
+    let handle = as_int(hv, "socket_write")?;
+    let data = bytes_contents(dv, "socket_write")?;
+    if data.is_empty() {
+        return Ok(Value::ok(Value::Int(0)));
+    }
+    let written = with_socket(handle, |sock| match sock {
+        Socket::Stream(s) => s.write(&data),
+        Socket::Listener(_) => Err(std::io::Error::other("not a stream")),
+    });
+    match written {
+        None => Ok(socket_closed_err()),
+        Some(Ok(n)) => Ok(Value::ok(Value::Int(n as i64))),
+        Some(Err(e)) if e.kind() == ErrorKind::WouldBlock => {
+            super::park_ready();
+            Ok(Value::Unit) // discarded: the native re-runs on wake
+        }
+        Some(Err(e)) => Ok(socket_err(&e)),
+    }
+}
+
+/// `socket.close()` — deregister and drop. Closing twice is an error, matching
+/// `File`.
+fn native_socket_close(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let handle = as_int(expect_one(args, "socket_close")?, "socket_close")?;
+    let Some(mut sock) = SOCKETS.with(|s| s.borrow_mut().remove(&handle)) else {
+        return Ok(socket_closed_err());
+    };
+    // Deregister before the fd closes; a dropped registration on a closed fd is a
+    // resource leak in the poller on some platforms.
+    let _ = super::with_registry(|r| match &mut sock {
+        Socket::Listener(l) => r.deregister(l),
+        Socket::Stream(s) => r.deregister(s),
+    });
+    drop(sock);
+    Ok(Value::ok(Value::Unit))
+}
+
+/// `socket.local_addr()` — the bound `<ip>:<port>`. Useful for a listener bound to
+/// port 0, where the OS picks the port.
+fn native_socket_local_addr(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let handle = as_int(expect_one(args, "socket_local_addr")?, "socket_local_addr")?;
+    let addr = with_socket(handle, |sock| match sock {
+        Socket::Listener(l) => l.local_addr(),
+        Socket::Stream(s) => s.local_addr(),
+    });
+    match addr {
+        None => Ok(socket_closed_err()),
+        Some(Ok(a)) => Ok(Value::ok(Value::new_str(a.to_string()))),
+        Some(Err(e)) => Ok(socket_err(&e)),
+    }
+}
+
+/// `stream.peer_addr()` — the remote `<ip>:<port>`.
+fn native_socket_peer_addr(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let handle = as_int(expect_one(args, "socket_peer_addr")?, "socket_peer_addr")?;
+    let addr = with_socket(handle, |sock| match sock {
+        Socket::Stream(s) => s.peer_addr(),
+        Socket::Listener(_) => Err(std::io::Error::other("not a stream")),
+    });
+    match addr {
+        None => Ok(socket_closed_err()),
+        Some(Ok(a)) => Ok(Value::ok(Value::new_str(a.to_string()))),
+        Some(Err(e)) => Ok(socket_err(&e)),
+    }
+}
+
+/// `net.resolve(host, port)` — DNS, as a U+0001-joined list of `<ip>:<port>`.
+///
+/// The one socket op that *does* use the worker pool: name resolution blocks with
+/// no fd to poll on, but unlike `accept` it is bounded, so it can't pin a worker
+/// indefinitely. It has to be its own native regardless — a native may park only
+/// once per call, and resolve-then-connect needs the pool *and* then the poller.
+fn native_socket_resolve(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (hv, pv) = args2(args, "socket_resolve")?;
+    let host = str_contents(hv)?;
+    let port = as_int(pv, "socket_resolve")?;
+    if !(0..=65535).contains(&port) {
+        return Ok(socket_addr_err(&format!("{host}:{port}")));
+    }
+    let err_host = host.clone();
+    park_syscall(
+        move || {
+            (host.as_str(), port as u16)
+                .to_socket_addrs()
+                .map(|it| it.map(|a| a.to_string()).collect::<Vec<_>>().join("\u{1}"))
+        },
+        move |res| match res {
+            Ok(joined) if joined.is_empty() => Value::err(Value::new_str(format!(
+                "dns\u{1}no addresses for {err_host}"
+            ))),
+            Ok(joined) => Value::ok(Value::new_str(joined)),
+            // Resolution failures surface as a grab-bag of io kinds across
+            // platforms; tag them all as `dns` so the Hawk side reports the cause
+            // the user can act on.
+            Err(e) => Value::err(Value::new_str(format!("dns\u{1}{err_host}: {e}"))),
+        },
+    );
+    Ok(Value::Unit)
 }
 
 #[cfg(test)]

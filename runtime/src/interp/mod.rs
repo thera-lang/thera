@@ -14,7 +14,7 @@
 use std::any::Any;
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
-use std::io::Write;
+use std::io::{ErrorKind, Write};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -296,6 +296,22 @@ enum ParkRequest {
     /// after the call, no retry). The fiber is parked until the worker signals —
     /// another external progress source, so it is not a deadlock either.
     Await { job: IoJob, finish: IoFinish },
+    /// A non-blocking socket op whose fd isn't ready (`EWOULDBLOCK`): the fiber
+    /// blocks until the readiness poller reports an event, and the `call.native`
+    /// re-executes — exactly [`BlockRetry`](ParkRequest::BlockRetry)'s discipline,
+    /// but woken by the poller rather than by another fiber's progress. Readiness
+    /// comes from outside Hawk (the kernel), so poll-blocked fibers are not a
+    /// deadlock.
+    ///
+    /// The fd carries no readiness state, and deliberately so. mio is
+    /// edge-triggered, which usually forces per-fd readiness flags to avoid losing
+    /// an edge that arrives while nothing is waiting — but a fiber only parks here
+    /// *after* its syscall returned `EWOULDBLOCK`, i.e. the fd was genuinely
+    /// not-ready at that instant, so any earlier edge was stale and the next
+    /// not-ready→ready transition fires a fresh one. The syscall is the ground
+    /// truth; a dropped event is only ever redundant. (This holds because every
+    /// socket native attempts its syscall *before* parking — see natives.rs.)
+    Ready,
 }
 
 // A native suspends the running fiber by setting `PARK` — the same
@@ -330,6 +346,14 @@ pub(super) fn park_timer(deadline: Instant) {
 /// placeholder).
 pub(super) fn park_await(job: IoJob, finish: IoFinish) {
     PARK.set(Some(ParkRequest::Await { job, finish }));
+}
+
+/// Block the running fiber until the readiness poller reports an event, re-running
+/// this native on resume. Called by a socket native whose fd returned
+/// `EWOULDBLOCK`; the native must have *attempted* its syscall first (see
+/// [`ParkRequest::Ready`]).
+pub(super) fn park_ready() {
+    PARK.set(Some(ParkRequest::Ready));
 }
 
 fn take_park() -> Option<ParkRequest> {
@@ -375,6 +399,7 @@ struct Scheduler {
     blocked: Vec<usize>,    // parked on a resource; woken en masse on any progress
     timers: Vec<(Instant, usize)>, // (deadline, fiber id) — woken by the wall clock
     io_blocked: usize,      // fibers parked on a worker-pool syscall — woken by a completion
+    poll_blocked: Vec<usize>, // parked on socket readiness; woken en masse on any poll event
     channels: Vec<Chan>,    // indexed by channel id
 }
 
@@ -411,6 +436,7 @@ impl Scheduler {
             blocked: Vec::new(),
             timers: Vec::new(),
             io_blocked: 0,
+            poll_blocked: Vec::new(),
             channels: Vec::new(),
         }
     }
@@ -419,6 +445,15 @@ impl Scheduler {
     /// resource on resume. Coarse (no per-resource waiter lists), but correct.
     fn wake_all(&mut self) {
         self.ready.extend(self.blocked.drain(..));
+    }
+
+    /// Move every poll-blocked fiber back to the ready queue, so each retries its
+    /// socket syscall. Deliberately as coarse as [`wake_all`](Self::wake_all): any
+    /// poll event wakes every socket-parked fiber, and the ones whose fd is still
+    /// not ready get `EWOULDBLOCK` again and re-park. Correct, and it keeps the
+    /// poller free of per-fd waiter lists (the same refinement `blocked` wants).
+    fn wake_all_poll(&mut self) {
+        self.ready.extend(self.poll_blocked.drain(..));
     }
 
     /// Create a channel buffering up to `capacity` (clamped to ≥ 1 — true
@@ -509,6 +544,7 @@ impl Scheduler {
             ParkRequest::YieldReady => self.ready.push_back(id),
             ParkRequest::BlockRetry => self.blocked.push(id),
             ParkRequest::Timer(deadline) => self.timers.push((deadline, id)),
+            ParkRequest::Ready => self.poll_blocked.push(id),
             ParkRequest::Await { .. } => unreachable!("Await is routed via park_io"),
         }
     }
@@ -626,6 +662,121 @@ fn gather_scheduler_roots(roots: &mut Vec<Value>) {
     });
 }
 
+// --- the readiness poller ---
+//
+// Stage (2) of the I/O staging in architecture.md §Concurrency: the event loop.
+// Sockets are non-blocking, so their syscalls run *inline on the Hawk thread* and
+// never reach the worker pool — a blocking `accept` would pin one of its four
+// threads indefinitely, and four such ops would stall every other fiber's I/O.
+// Instead a socket native that gets `EWOULDBLOCK` parks (`ParkRequest::Ready`) and
+// the driver, when nothing else is runnable, blocks in `poll()` until the kernel
+// reports readiness.
+//
+// Sockets are registered once, at creation, for READABLE | WRITABLE, so parking
+// needs no re-arming and carries no payload. Events are not routed to a specific
+// fiber: any event wakes every poll-blocked fiber, which then retries its syscall
+// (see `wake_all_poll`).
+
+/// Token for the [`mio::Waker`] — distinct from any socket handle, which start at 1
+/// (see `NEXT_SOCKET_ID` in natives.rs).
+const WAKE_TOKEN: mio::Token = mio::Token(0);
+
+/// The driver's event loop: the `Poll` it blocks in, plus a cloned `Registry` the
+/// socket natives register fds on. Created on the first socket, so socket-free
+/// programs open no kqueue/epoll fd.
+struct Poller {
+    poll: mio::Poll,
+    events: mio::Events,
+}
+
+thread_local! {
+    /// The poller, created on first use (see [`with_registry`]).
+    static POLLER: RefCell<Option<Poller>> = const { RefCell::new(None) };
+
+    /// A cloned handle to the poller's `Registry`, for the socket natives. Separate
+    /// from `POLLER` so a native can register an fd while the driver holds the
+    /// `Poller` borrow across `poll()`.
+    static REGISTRY: RefCell<Option<mio::Registry>> = const { RefCell::new(None) };
+
+    /// The poller's `Waker`, shared with the worker pool's threads so a completion
+    /// can interrupt a `poll()` (see [`WorkerPool`]). Behind a `Mutex` because the
+    /// workers read it, and an `Option` because the pool may exist before the
+    /// poller does (a program that reads a file, then opens a socket).
+    static WAKER: Arc<Mutex<Option<Arc<mio::Waker>>>> = Arc::new(Mutex::new(None));
+}
+
+/// Run `f` with the poller's registry, creating the poller (and its waker) on first
+/// use. Called by the socket natives to register a new fd.
+fn with_registry<T>(f: impl FnOnce(&mio::Registry) -> std::io::Result<T>) -> std::io::Result<T> {
+    ensure_poller()?;
+    REGISTRY.with(|r| {
+        let r = r.borrow();
+        f(r.as_ref().expect("ensure_poller installed the registry"))
+    })
+}
+
+/// Create the poller, its registry clone, and its waker, if they don't exist yet.
+fn ensure_poller() -> std::io::Result<()> {
+    POLLER.with(|p| {
+        let mut p = p.borrow_mut();
+        if p.is_some() {
+            return Ok(());
+        }
+        let poll = mio::Poll::new()?;
+        let registry = poll.registry().try_clone()?;
+        let waker = Arc::new(mio::Waker::new(poll.registry(), WAKE_TOKEN)?);
+        REGISTRY.with(|r| *r.borrow_mut() = Some(registry));
+        WAKER.with(|w| *w.lock().unwrap() = Some(waker));
+        *p = Some(Poller {
+            poll,
+            events: mio::Events::with_capacity(64),
+        });
+        Ok(())
+    })
+}
+
+/// Block in `poll()` until the kernel reports readiness on any registered socket, a
+/// worker completion wakes us (via the `Waker`), or `timeout` elapses. Events are
+/// discarded — they carry no information the retrying native needs (see
+/// [`ParkRequest::Ready`]); this call exists purely to stop spinning.
+/// Returns whether any *socket* became ready — a bare `Waker` wake (a worker
+/// completion) or a timeout returns `false`, so the driver doesn't wake the
+/// socket-parked fibers for an event that wasn't theirs.
+fn poll_wait(timeout: Option<std::time::Duration>) -> Result<bool, Trap> {
+    POLLER.with(|p| {
+        let mut p = p.borrow_mut();
+        let poller = p
+            .as_mut()
+            .expect("poll_blocked is non-empty, so the poller exists");
+        match poller.poll.poll(&mut poller.events, timeout) {
+            Ok(()) => {}
+            // A signal interrupted the wait; the caller re-checks and polls again.
+            Err(e) if e.kind() == ErrorKind::Interrupted => return Ok(false),
+            Err(e) => return Err(bug(format!("readiness poller failed: {e}"))),
+        }
+        Ok(poller.events.iter().any(|e| e.token() != WAKE_TOKEN))
+    })
+}
+
+/// Wake a driver blocked in [`poll_wait`]. Called from a worker thread when a
+/// completion is ready, so a `poll()` doesn't outlive a finished syscall. A no-op
+/// if this program never opened a socket (the driver is then in `done_rx.recv`).
+fn wake_poller(slot: &Mutex<Option<Arc<mio::Waker>>>) {
+    if let Some(waker) = slot.lock().unwrap().as_ref() {
+        // Failure means the poller is gone (the run ended); the driver isn't
+        // waiting on us any more, so there is nothing to wake.
+        let _ = waker.wake();
+    }
+}
+
+/// Tear down the poller. Called when the scheduler resets around a run, so a later
+/// run on this thread starts with no registrations and no waker.
+fn reset_poller() {
+    POLLER.with(|p| *p.borrow_mut() = None);
+    REGISTRY.with(|r| *r.borrow_mut() = None);
+    WAKER.with(|w| *w.lock().unwrap() = None);
+}
+
 // --- the blocking-syscall worker pool ---
 //
 // The `Await` park model runs a blocking syscall off the single Hawk thread so the
@@ -657,10 +808,16 @@ impl WorkerPool {
         let (job_tx, job_rx) = std::sync::mpsc::channel::<(usize, IoJob)>();
         let (done_tx, done_rx) = std::sync::mpsc::channel::<Completion>();
         let job_rx = Arc::new(Mutex::new(job_rx));
+        // The driver may be blocked in the readiness poller rather than in
+        // `done_rx.recv` (whenever a fiber is also parked on a socket), so a
+        // completion has to be able to interrupt a `poll()`. Shared, not captured by
+        // value: the poller may not exist yet, and may be created while workers run.
+        let waker = WAKER.with(Arc::clone);
         let mut workers = Vec::with_capacity(WORKER_COUNT);
         for _ in 0..WORKER_COUNT {
             let job_rx = Arc::clone(&job_rx);
             let done_tx = done_tx.clone();
+            let waker = Arc::clone(&waker);
             workers.push(std::thread::spawn(move || {
                 loop {
                     // Hold the queue lock only across `recv` (a near-instant handoff);
@@ -671,6 +828,7 @@ impl WorkerPool {
                             if done_tx.send((id, job())).is_err() {
                                 break; // driver gone
                             }
+                            wake_poller(&waker);
                         }
                         Err(_) => break, // queue disconnected — pool torn down
                     }
@@ -732,6 +890,23 @@ fn await_completions(timeout: Option<std::time::Duration>) -> Vec<Completion> {
             while let Ok(c) = pool.done_rx.try_recv() {
                 out.push(c);
             }
+        }
+        out
+    })
+}
+
+/// Every completion ready right now, without blocking. Used by the poller branch of
+/// the idle loop, where the blocking wait happens in `poll()` and a worker signals
+/// through the `Waker` instead. Empty if the program never issued a syscall.
+fn drain_completions() -> Vec<Completion> {
+    WORKER_POOL.with(|p| {
+        let p = p.borrow();
+        let Some(pool) = p.as_ref() else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        while let Ok(c) = pool.done_rx.try_recv() {
+            out.push(c);
         }
         out
     })
@@ -845,8 +1020,11 @@ impl<'a> Vm<'a> {
         let result = self.drive(module, func, args);
         SCHEDULER.with(|s| *s.borrow_mut() = Scheduler::new());
         // Tear down the worker pool so its threads exit and no completion from this
-        // run can leak into a later `run`/`call` on the same thread.
+        // run can leak into a later `run`/`call` on the same thread; likewise the
+        // poller, so no registration or waker survives into the next run.
         reset_worker_pool();
+        reset_poller();
+        natives::reset_sockets();
         result
     }
 
@@ -888,25 +1066,40 @@ impl<'a> Vm<'a> {
                 }
             }
             // Pick the next runnable fiber (self.frames is empty here). When nothing
-            // is ready, wait on an external progress source — a worker-pool syscall
-            // completing, or a timer deadline — then re-check. Either is why the fiber
-            // set is not a deadlock; a deadlock is only when nothing is ready *and*
-            // there is no external source pending.
+            // is ready, wait on an external progress source — socket readiness, a
+            // worker-pool syscall completing, or a timer deadline — then re-check.
+            // Any of them is why the fiber set is not a deadlock; a deadlock is only
+            // when nothing is ready *and* there is no external source pending.
             let (id, frame) = loop {
                 if let Some(pair) = self.next_ready(module)? {
                     break pair;
                 }
-                let (deadline, io_pending) =
-                    SCHEDULER.with(|s| (s.borrow().earliest_deadline(), s.borrow().io_blocked > 0));
-                if io_pending {
-                    // Block for a worker completion, bounded by the earliest timer so
-                    // a due timer isn't missed while waiting on slow I/O.
-                    let timeout = deadline.map(|d| d.saturating_duration_since(Instant::now()));
-                    for (fiber_id, payload) in await_completions(timeout) {
-                        let finish = SCHEDULER.with(|s| s.borrow_mut().take_pending(fiber_id));
-                        let value = finish(payload)?; // builds the Value on this (Hawk) thread
-                        SCHEDULER.with(|s| s.borrow_mut().deliver(fiber_id, value));
+                let (deadline, io_pending, poll_pending) = SCHEDULER.with(|s| {
+                    let s = s.borrow();
+                    (
+                        s.earliest_deadline(),
+                        s.io_blocked > 0,
+                        !s.poll_blocked.is_empty(),
+                    )
+                });
+                // Every wait below is bounded by the earliest timer, so a due timer is
+                // never missed while waiting on something slower.
+                let timeout = deadline.map(|d| d.saturating_duration_since(Instant::now()));
+                if poll_pending {
+                    // A fiber is parked on a socket, so the wait has to happen in the
+                    // poller — it's the only thing that hears from the kernel. Worker
+                    // completions can still arrive concurrently; they interrupt the
+                    // poll through the `Waker`, so drain them here too rather than in
+                    // the `io_pending` branch below.
+                    let socket_ready = poll_wait(timeout)?;
+                    if socket_ready {
+                        SCHEDULER.with(|s| s.borrow_mut().wake_all_poll());
                     }
+                    self.deliver_completions(drain_completions())?;
+                    SCHEDULER.with(|s| s.borrow_mut().wake_due_timers(Instant::now()));
+                } else if io_pending {
+                    // Block for a worker completion.
+                    self.deliver_completions(await_completions(timeout))?;
                     SCHEDULER.with(|s| s.borrow_mut().wake_due_timers(Instant::now()));
                 } else if let Some(deadline) = deadline {
                     // Only timers pending: no worker can wake us early, so just sleep.
@@ -930,6 +1123,19 @@ impl<'a> Vm<'a> {
             current = id;
             active = frame;
         }
+    }
+
+    /// Turn each completed syscall's payload into its `Value` and hand it to the
+    /// fiber that issued it, making it runnable. The `finish` closures run here — on
+    /// the Hawk thread, with no heap borrow held — which is the only place a
+    /// worker's result may allocate.
+    fn deliver_completions(&mut self, completions: Vec<Completion>) -> Result<(), Trap> {
+        for (fiber_id, payload) in completions {
+            let finish = SCHEDULER.with(|s| s.borrow_mut().take_pending(fiber_id));
+            let value = finish(payload)?;
+            SCHEDULER.with(|s| s.borrow_mut().deliver(fiber_id, value));
+        }
+        Ok(())
     }
 
     /// Dequeue the next ready fiber and load it: build its initial frame from the
@@ -1320,16 +1526,17 @@ impl<'a> Vm<'a> {
                             vstack.truncate(base);
                             vstack.push(ret);
                         }
-                        Some(ParkRequest::BlockRetry) => {
-                            // The op's resource isn't ready. Rewind to re-execute
-                            // this `call.native` on resume — the args are still on
-                            // the operand stack, the placeholder return is
+                        Some(req @ (ParkRequest::BlockRetry | ParkRequest::Ready)) => {
+                            // The op's resource isn't ready (another fiber's, for
+                            // `BlockRetry`; a socket fd's, for `Ready`). Rewind to
+                            // re-execute this `call.native` on resume — the args are
+                            // still on the operand stack, the placeholder return is
                             // discarded, and the native runs again (ready by then).
                             // The whole frame stack stays on `frames` as the
                             // parked fiber's saved state.
                             frame.pc -= 1;
                             frames.push(frame);
-                            exit!(RunOutcome::Parked(ParkRequest::BlockRetry));
+                            exit!(RunOutcome::Parked(req));
                         }
                         Some(req) => {
                             // `YieldReady`/`Timer`/`Await`: the native produced its
