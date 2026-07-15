@@ -1,0 +1,23 @@
+//! std.http — an HTTP client, plus the `Request`/`Response`/`HttpError` types the
+//! server shares.
+//!
+//! Import as: import std.http
+//!
+//! ```hawk
+//! let resp = http.get('https://example.com/api/thing')?;
+//! if resp.is_ok() {
+//!     let doc = resp.json()?;
+//! }
+//! ```
+//!
+//! This is a barrel: it re-exports its sibling files (see docs/language.md) and
+//! defines nothing of its own. The split is deliberate — `std.http.server` imports
+//! the `wire` sibling **directly**, so importing the server never pulls in the
+//! client, nor (once it lands) TLS. `wire` is the shared third library; it just
+//! isn't a third public name, because the namespace is the last dotted segment and
+//! `http.get(url)` should stay the spelling of the most-written line here.
+//!
+//! Serving requests is `std.http.server`, a separate import — see docs/stdlib.md
+//! § `std.http`.
+
+pub import 'wire'; // Request, Response, HttpError, status codes, the HTTP/1.1 codec

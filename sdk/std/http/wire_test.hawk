@@ -1,0 +1,433 @@
+//! Tests for the std.http wire codec. No sockets: every case drives the codec
+//! over `io.from_bytes` / `io.StringWriter`, so a framing bug shows up here rather
+//! than as a hang against a real peer.
+
+import std.testing;
+import std.io;
+
+import 'wire' as _;
+
+/// Parse `raw` as a request, as if it had arrived on a connection.
+fn parse_request(_ raw: String) -> Result<Option<wire.Request>, wire.HttpError> {
+    return wire.Wire.new(io.from_bytes(raw.bytes())).read_request();
+}
+
+/// Parse `raw` as a response.
+fn parse_response(_ raw: String) -> Result<wire.Response, wire.HttpError> {
+    return wire.Wire.new(io.from_bytes(raw.bytes())).read_response();
+}
+
+/// Whether parsing `raw` as a request fails with `Protocol` — the "the peer is not
+/// speaking HTTP" verdict, as opposed to a body or I/O failure.
+fn is_protocol_error(_ raw: String) -> Bool {
+    return match parse_request(raw) {
+        Ok(_) => false,
+        Err(e) => match e {
+            Protocol(_) => true,
+            _ => false,
+        },
+    };
+}
+
+// --- requests ---
+
+@test
+fn reads_a_request_with_no_body() -> Result<Void, Error> {
+    let req = parse_request('GET /hello?q=1 HTTP/1.1\r\nHost: example.com\r\n\r\n')?;
+    let r = match req {
+        Some(r) => r,
+        None => { return Result.Err(error('expected a request')); },
+    };
+    testing.assert_eq(r.method, 'GET')?;
+    testing.assert_eq(r.url, '/hello?q=1')?;
+    testing.assert_eq(r.headers['host'], 'example.com')?;
+    return testing.assert_eq(r.body.len(), 0);
+}
+
+@test
+fn reads_a_request_with_a_content_length_body() -> Result<Void, Error> {
+    let raw = 'POST /submit HTTP/1.1\r\nContent-Length: 5\r\n\r\nhello';
+    let req = parse_request(raw)?;
+    let r = match req {
+        Some(r) => r,
+        None => { return Result.Err(error('expected a request')); },
+    };
+    testing.assert_eq(r.method, 'POST')?;
+    return testing.assert_eq(r.body.to_string()?, 'hello');
+}
+
+/// A clean end-of-stream before any request is how a keep-alive serve loop learns
+/// the client is done. It must be `None`, not an error.
+@test
+fn a_clean_eof_yields_no_request() -> Result<Void, Error> {
+    let req = parse_request('')?;
+    return testing.assert(req.is_none(), message: 'expected None at a clean EOF');
+}
+
+/// The reason `Wire` is a struct held across messages: two requests can arrive in
+/// one read, and the second must survive parsing the first.
+@test
+fn reads_two_pipelined_requests_from_one_buffer() -> Result<Void, Error> {
+    let raw = 'GET /one HTTP/1.1\r\nContent-Length: 2\r\n\r\nhi'
+        + 'GET /two HTTP/1.1\r\n\r\n';
+    let w = wire.Wire.new(io.from_bytes(raw.bytes()));
+
+    let first = match w.read_request()? {
+        Some(r) => r,
+        None => { return Result.Err(error('expected a first request')); },
+    };
+    testing.assert_eq(first.url, '/one')?;
+    testing.assert_eq(first.body.to_string()?, 'hi')?;
+
+    let second = match w.read_request()? {
+        Some(r) => r,
+        None => { return Result.Err(error('expected a second request')); },
+    };
+    testing.assert_eq(second.url, '/two')?;
+
+    return testing.assert(w.read_request()?.is_none(), message: 'expected EOF after two');
+}
+
+// --- responses ---
+
+@test
+fn reads_a_response() -> Result<Void, Error> {
+    let raw = 'HTTP/1.1 404 Not Found\r\nContent-Length: 3\r\n\r\nnope';
+    let r = parse_response(raw)?;
+    testing.assert_eq(r.status, 404)?;
+    testing.assert(!r.is_ok(), message: '404 is not ok')?;
+    // Only content-length bytes are taken, even though more follow.
+    return testing.assert_eq(r.body.to_string()?, 'nop');
+}
+
+/// A response with no framing headers is delimited by the close — HTTP/1.0 style.
+/// A request in the same shape has *no* body (the client isn't going to close), so
+/// the two directions genuinely differ here.
+@test
+fn a_response_without_framing_reads_to_eof() -> Result<Void, Error> {
+    let r = parse_response('HTTP/1.1 200 OK\r\n\r\nthe whole rest')?;
+    return testing.assert_eq(r.body.to_string()?, 'the whole rest');
+}
+
+@test
+fn a_request_without_framing_has_no_body() -> Result<Void, Error> {
+    let req = parse_request('POST /x HTTP/1.1\r\n\r\nnot a body')?;
+    let r = match req {
+        Some(r) => r,
+        None => { return Result.Err(error('expected a request')); },
+    };
+    return testing.assert_eq(r.body.len(), 0);
+}
+
+/// 204/304 carry no body whatever the headers claim; believing a content-length
+/// here would hang, or eat the next response on a kept-alive connection.
+@test
+fn a_204_has_no_body_despite_content_length() -> Result<Void, Error> {
+    let r = parse_response('HTTP/1.1 204 No Content\r\nContent-Length: 5\r\n\r\nhello')?;
+    testing.assert_eq(r.status, 204)?;
+    return testing.assert_eq(r.body.len(), 0);
+}
+
+/// Same for a HEAD response — but nothing on the wire says so, which is why the
+/// caller has to tell us.
+@test
+fn a_head_response_has_no_body() -> Result<Void, Error> {
+    let w = wire.Wire.new(io.from_bytes('HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n'.bytes()));
+    let r = w.read_response(to_head: true)?;
+    testing.assert_eq(r.status, 200)?;
+    testing.assert_eq(r.headers['content-length'], '5')?;
+    return testing.assert_eq(r.body.len(), 0);
+}
+
+/// The reason phrase is optional and may contain spaces — don't split the status
+/// line into fixed thirds.
+@test
+fn a_multi_word_reason_phrase_parses() -> Result<Void, Error> {
+    let r = parse_response('HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n')?;
+    return testing.assert_eq(r.status, 500);
+}
+
+// --- chunked ---
+
+@test
+fn reads_a_chunked_body() -> Result<Void, Error> {
+    let raw = 'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n'
+        + '5\r\nhello\r\n'
+        + '6\r\n world\r\n'
+        + '0\r\n\r\n';
+    let r = parse_response(raw)?;
+    return testing.assert_eq(r.body.to_string()?, 'hello world');
+}
+
+/// Chunk sizes are hex, and may carry `;ext` extensions nothing uses but which are
+/// legal — `1a;foo=bar` is a 26-byte chunk.
+@test
+fn chunk_sizes_are_hex_and_may_carry_extensions() -> Result<Void, Error> {
+    let raw = 'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n'
+        + '1a;foo=bar\r\n' + 'abcdefghijklmnopqrstuvwxyz' + '\r\n'
+        + '0\r\n\r\n';
+    let r = parse_response(raw)?;
+    return testing.assert_eq(r.body.to_string()?, 'abcdefghijklmnopqrstuvwxyz');
+}
+
+@test
+fn a_chunked_body_may_carry_trailers() -> Result<Void, Error> {
+    let raw = 'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n'
+        + '2\r\nhi\r\n'
+        + '0\r\nX-Checksum: abc\r\n\r\n';
+    let r = parse_response(raw)?;
+    return testing.assert_eq(r.body.to_string()?, 'hi');
+}
+
+// --- header normalization ---
+
+@test
+fn header_names_are_lowercased() -> Result<Void, Error> {
+    let req = parse_request('GET / HTTP/1.1\r\nCoNtEnT-TyPe: text/plain\r\n\r\n')?;
+    let r = match req {
+        Some(r) => r,
+        None => { return Result.Err(error('expected a request')); },
+    };
+    testing.assert_eq(r.headers['content-type'], 'text/plain')?;
+    // ...and `header` looks up case-insensitively either way.
+    let found = wire.header(r.headers, 'Content-Type').unwrap_or('');
+    return testing.assert_eq(found, 'text/plain');
+}
+
+@test
+fn repeated_headers_are_comma_joined() -> Result<Void, Error> {
+    let req = parse_request('GET / HTTP/1.1\r\nAccept: text/html\r\nAccept: application/json\r\n\r\n')?;
+    let r = match req {
+        Some(r) => r,
+        None => { return Result.Err(error('expected a request')); },
+    };
+    return testing.assert_eq(r.headers['accept'], 'text/html, application/json');
+}
+
+/// set-cookie is the carve-out: its own syntax contains commas (in `Expires`), so
+/// a comma-join would be ambiguous. Newline-joined instead, and splittable.
+@test
+fn repeated_set_cookie_is_newline_joined() -> Result<Void, Error> {
+    let raw = 'HTTP/1.1 200 OK\r\nContent-Length: 0\r\n'
+        + 'Set-Cookie: a=1; Expires=Wed, 21 Oct 2026 07:28:00 GMT\r\n'
+        + 'Set-Cookie: b=2\r\n\r\n';
+    let r = parse_response(raw)?;
+    let cookies = r.headers['set-cookie'].split('\n');
+    testing.assert_eq(cookies.len(), 2)?;
+    testing.assert_eq(cookies[0], 'a=1; Expires=Wed, 21 Oct 2026 07:28:00 GMT')?;
+    return testing.assert_eq(cookies[1], 'b=2');
+}
+
+// --- writing ---
+
+@test
+fn writes_a_request() -> Result<Void, Error> {
+    let out = io.StringWriter.new();
+    let req = wire.Request {
+        method: 'POST',
+        url: '/things',
+        headers: ['content-type': 'application/json'],
+        body: '{"a":1}'.bytes(),
+    };
+    wire.write_request(to: out, req)?;
+    let expected = 'POST /things HTTP/1.1\r\n'
+        + 'content-type: application/json\r\n'
+        + 'content-length: 7\r\n'
+        + '\r\n'
+        + '{"a":1}';
+    return testing.assert_eq(out.into_string()?, expected);
+}
+
+@test
+fn writes_a_response_with_its_reason_phrase() -> Result<Void, Error> {
+    let out = io.StringWriter.new();
+    let resp = wire.Response { status: 404, headers: [:], body: 'gone'.bytes() };
+    wire.write_response(to: out, resp)?;
+    let expected = 'HTTP/1.1 404 Not Found\r\n'
+        + 'content-length: 4\r\n'
+        + '\r\n'
+        + 'gone';
+    return testing.assert_eq(out.into_string()?, expected);
+}
+
+/// The codec owns framing: a caller-set content-length that disagrees with the
+/// body is a request-smuggling primitive, not a preference, so it is replaced
+/// rather than trusted.
+@test
+fn a_caller_set_content_length_is_overridden() -> Result<Void, Error> {
+    let out = io.StringWriter.new();
+    let req = wire.Request {
+        method: 'POST',
+        url: '/x',
+        headers: ['content-length': '999'],
+        body: 'four'.bytes(),
+    };
+    wire.write_request(to: out, req)?;
+    let text = out.into_string()?;
+    testing.assert(text.contains('content-length: 4'), message: 'real length')?;
+    return testing.assert(!text.contains('999'), message: 'the bogus length is dropped');
+}
+
+@test
+fn set_cookie_is_unfolded_into_one_line_each() -> Result<Void, Error> {
+    let out = io.StringWriter.new();
+    let resp = wire.Response {
+        status: 200,
+        headers: ['set-cookie': 'a=1\nb=2'],
+        body: Bytes.empty(),
+    };
+    wire.write_response(to: out, resp)?;
+    let text = out.into_string()?;
+    testing.assert(text.contains('set-cookie: a=1\r\n'), message: 'first cookie on its own line')?;
+    return testing.assert(text.contains('set-cookie: b=2\r\n'), message: 'second cookie too');
+}
+
+// --- round trip ---
+
+/// What is written parses back identically — the property that keeps the two
+/// halves honest as either changes.
+@test
+fn a_request_round_trips() -> Result<Void, Error> {
+    let out = io.StringWriter.new();
+    let sent = wire.Request {
+        method: 'PUT',
+        url: '/a/b?c=d',
+        headers: ['host': 'example.com', 'x-trace': 'abc123'],
+        body: 'payload'.bytes(),
+    };
+    wire.write_request(to: out, sent)?;
+
+    let back = match wire.Wire.new(io.from_bytes(out.into_bytes())).read_request()? {
+        Some(r) => r,
+        None => { return Result.Err(error('expected a request')); },
+    };
+    testing.assert_eq(back.method, 'PUT')?;
+    testing.assert_eq(back.url, '/a/b?c=d')?;
+    testing.assert_eq(back.headers['host'], 'example.com')?;
+    testing.assert_eq(back.headers['x-trace'], 'abc123')?;
+    return testing.assert_eq(back.body.to_string()?, 'payload');
+}
+
+@test
+fn a_response_round_trips() -> Result<Void, Error> {
+    let out = io.StringWriter.new();
+    let sent = wire.Response {
+        status: 201,
+        headers: ['location': '/things/1'],
+        body: 'created'.bytes(),
+    };
+    wire.write_response(to: out, sent)?;
+
+    let back = wire.Wire.new(io.from_bytes(out.into_bytes())).read_response()?;
+    testing.assert_eq(back.status, 201)?;
+    testing.assert_eq(back.headers['location'], '/things/1')?;
+    return testing.assert_eq(back.body.to_string()?, 'created');
+}
+
+// --- malformed input ---
+//
+// A server parses bytes from anyone, so rejecting is as load-bearing as accepting.
+
+@test
+fn a_malformed_request_line_is_rejected() -> Result<Void, Error> {
+    return testing.assert(is_protocol_error('GET\r\n\r\n'), message: 'too few fields');
+}
+
+@test
+fn an_unsupported_version_is_rejected() -> Result<Void, Error> {
+    return testing.assert(
+        is_protocol_error('GET / HTTP/2.0\r\n\r\n'),
+        message: 'HTTP/2 is a different protocol',
+    );
+}
+
+@test
+fn a_header_without_a_colon_is_rejected() -> Result<Void, Error> {
+    return testing.assert(is_protocol_error('GET / HTTP/1.1\r\nbogus\r\n\r\n'), message: 'no colon');
+}
+
+/// Whitespace between a header name and its colon is the classic smuggling trick:
+/// one proxy reads the header, the next doesn't. RFC 9110 §5.1 says reject.
+@test
+fn a_space_before_the_colon_is_rejected() -> Result<Void, Error> {
+    return testing.assert(
+        is_protocol_error('GET / HTTP/1.1\r\nContent-Length : 5\r\n\r\n'),
+        message: 'space before the colon',
+    );
+}
+
+/// Obsolete line folding is deprecated and a smuggling vector — reject rather
+/// than guess at the intent.
+@test
+fn obsolete_line_folding_is_rejected() -> Result<Void, Error> {
+    return testing.assert(
+        is_protocol_error('GET / HTTP/1.1\r\nX-Long: a\r\n  continued\r\n\r\n'),
+        message: 'obs-fold',
+    );
+}
+
+/// Both framing headers at once is the canonical desync: two intermediaries
+/// disagree on where the message ends.
+@test
+fn both_framing_headers_at_once_is_rejected() -> Result<Void, Error> {
+    return testing.assert(
+        is_protocol_error('POST / HTTP/1.1\r\nContent-Length: 5\r\nTransfer-Encoding: chunked\r\n\r\nhello'),
+        message: 'CL + TE together',
+    );
+}
+
+@test
+fn a_non_numeric_content_length_is_rejected() -> Result<Void, Error> {
+    return testing.assert(
+        is_protocol_error('POST / HTTP/1.1\r\nContent-Length: five\r\n\r\nhello'),
+        message: 'non-numeric length',
+    );
+}
+
+@test
+fn an_unsupported_transfer_encoding_is_rejected() -> Result<Void, Error> {
+    return testing.assert(
+        is_protocol_error('POST / HTTP/1.1\r\nTransfer-Encoding: gzip\r\n\r\n'),
+        message: 'only chunked is framed',
+    );
+}
+
+/// A truncated body is a `Body` error, not `Protocol`: the framing was well-formed
+/// and the peer simply vanished — a different fault, and a different fix.
+@test
+fn a_truncated_body_is_a_body_error() -> Result<Void, Error> {
+    let truncated = match parse_request('POST / HTTP/1.1\r\nContent-Length: 10\r\n\r\nshort') {
+        Ok(_) => false,
+        Err(e) => match e {
+            Body(_) => true,
+            _ => false,
+        },
+    };
+    return testing.assert(truncated, message: 'expected HttpError.Body');
+}
+
+@test
+fn an_oversized_content_length_is_refused_before_reading() -> Result<Void, Error> {
+    // No body follows: if the guard works, it never tries to read one.
+    let raw = 'POST / HTTP/1.1\r\nContent-Length: 99999999999\r\n\r\n';
+    let refused = match parse_request(raw) {
+        Ok(_) => false,
+        Err(e) => match e {
+            Body(_) => true,
+            _ => false,
+        },
+    };
+    return testing.assert(refused, message: 'expected the body-size guard to refuse');
+}
+
+@test
+fn a_malformed_chunk_size_is_rejected() -> Result<Void, Error> {
+    let bad = match parse_response('HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\nhi\r\n') {
+        Ok(_) => false,
+        Err(e) => match e {
+            Protocol(_) => true,
+            _ => false,
+        },
+    };
+    return testing.assert(bad, message: 'expected a Protocol error');
+}

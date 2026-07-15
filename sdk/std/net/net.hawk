@@ -12,7 +12,7 @@
 //!
 //! // a server: one fiber per connection
 //! let listener = net.listen('127.0.0.1:8080')?;
-//! loop {
+//! while true {
 //!     let conn = listener.accept()?;
 //!     fiber.spawn(() => handle(conn));
 //! }
