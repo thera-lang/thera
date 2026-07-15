@@ -1,0 +1,32 @@
+//! spec: fn-types
+//! mode: check
+
+// A function reference carries the referenced function's signature, so passing
+// the wrong one is a check error. This is the half that matters: before function
+// references resolved, a bare `fn` name inferred as `Unknown`, which is lenient on
+// both sides — so a mismatched reference type-checked and blew up in codegen with
+// "not a local variable", a message about the compiler's lookup rather than the
+// mistake.
+
+fn takes_string(_ s: String) -> Int {
+    return s.len();
+}
+
+fn takes_two(_ a: Int, _ b: Int) -> Int {
+    return a + b;
+}
+
+fn apply(_ f: (Int) -> Int, _ n: Int) -> Int {
+    return f(n);
+}
+
+fn main() -> Void {
+    // Wrong parameter type.
+    println(apply(takes_string, 21).display()); // expect error: expected (Int) -> Int, found (String) -> Int
+
+    // Wrong arity.
+    println(apply(takes_two, 21).display()); // expect error: expected (Int) -> Int, found (Int, Int) -> Int
+
+    // A name that is nothing at all still reports as undefined.
+    println(apply(no_such_function, 1).display()); // expect error: undefined name: no_such_function
+}

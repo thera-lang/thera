@@ -11,12 +11,7 @@
 //!     return Result.Ok(server.text(200, 'hello ' + req.url));
 //! }
 //!
-//! // Note the lambda: a named `fn` is not usable as a value today, so a handler
-//! // is passed wrapped. `server.serve(addr, hello)` is what you want to write and
-//! // what language.md §Functions promises — it does not compile yet (docs/roadmap.md
-//! // § "Functions are not first-class"). Wrapping is the workaround, and the call
-//! // stays the same once that gap closes.
-//! server.serve('127.0.0.1:8080', (req) => hello(req))?;   // blocks
+//! server.serve('127.0.0.1:8080', hello)?;   // blocks
 //! ```
 //!
 //! **The line** (docs/stdlib.md § `std.http`): bind + handle, plus a tiny path
@@ -38,18 +33,9 @@ import std.json as _;
 
 import 'wire';
 
-// A handler is `(Request) -> Result<Response, Error>`, spelled out at every use.
-// Two language gaps meet at this type, and both are worth knowing before reading
-// on (docs/stdlib.md § `std.http` sketches neither, because neither was known):
-//
-//   * **No type aliases.** The sketch's `pub type Handler = …` has no equivalent,
-//     so the signature is written out each time.
-//   * **A named `fn` is not a value.** `serve(addr, my_handler)` does not compile
-//     — only a lambda does, so callers write `serve(addr, (r) => my_handler(r))`.
-//     language.md §Functions says functions *are* first-class, so this is an
-//     implementation gap, not a design choice (docs/roadmap.md § "Functions are
-//     not first-class"). Nothing here changes when it closes; callers just drop
-//     the wrapper.
+// A handler is `(Request) -> Result<Response, Error>`, spelled out at every use:
+// Hawk has no type aliases, so the `Handler` name in docs/stdlib.md's sketch has
+// no equivalent here. Pass a named `fn` or a lambda — either is a function value.
 
 // --- response constructors ---
 //

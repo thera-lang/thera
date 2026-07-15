@@ -490,6 +490,35 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
 
 ### Developer tooling
 
+- **Verify the code snippets in docs.** Nothing checks that a fenced `hawk` block
+  in `docs/*.md` or a `///`/`//!` doc comment compiles, and they rot silently —
+  which is the worst way for them to fail, because a snippet's whole audience is
+  someone (or something) learning the language from it. An LLM reading a doc that
+  teaches syntax the compiler rejects is precisely the failure this language
+  exists to avoid.
+
+  Not hypothetical: the `std.net`/`std.http` arc (2026-07) shipped a module header
+  using `loop { … }`, which is not Hawk (there is `while`/`for` and no `loop`), and
+  `docs/stdlib.md` plus a `server.hawk` example both showed `serve(addr, handler)`
+  with a named function — the form that motivated the first-class-functions fix,
+  and that did not compile when it was written. Both were caught by hand, which is
+  exactly the thing that doesn't scale.
+
+  Design notes. The hard part is that a snippet is a **fragment**, not a program:
+  most need a wrapper (`fn main`), some need imports, some are deliberately partial
+  (`pub struct Router { let /* method+path table */; }`), and some — the sketches
+  in `stdlib.md` — describe an API that does **not exist yet**, so "it must
+  compile" is the wrong bar for them. So the mechanism needs an opt-in/opt-out
+  marker per block, and the interesting question is which way the default points.
+  Prior art worth copying: Rust's `rustdoc --test` (hidden `#` lines for the
+  boilerplate; ` ```ignore `/` ```no_run ` for the exceptions) and Go's
+  `Example_*` functions (real compiled code, with `// Output:` checked). Note
+  `tests/lang/` already has most of the harness shape — directive comments, expect
+  lines, an xfail escape hatch — so this may be less new machinery than it looks.
+  Sequencing thought: doc comments in `sdk/std` are the higher-value half and the
+  easier bar (they document code that exists); the `docs/*.md` design sketches are
+  the half that needs the opt-out.
+
 - **Doc-comment tooling — convention specced, machinery pending.** The doc
   conventions are defined ([language.md](language.md#documentation)): `///` item
   docs, `//!` file/package docs, plain `//` never extracted; a summary-first
@@ -682,31 +711,21 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
 
 ### Language
 
-- **Functions are not first-class — the spec says otherwise.** A named `fn`
-  cannot be used as a value: `apply(double, 21)` is rejected with `not a local
-  variable: double`, and only a lambda works (`apply((n) => double(n), 21)`).
-  This is a **spec/implementation divergence, not a design choice** —
-  [language.md](language.md) §Functions opens "Functions are first-class values",
-  and its type table calls `(Int, String) -> Bool` "the type of lambdas **and
-  function references**". One of the two has to move.
+- **Only an identifier or a field may be a call target.** `maker()(5)` and
+  `fns[0](10)` are rejected with `unsupported call target`
+  ([codegen.hawk](../pkgs/cli/codegen/codegen.hawk) → `call_expr`) — an arbitrary
+  expression in callee position doesn't compile, so a function value has to be
+  bound to a name before it can be called. Equally true of a lambda, so it is not
+  about function *references*; it surfaced next to them (2026-07) because a
+  reference makes function values easy to produce.
 
-  Found while building `std.http.server` (2026-07), where it bites hardest: a
-  handler is exactly the case where you want to name a function and hand it over,
-  so `serve(addr, my_handler)` — the form docs/stdlib.md's own sketch shows — has
-  to be written `serve(addr, (r) => my_handler(r))`. Every callback-taking API
-  wears the same wart.
-
-  Notes toward a fix: the runtime already has what's needed (a lambda compiles to
-  a closure; a top-level `fn` in value position is that same closure with no
-  captures), so this is plausibly contained to the codegen's identifier
-  resolution in value position. Two things to settle with it: **overload-free
-  naming** makes the reference unambiguous (good), but a bare `f` that is a
-  zero-arg function reads like a call site typo — decide whether the reference
-  form is bare `f` or something explicit. And the current **diagnostic is
-  actively misleading**: "not a local variable" describes the compiler's lookup,
-  not the user's mistake, and suggests nothing. Whichever way this lands, the
-  message should name the rule (and, if the answer is "wrap it in a lambda", say
-  so). A conformance test (`tests/lang/functions/`) should pin the outcome.
+  This is the same spec/implementation shape the first-class-functions gap had:
+  [language.md](language.md) §Functions shows `adder(by: 2)` returning `(Int) ->
+  Int` as a headline, and the obvious next keystroke — calling it — needs a bound
+  name. Decide whether the spec means to allow an expression callee (and if so,
+  compile it: the callee is just another operand to evaluate before
+  `call.indirect`) or to require the binding, and say which. A conformance test
+  under `tests/lang/functions/` should pin whichever.
 
 - Instance level mutability would be easier for agents to reason about. We
   should consider the impact, pros, and cons of switching from field level
@@ -973,6 +992,36 @@ See [architecture.md](architecture.md) for the design behind each tier.
 Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
+
+- **Function references** (2026-07). A named `fn` is now usable as a value —
+  `apply(double, 21)`, `let f = double`, `return stringify_it` — closing a
+  **spec/implementation divergence** rather than adding a feature:
+  [language.md](language.md) §Functions already opened "Functions are first-class
+  values" and its type table already called `(Int, String) -> Bool` "the type of
+  lambdas **and function references**". Only lambdas worked; a bare `fn` name in
+  value position failed in codegen with `not a local variable: double`.
+
+  Found while building `std.http.server`, where a handler is exactly the case for
+  naming a function and handing it over — `serve(addr, my_handler)` is the form
+  docs/stdlib.md's own sketch showed, and it did not compile.
+
+  Two halves, and the second mattered more than the symptom suggested:
+  - **codegen** — a reference is a closure over the function's own unit with no
+    captures, i.e. the same `closure.new` a lambda emits, appended to the
+    local→const→global resolution chain (a name is a function reference only if it
+    is nothing else, and one name space per scope means it cannot be two).
+  - **inference** — `infer_ident` fell through to `Unknown`, which is lenient on
+    both sides, so the reference was not merely uncompilable but **untyped**:
+    `apply(takes_string, 21)` against `(Int) -> Int` type-checked and only died in
+    codegen. A reference now carries its function's signature, so the mismatch is a
+    proper argument-anchored error (`expected (Int) -> Int, found (String) -> Int`).
+    Generic functions stay `Unknown`: `show<T: Display>` is a family, not a type,
+    and choosing a member needs an instantiation the position doesn't supply.
+
+  Pinned by `tests/lang/functions/fn_reference.hawk` (the xfail written when the
+  gap was found, now a passing test) and `fn_reference_reject.hawk` (the typing).
+  Uncovered next door, still open: only an identifier or a field may be a **call
+  target** (`fns[0](10)` doesn't compile) — see _Open work → Language_.
 
 - **Readiness poller + `std.net`** (2026-07). Fibers phase 4, and the socket
   layer under the coming `std.http`. `mio` joins as the 4th runtime dependency —

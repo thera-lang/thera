@@ -841,9 +841,8 @@ renders as 500.
 
 ```
 // A handler is `(Request) -> Result<Response, Error>`, written out at each use:
-// Hawk has no type aliases, so there is no `Handler` name. And a *named* fn is
-// not usable as a value today, so callers wrap: `serve(addr, (r) => handle(r))`
-// — an implementation gap against language.md §Functions, tracked in roadmap.md.
+// Hawk has no type aliases, so there is no `Handler` name. Pass a named `fn` or a
+// lambda — either is a function value.
 
 pub fn serve(_ addr: String, _ handler: …) -> Result<Void, HttpError>;  // blocks; accept loop
 pub fn serve_listener(_ listener: net.TcpListener, _ handler: …) -> Result<Void, HttpError>;

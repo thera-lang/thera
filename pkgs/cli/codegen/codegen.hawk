@@ -601,11 +601,27 @@ impl FnCompiler {
                     None => {
                         match self.scope.resolve_global_owner(self.file, name) {
                             Some(owner) => { self.emit_global(owner, name); },
-                            None => { self.error('not a local variable: ${name}', span); },
+                            None => { self.load_function_value(name, span); },
                         }
                     },
                 }
             },
+        }
+    }
+
+    // Push a free function named in value position (`apply(double, 2)`) as a
+    // function value. A lambda compiles to a closure over its captures; a named
+    // function is that same closure with none — so the reference is one
+    // `closure.new` over the function's own unit, and `call.indirect` then invokes
+    // it exactly as it would a lambda.
+    //
+    // Last in the chain, after locals/consts/globals: a name is only a function
+    // reference if it is nothing else, and one name space per scope means it
+    // cannot be two of them.
+    fn load_function_value(self, _ name: String, _ span: SourceSpan) -> Void {
+        match self.scope.resolve_function(self.file, name) {
+            Some(index) => { self.emit(Instr.ClosureNew(index, 0)); },
+            None => { self.error('undefined name: ${name}', span); },
         }
     }
 

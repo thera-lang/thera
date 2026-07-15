@@ -269,7 +269,32 @@ fn infer_struct(_ x: StructExpr, _ scope: Map<String, Type>, _ ctx: InferCtx) ->
 fn infer_ident(_ name: String, _ scope: Map<String, Type>, _ ctx: InferCtx) -> Type {
     if let Some(t) = scope.get(name) { return t; }
     if let Some(c) = ctx_scope(ctx).resolve_const(name) { return c.ty; }
+    // A free function named in value position is a function-typed value —
+    // `apply(double, 2)` (language.md §Functions: "the type of lambdas *and
+    // function references*"). Without this the name falls to `Unknown`, which is
+    // lenient on both sides, so a reference of the *wrong* signature type-checks
+    // and only fails in codegen.
+    if let Some(fn_el) = ctx_scope(ctx).resolve_function(name) {
+        if let Some(t) = function_value_type(fn_el) { return t; }
+    }
     return Type.Unknown;
+}
+
+// The function type of a free function referenced as a value, or `None` if it
+// cannot be given one.
+//
+// A **generic** function has no single function type — `show<T: Display>` is a
+// family, and picking a member needs an instantiation this position doesn't
+// supply. Left `Unknown` (as before) rather than guessed at: leniency keeps it
+// compiling, which is the status quo, and narrowing it wants the same
+// expected-type threading the rest of the generic surface uses.
+fn function_value_type(_ fn_el: FunctionElement) -> Option<Type> {
+    if fn_el.type_parameters.len() > 0 { return Option.None; }
+    let params: List<Type> = [];
+    for p in fn_el.parameters {
+        params.push(p.ty);
+    }
+    return Option.Some(Type.Function(params, fn_el.return_type));
 }
 
 // Fill in the types of one program's module-global `let`/`const` bindings that

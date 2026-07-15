@@ -52,7 +52,7 @@ fn ok_handler(_ req: wire.Request) -> Result<wire.Response, Error> {
 
 @test
 fn serves_a_request() -> Result<Void, Error> {
-    let addr = start((req) => ok_handler(req))?;
+    let addr = start(ok_handler)?;
     let resp = get(addr, '/world')?;
     testing.assert_eq(resp.status, 200)?;
     testing.assert(resp.is_ok(), message: '200 is ok')?;
@@ -105,7 +105,7 @@ fn a_handler_can_return_a_4xx_directly() -> Result<Void, Error> {
 /// HTTP/1.1 keep-alive: two requests, one connection, no reconnect between them.
 @test
 fn keeps_a_connection_alive_across_requests() -> Result<Void, Error> {
-    let addr = start((req) => ok_handler(req))?;
+    let addr = start(ok_handler)?;
     let conn = net.connect_addr(addr)?;
     let w = wire.Wire.new(conn);
 
@@ -124,7 +124,7 @@ fn keeps_a_connection_alive_across_requests() -> Result<Void, Error> {
 /// `Connection: close` ends it, and the response says so.
 @test
 fn connection_close_is_honored() -> Result<Void, Error> {
-    let addr = start((req) => ok_handler(req))?;
+    let addr = start(ok_handler)?;
     let resp = get(addr, '/once')?;
     testing.assert_eq(resp.headers['connection'], 'close')?;
     return testing.assert_eq(resp.status, 200);
@@ -134,7 +134,7 @@ fn connection_close_is_honored() -> Result<Void, Error> {
 /// the other connections are served meanwhile rather than queued behind it.
 @test
 fn serves_many_connections_concurrently() -> Result<Void, Error> {
-    let addr = start((req) => ok_handler(req))?;
+    let addr = start(ok_handler)?;
     let mut pending = [];
     // Open every connection and send every request *before* reading any reply, so
     // they genuinely overlap rather than lining up.
@@ -155,7 +155,7 @@ fn serves_many_connections_concurrently() -> Result<Void, Error> {
 
 @test
 fn a_malformed_request_gets_a_400() -> Result<Void, Error> {
-    let addr = start((req) => ok_handler(req))?;
+    let addr = start(ok_handler)?;
     let resp = exchange(addr, 'GARBAGE\r\n\r\n')?;
     return testing.assert_eq(resp.status, 400);
 }
@@ -163,7 +163,7 @@ fn a_malformed_request_gets_a_400() -> Result<Void, Error> {
 /// A smuggling attempt (both framing headers) is refused, not guessed at.
 @test
 fn a_smuggling_attempt_gets_a_400() -> Result<Void, Error> {
-    let addr = start((req) => ok_handler(req))?;
+    let addr = start(ok_handler)?;
     let raw = 'POST /x HTTP/1.1\r\nContent-Length: 5\r\nTransfer-Encoding: chunked\r\n\r\nhello';
     let resp = exchange(addr, raw)?;
     return testing.assert_eq(resp.status, 400);
@@ -172,7 +172,7 @@ fn a_smuggling_attempt_gets_a_400() -> Result<Void, Error> {
 /// An over-long body is the one malformed case the client can act on: 413, not 400.
 @test
 fn an_oversized_body_gets_a_413() -> Result<Void, Error> {
-    let addr = start((req) => ok_handler(req))?;
+    let addr = start(ok_handler)?;
     let resp = exchange(addr, 'POST /x HTTP/1.1\r\nContent-Length: 99999999999\r\n\r\n')?;
     return testing.assert_eq(resp.status, 413);
 }
@@ -245,7 +245,7 @@ fn serve_reports_an_unbindable_address() -> Result<Void, Error> {
     // asserts on the *certain* outcome.
     let held = net.listen('127.0.0.1:0')?;
     let addr = held.local_addr()?;
-    let failed = match server.serve(addr, (req) => ok_handler(req)) {
+    let failed = match server.serve(addr, ok_handler) {
         Ok(_) => false,
         Err(e) => match e {
             Connect(_) => true,
