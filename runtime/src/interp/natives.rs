@@ -237,6 +237,10 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("socket_local_addr", native_socket_local_addr),
     ("socket_peer_addr", native_socket_peer_addr),
     ("socket_resolve", native_socket_resolve),
+    ("socket_is_ready", native_socket_is_ready),
+    ("fiber_is_done", native_fiber_is_done),
+    ("chan_is_ready", native_chan_is_ready),
+    ("select_park", native_select_park),
 ];
 
 /// The native functions the runtime ships with, in index order.
@@ -1606,6 +1610,50 @@ fn native_fiber_join(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap
             Ok(Value::Unit) // placeholder; discarded — the call re-runs after the park
         }
     }
+}
+
+/// Has this fiber finished? A non-destructive probe for `select`; `join` is still
+/// how the value comes out.
+fn native_fiber_is_done(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let id = as_int(expect_one(args, "fiber_is_done")?, "fiber_is_done")? as usize;
+    Ok(Value::Bool(super::sched_result(id).is_some()))
+}
+
+/// Would a `receive` on this channel return without blocking? True when a value is
+/// buffered, and also when the channel is **closed and drained** — a receive then
+/// yields `None` immediately, which is a result, not a block.
+fn native_chan_is_ready(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let id = as_int(expect_one(args, "chan_is_ready")?, "chan_is_ready")? as usize;
+    Ok(Value::Bool(super::sched_chan_ready(id)))
+}
+
+/// Park until any of `handles` is ready, or `deadline_millis` passes (< 0 for no
+/// deadline), or another fiber makes progress. The primitive under `fiber.select`;
+/// the Hawk side re-checks every source when this returns.
+fn native_select_park(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let (hv, dv) = args2(args, "select_park")?;
+    let handles = with_list(hv, "select_park", |items| {
+        items
+            .iter()
+            .map(|v| as_int(v, "select_park"))
+            .collect::<Result<Vec<i64>, Trap>>()
+    })?;
+    let deadline_millis = as_int(dv, "select_park")?;
+    let deadline = if deadline_millis < 0 {
+        None
+    } else {
+        // The Hawk side passes a wall-clock deadline; the scheduler's timers are
+        // `Instant`s, so turn it back into a duration from now. Saturating: an
+        // already-past deadline parks for zero, and the driver wakes it at once.
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        let remaining = (deadline_millis - now).max(0) as u64;
+        Some(std::time::Instant::now() + std::time::Duration::from_millis(remaining))
+    };
+    super::park_multi(deadline, handles);
+    Ok(Value::Unit) // discarded: the native re-runs on wake
 }
 
 /// `fiber.yield()` — cede the thread to the scheduler; the fiber stays runnable
@@ -3111,6 +3159,32 @@ fn native_socket_peer_addr(_out: &mut dyn Write, args: &[Value]) -> Result<Value
         Some(Ok(a)) => Ok(Value::ok(Value::new_str(a.to_string()))),
         Some(Err(e)) => Ok(socket_err(&e)),
     }
+}
+
+/// Is this socket ready to read? A **non-destructive** probe, which is what makes
+/// the two-step `select` (ask which is ready, then act) possible: `peek` looks at
+/// the received data without consuming it, so the `read` that follows still sees
+/// it. EOF and a pending error both count as ready — the `read` will surface them,
+/// and reporting "not ready" would park a fiber on a socket that will never speak
+/// again.
+///
+/// Streams only. A listener has no non-destructive probe (`accept` *is* the
+/// consumption), so `TcpListener` is not selectable; see sdk/std/net.
+fn native_socket_is_ready(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let handle = as_int(expect_one(args, "socket_is_ready")?, "socket_is_ready")?;
+    let ready = with_socket(handle, |sock| match sock {
+        Socket::Stream(s) => {
+            let mut probe = [0u8; 1];
+            match s.peek(&mut probe) {
+                Ok(_) => true,                               // data, or EOF
+                Err(e) => e.kind() != ErrorKind::WouldBlock, // a real error is "ready"
+            }
+        }
+        Socket::Listener(_) => false,
+    });
+    // A closed handle is "ready": the op re-run by `select`'s caller returns the
+    // closed error at once, rather than parking on a socket that no longer exists.
+    Ok(Value::Bool(ready.unwrap_or(true)))
 }
 
 /// `net.resolve(host, port)` — DNS, as a U+0001-joined list of `<ip>:<port>`.

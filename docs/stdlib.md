@@ -568,8 +568,11 @@ drains its stdout. Only fast, effectively-non-blocking calls stay inline
 (`fs.exists`, `process.start`/`kill`/`close_stdin`).
 
 Notes: no mutexes/atomics — single-threaded means no data races
-([language.md](language.md) §Concurrency). `select` over channels is a candidate
-addition. The **runtime implementation** — fibers as stackless coroutines over
+([language.md](language.md) §Concurrency). **`select` is implemented**: a
+`Selectable` interface plus an index (`fiber.select(sources) -> Int`), over
+fibers, channels, timers, and sockets — with `fiber.with_timeout(work, dur)` on
+top. It needs no Go-style `select { case … }` syntax because cooperative
+scheduling makes ask-then-act race-free. The **runtime implementation** — fibers as stackless coroutines over
 the interpreter's explicit frame stack, the scheduler, parking, GC roots across
 fibers, and the I/O staging — is sketched in [architecture.md](architecture.md)
 §Concurrency.
@@ -589,8 +592,8 @@ those clients and let them shape `spawn`/`join`/channels (and whether `select`
 is needed) before freezing the surface. The first such client has landed: the
 accept loop in `std.net`'s tests drove `ParkRequest::Ready`'s retry-on-wake shape
 (and, in passing, exposed that `io.copy` assumed writes never go short — true of
-files, false of sockets). It also sharpened the case for **`select`**: a socket
-has no timeout without it.
+files, false of sockets). It also sharpened the case for **`select`**, which has
+since landed — a socket read now takes a deadline.
 
 ### `std.math` — numeric functions _(implemented)_
 

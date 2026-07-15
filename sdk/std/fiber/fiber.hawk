@@ -7,6 +7,8 @@
 //! coroutines over the interpreter's frame stack) is in docs/architecture.md
 //! §Concurrency.
 
+import std.time;
+
 /// A handle to a spawned fiber computing a `T`.
 pub struct Fiber<T> {
     let id: Int;
@@ -84,3 +86,171 @@ native fn _chan_receive<T>(_ id: Int) -> Option<T>
 
 @extern('channel_close')
 native fn _chan_close(_ id: Int) -> Void
+
+// --- select ---
+//
+// Waiting on more than one thing at once. Everything second-order reduces to it:
+// timeouts, cancellation-aware waits, first-result-wins, N-way muxing.
+//
+// The shape is a `Selectable` interface plus an index, rather than Go's `select {
+// case ... }` syntax — and it can be, because scheduling is **cooperative**. Go
+// fuses the receive into the branch because between "this channel is ready" and
+// "receive from it" another thread could take the value. Here nothing runs between
+// those two steps, so asking which source is ready and *then* acting on it is
+// exactly equivalent, with no new syntax.
+
+/// How `select` should wait for a source that isn't ready yet. Returned by
+/// [Selectable.source]; `select` parks on the union across its sources.
+pub enum SelectSource {
+    /// Woken by any other fiber's progress — a channel send, a fiber finishing.
+    /// The right answer for anything built out of channels and fibers.
+    Progress,
+    /// Woken when socket `handle` becomes ready.
+    Socket(Int),
+    /// Woken at this wall-clock deadline (millis since the epoch).
+    Deadline(Int),
+}
+
+/// Something `select` can wait on. Implemented by `Fiber`, `Channel`, `Timer`, and
+/// `net.TcpStream`.
+///
+/// Two methods, because `select` needs to know both *whether* a source is ready and
+/// *how to wait* for it if it isn't. `is_ready` must be **non-destructive** — it is
+/// asked speculatively, possibly about sources the caller never acts on — so it may
+/// not consume a value.
+pub interface Selectable {
+    /// Would acting on this source return without blocking? Must not consume.
+    fn is_ready(self) -> Bool;
+    /// What to wait on while it isn't ready.
+    fn source(self) -> SelectSource;
+}
+
+/// Wait until one of `sources` is ready, and return **its index**. Acting on it —
+/// `receive`, `join`, `read` — is the caller's next step, and is guaranteed not to
+/// block, because nothing else runs in between.
+///
+/// ```hawk
+/// let i = fiber.select([jobs, quit]);
+/// if i == 0 {
+///     match jobs.receive() { Some(job) => run(job), None => void }
+/// } else {
+///     return;
+/// }
+/// ```
+///
+/// When several are ready, the **lowest index wins** — deterministic, unlike Go's
+/// random choice, matching the scheduler's deterministic-by-design stance. Mind the
+/// starvation that implies: a hot source at index 0 can shut out index 1 forever.
+///
+/// An **empty** list waits for one of nothing, so it never returns — the same
+/// situation as `receive` on a channel nobody sends to, and it surfaces the same
+/// way: if the program has no other work, the scheduler reports the deadlock;
+/// otherwise the fiber simply never wakes. Don't do that.
+pub fn select(_ sources: List<Selectable>) -> Int {
+    while true {
+        for s in sources.enumerate() {
+            if s.value.is_ready() {
+                return s.index;
+            }
+        }
+        // Nothing ready. Park on the union of what the sources want. Note this is
+        // race-free without any locking: a source can only become ready through
+        // another fiber running, and none can until this one parks.
+        let mut handles = [];
+        let mut deadline = -1;
+        for s in sources {
+            match s.source() {
+                Progress => void, // covered by the park's blocked-list membership
+                Socket(h) => { handles.push(h); },
+                Deadline(ms) => {
+                    // The earliest deadline is the one that matters.
+                    deadline = if deadline < 0 { ms } else { deadline.min(ms) };
+                },
+            }
+        }
+        _select_park(handles, deadline);
+    }
+}
+
+impl Selectable for Fiber<T> {
+    pub fn is_ready(self) -> Bool {
+        return _fiber_is_done(self.id);
+    }
+
+    pub fn source(self) -> SelectSource {
+        return SelectSource.Progress; // a fiber finishing is progress
+    }
+}
+
+impl Selectable for Channel<T> {
+    pub fn is_ready(self) -> Bool {
+        return _chan_is_ready(self.id);
+    }
+
+    pub fn source(self) -> SelectSource {
+        return SelectSource.Progress; // a send is progress
+    }
+}
+
+// --- timers ---
+
+/// A deadline, as a [Selectable] — the way to put a time limit on a `select`.
+///
+/// It lives here rather than in `std.time` for a boring reason: it has to
+/// implement `Selectable`, and if `std.time` imported `std.fiber` for the
+/// interface, the two would import each other.
+pub struct Timer {
+    let deadline_millis: Int;
+}
+
+/// A [Selectable] that becomes ready once `d` has elapsed.
+///
+/// ```hawk
+/// let i = fiber.select([work, fiber.after(time.Duration.seconds(5))]);
+/// ```
+pub fn after(_ d: time.Duration) -> Timer {
+    return Timer { deadline_millis: time.now_millis() + d.as_millis() };
+}
+
+impl Timer {
+    /// The wall-clock deadline, in millis since the epoch.
+    pub fn deadline_millis(self) -> Int {
+        return self.deadline_millis;
+    }
+}
+
+impl Selectable for Timer {
+    pub fn is_ready(self) -> Bool {
+        return time.now_millis() >= self.deadline_millis;
+    }
+
+    pub fn source(self) -> SelectSource {
+        return SelectSource.Deadline(self.deadline_millis);
+    }
+}
+
+/// Run `work` as a fiber, giving up after `d`: `Some(value)` if it finished in
+/// time, `None` if it didn't.
+///
+/// **The timed-out work is not cancelled** — it keeps running, because a fiber
+/// cannot be killed (docs/roadmap.md). So `with_timeout` bounds *your* wait, not
+/// the work: for anything holding a resource, arrange for the timeout to release
+/// it. For a socket read the idiom is to close the socket on timeout, which wakes
+/// the reader with a closed error and lets its fiber finish.
+pub fn with_timeout<T>(_ work: () -> T, _ d: time.Duration) -> Option<T> {
+    let f = spawn(work);
+    let deadline = after(d);
+    if select([f, deadline]) == 0 {
+        return Option.Some(f.join());
+    }
+    return Option.None;
+}
+
+@extern('fiber_is_done')
+native fn _fiber_is_done(_ id: Int) -> Bool
+
+@extern('chan_is_ready')
+native fn _chan_is_ready(_ id: Int) -> Bool
+
+@extern('select_park')
+native fn _select_park(_ handles: List<Int>, _ deadline_millis: Int) -> Void

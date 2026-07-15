@@ -318,6 +318,28 @@ enum ParkRequest {
     /// truth; a dropped event is only ever redundant. (This holds because every
     /// socket native attempts its syscall *before* parking — see natives.rs.)
     Ready(i64),
+    /// Park on **several sources at once**, waking on whichever fires first. Unlike
+    /// `BlockRetry`/`Ready` the native is *not* re-run: it resumes right after the
+    /// call and returns, because the source that fired is re-checked by `select`'s
+    /// **Hawk-level loop**, not by the native. (Re-running it would just re-park,
+    /// and the loop would never see the wake — an instant deadlock.)
+    ///
+    /// This is what `select` parks on, and the only request that lists a fiber in
+    /// more than one place:
+    /// `blocked` always (so any other fiber's progress re-checks it — that covers
+    /// channels and joins), plus a `timers` entry if `deadline` is set, plus a
+    /// `poll_blocked` entry per socket handle.
+    ///
+    /// Because the fiber stays listed under the sources that *didn't* fire, waking
+    /// must be idempotent (`make_ready`) and the survivors must be swept when it is
+    /// next scheduled (`ParkSources`). Getting either wrong is not a small bug: a
+    /// double-queue schedules a running fiber, and a stale wake landing on an
+    /// `Await`-parked fiber would resume it before its syscall completed, handing
+    /// the placeholder back as the result.
+    Multi {
+        deadline: Option<Instant>,
+        handles: Vec<i64>,
+    },
 }
 
 // A native suspends the running fiber by setting `PARK` — the same
@@ -362,6 +384,17 @@ pub(super) fn park_ready(handle: i64) {
     PARK.set(Some(ParkRequest::Ready(handle)));
 }
 
+/// Block the running fiber until *any* of several sources is ready, re-running this
+/// native on resume. Called by `select`'s native after it has found every source
+/// not-ready; the Hawk-level loop then re-checks them all.
+///
+/// `blocked` is always joined (channel/join progress); `deadline` and `handles` add
+/// a timer and socket waits. Passing neither is still meaningful — it is a wait for
+/// another fiber's progress, and if none can come the driver reports the deadlock.
+pub(super) fn park_multi(deadline: Option<Instant>, handles: Vec<i64>) {
+    PARK.set(Some(ParkRequest::Multi { deadline, handles }));
+}
+
 fn take_park() -> Option<ParkRequest> {
     PARK.take()
 }
@@ -377,6 +410,26 @@ struct Fiber {
     /// `finish` that turns the worker's payload into the resume value, run on the
     /// Hawk thread when the completion arrives.
     pending: Option<IoFinish>,
+    /// Whether this fiber is already sitting in `ready`. Makes waking **idempotent**,
+    /// which a `Multi` park requires: a fiber listed under several sources would
+    /// otherwise be queued once per source that fires, and be scheduled twice
+    /// (`next_ready` would then find it `Running`).
+    queued: bool,
+    /// Where a `Multi` park listed this fiber, so the entries that *didn't* fire can
+    /// be swept when it is next scheduled. `None` for the single-source parks, which
+    /// need no sweep — their one list removes them as it wakes them.
+    ///
+    /// Without the sweep, `select`-ing on a socket in a loop would push the fiber
+    /// into `poll_blocked[h]` afresh each pass and never take it out: an unbounded
+    /// leak, and a growing pile of stale wakes.
+    park_sources: Option<ParkSources>,
+}
+
+/// The lists a `Multi` park added a fiber to, beyond `blocked` (which it always
+/// joins).
+struct ParkSources {
+    timer: bool,
+    handles: Vec<i64>,
 }
 
 enum FiberState {
@@ -451,10 +504,24 @@ impl Scheduler {
         }
     }
 
+    /// Make `id` runnable. **The only way into `ready`** — every wake path funnels
+    /// here so that waking is idempotent, which is what lets a `Multi`-parked fiber
+    /// be listed under several sources at once: whichever fires first queues it, and
+    /// the rest are no-ops rather than a second scheduling.
+    fn make_ready(&mut self, id: usize) {
+        if self.fibers[id].queued {
+            return;
+        }
+        self.fibers[id].queued = true;
+        self.ready.push_back(id);
+    }
+
     /// Move every blocked fiber back to the ready queue, so each re-checks its
     /// resource on resume. Coarse (no per-resource waiter lists), but correct.
     fn wake_all(&mut self) {
-        self.ready.extend(self.blocked.drain(..));
+        for id in std::mem::take(&mut self.blocked) {
+            self.make_ready(id);
+        }
     }
 
     /// Wake every fiber parked on socket `handle`, so each retries its syscall.
@@ -468,7 +535,9 @@ impl Scheduler {
     /// not waking the *other N connections* — is all in the handle.
     fn wake_poll(&mut self, handle: i64) {
         if let Some(waiters) = self.poll_blocked.remove(&handle) {
-            self.ready.extend(waiters);
+            for id in waiters {
+                self.make_ready(id);
+            }
         }
     }
 
@@ -531,8 +600,10 @@ impl Scheduler {
         self.fibers.push(Fiber {
             state: FiberState::NotStarted(closure),
             pending: None,
+            queued: false,
+            park_sources: None,
         });
-        self.ready.push_back(id);
+        self.make_ready(id);
         id
     }
 
@@ -557,10 +628,26 @@ impl Scheduler {
     fn park(&mut self, id: usize, vstack: Vec<Value>, frames: Vec<Frame>, req: ParkRequest) {
         self.fibers[id].state = FiberState::Suspended { vstack, frames };
         match req {
-            ParkRequest::YieldReady => self.ready.push_back(id),
+            ParkRequest::YieldReady => self.make_ready(id),
             ParkRequest::BlockRetry => self.blocked.push(id),
             ParkRequest::Timer(deadline) => self.timers.push((deadline, id)),
             ParkRequest::Ready(handle) => self.poll_blocked.entry(handle).or_default().push(id),
+            ParkRequest::Multi { deadline, handles } => {
+                // `blocked` always: it is what another fiber's progress (a send, a
+                // completion) wakes, and it is how a select over channels/joins gets
+                // re-checked at all.
+                self.blocked.push(id);
+                if let Some(d) = deadline {
+                    self.timers.push((d, id));
+                }
+                for h in &handles {
+                    self.poll_blocked.entry(*h).or_default().push(id);
+                }
+                self.fibers[id].park_sources = Some(ParkSources {
+                    timer: deadline.is_some(),
+                    handles,
+                });
+            }
             ParkRequest::Await { .. } => unreachable!("Await is routed via park_io"),
         }
     }
@@ -572,6 +659,29 @@ impl Scheduler {
         self.fibers[id].state = FiberState::Suspended { vstack, frames };
         self.fibers[id].pending = Some(finish);
         self.io_blocked += 1;
+    }
+
+    /// Drop `id` from every list a `Multi` park listed it in. Called as it is
+    /// scheduled, so the sources that lost the race don't keep a reference to a
+    /// fiber that has moved on — which would leak (`poll_blocked` growing on every
+    /// pass of a select loop) and, worse, fire a stale wake at whatever the fiber
+    /// parks on next.
+    fn unlist(&mut self, id: usize) {
+        let Some(sources) = self.fibers[id].park_sources.take() else {
+            return; // a single-source park; its one list already removed it
+        };
+        self.blocked.retain(|&f| f != id);
+        if sources.timer {
+            self.timers.retain(|&(_, f)| f != id);
+        }
+        for h in sources.handles {
+            if let Some(waiters) = self.poll_blocked.get_mut(&h) {
+                waiters.retain(|&f| f != id);
+                if waiters.is_empty() {
+                    self.poll_blocked.remove(&h);
+                }
+            }
+        }
     }
 
     /// Take the `finish` of an I/O-parked fiber (called when its completion arrives).
@@ -594,7 +704,7 @@ impl Scheduler {
             _ => unreachable!("delivered to a fiber that was not suspended"),
         }
         self.io_blocked -= 1;
-        self.ready.push_back(id);
+        self.make_ready(id);
     }
 
     /// The earliest timer deadline, if any fiber is timer-blocked.
@@ -606,15 +716,21 @@ impl Scheduler {
     /// queue. Returns whether any fiber was woken.
     fn wake_due_timers(&mut self, now: Instant) -> bool {
         let mut woke = false;
+        // Collect first: `make_ready` needs `&mut self`, which `retain`'s closure
+        // already holds.
+        let mut due = Vec::new();
         self.timers.retain(|&(deadline, id)| {
             if deadline <= now {
-                self.ready.push_back(id);
-                woke = true;
+                due.push(id);
                 false
             } else {
                 true
             }
         });
+        for id in due {
+            self.make_ready(id);
+            woke = true;
+        }
         woke
     }
 }
@@ -638,6 +754,17 @@ pub(super) fn sched_result(id: usize) -> Option<Value> {
 /// Create a channel buffering up to `capacity`; returns its id. (`channel_new`.)
 pub(super) fn sched_channel_new(capacity: usize) -> usize {
     SCHEDULER.with(|s| s.borrow_mut().channel_new(capacity))
+}
+
+/// Whether a `receive` on channel `id` would return without blocking — a value is
+/// buffered, or the channel is closed and drained (which yields `None` at once).
+/// The non-destructive probe `select` needs. (`chan_is_ready`.)
+pub(super) fn sched_chan_ready(id: usize) -> bool {
+    SCHEDULER.with(|s| {
+        let s = s.borrow();
+        let ch = &s.channels[id];
+        !ch.buffer.is_empty() || ch.closed
+    })
 }
 
 /// Non-blocking send into channel `id`. (`channel_send`.)
@@ -1046,6 +1173,8 @@ impl<'a> Vm<'a> {
             s.fibers.push(Fiber {
                 state: FiberState::Running,
                 pending: None,
+                queued: false,
+                park_sources: None,
             });
         });
         let result = self.drive(module, func, args);
@@ -1175,8 +1304,14 @@ impl<'a> Vm<'a> {
         let Some(id) = SCHEDULER.with(|s| s.borrow_mut().ready.pop_front()) else {
             return Ok(None);
         };
-        let state = SCHEDULER
-            .with(|s| std::mem::replace(&mut s.borrow_mut().fibers[id].state, FiberState::Running));
+        let state = SCHEDULER.with(|s| {
+            let mut s = s.borrow_mut();
+            s.fibers[id].queued = false;
+            // Drop the entries of a `Multi` park's losing sources before the fiber
+            // runs, so nothing stale can wake whatever it parks on next.
+            s.unlist(id);
+            std::mem::replace(&mut s.fibers[id].state, FiberState::Running)
+        });
         // `self.vstack` is empty here: the previous fiber's was taken on park, or
         // unwound to empty on completion.
         let active = match state {
@@ -1569,11 +1704,12 @@ impl<'a> Vm<'a> {
                             exit!(RunOutcome::Parked(req));
                         }
                         Some(req) => {
-                            // `YieldReady`/`Timer`/`Await`: the native produced its
-                            // result (Unit for yield/sleep, a discarded placeholder
-                            // for an `Await` — overwritten when the syscall completes),
-                            // so the fiber resumes right after the call. The scheduler
-                            // routes on the request (stay ready / timer / worker pool).
+                            // `YieldReady`/`Timer`/`Await`/`Multi`: the native produced
+                            // its result (Unit for yield/sleep/select-park, a discarded
+                            // placeholder for an `Await` — overwritten when the syscall
+                            // completes), so the fiber resumes right after the call. The
+                            // scheduler routes on the request (stay ready / timer /
+                            // worker pool / several sources at once).
                             vstack.truncate(base);
                             vstack.push(ret);
                             frames.push(frame);

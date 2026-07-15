@@ -163,7 +163,7 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     socket op still on the worker pool — it blocks with no fd to poll, but is
     bounded, so it cannot pin a worker the way `accept` would.
   - **Refinements:** per-channel waiter lists, true 0-capacity rendezvous
-    channels, `select`, and exit semantics for surviving spawned fibers. The
+    channels and exit semantics for surviving spawned fibers (`select` is done). The
     poller wants the same waiter-list refinement, and for the same reason: any
     readiness event currently wakes *every* socket-parked fiber (`wake_all_poll`,
     matching `wake_all`'s coarseness), so each retries its syscall and the ones
@@ -176,17 +176,30 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   any fiber can await the same result repeatedly, giving a broadcast/shared
   future for free), and `channel<T>(1)` is a Completer. What's thin is the
   second-order layer built on them:
-  - **`select` / race — the load-bearing gap.** A fiber can block on exactly one
-    source today (`join` one fiber, `receive` one channel); there's no "first of
-    A or B ready" wait. Everything below reduces to it — timeouts,
-    cancellation-aware waits, first-result-wins, N-channel muxing. Needs runtime
-    support (park on multiple wakeup sources); ties to the "per-channel waiter
-    lists" refinement above. Do this first.
+  - **`select` / race.** _Done (2026-07)._ A `Selectable` interface plus an index:
+    `fiber.select(sources) -> Int`, with `Fiber`, `Channel`, `Timer`, and
+    `net.TcpStream` implementing it. Not Go's `select { case … }` syntax, and it
+    doesn't need to be — Go fuses the receive into the branch because another
+    thread could take the value between "ready" and "receive"; cooperative
+    scheduling means nothing runs between those steps, so ask-then-act is exactly
+    equivalent with no new grammar. Lowest ready index wins (deterministic, unlike
+    Go's random pick, matching the scheduler's stance) — which does mean a hot
+    source at index 0 can starve index 1.
+
+    The interface needs two methods, not one: `is_ready` (which must be
+    **non-destructive**, since it's asked speculatively about sources the caller
+    may never act on) and `source`, because `select` has to know *how* to wait as
+    well as whether to. `TcpListener` is therefore not selectable — probing it
+    means `accept`, which consumes.
+
   - **Cancellation token** — a reusable `cancel()` / `is_cancelled()` /
     selectable `done` (the LSP hand-rolled a generation counter for exactly
     this). The poll form works today; the wait-or-cancel form wants `select`.
-  - **Timeout** — `with_timeout(work, dur)` = `select(result, timer)`; timer
-    parking already exists, so it falls out of `select`.
+  - **Timeout.** _Done (2026-07)._ `fiber.with_timeout(work, dur)`, and it fell
+    out of `select` as predicted. Caveat that can't be fixed here: the timed-out
+    work **isn't cancelled** — a fiber can't be killed — so it bounds your wait,
+    not the work. For a socket read the idiom is to close the socket on timeout,
+    which wakes the parked reader (see the per-fd routing entry).
   - **Structured concurrency** — `join_all`, and a scope that joins-or-cancels
     its children when the parent returns so a worker can't leak (the LSP `serve`
     drain does this by hand); ties to "exit semantics for surviving spawned
@@ -951,7 +964,8 @@ The agreed order is **(1) per-fd routing → (2) `select` → (3) TLS**. The fir
 are known gaps in the phase-4 poller that landed with the `std.http` arc (see the
 Changelog's **Readiness poller** entry), and both are things a real server hits
 rather than latent tidiness: the poller is correct, but not yet _scalable_ or
-_cancellable_. The third finishes the client. **(1) is done**; (2) is next.
+_cancellable_. The third finishes the client. **(1) and (2) are done**; TLS is
+next.
 
 1. **Per-fd wakeup routing.** _Done (2026-07)._ Readiness events route by socket
    handle — which already *is* the `mio::Token` — so an event wakes only the
@@ -978,69 +992,33 @@ _cancellable_. The third finishes the client. **(1) is done**; (2) is next.
    direction as well as handle would remove that second-order waste; not worth the
    state until a profile says so, since the first-order win is all in the handle.
 
-2. **Socket timeouts**, which reduce to **`select`** (already the load-bearing
-   gap under _Fiber synchronization primitives_). A socket has no deadline today:
-   a fiber parked on a peer that never sends waits forever, with no way to cancel
-   it. `select` is the prerequisite, timeouts fall out of it
-   (`with_timeout(work, dur)` = `select(result, timer)`), and only then can
-   `std.net` grow the `SetDeadline`-shaped surface its module header lists as
-   deliberately absent — and `std.http` grow a connect/read timeout, which a
-   client wants on day one.
+2. **Socket timeouts.** _Done (2026-07)._ `select` landed and timeouts fell out of
+   it: `fiber.select([sock, fiber.after(d)])`, or `fiber.with_timeout(work, d)`.
+   A `TcpStream` is selectable on readability, probed non-destructively with mio's
+   `peek` so the `read` that follows still sees the bytes.
 
-3. **TLS for the client** — the last piece of `std.http`. An `https://` URL parses
-   today and fails at `send` saying TLS isn't implemented.
+   The runtime piece is `ParkRequest::Multi`, which lists a fiber in `blocked` +
+   `timers` + `poll_blocked[h]` at once. Two safety properties hold it up, and
+   **both were verified by deliberately breaking them**, since a test that passes
+   either way is worthless here:
+   - **Idempotent waking** (a `queued` flag behind one `make_ready` choke point).
+     Without it, one fiber that sends on a channel *and* closes a socket wakes a
+     selector twice before it is scheduled, and the scheduler traps —
+     `scheduled a running or finished fiber`. Reachable precisely because
+     `socket_close` wakes waiters during another fiber's run, unlike timers and
+     poll events, which only fire from the idle loop when nothing is queued.
+   - **Sweep-on-schedule** (`unlist`). Without it, a select's *losing* deadline
+     stays live and fires at whatever the fiber parks on next: a later 80ms sleep
+     returned in 0ms. Worse in principle — a stale wake landing on an `Await`-parked
+     fiber would resume it before its syscall finished, handing back the discarded
+     placeholder as the result.
 
-   **Decided (2026-07): `rustls` with its default provider, `aws-lc-rs`.** The
-   research, so it doesn't get re-derived:
+   Still open, and the honest limit: **the timed-out work is not cancelled**,
+   because a fiber cannot be killed. `with_timeout` bounds the wait, not the work.
+   Releasing the resource is the caller's job — for a socket, close it.
 
-   - **BoringSSL is not an alternative to rustls — it is what rustls is.** Both
-     viable providers are BoringSSL lineage: `aws-lc-rs` pulls AWS-LC (Amazon's
-     fork of BoringSSL), and `ring` is an extraction of BoringSSL's crypto core.
-     The choice is *which descendant*, not whether.
-   - **The deciding criterion is security response, not size.** `ring` is a fine
-     crate but is effectively single-maintainer with historically intermittent
-     releases; `aws-lc-rs` has a funded team, a formal security process, FIPS
-     validation, formal-verification work, and AWS-scale production use. Holes get
-     weaponized fast, so bus factor *is* the risk. It is also rustls's own default,
-     which is a security argument by itself: best-tested path, advisories target
-     it, and deviating from a security library's default needs a positive reason.
-   - **The arguments against it were measured and don't hold.** Clean release
-     build: `ring` 6s vs `aws-lc-rs` 17s — and only on *clean* builds, which is
-     noise against `bin/test.sh`. No cmake needed (`aws-lc-sys` picked a cc-based
-     builder). And it is *not* a new toolchain requirement: rustc already links
-     through `cc`.
-   - **No feature gate.** With AOT far out and `cc` already required, gating only
-     buys a "why doesn't https work in this build" mystery — and a silent fallback
-     to `http://` is itself a security failure.
-   - **Take rustls's version policy as-is**: TLS 1.2 + 1.3, no SSLv3/1.0/1.1.
-   - **Not in scope, deliberately:** consolidating `std.hash` onto the provider's
-     digests. Neither provider exposes MD5 (`ring` refuses broken primitives;
-     AWS-LC has it in C but `aws-lc-rs` doesn't surface it) and neither has CRC32,
-     so `md-5` and `crc32fast` survive regardless — 4 crates become 3, at the cost
-     of coupling hashing to the TLS stack. The existing implementations work; this
-     is not worth the churn.
-
-   **Ship the update mechanism with it.** "Best-of-breed, updated frequently" is a
-   process, and there is none today: no CI, no dependabot, no
-   `cargo-audit`/`cargo-deny`. A best-of-breed library pinned at a vulnerable
-   version is just a vulnerable version with good provenance. Wire an advisory
-   check into the build/CI as part of this increment, not after it.
-
-   **Trust store — placeholder, needs its own analysis.** Start with
-   `rustls-native-certs`: both options cost a crate and a few lines, so pick the
-   one that is also better on the two axes the follow-up will weigh — it tracks OS
-   root updates (so a distrusted CA actually becomes distrusted, where
-   `webpki-roots` freezes the set at compile time and would need a Hawk release to
-   revoke one), and it works behind the corporate MITM proxies an agent/CLI tool
-   routinely meets. **Follow-up:** compare properly on security and ergonomics
-   (bundled-vs-OS trust, revocation/OCSP, custom CAs, containers with no OS store,
-   and whether an explicit `SSLKEYLOGFILE`/custom-root escape hatch is warranted).
-
-Ordering: (1) is done. (2) is gated on `select`, so it is really a request to
-schedule `select` — the timeout surface is the easy half, and (1) raised its
-priority: close-from-another-fiber is now the only cancellation there is. (3) is
-unblocked but sequenced last so the client's timeouts land with it rather than
-after.
+Ordering: (1) and (2) are done; **(3) TLS is next**, and is now the only thing
+between `std.http` and complete.
 
 ## Runtime staging (longer view)
 

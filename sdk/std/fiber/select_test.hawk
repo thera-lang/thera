@@ -1,0 +1,241 @@
+//! Tests for fiber.select, its Selectable implementations, and with_timeout.
+//!
+//! The cases that matter are the multi-source ones: a fiber parked on several
+//! sources stays listed under the ones that didn't fire, so waking has to be
+//! idempotent and the survivors have to be swept. Get either wrong and the failure
+//! is a scheduler crash or a fiber resumed with a placeholder — not a wrong answer.
+
+import std.testing;
+import std.io;
+import std.time;
+import std.net;
+
+import 'fiber' as _;
+
+// --- channels and fibers ---
+
+@test
+fn select_returns_the_ready_channel() -> Result<Void, Error> {
+    let a = fiber.channel<Int>(1);
+    let b = fiber.channel<Int>(1);
+    b.send(9);
+    testing.assert_eq(fiber.select([a, b]), 1)?;
+    // is_ready must not consume: the value is still there afterwards.
+    return testing.assert_eq(b.receive().unwrap_or(0), 9);
+}
+
+/// When several are ready the lowest index wins — deterministic, unlike Go's
+/// random pick, matching the scheduler's deterministic-by-design stance.
+@test
+fn select_prefers_the_lowest_ready_index() -> Result<Void, Error> {
+    let a = fiber.channel<Int>(1);
+    let b = fiber.channel<Int>(1);
+    a.send(1);
+    b.send(2);
+    return testing.assert_eq(fiber.select([a, b]), 0);
+}
+
+/// The parking path: nothing is ready, so select waits for another fiber's
+/// progress to wake it.
+@test
+fn select_waits_for_a_later_send() -> Result<Void, Error> {
+    let a = fiber.channel<Int>(1);
+    let b = fiber.channel<Int>(1);
+    fiber.spawn(() => {
+        time.sleep(time.Duration.millis(20));
+        b.send(2);
+    });
+    testing.assert_eq(fiber.select([a, b]), 1)?;
+    return testing.assert_eq(b.receive().unwrap_or(0), 2);
+}
+
+/// A closed, drained channel is *ready*: receive returns None at once, which is a
+/// result rather than a block. Reporting it not-ready would park forever.
+@test
+fn a_closed_channel_is_ready() -> Result<Void, Error> {
+    let a = fiber.channel<Int>(1);
+    a.close();
+    testing.assert_eq(fiber.select([a]), 0)?;
+    return testing.assert(a.receive().is_none(), message: 'a closed channel receives None');
+}
+
+@test
+fn select_over_a_fiber_and_a_channel() -> Result<Void, Error> {
+    let idle = fiber.channel<Int>(1);
+    let work = fiber.spawn(() => 5);
+    // Heterogeneous: a Fiber and a Channel in one List<Selectable>.
+    testing.assert_eq(fiber.select([idle, work]), 1)?;
+    return testing.assert_eq(work.join(), 5);
+}
+
+// --- timers ---
+
+@test
+fn select_wakes_on_a_deadline() -> Result<Void, Error> {
+    let silent = fiber.channel<Int>(1);
+    let started = time.now_millis();
+    testing.assert_eq(fiber.select([silent, fiber.after(time.Duration.millis(30))]), 1)?;
+    let waited = time.now_millis() - started;
+    return testing.assert(waited >= 25, message: 'should have waited for the deadline, waited ' + waited.display());
+}
+
+@test
+fn a_deadline_already_past_is_ready() -> Result<Void, Error> {
+    let silent = fiber.channel<Int>(1);
+    return testing.assert_eq(fiber.select([silent, fiber.after(time.Duration.millis(0))]), 1);
+}
+
+// --- with_timeout ---
+
+@test
+fn with_timeout_returns_the_value_in_time() -> Result<Void, Error> {
+    let got = fiber.with_timeout(() => 42, time.Duration.seconds(5));
+    return testing.assert_eq(got.unwrap_or(0), 42);
+}
+
+@test
+fn with_timeout_gives_up() -> Result<Void, Error> {
+    let got = fiber.with_timeout(() => {
+        time.sleep(time.Duration.millis(300));
+        return 1;
+    }, time.Duration.millis(20));
+    return testing.assert(got.is_none(), message: 'expected None on timeout');
+}
+
+// --- sockets ---
+
+@test
+fn select_over_a_socket_and_a_timer() -> Result<Void, Error> {
+    let listener = net.listen('127.0.0.1:0')?;
+    let addr = listener.local_addr()?;
+    let acceptor = fiber.spawn(() => listener.accept());
+    let client = net.connect_addr(addr)?;
+    let conn = acceptor.join()?;
+
+    // Nothing sent: the timer wins.
+    testing.assert_eq(fiber.select([client, fiber.after(time.Duration.millis(30))]), 1)?;
+
+    // Now data is waiting: the socket wins, and the read still sees the bytes —
+    // is_ready peeks rather than consumes.
+    io.write_all(to: conn, 'hi'.bytes())?;
+    testing.assert_eq(fiber.select([client, fiber.after(time.Duration.seconds(2))]), 0)?;
+    testing.assert_eq(client.read(max: 8)?.to_string()?, 'hi')?;
+
+    client.close()?;
+    conn.close()?;
+    listener.close()?;
+    return Result.Ok(void);
+}
+
+/// A read timeout, end to end — the composition the whole arc was for. There is no
+/// cancellation, so the timeout closes the socket, which wakes the parked reader.
+@test
+fn a_socket_read_can_be_given_a_deadline() -> Result<Void, Error> {
+    let listener = net.listen('127.0.0.1:0')?;
+    let addr = listener.local_addr()?;
+    let acceptor = fiber.spawn(() => listener.accept());
+    let client = net.connect_addr(addr)?;
+    let conn = acceptor.join()?;
+
+    // The peer never sends.
+    let timed_out = fiber.select([client, fiber.after(time.Duration.millis(30))]) == 1;
+    if timed_out {
+        client.close()?; // releases the socket; a parked reader would wake here
+    }
+    conn.close()?;
+    listener.close()?;
+    return testing.assert(timed_out, message: 'expected the deadline to win');
+}
+
+// --- the multi-source bookkeeping ---
+
+/// A fiber parked on several sources is left listed under the ones that didn't
+/// fire. Looping a select over the *same* sources many times would, without the
+/// sweep, pile up stale entries under each socket handle and fire stale wakes at
+/// whatever the fiber parks on next. Many rounds, alternating which source wins.
+@test
+fn repeated_selects_over_the_same_sources_stay_healthy() -> Result<Void, Error> {
+    let listener = net.listen('127.0.0.1:0')?;
+    let addr = listener.local_addr()?;
+    let acceptor = fiber.spawn(() => listener.accept());
+    let client = net.connect_addr(addr)?;
+    let conn = acceptor.join()?;
+
+    let mut socket_wins = 0;
+    let mut timer_wins = 0;
+    for i in 0..12 {
+        if i % 2 == 0 {
+            // Timer wins: the fiber stays listed under the socket handle.
+            if fiber.select([client, fiber.after(time.Duration.millis(5))]) == 1 {
+                timer_wins = timer_wins + 1;
+            }
+        } else {
+            // Socket wins: the fiber stays listed under the timer.
+            io.write_all(to: conn, 'x'.bytes())?;
+            if fiber.select([client, fiber.after(time.Duration.seconds(2))]) == 0 {
+                socket_wins = socket_wins + 1;
+                client.read(max: 1)?;
+            }
+        }
+    }
+    testing.assert_eq(timer_wins, 6)?;
+    testing.assert_eq(socket_wins, 6)?;
+
+    client.close()?;
+    conn.close()?;
+    listener.close()?;
+    return Result.Ok(void);
+}
+
+/// After a select loses a race, its losing source must not wake whatever the fiber
+/// parks on next. The dangerous case is a worker-pool syscall: a stale wake there
+/// would resume the fiber before the syscall finished, handing back the discarded
+/// placeholder instead of the result.
+@test
+fn a_losing_source_does_not_disturb_a_later_park() -> Result<Void, Error> {
+    let ready = fiber.channel<Int>(1);
+    ready.send(1);
+    // The channel wins immediately; the 20ms deadline is left behind.
+    testing.assert_eq(fiber.select([ready, fiber.after(time.Duration.millis(20))]), 0)?;
+
+    // Now park on something else for longer than that stale deadline. If it were
+    // still live it would wake this early, or corrupt the result.
+    let started = time.now_millis();
+    time.sleep(time.Duration.millis(80));
+    let slept = time.now_millis() - started;
+    return testing.assert(slept >= 70, message: 'a stale deadline cut the sleep short: ' + slept.display());
+}
+
+/// A fiber woken by one source must not be queued a second time by another. The
+/// reachable case is a socket close, because `socket_close` wakes waiters *during*
+/// another fiber's run (unlike timers and poll events, which only fire from the
+/// driver's idle loop, when nothing is queued at all).
+///
+/// Here one fiber makes the channel ready and then closes the socket, so the
+/// selector is woken twice before it is ever scheduled. Without idempotent waking
+/// it lands in the ready queue twice and the scheduler traps on the second pass
+/// ("scheduled a running or finished fiber") — a crash, not a wrong answer.
+@test
+fn a_fiber_woken_by_two_sources_at_once_is_queued_once() -> Result<Void, Error> {
+    let listener = net.listen('127.0.0.1:0')?;
+    let addr = listener.local_addr()?;
+    let acceptor = fiber.spawn(() => listener.accept());
+    let client = net.connect_addr(addr)?;
+    let conn = acceptor.join()?;
+
+    let ch = fiber.channel<Int>(1);
+    let selector = fiber.spawn(() => fiber.select([ch, client]));
+    // Deterministic: the selector runs, finds neither ready, and parks on both.
+    fiber.yield();
+
+    // Both wakes happen inside this one fiber's run, before the selector is
+    // scheduled: the send wakes it via the blocked list, the close via the socket's
+    // waiter list.
+    ch.send(1);
+    client.close()?;
+
+    testing.assert_eq(selector.join(), 0)?;
+    conn.close()?;
+    listener.close()?;
+    return Result.Ok(void);
+}

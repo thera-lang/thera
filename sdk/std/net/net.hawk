@@ -34,6 +34,7 @@
 //! another writes it.
 
 import std.io;
+import std.fiber;
 
 // --- errors ---
 
@@ -149,6 +150,9 @@ native fn _peer_addr(_ handle: Int) -> Result<String, String>
 @extern('socket_resolve')
 native fn _resolve(_ host: String, _ port: Int) -> Result<String, String>
 
+@extern('socket_is_ready')
+native fn _is_ready(_ handle: Int) -> Bool
+
 // --- streams ---
 
 /// A connected TCP socket: a `Reader` + `Writer` + `Closer` over a runtime socket
@@ -191,6 +195,25 @@ impl io.Closer for TcpStream {
             Ok(_) => Result.Ok(void),
             Err(e) => Result.Err(to_net_error(e)),
         };
+    }
+}
+
+/// A stream is selectable on **readability**: `fiber.select` returns its index
+/// when a `read` would not block — including at EOF and on a pending error, both of
+/// which `read` reports rather than waits on.
+///
+/// A `TcpListener` is deliberately *not* selectable: probing it means `accept`,
+/// which consumes the connection, and `select`'s `is_ready` must not consume (it is
+/// asked speculatively, about sources the caller may never act on). Selecting on
+/// "a connection arrived or quit was signalled" therefore wants an accept loop
+/// feeding a channel.
+impl fiber.Selectable for TcpStream {
+    pub fn is_ready(self) -> Bool {
+        return _is_ready(self.handle);
+    }
+
+    pub fn source(self) -> fiber.SelectSource {
+        return fiber.SelectSource.Socket(self.handle);
     }
 }
 
