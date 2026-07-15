@@ -13,7 +13,7 @@
 
 use std::any::Any;
 use std::cell::{Cell, RefCell};
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::io::{ErrorKind, Write};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -297,11 +297,17 @@ enum ParkRequest {
     /// another external progress source, so it is not a deadlock either.
     Await { job: IoJob, finish: IoFinish },
     /// A non-blocking socket op whose fd isn't ready (`EWOULDBLOCK`): the fiber
-    /// blocks until the readiness poller reports an event, and the `call.native`
-    /// re-executes — exactly [`BlockRetry`](ParkRequest::BlockRetry)'s discipline,
-    /// but woken by the poller rather than by another fiber's progress. Readiness
-    /// comes from outside Hawk (the kernel), so poll-blocked fibers are not a
-    /// deadlock.
+    /// blocks until the readiness poller reports an event **on `.0`, the socket
+    /// handle it is waiting on**, and the `call.native` re-executes — exactly
+    /// [`BlockRetry`](ParkRequest::BlockRetry)'s discipline, but woken by the
+    /// poller rather than by another fiber's progress. Readiness comes from
+    /// outside Hawk (the kernel), so poll-blocked fibers are not a deadlock.
+    ///
+    /// The handle is the routing key: it doubles as the socket's `mio::Token`, so
+    /// an event names the fiber(s) to wake without a scan. Note what this makes
+    /// load-bearing — with events routed, nothing else will wake a fiber parked on
+    /// a given socket, so **whoever takes a socket out of service must wake its
+    /// waiters** (see `wake_poll_waiters`, called by `socket_close`).
     ///
     /// The fd carries no readiness state, and deliberately so. mio is
     /// edge-triggered, which usually forces per-fd readiness flags to avoid losing
@@ -311,7 +317,7 @@ enum ParkRequest {
     /// not-ready→ready transition fires a fresh one. The syscall is the ground
     /// truth; a dropped event is only ever redundant. (This holds because every
     /// socket native attempts its syscall *before* parking — see natives.rs.)
-    Ready,
+    Ready(i64),
 }
 
 // A native suspends the running fiber by setting `PARK` — the same
@@ -348,12 +354,12 @@ pub(super) fn park_await(job: IoJob, finish: IoFinish) {
     PARK.set(Some(ParkRequest::Await { job, finish }));
 }
 
-/// Block the running fiber until the readiness poller reports an event, re-running
-/// this native on resume. Called by a socket native whose fd returned
-/// `EWOULDBLOCK`; the native must have *attempted* its syscall first (see
+/// Block the running fiber until the readiness poller reports an event on socket
+/// `handle`, re-running this native on resume. Called by a socket native whose fd
+/// returned `EWOULDBLOCK`; the native must have *attempted* its syscall first (see
 /// [`ParkRequest::Ready`]).
-pub(super) fn park_ready() {
-    PARK.set(Some(ParkRequest::Ready));
+pub(super) fn park_ready(handle: i64) {
+    PARK.set(Some(ParkRequest::Ready(handle)));
 }
 
 fn take_park() -> Option<ParkRequest> {
@@ -399,8 +405,12 @@ struct Scheduler {
     blocked: Vec<usize>,    // parked on a resource; woken en masse on any progress
     timers: Vec<(Instant, usize)>, // (deadline, fiber id) — woken by the wall clock
     io_blocked: usize,      // fibers parked on a worker-pool syscall — woken by a completion
-    poll_blocked: Vec<usize>, // parked on socket readiness; woken en masse on any poll event
-    channels: Vec<Chan>,    // indexed by channel id
+    // Parked on socket readiness, keyed by the handle waited on — so an event
+    // wakes only that socket's waiters. A handle maps to more than one fiber when
+    // (say) a reader and a writer share a socket; an entry is removed whole when
+    // woken, so an empty vec never lingers (`is_empty` is a valid "any parked?").
+    poll_blocked: HashMap<i64, Vec<usize>>,
+    channels: Vec<Chan>, // indexed by channel id
 }
 
 /// A bounded channel: a FIFO buffer of values plus a closed flag. A `send` blocks
@@ -436,7 +446,7 @@ impl Scheduler {
             blocked: Vec::new(),
             timers: Vec::new(),
             io_blocked: 0,
-            poll_blocked: Vec::new(),
+            poll_blocked: HashMap::new(),
             channels: Vec::new(),
         }
     }
@@ -447,13 +457,19 @@ impl Scheduler {
         self.ready.extend(self.blocked.drain(..));
     }
 
-    /// Move every poll-blocked fiber back to the ready queue, so each retries its
-    /// socket syscall. Deliberately as coarse as [`wake_all`](Self::wake_all): any
-    /// poll event wakes every socket-parked fiber, and the ones whose fd is still
-    /// not ready get `EWOULDBLOCK` again and re-park. Correct, and it keeps the
-    /// poller free of per-fd waiter lists (the same refinement `blocked` wants).
-    fn wake_all_poll(&mut self) {
-        self.ready.extend(self.poll_blocked.drain(..));
+    /// Wake every fiber parked on socket `handle`, so each retries its syscall.
+    /// A no-op if none is, which is the common case: an event whose waiter isn't
+    /// parked yet is stale by construction (see [`ParkRequest::Ready`]).
+    ///
+    /// Fibers sharing a handle (a reader and a writer) are woken together and the
+    /// one whose direction didn't fire re-parks after an `EWOULDBLOCK`. Splitting
+    /// by direction as well as handle would avoid that second-order waste; it is
+    /// not worth the state until a profile says so, because the first-order win —
+    /// not waking the *other N connections* — is all in the handle.
+    fn wake_poll(&mut self, handle: i64) {
+        if let Some(waiters) = self.poll_blocked.remove(&handle) {
+            self.ready.extend(waiters);
+        }
     }
 
     /// Create a channel buffering up to `capacity` (clamped to ≥ 1 — true
@@ -544,7 +560,7 @@ impl Scheduler {
             ParkRequest::YieldReady => self.ready.push_back(id),
             ParkRequest::BlockRetry => self.blocked.push(id),
             ParkRequest::Timer(deadline) => self.timers.push((deadline, id)),
-            ParkRequest::Ready => self.poll_blocked.push(id),
+            ParkRequest::Ready(handle) => self.poll_blocked.entry(handle).or_default().push(id),
             ParkRequest::Await { .. } => unreachable!("Await is routed via park_io"),
         }
     }
@@ -739,10 +755,11 @@ fn ensure_poller() -> std::io::Result<()> {
 /// worker completion wakes us (via the `Waker`), or `timeout` elapses. Events are
 /// discarded — they carry no information the retrying native needs (see
 /// [`ParkRequest::Ready`]); this call exists purely to stop spinning.
-/// Returns whether any *socket* became ready — a bare `Waker` wake (a worker
-/// completion) or a timeout returns `false`, so the driver doesn't wake the
-/// socket-parked fibers for an event that wasn't theirs.
-fn poll_wait(timeout: Option<std::time::Duration>) -> Result<bool, Trap> {
+/// The socket handles that became ready — each event's `Token` *is* its handle, so
+/// this is the driver's routing list. The `Waker`'s own token (a worker completion
+/// interrupting the poll) is filtered out: it is not a socket, and nothing is
+/// parked on it.
+fn poll_wait(timeout: Option<std::time::Duration>) -> Result<Vec<i64>, Trap> {
     POLLER.with(|p| {
         let mut p = p.borrow_mut();
         let poller = p
@@ -751,11 +768,25 @@ fn poll_wait(timeout: Option<std::time::Duration>) -> Result<bool, Trap> {
         match poller.poll.poll(&mut poller.events, timeout) {
             Ok(()) => {}
             // A signal interrupted the wait; the caller re-checks and polls again.
-            Err(e) if e.kind() == ErrorKind::Interrupted => return Ok(false),
+            Err(e) if e.kind() == ErrorKind::Interrupted => return Ok(Vec::new()),
             Err(e) => return Err(bug(format!("readiness poller failed: {e}"))),
         }
-        Ok(poller.events.iter().any(|e| e.token() != WAKE_TOKEN))
+        Ok(poller
+            .events
+            .iter()
+            .filter(|e| e.token() != WAKE_TOKEN)
+            .map(|e| e.token().0 as i64)
+            .collect())
     })
+}
+
+/// Wake every fiber parked on socket `handle`. Called when a socket leaves service
+/// (`socket_close`) rather than becomes ready: with events routed per handle, a
+/// closed socket's own events stop arriving, so its waiters would park forever
+/// without this. They retry, find the handle gone, and get a closed error — which
+/// is also, until `select` lands, the only way to cancel a blocked read.
+pub(super) fn wake_poll_waiters(handle: i64) {
+    SCHEDULER.with(|s| s.borrow_mut().wake_poll(handle));
 }
 
 /// Wake a driver blocked in [`poll_wait`]. Called from a worker thread when a
@@ -1091,9 +1122,8 @@ impl<'a> Vm<'a> {
                     // completions can still arrive concurrently; they interrupt the
                     // poll through the `Waker`, so drain them here too rather than in
                     // the `io_pending` branch below.
-                    let socket_ready = poll_wait(timeout)?;
-                    if socket_ready {
-                        SCHEDULER.with(|s| s.borrow_mut().wake_all_poll());
+                    for handle in poll_wait(timeout)? {
+                        SCHEDULER.with(|s| s.borrow_mut().wake_poll(handle));
                     }
                     self.deliver_completions(drain_completions())?;
                     SCHEDULER.with(|s| s.borrow_mut().wake_due_timers(Instant::now()));
@@ -1526,7 +1556,7 @@ impl<'a> Vm<'a> {
                             vstack.truncate(base);
                             vstack.push(ret);
                         }
-                        Some(req @ (ParkRequest::BlockRetry | ParkRequest::Ready)) => {
+                        Some(req @ (ParkRequest::BlockRetry | ParkRequest::Ready(_))) => {
                             // The op's resource isn't ready (another fiber's, for
                             // `BlockRetry`; a socket fd's, for `Ready`). Rewind to
                             // re-execute this `call.native` on resume — the args are

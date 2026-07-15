@@ -203,3 +203,33 @@ fn port_of(_ addr: String) -> Result<Int, Error> {
         None => Result.Err(error('no port in ' + addr)),
     };
 }
+
+/// Closing a socket must wake a fiber parked reading it — a hang otherwise, not an
+/// error. Readiness events are routed per handle, and a closed socket produces no
+/// more of them, so nothing else would ever wake that fiber.
+///
+/// This is also, until `select` lands, the only way to cancel a blocked read, which
+/// is why it is a supported pattern and not merely a tidy edge case.
+@test
+fn closing_a_socket_wakes_a_fiber_parked_on_it() -> Result<Void, Error> {
+    let listener = loopback()?;
+    let addr = listener.local_addr()?;
+    let acceptor = fiber.spawn(() => listener.accept());
+    let client = net.connect_addr(addr)?;
+    let conn = acceptor.join()?;
+
+    // The peer sends nothing, so this parks on the poller.
+    let reader = fiber.spawn(() => client.read(max: 16));
+    // Deterministic with a FIFO ready queue on one thread: yielding runs the
+    // reader, which gets EWOULDBLOCK and parks before control returns here.
+    fiber.yield();
+    client.close()?;
+
+    let woke_with_error = match reader.join() {
+        Ok(_) => false,
+        Err(e) => e.message().contains('closed'),
+    };
+    conn.close()?;
+    listener.close()?;
+    return testing.assert(woke_with_error, message: 'expected the reader to wake with a closed error');
+}

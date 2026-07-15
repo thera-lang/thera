@@ -2943,7 +2943,7 @@ fn native_socket_accept(_out: &mut dyn Write, args: &[Value]) -> Result<Value, T
         None => Ok(socket_closed_err()),
         Some(Ok(stream)) => register_socket(Socket::Stream(stream)),
         Some(Err(e)) if e.kind() == ErrorKind::WouldBlock => {
-            super::park_ready();
+            super::park_ready(handle);
             Ok(Value::Unit) // discarded: the native re-runs on wake
         }
         Some(Err(e)) => Ok(socket_err(&e)),
@@ -2994,7 +2994,7 @@ fn native_socket_connect_finish(_out: &mut dyn Write, args: &[Value]) -> Result<
         Some(Err(e))
             if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::NotConnected =>
         {
-            super::park_ready();
+            super::park_ready(handle);
             Ok(Value::Unit) // discarded: the native re-runs on wake
         }
         Some(Err(e)) => Ok(socket_err(&e)),
@@ -3024,7 +3024,7 @@ fn native_socket_read(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Tra
         None => Ok(socket_closed_err()),
         Some(Ok(buf)) => Ok(Value::ok(Value::new_bytes(buf))),
         Some(Err(e)) if e.kind() == ErrorKind::WouldBlock => {
-            super::park_ready();
+            super::park_ready(handle);
             Ok(Value::Unit) // discarded: the native re-runs on wake
         }
         Some(Err(e)) => Ok(socket_err(&e)),
@@ -3050,7 +3050,7 @@ fn native_socket_write(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Tr
         None => Ok(socket_closed_err()),
         Some(Ok(n)) => Ok(Value::ok(Value::Int(n as i64))),
         Some(Err(e)) if e.kind() == ErrorKind::WouldBlock => {
-            super::park_ready();
+            super::park_ready(handle);
             Ok(Value::Unit) // discarded: the native re-runs on wake
         }
         Some(Err(e)) => Ok(socket_err(&e)),
@@ -3071,6 +3071,16 @@ fn native_socket_close(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Tr
         Socket::Stream(s) => r.deregister(s),
     });
     drop(sock);
+    // Wake anyone parked on this socket — this is load-bearing, not tidiness.
+    // Readiness events are routed by handle, and a closed socket produces no more
+    // of them, so a fiber parked on it would never be woken by anything: a
+    // permanent hang, not an error. Woken, it retries, finds the handle gone, and
+    // gets `socket_closed_err`.
+    //
+    // That also makes close-from-another-fiber the only way to cancel a blocked
+    // read, until `select` gives us a real one (docs/roadmap.md § Networking
+    // punchlist).
+    super::wake_poll_waiters(handle);
     Ok(Value::ok(Value::Unit))
 }
 

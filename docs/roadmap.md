@@ -951,16 +951,33 @@ The agreed order is **(1) per-fd routing → (2) `select` → (3) TLS**. The fir
 are known gaps in the phase-4 poller that landed with the `std.http` arc (see the
 Changelog's **Readiness poller** entry), and both are things a real server hits
 rather than latent tidiness: the poller is correct, but not yet _scalable_ or
-_cancellable_. The third finishes the client.
+_cancellable_. The third finishes the client. **(1) is done**; (2) is next.
 
-1. **Per-fd wakeup routing.** Any readiness event currently wakes *every*
-   socket-parked fiber (`wake_all_poll`), each of which retries its syscall and
-   re-parks if it wasn't the one that became ready — O(parked) work per event.
-   Fine for a handful of connections, quadratic for a server holding many idle
-   ones, which is exactly `std.http.server`'s shape. The routing key already
-   exists: the mio `Token` **is** the socket handle. Pairs naturally with the
-   per-channel waiter lists under _Fibers → Refinements_ — same coarseness, same
-   fix, and worth doing together.
+1. **Per-fd wakeup routing.** _Done (2026-07)._ Readiness events route by socket
+   handle — which already *is* the `mio::Token` — so an event wakes only the
+   fibers parked on that socket instead of every socket-parked fiber. Measured on
+   the 20-connection `std.net` suite: spurious retries down ~27% (`socket_accept`
+   67→48, `socket_connect_finish` 68→50). That understates it — the win scales
+   with connection count, which is the point: `wake_all_poll` was O(parked) per
+   event, exactly the shape a server holding many idle connections hits.
+
+   **The catch, and it is the interesting part:** the coarse wake was an
+   accidental safety net. A fiber parked on a socket that *another fiber closes*
+   used to be rescued by an unrelated socket's event waking everyone. With routing
+   it would park forever, because a closed socket produces no more events of its
+   own — a hang, not an error. So `socket_close` now explicitly wakes its waiters
+   (`wake_poll_waiters`); they retry, find the handle gone, and get a closed error.
+   This was confirmed the hard way: the probe hung at exactly that point when built
+   without the wake. Pinned by `closing_a_socket_wakes_a_fiber_parked_on_it`.
+
+   That also makes close-from-another-fiber the **only** cancellation mechanism
+   there is until (2) lands, so it is a supported pattern rather than an edge case.
+
+   Left coarser on purpose: fibers sharing a handle (a reader and a writer) are
+   woken together, and the one whose direction didn't fire re-parks. Splitting by
+   direction as well as handle would remove that second-order waste; not worth the
+   state until a profile says so, since the first-order win is all in the handle.
+
 2. **Socket timeouts**, which reduce to **`select`** (already the load-bearing
    gap under _Fiber synchronization primitives_). A socket has no deadline today:
    a fiber parked on a peer that never sends waits forever, with no way to cancel
@@ -1019,10 +1036,11 @@ _cancellable_. The third finishes the client.
    (bundled-vs-OS trust, revocation/OCSP, custom CAs, containers with no OS store,
    and whether an explicit `SSLKEYLOGFILE`/custom-root escape hatch is warranted).
 
-Ordering: (1) is self-contained and can land as soon as the arc frees up. (2) is
-gated on `select`, so it is really a request to schedule `select` — the timeout
-surface is the easy half. (3) is unblocked but sequenced last so the client's
-timeouts land with it rather than after.
+Ordering: (1) is done. (2) is gated on `select`, so it is really a request to
+schedule `select` — the timeout surface is the easy half, and (1) raised its
+priority: close-from-another-fiber is now the only cancellation there is. (3) is
+unblocked but sequenced last so the client's timeouts land with it rather than
+after.
 
 ## Runtime staging (longer view)
 
