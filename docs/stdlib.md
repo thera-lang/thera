@@ -790,7 +790,10 @@ best-of-breed case; the crate backing each function is named in its doc comment.
 collision resistance (checksums / legacy interop only); `crc32` is an integrity
 checksum, not a hash.
 
-### `std.http` / `std.http.server` — HTTP client + simple server _(new)_
+### `std.http` / `std.http.server` — HTTP client + simple server
+
+_Status: the **wire codec** and the **server** are implemented; the **client** and
+TLS are not yet. `std.net` (provisional) carries both._
 
 Purpose: make HTTP requests (the client) and answer them (a simple server). Both
 are **core**; raw sockets and full server _frameworks_ stay ecosystem. Both
@@ -824,7 +827,8 @@ impl Response {
     pub fn json(self) -> Result<Json, Error>;
     pub fn is_ok(self) -> Bool;          // 2xx
 }
-pub enum HttpError { Connect(String), Timeout, Status(Int), Body(String) } // implements Error
+pub enum HttpError { Connect(String), Timeout, Status(Int), Body(String),
+                     Protocol(String) }   // implements Error
 ```
 
 Notes: TLS is provided by a runtime native (not reimplemented in Hawk).
@@ -836,30 +840,57 @@ are values — return a 4xx/5xx `Response`, or propagate an `Error` the server
 renders as 500.
 
 ```
-pub type Handler = (Request) -> Result<Response, Error>;
+// A handler is `(Request) -> Result<Response, Error>`, written out at each use:
+// Hawk has no type aliases, so there is no `Handler` name. And a *named* fn is
+// not usable as a value today, so callers wrap: `serve(addr, (r) => handle(r))`
+// — an implementation gap against language.md §Functions, tracked in roadmap.md.
 
-pub fn serve(_ addr: String, _ handler: Handler) -> Result<Void, HttpError>;  // blocks; accept loop
+pub fn serve(_ addr: String, _ handler: …) -> Result<Void, HttpError>;  // blocks; accept loop
+pub fn serve_listener(_ listener: net.TcpListener, _ handler: …) -> Result<Void, HttpError>;
+pub fn serve_connection(_ conn: net.TcpStream, _ handler: …) -> Void;
 
 // Response constructors for the common cases. Free functions, since the client's
 // `Response.text()`/`.json()` are *readers* (Hawk has no overloading), so
 // building a Response is named distinctly from reading one.
 pub fn text(_ status: Int, _ body: String) -> Response;
 pub fn json(_ status: Int, _ value: Json) -> Response;
+pub fn empty(_ status: Int) -> Response;             // a 204, or a 3xx whose `location` says it all
 
 // A tiny built-in matcher (method + path) so a webhook / health-check needs no
 // third-party router. Anything richer (path params, middleware) is ecosystem.
 pub struct Router { let /* method+path table */; }
 impl Router {
     pub fn new() -> Router;
-    pub fn route(self, _ method: String, _ path: String, _ handler: Handler) -> Router;
-    pub fn into_handler(self) -> Handler;     // fold the table into one Handler for `serve`
+    pub fn route(self, _ method: String, _ path: String, _ handler: …) -> Router;
+    pub fn into_handler(self) -> …;           // fold the table into one handler for `serve`
 }
+pub fn path_of(_ url: String) -> String;      // `/a/b?q=1` -> `/a/b`
 ```
 
 Notes: depends on `std.fiber` (accept loop + one fiber per connection) and the
-same socket natives as the client; plaintext-HTTP/1.1 first (TLS terminated
-upstream), with a TLS-terminating variant a later add. The accept loop is a
-named driver for the fiber API (§ `std.fiber`).
+same sockets as the client (`std.net`); plaintext-HTTP/1.1 first (TLS terminated
+upstream), with a TLS-terminating variant a later add. The accept loop was a
+named driver for the fiber API (§ `std.fiber`), and duly drove it.
+
+As-built notes, none of them visible from the sketch above:
+
+- **Keep-alive** is on by default, per HTTP/1.1; only an explicit `connection:
+  close` ends a connection. An HTTP/1.0 client (whose default is the opposite) is
+  safe under that rule anyway, because every response the codec writes carries a
+  `content-length` — so a 1.0 client frames the response without waiting for EOF
+  and just closes, which the serve loop reads as a clean end-of-stream.
+- **`serve` cannot be stopped.** It blocks until bind or accept fails; stopping it
+  needs cancellation, which needs `select` (§ Networking punchlist). This is why
+  `serve_listener` exists — bind `:0`, read the port back, *then* serve — and it
+  is what tests use.
+- **The `Router` distinguishes 404 from 405.** A path that exists under another
+  verb gets a 405 with an `allow` header rather than a 404: "no such thing" and
+  "wrong verb" are different answers, and the distinction is worth the few lines
+  even in a matcher this small. Routes match the path only — matching the query
+  string would make every route depend on parameter order.
+- **A malformed request gets a 400 and the connection closes** — once framing is
+  untrustworthy there is no way to find the start of the next request. An
+  over-long body is the exception the client can act on, and gets a 413.
 
 ### `std.log` — named, per-source logging _(implemented)_
 

@@ -682,6 +682,32 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
 
 ### Language
 
+- **Functions are not first-class — the spec says otherwise.** A named `fn`
+  cannot be used as a value: `apply(double, 21)` is rejected with `not a local
+  variable: double`, and only a lambda works (`apply((n) => double(n), 21)`).
+  This is a **spec/implementation divergence, not a design choice** —
+  [language.md](language.md) §Functions opens "Functions are first-class values",
+  and its type table calls `(Int, String) -> Bool` "the type of lambdas **and
+  function references**". One of the two has to move.
+
+  Found while building `std.http.server` (2026-07), where it bites hardest: a
+  handler is exactly the case where you want to name a function and hand it over,
+  so `serve(addr, my_handler)` — the form docs/stdlib.md's own sketch shows — has
+  to be written `serve(addr, (r) => my_handler(r))`. Every callback-taking API
+  wears the same wart.
+
+  Notes toward a fix: the runtime already has what's needed (a lambda compiles to
+  a closure; a top-level `fn` in value position is that same closure with no
+  captures), so this is plausibly contained to the codegen's identifier
+  resolution in value position. Two things to settle with it: **overload-free
+  naming** makes the reference unambiguous (good), but a bare `f` that is a
+  zero-arg function reads like a call site typo — decide whether the reference
+  form is bare `f` or something explicit. And the current **diagnostic is
+  actively misleading**: "not a local variable" describes the compiler's lookup,
+  not the user's mistake, and suggests nothing. Whichever way this lands, the
+  message should name the rule (and, if the answer is "wrap it in a lambda", say
+  so). A conformance test (`tests/lang/functions/`) should pin the outcome.
+
 - Instance level mutability would be easier for agents to reason about. We
   should consider the impact, pros, and cons of switching from field level
   mutability to instance level mutability.

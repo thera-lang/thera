@@ -1,0 +1,257 @@
+//! Tests for std.http.server. Real sockets on loopback, on an OS-assigned port,
+//! with the server in a spawned fiber — the shape a real deployment has, minus the
+//! network.
+//!
+//! There is no HTTP client yet, so these speak the protocol with `wire` directly.
+//! That is not a workaround: it keeps the server tested against the codec's own
+//! reading of the wire, and the client (when it lands) gets tested against this
+//! server in turn.
+
+import std.testing;
+import std.io;
+import std.net;
+import std.fiber;
+import std.json as _;
+
+import 'wire';
+import 'server' as _;
+
+/// Start `handler` on a loopback port and return the `<ip>:<port>` to dial.
+///
+/// The serve fiber is deliberately never joined: `serve_listener` blocks forever
+/// by design and there is no way to stop it (that needs `select` — see
+/// docs/roadmap.md § Networking punchlist). A test's main fiber returning ends the
+/// run regardless, and each test binds its own `:0` port, so the abandoned fiber
+/// costs nothing.
+fn start(_ handler: (wire.Request) -> Result<wire.Response, Error>) -> Result<String, Error> {
+    let listener = net.listen('127.0.0.1:0')?;
+    let addr = listener.local_addr()?;
+    fiber.spawn(() => server.serve_listener(listener, handler));
+    return Result.Ok(addr);
+}
+
+/// Send `raw` verbatim to `addr` and read one response back.
+fn exchange(_ addr: String, _ raw: String) -> Result<wire.Response, Error> {
+    let conn = net.connect_addr(addr)?;
+    io.write_all(to: conn, raw.bytes())?;
+    let resp = wire.Wire.new(conn).read_response()?;
+    conn.close()?;
+    return Result.Ok(resp);
+}
+
+/// A one-line GET for `path`, asking the server to close when done.
+fn get(_ addr: String, _ path: String) -> Result<wire.Response, Error> {
+    return exchange(addr, 'GET ' + path + ' HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n');
+}
+
+fn ok_handler(_ req: wire.Request) -> Result<wire.Response, Error> {
+    return Result.Ok(server.text(200, 'hello ' + req.url));
+}
+
+// --- the basics ---
+
+@test
+fn serves_a_request() -> Result<Void, Error> {
+    let addr = start((req) => ok_handler(req))?;
+    let resp = get(addr, '/world')?;
+    testing.assert_eq(resp.status, 200)?;
+    testing.assert(resp.is_ok(), message: '200 is ok')?;
+    testing.assert_eq(resp.body.to_string()?, 'hello /world')?;
+    return testing.assert_eq(resp.headers['content-type'], 'text/plain; charset=utf-8');
+}
+
+@test
+fn a_handler_sees_the_request_body_and_headers() -> Result<Void, Error> {
+    let addr = start((req) => {
+        let seen = wire.header(req.headers, 'X-Marker').unwrap_or('(none)');
+        return Result.Ok(server.text(200, req.method + ' ' + seen + ' ' + req.body.to_string()?));
+    })?;
+    let resp = exchange(
+        addr,
+        'POST /x HTTP/1.1\r\nX-Marker: here\r\nContent-Length: 4\r\nConnection: close\r\n\r\nbody',
+    )?;
+    return testing.assert_eq(resp.body.to_string()?, 'POST here body');
+}
+
+@test
+fn serves_json() -> Result<Void, Error> {
+    let addr = start((_req) => Result.Ok(server.json(201, obj(['ok': bool(true)]))))?;
+    let resp = get(addr, '/j')?;
+    testing.assert_eq(resp.status, 201)?;
+    testing.assert_eq(resp.headers['content-type'], 'application/json')?;
+    return testing.assert_eq(resp.body.to_string()?, '{"ok":true}');
+}
+
+/// An `Error` out of a handler is the handler's bug, not the request's: 500.
+@test
+fn a_handler_error_becomes_a_500() -> Result<Void, Error> {
+    let addr = start((_req) => Result.Err(error('handler blew up')))?;
+    let resp = get(addr, '/boom')?;
+    testing.assert_eq(resp.status, 500)?;
+    return testing.assert_eq(resp.body.to_string()?, 'handler blew up');
+}
+
+/// A handler returning a 4xx is not an error at all — errors are values.
+@test
+fn a_handler_can_return_a_4xx_directly() -> Result<Void, Error> {
+    let addr = start((_req) => Result.Ok(server.text(418, 'teapot')))?;
+    let resp = get(addr, '/tea')?;
+    testing.assert_eq(resp.status, 418)?;
+    return testing.assert_eq(resp.body.to_string()?, 'teapot');
+}
+
+// --- connection handling ---
+
+/// HTTP/1.1 keep-alive: two requests, one connection, no reconnect between them.
+@test
+fn keeps_a_connection_alive_across_requests() -> Result<Void, Error> {
+    let addr = start((req) => ok_handler(req))?;
+    let conn = net.connect_addr(addr)?;
+    let w = wire.Wire.new(conn);
+
+    io.write_all(to: conn, 'GET /one HTTP/1.1\r\nHost: x\r\n\r\n'.bytes())?;
+    let first = w.read_response()?;
+    testing.assert_eq(first.body.to_string()?, 'hello /one')?;
+
+    io.write_all(to: conn, 'GET /two HTTP/1.1\r\nHost: x\r\n\r\n'.bytes())?;
+    let second = w.read_response()?;
+    testing.assert_eq(second.body.to_string()?, 'hello /two')?;
+
+    conn.close()?;
+    return Result.Ok(void);
+}
+
+/// `Connection: close` ends it, and the response says so.
+@test
+fn connection_close_is_honored() -> Result<Void, Error> {
+    let addr = start((req) => ok_handler(req))?;
+    let resp = get(addr, '/once')?;
+    testing.assert_eq(resp.headers['connection'], 'close')?;
+    return testing.assert_eq(resp.status, 200);
+}
+
+/// The point of one-fiber-per-connection: a slow handler parks its own fiber, and
+/// the other connections are served meanwhile rather than queued behind it.
+@test
+fn serves_many_connections_concurrently() -> Result<Void, Error> {
+    let addr = start((req) => ok_handler(req))?;
+    let mut pending = [];
+    // Open every connection and send every request *before* reading any reply, so
+    // they genuinely overlap rather than lining up.
+    for i in 0..12 {
+        let conn = net.connect_addr(addr)?;
+        io.write_all(to: conn, ('GET /n' + i.display() + ' HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n').bytes())?;
+        pending.push(conn);
+    }
+    for p in pending.enumerate() {
+        let resp = wire.Wire.new(p.value).read_response()?;
+        testing.assert_eq(resp.body.to_string()?, 'hello /n' + p.index.display())?;
+        p.value.close()?;
+    }
+    return Result.Ok(void);
+}
+
+// --- malformed requests ---
+
+@test
+fn a_malformed_request_gets_a_400() -> Result<Void, Error> {
+    let addr = start((req) => ok_handler(req))?;
+    let resp = exchange(addr, 'GARBAGE\r\n\r\n')?;
+    return testing.assert_eq(resp.status, 400);
+}
+
+/// A smuggling attempt (both framing headers) is refused, not guessed at.
+@test
+fn a_smuggling_attempt_gets_a_400() -> Result<Void, Error> {
+    let addr = start((req) => ok_handler(req))?;
+    let raw = 'POST /x HTTP/1.1\r\nContent-Length: 5\r\nTransfer-Encoding: chunked\r\n\r\nhello';
+    let resp = exchange(addr, raw)?;
+    return testing.assert_eq(resp.status, 400);
+}
+
+/// An over-long body is the one malformed case the client can act on: 413, not 400.
+@test
+fn an_oversized_body_gets_a_413() -> Result<Void, Error> {
+    let addr = start((req) => ok_handler(req))?;
+    let resp = exchange(addr, 'POST /x HTTP/1.1\r\nContent-Length: 99999999999\r\n\r\n')?;
+    return testing.assert_eq(resp.status, 413);
+}
+
+// --- the router ---
+
+fn routed() -> Result<String, Error> {
+    let handler = server.Router.new()
+        .route('GET', '/health', (_req) => Result.Ok(server.text(200, 'ok')))
+        .route('GET', '/thing', (_req) => Result.Ok(server.text(200, 'a thing')))
+        .route('POST', '/thing', (_req) => Result.Ok(server.text(201, 'made a thing')))
+        .into_handler();
+    return start(handler);
+}
+
+@test
+fn the_router_dispatches_on_method_and_path() -> Result<Void, Error> {
+    let addr = routed()?;
+    testing.assert_eq(get(addr, '/health')?.body.to_string()?, 'ok')?;
+    testing.assert_eq(get(addr, '/thing')?.body.to_string()?, 'a thing')?;
+
+    let made = exchange(addr, 'POST /thing HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n')?;
+    testing.assert_eq(made.status, 201)?;
+    return testing.assert_eq(made.body.to_string()?, 'made a thing');
+}
+
+@test
+fn the_router_404s_an_unknown_path() -> Result<Void, Error> {
+    let addr = routed()?;
+    return testing.assert_eq(get(addr, '/nope')?.status, 404);
+}
+
+/// A known path under the wrong verb is a 405, not a 404 — the distinction between
+/// "no such thing" and "wrong verb" — and it must say which verbs do work.
+@test
+fn the_router_405s_a_known_path_under_the_wrong_method() -> Result<Void, Error> {
+    let addr = routed()?;
+    let resp = exchange(addr, 'DELETE /thing HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n')?;
+    testing.assert_eq(resp.status, 405)?;
+    return testing.assert_eq(resp.headers['allow'], 'GET, POST');
+}
+
+/// Routes match the path only: a query string is the handler's business, and
+/// matching on it would make every route depend on parameter order.
+@test
+fn the_router_ignores_the_query_string() -> Result<Void, Error> {
+    let addr = routed()?;
+    return testing.assert_eq(get(addr, '/health?verbose=1&x=2')?.body.to_string()?, 'ok');
+}
+
+@test
+fn path_of_splits_at_the_query() -> Result<Void, Error> {
+    testing.assert_eq(server.path_of('/a/b?q=1'), '/a/b')?;
+    testing.assert_eq(server.path_of('/a/b'), '/a/b')?;
+    return testing.assert_eq(server.path_of('/?q=1'), '/');
+}
+
+// --- binding ---
+
+@test
+fn serve_reports_an_unbindable_address() -> Result<Void, Error> {
+    // Hold a port, then ask `serve` for that same one: EADDRINUSE is deterministic
+    // and needs no assumption about the environment.
+    //
+    // The obvious alternative — a privileged port like `0.0.0.0:1` — is a trap.
+    // "Port 1 won't bind" is an assumption about *who is running the test*, and it
+    // is false under root or in a container (it binds fine here). When it binds,
+    // `serve` does exactly what it promises and blocks forever, so the suite hangs
+    // rather than fails. Any test of a blocking call has to make the failure it
+    // asserts on the *certain* outcome.
+    let held = net.listen('127.0.0.1:0')?;
+    let addr = held.local_addr()?;
+    let failed = match server.serve(addr, (req) => ok_handler(req)) {
+        Ok(_) => false,
+        Err(e) => match e {
+            Connect(_) => true,
+            _ => false,
+        },
+    };
+    held.close()?;
+    return testing.assert(failed, message: 'expected HttpError.Connect');
+}

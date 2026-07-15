@@ -1,0 +1,27 @@
+//! spec: fn-types
+//! mode: run
+//! xfail: a named fn is not usable as a value; only lambdas are (roadmap.md → Language, "Functions are not first-class")
+
+// The half of `fn-types` that does not work yet. language.md §Functions opens
+// "Functions are first-class values", and its type table calls `(Int, String) ->
+// Bool` "the type of lambdas **and function references**" — but only the lambda
+// half is implemented. Referring to a named `fn` by name in value position is
+// rejected with "not a local variable: double", which describes the compiler's
+// lookup rather than the rule being broken.
+//
+// `fn_types.hawk` pins the lambda half, which does compile; the workaround is to
+// wrap: `apply((n) => double(n), 21)`. Found while building `std.http.server`,
+// where a named handler passed to `serve` is the natural spelling and the one
+// docs/stdlib.md's own sketch shows.
+
+fn double(_ n: Int) -> Int {
+    return n * 2;
+}
+
+fn apply(_ f: (Int) -> Int, _ n: Int) -> Int {
+    return f(n);
+}
+
+fn main() -> Void {
+    println(apply(double, 21).display()); // expect: 42
+}

@@ -1,0 +1,287 @@
+//! std.http.server — a simple HTTP/1.1 server: bind, and answer requests with a
+//! handler function.
+//!
+//! Import as: import std.http.server (plus `import std.http` for the types)
+//!
+//! ```hawk
+//! import std.http;
+//! import std.http.server;
+//!
+//! fn hello(_ req: http.Request) -> Result<http.Response, Error> {
+//!     return Result.Ok(server.text(200, 'hello ' + req.url));
+//! }
+//!
+//! // Note the lambda: a named `fn` is not usable as a value today, so a handler
+//! // is passed wrapped. `server.serve(addr, hello)` is what you want to write and
+//! // what language.md §Functions promises — it does not compile yet (docs/roadmap.md
+//! // § "Functions are not first-class"). Wrapping is the workaround, and the call
+//! // stays the same once that gap closes.
+//! server.serve('127.0.0.1:8080', (req) => hello(req))?;   // blocks
+//! ```
+//!
+//! **The line** (docs/stdlib.md § `std.http`): bind + handle, plus a tiny path
+//! matcher, is core; routing DSLs, middleware stacks, and enterprise servers are
+//! ecosystem. Plaintext HTTP/1.1 only — a simple server's TLS is normally
+//! terminated upstream by a reverse proxy.
+//!
+//! One fiber per connection, over the scheduler. Errors are values: return a 4xx
+//! or 5xx `Response`, or propagate an `Error` and the server renders a 500.
+//!
+//! This imports the `wire` sibling directly rather than the `std.http` barrel, so
+//! serving never pulls in the client (nor, once it lands, TLS). The types are the
+//! same ones either way — `server.serve` takes the `http.Request` you get from
+//! `import std.http`.
+
+import std.net;
+import std.fiber;
+import std.json as _;
+
+import 'wire';
+
+// A handler is `(Request) -> Result<Response, Error>`, spelled out at every use.
+// Two language gaps meet at this type, and both are worth knowing before reading
+// on (docs/stdlib.md § `std.http` sketches neither, because neither was known):
+//
+//   * **No type aliases.** The sketch's `pub type Handler = …` has no equivalent,
+//     so the signature is written out each time.
+//   * **A named `fn` is not a value.** `serve(addr, my_handler)` does not compile
+//     — only a lambda does, so callers write `serve(addr, (r) => my_handler(r))`.
+//     language.md §Functions says functions *are* first-class, so this is an
+//     implementation gap, not a design choice (docs/roadmap.md § "Functions are
+//     not first-class"). Nothing here changes when it closes; callers just drop
+//     the wrapper.
+
+// --- response constructors ---
+//
+// Free functions, not methods: the client's `Response.text()`/`.json()` are
+// *readers*, and Hawk has no overloading, so building a Response is named
+// distinctly from reading one (docs/stdlib.md § `std.http`).
+
+/// A `text/plain` response.
+pub fn text(_ status: Int, _ body: String) -> wire.Response {
+    return wire.Response {
+        status: status,
+        headers: ['content-type': 'text/plain; charset=utf-8'],
+        body: body.bytes(),
+    };
+}
+
+/// An `application/json` response.
+pub fn json(_ status: Int, _ value: Json) -> wire.Response {
+    return wire.Response {
+        status: status,
+        headers: ['content-type': 'application/json'],
+        body: stringify(value).bytes(),
+    };
+}
+
+/// A response with no body — for a 204, or a 3xx whose `location` says it all.
+pub fn empty(_ status: Int) -> wire.Response {
+    return wire.Response { status: status, headers: [:], body: Bytes.empty() };
+}
+
+// --- the path matcher ---
+
+/// One `(method, path) -> handler` entry.
+struct Route {
+    let method: String;
+    let path: String;
+    let handler: (wire.Request) -> Result<wire.Response, Error>;
+}
+
+/// A tiny method+path matcher, so a webhook receiver or a health check needs no
+/// third-party router. Exact matches only — **no path parameters, no wildcards, no
+/// middleware**; anything richer is ecosystem (docs/stdlib.md § `std.http`).
+///
+/// ```hawk
+/// let handler = server.Router.new()
+///     .route('GET', '/health', (_req) => Result.Ok(server.text(200, 'ok')))
+///     .route('POST', '/hook', on_hook)
+///     .into_handler();
+/// server.serve('127.0.0.1:8080', handler)?;
+/// ```
+///
+/// Unmatched paths get a 404; a path that matches under another method gets a 405
+/// with an `allow` header, which is the difference between "no such thing" and
+/// "wrong verb" — worth keeping even in a matcher this small.
+pub struct Router {
+    let mut routes: List<Route>;
+}
+
+impl Router {
+    pub fn new() -> Router {
+        return Router { routes: [] };
+    }
+
+    /// Add a route. Returns the same `Router`, so calls chain.
+    pub fn route(
+        self,
+        _ method: String,
+        _ path: String,
+        _ handler: (wire.Request) -> Result<wire.Response, Error>,
+    ) -> Router {
+        self.routes.push(Route { method: method.to_uppercase(), path: path, handler: handler });
+        return self;
+    }
+
+    /// Fold the table into one handler, for `serve`.
+    pub fn into_handler(self) -> (wire.Request) -> Result<wire.Response, Error> {
+        let routes = self.routes;
+        return (req) => {
+            let path = path_of(req.url);
+            let mut allowed = [];
+            for r in routes {
+                if r.path == path {
+                    if r.method == req.method {
+                        return r.handler(req);
+                    }
+                    allowed.push(r.method);
+                }
+            }
+            if allowed.len() > 0 {
+                let resp = text(405, 'method not allowed');
+                resp.headers['allow'] = allowed.join(', ');
+                return Result.Ok(resp);
+            }
+            return Result.Ok(text(404, 'not found'));
+        };
+    }
+}
+
+/// The path half of a request target — `/a/b?q=1` is the path `/a/b`. Matching on
+/// the query string too would make every route depend on parameter order.
+pub fn path_of(_ url: String) -> String {
+    match url.find('?') {
+        Some(i) => { return url.slice(0, i); },
+        None => { return url; },
+    }
+}
+
+// --- serving ---
+
+/// Bind `addr` and serve it forever. `addr` is an `<ip>:<port>`:
+/// `'127.0.0.1:8080'` for loopback only, `'0.0.0.0:8080'` for every interface.
+///
+/// **Blocks** — it only returns if binding or accepting fails. There is no way to
+/// stop it: that needs cancellation, which needs the scheduler's `select`
+/// (docs/roadmap.md § Networking punchlist). Use `serve_listener` when you need
+/// the bound address first.
+pub fn serve(
+    _ addr: String,
+    _ handler: (wire.Request) -> Result<wire.Response, Error>,
+) -> Result<Void, wire.HttpError> {
+    let listener = match net.listen(addr) {
+        Ok(l) => l,
+        Err(e) => { return Result.Err(wire.HttpError.Connect(e.message())); },
+    };
+    return serve_listener(listener, handler);
+}
+
+/// Serve an already-bound listener. The form to use when the port matters and you
+/// don't know it yet: bind `:0`, read it back with `local_addr`, *then* serve.
+pub fn serve_listener(
+    _ listener: net.TcpListener,
+    _ handler: (wire.Request) -> Result<wire.Response, Error>,
+) -> Result<Void, wire.HttpError> {
+    while true {
+        let conn = match listener.accept() {
+            Ok(c) => c,
+            Err(e) => { return Result.Err(wire.HttpError.Connect(e.message())); },
+        };
+        // One fiber per connection: the accept loop is free again immediately, and
+        // a slow client parks its own fiber rather than the thread.
+        fiber.spawn(() => serve_connection(conn, handler));
+    }
+}
+
+/// Serve one connection to its end: read a request, answer it, repeat while the
+/// connection stays alive. Always closes the socket.
+pub fn serve_connection(
+    _ conn: net.TcpStream,
+    _ handler: (wire.Request) -> Result<wire.Response, Error>,
+) -> Void {
+    let w = wire.Wire.new(conn);
+    let mut going = true;
+    while going {
+        match w.read_request() {
+            Ok(next) => {
+                match next {
+                    // A clean EOF: the client is done and closed its end. The
+                    // normal way a kept-alive connection ends, not an error.
+                    None => { going = false; },
+                    Some(req) => { going = answer(conn, req, handler); },
+                }
+            },
+            // The client is not speaking HTTP. Say so and hang up: the framing is
+            // untrustworthy, so there is no way to find the start of a next
+            // request on this connection.
+            Err(e) => {
+                let _ = respond(conn, error_response(status_for(e), e), keep_alive: false);
+                going = false;
+            },
+        }
+    }
+    let _ = conn.close();
+}
+
+/// Run `handler` over `req` and send its response. Returns whether the connection
+/// stays open for another request.
+fn answer(
+    _ conn: net.TcpStream,
+    _ req: wire.Request,
+    _ handler: (wire.Request) -> Result<wire.Response, Error>,
+) -> Bool {
+    // Decide before handing `req` over — a handler is free to mutate its headers.
+    let keep_alive = wants_keep_alive(req);
+    let resp = match handler(req) {
+        Ok(r) => r,
+        // An `Error` out of a handler is a bug in the handler, not a statement
+        // about the request: 500, and don't leak the message's internals beyond
+        // what the handler chose to say.
+        Err(e) => error_response(500, e),
+    };
+    if !respond(conn, resp, keep_alive: keep_alive) {
+        return false; // the peer went away mid-write
+    }
+    return keep_alive;
+}
+
+/// Write `resp`, tagging it with the connection disposition. Returns whether the
+/// write succeeded.
+fn respond(_ conn: net.TcpStream, _ resp: wire.Response, keep_alive: Bool) -> Bool {
+    if !keep_alive {
+        resp.headers['connection'] = 'close';
+    }
+    return match wire.write_response(to: conn, resp) {
+        Ok(_) => true,
+        Err(_) => false,
+    };
+}
+
+/// Whether to keep the connection open after this request. HTTP/1.1's default is
+/// keep-alive, so only an explicit `connection: close` ends it.
+///
+/// An HTTP/1.0 client (whose default is the opposite) is safe under this rule even
+/// though it may not say `connection: close`: every response the codec writes
+/// carries a `content-length`, so a 1.0 client can frame the response without
+/// waiting for EOF, and simply closes when it is done — which this loop then sees
+/// as a clean end-of-stream.
+fn wants_keep_alive(_ req: wire.Request) -> Bool {
+    return match wire.header(req.headers, 'connection') {
+        Some(v) => v.to_lowercase().trim() != 'close',
+        None => true,
+    };
+}
+
+/// Which status a malformed request earns. A body that was too big is the one case
+/// the client can act on specifically.
+fn status_for(_ e: wire.HttpError) -> Int {
+    return match e {
+        Body(_) => 413,
+        _ => 400,
+    };
+}
+
+fn error_response(_ status: Int, _ e: Error) -> wire.Response {
+    return text(status, e.message());
+}
