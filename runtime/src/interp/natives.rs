@@ -1653,7 +1653,9 @@ fn native_select_park(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Tra
         Some(std::time::Instant::now() + std::time::Duration::from_millis(remaining))
     };
     super::park_multi(deadline, handles);
-    Ok(Value::Unit) // discarded: the native re-runs on wake
+    // The call's actual result: a `Multi` park resumes *after* the call (the native
+    // is not re-run — that would just re-park); the Hawk-side loop re-probes.
+    Ok(Value::Unit)
 }
 
 /// `fiber.yield()` — cede the thread to the scheduler; the fiber stays runnable

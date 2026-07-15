@@ -1020,6 +1020,64 @@ next.
 Ordering: (1) and (2) are done; **(3) TLS is next**, and is now the only thing
 between `std.http` and complete.
 
+### Scheduler punchlist
+
+Findings from a 2026-07 design review of fiber waiting/waking (the park
+taxonomy, the readiness poller, `select`). The review's verdict was that the
+design is sound — the two `Multi`-park invariants (idempotent waking,
+sweep-on-schedule) are enforced at single choke points and mutation-tested — so
+these are the gaps *around* it, not problems *in* it. None is a correctness
+bug; all three grow teeth with a long-running server, which is where the
+networking arc is headed.
+
+1. **Selects with no `Progress` source still join the coarse `blocked` list.**
+   A `Multi` park adds the fiber to `blocked` unconditionally, so a
+   `select([sock, fiber.after(d)])` — socket + timer, no channel or join
+   anywhere in it — is woken by *every* channel send/receive/close and fiber
+   completion in the program, re-probes all its sources, and re-parks. That is
+   the per-fd-routing problem (item 1 above) reappearing one layer up: N
+   connections each select-waiting with a timeout do O(N) spurious re-probes
+   per channel operation. Cheap targeted fix when a profile asks: the Hawk-side
+   `select` already knows whether any source returned `SelectSource.Progress`,
+   so `_select_park` can take that as a flag and skip `blocked` when none did.
+   The full fix is per-resource waiter lists for channels and joins (already
+   promised in `Scheduler::complete`'s doc), which would retire `wake_all`'s
+   thundering herd entirely.
+
+2. **Select deadlines mix the wall clock with the monotonic clock.**
+   `fiber.after` captures `time.now_millis()` (wall) and `Timer.is_ready`
+   re-checks against it, but the scheduler's timers are `Instant`s (monotonic),
+   so `select_park` converts wall→monotonic on every park — while `time.sleep`
+   is `Instant` end-to-end. A wall-clock step forward fires select deadlines
+   early; a step backward extends them (the probe loop re-parks with a
+   recomputed remainder — it converges, no hang, but an NTP step is added to
+   the wait). `with_timeout` semantics want monotonic throughout. The wrinkle:
+   `SelectSource.Deadline` needs an *absolute* time that stays fixed across
+   re-parks, so the fix is a runtime-provided monotonic clock (millis since
+   program start, say) for `Timer` to capture instead of the epoch — a new
+   native and a `std.time` surface decision, hence parked here.
+
+3. **The scheduler never reclaims fibers or channels.** `fibers` is
+   deliberately never compacted (stable ids), every `Done` fiber's result stays
+   GC-rooted forever (`gather_scheduler_roots`), and `channels` only grows.
+   Invisible in every current program, but the server pattern — one long run of
+   `while true { accept; spawn(handle) }` — leaks a fiber slot plus its rooted
+   result per connection served. Needs a design decision, not a patch, because
+   join-ability is what blocks reclamation: a `Done` fiber can't be freed while
+   a `join` might still come. Candidate shapes: make `join` one-shot and
+   reclaim on it, plus a story for never-joined fire-and-forget fibers (drop
+   the result on completion when no join can observe it, or an explicit
+   detached spawn); refcounting `Fiber<T>` handles has been avoided so far.
+   Channels want the same eventually (`close` could free the slot once
+   drained). **This is the biggest of the three** — it gates calling the
+   `std.http` server production-shaped.
+
+Also noted by the review, one comment's worth of insurance: nothing enforces
+that an `IoFinish` closure captures no `Value` (they aren't GC roots; all ~25
+current `park_syscall` call sites capture only owned Rust data, and the
+`build: FnOnce(T) -> Value` shape encourages that). Worth a sentence on the
+`IoFinish` type when next touched.
+
 ## Runtime staging (longer view)
 
 See [architecture.md](architecture.md) for the design behind each tier.
