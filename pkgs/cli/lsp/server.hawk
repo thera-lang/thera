@@ -2,7 +2,9 @@
 // small slice of the LSP. Slice 1 covers the lifecycle (`initialize` /
 // `shutdown` / `exit`), full-document sync (`didOpen` / `didChange` /
 // `didClose`), and pull-model diagnostics (`textDocument/diagnostic` +
-// `workspace/diagnostic`, with a `workspace/diagnostic/refresh` nudge on edits).
+// `workspace/diagnostic`, with a `workspace/diagnostic/refresh` nudge on edits;
+// a streaming client's workspace pull is **held open** and updated via
+// `$/progress` deltas — see `open_pull` — so an idle server does nothing at all).
 // Document symbols, hover, and definition land in later slices.
 //
 // This is the Hawk port of the Dart `lsp/server.dart` (which rode on
@@ -63,14 +65,39 @@ pub struct Server {
     // and `client/registerCapability`). Its own id space; the client's response is
     // a message with no `method`, which `ingest` drops.
     let mut next_request_id: Int;
-    // The in-flight background `workspace/diagnostic` worker, if any. A new pull
-    // (or a cancel) supersedes it via `ws_generation`; `serve` joins it on exit so
-    // its reply flushes, and `handle` joins it inline for a synchronous one-shot.
+    // The in-flight background worker (a `workspace/diagnostic` scan or a delta
+    // drain), if any. A new pull (or a cancel) supersedes it via `ws_generation`;
+    // `serve` joins it on exit so its reply flushes, and `handle` joins it inline
+    // for a synchronous one-shot. At most one is ever live — the session's caches
+    // aren't safe under interleaved scans.
     let mut current_worker: Option<fiber.Fiber<Void>>;
     // Bumped on each workspace pull and on `$/cancelRequest`; a worker whose
     // captured generation no longer matches bails with ContentModified. This is the
     // supersession signal — the last pull wins, older scans stop wasting work.
     let mut ws_generation: Int;
+    // The held-open `workspace/diagnostic` pull, once its first report has been
+    // streamed. A client that sends a `partialResultToken` gets its report as
+    // `$/progress` and **no response**: completing the request is what re-arms the
+    // client's periodic re-pull (2s in vscode-languageclient, re-issued after every
+    // settlement), so holding it open is what lets an idle server be *idle* — the
+    // spec's own recommendation ("allow servers to keep the request open for a
+    // long time"). Later workspace changes stream delta batches to its token; the
+    // request settles only on supersession, cancel, or shutdown, and the client
+    // re-triggers a pull whenever it does.
+    let mut open_pull: Option<OpenPull>;
+    // A workspace change is waiting to be streamed to the held-open pull. A flag,
+    // not a queue: a delta pass recomputes from current state, so any number of
+    // changes collapse into the next pass (the same coalescing as `flush`). Set
+    // even while a scan worker is in flight — the worker drains it before
+    // finishing, which covers an edit racing the initial report.
+    let mut delta_pending: Bool;
+}
+
+// The identity of a held-open workspace pull: the request `id` it must eventually
+// settle, and the `partialResultToken` its updates stream to.
+struct OpenPull {
+    let id: Json;
+    let token: Json;
 }
 
 pub fn new_server(_ sdk_root: Option<String>) -> Server {
@@ -83,6 +110,8 @@ pub fn new_server(_ sdk_root: Option<String>) -> Server {
         next_request_id: 1,
         current_worker: Option.None,
         ws_generation: 0,
+        open_pull: Option.None,
+        delta_pending: false,
     };
 }
 
@@ -167,7 +196,16 @@ impl Server {
     // scheduler runs it during the loop's stdin parks; under `handle` it's joined
     // for a synchronous reply. The reply may arrive out of order (a hover answered
     // meanwhile), which JSON-RPC allows — responses correlate by `id`.
-    fn start_workspace_scan(self, _ id: Json, _ prev_ids: Map<String, String>) -> Void {
+    //
+    // `token` is the request's `partialResultToken` (JSON null when the client
+    // didn't send one). With a token the report streams as `$/progress` and the
+    // request is left open — see `open_pull` — with later changes streamed as
+    // deltas; without one the report is the response, and the client re-pulls on
+    // its own cadence.
+    fn start_workspace_scan(self, _ id: Json, _ prev_ids: Map<String, String>, _ token: Json) -> Void {
+        // A new pull replaces a held-open one: settle the old request first, so
+        // the client is never owed two workspace responses.
+        self.settle_open_pull();
         // Bump first, then reclaim any prior scan: it sees the new generation and
         // bails at its next yield, so at most one worker is ever in flight.
         self.ws_generation = self.ws_generation + 1;
@@ -175,13 +213,79 @@ impl Server {
         let gen = self.ws_generation;
         let worker = fiber.spawn(() => {
             match self.analysis.workspace_report_interruptible(prev_ids, () => self.ws_generation == gen) {
-                Some(report) => send_response(self.outbox, id, report),
+                Some(report) => {
+                    if token.is_null() {
+                        send_response(self.outbox, id, report);
+                    } else {
+                        send_progress(self.outbox, token, report);
+                        self.open_pull = Option.Some(OpenPull { id: id, token: token });
+                        // An edit may have arrived while this scan ran; stream the
+                        // correction now rather than waiting for the next change.
+                        self.drain_pending_deltas(gen);
+                    }
+                },
                 // -32801 ContentModified: a newer pull/cancel replaced this scan.
                 // The client re-pulls (also nudged by the edit's refresh) for fresh
                 // results — eventual consistency, not a lost report.
                 None => send_error(self.outbox, id, -32801, 'content modified'),
             }
         });
+        self.current_worker = Option.Some(worker);
+    }
+
+    // Complete the held-open workspace pull, if any, with an empty final result —
+    // the spec's required shape once partial results have streamed (the streamed
+    // reports stand; the response adds nothing). The client re-triggers a fresh
+    // pull on seeing the request close, which then holds open again.
+    fn settle_open_pull(self) -> Void {
+        if let Some(pull) = self.open_pull {
+            send_response(self.outbox, pull.id, json.obj(['items': json.arr([])]));
+            self.open_pull = Option.None;
+            self.delta_pending = false;
+        }
+    }
+
+    // Stream every pending workspace change to the held-open pull, one delta pass
+    // per flag-set (edits during a pass re-set the flag and the loop goes again).
+    // Runs on a worker fiber; bails silently when `gen` is superseded — the newer
+    // pull's full report covers whatever this pass would have said.
+    fn drain_pending_deltas(self, _ gen: Int) -> Void {
+        while self.delta_pending && self.ws_generation == gen {
+            self.delta_pending = false;
+            let pull = match self.open_pull {
+                Some(p) => p,
+                None => return,  // settled (cancel/shutdown); nothing to stream to
+            };
+            match self.analysis.workspace_delta_interruptible(() => self.ws_generation == gen) {
+                Some(batch) => {
+                    // An all-quiet pass (e.g. an edit that didn't change any
+                    // file's diagnostics) streams nothing at all.
+                    if batch.get('items').as_array().unwrap_or([]).len() > 0 {
+                        send_progress(self.outbox, pull.token, batch);
+                    }
+                },
+                None => return,  // superseded mid-scan
+            }
+        }
+    }
+
+    // Queue a delta stream to the held-open pull (no-op for polling clients). The
+    // flag is set before any early return so a change landing while the initial
+    // scan is still in flight is not lost — that worker drains it before
+    // finishing.
+    fn stream_workspace_delta(self) -> Void {
+        self.delta_pending = true;
+        if let Some(w) = self.current_worker {
+            if !w.is_ready() {
+                return; // in flight; it drains `delta_pending` before finishing
+            }
+        }
+        if self.open_pull.is_none() {
+            return; // no held pull: nothing to stream to (the flag goes stale
+            // harmlessly — a future pull's drain finds nothing changed)
+        }
+        let gen = self.ws_generation;
+        let worker = fiber.spawn(() => self.drain_pending_deltas(gen));
         self.current_worker = Option.Some(worker);
     }
 
@@ -237,15 +341,25 @@ impl Server {
             self.handle_watched_changes(params);
             return true;
         }
-        // A live `hawk.exclude` change: update the filter and nudge a re-pull so
-        // the client re-fetches with it applied (settings shape: `{ hawk: { … } }`).
+        // A live `hawk.exclude` change: update the filter, nudge the open
+        // documents to re-pull with it applied, and stream the workspace-side
+        // consequences (newly-excluded files retract, newly-included ones appear)
+        // to a held-open pull (settings shape: `{ hawk: { … } }`).
         if method == 'workspace/didChangeConfiguration' {
             self.analysis.set_exclude(
                 string_array(params.get('settings').get('hawk').get('exclude')));
             self.request_workspace_refresh();
+            self.stream_workspace_delta();
             return true;
         }
         if method == 'shutdown' {
+            // The workspace pull must not outlive the session, however far it got:
+            // supersede an in-flight scan (it settles its request with
+            // ContentModified before it would ever stream), then settle a
+            // held-open pull — so the client is never left awaiting a response.
+            self.ws_generation = self.ws_generation + 1;
+            self.join_current_worker();
+            self.settle_open_pull();
             self.shutdown_received = true;
             send_response(self.outbox, id, json.null());
             return true;
@@ -317,13 +431,25 @@ impl Server {
             return true;
         }
         if method == 'workspace/diagnostic' {
-            self.start_workspace_scan(id, previous_result_ids(params));
+            self.start_workspace_scan(id, previous_result_ids(params),
+                params.get('partialResultToken'));
             return true;
         }
-        // A cancel targets the only cancellable background op — the in-flight
-        // workspace scan. Bumping the generation makes it bail (ContentModified);
-        // inline requests have already completed, so a cancel for one is moot.
+        // A cancel targets the only cancellable background ops — the in-flight
+        // workspace scan and the held-open pull. Bumping the generation makes a
+        // running scan bail (ContentModified); inline requests have already
+        // completed, so a cancel for one is moot.
         if method == '$/cancelRequest' {
+            // A cancelled request cannot be left hanging (JSON-RPC): settle a
+            // held-open pull whose id this names with RequestCancelled. The client
+            // re-triggers a fresh pull if it still wants workspace diagnostics.
+            if let Some(pull) = self.open_pull {
+                if json.stringify(pull.id) == json.stringify(params.get('id')) {
+                    send_error(self.outbox, pull.id, -32800, 'request cancelled');
+                    self.open_pull = Option.None;
+                    self.delta_pending = false;
+                }
+            }
             self.ws_generation = self.ws_generation + 1;
             self.join_current_worker();
             return true;
@@ -464,19 +590,21 @@ impl Server {
     }
 
     // Diagnostics are pull-model (LSP 3.17): the server never pushes
-    // `publishDiagnostics`. A flush that saw an edit only nudges a refresh-capable
-    // client to re-pull (`take_dirty` drains the set; `serve` coalesces a burst of
-    // edits into one flush, hence one nudge). The client then re-pulls the open
-    // documents and the workspace, which our `textDocument/diagnostic` /
-    // `workspace/diagnostic` handlers answer — reusing the session's checked-clean
-    // cache, so only the edited cone recomputes.
+    // `publishDiagnostics`. A flush that saw an edit nudges a refresh-capable
+    // client to re-pull its *open documents* (`take_dirty` drains the set; `serve`
+    // coalesces a burst of edits into one flush, hence one nudge), and streams the
+    // *workspace-wide* consequences to a held-open pull — the refresh nudge does
+    // not re-trigger a workspace pull (vscode-languageclient re-pulls only open
+    // text documents on it), so with the pull held open the delta stream is the
+    // only channel closed files' diagnostics travel on.
     fn flush(self) -> Void {
-        // Nudge only when a change could alter *another* file's diagnostics — a
-        // public-surface edit or a close. A body-only edit touches just the edited
-        // file's own diagnostics, which the client re-pulls per document; nudging a
-        // full workspace re-pull for it would be wasted work.
+        // Act only when a change could alter *another* file's diagnostics — a
+        // public-surface edit, a close, an on-disk change. A body-only edit touches
+        // just the edited file's own diagnostics, which the client re-pulls per
+        // document (and the spec has document-pull results win for open files).
         if self.analysis.pending_workspace_refresh() {
             self.request_workspace_refresh();
+            self.stream_workspace_delta();
         }
     }
 
@@ -554,6 +682,19 @@ fn send_response(_ ob: outbox.Outbox, _ id: Json, _ result: Json) -> Void {
         'jsonrpc': json.str('2.0'),
         'id': id,
         'result': result,
+    ]));
+}
+
+// A `$/progress` notification carrying `value` under the client-supplied `token`
+// — the partial-result transport (the workspace report and its delta batches).
+fn send_progress(_ ob: outbox.Outbox, _ token: Json, _ value: Json) -> Void {
+    ob.send(json.obj([
+        'jsonrpc': json.str('2.0'),
+        'method': json.str('$/progress'),
+        'params': json.obj([
+            'token': token,
+            'value': value,
+        ]),
     ]));
 }
 

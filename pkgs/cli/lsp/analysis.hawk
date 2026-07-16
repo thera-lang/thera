@@ -65,6 +65,15 @@ pub struct Analysis {
     // (LSP 3.17). Exact content comparison — a hash could collide and wrongly
     // report `unchanged` (a stale squiggle).
     let diag_reports: Map<String, DiagReport>;
+    // Canonical path -> what the *workspace channel* last delivered to the client
+    // (its uri and exact items), across the initial report and every streamed
+    // delta. This is what `workspace_delta_interruptible` diffs against, and it is
+    // deliberately not `diag_reports`: a document pull updates that one too, and a
+    // file the client re-pulled per document still holds its *workspace* state
+    // from whatever the workspace channel last said. Keys are also the retraction
+    // set — a file that leaves the scan must be reported empty, or its squiggles
+    // outlive it client-side.
+    let mut ws_emitted: Map<String, WsSent>;
     // The next opaque resultId to hand out (monotonic; stringified).
     let mut next_result_id: Int;
     // What the last completed workspace scan checked, and what it produced. A pull
@@ -96,6 +105,13 @@ struct DiagReport {
     let content: String;
 }
 
+// One file's last workspace-channel delivery: its display uri (retraction items
+// need one after the file is gone) and the exact items sent (a JSON string).
+struct WsSent {
+    let uri: String;
+    let content: String;
+}
+
 // A full-vs-unchanged decision for one file's pull report.
 struct ReportResult {
     let result_id: String;
@@ -113,6 +129,7 @@ pub fn new_analysis(_ sdk_root: Option<String>) -> Analysis {
         surface_sigs: [:],
         ws_dirty: false,
         diag_reports: [:],
+        ws_emitted: [:],
         next_result_id: 0,
         scan_cache: Option.None,
         disk_cache: Option.None,
@@ -203,9 +220,21 @@ impl Analysis {
         // report; a rooted file reverts to its on-disk content), so it's
         // conservatively cross-file — always nudge, and forget the signature.
         self.ws_dirty = true;
-        match self.surface_sigs.remove(loader.canonical_path(paths.uri_to_path(uri))) {
+        let canon = loader.canonical_path(paths.uri_to_path(uri));
+        match self.surface_sigs.remove(canon) {
             Some(_) => void,
             None => void,
+        }
+        // The client discards its copy of a closed file's diagnostics along with
+        // the buffer, so both pull channels must re-send in full: forget what we
+        // last emitted (else the next poll answers `unchanged` to a client that
+        // holds nothing), and *invalidate* — not remove — what the workspace
+        // stream delivered ('' matches no rendered items, so a file still in the
+        // scan re-sends full; the entry itself is what marks a departed loose
+        // file as delivered, which the next delta must still retract).
+        self.diag_reports.remove(canon);
+        if let Some(sent) = self.ws_emitted.get(canon) {
+            self.ws_emitted[canon] = WsSent { uri: sent.uri, content: '' };
         }
     }
 
@@ -270,7 +299,12 @@ impl Analysis {
     // emitted *and* the client echoed that id (so it genuinely holds this content);
     // otherwise assigns a fresh id, caches the items, and re-sends. Updates the cache.
     fn report_result(self, _ canon: String, _ items: Json, _ prev: Option<String>) -> ReportResult {
-        let content = json.stringify(items);
+        return self.report_result_content(canon, json.stringify(items), prev);
+    }
+
+    // `report_result` on pre-stringified items — the workspace passes stringify
+    // once and share the string with their `ws_emitted` bookkeeping.
+    fn report_result_content(self, _ canon: String, _ content: String, _ prev: Option<String>) -> ReportResult {
         if let Some(stored) = self.diag_reports.get(canon) {
             if stored.content == content {
                 let client_has_it = match prev {
@@ -280,10 +314,39 @@ impl Analysis {
                 return ReportResult { result_id: stored.result_id, unchanged: client_has_it };
             }
         }
+        return ReportResult { result_id: self.record_report(canon, content), unchanged: false };
+    }
+
+    // Assign a fresh resultId for `canon` now holding `content`, remembering the
+    // pair for the next pull's full-vs-`unchanged` decision.
+    fn record_report(self, _ canon: String, _ content: String) -> String {
         let id = '${self.next_result_id}';
         self.next_result_id = self.next_result_id + 1;
         self.diag_reports[canon] = DiagReport { result_id: id, content: content };
-        return ReportResult { result_id: id, unchanged: false };
+        return id;
+    }
+
+    // The resultId for `canon` holding `content`: the stored one when it already
+    // names exactly this content (a document pull may have assigned it), else
+    // fresh. What a streamed delta stamps on its reports — there is no client
+    // `prev` to consult mid-stream, the diff against `ws_emitted` already decided
+    // the file must be re-sent.
+    fn id_for(self, _ canon: String, _ content: String) -> String {
+        if let Some(stored) = self.diag_reports.get(canon) {
+            if stored.content == content {
+                return stored.result_id;
+            }
+        }
+        return self.record_report(canon, content);
+    }
+
+    // The client-reported version for an open buffer's report item; JSON null for
+    // a file with no buffer open, per the spec.
+    fn version_of(self, _ uri: String) -> Json {
+        return match self.versions.get(uri) {
+            Some(v) => int(v),
+            None => null(),
+        };
     }
 
     pub fn text(self, _ uri: String) -> Option<String> {
@@ -683,49 +746,119 @@ impl Analysis {
         // path so an open buffer and its on-disk copy don't double-report. Excluded
         // files are omitted entirely — their diagnostics stay hidden.
         let items: List<Json> = [];
-        let emitted: Set<String> = Set.new();
+        let next_emitted: Map<String, WsSent> = [:];
+        let emitted_uris: Set<String> = Set.new();
         for f in files {
             let canon = loader.canonical_path(f.path);
             if !self.session.is_sdk_file(f.path) && !self.is_excluded(f.path)
-                && !emitted.has(canon) {
-                emitted.add(canon);
+                && next_emitted.get(canon).is_none() {
                 let file_items = arr(by_file.get(canon).unwrap_or([]));
-                let ver = match self.versions.get(f.uri) {
-                    Some(v) => int(v),
-                    None => null(),
-                };
-                let r = self.report_result(canon, file_items, prev_ids.get(f.uri));
+                let content = json.stringify(file_items);
+                next_emitted[canon] = WsSent { uri: f.uri, content: content };
+                emitted_uris.add(f.uri);
+                let r = self.report_result_content(canon, content, prev_ids.get(f.uri));
                 if r.unchanged {
                     items.push(obj([
                         'kind': str('unchanged'),
                         'uri': str(f.uri),
-                        'version': ver,
+                        'version': self.version_of(f.uri),
                         'resultId': str(r.result_id),
                     ]));
                 } else {
                     items.push(obj([
                         'kind': str('full'),
                         'uri': str(f.uri),
-                        'version': ver,
+                        'version': self.version_of(f.uri),
                         'resultId': str(r.result_id),
                         'items': file_items,
                     ]));
                 }
             }
         }
+        // Retract state the client claims for files this report doesn't cover — a
+        // file deleted (or excluded) while no pull was live would otherwise keep
+        // its squiggles client-side forever. An empty `full` with no resultId: the
+        // items clear, and the client stops echoing an id for the uri.
+        for uri in prev_ids.keys() {
+            if !emitted_uris.has(uri) {
+                items.push(retraction_item(uri));
+            }
+        }
+        self.ws_emitted = next_emitted;
+        return Option.Some(obj(['items': arr(items)]));
+    }
+
+    // The workspace files whose diagnostics changed since the workspace channel
+    // last delivered them (`ws_emitted`) — the streamed update batch for a
+    // held-open `workspace/diagnostic` pull. Only changed files appear: partial
+    // results merge per uri client-side ("the last one reported wins"), so an
+    // omitted file keeps its previous state and an idle workspace streams nothing
+    // — there is no `unchanged` chatter on this path. A file that left the scan
+    // (deleted, newly excluded, a closed loose file) gets a retraction.
+    //
+    // None when a newer pull or a cancel superseded this scan, exactly as
+    // `workspace_report_interruptible`.
+    pub fn workspace_delta_interruptible(self, _ still_current: () -> Bool) -> Option<Json> {
+        if !still_current() {
+            return Option.None;
+        }
+        let files = self.scan_files();
+        let by_file = match self.scan_by_file(files, still_current) {
+            Some(m) => m,
+            None => return Option.None,  // superseded mid-scan
+        };
+        let items: List<Json> = [];
+        let next_emitted: Map<String, WsSent> = [:];
+        for f in files {
+            let canon = loader.canonical_path(f.path);
+            if !self.session.is_sdk_file(f.path) && !self.is_excluded(f.path)
+                && next_emitted.get(canon).is_none() {
+                let file_items = arr(by_file.get(canon).unwrap_or([]));
+                let content = json.stringify(file_items);
+                next_emitted[canon] = WsSent { uri: f.uri, content: content };
+                let delivered = match self.ws_emitted.get(canon) {
+                    Some(sent) => sent.content == content,
+                    None => false,
+                };
+                if !delivered {
+                    items.push(obj([
+                        'kind': str('full'),
+                        'uri': str(f.uri),
+                        'version': self.version_of(f.uri),
+                        'resultId': str(self.id_for(canon, content)),
+                        'items': file_items,
+                    ]));
+                }
+            }
+        }
+        // Retractions: files the channel has delivered that this scan no longer
+        // covers. Nothing else clears them — with the pull held open the client
+        // never re-pulls, so an omitted deletion would show squiggles forever.
+        for canon in self.ws_emitted.keys() {
+            if next_emitted.get(canon).is_none() {
+                if let Some(sent) = self.ws_emitted.get(canon) {
+                    items.push(retraction_item(sent.uri));
+                    // Forget the emission record too: were the file recreated,
+                    // `unchanged` against its pre-deletion id would be a lie.
+                    self.diag_reports.remove(canon);
+                }
+            }
+        }
+        self.ws_emitted = next_emitted;
         return Option.Some(obj(['items': arr(items)]));
     }
 
     // Every scanned file's diagnostics, folded under its owning file — reusing the
     // last scan's result when the workspace reads back byte-identical.
     //
-    // This is what keeps an idle editor idle. The client re-issues
-    // `workspace/diagnostic` every 2s forever (vscode-languageclient's
-    // `pullWorkspace` re-arms unconditionally after each reply), so a pull's cost is
-    // paid continuously, not once — and `resultId` caching only saves re-*sending*
-    // the items, never re-*computing* them. Checking is the whole remaining cost:
-    // even warm, each file is re-parsed and its import closure re-walked, only for
-    // `check_files` to skip nearly all of it.
+    // This is what keeps an idle editor idle. A client that doesn't stream
+    // re-issues `workspace/diagnostic` every 2s forever (vscode-languageclient's
+    // `pullWorkspace` re-arms after each *reply* — which is also why a streaming
+    // client's pull is held open instead, see server.start_workspace_scan), so a
+    // pull's cost can be paid continuously, not once — and `resultId` caching only
+    // saves re-*sending* the items, never re-*computing* them. Checking is the
+    // whole remaining cost: even warm, each file is re-parsed and its import
+    // closure re-walked, only for `check_files` to skip nearly all of it.
     //
     // None when a newer pull or a cancel superseded this scan.
     fn scan_by_file(self, _ files: List<ScanFile>,
@@ -801,4 +934,16 @@ impl Analysis {
         }
         return Option.Some(cache.by_file);
     }
+}
+
+// An empty `full` report for `uri` — the retraction shape. The empty items release
+// the client's diagnostics for the file; carrying no resultId makes the client
+// drop its stored id too, so the uri stops appearing in `previousResultIds`.
+fn retraction_item(_ uri: String) -> Json {
+    return obj([
+        'kind': str('full'),
+        'uri': str(uri),
+        'version': null(),
+        'items': arr([]),
+    ]);
 }

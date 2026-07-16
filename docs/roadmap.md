@@ -1112,6 +1112,37 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **LSP: the workspace pull is held open — an idle server does nothing at all**
+  (2026-07). The tail of the idle-CPU arc (next entry): even with an unchanged
+  pull at ~18ms, the client re-issued it every 2s forever, because
+  `vscode-languageclient` re-arms its workspace-pull timer after every
+  *settlement* — the only lever is not settling. The spec plans for exactly this:
+  clients implement partial-result progress for the workspace pull "to allow
+  servers to keep the request open for a long time", and re-trigger if it closes.
+  So a pull carrying a `partialResultToken` now gets its report as `$/progress`
+  and **no response** (`Server.open_pull`); the request settles only on
+  supersession or cancel (empty final result / `RequestCancelled`) — and
+  `shutdown` supersedes an in-flight scan then settles, so the client is never
+  owed a response. Idle is now genuinely zero: no timers on either side, the
+  dispatch loop parked on stdin.
+
+  Held open, the stream becomes closed files' **only** channel — verified in the
+  client source: `workspace/diagnostic/refresh` re-pulls open *documents* only,
+  never the workspace. So workspace-affecting changes (surface edits, closes,
+  watcher events, exclude changes) now stream **delta batches**: only files whose
+  diagnostics changed (partial results merge per-uri, so omission means
+  unchanged — an idle workspace streams nothing), plus **retractions** (an empty
+  `full`, no `resultId`) for files that left the scan — deleted, newly excluded,
+  or a closed loose file — which nothing else would ever clear. Deltas diff
+  against `ws_emitted` (what the workspace channel last delivered), deliberately
+  not `diag_reports` (which document pulls also update): the client discards a
+  closed buffer's diagnostics, so `close_document` invalidates the file's
+  `ws_emitted` entry — not removes it; the entry is what marks a departed file
+  as needing retraction — forcing a full re-send. A change racing the initial
+  scan is covered by a `delta_pending` flag the worker drains before finishing.
+  Clients that send no token (and the in-process tests) keep the
+  respond-and-re-pull path unchanged. Phases 2–3 (a generation stamp to skip the
+  byte-compare on re-pulls; `ServerCancelled` conformance polish) remain open.
 - **LSP: an idle server costs ~nothing (and stops going stale)** (2026-07). An
   idle `hawk lsp` sat at 40–80% CPU with the editor untouched. Not a scheduler
   spin: the server measures 0% idle and never wakes itself. The cause is that

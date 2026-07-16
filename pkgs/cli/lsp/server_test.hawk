@@ -1131,3 +1131,225 @@ fn test_code_action_only_sibling_kind_is_empty() -> Result<Void, Error> {
         message: 'sibling refactor kind offers nothing')?;
     return Result.Ok(void);
 }
+
+// --- the held-open workspace pull (partial-result streaming) ---
+//
+// A client that sends a `partialResultToken` gets its workspace report as a
+// `$/progress` notification and NO response: the request stays open, because a
+// completed workspace pull is what re-arms the client's periodic re-pull (2s in
+// vscode-languageclient) — holding it open is what makes an idle server idle.
+// Workspace changes then stream as delta batches; the request settles only on
+// supersession, cancel, or shutdown.
+
+@test
+fn test_token_pull_streams_and_holds_the_request_open() -> Result<Void, Error> {
+    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_stream_test');
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
+    fs.create_dir_all(dir)?;
+    fs.write_text(dir + '/bad.hawk', 'fn oops() -> Int { return missing; }\n')?;
+
+    let server = new_server(Option.None);
+    let _init = capture(server, '{"jsonrpc":"2.0","id":1,"method":"initialize","params":'
+        + '{"rootUri":"file://' + dir + '"}}');
+    let out = capture(server, '{"jsonrpc":"2.0","id":2,"method":"workspace/diagnostic","params":'
+        + '{"previousResultIds":[],"partialResultToken":"tok-1"}}');
+    testing.assert(out.contains('$/progress'), message: 'the report streams as progress')?;
+    testing.assert(out.contains('"token":"tok-1"'), message: 'under the client token')?;
+    testing.assert(out.contains('bad.hawk'), message: 'carrying the workspace report')?;
+    testing.assert(out.contains('undefined name: missing'), message: 'with its diagnostics')?;
+    testing.assert(!out.contains('"id":2'), message: 'and the request is left open — no response')?;
+
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
+    return Result.Ok(void);
+}
+
+// A change streams a delta batch to the open pull: only the files whose
+// diagnostics changed, no `unchanged` chatter — and a body-only edit (which the
+// client re-pulls per document) streams nothing at all. The refresh nudge cannot
+// stand in for this: on it the client re-pulls open documents only, never the
+// workspace, so with the pull held open the stream is closed files' only channel.
+@test
+fn test_changes_stream_deltas_to_the_open_pull() -> Result<Void, Error> {
+    let server = new_server(Option.None);
+    let _init = capture(server, '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}');
+    let first = capture(server, '{"jsonrpc":"2.0","id":2,"method":"workspace/diagnostic","params":'
+        + '{"previousResultIds":[],"partialResultToken":"tok-2"}}');
+    testing.assert(!first.contains('"id":2'), message: 'the pull is held open')?;
+
+    // Opening a document is a workspace change (a new file joins the scan): its
+    // report streams as a delta.
+    let opened = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"file:///r.hawk","text":"fn f() -> Int { return missing; }"}}}');
+    testing.assert(opened.contains('$/progress'), message: 'the open streams a delta')?;
+    testing.assert(opened.contains('r.hawk'), message: 'reporting the opened file')?;
+    testing.assert(opened.contains('undefined name: missing'), message: 'with its diagnostics')?;
+
+    // A body-only edit is the document pull's business — nothing streams.
+    let edited = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didChange","params":'
+        + '{"textDocument":{"uri":"file:///r.hawk"},'
+        + '"contentChanges":[{"text":"fn f() -> Int { return other; }"}]}}');
+    testing.assert(!edited.contains('$/progress'), message: 'a body edit streams nothing')?;
+
+    // Closing the loose file drops it from the scan: a retraction (an empty full
+    // report) streams, so the client releases its squiggles.
+    let closed = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didClose","params":'
+        + '{"textDocument":{"uri":"file:///r.hawk"}}}');
+    testing.assert(closed.contains('$/progress'), message: 'the close streams a delta')?;
+    testing.assert(closed.contains('r.hawk'), message: 'naming the closed file')?;
+    testing.assert(closed.contains('"items":[]'), message: 'as a retraction — empty items')?;
+    return Result.Ok(void);
+}
+
+// An on-disk delete (reported by the watcher) streams a retraction for exactly
+// the deleted file; the untouched file is omitted from the batch entirely.
+@test
+fn test_watched_delete_streams_a_retraction() -> Result<Void, Error> {
+    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_stream_delete_test');
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
+    fs.create_dir_all(dir)?;
+    fs.write_text(dir + '/keep.hawk', 'fn keep() -> Int { return 1; }\n')?;
+    let gone = dir + '/gone.hawk';
+    fs.write_text(gone, 'fn gone() -> Int { return missing; }\n')?;
+
+    let server = new_server(Option.None);
+    let _init = capture(server, '{"jsonrpc":"2.0","id":1,"method":"initialize","params":'
+        + '{"rootUri":"file://' + dir + '"}}');
+    let _pull = capture(server, '{"jsonrpc":"2.0","id":2,"method":"workspace/diagnostic","params":'
+        + '{"previousResultIds":[],"partialResultToken":"tok-3"}}');
+
+    fs.remove(gone)?;
+    let out = capture(server, '{"jsonrpc":"2.0","method":"workspace/didChangeWatchedFiles",'
+        + '"params":{"changes":[{"uri":"file://' + gone + '","type":3}]}}');
+    testing.assert(out.contains('$/progress'), message: 'the delete streams a delta')?;
+    testing.assert(out.contains('gone.hawk'), message: 'retracting the deleted file')?;
+    testing.assert(out.contains('"items":[]'), message: 'with empty items')?;
+    testing.assert(!out.contains('keep.hawk'), message: 'the unchanged file is omitted')?;
+
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
+    return Result.Ok(void);
+}
+
+// A `$/cancelRequest` for the held-open pull settles it — a cancelled request
+// cannot be left hanging (JSON-RPC), and RequestCancelled (-32800) is the advised
+// code. After it, nothing streams: the pull is gone.
+@test
+fn test_cancel_settles_the_open_pull() -> Result<Void, Error> {
+    let server = new_server(Option.None);
+    let _init = capture(server, '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}');
+    let _pull = capture(server, '{"jsonrpc":"2.0","id":2,"method":"workspace/diagnostic","params":'
+        + '{"previousResultIds":[],"partialResultToken":"tok-4"}}');
+    let cancelled = capture(server, '{"jsonrpc":"2.0","method":"$/cancelRequest","params":{"id":2}}');
+    testing.assert(cancelled.contains('"id":2'), message: 'the open pull is answered')?;
+    testing.assert(cancelled.contains('-32800'), message: 'with RequestCancelled')?;
+
+    let opened = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"file:///r.hawk","text":"fn f() -> Int { return missing; }"}}}');
+    testing.assert(!opened.contains('$/progress'), message: 'nothing streams after the cancel')?;
+    return Result.Ok(void);
+}
+
+// A new workspace pull supersedes a held-open one: the old request settles with
+// an empty final result (its streamed reports stand — the spec's shape after
+// partial results), and the new pull is the one held open.
+@test
+fn test_new_pull_settles_the_previous_open_pull() -> Result<Void, Error> {
+    let server = new_server(Option.None);
+    let _init = capture(server, '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}');
+    let _first = capture(server, '{"jsonrpc":"2.0","id":2,"method":"workspace/diagnostic","params":'
+        + '{"previousResultIds":[],"partialResultToken":"tok-5"}}');
+    let second = capture(server, '{"jsonrpc":"2.0","id":3,"method":"workspace/diagnostic","params":'
+        + '{"previousResultIds":[],"partialResultToken":"tok-6"}}');
+    testing.assert(second.contains('"id":2'), message: 'the old pull settles')?;
+    testing.assert(second.contains('"items":[]'), message: 'with an empty final result')?;
+    testing.assert(second.contains('"token":"tok-6"'), message: 'the new pull streams')?;
+    testing.assert(!second.contains('"id":3'), message: 'and is held open in turn')?;
+    return Result.Ok(void);
+}
+
+// Closing a buffer makes the client discard that file's diagnostics along with
+// it, so the workspace stream must re-send them even though they did not change —
+// the eviction in `close_document` is what forces the re-send.
+@test
+fn test_close_restreams_an_unchanged_files_diagnostics() -> Result<Void, Error> {
+    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_stream_close_test');
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
+    fs.create_dir_all(dir)?;
+    let file = dir + '/subject.hawk';
+    let text = 'fn f() -> Int { return missing; }\n';
+    fs.write_text(file, text)?;
+    let uri = 'file://' + file;
+
+    let server = new_server(Option.None);
+    let _init = capture(server, '{"jsonrpc":"2.0","id":1,"method":"initialize","params":'
+        + '{"rootUri":"file://' + dir + '"}}');
+    let _pull = capture(server, '{"jsonrpc":"2.0","id":2,"method":"workspace/diagnostic","params":'
+        + '{"previousResultIds":[],"partialResultToken":"tok-7"}}');
+    // Open with the on-disk text (no content change), then close: the buffer text
+    // never differed, but the close must still re-stream the file in full.
+    let _open = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"' + uri + '","text":"fn f() -> Int { return missing; }\\n"}}}');
+    let closed = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didClose","params":'
+        + '{"textDocument":{"uri":"' + uri + '"}}}');
+    testing.assert(closed.contains('$/progress'), message: 'the close streams a delta')?;
+    testing.assert(closed.contains('subject.hawk'), message: 'naming the closed file')?;
+    testing.assert(closed.contains('undefined name: missing'),
+        message: 're-sending its unchanged diagnostics in full')?;
+
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
+    return Result.Ok(void);
+}
+
+// A shutdown settles the held-open pull (empty final result) — the request must
+// not outlive the session.
+@test
+fn test_shutdown_settles_the_open_pull() -> Result<Void, Error> {
+    let server = new_server(Option.None);
+    let _init = capture(server, '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}');
+    let _pull = capture(server, '{"jsonrpc":"2.0","id":2,"method":"workspace/diagnostic","params":'
+        + '{"previousResultIds":[],"partialResultToken":"tok-9"}}');
+    let down = capture(server, '{"jsonrpc":"2.0","id":3,"method":"shutdown"}');
+    testing.assert(down.contains('"id":2'), message: 'the open pull is answered')?;
+    testing.assert(down.contains('"items":[]'), message: 'with an empty final result')?;
+    testing.assert(down.contains('"id":3'), message: 'and shutdown itself is answered')?;
+    return Result.Ok(void);
+}
+
+// A shutdown racing the *initial* scan (all messages in one burst, so the worker
+// never runs before shutdown is dispatched) still settles the pull: superseding
+// the scan makes it answer ContentModified before it would ever stream.
+@test
+fn test_shutdown_settles_a_pull_whose_scan_never_ran() -> Result<Void, Error> {
+    let stream = jsonrpc.frame('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}')
+        + jsonrpc.frame('{"jsonrpc":"2.0","id":2,"method":"workspace/diagnostic","params":'
+            + '{"previousResultIds":[],"partialResultToken":"tok-10"}}')
+        + jsonrpc.frame('{"jsonrpc":"2.0","id":3,"method":"shutdown"}')
+        + jsonrpc.frame('{"jsonrpc":"2.0","method":"exit"}');
+    let out = served(stream);
+    testing.assert(out.contains('"id":2'), message: 'the pull is answered')?;
+    testing.assert(out.contains('-32801'), message: 'as ContentModified — it never streamed')?;
+    testing.assert(out.contains('"id":3'), message: 'and shutdown is answered')?;
+    return Result.Ok(void);
+}
+
+// The async path: under `serve`, a token pull's report reaches the wire as
+// progress and the request is still open at exit — no response for its id.
+@test
+fn test_serve_holds_the_token_pull_open() -> Result<Void, Error> {
+    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_serve_stream_test');
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
+    fs.create_dir_all(dir)?;
+    fs.write_text(dir + '/bad.hawk', 'fn oops() -> Int { return missing; }\n')?;
+
+    let stream = jsonrpc.frame('{"jsonrpc":"2.0","id":1,"method":"initialize","params":'
+        + '{"rootUri":"file://' + dir + '"}}')
+        + jsonrpc.frame('{"jsonrpc":"2.0","id":2,"method":"workspace/diagnostic","params":'
+            + '{"previousResultIds":[],"partialResultToken":"tok-8"}}')
+        + jsonrpc.frame('{"jsonrpc":"2.0","method":"exit"}');
+    let out = served(stream);
+    testing.assert(out.contains('$/progress'), message: 'the report streams')?;
+    testing.assert(out.contains('bad.hawk'), message: 'and reaches the wire on drain')?;
+    testing.assert(!out.contains('"id":2'), message: 'the request is never answered')?;
+
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
+    return Result.Ok(void);
+}
