@@ -827,6 +827,145 @@ fn test_serve_backgrounds_the_workspace_scan() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
+// The scan cache reuses the last result only while the workspace reads back
+// identical, and it is keyed on content — so an edit through *any* route (here an
+// open buffer, which the cache is never told about) simply doesn't match. The
+// cache is what keeps a re-pull cheap; this pins that it can't serve a stale one.
+@test
+fn test_workspace_scan_cache_never_serves_a_stale_result() -> Result<Void, Error> {
+    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_scan_cache_test');
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
+    fs.create_dir_all(dir)?;
+    let file = dir + '/subject.hawk';
+    fs.write_text(file, 'fn ok() -> Int { return 1; }\n')?;
+    let uri = 'file://' + file;
+
+    let server = new_server(Option.None);
+    let _init = capture(server, '{"jsonrpc":"2.0","id":1,"method":"initialize","params":'
+        + '{"rootUri":"file://' + dir + '"}}');
+    let first = capture(server, '{"jsonrpc":"2.0","id":2,"method":"workspace/diagnostic","params":'
+        + '{"previousResultIds":[]}}');
+    testing.assert(!first.contains('undefined name'), message: 'clean to begin with')?;
+    // A second pull with nothing changed: the cache reuses, same answer.
+    let second = capture(server, '{"jsonrpc":"2.0","id":3,"method":"workspace/diagnostic","params":'
+        + '{"previousResultIds":[]}}');
+    testing.assert(!second.contains('undefined name'), message: 'an unchanged re-pull stays clean')?;
+
+    // Now the content changes (via a buffer). The cache must miss and re-check.
+    let _open = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"' + uri + '","text":"fn f() -> Int { return missing; }"}}}');
+    let dirty = capture(server, '{"jsonrpc":"2.0","id":4,"method":"workspace/diagnostic","params":'
+        + '{"previousResultIds":[]}}');
+    testing.assert(dirty.contains('undefined name: missing'),
+        message: 'the edit is reported, not the cached clean result')?;
+
+    // And back: reverting to the original text must clear it, not stick.
+    let _revert = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didChange","params":'
+        + '{"textDocument":{"uri":"' + uri + '"},"contentChanges":'
+        + '[{"text":"fn ok() -> Int { return 1; }\\n"}]}}');
+    let healed = capture(server, '{"jsonrpc":"2.0","id":5,"method":"workspace/diagnostic","params":'
+        + '{"previousResultIds":[]}}');
+    testing.assert(!healed.contains('undefined name'), message: 'reverting clears the diagnostic')?;
+
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
+    return Result.Ok(void);
+}
+
+// *Un*-excluding a file must report it, even though nothing on disk moved. This
+// is the one case content-keying cannot catch on its own, so it pins why
+// `set_exclude` drops the cache: the file's text is identical, the scanned set is
+// identical (a per-file glob prunes no directory, unlike `<base>/**`), so the
+// fingerprint matches perfectly — but the cached result was computed while this
+// file was skipped as a primary, and reusing it would report the file clean.
+@test
+fn test_un_excluding_a_file_drops_the_scan_cache() -> Result<Void, Error> {
+    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_exclude_cache_test');
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
+    fs.create_dir_all(dir + '/hidden')?;
+    fs.write_text(dir + '/hidden/bad.hawk', 'fn oops() -> Int { return missing; }\n')?;
+
+    let server = new_server(Option.None);
+    // A per-file pattern, deliberately not `hidden/**`: the directory is still
+    // walked, so the scanned file set is the same before and after.
+    let _init = capture(server, '{"jsonrpc":"2.0","id":1,"method":"initialize","params":'
+        + '{"rootUri":"file://' + dir + '","initializationOptions":'
+        + '{"exclude":["**/*bad.hawk"]}}}');
+    let before = capture(server, '{"jsonrpc":"2.0","id":2,"method":"workspace/diagnostic","params":'
+        + '{"previousResultIds":[]}}');
+    testing.assert(!before.contains('undefined name: missing'),
+        message: 'hidden while excluded')?;
+
+    let _cfg = capture(server, '{"jsonrpc":"2.0","method":"workspace/didChangeConfiguration",'
+        + '"params":{"settings":{"hawk":{"exclude":[]}}}}');
+    let after = capture(server, '{"jsonrpc":"2.0","id":3,"method":"workspace/diagnostic","params":'
+        + '{"previousResultIds":[]}}');
+    testing.assert(after.contains('undefined name: missing'),
+        message: 'un-excluding reports it, though no file content changed')?;
+
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
+    return Result.Ok(void);
+}
+
+// A file edited on disk with no buffer open must re-report. Nothing else tells
+// the server: `didChange` speaks only for open documents, so the session would
+// serve the parse it cached the first time it read the file — for the rest of the
+// session. That was a real bug (a branch switch left stale squiggles); the watcher
+// notification is what closes it.
+@test
+fn test_watched_file_change_invalidates_the_cached_parse() -> Result<Void, Error> {
+    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_watched_test');
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
+    fs.create_dir_all(dir)?;
+    let file = dir + '/watched.hawk';
+    fs.write_text(file, 'fn ok() -> Int { return 1; }\n')?;
+
+    let server = new_server(Option.None);
+    let _init = capture(server, '{"jsonrpc":"2.0","id":1,"method":"initialize","params":'
+        + '{"rootUri":"file://' + dir + '","capabilities":{"workspace":'
+        + '{"didChangeWatchedFiles":{"dynamicRegistration":true}}}}}');
+    let clean = capture(server, '{"jsonrpc":"2.0","id":2,"method":"workspace/diagnostic","params":'
+        + '{"previousResultIds":[]}}');
+    testing.assert(!clean.contains('undefined name'), message: 'starts clean')?;
+
+    // The edit lands on disk, and the client reports it (type 2 = Changed).
+    fs.write_text(file, 'fn oops() -> Int { return missing; }\n')?;
+    let _notice = capture(server, '{"jsonrpc":"2.0","method":"workspace/didChangeWatchedFiles",'
+        + '"params":{"changes":[{"uri":"file://' + file + '","type":2}]}}');
+    let after = capture(server, '{"jsonrpc":"2.0","id":3,"method":"workspace/diagnostic","params":'
+        + '{"previousResultIds":[]}}');
+    testing.assert(after.contains('undefined name: missing'),
+        message: 'the on-disk edit is re-analyzed, not served from the cached parse')?;
+
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
+    return Result.Ok(void);
+}
+
+// The watcher only exists if we ask for it — there is no static capability for
+// `didChangeWatchedFiles`, so `initialized` must send the registration.
+@test
+fn test_initialized_registers_a_file_watcher() -> Result<Void, Error> {
+    let server = new_server(Option.None);
+    let _init = capture(server, '{"jsonrpc":"2.0","id":1,"method":"initialize","params":'
+        + '{"capabilities":{"workspace":{"didChangeWatchedFiles":'
+        + '{"dynamicRegistration":true}}}}}');
+    let out = capture(server, '{"jsonrpc":"2.0","method":"initialized","params":{}}');
+    testing.assert(out.contains('client/registerCapability'), message: 'registers')?;
+    testing.assert(out.contains('workspace/didChangeWatchedFiles'), message: 'for watched files')?;
+    testing.assert(out.contains('**/*.hawk'), message: 'watching the files we analyze')?;
+    return Result.Ok(void);
+}
+
+// A client without dynamic registration gets no request it cannot honor.
+@test
+fn test_initialized_skips_the_watcher_when_unsupported() -> Result<Void, Error> {
+    let server = new_server(Option.None);
+    let _init = capture(server, '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}');
+    let out = capture(server, '{"jsonrpc":"2.0","method":"initialized","params":{}}');
+    testing.assert(!out.contains('client/registerCapability'),
+        message: 'no registration without dynamicRegistration support')?;
+    return Result.Ok(void);
+}
+
 // A second `workspace/diagnostic` supersedes the first: the older scan bails with
 // a ContentModified error (-32801) and the newer one produces the report. The
 // client keeps the latest — eventual consistency, no lost report.

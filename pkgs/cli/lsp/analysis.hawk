@@ -67,6 +67,22 @@ pub struct Analysis {
     let diag_reports: Map<String, DiagReport>;
     // The next opaque resultId to hand out (monotonic; stringified).
     let mut next_result_id: Int;
+    // What the last completed workspace scan checked, and what it produced. A pull
+    // that reads back byte-identical content reuses the result instead of
+    // re-checking every file — see `reusable_by_file`. None until a scan finishes.
+    let mut scan_cache: Option<ScanCache>;
+}
+
+// The last completed workspace scan: the exact text each file held (canonical
+// path -> text) and the diagnostics that content produced (owning path -> items).
+//
+// Keyed on content, so it is self-correcting rather than invalidated: any edit,
+// on disk or in a buffer, changes the text the next scan reads and the reuse
+// simply doesn't fire. Exact comparison, not a hash — the same reasoning as
+// `DiagReport`: a collision would serve diagnostics for content nobody has.
+struct ScanCache {
+    let contents: Map<String, String>;
+    let by_file: Map<String, List<Json>>;
 }
 
 // The last report emitted for a file — its resultId and the exact items it names.
@@ -93,6 +109,7 @@ pub fn new_analysis(_ sdk_root: Option<String>) -> Analysis {
         ws_dirty: false,
         diag_reports: [:],
         next_result_id: 0,
+        scan_cache: Option.None,
     };
 }
 
@@ -209,6 +226,22 @@ impl Analysis {
         return uris;
     }
 
+    // A `.hawk` file changed on disk outside the editor (`didChangeWatchedFiles`).
+    // Evict it from the session's caches — chiefly the parse cache, which is keyed
+    // by path and would otherwise hand back the text this file used to hold — and
+    // let the cascade mark its importers unchecked.
+    //
+    // An open buffer is *not* refreshed from disk here: the editor's copy is the
+    // truth for a file being edited, and the overlay already shadows the disk. The
+    // eviction is harmless in that case — the next analysis re-reads the overlay.
+    //
+    // Marks the workspace dirty rather than nudging: a branch switch reports every
+    // file it touched, and the server's flush collapses them into one re-pull.
+    pub fn note_watched_change(self, _ uri: String) -> Void {
+        self.session.invalidate(paths.uri_to_path(uri));
+        self.ws_dirty = true;
+    }
+
     // Whether a change since the last flush could alter another file's diagnostics
     // — a public-surface edit or a document close (see `ws_dirty`). Drains the
     // per-document change set too (its identities aren't consumed once the nudge is
@@ -254,6 +287,9 @@ impl Analysis {
     // a re-`initialize` replaces the set. Paths, not URIs (the caller decodes).
     pub fn set_roots(self, _ roots: List<String>) -> Void {
         self.roots = roots;
+        // Which files a scan even sees is derived from these, so last scan's
+        // result no longer describes this workspace.
+        self.scan_cache = Option.None;
     }
 
     pub fn roots(self) -> List<String> {
@@ -264,6 +300,11 @@ impl Analysis {
     // Idempotent — a new set replaces the old.
     pub fn set_exclude(self, _ patterns: List<String>) -> Void {
         self.exclude = patterns;
+        // The scan cache holds diagnostics computed under the *old* globs, and
+        // content-keying can't see that they moved: un-excluding a file leaves its
+        // text identical, but the cached result never checked it and would report
+        // it clean. Drop the cache rather than reason about which way it changed.
+        self.scan_cache = Option.None;
     }
 
     // Whether `path`'s diagnostics are suppressed by a `hawk.exclude` glob —
@@ -576,33 +617,10 @@ impl Analysis {
             return Option.None;
         }
         let files = self.scan_files();
-        // Check each file once, folding every diagnostic under its owning file
-        // (deduped by identity — an imported file's error surfaces from several
-        // importers). The primary attributes its own unattributed diagnostics.
-        let by_file: Map<String, List<Json>> = [:];
-        let seen: Set<String> = Set.new();
-        let mut i = 0;
-        for f in files {
-            // Bail as soon as a newer pull/cancel wins, before more expensive work.
-            if !still_current() {
-                return Option.None;
-            }
-            // Skip SDK and excluded files as scan primaries — they get no report.
-            // (An excluded file's error can still be grouped from a non-excluded
-            // importer's check; the emit loop drops those by skipping excluded
-            // owners.)
-            if !self.session.is_sdk_file(f.path) && !self.is_excluded(f.path) {
-                diagnostics.group_by_file(self.session.check(f.text, f.path),
-                    loader.canonical_path(f.path), by_file, seen);
-            }
-            // Cede between files so the dispatch loop can service hover/edits while
-            // a large workspace is still being checked (checking one file is the
-            // yield granularity).
-            i = i + 1;
-            if i % 8 == 0 {
-                fiber.yield();
-            }
-        }
+        let by_file = match self.scan_by_file(files, still_current) {
+            Some(m) => m,
+            None => return Option.None,  // superseded mid-scan
+        };
         // One report per scanned file (empty items = clean), keyed by canonical
         // path so an open buffer and its on-disk copy don't double-report. Excluded
         // files are omitted entirely — their diagnostics stay hidden.
@@ -638,5 +656,91 @@ impl Analysis {
             }
         }
         return Option.Some(obj(['items': arr(items)]));
+    }
+
+    // Every scanned file's diagnostics, folded under its owning file — reusing the
+    // last scan's result when the workspace reads back byte-identical.
+    //
+    // This is what keeps an idle editor idle. The client re-issues
+    // `workspace/diagnostic` every 2s forever (vscode-languageclient's
+    // `pullWorkspace` re-arms unconditionally after each reply), so a pull's cost is
+    // paid continuously, not once — and `resultId` caching only saves re-*sending*
+    // the items, never re-*computing* them. Checking is the whole remaining cost:
+    // even warm, each file is re-parsed and its import closure re-walked, only for
+    // `check_files` to skip nearly all of it.
+    //
+    // None when a newer pull or a cancel superseded this scan.
+    fn scan_by_file(self, _ files: List<ScanFile>,
+        _ still_current: () -> Bool) -> Option<Map<String, List<Json>>> {
+        if let Some(cached) = self.reusable_by_file(files) {
+            return Option.Some(cached);
+        }
+        // Check each file once, folding every diagnostic under its owning file
+        // (deduped by identity — an imported file's error surfaces from several
+        // importers). The primary attributes its own unattributed diagnostics.
+        let by_file: Map<String, List<Json>> = [:];
+        let seen: Set<String> = Set.new();
+        let mut i = 0;
+        for f in files {
+            // Bail as soon as a newer pull/cancel wins, before more expensive work.
+            // Nothing is cached on this path: the result is incomplete, and caching
+            // it would serve those partial diagnostics to every later pull.
+            if !still_current() {
+                return Option.None;
+            }
+            // Skip SDK and excluded files as scan primaries — they get no report.
+            // (An excluded file's error can still be grouped from a non-excluded
+            // importer's check; the emit loop drops those by skipping excluded
+            // owners.)
+            if !self.session.is_sdk_file(f.path) && !self.is_excluded(f.path) {
+                diagnostics.group_by_file(self.session.check(f.text, f.path),
+                    loader.canonical_path(f.path), by_file, seen);
+            }
+            // Cede between files so the dispatch loop can service hover/edits while
+            // a large workspace is still being checked (checking one file is the
+            // yield granularity).
+            i = i + 1;
+            if i % 8 == 0 {
+                fiber.yield();
+            }
+        }
+        let contents: Map<String, String> = [:];
+        for f in files {
+            contents[loader.canonical_path(f.path)] = f.text;
+        }
+        self.scan_cache = Option.Some(ScanCache { contents: contents, by_file: by_file });
+        return Option.Some(by_file);
+    }
+
+    // The last scan's diagnostics, if this scan read exactly the content that
+    // produced them — same files, same text, byte for byte. Diagnostics are a
+    // function of the file set and its contents, so identical input can only yield
+    // identical output; anything else (an edit, a new file, a deleted one) falls
+    // through to a full check.
+    //
+    // Skipping the check does not strand the query layer: `records_for` re-checks
+    // on demand for an open buffer with no stored records, and hover/definition only
+    // ever run against open buffers.
+    fn reusable_by_file(self, _ files: List<ScanFile>) -> Option<Map<String, List<Json>>> {
+        let cache = match self.scan_cache {
+            Some(c) => c,
+            None => return Option.None,
+        };
+        // Canonical keys are unique across `files` (scan_files dedupes by them), so
+        // equal counts plus an every-file hit means the sets match — that's what
+        // catches a *deleted* file, which no per-file comparison would.
+        if cache.contents.len() != files.len() {
+            return Option.None;
+        }
+        for f in files {
+            let prev = match cache.contents.get(loader.canonical_path(f.path)) {
+                Some(t) => t,
+                None => return Option.None,  // a file this scan didn't see
+            };
+            if prev != f.text {
+                return Option.None;
+            }
+        }
+        return Option.Some(cache.by_file);
     }
 }

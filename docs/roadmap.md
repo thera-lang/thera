@@ -463,6 +463,17 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     perceived-performance battle (requests no longer block behind the full
     workspace analysis); this only smooths the _initial_ scan's fill-in, so it's
     worth doing only if that first pass feels slow in practice.
+  - **The scan still re-reads every file each pull.** With the scan cache (see
+    _Changelog_) a warm pull is ~60ms, nearly all of it walking the tree and
+    re-reading all 170 files to discover that nothing changed. Now that the
+    server watches `**/*.hawk`, that could collapse to ~0: keep the file list and
+    texts, and let `didChangeWatchedFiles` invalidate them. Deliberately not done
+    yet — re-reading is what makes the cache self-correcting, and trusting the
+    watcher instead means trusting it to never miss an event (VS Code's watcher
+    honors `files.watcherExclude`, and network/virtual filesystems vary). 60ms
+    per 2s is ~3% of a core; the remaining win is small and the risk is stale
+    diagnostics, which is the failure this whole area keeps producing. Revisit
+    only with a way to verify the watcher is keeping up.
   - **Primitive-receiver member resolution.** Hover / definition / member
     resolution on a primitive receiver (`"s".split()`) don't resolve — a
     `Primitive` value carries no `TypeId`. Ties to _Primitive vtables_
@@ -1098,6 +1109,29 @@ Brief summaries of finished arcs; design details live in
 [architecture.md](architecture.md) / [language.md](language.md) and the linked
 conformance specs. Newest first.
 
+- **LSP: an idle server costs ~nothing (and stops going stale)** (2026-07). An
+  idle `hawk lsp` sat at 40–80% CPU with the editor untouched. Not a scheduler
+  spin: the server measures 0% idle and never wakes itself. The cause is that
+  `vscode-languageclient`'s `pullWorkspace` re-arms `setTimeout(…, 2000)`
+  unconditionally after every reply — idle or not, forever — so a pull's cost is
+  paid continuously. `resultId` caching (already correct here) only saves
+  re-*sending* items, never re-*computing* them; and our supersession reply
+  (`ContentModified`, -32801) is swallowed by the client as a resolved default,
+  so neither of the classic runaway-pull traps applied. The client's design
+  simply assumes an unchanged pull is cheap. Three fixes, warm pull 2.19s → 60ms
+  (~52% CPU → ~3%): (1) `fs.read_dir` — the walk stat-ed every entry to ask "file
+  or directory?", which `readdir` already answers (1593ms → 255ms); (2)
+  `hawk.exclude` prunes subtrees during the walk rather than filtering files
+  after it, and this repo excludes `runtime/target/**`; (3) a content-keyed scan
+  cache — identical texts in, identical diagnostics out, so an unchanged pull
+  skips checking entirely. Along the way this turned up a **pre-existing
+  staleness bug**, reproduced on the prior commit: `parsed_primary` keys the parse
+  cache by path and evicts only on overlay events, so a file changed on disk with
+  no buffer open (a branch switch, a rebase) kept serving its first-ever parse for
+  the life of the session. Fixed by registering `workspace/didChangeWatchedFiles`
+  (dynamic registration only — there is no static capability) and invalidating on
+  each event. Both cache invalidations were verified load-bearing by removing them
+  and watching the tests fail.
 - **Function references** (2026-07). A named `fn` is now usable as a value —
   `apply(double, 21)`, `let f = double`, `return stringify_it` — closing a
   **spec/implementation divergence** rather than adding a feature:

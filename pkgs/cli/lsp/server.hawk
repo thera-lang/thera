@@ -53,9 +53,15 @@ pub struct Server {
     // hits). When it doesn't, workspace diagnostics rely on the client's own pull
     // cadence (open/save/focus).
     let mut client_refresh_support: Bool;
-    // The id for the next server-initiated request (only `workspace/diagnostic/
-    // refresh` today). Its own id space; the client's response is a message with
-    // no `method`, which `ingest` drops.
+    // Whether the client supports dynamically registering file watchers (from
+    // `initialize`). Without it the server never learns of an on-disk change made
+    // outside the editor and keeps serving that file's stale parse — see
+    // `register_file_watcher`. There is no static capability for this: watching
+    // exists only through `client/registerCapability`.
+    let mut client_watch_support: Bool;
+    // The id for the next server-initiated request (`workspace/diagnostic/refresh`
+    // and `client/registerCapability`). Its own id space; the client's response is
+    // a message with no `method`, which `ingest` drops.
     let mut next_request_id: Int;
     // The in-flight background `workspace/diagnostic` worker, if any. A new pull
     // (or a cancel) supersedes it via `ws_generation`; `serve` joins it on exit so
@@ -73,6 +79,7 @@ pub fn new_server(_ sdk_root: Option<String>) -> Server {
         outbox: outbox.discard_outbox(),
         shutdown_received: false,
         client_refresh_support: false,
+        client_watch_support: false,
         next_request_id: 1,
         current_worker: Option.None,
         ws_generation: 0,
@@ -212,11 +219,22 @@ impl Server {
         if method == 'initialize' {
             self.analysis.set_roots(workspace_roots(params));
             self.client_refresh_support = client_supports_diagnostic_refresh(params);
+            self.client_watch_support = client_supports_file_watching(params);
             self.analysis.set_exclude(string_array(params.get('initializationOptions').get('exclude')));
             send_response(self.outbox, id, initialize_result());
             return true;
         }
+        // The spec's earliest point for a server-initiated registration.
         if method == 'initialized' {
+            self.register_file_watcher();
+            return true;
+        }
+        // A `.hawk` file changed on disk outside the editor — a branch switch, a
+        // rebase, a generated file. Nothing else tells us: `didChange` covers only
+        // open buffers, so without this the session serves the parse it cached the
+        // first time it read the file, forever.
+        if method == 'workspace/didChangeWatchedFiles' {
+            self.handle_watched_changes(params);
             return true;
         }
         // A live `hawk.exclude` change: update the filter and nudge a re-pull so
@@ -478,6 +496,55 @@ impl Server {
             'method': json.str('workspace/diagnostic/refresh'),
         ]));
     }
+
+    // Ask the client to watch the workspace's `.hawk` files and report on-disk
+    // changes. Unlike the other capabilities this one can't be declared in
+    // `initialize`'s result — the protocol offers only dynamic registration — so it
+    // is a request we send once the client says `initialized`.
+    //
+    // Watching is the only way the server hears about a file that changed with no
+    // buffer open: `didChange` speaks for open documents alone. The client filters
+    // by these globs, so ask for exactly what we analyze.
+    fn register_file_watcher(self) -> Void {
+        if !self.client_watch_support {
+            return;
+        }
+        let id = self.next_request_id;
+        self.next_request_id = id + 1;
+        self.outbox.send(json.obj([
+            'jsonrpc': json.str('2.0'),
+            'id': json.int(id),
+            'method': json.str('client/registerCapability'),
+            'params': json.obj([
+                'registrations': json.arr([json.obj([
+                    'id': json.str('hawk-watched-files'),
+                    'method': json.str('workspace/didChangeWatchedFiles'),
+                    'registerOptions': json.obj([
+                        'watchers': json.arr([json.obj([
+                            'globPattern': json.str('**/*.hawk'),
+                        ])]),
+                    ]),
+                ])]),
+            ]),
+        ]));
+    }
+
+    // Evict each reported file from the session's caches, so the next analysis
+    // re-reads it. Created / changed / deleted all invalidate the same way: the
+    // cached parse (and every importer's checked-clean status, via the session's
+    // dependency cone) can no longer be trusted for that path.
+    //
+    // The refresh nudge is deferred to the next `flush`, which coalesces it — a
+    // branch switch reports hundreds of files, and each nudging a full re-pull
+    // would be the storm this whole change is about avoiding.
+    fn handle_watched_changes(self, _ params: Json) -> Void {
+        for change in params.get('changes').as_array().unwrap_or([]) {
+            if let Some(uri) = change.get('uri').as_string() {
+                self.analysis.note_watched_change(uri);
+            }
+        }
+        self.flush();
+    }
 }
 
 // --- JSON-RPC envelope helpers ---
@@ -550,6 +617,14 @@ fn initialize_result() -> Json {
 fn client_supports_diagnostic_refresh(_ params: Json) -> Bool {
     return params.get('capabilities').get('workspace').get('diagnostics')
         .get('refreshSupport').as_bool().unwrap_or(false);
+}
+
+// Whether the client will accept a `workspace/didChangeWatchedFiles` registration.
+// Dynamic registration is the only form the protocol defines for it, so a client
+// without this cannot report on-disk changes at all.
+fn client_supports_file_watching(_ params: Json) -> Bool {
+    return params.get('capabilities').get('workspace').get('didChangeWatchedFiles')
+        .get('dynamicRegistration').as_bool().unwrap_or(false);
 }
 
 // The string elements of a JSON array (non-strings and a non-array skipped) — the
