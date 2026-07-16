@@ -940,6 +940,47 @@ fn test_watched_file_change_invalidates_the_cached_parse() -> Result<Void, Error
     return Result.Ok(void);
 }
 
+// The disk scan is cached across pulls, so it holds the file *set* as well as the
+// contents: a file created or deleted on disk is only noticed because the watcher
+// says so. (Before the cache a re-walk found new files unaided — this pins the
+// behavior that replaced it.)
+@test
+fn test_watched_create_and_delete_update_the_scanned_set() -> Result<Void, Error> {
+    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_watched_set_test');
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
+    fs.create_dir_all(dir)?;
+    fs.write_text(dir + '/first.hawk', 'fn first() -> Int { return 1; }\n')?;
+
+    let server = new_server(Option.None);
+    let _init = capture(server, '{"jsonrpc":"2.0","id":1,"method":"initialize","params":'
+        + '{"rootUri":"file://' + dir + '","capabilities":{"workspace":'
+        + '{"didChangeWatchedFiles":{"dynamicRegistration":true}}}}}');
+    let _warm = capture(server, '{"jsonrpc":"2.0","id":2,"method":"workspace/diagnostic","params":'
+        + '{"previousResultIds":[]}}');
+
+    // A file appears (type 1 = Created).
+    let born = dir + '/second.hawk';
+    fs.write_text(born, 'fn second() -> Int { return missing; }\n')?;
+    let _created = capture(server, '{"jsonrpc":"2.0","method":"workspace/didChangeWatchedFiles",'
+        + '"params":{"changes":[{"uri":"file://' + born + '","type":1}]}}');
+    let after_create = capture(server, '{"jsonrpc":"2.0","id":3,"method":"workspace/diagnostic",'
+        + '"params":{"previousResultIds":[]}}');
+    testing.assert(after_create.contains('second.hawk'),
+        message: 'a created file joins the scan')?;
+
+    // And goes away again (type 3 = Deleted).
+    fs.remove(born)?;
+    let _deleted = capture(server, '{"jsonrpc":"2.0","method":"workspace/didChangeWatchedFiles",'
+        + '"params":{"changes":[{"uri":"file://' + born + '","type":3}]}}');
+    let after_delete = capture(server, '{"jsonrpc":"2.0","id":4,"method":"workspace/diagnostic",'
+        + '"params":{"previousResultIds":[]}}');
+    testing.assert(!after_delete.contains('second.hawk'),
+        message: 'a deleted file leaves the scan')?;
+
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
+    return Result.Ok(void);
+}
+
 // The watcher only exists if we ask for it — there is no static capability for
 // `didChangeWatchedFiles`, so `initialized` must send the registration.
 @test

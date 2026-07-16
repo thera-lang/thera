@@ -463,27 +463,20 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     perceived-performance battle (requests no longer block behind the full
     workspace analysis); this only smooths the _initial_ scan's fill-in, so it's
     worth doing only if that first pass feels slow in practice.
-  - **The scan re-reads every file each pull, and that buys nothing.** A warm
-    pull is ~60ms, nearly all of it walking the tree and re-reading all 170 files
-    to discover nothing changed. The obvious reading — that this is a safety net
-    against a missed watcher event — is **false, and was measured**: with the
-    watcher silent, an on-disk edit is still not reported. The scan reads the new
-    bytes and `session.check` discards them, because `parsed_primary` returns its
-    path-keyed cached parse regardless of the `source` passed in (and `checked` /
-    `surface_cache` / `type_records` are path-keyed too, so even a re-parse would
-    be skipped by `skip_keys`). Correctness already rests wholly on
-    `didChangeWatchedFiles`. So the current state is the worst of both lanes: we
-    pay for the re-read *and* depend on the watcher. Pick one:
-    1. **Trust the watcher** (what most servers do): cache the file list and
-       texts, invalidate on the notification. Idle → ~0%. The exposure is
-       unchanged from today, but becomes the *only* line of defense — worth
-       knowing that VS Code's watcher honors `files.watcherExclude`, so a user
-       who excludes a directory silently stops getting events for it.
-    2. **Make the re-read real**: have the scan compare each file's text against
-       what the session last parsed and `invalidate` on a difference. Then the
-       60ms is genuinely load-bearing, a missed watcher event self-heals within
-       one pull, and the watcher degrades to a promptness optimization.
-    Either is coherent; the status quo isn't. Not urgent at ~3% of a core.
+  - **Reconcile `files.watcherExclude` with `hawk.exclude`.** The on-disk scan is
+    now cached and invalidated by `didChangeWatchedFiles` (see _Changelog_), so
+    the watcher is the sole source of truth for on-disk state. VS Code's watcher
+    honors the user's `files.watcherExclude`, which the server never sees: a
+    directory excluded there reports no events, so a `.hawk` file under it is
+    scanned once and then frozen at that content for the session — no diagnostic
+    ever updates for it. Nothing warns; it just goes quiet. Options: read
+    `files.watcherExclude` via `workspace/configuration` and either fold it into
+    the scan's prune set (don't analyze what we can't be told about — consistent,
+    and the file simply drops out) or report the overlap as a diagnostic. The
+    same question in reverse says `hawk.exclude`'s `<base>/**` prunes could seed
+    the watcher registration, so we don't ask to be told about subtrees we never
+    scan. Low priority: the default `files.watcherExclude` covers `node_modules`
+    and `.git/objects`, neither of which holds Hawk sources.
   - **Primitive-receiver member resolution.** Hover / definition / member
     resolution on a primitive receiver (`"s".split()`) don't resolve — a
     `Primitive` value carries no `TypeId`. Ties to _Primitive vtables_
@@ -1140,8 +1133,13 @@ conformance specs. Newest first.
   no buffer open (a branch switch, a rebase) kept serving its first-ever parse for
   the life of the session. Fixed by registering `workspace/didChangeWatchedFiles`
   (dynamic registration only — there is no static capability) and invalidating on
-  each event. Both cache invalidations were verified load-bearing by removing them
-  and watching the tests fail.
+  each event. With the watcher in place the scan itself is cached too (it was
+  re-walking and re-reading every file each pull to rediscover what the watcher had
+  already reported), leaving a warm pull at **~18ms — ~0.9% of a core**. Every
+  cache invalidation was verified load-bearing by removing it and watching a test
+  fail. Measurement note: the first probe polled for replies on a 50ms `sleep`,
+  quantizing every timing to the next tick — it reported a flat "55ms" that hid
+  both the cost and the improvement. Wait on an event, not a poll.
 - **Function references** (2026-07). A named `fn` is now usable as a value —
   `apply(double, 21)`, `let f = double`, `return stringify_it` — closing a
   **spec/implementation divergence** rather than adding a feature:

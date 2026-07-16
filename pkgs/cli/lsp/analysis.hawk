@@ -71,6 +71,11 @@ pub struct Analysis {
     // that reads back byte-identical content reuses the result instead of
     // re-checking every file — see `reusable_by_file`. None until a scan finishes.
     let mut scan_cache: Option<ScanCache>;
+    // The `.hawk` files on disk under the roots and their contents, as last read.
+    // Held across pulls because the client watches them for us and reports every
+    // change; dropped on a watcher event or a roots/exclude change. None = re-walk.
+    // See `disk_files` for why this is safe (and what it is trusting).
+    let mut disk_cache: Option<List<ScanFile>>;
 }
 
 // The last completed workspace scan: the exact text each file held (canonical
@@ -110,6 +115,7 @@ pub fn new_analysis(_ sdk_root: Option<String>) -> Analysis {
         diag_reports: [:],
         next_result_id: 0,
         scan_cache: Option.None,
+        disk_cache: Option.None,
     };
 }
 
@@ -239,6 +245,11 @@ impl Analysis {
     // file it touched, and the server's flush collapses them into one re-pull.
     pub fn note_watched_change(self, _ uri: String) -> Void {
         self.session.invalidate(paths.uri_to_path(uri));
+        // The whole on-disk scan, not just this file: a create or delete changes
+        // the file *set*, and re-walking is cheap next to being wrong about it.
+        // This is the notification the disk cache exists to be told by — miss it
+        // and that file's contents stay as they were when first read.
+        self.drop_disk_cache();
         self.ws_dirty = true;
     }
 
@@ -288,8 +299,10 @@ impl Analysis {
     pub fn set_roots(self, _ roots: List<String>) -> Void {
         self.roots = roots;
         // Which files a scan even sees is derived from these, so last scan's
-        // result no longer describes this workspace.
+        // result no longer describes this workspace — nor does the walk it came
+        // from.
         self.scan_cache = Option.None;
+        self.drop_disk_cache();
     }
 
     pub fn roots(self) -> List<String> {
@@ -305,6 +318,9 @@ impl Analysis {
         // text identical, but the cached result never checked it and would report
         // it clean. Drop the cache rather than reason about which way it changed.
         self.scan_cache = Option.None;
+        // A `<base>/**` glob prunes the walk itself, so the file set follows the
+        // globs too.
+        self.drop_disk_cache();
     }
 
     // Whether `path`'s diagnostics are suppressed by a `hawk.exclude` glob —
@@ -394,21 +410,63 @@ impl Analysis {
     // expensive work scales with the target's reachability, not the whole project.
     fn scan_files(self) -> List<ScanFile> {
         let by_path: Map<String, ScanFile> = [:];
-        for p in workspace.hawk_files(self.roots, prune: (d) => self.prunes_dir(d)) {
-            let key = loader.canonical_path(p);
-            if !by_path.has(key) {
-                if let Ok(text) = fs.read_text(p) {
-                    by_path[key] = ScanFile { uri: paths.path_to_uri(p), path: p, text: text };
-                }
-            }
+        for f in self.disk_files() {
+            by_path[loader.canonical_path(f.path)] = f;
         }
         // Open buffers override the on-disk copy (and add files outside a root).
+        // Applied over the cached disk scan on every call, never cached with it —
+        // the buffer is the truth for an open file and changes far more often.
         for u in self.docs.keys() {
             let p = paths.uri_to_path(u);
             by_path[loader.canonical_path(p)] =
                 ScanFile { uri: u, path: p, text: self.docs.get(u).unwrap_or('') };
         }
         return by_path.values();
+    }
+
+    // Every `.hawk` file on disk under the roots, with its contents — held until
+    // something says otherwise.
+    //
+    // The client watches `**/*.hawk` for us (`register_file_watcher`), so it will
+    // report any create, delete, or write; re-walking the tree and re-reading every
+    // file on each pull would only ever rediscover what the watcher already told
+    // us. That matters because the client re-pulls every 2s forever, so this ran
+    // continuously on an untouched editor.
+    //
+    // The trade is explicit: correctness of on-disk state now rests entirely on the
+    // watcher. It already did — `session.check` returns its path-keyed cached parse
+    // regardless of the text handed to it, so the old re-read never actually caught
+    // an unreported change (measured). This drops the cost of a defense that wasn't
+    // one. Known gap, not currently reconciled: VS Code's watcher honors
+    // `files.watcherExclude`, so a directory excluded there reports no events —
+    // see the roadmap.
+    //
+    // Dedupes by canonical path, first spelling winning, as the walk always has
+    // (overlapping roots can yield one file twice).
+    fn disk_files(self) -> List<ScanFile> {
+        if let Some(cached) = self.disk_cache {
+            return cached;
+        }
+        let out: List<ScanFile> = [];
+        let seen: Set<String> = Set.new();
+        for p in workspace.hawk_files(self.roots, prune: (d) => self.prunes_dir(d)) {
+            let key = loader.canonical_path(p);
+            if !seen.has(key) {
+                seen.add(key);
+                if let Ok(text) = fs.read_text(p) {
+                    out.push(ScanFile { uri: paths.path_to_uri(p), path: p, text: text });
+                }
+            }
+        }
+        self.disk_cache = Option.Some(out);
+        return out;
+    }
+
+    // Forget the on-disk scan, so the next one re-walks and re-reads. Called when
+    // the disk may have moved under us (a watcher event) or when what counts as
+    // "under the roots" changed (`set_roots` / `set_exclude`).
+    fn drop_disk_cache(self) -> Void {
+        self.disk_cache = Option.None;
     }
 
     // The scan files that can *see* `target`'s declaration — its own file plus its
