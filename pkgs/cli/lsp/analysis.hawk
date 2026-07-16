@@ -754,7 +754,7 @@ impl Analysis {
     // Runs on a background fiber (see server.start_workspace_scan): it `yield`s
     // every few files so the request loop stays responsive while it works, and
     // consults `still_current` at each file — returning None (the caller replies
-    // ContentModified) when a newer pull or a cancel has superseded this scan.
+    // a cancellation error) when a newer pull or a cancel has superseded this scan.
     // `prev_ids` maps each URI to the resultId the client last holds for it; a file
     // whose current items match returns a light `unchanged` item (LSP 3.17 pull
     // caching) instead of re-sending, so a re-pull re-emits only changed files.

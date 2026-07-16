@@ -71,10 +71,19 @@ pub struct Server {
     // for a synchronous one-shot. At most one is ever live — the session's caches
     // aren't safe under interleaved scans.
     let mut current_worker: Option<fiber.Fiber<Void>>;
-    // Bumped on each workspace pull and on `$/cancelRequest`; a worker whose
-    // captured generation no longer matches bails with ContentModified. This is the
+    // Bumped on each workspace pull, on a `$/cancelRequest` naming the scan's
+    // request, and on shutdown; a worker whose captured generation no longer
+    // matches bails and settles its request per `scan_bail`. This is the
     // supersession signal — the last pull wins, older scans stop wasting work.
     let mut ws_generation: Int;
+    // The request id the in-flight (or last) scan answers — what a
+    // `$/cancelRequest` is matched against. JSON null until the first pull.
+    let mut scan_id: Json;
+    // Why the in-flight scan is being superseded — decides the error its request
+    // settles with when the worker bails (see `send_bail_error`). Set by each
+    // generation-bump site right before the bump; every site then joins the
+    // worker, so a reason is consumed before the next one can be set.
+    let mut scan_bail: ScanBail;
     // The held-open `workspace/diagnostic` pull, once its first report has been
     // streamed. A client that sends a `partialResultToken` gets its report as
     // `$/progress` and **no response**: completing the request is what re-arms the
@@ -100,6 +109,17 @@ struct OpenPull {
     let token: Json;
 }
 
+// Why an in-flight scan is superseded — the diagnostic-pull spec assigns each
+// cause its own settle error (see `send_bail_error`).
+enum ScanBail {
+    // A newer pull replaced it, or the session is shutting down: ServerCancelled,
+    // with DiagnosticServerCancellationData telling the client *not* to
+    // re-trigger — the newer pull is already in hand (or the server is going away).
+    Superseded,
+    // The client cancelled this very request: RequestCancelled, the advised code.
+    Cancelled,
+}
+
 pub fn new_server(_ sdk_root: Option<String>) -> Server {
     return Server {
         analysis: new_analysis(sdk_root),
@@ -110,6 +130,8 @@ pub fn new_server(_ sdk_root: Option<String>) -> Server {
         next_request_id: 1,
         current_worker: Option.None,
         ws_generation: 0,
+        scan_id: json.null(),
+        scan_bail: ScanBail.Superseded,
         open_pull: Option.None,
         delta_pending: false,
     };
@@ -191,7 +213,7 @@ impl Server {
     // Run the project-wide diagnostic scan as a background fiber so the dispatch
     // loop keeps servicing hover/edits/completion while it works. The worker yields
     // between files (see analysis.workspace_report_interruptible) and delivers its
-    // report — or a ContentModified error if a newer pull/cancel superseded it —
+    // report — or a cancellation error if a newer pull/cancel superseded it —
     // through the shared outbox, keyed by this request's `id`. Under `serve` the
     // scheduler runs it during the loop's stdin parks; under `handle` it's joined
     // for a synchronous reply. The reply may arrive out of order (a hover answered
@@ -207,9 +229,12 @@ impl Server {
         // the client is never owed two workspace responses.
         self.settle_open_pull();
         // Bump first, then reclaim any prior scan: it sees the new generation and
-        // bails at its next yield, so at most one worker is ever in flight.
+        // bails at its next yield — settling as superseded — so at most one
+        // worker is ever in flight.
+        self.scan_bail = ScanBail.Superseded;
         self.ws_generation = self.ws_generation + 1;
         self.join_current_worker();
+        self.scan_id = id;
         let gen = self.ws_generation;
         let worker = fiber.spawn(() => {
             match self.analysis.workspace_report_interruptible(prev_ids, () => self.ws_generation == gen) {
@@ -224,13 +249,27 @@ impl Server {
                         self.drain_pending_deltas(gen);
                     }
                 },
-                // -32801 ContentModified: a newer pull/cancel replaced this scan.
-                // The client re-pulls (also nudged by the edit's refresh) for fresh
-                // results — eventual consistency, not a lost report.
-                None => send_error(self.outbox, id, -32801, 'content modified'),
+                // Superseded before it could answer; the settle error names the
+                // cause (`scan_bail`). No report is lost — a superseding pull
+                // re-reports in full, a cancel means nobody is listening.
+                None => self.send_bail_error(id),
             }
         });
         self.current_worker = Option.Some(worker);
+    }
+
+    // Settle a superseded scan's request with the error the diagnostic-pull spec
+    // assigns its cause: RequestCancelled (-32800) when the client cancelled this
+    // very request, else ServerCancelled (-32802) with
+    // `DiagnosticServerCancellationData { retriggerRequest: false }` — the client
+    // needn't re-ask, the superseding pull is already in hand (or the session is
+    // ending). ContentModified was the pre-3.17 shape for this.
+    fn send_bail_error(self, _ id: Json) -> Void {
+        match self.scan_bail {
+            Cancelled => send_error(self.outbox, id, -32800, 'request cancelled'),
+            Superseded => send_error(self.outbox, id, -32802, 'server cancelled',
+                data: json.obj(['retriggerRequest': json.bool(false)])),
+        }
     }
 
     // Complete the held-open workspace pull, if any, with an empty final result —
@@ -354,9 +393,10 @@ impl Server {
         }
         if method == 'shutdown' {
             // The workspace pull must not outlive the session, however far it got:
-            // supersede an in-flight scan (it settles its request with
-            // ContentModified before it would ever stream), then settle a
-            // held-open pull — so the client is never left awaiting a response.
+            // supersede an in-flight scan (it settles its request as superseded
+            // before it would ever stream), then settle a held-open pull — so the
+            // client is never left awaiting a response.
+            self.scan_bail = ScanBail.Superseded;
             self.ws_generation = self.ws_generation + 1;
             self.join_current_worker();
             self.settle_open_pull();
@@ -436,22 +476,30 @@ impl Server {
             return true;
         }
         // A cancel targets the only cancellable background ops — the in-flight
-        // workspace scan and the held-open pull. Bumping the generation makes a
-        // running scan bail (ContentModified); inline requests have already
-        // completed, so a cancel for one is moot.
+        // workspace scan and the held-open pull, both matched by request id. Any
+        // other cancel names a request that has already completed (everything
+        // else answers inline), which the protocol says to ignore — it must not
+        // kill an innocent scan.
         if method == '$/cancelRequest' {
+            let cancel_id = json.stringify(params.get('id'));
             // A cancelled request cannot be left hanging (JSON-RPC): settle a
             // held-open pull whose id this names with RequestCancelled. The client
             // re-triggers a fresh pull if it still wants workspace diagnostics.
             if let Some(pull) = self.open_pull {
-                if json.stringify(pull.id) == json.stringify(params.get('id')) {
+                if json.stringify(pull.id) == cancel_id {
                     send_error(self.outbox, pull.id, -32800, 'request cancelled');
                     self.open_pull = Option.None;
                     self.delta_pending = false;
                 }
             }
-            self.ws_generation = self.ws_generation + 1;
-            self.join_current_worker();
+            // Naming the scan's request makes the worker bail — a still-running
+            // initial scan then settles it with RequestCancelled (a delta drain
+            // for an already-settled pull just stops, silently).
+            if !self.scan_id.is_null() && json.stringify(self.scan_id) == cancel_id {
+                self.scan_bail = ScanBail.Cancelled;
+                self.ws_generation = self.ws_generation + 1;
+                self.join_current_worker();
+            }
             return true;
         }
         if method == 'textDocument/didClose' {
@@ -700,15 +748,22 @@ fn send_progress(_ ob: outbox.Outbox, _ token: Json, _ value: Json) -> Void {
 
 // A JSON-RPC error response (`code` from the spec's reserved range:
 // -32700 ParseError, -32601 MethodNotFound, -32600 InvalidRequest, and the LSP
-// extensions -32801 ContentModified / -32803 RequestFailed).
-fn send_error(_ ob: outbox.Outbox, _ id: Json, _ code: Int, _ message: String) -> Void {
+// extensions -32800 RequestCancelled / -32802 ServerCancelled / -32803
+// RequestFailed). A non-null `data` rides on the error object — e.g. the
+// diagnostic pulls' `DiagnosticServerCancellationData`.
+fn send_error(_ ob: outbox.Outbox, _ id: Json, _ code: Int, _ message: String,
+    data: Json = json.null()) -> Void {
+    let err: Map<String, Json> = [
+        'code': json.int(code),
+        'message': json.str(message),
+    ];
+    if !data.is_null() {
+        err['data'] = data;
+    }
     ob.send(json.obj([
         'jsonrpc': json.str('2.0'),
         'id': id,
-        'error': json.obj([
-            'code': json.int(code),
-            'message': json.str(message),
-        ]),
+        'error': json.obj(err),
     ]));
 }
 

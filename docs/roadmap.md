@@ -1156,8 +1156,22 @@ conformance specs. Newest first.
   closed a latent race: `disk_files` parks across its reads, so a watcher
   eviction landing mid-build was silently overwritten by the finishing build —
   reinstating the stale text until the file's next event; the build now stores
-  its cache only if the generation didn't move. Still open: `ServerCancelled`
-  conformance polish (phase 3).
+  its cache only if the generation didn't move.
+
+  Phase 3 closed the arc with the settle-code conformance polish: a superseded
+  scan now answers with the code the diagnostic-pull spec assigns its cause —
+  `RequestCancelled` (-32800) when the client cancelled that very request,
+  `ServerCancelled` (-32802) with
+  `DiagnosticServerCancellationData { retriggerRequest: false }` when a newer
+  pull replaced it or the session is shutting down (the pre-3.17
+  `ContentModified` is gone). Distinguishing the causes required tracking the
+  scan's request id (`Server.scan_id`), which also fixed a latent sloppiness:
+  `$/cancelRequest` used to bump the generation *blindly*, so a cancel for any
+  already-completed request killed an innocent scan — cancels now match by id,
+  and an unrelated one is ignored per the protocol. Behavior-neutral for
+  vscode-languageclient (it re-arms its workspace timer on any settlement and
+  only reads `retriggerRequest` on document pulls), so this is truthfulness for
+  other clients, not observable behavior for VS Code.
 - **LSP: an idle server costs ~nothing (and stops going stale)** (2026-07). An
   idle `hawk lsp` sat at 40–80% CPU with the editor untouched. Not a scheduler
   spin: the server measures 0% idle and never wakes itself. The cause is that
