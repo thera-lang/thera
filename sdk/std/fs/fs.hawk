@@ -89,6 +89,13 @@ pub struct Metadata {
     let modified: Option<time.DateTime>; // last-modified time (None if the platform can't report it)
 }
 
+/// One entry of a `read_dir`: a basename plus the kind the directory read
+/// reported, without following symlinks (see `read_dir`).
+pub struct DirEntry {
+    let name: String;   // basename, not a full path — join it with the directory
+    let kind: FileKind;
+}
+
 // The native reports last-modified as Unix milliseconds, using 0 to mean
 // "unknown"; surface that as `None` rather than a misleading 1970 timestamp.
 fn modified_from_millis(_ millis: Int) -> Option<time.DateTime> {
@@ -127,6 +134,9 @@ native fn _write_bytes(_ path: String, _ data: Bytes) -> Result<Void, String>
 
 @extern('fs_list_dir')
 native fn _list_dir(_ path: String) -> Result<List<String>, String>
+
+@extern('fs_read_dir')
+native fn _read_dir(_ path: String) -> Result<List<String>, String>
 
 @extern('fs_metadata')
 native fn _metadata(_ path: String) -> Result<List<Int>, String>
@@ -225,10 +235,52 @@ fn build_metadata(_ fields: List<Int>) -> Metadata {
 
 /// The entry basenames within a directory (not full paths, in no guaranteed
 /// order). Join with `path.join(dir, name)` to descend.
+///
+/// Prefer `read_dir` when you need to know which entries are directories: it
+/// reports each entry's kind for free, where `list_dir` + `metadata` per entry
+/// costs a syscall apiece.
 pub fn list_dir(_ path: String) -> Result<List<String>, FsError> {
     return match _list_dir(path) {
         Ok(names) => Result.Ok(names),
         Err(e) => Result.Err(to_fs_error(e)),
+    };
+}
+
+/// The entries within a directory, each with the kind the directory read already
+/// knew (no guaranteed order). This is the one to walk a tree with: `list_dir`
+/// only yields names, so telling a file from a subdirectory costs a `metadata`
+/// call per entry, while the directory read reported that inline all along.
+///
+/// `kind` does **not** follow symlinks (a symlink is `Symlink`, not its target's
+/// kind), because following one costs the very syscall this avoids. Call
+/// `metadata` on the joined path when a link's target matters.
+///
+///     for e in fs.read_dir(dir)? {
+///         match e.kind {
+///             Dir => descend(path.join(dir, e.name)),
+///             _ => visit(path.join(dir, e.name)),
+///         }
+///     }
+pub fn read_dir(_ path: String) -> Result<List<DirEntry>, FsError> {
+    return match _read_dir(path) {
+        Ok(raw) => Result.Ok(raw.map((r) => build_dir_entry(r))),
+        Err(e) => Result.Err(to_fs_error(e)),
+    };
+}
+
+// The native packs each entry as "<kind>\u{1}<name>" (the same tag convention the
+// error payloads use) — a list can't hold a String and an Int side by side.
+// Split on the *first* separator only: every byte but `/` and NUL is legal in a
+// filename, `\u{1}` included, and `split` would truncate such a name at it.
+fn build_dir_entry(_ raw: String) -> DirEntry {
+    return match raw.find('\u{1}') {
+        Some(i) => DirEntry {
+            name: raw.slice(i + 1, raw.len()),
+            kind: file_kind(raw.slice(0, i).to_int().unwrap_or(3)),
+        },
+        // Unreachable — the native always tags. Treat an untagged entry as a
+        // plain name of unknown kind rather than dropping it.
+        None => DirEntry { name: raw, kind: FileKind.Other },
     };
 }
 

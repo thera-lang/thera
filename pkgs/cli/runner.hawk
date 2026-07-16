@@ -476,21 +476,30 @@ fn collect_test_files(_ targets: List<String>) -> List<String> {
 // Recursively append directory entries whose basename ends in `suffix` to
 // `found` (descending into subdirectories). Shared by `test` (`_test.hawk`) and
 // `check` (`.hawk`).
+// `fs.read_dir` reports each entry's kind from the directory read itself, so a
+// walk costs no `metadata` call per entry (which, over a tree with a build
+// directory in it, is the whole cost of the walk). A symlink needs the call to
+// learn what it points at; nothing else does.
 pub fn collect_from_dir(_ dir: String, _ suffix: String, _ found: List<String>) -> Void {
-    if let Ok(names) = fs.list_dir(dir) {
-        for name in names {
-            let full = path.join(dir, name);
-            if let Ok(meta) = fs.metadata(full) {
-                match meta.kind {
-                    Dir => {
-                        collect_from_dir(full, suffix, found);
-                    },
-                    _ => {
-                        if name.ends_with(suffix) {
-                            found.push(full);
-                        }
-                    },
-                }
+    if let Ok(entries) = fs.read_dir(dir) {
+        for e in entries {
+            let full = path.join(dir, e.name);
+            let kind = match e.kind {
+                Symlink => match fs.metadata(full) {
+                    Ok(md) => md.kind,
+                    Err(_) => fs.FileKind.Other,
+                },
+                _ => e.kind,
+            };
+            match kind {
+                Dir => {
+                    collect_from_dir(full, suffix, found);
+                },
+                _ => {
+                    if e.name.ends_with(suffix) {
+                        found.push(full);
+                    }
+                },
             }
         }
     }

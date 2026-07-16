@@ -133,6 +133,7 @@ const NATIVES: &[(&str, NativeFn)] = &[
     ("fs_write_bytes", native_fs_write_bytes),
     ("fs_exists", native_fs_exists),
     ("fs_list_dir", native_fs_list_dir),
+    ("fs_read_dir", native_fs_read_dir),
     ("fs_metadata", native_fs_metadata),
     ("fs_symlink_metadata", native_fs_symlink_metadata),
     ("fs_create_dir", native_fs_create_dir),
@@ -1080,6 +1081,50 @@ fn native_fs_list_dir(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Tra
         move |res| match res {
             Ok(names) => Value::ok(Value::new_list(
                 names.into_iter().map(Value::new_str).collect(),
+            )),
+            Err(e) => fs_err(&err_path, &e),
+        },
+    );
+    Ok(Value::Unit)
+}
+
+/// `fs.read_dir(path)` — like `fs_list_dir`, but each entry carries the kind the
+/// directory read already knew: `"<kind>\u{1}<name>"`, kind as in `metadata_fields`.
+///
+/// This exists so a tree walk doesn't have to `stat` every entry just to ask "file
+/// or directory?". `readdir` reports the kind inline (`d_type`), and `file_type()`
+/// returns it without a syscall; only on filesystems that answer `DT_UNKNOWN` does
+/// it fall back to an `lstat`. The saving is the whole cost of a big walk: this
+/// repo's `runtime/target` is ~106k entries, and stat-ing each took 1.6s per
+/// workspace scan versus 8ms to read every `.hawk` source in the tree.
+///
+/// Kinds are `lstat` semantics (a symlink reports 2, never its target's kind) —
+/// `d_type` cannot follow a link, and following one costs the syscall this native
+/// exists to avoid. Callers that need the target resolve it themselves.
+fn native_fs_read_dir(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
+    let path = str_contents(expect_one(args, "fs_read_dir")?)?;
+    let err_path = path.clone();
+    park_syscall(
+        move || -> std::io::Result<Vec<String>> {
+            let mut entries = Vec::new();
+            for entry in std::fs::read_dir(&path)? {
+                let entry = entry?;
+                // An entry whose kind can't be determined is reported "other"
+                // rather than failing the whole read; the caller can still stat it.
+                let kind = match entry.file_type() {
+                    Ok(t) if t.is_symlink() => 2,
+                    Ok(t) if t.is_dir() => 1,
+                    Ok(t) if t.is_file() => 0,
+                    _ => 3,
+                };
+                let name = entry.file_name().to_string_lossy().into_owned();
+                entries.push(format!("{kind}\u{1}{name}"));
+            }
+            Ok(entries)
+        },
+        move |res| match res {
+            Ok(entries) => Value::ok(Value::new_list(
+                entries.into_iter().map(Value::new_str).collect(),
             )),
             Err(e) => fs_err(&err_path, &e),
         },

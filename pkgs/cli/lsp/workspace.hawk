@@ -25,29 +25,48 @@ pub fn hawk_files(_ roots: List<String>) -> List<String> {
     return out;
 }
 
+// `fs.read_dir`, not `list_dir` + `metadata` per entry: the directory read
+// already knows each entry's kind, and asking the OS again — once per entry, for
+// every entry in the tree — is the entire cost of a scan. (Measured on this repo
+// with a populated `runtime/target`: 1593ms of a 1608ms scan went to those stat
+// calls; reading all 377 `.hawk` sources was 8ms of it. The client re-pulls
+// `workspace/diagnostic` every 2s forever, so that was paid continuously.)
 fn walk_dir(_ dir: String, _ seen: Set<String>, _ out: List<String>) -> Void {
-    let entries = match fs.list_dir(dir) {
-        Ok(names) => names,
+    let entries = match fs.read_dir(dir) {
+        Ok(es) => es,
         Err(_) => return,  // unreadable directory — skip its subtree
     };
-    for name in entries {
-        let full = path.join(dir, name);
-        if let Ok(md) = fs.metadata(full) {
-            match md.kind {
-                Dir => {
-                    if !skip_dir(name) {
-                        walk_dir(full, seen, out);
-                    }
-                },
-                _ => {
-                    if name.ends_with('.hawk') && !seen.has(full) {
-                        seen.add(full);
-                        out.push(full);
-                    }
-                },
-            }
+    for e in entries {
+        let full = path.join(dir, e.name);
+        match entry_kind(full, e) {
+            Dir => {
+                if !skip_dir(e.name) {
+                    walk_dir(full, seen, out);
+                }
+            },
+            _ => {
+                if e.name.ends_with('.hawk') && !seen.has(full) {
+                    seen.add(full);
+                    out.push(full);
+                }
+            },
         }
     }
+}
+
+// `read_dir` reports a symlink as `Symlink` rather than what it points at, so
+// resolve just those with a `metadata` call — the scan has always followed links
+// (a workspace can legitimately symlink a source directory in), and this keeps it
+// doing so. Only symlinks pay the syscall, and a tree has few; a broken link
+// resolves to nothing and is skipped, as before.
+fn entry_kind(_ full: String, _ e: fs.DirEntry) -> fs.FileKind {
+    return match e.kind {
+        Symlink => match fs.metadata(full) {
+            Ok(md) => md.kind,
+            Err(_) => fs.FileKind.Other,
+        },
+        _ => e.kind,
+    };
 }
 
 // A directory whose subtree is pruned from the scan: `build` output or a

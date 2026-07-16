@@ -84,6 +84,70 @@ fn test_list_dir() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
+/// `read_dir` reports each entry's kind from the directory read itself — the
+/// point being that a walk needn't `metadata` every entry to tell a file from a
+/// subdirectory.
+@test
+fn test_read_dir_reports_kinds() -> Result<Void, Error> {
+    let dir = workspace('hawk_fs_read_dir')?;
+    fs.write_text(path.join(dir, 'a.txt'), '1')?;
+    fs.create_dir_all(path.join(dir, 'sub'))?;
+
+    let entries = fs.read_dir(dir)?;
+    testing.assert_eq(actual: entries.len(), expected: 2)?;
+    let kinds: Map<String, FileKind> = [:];
+    for e in entries {
+        kinds[e.name] = e.kind;
+    }
+    testing.assert_eq(actual: kinds.get('a.txt').unwrap_or(FileKind.Other),
+        expected: FileKind.File)?;
+    testing.assert_eq(actual: kinds.get('sub').unwrap_or(FileKind.Other),
+        expected: FileKind.Dir)?;
+
+    fs.remove_dir_all(dir)?;
+    return Result.Ok(void);
+}
+
+/// A name containing the `\u{1}` the native packs entries with must survive: the
+/// split has to stop at the first separator, or such a name would be truncated.
+@test
+fn test_read_dir_name_with_separator_byte() -> Result<Void, Error> {
+    let dir = workspace('hawk_fs_read_dir_sep')?;
+    let odd = 'we\u{1}ird.txt';
+    fs.write_text(path.join(dir, odd), 'x')?;
+    let entries = fs.read_dir(dir)?;
+    testing.assert_eq(actual: entries.len(), expected: 1)?;
+    testing.assert_eq(actual: entries[0].name, expected: odd)?;
+    testing.assert_eq(actual: entries[0].kind, expected: FileKind.File)?;
+    fs.remove_dir_all(dir)?;
+    return Result.Ok(void);
+}
+
+/// An empty directory reads as no entries, not an error.
+@test
+fn test_read_dir_empty() -> Result<Void, Error> {
+    let dir = workspace('hawk_fs_read_dir_empty')?;
+    testing.assert_eq(actual: fs.read_dir(dir)?.len(), expected: 0)?;
+    fs.remove_dir_all(dir)?;
+    return Result.Ok(void);
+}
+
+/// A missing directory is a `NotFound`, matching `list_dir`.
+@test
+fn test_read_dir_missing() -> Result<Void, Error> {
+    let dir = workspace('hawk_fs_read_dir_gone')?;
+    let missing = path.join(dir, 'nope');
+    let not_found = match fs.read_dir(missing) {
+        Ok(_) => false,
+        Err(e) => match e {
+            NotFound(_) => true,
+            _ => false,
+        },
+    };
+    fs.remove_dir_all(dir)?;
+    return testing.assert(not_found, message: 'expected FsError.NotFound');
+}
+
 @test
 fn test_metadata_file() -> Result<Void, Error> {
     let dir = workspace('hawk_fs_meta')?;
