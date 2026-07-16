@@ -15,6 +15,27 @@ pub fn matches(_ pattern: String, _ path: String) -> Bool {
     return match_at(pattern.chars(), 0, path.chars(), 0);
 }
 
+// Whether `pattern` excludes *every* path under the directory `rel`, so a scan can
+// skip that subtree entirely instead of walking it and discarding each file.
+//
+// Only a `<base>/**` pattern qualifies, and only when `<base>` matches `rel`:
+// `**` after a `/` matches any path below, so nothing under `rel` can survive the
+// filter. That keeps pruning strictly equivalent to filtering — it drops only
+// files `matches` would have dropped anyway, which is what makes this safe to
+// apply to a *directory* on the evidence of a *file* filter.
+//
+// Everything else conservatively returns false, even when it would in fact
+// exclude the subtree (`tests/**/*.hawk` excludes every Hawk file under `tests`,
+// but proving that in general means deciding the pattern language). A missed
+// prune costs a walk; a wrong one silently hides a file's diagnostics.
+pub fn prunes_dir(_ pattern: String, _ rel: String) -> Bool {
+    let suffix = '/**';
+    if !pattern.ends_with(suffix) {
+        return false;
+    }
+    return matches(pattern.slice(0, pattern.len() - suffix.len()), rel);
+}
+
 // Match the pattern suffix `p[pi..]` against the path suffix `s[si..]`.
 fn match_at(_ p: List<Int>, _ pi: Int, _ s: List<Int>, _ si: Int) -> Bool {
     if pi == p.len() {

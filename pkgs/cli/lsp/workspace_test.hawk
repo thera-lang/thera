@@ -42,7 +42,7 @@ fn test_hawk_files_walks_and_prunes() -> Result<Void, Error> {
     fs.write_text(path.join(path.join(root, 'build'), 'gen.hawk'), 'fn g() {}')?;
     fs.write_text(path.join(path.join(root, '.git'), 'hook.hawk'), 'fn h() {}')?;
 
-    let files = hawk_files([root]);
+    let files = hawk_files([root], prune: no_prune);
     testing.assert_eq(actual: files.len(), expected: 2)?;
     let found: Set<String> = Set.new();
     for f in files { found.add(f); }
@@ -53,12 +53,33 @@ fn test_hawk_files_walks_and_prunes() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
+/// A caller's `prune` skips a whole subtree — what `hawk.exclude` uses to keep a
+/// build tree out of the walk rather than walking it and discarding every file.
+@test
+fn test_hawk_files_honors_caller_prune() -> Result<Void, Error> {
+    let root = workspace_dir('hawk_ws_prune')?;
+    fs.create_dir_all(path.join(root, 'keep'))?;
+    fs.create_dir_all(path.join(path.join(root, 'skipped'), 'nested'))?;
+    fs.write_text(path.join(path.join(root, 'keep'), 'a.hawk'), 'fn a() {}')?;
+    fs.write_text(path.join(path.join(root, 'skipped'), 'b.hawk'), 'fn b() {}')?;
+    fs.write_text(path.join(path.join(path.join(root, 'skipped'), 'nested'), 'c.hawk'),
+        'fn c() {}')?;
+
+    // Pruned by full path, and the whole subtree goes — `nested/c.hawk` too.
+    let files = hawk_files([root], prune: (d) => path.basename(d) == 'skipped');
+    testing.assert_eq(actual: files.len(), expected: 1)?;
+    testing.assert(files[0].ends_with('a.hawk'), message: 'only the unpruned source')?;
+
+    fs.remove_dir_all(root)?;
+    return Result.Ok(void);
+}
+
 @test
 fn test_hawk_files_dedupes_overlapping_roots() -> Result<Void, Error> {
     let root = workspace_dir('hawk_ws_dedupe')?;
     fs.write_text(path.join(root, 'x.hawk'), 'fn x() {}')?;
     // The same root twice yields the file once, not twice.
-    let files = hawk_files([root, root]);
+    let files = hawk_files([root, root], prune: no_prune);
     testing.assert_eq(actual: files.len(), expected: 1)?;
     fs.remove_dir_all(root)?;
     return Result.Ok(void);
@@ -66,6 +87,6 @@ fn test_hawk_files_dedupes_overlapping_roots() -> Result<Void, Error> {
 
 @test
 fn test_hawk_files_empty_when_no_roots() -> Result<Void, Error> {
-    testing.assert_eq(actual: hawk_files([]).len(), expected: 0)?;
+    testing.assert_eq(actual: hawk_files([], prune: no_prune).len(), expected: 0)?;
     return Result.Ok(void);
 }

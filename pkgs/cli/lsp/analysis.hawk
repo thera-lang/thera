@@ -282,6 +282,24 @@ impl Analysis {
         return false;
     }
 
+    // Whether an `hawk.exclude` glob excludes the whole subtree under `dir`, so
+    // the scan can skip it rather than walk it and drop each file on the way out
+    // (`is_excluded` filters files, which is correct but pays for the walk first —
+    // and a build tree is almost all of a walk). Only `<base>/**` patterns prune,
+    // so this can never hide a file `is_excluded` would have kept.
+    fn prunes_dir(self, _ dir: String) -> Bool {
+        if self.exclude.len() == 0 {
+            return false;
+        }
+        let rel = self.workspace_relative(loader.canonical_path(dir));
+        for pattern in self.exclude {
+            if glob.prunes_dir(pattern, rel) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     // `canon` (canonical) relative to the first root that contains it, `/`-joined;
     // the path unchanged when it's under no root (a loose file).
     fn workspace_relative(self, _ canon: String) -> String {
@@ -335,7 +353,7 @@ impl Analysis {
     // expensive work scales with the target's reachability, not the whole project.
     fn scan_files(self) -> List<ScanFile> {
         let by_path: Map<String, ScanFile> = [:];
-        for p in workspace.hawk_files(self.roots) {
+        for p in workspace.hawk_files(self.roots, prune: (d) => self.prunes_dir(d)) {
             let key = loader.canonical_path(p);
             if !by_path.has(key) {
                 if let Ok(text) = fs.read_text(p) {
