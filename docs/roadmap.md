@@ -463,17 +463,27 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     perceived-performance battle (requests no longer block behind the full
     workspace analysis); this only smooths the _initial_ scan's fill-in, so it's
     worth doing only if that first pass feels slow in practice.
-  - **The scan still re-reads every file each pull.** With the scan cache (see
-    _Changelog_) a warm pull is ~60ms, nearly all of it walking the tree and
-    re-reading all 170 files to discover that nothing changed. Now that the
-    server watches `**/*.hawk`, that could collapse to ~0: keep the file list and
-    texts, and let `didChangeWatchedFiles` invalidate them. Deliberately not done
-    yet — re-reading is what makes the cache self-correcting, and trusting the
-    watcher instead means trusting it to never miss an event (VS Code's watcher
-    honors `files.watcherExclude`, and network/virtual filesystems vary). 60ms
-    per 2s is ~3% of a core; the remaining win is small and the risk is stale
-    diagnostics, which is the failure this whole area keeps producing. Revisit
-    only with a way to verify the watcher is keeping up.
+  - **The scan re-reads every file each pull, and that buys nothing.** A warm
+    pull is ~60ms, nearly all of it walking the tree and re-reading all 170 files
+    to discover nothing changed. The obvious reading — that this is a safety net
+    against a missed watcher event — is **false, and was measured**: with the
+    watcher silent, an on-disk edit is still not reported. The scan reads the new
+    bytes and `session.check` discards them, because `parsed_primary` returns its
+    path-keyed cached parse regardless of the `source` passed in (and `checked` /
+    `surface_cache` / `type_records` are path-keyed too, so even a re-parse would
+    be skipped by `skip_keys`). Correctness already rests wholly on
+    `didChangeWatchedFiles`. So the current state is the worst of both lanes: we
+    pay for the re-read *and* depend on the watcher. Pick one:
+    1. **Trust the watcher** (what most servers do): cache the file list and
+       texts, invalidate on the notification. Idle → ~0%. The exposure is
+       unchanged from today, but becomes the *only* line of defense — worth
+       knowing that VS Code's watcher honors `files.watcherExclude`, so a user
+       who excludes a directory silently stops getting events for it.
+    2. **Make the re-read real**: have the scan compare each file's text against
+       what the session last parsed and `invalidate` on a difference. Then the
+       60ms is genuinely load-bearing, a missed watcher event self-heals within
+       one pull, and the watcher degrades to a promptness optimization.
+    Either is coherent; the status quo isn't. Not urgent at ~3% of a core.
   - **Primitive-receiver member resolution.** Hover / definition / member
     resolution on a primitive receiver (`"s".split()`) don't resolve — a
     `Primitive` value carries no `TypeId`. Ties to _Primitive vtables_
