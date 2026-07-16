@@ -76,6 +76,15 @@ pub struct Analysis {
     let mut ws_emitted: Map<String, WsSent>;
     // The next opaque resultId to hand out (monotonic; stringified).
     let mut next_result_id: Int;
+    // Bumped by every mutation of the inputs a workspace scan is a function of:
+    // an edit, a close, a watcher event, a roots or exclude change. The cheap
+    // staleness clock — a `ScanCache` stamped with the current generation was
+    // computed from exactly the current inputs, so a re-pull can reuse it without
+    // even the per-file byte-compare (`reusable_by_file`'s fast tier). The five
+    // bump sites are exactly the five input-mutation entry points; a mutation
+    // that skipped its bump would let the fast tier serve stale results, so err
+    // toward bumping (a spurious bump only costs one byte-compare).
+    let mut input_generation: Int;
     // What the last completed workspace scan checked, and what it produced. A pull
     // that reads back byte-identical content reuses the result instead of
     // re-checking every file — see `reusable_by_file`. None until a scan finishes.
@@ -94,9 +103,15 @@ pub struct Analysis {
 // on disk or in a buffer, changes the text the next scan reads and the reuse
 // simply doesn't fire. Exact comparison, not a hash — the same reasoning as
 // `DiagReport`: a collision would serve diagnostics for content nobody has.
+//
+// `generation` is the `input_generation` the scanned texts were captured at:
+// while it still matches, no input has moved and the content compare itself can
+// be skipped (and it is re-stamped when the compare proves a match the clock
+// missed — an edit that reverted). `mut` for that re-stamp.
 struct ScanCache {
     let contents: Map<String, String>;
     let by_file: Map<String, List<Json>>;
+    let mut generation: Int;
 }
 
 // The last report emitted for a file — its resultId and the exact items it names.
@@ -130,6 +145,7 @@ pub fn new_analysis(_ sdk_root: Option<String>) -> Analysis {
         ws_dirty: false,
         diag_reports: [:],
         ws_emitted: [:],
+        input_generation: 0,
         next_result_id: 0,
         scan_cache: Option.None,
         disk_cache: Option.None,
@@ -173,6 +189,7 @@ impl Analysis {
     // marks the document — and every open document that transitively imports
     // it — dirty for the next diagnostics flush.
     pub fn set_document(self, _ uri: String, _ text: String, _ version: Option<Int>) -> Void {
+        self.input_generation = self.input_generation + 1;
         self.docs[uri] = text;
         if let Some(v) = version {
             self.versions[uri] = v;
@@ -208,6 +225,7 @@ impl Analysis {
     // loose file drops out of the workspace report. (Under the push model this
     // instead *cleared* the dirty mark; pull inverts it.)
     pub fn close_document(self, _ uri: String) -> Void {
+        self.input_generation = self.input_generation + 1;
         match self.docs.remove(uri) {
             Some(_) => void,
             None => void,
@@ -273,6 +291,7 @@ impl Analysis {
     // Marks the workspace dirty rather than nudging: a branch switch reports every
     // file it touched, and the server's flush collapses them into one re-pull.
     pub fn note_watched_change(self, _ uri: String) -> Void {
+        self.input_generation = self.input_generation + 1;
         self.session.invalidate(paths.uri_to_path(uri));
         // The whole on-disk scan, not just this file: a create or delete changes
         // the file *set*, and re-walking is cheap next to being wrong about it.
@@ -360,6 +379,7 @@ impl Analysis {
     // Record the workspace roots the client opened (`initialize`). Idempotent —
     // a re-`initialize` replaces the set. Paths, not URIs (the caller decodes).
     pub fn set_roots(self, _ roots: List<String>) -> Void {
+        self.input_generation = self.input_generation + 1;
         self.roots = roots;
         // Which files a scan even sees is derived from these, so last scan's
         // result no longer describes this workspace — nor does the walk it came
@@ -375,6 +395,7 @@ impl Analysis {
     // Record the `hawk.exclude` globs (`initialize` / `didChangeConfiguration`).
     // Idempotent — a new set replaces the old.
     pub fn set_exclude(self, _ patterns: List<String>) -> Void {
+        self.input_generation = self.input_generation + 1;
         self.exclude = patterns;
         // The scan cache holds diagnostics computed under the *old* globs, and
         // content-keying can't see that they moved: un-excluding a file leaves its
@@ -510,6 +531,7 @@ impl Analysis {
         if let Some(cached) = self.disk_cache {
             return cached;
         }
+        let gen = self.input_generation;
         let out: List<ScanFile> = [];
         let seen: Set<String> = Set.new();
         for p in workspace.hawk_files(self.roots, prune: (d) => self.prunes_dir(d)) {
@@ -521,7 +543,14 @@ impl Analysis {
                 }
             }
         }
-        self.disk_cache = Option.Some(out);
+        // The walk and reads park, so an invalidation can land mid-build (a
+        // watcher event evicting this very cache); storing unconditionally would
+        // reinstate what the eviction just dropped, and the stale text would be
+        // served until the file's *next* event. Serve this scan's list either
+        // way, but cache it only if nothing moved while it was built.
+        if self.input_generation == gen {
+            self.disk_cache = Option.Some(out);
+        }
         return out;
     }
 
@@ -866,6 +895,11 @@ impl Analysis {
         if let Some(cached) = self.reusable_by_file(files) {
             return Option.Some(cached);
         }
+        // `files`' texts were captured under this generation (the caller's
+        // `scan_files` and this call run without an intervening park); the checks
+        // below *do* park, so an edit can land mid-scan — the stamp then no
+        // longer matches at the next pull and the content compare arbitrates.
+        let gen = self.input_generation;
         // Check each file once, folding every diagnostic under its owning file
         // (deduped by identity — an imported file's error surfaces from several
         // importers). The primary attributes its own unattributed diagnostics.
@@ -899,7 +933,11 @@ impl Analysis {
         for f in files {
             contents[loader.canonical_path(f.path)] = f.text;
         }
-        self.scan_cache = Option.Some(ScanCache { contents: contents, by_file: by_file });
+        self.scan_cache = Option.Some(ScanCache {
+            contents: contents,
+            by_file: by_file,
+            generation: gen,
+        });
         return Option.Some(by_file);
     }
 
@@ -909,6 +947,13 @@ impl Analysis {
     // identical output; anything else (an edit, a new file, a deleted one) falls
     // through to a full check.
     //
+    // Two tiers. The generation stamp answers the common case — a re-pull with
+    // nothing changed — in O(1): while `input_generation` still matches, no input
+    // has moved since the texts were captured, so the compare below could only
+    // succeed. The compare is the fallback for a stamp mismatch, and catches what
+    // the clock can't: an edit that *reverted*, where the inputs moved and moved
+    // back — a match there re-stamps the cache so later pulls take the fast tier.
+    //
     // Skipping the check does not strand the query layer: `records_for` re-checks
     // on demand for an open buffer with no stored records, and hover/definition only
     // ever run against open buffers.
@@ -917,6 +962,9 @@ impl Analysis {
             Some(c) => c,
             None => return Option.None,
         };
+        if cache.generation == self.input_generation {
+            return Option.Some(cache.by_file);
+        }
         // Canonical keys are unique across `files` (scan_files dedupes by them), so
         // equal counts plus an every-file hit means the sets match — that's what
         // catches a *deleted* file, which no per-file comparison would.
@@ -932,6 +980,7 @@ impl Analysis {
                 return Option.None;
             }
         }
+        cache.generation = self.input_generation;
         return Option.Some(cache.by_file);
     }
 }

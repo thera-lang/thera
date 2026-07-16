@@ -1141,8 +1141,23 @@ conformance specs. Newest first.
   as needing retraction — forcing a full re-send. A change racing the initial
   scan is covered by a `delta_pending` flag the worker drains before finishing.
   Clients that send no token (and the in-process tests) keep the
-  respond-and-re-pull path unchanged. Phases 2–3 (a generation stamp to skip the
-  byte-compare on re-pulls; `ServerCancelled` conformance polish) remain open.
+  respond-and-re-pull path unchanged.
+
+  The follow-up (phase 2) made the pulls that *do* still happen — the initial
+  one, and every re-pull for a polling client — skip even the per-file
+  byte-compare when nothing changed: `input_generation` counts every input
+  mutation (edit, close, watcher event, roots/exclude change — exactly the five
+  entry points), the `ScanCache` is stamped with the generation its texts were
+  captured under, and a matching stamp reuses in O(1). The compare stays as the
+  fallback tier — it catches an edit that *reverted*, and a match there
+  re-stamps. Measured on this repo: an unchanged re-pull 43ms → 13ms (the
+  remainder is emit + serialize). Pinned by poisoning the cache so the two tiers
+  disagree — only the generation tier can serve the marker. The clock also
+  closed a latent race: `disk_files` parks across its reads, so a watcher
+  eviction landing mid-build was silently overwritten by the finishing build —
+  reinstating the stale text until the file's next event; the build now stores
+  its cache only if the generation didn't move. Still open: `ServerCancelled`
+  conformance polish (phase 3).
 - **LSP: an idle server costs ~nothing (and stops going stale)** (2026-07). An
   idle `hawk lsp` sat at 40–80% CPU with the editor untouched. Not a scheduler
   spin: the server measures 0% idle and never wakes itself. The cause is that

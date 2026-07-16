@@ -5,6 +5,7 @@
 import std.testing;
 import std.io;
 import std.fs;
+import std.json;
 
 import 'server' as _;
 import 'jsonrpc';
@@ -866,6 +867,47 @@ fn test_workspace_scan_cache_never_serves_a_stale_result() -> Result<Void, Error
     let healed = capture(server, '{"jsonrpc":"2.0","id":5,"method":"workspace/diagnostic","params":'
         + '{"previousResultIds":[]}}');
     testing.assert(!healed.contains('undefined name'), message: 'reverting clears the diagnostic')?;
+
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
+    return Result.Ok(void);
+}
+
+// An unchanged re-pull is answered by the generation fast tier — without even
+// the per-file byte-compare. Pinned by poisoning: the cached diagnostics are
+// replaced with a marker AND the cached contents are made non-matching, so the
+// two tiers disagree — the compare tier would miss (contents differ) and
+// recompute, only the generation tier can serve the marker. An edit must then
+// break the stamp: the re-pull recomputes and the marker is gone.
+@test
+fn test_unchanged_repull_takes_the_generation_fast_tier() -> Result<Void, Error> {
+    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_gen_tier_test');
+    match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
+    fs.create_dir_all(dir)?;
+    let file = dir + '/subject.hawk';
+    fs.write_text(file, 'fn ok() -> Int { return 1; }\n')?;
+    let uri = 'file://' + file;
+
+    let server = new_server(Option.None);
+    let _init = capture(server, '{"jsonrpc":"2.0","id":1,"method":"initialize","params":'
+        + '{"rootUri":"file://' + dir + '"}}');
+    let _warm = capture(server, '{"jsonrpc":"2.0","id":2,"method":"workspace/diagnostic","params":'
+        + '{"previousResultIds":[]}}');
+    if let Some(cache) = server.analysis.scan_cache {
+        cache.contents[loader.canonical_path(file)] = 'NOT THE REAL TEXT';
+        cache.by_file[loader.canonical_path(file)] = [json.str('POISON')];
+    }
+    let repull = capture(server, '{"jsonrpc":"2.0","id":3,"method":"workspace/diagnostic","params":'
+        + '{"previousResultIds":[]}}');
+    testing.assert(repull.contains('POISON'),
+        message: 'nothing changed: the poisoned cache is served without a compare')?;
+
+    // Any input mutation breaks the stamp; the poisoned contents then fail the
+    // compare tier too, and the scan recomputes the real diagnostics.
+    let _open = capture(server, '{"jsonrpc":"2.0","method":"textDocument/didOpen","params":'
+        + '{"textDocument":{"uri":"' + uri + '","text":"fn ok() -> Int { return 2; }\\n"}}}');
+    let fresh = capture(server, '{"jsonrpc":"2.0","id":4,"method":"workspace/diagnostic","params":'
+        + '{"previousResultIds":[]}}');
+    testing.assert(!fresh.contains('POISON'), message: 'an edit invalidates the fast tier')?;
 
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     return Result.Ok(void);
