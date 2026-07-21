@@ -1,0 +1,323 @@
+// Tests for the analysis session's cross-request state: the dependency graph
+// and the cascading invalidation it drives (LD14 batch A). The check/compile
+// pipeline itself is covered by driver_test; these cover what happens *between*
+// requests — an edit to a dependency must re-expose its importers to checking.
+
+import std.testing;
+import std.fs;
+
+import 'element/types';
+import 'loader';
+import 'session' as _;
+
+// A fixture tree under the OS temp dir: `files` are (name, source) pairs
+// written into a fresh `hawk_session_<tag>_test` directory. Returns the
+// canonical directory path.
+fn fixture_dir(_ tag: String, _ files: Map<String, String>) -> Result<String, Error> {
+    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_session_${tag}_test');
+    match fs.remove_dir_all(dir) {
+        Ok(_) => void,
+        Err(_) => void, // stale fixture only
+    }
+    fs.create_dir_all(dir)?;
+    for name in files.keys() {
+        fs.write_text('${dir}/${name}', files[name])?;
+    }
+    return Result.Ok(dir);
+}
+
+fn cleanup(_ dir: String) -> Void {
+    match fs.remove_dir_all(dir) {
+        Ok(_) => void,
+        Err(_) => void,
+    }
+}
+
+// An edit to a dependency must re-check importers that previously checked
+// clean: `a` imports `b` and `c`; `c` calls `b.helper()`. After `a` checks
+// clean (everything lands in `checked`), an overlay on `b` removing `helper`
+// must surface a diagnostic attributed to `c.thera` on the next check of `a`
+// — before batch A, `c` stayed in `checked` and the breakage was skipped.
+@test
+fn test_dependency_edit_rechecks_importers() -> Result<Void, Error> {
+    let dir = fixture_dir('stale', [
+        'b.thera': 'pub fn helper() -> Int { return 1; }\n',
+        'c.thera': 'import \'b\';\npub fn go() -> Int { return b.helper(); }\n',
+        'a.thera': 'import \'b\';\nimport \'c\';\nfn main() -> Int { return c.go() + b.helper(); }\n',
+    ])?;
+    let sess = new_session(Option.None);
+    let a_path = '${dir}/a.thera';
+    let a_src = fs.read_text(a_path)?;
+
+    let first = sess.check(a_src, a_path);
+    testing.assert_eq(actual: first.len(), expected: 0)?;
+
+    // The edit: `b` loses `helper`. `a`'s own call sites break too, so give
+    // `a` a fresh check — the point is that *c's* breakage also surfaces.
+    sess.set_overlay('${dir}/b.thera', 'pub fn helper2() -> Int { return 2; }\n');
+    let second = sess.check(a_src, a_path);
+    let mut c_flagged = false;
+    for d in second {
+        if d.file.map((f) => f.ends_with('/c.thera')).unwrap_or(false) {
+            c_flagged = true;
+        }
+    }
+    testing.assert(c_flagged, message: 'the importer c.thera is re-checked: ${second.len()} diags')?;
+
+    cleanup(dir);
+    return Result.Ok(void);
+}
+
+@test
+fn test_dependents_of_is_transitive() -> Result<Void, Error> {
+    let dir = fixture_dir('cone', [
+        'b.thera': 'pub fn helper() -> Int { return 1; }\n',
+        'c.thera': 'import \'b\';\npub fn go() -> Int { return b.helper(); }\n',
+        'a.thera': 'import \'c\';\nfn main() -> Int { return c.go(); }\n',
+    ])?;
+    let sess = new_session(Option.None);
+    let a_path = '${dir}/a.thera';
+    let diags = sess.check(fs.read_text(a_path)?, a_path);
+    testing.assert_eq(actual: diags.len(), expected: 0)?;
+
+    // b's cone climbs the import chain: b <- c <- a.
+    let cone = sess.dependents_of('${dir}/b.thera');
+    testing.assert(cone.contains(loader.canonical_path('${dir}/b.thera')), message: 'cone has b')?;
+    testing.assert(cone.contains(loader.canonical_path('${dir}/c.thera')), message: 'cone has c')?;
+    testing.assert(cone.contains(loader.canonical_path(a_path)), message: 'cone has a')?;
+    // a's cone is just a — nothing imports it.
+    testing.assert_eq(actual: sess.dependents_of(a_path).len(), expected: 1)?;
+
+    cleanup(dir);
+    return Result.Ok(void);
+}
+
+// A file under the SDK's std root invalidates everything: every file's bare
+// surface implicitly depends on the std.core prelude, and that edge isn't in
+// the graph.
+@test
+fn test_sdk_file_invalidates_every_known_file() -> Result<Void, Error> {
+    let dir = fixture_dir('sdk', [
+        'main.thera': 'fn main() -> Int { return 1; }\n',
+    ])?;
+    // A fake SDK: `<dir>/sdk/std/core/core.thera` (empty prelude is fine — the
+    // loader just needs the layout).
+    fs.create_dir_all('${dir}/sdk/std/core')?;
+    fs.write_text('${dir}/sdk/std/core/core.thera', '// empty prelude\n')?;
+
+    let sess = new_session(Option.Some('${dir}/sdk'));
+    let main_path = '${dir}/main.thera';
+    let diags = sess.check(fs.read_text(main_path)?, main_path);
+    testing.assert_eq(actual: diags.len(), expected: 0)?;
+
+    let cone = sess.dependents_of('${dir}/sdk/std/core/core.thera');
+    testing.assert(cone.contains(loader.canonical_path(main_path)),
+        message: 'an SDK edit invalidates the user file')?;
+
+    cleanup(dir);
+    return Result.Ok(void);
+}
+
+// `is_sdk_file` classifies a path by the SDK's std root: files under it are
+// trusted library sources (read-only to rename), everything else is not. With
+// no SDK, nothing is an SDK file.
+@test
+fn test_is_sdk_file_classifies_by_std_root() -> Result<Void, Error> {
+    let dir = fixture_dir('is_sdk', [
+        'main.thera': 'fn main() -> Int { return 1; }\n',
+    ])?;
+    fs.create_dir_all('${dir}/sdk/std/core')?;
+    fs.write_text('${dir}/sdk/std/core/core.thera', '// empty prelude\n')?;
+
+    let sess = new_session(Option.Some('${dir}/sdk'));
+    testing.assert(sess.is_sdk_file('${dir}/sdk/std/core/core.thera'),
+        message: 'a file under std root is an SDK file')?;
+    testing.assert(!sess.is_sdk_file('${dir}/main.thera'),
+        message: 'a user file is not')?;
+
+    // No SDK configured: nothing classifies as SDK.
+    let bare = new_session(Option.None);
+    testing.assert(!bare.is_sdk_file('${dir}/sdk/std/core/core.thera'),
+        message: 'no SDK → no SDK files')?;
+
+    cleanup(dir);
+    return Result.Ok(void);
+}
+
+// The surface cache serves repeated loads but must not go stale: an overlay
+// edit to a dependency evicts its importers' surfaces, so the next check sees
+// the new surface (here: a renamed export) — LD14 batch B.
+@test
+fn test_dependency_edit_refreshes_surfaces() -> Result<Void, Error> {
+    let dir = fixture_dir('surface', [
+        'util.thera': 'pub fn helper() -> Int { return 1; }\n',
+        'main.thera': 'import \'util\' as _;\nfn main() -> Int { return helper(); }\n',
+    ])?;
+    let sess = new_session(Option.None);
+    let main_path = '${dir}/main.thera';
+    let main_src = fs.read_text(main_path)?;
+
+    testing.assert_eq(actual: sess.check(main_src, main_path).len(), expected: 0)?;
+    testing.assert(sess.surface_cache.has(loader.canonical_path(main_path)),
+        message: 'surfaces cached after a load')?;
+
+    // Rename the export: main's bare surface (baked from util's) must refresh.
+    sess.set_overlay('${dir}/util.thera', 'pub fn renamed() -> Int { return 1; }\n');
+    let diags = sess.check(main_src, main_path);
+    let mut helper_missing = false;
+    for d in diags {
+        if d.message.contains('helper') {
+            helper_missing = true;
+        }
+    }
+    testing.assert(helper_missing, message: 'the stale bare surface was evicted: ${diags.len()} diags')?;
+
+    cleanup(dir);
+    return Result.Ok(void);
+}
+
+// The white-box grant rides the same eviction: `foo_test.thera` sees
+// `foo.thera`'s private names, and an edit renaming one refreshes the
+// test file's surface (its import edge is in the graph).
+@test
+fn test_whitebox_surface_refreshes_on_dep_edit() -> Result<Void, Error> {
+    let dir = fixture_dir('whitebox', [
+        'foo.thera': 'fn secret() -> Int { return 1; }\npub fn go() -> Int { return secret(); }\n',
+        'foo_test.thera': 'import \'foo\' as _;\nfn probe() -> Int { return secret(); }\n',
+    ])?;
+    let sess = new_session(Option.None);
+    let t_path = '${dir}/foo_test.thera';
+    let t_src = fs.read_text(t_path)?;
+
+    testing.assert_eq(actual: sess.check(t_src, t_path).len(), expected: 0)?;
+
+    sess.set_overlay('${dir}/foo.thera',
+        'fn hidden() -> Int { return 1; }\npub fn go() -> Int { return hidden(); }\n');
+    testing.assert(sess.check(t_src, t_path).len() > 0,
+        message: 'renamed private name no longer resolves in the test file')?;
+
+    cleanup(dir);
+    return Result.Ok(void);
+}
+
+// --- the library cache (LD14 batch C) ---
+
+// Repeated checks of one primary run against the cached imports-only base;
+// the diagnostics must be identical run over run (the end-to-end frozen-base
+// guard: an accumulating base would change resolution or duplicate methods).
+@test
+fn test_repeated_checks_are_stable() -> Result<Void, Error> {
+    let dir = fixture_dir('stable', [
+        'shape.thera': 'pub interface Shape { fn area(self) -> Int }\n',
+        'main.thera': 'import \'shape\' as _;\n'
+        + 'struct Sq { let s: Int; }\n'
+        + 'impl Shape for Sq { pub fn area(self) -> Int { return self.s * self.s; } }\n'
+        + 'fn main() -> Int { return Sq { s: 3 }.area() + missing; }\n',
+    ])?;
+    let sess = new_session(Option.None);
+    let main_path = '${dir}/main.thera';
+    let main_src = fs.read_text(main_path)?;
+
+    let first = sess.check(main_src, main_path);
+    testing.assert(first.len() > 0, message: 'the fixture has its one error')?;
+    testing.assert(sess.library_cache.len() > 0, message: 'the base library is cached')?;
+    let mut round = 0;
+    while round < 3 {
+        sess.force_recheck(main_path);
+        let again = sess.check(main_src, main_path);
+        testing.assert_eq(actual: again.len(), expected: first.len())?;
+        testing.assert_eq(actual: again[0].message, expected: first[0].message)?;
+        round = round + 1;
+    }
+
+    cleanup(dir);
+    return Result.Ok(void);
+}
+
+// A dependency edit evicts the cached base: the next check resolves against
+// the new dependency (its renamed method is required by the impl).
+@test
+fn test_library_cache_evicts_on_dep_edit() -> Result<Void, Error> {
+    let dir = fixture_dir('libevict', [
+        'shape.thera': 'pub interface Shape { fn area(self) -> Int }\n',
+        'main.thera': 'import \'shape\';\n'
+        + 'struct Sq { let s: Int; }\n'
+        + 'impl shape.Shape for Sq { pub fn area(self) -> Int { return self.s; } }\n',
+    ])?;
+    let sess = new_session(Option.None);
+    let main_path = '${dir}/main.thera';
+    let main_src = fs.read_text(main_path)?;
+    testing.assert_eq(actual: sess.check(main_src, main_path).len(), expected: 0)?;
+
+    // The interface gains a method the impl doesn't provide.
+    sess.set_overlay('${dir}/shape.thera',
+        'pub interface Shape { fn area(self) -> Int\n fn name(self) -> String }\n');
+    testing.assert(sess.check(main_src, main_path).len() > 0,
+        message: 'the stale base was evicted; the new interface is enforced')?;
+
+    cleanup(dir);
+    return Result.Ok(void);
+}
+
+// ---- committed-type records / type_at (CH19) ----
+
+fn render(_ t: Option<types.Type>) -> String {
+    return match t {
+        Some(ty) => types.type_to_string(ty),
+        None => '<none>',
+    };
+}
+
+// `type_at` answers from the stored record: the smallest recorded span
+// containing the offset wins, and offsets outside any expression have no type.
+@test
+fn test_type_at_returns_committed_types() -> Result<Void, Error> {
+    let dir = fixture_dir('typeat', [
+        'u.thera': 'pub fn num() -> Int { return 40; }\n',
+        'm.thera': 'import \'u\';\nfn main() -> Bool { return u.num() < 3; }\n',
+    ])?;
+    let sess = new_session(Option.None);
+    let p = '${dir}/m.thera';
+    let src = fs.read_text(p)?;
+    testing.assert_eq(actual: sess.check(src, p).len(), expected: 0)?;
+
+    // At `(`, the smallest containing node is the call `u.num()` (Int), not
+    // the enclosing comparison (Bool); at `<` only the comparison contains it.
+    let call_off = src.find('u.num').unwrap_or(0) + 5;
+    testing.assert_eq(actual: render(sess.type_at(p, call_off)), expected: 'Int')?;
+    let cmp_off = src.find(' < ').unwrap_or(0) + 1;
+    testing.assert_eq(actual: render(sess.type_at(p, cmp_off)), expected: 'Bool')?;
+    testing.assert_eq(actual: render(sess.type_at(p, 0)), expected: '<none>')?;
+
+    cleanup(dir);
+    return Result.Ok(void);
+}
+
+// A dependency edit evicts the cone's records (stale types never answer); an
+// open overlay repopulates on demand — `type_at` checks it without an explicit
+// `check` call.
+@test
+fn test_type_records_evict_and_repopulate() -> Result<Void, Error> {
+    let dir = fixture_dir('typeevict', [
+        'u.thera': 'pub fn num() -> Int { return 40; }\n',
+        'm.thera': 'import \'u\';\nfn main() -> Int { return u.num() + 2; }\n',
+    ])?;
+    let sess = new_session(Option.None);
+    let p = '${dir}/m.thera';
+    let src = fs.read_text(p)?;
+    testing.assert_eq(actual: sess.check(src, p).len(), expected: 0)?;
+    let off = src.find('u.num').unwrap_or(0) + 5;
+    testing.assert_eq(actual: render(sess.type_at(p, off)), expected: 'Int')?;
+
+    // Editing the dependency evicts `m`'s records; with no overlay for `m`
+    // there is nothing to answer from (no silent stale answers).
+    sess.set_overlay('${dir}/u.thera', 'pub fn num() -> Int { return 41; }\n');
+    testing.assert_eq(actual: render(sess.type_at(p, off)), expected: '<none>')?;
+
+    // An open overlay for `m` repopulates on demand.
+    sess.set_overlay(p, src);
+    testing.assert_eq(actual: render(sess.type_at(p, off)), expected: 'Int')?;
+
+    cleanup(dir);
+    return Result.Ok(void);
+}

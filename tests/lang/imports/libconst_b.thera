@@ -1,0 +1,6 @@
+// Support library for shared_const_name.thera: same const names as libconst_a,
+// different values — and `width` chains through libconst_a's own `width`.
+import 'libconst_a' as other;
+
+pub const width: Int = other.width + 1;
+pub const size: Int = 20;

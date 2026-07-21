@@ -1,0 +1,638 @@
+// The analysis session — the one engine every front-end consumer drives
+// (docs/roadmap.md layer 1; audit LD16). It owns the state the stateless
+// pipeline phases share across requests: the SDK root, open-buffer overlays,
+// the cross-file parse cache, and the checked-clean set. Batch commands
+// (`hawk check`/`test`/`emit`) construct one per run; the LSP holds one for
+// the workspace and mutates it on document events. There is no second
+// stateless path to keep in sync — the driver's entry points are thin
+// wrappers over a one-shot session. Phase 2's incremental engine (a
+// resolved-library cache + dependency-graph invalidation over
+// `LoadedImports.file_imports`) grows here.
+
+import 'ast/ast' as _; // Program, Decl
+import 'lexer/lexer';
+import 'lexer/token'; // Token — the primary's cached tokenization rides on Closure
+import 'parser/parser';
+import 'checker/checker';
+import 'codegen/codegen';
+import 'bytecode/encoder';
+import 'element/element';
+import 'element/inference';
+import 'element/resolver';
+import 'element/types';
+import 'loader';
+import 'diagnostic'; // Diagnostic — the uniform phase error, produced by every phase
+
+// The most distinct closure signatures the imports-only library cache retains
+// before evicting the least-recently-used entry. Sized to comfortably exceed the
+// distinct import-sets of a real project (files sharing imports share a
+// signature), so workspace-wide analysis effectively never evicts; a size-aware
+// policy can refine this later.
+const LIBRARY_CACHE_CAP: Int = 1024;
+
+// The outcome of compiling a source: any diagnostics, and the encoded `.hawkbc`
+// bytes when there were none.
+pub struct CompileOutcome {
+    let diagnostics: List<diagnostic.Diagnostic>;
+    let bytes: Option<Bytes>;
+}
+
+// A parsed primary program plus its loaded import closure — what position-based
+// LSP queries consume (the resolution surfaces ride on `loaded`). `tokens` is the
+// primary's cached tokenization (from the same parse as `program`), carried so the
+// resolver reads it instead of re-lexing the buffer per request.
+pub struct Closure {
+    let program: Program;
+    let tokens: List<token.Token>;
+    let loaded: loader.LoadedImports;
+}
+
+pub struct Session {
+    let sdk_root: Option<String>;
+    // Canonical path -> current text: open-buffer overlays over disk, consulted
+    // by the loader before reading a file (an unsaved import is analyzed as the
+    // user sees it).
+    let overlays: Map<String, String>;
+    // Canonical path -> parsed AST, reused across requests so the import
+    // closure (the `std.core` prelude above all) is parsed once and only
+    // re-parsed when its file changes.
+    let parse_cache: Map<String, loader.ParsedFile>;
+    // Canonical keys of closure files that already checked clean this session —
+    // skipped on later checks, so a batch (or a keystroke) costs the changed
+    // files, not the whole closure. Files with diagnostics are never marked.
+    let checked: Set<String>;
+    // The merged forward import graph across every closure this session has
+    // loaded: canonical key -> that file's last-known resolved import edges
+    // (`LoadedImports.file_imports`, replaced entry-wise per load). Reversed
+    // on demand by `dependents_of`, the invalidation cone for an edit.
+    let import_graph: Map<String, List<String>>;
+    // Canonical path -> the file's derived surfaces (`loader.FileSurface`) —
+    // reused across requests so a load re-derives only changed files'
+    // surfaces. Evicted over the invalidation cone: a file's surfaces depend
+    // on its imports' surfaces (and, for `bare_surface`, on the prelude —
+    // the SDK invalidate-all rule covers that implicit edge). Like the parse
+    // cache, only overlay events invalidate — out-of-band disk edits are
+    // invisible to a long-lived session.
+    let surface_cache: Map<String, loader.FileSurface>;
+    // Closure signature (sorted member keys) -> the imports-only element
+    // model, reused across requests so a keystroke re-resolves the primary,
+    // not the whole closure (`resolver.layer_primary` stacks the primary on
+    // the cached base without mutating it — the frozen-base invariant).
+    // Evicted when any member is invalidated.
+    let library_cache: Map<String, CachedLibrary>;
+    // Canonical path -> the file's committed-type record from the last check
+    // that walked it (CH19), serving `type_at`/`records_for`. As fresh as that
+    // check: evicted over the invalidation cone with `checked`; files the
+    // checker skipped (the SDK, files already clean before records existed)
+    // have no entry.
+    let type_records: Map<String, List<inference.TypeRecord>>;
+}
+
+// One cached imports-only library plus its member set (for eviction: an entry
+// dies when any member file is invalidated).
+pub struct CachedLibrary {
+    let members: Set<String>;
+    let library: element.LibraryElement;
+}
+
+pub fn new_session(_ sdk_root: Option<String>) -> Session {
+    return Session {
+        sdk_root: sdk_root,
+        overlays: [:],
+        parse_cache: [:],
+        checked: Set.new(),
+        import_graph: [:],
+        surface_cache: [:],
+        library_cache: [:],
+        type_records: [:],
+    };
+}
+
+impl Session {
+    // Set (or update) the overlay text for `p` — the open-buffer content the
+    // loader reads instead of disk. Evicts the file's cached parse and
+    // checked-clean status so the next analysis re-sees the change.
+    pub fn set_overlay(self, _ p: String, _ text: String) -> Void {
+        let key = loader.canonical_path(p);
+        self.overlays[key] = text;
+        self.invalidate(p);
+    }
+
+    // Drop `p`'s overlay (closed buffer): analyses revert to disk content.
+    pub fn remove_overlay(self, _ p: String) -> Void {
+        match self.overlays.remove(loader.canonical_path(p)) {
+            Some(_) => void,
+            None => void,
+        }
+        self.invalidate(p);
+    }
+
+    // Evict `p` from the cross-request caches (a no-op when absent). Only
+    // `p`'s own text changed, so importers keep their parses — but their
+    // checked-clean status is stale (they checked against `p`'s old content),
+    // so the eviction cascades over the invalidation cone. This closes the
+    // stale-`checked` gap: an edit to `util.thera` re-checks its importers on
+    // their next check, not just `util.thera` itself.
+    pub fn invalidate(self, _ p: String) -> Void {
+        let key = loader.canonical_path(p);
+        match self.parse_cache.remove(key) {
+            Some(_) => void,
+            None => void,
+        }
+        // The edit may have changed `p`'s own imports, so its forward edges are
+        // stale — drop them so `index_edges` (or the next closure load) re-probes.
+        // Only `p`'s own edges can change; importers' edges still point at `p`.
+        match self.import_graph.remove(key) {
+            Some(_) => void,
+            None => void,
+        }
+        for k in self.dependents_of(key) {
+            self.checked.remove(k);
+            match self.surface_cache.remove(k) {
+                Some(_) => void,
+                None => void,
+            }
+            match self.type_records.remove(k) {
+                Some(_) => void,
+                None => void,
+            }
+            self.evict_libraries_with(k);
+        }
+    }
+
+    // Drop the least-recently-used cached library — the front entry, since a hit
+    // moves its signature to the back (see `library_for`). Bounds the cache
+    // without the old clear-all, which threw away every warm base at once.
+    fn evict_lru_library(self) -> Void {
+        let keys = self.library_cache.keys();
+        if keys.len() > 0 {
+            match self.library_cache.remove(keys[0]) {
+                Some(_) => void,
+                None => void,
+            }
+        }
+    }
+
+    // Drop every cached imports-only library whose closure contains `k`.
+    fn evict_libraries_with(self, _ k: String) -> Void {
+        let stale: List<String> = [];
+        for sig in self.library_cache.keys() {
+            if self.library_cache[sig].members.has(k) {
+                stale.push(sig);
+            }
+        }
+        for sig in stale {
+            match self.library_cache.remove(sig) {
+                Some(_) => void,
+                None => void,
+            }
+        }
+    }
+
+    // The element model for this request through the library cache: the
+    // imports-only base — cache-hit by closure signature, else built and
+    // stored — with the primary layered on top. None when the layered path
+    // can't serve the request (the primary appears in its own import closure:
+    // an SDK file checked as the primary, or an import cycle through the
+    // root; or a primary `impl` targets a type the primary doesn't declare) —
+    // the caller then runs the full uncached build.
+    fn library_for(self, _ program: Program, _ canon: String,
+        _ loaded: loader.LoadedImports) -> Option<element.LibraryElement> {
+        let keys: List<String> = [];
+        for p in loaded.programs {
+            let k = element.file_key(p.file_path);
+            if k == canon {
+                return Option.None; // the primary is in its own closure
+            }
+            keys.push(k);
+        }
+        for f in loaded.file_imports.keys() {
+            if loaded.file_imports[f].contains(canon) {
+                return Option.None; // an import references the primary
+            }
+        }
+        let signature = keys.sort((a, b) => a.compare(b) == Ordering.Less).join('\n');
+        let base = match self.library_cache.get(signature) {
+            Some(c) => {
+                // Mark as most-recently-used: the map is insertion-ordered, so
+                // remove + re-insert moves this signature to the end (`evict_lru`
+                // drops the front). No rebuild — the frozen base is reused as-is.
+                self.library_cache.remove(signature);
+                self.library_cache[signature] = c;
+                c.library
+            },
+            None => {
+                // Bound the cache with LRU eviction (not clear-all): workspace-wide
+                // analysis holds one signature per distinct import-set, so the cap
+                // is high enough not to bite most projects — a real project rarely
+                // has this many distinct closures. A smarter size-aware policy is a
+                // follow-up.
+                if self.library_cache.len() >= LIBRARY_CACHE_CAP {
+                    self.evict_lru_library();
+                }
+                let built = resolver.build_import_library(loaded.programs,
+                    loaded.file_namespaces, loaded.file_bare_surface);
+                let members: Set<String> = Set.new();
+                for k in keys {
+                    members.add(k);
+                }
+                self.library_cache[signature] = CachedLibrary { members: members, library: built };
+                built
+            },
+        };
+        return resolver.layer_primary(base, program, loaded.file_namespaces, loaded.file_bare_surface);
+    }
+
+    // `p` (canonicalized) plus every file that transitively imports it, per
+    // the session's merged import graph — the invalidation cone for an edit
+    // to `p`. Conservative: the graph's edges are unlabeled (no pub/non-pub
+    // distinction), so any import path counts — over-eviction only. A key
+    // under the SDK's std root returns every known file: each file's bare
+    // surface implicitly depends on the std.core prelude, and that implicit
+    // edge isn't in the graph.
+    pub fn dependents_of(self, _ p: String) -> List<String> {
+        let key = loader.canonical_path(p);
+        if let Some(prefix) = sdk_prefix(self.sdk_root) {
+            if key.starts_with(prefix) {
+                let all = self.import_graph.keys();
+                if !all.contains(key) {
+                    all.push(key);
+                }
+                return all;
+            }
+        }
+        // Reverse adjacency, rebuilt per call: edits are rare next to loads,
+        // and rebuilding sidesteps the bookkeeping when a file's edge list is
+        // replaced wholesale.
+        let importers_of: Map<String, List<String>> = [:];
+        for importer in self.import_graph.keys() {
+            for dep in self.import_graph[importer] {
+                if !importers_of.has(dep) {
+                    importers_of[dep] = [];
+                }
+                if let Some(list) = importers_of.get(dep) {
+                    list.push(importer);
+                }
+            }
+        }
+        let seen: Set<String> = Set.new();
+        seen.add(key);
+        let cone: List<String> = [key];
+        let mut i = 0;
+        while i < cone.len() {
+            if let Some(importers) = importers_of.get(cone[i]) {
+                for f in importers {
+                    if !seen.has(f) {
+                        seen.add(f);
+                        cone.push(f);
+                    }
+                }
+            }
+            i = i + 1;
+        }
+        return cone;
+    }
+
+    // Whether `p` is a file under the SDK's std root — a trusted library source
+    // reached by `import std.*`. Such files are read-only to editing tools
+    // (rename skips them, and refuses a rename whose declaration lives in one),
+    // matching how the checker already trusts and skips them.
+    pub fn is_sdk_file(self, _ p: String) -> Bool {
+        return match sdk_prefix(self.sdk_root) {
+            Some(prefix) => loader.canonical_path(p).starts_with(prefix),
+            None => false,
+        };
+    }
+
+    // Record the forward import edges of every file in `files` the graph doesn't
+    // already know — the cheap edges-only probe (`loader.import_edges`), not a
+    // full closure load. The references/rename cone (`dependents_of`) reverses
+    // this graph, so it must cover the whole scan set to be complete; this fills
+    // the gaps for files never loaded (or edited since — `invalidate` drops their
+    // entry) so a cold reference request doesn't miss an unopened importer.
+    // `files` maps canonical path -> current text (an open buffer's overlay or the
+    // on-disk contents). Already-known files are skipped, so a warm request does
+    // no work here. The probed parse populates the parse cache, so the cone files
+    // that go on to resolve reuse it (no re-parse).
+    pub fn index_edges(self, _ files: Map<String, String>) -> Void {
+        for key in files.keys() {
+            if !self.import_graph.has(key) {
+                let pf = self.parsed_primary(key, files.get(key).unwrap_or(''));
+                self.import_graph[key] = loader.import_edges(key, pf.program, self.sdk_root);
+            }
+        }
+    }
+
+    // Merge one load's dependency edges into the session graph (entry-wise
+    // replace: the load's view of a file's imports is current).
+    fn record_graph(self, _ loaded: loader.LoadedImports) -> Void {
+        for f in loaded.file_imports.keys() {
+            self.import_graph[f] = loaded.file_imports[f];
+        }
+    }
+
+    // Force `p` to be re-checked by the next `check` even if unedited (the LSP
+    // re-publishes an open document's diagnostics on demand; its overlay text is
+    // the request's input, never a cached result).
+    pub fn force_recheck(self, _ p: String) -> Void {
+        self.checked.remove(loader.canonical_path(p));
+    }
+
+    // The cached syntactic parse of `text` at `p` — the entry point for the
+    // parse-only consumers (document symbols, code actions, workspace symbols).
+    // Cached under the canonical key; an edit must `invalidate`/`set_overlay`
+    // first (the LSP does, on every document event), so a hit is current.
+    pub fn parse(self, _ text: String, _ p: String) -> Program {
+        return self.parsed_primary(loader.canonical_path(p), text).program;
+    }
+
+    // The primary's cached parse (`canon` must be canonical): a hit returns the
+    // session's entry — evicted on every overlay event — and a miss parses
+    // `source` best-effort, lex and parse diagnostics riding on the
+    // `ParsedFile` exactly as imported files behave via the loader, then
+    // stores it for the closure loads that follow.
+    fn parsed_primary(self, _ canon: String, _ source: String) -> loader.ParsedFile {
+        if let Some(pf) = self.parse_cache.get(canon) {
+            return pf;
+        }
+        let pf = loader.parse_source(canon, source);
+        self.parse_cache[canon] = pf;
+        return pf;
+    }
+
+    // Parse `text` at `p` and load its import closure through the session's
+    // caches and overlays — the shared setup for the LSP's position-based
+    // queries (hover, definition).
+    pub fn load_closure(self, _ text: String, _ p: String) -> Closure {
+        let pf = self.parsed_primary(loader.canonical_path(p), text);
+        let loaded = loader.load_imports(p, pf.program, self.sdk_root,
+            parse_cache: self.parse_cache, overlays: self.overlays, surface_cache: self.surface_cache);
+        self.record_graph(loaded);
+        return Closure { program: pf.program, tokens: pf.tokens, loaded: loaded };
+    }
+
+    // Type-check `source` (located at `p`) with its full import closure. The
+    // whole *local* closure is checked, not just the primary: a check error in
+    // an imported file is a diagnostic (attributed to that file) rather than
+    // shipping to bytecode. Files under the SDK's std root are trusted (the SDK
+    // is fixpoint-validated; its diagnostics aren't actionable here) and
+    // skipped, as is everything already checked clean this session.
+    pub fn check(self, _ source: String, _ p: String) -> List<diagnostic.Diagnostic> {
+        // Canonical identity from the start, so the primary's attribution
+        // matches the keys the loader mints (`Diagnostic.file` is canonical).
+        // The parse comes through the cache (R1): a keystroke's diagnostics
+        // request reuses the parse the position queries already made.
+        let canon = loader.canonical_path(p);
+        let pf = self.parsed_primary(canon, source);
+        if pf.diagnostics.len() > 0 {
+            return pf.diagnostics;
+        }
+        let program = pf.program;
+        let loaded = loader.load_imports(canon, program, self.sdk_root,
+            parse_cache: self.parse_cache, overlays: self.overlays, surface_cache: self.surface_cache);
+        self.record_graph(loaded);
+        let skip = skip_keys(canon, loaded.programs, self.sdk_root, self.checked);
+        // Lex/parse errors from imported files first (root causes) — minus files
+        // already reported this run — then the closure's check errors.
+        let out: List<diagnostic.Diagnostic> = [];
+        for d in loaded.diagnostics {
+            if !d.file.map((f) => self.checked.has(f)).unwrap_or(false) {
+                out.push(d);
+            }
+        }
+        let result = checker.check_files(program, loaded.programs,
+            loaded.file_namespaces, loaded.file_bare_surface, skip: skip,
+            prebuilt: self.library_for(program, canon, loaded));
+        for d in result.errors {
+            out.push(d);
+        }
+        self.store_records(result.records);
+        mark_checked_clean(self.checked, canon, loaded.programs, skip, out);
+        return out;
+    }
+
+    // Compile `source` (located at `p`) to `.hawkbc` bytes with its import
+    // closure linked in. Like `check`, the whole local (non-SDK) closure is
+    // checked — an imported file's check error blocks the compile instead of
+    // shipping to bytecode.
+    pub fn compile(self, _ source: String, _ p: String) -> CompileOutcome {
+        let canon = loader.canonical_path(p);
+        let pf = self.parsed_primary(canon, source);
+        if pf.diagnostics.len() > 0 {
+            return failed(pf.diagnostics);
+        }
+        let program = pf.program;
+        let loaded = loader.load_imports(canon, program, self.sdk_root,
+            parse_cache: self.parse_cache, overlays: self.overlays, surface_cache: self.surface_cache);
+        self.record_graph(loaded);
+        let skip = skip_keys(canon, loaded.programs, self.sdk_root, self.checked);
+        // An imported file that failed to lex/parse/resolve leaves the closure
+        // incomplete, so its diagnostics (root causes) block codegen alongside
+        // any check errors.
+        let import_diags = loaded.diagnostics;
+        let result = checker.check_files(program, loaded.programs,
+            loaded.file_namespaces, loaded.file_bare_surface, skip: skip,
+            prebuilt: self.library_for(program, canon, loaded));
+        self.store_records(result.records);
+        // Warnings ride the same list but don't gate compilation — only
+        // error-severity diagnostics (and import-closure failures) block.
+        if import_diags.len() > 0 || diagnostic.error_count(result.errors) > 0 {
+            for d in result.errors {
+                import_diags.push(d);
+            }
+            return failed(import_diags);
+        }
+        mark_checked_clean(self.checked, canon, loaded.programs, skip, []);
+        let cg = codegen.compile_program(program, loaded.programs, loaded.file_namespaces, loaded.file_bare_surface);
+        if cg.errors.len() > 0 {
+            return failed(cg.errors);
+        }
+        return CompileOutcome {
+            diagnostics: [],
+            bytes: Option.Some(encoder.encode_module(cg.module)),
+        };
+    }
+
+    // Fold a check run's committed-type records into the per-file store:
+    // group by file, then replace those files' entries wholesale (files the
+    // checker skipped don't appear and keep their stored records).
+    fn store_records(self, _ records: List<inference.TypeRecord>) -> Void {
+        let by_file: Map<String, List<inference.TypeRecord>> = [:];
+        for r in records {
+            match by_file.get(r.file) {
+                Some(l) => { l.push(r); },
+                None => { by_file[r.file] = [r]; },
+            }
+        }
+        for f in by_file.keys() {
+            self.type_records[f] = by_file[f];
+        }
+    }
+
+    // The committed-type record for `p` from the last check that walked it —
+    // checking on demand when `p` is an open overlay with no stored records
+    // (the post-edit LSP case). Entries are in walk order; a later entry for
+    // the same span supersedes an earlier one (the `let` refinement override).
+    pub fn records_for(self, _ p: String) -> List<inference.TypeRecord> {
+        let canon = loader.canonical_path(p);
+        if !self.type_records.has(canon) {
+            if let Some(text) = self.overlays.get(canon) {
+                self.check(text, canon);
+            }
+        }
+        return self.type_records.get(canon).unwrap_or([]);
+    }
+
+    // The committed type of the node at `offset` in `p` — the smallest
+    // recorded span containing the offset (ties go to the later entry, so the
+    // refinement override wins). None when the offset sits outside any
+    // recorded node or the file has no records (never walked, or evicted).
+    pub fn type_at(self, _ p: String, _ offset: Int) -> Option<types.Type> {
+        let mut best: Option<types.Type> = Option.None;
+        let mut best_len = 0;
+        for r in self.records_for(p) {
+            if offset >= r.offset && offset < r.offset + r.length {
+                if best.is_none() || r.length <= best_len {
+                    best = Option.Some(r.ty);
+                    best_len = r.length;
+                }
+            }
+        }
+        return best;
+    }
+}
+
+// --- the hermetic (no-import) pipeline, for self-contained programs ---
+
+// Type-check `source` with no import closure (no prelude, no loader) —
+// self-contained test fixtures. Lex and parse errors short-circuit.
+pub fn check_source(_ source: String) -> List<diagnostic.Diagnostic> {
+    let lex = lexer.tokenize(source);
+    if lex.errors.len() > 0 {
+        return lex.errors;
+    }
+    let parsed = parser.parse_tokens(lex.tokens);
+    if parsed.errors.len() > 0 {
+        return parsed.errors;
+    }
+    return checker.check(parsed.program, [], [:], [:]).errors;
+}
+
+// Compile `source` to `.hawkbc` bytes with no import closure. Each phase
+// short-circuits on errors, so `bytes` is present only for a clean program.
+pub fn compile_source(_ source: String) -> CompileOutcome {
+    let lex = lexer.tokenize(source);
+    if lex.errors.len() > 0 {
+        return failed(lex.errors);
+    }
+    let parsed = parser.parse_tokens(lex.tokens);
+    if parsed.errors.len() > 0 {
+        return failed(parsed.errors);
+    }
+    let checked = checker.check(parsed.program, [], [:], [:]);
+    if diagnostic.error_count(checked.errors) > 0 {
+        return failed(checked.errors);
+    }
+    let cg = codegen.compile_program(parsed.program, [], [:], [:]);
+    if cg.errors.len() > 0 {
+        return failed(cg.errors);
+    }
+    return CompileOutcome {
+        diagnostics: [],
+        bytes: Option.Some(encoder.encode_module(cg.module)),
+    };
+}
+
+// `file:line:column: message` — the diagnostic line the CLI prints. Attribution
+// (`d.file`) is canonical (absolute); printing shows the primary file exactly as
+// the user spelled it (`file_path`, the compiler convention), and any other
+// attributed file relative to the current directory when it lies under it.
+// An error line carries no severity token (the default reading); a warning is
+// tagged `warning:` and closes with its rule name — the key a
+// `// ignore: <rule>` comment names to suppress it.
+pub fn format_diagnostic(_ d: diagnostic.Diagnostic, _ file_path: String) -> String {
+    let file = match d.file {
+        Some(f) => {
+            if f == loader.canonical_path(file_path) {
+                file_path
+            } else {
+                loader.display_path(f)
+            }
+        },
+        None => file_path,
+    };
+    let tag = match d.severity {
+        Warning => 'warning: ',
+        _ => '',
+    };
+    let rule = match d.rule {
+        Some(r) => ' (${r})',
+        None => '',
+    };
+    return '${file}:${d.span}: ${tag}${d.message}${rule}';
+}
+
+// --- helpers ---
+
+fn failed(_ diagnostics: List<diagnostic.Diagnostic>) -> CompileOutcome {
+    return CompileOutcome { diagnostics: diagnostics, bytes: Option.None };
+}
+
+// The closure files to skip when checking: everything under the SDK's std root
+// (trusted — fixpoint-validated, and its diagnostics aren't actionable from a
+// user program) plus everything already checked clean this run. The primary —
+// the file explicitly asked about — is exempt from the SDK skip (checking an
+// SDK file directly must still check it), but not from `checked`.
+fn skip_keys(_ primary_key: String, _ programs: List<Program>, _ sdk_root: Option<String>,
+    _ checked: Set<String>) -> Set<String> {
+    let skip: Set<String> = Set.new();
+    if let Some(prefix) = sdk_prefix(sdk_root) {
+        for p in programs {
+            // A path-less program has no key to skip by (never `''` — the
+            // canonical-key discipline, LD17).
+            if let Some(key) = p.file_path {
+                if key.starts_with(prefix) && key != primary_key {
+                    skip.add(key);
+                }
+            }
+        }
+    }
+    for key in checked.to_list() {
+        skip.add(key);
+    }
+    return skip;
+}
+
+// The canonical `<std root>/` prefix SDK file keys carry, if there is an SDK.
+fn sdk_prefix(_ sdk_root: Option<String>) -> Option<String> {
+    return match sdk_root {
+        Some(root) => loader.std_root(root).map((std) => loader.canonical_path(std) + '/'),
+        None => Option.None,
+    };
+}
+
+// Record which closure files checked *clean* this run: every non-skipped file
+// with no diagnostic attributed to it (an unattributed diagnostic is the
+// primary's, conservatively). Skipped files keep their existing state.
+fn mark_checked_clean(_ checked: Set<String>, _ primary_key: String,
+    _ programs: List<Program>, _ skip: Set<String>, _ diags: List<diagnostic.Diagnostic>) -> Void {
+    let error_files: Set<String> = Set.new();
+    let mut primary_dirty = false;
+    for d in diags {
+        match d.file {
+            Some(f) => { error_files.add(f); },
+            None => { primary_dirty = true; },
+        }
+    }
+    if !primary_dirty && !error_files.has(primary_key) && !skip.has(primary_key) {
+        checked.add(primary_key);
+    }
+    for p in programs {
+        if let Some(key) = p.file_path {
+            if !skip.has(key) && !error_files.has(key) {
+                checked.add(key);
+            }
+        }
+    }
+    return;
+}

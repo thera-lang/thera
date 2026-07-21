@@ -32,8 +32,8 @@ fi
 # (Re)build the dev front-end when any front-end/stdlib source is newer than it.
 mkdir -p "$ROOT/build"
 if [ ! -f "$DEVFE" ] || \
-   [ -n "$(find "$ROOT/pkgs/cli" "$ROOT/sdk/std" -name '*.hawk' -newer "$DEVFE" -print -quit 2>/dev/null)" ]; then
-  ( cd "$ROOT" && "$HAWKRT" "$SNAPSHOT" emit pkgs/cli/main.hawk "$DEVFE" ) >&2
+   [ -n "$(find "$ROOT/pkgs/cli" "$ROOT/sdk/std" -name '*.thera' -newer "$DEVFE" -print -quit 2>/dev/null)" ]; then
+  ( cd "$ROOT" && "$HAWKRT" "$SNAPSHOT" emit pkgs/cli/main.thera "$DEVFE" ) >&2
 fi
 
 exec "$HAWKRT" "$DEVFE" "$@"

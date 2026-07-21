@@ -1,0 +1,164 @@
+// JSON-RPC 2.0 transport over a byte stream, with the LSP `Content-Length`
+// framing. This is the Hawk stand-in for the Dart `package:lsp_server`
+// `Connection`: it reads length-framed JSON messages from a `Reader` and writes
+// them to a `Writer`, leaving message dispatch to the caller (see server.thera).
+//
+// Wire format (LSP base protocol): each message is
+//   Content-Length: <N>\r\n\r\n<N bytes of UTF-8 JSON>
+// Other headers may precede the blank line; only Content-Length is required.
+
+import std.io;
+import std.json as _;
+
+// An incremental reader: it buffers bytes from a `Reader` and hands back one
+// complete message body (the JSON text) at a time. `pending` holds bytes read
+// past the last returned message (the start of the next one).
+pub struct MsgBuffer {
+    let mut pending: Bytes;
+}
+
+pub fn new_buffer() -> MsgBuffer {
+    return MsgBuffer { pending: Bytes.empty() };
+}
+
+impl MsgBuffer {
+    // The next message body, or None at end of input. Blocks (parking the fiber,
+    // once those land) reading from `reader` until a full message is buffered.
+    pub fn read_message(self, _ reader: io.Reader) -> Option<String> {
+        let mut going = true;
+        while going {
+            let ex = extract_message(self.pending);
+            self.pending = ex.rest;
+            if let Some(body) = ex.body {
+                return Option.Some(body);
+            }
+            // Need more bytes before a full message is available.
+            match reader.read(8192) {
+                Ok(chunk) => {
+                    if chunk.len() == 0 {
+                        return Option.None; // EOF
+                    }
+                    self.pending = self.pending.concat(chunk);
+                },
+                Err(_) => {
+                    return Option.None;
+                },
+            }
+        }
+        return Option.None; // unreachable: the loop only exits via `return`
+    }
+
+    // The next message already buffered in `pending`, or None when none is fully
+    // buffered — **without** reading from `reader`, so it never blocks. Lets a
+    // caller drain a burst of already-arrived messages (e.g. a flurry of edits)
+    // before doing expensive per-batch work.
+    pub fn try_message(self) -> Option<String> {
+        let ex = extract_message(self.pending);
+        self.pending = ex.rest;
+        return ex.body;
+    }
+}
+
+// One extraction step's outcome: the message body when a complete one was
+// framed, plus the remaining buffer — after consuming the message **and any
+// malformed header blocks in front of it** (so callers always store `rest`).
+struct Extraction {
+    let body: Option<String>;
+    let rest: Bytes;
+}
+
+// Try to peel one complete framed message off the front of `buf`. A complete
+// header block without a usable Content-Length can never frame a body, so it
+// is dropped and scanning continues — returning None forever on it would
+// wedge the stream, buffering input without ever yielding a message (LS9).
+// `body` is None when the header or body hasn't fully arrived yet.
+fn extract_message(_ buf: Bytes) -> Extraction {
+    let mut b = buf;
+    let mut scanning = true;
+    while scanning {
+        match find_header_end(b) {
+            None => { scanning = false; }, // header still arriving
+            Some(body_start) => {
+                let header = bytes_to_string(b.slice(0, body_start));
+                match parse_content_length(header) {
+                    None => {
+                        b = b.slice(body_start, b.len()); // drop the bad header
+                    },
+                    Some(len) => {
+                        let body_end = body_start + len;
+                        if b.len() < body_end {
+                            return Extraction { body: Option.None, rest: b }; // body still arriving
+                        }
+                        let body = bytes_to_string(b.slice(body_start, body_end));
+                        return Extraction { body: Option.Some(body), rest: b.slice(body_end, b.len()) };
+                    },
+                }
+            },
+        }
+    }
+    return Extraction { body: Option.None, rest: b };
+}
+
+// The index just past the `\r\n\r\n` that ends the header block (i.e. where the
+// body starts), or None if the terminator isn't in `buf` yet.
+pub fn find_header_end(_ buf: Bytes) -> Option<Int> {
+    let n = buf.len();
+    let mut i = 0;
+    while i + 3 < n {
+        if byte_at(buf, i) == 13 && byte_at(buf, i + 1) == 10
+            && byte_at(buf, i + 2) == 13 && byte_at(buf, i + 3) == 10 {
+            return Option.Some(i + 4);
+        }
+        i = i + 1;
+    }
+    return Option.None;
+}
+
+// The `Content-Length` value from a header block, or None if absent/malformed
+// (a negative length is malformed — it would frame a reversed body range).
+// The header name is matched case-insensitively, per the base protocol.
+pub fn parse_content_length(_ header: String) -> Option<Int> {
+    for line in header.lines() {
+        let parts = line.split(':');
+        if parts.len() >= 2 {
+            if parts[0].trim().to_lowercase() == 'content-length' {
+                return match parts[1].trim().to_int() {
+                    Some(n) => { if n >= 0 { Option.Some(n) } else { Option.None } },
+                    None => Option.None,
+                };
+            }
+        }
+    }
+    return Option.None;
+}
+
+// --- writing ---
+
+// Serialize `message` and write it to `writer`, framed with its Content-Length.
+pub fn send_message(_ writer: io.Writer, _ message: Json) -> Void {
+    let body = json.stringify(message);
+    write_all(writer, frame(body).bytes());
+}
+
+// The framed text for a JSON body: the header, a blank line, then the body.
+// (Content-Length counts UTF-8 *bytes*, not code points.)
+pub fn frame(_ body: String) -> String {
+    return 'Content-Length: ${body.byte_len()}\r\n\r\n${body}';
+}
+
+fn write_all(_ writer: io.Writer, _ data: Bytes) -> Void {
+    match writer.write(data) {
+        Ok(_) => void,
+        Err(_) => void,
+    }
+}
+
+// --- helpers ---
+
+fn byte_at(_ buf: Bytes, _ i: Int) -> Int {
+    return buf.get(i).unwrap_or_else(() => -1);
+}
+
+fn bytes_to_string(_ b: Bytes) -> String {
+    return b.to_string().unwrap_or('');
+}

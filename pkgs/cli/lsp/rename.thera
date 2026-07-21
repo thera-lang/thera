@@ -1,0 +1,82 @@
+// LSP rename — semantic. Reuses the identity-keyed reference collection
+// (`references.matching_spans`) to rewrite exactly the occurrences that name the
+// declaration under the cursor — so a local `x` is renamed without touching an
+// unrelated `x`, the flaw that kept the lexical version unregistered.
+//
+// The orchestration — which documents to scan, the new-name guard — lives in
+// analysis.thera (`rename_at`); this module formats one document's edits and
+// validates the proposed name.
+
+import std.json;
+
+import '../lexer/lexer';
+import '../lexer/token' as _;
+import 'positions';
+import 'resolve';
+
+// The `TextEdit[]` (as JSON) that replaces each of `spans` with `new_name`.
+pub fn edits_for(_ spans: List<SourceSpan>, _ new_name: String) -> json.Json {
+    let edits: List<json.Json> = [];
+    for s in spans {
+        edits.push(json.obj([
+            'range': positions.span_to_range(s),
+            'newText': json.str(new_name),
+        ]));
+    }
+    return json.arr(edits);
+}
+
+// The pre-flight collision message for renaming `target` to `new_name`, or None
+// when the rename introduces no clash. A clash is a name already bound at the top
+// level of the target's own file — a same-file top-level declaration (any kind:
+// fn / type / enum / interface / const / global), a prelude / `as _` bare-surface
+// name, or a bound import namespace. These are exactly the "one name space per
+// scope" errors the checker reports on the next publish (checker.thera
+// `check_duplicates` / `check_shadowed_surface`); catching them here lets the LSP
+// decline the rename with a reason instead of writing an edit that fails to
+// compile.
+//
+// Scoped to file-scope targets: Hawk lets a local shadow an in-scope name without
+// a checker error, and a field/method/variant lives in its type's name space, not
+// the file's — so those are not pre-checked (the checker still guards them). `ctx`
+// must be the target file's own resolution context (its `program` is the declaring
+// file), so bare `new_name` resolution answers "already bound in this file".
+pub fn collision(_ ctx: resolve.ResolveCtx, _ target: resolve.SymbolId, _ new_name: String) -> Option<String> {
+    if !is_file_scope_kind(target.kind()) {
+        return Option.None;
+    }
+    // `find_decl_site` answers bare `new_name` as this file's scope sees it — a
+    // same-file top-level decl or a prelude / `as _` bare-surface name; a bound
+    // import namespace is the remaining occupant of the one name space.
+    if resolve.find_decl_site(ctx, new_name).is_some() || resolve.file_binds_namespace(ctx, new_name) {
+        return Option.Some('cannot rename to `${new_name}`: a top-level `${new_name}` '
+            + 'is already bound in this file (one name space per scope)');
+    }
+    return Option.None;
+}
+
+// Whether `kind` names a file-scope (top-level) declaration — a symbol that
+// occupies the file's single top-level name space.
+fn is_file_scope_kind(_ kind: resolve.SymbolKind) -> Bool {
+    return match kind {
+        Function => true,
+        Struct => true,
+        Enum => true,
+        Interface => true,
+        Const => true,
+        Global => true,
+        Namespace => true,
+        _ => false,
+    };
+}
+
+// Whether `name` is a single legal identifier — not empty, not a keyword, no
+// stray characters. The lexer is the oracle: a valid identifier tokenizes to
+// exactly one `Identifier` token covering the whole string (a keyword lexes to
+// its `Kw*` kind, a number/operator to another kind, two words to two tokens).
+pub fn is_identifier(_ name: String) -> Bool {
+    let toks = lexer.tokenize(name).tokens;
+    return toks.len() == 2
+        && toks[0].kind == TokenKind.Identifier
+        && toks[0].lexeme() == name;
+}

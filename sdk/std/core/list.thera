@@ -1,0 +1,273 @@
+//! std.core — the built-in List<T> type's higher-order methods, written in Hawk.
+//!
+//! List<T> is a built-in, growable sequence: always in scope, never explicitly
+//! imported (there is no `import std.list`). It is not constructed via a struct
+//! literal — build one with a list literal, `[a, b, c]`.
+//!
+//! `.len()`, `.get(i)`, `.push(v)`, and `.join(sep)` are declared below as
+//! `native fn`s backed by runtime natives; indexing (`xs[i]`) is built-in syntax.
+//! The transforms further down are ordinary Hawk methods that take a closure and
+//! are compiled like any other code — the payoff of closures (see
+//! examples/closures.thera, docs/bytecode.md).
+//!
+//! ```hawk
+//! let evens = [1, 2, 3, 4].filter(n => n % 2 == 0);   // [2, 4]
+//! let names = users.map(u => u.name);
+//! ```
+//!
+//! `sort` takes an explicit comparator (`less`); a no-argument `sort()` keyed on
+//! a built-in `Ord` interface waits on that interface landing.
+
+/// The built-in growable sequence type — an opaque, runtime-represented value
+/// (no struct layout); a list literal (`[a, b, c]`) constructs one.
+pub native type List<T>
+
+impl List<T> {
+    // Indexing — `xs[i]` and `xs[i] = v` — is built-in operator syntax (lowered
+    // by the compiler, not a method, so it has no declaration here). The read
+    //
+    //   fn [](self, _ i: Int) -> T          // traps if `i` is out of range
+    //
+    // returns the element at `i`, **trapping** on an out-of-range index — use
+    // `get` below for the checked `Option<T>` form. The write
+    //
+    //   fn []=(self, _ i: Int, _ v: T)      // traps if `i` is out of range
+    //
+    // replaces `xs[i]` in place; it cannot extend the list (use `push`), so an
+    // out-of-range index traps. (Indexing isn't an overloadable interface yet;
+    // this documents the contract the compiler implements for `List`.)
+
+    /// Number of elements.
+    @extern('list_len')
+    pub native fn len(self) -> Int
+
+    /// The element at `i`, or None if out of range — the checked alternative to
+    /// indexing with `[]`.
+    @extern('list_get')
+    pub native fn get(self, _ i: Int) -> Option<T>
+
+    /// Join the elements (rendered via Display) with `sep` between them.
+    @extern('list_join')
+    pub native fn join(self, _ sep: String) -> String
+
+    /// Append `item` to the end, in place.
+    @extern('list_push')
+    pub native fn push(self, _ item: T) -> Void
+
+    /// Remove and return the last element, in place — `None` if the list is
+    /// empty. The mutating companion of `last()`.
+    @extern('list_pop')
+    pub native fn pop(self) -> Option<T>
+
+    /// Remove every element, in place (the list becomes empty; same reference).
+    @extern('list_clear')
+    pub native fn clear(self) -> Void
+
+    /// True if the list has no elements.
+    pub fn is_empty(self) -> Bool {
+        return self.len() == 0;
+    }
+
+    /// The first / last element, or None if the list is empty — the checked
+    /// alternative to `xs[0]` / `xs[xs.len() - 1]`.
+    pub fn first(self) -> Option<T> {
+        return self.get(0);
+    }
+
+    pub fn last(self) -> Option<T> {
+        return self.get(self.len() - 1);
+    }
+
+    /// True if `item` is equal (`==`) to some element.
+    pub fn contains(self, _ item: T) -> Bool {
+        for x in self {
+            if x == item {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// The index of the first element equal to `item`, or None if absent.
+    pub fn index_of(self, _ item: T) -> Option<Int> {
+        let mut i = 0;
+        let n = self.len();
+        while i < n {
+            if self[i] == item {
+                return Option.Some(i);
+            }
+            i = i + 1;
+        }
+        return Option.None;
+    }
+
+    /// A new list with the elements in reverse order.
+    pub fn reverse(self) -> List<T> {
+        let result = [];
+        let mut i = self.len() - 1;
+        while i >= 0 {
+            result.push(self[i]);
+            i = i - 1;
+        }
+        return result;
+    }
+
+    /// A new list with the elements ordered by `less` — `less(a, b)` is true when
+    /// `a` should come before `b`. The sort is **stable** (equal elements keep
+    /// their input order) and runs in O(n log n) via a bottom-up merge.
+    ///
+    /// ```hawk
+    /// names.sort((a, b) => a < b);          // ascending
+    /// nums.sort((a, b) => b < a);           // descending
+    /// people.sort((a, b) => a.age < b.age); // by a field
+    /// ```
+    pub fn sort(self, _ less: (T, T) -> Bool) -> List<T> {
+        // Bottom-up merge sort over a working copy; `less` decides order and a
+        // `!less(right, left)` tie-break (take the left first) keeps it stable.
+        let mut src = [];
+        for x in self {
+            src.push(x);
+        }
+        let n = src.len();
+        let mut width = 1;
+        while width < n {
+            let mut dst = [];
+            let mut lo = 0;
+            while lo < n {
+                let mid = (lo + width).min(n);
+                let hi = (lo + width + width).min(n);
+                let mut i = lo;
+                let mut j = mid;
+                while i < mid || j < hi {
+                    if i >= mid {
+                        dst.push(src[j]);
+                        j = j + 1;
+                    } else if j >= hi {
+                        dst.push(src[i]);
+                        i = i + 1;
+                    } else if less(src[j], src[i]) {
+                        dst.push(src[j]);
+                        j = j + 1;
+                    } else {
+                        dst.push(src[i]);
+                        i = i + 1;
+                    }
+                }
+                lo = lo + width + width;
+            }
+            src = dst;
+            width = width + width;
+        }
+        return src;
+    }
+
+    /// A lazy iterator pairing each element with its 0-based position, as
+    /// `Indexed<T>` values (`.index`, `.value`). Reach for it to iterate with the
+    /// index in hand — `for p in xs.enumerate() { … p.index … p.value … }` — in
+    /// place of a manual `while i < xs.len()` index loop.
+    ///
+    /// ```hawk
+    /// for p in ['a', 'b'].enumerate() {
+    ///     println('${p.index}: ${p.value}');   // 0: a\n1: b
+    /// }
+    /// ```
+    pub fn enumerate(self) -> Iterator<Indexed<T>> {
+        return self.iter().enumerate();
+    }
+
+    /// A **lazy** `Iterator` over the elements, in order — the opt-in gateway to
+    /// the pull-based `Iterator` protocol (`map`/`filter`/`take`/`enumerate`,
+    /// then `to_list`/`count`).
+    ///
+    /// Prefer the eager `map`/`filter` below for the common case: they return a
+    /// plain `List`, so the result keeps indexing, `len`, re-iteration, and
+    /// further list methods. Reach for `iter()` when a *chain* of transforms
+    /// would otherwise build throwaway intermediate lists, when you want to stop
+    /// early (`take(n)`), or when the data is large enough that fusing the passes
+    /// matters — `iter()` runs the whole chain in one walk with no intermediates:
+    ///
+    /// ```hawk
+    /// // eager: one intermediate list, then the final list — fine for small input
+    /// let a = xs.map((n) => n * n).filter((n) => n > 10);
+    ///
+    /// // lazy: fused single pass, materialized once at the end
+    /// let b = xs.iter().map((n) => n * n).filter((n) => n > 10).to_list();
+    /// ```
+    ///
+    /// Note an `Iterator` is single-use (stateful: consumed as it is read), so
+    /// call `iter()` again for a fresh pass rather than reusing the value.
+    pub fn iter(self) -> Iterator<T> {
+        return ListIter { items: self, pos: 0 };
+    }
+
+    /// A new list with `f` applied to each element, in order.
+    pub fn map<U>(self, _ f: (T) -> U) -> List<U> {
+        let result = [];
+        for item in self {
+            result.push(f(item));
+        }
+        return result;
+    }
+
+    /// A new list of the elements for which `keep` returns true, in order.
+    pub fn filter(self, _ keep: (T) -> Bool) -> List<T> {
+        let result = [];
+        for item in self {
+            if keep(item) {
+                result.push(item);
+            }
+        }
+        return result;
+    }
+
+    /// Reduce the list to a single value: start from `initial` and fold each
+    /// element in with `combine`, left to right.
+    ///
+    /// ```hawk
+    /// let sum = nums.fold(0, (acc, n) => acc + n);
+    /// ```
+    pub fn fold<A>(self, _ initial: A, _ combine: (A, T) -> A) -> A {
+        let mut acc = initial;
+        for item in self {
+            acc = combine(acc, item);
+        }
+        return acc;
+    }
+
+    /// A new list of the elements in the half-open range `[start, end)`. Indices
+    /// are clamped to the list's bounds, so out-of-range or reversed ranges yield
+    /// a shorter or empty list rather than an error.
+    ///
+    /// ```hawk
+    /// [10, 20, 30, 40].slice(1, 3)   // [20, 30]
+    /// ```
+    pub fn slice(self, _ start: Int, _ end: Int) -> List<T> {
+        let lo = start.clamp(0, self.len());
+        let hi = end.clamp(0, self.len());
+        let result = [];
+        let mut i = lo;
+        while i < hi {
+            result.push(self[i]);
+            i = i + 1;
+        }
+        return result;
+    }
+}
+
+impl Display for List<T> {
+    /// `[a, b, c]` — each element rendered via `Debug`, so nested strings are
+    /// quoted (`["a", "b"]`), matching mainstream collection printing. (Empty
+    /// list: `[]`.)
+    fn display(self) -> String {
+        let mut s = '[';
+        let mut first = true;
+        for item in self {
+            if !first {
+                s = s + ', ';
+            }
+            s = s + item.debug();
+            first = false;
+        }
+        return s + ']';
+    }
+}

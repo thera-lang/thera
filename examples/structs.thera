@@ -1,0 +1,74 @@
+// Demonstrates struct declarations, struct literals, field access, impl blocks,
+// nested structs, and implementing the `Display` interface — so `${p}` renders
+// through it in string interpolation instead of the auto-derived Debug form.
+
+struct Point {
+    let x: Int;
+    let y: Int;
+}
+
+impl Point {
+    fn origin() -> Point {
+        return Point { x: 0, y: 0 };
+    }
+
+    fn create(x: Int, y: Int) -> Point {
+        return Point { x: x, y: y };
+    }
+
+    fn translate(self, dx: Int, dy: Int) -> Point {
+        return Point { x: self.x + dx, y: self.y + dy };
+    }
+}
+
+// With `Display` implemented, `${point}` in an interpolation renders a Point
+// through this method (see sdk/std/core/interfaces.thera).
+impl Display for Point {
+    fn display(self) -> String {
+        return '(${self.x}, ${self.y})';
+    }
+}
+
+struct Rect {
+    let top_left: Point;
+    let width: Int;
+    let height: Int;
+}
+
+impl Rect {
+    fn area(self) -> Int {
+        return self.width * self.height;
+    }
+
+    fn bottom_right(self) -> Point {
+        return self.top_left.translate(self.width, self.height);
+    }
+}
+
+// Rect's own Display delegates to Point's — `${self.top_left}` and
+// `${self.bottom_right()}` each render through the impl above.
+impl Display for Rect {
+    fn display(self) -> String {
+        return 'Rect[${self.top_left} .. ${self.bottom_right()}]';
+    }
+}
+
+fn main() -> Result<Int, Error> {
+    let origin = Point.origin();
+    println('origin: ${origin}');
+
+    let p = Point.create(x: 3, y: 4);
+    let q = p.translate(1, 2);
+    println('p: ${p}');
+    println('q: ${q}');
+
+    let r = Rect {
+        top_left: Point { x: 10, y: 20 },
+        width: 100,
+        height: 50,
+    };
+    println('rect: ${r}');
+    println('area: ${r.area()}');
+
+    return Result.Ok(0);
+}

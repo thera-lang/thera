@@ -1,0 +1,112 @@
+//! Self-tests for std.testing's assertions. Each assertion returns its outcome
+//! as a Result, so we exercise it by inspecting that Result directly (rather than
+//! with `?`, which would propagate a failure out of the test).
+//!
+//! A small `is_ok` helper matches the Result instead of unwrapping it — readable
+//! for the success/failure meta-checks below. (`assert_ok`/`assert_err` now also
+//! accept a `Result<_, Error>`: since `Error` extends `Debug`, the interface-typed
+//! error satisfies their `E: Debug` bound — see test_assert_ok_on_interface_error.)
+
+import std.testing;
+
+fn is_ok<T>(_ r: Result<T, Error>) -> Bool {
+    return match r {
+        Ok(_) => true,
+        Err(_) => false,
+    };
+}
+
+fn make_ok() -> Result<Int, String> {
+    return Result.Ok(7);
+}
+
+fn make_err() -> Result<Int, String> {
+    return Result.Err('boom');
+}
+
+fn failure_message(_ r: Result<Void, Error>) -> String {
+    return match r {
+        Ok(_) => '<no failure>',
+        Err(e) => e.message(),
+    };
+}
+
+@test
+fn test_assert_true_passes_false_fails() -> Result<Void, Error> {
+    testing.assert(is_ok(testing.assert(true)))?;
+    testing.assert(!is_ok(testing.assert(false)))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_assert_uses_custom_message() -> Result<Void, Error> {
+    let msg = failure_message(testing.assert(false, message: 'must be positive'));
+    // The message carries the custom text; it is prefixed with the call location.
+    testing.assert(msg.contains('must be positive'))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_assert_failure_includes_source_location() -> Result<Void, Error> {
+    // `#loc` stamps each assertion's call site into the failure message, in the
+    // `file:line:column:` shape `hawk check` uses. The call below is in this file.
+    let msg = failure_message(testing.assert(false, message: 'boom'));
+    testing.assert(msg.contains('testing_test.thera:'), message: 'names the source file')?;
+    testing.assert(msg.contains(': boom'), message: 'location precedes the message')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_assert_eq_matches_and_mismatches() -> Result<Void, Error> {
+    testing.assert(is_ok(testing.assert_eq(actual: 5, expected: 5)))?;
+    testing.assert(is_ok(testing.assert_eq(actual: 'hi', expected: 'hi')))?;
+    testing.assert(!is_ok(testing.assert_eq(actual: 5, expected: 6)))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_assert_eq_failure_message_shows_both_values() -> Result<Void, Error> {
+    let msg = failure_message(testing.assert_eq(actual: 1, expected: 2));
+    testing.assert(msg.contains('assert_eq failed'), message: 'names the assertion')?;
+    testing.assert(msg.contains('1'), message: 'includes actual')?;
+    testing.assert(msg.contains('2'), message: 'includes expected')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_assert_ne() -> Result<Void, Error> {
+    testing.assert(is_ok(testing.assert_ne(actual: 5, unexpected: 6)))?;
+    testing.assert(!is_ok(testing.assert_ne(actual: 5, unexpected: 5)))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_assert_ok_unwraps_value_and_rejects_err() -> Result<Void, Error> {
+    // On Ok it returns the inner value.
+    let value = testing.assert_ok(make_ok())?;
+    testing.assert_eq(actual: value, expected: 7)?;
+    // On Err it fails.
+    testing.assert(!is_ok(testing.assert_ok(make_err())))?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_assert_err() -> Result<Void, Error> {
+    testing.assert(is_ok(testing.assert_err(make_err())))?;
+    testing.assert(!is_ok(testing.assert_err(make_ok())))?;
+    return Result.Ok(void);
+}
+
+/// Regression: interface inheritance (`Error: Debug`) lets `assert_ok`/`assert_err`
+/// inspect a `Result<_, Error>` — the interface-typed error now satisfies their
+/// `E: Debug` bound, which was impossible before. Both an assertion's own result
+/// and a domain Result fit.
+@test
+fn test_assert_ok_on_interface_error() -> Result<Void, Error> {
+    // The result of an assertion is `Result<Void, Error>` — feed it to assert_ok.
+    testing.assert_ok(testing.assert(true))?;
+    // And an Err-typed `Error` value flows through assert_err.
+    let failed: Result<Int, Error> = Result.Err(error('boom'));
+    testing.assert_err(failed)?;
+    return Result.Ok(void);
+}

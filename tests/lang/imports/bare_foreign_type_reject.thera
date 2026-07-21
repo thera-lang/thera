@@ -1,0 +1,18 @@
+//! spec: mod-no-bare-fallback
+//! mode: check
+
+// The import is the fixture's subject, not a usage example.
+// ignore: unused-import
+import 'middle';
+
+// `Gadget` is a *type* owned by `provider` — imported by `middle`, not by this
+// file. A bare type reference does not resolve against the closure's flat table,
+// just as a bare value reference doesn't (see bare_foreign_reject.thera): there is
+// no global last-wins fallback in type position either.
+fn use_it(_ g: Gadget) -> Int {   // expect error: unknown type: Gadget
+    return g.n;
+}
+
+fn main() -> Int {
+    return 0;
+}

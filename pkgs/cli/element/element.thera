@@ -1,0 +1,347 @@
+// The element model — the Hawk mirror of the Dart toolchain's element/element.dart.
+//
+// Where the AST records syntax, the *element model* records resolved
+// declarations: member types as semantic `Type`s, with cross-references. It is
+// built as a separate stage over the parsed AST (see resolver.thera).
+//
+// Dart's identity-bearing element objects don't map to Hawk's value semantics,
+// so the port references type definitions by **name** (a `Type.Interface` holds
+// the element's name, not the object) and looks them up in the `LibraryElement`
+// registry. Dart's `TypeDefElement` subclass hierarchy becomes one tagged struct
+// (a `kind` discriminant) so the resolver can fill `methods`/`fields`/… in place
+// across passes (struct fields stored in a Map are mutated by reference).
+
+import '../lexer/token' as _; // SourceSpan (symbol identity, EL13)
+import 'types' as _;
+
+// The span for a synthesized element — a hermetic-floor entry or a fixture —
+// that has no source site. Zero-length at 0:0 of an empty source; `length == 0
+// && source == ''` marks it recognizably absent.
+pub fn no_span() -> SourceSpan {
+    return SourceSpan { source: '', file: '', offset: 0, length: 0, line: 0, column: 0 };
+}
+
+pub enum TypeDefKind {
+    Struct,
+    Enum,
+    Interface,
+    Builtin,
+}
+
+// A resolved positional payload type list lives on each variant.
+pub struct EnumVariantElement {
+    let name: String;
+    let name_span: SourceSpan; // the declaration's name token (identity; EL13)
+    let fields: List<Type>; // resolved payload types; empty = payload-free
+}
+
+pub struct ParameterElement {
+    let label: Option<String>; // external label; None when suppressed (`_`)
+    let is_self: Bool;
+    let name: String;
+    let ty: Type;
+    let has_default: Bool;
+}
+
+// A free function or a method. `owner` is the type name for a method (None for a
+// free function); `is_static` is a method with no `self`.
+pub struct FunctionElement {
+    let name: String;
+    // Symbol identity (EL13): the canonical key of the declaring file, and the
+    // declaration's name-token span. With `owner`, a method's identity is
+    // (file, owner, name); a free function's is (file, name). Synthesized
+    // entries carry BUILTIN_OWNER / `no_span()`.
+    let file: String;
+    let name_span: SourceSpan;
+    let type_parameters: List<String>;
+    // Interface bounds per type parameter (`fn f<T: Display>` -> {T: [Display]}),
+    // by resolved identity (the interface the declaring file sees).
+    let type_parameter_bounds: Map<String, List<TypeId>>;
+    let parameters: List<ParameterElement>;
+    let return_type: Type;
+    let owner: Option<String>;
+    let is_static: Bool;
+}
+
+pub struct ConstElement {
+    let name: String;
+    // Symbol identity (EL13). Consts and module-level `let`s share this
+    // element; both are (file, name) value bindings.
+    let file: String;
+    let name_span: SourceSpan;
+    // The declared (annotated) type, or — for an un-annotated global — the type
+    // inferred from its initializer by the resolver's pass 4
+    // (`inference.infer_program_globals`), since resolution itself reads only an
+    // annotation. Mutable so that pass can fill it in place.
+    let mut ty: Type;
+}
+
+// A declared (or built-in) type definition: struct, enum, interface, or built-in
+// generic. The mutable lists/maps are filled during resolution.
+pub struct TypeDefElement {
+    let name: String;
+    // The declaration's name-token span (identity, with `owner_file`; EL13).
+    let name_span: SourceSpan;
+    // The file (key) that declares this type — its nominal owner. Stamped into a
+    // `TypeId` when a source name resolves to this element (see types.named_type),
+    // so `A.Foo` and `B.Foo` stay distinct once type-name uniqueness is lifted.
+    let owner_file: String;
+    let kind: TypeDefKind;
+    let type_parameters: List<String>;
+    // Interface bounds on the type's own parameters (`type Box<T: Display>` ->
+    // {T: [Display]}), enforced where a concrete type argument is supplied. The
+    // analogue of `FunctionElement.type_parameter_bounds`. Bound identity is the
+    // resolved `TypeId` (the interface the *declaring file* sees).
+    let type_parameter_bounds: Map<String, List<TypeId>>;
+    let methods: List<FunctionElement>; // from impl blocks / interface decls
+    // `impl Interface for Type` conformances, by resolved interface identity
+    // (the interface the *impl's file* sees — two libraries' same-named
+    // interfaces stay distinct).
+    let interfaces: List<TypeId>;
+    // For each implemented interface (keyed by `id_key`), the resolved type
+    // arguments of the conformance (`impl Iterator<Int> for T` ->
+    // {core#Iterator: [Int]}). Lets a default method called on a *concrete*
+    // receiver bind the interface's type parameters (the receiver itself
+    // doesn't carry them).
+    let interface_args: Map<String, List<Type>>;
+    // Struct fields: name -> resolved type (insertion order preserved).
+    let fields: Map<String, Type>;
+    // The subset of `fields` declared `mut` (reassignable after construction).
+    let mut_fields: Set<String>;
+    // Enum variants, in declaration order.
+    let variants: List<EnumVariantElement>;
+    // Interface: the (transitively flattened) super-interfaces by resolved
+    // identity, and the method names declared directly on this interface
+    // (conformance needs only these).
+    let mut super_interfaces: List<TypeId>;
+    let own_methods: List<String>;
+    // Interface: the subset of methods that carry a default body, so an `impl`
+    // need not provide them (conformance skips these). Includes defaults
+    // inherited from super-interfaces after the pass-3 flatten.
+    let default_methods: List<String>;
+}
+
+// --- constructors for skeleton elements (resolver pass 1) ---
+
+pub fn new_struct(_ owner: String, _ name: String, _ type_params: List<String>,
+    name_span: SourceSpan = no_span()) -> TypeDefElement {
+    return empty_def(owner, name, TypeDefKind.Struct, type_params, name_span);
+}
+
+pub fn new_enum(_ owner: String, _ name: String, _ type_params: List<String>,
+    name_span: SourceSpan = no_span()) -> TypeDefElement {
+    return empty_def(owner, name, TypeDefKind.Enum, type_params, name_span);
+}
+
+pub fn new_interface(_ owner: String, _ name: String, _ type_params: List<String>,
+    name_span: SourceSpan = no_span()) -> TypeDefElement {
+    return empty_def(owner, name, TypeDefKind.Interface, type_params, name_span);
+}
+
+pub fn new_builtin(_ owner: String, _ name: String, _ type_params: List<String>,
+    name_span: SourceSpan = no_span()) -> TypeDefElement {
+    return empty_def(owner, name, TypeDefKind.Builtin, type_params, name_span);
+}
+
+fn empty_def(_ owner: String, _ name: String, _ kind: TypeDefKind, _ type_params: List<String>,
+    _ name_span: SourceSpan) -> TypeDefElement {
+    return TypeDefElement {
+        name: name,
+        name_span: name_span,
+        owner_file: owner,
+        kind: kind,
+        type_parameters: type_params,
+        type_parameter_bounds: [:],
+        methods: [],
+        interfaces: [],
+        interface_args: [:],
+        fields: [:],
+        mut_fields: Set.new(),
+        variants: [],
+        super_interfaces: [],
+        own_methods: [],
+        default_methods: [],
+    };
+}
+
+// Whether interface method `name` carries a default body (so an `impl` of the
+// interface may omit it).
+pub fn is_default_method(_ e: TypeDefElement, _ name: String) -> Bool {
+    return str_list_has(e.default_methods, name);
+}
+
+// Whether field `name` on `e` is declared `mut` (so it may be reassigned).
+pub fn field_is_mut(_ e: TypeDefElement, _ name: String) -> Bool {
+    return e.mut_fields.has(name);
+}
+
+// --- queries over an element ---
+
+// The method named `name` declared on `e`, or None.
+pub fn find_method(_ e: TypeDefElement, _ name: String) -> Option<FunctionElement> {
+    for m in e.methods {
+        if m.name == name {
+            return Option.Some(m);
+        }
+    }
+    return Option.None;
+}
+
+// The variant named `name` of an enum element, or None.
+pub fn find_variant(_ e: TypeDefElement, _ name: String) -> Option<EnumVariantElement> {
+    for v in e.variants {
+        if v.name == name {
+            return Option.Some(v);
+        }
+    }
+    return Option.None;
+}
+
+// Whether `e` declares it implements the interface `iface` — identity, not
+// name: a conformance to one library's `Shape` never satisfies another's.
+pub fn implements_interface(_ e: TypeDefElement, _ iface: TypeId) -> Bool {
+    return id_list_has(e.interfaces, iface);
+}
+
+// Whether `e` implements the *core* interface `name` (`Iterator`, `Display`, …)
+// — a conformance whose identity is the core registry entry, never a same-named
+// user interface.
+pub fn implements_core(_ lib: LibraryElement, _ e: TypeDefElement, _ name: String) -> Bool {
+    for i in e.interfaces {
+        if is_core_id(lib, i, name) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// --- the resolved library ---
+
+// The public surface a namespace exposes: its public names, plus any exposed by
+// more than one re-exported library (a barrel collision).
+pub struct LibraryNamespace {
+    let names: Set<String>;
+    let collisions: Set<String>;
+    // Public name -> the file (key) that declares it, so a qualified `ns.name`
+    // resolves to the owning library's element rather than the flat global table
+    // (Phase 2e). Populated by the loader; unused until S3.
+    let origin: Map<String, String>;
+}
+
+pub fn namespace_exposes(_ ns: LibraryNamespace, _ name: String) -> Bool {
+    return ns.names.has(name);
+}
+
+// The resolved element model for a program plus its imports.
+pub struct LibraryElement {
+    // Type definitions stay a flat by-name table: a resolved `Type.Interface(name)`
+    // (a namespace-qualified receiver type, a field's type) carries only the name,
+    // so type lookup is global by name (type-name uniqueness pending — see
+    // roadmap.md). Values resolve per-file (below).
+    let type_defs: Map<String, TypeDefElement>;
+    // Per-file free functions / type definitions / consts (file key -> name ->
+    // element). Value resolution is owner-correct through these — a bare or
+    // qualified value reaches its declaring file's element, not a flat global table
+    // — which is what lets two libraries share a top-level value name. The
+    // file_type_defs entries reference the same objects as the flat `type_defs` (so
+    // a cross-file `impl` mutates the one type element).
+    let file_functions: Map<String, Map<String, FunctionElement>>;
+    let file_type_defs: Map<String, Map<String, TypeDefElement>>;
+    let file_consts: Map<String, Map<String, ConstElement>>;
+    // Per-file import namespaces (file key -> namespace -> surface). A namespace
+    // resolves only in the file that imported it — there is no closure-wide union.
+    // (This replaced a closure-wide `modules` set of value-side namespace aliases.)
+    let file_namespaces: Map<String, Map<String, LibraryNamespace>>;
+    // Per-file bare-legal cross-file surface (prelude + `as _` imports) and the set
+    // of top-level names each file declares. Together these gate bare resolution:
+    // a bare name is legal only if it is same-file (`file_owned`), bare-legal from
+    // another library (`file_bare_surface`), a built-in, or in scope. The bare
+    // surface maps each legal name to its owning file (key), so bare resolution can
+    // reach the owning element (Phase 2e S4); `bare_surface_has` reads only the keys.
+    let file_bare_surface: Map<String, Map<String, String>>;
+    let file_owned: Map<String, Set<String>>;
+}
+
+// The namespaces visible in `file` — the import bindings of that file alone.
+pub fn namespaces_in(_ lib: LibraryElement, _ file: Option<String>) -> Map<String, LibraryNamespace> {
+    if let Some(m) = lib.file_namespaces.get(file_key(file)) { return m; }
+    // A file absent from the table (e.g. an in-process build with no closure) has
+    // no namespaces — an empty map. (`{}` here as a bare arm would be a block, so
+    // bind it with a type annotation to get a map literal.)
+    let none: Map<String, LibraryNamespace> = [:];
+    return none;
+}
+
+// Whether `name` resolves *bare* in `file` from another library — the prelude or
+// an `as _` import (not same-file; that is `file_owns`).
+pub fn bare_surface_has(_ lib: LibraryElement, _ file: Option<String>, _ name: String) -> Bool {
+    return match lib.file_bare_surface.get(file_key(file)) {
+        Some(s) => s.has(name),
+        None => false,
+    };
+}
+
+// Whether `file` declares a top-level `name` (so a bare reference resolves to its
+// own library's declaration).
+pub fn file_owns(_ lib: LibraryElement, _ file: Option<String>, _ name: String) -> Bool {
+    return match lib.file_owned.get(file_key(file)) {
+        Some(s) => s.has(name),
+        None => false,
+    };
+}
+
+// The owner file stamped on the hermetic built-in floor. When std.core is
+// linked, the real declarations (owned by their core files) shadow the floor
+// entries, so this sentinel only surfaces in hermetic contexts.
+pub const BUILTIN_OWNER: String = '<builtin>';
+
+// A `Map` key for an optional file path. A path-less (in-memory/anonymous)
+// program keys as `<anon>` — a real path can't carry angle brackets — so the
+// anonymous program's tables never collide with the unresolved-owner miss
+// sentinel `''` (EL11: `''` previously served both roles, and an unresolved
+// name could resolve into the anonymous program's real tables). When several
+// path-less programs enter one build, `build_library` stamps each a distinct
+// key (`<anon>` for the primary, `<anon:2>`… for imports) so they never alias
+// (LD8) — this bridge serves programs that haven't been through a build yet.
+pub fn file_key(_ file: Option<String>) -> String {
+    return file.unwrap_or('<anon>');
+}
+
+// The Option-file for a file key — the inverse of `file_key`.
+pub fn file_of_key(_ key: String) -> Option<String> {
+    return if key == '<anon>' { Option.None } else { Option.Some(key) };
+}
+
+// --- core-type identity ---
+
+// The owning file (key) of the *core* type `name`: the file the registry
+// attributes it to — std.core's declaration when the SDK is linked, the
+// `<builtin>` floor hermetically. The registry entry is authoritative because
+// the name is reserved (language.md "Reserved type names"): only the core SDK
+// may declare it, and the resolver keeps a reserved flat entry pinned to its
+// first (core) registration.
+pub fn core_owner(_ lib: LibraryElement, _ name: String) -> String {
+    return match lib.type_defs.get(name) {
+        Some(d) => d.owner_file,
+        None => BUILTIN_OWNER,
+    };
+}
+
+// Whether `id` is the core type `name` — the language's own type, to which
+// semantics (`?`/implicit-`Ok`, `for` iteration, index lowering, fixed runtime
+// type ids) attach. Identity, not spelling (audit X1): the owner must match,
+// so a same-named type from anywhere else never inherits builtin semantics.
+pub fn is_core_id(_ lib: LibraryElement, _ id: TypeId, _ name: String) -> Bool {
+    return id.name == name && id.owner == core_owner(lib, name);
+}
+
+// --- small helpers (List<String> has no `contains` yet — audit gap) ---
+
+pub fn str_list_has(_ xs: List<String>, _ s: String) -> Bool {
+    for x in xs {
+        if x == s {
+            return true;
+        }
+    }
+    return false;
+}

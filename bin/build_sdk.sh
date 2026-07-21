@@ -40,7 +40,7 @@ echo "==> [0/3] emitting frontend.hawkbc from the bootstrap snapshot"
 # A bare runtime (no embedded front-end) to run the snapshot on.
 ( cd "$ROOT/runtime" && cargo build $CARGO_PROFILE_FLAG )
 HAWKRT="$ROOT/runtime/target/$TARGET_SUBDIR/hawkrt"
-"$HAWKRT" "$SNAPSHOT" emit "$ROOT/pkgs/cli/main.hawk" "$FRONTEND_BC"
+"$HAWKRT" "$SNAPSHOT" emit "$ROOT/pkgs/cli/main.thera" "$FRONTEND_BC"
 
 echo "==> [1/3] building runtime with the front-end embedded ($PROFILE)"
 ( cd "$ROOT/runtime" && HAWK_FRONTEND_BC="$FRONTEND_BC" cargo build $CARGO_PROFILE_FLAG )
@@ -56,7 +56,7 @@ echo "    version $VERSION"
 
 echo "==> [3/3] fixpoint check (SDK re-emits its own front-end)"
 FRONTEND_BC2="$BUILD/frontend.fixpoint.hawkbc"
-time "$SDK/bin/hawk" emit "$ROOT/pkgs/cli/main.hawk" "$FRONTEND_BC2"
+time "$SDK/bin/hawk" emit "$ROOT/pkgs/cli/main.thera" "$FRONTEND_BC2"
 if cmp -s "$FRONTEND_BC" "$FRONTEND_BC2"; then
   echo "    ok: the SDK reproduces its own front-end byte-for-byte"
 else

@@ -1,0 +1,57 @@
+//! spec: fn-types
+//! mode: run
+
+// A named function referenced as a *value*, the other half of `fn-types` beside
+// the lambda (`fn_types.thera`). language.md §Functions: "Functions are first-class
+// values", and `(Int, String) -> Bool` is "the type of lambdas and function
+// references".
+//
+// A reference is a closure over the function's own unit with no captures, so it
+// behaves exactly like the equivalent lambda: passable, storable, returnable.
+// `fn_reference_reject.thera` pins the typing — a reference carries the function's
+// signature, so the wrong one is a check error rather than a runtime surprise.
+//
+// Every call below goes through a *bare identifier*, because a call target may
+// only be an identifier or a field today: `pick()(7)` and `fns[0](10)` are
+// "unsupported call target", equally so for a lambda (see roadmap.md → Language,
+// "Only an identifier or a field may be a call target"). Bind, then call.
+
+fn double(_ n: Int) -> Int {
+    return n * 2;
+}
+
+fn stringify_it(_ n: Int) -> String {
+    return 'n=' + n.display();
+}
+
+fn apply(_ f: (Int) -> Int, _ n: Int) -> Int {
+    return f(n);
+}
+
+// A reference is returnable, like any other function value.
+fn pick() -> (Int) -> String {
+    return stringify_it;
+}
+
+fn main() -> Void {
+    // Passed as an argument.
+    println(apply(double, 21).display()); // expect: 42
+
+    // Bound to a local, then called through it.
+    let f = double;
+    println(f(5).display()); // expect: 10
+
+    // Returned from a function, then called.
+    let chosen = pick();
+    println(chosen(7)); // expect: n=7
+
+    // Interchangeable with the equivalent lambda.
+    println(apply((n) => double(n), 4).display()); // expect: 8
+
+    // A reference and a lambda coexist in one list of function values.
+    let fns = [double, (n: Int) => n + 1];
+    let first = fns[0];
+    let second = fns[1];
+    println(first(10).display()); // expect: 20
+    println(second(10).display()); // expect: 11
+}

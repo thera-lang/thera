@@ -1,0 +1,4 @@
+// Support library for as_underscore_collision.thera: shares `shared_util` with
+// libshare_a.thera.
+pub fn shared_util() -> Int { return 2; }
+pub fn only_b() -> Int { return 20; }

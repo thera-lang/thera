@@ -1,0 +1,594 @@
+// Runtime invocation for the CLI: `hawk run` and `hawk test`.
+//
+// `run` compiles a program to a temporary `.hawkbc` and executes it on the Rust
+// runtime; `test` synthesizes a driver `main` that runs each `@test` function
+// and reports per-test results. Both locate the runtime binary at
+// `<sdk_root>/runtime/target/debug/hawkrt` (a dev checkout), mirroring the Dart
+// toolchain's RunCommand/TestCommand.
+//
+// The child runs with inherited stdio (`process.exec`), so its output streams
+// live to the terminal and it can read interactive input — matching the Dart
+// CLI; the run returns the child's exit code.
+
+import std.fs;
+import std.path;
+import std.process;
+import std.time;
+import std.env;
+
+import 'ast/ast';      // ast.Program, ast.FnDecl, Decl
+import 'lexer/lexer';  // tokenize
+import 'parser/parser'; // parse
+import 'session';      // the analysis session (check/compile + shared caches)
+
+// The per-file test tally a run produces. `failed_tests` comes from the
+// driver's machine trailer (see `test_driver`), not the exit code — the exit
+// code stays pass/fail only (LD11: a count there would collide with a trap's
+// exit 1 and wrap at u8, so 256 failures would read as a pass). `printed` says
+// whether the file wrote report lines to stdout (it drives the spacer before
+// the summary line).
+struct TestCounts {
+    let total: Int;
+    let failed_tests: Int;
+    let failed: Bool;
+    let printed: Bool;
+}
+
+// --- run ---
+
+// `hawk run <file> [args]` — compile `file`, then execute it on the runtime,
+// passing `program_args` through to the program's `main`. Returns the child's
+// exit code (or a non-zero code if compilation or spawning failed).
+pub fn run_file(_ file: String, _ program_args: List<String>, _ sdk_root: Option<String>) -> Result<Int, Error> {
+    match compile_or_report(file, sdk_root) {
+        None => {
+            return Result.Ok(1);
+        },
+        Some(bytes) => {
+            match find_runtime_binary(sdk_root) {
+                None => {
+                    eprintln(runtime_missing_message());
+                    return Result.Ok(1);
+                },
+                Some(runtime) => {
+                    match run_bytecode(runtime, bytes, Option.None, program_args) {
+                        Ok(code) => {
+                            return Result.Ok(code);
+                        },
+                        Err(e) => {
+                            eprintln('hawk run: ${e.message()}');
+                            return Result.Ok(1);
+                        },
+                    }
+                },
+            }
+        },
+    }
+}
+
+// --- test ---
+
+// `hawk test [file|dir]...` — discover `*_test.thera` files under each target,
+// run their `@test` functions, and report. The default output is quiet — only
+// failure blocks, then one summary line (proof of work; agents shouldn't pay
+// tokens for green tests). `verbose` (or `show_output`, which needs the
+// per-test lines to hang output on) restores the per-file/per-test report.
+// Returns 0 when every file passed, 1 otherwise.
+pub fn test_paths(_ targets: List<String>, _ sdk_root: Option<String>, show_output: Bool = false,
+    verbose: Bool = false) -> Result<Int, Error> {
+    match find_runtime_binary(sdk_root) {
+        None => {
+            eprintln(runtime_missing_message());
+            return Result.Ok(1);
+        },
+        Some(runtime) => {
+            let full = verbose || show_output;
+            let files = collect_test_files(targets);
+            if files.len() == 0 {
+                eprintln('hawk test: no *_test.thera files found.');
+                return Result.Ok(1);
+            }
+            // One analysis session for the run: the test files share most of
+            // their closure (the prelude, and the libraries under test), so the
+            // session's parse cache and checked-clean set make the run linear
+            // in the closure instead of per-file.
+            let sess = session.new_session(sdk_root);
+            let mut total_tests = 0;
+            let mut failed_tests = 0;
+            let mut compile_failures = 0;
+            let mut any_failed = false;
+            let mut printed = false;
+            for f in files {
+                match run_test_file(f, runtime, show_output, full, sess) {
+                    Some(counts) => {
+                        total_tests = total_tests + counts.total;
+                        failed_tests = failed_tests + counts.failed_tests;
+                        if counts.failed {
+                            any_failed = true;
+                        }
+                        if counts.printed {
+                            printed = true;
+                        }
+                    },
+                    None => {
+                        compile_failures = compile_failures + 1;
+                        any_failed = true;
+                    },
+                }
+            }
+            if printed {
+                println('');
+            }
+            let mut summary = 'Ran ${total_tests} ${plural(total_tests, 'test')} for '
+                + '${files.len()} test ${plural(files.len(), 'file')}; '
+                + '${failed_tests} ${plural(failed_tests, 'failure')}';
+            if compile_failures > 0 {
+                summary = '${summary}; ${compile_failures} ${plural(compile_failures, 'file')} failed to compile';
+            }
+            println('${summary}.');
+            return Result.Ok(if any_failed { 1 } else { 0 });
+        },
+    }
+}
+
+// Compile one test file with a synthesized driver and run it (output captured,
+// forwarded after the child exits — the runner strips the driver's machine
+// trailer, so it can't inherit stdio). Each test's stdout is captured and shown
+// only on failure (or always, when `show_output`). Returns the counts, or None
+// if the file failed to read/parse/compile (already reported).
+fn run_test_file(_ path_str: String, _ runtime: String, _ show_output: Bool,
+    _ verbose: Bool, _ sess: session.Session) -> Option<TestCounts> {
+    let source = match fs.read_text(path_str) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln('hawk test: cannot read ${path_str}: ${e}');
+            return Option.None;
+        },
+    };
+
+    // Parse once to discover the @test functions.
+    let lex = lexer.tokenize(source);
+    let parsed = parser.parse_tokens(lex.tokens);
+    if verbose {
+        println(path_str); // the per-file header is part of the full report (stdout)
+    }
+    if lex.errors.len() > 0 || parsed.errors.len() > 0 {
+        // Re-run the standard pipeline so the lex/parse errors print uniformly.
+        for d in sess.check(source, path_str) {
+            eprintln(session.format_diagnostic(d, path_str));
+        }
+        return Option.None;
+    }
+
+    let tests = test_names(parsed.program);
+    if tests.len() == 0 {
+        if verbose {
+            println('  (no @test functions)');
+        }
+        return Option.Some(TestCounts { total: 0, failed_tests: 0, failed: false, printed: verbose });
+    }
+
+    // Recompile the source plus a synthesized driver `main` that runs each test.
+    let combined = '${source}\n${test_driver(tests, show_output, verbose)}';
+    let outcome = sess.compile(combined, path_str);
+    if outcome.diagnostics.len() > 0 {
+        for d in outcome.diagnostics {
+            eprintln(session.format_diagnostic(d, path_str));
+        }
+        return Option.None;
+    }
+    let Some(bytes) = outcome.bytes else {
+        return Option.None;
+    };
+
+    // A unique entry name so the driver never collides with a tested module's
+    // own `main` (executables under test keep theirs; it's dead code here).
+    // The child's exit code is pass/fail only: 0 = every test passed,
+    // anything else = the file failed — whether from failing tests (the driver
+    // returns 1) or a runtime trap (the runtime exits 1, its message already
+    // on stderr). The failure count rides the driver's stdout trailer.
+    match run_bytecode_captured(runtime, bytes, Option.Some('__hawk_test_main')) {
+        Ok(res) => {
+            let out = split_trailer(res.stdout);
+            let mut printed = verbose;
+            for line in out.body {
+                println(line);
+                printed = true;
+            }
+            for line in res.stderr.lines() {
+                eprintln(line);
+            }
+            let failed = res.exit_code != 0;
+            // No trailer means the child died (a trap) before finishing: at
+            // least one test failed even though none was reported.
+            let counted = out.failed.unwrap_or(if failed { 1 } else { 0 });
+            let failed_tests = if failed && counted == 0 { 1 } else { counted };
+            return Option.Some(TestCounts {
+                total: tests.len(),
+                failed_tests: failed_tests,
+                failed: failed,
+                printed: printed,
+            });
+        },
+        Err(e) => {
+            eprintln('hawk test: cannot run ${path_str}: ${e.message()}');
+            return Option.None;
+        },
+    }
+}
+
+// The driver's stdout split into report lines and the machine trailer
+// (`__hawk_failed <n>`, the final line — see `test_driver`). `failed` is None
+// when no trailer arrived (the child trapped before printing it).
+struct DriverOutput {
+    let body: List<String>;
+    let failed: Option<Int>;
+}
+
+fn split_trailer(_ stdout: String) -> DriverOutput {
+    let body: List<String> = [];
+    let mut failed: Option<Int> = Option.None;
+    for line in stdout.lines() {
+        if line.starts_with('__hawk_failed ') {
+            let parts = line.split(' ');
+            if parts.len() == 2 { failed = parts[1].to_int(); }
+        } else {
+            body.push(line);
+        }
+    }
+    return DriverOutput { body: body, failed: failed };
+}
+
+// The names of the `@test`-decorated functions in `program`, in source order.
+fn test_names(_ program: ast.Program) -> List<String> {
+    let names: List<String> = [];
+    for decl in program.decls {
+        if let Fn(f) = decl {
+            if has_test_decorator(f) {
+                names.push(f.name);
+            }
+        }
+    }
+    return names;
+}
+
+fn has_test_decorator(_ f: ast.FnDecl) -> Bool {
+    for d in f.decorators {
+        if d.name == 'test' {
+            return true;
+        }
+    }
+    return false;
+}
+
+// The synthesized driver: a `main` that runs each `@test` function and reports.
+// Quiet (default) prints only a block per *failing* test — `<name>: failed`
+// with the error indented under it — so a green run prints nothing; `verbose`
+// prints the classic per-test `ok`/`FAIL` lines. Either way the driver's final
+// stdout line is the machine trailer `__hawk_failed <n>` (the per-test failure
+// count the runner folds into its summary — the exit code stays pass/fail
+// only), and the driver exits 0 when every test passed and 1 otherwise.
+//
+// Each test's stdout is buffered (via the `test_capture_*` runtime natives) and
+// shown only when the test fails — unless `show_output` is set, which reveals a
+// passing test's output too (and forces verbose, since quiet mode has no
+// passing-test line to hang it on). The capture natives are declared here, not
+// in the stdlib: they're a runner-internal concern, and `native fn` is usable
+// in any module.
+fn test_driver(_ tests: List<String>, _ show_output: Bool, _ verbose: Bool) -> String {
+    let show = if show_output { 'true' } else { 'false' };
+    // Quiet failure blocks indent by two; the verbose report's column is ten.
+    let indent = if verbose { '          ' } else { '  ' };
+    let mut s = '';
+    // Runtime hooks: begin buffering stdout / stop and return what was buffered.
+    s = '${s}@extern(\'test_capture_begin\')\n';
+    s = '${s}native fn __hawk_capture_begin() -> Void\n';
+    s = '${s}@extern(\'test_capture_end\')\n';
+    s = '${s}native fn __hawk_capture_end() -> String\n';
+    // Print `text` with every line indented under the report column — so a
+    // multi-line assertion message (or captured output) stays aligned, not just
+    // its first line.
+    s = '${s}fn __hawk_indent(_ text: String) -> Void {\n';
+    s = '${s}    for __hawk_line in text.lines() {\n';
+    s = '${s}        println(\'${indent}\' + __hawk_line);\n';
+    s = '${s}    }\n';
+    s = '${s}}\n';
+    // Print a test's captured output under an `--- output ---` header.
+    s = '${s}fn __hawk_show(_ captured: String) -> Void {\n';
+    s = '${s}    if captured == \'\' { return; }\n';
+    s = '${s}    println(\'${indent}--- output ---\');\n';
+    s = '${s}    __hawk_indent(captured);\n';
+    s = '${s}}\n';
+    // Report one test's outcome; return 1 on failure, 0 on success. `e` is
+    // typed as the `Error` interface (not itself `Display`); render it through
+    // its `message()`. A failing test always shows its captured output.
+    s = '${s}fn __hawk_report(_ name: String, _ r: Result<Void, Error>, _ captured: String, _ show: Bool) -> Int {\n';
+    s = '${s}    return match r {\n';
+    s = '${s}        Ok(_) => {\n';
+    if verbose {
+        s = '${s}            println(\'  ok    \' + name);\n';
+        s = '${s}            if show { __hawk_show(captured); }\n';
+    }
+    s = '${s}            0\n';
+    s = '${s}        },\n';
+    s = '${s}        Err(e) => {\n';
+    if verbose {
+        s = '${s}            println(\'  FAIL  \' + name);\n';
+    } else {
+        s = '${s}            println(name + \': failed\');\n';
+    }
+    s = '${s}            __hawk_indent(e.message());\n';
+    s = '${s}            __hawk_show(captured);\n';
+    s = '${s}            1\n';
+    s = '${s}        },\n';
+    s = '${s}    };\n';
+    s = '${s}}\n';
+    s = '${s}fn __hawk_test_main() -> Int {\n';
+    s = '${s}    let mut __hawk_failures = 0;\n';
+    for t in tests {
+        // Capture brackets only the test call; the report itself stays live.
+        s = '${s}    __hawk_capture_begin();\n';
+        s = '${s}    let __hawk_r_${t} = ${t}();\n';
+        s = '${s}    let __hawk_out_${t} = __hawk_capture_end();\n';
+        s = '${s}    __hawk_failures = __hawk_failures + __hawk_report(\'${t}\', __hawk_r_${t}, __hawk_out_${t}, ${show});\n';
+    }
+    s = '${s}    println(\'__hawk_failed \${__hawk_failures}\');\n';
+    s = '${s}    return if __hawk_failures > 0 { 1 } else { 0 };\n';
+    s = '${s}}\n';
+    return s;
+}
+
+// --- shared runtime invocation ---
+
+// Write `bytes` to a temporary `.hawkbc` and run it on the `runtime`, passing
+// `program_args` to the program. `entry` selects a non-default entry function
+// (`--entry NAME`); None runs `main`. The child inherits this process's
+// stdin/stdout/stderr (output streams live), and we return its exit code. The
+// temp dir is removed afterwards.
+fn run_bytecode(_ runtime: String, _ bytes: Bytes, _ entry: Option<String>, _ program_args: List<String>) -> Result<Int, Error> {
+    let dir = temp_dir_unique('hawk')?;
+    let out = path.join(dir, 'out.hawkbc');
+    if let Err(e) = fs.write_bytes(out, bytes) {
+        cleanup_dir(dir);
+        return Result.Err(e);
+    }
+    // The runtime runs a `.hawkbc` directly: `[--entry NAME] <file> [args]`.
+    let args: List<String> = [];
+    if let Some(name) = entry {
+        args.push('--entry');
+        args.push(name);
+    }
+    args.push(out);
+    for a in program_args {
+        args.push(a);
+    }
+    let result = process.exec(runtime, args: args);
+    cleanup_dir(dir);
+    return match result {
+        Ok(code) => Result.Ok(code),
+        Err(e) => Result.Err(e),
+    };
+}
+
+// As `run_bytecode`, but with the child's stdout/stderr *captured* (via
+// `process.run`) rather than inherited — the test path needs the stdout to
+// strip the driver's machine trailer before forwarding. Test children don't
+// read interactive input, so losing the shared console costs nothing.
+fn run_bytecode_captured(_ runtime: String, _ bytes: Bytes, _ entry: Option<String>)
+    -> Result<process.ProcessResult, Error> {
+    let dir = temp_dir_unique('hawk')?;
+    let out = path.join(dir, 'out.hawkbc');
+    if let Err(e) = fs.write_bytes(out, bytes) {
+        cleanup_dir(dir);
+        return Result.Err(e);
+    }
+    let args: List<String> = [];
+    if let Some(name) = entry {
+        args.push('--entry');
+        args.push(name);
+    }
+    args.push(out);
+    let result = process.run(runtime, args: args);
+    cleanup_dir(dir);
+    return match result {
+        Ok(res) => Result.Ok(res),
+        Err(e) => Result.Err(error(e.message())),
+    };
+}
+
+// The bare-runtime binary that executes a compiled `.hawkbc`. In the in-repo
+// checkout that's `<root>/runtime/target/debug/hawkrt`; in a distributed SDK the
+// launcher (`bin/hawk`) *is* the runtime, so we hand back our own executable —
+// invoked on a `.hawkbc` it runs it directly. None if neither resolves.
+pub fn find_runtime_binary(_ sdk_root: Option<String>) -> Option<String> {
+    // The runtime already executing us runs a `.hawkbc` path directly (see the
+    // runtime CLI), so it is the right binary to run compiled tests on — and it
+    // matches our own build profile, whether the dev front-end (release/debug via
+    // bin/hawk.sh) or the distributed SDK binary. No hardcoded profile.
+    if let Some(exe) = env.current_exe() {
+        return Option.Some(exe);
+    }
+    // Fallback when the current executable is unavailable: the repo's built
+    // runtime (prefer release, then debug).
+    if let Some(root) = sdk_root {
+        let target = path.join(path.join(root, 'runtime'), 'target');
+        let release = path.join(path.join(target, 'release'), 'hawkrt');
+        if fs.exists(release) {
+            return Option.Some(release);
+        }
+        let debug = path.join(path.join(target, 'debug'), 'hawkrt');
+        if fs.exists(debug) {
+            return Option.Some(debug);
+        }
+    }
+    return Option.None;
+}
+
+fn runtime_missing_message() -> String {
+    return 'hawk: the Rust runtime was not found. Build it first: run `cargo build --release` in the runtime/ directory.';
+}
+
+// --- compile helper ---
+
+// Compile `file` to bytecode bytes, printing any read error or diagnostics.
+// Returns None on any failure (the caller then reports a non-zero exit).
+fn compile_or_report(_ file: String, _ sdk_root: Option<String>) -> Option<Bytes> {
+    let source = match fs.read_text(file) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln('hawk: cannot read ${file}: ${e}');
+            return Option.None;
+        },
+    };
+    let outcome = session.new_session(sdk_root).compile(source, file);
+    for d in outcome.diagnostics {
+        eprintln(session.format_diagnostic(d, file));
+    }
+    return outcome.bytes;
+}
+
+// --- test-file discovery ---
+
+// Collect `*_test.thera` paths from `targets` — files used directly, directories
+// searched recursively — sorted and de-duplicated for stable output.
+fn collect_test_files(_ targets: List<String>) -> List<String> {
+    let found: List<String> = [];
+    for target in targets {
+        match fs.metadata(target) {
+            Ok(meta) => {
+                match meta.kind {
+                    Dir => {
+                        // hawk→thera transition: both extensions (docs/rename.md).
+                        collect_from_dir(target, ['_test.thera', '_test.hawk'], found);
+                    },
+                    _ => {
+                        found.push(target);
+                    },
+                }
+            },
+            Err(_) => {
+                eprintln('hawk test: not found: ${target}');
+            },
+        }
+    }
+    return sort_dedup(found);
+}
+
+// Recursively append directory entries whose basename ends in one of `suffixes`
+// to `found` (descending into subdirectories). Shared by `test` (`_test.thera`)
+// and `check` (`.thera`).
+// `fs.read_dir` reports each entry's kind from the directory read itself, so a
+// walk costs no `metadata` call per entry (which, over a tree with a build
+// directory in it, is the whole cost of the walk). A symlink needs the call to
+// learn what it points at; nothing else does.
+pub fn collect_from_dir(_ dir: String, _ suffixes: List<String>, _ found: List<String>) -> Void {
+    if let Ok(entries) = fs.read_dir(dir) {
+        for e in entries {
+            let full = path.join(dir, e.name);
+            let kind = match e.kind {
+                Symlink => match fs.metadata(full) {
+                    Ok(md) => md.kind,
+                    Err(_) => fs.FileKind.Other,
+                },
+                _ => e.kind,
+            };
+            match kind {
+                Dir => {
+                    collect_from_dir(full, suffixes, found);
+                },
+                _ => {
+                    for suffix in suffixes {
+                        if e.name.ends_with(suffix) {
+                            found.push(full);
+                            break;
+                        }
+                    }
+                },
+            }
+        }
+    }
+}
+
+// Selection-sort the paths (no `List.sort` yet), then drop adjacent duplicates.
+pub fn sort_dedup(_ items: List<String>) -> List<String> {
+    let n = items.len();
+    let mut i = 0;
+    while i < n {
+        let mut lo = i;
+        let mut j = i + 1;
+        while j < n {
+            if str_less(items[j], items[lo]) {
+                lo = j;
+            }
+            j = j + 1;
+        }
+        if lo != i {
+            let tmp = items[i];
+            items[i] = items[lo];
+            items[lo] = tmp;
+        }
+        i = i + 1;
+    }
+    let out: List<String> = [];
+    let mut k = 0;
+    while k < n {
+        if k == 0 || items[k] != items[k - 1] {
+            out.push(items[k]);
+        }
+        k = k + 1;
+    }
+    return out;
+}
+
+// Lexicographic `a < b` by Unicode code point (String has no `<` yet).
+fn str_less(_ a: String, _ b: String) -> Bool {
+    let ca = a.chars();
+    let cb = b.chars();
+    let na = ca.len();
+    let nb = cb.len();
+    let mut i = 0;
+    while i < na && i < nb {
+        if ca[i] != cb[i] {
+            return ca[i] < cb[i];
+        }
+        i = i + 1;
+    }
+    return na < nb;
+}
+
+// --- temp-dir helpers ---
+
+// A fresh, private temp directory. `create_dir` (not `_all`) is the
+// atomicity: it fails when the path already exists, so two runs can never
+// share a directory — a bare millisecond stamp raced (LD10: same-millisecond
+// runs shared, clobbered, and deleted under each other), and its errors were
+// swallowed. Same-stamp candidates differ by the attempt counter; a run that
+// can't create any candidate reports the failure instead of limping on.
+fn temp_dir_unique(_ prefix: String) -> Result<String, Error> {
+    let base = fs.temp_dir();
+    let stamp = time.now_millis();
+    let mut attempt = 0;
+    while attempt < 100 {
+        let dir = path.join(base, '${prefix}_${stamp}_${attempt}');
+        if let Ok(_) = fs.create_dir(dir) {
+            return Result.Ok(dir);
+        }
+        attempt = attempt + 1;
+    }
+    return Result.Err(error('cannot create a temp directory under ${base}'));
+}
+
+fn cleanup_dir(_ dir: String) -> Void {
+    match fs.remove_dir_all(dir) {
+        Ok(_) => void,
+        Err(_) => void,
+    }
+}
+
+// `word` or its plural (`word` + 's'), matching `n` — for summary lines.
+pub fn plural(_ n: Int, _ word: String) -> String {
+    if n == 1 {
+        return word;
+    }
+    return '${word}s';
+}

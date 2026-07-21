@@ -1,0 +1,13 @@
+//! spec: vis-barrel
+//! mode: run
+
+import std.cli;
+
+// std.cli is a directory library fronted by a barrel that re-exports args.thera,
+// so `cli.Args` (defined in args.thera) is reachable as part of std.cli's API.
+fn main() -> Int {
+    let args = cli.Args.new(['hello', 'world']);
+    let first = args.positional(0).unwrap_or('none');
+    println(first);   // expect: hello
+    return 0;
+}

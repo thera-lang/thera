@@ -1,0 +1,64 @@
+// LSP find references — semantic. An occurrence counts only if it *resolves to
+// the same declaration* as the cursor's symbol (`SymbolId` identity), not merely
+// the same text — so a local `x`, a field `x`, and another library's `x` are no
+// longer conflated (the flaw that kept the lexical version unregistered).
+//
+// The orchestration — which documents to scan, each in its own owner-correct
+// resolution context — lives in analysis.thera (`references_at`); this module
+// collects the matches within one already-resolved document.
+
+import std.json;
+
+import '../lexer/token' as _;
+import 'positions';
+import 'resolve';
+import 'paths';
+
+// The spans of every reference to `target` in one resolved document — each
+// identifier with the target's name resolved at its own offset and kept only
+// when it names the *same declaration* (SymbolId identity). When `include_decl`
+// is false, the declaration's own name occurrence is dropped. Shared by
+// find-references and rename (which rewrites exactly these spans).
+pub fn matching_spans(_ ctx: resolve.ResolveCtx, _ text: String, _ doc_path: String,
+    _ target: resolve.SymbolId, _ include_decl: Bool) -> List<SourceSpan> {
+    let spans: List<SourceSpan> = [];
+    // One tokenization for the whole scan of this document — `resolve_at` below
+    // reads the same `ctx.tokens`, so a rename over N candidates lexes the file
+    // once, not once per candidate (LS-D1).
+    for tok in resolve.primary_tokens(ctx, text) {
+        if tok.kind == TokenKind.Identifier && tok.lexeme() == target.name() {
+            if let Some(r) = resolve.resolve_at(ctx, text, tok.span.offset) { if let Some(s) = r.symbol() {
+                if s.same(target) && (include_decl || !is_declaration(tok, doc_path, target)) {
+                    spans.push(tok.span);
+                }
+            } }
+        }
+    }
+    return spans;
+}
+
+// Collect references to `target` in one document (`text`, open at `uri`, resolved
+// through `ctx`) into `out` as LSP `Location`s (LSP `context.includeDeclaration`
+// via `include_decl`).
+pub fn collect_in(_ ctx: resolve.ResolveCtx, _ text: String, _ uri: String,
+    _ target: resolve.SymbolId, _ include_decl: Bool, _ out: List<json.Json>) -> Void {
+    for span in matching_spans(ctx, text, paths.uri_to_path(uri), target, include_decl) {
+        out.push(location(uri, span));
+    }
+}
+
+// Whether this occurrence is the target's own declaration name — the token that
+// sits exactly at the declaration's name span in its owning file.
+fn is_declaration(_ tok: Token, _ doc_path: String, _ target: resolve.SymbolId) -> Bool {
+    return match target.name_span() {
+        Some(ns) => doc_path == target.file() && tok.span.offset == ns.offset,
+        None => false,
+    };
+}
+
+fn location(_ uri: String, _ span: SourceSpan) -> json.Json {
+    return json.obj([
+        'uri': json.str(uri),
+        'range': positions.span_to_range(span),
+    ]);
+}

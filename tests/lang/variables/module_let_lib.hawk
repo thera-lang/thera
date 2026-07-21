@@ -1,5 +1,0 @@
-// Support library for module_let_import.hawk (no `//!` block, so the harness
-// treats it as a support file, not a test). Exposes module-level globals computed
-// at load — including one derived from another within this same module.
-pub let LIB_BASE: Int = 100;
-pub let LIB_DERIVED: Int = LIB_BASE + 1;

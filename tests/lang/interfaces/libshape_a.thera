@@ -1,0 +1,33 @@
+// Support library: `pub interface Shape` — a name also declared (with a
+// *different* method set and a different `describe` default) by libshape_b.
+// Interface identity is the resolved owner + name, so conformances, required
+// methods, bounds, and default-method units all bind to *this* Shape for code
+// that reaches it (see shared_interface_name.thera).
+
+pub interface Shape {
+    fn area(self) -> Int;
+    fn describe(self) -> String {
+        return 'A:${self.area()}';
+    }
+}
+
+pub struct CircleA {
+    let r: Int;
+}
+
+impl Shape for CircleA {
+    pub fn area(self) -> Int {
+        return 3 * self.r * self.r;
+    }
+}
+
+// An interface-typed param: admits exactly the conformers to *this* Shape.
+pub fn a_area(_ s: Shape) -> Int {
+    return s.area();
+}
+
+// A bound on *this* Shape: satisfied only by its own conformers (see
+// bound_identity.thera).
+pub fn a_bounded<T: Shape>(_ x: T) -> Int {
+    return x.area();
+}

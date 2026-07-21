@@ -1,0 +1,29 @@
+// LSP hover — a thin renderer over the shared cursor resolver (`resolve.thera`):
+// resolve the name/`self` under the cursor to a target, then present its
+// signature/type as a Markdown code block. All resolution (self / self.member /
+// parameters / Enum.Variant / top-level decls) lives in `resolve`.
+
+import std.json as _;
+
+import '../lexer/token' as _;  // SourceSpan
+import 'resolve';         // resolve_at
+import 'positions';     // span_to_range
+
+// The `Hover` (as JSON) for `offset` in `text`: the resolved signature/type, or
+// JSON null when nothing resolves.
+pub fn handle_hover(_ ctx: resolve.ResolveCtx, _ text: String, _ offset: Int) -> Json {
+    return match resolve.resolve_at(ctx, text, offset) {
+        Some(r) => hover_result(r.render, r.ref_span),
+        None => json.null(),
+    };
+}
+
+fn hover_result(_ code: String, _ span: SourceSpan) -> Json {
+    return json.obj([
+        'contents': json.obj([
+            'kind': json.str('markdown'),
+            'value': json.str('```hawk\n${code}\n```'),
+        ]),
+        'range': positions.span_to_range(span),
+    ]);
+}

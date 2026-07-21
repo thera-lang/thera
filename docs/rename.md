@@ -30,7 +30,7 @@ independent.
   `check`/`test`/`fmt`/`lint` directory scans, LSP workspace scan + file
   watchers, conformance harness. Refresh `bootstrap/frontend.hawkbc`.
   Transitional sites are marked `hawk→thera transition` for the stage-3 sweep.
-- [ ] **2. Rename sources.** `git mv` all `*.hawk` → `*.thera`; update the
+- [x] **2. Rename sources.** `git mv` all `*.hawk` → `*.thera`; update the
   `*.hawk` find patterns and `main.hawk` paths in `bin/*.sh`; refresh the
   snapshot (embedded source paths change).
 - [ ] **3. Drop `.hawk`; bytecode rename.** Remove the `.hawk` fallbacks

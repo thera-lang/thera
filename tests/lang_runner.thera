@@ -1,0 +1,559 @@
+// Spec-conformance language-test harness.
+//
+// Each `.thera` file under the test root is a conformance test: a real program
+// whose expectations live in comments, so the test and its oracle are one
+// artifact (and the file still runs by hand). The harness reads the `//!` header
+// directives and inline `// expect…` comments, invokes the `hawk` CLI (`check`
+// or `run`), and compares. See tests/lang/README.md and docs/conformance.md.
+//
+// Directives (file header):
+//   //! spec: language.md#anchor      the spec section this test pins
+//   //! mode: run | check             run+match stdout, or type-check+match diagnostics
+//   //! xfail: <reason>               the test is *expected to fail* (spec ahead of impl)
+//
+// Inline expectations (anchored to the line they appear on):
+//   // expect: <text>                 (run)   one ordered stdout line
+//   // expect error: <substring>      (check) a diagnostic on this line, message contains <substring>
+//   // expect warning: <substring>    (check) a `warning:`-tagged diagnostic on this line
+//   // expect trap: <substring>       (run)   the program traps; stderr contains <substring>
+//
+// xfail turns the spec-vs-implementation gap into a signal: an xfail test that
+// fails is XFAIL (green); one that unexpectedly passes is XPASS (red) — the cue
+// to delete the marker because the feature landed.
+//
+// Usage (from the repo root):
+//   hawk run tests/lang_runner.thera <hawk-cmd> <test-root>
+// where <hawk-cmd> is the launcher under test (bin/hawk.sh in dev).
+
+import std.fs;
+import std.path;
+import std.process;
+
+// One test's parsed directives and expectations.
+struct Test {
+    let path: String;
+    let mode: String;                 // 'run' | 'check'
+    let spec: String;                 // spec anchor, or '' when absent
+    let xfail: Option<String>;        // Some(reason) when expected to fail
+    let stdout: List<String>;         // ordered expected stdout lines (run mode)
+    let errors: List<ExpectError>;    // expected diagnostics (check mode)
+    let traps: List<String>;          // expected trap substrings (run mode)
+    let exit_code: Option<Int>;       // expected process exit code (run mode)
+    let stderr: List<String>;         // expected stderr substrings (run mode)
+    let is_test: Bool;                // false for a support file (no `//!` directives)
+}
+
+struct ExpectError {
+    let line: Int;
+    let needle: String;
+}
+
+// The result of comparing one test's run against its expectations.
+enum Verdict {
+    Pass,
+    Fail(String),     // reason
+}
+
+fn main(parameters: List<String>) -> Result<Int, Error> {
+    if parameters.len() < 2 {
+        eprintln('usage: hawk run tests/lang_runner.thera <hawk-cmd> <test-root>');
+        return Result.Ok(2);
+    }
+    let hawk = parameters[0];
+    let root = parameters[1];
+
+    let files: List<String> = [];
+    collect_hawk_files(root, files);
+
+    let mut passed = 0;
+    let mut failed = 0;
+    let mut xfail = 0;
+    let mut xpass = 0;
+    let specs: List<String> = [];   // every `//! spec:` ID cited by a test
+
+    for file in sort_strings(files) {
+        let test = parse_test(file)?;
+        // A file with no `//!` directive is a support file (e.g. a library a
+        // multi-file import test imports) — not itself a test.
+        if test.is_test {
+            if test.spec != '' {
+                specs.push(test.spec);
+            }
+            let verdict = run_test(hawk, test);
+            let expected_fail = match test.xfail {
+                Some(_) => true,
+                None => false,
+            };
+            match verdict {
+                Pass => {
+                    if expected_fail {
+                        xpass = xpass + 1;
+                        println('XPASS ${file}');
+                        println('  marked xfail but passed — remove the `//! xfail:` marker');
+                    } else {
+                        passed = passed + 1;
+                    }
+                },
+                Fail(reason) => {
+                    if expected_fail {
+                        xfail = xfail + 1;
+                    } else {
+                        failed = failed + 1;
+                        println('FAIL  ${file}');
+                        for line in reason.lines() {
+                            println('  ${line}');
+                        }
+                    }
+                },
+            }
+        }
+    }
+
+    let total = passed + xfail + failed + xpass;
+    println('');
+    println('${passed} passed, ${xfail} xfail, ${failed} failed, ${xpass} xpass (${total} tests)');
+
+    // Optional 3rd arg: the conformance coverage map. When given, diff the spec
+    // IDs cited by tests against the IDs registered there.
+    let mut coverage_problem = false;
+    if parameters.len() >= 3 {
+        coverage_problem = report_coverage(parameters[2], specs);
+    }
+
+    if failed > 0 || xpass > 0 || coverage_problem {
+        return Result.Ok(1);
+    }
+    return Result.Ok(0);
+}
+
+// --- parsing ---
+
+fn parse_test(_ path: String) -> Result<Test, Error> {
+    let source = fs.read_text(path)?;
+    let mut mode = '';
+    let mut spec = '';
+    let mut xfail: Option<String> = Option.None;
+    let stdout: List<String> = [];
+    let errors: List<ExpectError> = [];
+    let traps: List<String> = [];
+    let mut exit_code: Option<Int> = Option.None;
+    let stderr: List<String> = [];
+    let mut is_test = false;
+
+    let lines = source.lines();
+    let mut i = 0;
+    while i < lines.len() {
+        let raw = lines[i];
+        let line_no = i + 1;
+        let trimmed = raw.trim();
+        if trimmed.starts_with('//!') {
+            is_test = true;
+            let body = trimmed.slice(3, trimmed.len()).trim();
+            if let Some(kv) = split_once(body, ':') {
+                let key = kv.before.trim();
+                let value = kv.after.trim();
+                if key == 'mode' { mode = value; }
+                else if key == 'spec' { spec = value; }
+                else if key == 'xfail' { xfail = Option.Some(value); }
+            }
+        } else {
+            match after_marker(raw, '// expect error:') {
+                Some(needle) => { errors.push(ExpectError { line: line_no, needle: needle }); },
+                None => {
+                    // A warning expectation prefixes the needle with the
+                    // rendered `warning:` tag, so a fixture can't accidentally
+                    // pass on a same-text *error*.
+                    match after_marker(raw, '// expect warning:') {
+                        Some(needle) => { errors.push(ExpectError { line: line_no, needle: 'warning: ${needle}' }); },
+                        None => {
+                            match after_marker(raw, '// expect trap:') {
+                                Some(needle) => { traps.push(needle); },
+                                None => {
+                                    match after_marker(raw, '// expect exit:') {
+                                        Some(code) => {
+                                            if let Some(c) = code.to_int() { exit_code = Option.Some(c); }
+                                        },
+                                        None => {
+                                            match after_marker(raw, '// expect stderr:') {
+                                                Some(needle) => { stderr.push(needle); },
+                                                None => {
+                                                    if let Some(text) = after_marker(raw, '// expect:') { stdout.push(text); }
+                                                },
+                                            }
+                                        },
+                                    }
+                                },
+                            }
+                        },
+                    }
+                },
+            }
+        }
+        i = i + 1;
+    }
+
+    // Default mode: a test with diagnostic expectations is a `check`; otherwise
+    // it is `run`. An explicit `//! mode:` always wins.
+    if mode == '' {
+        if errors.len() > 0 { mode = 'check'; } else { mode = 'run'; }
+    }
+
+    return Result.Ok(Test {
+        path: path, mode: mode, spec: spec, xfail: xfail,
+        stdout: stdout, errors: errors, traps: traps,
+        exit_code: exit_code, stderr: stderr, is_test: is_test,
+    });
+}
+
+// --- execution & comparison ---
+
+fn run_test(_ hawk: String, _ test: Test) -> Verdict {
+    if test.mode == 'check' {
+        return run_check(hawk, test);
+    }
+    return run_run(hawk, test);
+}
+
+// `check` mode: type-check the file and match the emitted diagnostics against the
+// `// expect error:` lines — every expectation matched, and no surprise errors.
+fn run_check(_ hawk: String, _ test: Test) -> Verdict {
+    let result = match process.run(hawk, args: ['check', test.path]) {
+        Ok(r) => r,
+        Err(e) => { return Verdict.Fail('could not run check: ${e.message()}'); },
+    };
+    let diags = parse_diagnostics(result.stdout, test.path);
+
+    // Every expected error must match some diagnostic on its line.
+    let matched: List<Bool> = [];
+    for d in diags { matched.push(false); }
+    for want in test.errors {
+        let mut found = false;
+        let mut k = 0;
+        while k < diags.len() {
+            let d = diags[k];
+            if !matched[k] && d.line == want.line && d.message.contains(want.needle) {
+                matched[k] = true;
+                found = true;
+                k = diags.len();
+            } else {
+                k = k + 1;
+            }
+        }
+        if !found {
+            return Verdict.Fail('expected error on line ${want.line} containing:\n  "${want.needle}"\nbut no matching diagnostic was emitted.\n${render_diags(diags)}');
+        }
+    }
+
+    // No diagnostic may go unexpected.
+    let mut j = 0;
+    while j < diags.len() {
+        if !matched[j] {
+            let d = diags[j];
+            return Verdict.Fail('unexpected diagnostic on line ${d.line}:\n  ${d.message}');
+        }
+        j = j + 1;
+    }
+    return Verdict.Pass;
+}
+
+// `run` mode: execute the program and match its observable behavior — `// expect
+// trap:` (non-zero exit + stderr), `// expect exit:` (exact code), `// expect
+// stderr:` (substrings), and the ordered `// expect:` stdout lines. The
+// exit/stderr/stdout checks compose, so a test can assert all three at once.
+fn run_run(_ hawk: String, _ test: Test) -> Verdict {
+    let result = match process.run(hawk, args: ['run', test.path]) {
+        Ok(r) => r,
+        Err(e) => { return Verdict.Fail('could not run program: ${e.message()}'); },
+    };
+
+    if test.traps.len() > 0 {
+        if result.exit_code == 0 {
+            return Verdict.Fail('expected a trap but the program exited 0');
+        }
+        for needle in test.traps {
+            if !result.stderr.contains(needle) {
+                return Verdict.Fail('expected trap output containing:\n  "${needle}"\nbut stderr was:\n${result.stderr}');
+            }
+        }
+        return Verdict.Pass;
+    }
+
+    // `// expect exit: <n>` — exact process exit code.
+    if let Some(code) = test.exit_code {
+        if result.exit_code != code {
+            return Verdict.Fail('exit code: expected ${code}, got ${result.exit_code}\nstderr:\n${result.stderr}');
+        }
+    }
+    // `// expect stderr: <substr>` — each substring must appear on stderr.
+    for needle in test.stderr {
+        if !result.stderr.contains(needle) {
+            return Verdict.Fail('expected stderr containing:\n  "${needle}"\nbut stderr was:\n${result.stderr}');
+        }
+    }
+
+    let got = nonempty_lines(result.stdout);
+    if got.len() != test.stdout.len() {
+        return Verdict.Fail('stdout line count: expected ${test.stdout.len()}, got ${got.len()}\n${render_lines(test.stdout, got)}');
+    }
+    let mut i = 0;
+    while i < got.len() {
+        if got[i] != test.stdout[i] {
+            return Verdict.Fail('stdout line ${i + 1}: expected "${test.stdout[i]}", got "${got[i]}"');
+        }
+        i = i + 1;
+    }
+    return Verdict.Pass;
+}
+
+// A parsed `path:line:col: message` diagnostic line.
+struct Diagnostic {
+    let line: Int;
+    let message: String;
+}
+
+// Parse the CLI's diagnostic lines from `check` stdout. A diagnostic starts with
+// the file path we asked about (`path:line:col: message`); other stdout content
+// (build noise lands on stderr) is ignored.
+fn parse_diagnostics(_ stdout: String, _ path: String) -> List<Diagnostic> {
+    let out: List<Diagnostic> = [];
+    for raw in stdout.lines() {
+        if !raw.starts_with('${path}:') {
+            continue_skip();
+        } else {
+            // Split off the message at the first ': ' (colon-space), which the
+            // formatter always places after `:col`. The left part is
+            // `path:line:col`; its second-from-left ':'-field is the line.
+            if let Some(parts) = split_once(raw, ': ') {
+                let locus = parts.before.split(':');
+                if locus.len() >= 2 {
+                    if let Some(n) = locus[1].to_int() { out.push(Diagnostic { line: n, message: parts.after }); }
+                }
+            }
+        }
+    }
+    return out;
+}
+
+// `continue` is not yet in the language; this no-op keeps the skip branch honest.
+fn continue_skip() -> Void {}
+
+// --- coverage report ---
+
+// Diff the spec IDs cited by tests (`specs`) against the IDs registered in the
+// conformance coverage map at `map_path`. Prints a coverage line, the untested
+// registered IDs (informational), and any IDs a test cites that are NOT
+// registered (a typo or a missing map entry). Returns true on the latter — an
+// unregistered citation is an error that should fail the suite.
+fn report_coverage(_ map_path: String, _ specs: List<String>) -> Bool {
+    let source = match fs.read_text(map_path) {
+        Ok(s) => s,
+        Err(_) => {
+            println('');
+            println('coverage: could not read ${map_path}');
+            return false;
+        },
+    };
+    let registered_ids = extract_registered_ids(source);
+    let registered = Set.from(registered_ids);
+    let tested = Set.from(specs);
+
+    let mut covered = 0;
+    let untested: List<String> = [];
+    for id in registered_ids {
+        if tested.has(id) {
+            covered = covered + 1;
+        } else {
+            untested.push(id);
+        }
+    }
+    let unregistered: List<String> = [];
+    for id in tested.to_list() {
+        if !registered.has(id) {
+            unregistered.push(id);
+        }
+    }
+
+    println('');
+    println('coverage: ${covered}/${registered_ids.len()} spec IDs have a test');
+    if untested.len() > 0 {
+        println('  untested (${untested.len()}): ${sort_strings(untested).join(', ')}');
+    }
+    if unregistered.len() > 0 {
+        println('  ERROR: ${unregistered.len()} spec ID(s) cited by a test but not registered in the coverage map:');
+        for id in sort_strings(unregistered) {
+            println('    ${id}');
+        }
+        return true;
+    }
+    return false;
+}
+
+// The registered spec IDs from the coverage map: a table row whose **first**
+// column is a backtick-quoted id-shaped token (`lex-int`, `decorators`).
+// Requiring the first column skips the notation/legend tables (whose IDs, if
+// any, sit in later columns) and prose in the Findings.
+fn extract_registered_ids(_ source: String) -> List<String> {
+    let ids: List<String> = [];
+    let seen: Set<String> = Set.new();
+    for raw in source.lines() {
+        let line = raw.trim();
+        if line.starts_with('|') {
+            // cells[0] is '' (before the leading `|`); cells[1] is the first column.
+            let cells = line.split('|');
+            if cells.len() >= 2 {
+                let first = cells[1].trim();
+                if first.len() >= 2 && first.starts_with('`') && first.ends_with('`') {
+                    let token = first.slice(1, first.len() - 1);
+                    if is_id_token(token) && !seen.has(token) {
+                        seen.add(token);
+                        ids.push(token);
+                    }
+                }
+            }
+        }
+    }
+    return ids;
+}
+
+// Whether `s` matches `[a-z][a-z0-9-]*` — the shape of a spec ID.
+fn is_id_token(_ s: String) -> Bool {
+    let cs = s.chars();
+    if cs.len() == 0 {
+        return false;
+    }
+    if cs[0] < 97 || cs[0] > 122 {   // first must be a-z
+        return false;
+    }
+    let mut i = 1;
+    while i < cs.len() {
+        let c = cs[i];
+        let ok = (c >= 97 && c <= 122) || (c >= 48 && c <= 57) || c == 45;   // a-z 0-9 '-'
+        if !ok {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+// --- string helpers ---
+
+struct Split {
+    let before: String;
+    let after: String;
+}
+
+// Split `s` at the first occurrence of `sep`, or None when absent.
+fn split_once(_ s: String, _ sep: String) -> Option<Split> {
+    if !s.contains(sep) {
+        return Option.None;
+    }
+    let parts = s.split(sep);
+    let before = parts[0];
+    // Rejoin the remainder so a `sep` later in the string stays in `after`.
+    let mut after = '';
+    let mut i = 1;
+    while i < parts.len() {
+        if i > 1 { after = '${after}${sep}'; }
+        after = '${after}${parts[i]}';
+        i = i + 1;
+    }
+    return Option.Some(Split { before: before, after: after });
+}
+
+// The trimmed text after `marker` in `line`, or None when the marker is absent.
+fn after_marker(_ line: String, _ marker: String) -> Option<String> {
+    if !line.contains(marker) {
+        return Option.None;
+    }
+    let parts = line.split(marker);
+    return Option.Some(parts[parts.len() - 1].trim());
+}
+
+// Split `s` into lines, dropping a single trailing empty line (the newline a
+// program's final `println` leaves behind).
+fn nonempty_lines(_ s: String) -> List<String> {
+    let all = s.lines();
+    if all.len() > 0 && all[all.len() - 1] == '' {
+        let out: List<String> = [];
+        let mut i = 0;
+        while i < all.len() - 1 {
+            out.push(all[i]);
+            i = i + 1;
+        }
+        return out;
+    }
+    return all;
+}
+
+fn render_diags(_ diags: List<Diagnostic>) -> String {
+    if diags.len() == 0 {
+        return 'no diagnostics were emitted.';
+    }
+    let mut s = 'diagnostics emitted:';
+    for d in diags {
+        s = '${s}\n  line ${d.line}: ${d.message}';
+    }
+    return s;
+}
+
+fn render_lines(_ expected: List<String>, _ got: List<String>) -> String {
+    let mut s = '--- expected ---';
+    for line in expected { s = '${s}\n${line}'; }
+    s = '${s}\n--- got ---';
+    for line in got { s = '${s}\n${line}'; }
+    return s;
+}
+
+// --- file discovery ---
+
+fn collect_hawk_files(_ dir: String, _ found: List<String>) -> Void {
+    if let Ok(names) = fs.list_dir(dir) {
+        for name in names {
+            let full = path.join(dir, name);
+            if let Ok(meta) = fs.metadata(full) {
+                match meta.kind {
+                    Dir => { collect_hawk_files(full, found); },
+                    _ => {
+                        // hawk→thera transition: both extensions (docs/rename.md).
+                        if name.ends_with('.thera') || name.ends_with('.hawk') {
+                            found.push(full);
+                        }
+                    },
+                }
+            }
+        }
+    }
+}
+
+// Lexicographic selection sort by Unicode code point (no List.sort yet).
+fn sort_strings(_ items: List<String>) -> List<String> {
+    let n = items.len();
+    let mut i = 0;
+    while i < n {
+        let mut lo = i;
+        let mut j = i + 1;
+        while j < n {
+            if str_less(items[j], items[lo]) { lo = j; }
+            j = j + 1;
+        }
+        if lo != i {
+            let tmp = items[i];
+            items[i] = items[lo];
+            items[lo] = tmp;
+        }
+        i = i + 1;
+    }
+    return items;
+}
+
+fn str_less(_ a: String, _ b: String) -> Bool {
+    let ca = a.chars();
+    let cb = b.chars();
+    let mut i = 0;
+    while i < ca.len() && i < cb.len() {
+        if ca[i] != cb[i] { return ca[i] < cb[i]; }
+        i = i + 1;
+    }
+    return ca.len() < cb.len();
+}

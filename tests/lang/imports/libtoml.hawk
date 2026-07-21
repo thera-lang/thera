@@ -1,6 +1,0 @@
-// Support library: defines `parse`, the same top-level name `libjson` also
-// defines (see libjson.hawk). A qualified `toml.parse()` reaches this one.
-
-pub fn parse() -> Int {
-    return 200;
-}

@@ -1,0 +1,178 @@
+//! std.core — the lazy `Iterator` protocol and its adapters.
+//!
+//! `Iterator<T>` is Hawk's pull-based sequence protocol: `next()` yields the next
+//! element as `Some(v)`, or `None` once the sequence is exhausted. It is part of
+//! the prelude (always in scope) because the language drives it directly: a
+//! `for x in it` loop iterates any `Iterator`. A `List` bridges to this protocol
+//! with `xs.iter()` (in `list.thera`); other sources (`range`, `from_list`) live
+//! in `std.iter`.
+//!
+//! Beyond the one required `next`, the interface provides **default methods** —
+//! lazy adapters (`map`/`filter`/`take`/`enumerate`) and eager consumers
+//! (`to_list`/`count`) — so any iterator is fluent without an import:
+//!
+//! ```hawk
+//! import std.iter
+//!
+//! let evens = iter.range(0, 10)
+//!     .filter((n) => n % 2 == 0)
+//!     .map((n) => n * n)
+//!     .to_list();                 // [0, 4, 16, 36, 64]
+//! ```
+//!
+//! Iterators are stateful: `next` advances an internal cursor, so an iterator is
+//! consumed as it is read. An adapter wraps its source lazily — no work happens
+//! until a consumer (or a `for` loop) pulls.
+pub interface Iterator<T> {
+    /// The next element, or `None` at end of sequence. Advances the iterator.
+    fn next(self) -> Option<T>;
+
+    // --- lazy adapters: each wraps `self` and pulls on demand ---
+
+    /// An iterator yielding `f(x)` for each `x` of this iterator.
+    fn map<U>(self, _ f: (T) -> U) -> Iterator<U> {
+        return MapIter { source: self, transform: f };
+    }
+
+    /// An iterator yielding only the elements for which `keep` returns `true`.
+    fn filter(self, _ keep: (T) -> Bool) -> Iterator<T> {
+        return FilterIter { source: self, keep: keep };
+    }
+
+    /// An iterator yielding at most the first `n` elements of this iterator.
+    fn take(self, _ n: Int) -> Iterator<T> {
+        return TakeIter { source: self, remaining: n };
+    }
+
+    /// An iterator pairing each element with its 0-based position.
+    fn enumerate(self) -> Iterator<Indexed<T>> {
+        return EnumerateIter { source: self, index: 0 };
+    }
+
+    // --- eager consumers: each drains `self` ---
+
+    /// Drain to exhaustion, gathering the elements into a list (in order).
+    fn to_list(self) -> List<T> {
+        let out = [];
+        let mut going = true;
+        while going {
+            match self.next() {
+                None => { going = false; },
+                Some(v) => { out.push(v); },
+            }
+        }
+        return out;
+    }
+
+    /// The number of elements this iterator yields, draining it in the process.
+    fn count(self) -> Int {
+        let mut n = 0;
+        let mut going = true;
+        while going {
+            match self.next() {
+                None => { going = false; },
+                Some(_) => { n = n + 1; },
+            }
+        }
+        return n;
+    }
+}
+
+// --- adapter implementations (private; reached only through the methods) ---
+
+struct MapIter<T, U> {
+    let source: Iterator<T>;
+    let transform: (T) -> U;
+}
+
+impl Iterator<U> for MapIter<T, U> {
+    pub fn next(self) -> Option<U> {
+        return match self.source.next() {
+            None => Option.None,
+            Some(v) => Option.Some((self.transform)(v)),
+        };
+    }
+}
+
+struct FilterIter<T> {
+    let source: Iterator<T>;
+    let keep: (T) -> Bool;
+}
+
+impl Iterator<T> for FilterIter<T> {
+    pub fn next(self) -> Option<T> {
+        let mut result: Option<T> = Option.None;
+        let mut going = true;
+        while going {
+            match self.source.next() {
+                None => { going = false; },
+                Some(v) => {
+                    if (self.keep)(v) {
+                        result = Option.Some(v);
+                        going = false;
+                    }
+                },
+            }
+        }
+        return result;
+    }
+}
+
+struct TakeIter<T> {
+    let source: Iterator<T>;
+    let mut remaining: Int;
+}
+
+impl Iterator<T> for TakeIter<T> {
+    pub fn next(self) -> Option<T> {
+        if self.remaining <= 0 {
+            return Option.None;
+        }
+        self.remaining = self.remaining - 1;
+        return self.source.next();
+    }
+}
+
+/// An element paired with its 0-based position, produced by `enumerate`.
+pub struct Indexed<T> {
+    let index: Int;
+    let value: T;
+}
+
+struct EnumerateIter<T> {
+    let source: Iterator<T>;
+    let mut index: Int;
+}
+
+impl Iterator<Indexed<T>> for EnumerateIter<T> {
+    pub fn next(self) -> Option<Indexed<T>> {
+        return match self.source.next() {
+            None => Option.None,
+            Some(v) => {
+                let i = self.index;
+                self.index = self.index + 1;
+                Option.Some(Indexed { index: i, value: v })
+            },
+        };
+    }
+}
+
+// The iterator backing `List.iter()` — a plain index cursor over a list. `pub`
+// because `List.iter` (in list.thera) constructs it across the file boundary. It
+// is the single list→`Iterator` bridge: `List.enumerate`, `map`/`filter`
+// chains, and `iter.from_list` all flow through it, so the whole lazy protocol
+// walks a list from here.
+pub struct ListIter<T> {
+    let items: List<T>;
+    let mut pos: Int;
+}
+
+impl Iterator<T> for ListIter<T> {
+    pub fn next(self) -> Option<T> {
+        // `get` returns None past the end; advancing `pos` regardless is
+        // harmless once exhausted (it just keeps returning None).
+        let item = self.items.get(self.pos);
+        self.pos = self.pos + 1;
+        return item;
+    }
+}

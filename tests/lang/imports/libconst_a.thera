@@ -1,0 +1,8 @@
+// Support library for shared_const_name.thera: a `width` const that collides
+// with libconst_b's, plus a chained one referencing another library through
+// this file's own namespace (the initializer must resolve `base.width` against
+// *this* file's imports when inlined into a consumer).
+import 'libconst_base' as base;
+
+pub const width: Int = base.width + 1;
+pub const size: Int = 10;

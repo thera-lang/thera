@@ -1,0 +1,51 @@
+//! Tests for std.cli's `Args` — raw, undeclared access to the argument list.
+
+import std.testing;
+
+import 'args' as _;
+
+@test
+fn test_positional() -> Result<Void, Error> {
+    let args = Args.new(['build', 'src/main.thera']);
+    testing.assert_eq(actual: args.positional(0), expected: Option.Some('build'))?;
+    testing.assert_eq(actual: args.positional(1),
+        expected: Option.Some('src/main.thera'))?;
+    testing.assert_eq(actual: args.positional(2), expected: Option.None)?; // OOB
+    return Result.Ok(void);
+}
+
+@test
+fn test_positionals() -> Result<Void, Error> {
+    let args = Args.new(['a', 'b', 'c']);
+    testing.assert_eq(actual: args.positionals(), expected: ['a', 'b', 'c'])?;
+    testing.assert_eq(actual: Args.new([]).positionals().len(), expected: 0)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_has_and_flag() -> Result<Void, Error> {
+    let args = Args.new(['run', '--verbose']);
+    testing.assert(args.has('--verbose'))?;
+    testing.assert(!args.has('--quiet'))?;
+    // A present flag is true regardless of the default; an absent one falls back.
+    testing.assert_eq(actual: args.flag('--verbose', default: false),
+        expected: true)?;
+    testing.assert_eq(actual: args.flag('--quiet', default: false),
+        expected: false)?;
+    testing.assert_eq(actual: args.flag('--quiet', default: true),
+        expected: true)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_option() -> Result<Void, Error> {
+    let args = Args.new(['--out', 'file.txt', '--level', '3']);
+    testing.assert_eq(actual: args.option('--out'),
+        expected: Option.Some('file.txt'))?;
+    testing.assert_eq(actual: args.option('--level'), expected: Option.Some('3'))?;
+    testing.assert_eq(actual: args.option('--missing'), expected: Option.None)?;
+    // A flag at the very end has no following value.
+    testing.assert_eq(actual: Args.new(['--out']).option('--out'),
+        expected: Option.None)?;
+    return Result.Ok(void);
+}

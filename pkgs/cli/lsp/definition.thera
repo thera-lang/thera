@@ -1,0 +1,35 @@
+// LSP go-to-definition — a thin renderer over the shared cursor resolver
+// (`resolve.thera`): resolve the name under the cursor to a target and return its
+// declaration `Location` (file + name range), or null when the target has no
+// navigable declaration. Because it shares `resolve_at` with hover, it navigates
+// to `self`'s type, `self.method`s, parameters, `Enum.Variant`s, and struct
+// fields (`self.field` / `x.field`) — not just top-level names.
+
+import std.json as _;
+
+import '../lexer/token' as _;  // SourceSpan
+import 'resolve';         // resolve_at
+import 'positions';     // span_to_range
+import 'paths';             // path_to_uri
+
+// The LSP `Location` (as JSON) for the definition of the symbol at `offset`, or
+// JSON null when nothing resolves to a navigable declaration.
+pub fn handle_definition(_ ctx: resolve.ResolveCtx, _ text: String, _ offset: Int) -> Json {
+    return match resolve.resolve_at(ctx, text, offset) {
+        Some(r) => match r.def_span() {
+            Some(span) => match r.def_file() {
+                Some(file) => location(file, span),
+                None => json.null(),
+            },
+            None => json.null(),
+        },
+        None => json.null(),
+    };
+}
+
+fn location(_ file: String, _ span: SourceSpan) -> Json {
+    return json.obj([
+        'uri': json.str(paths.path_to_uri(file)),
+        'range': positions.span_to_range(span),
+    ]);
+}

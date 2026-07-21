@@ -1,0 +1,66 @@
+// The front-end driver — thin, stateless wrappers over the analysis session
+// (`session.thera`), kept as the historical entry points for one-shot pipeline
+// runs (and the hermetic no-import variants the tests use). Anything that runs
+// the pipeline more than once should construct a `session.Session` instead —
+// the session owns the caches; there is no second pipeline here (LD16).
+
+import 'lexer/lexer';
+import 'lint/lint';
+import 'loader';
+import 'parser/parser';
+import 'session';
+import 'diagnostic'; // Diagnostic — the uniform phase error
+
+// Re-exposed one-shot entry points. `parse_cache`/`checked`/`overlays` are
+// caller-shared exactly as before — the throwaway session wraps the same maps,
+// so a caller threading them across calls keeps its sharing.
+pub fn check_source_at(_ source: String, _ path: String, _ sdk_root: Option<String>,
+    parse_cache: Map<String, loader.ParsedFile> = [:],
+    checked: Set<String> = Set.new(),
+    overlays: Map<String, String> = [:]) -> List<diagnostic.Diagnostic> {
+    let s = session.Session {
+        sdk_root: sdk_root, overlays: overlays, parse_cache: parse_cache, checked: checked,
+        import_graph: [:], surface_cache: [:], library_cache: [:], type_records: [:],
+    };
+    return s.check(source, path);
+}
+
+pub fn compile_source_at(_ source: String, _ path: String, _ sdk_root: Option<String>,
+    parse_cache: Map<String, loader.ParsedFile> = [:],
+    checked: Set<String> = Set.new(),
+    overlays: Map<String, String> = [:]) -> session.CompileOutcome {
+    let s = session.Session {
+        sdk_root: sdk_root, overlays: overlays, parse_cache: parse_cache, checked: checked,
+        import_graph: [:], surface_cache: [:], library_cache: [:], type_records: [:],
+    };
+    return s.compile(source, path);
+}
+
+// The hermetic (no-import) pipeline, for self-contained programs.
+pub fn check_source(_ source: String) -> List<diagnostic.Diagnostic> {
+    return session.check_source(source);
+}
+
+pub fn compile_source(_ source: String) -> session.CompileOutcome {
+    return session.compile_source(source);
+}
+
+pub fn format_diagnostic(_ d: diagnostic.Diagnostic, _ file_path: String) -> String {
+    return session.format_diagnostic(d, file_path);
+}
+
+// Collect the suggestion diagnostics for `source` — non-idiomatic shapes with a
+// mechanical rewrite (read-only; see `lint/lint`). Purely syntactic, so it needs
+// no import closure: a single-file lex + parse. A file that doesn't lex/parse has
+// no suggestions (the analyzer reports the syntax error, not a rewrite).
+pub fn lint_source(_ source: String) -> List<lint.Suggestion> {
+    let lex = lexer.tokenize(source);
+    if lex.errors.len() > 0 {
+        return [];
+    }
+    let parsed = parser.parse_tokens(lex.tokens);
+    if parsed.errors.len() > 0 {
+        return [];
+    }
+    return lint.lint_program(parsed.program);
+}

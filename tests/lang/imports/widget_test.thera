@@ -1,0 +1,12 @@
+//! spec: vis-whitebox-test
+//! mode: run
+
+import 'widget';
+
+fn main() -> Int {
+    // White-box test exception: `widget_test.thera` may reference `widget.thera`'s
+    // *private* names bare (the filenames match), though another file could not.
+    let v = internal_value();
+    println('${v}');   // expect: 99
+    return 0;
+}

@@ -1,0 +1,5 @@
+// Support library for native_name_isolation.thera: an ordinary `pub fn` whose
+// name collides with a `native fn` in std.env (`get` -> env_get).
+pub fn get(_ key: String) -> String {
+    return 'store:' + key;
+}

@@ -45,9 +45,9 @@ echo "==> profiler (HAWK_PROFILE: deterministic, present)"
 # sampling, not wall-clock — so two runs of the same program must produce a
 # byte-identical profile. (See docs/roadmap.md, "Profiling Hawk code".)
 prof_dir="$(mktemp -d)"
-printf 'fn main() -> Int { let mut s = 0; let mut i = 0; while i < 5000 { s = s + i; i = i + 1; } return s; }\n' > "$prof_dir/p.hawk"
-prof1="$(HAWK_PROFILE=1 "$HAWK" run "$prof_dir/p.hawk" 2>&1 1>/dev/null)"
-prof2="$(HAWK_PROFILE=1 "$HAWK" run "$prof_dir/p.hawk" 2>&1 1>/dev/null)"
+printf 'fn main() -> Int { let mut s = 0; let mut i = 0; while i < 5000 { s = s + i; i = i + 1; } return s; }\n' > "$prof_dir/p.thera"
+prof1="$(HAWK_PROFILE=1 "$HAWK" run "$prof_dir/p.thera" 2>&1 1>/dev/null)"
+prof2="$(HAWK_PROFILE=1 "$HAWK" run "$prof_dir/p.thera" 2>&1 1>/dev/null)"
 if printf '%s' "$prof1" | grep -q 'hawk profile' && [ "$prof1" = "$prof2" ]; then
   echo "  ok   profile emitted and byte-identical across runs"
 else
@@ -61,9 +61,9 @@ echo "==> check diagnostics stream (stdout, not stderr)"
 # diagnostic lands on stdout and not stderr, so the convention can't regress.
 # (See docs/architecture.md, "The CLI: commands and output streams".)
 chk_dir="$(mktemp -d)"
-printf 'fn f() -> Int { return missing; }\n' > "$chk_dir/bad.hawk"
-chk_out="$("$HAWK" check "$chk_dir/bad.hawk" 2>/dev/null)"
-chk_err="$("$HAWK" check "$chk_dir/bad.hawk" 2>&1 1>/dev/null)"
+printf 'fn f() -> Int { return missing; }\n' > "$chk_dir/bad.thera"
+chk_out="$("$HAWK" check "$chk_dir/bad.thera" 2>/dev/null)"
+chk_err="$("$HAWK" check "$chk_dir/bad.thera" 2>&1 1>/dev/null)"
 if printf '%s' "$chk_out" | grep -q 'undefined name: missing' \
    && ! printf '%s' "$chk_err" | grep -q 'undefined name: missing'; then
   echo "  ok   diagnostics on stdout, not stderr"
@@ -77,14 +77,14 @@ echo "==> fmt --check (read-only; lists unformatted files, exit 1)"
 # stdout, and exit 0 (all formatted) / 1 (some need formatting) — the CI /
 # pre-commit contract. (See docs/roadmap.md, "Formatter (hawk fmt)".)
 fmt_dir="$(mktemp -d)"
-printf 'fn f() {\n    x();\n}\n' > "$fmt_dir/clean.hawk"
-printf 'fn g() {\ny();\n}\n' > "$fmt_dir/dirty.hawk"
-cp "$fmt_dir/dirty.hawk" "$fmt_dir/dirty.orig"
-"$HAWK" fmt --check "$fmt_dir/clean.hawk" >/dev/null 2>&1; clean_code=$?
-dirty_out="$("$HAWK" fmt --check "$fmt_dir/dirty.hawk" 2>/dev/null)"; dirty_code=$?
+printf 'fn f() {\n    x();\n}\n' > "$fmt_dir/clean.thera"
+printf 'fn g() {\ny();\n}\n' > "$fmt_dir/dirty.thera"
+cp "$fmt_dir/dirty.thera" "$fmt_dir/dirty.orig"
+"$HAWK" fmt --check "$fmt_dir/clean.thera" >/dev/null 2>&1; clean_code=$?
+dirty_out="$("$HAWK" fmt --check "$fmt_dir/dirty.thera" 2>/dev/null)"; dirty_code=$?
 if [ "$clean_code" -eq 0 ] && [ "$dirty_code" -eq 1 ] \
-   && printf '%s' "$dirty_out" | grep -q 'dirty.hawk' \
-   && diff -q "$fmt_dir/dirty.hawk" "$fmt_dir/dirty.orig" >/dev/null; then
+   && printf '%s' "$dirty_out" | grep -q 'dirty.thera' \
+   && diff -q "$fmt_dir/dirty.thera" "$fmt_dir/dirty.orig" >/dev/null; then
   echo "  ok   fmt --check: clean=0, dirty=1 (listed), file untouched"
 else
   echo "  FAIL fmt --check (clean=$clean_code dirty=$dirty_code out='$dirty_out')"; fail=1
@@ -106,11 +106,11 @@ echo "==> diagnostic attribution (imported-file error names the import)"
 # not a path, so the reporter resolves the owning file. (See docs/roadmap.md,
 # "Whole-closure diagnostics with per-file origin".)
 att_dir="$(mktemp -d)"
-printf 'pub fn greet(_ n: String) -> String { return n.frobnicate(); }\n' > "$att_dir/helper.hawk"
-printf "import 'helper';\nfn main() -> Int { println(helper.greet('hi')); return 0; }\n" > "$att_dir/app.hawk"
-att_out="$("$HAWK" run "$att_dir/app.hawk" 2>&1)"; att_code=$?
-if printf '%s' "$att_out" | grep -q 'helper.hawk:.*frobnicate' \
-   && ! printf '%s' "$att_out" | grep -q 'app.hawk:.*frobnicate' \
+printf 'pub fn greet(_ n: String) -> String { return n.frobnicate(); }\n' > "$att_dir/helper.thera"
+printf "import 'helper';\nfn main() -> Int { println(helper.greet('hi')); return 0; }\n" > "$att_dir/app.thera"
+att_out="$("$HAWK" run "$att_dir/app.thera" 2>&1)"; att_code=$?
+if printf '%s' "$att_out" | grep -q 'helper.thera:.*frobnicate' \
+   && ! printf '%s' "$att_out" | grep -q 'app.thera:.*frobnicate' \
    && [ "$att_code" -ne 0 ]; then
   echo "  ok   imported-file error attributed to the import (exit $att_code)"
 else
@@ -118,9 +118,9 @@ else
 fi
 # A *parse* error in an imported file must be surfaced (not dropped into a
 # misleading downstream error under exit 0) and attributed to the import.
-printf 'pub fn greet(_ n: String) -> String {\n    let x = ;\n    return n;\n}\n' > "$att_dir/helper.hawk"
-pe_out="$("$HAWK" check "$att_dir/app.hawk" 2>&1)"; pe_code=$?
-if printf '%s' "$pe_out" | grep -q 'helper.hawk:2:.*unexpected token' && [ "$pe_code" -ne 0 ]; then
+printf 'pub fn greet(_ n: String) -> String {\n    let x = ;\n    return n;\n}\n' > "$att_dir/helper.thera"
+pe_out="$("$HAWK" check "$att_dir/app.thera" 2>&1)"; pe_code=$?
+if printf '%s' "$pe_out" | grep -q 'helper.thera:2:.*unexpected token' && [ "$pe_code" -ne 0 ]; then
   echo "  ok   imported-file parse error surfaced + attributed (exit $pe_code)"
 else
   echo "  FAIL imported parse error (out='$pe_out', code=$pe_code)"; fail=1
@@ -162,22 +162,22 @@ echo "==> inference-context oracle (codegen and checker build identical InferCtx
 # compares them per unit; this guard asserts the whole front-end stays at zero
 # divergences. See docs/roadmap.md (Owner-correct ... / the oracle commit).
 oracle_tmp="$(mktemp)"
-oracle_diverged="$(HAWK_INFER_ORACLE=1 "$HAWK" emit pkgs/cli/main.hawk "$oracle_tmp" 2>&1 \
+oracle_diverged="$(HAWK_INFER_ORACLE=1 "$HAWK" emit pkgs/cli/main.thera "$oracle_tmp" 2>&1 \
   | grep -oE '[0-9]+/[0-9]+ non-lambda' | head -1 | cut -d/ -f1)"
 rm -f "$oracle_tmp"
 if [ "${oracle_diverged:-1}" -eq 0 ]; then
   echo "  ok   0 units with divergent inference context"
 else
-  echo "  FAIL $oracle_diverged unit(s) diverge; run: HAWK_INFER_ORACLE=1 hawk emit pkgs/cli/main.hawk /tmp/x.hawkbc"
+  echo "  FAIL $oracle_diverged unit(s) diverge; run: HAWK_INFER_ORACLE=1 hawk emit pkgs/cli/main.thera /tmp/x.hawkbc"
   fail=1
 fi
 
 echo "==> language conformance (tests/lang)"
-# Spec-conformance tests: each tests/lang/**/*.hawk pins a documented language
+# Spec-conformance tests: each tests/lang/**/*.thera pins a documented language
 # feature via embedded `//!` directives + `// expect…` comments. The harness
 # (a Hawk program) shells back to `hawk` per test and compares. xfail tests that
 # unexpectedly pass (XPASS) fail the suite. See tests/lang/README.md.
-"$HAWK" run tests/lang_runner.hawk "$HAWK" "$ROOT/tests/lang" "$ROOT/docs/conformance.md" || fail=1
+"$HAWK" run tests/lang_runner.thera "$HAWK" "$ROOT/tests/lang" "$ROOT/docs/conformance.md" || fail=1
 
 echo "==> examples"
 # Pin the output of a few representative examples (the rest must just run).
@@ -191,22 +191,22 @@ check_out() {
     echo "  FAIL $file"; echo "--- expected ---"; echo "$expected"; echo "--- got ---"; echo "$got"; fail=1
   fi
 }
-check_out examples/fibers.hawk $'sum of squares 1..5 = 55\nconsumed 10 values, sum = 55'
-check_out examples/list_hof.hawk $'20\n40\n60\nbig: 2\ntotal: 21'
+check_out examples/fibers.thera $'sum of squares 1..5 = 55\nconsumed 10 values, sum = 55'
+check_out examples/list_hof.thera $'20\n40\n60\nbig: 2\ntotal: 21'
 
 # Every other example must at least run cleanly. wordcount needs a file argument;
-# *_test.hawk are test files.
-for f in examples/*.hawk; do
+# *_test.thera are test files.
+for f in examples/*.thera; do
   case "$f" in
-    *_test.hawk|*fibers.hawk|*list_hof.hawk) continue ;;
-    *wordcount.hawk) "$HAWK" run "$f" examples/wordcount.hawk >/dev/null 2>&1 ;;
+    *_test.thera|*fibers.thera|*list_hof.thera) continue ;;
+    *wordcount.thera) "$HAWK" run "$f" examples/wordcount.thera >/dev/null 2>&1 ;;
     *) "$HAWK" run "$f" >/dev/null 2>&1 ;;
   esac
   if [ $? -eq 0 ]; then echo "  ok   $f"; else echo "  FAIL $f"; fail=1; fi
 done
 
 # Benchmarks (bench/) are manual perf harnesses; just check they run cleanly.
-for f in bench/*.hawk; do
+for f in bench/*.thera; do
   "$HAWK" run "$f" >/dev/null 2>&1
   if [ $? -eq 0 ]; then echo "  ok   $f"; else echo "  FAIL $f"; fail=1; fi
 done

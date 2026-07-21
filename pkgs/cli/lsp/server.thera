@@ -1,0 +1,893 @@
+// The Hawk language server: a JSON-RPC dispatch loop over stdio that answers a
+// small slice of the LSP. Slice 1 covers the lifecycle (`initialize` /
+// `shutdown` / `exit`), full-document sync (`didOpen` / `didChange` /
+// `didClose`), and pull-model diagnostics (`textDocument/diagnostic` +
+// `workspace/diagnostic`, with a `workspace/diagnostic/refresh` nudge on edits;
+// a streaming client's workspace pull is **held open** and updated via
+// `$/progress` deltas — see `open_pull` — so an idle server does nothing at all).
+// Document symbols, hover, and definition land in later slices.
+//
+// This is the Hawk port of the Dart `lsp/server.dart` (which rode on
+// `package:lsp_server`); here the transport is our own jsonrpc.thera.
+
+import std.json as _;
+import std.io;             // io.Reader, io.Writer
+import std.fiber;          // background workspace-diagnostic worker
+
+import '../ast/ast' as _;       // Program
+
+import 'jsonrpc';
+import 'outbox';           // the single serialized outbound message sink
+import 'paths';
+import 'symbols';
+import 'analysis' as _;
+import 'hover';
+import 'definition';
+import 'formatting';
+import 'code_action';
+import 'workspace_symbols';
+// `references` and `rename` are both semantic now — they resolve every candidate
+// by `SymbolId` identity over the open documents (via `analysis.references_at` /
+// `rename_at`), so unrelated same-named symbols are never touched. See
+// references.thera and rename.thera.
+
+// The server = the protocol layer. It owns dispatch and the lifecycle flag
+// (`shutdown_received`); the workspace analysis state — open documents, the SDK
+// root, the cross-request caches, and the dirty set — lives in `Analysis`
+// (analysis.thera), where the incremental engine grows (see docs/roadmap.md).
+// Recomputing diagnostics is the expensive step, so an edit only marks its
+// document dirty; the actual re-check is deferred to `flush`, which lets a
+// burst of keystrokes collapse into a single re-check per document (see
+// `serve`).
+pub struct Server {
+    let analysis: Analysis;
+    // Every outgoing message funnels through here so the dispatch loop and a
+    // background `workspace/diagnostic` worker never interleave bytes of one framed
+    // message. `serve` installs an async outbox (a writer fiber draining a channel);
+    // `handle` (tests/one-shot) installs a direct one that writes straight through.
+    // A fresh server holds a discard outbox until one of those runs — no message is
+    // sent in that window. See outbox.thera.
+    let mut outbox: outbox.Outbox;
+    let mut shutdown_received: Bool;
+    // Whether the client supports `workspace/diagnostic/refresh` (from
+    // `initialize`). When it does, an edit sends that one nudge instead of pushing
+    // per-file — the client re-pulls, and unchanged files stay cheap (checked-set
+    // hits). When it doesn't, workspace diagnostics rely on the client's own pull
+    // cadence (open/save/focus).
+    let mut client_refresh_support: Bool;
+    // Whether the client supports dynamically registering file watchers (from
+    // `initialize`). Without it the server never learns of an on-disk change made
+    // outside the editor and keeps serving that file's stale parse — see
+    // `register_file_watcher`. There is no static capability for this: watching
+    // exists only through `client/registerCapability`.
+    let mut client_watch_support: Bool;
+    // The id for the next server-initiated request (`workspace/diagnostic/refresh`
+    // and `client/registerCapability`). Its own id space; the client's response is
+    // a message with no `method`, which `ingest` drops.
+    let mut next_request_id: Int;
+    // The in-flight background worker (a `workspace/diagnostic` scan or a delta
+    // drain), if any. A new pull (or a cancel) supersedes it via `ws_generation`;
+    // `serve` joins it on exit so its reply flushes, and `handle` joins it inline
+    // for a synchronous one-shot. At most one is ever live — the session's caches
+    // aren't safe under interleaved scans.
+    let mut current_worker: Option<fiber.Fiber<Void>>;
+    // Bumped on each workspace pull, on a `$/cancelRequest` naming the scan's
+    // request, and on shutdown; a worker whose captured generation no longer
+    // matches bails and settles its request per `scan_bail`. This is the
+    // supersession signal — the last pull wins, older scans stop wasting work.
+    let mut ws_generation: Int;
+    // The request id the in-flight (or last) scan answers — what a
+    // `$/cancelRequest` is matched against. JSON null until the first pull.
+    let mut scan_id: Json;
+    // Why the in-flight scan is being superseded — decides the error its request
+    // settles with when the worker bails (see `send_bail_error`). Set by each
+    // generation-bump site right before the bump; every site then joins the
+    // worker, so a reason is consumed before the next one can be set.
+    let mut scan_bail: ScanBail;
+    // The held-open `workspace/diagnostic` pull, once its first report has been
+    // streamed. A client that sends a `partialResultToken` gets its report as
+    // `$/progress` and **no response**: completing the request is what re-arms the
+    // client's periodic re-pull (2s in vscode-languageclient, re-issued after every
+    // settlement), so holding it open is what lets an idle server be *idle* — the
+    // spec's own recommendation ("allow servers to keep the request open for a
+    // long time"). Later workspace changes stream delta batches to its token; the
+    // request settles only on supersession, cancel, or shutdown, and the client
+    // re-triggers a pull whenever it does.
+    let mut open_pull: Option<OpenPull>;
+    // A workspace change is waiting to be streamed to the held-open pull. A flag,
+    // not a queue: a delta pass recomputes from current state, so any number of
+    // changes collapse into the next pass (the same coalescing as `flush`). Set
+    // even while a scan worker is in flight — the worker drains it before
+    // finishing, which covers an edit racing the initial report.
+    let mut delta_pending: Bool;
+}
+
+// The identity of a held-open workspace pull: the request `id` it must eventually
+// settle, and the `partialResultToken` its updates stream to.
+struct OpenPull {
+    let id: Json;
+    let token: Json;
+}
+
+// Why an in-flight scan is superseded — the diagnostic-pull spec assigns each
+// cause its own settle error (see `send_bail_error`).
+enum ScanBail {
+    // A newer pull replaced it, or the session is shutting down: ServerCancelled,
+    // with DiagnosticServerCancellationData telling the client *not* to
+    // re-trigger — the newer pull is already in hand (or the server is going away).
+    Superseded,
+    // The client cancelled this very request: RequestCancelled, the advised code.
+    Cancelled,
+}
+
+pub fn new_server(_ sdk_root: Option<String>) -> Server {
+    return Server {
+        analysis: new_analysis(sdk_root),
+        outbox: outbox.discard_outbox(),
+        shutdown_received: false,
+        client_refresh_support: false,
+        client_watch_support: false,
+        next_request_id: 1,
+        current_worker: Option.None,
+        ws_generation: 0,
+        scan_id: json.null(),
+        scan_bail: ScanBail.Superseded,
+        open_pull: Option.None,
+        delta_pending: false,
+    };
+}
+
+// Run the server: read framed messages from `reader`, dispatch each, and write
+// responses/notifications to `writer`, until `exit` (or end of input).
+pub fn serve(_ reader: io.Reader, _ writer: io.Writer, _ sdk_root: Option<String>) -> Void {
+    let buf = jsonrpc.new_buffer();
+    let server = new_server(sdk_root);
+    // Async transport: a writer fiber serializes all output, so a background
+    // workspace scan (start_workspace_scan) can reply concurrently with the loop.
+    // The loop's stdin reads park (freeing the scheduler), which is when both the
+    // writer fiber and any workspace worker make progress.
+    server.outbox = outbox.async_outbox(writer);
+    let mut going = true;
+    while going {
+        match buf.read_message(reader) {
+            Some(body) => {
+                going = server.ingest(body);
+                // Drain any messages that already arrived in the same read — a
+                // burst of keystrokes — applying their state but deferring
+                // diagnostics, so a backlog of edits collapses into one re-check
+                // per document. The busier the server, the bigger each read's
+                // batch, so coalescing scales with load.
+                let mut more = going;
+                while more {
+                    match buf.try_message() {
+                        Some(extra) => {
+                            going = server.ingest(extra);
+                            more = going;
+                        },
+                        None => { more = false; },
+                    }
+                }
+                if going {
+                    server.flush();
+                }
+            },
+            None => {
+                going = false;
+            },
+        }
+    }
+    // Drain on exit: finish the in-flight workspace worker (its reply enqueues),
+    // then close the outbox and wait for the writer fiber to flush everything left.
+    server.join_current_worker();
+    server.outbox.shutdown();
+}
+
+impl Server {
+    // Handle one raw message body and nudge a re-pull if it dirtied a document.
+    // This is the per-message entry point (used directly for one-shot requests);
+    // `serve` instead batches with `ingest` + `flush` to coalesce a burst of edits.
+    // Returns false when the server should stop (an `exit` notification).
+    pub fn handle(self, _ writer: io.Writer, _ body: String) -> Bool {
+        // A direct outbox writes straight through on this fiber, so the in-process
+        // tests observe output synchronously.
+        self.outbox = outbox.direct_outbox(writer);
+        let going = self.ingest(body);
+        self.flush();
+        // Drive a spawned workspace scan to completion so this one-shot path is
+        // synchronous — it replies through the direct outbox before we return.
+        self.join_current_worker();
+        return going;
+    }
+
+    // Finish the in-flight workspace worker (if any): join blocks the caller until
+    // the worker reaches its next yield/finishes, so its reply is enqueued. Used at
+    // `serve` exit and after each one-shot `handle`; also reclaims a superseded
+    // worker (it bails at its next yield once `ws_generation` moved on).
+    fn join_current_worker(self) -> Void {
+        if let Some(w) = self.current_worker {
+            w.join();
+            self.current_worker = Option.None;
+        }
+    }
+
+    // Run the project-wide diagnostic scan as a background fiber so the dispatch
+    // loop keeps servicing hover/edits/completion while it works. The worker yields
+    // between files (see analysis.workspace_report_interruptible) and delivers its
+    // report — or a cancellation error if a newer pull/cancel superseded it —
+    // through the shared outbox, keyed by this request's `id`. Under `serve` the
+    // scheduler runs it during the loop's stdin parks; under `handle` it's joined
+    // for a synchronous reply. The reply may arrive out of order (a hover answered
+    // meanwhile), which JSON-RPC allows — responses correlate by `id`.
+    //
+    // `token` is the request's `partialResultToken` (JSON null when the client
+    // didn't send one). With a token the report streams as `$/progress` and the
+    // request is left open — see `open_pull` — with later changes streamed as
+    // deltas; without one the report is the response, and the client re-pulls on
+    // its own cadence.
+    fn start_workspace_scan(self, _ id: Json, _ prev_ids: Map<String, String>, _ token: Json) -> Void {
+        // A new pull replaces a held-open one: settle the old request first, so
+        // the client is never owed two workspace responses.
+        self.settle_open_pull();
+        // Bump first, then reclaim any prior scan: it sees the new generation and
+        // bails at its next yield — settling as superseded — so at most one
+        // worker is ever in flight.
+        self.scan_bail = ScanBail.Superseded;
+        self.ws_generation = self.ws_generation + 1;
+        self.join_current_worker();
+        self.scan_id = id;
+        let gen = self.ws_generation;
+        let worker = fiber.spawn(() => {
+            match self.analysis.workspace_report_interruptible(prev_ids, () => self.ws_generation == gen) {
+                Some(report) => {
+                    if token.is_null() {
+                        send_response(self.outbox, id, report);
+                    } else {
+                        send_progress(self.outbox, token, report);
+                        self.open_pull = Option.Some(OpenPull { id: id, token: token });
+                        // An edit may have arrived while this scan ran; stream the
+                        // correction now rather than waiting for the next change.
+                        self.drain_pending_deltas(gen);
+                    }
+                },
+                // Superseded before it could answer; the settle error names the
+                // cause (`scan_bail`). No report is lost — a superseding pull
+                // re-reports in full, a cancel means nobody is listening.
+                None => self.send_bail_error(id),
+            }
+        });
+        self.current_worker = Option.Some(worker);
+    }
+
+    // Settle a superseded scan's request with the error the diagnostic-pull spec
+    // assigns its cause: RequestCancelled (-32800) when the client cancelled this
+    // very request, else ServerCancelled (-32802) with
+    // `DiagnosticServerCancellationData { retriggerRequest: false }` — the client
+    // needn't re-ask, the superseding pull is already in hand (or the session is
+    // ending). ContentModified was the pre-3.17 shape for this.
+    fn send_bail_error(self, _ id: Json) -> Void {
+        match self.scan_bail {
+            Cancelled => send_error(self.outbox, id, -32800, 'request cancelled'),
+            Superseded => send_error(self.outbox, id, -32802, 'server cancelled',
+                data: json.obj(['retriggerRequest': json.bool(false)])),
+        }
+    }
+
+    // Complete the held-open workspace pull, if any, with an empty final result —
+    // the spec's required shape once partial results have streamed (the streamed
+    // reports stand; the response adds nothing). The client re-triggers a fresh
+    // pull on seeing the request close, which then holds open again.
+    fn settle_open_pull(self) -> Void {
+        if let Some(pull) = self.open_pull {
+            send_response(self.outbox, pull.id, json.obj(['items': json.arr([])]));
+            self.open_pull = Option.None;
+            self.delta_pending = false;
+        }
+    }
+
+    // Stream every pending workspace change to the held-open pull, one delta pass
+    // per flag-set (edits during a pass re-set the flag and the loop goes again).
+    // Runs on a worker fiber; bails silently when `gen` is superseded — the newer
+    // pull's full report covers whatever this pass would have said.
+    fn drain_pending_deltas(self, _ gen: Int) -> Void {
+        while self.delta_pending && self.ws_generation == gen {
+            self.delta_pending = false;
+            let pull = match self.open_pull {
+                Some(p) => p,
+                None => return,  // settled (cancel/shutdown); nothing to stream to
+            };
+            match self.analysis.workspace_delta_interruptible(() => self.ws_generation == gen) {
+                Some(batch) => {
+                    // An all-quiet pass (e.g. an edit that didn't change any
+                    // file's diagnostics) streams nothing at all.
+                    if batch.get('items').as_array().unwrap_or([]).len() > 0 {
+                        send_progress(self.outbox, pull.token, batch);
+                    }
+                },
+                None => return,  // superseded mid-scan
+            }
+        }
+    }
+
+    // Queue a delta stream to the held-open pull (no-op for polling clients). The
+    // flag is set before any early return so a change landing while the initial
+    // scan is still in flight is not lost — that worker drains it before
+    // finishing.
+    fn stream_workspace_delta(self) -> Void {
+        self.delta_pending = true;
+        if let Some(w) = self.current_worker {
+            if !w.is_ready() {
+                return; // in flight; it drains `delta_pending` before finishing
+            }
+        }
+        if self.open_pull.is_none() {
+            return; // no held pull: nothing to stream to (the flag goes stale
+            // harmlessly — a future pull's drain finds nothing changed)
+        }
+        let gen = self.ws_generation;
+        let worker = fiber.spawn(() => self.drain_pending_deltas(gen));
+        self.current_worker = Option.Some(worker);
+    }
+
+    // Dispatch one message, applying its state and marking any edited document
+    // dirty, but **deferring** the refresh nudge to the next `flush`. Returns false
+    // on `exit`. (Requests like hover still answer inline — only the diagnostics
+    // refresh is deferred.)
+    fn ingest(self, _ body: String) -> Bool {
+        // An unparseable body gets a JSON-RPC ParseError (id null), not a
+        // silent drop — the client learns its message was lost (LS9).
+        let Ok(msg) = json.parse(body) else {
+            send_error(self.outbox, json.null(), -32700, 'parse error');
+            return true;
+        };
+        // A request has both `method` and `id`; a notification has `method` and
+        // no `id`; a response (no `method`) we ignore — the only requests we send
+        // are `workspace/diagnostic/refresh`, whose result we don't act on.
+        return match msg.get('method').as_string() {
+            Some(method) => self.dispatch(method, msg.get('id'), msg.get('params')),
+            None => true,
+        };
+    }
+
+    // `id` is a JSON Null for a notification, present for a request.
+    fn dispatch(self, _ method: String, _ id: Json, _ params: Json) -> Bool {
+        // After `shutdown`, only `exit` is meaningful: further requests are
+        // answered with InvalidRequest and notifications are dropped, per the
+        // LSP lifecycle.
+        if self.shutdown_received && method != 'exit' {
+            if !id.is_null() {
+                send_error(self.outbox, id, -32600, 'invalid request: server is shut down');
+            }
+            return true;
+        }
+        if method == 'initialize' {
+            self.analysis.set_roots(workspace_roots(params));
+            self.client_refresh_support = client_supports_diagnostic_refresh(params);
+            self.client_watch_support = client_supports_file_watching(params);
+            self.analysis.set_exclude(string_array(params.get('initializationOptions').get('exclude')));
+            send_response(self.outbox, id, initialize_result());
+            return true;
+        }
+        // The spec's earliest point for a server-initiated registration.
+        if method == 'initialized' {
+            self.register_file_watcher();
+            return true;
+        }
+        // A `.thera` file changed on disk outside the editor — a branch switch, a
+        // rebase, a generated file. Nothing else tells us: `didChange` covers only
+        // open buffers, so without this the session serves the parse it cached the
+        // first time it read the file, forever.
+        if method == 'workspace/didChangeWatchedFiles' {
+            self.handle_watched_changes(params);
+            return true;
+        }
+        // A live `hawk.exclude` change: update the filter, nudge the open
+        // documents to re-pull with it applied, and stream the workspace-side
+        // consequences (newly-excluded files retract, newly-included ones appear)
+        // to a held-open pull (settings shape: `{ hawk: { … } }`).
+        if method == 'workspace/didChangeConfiguration' {
+            self.analysis.set_exclude(
+                string_array(params.get('settings').get('hawk').get('exclude')));
+            self.request_workspace_refresh();
+            self.stream_workspace_delta();
+            return true;
+        }
+        if method == 'shutdown' {
+            // The workspace pull must not outlive the session, however far it got:
+            // supersede an in-flight scan (it settles its request as superseded
+            // before it would ever stream), then settle a held-open pull — so the
+            // client is never left awaiting a response.
+            self.scan_bail = ScanBail.Superseded;
+            self.ws_generation = self.ws_generation + 1;
+            self.join_current_worker();
+            self.settle_open_pull();
+            self.shutdown_received = true;
+            send_response(self.outbox, id, json.null());
+            return true;
+        }
+        if method == 'exit' {
+            return false;
+        }
+        if method == 'textDocument/didOpen' {
+            let doc = params.get('textDocument');
+            self.update_document(doc.get('uri').as_string(), doc.get('text').as_string(),
+                doc.get('version').as_int());
+            return true;
+        }
+        if method == 'textDocument/didChange' {
+            // Full sync: the last content change carries the whole document.
+            let doc = params.get('textDocument');
+            self.update_document(doc.get('uri').as_string(),
+                last_change_text(params.get('contentChanges')), doc.get('version').as_int());
+            return true;
+        }
+        if method == 'textDocument/documentSymbol' {
+            send_response(self.outbox, id, self.document_symbols(params.get('textDocument').get('uri').as_string()));
+            return true;
+        }
+        if method == 'textDocument/hover' {
+            send_response(self.outbox, id,
+                self.hover(params.get('textDocument').get('uri').as_string(), params.get('position')));
+            return true;
+        }
+        if method == 'textDocument/definition' {
+            send_response(self.outbox, id,
+                self.definition(params.get('textDocument').get('uri').as_string(), params.get('position')));
+            return true;
+        }
+        if method == 'textDocument/formatting' {
+            send_response(self.outbox, id, self.formatting(params.get('textDocument').get('uri').as_string()));
+            return true;
+        }
+        if method == 'textDocument/codeAction' {
+            send_response(self.outbox, id,
+                self.code_action(params.get('textDocument').get('uri').as_string(),
+                    params.get('range'), params.get('context')));
+            return true;
+        }
+        if method == 'workspace/symbol' {
+            send_response(self.outbox, id, self.workspace_symbol(params.get('query').as_string()));
+            return true;
+        }
+        if method == 'textDocument/references' {
+            send_response(self.outbox, id, self.references(params.get('textDocument').get('uri').as_string(),
+                params.get('position'), params.get('context')));
+            return true;
+        }
+        if method == 'textDocument/rename' {
+            self.emit_rename(id, params.get('textDocument').get('uri').as_string(),
+                params.get('position'), params.get('newName').as_string());
+            return true;
+        }
+        // Pull-model diagnostics (LSP 3.17): the client asks for a document's or
+        // the whole workspace's diagnostics on its own schedule. `workspace/
+        // diagnostic` is what makes diagnostics project-wide with no file open.
+        if method == 'textDocument/diagnostic' {
+            if let Some(uri) = params.get('textDocument').get('uri').as_string() {
+                send_response(self.outbox, id,
+                    self.analysis.document_report(uri, params.get('previousResultId').as_string()));
+            } else {
+                send_response(self.outbox, id, json.null());
+            }
+            return true;
+        }
+        if method == 'workspace/diagnostic' {
+            self.start_workspace_scan(id, previous_result_ids(params),
+                params.get('partialResultToken'));
+            return true;
+        }
+        // A cancel targets the only cancellable background ops — the in-flight
+        // workspace scan and the held-open pull, both matched by request id. Any
+        // other cancel names a request that has already completed (everything
+        // else answers inline), which the protocol says to ignore — it must not
+        // kill an innocent scan.
+        if method == '$/cancelRequest' {
+            let cancel_id = json.stringify(params.get('id'));
+            // A cancelled request cannot be left hanging (JSON-RPC): settle a
+            // held-open pull whose id this names with RequestCancelled. The client
+            // re-triggers a fresh pull if it still wants workspace diagnostics.
+            if let Some(pull) = self.open_pull {
+                if json.stringify(pull.id) == cancel_id {
+                    send_error(self.outbox, pull.id, -32800, 'request cancelled');
+                    self.open_pull = Option.None;
+                    self.delta_pending = false;
+                }
+            }
+            // Naming the scan's request makes the worker bail — a still-running
+            // initial scan then settles it with RequestCancelled (a delta drain
+            // for an already-settled pull just stops, silently).
+            if !self.scan_id.is_null() && json.stringify(self.scan_id) == cancel_id {
+                self.scan_bail = ScanBail.Cancelled;
+                self.ws_generation = self.ws_generation + 1;
+                self.join_current_worker();
+            }
+            return true;
+        }
+        if method == 'textDocument/didClose' {
+            if let Some(uri) = params.get('textDocument').get('uri').as_string() {
+                // Pull model: no explicit clear. Closing reverts the file to its
+                // on-disk content (marking dirty), and the flush nudges a re-pull —
+                // the client refetches the document/workspace diagnostics, and a
+                // loose (un-rooted) file simply drops out of the workspace report.
+                self.analysis.close_document(uri);
+            }
+            return true;
+        }
+        // An unhandled *request* gets a MethodNotFound error so the client
+        // doesn't hang (a null *result* would claim we handled it); a
+        // notification (Null id) is simply dropped.
+        if !id.is_null() {
+            send_error(self.outbox, id, -32601, 'method not found: ${method}');
+        }
+        return true;
+    }
+
+    // Store `text` for `uri` (when both are present); `set_document` marks it
+    // dirty for the next `flush` and evicts the file's cached parse so an
+    // importer's next check re-sees the change. The refresh nudge is deferred (not
+    // done here) so a burst of edits coalesces into one re-pull.
+    fn update_document(self, _ uri: Option<String>, _ text: Option<String>, _ version: Option<Int>) -> Void {
+        if let Some(u) = uri {
+            if let Some(t) = text {
+                self.analysis.set_document(u, t, version);
+            }
+        }
+    }
+
+    // The outline for an open document, or an empty array when it isn't open.
+    // Built from the recovered parse (via the session's parse cache — no
+    // re-tokenize per request), so it still works while the file has errors.
+    fn document_symbols(self, _ uri: Option<String>) -> Json {
+        return match uri {
+            Some(u) => match self.analysis.parsed(u) {
+                Some(program) => symbols.build_symbols(program),
+                None => json.arr([]),
+            },
+            None => json.arr([]),
+        };
+    }
+
+    // Hover at a position: the resolved declaration's signature, or JSON null.
+    fn hover(self, _ uri: Option<String>, _ position: Json) -> Json {
+        return match self.analysis.analyze_at(uri, position) {
+            Some(a) => hover.handle_hover(a.ctx, a.text, a.offset),
+            None => json.null(),
+        };
+    }
+
+    // Go-to-definition at a position: the declaration's `Location`, or JSON null.
+    fn definition(self, _ uri: Option<String>, _ position: Json) -> Json {
+        return match self.analysis.analyze_at(uri, position) {
+            Some(a) => definition.handle_definition(a.ctx, a.text, a.offset),
+            None => json.null(),
+        };
+    }
+
+    fn formatting(self, _ uri: Option<String>) -> Json {
+        return match uri {
+            Some(u) => match self.analysis.text(u) {
+                Some(text) => json.arr(formatting.format_document(text)),
+                None => json.null(),
+            },
+            None => json.null(),
+        };
+    }
+
+    // Code actions at a range: the idiomatic-rewrite refactorings (`match → if
+    // let`). Purely syntactic — the session's cached parse, no import closure.
+    // An empty array when the document isn't open or offers no rewrites.
+    fn code_action(self, _ uri: Option<String>, _ range: Json, _ context: Json) -> Json {
+        return match uri {
+            Some(u) => match self.analysis.text(u) {
+                Some(text) => match self.analysis.parsed(u) {
+                    Some(program) => code_action.handle_code_action(u, program, text, range, context),
+                    None => json.arr([]),
+                },
+                None => json.arr([]),
+            },
+            None => json.arr([]),
+        };
+    }
+
+    // Every open document's cached parse (the session stamps canonical
+    // identity); previously this re-tokenized every open buffer per query
+    // keystroke.
+    fn workspace_symbol(self, _ query: Option<String>) -> Json {
+        let q = query.unwrap_or('');
+        let programs: List<Program> = [];
+        for u in self.analysis.uris() {
+            if let Some(program) = self.analysis.parsed(u) {
+                programs.push(program);
+            }
+        }
+        return workspace_symbols.handle_workspace_symbols(programs, q);
+    }
+
+    // Find references at a position: every occurrence across the open documents
+    // that resolves to the same declaration (semantic, not lexical). An empty
+    // array when the document isn't open or nothing resolves.
+    fn references(self, _ uri: Option<String>, _ position: Json, _ context: Json) -> Json {
+        // `includeDeclaration` defaults to true when the client omits the context.
+        let include_decl = context.get('includeDeclaration').as_bool().unwrap_or(true);
+        return match uri {
+            Some(u) => self.analysis.references_at(u, position, include_decl),
+            None => json.arr([]),
+        };
+    }
+
+    // Rename at a position, emitting the JSON-RPC reply directly: a WorkspaceEdit
+    // result for an edit, a null result for a benign decline (no renamable symbol,
+    // an illegal name, an SDK symbol), or an error response for a pre-flight name
+    // collision (the new name is already bound in an affected scope — see
+    // rename.collision). A collision is an error, not a null result, so the editor
+    // shows the reason instead of silently doing nothing.
+    fn emit_rename(self, _ id: Json, _ uri: Option<String>,
+        _ position: Json, _ new_name: Option<String>) -> Void {
+        let outcome = match uri {
+            Some(u) => match new_name {
+                Some(n) => self.analysis.rename_at(u, position, n),
+                None => RenameOutcome.Decline,
+            },
+            None => RenameOutcome.Decline,
+        };
+        match outcome {
+            Edit(edit) => send_response(self.outbox, id, edit),
+            Decline => send_response(self.outbox, id, json.null()),
+            // -32803 RequestFailed (LSP): a valid request we chose not to fulfill.
+            Collision(message) => send_error(self.outbox, id, -32803, message),
+        }
+    }
+
+    // Diagnostics are pull-model (LSP 3.17): the server never pushes
+    // `publishDiagnostics`. A flush that saw an edit nudges a refresh-capable
+    // client to re-pull its *open documents* (`take_dirty` drains the set; `serve`
+    // coalesces a burst of edits into one flush, hence one nudge), and streams the
+    // *workspace-wide* consequences to a held-open pull — the refresh nudge does
+    // not re-trigger a workspace pull (vscode-languageclient re-pulls only open
+    // text documents on it), so with the pull held open the delta stream is the
+    // only channel closed files' diagnostics travel on.
+    fn flush(self) -> Void {
+        // Act only when a change could alter *another* file's diagnostics — a
+        // public-surface edit, a close, an on-disk change. A body-only edit touches
+        // just the edited file's own diagnostics, which the client re-pulls per
+        // document (and the spec has document-pull results win for open files).
+        if self.analysis.pending_workspace_refresh() {
+            self.request_workspace_refresh();
+            self.stream_workspace_delta();
+        }
+    }
+
+    // Ask the client to re-pull all diagnostics — the pull model's proactive
+    // signal (the server pushes nothing). A server-initiated request; the client's
+    // response carries no `method`, so `ingest` drops it. A no-op when the client
+    // didn't advertise refresh support (it then pulls on its own cadence).
+    fn request_workspace_refresh(self) -> Void {
+        if !self.client_refresh_support {
+            return;
+        }
+        let id = self.next_request_id;
+        self.next_request_id = id + 1;
+        self.outbox.send(json.obj([
+            'jsonrpc': json.str('2.0'),
+            'id': json.int(id),
+            'method': json.str('workspace/diagnostic/refresh'),
+        ]));
+    }
+
+    // Ask the client to watch the workspace's `.thera` files and report on-disk
+    // changes. Unlike the other capabilities this one can't be declared in
+    // `initialize`'s result — the protocol offers only dynamic registration — so it
+    // is a request we send once the client says `initialized`.
+    //
+    // Watching is the only way the server hears about a file that changed with no
+    // buffer open: `didChange` speaks for open documents alone. The client filters
+    // by these globs, so ask for exactly what we analyze.
+    fn register_file_watcher(self) -> Void {
+        if !self.client_watch_support {
+            return;
+        }
+        let id = self.next_request_id;
+        self.next_request_id = id + 1;
+        self.outbox.send(json.obj([
+            'jsonrpc': json.str('2.0'),
+            'id': json.int(id),
+            'method': json.str('client/registerCapability'),
+            'params': json.obj([
+                'registrations': json.arr([json.obj([
+                    'id': json.str('hawk-watched-files'),
+                    'method': json.str('workspace/didChangeWatchedFiles'),
+                    'registerOptions': json.obj([
+                        // hawk→thera transition: both extensions (docs/rename.md).
+                        'watchers': json.arr([json.obj([
+                            'globPattern': json.str('**/*.thera'),
+                        ]), json.obj([
+                            'globPattern': json.str('**/*.hawk'),
+                        ])]),
+                    ]),
+                ])]),
+            ]),
+        ]));
+    }
+
+    // Evict each reported file from the session's caches, so the next analysis
+    // re-reads it. Created / changed / deleted all invalidate the same way: the
+    // cached parse (and every importer's checked-clean status, via the session's
+    // dependency cone) can no longer be trusted for that path.
+    //
+    // The refresh nudge is deferred to the next `flush`, which coalesces it — a
+    // branch switch reports hundreds of files, and each nudging a full re-pull
+    // would be the storm this whole change is about avoiding.
+    fn handle_watched_changes(self, _ params: Json) -> Void {
+        for change in params.get('changes').as_array().unwrap_or([]) {
+            if let Some(uri) = change.get('uri').as_string() {
+                self.analysis.note_watched_change(uri);
+            }
+        }
+        self.flush();
+    }
+}
+
+// --- JSON-RPC envelope helpers ---
+
+fn send_response(_ ob: outbox.Outbox, _ id: Json, _ result: Json) -> Void {
+    ob.send(json.obj([
+        'jsonrpc': json.str('2.0'),
+        'id': id,
+        'result': result,
+    ]));
+}
+
+// A `$/progress` notification carrying `value` under the client-supplied `token`
+// — the partial-result transport (the workspace report and its delta batches).
+fn send_progress(_ ob: outbox.Outbox, _ token: Json, _ value: Json) -> Void {
+    ob.send(json.obj([
+        'jsonrpc': json.str('2.0'),
+        'method': json.str('$/progress'),
+        'params': json.obj([
+            'token': token,
+            'value': value,
+        ]),
+    ]));
+}
+
+// A JSON-RPC error response (`code` from the spec's reserved range:
+// -32700 ParseError, -32601 MethodNotFound, -32600 InvalidRequest, and the LSP
+// extensions -32800 RequestCancelled / -32802 ServerCancelled / -32803
+// RequestFailed). A non-null `data` rides on the error object — e.g. the
+// diagnostic pulls' `DiagnosticServerCancellationData`.
+fn send_error(_ ob: outbox.Outbox, _ id: Json, _ code: Int, _ message: String,
+    data: Json = json.null()) -> Void {
+    let err: Map<String, Json> = [
+        'code': json.int(code),
+        'message': json.str(message),
+    ];
+    if !data.is_null() {
+        err['data'] = data;
+    }
+    ob.send(json.obj([
+        'jsonrpc': json.str('2.0'),
+        'id': id,
+        'error': json.obj(err),
+    ]));
+}
+
+// --- LSP payloads ---
+
+fn initialize_result() -> Json {
+    return json.obj([
+        'capabilities': json.obj([
+            // The protocol default, declared explicitly: positions crossing
+            // the boundary are UTF-16 code units (see positions.thera, LS6).
+            'positionEncoding': json.str('utf-16'),
+            'textDocumentSync': json.int(1), // TextDocumentSyncKind.Full
+            'documentSymbolProvider': json.bool(true),
+            'hoverProvider': json.bool(true),
+            'definitionProvider': json.bool(true),
+            'documentFormattingProvider': json.bool(true),
+            'codeActionProvider': json.bool(true),
+            'workspaceSymbolProvider': json.bool(true),
+            'referencesProvider': json.bool(true),
+            'renameProvider': json.bool(true),
+            // Pull-model diagnostics. `interFileDependencies` tells the client a
+            // file's diagnostics can change when *another* file changes (so it
+            // re-pulls the workspace on our refresh nudge); `workspaceDiagnostics`
+            // advertises the `workspace/diagnostic` request that spans the project.
+            'diagnosticProvider': json.obj([
+                'interFileDependencies': json.bool(true),
+                'workspaceDiagnostics': json.bool(true),
+            ]),
+        ]),
+        'serverInfo': json.obj([
+            'name': json.str('hawk'),
+            'version': json.str('0.1.0'),
+        ]),
+    ]);
+}
+
+// --- helpers ---
+
+// The workspace root directories from an `initialize` request, as filesystem
+// paths. `workspaceFolders` (each folder's `uri`) is the modern form; a
+// single `rootUri` is the fallback the folder-less/older client sends. A
+// client that opened a loose file (no folder) sends neither — an empty list,
+// which leaves references/rename scoped to the open documents.
+// Whether the client can handle a `workspace/diagnostic/refresh` request, from
+// its `initialize` capabilities (`workspace.diagnostics.refreshSupport`). `get`
+// on an absent key returns JSON null, so the chain degrades to `false`.
+fn client_supports_diagnostic_refresh(_ params: Json) -> Bool {
+    return params.get('capabilities').get('workspace').get('diagnostics')
+        .get('refreshSupport').as_bool().unwrap_or(false);
+}
+
+// Whether the client will accept a `workspace/didChangeWatchedFiles` registration.
+// Dynamic registration is the only form the protocol defines for it, so a client
+// without this cannot report on-disk changes at all.
+fn client_supports_file_watching(_ params: Json) -> Bool {
+    return params.get('capabilities').get('workspace').get('didChangeWatchedFiles')
+        .get('dynamicRegistration').as_bool().unwrap_or(false);
+}
+
+// The string elements of a JSON array (non-strings and a non-array skipped) — the
+// `hawk.exclude` glob list, from `initializationOptions` or a settings payload.
+fn string_array(_ j: Json) -> List<String> {
+    let out: List<String> = [];
+    if let Some(items) = j.as_array() {
+        for it in items {
+            if let Some(s) = it.as_string() {
+                out.push(s);
+            }
+        }
+    }
+    return out;
+}
+
+// The client's `previousResultIds` from a `workspace/diagnostic` request, as a
+// URI -> resultId map (an array of `{ uri, value }`). Tells the server which
+// resultId the client last holds per file, so an unchanged file returns a light
+// `unchanged` report instead of re-sending items. Missing/malformed entries drop.
+fn previous_result_ids(_ params: Json) -> Map<String, String> {
+    let out: Map<String, String> = [:];
+    if let Some(entries) = params.get('previousResultIds').as_array() {
+        for e in entries {
+            if let Some(uri) = e.get('uri').as_string() {
+                if let Some(value) = e.get('value').as_string() {
+                    out[uri] = value;
+                }
+            }
+        }
+    }
+    return out;
+}
+
+fn workspace_roots(_ params: Json) -> List<String> {
+    let roots: List<String> = [];
+    match params.get('workspaceFolders').as_array() {
+        Some(folders) => {
+            for f in folders {
+                if let Some(uri) = f.get('uri').as_string() {
+                    roots.push(paths.uri_to_path(uri));
+                }
+            }
+        },
+        None => {
+            if let Some(uri) = params.get('rootUri').as_string() {
+                roots.push(paths.uri_to_path(uri));
+            }
+        },
+    }
+    return roots;
+}
+
+// The text of the last full-document content change (full-sync convention), or
+// None when there are no changes.
+fn last_change_text(_ changes: Json) -> Option<String> {
+    return match changes.as_array() {
+        Some(list) => {
+            if list.len() == 0 {
+                Option.None
+            } else {
+                list[list.len() - 1].get('text').as_string()
+            }
+        },
+        None => Option.None,
+    };
+}

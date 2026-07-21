@@ -1,4 +1,0 @@
-// Support library for as_underscore_collision.hawk: shares `shared_util` with
-// libshare_a.hawk.
-pub fn shared_util() -> Int { return 2; }
-pub fn only_b() -> Int { return 20; }

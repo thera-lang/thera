@@ -1,0 +1,50 @@
+// Tests for the path <-> URI conversions, in particular percent
+// encoding/decoding (LS7): a workspace path with a space or a non-ASCII name
+// must round-trip through its `file://` URI.
+
+import std.testing;
+
+import 'paths' as _;
+
+@test
+fn test_plain_path_round_trips() -> Result<Void, Error> {
+    let path = '/tmp/proj/main.thera';
+    testing.assert_eq(actual: path_to_uri(path), expected: 'file:///tmp/proj/main.thera')?;
+    testing.assert_eq(actual: uri_to_path(path_to_uri(path)), expected: path)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_space_is_percent_encoded() -> Result<Void, Error> {
+    let path = '/tmp/my project/a b.thera';
+    testing.assert_eq(actual: path_to_uri(path),
+        expected: 'file:///tmp/my%20project/a%20b.thera')?;
+    testing.assert_eq(actual: uri_to_path('file:///tmp/my%20project/a%20b.thera'),
+        expected: path)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_non_ascii_round_trips() -> Result<Void, Error> {
+    // 'é' is two UTF-8 bytes, each escaped.
+    let path = '/tmp/caf\u{E9}.thera';
+    testing.assert_eq(actual: path_to_uri(path), expected: 'file:///tmp/caf%C3%A9.thera')?;
+    testing.assert_eq(actual: uri_to_path(path_to_uri(path)), expected: path)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_decode_is_lenient() -> Result<Void, Error> {
+    // A '%' not followed by two hex digits passes through verbatim.
+    testing.assert_eq(actual: percent_decode('a%zzb'), expected: 'a%zzb')?;
+    testing.assert_eq(actual: percent_decode('tail%2'), expected: 'tail%2')?;
+    // Lowercase hex decodes too.
+    testing.assert_eq(actual: percent_decode('a%2fb'), expected: 'a/b')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_non_file_uri_passes_through() -> Result<Void, Error> {
+    testing.assert_eq(actual: uri_to_path('untitled:one'), expected: 'untitled:one')?;
+    return Result.Ok(void);
+}

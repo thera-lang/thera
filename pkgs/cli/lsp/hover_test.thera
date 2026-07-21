@@ -1,0 +1,224 @@
+// Tests for context-aware hover resolution (hover.thera): `self`, `self.member`,
+// parameters, and `Enum.Variant` — the non-top-level names that now resolve.
+
+import std.testing;
+
+import '../ast/ast' as _; // Program
+import '../element/element' as _; // LibraryNamespace
+import '../lexer/lexer';
+import '../parser/parser';
+import '../checker/checker';
+import 'hover' as _;
+import 'resolve' as _;
+
+// The rendered hover code for `src` at code-point `offset` ('' when hover is null).
+fn rendered(_ src: String, _ offset: Int) -> String {
+    let program = parser.parse_tokens(lexer.tokenize(src).tokens).program;
+    let imports: List<Program> = [];
+    let nss: Map<String, Map<String, LibraryNamespace>> = [:];
+    let bare: Map<String, Map<String, String>> = [:];
+    let ctx = ResolveCtx {
+        program: program,
+        tokens: lexer.tokenize(src).tokens, // the parse's tokens, paired with `src`
+        imports: imports,
+        file_namespaces: nss,
+        file_bare_surface: bare,
+        primary_types: [],
+    };
+    return hover.handle_hover(ctx, src, offset)
+        .get('contents').get('value').as_string().unwrap_or('');
+}
+
+// The offset `delta` code points past the first occurrence of `marker` in `src`.
+fn at(_ src: String, _ marker: String, _ delta: Int) -> Int {
+    return src.find(marker).unwrap_or(0) + delta;
+}
+
+const SRC: String = 'struct S { let count: Int; }\n'
+    + 'impl S {\n'
+    + '    fn helper(self, _ n: Int) -> Int { return self.count + n; }\n'
+    + '    fn go(self) -> Int { return self.helper(self.count); }\n'
+    + '}\n'
+    + 'enum Color { Red, Green(Int) }\n'
+    + 'fn paint() -> Color { return Color.Green(1); }\n';
+
+@test
+fn test_hover_self_resolves_to_the_impl_type() -> Result<Void, Error> {
+    // `self` in `return self.helper(...)` → the enclosing impl's type.
+    let code = rendered(SRC, at(SRC, 'return self.helper', 7));
+    testing.assert_eq(actual: code, expected: '```hawk\nself: S\n```')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_hover_self_field() -> Result<Void, Error> {
+    // `self.count` → the field's declared type.
+    let code = rendered(SRC, at(SRC, 'self.count + n', 5));
+    testing.assert(code.contains('count: Int'), message: 'shows the field type')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_hover_self_method() -> Result<Void, Error> {
+    // `self.helper(...)` → the method signature.
+    let code = rendered(SRC, at(SRC, 'self.helper(self', 5));
+    testing.assert(code.contains('fn helper(self, n: Int) -> Int'), message: 'shows the method signature')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_hover_parameter() -> Result<Void, Error> {
+    // The parameter `n` used in the body → its declared type.
+    let code = rendered(SRC, at(SRC, 'self.count + n', 13));
+    testing.assert(code.contains('n: Int'), message: 'shows the parameter type')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_hover_enum_variant() -> Result<Void, Error> {
+    // `Color.Green(1)` → the variant with its payload types.
+    let code = rendered(SRC, at(SRC, 'Color.Green(1)', 6));
+    testing.assert(code.contains('Color.Green(Int)'), message: 'shows the variant + payload')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_hover_top_level_still_resolves() -> Result<Void, Error> {
+    // Regression: a top-level name still resolves to its declaration.
+    let code = rendered(SRC, at(SRC, 'fn paint', 3));
+    testing.assert(code.contains('fn paint() -> Color'), message: 'top-level fn resolves')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_hover_enum_variant_definition_name() -> Result<Void, Error> {
+    // Hovering a variant at its declaration renders the qualified variant — the
+    // same form a use site shows — with its payload types.
+    let src = 'enum Priority { Low, Medium, High }\n'
+        + 'enum Shape { Circle(Int), Square(Int, Int) }\n';
+    let bare = rendered(src, at(src, 'Medium, High', 0));
+    testing.assert_eq(actual: bare, expected: '```hawk\nPriority.Medium\n```')?;
+    let payload = rendered(src, at(src, 'Square(Int, Int)', 0));
+    testing.assert_eq(actual: payload, expected: '```hawk\nShape.Square(Int, Int)\n```')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_hover_interface_method_definition_name() -> Result<Void, Error> {
+    // Hovering a method's name at its declaration inside an `interface` shows the
+    // method signature (a method has no bare top-level name to fall back on).
+    let src = 'interface Weighted { fn weight(self) -> Int; }\n';
+    let code = rendered(src, at(src, 'fn weight', 3));
+    testing.assert(code.contains('fn weight(self) -> Int'), message: 'interface method signature')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_hover_impl_method_definition_name() -> Result<Void, Error> {
+    // Hovering a method's name at its declaration inside an `impl` block, too.
+    let src = 'struct S { let n: Int; }\n'
+        + 'interface Weighted { fn weight(self) -> Int; }\n'
+        + 'impl Weighted for S { fn weight(self) -> Int { return self.n; } }\n';
+    let code = rendered(src, at(src, 'fn weight(self) -> Int { return', 3));
+    testing.assert(code.contains('fn weight(self) -> Int'), message: 'impl method signature')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_hover_member_of_unknown_receiver_is_null() -> Result<Void, Error> {
+    // A member of a non-`self` receiver needs inference — don't guess. `count` here
+    // is a member access on `other`, and must NOT resolve to the struct field.
+    let src = 'fn f(_ other: S) -> Int { return other.count; }\n' + SRC;
+    let code = rendered(src, at(src, 'other.count', 6));
+    testing.assert_eq(actual: code, expected: '')?;
+    return Result.Ok(void);
+}
+
+// ---- inferred locals via the committed-type record (CH19) ----
+
+// Like `rendered`, with the primary's committed-type record populated the way
+// `analyze_at` populates it (here straight from the hermetic checker).
+fn rendered_with_types(_ src: String, _ offset: Int) -> String {
+    let program = parser.parse_tokens(lexer.tokenize(src).tokens).program;
+    let imports: List<Program> = [];
+    let nss: Map<String, Map<String, LibraryNamespace>> = [:];
+    let bare: Map<String, Map<String, String>> = [:];
+    let ctx = ResolveCtx {
+        program: program,
+        tokens: lexer.tokenize(src).tokens, // the parse's tokens, paired with `src`
+        imports: imports,
+        file_namespaces: nss,
+        file_bare_surface: bare,
+        primary_types: checker.check(program, [], [:], [:]).records,
+    };
+    return hover.handle_hover(ctx, src, offset)
+        .get('contents').get('value').as_string().unwrap_or('');
+}
+
+@test
+fn test_hover_bare_variant_pattern() -> Result<Void, Error> {
+    // A bare variant pattern in a match arm renders as the qualified variant,
+    // resolved via the subject's committed type.
+    let src = 'enum Priority { Low, Medium, High }\n'
+        + 'fn weight(_ p: Priority) -> Int {\n'
+        + '    return match p {\n'
+        + '        Low => 1,\n'
+        + '        Medium => 2,\n'
+        + '        High => 4,\n'
+        + '    };\n'
+        + '}\n';
+    let code = rendered_with_types(src, at(src, 'Medium => 2', 2));
+    testing.assert_eq(actual: code, expected: '```hawk\nPriority.Medium\n```')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_hover_for_loop_variable_shows_element_type() -> Result<Void, Error> {
+    // The loop variable's element type is reported at its `for x in …`
+    // declaration site (the checker stamps its name span), matching the render
+    // at its use sites in the body.
+    let src = 'fn f(_ xs: List<Task>) -> Int {\n'
+        + '    for x in xs {\n'
+        + '        println(x.title);\n'
+        + '    }\n'
+        + '    return 0;\n'
+        + '}\n'
+        + 'struct Task { let title: String; }\n';
+    // At the declaration (`for x in xs`)...
+    let decl_site = rendered_with_types(src, at(src, 'for x in xs', 4));
+    testing.assert_eq(actual: decl_site, expected: '```hawk\nx: Task\n```')?;
+    // ...and at a use site in the body.
+    let use_site = rendered_with_types(src, at(src, 'x.title', 0));
+    testing.assert_eq(actual: use_site, expected: '```hawk\nx: Task\n```')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_hover_unannotated_local_shows_inferred_type() -> Result<Void, Error> {
+    let src = 'fn f() -> Int { let xs = [1, 2]; return xs[0]; }';
+    // At the use site (the `Ident`'s committed record)...
+    let use_site = rendered_with_types(src, at(src, 'xs[0]', 0));
+    testing.assert_eq(actual: use_site, expected: '```hawk\nxs: List<Int>\n```')?;
+    // ...and on the declaration name (the `let` name-span record).
+    let decl_site = rendered_with_types(src, at(src, 'xs = ', 0));
+    testing.assert_eq(actual: decl_site, expected: '```hawk\nxs: List<Int>\n```')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_hover_annotated_local_keeps_the_annotation() -> Result<Void, Error> {
+    // A written annotation still renders as written (no record consulted).
+    let src = 'fn f() -> Int { let n: Int = 1; return n; }';
+    let code = rendered_with_types(src, at(src, 'return n', 7));
+    testing.assert_eq(actual: code, expected: '```hawk\nn: Int\n```')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_hover_local_without_record_degrades_to_the_name() -> Result<Void, Error> {
+    // No record (the pre-check state): the render degrades to the bare name.
+    let src = 'fn f() -> Int { let xs = [1, 2]; return xs[0]; }';
+    let code = rendered(src, at(src, 'xs[0]', 0));
+    testing.assert_eq(actual: code, expected: '```hawk\nxs\n```')?;
+    return Result.Ok(void);
+}
