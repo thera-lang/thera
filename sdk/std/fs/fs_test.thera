@@ -29,7 +29,7 @@ fn is_not_found(_ e: FsError) -> Bool {
 
 @test
 fn test_write_then_read_text() -> Result<Void, Error> {
-    let dir = workspace('hawk_fs_text')?;
+    let dir = workspace('thera_fs_text')?;
     let file = path.join(dir, 'hello.txt');
     fs.write_text(file, 'hello, fs')?;
     testing.assert_eq(actual: fs.read_text(file)?, expected: 'hello, fs')?;
@@ -39,7 +39,7 @@ fn test_write_then_read_text() -> Result<Void, Error> {
 
 @test
 fn test_write_then_read_bytes() -> Result<Void, Error> {
-    let dir = workspace('hawk_fs_bytes')?;
+    let dir = workspace('thera_fs_bytes')?;
     let file = path.join(dir, 'data.bin');
     let data = Bytes.from_list([0, 1, 2, 255])?;
     fs.write_bytes(file, data)?;
@@ -50,7 +50,7 @@ fn test_write_then_read_bytes() -> Result<Void, Error> {
 
 @test
 fn test_exists() -> Result<Void, Error> {
-    let dir = workspace('hawk_fs_exists')?;
+    let dir = workspace('thera_fs_exists')?;
     let file = path.join(dir, 'f.txt');
     testing.assert_eq(actual: fs.exists(file), expected: false)?;
     fs.write_text(file, 'x')?;
@@ -61,7 +61,7 @@ fn test_exists() -> Result<Void, Error> {
 
 @test
 fn test_read_missing_is_not_found() -> Result<Void, Error> {
-    let missing = path.join(fs.temp_dir(), 'hawk_fs_definitely_absent_42');
+    let missing = path.join(fs.temp_dir(), 'thera_fs_definitely_absent_42');
     let classified = match fs.read_text(missing) {
         Ok(_) => false,
         Err(e) => is_not_found(e),
@@ -72,7 +72,7 @@ fn test_read_missing_is_not_found() -> Result<Void, Error> {
 
 @test
 fn test_list_dir() -> Result<Void, Error> {
-    let dir = workspace('hawk_fs_list')?;
+    let dir = workspace('thera_fs_list')?;
     fs.write_text(path.join(dir, 'a.txt'), '1')?;
     fs.write_text(path.join(dir, 'b.txt'), '2')?;
     let names = fs.list_dir(dir)?;
@@ -89,7 +89,7 @@ fn test_list_dir() -> Result<Void, Error> {
 /// subdirectory.
 @test
 fn test_read_dir_reports_kinds() -> Result<Void, Error> {
-    let dir = workspace('hawk_fs_read_dir')?;
+    let dir = workspace('thera_fs_read_dir')?;
     fs.write_text(path.join(dir, 'a.txt'), '1')?;
     fs.create_dir_all(path.join(dir, 'sub'))?;
 
@@ -112,7 +112,7 @@ fn test_read_dir_reports_kinds() -> Result<Void, Error> {
 /// split has to stop at the first separator, or such a name would be truncated.
 @test
 fn test_read_dir_name_with_separator_byte() -> Result<Void, Error> {
-    let dir = workspace('hawk_fs_read_dir_sep')?;
+    let dir = workspace('thera_fs_read_dir_sep')?;
     let odd = 'we\u{1}ird.txt';
     fs.write_text(path.join(dir, odd), 'x')?;
     let entries = fs.read_dir(dir)?;
@@ -126,7 +126,7 @@ fn test_read_dir_name_with_separator_byte() -> Result<Void, Error> {
 /// An empty directory reads as no entries, not an error.
 @test
 fn test_read_dir_empty() -> Result<Void, Error> {
-    let dir = workspace('hawk_fs_read_dir_empty')?;
+    let dir = workspace('thera_fs_read_dir_empty')?;
     testing.assert_eq(actual: fs.read_dir(dir)?.len(), expected: 0)?;
     fs.remove_dir_all(dir)?;
     return Result.Ok(void);
@@ -135,7 +135,7 @@ fn test_read_dir_empty() -> Result<Void, Error> {
 /// A missing directory is a `NotFound`, matching `list_dir`.
 @test
 fn test_read_dir_missing() -> Result<Void, Error> {
-    let dir = workspace('hawk_fs_read_dir_gone')?;
+    let dir = workspace('thera_fs_read_dir_gone')?;
     let missing = path.join(dir, 'nope');
     let not_found = match fs.read_dir(missing) {
         Ok(_) => false,
@@ -150,7 +150,7 @@ fn test_read_dir_missing() -> Result<Void, Error> {
 
 @test
 fn test_metadata_file() -> Result<Void, Error> {
-    let dir = workspace('hawk_fs_meta')?;
+    let dir = workspace('thera_fs_meta')?;
     let file = path.join(dir, 'sized.txt');
     fs.write_text(file, 'hello')?; // 5 bytes
     let md = fs.metadata(file)?;
@@ -170,10 +170,10 @@ fn test_metadata_file() -> Result<Void, Error> {
 
 @test
 fn test_temp_file() -> Result<Void, Error> {
-    let f = fs.temp_file(prefix: 'hawk_fs_tmp_')?;
+    let f = fs.temp_file(prefix: 'thera_fs_tmp_')?;
     let p = f.path();
     testing.assert(fs.exists(p), message: 'temp file exists on disk')?;
-    testing.assert(path.basename(p).starts_with('hawk_fs_tmp_'), message: 'name uses the prefix')?;
+    testing.assert(path.basename(p).starts_with('thera_fs_tmp_'), message: 'name uses the prefix')?;
 
     // It's a real, writable File; what we write reads back from its path.
     f.write('scratch'.bytes())?;
@@ -181,7 +181,7 @@ fn test_temp_file() -> Result<Void, Error> {
     testing.assert_eq(actual: fs.read_text(p)?, expected: 'scratch')?;
 
     // Each call yields a distinct file (atomic, unique).
-    let f2 = fs.temp_file(prefix: 'hawk_fs_tmp_')?;
+    let f2 = fs.temp_file(prefix: 'thera_fs_tmp_')?;
     testing.assert(f2.path() != p, message: 'temp files get unique names')?;
     f2.close()?;
 
@@ -193,7 +193,7 @@ fn test_temp_file() -> Result<Void, Error> {
 
 @test
 fn test_symlink_metadata_detects_a_link() -> Result<Void, Error> {
-    let dir = workspace('hawk_fs_symlink')?;
+    let dir = workspace('thera_fs_symlink')?;
     let target = path.join(dir, 'target.txt');
     fs.write_text(target, 'hi')?;
     let link = path.join(dir, 'link.txt');
@@ -213,7 +213,7 @@ fn test_symlink_metadata_detects_a_link() -> Result<Void, Error> {
 
 @test
 fn test_create_and_remove_dir() -> Result<Void, Error> {
-    let dir = workspace('hawk_fs_mkdir')?;
+    let dir = workspace('thera_fs_mkdir')?;
     let nested = path.join(path.join(dir, 'a'), 'b');
     fs.create_dir_all(nested)?;
     testing.assert_eq(actual: fs.exists(nested), expected: true)?;
@@ -224,7 +224,7 @@ fn test_create_and_remove_dir() -> Result<Void, Error> {
 
 @test
 fn test_rename() -> Result<Void, Error> {
-    let dir = workspace('hawk_fs_rename')?;
+    let dir = workspace('thera_fs_rename')?;
     let a = path.join(dir, 'a.txt');
     let b = path.join(dir, 'b.txt');
     fs.write_text(a, 'move me')?;
@@ -237,7 +237,7 @@ fn test_rename() -> Result<Void, Error> {
 
 @test
 fn test_copy() -> Result<Void, Error> {
-    let dir = workspace('hawk_fs_copy')?;
+    let dir = workspace('thera_fs_copy')?;
     let a = path.join(dir, 'a.txt');
     let b = path.join(dir, 'b.txt');
     fs.write_text(a, 'duplicate')?;
@@ -252,7 +252,7 @@ fn test_copy() -> Result<Void, Error> {
 
 @test
 fn test_file_write_read_roundtrip() -> Result<Void, Error> {
-    let dir = workspace('hawk_fs_file_rw')?;
+    let dir = workspace('thera_fs_file_rw')?;
     let p = path.join(dir, 'data.txt');
     let w = fs.create(p)?;
     let n = w.write('hello, file'.bytes())?;
@@ -268,7 +268,7 @@ fn test_file_write_read_roundtrip() -> Result<Void, Error> {
 
 @test
 fn test_file_lines_streamed() -> Result<Void, Error> {
-    let dir = workspace('hawk_fs_file_lines')?;
+    let dir = workspace('thera_fs_file_lines')?;
     let p = path.join(dir, 'lines.txt');
     fs.write_text(p, 'a\nb\nc\n')?;
     let f = fs.open(p)?;
@@ -280,7 +280,7 @@ fn test_file_lines_streamed() -> Result<Void, Error> {
 
 @test
 fn test_file_seek() -> Result<Void, Error> {
-    let dir = workspace('hawk_fs_file_seek')?;
+    let dir = workspace('thera_fs_file_seek')?;
     let p = path.join(dir, 'seek.txt');
     fs.write_text(p, '0123456789')?;
     let f = fs.open(p)?;
@@ -295,7 +295,7 @@ fn test_file_seek() -> Result<Void, Error> {
 
 @test
 fn test_file_use_after_close_errors() -> Result<Void, Error> {
-    let dir = workspace('hawk_fs_file_closed')?;
+    let dir = workspace('thera_fs_file_closed')?;
     let p = path.join(dir, 'c.txt');
     fs.write_text(p, 'x')?;
     let f = fs.open(p)?;
@@ -307,7 +307,7 @@ fn test_file_use_after_close_errors() -> Result<Void, Error> {
 
 @test
 fn test_open_missing_is_not_found() -> Result<Void, Error> {
-    let dir = workspace('hawk_fs_open_missing')?;
+    let dir = workspace('thera_fs_open_missing')?;
     let is_nf = match fs.open(path.join(dir, 'nope.txt')) {
         Ok(_) => false,
         Err(e) => is_not_found(e),
@@ -333,7 +333,7 @@ fn build_tree(_ name: String) -> Result<String, Error> {
 
 @test
 fn test_walk_recurses_files_and_dirs() -> Result<Void, Error> {
-    let dir = build_tree('hawk_fs_walk_all')?;
+    let dir = build_tree('thera_fs_walk_all')?;
     let got = fs.walk(dir).to_list(); // order is unspecified — check membership
     let sub = path.join(dir, 'sub');
     let deep = path.join(sub, 'deep');
@@ -349,7 +349,7 @@ fn test_walk_recurses_files_and_dirs() -> Result<Void, Error> {
 
 @test
 fn test_walk_filter_to_files() -> Result<Void, Error> {
-    let dir = build_tree('hawk_fs_walk_files')?;
+    let dir = build_tree('thera_fs_walk_files')?;
     let files = fs.walk(dir).filter((p) => p.ends_with('.txt')).to_list();
     testing.assert_eq(actual: files.len(), expected: 3)?;
     fs.remove_dir_all(dir)?;
@@ -358,7 +358,7 @@ fn test_walk_filter_to_files() -> Result<Void, Error> {
 
 @test
 fn test_walk_empty_dir() -> Result<Void, Error> {
-    let dir = workspace('hawk_fs_walk_empty')?;
+    let dir = workspace('thera_fs_walk_empty')?;
     testing.assert_eq(actual: fs.walk(dir).count(), expected: 0)?;
     fs.remove_dir_all(dir)?;
     return Result.Ok(void);
@@ -366,7 +366,7 @@ fn test_walk_empty_dir() -> Result<Void, Error> {
 
 @test
 fn test_walk_for_loop() -> Result<Void, Error> {
-    let dir = build_tree('hawk_fs_walk_for')?;
+    let dir = build_tree('thera_fs_walk_for')?;
     let mut n = 0;
     for _ in fs.walk(dir) {
         n = n + 1;
@@ -378,7 +378,7 @@ fn test_walk_for_loop() -> Result<Void, Error> {
 
 @test
 fn test_walk_missing_root_records_error() -> Result<Void, Error> {
-    let dir = workspace('hawk_fs_walk_missing')?;
+    let dir = workspace('thera_fs_walk_missing')?;
     let w = fs.walk(path.join(dir, 'does_not_exist'));
     testing.assert_eq(actual: w.to_list().len(), expected: 0)?;
     let is_nf = match w.error() {

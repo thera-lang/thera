@@ -310,11 +310,11 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   **coding agents**, which shifts the design toward _deterministic,
   function-level, flat text_ over flame-graph SVGs and line-level precision.
   1. **In-VM profiler — done (v1).** Implemented as an always-shipping runtime
-     feature gated by the **`HAWK_PROFILE`** env var (not a compile-time feature
+     feature gated by the **`THERA_PROFILE`** env var (not a compile-time feature
      like `native-stats`; `run_loop` reads it once into a local, so a
      non-profiled run pays one predictable branch — `src/profile.rs`). Per Hawk
      function: exact **call counts**, **self + inclusive time** via
-     **instruction-budget sampling** (every `HAWK_PROFILE_INTERVAL`=1000
+     **instruction-budget sampling** (every `THERA_PROFILE_INTERVAL`=1000
      instructions, sample the live frame stack at the loop top), and
      **allocations** attributed via the single `heap::alloc` chokepoint. Output
      is a flat table to stderr at run end, sorted by self-time;
@@ -322,8 +322,8 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
      byte-identical, what an agent's before/after needs), guarded by a
      presence + determinism smoke in `bin/test.sh`. Because the env var
      propagates to the child runtime and the front-end is itself a Hawk program,
-     it profiles both a user program (`HAWK_PROFILE=1 hawk run x.hawk`) and the
-     front-end's own compilation (`HAWK_PROFILE=1 hawk check pkgs/cli` — which
+     it profiles both a user program (`THERA_PROFILE=1 hawk run x.hawk`) and the
+     front-end's own compilation (`THERA_PROFILE=1 hawk check pkgs/cli` — which
      already shows the lexer at ~50% self-time and ~55M allocations, the data
      for the check-perf work). A `hawk run --profile` flag is thin sugar to add
      later; line/allocation call-site precision is #2 below.
@@ -1535,7 +1535,7 @@ conformance specs. Newest first.
 
 - **OOM + stack-overflow traps; string-indexing hint** (2026-07). Memory and
   frame-stack exhaustion are real traps now, not process aborts: the heap has a
-  live-bytes ceiling (`HAWK_MAX_HEAP_MB`, default 1 GiB) enforced at the
+  live-bytes ceiling (`THERA_MAX_HEAP_MB`, default 1 GiB) enforced at the
   safepoint right after a collection (`Trap::OutOfMemory` — only genuinely-live
   bytes count), an allocation past the ceiling arms a collection even below the
   adaptive threshold, and a call past the 1M-frame depth backstop raises
@@ -1859,7 +1859,7 @@ conformance specs. Newest first.
   (`Debug`/`Info`/`Warn`/`Error`), named loggers with hierarchical per-source
   filtering (longest dotted-prefix wins), and Text/JSON rendering on stderr.
   Configuration (`set_level`/`set_level_for`/`set_format`/`configure_from_env`,
-  the last reading a `RUST_LOG`-style `HAWK_LOG` spec) is application-only
+  the last reading a `RUST_LOG`-style `THERA_LOG` spec) is application-only
   behind a facade; libraries only ever emit. Ambient logging is the free
   functions `info`/`warn`/`debug` (plus `named(...)` for source-tagged loggers);
   its config is the one **sanctioned exception** to "no global state" —
@@ -1991,7 +1991,7 @@ conformance specs. Newest first.
   closure (the incremental engine).
 
 - **In-VM profiler + `hawk check` ~7.7× faster** (2026-06). A deterministic
-  instruction-budget profiler (`HAWK_PROFILE`) drove a measure-then-fix pass on
+  instruction-budget profiler (`THERA_PROFILE`) drove a measure-then-fix pass on
   `hawk check pkgs/cli` (80s): a cross-file parse cache (the `std.core` prelude
   was parsed 46× → once) plus string-constant interning took it to **~10.4s**,
   byte-identical fixpoint. Surfaced that a top-level `const` keyword map can't
@@ -2001,7 +2001,7 @@ conformance specs. Newest first.
 - **Unified checker/codegen inference context + a differential oracle**
   (2026-06). The checker and codegen built `infer_expr`'s context independently
   — a bug class where the two stages inferred an expression to different types
-  (a runtime-trapping miscompile). A differential oracle (`HAWK_INFER_ORACLE`)
+  (a runtime-trapping miscompile). A differential oracle (`THERA_INFER_ORACLE`)
   mapped every divergence to one pattern (codegen dropping the receiver's type
   args), now fixed and a permanent assert-zero guard in `bin/test.sh`;
   byte-identical fixpoint. _Open: extend the oracle to lambda units — a

@@ -944,14 +944,14 @@ pub enum Format { Text, Json }              // Text for a TTY; Json = one object
 pub fn set_level(_ level: Level) -> Void;                        // default threshold (default Info)
 pub fn set_level_for(_ prefix: String, _ level: Level) -> Void;  // per-source override
 pub fn set_format(_ f: Format) -> Void;
-pub fn configure_from_env(_ var: String = 'HAWK_LOG') -> Void;   // 'info,myapp.db=debug,http=warn'
+pub fn configure_from_env(_ var: String = 'THERA_LOG') -> Void;   // 'info,myapp.db=debug,http=warn'
 ```
 
 **Per-source filtering is the headline** (the coarse-toggle fix). A record from
 `log.named('http.client')` resolves its threshold by the most specific matching
 prefix — `http.client`, then `http`, then the global default — so a noisy
 dependency goes quiet with `set_level_for('http', Level.Warn)` (or
-`HAWK_LOG=info,http=warn`, no recompile) while your own `myapp=debug` stays
+`THERA_LOG=info,http=warn`, no recompile) while your own `myapp=debug` stays
 loud. This is Python's hierarchical loggers / Rust's `RUST_LOG` + `EnvFilter`,
 minus the ceremony. Reading the filter map from an **env var** is the key
 ergonomic: what's noisy is _data, not code_, so tuning it never edits a source

@@ -1,17 +1,17 @@
 [package]
-name = "hawk"
+name = "thera"
 version = "0.1.0"
 edition = "2024"
 
-# The library crate stays `hawk` (so `use hawk::…` is unchanged), but the binary
-# is `hawkrt` — the *bare runtime*. The full SDK launcher (this binary with the
-# front-end bytecode embedded) is named `hawk` by the SDK build.
+# The library crate is `thera`; the binary
+# is `thera-rt` — the *bare runtime*. The full SDK launcher (this binary with the
+# front-end bytecode embedded) is named `thera` by the SDK build.
 [[bin]]
-name = "hawkrt"
+name = "thera-rt"
 path = "src/main.rs"
 
 [features]
-# Per-native call counting, dumped to stderr at end of run when HAWK_NATIVE_STATS
+# Per-native call counting, dumped to stderr at end of run when THERA_NATIVE_STATS
 # is set. A tuning aid; off by default so the interpreter pays nothing.
 native-stats = []
 

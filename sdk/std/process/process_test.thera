@@ -39,7 +39,7 @@ fn test_exec_returns_exit_code() -> Result<Void, Error> {
 
 @test
 fn test_exec_missing_command_is_not_found() -> Result<Void, Error> {
-    let classified = match process.exec('hawk_no_such_program_42') {
+    let classified = match process.exec('thera_no_such_program_42') {
         Ok(_) => false,
         Err(e) => is_not_found(e),
     };
@@ -57,7 +57,7 @@ fn test_run_captures_stderr() -> Result<Void, Error> {
 
 @test
 fn test_run_missing_command_is_not_found() -> Result<Void, Error> {
-    let classified = match process.run('hawk_no_such_program_42') {
+    let classified = match process.run('thera_no_such_program_42') {
         Ok(_) => false,
         Err(e) => is_not_found(e),
     };
@@ -68,8 +68,8 @@ fn test_run_missing_command_is_not_found() -> Result<Void, Error> {
 @test
 fn test_env_is_passed() -> Result<Void, Error> {
     let env = [:];
-    env['HAWK_GREETING'] = 'hi-there';
-    let r = process.run('sh', args: ['-c', 'printf %s "$HAWK_GREETING"'],
+    env['THERA_GREETING'] = 'hi-there';
+    let r = process.run('sh', args: ['-c', 'printf %s "$THERA_GREETING"'],
         env: Option.Some(env))?;
     testing.assert_eq(actual: r.stdout, expected: 'hi-there')?;
     return Result.Ok(void);

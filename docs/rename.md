@@ -38,7 +38,7 @@ independent.
   (`bootstrap/frontend.thera-bc`, scripts, help text). Magic: decoder accepts
   `HAWK` and `THERA`, encoder emits `THERA`, rebuild + refresh snapshot, then
   drop `HAWK` acceptance.
-- [ ] **4. Tool / crate / env renames.** `bin/hawk.sh` → `bin/thera.sh`; SDK
+- [x] **4. Tool / crate / env renames.** `bin/hawk.sh` → `bin/thera.sh`; SDK
   launcher `bin/hawk` → `bin/thera`; CLI usage text; Rust crate `hawk` →
   `thera` and binary `hawkrt` → `thera-rt`; `HAWK_*` → `THERA_*` env vars
   (clean cut, no compat aliases).

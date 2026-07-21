@@ -25,7 +25,7 @@ import '../element/resolver';
 import '../element/inference' as _;
 import 'module_scope' as _;
 import '../diagnostic'; // Diagnostic — the uniform phase error
-import std.env;   // the differential inference oracle (HAWK_INFER_ORACLE) reads a flag
+import std.env;   // the differential inference oracle (THERA_INFER_ORACLE) reads a flag
 
 pub struct CodegenResult {
     let module: Module;
@@ -139,10 +139,10 @@ pub fn compile_program(_ program: Program, _ imports: List<Program>,
         i = i + 1;
     }
     if let Some(f) = init_thunk { functions.push(f); }
-    // Differential inference oracle (opt-in via HAWK_INFER_ORACLE): report units
+    // Differential inference oracle (opt-in via THERA_INFER_ORACLE): report units
     // whose codegen inference context diverges from the checker-correct one — the
     // root of the checker/codegen inference-disagreement bug class.
-    if let Some(_) = env.get('HAWK_INFER_ORACLE') { run_infer_oracle(scope); }
+    if let Some(_) = env.get('THERA_INFER_ORACLE') { run_infer_oracle(scope); }
 
     // Dispatch rows that should have resolved but didn't are internal
     // inconsistencies (an impl method that never registered) — surface them
@@ -2381,7 +2381,7 @@ fn self_type_param_names(_ t: Type) -> List<String> {
 // `impl_self_type`) — a real differential, since the two are built by separate
 // code. A mismatch is a place the two stages could infer the same expression to
 // different types; once the construction is unified this reports zero. Opt-in via
-// `HAWK_INFER_ORACLE`; prints to stderr.
+// `THERA_INFER_ORACLE`; prints to stderr.
 
 // The checker's receiver type for a unit — the oracle's reference, kept separate
 // from codegen's `named_self_type` so the comparison is a genuine differential.

@@ -721,7 +721,7 @@ Conditions that trap:
 - integer divide-by-zero
 - sending on a closed channel — see [Concurrency](#concurrency)
 - running out of memory: a garbage collection that still leaves more live data
-  than the heap limit (1 GiB by default; the `HAWK_MAX_HEAP_MB` environment
+  than the heap limit (1 GiB by default; the `THERA_MAX_HEAP_MB` environment
   variable overrides it)
 - runaway recursion: the call stack reaching its depth ceiling (a backstop set
   far above any legitimate depth)
@@ -746,7 +746,7 @@ names the specifics:
 | missing map key           | `key not found: <key>` (string keys are quoted, e.g. `'bob'`)                         |
 | integer divide-by-zero    | `division by zero`                                                                    |
 | send on a closed channel  | `send on a closed channel`                                                            |
-| out of memory             | `out of memory: the live heap is <n> MiB but the limit is <m> MiB (HAWK_MAX_HEAP_MB)` |
+| out of memory             | `out of memory: the live heap is <n> MiB but the limit is <m> MiB (THERA_MAX_HEAP_MB)` |
 | runaway recursion         | `stack overflow: the call stack reached <n> frames`                                   |
 | type error (checker hole) | `runtime type error: expected <type>, found <type>` (both are Hawk type names)        |
 
@@ -2045,7 +2045,7 @@ discovery) needs to know about the difference.
 <repo>/
   bin/             ← dev-mode entry point scripts
   runtime/         ← Rust runtime: bytecode interpreter, GC, fiber scheduler
-                     (builds `hawkrt`, the bare runtime)
+                     (builds `thera-rt`, the bare runtime)
   pkgs/
     cli/           ← Hawk front-end + CLI harness (written in Hawk)
   sdk/
@@ -2063,15 +2063,15 @@ discovery) needs to know about the difference.
   docs/
 ```
 
-### Two binaries: `hawkrt` and `hawk`
+### Two binaries: `thera-rt` and `hawk`
 
-The Rust crate builds **`hawkrt`** — the _bare runtime_: it loads and runs a
+The Rust crate builds **`thera-rt`** — the _bare runtime_: it loads and runs a
 `.thera-bc` and nothing else. The SDK build takes that same binary, embeds the
 compiled front-end (`frontend.thera-bc`) into it, and ships it as **`hawk`** — the
-full launcher. So `hawk` is `hawkrt` + an embedded front-end: invoked on a
+full launcher. So `hawk` is `thera-rt` + an embedded front-end: invoked on a
 `.thera-bc` (or `--entry`) it behaves as the bare runtime; invoked on a subcommand
 (`run`, `check`, `test`, `emit`, `fmt`, `lint`, `fix`, `lsp`) it boots its
-embedded front-end. The distinction lets a `cargo build` (which yields `hawkrt`)
+embedded front-end. The distinction lets a `cargo build` (which yields `thera-rt`)
 be unambiguously the runtime, while `hawk` is unambiguously the runtime +
 front-end.
 

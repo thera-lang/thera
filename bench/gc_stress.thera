@@ -8,15 +8,15 @@
 // next iteration drops them. The live set stays tiny (one phrase). Run it and
 // watch the process's resident memory:
 //
-//   bin/hawk.sh run bench/gc_stress.thera
+//   bin/thera.sh run bench/gc_stress.thera
 //
 // The runtime now has a precise mark-sweep collector, so this churn runs with a
 // flat, tiny live set: the heap fills to its collection threshold, sweeps the
 // garbage, and repeats. Measure the *bare runtime's* resident memory in
 // isolation:
 //
-//   bin/hawk.sh emit bench/gc_stress.thera /tmp/gc.hawkbc
-//   /usr/bin/time -l runtime/target/release/hawkrt /tmp/gc.hawkbc
+//   bin/thera.sh emit bench/gc_stress.thera /tmp/gc.hawkbc
+//   /usr/bin/time -l runtime/target/release/thera-rt /tmp/gc.hawkbc
 //
 // With BUDGET_MB = 16 this peaks at a few MB resident (bounded by the GC's byte
 // budget, not the workload) — versus the ~500 MB the earlier no-collect heap

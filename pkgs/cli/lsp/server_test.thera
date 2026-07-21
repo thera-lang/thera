@@ -82,7 +82,7 @@ fn test_initialize_advertises_capabilities() -> Result<Void, Error> {
 // an error yields a full report with items; a clean file a full report with none.
 @test
 fn test_workspace_diagnostic_covers_unopened_files() -> Result<Void, Error> {
-    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_ws_diag_test');
+    let dir = loader.canonical_path(fs.temp_dir() + '/thera_lsp_ws_diag_test');
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     fs.create_dir_all(dir)?;
     fs.write_text(dir + '/good.thera', 'fn ok() -> Int { return 1; }\n')?;
@@ -112,7 +112,7 @@ fn test_workspace_diagnostic_covers_unopened_files() -> Result<Void, Error> {
 // file is omitted from the workspace report — no client-side filtering needed.
 @test
 fn test_server_side_exclude_hides_diagnostics() -> Result<Void, Error> {
-    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_exclude_test');
+    let dir = loader.canonical_path(fs.temp_dir() + '/thera_lsp_exclude_test');
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     fs.create_dir_all(dir + '/tests/lang')?;
     fs.write_text(dir + '/good.thera', 'fn ok() -> Int { return 1; }\n')?;
@@ -137,7 +137,7 @@ fn test_server_side_exclude_hides_diagnostics() -> Result<Void, Error> {
 // re-pull; the newly-excluded file then drops out of the workspace report.
 @test
 fn test_did_change_configuration_updates_exclude() -> Result<Void, Error> {
-    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_exclude_live_test');
+    let dir = loader.canonical_path(fs.temp_dir() + '/thera_lsp_exclude_live_test');
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     fs.create_dir_all(dir + '/tests/lang')?;
     fs.write_text(dir + '/tests/lang/bad.thera', 'fn oops() -> Int { return missing; }\n')?;
@@ -151,7 +151,7 @@ fn test_did_change_configuration_updates_exclude() -> Result<Void, Error> {
     testing.assert(before.contains('bad.thera'), message: 'reported before the exclude is set')?;
 
     let changed = capture(server, '{"jsonrpc":"2.0","method":"workspace/didChangeConfiguration","params":'
-        + '{"settings":{"hawk":{"exclude":["tests/lang/**"]}}}}');
+        + '{"settings":{"thera":{"exclude":["tests/lang/**"]}}}}');
     testing.assert(changed.contains('workspace/diagnostic/refresh'), message: 'the change nudges a re-pull')?;
     let after = capture(server, '{"jsonrpc":"2.0","id":3,"method":"workspace/diagnostic","params":'
         + '{"previousResultIds":[]}}');
@@ -809,7 +809,7 @@ fn test_close_drops_a_loose_file_from_the_workspace_pull() -> Result<Void, Error
 // reply reach the wire.
 @test
 fn test_serve_backgrounds_the_workspace_scan() -> Result<Void, Error> {
-    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_serve_ws_test');
+    let dir = loader.canonical_path(fs.temp_dir() + '/thera_lsp_serve_ws_test');
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     fs.create_dir_all(dir)?;
     fs.write_text(dir + '/bad.thera', 'fn oops() -> Int { return missing; }\n')?;
@@ -834,7 +834,7 @@ fn test_serve_backgrounds_the_workspace_scan() -> Result<Void, Error> {
 // cache is what keeps a re-pull cheap; this pins that it can't serve a stale one.
 @test
 fn test_workspace_scan_cache_never_serves_a_stale_result() -> Result<Void, Error> {
-    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_scan_cache_test');
+    let dir = loader.canonical_path(fs.temp_dir() + '/thera_lsp_scan_cache_test');
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     fs.create_dir_all(dir)?;
     let file = dir + '/subject.thera';
@@ -880,7 +880,7 @@ fn test_workspace_scan_cache_never_serves_a_stale_result() -> Result<Void, Error
 // break the stamp: the re-pull recomputes and the marker is gone.
 @test
 fn test_unchanged_repull_takes_the_generation_fast_tier() -> Result<Void, Error> {
-    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_gen_tier_test');
+    let dir = loader.canonical_path(fs.temp_dir() + '/thera_lsp_gen_tier_test');
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     fs.create_dir_all(dir)?;
     let file = dir + '/subject.thera';
@@ -921,7 +921,7 @@ fn test_unchanged_repull_takes_the_generation_fast_tier() -> Result<Void, Error>
 // file was skipped as a primary, and reusing it would report the file clean.
 @test
 fn test_un_excluding_a_file_drops_the_scan_cache() -> Result<Void, Error> {
-    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_exclude_cache_test');
+    let dir = loader.canonical_path(fs.temp_dir() + '/thera_lsp_exclude_cache_test');
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     fs.create_dir_all(dir + '/hidden')?;
     fs.write_text(dir + '/hidden/bad.thera', 'fn oops() -> Int { return missing; }\n')?;
@@ -938,7 +938,7 @@ fn test_un_excluding_a_file_drops_the_scan_cache() -> Result<Void, Error> {
         message: 'hidden while excluded')?;
 
     let _cfg = capture(server, '{"jsonrpc":"2.0","method":"workspace/didChangeConfiguration",'
-        + '"params":{"settings":{"hawk":{"exclude":[]}}}}');
+        + '"params":{"settings":{"thera":{"exclude":[]}}}}');
     let after = capture(server, '{"jsonrpc":"2.0","id":3,"method":"workspace/diagnostic","params":'
         + '{"previousResultIds":[]}}');
     testing.assert(after.contains('undefined name: missing'),
@@ -955,7 +955,7 @@ fn test_un_excluding_a_file_drops_the_scan_cache() -> Result<Void, Error> {
 // notification is what closes it.
 @test
 fn test_watched_file_change_invalidates_the_cached_parse() -> Result<Void, Error> {
-    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_watched_test');
+    let dir = loader.canonical_path(fs.temp_dir() + '/thera_lsp_watched_test');
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     fs.create_dir_all(dir)?;
     let file = dir + '/watched.thera';
@@ -988,7 +988,7 @@ fn test_watched_file_change_invalidates_the_cached_parse() -> Result<Void, Error
 // behavior that replaced it.)
 @test
 fn test_watched_create_and_delete_update_the_scanned_set() -> Result<Void, Error> {
-    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_watched_set_test');
+    let dir = loader.canonical_path(fs.temp_dir() + '/thera_lsp_watched_set_test');
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     fs.create_dir_all(dir)?;
     fs.write_text(dir + '/first.thera', 'fn first() -> Int { return 1; }\n')?;
@@ -1204,7 +1204,7 @@ fn test_code_action_only_sibling_kind_is_empty() -> Result<Void, Error> {
 
 @test
 fn test_token_pull_streams_and_holds_the_request_open() -> Result<Void, Error> {
-    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_stream_test');
+    let dir = loader.canonical_path(fs.temp_dir() + '/thera_lsp_stream_test');
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     fs.create_dir_all(dir)?;
     fs.write_text(dir + '/bad.thera', 'fn oops() -> Int { return missing; }\n')?;
@@ -1265,7 +1265,7 @@ fn test_changes_stream_deltas_to_the_open_pull() -> Result<Void, Error> {
 // the deleted file; the untouched file is omitted from the batch entirely.
 @test
 fn test_watched_delete_streams_a_retraction() -> Result<Void, Error> {
-    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_stream_delete_test');
+    let dir = loader.canonical_path(fs.temp_dir() + '/thera_lsp_stream_delete_test');
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     fs.create_dir_all(dir)?;
     fs.write_text(dir + '/keep.thera', 'fn keep() -> Int { return 1; }\n')?;
@@ -1332,7 +1332,7 @@ fn test_new_pull_settles_the_previous_open_pull() -> Result<Void, Error> {
 // the eviction in `close_document` is what forces the re-send.
 @test
 fn test_close_restreams_an_unchanged_files_diagnostics() -> Result<Void, Error> {
-    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_stream_close_test');
+    let dir = loader.canonical_path(fs.temp_dir() + '/thera_lsp_stream_close_test');
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     fs.create_dir_all(dir)?;
     let file = dir + '/subject.thera';
@@ -1397,7 +1397,7 @@ fn test_shutdown_settles_a_pull_whose_scan_never_ran() -> Result<Void, Error> {
 // progress and the request is still open at exit — no response for its id.
 @test
 fn test_serve_holds_the_token_pull_open() -> Result<Void, Error> {
-    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_serve_stream_test');
+    let dir = loader.canonical_path(fs.temp_dir() + '/thera_lsp_serve_stream_test');
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     fs.create_dir_all(dir)?;
     fs.write_text(dir + '/bad.thera', 'fn oops() -> Int { return missing; }\n')?;

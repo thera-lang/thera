@@ -78,7 +78,7 @@ pub fn std_root(_ root: String) -> Option<String> {
 // then a walk upward from the current directory.
 //
 // The executable walk is the robust primary: the installed `<install>/bin/hawk`
-// finds `<install>/std` one level up, and the dev `hawkrt` (buried under
+// finds `<install>/std` one level up, and the dev `thera-rt` (buried under
 // `<repo>/runtime/target/<profile>/`) finds the repo's `sdk/std` a few levels up
 // — so `hawk run /tmp/x.thera` resolves the prelude regardless of where it's
 // invoked from. The current-directory walk is a fallback for a front-end whose
@@ -438,7 +438,7 @@ impl Loader {
                 None => false,
             };
             if !has_sdk {
-                return 'cannot resolve import \'${import_path}\': no Hawk SDK found';
+                return 'cannot resolve import \'${import_path}\': no Thera SDK found';
             }
             return 'cannot resolve import \'${import_path}\': not in the SDK';
         }

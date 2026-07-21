@@ -60,8 +60,8 @@ fn test_dirname() -> Result<Void, Error> {
 @test
 fn test_basename() -> Result<Void, Error> {
     testing.assert_eq(actual: basename('src/main.thera'), expected: 'main.thera')?;
-    testing.assert_eq(actual: basename('/usr/bin/hawk'), expected: 'hawk')?;
-    testing.assert_eq(actual: basename('hawk'), expected: 'hawk')?;
+    testing.assert_eq(actual: basename('/usr/bin/thera'), expected: 'thera')?;
+    testing.assert_eq(actual: basename('thera'), expected: 'thera')?;
     return Result.Ok(void);
 }
 

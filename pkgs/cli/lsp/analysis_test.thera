@@ -15,7 +15,7 @@ import '../loader';
 // see the buffer — an "not a public member" diagnostic — not the disk content.
 @test
 fn test_imported_open_buffer_overlays_disk() -> Result<Void, Error> {
-    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_overlay_test');
+    let dir = loader.canonical_path(fs.temp_dir() + '/thera_lsp_overlay_test');
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void } // stale fixture
     if let Err(e) = fs.create_dir_all(dir) {
         return Result.Err(error('create fixture dir: ${e.message()}'));
@@ -59,7 +59,7 @@ fn test_imported_open_buffer_overlays_disk() -> Result<Void, Error> {
 // declaration returns both occurrences.
 @test
 fn test_references_scan_on_disk_workspace_files() -> Result<Void, Error> {
-    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_xref_test');
+    let dir = loader.canonical_path(fs.temp_dir() + '/thera_lsp_xref_test');
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     fs.create_dir_all(dir)?;
     let a_text = 'pub fn foo() -> Int { return 1; }\n';
@@ -92,7 +92,7 @@ fn test_references_scan_on_disk_workspace_files() -> Result<Void, Error> {
 // declaration) and the closed `b.thera` (a caller), so the edit is complete.
 @test
 fn test_rename_scans_on_disk_workspace_files() -> Result<Void, Error> {
-    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_rename_scan_test');
+    let dir = loader.canonical_path(fs.temp_dir() + '/thera_lsp_rename_scan_test');
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     fs.create_dir_all(dir)?;
     let a_text = 'pub fn foo() -> Int { return 1; }\n';
@@ -124,7 +124,7 @@ fn test_rename_scans_on_disk_workspace_files() -> Result<Void, Error> {
 // declares a same-named symbol without importing the target is excluded.
 @test
 fn test_references_cover_the_dependency_cone() -> Result<Void, Error> {
-    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_cone_test');
+    let dir = loader.canonical_path(fs.temp_dir() + '/thera_lsp_cone_test');
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     fs.create_dir_all(dir)?;
     let a_text = 'pub fn foo() -> Int { return 1; }\n';
@@ -164,7 +164,7 @@ fn test_references_cover_the_dependency_cone() -> Result<Void, Error> {
 // partial edit that rewrites callers but not the trusted library declaration.
 @test
 fn test_rename_of_an_sdk_symbol_is_refused() -> Result<Void, Error> {
-    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_sdk_rename_test');
+    let dir = loader.canonical_path(fs.temp_dir() + '/thera_lsp_sdk_rename_test');
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     fs.create_dir_all(dir + '/sdk/std/core')?;
     fs.create_dir_all(dir + '/sdk/std/mylib')?;
@@ -217,7 +217,7 @@ fn test_rename_collision_is_flagged() -> Result<Void, Error> {
 // the server's next flush re-publishes `a`'s diagnostics after a `b` edit.
 @test
 fn test_dependency_edit_marks_importer_dirty() -> Result<Void, Error> {
-    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_lsp_dirty_cone_test');
+    let dir = loader.canonical_path(fs.temp_dir() + '/thera_lsp_dirty_cone_test');
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void } // stale fixture
     if let Err(e) = fs.create_dir_all(dir) {
         return Result.Err(error('create fixture dir: ${e.message()}'));

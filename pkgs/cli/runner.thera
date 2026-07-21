@@ -3,7 +3,7 @@
 // `run` compiles a program to a temporary `.thera-bc` and executes it on the Rust
 // runtime; `test` synthesizes a driver `main` that runs each `@test` function
 // and reports per-test results. Both locate the runtime binary at
-// `<sdk_root>/runtime/target/debug/hawkrt` (a dev checkout), mirroring the Dart
+// `<sdk_root>/runtime/target/debug/thera-rt` (a dev checkout), mirroring the Dart
 // toolchain's RunCommand/TestCommand.
 //
 // The child runs with inherited stdio (`process.exec`), so its output streams
@@ -56,7 +56,7 @@ pub fn run_file(_ file: String, _ program_args: List<String>, _ sdk_root: Option
                             return Result.Ok(code);
                         },
                         Err(e) => {
-                            eprintln('hawk run: ${e.message()}');
+                            eprintln('thera run: ${e.message()}');
                             return Result.Ok(1);
                         },
                     }
@@ -85,7 +85,7 @@ pub fn test_paths(_ targets: List<String>, _ sdk_root: Option<String>, show_outp
             let full = verbose || show_output;
             let files = collect_test_files(targets);
             if files.len() == 0 {
-                eprintln('hawk test: no *_test.thera files found.');
+                eprintln('thera test: no *_test.thera files found.');
                 return Result.Ok(1);
             }
             // One analysis session for the run: the test files share most of
@@ -141,7 +141,7 @@ fn run_test_file(_ path_str: String, _ runtime: String, _ show_output: Bool,
     let source = match fs.read_text(path_str) {
         Ok(s) => s,
         Err(e) => {
-            eprintln('hawk test: cannot read ${path_str}: ${e}');
+            eprintln('thera test: cannot read ${path_str}: ${e}');
             return Option.None;
         },
     };
@@ -187,7 +187,7 @@ fn run_test_file(_ path_str: String, _ runtime: String, _ show_output: Bool,
     // anything else = the file failed — whether from failing tests (the driver
     // returns 1) or a runtime trap (the runtime exits 1, its message already
     // on stderr). The failure count rides the driver's stdout trailer.
-    match run_bytecode_captured(runtime, bytes, Option.Some('__hawk_test_main')) {
+    match run_bytecode_captured(runtime, bytes, Option.Some('__thera_test_main')) {
         Ok(res) => {
             let out = split_trailer(res.stdout);
             let mut printed = verbose;
@@ -211,14 +211,14 @@ fn run_test_file(_ path_str: String, _ runtime: String, _ show_output: Bool,
             });
         },
         Err(e) => {
-            eprintln('hawk test: cannot run ${path_str}: ${e.message()}');
+            eprintln('thera test: cannot run ${path_str}: ${e.message()}');
             return Option.None;
         },
     }
 }
 
 // The driver's stdout split into report lines and the machine trailer
-// (`__hawk_failed <n>`, the final line — see `test_driver`). `failed` is None
+// (`__thera_failed <n>`, the final line — see `test_driver`). `failed` is None
 // when no trailer arrived (the child trapped before printing it).
 struct DriverOutput {
     let body: List<String>;
@@ -229,7 +229,7 @@ fn split_trailer(_ stdout: String) -> DriverOutput {
     let body: List<String> = [];
     let mut failed: Option<Int> = Option.None;
     for line in stdout.lines() {
-        if line.starts_with('__hawk_failed ') {
+        if line.starts_with('__thera_failed ') {
             let parts = line.split(' ');
             if parts.len() == 2 { failed = parts[1].to_int(); }
         } else {
@@ -265,7 +265,7 @@ fn has_test_decorator(_ f: ast.FnDecl) -> Bool {
 // Quiet (default) prints only a block per *failing* test — `<name>: failed`
 // with the error indented under it — so a green run prints nothing; `verbose`
 // prints the classic per-test `ok`/`FAIL` lines. Either way the driver's final
-// stdout line is the machine trailer `__hawk_failed <n>` (the per-test failure
+// stdout line is the machine trailer `__thera_failed <n>` (the per-test failure
 // count the runner folds into its summary — the exit code stays pass/fail
 // only), and the driver exits 0 when every test passed and 1 otherwise.
 //
@@ -282,32 +282,32 @@ fn test_driver(_ tests: List<String>, _ show_output: Bool, _ verbose: Bool) -> S
     let mut s = '';
     // Runtime hooks: begin buffering stdout / stop and return what was buffered.
     s = '${s}@extern(\'test_capture_begin\')\n';
-    s = '${s}native fn __hawk_capture_begin() -> Void\n';
+    s = '${s}native fn __thera_capture_begin() -> Void\n';
     s = '${s}@extern(\'test_capture_end\')\n';
-    s = '${s}native fn __hawk_capture_end() -> String\n';
+    s = '${s}native fn __thera_capture_end() -> String\n';
     // Print `text` with every line indented under the report column — so a
     // multi-line assertion message (or captured output) stays aligned, not just
     // its first line.
-    s = '${s}fn __hawk_indent(_ text: String) -> Void {\n';
-    s = '${s}    for __hawk_line in text.lines() {\n';
-    s = '${s}        println(\'${indent}\' + __hawk_line);\n';
+    s = '${s}fn __thera_indent(_ text: String) -> Void {\n';
+    s = '${s}    for __thera_line in text.lines() {\n';
+    s = '${s}        println(\'${indent}\' + __thera_line);\n';
     s = '${s}    }\n';
     s = '${s}}\n';
     // Print a test's captured output under an `--- output ---` header.
-    s = '${s}fn __hawk_show(_ captured: String) -> Void {\n';
+    s = '${s}fn __thera_show(_ captured: String) -> Void {\n';
     s = '${s}    if captured == \'\' { return; }\n';
     s = '${s}    println(\'${indent}--- output ---\');\n';
-    s = '${s}    __hawk_indent(captured);\n';
+    s = '${s}    __thera_indent(captured);\n';
     s = '${s}}\n';
     // Report one test's outcome; return 1 on failure, 0 on success. `e` is
     // typed as the `Error` interface (not itself `Display`); render it through
     // its `message()`. A failing test always shows its captured output.
-    s = '${s}fn __hawk_report(_ name: String, _ r: Result<Void, Error>, _ captured: String, _ show: Bool) -> Int {\n';
+    s = '${s}fn __thera_report(_ name: String, _ r: Result<Void, Error>, _ captured: String, _ show: Bool) -> Int {\n';
     s = '${s}    return match r {\n';
     s = '${s}        Ok(_) => {\n';
     if verbose {
         s = '${s}            println(\'  ok    \' + name);\n';
-        s = '${s}            if show { __hawk_show(captured); }\n';
+        s = '${s}            if show { __thera_show(captured); }\n';
     }
     s = '${s}            0\n';
     s = '${s}        },\n';
@@ -317,23 +317,23 @@ fn test_driver(_ tests: List<String>, _ show_output: Bool, _ verbose: Bool) -> S
     } else {
         s = '${s}            println(name + \': failed\');\n';
     }
-    s = '${s}            __hawk_indent(e.message());\n';
-    s = '${s}            __hawk_show(captured);\n';
+    s = '${s}            __thera_indent(e.message());\n';
+    s = '${s}            __thera_show(captured);\n';
     s = '${s}            1\n';
     s = '${s}        },\n';
     s = '${s}    };\n';
     s = '${s}}\n';
-    s = '${s}fn __hawk_test_main() -> Int {\n';
-    s = '${s}    let mut __hawk_failures = 0;\n';
+    s = '${s}fn __thera_test_main() -> Int {\n';
+    s = '${s}    let mut __thera_failures = 0;\n';
     for t in tests {
         // Capture brackets only the test call; the report itself stays live.
-        s = '${s}    __hawk_capture_begin();\n';
-        s = '${s}    let __hawk_r_${t} = ${t}();\n';
-        s = '${s}    let __hawk_out_${t} = __hawk_capture_end();\n';
-        s = '${s}    __hawk_failures = __hawk_failures + __hawk_report(\'${t}\', __hawk_r_${t}, __hawk_out_${t}, ${show});\n';
+        s = '${s}    __thera_capture_begin();\n';
+        s = '${s}    let __thera_r_${t} = ${t}();\n';
+        s = '${s}    let __thera_out_${t} = __thera_capture_end();\n';
+        s = '${s}    __thera_failures = __thera_failures + __thera_report(\'${t}\', __thera_r_${t}, __thera_out_${t}, ${show});\n';
     }
-    s = '${s}    println(\'__hawk_failed \${__hawk_failures}\');\n';
-    s = '${s}    return if __hawk_failures > 0 { 1 } else { 0 };\n';
+    s = '${s}    println(\'__thera_failed \${__thera_failures}\');\n';
+    s = '${s}    return if __thera_failures > 0 { 1 } else { 0 };\n';
     s = '${s}}\n';
     return s;
 }
@@ -346,7 +346,7 @@ fn test_driver(_ tests: List<String>, _ show_output: Bool, _ verbose: Bool) -> S
 // stdin/stdout/stderr (output streams live), and we return its exit code. The
 // temp dir is removed afterwards.
 fn run_bytecode(_ runtime: String, _ bytes: Bytes, _ entry: Option<String>, _ program_args: List<String>) -> Result<Int, Error> {
-    let dir = temp_dir_unique('hawk')?;
+    let dir = temp_dir_unique('thera')?;
     let out = path.join(dir, 'out.thera-bc');
     if let Err(e) = fs.write_bytes(out, bytes) {
         cleanup_dir(dir);
@@ -376,7 +376,7 @@ fn run_bytecode(_ runtime: String, _ bytes: Bytes, _ entry: Option<String>, _ pr
 // read interactive input, so losing the shared console costs nothing.
 fn run_bytecode_captured(_ runtime: String, _ bytes: Bytes, _ entry: Option<String>)
     -> Result<process.ProcessResult, Error> {
-    let dir = temp_dir_unique('hawk')?;
+    let dir = temp_dir_unique('thera')?;
     let out = path.join(dir, 'out.thera-bc');
     if let Err(e) = fs.write_bytes(out, bytes) {
         cleanup_dir(dir);
@@ -397,14 +397,14 @@ fn run_bytecode_captured(_ runtime: String, _ bytes: Bytes, _ entry: Option<Stri
 }
 
 // The bare-runtime binary that executes a compiled `.thera-bc`. In the in-repo
-// checkout that's `<root>/runtime/target/debug/hawkrt`; in a distributed SDK the
+// checkout that's `<root>/runtime/target/debug/thera-rt`; in a distributed SDK the
 // launcher (`bin/hawk`) *is* the runtime, so we hand back our own executable —
 // invoked on a `.thera-bc` it runs it directly. None if neither resolves.
 pub fn find_runtime_binary(_ sdk_root: Option<String>) -> Option<String> {
     // The runtime already executing us runs a `.thera-bc` path directly (see the
     // runtime CLI), so it is the right binary to run compiled tests on — and it
     // matches our own build profile, whether the dev front-end (release/debug via
-    // bin/hawk.sh) or the distributed SDK binary. No hardcoded profile.
+    // bin/thera.sh) or the distributed SDK binary. No hardcoded profile.
     if let Some(exe) = env.current_exe() {
         return Option.Some(exe);
     }
@@ -412,11 +412,11 @@ pub fn find_runtime_binary(_ sdk_root: Option<String>) -> Option<String> {
     // runtime (prefer release, then debug).
     if let Some(root) = sdk_root {
         let target = path.join(path.join(root, 'runtime'), 'target');
-        let release = path.join(path.join(target, 'release'), 'hawkrt');
+        let release = path.join(path.join(target, 'release'), 'thera-rt');
         if fs.exists(release) {
             return Option.Some(release);
         }
-        let debug = path.join(path.join(target, 'debug'), 'hawkrt');
+        let debug = path.join(path.join(target, 'debug'), 'thera-rt');
         if fs.exists(debug) {
             return Option.Some(debug);
         }
@@ -425,7 +425,7 @@ pub fn find_runtime_binary(_ sdk_root: Option<String>) -> Option<String> {
 }
 
 fn runtime_missing_message() -> String {
-    return 'hawk: the Rust runtime was not found. Build it first: run `cargo build --release` in the runtime/ directory.';
+    return 'thera: the Rust runtime was not found. Build it first: run `cargo build --release` in the runtime/ directory.';
 }
 
 // --- compile helper ---
@@ -436,7 +436,7 @@ fn compile_or_report(_ file: String, _ sdk_root: Option<String>) -> Option<Bytes
     let source = match fs.read_text(file) {
         Ok(s) => s,
         Err(e) => {
-            eprintln('hawk: cannot read ${file}: ${e}');
+            eprintln('thera: cannot read ${file}: ${e}');
             return Option.None;
         },
     };
@@ -466,7 +466,7 @@ fn collect_test_files(_ targets: List<String>) -> List<String> {
                 }
             },
             Err(_) => {
-                eprintln('hawk test: not found: ${target}');
+                eprintln('thera test: not found: ${target}');
             },
         }
     }

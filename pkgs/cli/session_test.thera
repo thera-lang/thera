@@ -14,7 +14,7 @@ import 'session' as _;
 // written into a fresh `hawk_session_<tag>_test` directory. Returns the
 // canonical directory path.
 fn fixture_dir(_ tag: String, _ files: Map<String, String>) -> Result<String, Error> {
-    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_session_${tag}_test');
+    let dir = loader.canonical_path(fs.temp_dir() + '/thera_session_${tag}_test');
     match fs.remove_dir_all(dir) {
         Ok(_) => void,
         Err(_) => void, // stale fixture only

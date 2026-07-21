@@ -226,7 +226,7 @@ impl Logger for WriterLogger {
 // --- emission entry points ---
 
 /// A named logger. Records carry `name` as their source, so `set_level_for`
-/// (and `HAWK_LOG`) can tune this source's threshold independently.
+/// (and `THERA_LOG`) can tune this source's threshold independently.
 pub fn named(_ name: String) -> Logger {
     return NamedLogger { name: name };
 }
@@ -301,13 +301,13 @@ pub fn set_format(_ f: Format) -> Void {
     config.format = f;
 }
 
-/// Apply a filter spec from an environment variable (default `HAWK_LOG`), in the
+/// Apply a filter spec from an environment variable (default `THERA_LOG`), in the
 /// `RUST_LOG` style: comma-separated directives, each either a bare level (the
 /// default) or `prefix=level`. Unknown levels are ignored. Absent variable is a
 /// no-op.
 ///
-///     HAWK_LOG=info,myapp.db=debug,http=warn
-pub fn configure_from_env(_ var: String = 'HAWK_LOG') -> Void {
+///     THERA_LOG=info,myapp.db=debug,http=warn
+pub fn configure_from_env(_ var: String = 'THERA_LOG') -> Void {
     if let Some(spec) = env.get(var) { apply_spec(spec) };
 }
 

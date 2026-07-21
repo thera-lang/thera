@@ -58,7 +58,7 @@ fn test_primary_lex_error_reports_lex_first() -> Result<Void, Error> {
 // shipped the broken import to bytecode).
 @test
 fn test_imported_file_check_errors_surface() -> Result<Void, Error> {
-    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_driver_closure_test');
+    let dir = loader.canonical_path(fs.temp_dir() + '/thera_driver_closure_test');
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void } // stale fixture
     if let Err(e) = fs.create_dir_all(dir) {
         return Result.Err(error('create fixture dir: ${e.message()}'));
@@ -95,7 +95,7 @@ fn test_imported_file_check_errors_surface() -> Result<Void, Error> {
 // marked, so they re-check per importer.
 @test
 fn test_checked_set_records_only_clean_files() -> Result<Void, Error> {
-    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_driver_checked_test');
+    let dir = loader.canonical_path(fs.temp_dir() + '/thera_driver_checked_test');
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     if let Err(e) = fs.create_dir_all(dir) {
         return Result.Err(error('create fixture dir: ${e.message()}'));
@@ -165,7 +165,7 @@ fn test_compile_source_byte_identical() -> Result<Void, Error> {
 // either was pinned to whichever registered last. Spans now carry their file.
 @test
 fn test_identical_imports_attribute_independently() -> Result<Void, Error> {
-    let dir = loader.canonical_path(fs.temp_dir() + '/hawk_driver_ld7_test');
+    let dir = loader.canonical_path(fs.temp_dir() + '/thera_driver_ld7_test');
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void } // stale fixture
     if let Err(e) = fs.create_dir_all(dir + '/a') {
         return Result.Err(error('create fixture dir: ${e.message()}'));

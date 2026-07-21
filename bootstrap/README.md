@@ -7,7 +7,7 @@ not any external toolchain.
 
 ## How it's used
 
-`bin/build_sdk.sh` runs this snapshot on the bare runtime (`hawkrt`) to emit a
+`bin/build_sdk.sh` runs this snapshot on the bare runtime (`thera-rt`) to emit a
 fresh `frontend.thera-bc` from the current `pkgs/cli/` sources, embeds that into
 the `hawk` binary, then **fixpoint-checks** that the freshly-built front-end
 re-emits itself byte-for-byte. That replaced the old Dart bootstrap + byte

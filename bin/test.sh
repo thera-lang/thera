@@ -1,69 +1,69 @@
 #!/usr/bin/env bash
 #
-# Run the whole Hawk test suite (self-hosted; no external toolchain):
+# Run the whole Thera test suite (self-hosted; no external toolchain):
 #   - the Rust runtime's cargo tests
 #   - the front-end's own @test suite (pkgs/cli)
 #   - the standard library's @test suite (sdk/std)
 #   - every example runs, with a few output regressions pinned
 #
-# Each `hawk` invocation uses the dev front-end via bin/hawk.sh.
+# Each `thera` invocation uses the dev front-end via bin/thera.sh.
 
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-HAWK="$ROOT/bin/hawk.sh"
+THERA="$ROOT/bin/thera.sh"
 fail=0
 
 echo "==> cargo test (runtime)"
 ( cd runtime && cargo test --quiet ) || fail=1
 
-echo "==> hawk test pkgs/cli (front-end)"
-"$HAWK" test pkgs/cli || fail=1
+echo "==> thera test pkgs/cli (front-end)"
+"$THERA" test pkgs/cli || fail=1
 
-echo "==> hawk test sdk/std (stdlib)"
-"$HAWK" test sdk/std || fail=1
+echo "==> thera test sdk/std (stdlib)"
+"$THERA" test sdk/std || fail=1
 
 echo "==> lsp transport (end-to-end over a pipe)"
-# Drive the real `hawk lsp` process through stdin/stdout the way an editor does:
+# Drive the real `thera lsp` process through stdin/stdout the way an editor does:
 # a single Content-Length-framed `initialize`, then EOF (the server exits). This
 # exercises the actual stdout transport — the in-process server @tests use a
 # StringWriter and so can't catch a framing/flushing regression (e.g. the
 # line-buffered-stdout bug where only the header reached the client). The body
 # carries "capabilities", so finding it proves the full message arrived.
 lsp_body='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{}}}'
-lsp_out="$(printf 'Content-Length: %d\r\n\r\n%s' "${#lsp_body}" "$lsp_body" | "$HAWK" lsp 2>/dev/null)"
+lsp_out="$(printf 'Content-Length: %d\r\n\r\n%s' "${#lsp_body}" "$lsp_body" | "$THERA" lsp 2>/dev/null)"
 if printf '%s' "$lsp_out" | grep -q '"capabilities"'; then
   echo "  ok   initialize handshake returns capabilities"
 else
   echo "  FAIL lsp initialize: no framed response body received"; fail=1
 fi
 
-echo "==> profiler (HAWK_PROFILE: deterministic, present)"
+echo "==> profiler (THERA_PROFILE: deterministic, present)"
 # The in-VM profiler is an always-shipping runtime feature, gated by the
-# HAWK_PROFILE env var, that prints a per-function table to stderr at run end.
+# THERA_PROFILE env var, that prints a per-function table to stderr at run end.
 # Its headline property for agents is *determinism* — instruction-budget
 # sampling, not wall-clock — so two runs of the same program must produce a
-# byte-identical profile. (See docs/roadmap.md, "Profiling Hawk code".)
+# byte-identical profile. (See docs/roadmap.md, "Profiling Thera code".)
 prof_dir="$(mktemp -d)"
 printf 'fn main() -> Int { let mut s = 0; let mut i = 0; while i < 5000 { s = s + i; i = i + 1; } return s; }\n' > "$prof_dir/p.thera"
-prof1="$(HAWK_PROFILE=1 "$HAWK" run "$prof_dir/p.thera" 2>&1 1>/dev/null)"
-prof2="$(HAWK_PROFILE=1 "$HAWK" run "$prof_dir/p.thera" 2>&1 1>/dev/null)"
-if printf '%s' "$prof1" | grep -q 'hawk profile' && [ "$prof1" = "$prof2" ]; then
+prof1="$(THERA_PROFILE=1 "$THERA" run "$prof_dir/p.thera" 2>&1 1>/dev/null)"
+prof2="$(THERA_PROFILE=1 "$THERA" run "$prof_dir/p.thera" 2>&1 1>/dev/null)"
+if printf '%s' "$prof1" | grep -q 'thera profile' && [ "$prof1" = "$prof2" ]; then
   echo "  ok   profile emitted and byte-identical across runs"
 else
-  echo "  FAIL profiler (present=$(printf '%s' "$prof1" | grep -c 'hawk profile'), deterministic=$([ "$prof1" = "$prof2" ] && echo y || echo n))"; fail=1
+  echo "  FAIL profiler (present=$(printf '%s' "$prof1" | grep -c 'thera profile'), deterministic=$([ "$prof1" = "$prof2" ] && echo y || echo n))"; fail=1
 fi
 rm -rf "$prof_dir"
 
 echo "==> check diagnostics stream (stdout, not stderr)"
-# `hawk check`'s product is its diagnostics (it emits no artifact), so they go to
-# stdout — like `hawk test` and like linters (eslint/ruff/mypy). Assert that a
+# `thera check`'s product is its diagnostics (it emits no artifact), so they go to
+# stdout — like `thera test` and like linters (eslint/ruff/mypy). Assert that a
 # diagnostic lands on stdout and not stderr, so the convention can't regress.
 # (See docs/architecture.md, "The CLI: commands and output streams".)
 chk_dir="$(mktemp -d)"
 printf 'fn f() -> Int { return missing; }\n' > "$chk_dir/bad.thera"
-chk_out="$("$HAWK" check "$chk_dir/bad.thera" 2>/dev/null)"
-chk_err="$("$HAWK" check "$chk_dir/bad.thera" 2>&1 1>/dev/null)"
+chk_out="$("$THERA" check "$chk_dir/bad.thera" 2>/dev/null)"
+chk_err="$("$THERA" check "$chk_dir/bad.thera" 2>&1 1>/dev/null)"
 if printf '%s' "$chk_out" | grep -q 'undefined name: missing' \
    && ! printf '%s' "$chk_err" | grep -q 'undefined name: missing'; then
   echo "  ok   diagnostics on stdout, not stderr"
@@ -73,15 +73,15 @@ fi
 rm -rf "$chk_dir"
 
 echo "==> fmt --check (read-only; lists unformatted files, exit 1)"
-# `hawk fmt --check` must not modify files, list the ones needing formatting on
+# `thera fmt --check` must not modify files, list the ones needing formatting on
 # stdout, and exit 0 (all formatted) / 1 (some need formatting) — the CI /
-# pre-commit contract. (See docs/roadmap.md, "Formatter (hawk fmt)".)
+# pre-commit contract. (See docs/roadmap.md, "Formatter (thera fmt)".)
 fmt_dir="$(mktemp -d)"
 printf 'fn f() {\n    x();\n}\n' > "$fmt_dir/clean.thera"
 printf 'fn g() {\ny();\n}\n' > "$fmt_dir/dirty.thera"
 cp "$fmt_dir/dirty.thera" "$fmt_dir/dirty.orig"
-"$HAWK" fmt --check "$fmt_dir/clean.thera" >/dev/null 2>&1; clean_code=$?
-dirty_out="$("$HAWK" fmt --check "$fmt_dir/dirty.thera" 2>/dev/null)"; dirty_code=$?
+"$THERA" fmt --check "$fmt_dir/clean.thera" >/dev/null 2>&1; clean_code=$?
+dirty_out="$("$THERA" fmt --check "$fmt_dir/dirty.thera" 2>/dev/null)"; dirty_code=$?
 if [ "$clean_code" -eq 0 ] && [ "$dirty_code" -eq 1 ] \
    && printf '%s' "$dirty_out" | grep -q 'dirty.thera' \
    && diff -q "$fmt_dir/dirty.thera" "$fmt_dir/dirty.orig" >/dev/null; then
@@ -93,7 +93,7 @@ rm -rf "$fmt_dir"
 
 # The tree itself must stay a fmt fixpoint — `fmt --check` over the whole corpus
 # must report nothing. Guards against unformatted code landing (the CI gate).
-tree_out="$("$HAWK" fmt --check pkgs/cli sdk/std examples bench 2>/dev/null)"; tree_code=$?
+tree_out="$("$THERA" fmt --check pkgs/cli sdk/std examples bench 2>/dev/null)"; tree_code=$?
 if [ "$tree_code" -eq 0 ] && [ -z "$tree_out" ]; then
   echo "  ok   fmt --check: corpus is a fixpoint"
 else
@@ -108,7 +108,7 @@ echo "==> diagnostic attribution (imported-file error names the import)"
 att_dir="$(mktemp -d)"
 printf 'pub fn greet(_ n: String) -> String { return n.frobnicate(); }\n' > "$att_dir/helper.thera"
 printf "import 'helper';\nfn main() -> Int { println(helper.greet('hi')); return 0; }\n" > "$att_dir/app.thera"
-att_out="$("$HAWK" run "$att_dir/app.thera" 2>&1)"; att_code=$?
+att_out="$("$THERA" run "$att_dir/app.thera" 2>&1)"; att_code=$?
 if printf '%s' "$att_out" | grep -q 'helper.thera:.*frobnicate' \
    && ! printf '%s' "$att_out" | grep -q 'app.thera:.*frobnicate' \
    && [ "$att_code" -ne 0 ]; then
@@ -119,7 +119,7 @@ fi
 # A *parse* error in an imported file must be surfaced (not dropped into a
 # misleading downstream error under exit 0) and attributed to the import.
 printf 'pub fn greet(_ n: String) -> String {\n    let x = ;\n    return n;\n}\n' > "$att_dir/helper.thera"
-pe_out="$("$HAWK" check "$att_dir/app.thera" 2>&1)"; pe_code=$?
+pe_out="$("$THERA" check "$att_dir/app.thera" 2>&1)"; pe_code=$?
 if printf '%s' "$pe_out" | grep -q 'helper.thera:2:.*unexpected token' && [ "$pe_code" -ne 0 ]; then
   echo "  ok   imported-file parse error surfaced + attributed (exit $pe_code)"
 else
@@ -133,24 +133,24 @@ echo "==> qualified-reference guard (corpus stays at 0 bare cross-library refs)"
 # enforced — `check` reports a "bare reference to …" error for each violation —
 # so a regression fails the build outright; this guard keeps the count explicit
 # (and the message clear). See docs/language.md.
-bare_refs="$("$HAWK" check pkgs/cli sdk/std examples 2>/dev/null \
+bare_refs="$("$THERA" check pkgs/cli sdk/std examples 2>/dev/null \
   | grep -c 'bare reference to')"
 if [ "$bare_refs" -eq 0 ]; then
   echo "  ok   0 bare cross-library references"
 else
-  echo "  FAIL $bare_refs bare cross-library reference(s); run: hawk check pkgs/cli sdk/std examples"
+  echo "  FAIL $bare_refs bare cross-library reference(s); run: thera check pkgs/cli sdk/std examples"
   fail=1
 fi
 
 echo "==> fmt guard (corpus stays canonically formatted)"
-# The whole corpus is kept formatted; `hawk fmt --check` lists any file that would
+# The whole corpus is kept formatted; `thera fmt --check` lists any file that would
 # change and exits non-zero. A drift fails the build with the fix command. See
-# docs/roadmap.md, "Formatter (hawk fmt)".
-unformatted="$("$HAWK" fmt --check pkgs/cli sdk/std examples 2>/dev/null)"; fmt_code=$?
+# docs/roadmap.md, "Formatter (thera fmt)".
+unformatted="$("$THERA" fmt --check pkgs/cli sdk/std examples 2>/dev/null)"; fmt_code=$?
 if [ "$fmt_code" -eq 0 ]; then
   echo "  ok   corpus is formatted"
 else
-  echo "  FAIL these files need formatting; run: hawk fmt pkgs/cli sdk/std examples"
+  echo "  FAIL these files need formatting; run: thera fmt pkgs/cli sdk/std examples"
   printf '%s\n' "$unformatted" | sed 's/^/         /'
   fail=1
 fi
@@ -158,33 +158,33 @@ fi
 echo "==> inference-context oracle (codegen and checker build identical InferCtx)"
 # A divergence between the inference context codegen builds and the one the
 # checker builds is the root of the bug class where the two stages infer the same
-# expression to different types. The oracle (HAWK_INFER_ORACLE, in codegen)
+# expression to different types. The oracle (THERA_INFER_ORACLE, in codegen)
 # compares them per unit; this guard asserts the whole front-end stays at zero
 # divergences. See docs/roadmap.md (Owner-correct ... / the oracle commit).
 oracle_tmp="$(mktemp)"
-oracle_diverged="$(HAWK_INFER_ORACLE=1 "$HAWK" emit pkgs/cli/main.thera "$oracle_tmp" 2>&1 \
+oracle_diverged="$(THERA_INFER_ORACLE=1 "$THERA" emit pkgs/cli/main.thera "$oracle_tmp" 2>&1 \
   | grep -oE '[0-9]+/[0-9]+ non-lambda' | head -1 | cut -d/ -f1)"
 rm -f "$oracle_tmp"
 if [ "${oracle_diverged:-1}" -eq 0 ]; then
   echo "  ok   0 units with divergent inference context"
 else
-  echo "  FAIL $oracle_diverged unit(s) diverge; run: HAWK_INFER_ORACLE=1 hawk emit pkgs/cli/main.thera /tmp/x.thera-bc"
+  echo "  FAIL $oracle_diverged unit(s) diverge; run: THERA_INFER_ORACLE=1 thera emit pkgs/cli/main.thera /tmp/x.thera-bc"
   fail=1
 fi
 
 echo "==> language conformance (tests/lang)"
 # Spec-conformance tests: each tests/lang/**/*.thera pins a documented language
 # feature via embedded `//!` directives + `// expect…` comments. The harness
-# (a Hawk program) shells back to `hawk` per test and compares. xfail tests that
+# (a Thera program) shells back to `thera` per test and compares. xfail tests that
 # unexpectedly pass (XPASS) fail the suite. See tests/lang/README.md.
-"$HAWK" run tests/lang_runner.thera "$HAWK" "$ROOT/tests/lang" "$ROOT/docs/conformance.md" || fail=1
+"$THERA" run tests/lang_runner.thera "$THERA" "$ROOT/tests/lang" "$ROOT/docs/conformance.md" || fail=1
 
 echo "==> examples"
 # Pin the output of a few representative examples (the rest must just run).
 check_out() {
   local file="$1" expected="$2"
   local got
-  got="$("$HAWK" run "$file" 2>&1)"
+  got="$("$THERA" run "$file" 2>&1)"
   if [ "$got" = "$expected" ]; then
     echo "  ok   $file"
   else
@@ -199,15 +199,15 @@ check_out examples/list_hof.thera $'20\n40\n60\nbig: 2\ntotal: 21'
 for f in examples/*.thera; do
   case "$f" in
     *_test.thera|*fibers.thera|*list_hof.thera) continue ;;
-    *wordcount.thera) "$HAWK" run "$f" examples/wordcount.thera >/dev/null 2>&1 ;;
-    *) "$HAWK" run "$f" >/dev/null 2>&1 ;;
+    *wordcount.thera) "$THERA" run "$f" examples/wordcount.thera >/dev/null 2>&1 ;;
+    *) "$THERA" run "$f" >/dev/null 2>&1 ;;
   esac
   if [ $? -eq 0 ]; then echo "  ok   $f"; else echo "  FAIL $f"; fail=1; fi
 done
 
 # Benchmarks (bench/) are manual perf harnesses; just check they run cleanly.
 for f in bench/*.thera; do
-  "$HAWK" run "$f" >/dev/null 2>&1
+  "$THERA" run "$f" >/dev/null 2>&1
   if [ $? -eq 0 ]; then echo "  ok   $f"; else echo "  FAIL $f"; fail=1; fi
 done
 

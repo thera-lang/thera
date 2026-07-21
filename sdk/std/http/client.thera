@@ -10,7 +10,7 @@ import 'wire';
 /// The default `user-agent`, sent unless a caller sets their own. Servers do
 /// route on it (rate limits, compatibility shims), and an unidentified client is
 /// the kind of thing that gets blocked.
-pub const USER_AGENT: String = 'hawk-http/0.1';
+pub const USER_AGENT: String = 'thera-http/0.1';
 
 // --- URLs ---
 

@@ -89,7 +89,7 @@ fn test_canonical_path_absolutizes_and_normalizes() -> Result<Void, Error> {
 // filesystem root).
 @test
 fn test_canonical_identity_across_root_spellings() -> Result<Void, Error> {
-    let dir = canonical_path(fs.temp_dir() + '/hawk_loader_canonical_test');
+    let dir = canonical_path(fs.temp_dir() + '/thera_loader_canonical_test');
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void } // stale fixture
     fs_ok(fs.create_dir_all(dir + '/sub'), 'create fixture dir')?;
     fs_ok(fs.write_text(dir + '/root.thera',
@@ -191,7 +191,7 @@ fn fs_ok(_ r: Result<Void, fs.FsError>, _ what: String) -> Result<Void, Error> {
 // downstream "undefined name" (or, for an unused import, passing silently).
 @test
 fn test_broken_imports_are_diagnosed() -> Result<Void, Error> {
-    let dir = canonical_path(fs.temp_dir() + '/hawk_loader_broken_import_test');
+    let dir = canonical_path(fs.temp_dir() + '/thera_loader_broken_import_test');
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void } // stale fixture
     fs_ok(fs.create_dir_all(dir), 'create fixture dir')?;
     let secret = dir + '/secret.thera';
@@ -237,7 +237,7 @@ fn test_broken_imports_are_diagnosed() -> Result<Void, Error> {
 // Same-origin re-exposure (a diamond) is not a collision.
 @test
 fn test_surface_collisions_are_diagnosed() -> Result<Void, Error> {
-    let dir = canonical_path(fs.temp_dir() + '/hawk_loader_surface_collision_test');
+    let dir = canonical_path(fs.temp_dir() + '/thera_loader_surface_collision_test');
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     fs_ok(fs.create_dir_all(dir), 'create fixture dir')?;
     fs_ok(fs.write_text(dir + '/inner_a.thera', 'pub fn deep() -> Int { return 1; }\n'), 'write inner_a')?;
@@ -288,7 +288,7 @@ fn test_surface_collisions_are_diagnosed() -> Result<Void, Error> {
 // SDK doesn't have.
 @test
 fn test_unresolved_std_import_says_why() -> Result<Void, Error> {
-    let dir = canonical_path(fs.temp_dir() + '/hawk_loader_std_import_test');
+    let dir = canonical_path(fs.temp_dir() + '/thera_loader_std_import_test');
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     fs_ok(fs.create_dir_all(dir), 'create fixture dir')?;
     let main_path = dir + '/main.thera';
@@ -302,7 +302,7 @@ fn test_unresolved_std_import_says_why() -> Result<Void, Error> {
     // No SDK (the hermetic mode): the diagnostic names the missing SDK.
     let no_sdk = load_imports(main_path, parse_tokens(tokenize(src).tokens).program, Option.None);
     testing.assert_eq(actual: no_sdk.diagnostics.len(), expected: 1)?;
-    testing.assert(no_sdk.diagnostics[0].message.contains('no Hawk SDK found'),
+    testing.assert(no_sdk.diagnostics[0].message.contains('no Thera SDK found'),
         message: 'missing SDK named: ${no_sdk.diagnostics[0].message}')?;
 
     // A real SDK: the module itself is the problem.
@@ -324,7 +324,7 @@ fn test_unresolved_std_import_says_why() -> Result<Void, Error> {
 // the repo's own sdk/std against a different installed SDK.
 @test
 fn test_std_import_resolves_from_the_file_s_own_sdk() -> Result<Void, Error> {
-    let dir = canonical_path(fs.temp_dir() + '/hawk_loader_perfile_sdk_test');
+    let dir = canonical_path(fs.temp_dir() + '/thera_loader_perfile_sdk_test');
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void }
     // A minimal SDK tree: a `greet` std lib in its own named subdir, and a file
     // that lives beside it under `std/` and imports it.
@@ -397,7 +397,7 @@ fn test_pub_import_diamond_is_not_a_collision() -> Result<Void, Error> {
 // diagnostics replay identically on a hit.
 @test
 fn test_surface_cache_round_trip() -> Result<Void, Error> {
-    let dir = canonical_path(fs.temp_dir() + '/hawk_loader_surface_cache_test');
+    let dir = canonical_path(fs.temp_dir() + '/thera_loader_surface_cache_test');
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void } // stale fixture
     fs_ok(fs.create_dir_all(dir), 'create fixture dir')?;
     fs_ok(fs.write_text(dir + '/util.thera', 'pub fn helper() -> Int { return 1; }\n'), 'write util')?;
@@ -431,7 +431,7 @@ fn test_surface_cache_round_trip() -> Result<Void, Error> {
 // cache reports the same collision the cold load did.
 @test
 fn test_surface_collision_diagnostics_replay_on_hit() -> Result<Void, Error> {
-    let dir = canonical_path(fs.temp_dir() + '/hawk_loader_collision_replay_test');
+    let dir = canonical_path(fs.temp_dir() + '/thera_loader_collision_replay_test');
     match fs.remove_dir_all(dir) { Ok(_) => void, Err(_) => void } // stale fixture
     fs_ok(fs.create_dir_all(dir), 'create fixture dir')?;
     fs_ok(fs.write_text(dir + '/a.thera', 'pub fn clash() -> Int { return 1; }\n'), 'write a')?;

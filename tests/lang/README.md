@@ -78,7 +78,7 @@ test file carries the `//!` header and `import`s its sibling support file.
 hawk run tests/lang_runner.hawk <hawk-cmd> <test-root> [coverage-map]
 ```
 
-`<hawk-cmd>` is the `hawk` launcher under test (`bin/hawk.sh` in the dev tree);
+`<hawk-cmd>` is the `hawk` launcher under test (`bin/thera.sh` in the dev tree);
 `<test-root>` is this directory. `bin/test.sh` wires this up.
 
 ## Coverage report

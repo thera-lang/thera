@@ -186,7 +186,7 @@ priority order:
   code.
 - **A heap ceiling / soft limit.** _The hard ceiling is implemented:_ a
   collection that still leaves more live bytes than the limit
-  (`HAWK_MAX_HEAP_MB`, default 1 GiB) raises `Trap::OutOfMemory` at the
+  (`THERA_MAX_HEAP_MB`, default 1 GiB) raises `Trap::OutOfMemory` at the
   safepoint — the ordinary trap formatting, not a process abort — and an
   allocation past the ceiling arms a collection even when the adaptive threshold
   sits higher. (Runaway recursion is bounded the same way: a call past the
@@ -203,7 +203,7 @@ priority order:
 - **Tighter slab layout.** A slot is `Option<Obj>`, sized to the largest `Obj`
   variant; size-segregating pools or boxing the big payloads would shrink the
   slab and improve locality. (Still non-moving — handles stay stable.)
-- **Diagnostics.** A `HAWK_GC_STATS`-style knob (collections, bytes reclaimed,
+- **Diagnostics.** A `THERA_GC_STATS`-style knob (collections, bytes reclaimed,
   pause time) — `object_count` is the seed. **Weak references / finalizers**
   stay unbuilt until a Hawk object owns a native resource; the hook would live
   in the sweep loop.
@@ -362,7 +362,7 @@ is which turns on whether the command's product is an **artifact** or its
   (build/compile progress) goes to stderr.
 - **Operational failures** for any command (file not found, can't read/write, an
   internal trap) go to **stderr**, as does the dev launcher's build/compile
-  progress (`bin/hawk.sh`).
+  progress (`bin/thera.sh`).
 
 **Diagnostic format.** Every diagnostic — a `check` type error, an `emit` build
 failure, a `run`/`test` compile error — is one line:

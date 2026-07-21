@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Dev entry for the Hawk front-end (self-hosted; no external toolchain).
+# Dev entry for the Thera front-end (self-hosted; no external toolchain).
 #
 # Compiles the *current* pkgs/cli with the checked-in bootstrap snapshot
 # (bootstrap/frontend.thera-bc) and runs the result on the bare runtime — so your
@@ -18,14 +18,14 @@ DEVFE="$ROOT/build/dev-frontend.thera-bc"
 
 # The bare runtime that executes the dev front-end (a `.thera-bc`) — release by
 # default, since the front-end is interpreted and this speeds every invocation
-# (and the front-end self-compile). Set HAWK_DEV_PROFILE=debug when hacking the
+# (and the front-end self-compile). Set THERA_DEV_PROFILE=debug when hacking the
 # Rust runtime, where fast debug rebuilds matter more than run speed.
-case "${HAWK_DEV_PROFILE:-release}" in
-  release) HAWKRT="$ROOT/runtime/target/release/hawkrt"; BUILD_FLAG="--release" ;;
-  debug)   HAWKRT="$ROOT/runtime/target/debug/hawkrt";   BUILD_FLAG="" ;;
-  *) echo "hawk.sh: HAWK_DEV_PROFILE must be release|debug" >&2; exit 2 ;;
+case "${THERA_DEV_PROFILE:-release}" in
+  release) THERA_RT="$ROOT/runtime/target/release/thera-rt"; BUILD_FLAG="--release" ;;
+  debug)   THERA_RT="$ROOT/runtime/target/debug/thera-rt";   BUILD_FLAG="" ;;
+  *) echo "thera.sh: THERA_DEV_PROFILE must be release|debug" >&2; exit 2 ;;
 esac
-if [ ! -x "$HAWKRT" ]; then
+if [ ! -x "$THERA_RT" ]; then
   ( cd "$ROOT/runtime" && cargo build $BUILD_FLAG >&2 )
 fi
 
@@ -33,7 +33,7 @@ fi
 mkdir -p "$ROOT/build"
 if [ ! -f "$DEVFE" ] || \
    [ -n "$(find "$ROOT/pkgs/cli" "$ROOT/sdk/std" -name '*.thera' -newer "$DEVFE" -print -quit 2>/dev/null)" ]; then
-  ( cd "$ROOT" && "$HAWKRT" "$SNAPSHOT" emit pkgs/cli/main.thera "$DEVFE" ) >&2
+  ( cd "$ROOT" && "$THERA_RT" "$SNAPSHOT" emit pkgs/cli/main.thera "$DEVFE" ) >&2
 fi
 
-exec "$HAWKRT" "$DEVFE" "$@"
+exec "$THERA_RT" "$DEVFE" "$@"

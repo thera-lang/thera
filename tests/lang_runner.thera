@@ -23,7 +23,7 @@
 //
 // Usage (from the repo root):
 //   hawk run tests/lang_runner.thera <hawk-cmd> <test-root>
-// where <hawk-cmd> is the launcher under test (bin/hawk.sh in dev).
+// where <hawk-cmd> is the launcher under test (bin/thera.sh in dev).
 
 import std.fs;
 import std.path;

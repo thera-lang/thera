@@ -1,30 +1,30 @@
-//! The runtime CLI. In its bare form (`hawkrt`) it loads and runs a `.thera-bc`.
+//! The runtime CLI. In its bare form (`thera-rt`) it loads and runs a `.thera-bc`.
 //! The SDK build embeds the compiled front-end (`frontend.thera-bc`) into this same
 //! binary and ships it as `hawk`: then a subcommand (`run`/`check`/…) boots the
 //! embedded front-end, while a `.thera-bc` path (or `--entry`) still runs directly.
 
 use std::process::ExitCode;
 
-use hawk::builder::FnBuilder;
-use hawk::codec::{decode_module, read_module_from_file, write_module_to_file};
-use hawk::heap;
-use hawk::interp::{
+use thera::builder::FnBuilder;
+use thera::codec::{decode_module, read_module_from_file, write_module_to_file};
+use thera::heap;
+use thera::interp::{
     NATIVE_INT_TO_STRING, NATIVE_PRINTLN, NATIVE_STR_CONCAT, init_module, run, set_program_args,
 };
-use hawk::module::Module;
-use hawk::value::{Obj, TAG_OK, TY_RESULT, Value};
+use thera::module::Module;
+use thera::value::{Obj, TAG_OK, TY_RESULT, Value};
 
 /// The compiled front-end, embedded by `build.rs`. Empty in a bare `cargo build`
-/// (this is `hawkrt`); the SDK build supplies the real bytes (this is `hawk`).
+/// (this is `thera-rt`); the SDK build supplies the real bytes (this is `hawk`).
 const FRONTEND_BC: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/frontend.thera-bc"));
 
-const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+", env!("HAWK_BUILD_SHA"));
+const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+", env!("THERA_BUILD_SHA"));
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(String::as_str) {
         Some("--version") | Some("-V") => {
-            println!("hawk {VERSION}");
+            println!("thera {VERSION}");
             ExitCode::SUCCESS
         }
         // The dev helper to write a sample module.
@@ -39,14 +39,14 @@ fn main() -> ExitCode {
         // have one; otherwise this is the bare runtime and there's nothing to do.
         Some(_) | None if !FRONTEND_BC.is_empty() => cmd_frontend(&args[1..]),
         None => {
-            eprintln!("usage: hawkrt [--entry NAME] <file.thera-bc> [args]");
-            eprintln!("       hawkrt emit-demo <file.thera-bc>");
+            eprintln!("usage: thera-rt [--entry NAME] <file.thera-bc> [args]");
+            eprintln!("       thera-rt emit-demo <file.thera-bc>");
             ExitCode::from(2)
         }
         Some(other) => {
-            eprintln!("hawkrt: '{other}' is not a bytecode file (.thera-bc)");
-            eprintln!("this is the bare runtime; build the SDK for the `hawk` front-end");
-            eprintln!("usage: hawkrt [--entry NAME] <file.thera-bc> [args]");
+            eprintln!("thera-rt: '{other}' is not a bytecode file (.thera-bc)");
+            eprintln!("this is the bare runtime; build the SDK for the `thera` front-end");
+            eprintln!("usage: thera-rt [--entry NAME] <file.thera-bc> [args]");
             ExitCode::from(2)
         }
     }
@@ -65,12 +65,12 @@ fn cmd_frontend(args: &[String]) -> ExitCode {
     let module = match decode_module(FRONTEND_BC) {
         Ok(m) => m,
         Err(e) => {
-            eprintln!("hawk: the embedded front-end is corrupt: {e:?}");
+            eprintln!("thera: the embedded front-end is corrupt: {e:?}");
             return ExitCode::FAILURE;
         }
     };
     let Some(entry) = module.entry_index() else {
-        eprintln!("hawk: the embedded front-end has no 'main' function");
+        eprintln!("thera: the embedded front-end has no 'main' function");
         return ExitCode::FAILURE;
     };
 
@@ -80,20 +80,20 @@ fn cmd_frontend(args: &[String]) -> ExitCode {
         0 => vec![],
         1 => vec![argv],
         n => {
-            eprintln!("hawk: the front-end's main takes {n} parameters; expected 0 or 1");
+            eprintln!("thera: the front-end's main takes {n} parameters; expected 0 or 1");
             return ExitCode::FAILURE;
         }
     };
 
     if let Err(trap) = init_module(&module) {
-        eprintln!("hawk: trap: {trap}");
+        eprintln!("thera: trap: {trap}");
         return ExitCode::FAILURE;
     }
 
     match run(&module, entry, &call_args) {
         Ok(v) => exit_code(&v),
         Err(trap) => {
-            eprintln!("hawk: trap: {trap}");
+            eprintln!("thera: trap: {trap}");
             ExitCode::FAILURE
         }
     }
@@ -108,7 +108,7 @@ fn cmd_run(args: &[String]) -> ExitCode {
         Some((flag, tail)) if flag == "--entry" => match tail.split_first() {
             Some((name, tail)) => (Some(name.as_str()), tail),
             None => {
-                eprintln!("usage: hawkrt [--entry NAME] <file.thera-bc> [args]");
+                eprintln!("usage: thera-rt [--entry NAME] <file.thera-bc> [args]");
                 return ExitCode::from(2);
             }
         },
@@ -116,14 +116,14 @@ fn cmd_run(args: &[String]) -> ExitCode {
     };
 
     let Some(path) = rest.first() else {
-        eprintln!("usage: hawkrt [--entry NAME] <file.thera-bc> [args]");
+        eprintln!("usage: thera-rt [--entry NAME] <file.thera-bc> [args]");
         return ExitCode::from(2);
     };
 
     let module = match read_module_from_file(path) {
         Ok(m) => m,
         Err(e) => {
-            eprintln!("hawk: cannot load {path}: {e}");
+            eprintln!("thera: cannot load {path}: {e}");
             return ExitCode::FAILURE;
         }
     };
@@ -136,7 +136,7 @@ fn cmd_run(args: &[String]) -> ExitCode {
     };
     let Some(entry) = entry else {
         eprintln!(
-            "hawk: {path} has no '{}' function",
+            "thera: {path} has no '{}' function",
             explicit_entry.unwrap_or("main")
         );
         return ExitCode::FAILURE;
@@ -146,13 +146,13 @@ fn cmd_run(args: &[String]) -> ExitCode {
     // receives the program arguments (everything after the `.thera-bc` path) as a
     // `List<String>`. A richer `Args` type is a stdlib concern that wraps this.
     // The same arguments back `env.args()`.
-    hawk::interp::set_program_args(rest[1..].to_vec());
+    thera::interp::set_program_args(rest[1..].to_vec());
     let argv: Vec<Value> = rest[1..].iter().cloned().map(Value::new_str).collect();
     let call_args = match module.functions[entry].param_count {
         0 => vec![],
         1 => vec![Value::new_list(argv)],
         n => {
-            eprintln!("hawk: main takes {n} parameters; only 0 or 1 (args) is supported");
+            eprintln!("thera: main takes {n} parameters; only 0 or 1 (args) is supported");
             return ExitCode::FAILURE;
         }
     };
@@ -160,14 +160,14 @@ fn cmd_run(args: &[String]) -> ExitCode {
     // Initialize module globals (top-level `let`) before the entry runs:
     // allocate the globals vector and run the program-init thunk, if any.
     if let Err(trap) = init_module(&module) {
-        eprintln!("hawk: trap: {trap}");
+        eprintln!("thera: trap: {trap}");
         return ExitCode::FAILURE;
     }
 
     match run(&module, entry, &call_args) {
         Ok(v) => exit_code(&v),
         Err(trap) => {
-            eprintln!("hawk: trap: {trap}");
+            eprintln!("thera: trap: {trap}");
             ExitCode::FAILURE
         }
     }
@@ -202,7 +202,7 @@ fn exit_code(v: &Value) -> ExitCode {
 fn render(v: &Value) -> String {
     match v {
         Value::Int(n) => n.to_string(),
-        Value::Double(x) => hawk::value::format_double(*x),
+        Value::Double(x) => thera::value::format_double(*x),
         Value::Bool(b) => b.to_string(),
         Value::Unit => "()".to_string(),
         Value::Ref(h) => match heap::clone_obj(*h) {
@@ -216,12 +216,12 @@ fn render(v: &Value) -> String {
 /// Write a small sample module to `path`, for exercising `run` end to end.
 fn cmd_emit_demo(path: Option<&String>) -> ExitCode {
     let Some(path) = path else {
-        eprintln!("usage: hawkrt emit-demo <file.thera-bc>");
+        eprintln!("usage: thera-rt emit-demo <file.thera-bc>");
         return ExitCode::from(2);
     };
 
     if let Err(e) = write_module_to_file(path, &demo_module()) {
-        eprintln!("hawk: cannot write {path}: {e}");
+        eprintln!("thera: cannot write {path}: {e}");
         return ExitCode::FAILURE;
     }
     ExitCode::SUCCESS

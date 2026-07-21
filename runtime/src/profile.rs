@@ -1,4 +1,4 @@
-//! In-VM deterministic profiler, enabled by the `HAWK_PROFILE` environment
+//! In-VM deterministic profiler, enabled by the `THERA_PROFILE` environment
 //! variable. Unlike the dev-only `native-stats` feature, this is **always
 //! compiled** into the runtime — the engine behind `hawk run --profile` — and
 //! costs a single predictable branch on the interpreter's hot path when off
@@ -7,7 +7,7 @@
 //! Per Hawk function it reports:
 //!   - **call counts** (exact, counted at frame entry),
 //!   - **self / inclusive time** via *instruction-budget* sampling: every
-//!     `HAWK_PROFILE_INTERVAL` (default 1000) bytecode instructions the live
+//!     `THERA_PROFILE_INTERVAL` (default 1000) bytecode instructions the live
 //!     frame stack is sampled — the running frame counts toward *self*, every
 //!     distinct frame on the stack toward *inclusive*,
 //!   - **allocations** attributed to the function executing at each `heap::alloc`.
@@ -22,12 +22,12 @@ use crate::module::Module;
 use std::cell::{Cell, RefCell};
 use std::sync::LazyLock;
 
-static ON: LazyLock<bool> = LazyLock::new(|| std::env::var_os("HAWK_PROFILE").is_some());
+static ON: LazyLock<bool> = LazyLock::new(|| std::env::var_os("THERA_PROFILE").is_some());
 
 /// Instructions between samples (the budget). Lower = finer self-time
 /// distribution at more overhead; fixed per run for reproducibility.
 static INTERVAL: LazyLock<u64> = LazyLock::new(|| {
-    std::env::var("HAWK_PROFILE_INTERVAL")
+    std::env::var("THERA_PROFILE_INTERVAL")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
         .filter(|&n| n > 0)
@@ -175,7 +175,7 @@ pub fn dump(module: &Module) {
                 100.0 * x as f64 / p.samples as f64
             }
         };
-        eprintln!("=== hawk profile (HAWK_PROFILE) ===");
+        eprintln!("=== thera profile (THERA_PROFILE) ===");
         eprintln!(
             "{total_instrs} instructions, {} samples @ every {}, {total_allocs} allocations",
             p.samples, *INTERVAL,

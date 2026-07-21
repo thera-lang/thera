@@ -86,7 +86,7 @@ fn test_sleep_parks_letting_others_run() -> Result<Void, Error> {
 /// has run, so `quick` always finishes before the reader resumes.
 @test
 fn test_blocking_read_parks_letting_others_run() -> Result<Void, Error> {
-    let dir = path.join(fs.temp_dir(), 'hawk_fiber_io');
+    let dir = path.join(fs.temp_dir(), 'thera_fiber_io');
     fs.create_dir_all(dir)?;
     let file = path.join(dir, 'data.txt');
     fs.write_text(file, 'payload')?;

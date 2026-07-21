@@ -41,7 +41,7 @@ pub enum Trap {
     /// violation, like sending on a closed Go channel).
     ClosedChannel,
     /// A collection left more live bytes than the heap ceiling allows — the
-    /// program's reachable data no longer fits (`HAWK_MAX_HEAP_MB`, default
+    /// program's reachable data no longer fits (`THERA_MAX_HEAP_MB`, default
     /// 1 GiB). Raised at the safepoint right after a full collection, so only
     /// genuinely-live bytes count against the limit.
     OutOfMemory {
@@ -94,7 +94,7 @@ impl std::fmt::Display for Trap {
                 limit_bytes,
             } => write!(
                 f,
-                "out of memory: the live heap is {} but the limit is {} (HAWK_MAX_HEAP_MB)",
+                "out of memory: the live heap is {} but the limit is {} (THERA_MAX_HEAP_MB)",
                 fmt_mib(*live_bytes),
                 fmt_mib(*limit_bytes)
             ),
@@ -1075,7 +1075,7 @@ fn drain_completions() -> Vec<Completion> {
 // A coarse per-native call counter, to see which natives dominate a workload
 // without a sampling profiler. Compiled out entirely unless the `native-stats`
 // feature is on, so the shipping interpreter pays nothing; when on, it prints
-// the counts (descending) to stderr at the end of a run if HAWK_NATIVE_STATS is
+// the counts (descending) to stderr at the end of a run if THERA_NATIVE_STATS is
 // set in the environment.
 
 #[cfg(feature = "native-stats")]
@@ -1083,7 +1083,7 @@ mod native_stats {
     use super::natives;
 
     static ON: std::sync::LazyLock<bool> =
-        std::sync::LazyLock::new(|| std::env::var_os("HAWK_NATIVE_STATS").is_some());
+        std::sync::LazyLock::new(|| std::env::var_os("THERA_NATIVE_STATS").is_some());
 
     thread_local! {
         static CALLS: std::cell::RefCell<Vec<u64>> = const { std::cell::RefCell::new(Vec::new()) };

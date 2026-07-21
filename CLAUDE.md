@@ -9,7 +9,7 @@ Full design docs: start at **[docs/toc.md](docs/toc.md)**.
 ## Repo map
 
 - `runtime/` — a Rust runtime: a Tier-0 bytecode interpreter, the serialized
-  `.hawkbc` format, GC, and the cooperative fiber scheduler. Builds `hawkrt`
+  `.hawkbc` format, GC, and the cooperative fiber scheduler. Builds `thera-rt`
   (the bare runtime).
 - `pkgs/cli/` — **the active front-end**, written in Hawk: lexer → parser →
   resolver → checker → inference → codegen → encoder, plus the
@@ -52,14 +52,14 @@ The runtime is the main thing to build and test:
 ```
 cd runtime
 cargo test          # also: cargo clippy, cargo fmt
-cargo build         # builds `hawkrt` — the bare runtime (runs a .hawkbc)
+cargo build         # builds `thera-rt` — the bare runtime (runs a .hawkbc)
 cargo run -- emit-demo /tmp/x.hawkbc   # write a sample module
 cargo run -- /tmp/x.hawkbc             # load + run it
 ```
 
 The self-hosted front-end runs current Hawk via
-`bin/hawk.sh <run|check|test|emit> <args>` — it compiles the current `pkgs/cli`
-with the checked-in bootstrap snapshot and runs the result on `hawkrt` (caching
+`bin/thera.sh <run|check|test|emit> <args>` — it compiles the current `pkgs/cli`
+with the checked-in bootstrap snapshot and runs the result on `thera-rt` (caching
 the dev front-end in `build/`, rebuilt when `pkgs/cli`/`sdk/std` change). No
 external toolchain.
 
@@ -68,7 +68,7 @@ suites, and the examples.
 
 `bin/build_sdk.sh` assembles the binary SDK in `build/sdk/`: `bin/hawk` (the
 runtime with the compiled front-end embedded) + `std/` + a `version` stamp. So
-`hawkrt` = bare runtime (from `cargo build`); `hawk` = runtime + embedded
+`thera-rt` = bare runtime (from `cargo build`); `hawk` = runtime + embedded
 front-end (the SDK launcher). The build bootstraps from
 `bootstrap/frontend.hawkbc` and ends with a fixpoint check (the SDK re-emits its
 own front-end and the bytes must match). Refresh the snapshot after front-end

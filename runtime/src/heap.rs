@@ -43,7 +43,7 @@ const MIN_GC_BYTES: usize = 1 << 20; // 1 MiB
 /// Default ceiling on the **live** heap: when a collection still leaves more
 /// than this many bytes reachable, the program is out of memory and the
 /// interpreter traps (`Trap::OutOfMemory`) instead of growing until the OS
-/// kills the process. Overridable per run via `HAWK_MAX_HEAP_MB`.
+/// kills the process. Overridable per run via `THERA_MAX_HEAP_MB`.
 const DEFAULT_MAX_HEAP_BYTES: usize = 1 << 30; // 1 GiB
 
 /// The slab: object slots plus the bookkeeping a mark-sweep needs.
@@ -90,16 +90,16 @@ thread_local! {
     static GC_PAUSED: Cell<usize> = const { Cell::new(0) };
 
     /// Ceiling on the live heap in bytes (see [`over_ceiling`]). Thread-local
-    /// like the heap it bounds; initialized from `HAWK_MAX_HEAP_MB`, tests set
+    /// like the heap it bounds; initialized from `THERA_MAX_HEAP_MB`, tests set
     /// it directly via [`set_max_heap`].
     static MAX_HEAP: Cell<usize> = Cell::new(max_heap_from_env());
 }
 
-/// The heap ceiling `HAWK_MAX_HEAP_MB` requests, or the default. An unparsable
+/// The heap ceiling `THERA_MAX_HEAP_MB` requests, or the default. An unparsable
 /// value falls back to the default rather than erroring — the ceiling is a
 /// safety net, not configuration the program's correctness depends on.
 fn max_heap_from_env() -> usize {
-    std::env::var("HAWK_MAX_HEAP_MB")
+    std::env::var("THERA_MAX_HEAP_MB")
         .ok()
         .and_then(|s| s.parse::<usize>().ok())
         .map(|mb| mb.saturating_mul(1 << 20))
@@ -107,7 +107,7 @@ fn max_heap_from_env() -> usize {
 }
 
 /// Set the live-heap ceiling in bytes. For tests and embedders; the CLI path
-/// configures it via the `HAWK_MAX_HEAP_MB` environment variable.
+/// configures it via the `THERA_MAX_HEAP_MB` environment variable.
 pub fn set_max_heap(bytes: usize) {
     MAX_HEAP.set(bytes);
 }

@@ -63,7 +63,7 @@ fn diagnostic_to_json(_ d: diagnostic.Diagnostic) -> Json {
     return json.obj([
         'range': positions.span_to_range(d.span),
         'severity': json.int(lsp_severity(d.severity)),
-        'source': json.str('hawk'),
+        'source': json.str('thera'),
         'message': json.str(d.message),
     ]);
 }

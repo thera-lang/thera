@@ -20,23 +20,23 @@ fn test_os_is_nonempty() -> Result<Void, Error> {
 
 @test
 fn test_get_missing_is_none() -> Result<Void, Error> {
-    testing.assert(env.get('HAWK_DEFINITELY_UNSET_XYZ').is_none())?;
+    testing.assert(env.get('THERA_DEFINITELY_UNSET_XYZ').is_none())?;
     return Result.Ok(void);
 }
 
 @test
 fn test_set_then_get() -> Result<Void, Error> {
-    env.set('HAWK_ENV_TEST', 'hello');
-    testing.assert_eq(actual: env.get('HAWK_ENV_TEST').unwrap_or('?'), expected: 'hello')?;
+    env.set('THERA_ENV_TEST', 'hello');
+    testing.assert_eq(actual: env.get('THERA_ENV_TEST').unwrap_or('?'), expected: 'hello')?;
     return Result.Ok(void);
 }
 
 @test
 fn test_vars_reflects_set() -> Result<Void, Error> {
-    env.set('HAWK_ENV_VARS', 'present');
+    env.set('THERA_ENV_VARS', 'present');
     let all = env.vars();
-    testing.assert(all.has('HAWK_ENV_VARS'), message: 'vars() should include a set variable')?;
-    testing.assert_eq(actual: all.get('HAWK_ENV_VARS').unwrap_or('?'), expected: 'present')?;
+    testing.assert(all.has('THERA_ENV_VARS'), message: 'vars() should include a set variable')?;
+    testing.assert_eq(actual: all.get('THERA_ENV_VARS').unwrap_or('?'), expected: 'present')?;
     return Result.Ok(void);
 }
 
@@ -55,7 +55,7 @@ fn test_current_dir_is_ok() -> Result<Void, Error> {
 @test
 fn test_capability_real_dispatches() -> Result<Void, Error> {
     // The real capability reads the live environment.
-    env.set('HAWK_CAP_TEST', '4321');
+    env.set('THERA_CAP_TEST', '4321');
     testing.assert_eq(actual: read_port_named(env.system_env()), expected: '4321')?;
     return Result.Ok(void);
 }
@@ -85,7 +85,7 @@ fn test_fixed_env_args() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-/// Helper: read the capability's HAWK_CAP_TEST value (exercises real dispatch).
+/// Helper: read the capability's THERA_CAP_TEST value (exercises real dispatch).
 fn read_port_named(_ e: env.Env) -> String {
-    return e.get('HAWK_CAP_TEST').unwrap_or('missing');
+    return e.get('THERA_CAP_TEST').unwrap_or('missing');
 }

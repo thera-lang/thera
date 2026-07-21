@@ -7,7 +7,7 @@
 //! global initializers, across generic instantiations, through interface
 //! dispatch. It type-checks and runs; the printed output is incidental.
 //!
-//!   bin/hawk.sh run examples/feature_tour.thera
+//!   bin/thera.sh run examples/feature_tour.thera
 
 import std.math;
 import std.iter;

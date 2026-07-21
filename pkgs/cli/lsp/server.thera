@@ -386,7 +386,7 @@ impl Server {
         // to a held-open pull (settings shape: `{ hawk: { … } }`).
         if method == 'workspace/didChangeConfiguration' {
             self.analysis.set_exclude(
-                string_array(params.get('settings').get('hawk').get('exclude')));
+                string_array(params.get('settings').get('thera').get('exclude')));
             self.request_workspace_refresh();
             self.stream_workspace_delta();
             return true;
@@ -693,7 +693,7 @@ impl Server {
             'method': json.str('client/registerCapability'),
             'params': json.obj([
                 'registrations': json.arr([json.obj([
-                    'id': json.str('hawk-watched-files'),
+                    'id': json.str('thera-watched-files'),
                     'method': json.str('workspace/didChangeWatchedFiles'),
                     'registerOptions': json.obj([
                         'watchers': json.arr([json.obj([
@@ -794,7 +794,7 @@ fn initialize_result() -> Json {
             ]),
         ]),
         'serverInfo': json.obj([
-            'name': json.str('hawk'),
+            'name': json.str('thera'),
             'version': json.str('0.1.0'),
         ]),
     ]);

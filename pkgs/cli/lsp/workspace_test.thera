@@ -31,7 +31,7 @@ fn test_skip_dir_prunes_build_and_dot_dirs() -> Result<Void, Error> {
 
 @test
 fn test_hawk_files_walks_and_prunes() -> Result<Void, Error> {
-    let root = workspace_dir('hawk_ws_scan')?;
+    let root = workspace_dir('thera_ws_scan')?;
     // A nested source tree, plus noise directories that must be pruned.
     fs.create_dir_all(path.join(root, 'sub'))?;
     fs.create_dir_all(path.join(root, 'build'))?;
@@ -57,7 +57,7 @@ fn test_hawk_files_walks_and_prunes() -> Result<Void, Error> {
 /// build tree out of the walk rather than walking it and discarding every file.
 @test
 fn test_hawk_files_honors_caller_prune() -> Result<Void, Error> {
-    let root = workspace_dir('hawk_ws_prune')?;
+    let root = workspace_dir('thera_ws_prune')?;
     fs.create_dir_all(path.join(root, 'keep'))?;
     fs.create_dir_all(path.join(path.join(root, 'skipped'), 'nested'))?;
     fs.write_text(path.join(path.join(root, 'keep'), 'a.thera'), 'fn a() {}')?;
@@ -76,7 +76,7 @@ fn test_hawk_files_honors_caller_prune() -> Result<Void, Error> {
 
 @test
 fn test_hawk_files_dedupes_overlapping_roots() -> Result<Void, Error> {
-    let root = workspace_dir('hawk_ws_dedupe')?;
+    let root = workspace_dir('thera_ws_dedupe')?;
     fs.write_text(path.join(root, 'x.thera'), 'fn x() {}')?;
     // The same root twice yields the file once, not twice.
     let files = hawk_files([root, root], prune: no_prune);
