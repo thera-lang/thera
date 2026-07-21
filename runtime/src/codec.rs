@@ -1,6 +1,6 @@
 //! Encoding and decoding of a [`Module`] to/from the bytecode wire format.
 //!
-//! See docs/bytecode.md, "Serialized format": a `"HAWK"` magic + version header,
+//! See docs/bytecode.md, "Serialized format": a `"THERA"` magic + version header,
 //! then length-prefixed sections (so unknown sections are skippable). v0 emits a
 //! single Functions section and inlines constants in the instruction stream; a
 //! type table, entry section, and a dedup'd constant pool arrive as the in-memory
@@ -49,23 +49,23 @@ impl std::fmt::Display for LoadError {
 
 impl std::error::Error for LoadError {}
 
-/// Write a module to a `.hawkbc` file.
+/// Write a module to a `.thera-bc` file.
 pub fn write_module_to_file(path: impl AsRef<Path>, m: &Module) -> std::io::Result<()> {
     std::fs::write(path, encode_module(m))
 }
 
-/// Read and decode a module from a `.hawkbc` file.
+/// Read and decode a module from a `.thera-bc` file.
 pub fn read_module_from_file(path: impl AsRef<Path>) -> Result<Module, LoadError> {
     let bytes = std::fs::read(path)?;
     Ok(decode_module(&bytes)?)
 }
 
-const MAGIC: &[u8] = b"HAWK";
+const MAGIC: &[u8] = b"THERA";
 /// Current wire version, written by `encode_module`.
 const VERSION: u32 = 3;
 /// Versions `decode_module` accepts. v2 lacks struct field names and the Enums
 /// section, so named `Debug` degrades to positional; v3 carries both. Accepting
-/// both keeps v2 `.hawkbc` loadable (and let the v3 runtime load the still-v2
+/// both keeps v2 `.thera-bc` loadable (and let the v3 runtime load the still-v2
 /// bootstrap snapshot while the format rolled over — see bootstrap/README.md).
 const SUPPORTED_VERSIONS: &[u32] = &[2, 3];
 
@@ -1124,7 +1124,7 @@ mod tests {
     #[test]
     fn file_round_trips() {
         let m = factorial_module();
-        let path = std::env::temp_dir().join(format!("hawk_codec_{}.hawkbc", std::process::id()));
+        let path = std::env::temp_dir().join(format!("hawk_codec_{}.thera-bc", std::process::id()));
         write_module_to_file(&path, &m).unwrap();
         let loaded = read_module_from_file(&path).unwrap();
         let _ = std::fs::remove_file(&path);

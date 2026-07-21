@@ -1,4 +1,4 @@
-// Tests for the Hawk `.hawkbc` encoder, diffed byte-for-byte against golden
+// Tests for the Hawk `.thera-bc` encoder, diffed byte-for-byte against golden
 // arrays. The headline test rebuilds a `double`/`main` module and asserts the
 // encoded bytes exactly — pinning the Hawk encoder to the runtime's `codec.rs`
 // (the round-trip oracle). Two smaller hand-derived goldens cover the type
@@ -51,7 +51,7 @@ fn test_demo_is_byte_identical_to_runtime() -> Result<Void, Error> {
     // The v3 wire form: names moved to the Symbols section (7) and a trailing
     // Entry section (6) points at `main` (index 0, encoded as `index + 1`).
     let expected = [
-        72, 65, 87, 75, 3, 0, 0, 0,
+        84, 72, 69, 82, 65, 3, 0, 0, 0,
         // constants: 4 strings
         2, 44, 4, 13, 100, 111, 117, 98, 108, 101, 40, 50, 49, 41, 32, 61, 32,
         9, 115, 116, 114, 105, 110, 103, 105, 102, 121,
@@ -93,7 +93,7 @@ fn test_types_and_dispatch_sections() -> Result<Void, Error> {
     // Field names are interned right after the type name (types pass), before the
     // dispatch selector — so the pool is [Point, x, y, show].
     let expected = [
-        72, 65, 87, 75, 3, 0, 0, 0,
+        84, 72, 69, 82, 65, 3, 0, 0, 0,
         // constants: 4 strings — "Point"(0), "x"(1), "y"(2), "show"(3)
         2, 16, 4, 5, 80, 111, 105, 110, 116, 1, 120, 1, 121, 4, 115, 104, 111, 119,
         // types: 1 type, name-index 0, field-count 2, name-count 2, [x=1, y=2]
@@ -125,7 +125,7 @@ fn test_double_bool_and_negative_int() -> Result<Void, Error> {
     };
     let m = Module { functions: [g], types: [], enums: [], dispatch: [], global_count: 0 };
     let expected = [
-        72, 65, 87, 75, 3, 0, 0, 0,
+        84, 72, 69, 82, 65, 3, 0, 0, 0,
         2, 1, 0, // no pooled strings
         3, 1, 0, // no types
         1, 18, 1, 0, 0, 4,             // functions: 1 fn (no name), 0/0, 4 instrs
@@ -142,8 +142,8 @@ fn test_double_bool_and_negative_int() -> Result<Void, Error> {
 @test
 fn test_empty_dispatch_section_is_omitted() -> Result<Void, Error> {
     // No dispatch rows → the dispatch section is omitted, leaving the exact
-    // 111-byte demo output (the byte-for-byte test above pins its contents).
+    // 112-byte demo output (the byte-for-byte test above pins its contents).
     testing.assert_eq(actual: encode_module(demo_module()).to_list().len(),
-        expected: 111)?;
+        expected: 112)?;
     return Result.Ok(void);
 }

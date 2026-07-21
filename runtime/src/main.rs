@@ -1,7 +1,7 @@
-//! The runtime CLI. In its bare form (`hawkrt`) it loads and runs a `.hawkbc`.
-//! The SDK build embeds the compiled front-end (`frontend.hawkbc`) into this same
+//! The runtime CLI. In its bare form (`hawkrt`) it loads and runs a `.thera-bc`.
+//! The SDK build embeds the compiled front-end (`frontend.thera-bc`) into this same
 //! binary and ships it as `hawk`: then a subcommand (`run`/`check`/…) boots the
-//! embedded front-end, while a `.hawkbc` path (or `--entry`) still runs directly.
+//! embedded front-end, while a `.thera-bc` path (or `--entry`) still runs directly.
 
 use std::process::ExitCode;
 
@@ -16,7 +16,7 @@ use hawk::value::{Obj, TAG_OK, TY_RESULT, Value};
 
 /// The compiled front-end, embedded by `build.rs`. Empty in a bare `cargo build`
 /// (this is `hawkrt`); the SDK build supplies the real bytes (this is `hawk`).
-const FRONTEND_BC: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/frontend.hawkbc"));
+const FRONTEND_BC: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/frontend.thera-bc"));
 
 const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+", env!("HAWK_BUILD_SHA"));
 
@@ -29,7 +29,7 @@ fn main() -> ExitCode {
         }
         // The dev helper to write a sample module.
         Some("emit-demo") => cmd_emit_demo(args.get(2)),
-        // An explicit entry or a `.hawkbc` path runs directly on the bare runtime
+        // An explicit entry or a `.thera-bc` path runs directly on the bare runtime
         // — this is also how the embedded front-end re-invokes us to execute a
         // program it just compiled.
         Some("--entry") => cmd_run(&args[1..]),
@@ -39,14 +39,14 @@ fn main() -> ExitCode {
         // have one; otherwise this is the bare runtime and there's nothing to do.
         Some(_) | None if !FRONTEND_BC.is_empty() => cmd_frontend(&args[1..]),
         None => {
-            eprintln!("usage: hawkrt [--entry NAME] <file.hawkbc> [args]");
-            eprintln!("       hawkrt emit-demo <file.hawkbc>");
+            eprintln!("usage: hawkrt [--entry NAME] <file.thera-bc> [args]");
+            eprintln!("       hawkrt emit-demo <file.thera-bc>");
             ExitCode::from(2)
         }
         Some(other) => {
-            eprintln!("hawkrt: '{other}' is not a bytecode file (.hawkbc)");
+            eprintln!("hawkrt: '{other}' is not a bytecode file (.thera-bc)");
             eprintln!("this is the bare runtime; build the SDK for the `hawk` front-end");
-            eprintln!("usage: hawkrt [--entry NAME] <file.hawkbc> [args]");
+            eprintln!("usage: hawkrt [--entry NAME] <file.thera-bc> [args]");
             ExitCode::from(2)
         }
     }
@@ -56,10 +56,10 @@ fn main() -> ExitCode {
 /// suffix test, so a non-existent path still routes here and reports a load error
 /// rather than being mistaken for a front-end subcommand.
 fn is_bytecode_path(arg: &str) -> bool {
-    arg.ends_with(".hawkbc")
+    arg.ends_with(".thera-bc")
 }
 
-/// Boot the embedded front-end: decode `frontend.hawkbc` and call its `main` with
+/// Boot the embedded front-end: decode `frontend.thera-bc` and call its `main` with
 /// the CLI arguments (`run foo.hawk`, `check .`, …) as a `List<String>`.
 fn cmd_frontend(args: &[String]) -> ExitCode {
     let module = match decode_module(FRONTEND_BC) {
@@ -99,16 +99,16 @@ fn cmd_frontend(args: &[String]) -> ExitCode {
     }
 }
 
-/// Load a `.hawkbc` file and run its entry function. `args` is an optional
+/// Load a `.thera-bc` file and run its entry function. `args` is an optional
 /// `--entry NAME` (default `main`) selecting the entry — used by `hawk test`,
 /// whose synthesized driver avoids colliding with a tested module's own `main` —
-/// then the `.hawkbc` path, then the program arguments.
+/// then the `.thera-bc` path, then the program arguments.
 fn cmd_run(args: &[String]) -> ExitCode {
     let (explicit_entry, rest) = match args.split_first() {
         Some((flag, tail)) if flag == "--entry" => match tail.split_first() {
             Some((name, tail)) => (Some(name.as_str()), tail),
             None => {
-                eprintln!("usage: hawkrt [--entry NAME] <file.hawkbc> [args]");
+                eprintln!("usage: hawkrt [--entry NAME] <file.thera-bc> [args]");
                 return ExitCode::from(2);
             }
         },
@@ -116,7 +116,7 @@ fn cmd_run(args: &[String]) -> ExitCode {
     };
 
     let Some(path) = rest.first() else {
-        eprintln!("usage: hawkrt [--entry NAME] <file.hawkbc> [args]");
+        eprintln!("usage: hawkrt [--entry NAME] <file.thera-bc> [args]");
         return ExitCode::from(2);
     };
 
@@ -143,7 +143,7 @@ fn cmd_run(args: &[String]) -> ExitCode {
     };
 
     // Entry convention: the entry takes 0 or 1 parameter. The 1-parameter form
-    // receives the program arguments (everything after the `.hawkbc` path) as a
+    // receives the program arguments (everything after the `.thera-bc` path) as a
     // `List<String>`. A richer `Args` type is a stdlib concern that wraps this.
     // The same arguments back `env.args()`.
     hawk::interp::set_program_args(rest[1..].to_vec());
@@ -216,7 +216,7 @@ fn render(v: &Value) -> String {
 /// Write a small sample module to `path`, for exercising `run` end to end.
 fn cmd_emit_demo(path: Option<&String>) -> ExitCode {
     let Some(path) = path else {
-        eprintln!("usage: hawkrt emit-demo <file.hawkbc>");
+        eprintln!("usage: hawkrt emit-demo <file.thera-bc>");
         return ExitCode::from(2);
     };
 

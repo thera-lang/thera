@@ -3,7 +3,7 @@
 # Dev entry for the Hawk front-end (self-hosted; no external toolchain).
 #
 # Compiles the *current* pkgs/cli with the checked-in bootstrap snapshot
-# (bootstrap/frontend.hawkbc) and runs the result on the bare runtime — so your
+# (bootstrap/frontend.thera-bc) and runs the result on the bare runtime — so your
 # in-progress front-end changes are what runs. The compiled dev front-end is
 # cached in build/ and rebuilt only when pkgs/cli or sdk/std changes.
 #
@@ -13,10 +13,10 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SNAPSHOT="$ROOT/bootstrap/frontend.hawkbc"
-DEVFE="$ROOT/build/dev-frontend.hawkbc"
+SNAPSHOT="$ROOT/bootstrap/frontend.thera-bc"
+DEVFE="$ROOT/build/dev-frontend.thera-bc"
 
-# The bare runtime that executes the dev front-end (a `.hawkbc`) — release by
+# The bare runtime that executes the dev front-end (a `.thera-bc`) — release by
 # default, since the front-end is interpreted and this speeds every invocation
 # (and the front-end self-compile). Set HAWK_DEV_PROFILE=debug when hacking the
 # Rust runtime, where fast debug rebuilds matter more than run speed.

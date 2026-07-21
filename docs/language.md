@@ -290,7 +290,7 @@ the order entries were added — which keeps program output reproducible.
 ### Bytes
 
 `Bytes` is the core type for raw binary data (binary I/O, HTTP bodies, the
-`.hawkbc` format). It is an **immutable** byte sequence — `len`, `get` (→
+`.thera-bc` format). It is an **immutable** byte sequence — `len`, `get` (→
 `Option<Int>`), `slice`, `concat`, `to_string` (→ `Result`, UTF-8 validated),
 `to_list`, plus `Bytes.empty()` / `Bytes.from_list(...)`. Build one up with the
 mutable `BytesBuilder` (`write_u8` / `write_bytes` / `write_str`, the
@@ -1146,7 +1146,7 @@ through the `foo` namespace, as in any other importer). The filename convention
 grants the access, avoiding a general package-private axis.
 
 Visibility and qualification are **front-end** concerns — name resolution
-applies them and they are erased in `.hawkbc` (calls are by index; the bytecode
+applies them and they are erased in `.thera-bc` (calls are by index; the bytecode
 has no notion of "private" or namespaces). The precise resolution rules — bare
 vs. qualified, the prelude, and the algorithm — are in
 [Name resolution & scoping](#name-resolution--scoping). Qualified-only access
@@ -1995,7 +1995,7 @@ The warning rules:
 | `hawk fmt`        | Format source files in place (`--check` to only report)      |
 | `hawk lint`       | Report non-idiomatic code shapes (defaults to the cwd)       |
 | `hawk lint --fix` | Apply the safe lint rewrites (explicit target required)      |
-| `hawk emit`       | Compile to a `.hawkbc` bytecode file                         |
+| `hawk emit`       | Compile to a `.thera-bc` bytecode file                         |
 | `hawk lsp`        | Start the language server                                    |
 
 ### `hawk test`
@@ -2066,10 +2066,10 @@ discovery) needs to know about the difference.
 ### Two binaries: `hawkrt` and `hawk`
 
 The Rust crate builds **`hawkrt`** — the _bare runtime_: it loads and runs a
-`.hawkbc` and nothing else. The SDK build takes that same binary, embeds the
-compiled front-end (`frontend.hawkbc`) into it, and ships it as **`hawk`** — the
+`.thera-bc` and nothing else. The SDK build takes that same binary, embeds the
+compiled front-end (`frontend.thera-bc`) into it, and ships it as **`hawk`** — the
 full launcher. So `hawk` is `hawkrt` + an embedded front-end: invoked on a
-`.hawkbc` (or `--entry`) it behaves as the bare runtime; invoked on a subcommand
+`.thera-bc` (or `--entry`) it behaves as the bare runtime; invoked on a subcommand
 (`run`, `check`, `test`, `emit`, `fmt`, `lint`, `fix`, `lsp`) it boots its
 embedded front-end. The distinction lets a `cargo build` (which yields `hawkrt`)
 be unambiguously the runtime, while `hawk` is unambiguously the runtime +

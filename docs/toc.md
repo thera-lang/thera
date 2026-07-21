@@ -21,7 +21,7 @@ is"; read top-down for progressive detail.
   function + opt-in capability interface), the prelude/core/ecosystem tiers, and
   the module-by-module catalog.
 - [bytecode.md](bytecode.md) — the bytecode **spec**: value model, instruction
-  set, the Tier-0 interpreter, and the serialized `.hawkbc` format.
+  set, the Tier-0 interpreter, and the serialized `.thera-bc` format.
 - [architecture.md](architecture.md) — the runtime **architecture**: the tiered
   VM (interpreter → Cranelift JIT), execution pipeline, interface dispatch, GC
   strategy, the native-function ABI, the embedded front-end, and the CLI's

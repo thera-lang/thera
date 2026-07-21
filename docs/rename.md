@@ -33,7 +33,7 @@ independent.
 - [x] **2. Rename sources.** `git mv` all `*.hawk` → `*.thera`; update the
   `*.hawk` find patterns and `main.hawk` paths in `bin/*.sh`; refresh the
   snapshot (embedded source paths change).
-- [ ] **3. Drop `.hawk`; bytecode rename.** Remove the `.hawk` fallbacks
+- [x] **3. Drop `.hawk`; bytecode rename.** Remove the `.hawk` fallbacks
   (sweep the transition markers). Rename `.hawkbc` → `.thera-bc`
   (`bootstrap/frontend.thera-bc`, scripts, help text). Magic: decoder accepts
   `HAWK` and `THERA`, encoder emits `THERA`, rebuild + refresh snapshot, then

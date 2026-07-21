@@ -10,12 +10,12 @@ its open-work entry is removed and condensed into a one-line note in the
 
 **Checkpoint (2026-06).** Hawk **self-hosts**. The front-end (`pkgs/cli/`,
 written in Hawk) lexes, parses, resolves, type-checks, infers, and lowers Hawk
-to `.hawkbc`, and runs the `check`/`emit`/`run`/`test`/`lsp` CLI (see
+to `.thera-bc`, and runs the `check`/`emit`/`run`/`test`/`lsp` CLI (see
 [architecture.md](architecture.md) for the commands and their output streams).
 It compiles its own sources and the whole stdlib; `bin/build_sdk.sh` embeds it
 into the `hawk` binary with a **fixpoint check** that the front-end reproduces
 itself byte-for-byte. The Dart toolchain that bootstrapped it has been removed —
-the build bootstraps from a checked-in `bootstrap/frontend.hawkbc` snapshot (see
+the build bootstraps from a checked-in `bootstrap/frontend.thera-bc` snapshot (see
 `bootstrap/README.md`), and `bin/test.sh` (cargo + the `pkgs/cli`/`sdk/std`
 `@test` suites + examples) is the suite.
 
@@ -31,7 +31,7 @@ functions + recursion, **closures**, enums (`Result`/`Option` as ordinary
 dynamic (`call.virtual` + a type-id-keyed table) for interface-typed values and
 bounded generics, with bounds enforced at call sites and **default methods** on
 interfaces. Natives are bound by name at load (the native ABI). Bytecode
-serializes to `.hawkbc` (header + sections, LEB128, string constant pool). A
+serializes to `.thera-bc` (header + sections, LEB128, string constant pool). A
 first cut of **cooperative fibers** (`std.fiber`) is in:
 `spawn`/`join`/`yield` + buffered channels.
 
@@ -328,7 +328,7 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
      for the check-perf work). A `hawk run --profile` flag is thin sugar to add
      later; line/allocation call-site precision is #2 below.
   2. **Line attribution — enhancement.** A bytecode→source-line table in
-     `.hawkbc` (debug info) so a sample/counter resolves to a Hawk line. Demoted
+     `.thera-bc` (debug info) so a sample/counter resolves to a Hawk line. Demoted
      from a v1 prerequisite once we accepted function-level is enough for
      _algorithmic_ issues. The same debug info gives traps a source location and
      backs the test-failure / stack-trace needs.
@@ -428,9 +428,9 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
 - **Owner-qualified `FuncDef` names (audit CG-D4) — needs a portable file-key
   scheme.** Two libraries' `Point.area` emit identical `FuncDef` names (stack-
   trace / `--entry` ambiguity). _On hold:_ `FuncDef.name` is the only
-  compile-time string emitted into `.hawkbc`, and `owner` is an absolute
+  compile-time string emitted into `.thera-bc`, and `owner` is an absolute
   canonical path — embedding it would leak home-dir paths and break the
-  reproducible `bootstrap/frontend.hawkbc`. Prerequisite: normalize file keys to
+  reproducible `bootstrap/frontend.thera-bc`. Prerequisite: normalize file keys to
   a portable scheme (`sdk:`/`file:`/`pkg:` + relative). Not a miscompile (calls
   resolve by owner-correct index) — observability; revisit on a forcing function
   (real stack traces).
@@ -1622,8 +1622,8 @@ conformance specs. Newest first.
   heuristic, keys are unrestricted expressions. Rejected: smart-brace probing,
   empty-token-only, type-directed arm parse. **Migration**: corpus swept by a
   one-shot AST-driven rewriter (edit only the MapLit delimiter characters,
-  verify by reparse) — ~330 sites, with `bootstrap/frontend.hawkbc` coming out
-  byte-identical (no spans in `.hawkbc`), proving zero bytecode change; docs
+  verify by reparse) — ~330 sites, with `bootstrap/frontend.thera-bc` coming out
+  byte-identical (no spans in `.thera-bc`), proving zero bytecode change; docs
   examples flipped. **Removal**: the brace form is now a targeted parse error —
   the old commit heuristic survives as the shape detector
   (`at_legacy_brace_map`), and a non-literal key is caught at the `:` after an
@@ -1816,7 +1816,7 @@ conformance specs. Newest first.
   at its own offset and keeps only those whose `SymbolId` matches, so all three
   positions collect and rewrite together — a same-named field on a different
   struct stays untouched. Removed the `is_field()` rename guard (and the
-  now-dead method); check-only, no `.hawkbc` change.
+  now-dead method); check-only, no `.thera-bc` change.
 - **Boundary type-annotation diagnostics** (2026-07). The "hard at the
   boundaries, soft in the center" rule (language.md, _Type annotations &
   inference_) is now enforced at all four boundaries. Struct fields were already
@@ -1828,7 +1828,7 @@ conformance specs. Newest first.
   `let`/`const`**. The module-level check keeps the pass-4 initializer inference
   under the hood (codegen never sees an `Unknown` global) but requires the
   annotation at the source. Corpus impact was a single migration — `std.log`'s
-  `config` singleton, now `let config: Config = …`. No `.hawkbc` changes (a
+  `config` singleton, now `let config: Config = …`. No `.thera-bc` changes (a
   check-only error path), so the fixpoint held without a snapshot churn.
 - **Un-annotated module-global type inference — resolver pass 4** (2026-07). A
   top-level `let`/`const` with no type annotation now has its type **inferred

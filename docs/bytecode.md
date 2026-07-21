@@ -2,7 +2,7 @@
 
 **What this is:** the spec for Hawk's bytecode — the stable IR that the
 front-end emits, the interpreter runs, and the Cranelift JIT will lower from —
-plus the serialized `.hawkbc` format. The Tier-0 interpreter and the format
+plus the serialized `.thera-bc` format. The Tier-0 interpreter and the format
 already implement much of this (see [roadmap.md](roadmap.md) for status). The
 motivating rationale for a tiered VM and our own bytecode is in
 [architecture.md](architecture.md).
@@ -183,7 +183,7 @@ loader can skip sections it does not understand (forward compatibility, and a
 home for optional debug info):
 
 ```
-Header:   magic "HAWK" + format version (u32, currently 3)
+Header:   magic "THERA" + format version (u32, currently 3)
 Section:  id (u8) + byte_length (varint) + payload     // unknown ids skipped
   Functions : per fn { param_count, local_count, code }
   Constants : string constant pool — dedup'd string literals, referenced by
@@ -218,7 +218,7 @@ The section framing is the version-evolution seam: v1 inlined names in Functions
 and had no Symbols/Entry; v2 moved them out; v3 (current) added struct field
 names to Types and the Enums name table, for named `Debug`. The front-end and
 runtime ship together, but the loader still accepts v2 (field/variant names
-absent ⇒ positional `Debug`) so older `.hawkbc` keeps loading — the same
+absent ⇒ positional `Debug`) so older `.thera-bc` keeps loading — the same
 graceful-degradation the omitted-when-empty sections give.
 
 **Module globals & the init thunk.** Top-level `let` bindings become slots in a
@@ -381,7 +381,7 @@ positional. A `Void` return pushes nothing.
 > dynamic dispatch as `call.virtual <selector> <argc>`: the receiver is the
 > first of the `argc` args, and its concrete type id selects the impl from a
 > module **dispatch table** (`(type_id, selector) → func`, a backward-compatible
-> `.hawkbc` section). It is **name-keyed** (selector = method-name string)
+> `.thera-bc` section). It is **name-keyed** (selector = method-name string)
 > rather than `iface`/`slot`-indexed — simpler for the draft; the slot-based
 > `call.interface` is the durable form. Struct ids index the type table and enum
 > ids are namespaced with a high bit (`ENUM_DISPATCH_BASE`) since the two spaces

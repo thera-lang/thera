@@ -208,12 +208,10 @@ fn test_base_of(_ file: Option<String>) -> Option<String> {
     let Some(f) = file else { return Option.None; };
     let slashes = f.split('/');
     let name = slashes[slashes.len() - 1];
-    // hawk→thera transition: both extensions (docs/rename.md).
-    for suffix in ['_test.thera', '_test.hawk'] {
-        if name.len() > suffix.len()
-            && name.slice(name.len() - suffix.len(), name.len()) == suffix {
-            return Option.Some(name.slice(0, name.len() - suffix.len()));
-        }
+    let suffix = '_test.thera';
+    if name.len() > suffix.len()
+        && name.slice(name.len() - suffix.len(), name.len()) == suffix {
+        return Option.Some(name.slice(0, name.len() - suffix.len()));
     }
     return Option.None;
 }

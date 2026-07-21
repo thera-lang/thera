@@ -1,6 +1,6 @@
 // Runtime invocation for the CLI: `hawk run` and `hawk test`.
 //
-// `run` compiles a program to a temporary `.hawkbc` and executes it on the Rust
+// `run` compiles a program to a temporary `.thera-bc` and executes it on the Rust
 // runtime; `test` synthesizes a driver `main` that runs each `@test` function
 // and reports per-test results. Both locate the runtime binary at
 // `<sdk_root>/runtime/target/debug/hawkrt` (a dev checkout), mirroring the Dart
@@ -340,19 +340,19 @@ fn test_driver(_ tests: List<String>, _ show_output: Bool, _ verbose: Bool) -> S
 
 // --- shared runtime invocation ---
 
-// Write `bytes` to a temporary `.hawkbc` and run it on the `runtime`, passing
+// Write `bytes` to a temporary `.thera-bc` and run it on the `runtime`, passing
 // `program_args` to the program. `entry` selects a non-default entry function
 // (`--entry NAME`); None runs `main`. The child inherits this process's
 // stdin/stdout/stderr (output streams live), and we return its exit code. The
 // temp dir is removed afterwards.
 fn run_bytecode(_ runtime: String, _ bytes: Bytes, _ entry: Option<String>, _ program_args: List<String>) -> Result<Int, Error> {
     let dir = temp_dir_unique('hawk')?;
-    let out = path.join(dir, 'out.hawkbc');
+    let out = path.join(dir, 'out.thera-bc');
     if let Err(e) = fs.write_bytes(out, bytes) {
         cleanup_dir(dir);
         return Result.Err(e);
     }
-    // The runtime runs a `.hawkbc` directly: `[--entry NAME] <file> [args]`.
+    // The runtime runs a `.thera-bc` directly: `[--entry NAME] <file> [args]`.
     let args: List<String> = [];
     if let Some(name) = entry {
         args.push('--entry');
@@ -377,7 +377,7 @@ fn run_bytecode(_ runtime: String, _ bytes: Bytes, _ entry: Option<String>, _ pr
 fn run_bytecode_captured(_ runtime: String, _ bytes: Bytes, _ entry: Option<String>)
     -> Result<process.ProcessResult, Error> {
     let dir = temp_dir_unique('hawk')?;
-    let out = path.join(dir, 'out.hawkbc');
+    let out = path.join(dir, 'out.thera-bc');
     if let Err(e) = fs.write_bytes(out, bytes) {
         cleanup_dir(dir);
         return Result.Err(e);
@@ -396,12 +396,12 @@ fn run_bytecode_captured(_ runtime: String, _ bytes: Bytes, _ entry: Option<Stri
     };
 }
 
-// The bare-runtime binary that executes a compiled `.hawkbc`. In the in-repo
+// The bare-runtime binary that executes a compiled `.thera-bc`. In the in-repo
 // checkout that's `<root>/runtime/target/debug/hawkrt`; in a distributed SDK the
 // launcher (`bin/hawk`) *is* the runtime, so we hand back our own executable —
-// invoked on a `.hawkbc` it runs it directly. None if neither resolves.
+// invoked on a `.thera-bc` it runs it directly. None if neither resolves.
 pub fn find_runtime_binary(_ sdk_root: Option<String>) -> Option<String> {
-    // The runtime already executing us runs a `.hawkbc` path directly (see the
+    // The runtime already executing us runs a `.thera-bc` path directly (see the
     // runtime CLI), so it is the right binary to run compiled tests on — and it
     // matches our own build profile, whether the dev front-end (release/debug via
     // bin/hawk.sh) or the distributed SDK binary. No hardcoded profile.
@@ -458,8 +458,7 @@ fn collect_test_files(_ targets: List<String>) -> List<String> {
             Ok(meta) => {
                 match meta.kind {
                     Dir => {
-                        // hawk→thera transition: both extensions (docs/rename.md).
-                        collect_from_dir(target, ['_test.thera', '_test.hawk'], found);
+                        collect_from_dir(target, ['_test.thera'], found);
                     },
                     _ => {
                         found.push(target);

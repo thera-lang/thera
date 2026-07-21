@@ -1623,7 +1623,7 @@ fn native_random_seed_entropy(_out: &mut dyn Write, args: &[Value]) -> Result<Va
 // platform. These are the real process effects behind `std.env`'s free
 // functions; the `Env` capability dispatches to them (or, in tests, to a fake).
 
-/// The program arguments (everything after the `.hawkbc` path), stashed by the
+/// The program arguments (everything after the `.thera-bc` path), stashed by the
 /// `run` entry point so `env.args()` can return them without re-deriving the
 /// runtime's own argv prefix.
 static PROGRAM_ARGS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();

@@ -4,13 +4,13 @@
 # plus the standard library sources. The artifact lands in build/sdk/:
 #
 #   build/sdk/
-#     bin/hawk    ← bare runtime + embedded frontend.hawkbc
+#     bin/hawk    ← bare runtime + embedded frontend.thera-bc
 #     std/        ← stdlib sources (copied from sdk/std)
 #     version     ← <pkg-version>+<gitsha>
 #
 # Stages:
-#   0. emit frontend.hawkbc from pkgs/cli using the checked-in bootstrap snapshot
-#      (bootstrap/frontend.hawkbc) run on the bare runtime — no external toolchain
+#   0. emit frontend.thera-bc from pkgs/cli using the checked-in bootstrap snapshot
+#      (bootstrap/frontend.thera-bc) run on the bare runtime — no external toolchain
 #   1. cargo build the runtime with that blob embedded (HAWK_FRONTEND_BC)
 #   2. assemble the artifact directory
 #   3. fixpoint check: the built SDK re-emits its own front-end and the bytes must
@@ -24,8 +24,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD="$ROOT/build"
 SDK="$BUILD/sdk"
-FRONTEND_BC="$BUILD/frontend.hawkbc"
-SNAPSHOT="$ROOT/bootstrap/frontend.hawkbc"
+FRONTEND_BC="$BUILD/frontend.thera-bc"
+SNAPSHOT="$ROOT/bootstrap/frontend.thera-bc"
 
 PROFILE="${HAWK_BUILD_PROFILE:-release}"
 case "$PROFILE" in
@@ -36,7 +36,7 @@ esac
 
 mkdir -p "$BUILD"
 
-echo "==> [0/3] emitting frontend.hawkbc from the bootstrap snapshot"
+echo "==> [0/3] emitting frontend.thera-bc from the bootstrap snapshot"
 # A bare runtime (no embedded front-end) to run the snapshot on.
 ( cd "$ROOT/runtime" && cargo build $CARGO_PROFILE_FLAG )
 HAWKRT="$ROOT/runtime/target/$TARGET_SUBDIR/hawkrt"
@@ -55,14 +55,14 @@ echo "$VERSION" > "$SDK/version"
 echo "    version $VERSION"
 
 echo "==> [3/3] fixpoint check (SDK re-emits its own front-end)"
-FRONTEND_BC2="$BUILD/frontend.fixpoint.hawkbc"
+FRONTEND_BC2="$BUILD/frontend.fixpoint.thera-bc"
 time "$SDK/bin/hawk" emit "$ROOT/pkgs/cli/main.thera" "$FRONTEND_BC2"
 if cmp -s "$FRONTEND_BC" "$FRONTEND_BC2"; then
   echo "    ok: the SDK reproduces its own front-end byte-for-byte"
 else
   echo "    FAIL: the SDK-built front-end does not reproduce itself" >&2
   echo "    ($FRONTEND_BC vs $FRONTEND_BC2)" >&2
-  echo "    If pkgs/cli added new syntax, refresh bootstrap/frontend.hawkbc" >&2
+  echo "    If pkgs/cli added new syntax, refresh bootstrap/frontend.thera-bc" >&2
   echo "    (see bootstrap/README.md)." >&2
   exit 1
 fi

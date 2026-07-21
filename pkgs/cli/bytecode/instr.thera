@@ -1,7 +1,7 @@
 // The in-memory bytecode instruction model — the Hawk mirror of the runtime's
 // `Instr` enum (runtime/src/instr.rs) and the Dart toolchain's bytecode/instr.dart.
 // The front-end emits a list of these per function; `encode_module` serializes
-// them to the `.hawkbc` wire format.
+// them to the `.thera-bc` wire format.
 //
 // Jump targets are absolute instruction indices (as in the runtime's in-memory
 // form), serialized as uvarints.

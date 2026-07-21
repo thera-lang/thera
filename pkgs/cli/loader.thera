@@ -181,11 +181,9 @@ pub fn display_path(_ path: String) -> String {
 
 // --- file resolution ---
 
-// The recognized source-file extensions, preferred first (hawk→thera
-// transition: `.thera` is the going-forward extension, `.hawk` is accepted
-// until the tree is renamed — see docs/rename.md).
+// The recognized source-file extensions.
 pub fn source_exts() -> List<String> {
-    return ['.thera', '.hawk'];
+    return ['.thera'];
 }
 
 // Resolve a library base path (no extension) to its source file: `<base>.thera`,

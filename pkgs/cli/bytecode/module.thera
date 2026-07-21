@@ -1,7 +1,7 @@
 // The in-memory bytecode module model — the Hawk mirror of the runtime's
 // `Module` (runtime/src/module.rs) and the Dart toolchain's bytecode/module.dart.
 // A module is the unit the front-end emits and the runtime loads from a
-// `.hawkbc` file.
+// `.thera-bc` file.
 
 import 'instr';
 

@@ -168,7 +168,7 @@ rm -f "$oracle_tmp"
 if [ "${oracle_diverged:-1}" -eq 0 ]; then
   echo "  ok   0 units with divergent inference context"
 else
-  echo "  FAIL $oracle_diverged unit(s) diverge; run: HAWK_INFER_ORACLE=1 hawk emit pkgs/cli/main.thera /tmp/x.hawkbc"
+  echo "  FAIL $oracle_diverged unit(s) diverge; run: HAWK_INFER_ORACLE=1 hawk emit pkgs/cli/main.thera /tmp/x.thera-bc"
   fail=1
 fi
 

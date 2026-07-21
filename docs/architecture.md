@@ -308,7 +308,7 @@ is already in place.
 
 ## Persistence and the native ABI
 
-`bin/hawk` is the Rust runtime with an **embedded `frontend.hawkbc`** (the
+`bin/hawk` is the Rust runtime with an **embedded `frontend.thera-bc`** (the
 front-end, compiled to bytecode, `include_bytes!`'d in). `hawk run foo.hawk`
 runs that embedded front-end _on our own interpreter_; it parses `foo.hawk`,
 emits a `Module`, and runs it. The front-end is just another Hawk program riding
@@ -329,7 +329,7 @@ constant pool.
 | ------------------------------- | ----------------------------------------------------------------------------------------- |
 | `hawk run <file> [args…]`       | compile `<file>` to bytecode and run it; trailing args pass to the program                |
 | `hawk check [target]`           | type-check a `.hawk` file or directory (default: cwd); diagnostics + summary              |
-| `hawk emit <file> <out.hawkbc>` | compile `<file>` to a `.hawkbc` bytecode file                                             |
+| `hawk emit <file> <out.thera-bc>` | compile `<file>` to a `.thera-bc` bytecode file                                             |
 | `hawk test [file\|dir]`         | run the `@test` functions in a file, or in `*_test.hawk` under a directory (default: cwd) |
 | `hawk fmt <file\|dir>…`         | format source in place (`--check` reports unformatted files, writes nothing)              |
 | `hawk lint [file\|dir]`         | report non-idiomatic code shapes with a known rewrite (read-only; default: cwd)           |
@@ -355,7 +355,7 @@ is which turns on whether the command's product is an **artifact** or its
   `hawk test` sends those compile diagnostics to **stderr**, even though
   `hawk check` would put the identical lines on stdout (where they are the
   product). Deliberate, not drift.
-- `emit` is a **compiler** — its product is the `.hawkbc`, so its diagnostics
+- `emit` is a **compiler** — its product is the `.thera-bc`, so its diagnostics
   are "why the build failed" and go to **stderr** (the rustc/clang convention),
   leaving stdout clean.
 - `lsp` owns **stdout** for the JSON-RPC wire protocol; human-facing output

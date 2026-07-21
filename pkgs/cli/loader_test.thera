@@ -3,7 +3,7 @@
 // the canonical-identity contract (`canonical_path`), which uses a real
 // fixture tree under the temp dir. The rest of the file-resolution +
 // import-closure walk is covered end-to-end by the driver (the Hawk CLI emits
-// byte-identical `.hawkbc` for a std-using program).
+// byte-identical `.thera-bc` for a std-using program).
 
 import std.testing;
 import std.fs;

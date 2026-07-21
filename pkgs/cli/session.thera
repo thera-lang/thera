@@ -30,7 +30,7 @@ import 'diagnostic'; // Diagnostic — the uniform phase error, produced by ever
 // policy can refine this later.
 const LIBRARY_CACHE_CAP: Int = 1024;
 
-// The outcome of compiling a source: any diagnostics, and the encoded `.hawkbc`
+// The outcome of compiling a source: any diagnostics, and the encoded `.thera-bc`
 // bytes when there were none.
 pub struct CompileOutcome {
     let diagnostics: List<diagnostic.Diagnostic>;
@@ -411,7 +411,7 @@ impl Session {
         return out;
     }
 
-    // Compile `source` (located at `p`) to `.hawkbc` bytes with its import
+    // Compile `source` (located at `p`) to `.thera-bc` bytes with its import
     // closure linked in. Like `check`, the whole local (non-SDK) closure is
     // checked — an imported file's check error blocks the compile instead of
     // shipping to bytecode.
@@ -518,7 +518,7 @@ pub fn check_source(_ source: String) -> List<diagnostic.Diagnostic> {
     return checker.check(parsed.program, [], [:], [:]).errors;
 }
 
-// Compile `source` to `.hawkbc` bytes with no import closure. Each phase
+// Compile `source` to `.thera-bc` bytes with no import closure. Each phase
 // short-circuits on errors, so `bytes` is present only for a clean program.
 pub fn compile_source(_ source: String) -> CompileOutcome {
     let lex = lexer.tokenize(source);

@@ -1,7 +1,7 @@
-// Encodes a `Module` to the `.hawkbc` wire format — the Hawk mirror of the
+// Encodes a `Module` to the `.thera-bc` wire format — the Hawk mirror of the
 // runtime's `codec.rs` encode side and the Dart toolchain's bytecode/encoder.dart.
 //
-// A `"HAWK"` magic + version header, then length-prefixed sections (Constants,
+// A `"THERA"` magic + version header, then length-prefixed sections (Constants,
 // Types, Functions, Symbols, Dispatch, Globals, Entry). Strings are deduplicated
 // into a constant pool and referenced by index; `call.native`/`call.virtual`/
 // `const.str` reference their string by pool index. Function names live in the
@@ -12,7 +12,7 @@
 import 'instr' as _; // emits instructions pervasively
 import 'module';
 
-const MAGIC: String = 'HAWK';
+const MAGIC: String = 'THERA';
 // v3: struct field names in the Types section + an Enums section, for named
 // `Debug` rendering. See docs/bytecode.md and the runtime's `codec.rs`.
 const VERSION: Int = 3;
@@ -166,7 +166,7 @@ pub fn encode_module(_ m: module.Module) -> Bytes {
     let init_plus1 = find_func(m.functions, '<init>') + 1;
 
     let w = BytesBuilder.new();
-    w.write_str(MAGIC); // raw, unprefixed (ASCII "HAWK")
+    w.write_str(MAGIC); // raw, unprefixed (ASCII "THERA")
     w.write_u32_le(VERSION);
     write_section(w, SECTION_CONSTANTS, consts.finish());
     write_section(w, SECTION_TYPES, types.finish());

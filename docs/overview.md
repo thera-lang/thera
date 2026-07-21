@@ -311,7 +311,7 @@ around a tiered VM pipeline (Tier 0 is built and runs everything today; the JIT
 tier is planned):
 
 1. **Tier-0 Bytecode Interpreter:** When a program starts, it is compiled into a
-   lightweight stack-based bytecode format (`.hawkbc`) and run immediately by a
+   lightweight stack-based bytecode format (`.thera-bc`) and run immediately by a
    fast loop interpreter written in Rust. Since most CLI script paths execute
    exactly once, the interpreter bypasses JIT compilation overhead, running the
    code instantly at zero compilation cost.
@@ -326,7 +326,7 @@ tier is planned):
    mechanisms, inline caches, or deoptimization guards, making the JIT tier
    significantly smaller and more reliable than JS or Python JITs.
 
-### Bytecode Specification (`.hawkbc`)
+### Bytecode Specification (`.thera-bc`)
 
 The Hawk bytecode is stack-based, designed to be compact and easy to target.
 
@@ -360,7 +360,7 @@ collector.
 ### Self-Hosting and the Native ABI
 
 The `hawk` executable is a standalone binary. It contains the Hawk compiler
-front-end pre-compiled to bytecode (`frontend.hawkbc`) and embedded directly
+front-end pre-compiled to bytecode (`frontend.thera-bc`) and embedded directly
 into the Rust executable via `include_bytes!`.
 
 When running `hawk run script.hawk`, the VM runs the embedded front-end bytecode
@@ -371,7 +371,7 @@ remains a regular Hawk program, laying the groundwork for self-hosting.
 Native standard library functions are declared in Hawk via the `native fn`
 syntax and bound to the runtime using the `@extern('symbol_name')` decorator.
 The bytecode resolves these native symbols by name at load time (similar to
-WebAssembly imports), ensuring that compiled `.hawkbc` files remain compatible
+WebAssembly imports), ensuring that compiled `.thera-bc` files remain compatible
 across different versions of the runtime binary.
 
 ---
