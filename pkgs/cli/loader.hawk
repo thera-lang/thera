@@ -181,17 +181,28 @@ pub fn display_path(_ path: String) -> String {
 
 // --- file resolution ---
 
-// Resolve a library base path (no extension) to its source file: `<base>.hawk`,
-// or, when `<base>` is a directory, its barrel `<base>/<name>.hawk`.
+// The recognized source-file extensions, preferred first (hawk→thera
+// transition: `.thera` is the going-forward extension, `.hawk` is accepted
+// until the tree is renamed — see docs/rename.md).
+pub fn source_exts() -> List<String> {
+    return ['.thera', '.hawk'];
+}
+
+// Resolve a library base path (no extension) to its source file: `<base>.thera`,
+// or, when `<base>` is a directory, its barrel `<base>/<name>.thera`.
 fn resolve_library_file(_ base: String) -> Option<String> {
-    let file = base + '.hawk';
-    if is_file(file) {
-        return Option.Some(file);
+    for ext in source_exts() {
+        let file = base + ext;
+        if is_file(file) {
+            return Option.Some(file);
+        }
     }
     if is_dir(base) {
-        let barrel = path.join(base, path.basename(base) + '.hawk');
-        if is_file(barrel) {
-            return Option.Some(barrel);
+        for ext in source_exts() {
+            let barrel = path.join(base, path.basename(base) + ext);
+            if is_file(barrel) {
+                return Option.Some(barrel);
+            }
         }
     }
     return Option.None;
@@ -743,12 +754,13 @@ fn test_base_name(_ file: Option<String>) -> Option<String> {
     return Option.None;
 }
 
-// A source file's basename without its `.hawk` extension.
+// A source file's basename without its source extension.
 fn basename_no_ext(_ file: Option<String>) -> String {
     let seg = path.basename(file.unwrap_or(''));
-    let ext = '.hawk';
-    if seg.len() > ext.len() && seg.slice(seg.len() - ext.len(), seg.len()) == ext {
-        return seg.slice(0, seg.len() - ext.len());
+    for ext in source_exts() {
+        if seg.len() > ext.len() && seg.slice(seg.len() - ext.len(), seg.len()) == ext {
+            return seg.slice(0, seg.len() - ext.len());
+        }
     }
     return seg;
 }

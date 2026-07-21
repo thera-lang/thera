@@ -250,7 +250,7 @@ fn do_check(_ targets: List<String>, _ sdk_root: Option<String>) -> Result<Int, 
         match fs.metadata(target) {
             Ok(meta) => {
                 match meta.kind {
-                    Dir => { runner.collect_from_dir(target, '.hawk', files); },
+                    Dir => { runner.collect_from_dir(target, loader.source_exts(), files); },
                     _ => { files.push(target); },
                 }
             },
@@ -337,7 +337,7 @@ fn do_fmt(_ targets: List<String>, check: Bool = false) -> Result<Int, Error> {
         match fs.metadata(target) {
             Ok(meta) => {
                 match meta.kind {
-                    Dir => { runner.collect_from_dir(target, '.hawk', files); },
+                    Dir => { runner.collect_from_dir(target, loader.source_exts(), files); },
                     _ => { files.push(target); },
                 }
             },
@@ -414,7 +414,7 @@ fn do_lint(_ targets: List<String>) -> Result<Int, Error> {
         match fs.metadata(target) {
             Ok(meta) => {
                 match meta.kind {
-                    Dir => { runner.collect_from_dir(target, '.hawk', files); },
+                    Dir => { runner.collect_from_dir(target, loader.source_exts(), files); },
                     _ => { files.push(target); },
                 }
             },
@@ -467,7 +467,7 @@ fn do_fix(_ targets: List<String>, only: List<String> = []) -> Result<Int, Error
         match fs.metadata(target) {
             Ok(meta) => {
                 match meta.kind {
-                    Dir => { runner.collect_from_dir(target, '.hawk', files); },
+                    Dir => { runner.collect_from_dir(target, loader.source_exts(), files); },
                     _ => { files.push(target); },
                 }
             },

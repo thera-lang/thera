@@ -59,7 +59,9 @@ fn walk_dir(_ dir: String, _ seen: Set<String>, _ out: List<String>,
                 }
             },
             _ => {
-                if e.name.ends_with('.hawk') && !seen.has(full) {
+                // hawk→thera transition: both extensions (docs/rename.md).
+                if (e.name.ends_with('.thera') || e.name.ends_with('.hawk'))
+                    && !seen.has(full) {
                     seen.add(full);
                     out.push(full);
                 }

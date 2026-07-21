@@ -202,16 +202,18 @@ fn check_unused_bare_import(_ errors: List<diagnostic.Diagnostic>, _ x: ImportDe
         'unused import: nothing from `${x.path}` is referenced', x.span, 'unused-import'));
 }
 
-// `<base>` for a `<base>_test.hawk` file path, else None (the loader's
+// `<base>` for a `<base>_test.thera` file path, else None (the loader's
 // test-file rule, mirrored: such a file sees `<base>`'s surface unqualified).
 fn test_base_of(_ file: Option<String>) -> Option<String> {
     let Some(f) = file else { return Option.None; };
     let slashes = f.split('/');
     let name = slashes[slashes.len() - 1];
-    let suffix = '_test.hawk';
-    if name.len() > suffix.len()
-        && name.slice(name.len() - suffix.len(), name.len()) == suffix {
-        return Option.Some(name.slice(0, name.len() - suffix.len()));
+    // hawk→thera transition: both extensions (docs/rename.md).
+    for suffix in ['_test.thera', '_test.hawk'] {
+        if name.len() > suffix.len()
+            && name.slice(name.len() - suffix.len(), name.len()) == suffix {
+            return Option.Some(name.slice(0, name.len() - suffix.len()));
+        }
     }
     return Option.None;
 }

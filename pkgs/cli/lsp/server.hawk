@@ -696,7 +696,10 @@ impl Server {
                     'id': json.str('hawk-watched-files'),
                     'method': json.str('workspace/didChangeWatchedFiles'),
                     'registerOptions': json.obj([
+                        // hawk→thera transition: both extensions (docs/rename.md).
                         'watchers': json.arr([json.obj([
+                            'globPattern': json.str('**/*.thera'),
+                        ]), json.obj([
                             'globPattern': json.str('**/*.hawk'),
                         ])]),
                     ]),

@@ -449,7 +449,7 @@ fn compile_or_report(_ file: String, _ sdk_root: Option<String>) -> Option<Bytes
 
 // --- test-file discovery ---
 
-// Collect `*_test.hawk` paths from `targets` — files used directly, directories
+// Collect `*_test.thera` paths from `targets` — files used directly, directories
 // searched recursively — sorted and de-duplicated for stable output.
 fn collect_test_files(_ targets: List<String>) -> List<String> {
     let found: List<String> = [];
@@ -458,7 +458,8 @@ fn collect_test_files(_ targets: List<String>) -> List<String> {
             Ok(meta) => {
                 match meta.kind {
                     Dir => {
-                        collect_from_dir(target, '_test.hawk', found);
+                        // hawk→thera transition: both extensions (docs/rename.md).
+                        collect_from_dir(target, ['_test.thera', '_test.hawk'], found);
                     },
                     _ => {
                         found.push(target);
@@ -473,14 +474,14 @@ fn collect_test_files(_ targets: List<String>) -> List<String> {
     return sort_dedup(found);
 }
 
-// Recursively append directory entries whose basename ends in `suffix` to
-// `found` (descending into subdirectories). Shared by `test` (`_test.hawk`) and
-// `check` (`.hawk`).
+// Recursively append directory entries whose basename ends in one of `suffixes`
+// to `found` (descending into subdirectories). Shared by `test` (`_test.thera`)
+// and `check` (`.thera`).
 // `fs.read_dir` reports each entry's kind from the directory read itself, so a
 // walk costs no `metadata` call per entry (which, over a tree with a build
 // directory in it, is the whole cost of the walk). A symlink needs the call to
 // learn what it points at; nothing else does.
-pub fn collect_from_dir(_ dir: String, _ suffix: String, _ found: List<String>) -> Void {
+pub fn collect_from_dir(_ dir: String, _ suffixes: List<String>, _ found: List<String>) -> Void {
     if let Ok(entries) = fs.read_dir(dir) {
         for e in entries {
             let full = path.join(dir, e.name);
@@ -493,11 +494,14 @@ pub fn collect_from_dir(_ dir: String, _ suffix: String, _ found: List<String>) 
             };
             match kind {
                 Dir => {
-                    collect_from_dir(full, suffix, found);
+                    collect_from_dir(full, suffixes, found);
                 },
                 _ => {
-                    if e.name.ends_with(suffix) {
-                        found.push(full);
+                    for suffix in suffixes {
+                        if e.name.ends_with(suffix) {
+                            found.push(full);
+                            break;
+                        }
                     }
                 },
             }

@@ -515,7 +515,8 @@ fn collect_hawk_files(_ dir: String, _ found: List<String>) -> Void {
                 match meta.kind {
                     Dir => { collect_hawk_files(full, found); },
                     _ => {
-                        if name.ends_with('.hawk') {
+                        // hawk→thera transition: both extensions (docs/rename.md).
+                        if name.ends_with('.thera') || name.ends_with('.hawk') {
                             found.push(full);
                         }
                     },
