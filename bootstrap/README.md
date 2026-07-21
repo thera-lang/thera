@@ -1,6 +1,6 @@
 # Bootstrap
 
-`frontend.thera-bc` is the **checked-in self-hosting bootstrap**: the Hawk
+`frontend.thera-bc` is the **checked-in self-hosting bootstrap**: the Thera
 front-end (`pkgs/cli/`) compiled to bytecode. It is the compiler that compiles
 the next revision of the front-end — so the build needs only the Rust runtime,
 not any external toolchain.
@@ -9,7 +9,7 @@ not any external toolchain.
 
 `bin/build_sdk.sh` runs this snapshot on the bare runtime (`thera-rt`) to emit a
 fresh `frontend.thera-bc` from the current `pkgs/cli/` sources, embeds that into
-the `hawk` binary, then **fixpoint-checks** that the freshly-built front-end
+the `thera` binary, then **fixpoint-checks** that the freshly-built front-end
 re-emits itself byte-for-byte. That replaced the old Dart bootstrap + byte
 oracle.
 

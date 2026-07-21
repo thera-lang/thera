@@ -242,7 +242,7 @@ pub fn to_writer(_ name: String, _ sink: io.Writer, _ min_level: Level, _ format
 /// Ambient logging through the process logger (the unnamed root source) — the
 /// zero-ceremony form for scripts and top-level program flow:
 ///
-/// ```hawk
+/// ```thera
 /// log.info('starting up');
 /// log.warn('config missing; using defaults');
 /// ```
@@ -272,7 +272,7 @@ pub fn warn(_ msg: String) -> Void {
 /// Whether a record at `level` from a logger `name` would pass the global
 /// filter — for guarding an expensive message before building it:
 ///
-/// ```hawk
+/// ```thera
 /// if log.enabled('myapp.db', log.Level.Debug) {
 ///     log.named('myapp.db').debug(expensive_dump());
 /// }

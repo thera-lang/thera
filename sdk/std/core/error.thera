@@ -2,7 +2,7 @@
 
 /// `Error` is an interface: any value that can describe itself with a
 /// human-readable `message()` is an error. `Result<T, Error>` is the
-/// conventional fallible signature throughout Hawk, and the common currency at
+/// conventional fallible signature throughout Thera, and the common currency at
 /// boundaries — domain modules define their own error enums (`CliError`, …) and
 /// `impl Error` for them, so callers can `match` on the cause yet still pass the
 /// value where an `Error` is expected.
@@ -20,7 +20,7 @@ pub interface Error: Display + Debug {
 /// The general-purpose error for the simple case: a plain message. Build one with
 /// the `error` constructor, which yields the `Error` interface:
 ///
-/// ```hawk
+/// ```thera
 /// return Result.Err(error('file not found'));
 /// throw error('file not found');
 /// ```

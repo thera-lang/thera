@@ -1,7 +1,7 @@
-// The lexer — the Hawk mirror of the Dart toolchain's lexer.dart. Turns source
+// The lexer — the Thera mirror of the Dart toolchain's lexer.dart. Turns source
 // text into a token stream, accumulating errors and continuing rather than
 // stopping at the first one. A faithful transcription; the notable shape change
-// is that Hawk has no `break`, so the `break`-driven loops are rewritten to exit
+// is that Thera has no `break`, so the `break`-driven loops are rewritten to exit
 // on a condition (string scanning) or fall through their loop guard.
 //
 // The cursor runs over the source's code points (`source.chars()`); spans are

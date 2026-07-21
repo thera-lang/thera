@@ -1,7 +1,7 @@
-# Hawk language reference
+# Thera language reference
 
-**What this is:** the reference for Hawk's syntax and semantics, the standard
-`hawk` tool, and open language-design questions. An informal working reference,
+**What this is:** the reference for Thera's syntax and semantics, the standard
+`thera` tool, and open language-design questions. An informal working reference,
 not a formal spec. The concrete syntax — keyword set, operator precedence, and
 every production in EBNF — is in [grammar.md](grammar.md). For the _why_ see
 [overview.md](overview.md); for how programs execute see
@@ -26,7 +26,7 @@ Every program defines a `main` function. It receives the program arguments as a
 exits non-zero and prints the error message to stderr. For flag/positional
 parsing, import `std.cli` and wrap the arguments in `Args`.
 
-```hawk
+```thera
 import std.cli;
 
 fn main(parameters: List<String>) -> Result<Int, Error> {
@@ -45,7 +45,7 @@ need the arguments.
 
 Bindings are immutable by default. Use `mut` to allow reassignment.
 
-```hawk
+```thera
 let x = 42;
 let name = 'alice';
 
@@ -91,7 +91,7 @@ never a module global. Being part of the file's surface, a module-level binding
 is a **boundary**: it carries a type annotation, read apart from its initializer
 (see [Type annotations & inference](#type-annotations--inference)).
 
-```hawk
+```thera
 let INFINITY: Double = 1.0 / 0.0;   // computed once at load, then stored
 let TAU: Double = 2.0 * math.PI;    // may depend on another module global
 ```
@@ -115,7 +115,7 @@ importers, a global before the one that uses it); an initializer-dependency
 
 ## Type annotations & inference
 
-Hawk's annotation discipline is **hard at the boundaries, soft in the center**.
+Thera's annotation discipline is **hard at the boundaries, soft in the center**.
 A declaration's _public shape_ — the types a reader sees without looking inside
 — is always spelled out; the types of intermediate values _within_ a function
 body are inferred. The aim is that a reader (human or LLM) never has to guess a
@@ -146,7 +146,7 @@ already makes obvious.
 - **Generic type arguments** are inferred at the call site: `Pair.of('a', 1)`
   yields `Pair<String, Int>` with nothing written.
 
-```hawk
+```thera
 let LABELS: List<String> = ['low', 'mid', 'high'];   // boundary — annotated
 
 fn label_widths() -> List<Int> {          // boundary — annotated
@@ -161,7 +161,7 @@ nothing is ever pushed to, a `None` never paired with a `Some` — the checker
 reports that it needs more type information and points at the binding. The
 feedback is immediate; the fix is the annotation it asks for:
 
-```hawk
+```thera
 let mut ids = [];              // error: the element type is never pinned
 let mut ids: List<Int> = [];   // annotate to resolve it
 ```
@@ -179,7 +179,7 @@ The linked sections are normative; the corners that are deliberately or
 currently loose are called out honestly and tracked in
 [roadmap.md](roadmap.md)._
 
-Every Hawk type takes one of six shapes:
+Every Thera type takes one of six shapes:
 
 | Shape          | Examples                          | Notes                                                                                                                                                                 |
 | -------------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -206,7 +206,7 @@ whole-program constraint solving: a type is always derivable from what's on the
 page nearby, which is the property that lets a reader — human or LLM — reason
 about any line with only local context.
 
-**No type aliases — a deliberate non-goal.** Hawk has no
+**No type aliases — a deliberate non-goal.** Thera has no
 `type Name = <some type>` form, and is unlikely to grow one. An alias is a
 _transparent_ name: it reads well for a human skimming, but it adds precisely
 the indirection the local-reasoning property above is built to avoid — an LLM
@@ -248,9 +248,9 @@ default float formatting drops a trailing `.0`.
 String literals use single quotes, and may span multiple lines. Interpolation
 uses `${}`, and `+` concatenates two strings:
 
-```hawk
+```thera
 let greeting = 'Hello, ${name}!';
-let path = dir + '/' + name + '.hawk';
+let path = dir + '/' + name + '.thera';
 ```
 
 Strings are UTF-8 and are **not** integer-indexable — `s[i]` is disallowed,
@@ -268,7 +268,7 @@ a character.
 | `Map<K, V>` | Key-value store             | `['a': 1, 'b': 2]`    |
 | `Set<T>`    | Collection of unique values | `Set.from([1, 2, 3])` |
 
-```hawk
+```thera
 let names: List<String>      = ['alice', 'bob'];
 let scores: Map<String, Int> = ['alice': 10, 'bob': 7];
 let tags: Set<String>        = Set.from(['cli', 'tool', 'cli']);  // {'cli', 'tool'}
@@ -321,7 +321,7 @@ _instantiation_ (the two brace bodies are otherwise identical). Fields are
 immutable by default; mark a field `let mut` to allow reassigning it after
 construction (the field-level analogue of `let` vs `let mut`).
 
-```hawk
+```thera
 struct Point {
     let x: Double;
     let y: Double;
@@ -348,7 +348,7 @@ shared references — see [Variables](#variables)).
 
 ## Functions
 
-```hawk
+```thera
 fn add(a: Int, b: Int) -> Int {
     return a + b;
 }
@@ -357,7 +357,7 @@ fn add(a: Int, b: Int) -> Int {
 Functions with no meaningful return value omit the return type annotation; it
 defaults to `Void`. The two forms below are equivalent:
 
-```hawk
+```thera
 fn log(_ msg: String) -> Void { println(msg); }
 fn log(_ msg: String)         { println(msg); }
 ```
@@ -368,7 +368,7 @@ exit on every path — each path through the body ends in a `return <value>` or 
 normally). A path that falls off the end of the body, or a bare `return;`, is a
 check error:
 
-```hawk
+```thera
 fn pick(_ b: Bool) -> Int {
     if b { return 1; }
 }   // error: missing return: not every path through 'pick' returns a value
@@ -381,7 +381,7 @@ or a bare `return;` is the implicit `Ok(void)` (see
 
 Functions are first-class values. Lambdas use `=>`:
 
-```hawk
+```thera
 let names = users.map(u => u.name);             // single parameter
 let sum = nums.fold(0, (acc, n) => acc + n);    // parenthesized, multiple
 ```
@@ -389,7 +389,7 @@ let sum = nums.fold(0, (acc, n) => acc + n);    // parenthesized, multiple
 A function-typed value is written `(T1, T2) -> R` (the zero-argument form is
 `() -> R`), so lambdas can be passed to and returned from functions:
 
-```hawk
+```thera
 fn apply(f: (Int) -> Int, _ x: Int) -> Int { return f(x); }
 
 fn adder(by: Int) -> (Int) -> Int {
@@ -404,7 +404,7 @@ function's return type. The bare single-parameter form `n => …` is shorthand f
 `(n) => …`. When neither an annotation nor the context determines a parameter's
 type, that's an error (the compiler does not guess) — add an annotation:
 
-```hawk
+```thera
 nums.map(n => n * 10);            // n: Int — from map's (T) -> U signature
 let double = (x: Int) => x * 2;   // no context here, so x is annotated
 ```
@@ -415,7 +415,7 @@ reference value — a struct/list/`self` — still observes mutations to the obj
 it points at). A captured `mut` local is **shared**: the closure and the
 enclosing scope see each other's reassignments, because the frontend boxes
 captured `mut` locals into a heap cell and closes over the cell (see
-[bytecode.md](bytecode.md)). See `examples/closures.hawk`.
+[bytecode.md](bytecode.md)). See `examples/closures.thera`.
 
 ### Named parameters
 
@@ -429,7 +429,7 @@ A parameter is **labeled by default**: its name becomes the call-site label and
 callers must write it. Labels make calls self-documenting — especially for
 booleans and several same-typed arguments:
 
-```hawk
+```thera
 fn greet(name: String, times: Int) { ... }
 
 greet(name: 'alice', times: 3);
@@ -439,7 +439,7 @@ Mark a parameter **positional** with a leading `_` (read it as "the external
 label is _none_"). The label is then _forbidden_ and the argument is passed by
 position — for when the call already reads unambiguously without it:
 
-```hawk
+```thera
 fn println(_ msg: String) { ... }
 
 println('hello');          // positional — reads naturally
@@ -457,7 +457,7 @@ internal identifier — useful when the natural label is a keyword or reads
 awkwardly inside the body (`_` is just the case where the external label is
 none):
 
-```hawk
+```thera
 fn flag(_ name: String, default value: Bool) -> Bool { ... }
 
 args.flag('--verbose', default: false);
@@ -479,7 +479,7 @@ the function body (avoiding a clash with a potential `default` keyword).
 
 ## Concurrency
 
-Hawk uses a **single-threaded cooperative fiber model**. All fibers run on one
+Thera uses a **single-threaded cooperative fiber model**. All fibers run on one
 thread, multiplexed by the runtime scheduler. All I/O calls look synchronous —
 there are no `async`/`await` keywords and no `Future<T>` return types. When a
 fiber blocks on I/O, the runtime parks it and resumes another; the calling code
@@ -494,7 +494,7 @@ rare occasion it's needed. Fibers coordinate by **communicating** — a result
 returned through `join()`, or values passed over a channel — not by guarding
 shared state.
 
-```hawk
+```thera
 // These two functions look identical at the type level.
 // fetch_user may park the fiber on a network call; double does not.
 // The caller treats them the same way.
@@ -518,7 +518,7 @@ fn main() -> Result<Int, Error> {
 Spawning a fiber runs work concurrently on the same thread; `join()` returns its
 result:
 
-```hawk
+```thera
 import std.fiber;
 
 let handle = fiber.spawn(() => fetch_user(id: 42));
@@ -535,7 +535,7 @@ when it is empty, returning `None` once the channel is closed and drained.
 This is **implemented**: `std.fiber` provides `spawn`/`join`/`yield` and
 buffered channels over the cooperative scheduler; `time.sleep` parks on a
 scheduler timer; and blocking filesystem, stdin, and process calls are offloaded
-to a small worker-thread pool so they park only the calling fiber (no Hawk code
+to a small worker-thread pool so they park only the calling fiber (no Thera code
 ever leaves the one thread). Still pending: a readiness poller for sockets (the
 `std.http` scaling path) and the second-order combinators (`select`, timeouts,
 cancellation) — see [roadmap.md](roadmap.md). The runtime design — fibers as
@@ -551,7 +551,7 @@ interface (`fn message(self) -> String`); the simple-case error is built with
 the `error('...')` constructor (`-> Error`), and domain libraries `impl Error`
 for their own enums.
 
-```hawk
+```thera
 fn read_port(args: Args) -> Result<Int, Error> {
     let s = args.positional(0).ok_or(error('usage: serve <port>'))?;
     return s.parse<Int>();
@@ -567,7 +567,7 @@ wrapping below know it by name, but it is otherwise not special.
 (`Ok(v)` → `v`) or returns the failure (`Err(e)`) from the enclosing function.
 `match` handles results at a boundary (match patterns stay unqualified):
 
-```hawk
+```thera
 match read_port(args) {
     Ok(port) => println('listening on ${port}'),
     Err(e)   => println('error: ${e.message}'),
@@ -577,7 +577,7 @@ match read_port(args) {
 **`?` works on `Option` too**, by the same rule — `Some(v)` → `v`, `None`
 early-returns `None`:
 
-```hawk
+```thera
 fn first_word(_ line: String) -> Option<String> {
     let word = line.split(' ').first()?;   // None short-circuits the function
     return Option.Some(word);
@@ -590,7 +590,7 @@ Mixing them is a compile error, because converting one to the other needs a
 choice the `?` can't make for you — turn an absence into an error explicitly
 with `.ok_or(<error>)?`, or drop an error to an absence with `.ok()?`:
 
-```hawk
+```thera
 fn load(args: Args) -> Result<Int, Error> {
     // args.first() is an Option; name the error, then propagate it
     let raw = args.first().ok_or(error('missing argument'))?;
@@ -604,7 +604,7 @@ values, a dropped value is a dropped error, the exact failure mode exceptions
 are blamed for. Handle it (`?`, `match`, `if let Err`), or discard it
 explicitly:
 
-```hawk
+```thera
 fn cleanup(_ path: String) {
     fs.remove(path);           // error: unused `Result`
     let _ = fs.remove(path);   // fine — explicitly discarded
@@ -621,7 +621,7 @@ convenience, and calling them for effect is normal.
 function. It is a reserved keyword — not an exception mechanism. There is no
 stack unwinding; control simply returns to the caller with an `Err` value.
 
-```hawk
+```thera
 fn parse_port(s: String) -> Result<Int, Error> {
     let n = s.parse<Int>()?;
     if n < 1 || n > 65535 {
@@ -635,7 +635,7 @@ In a `Result<Void, _>`-returning function the implicit `Ok` extends to
 completing normally: falling off the end of the body, or a bare `return;`, is
 `Ok(void)`. So the common propagate-and-succeed shape needs no closing ceremony:
 
-```hawk
+```thera
 fn save(config: Config) -> Result<Void, Error> {
     let text = config.serialize()?;
     fs.write_text('config.json', text)?;
@@ -647,7 +647,7 @@ A `throw` may also stand in **branch-tail (value) position**, not only as a
 [shapes table](#the-type-system-at-a-glance)), so the branch merge takes the
 other arm's type — the `else` below produces no value, and the `if` is an `Int`:
 
-```hawk
+```thera
 let port = if n > 0 { n } else { throw error('port must be positive') };
 ```
 
@@ -662,7 +662,7 @@ string; a value that might be absent has type `Option<String>`.
 Like `Result`, `Option` is an ordinary prelude enum, constructed qualified:
 `Option.Some(value)`, `Option.None`.
 
-```hawk
+```thera
 struct Config {
     let host:    String;
     let port:    Int;
@@ -674,7 +674,7 @@ Use [`if let`](#if-let) to act on a present value, `match` to handle both cases,
 or `.ok_or()` to convert to a `Result` when absence should be treated as an
 error:
 
-```hawk
+```thera
 // act on the present case (the common one)
 if let Some(dir) = config.log_dir {
     println('logging to ${dir}');
@@ -737,7 +737,7 @@ Reach for the checked form when absence is a normal, expected case; use indexing
 when a missing element would mean a bug.
 
 **The fault diagnostic.** A trap writes a single line to stderr of the form
-`hawk: trap: <message>` and exits non-zero. The message is human-readable and
+`thera: trap: <message>` and exits non-zero. The message is human-readable and
 names the specifics:
 
 | Fault                     | Message                                                                               |
@@ -748,7 +748,7 @@ names the specifics:
 | send on a closed channel  | `send on a closed channel`                                                            |
 | out of memory             | `out of memory: the live heap is <n> MiB but the limit is <m> MiB (THERA_MAX_HEAP_MB)` |
 | runaway recursion         | `stack overflow: the call stack reached <n> frames`                                   |
-| type error (checker hole) | `runtime type error: expected <type>, found <type>` (both are Hawk type names)        |
+| type error (checker hole) | `runtime type error: expected <type>, found <type>` (both are Thera type names)        |
 
 Distinct from the type-error message is
 `internal error (malformed bytecode): …`, reserved for a genuine producer bug —
@@ -764,7 +764,7 @@ code through; seeing the latter is a bug to report.
 
 ## Control flow
 
-```hawk
+```thera
 // if / else
 if x > 0 {
     println('positive');
@@ -794,7 +794,7 @@ Inside a loop, `break` exits the loop immediately and `continue` skips to its
 next iteration. Both are statements (they produce no value) and both act on the
 **innermost enclosing loop** — there are no loop labels.
 
-```hawk
+```thera
 let mut total = 0;
 for n in values {
     if n < 0 {
@@ -819,7 +819,7 @@ variables in it — only when `SUBJECT` matches `PATTERN`. It is the
 **conditional-binding** form: the canonical way to act on a present `Option` (or
 any single enum variant) without a full `match`.
 
-```hawk
+```thera
 // act on a present value (no `else` needed — runs for effect)
 if let Some(dir) = config.log_dir {
     println('logging to ${dir}');
@@ -851,7 +851,7 @@ guarantees the binding is available below. It is the **bind-or-bail guard**: the
 way to pull a value out of an `Option`/`Result` and handle absence up front,
 keeping the happy path un-indented.
 
-```hawk
+```thera
 fn read_port(args: Args) -> Result<Int, Error> {
     let Some(arg) = args.positional(0) else {
         throw error('usage: serve <port>');
@@ -896,7 +896,7 @@ tell.
 When a genuine multi-variant `match` does have an arm with nothing to do, write
 it **`=> void`** — the explicit unit value — not `=> {}`: the empty block says
 "nothing here" ambiguously (accident? placeholder?), while `void` states the
-intent. `hawk lint`'s `void-arm` rule flags the `=> {}` spelling.
+intent. `thera lint`'s `void-arm` rule flags the `=> {}` spelling.
 
 **Pattern arity.** A constructor pattern binds **exactly** its variant's field
 count — `Rect(w, h)` for a two-field `Rect`, with `_` for a position you don't
@@ -914,7 +914,7 @@ trailing `;` — is the block's value. Because `if` and `match` arms are blocks,
 they yield values too, so they can be used where a value is expected (a `let`
 initializer, a `match` arm, an `if`/`else` branch, a call argument).
 
-```hawk
+```thera
 // the block's last expression is its value
 let label = match tok {
     Number(n) => {
@@ -948,7 +948,7 @@ tail or statement is fine.
 
 ## Collections
 
-```hawk
+```thera
 let nums: List<Int> = [1, 2, 3];
 let first = nums[0];
 let len   = nums.len();
@@ -960,7 +960,7 @@ Indexing with `[]` asserts the element is present. `list[i]` and `map[key]`
 return the element directly; if the index is out of range or the key is absent,
 the program **traps** (see [Runtime faults](#runtime-faults)).
 
-```hawk
+```thera
 let nums = [1, 2, 3];
 let x = nums[0];          // 1
 let y = nums[9];          // traps — index out of range
@@ -974,7 +974,7 @@ let b = scores['bob'];    // traps — missing key
 value you handle rather than a fault. Use it whenever a missing element is a
 normal, expected case.
 
-```hawk
+```thera
 match nums.get(9) {
     Some(n) => println('got ${n}'),
     None    => println('out of range'),
@@ -990,7 +990,7 @@ returns `Option`.
 
 `List.map` and `List.filter` are **eager** — each returns a new `List`:
 
-```hawk
+```thera
 let evens = nums.filter(n => n % 2 == 0);   // List<Int>
 let doubled = nums.map(n => n * 2);         // List<Int>
 ```
@@ -1002,7 +1002,7 @@ wrap without evaluating, and the consumers `to_list()` (→ `List<T>`) and
 (`iter.from_list(xs)`, `iter.range(a, b)`), and from streaming sources like
 `io.lines` and `fs.walk`:
 
-```hawk
+```thera
 import std.iter;
 
 let first_evens = iter.range(0, 1000000)
@@ -1013,8 +1013,8 @@ let first_evens = iter.range(0, 1000000)
 
 The consumer is named for its result — `to_list`, matching `Set.to_list()` and
 `Bytes.to_list()` — rather than a polymorphic `collect()`: Rust's `collect` is
-type-directed and Java's takes a collector argument, machinery Hawk doesn't
-have, so each Hawk consumer states its target in its name (a future `to_set()`
+type-directed and Java's takes a collector argument, machinery Thera doesn't
+have, so each Thera consumer states its target in its name (a future `to_set()`
 would follow the same pattern).
 
 ---
@@ -1024,7 +1024,7 @@ would follow the same pattern).
 Libraries are imported by path. The last path segment becomes the namespace used
 to reference the library's public members:
 
-```hawk
+```thera
 import std.fs;
 import std.process;
 
@@ -1034,7 +1034,7 @@ let text = fs.read_text('config.toml')?;
 Use `as` to give the import an explicit prefix. This is useful when the default
 segment is ambiguous, conflicts with a local name, or you want a shorter alias:
 
-```hawk
+```thera
 import std.testing as testing;
 import std.fs as fs;
 
@@ -1047,7 +1047,7 @@ pervasively, where qualifying every reference would be noise. The default stays
 qualified; see [Name resolution & scoping](#name-resolution--scoping) for the
 full rules.
 
-```hawk
+```thera
 import 'ast' as _;            // Expr, Stmt, Decl, … usable bare in this file
 ```
 
@@ -1078,26 +1078,26 @@ distributed:  <install>/std/<lib>
 ```
 
 Each library is then resolved as a file or a directory barrel (below): `std.fs`
-resolves to `std/fs/fs.hawk`, `std.cli` to `std/cli/cli.hawk`.
+resolves to `std/fs/fs.thera`, `std.cli` to `std/cli/cli.thera`.
 
 **Relative file imports** resolve against the directory of the importing file:
 
-```hawk
-import 'wordcount'        // → <same dir>/wordcount.hawk
-import 'util/strings'     // → <same dir>/util/strings.hawk
+```thera
+import 'wordcount'        // → <same dir>/wordcount.thera
+import 'util/strings'     // → <same dir>/util/strings.thera
 ```
 
-The `.hawk` extension is always implied and must not be written in the import
+The `.thera` extension is always implied and must not be written in the import
 path. Absolute paths and `..` traversals are not supported.
 
 **A path may resolve to a file or to a directory.** For a path `P` (after
-anchoring as above): if `P.hawk` exists it is the library; otherwise, if `P/` is
-a directory, the library is its **barrel** file `P/<last>.hawk` (named after the
-directory). Having both `P.hawk` and a `P/` directory is an error.
+anchoring as above): if `P.thera` exists it is the library; otherwise, if `P/` is
+a directory, the library is its **barrel** file `P/<last>.thera` (named after the
+directory). Having both `P.thera` and a `P/` directory is an error.
 
-```hawk
-import 'wordcount'  // → wordcount.hawk        (single-file library)
-import std.cli      // → std/cli/cli.hawk      (directory library, via its barrel)
+```thera
+import 'wordcount'  // → wordcount.thera        (single-file library)
+import std.cli      // → std/cli/cli.thera      (directory library, via its barrel)
 ```
 
 A barrel re-exports its directory's files with `pub import`, so a whole
@@ -1107,7 +1107,7 @@ directory imports as one namespace. See [Visibility](#visibility).
 
 ## Visibility
 
-The unit of privacy is the **physical `.hawk` source file**. Hawk has no
+The unit of privacy is the **physical `.thera` source file**. Thera has no
 "module" (no multi-file unit with shared privacy); the relevant terms are a
 **source file** (the privacy unit), a **library** (an importable surface — a
 single file, or a directory fronted by its barrel), and a **barrel** (a library
@@ -1118,7 +1118,7 @@ A top-level declaration (`fn`, `type`, `enum`, `const`, `interface`) is
 **private to its source file** unless marked `pub`. Within a file everything is
 mutually visible; across files only `pub` symbols are, and only once imported.
 
-```hawk
+```thera
 pub fn format_date(_ d: Date) -> String { ... }   // public API
 fn pad2(_ n: Int) -> String { ... }                // file-private helper
 ```
@@ -1138,10 +1138,10 @@ fn pad2(_ n: Int) -> String { ... }                // file-private helper
   conflict is the barrel author's, never the consumer's.
 
 **Testing — white-box access.** A test lives beside its target as
-`foo_test.hawk` and imports it normally (`import 'foo'`). The one special case
-is visibility: because the names match, the test additionally sees `foo.hawk`'s
+`foo_test.thera` and imports it normally (`import 'foo'`). The one special case
+is visibility: because the names match, the test additionally sees `foo.thera`'s
 **private** top-level names as **bare** names — `internal_helper()` is callable
-from `foo_test.hawk` and nowhere else (its public names are still reached
+from `foo_test.thera` and nowhere else (its public names are still reached
 through the `foo` namespace, as in any other importer). The filename convention
 grants the access, avoiding a general package-private axis.
 
@@ -1159,7 +1159,7 @@ resolution is owner-correct for values _and_ types.
 
 ## Name resolution & scoping
 
-How a name in Hawk source resolves to a declaration: lexical scope first, then
+How a name in Thera source resolves to a declaration: lexical scope first, then
 the file's own top-level declarations, the prelude, and — for another library —
 its namespace. [Imports](#imports) and [Visibility](#visibility) cover
 namespaces and privacy; this section adds the scope rules and the resolution
@@ -1275,7 +1275,7 @@ sentence — and descend into detail only when they need it.
 
 ### Three comment forms
 
-Hawk distinguishes documentation from ordinary comments lexically, so tooling
+Thera distinguishes documentation from ordinary comments lexically, so tooling
 can extract one without scraping the other:
 
 | Form  | Role             | Attaches to                                                       |
@@ -1284,7 +1284,7 @@ can extract one without scraping the other:
 | `//!` | **file doc**     | the enclosing file (sits at the top, above the first declaration) |
 | `//`  | ordinary comment | nothing — an internal aside, never extracted                      |
 
-```hawk
+```thera
 //! std.fs — filesystem access: read and write files, list directories,
 //! query metadata. All paths are POSIX (forward-slash) regardless of host.
 //!
@@ -1352,12 +1352,12 @@ outside it is treated as plain text):
   code-shaped text. Backticks always work, so the bracket form is a pure opt-in
   upgrade, never required.
 - **Lists:** `-` bullets and `1.` ordered lists.
-- **Code blocks:** fenced only, tagged with the language — ` ```hawk `. Indented
+- **Code blocks:** fenced only, tagged with the language — ` ```thera `. Indented
   code blocks are **not** supported (they force an ambiguous indent-width rule
   under the `///` prefix); a fence is delimited, needs no measuring, and is the
   form LLMs read and emit most reliably. A fence may be left **untagged** when
-  its content is preformatted text that is _not_ Hawk code — a syntax table, a
-  grammar fragment, or sample program output — so the `hawk` tag never falsely
+  its content is preformatted text that is _not_ Thera code — a syntax table, a
+  grammar fragment, or sample program output — so the `thera` tag never falsely
   implies something is runnable.
 
 There are **no ATX headers** (`#`, `##`) in doc comments — `#` would invite
@@ -1367,17 +1367,17 @@ set of **bold-label paragraphs** instead:
 
 | Label          | Use                                                                               |
 | -------------- | --------------------------------------------------------------------------------- |
-| `**Example:**` | a usage example (usually a fenced `hawk` block)                                   |
+| `**Example:**` | a usage example (usually a fenced `thera` block)                                   |
 | `**Errors:**`  | the conditions under which a `Result` returns `Err`                               |
 | `**Traps:**`   | the conditions under which the call traps (see [Runtime faults](#runtime-faults)) |
 | `**Note:**`    | a caveat or non-obvious consequence                                               |
 | `**See:**`     | a cross-reference to a related symbol (`[Symbol]`) or doc                         |
 
-````hawk
+````thera
 /// The element at `index`, or `None` if `index` is out of range.
 ///
 /// **Example:**
-/// ```hawk
+/// ```thera
 /// let xs = [10, 20, 30];
 /// xs.get(1);    // Some(20)
 /// xs.get(9);    // None
@@ -1393,7 +1393,7 @@ type do not already convey its role: units, valid ranges, edge behavior, or how
 it relates to another parameter. The return value is described in the summary,
 not in a separate tag.
 
-```hawk
+```thera
 /// The substring of code points in the half-open range `[start, end)`.
 /// Indices are clamped to the string's length, so a reversed or out-of-range
 /// range yields a shorter or empty string.
@@ -1412,7 +1412,7 @@ pub fn slice(self, _ start: Int, _ end: Int) -> String { ... }
 ## Native bindings (FFI)
 
 `native fn` declares a function implemented in native code (e.g. a C library
-linked into the runtime). The declaration provides the Hawk-visible signature;
+linked into the runtime). The declaration provides the Thera-visible signature;
 the implementation is resolved at link time. Native functions have no body.
 
 The `@extern('<symbol>')` decorator names the runtime native the function binds
@@ -1420,19 +1420,19 @@ to (the runtime's native table is a flat namespace, so stdlib symbols are
 module-prefixed to stay unique). Without it, the binding defaults to the
 function's own name.
 
-```hawk
+```thera
 @extern('fs_read_text')
 pub native fn read_text(_ path: String) -> Result<String, Error>
 ```
 
 Native functions are an implementation detail of stdlib libraries. User code
-calls the Hawk wrappers (e.g. `fs.read_text`), not the native bindings directly.
+calls the Thera wrappers (e.g. `fs.read_text`), not the native bindings directly.
 
 An opaque type wraps a native handle whose internal layout is managed by the
 runtime. Declare it as an empty struct:
 
-```hawk
-struct NativeHandle {}   // opaque; not constructed directly in Hawk
+```thera
+struct NativeHandle {}   // opaque; not constructed directly in Thera
 ```
 
 ---
@@ -1446,7 +1446,7 @@ error — the `Err` case is failing to run the command at all (executable not
 found, spawn failure); `ProcessError` implements `Error`, so `?` propagates it
 like any other.
 
-```hawk
+```thera
 import std.process;
 
 let out = process.run('git', args: ['status', '--short'])?;
@@ -1469,7 +1469,7 @@ The runtime passes `main` its arguments as a `List<String>`. `std.cli` provides
 `Args`, which wraps that list and supports positional arguments and named flags.
 Construct it explicitly:
 
-```hawk
+```thera
 import std.cli;
 
 fn main(parameters: List<String>) -> Result<Int, Error> {
@@ -1497,7 +1497,7 @@ Interfaces describe capability. A type implements one explicitly with
 interface method with a matching signature (with `Self` read as the implementing
 type), reporting any missing or mismatched.
 
-```hawk
+```thera
 interface Greet {
     fn greet(self) -> String;
 }
@@ -1524,7 +1524,7 @@ provide it (the interface supplies the implementation), but may override it. A
 default is written in terms of the interface's required methods, so one required
 method can unlock a whole API:
 
-```hawk
+```thera
 interface Animal {
     fn name(self) -> String;             // required
 
@@ -1569,7 +1569,7 @@ without each implementer re-spelling them. See [stdlib.md](stdlib.md).
 Methods that belong to a type but do not implement an interface are defined in a
 plain `impl TypeName` block:
 
-```hawk
+```thera
 struct Counter {
     let value: Int;
 }
@@ -1596,7 +1596,7 @@ per interface implemented.
 Functions in an `impl` block that take no `self` parameter are static methods,
 called on the type name rather than an instance:
 
-```hawk
+```thera
 impl Regex {
     fn compile(_ pattern: String) -> Result<Regex, Error> { ... }  // static
     fn is_match(self, _ text: String) -> Bool { ... }              // instance
@@ -1624,7 +1624,7 @@ Primitive types (`Int`, `Double`, `Bool`, `String`) implement both
 automatically. Structs get a default `Debug` implementation; `Display` must be
 implemented explicitly.
 
-```hawk
+```thera
 // auto-derived Debug for a struct prints its fields by name:
 //   Point { x: 1.0, y: 2.0 }
 // (and a user enum by variant name, e.g. Circle(3.0) / Square)
@@ -1663,7 +1663,7 @@ type must also satisfy those super-interfaces. The `: Super1 + Super2` clause
 uses the same `+`-joined form as a generic bound; supers must be interfaces and
 the relation must be acyclic.
 
-```hawk
+```thera
 pub interface Error: Display + Debug {
     fn message(self) -> String;
 }
@@ -1695,7 +1695,7 @@ declare **type parameters** in angle brackets. There are no generic top-level
 bindings and no higher-kinded parameters (no `F<T>` where `F` is itself a
 parameter).
 
-```hawk
+```thera
 struct Pair<A, B> {
     let first: A;
     let second: B;
@@ -1724,7 +1724,7 @@ and wherever a concrete type argument is supplied for a bounded
 struct/enum/interface parameter (a struct literal, an annotation, an explicit
 type argument):
 
-```hawk
+```thera
 fn show_all<T: Display>(_ xs: List<T>) -> Void {
     for x in xs {
         print(x.display());
@@ -1744,7 +1744,7 @@ bound declares is an error. An **unbounded** `T` is opaque: a value of it can be
 stored, passed, returned, compared where the context allows — and rendered,
 since `display()`/`debug()` are total (every value renders via its impl or the
 derived fallback). One phase wrinkle: a method call on an unbounded `T` is today
-rejected at emit time rather than by `hawk check` (tracked in roadmap.md).
+rejected at emit time rather than by `thera check` (tracked in roadmap.md).
 
 ### Type arguments
 
@@ -1811,7 +1811,7 @@ or intersection types.
 
 When one generic type is assignable to another of the **same constructor** (rule
 4 above), whether the type arguments may differ is the constructor's _variance_.
-Hawk fixes this per built-in — there are **no variance annotations**
+Thera fixes this per built-in — there are **no variance annotations**
 (`out`/`in`), and nothing to write:
 
 | Constructor                                | Variance      |                                                                |
@@ -1828,7 +1828,7 @@ ergonomics: a function returning `Result<T, Error>` may
 `Result.Err(someConcreteError)` directly. A `List`/`Map`/`Set` has
 `push`/`insert`/index-assignment, so widening would be a soundness hole:
 
-```hawk
+```thera
 let cats: List<Cat> = [Cat { name: 'mo' }];
 let animals: List<Animal> = cats;   // rejected — List is invariant
 // If this were allowed, `animals.push(Dog { … })` would smuggle a Dog into
@@ -1838,7 +1838,7 @@ let animals: List<Animal> = cats;   // rejected — List is invariant
 This costs nothing in practice because a **polymorphic literal types against its
 context** — the widening a covariant `List` would give you is unnecessary:
 
-```hawk
+```thera
 let pets: List<Animal> = [Cat { name: 'mo' }, Dog { name: 'rex' }]; // fine
 ```
 
@@ -1854,7 +1854,7 @@ invariant-by-default is the current rule.
 
 Decorators attach metadata to a function. They are evaluated at compile time.
 
-```hawk
+```thera
 @route('GET', '/healthz')
 fn healthz(req: Request) -> Result<Response, Error> {
     return Result.Ok(Response.text('ok'));
@@ -1866,7 +1866,7 @@ fn healthz(req: Request) -> Result<Response, Error> {
 ## Testing
 
 Test files are co-located with the source file they test, using a `_test`
-suffix: `src/foo.hawk` is tested by `src/foo_test.hawk`. The test imports its
+suffix: `src/foo.thera` is tested by `src/foo_test.thera`. The test imports its
 sibling through the normal import process, and — because the names match — that
 import additionally gets **white-box** access to the target's _private_ symbols
 (not just its `pub` ones). See [Visibility](#visibility).
@@ -1876,8 +1876,8 @@ Test functions are marked with `@test`, take no arguments, and return
 when it returns `Err`. Assertions return `Result<Void, Error>` and are called
 with `?` so that the first failure propagates out of the test immediately.
 
-```hawk
-// src/math_test.hawk
+```thera
+// src/math_test.thera
 
 import std.testing;
 
@@ -1915,9 +1915,9 @@ Each returns `Result<Void, Error>`; call with `?` to propagate failures.
 
 ---
 
-## The `hawk` tool
+## The `thera` tool
 
-The `hawk` command-line tool is the primary interface for working with Hawk
+The `thera` command-line tool is the primary interface for working with Thera
 programs. Its **primary design goal is to be useful to LLMs**; its secondary
 goal is to be useful to humans.
 
@@ -1938,14 +1938,14 @@ their targets explicit.
 ### Errors and warnings
 
 Diagnostics come in two severities. An **error** is invalid code: it blocks
-`run`/`emit`/`test` and makes `hawk check` exit 1. A **warning** is legal code
-that is probably a mistake: `hawk check` (and the LSP) report it, but nothing is
+`run`/`emit`/`test` and makes `thera check` exit 1. A **warning** is legal code
+that is probably a mistake: `thera check` (and the LSP) report it, but nothing is
 blocked and the exit code stays 0 — a signal, not a gate. A warning line is
 tagged and closes with its **rule name**:
 
 ```
-$ hawk check
-main.hawk:1:1: warning: unused import: `std.fs` is never referenced (unused-import)
+$ thera check
+main.thera:1:1: warning: unused import: `std.fs` is never referenced (unused-import)
 
 Checked 3 source files; 0 issues found; 1 warning.
 ```
@@ -1954,7 +1954,7 @@ A warning can be **suppressed at the site** with an ignore comment naming its
 rule, on the diagnostic's line or the line above (several rules
 comma-separated):
 
-```hawk
+```thera
 import std.fs; // ignore: unused-import
 ```
 
@@ -1967,7 +1967,7 @@ The warning rules:
   namespace import is referenced through its namespace name (`fs.read_text(…)`,
   a `fs.FsError` annotation); an `as _` import through any name on its public
   surface — or its derived namespace, used qualified. (`pub import` re-exports
-  and — in a `<base>_test.hawk` file — the module under test are exempt.)
+  and — in a `<base>_test.thera` file — the module under test are exempt.)
 - **`unreachable-code`** — code after a statement that always transfers control
   (`return`/`throw`, `break`/`continue`, an `if` whose branches all exit, a
   break-less `while true`) never runs. Reported once per block, on the first
@@ -1989,34 +1989,34 @@ The warning rules:
 
 | Command           | Description                                                  |
 | ----------------- | ------------------------------------------------------------ |
-| `hawk run`        | Run a source file                                            |
-| `hawk check`      | Type-check without running (defaults to the cwd)             |
-| `hawk test`       | Run tests (defaults to the cwd; `--verbose` for full report) |
-| `hawk fmt`        | Format source files in place (`--check` to only report)      |
-| `hawk lint`       | Report non-idiomatic code shapes (defaults to the cwd)       |
-| `hawk lint --fix` | Apply the safe lint rewrites (explicit target required)      |
-| `hawk emit`       | Compile to a `.thera-bc` bytecode file                         |
-| `hawk lsp`        | Start the language server                                    |
+| `thera run`        | Run a source file                                            |
+| `thera check`      | Type-check without running (defaults to the cwd)             |
+| `thera test`       | Run tests (defaults to the cwd; `--verbose` for full report) |
+| `thera fmt`        | Format source files in place (`--check` to only report)      |
+| `thera lint`       | Report non-idiomatic code shapes (defaults to the cwd)       |
+| `thera lint --fix` | Apply the safe lint rewrites (explicit target required)      |
+| `thera emit`       | Compile to a `.thera-bc` bytecode file                         |
+| `thera lsp`        | Start the language server                                    |
 
-### `hawk test`
+### `thera test`
 
-`hawk test [file|dir]` runs the `@test` functions in a `*_test.hawk` file, or in
-every `*_test.hawk` found under a directory (the current directory when no
+`thera test [file|dir]` runs the `@test` functions in a `*_test.thera` file, or in
+every `*_test.thera` found under a directory (the current directory when no
 target is given). The default output is quiet: a block per **failing** test —
 its name, with the failure detail indented under it in the standard
 `path:line:column: message` diagnostic shape — then one summary line. A green
 run prints only the summary:
 
 ```
-$ hawk test src
+$ thera test src
 test_add: failed
-  src/math_test.hawk:7:5: assert_eq failed
+  src/math_test.thera:7:5: assert_eq failed
     actual:   5
     expected: 4
 
 Ran 2 tests for 1 test file; 1 failure.
 
-$ hawk test src        # after the fix
+$ thera test src        # after the fix
 Ran 2 tests for 1 test file; 0 failures.
 ```
 
@@ -2047,15 +2047,15 @@ discovery) needs to know about the difference.
   runtime/         ← Rust runtime: bytecode interpreter, GC, fiber scheduler
                      (builds `thera-rt`, the bare runtime)
   pkgs/
-    cli/           ← Hawk front-end + CLI harness (written in Hawk)
+    cli/           ← Thera front-end + CLI harness (written in Thera)
   sdk/
     std/
-      core/core.hawk        ← auto-imported prelude (barrel; re-exports its
+      core/core.thera        ← auto-imported prelude (barrel; re-exports its
                               siblings: interfaces, error, string, list, map,
                               set, option, result, bytes, iterator, …)
-      cli/cli.hawk          ← import std.cli (barrel re-exporting args.hawk)
-      fs/fs.hawk            ← import std.fs
-      testing/testing.hawk  ← import std.testing (barrel: assert, clock, env)
+      cli/cli.thera          ← import std.cli (barrel re-exporting args.thera)
+      fs/fs.thera            ← import std.fs
+      testing/testing.thera  ← import std.testing (barrel: assert, clock, env)
       ...                   ← char, encoding, env, fiber, hash, io, iter, json,
                               log, math, path, process, random, regex, sort,
                               term, time
@@ -2063,34 +2063,34 @@ discovery) needs to know about the difference.
   docs/
 ```
 
-### Two binaries: `thera-rt` and `hawk`
+### Two binaries: `thera-rt` and `thera`
 
 The Rust crate builds **`thera-rt`** — the _bare runtime_: it loads and runs a
 `.thera-bc` and nothing else. The SDK build takes that same binary, embeds the
-compiled front-end (`frontend.thera-bc`) into it, and ships it as **`hawk`** — the
-full launcher. So `hawk` is `thera-rt` + an embedded front-end: invoked on a
+compiled front-end (`frontend.thera-bc`) into it, and ships it as **`thera`** — the
+full launcher. So `thera` is `thera-rt` + an embedded front-end: invoked on a
 `.thera-bc` (or `--entry`) it behaves as the bare runtime; invoked on a subcommand
 (`run`, `check`, `test`, `emit`, `fmt`, `lint`, `fix`, `lsp`) it boots its
 embedded front-end. The distinction lets a `cargo build` (which yields `thera-rt`)
-be unambiguously the runtime, while `hawk` is unambiguously the runtime +
+be unambiguously the runtime, while `thera` is unambiguously the runtime +
 front-end.
 
 ### Distributed layout
 
-The build bundles the compiled `hawk` binary with the standard library source.
+The build bundles the compiled `thera` binary with the standard library source.
 The `std/` directory moves to the top level — there is no `sdk/` wrapper:
 
 ```
 <install>/
   bin/
-    hawk           ← bare runtime + embedded front-end
+    thera           ← bare runtime + embedded front-end
   std/             ← stdlib source files (still needed at runtime)
   version          ← SDK version stamp (e.g. 0.1.0+<gitsha>)
 ```
 
 ### SDK root discovery
 
-The `hawk` binary locates the SDK root at runtime by resolving one directory
+The `thera` binary locates the SDK root at runtime by resolving one directory
 above its own executable location (`bin/../`), then falling back to a walk
 upward from the current directory (the in-repo dev case). The stdlib directory
 beneath that root is the one place the two layouts diverge — `std_root` accepts
@@ -2099,16 +2099,16 @@ either `<root>/std` (distributed) or `<root>/sdk/std` (in-repo):
 | Mode        | Binary / entry point | SDK root     | stdlib dir        |
 | ----------- | -------------------- | ------------ | ----------------- |
 | In-repo     | `<repo>/bin/…`       | `<repo>/`    | `<repo>/sdk/std/` |
-| Distributed | `<install>/bin/hawk` | `<install>/` | `<install>/std/`  |
+| Distributed | `<install>/bin/thera` | `<install>/` | `<install>/std/`  |
 
 Discovery is location-based (no environment variable): the binary finds its SDK
-from where it lives, so an installed `hawk` works from any working directory.
+from where it lives, so an installed `thera` works from any working directory.
 
 ### Standard library source files
 
-Stdlib libraries ship as plain Hawk source with `native fn` declarations for
+Stdlib libraries ship as plain Thera source with `native fn` declarations for
 functions implemented in the runtime, each a directory library
-(`std/<lib>/<lib>.hawk`, e.g. `std/fs/fs.hawk`). The front-end parses and
+(`std/<lib>/<lib>.thera`, e.g. `std/fs/fs.thera`). The front-end parses and
 type-checks them the same way it does user code.
 
 `std.core` is implicitly imported and does not appear in the resolved import
@@ -2135,13 +2135,13 @@ and UTF-8 strings without integer indexing.
   more familiar to shell scripters.
 - **Streams** — how to pipe one process's stdout into another: lazy iterators?
   an explicit pipe operator?
-- **Inline error handling (`catch`)** — Hawk uses `?` to propagate. A Zig-style
+- **Inline error handling (`catch`)** — Thera uses `?` to propagate. A Zig-style
   `expr catch fallback` / `expr catch |e| { ... }` as an inline default handler
   is worth considering as an additional form.
 - **`Option` vs. a nullable type system** — `Option<T>` (composes with
   `.map`/`.and_then`, represents nested absence) vs. `String?` with `?.`/`??`
   (zero boilerplate, no wrapper, but can't nest). `language.md` uses `Option<T>`
-  as a placeholder; revisit once there's enough real Hawk code to judge
+  as a placeholder; revisit once there's enough real Thera code to judge
   friction.
 - **Concurrency beyond single-threaded fibers** — the model is single-threaded
   cooperative fibers (no synchronization needed, no CPU parallelism). If

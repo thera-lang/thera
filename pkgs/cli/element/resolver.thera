@@ -1,4 +1,4 @@
-// The resolver — the Hawk mirror of element/resolver.dart. Resolves syntactic
+// The resolver — the Thera mirror of element/resolver.dart. Resolves syntactic
 // `TypeRef`s to semantic `Type`s, and builds the `LibraryElement` for a program
 // (plus its imports) in passes over the parsed AST.
 
@@ -603,7 +603,7 @@ fn method_element(_ decl: FnDecl, _ owner: String, _ scope: FileScope,
     };
 }
 
-// A missing `-> Type` means the function returns Unit (Hawk's implicit-unit
+// A missing `-> Type` means the function returns Unit (Thera's implicit-unit
 // return), not "unknown".
 fn resolve_return(_ ref: Option<TypeRef>, _ scope: FileScope,
     _ type_params: Set<String>, _ self_type: Option<Type>) -> Type {

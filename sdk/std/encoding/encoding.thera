@@ -6,12 +6,12 @@
 //! codecs (`base64`, `hex`) take and return `Bytes`; the URL codec works on text.
 //! Decoding is fallible — malformed input is a `Result.Err`, never a trap.
 //!
-//! ```hawk
+//! ```thera
 //! let tag = encoding.base64_encode('hi'.bytes());   // 'aGk='
 //! let raw = encoding.base64_decode(tag)?;            // Bytes
 //! ```
 //!
-//! Pure Hawk over `Bytes`/`String`, the bitwise operators, and `std.char`'s ASCII
+//! Pure Thera over `Bytes`/`String`, the bitwise operators, and `std.char`'s ASCII
 //! constants/predicates — no runtime natives. The lookup-free arithmetic mapping
 //! keeps each codec self-contained.
 
@@ -21,7 +21,7 @@ import std.char;
 
 /// Encode `data` as standard base64 (the `+/` alphabet, padded with `=`).
 ///
-/// ```hawk
+/// ```thera
 /// encoding.base64_encode('foobar'.bytes())   // 'Zm9vYmFy'
 /// encoding.base64_encode('f'.bytes())         // 'Zg=='
 /// ```
@@ -61,7 +61,7 @@ pub fn base64_encode(_ data: Bytes) -> String {
 /// padding); any non-alphabet character, misplaced padding, or a bad length is a
 /// `Result.Err`.
 ///
-/// ```hawk
+/// ```thera
 /// encoding.base64_decode('Zm9vYmFy')?.to_string()?   // 'foobar'
 /// ```
 pub fn base64_decode(_ s: String) -> Result<Bytes, Error> {
@@ -111,7 +111,7 @@ pub fn base64_decode(_ s: String) -> Result<Bytes, Error> {
 
 /// Encode `data` as lowercase hex (two characters per byte).
 ///
-/// ```hawk
+/// ```thera
 /// encoding.hex_encode('hi'.bytes())   // '6869'
 /// ```
 pub fn hex_encode(_ data: Bytes) -> String {
@@ -128,7 +128,7 @@ pub fn hex_encode(_ data: Bytes) -> String {
 /// Decode a hex string (upper- or lowercase). An odd length or a non-hex
 /// character is a `Result.Err`.
 ///
-/// ```hawk
+/// ```thera
 /// encoding.hex_decode('6869')?.to_string()?   // 'hi'
 /// ```
 pub fn hex_decode(_ s: String) -> Result<Bytes, Error> {
@@ -157,7 +157,7 @@ pub fn hex_decode(_ s: String) -> Result<Bytes, Error> {
 /// becomes `%XX` (uppercase hex). A space becomes `%20` (this is RFC 3986
 /// component encoding, not form encoding, so it is **not** `+`).
 ///
-/// ```hawk
+/// ```thera
 /// encoding.url_encode('a b&c')   // 'a%20b%26c'
 /// encoding.url_encode('x-y_z')   // 'x-y_z'
 /// ```
@@ -181,7 +181,7 @@ pub fn url_encode(_ s: String) -> String {
 /// `+` is treated literally (not as a space — the inverse of `url_encode`). A
 /// truncated or non-hex `%`-escape, or invalid UTF-8, is a `Result.Err`.
 ///
-/// ```hawk
+/// ```thera
 /// encoding.url_decode('a%20b%26c')?   // 'a b&c'
 /// ```
 pub fn url_decode(_ s: String) -> Result<String, Error> {

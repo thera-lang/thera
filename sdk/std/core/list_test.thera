@@ -1,4 +1,4 @@
-//! Tests for the built-in List<T> higher-order methods written in Hawk.
+//! Tests for the built-in List<T> higher-order methods written in Thera.
 
 import std.testing;
 

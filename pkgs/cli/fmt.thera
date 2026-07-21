@@ -1,4 +1,4 @@
-// The `hawk fmt` command.
+// The `thera fmt` command.
 //
 // A line-preserving formatter: it keeps every line break the author chose (no
 // automatic line breaking or joining — see docs/roadmap.md) and normalizes the
@@ -18,7 +18,7 @@
 // first pass (`space_intra_line`, Stage A) before the indentation pass (Stage B).
 // It rewrites only the whitespace *between* adjacent same-line tokens — driven
 // from the token stream, never rebuilding line content — so comments (line-only
-// in Hawk, hence never between two same-line tokens) and every lexeme are left
+// in Thera, hence never between two same-line tokens) and every lexeme are left
 // untouched. The one role token adjacency can't classify — `List<Int>` vs
 // `a < b` — comes from the parser's generic-delimiter side channel; unary vs
 // binary `-` is decided locally. A round-trip token check guards every result,

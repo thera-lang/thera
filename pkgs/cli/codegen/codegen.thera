@@ -1,13 +1,13 @@
-// The bytecode emitter — the Hawk mirror of the `_FnCompiler` half of the Dart
+// The bytecode emitter — the Thera mirror of the `_FnCompiler` half of the Dart
 // toolchain's codegen/codegen.dart. Walks a type-checked AST and emits the
 // runtime's stack-based instructions.
 //
 // The Dart compiler reads `Expr.resolvedType` (annotated up front by the
-// inferrer) for opcode/dispatch selection. Hawk's inference is pure, so this
+// inferrer) for opcode/dispatch selection. Thera's inference is pure, so this
 // compiler calls `infer_expr` on demand against a `type_scope: Map<String, Type>`
 // it maintains in parallel with the local `slots` — every binding records both
 // its slot and its type. The compiler is a mutable struct: its `impl` methods
-// grow `code`/`slots`/… in place (Hawk structs are references).
+// grow `code`/`slots`/… in place (Thera structs are references).
 //
 // Stage 1 covers functions, control flow, primitives, calls (free + native),
 // strings, lists/maps, indexing, fields, and propagation. Struct/enum

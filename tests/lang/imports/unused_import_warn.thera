@@ -2,7 +2,7 @@
 //! mode: check
 
 // An import whose namespace is never referenced is a warning — reported by
-// `hawk check` (with its rule name) but not compile-blocking. Any identifier
+// `thera check` (with its rule name) but not compile-blocking. Any identifier
 // occurrence of the namespace counts as a use (qualified calls, qualified
 // types). A `// ignore: unused-import` comment on the import's line, or the
 // line above, suppresses it at that site.

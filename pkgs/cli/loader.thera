@@ -1,4 +1,4 @@
-// The import-closure loader — the Hawk mirror of the Dart toolchain's loader.dart
+// The import-closure loader — the Thera mirror of the Dart toolchain's loader.dart
 // (plus the namespace layer of element/namespace.dart).
 //
 // Resolves and parses a program's transitive imports so the checker and emitter
@@ -77,10 +77,10 @@ pub fn std_root(_ root: String) -> Option<String> {
 // directory: first a walk upward from the running executable's own directory,
 // then a walk upward from the current directory.
 //
-// The executable walk is the robust primary: the installed `<install>/bin/hawk`
+// The executable walk is the robust primary: the installed `<install>/bin/thera`
 // finds `<install>/std` one level up, and the dev `thera-rt` (buried under
 // `<repo>/runtime/target/<profile>/`) finds the repo's `sdk/std` a few levels up
-// — so `hawk run /tmp/x.thera` resolves the prelude regardless of where it's
+// — so `thera run /tmp/x.thera` resolves the prelude regardless of where it's
 // invoked from. The current-directory walk is a fallback for a front-end whose
 // executable doesn't sit near an SDK.
 pub fn find_sdk_root() -> Option<String> {
@@ -453,7 +453,7 @@ impl Loader {
 // `file_path` is re-stamped with the canonical form, so the root carries the
 // same identity import resolution produces: a cycle that re-reaches the root
 // hits the cache instead of loading the file a second time as a duplicate unit,
-// and a bare `hawk run root.thera` resolves its imports against the invocation
+// and a bare `thera run root.thera` resolves its imports against the invocation
 // directory (the pre-canonical `dirname('root.thera')` was `''`, which sent
 // imports to the filesystem root).
 pub fn load_imports(_ entry: String, _ program: Program, _ sdk_root: Option<String>,
@@ -479,7 +479,7 @@ pub fn load_imports(_ entry: String, _ program: Program, _ sdk_root: Option<Stri
     // the barrel — a prelude name re-exported from a std.core sub-file (e.g. `error`
     // in core/error.thera) owns to that sub-file, where its element lives.
     // (With no SDK — `sdk_root: None`, the deliberate hermetic mode — the resolve
-    // misses and no prelude loads; explicit `std.*` imports get the "no Hawk SDK
+    // misses and no prelude loads; explicit `std.*` imports get the "no Thera SDK
     // found" diagnostic in `link_imports`, and the CLI warns once at startup.)
     let core_names: Map<String, String> = [:];
     // Resolve the auto-imported prelude relative to the primary's own directory, so
@@ -813,7 +813,7 @@ pub fn public_surface_of(_ lib: LibrarySource) -> element.LibraryNamespace {
     return element.LibraryNamespace { names: names, collisions: collisions, origin: origin };
 }
 
-// Cycle detection keys on the program's `file_path` (Hawk has no object identity).
+// Cycle detection keys on the program's `file_path` (Thera has no object identity).
 fn collect_surface(_ source: LibrarySource, _ names: Set<String>, _ collisions: Set<String>,
     _ origin: Map<String, String>, _ visited: Set<String>) -> Void {
     let key = element.file_key(source.program.file_path);

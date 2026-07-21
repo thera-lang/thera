@@ -1,6 +1,6 @@
-# Hawk bytecode
+# Thera bytecode
 
-**What this is:** the spec for Hawk's bytecode — the stable IR that the
+**What this is:** the spec for Thera's bytecode — the stable IR that the
 front-end emits, the interpreter runs, and the Cranelift JIT will lower from —
 plus the serialized `.thera-bc` format. The Tier-0 interpreter and the format
 already implement much of this (see [roadmap.md](roadmap.md) for status). The
@@ -13,7 +13,7 @@ In order (per the project's stated criteria):
 
 1. **Simplicity of implementation** — the Tier-0 interpreter should be a small,
    obvious dispatch loop.
-2. **Simplicity of targeting** — easy to emit from the Hawk frontend, and easy
+2. **Simplicity of targeting** — easy to emit from the Thera frontend, and easy
    to lower to Cranelift IR.
 3. **Performance** — fast enough to run real CLI work in the interpreter, and a
    clean path to native code for hot functions.
@@ -33,7 +33,7 @@ A few consequences fall out of these directly:
   debug), so its GC reads the tag instead of a stackmap. Untagged slots arrive
   with the JIT tier.
 - **Reducible control flow by construction.** Control flow is flat (jumps to
-  byte offsets), but because it is only ever emitted from Hawk's structured
+  byte offsets), but because it is only ever emitted from Thera's structured
   constructs (`if`/`for`/`match`/`?`), the resulting CFG is always reducible —
   which is what makes SSA reconstruction in the JIT tractable. This is a
   documented _invariant the frontend must uphold_, not something the format
@@ -43,7 +43,7 @@ A few consequences fall out of these directly:
 
 One value = one **64-bit slot** on the operand stack and in the locals array.
 
-| Hawk type          | Slot contents                                | Ref? |
+| Thera type          | Slot contents                                | Ref? |
 | ------------------ | -------------------------------------------- | ---- |
 | `Int`              | i64                                          | no   |
 | `Double`           | f64 (bit-pattern in the slot)                | no   |
@@ -162,10 +162,10 @@ if the JIT wants it) returns with the untagged durable form.
 
 The wire form draws on Wasm (the container) and the JVM `.class` file (the
 constant pool), but borrows neither instruction set nor type model — those carry
-Hawk's types, which is the whole reason for rolling our own. We take the
+Thera's types, which is the whole reason for rolling our own. We take the
 _ideas_, not the encodings.
 
-**Two layers.** The _wire form_ (on disk / embedded in the `hawk` binary)
+**Two layers.** The _wire form_ (on disk / embedded in the `thera` binary)
 optimizes for compactness; the _executable form_ is the in-memory `Module`
 (`Vec<Instr>`) the interpreter already runs. The loader **decodes** the wire
 form into a `Module` in one linear pass — cheap relative to process startup, and
@@ -367,11 +367,11 @@ Arguments are pushed left-to-right; the callee pops `argc` slots. Named
 parameters are resolved to positions by the frontend — the bytecode is purely
 positional. A `Void` return pushes nothing.
 
-> **Interface dispatch: direct calls now, vtable later.** Hawk knows the
+> **Interface dispatch: direct calls now, vtable later.** Thera knows the
 > concrete type at every method call site today, so the frontend **resolves
 > statically and emits a direct `call`** — including `Display` in `${…}`
 > interpolation and `Eq` for `==`. `call.interface` (per-type vtable) is added
-> only when Hawk gains _type-erased interface values_ (trait objects); at that
+> only when Thera gains _type-erased interface values_ (trait objects); at that
 > point the bytecode carries `call.interface` and the JIT **devirtualizes** to a
 > direct/inlined call wherever it can prove the concrete type. So we never need
 > a frontend monomorphisation pass. Until then `call.interface` is

@@ -1,4 +1,4 @@
-// Encodes a `Module` to the `.thera-bc` wire format — the Hawk mirror of the
+// Encodes a `Module` to the `.thera-bc` wire format — the Thera mirror of the
 // runtime's `codec.rs` encode side and the Dart toolchain's bytecode/encoder.dart.
 //
 // A `"THERA"` magic + version header, then length-prefixed sections (Constants,

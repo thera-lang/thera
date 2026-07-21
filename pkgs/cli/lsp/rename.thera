@@ -36,7 +36,7 @@ pub fn edits_for(_ spans: List<SourceSpan>, _ new_name: String) -> json.Json {
 // decline the rename with a reason instead of writing an edit that fails to
 // compile.
 //
-// Scoped to file-scope targets: Hawk lets a local shadow an in-scope name without
+// Scoped to file-scope targets: Thera lets a local shadow an in-scope name without
 // a checker error, and a field/method/variant lives in its type's name space, not
 // the file's — so those are not pre-checked (the checker still guards them). `ctx`
 // must be the target file's own resolution context (its `program` is the declaring

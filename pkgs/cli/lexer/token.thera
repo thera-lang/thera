@@ -1,10 +1,10 @@
-// The token model — the Hawk mirror of the Dart toolchain's token.dart:
+// The token model — the Thera mirror of the Dart toolchain's token.dart:
 // the token kinds, the keyword table, source spans, and the Token itself.
 //
 // Variants are listed in the same order as the Dart `TokenKind` enum so the two
-// stay easy to diff. Spans are code-point based (Hawk strings index by code
+// stay easy to diff. Spans are code-point based (Thera strings index by code
 // point), which matches the Dart code-unit spans for ASCII source — the common
-// case for Hawk programs.
+// case for Thera programs.
 
 pub enum TokenKind {
     // Literals

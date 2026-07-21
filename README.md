@@ -1,11 +1,12 @@
-# Hawk
+# Thera
 
 A proof-of-concept programming language designed to maximize the productivity of
 LLMs and coding agents.
 
-Modern languages were designed for human expressiveness. Hawk explores a
+Modern languages were designed for human expressiveness. Thera explores a
 different set of tradeoffs — optimized for the way AI agents reason, generate,
-and refactor code.
+and refactor code. The name is a nod to the
+[Antikythera mechanism](https://en.wikipedia.org/wiki/Antikythera_mechanism).
 
 ## Design goals
 
@@ -25,8 +26,8 @@ See [docs/overview.md](docs/overview.md) for the full architectural rationale,
 ## Status
 
 A proof of concept under active development. A Rust bytecode interpreter runs
-`.hawkbc`; a Hawk front-end type-checks and compiles Hawk source to it; and a
-core stdlib is written in Hawk (plus natives). Real CLI programs compile and run
+`.thera-bc`; a Thera front-end type-checks and compiles Thera source to it; and a
+core stdlib is written in Thera (plus natives). Real CLI programs compile and run
 end to end (see [examples/](examples/)). The front-end now **self-hosts** — it
 compiles its own sources and the stdlib, and the build reproduces the front-end
 byte-for-byte. Work continues on broadening the language, stdlib, and toolchain.

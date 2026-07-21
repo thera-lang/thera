@@ -3,7 +3,7 @@
 // Each `.thera` file under the test root is a conformance test: a real program
 // whose expectations live in comments, so the test and its oracle are one
 // artifact (and the file still runs by hand). The harness reads the `//!` header
-// directives and inline `// expect…` comments, invokes the `hawk` CLI (`check`
+// directives and inline `// expect…` comments, invokes the `thera` CLI (`check`
 // or `run`), and compares. See tests/lang/README.md and docs/conformance.md.
 //
 // Directives (file header):
@@ -22,8 +22,8 @@
 // to delete the marker because the feature landed.
 //
 // Usage (from the repo root):
-//   hawk run tests/lang_runner.thera <hawk-cmd> <test-root>
-// where <hawk-cmd> is the launcher under test (bin/thera.sh in dev).
+//   thera run tests/lang_runner.thera <thera-cmd> <test-root>
+// where <thera-cmd> is the launcher under test (bin/thera.sh in dev).
 
 import std.fs;
 import std.path;
@@ -56,14 +56,14 @@ enum Verdict {
 
 fn main(parameters: List<String>) -> Result<Int, Error> {
     if parameters.len() < 2 {
-        eprintln('usage: hawk run tests/lang_runner.thera <hawk-cmd> <test-root>');
+        eprintln('usage: thera run tests/lang_runner.thera <thera-cmd> <test-root>');
         return Result.Ok(2);
     }
-    let hawk = parameters[0];
+    let thera = parameters[0];
     let root = parameters[1];
 
     let files: List<String> = [];
-    collect_hawk_files(root, files);
+    collect_thera_files(root, files);
 
     let mut passed = 0;
     let mut failed = 0;
@@ -79,7 +79,7 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
             if test.spec != '' {
                 specs.push(test.spec);
             }
-            let verdict = run_test(hawk, test);
+            let verdict = run_test(thera, test);
             let expected_fail = match test.xfail {
                 Some(_) => true,
                 None => false,
@@ -207,17 +207,17 @@ fn parse_test(_ path: String) -> Result<Test, Error> {
 
 // --- execution & comparison ---
 
-fn run_test(_ hawk: String, _ test: Test) -> Verdict {
+fn run_test(_ thera: String, _ test: Test) -> Verdict {
     if test.mode == 'check' {
-        return run_check(hawk, test);
+        return run_check(thera, test);
     }
-    return run_run(hawk, test);
+    return run_run(thera, test);
 }
 
 // `check` mode: type-check the file and match the emitted diagnostics against the
 // `// expect error:` lines — every expectation matched, and no surprise errors.
-fn run_check(_ hawk: String, _ test: Test) -> Verdict {
-    let result = match process.run(hawk, args: ['check', test.path]) {
+fn run_check(_ thera: String, _ test: Test) -> Verdict {
+    let result = match process.run(thera, args: ['check', test.path]) {
         Ok(r) => r,
         Err(e) => { return Verdict.Fail('could not run check: ${e.message()}'); },
     };
@@ -260,8 +260,8 @@ fn run_check(_ hawk: String, _ test: Test) -> Verdict {
 // trap:` (non-zero exit + stderr), `// expect exit:` (exact code), `// expect
 // stderr:` (substrings), and the ordered `// expect:` stdout lines. The
 // exit/stderr/stdout checks compose, so a test can assert all three at once.
-fn run_run(_ hawk: String, _ test: Test) -> Verdict {
-    let result = match process.run(hawk, args: ['run', test.path]) {
+fn run_run(_ thera: String, _ test: Test) -> Verdict {
+    let result = match process.run(thera, args: ['run', test.path]) {
         Ok(r) => r,
         Err(e) => { return Verdict.Fail('could not run program: ${e.message()}'); },
     };
@@ -507,13 +507,13 @@ fn render_lines(_ expected: List<String>, _ got: List<String>) -> String {
 
 // --- file discovery ---
 
-fn collect_hawk_files(_ dir: String, _ found: List<String>) -> Void {
+fn collect_thera_files(_ dir: String, _ found: List<String>) -> Void {
     if let Ok(names) = fs.list_dir(dir) {
         for name in names {
             let full = path.join(dir, name);
             if let Ok(meta) = fs.metadata(full) {
                 match meta.kind {
-                    Dir => { collect_hawk_files(full, found); },
+                    Dir => { collect_thera_files(full, found); },
                     _ => {
                         if name.ends_with('.thera') {
                             found.push(full);

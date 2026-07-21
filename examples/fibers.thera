@@ -1,6 +1,6 @@
 // Cooperative concurrency with std.fiber.
 //
-// Hawk runs fibers cooperatively on a single thread: a fiber runs until it
+// Thera runs fibers cooperatively on a single thread: a fiber runs until it
 // blocks (a `join` on an unfinished fiber, or a channel `send`/`receive` that
 // can't proceed) or `yield`s, and the scheduler then runs the next one. Because
 // only one fiber runs at a time there are no data races and no locks.

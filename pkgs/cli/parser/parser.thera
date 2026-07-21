@@ -1,10 +1,10 @@
-// The parser — the Hawk mirror of the Dart toolchain's parser.dart. A
+// The parser — the Thera mirror of the Dart toolchain's parser.dart. A
 // recursive-descent parser with operator precedence, producing the AST.
 //
-// Two shape changes from Dart, both because Hawk lacks the control flow:
+// Two shape changes from Dart, both because Thera lacks the control flow:
 //
 //  * Error recovery. Dart throws a `_ParseFail` sentinel from `_fail` and catches
-//    it at the single declaration boundary. Hawk has no exceptions, so this is a
+//    it at the single declaration boundary. Thera has no exceptions, so this is a
 //    **panic flag**: `fail` records the error and sets `panicking`; the
 //    token-consuming primitives (`advance`/`match_kind`) and every parse loop
 //    short-circuit while it is set (so no tokens are consumed and no cascading

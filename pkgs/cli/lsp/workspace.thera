@@ -7,7 +7,7 @@
 // the editor already tells us the workspace boundary, and symbol identity is
 // path-keyed, so self-references need no package name. The only structure we
 // impose is pruning noise directories (`build`, dot-dirs) from the walk, plus
-// whatever subtree the caller's `prune` rejects (`hawk.exclude`).
+// whatever subtree the caller's `prune` rejects (`thera.exclude`).
 
 import std.fs;
 import std.path;
@@ -16,7 +16,7 @@ import std.path;
 // files. Dot-directories (`.git`, `.dart_tool`, editor state) and `build`
 // output are pruned with their whole subtrees (see `skip_dir`), as is any
 // directory `prune` returns true for — the caller's own filter, given the
-// directory's full path (`hawk.exclude`; pass `no_prune` for none).
+// directory's full path (`thera.exclude`; pass `no_prune` for none).
 // Unreadable directories are skipped silently — a best-effort scan, not a hard
 // error. Paths are deduped (overlapping roots) and returned in no particular
 // order.
@@ -24,7 +24,7 @@ import std.path;
 // `prune` decides a whole *subtree*, so a caller must only reject a directory
 // when every file beneath it is unwanted; a filter that merely rejects some
 // files belongs after the walk, not here (see `glob.prunes_dir`).
-pub fn hawk_files(_ roots: List<String>, prune: (String) -> Bool) -> List<String> {
+pub fn thera_files(_ roots: List<String>, prune: (String) -> Bool) -> List<String> {
     let seen: Set<String> = Set.new();
     let out: List<String> = [];
     for root in roots {

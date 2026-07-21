@@ -1,6 +1,6 @@
 # Parser error recovery
 
-**What this is:** the design and staged plan for making Hawk's parser
+**What this is:** the design and staged plan for making Thera's parser
 _resilient_ — producing a structurally useful AST from incomplete or malformed
 source, so the LSP can offer completion/hover mid-keystroke and the compiler can
 report precise, non-cascading errors.
@@ -44,7 +44,7 @@ compiler stays quiet on the holes.
 
 ## Where we are today
 
-The parser uses a **panic flag** with a single recovery point (`parser.hawk`):
+The parser uses a **panic flag** with a single recovery point (`parser.thera`):
 
 - `fail`/`fail_at` record **one** error and set `panicking`.
 - While `panicking`, `advance`/`match_kind` freeze (consume nothing) and **every
@@ -220,12 +220,12 @@ the cursor**) _and_ that the well-formed counterpart is unchanged.
 ## Testing
 
 - **Oracle.** Two complementary mechanisms: (a) a **structural AST dump** —
-  extend `ast/describe.hawk` to a full indented/s-expr printer — with golden
+  extend `ast/describe.thera` to a full indented/s-expr printer — with golden
   expectations; and (b) a **behavioral `complete_at(source, offset)`** that
   returns the completion items, asserted directly. Prefer (b) for the
   completion-trigger cases — it tests the actual customer, not a proxy.
 - **Location.** These pin _implementation behavior_, not the language spec, so
-  they live in the `@test` suite (`pkgs/cli/parser/recovery_test.hawk`), **not**
+  they live in the `@test` suite (`pkgs/cli/parser/recovery_test.thera`), **not**
   `tests/lang`.
 - **Every case asserts two directions:** the broken input yields the expected
   partial tree/completion, **and** the well-formed counterpart parses unchanged.

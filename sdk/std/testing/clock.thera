@@ -12,7 +12,7 @@ import std.time;
 /// that takes a clock capability. Pass it where the code under test expects a
 /// `Clock`; it always reports `millis`.
 ///
-/// ```hawk
+/// ```thera
 /// let clock = testing.fixed_clock(1000);
 /// testing.assert_eq(actual: stamp(clock), expected: 'at=1000')?;
 /// ```

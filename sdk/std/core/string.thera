@@ -29,7 +29,7 @@ impl String {
     /// length, so out-of-range or reversed ranges yield a shorter or empty string.
     /// Walks to the range's end in one pass (O(end)), not the whole string.
     ///
-    /// ```hawk
+    /// ```thera
     /// 'hello'.slice(1, 4)   // 'ell'
     /// ```
     @extern('str_slice')
@@ -40,7 +40,7 @@ impl String {
     /// positions (e.g. `byte_len`, `std.regex` match offsets). Offsets are clamped
     /// to the string; a range whose ends fall mid-code-point yields `''`.
     ///
-    /// ```hawk
+    /// ```thera
     /// 'héllo'.byte_slice(0, 1)   // 'h'  ('é' is 2 bytes, so byte 3 ends it)
     /// ```
     @extern('str_byte_slice')
@@ -91,7 +91,7 @@ impl String {
     /// matches nothing (the string is returned unchanged) rather than splitting
     /// between every code point.
     ///
-    /// ```hawk
+    /// ```thera
     /// 'a-b-c'.replace('-', '_')   // 'a_b_c'
     /// ```
     pub fn replace(self, _ from: String, _ to: String) -> String {
@@ -103,7 +103,7 @@ impl String {
 
     /// The string repeated `count` times (empty when `count <= 0`).
     ///
-    /// ```hawk
+    /// ```thera
     /// 'ab'.repeat(3)   // 'ababab'
     /// ```
     pub fn repeat(self, _ count: Int) -> String {
@@ -118,7 +118,7 @@ impl String {
 
     /// A copy with the code points in reverse order.
     ///
-    /// ```hawk
+    /// ```thera
     /// 'abc'.reverse()   // 'cba'
     /// ```
     pub fn reverse(self) -> String {
@@ -128,7 +128,7 @@ impl String {
     /// The code-point index of the first occurrence of `needle`, or None if it
     /// does not occur. An empty `needle` matches at 0 (as `contains('')` is true).
     ///
-    /// ```hawk
+    /// ```thera
     /// 'hello'.find('ll')   // Some(2)
     /// 'hello'.find('z')    // None
     /// ```
@@ -158,7 +158,7 @@ impl String {
     /// truncated to land exactly on `width`). A string already that wide, an empty
     /// `pad`, or a non-positive `width` returns `self` unchanged.
     ///
-    /// ```hawk
+    /// ```thera
     /// '7'.pad_start(3, '0')   // '007'
     /// ```
     pub fn pad_start(self, _ width: Int, _ pad: String) -> String {
@@ -168,7 +168,7 @@ impl String {
 
     /// `self` right-padded with `pad` to at least `width` code points.
     ///
-    /// ```hawk
+    /// ```thera
     /// '7'.pad_end(3, '.')   // '7..'
     /// ```
     pub fn pad_end(self, _ width: Int, _ pad: String) -> String {
@@ -193,7 +193,7 @@ impl String {
     /// The Unicode scalar values (code points) of the string, as Int. The
     /// inverse of `String.from_chars`:
     ///
-    /// ```hawk
+    /// ```thera
     /// let cps = source.chars();
     /// let same = String.from_chars(cps);
     /// ```
@@ -209,7 +209,7 @@ impl String {
     /// entire string must be the number (no surrounding whitespace) — call
     /// `s.trim()` first if needed.
     ///
-    /// ```hawk
+    /// ```thera
     /// '42'.to_int()    // Some(42)
     /// 'x'.to_int()     // None
     /// ```
@@ -218,7 +218,7 @@ impl String {
 
     /// Parse the whole string as a Double, or None if it isn't one.
     ///
-    /// ```hawk
+    /// ```thera
     /// '3.14'.to_double()   // Some(3.14)
     /// ```
     @extern('str_to_double')
@@ -229,7 +229,7 @@ impl String {
     /// optional leading `-` is allowed; letters a-f / A-F are digits 10..15.
     /// Overflow wraps two's-complement to 64 bits (matching `Int` arithmetic), so
     /// a full-width pattern like `'9E3779B97F4A7C15'.to_int_radix(16)` yields its
-    /// signed value — mirroring the front-end's `0x…` literal handling. Pure Hawk
+    /// signed value — mirroring the front-end's `0x…` literal handling. Pure Thera
     /// over wrapping `*`/`+`; the ASCII digit ranges are inlined to avoid a
     /// std.core → std.char dependency.
     pub fn to_int_radix(self, _ radix: Int) -> Option<Int> {
@@ -273,7 +273,7 @@ impl String {
     /// scalar value — for callers that must reject malformed input rather than
     /// substitute the replacement character.
     ///
-    /// ```hawk
+    /// ```thera
     /// String.try_from_chars([72, 105])    // Some('Hi')
     /// String.try_from_chars([0xD800])     // None (a lone surrogate)
     /// ```

@@ -18,7 +18,7 @@ pub native fn is_tty() -> Bool
 /// The terminal's size in character cells, or None when stdout is not a terminal
 /// or the size cannot be determined.
 ///
-/// ```hawk
+/// ```thera
 /// if let Some(sz) = term.size() { print('${sz.cols}x${sz.rows}'); }
 /// ```
 pub fn size() -> Option<TermSize> {
@@ -56,7 +56,7 @@ pub enum Color {
 /// Wrap `text` in an ANSI foreground color (and optional bold) when stdout is a
 /// TTY; return `text` unchanged otherwise, so redirected output stays clean.
 ///
-/// ```hawk
+/// ```thera
 /// print(term.style('error: not found', color: Color.Red, bold: true));
 /// ```
 pub fn style(_ text: String, color: Color, bold: Bool = false) -> String {

@@ -10,7 +10,7 @@
 import 'lexer/token'; // SourceSpan
 
 // How loud a diagnostic is. An `Error` is invalid code and blocks
-// compile/run; a `Warning` is legal-but-probably-a-bug — reported by `hawk
+// compile/run; a `Warning` is legal-but-probably-a-bug — reported by `thera
 // check` (and the LSP) without gating anything. `Info` is reserved for
 // lint-style suggestions riding the same model later.
 pub enum Severity {

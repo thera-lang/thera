@@ -2,7 +2,7 @@
 //
 // Each golden is the output of the Dart `compileProgram(program, imports: [])`
 // + `encodeModule` for the same source (core-free, so the two compilers compile
-// exactly the same units). A match means the Hawk front-end lowers the program
+// exactly the same units). A match means the Thera front-end lowers the program
 // to byte-identical `.thera-bc` — the end-to-end self-hosting check.
 
 import std.testing;

@@ -2,7 +2,7 @@
 // (docs/roadmap.md layer 1; audit LD16). It owns the state the stateless
 // pipeline phases share across requests: the SDK root, open-buffer overlays,
 // the cross-file parse cache, and the checked-clean set. Batch commands
-// (`hawk check`/`test`/`emit`) construct one per run; the LSP holds one for
+// (`thera check`/`test`/`emit`) construct one per run; the LSP holds one for
 // the workspace and mutates it on document events. There is no second
 // stateless path to keep in sync — the driver's entry points are thin
 // wrappers over a one-shot session. Phase 2's incremental engine (a

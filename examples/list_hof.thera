@@ -1,5 +1,5 @@
 // Higher-order list methods: `map`, `filter`, and `fold` take a closure and are
-// written in Hawk themselves (sdk/std/core/list.thera) — the payoff of closures.
+// written in Thera themselves (sdk/std/core/list.thera) — the payoff of closures.
 // All are in the core prelude, available on any list with no import. None of the
 // closures below is annotated: each parameter's type comes from the method
 // signature (see docs/language.md, "Lambdas").

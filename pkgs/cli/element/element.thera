@@ -1,10 +1,10 @@
-// The element model — the Hawk mirror of the Dart toolchain's element/element.dart.
+// The element model — the Thera mirror of the Dart toolchain's element/element.dart.
 //
 // Where the AST records syntax, the *element model* records resolved
 // declarations: member types as semantic `Type`s, with cross-references. It is
 // built as a separate stage over the parsed AST (see resolver.thera).
 //
-// Dart's identity-bearing element objects don't map to Hawk's value semantics,
+// Dart's identity-bearing element objects don't map to Thera's value semantics,
 // so the port references type definitions by **name** (a `Type.Interface` holds
 // the element's name, not the object) and looks them up in the `LibraryElement`
 // registry. Dart's `TypeDefElement` subclass hierarchy becomes one tagged struct

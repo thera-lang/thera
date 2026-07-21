@@ -3,7 +3,7 @@
 //!
 //! Import as: import std.net
 //!
-//! ```hawk
+//! ```thera
 //! // a client
 //! let sock = net.connect('example.com', 80)?;
 //! io.write_all(sock, 'GET / HTTP/1.0\r\n\r\n'.to_bytes())?;

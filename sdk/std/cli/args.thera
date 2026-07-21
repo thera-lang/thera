@@ -3,7 +3,7 @@
 //! `main` receives its arguments as a `List<String>`; wrap them in `Args` for
 //! positional/flag access:
 //!
-//! ```hawk
+//! ```thera
 //! import std.cli;
 //!
 //! fn main(parameters: List<String>) -> Result<Int, Error> {

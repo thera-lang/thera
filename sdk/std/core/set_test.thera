@@ -1,4 +1,4 @@
-//! Tests for Set<T> (implemented in Hawk over Map).
+//! Tests for Set<T> (implemented in Thera over Map).
 
 import std.testing;
 

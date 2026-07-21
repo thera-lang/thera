@@ -24,7 +24,7 @@ import std.char;
 /// The single ambient time effect: Unix time in milliseconds, from the system
 /// wall clock.
 ///
-/// ```hawk
+/// ```thera
 /// let started = time.now_millis();
 /// ```
 @extern('time_now_millis')
@@ -48,7 +48,7 @@ impl Clock for SystemClock {
 /// A `Clock` backed by the real system wall clock. Use in the shell to obtain a
 /// capability to pass into testable logic.
 ///
-/// ```hawk
+/// ```thera
 /// let clock = time.system_clock();
 /// run(clock);
 /// ```

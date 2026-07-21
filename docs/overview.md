@@ -1,16 +1,16 @@
-# Hawk: An LLM-Native Programming Language
+# Thera: An LLM-Native Programming Language
 
 ## A Technical Overview & Design Whitepaper
 
-Hawk is a proof-of-concept programming language designed from the ground up to
+Thera is a proof-of-concept programming language designed from the ground up to
 maximize the productivity of Large Language Models (LLMs) and autonomous coding
 agents. While traditional languages are optimized for human cognitive
-constraints or mathematical abstraction, Hawk explores a new point in the
+constraints or mathematical abstraction, Thera explores a new point in the
 language design space: **optimizing for the way AI agents reason, generate, and
 refactor code.**
 
 Targeted at scripting, command-line interface (CLI) tooling, and automation,
-Hawk combines strong static typing, immutability by default, errors as values,
+Thera combines strong static typing, immutability by default, errors as values,
 and a tiered virtual machine runtime to deliver a predictable, fast, and
 extremely agent-friendly environment.
 
@@ -37,20 +37,20 @@ repositories, these design choices introduce friction:
 
 ### The Target Space: CLI Tooling & Scripting
 
-Hawk focuses directly on the space occupied by Python, Go, and Node.js:
+Thera focuses directly on the space occupied by Python, Go, and Node.js:
 scripting, system automation, and CLI tools. This target domain shapes the
 platform:
 
 1. **Batteries-Included Standard Library:** Rather than relying on a fragmented
-   ecosystem of third-party packages, Hawk includes robust built-in support for
+   ecosystem of third-party packages, Thera includes robust built-in support for
    the CLI surface (filesystem, processes, argument parsing, HTTP, JSON/YAML,
    path manipulation, and environment variables). This prevents agents from
    hallucinating API signatures of obscure external packages.
-2. **Instant Startup Time:** Command-line scripts must feel instant. Hawk's
+2. **Instant Startup Time:** Command-line scripts must feel instant. Thera's
    execution model prioritizes low startup overhead, ensuring that short-lived
    utilities do not suffer from compilation or warm-up latency.
 3. **Ergonomic Subprocesses:** Spawning subprocesses and piping I/O is a core
-   scripting activity. Hawk makes process execution first-class, returning exit
+   scripting activity. Thera makes process execution first-class, returning exit
    codes and outputs as predictable typed results.
 4. **Single-Binary Distribution:** Distributing scripting tools is simplified
    via a compiled, self-contained executable, matching the deployment ergonomics
@@ -60,15 +60,15 @@ platform:
 
 ## 2. A Simple Introduction to the Language
 
-Hawk features a clean, brace-delimited syntax that combines the safety of
+Thera features a clean, brace-delimited syntax that combines the safety of
 functional core paradigms with the direct execution flow of imperative shells.
 
-### Walkthrough: `wordcount.hawk`
+### Walkthrough: `wordcount.thera`
 
-To understand how Hawk looks and behaves, let us examine the complete
+To understand how Thera looks and behaves, let us examine the complete
 implementation of a word counting tool:
 
-```hawk
+```thera
 import std.fs;
 import std.cli;
 
@@ -103,21 +103,21 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
 #### Line-by-Line Breakdown:
 
 - **Lines 1–2:** `import std.fs;` and `import std.cli;` import standard library
-  namespaces. In Hawk, imports are path-based. The trailing segment of the path
+  namespaces. In Thera, imports are path-based. The trailing segment of the path
   (e.g., `fs` or `cli`) automatically becomes the namespace used to qualify
   public members.
 - **Lines 4–8:** `struct Counts { ... }` declares a nominal struct. Struct
-  fields in Hawk are immutable by default, preventing unexpected side-effects.
+  fields in Thera are immutable by default, preventing unexpected side-effects.
 - **Line 10:** `fn count(_ text: String) -> Counts` defines a function. The
   leading underscore `_` in the parameter signature suppresses the call-site
-  argument label. By default, Hawk parameters are named at call sites (e.g.,
+  argument label. By default, Thera parameters are named at call sites (e.g.,
   `greet(name: 'alice')`). Using `_` allows natural-reading unqualified
   arguments where the context makes the role obvious.
 - **Line 18:** `fn main(parameters: List<String>) -> Result<Int, Error>` is the
   program's entry point. It receives arguments as a `List<String>` and returns a
   `Result` containing either the exit code (`Int`) or a structured `Error`.
 - **Line 19:** `let args = cli.Args.new(parameters);` instantiates the
-  command-line parser. Hawk variables are bound using `let` and are strictly
+  command-line parser. Thera variables are bound using `let` and are strictly
   immutable by default. To make a binding reassignable, the developer must
   explicitly use `let mut`.
 - **Line 20:** `args.positional(0).ok_or(...)?` handles potential absence.
@@ -137,26 +137,26 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
 
 ### Visibility, Libraries, and Barrels
 
-Hawk uses the physical source file as its fundamental privacy boundary. Any
+Thera uses the physical source file as its fundamental privacy boundary. Any
 top-level declaration (`fn`, `type`, `enum`, `const`, `interface`) is private to
 its source file unless prefixed with the `pub` keyword:
 
-```hawk
+```thera
 pub fn format_date(_ d: Date) -> String { ... }   // Visible to importers
 fn pad2(_ n: Int) -> String { ... }               // Private to this file
 ```
 
 To aggregate a directory of related files into a single importable namespace,
-Hawk uses the **barrel** pattern (a directory library):
+Thera uses the **barrel** pattern (a directory library):
 
 1. An import path like `import std.cli` resolves to a file inside the standard
-   library directory. If `std/cli.hawk` exists, it is loaded.
+   library directory. If `std/cli.thera` exists, it is loaded.
 2. Otherwise, if `std/cli/` is a directory, the loader searches for the barrel
-   file named after the directory: `std/cli/cli.hawk`.
+   file named after the directory: `std/cli/cli.thera`.
 3. The barrel file re-exports other sibling files in its directory using the
    `pub import` syntax:
-   ```hawk
-   // std/cli/cli.hawk (the barrel)
+   ```thera
+   // std/cli/cli.thera (the barrel)
    pub import 'args';
    pub import 'parser';
    ```
@@ -165,14 +165,14 @@ Hawk uses the **barrel** pattern (a directory library):
 
 ### Testing Conventions & White-Box Access
 
-Hawk establishes first-class testing conventions directly in the language
+Thera establishes first-class testing conventions directly in the language
 tooling.
 
 - Test files are co-located in the same directory using a `_test` suffix:
-  `math.hawk` is tested by `math_test.hawk`.
+  `math.thera` is tested by `math_test.thera`.
 - Test functions are annotated with `@test`, take no arguments, and return
   `Result<Void, Error>`.
-- Because testing is co-located, when `math_test.hawk` imports its sibling
+- Because testing is co-located, when `math_test.thera` imports its sibling
   `'math'`, the front-end automatically grants it **white-box access** to the
   target's private symbols. This avoids having to expose internal implementation
   details to the general public API just to write unit tests.
@@ -181,7 +181,7 @@ tooling.
 
 ## 3. High Points of Leverage for LLM Productivity
 
-Hawk's syntax and semantics are carefully tuned to give AI coding agents maximum
+Thera's syntax and semantics are carefully tuned to give AI coding agents maximum
 leverage, ensuring they can produce correct code, refactor easily, and avoid
 common cognitive errors.
 
@@ -200,7 +200,7 @@ common cognitive errors.
 
 ### I. Strong Nominal Static Typing
 
-In Hawk, nominal types and straightforward generics act as a deterministic
+In Thera, nominal types and straightforward generics act as a deterministic
 boundary. When an LLM generates code, the static type-checker acts as an
 immediate sanity check, pruning probabilistic hallucinations before code is run.
 Because the type system is simple and nominal, it avoids complex,
@@ -209,7 +209,7 @@ multi-line, cascade error messages.
 
 ### II. Fast, Precise AST Queries (LSP Sight)
 
-LSPs are the "eyes" of an AI agent. Hawk's toolchain is designed to expose
+LSPs are the "eyes" of an AI agent. Thera's toolchain is designed to expose
 quick, precise Abstract Syntax Tree (AST) information. An agent can query the
 compiler directly to resolve references, perform semantic renames, and evaluate
 scopes. This ensures that agents can refactor codebase layouts semantically
@@ -221,7 +221,7 @@ raw text.
 In dynamic or mutable-by-default languages, variables can change state at any
 program point. For an LLM to predict execution behavior, it must scan back and
 forth to track variables across multiple lines (the "multi-hop attention tax").
-In Hawk, bindings are immutable by default, enforcing a single-static-assignment
+In Thera, bindings are immutable by default, enforcing a single-static-assignment
 style. State is transformed via pipeline flows, allowing the model to reason
 about code in a purely linear fashion.
 
@@ -230,15 +230,15 @@ about code in a purely linear fashion.
 While semantic whitespace (like Python's indentation rules) looks clean to human
 eyes, it is highly problematic for coding agents. If a model generates a diff to
 inject a block of code and makes an off-by-one indentation error, it either
-breaks the AST or changes the nesting logic silently. Hawk enforces explicit
+breaks the AST or changes the nesting logic silently. Thera enforces explicit
 brace-delimited blocks (`{}`), ensuring that code structure is robust to
 diff-merges regardless of minor layout variations.
 
 ### V. Explicit Errors as Values
 
-Hawk rejects exceptions. Exceptions create implicit control flow jumps (stack
+Thera rejects exceptions. Exceptions create implicit control flow jumps (stack
 unwinding) that are invisible to the type system, making it easy for agents to
-omit error-handling logic. Hawk represents expected failures explicitly as
+omit error-handling logic. Thera represents expected failures explicitly as
 `Result<T, E>` values. Control flow remains flat and visible, and the type
 checker forces the agent to handle or explicitly propagate (via `?`) every
 failure path.
@@ -247,7 +247,7 @@ failure path.
 
 Pattern-matching models fundamentally lack the temporal reasoning required to
 handle multi-threaded concurrency, shared memory, and synchronization hazards
-(deadlocks, data races). Hawk uses a single-threaded cooperative fiber model.
+(deadlocks, data races). Thera uses a single-threaded cooperative fiber model.
 All asynchronous operations look synchronous at the language level; the runtime
 automatically parks and resumes fibers when they block on I/O. Because only one
 fiber executes on the thread at any time, agents write clean, concurrent code
@@ -256,14 +256,14 @@ without needing mutexes or semaphores.
 ### VII. Strict, Opinionated Formatter
 
 Stylistic debates consume developer attention and create unnecessary token
-variations in training and prompt context. Hawk includes a single, culturally
-enforced code formatter (`hawk fmt`). By restricting the layout of code to one
+variations in training and prompt context. Thera includes a single, culturally
+enforced code formatter (`thera fmt`). By restricting the layout of code to one
 standard representation, it ensures that generated code and reference prompts
 match exactly, minimizing token waste and code generation divergence.
 
 ### VIII. Functional Core, Imperative Shell
 
-Hawk's productive middle ground combines functional safety with imperative
+Thera's productive middle ground combines functional safety with imperative
 practicality via a **functional core, imperative shell** architecture: pure
 functions and immutable data pipelines hold the domain logic (zero state
 hallucination, trivially testable, linear to reason about), while the messy,
@@ -277,12 +277,12 @@ tools to what the code actually does.
 
 ## 4. The Runtime Architecture
 
-The Hawk runtime is written in Rust, engineered specifically to satisfy the CLI
+The Thera runtime is written in Rust, engineered specifically to satisfy the CLI
 domain's need for instant startup and stable execution.
 
 ```
                   ┌─────────────────────────────────────┐
-                  │              bin/hawk               │
+                  │              bin/thera               │
                   │  (Self-contained Rust executable)   │
                   └──────────────────┬──────────────────┘
                                      │
@@ -306,7 +306,7 @@ domain's need for instant startup and stable execution.
 
 ### The Tiered Virtual Machine
 
-To deliver on startup performance and steady-state execution, Hawk is designed
+To deliver on startup performance and steady-state execution, Thera is designed
 around a tiered VM pipeline (Tier 0 is built and runs everything today; the JIT
 tier is planned):
 
@@ -320,7 +320,7 @@ tier is planned):
    threshold (identifying it as "hot"), the Cranelift JIT compiler compiles that
    function in the background, and subsequent calls dispatch directly to the
    compiled native machine code.
-3. **Speculation-Free Lowering:** Because Hawk is statically typed and the
+3. **Speculation-Free Lowering:** Because Thera is statically typed and the
    bytecode retains concrete types, the Cranelift compiler performs
    straightforward, typed lowering. The VM has no need for complex speculation
    mechanisms, inline caches, or deoptimization guards, making the JIT tier
@@ -328,7 +328,7 @@ tier is planned):
 
 ### Bytecode Specification (`.thera-bc`)
 
-The Hawk bytecode is stack-based, designed to be compact and easy to target.
+The Thera bytecode is stack-based, designed to be compact and easy to target.
 
 - **Slot Layout:** Every local variable and operand stack slot occupies a single
   64-bit word. Raw primitives (`Int`, `Double`, `Bool`) store their bit-patterns
@@ -344,7 +344,7 @@ The Hawk bytecode is stack-based, designed to be compact and easy to target.
 
 ### Garbage Collection Strategy
 
-Hawk manages heap allocations using a precise, non-moving mark-sweep garbage
+Thera manages heap allocations using a precise, non-moving mark-sweep garbage
 collector.
 
 - **Safepoint Stackmaps:** Since bytecode slots are untagged, the compiler emits
@@ -359,16 +359,16 @@ collector.
 
 ### Self-Hosting and the Native ABI
 
-The `hawk` executable is a standalone binary. It contains the Hawk compiler
+The `thera` executable is a standalone binary. It contains the Thera compiler
 front-end pre-compiled to bytecode (`frontend.thera-bc`) and embedded directly
 into the Rust executable via `include_bytes!`.
 
-When running `hawk run script.hawk`, the VM runs the embedded front-end bytecode
+When running `thera run script.thera`, the VM runs the embedded front-end bytecode
 on its interpreter to parse and compile the user script into an in-memory
 `Module`, which it then executes. This bootstrap path ensures that the front-end
-remains a regular Hawk program, laying the groundwork for self-hosting.
+remains a regular Thera program, laying the groundwork for self-hosting.
 
-Native standard library functions are declared in Hawk via the `native fn`
+Native standard library functions are declared in Thera via the `native fn`
 syntax and bound to the runtime using the `@extern('symbol_name')` decorator.
 The bytecode resolves these native symbols by name at load time (similar to
 WebAssembly imports), ensuring that compiled `.thera-bc` files remain compatible
@@ -378,7 +378,7 @@ across different versions of the runtime binary.
 
 ## 5. Key Design Choices & Trade-offs
 
-During the design of Hawk, several architectural junctions presented multiple
+During the design of Thera, several architectural junctions presented multiple
 paths. The team resolved these choices based on the core goal of LLM
 productivity and CLI-domain requirements:
 
@@ -388,7 +388,7 @@ When a closure captures a variable from its enclosing scope, languages usually
 choose between capture-by-value (like Java's final variable snapshot) or
 capture-by-reference (like JavaScript closures).
 
-- **The Decision:** Hawk implements **Capture by Reference / Mutable Capture**
+- **The Decision:** Thera implements **Capture by Reference / Mutable Capture**
   for captured mutable local variables.
 - **The Mechanism:** To avoid pointer-tracking overhead in the VM, the front-end
   compiler performs a rewriting pass. If a mutable local variable is captured by
@@ -404,7 +404,7 @@ capture-by-reference (like JavaScript closures).
 Interfaces describe type capabilities (e.g., `Display` and `Eq`). Virtual
 dispatch usually requires a dynamic vtable search.
 
-- **The Decision:** Hawk optimizes for concrete types. The front-end compiler
+- **The Decision:** Thera optimizes for concrete types. The front-end compiler
   resolves methods statically at compile time wherever the concrete receiver
   type is known, emitting direct `call` instructions (including for
   interpolation and `==`). Dispatch goes dynamic only where the concrete type is
@@ -417,7 +417,7 @@ dispatch usually requires a dynamic vtable search.
 
 ### III. Braces vs. Significant Whitespace
 
-- **The Decision:** Hawk explicitly chose curly braces `{}` and semicolons for
+- **The Decision:** Thera explicitly chose curly braces `{}` and semicolons for
   blocks and statement boundaries.
 - **The Rationale:** LLMs are excellent at writing code but struggle with
   precise structural indent formatting when applying edits. Diff engines (used
@@ -428,7 +428,7 @@ dispatch usually requires a dynamic vtable search.
 
 ### IV. Option<T> vs. Nullable Types
 
-- **The Decision:** Hawk completely eliminates `null`. Absence is modeled
+- **The Decision:** Thera completely eliminates `null`. Absence is modeled
   explicitly via the algebraic `Option<T>` enum.
 - **The Rationale:** Nullable type systems (e.g., `String?` with `?.` operators)
   reduce boilerplate, but they cannot represent nested absence (e.g., an
@@ -438,11 +438,11 @@ dispatch usually requires a dynamic vtable search.
 
 ### V. String Indexing and UTF-8 Safety
 
-- **The Decision:** Hawk strings are stored as UTF-8, and direct integer
+- **The Decision:** Thera strings are stored as UTF-8, and direct integer
   indexing (e.g., `str[i]`) is forbidden.
 - **The Rationale:** Direct byte or character indexing on UTF-8 strings often
   cuts emoji or multi-byte characters in half, producing corrupt string states.
-  To prevent agents from writing buggy indexing logic, Hawk requires explicit
+  To prevent agents from writing buggy indexing logic, Thera requires explicit
   code-point iteration via `.chars()` (with `.slice()` taking code-point
   ranges), making unicode safety the default.
 

@@ -6,13 +6,13 @@
 //! raw digest as `Bytes` — pair with `std.encoding` (`hex_encode` / `base64_encode`)
 //! to render it; `crc32` returns an `Int`.
 //!
-//! ```hawk
+//! ```thera
 //! import std.encoding;
 //! let digest = encoding.hex_encode(hash.sha256('hello'.bytes()));
 //! ```
 //!
 //! **Implementations.** These are thin wrappers over battle-tested Rust crates
-//! (named per function), not reimplemented in Hawk: the RustCrypto `sha2` / `sha1`
+//! (named per function), not reimplemented in Thera: the RustCrypto `sha2` / `sha1`
 //! / `md-5` crates, and `crc32fast` for CRC-32. They are the runtime's first
 //! external dependencies, taken deliberately because hashing is crypto-adjacent
 //! and wants audited code (see docs/stdlib.md §std.hash).

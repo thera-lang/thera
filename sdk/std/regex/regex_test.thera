@@ -85,7 +85,7 @@ fn test_captures_optional_group() -> Result<Void, Error> {
 @test
 fn test_replace() -> Result<Void, Error> {
     let re = compiled('(\\w+)@(\\w+)')?;
-    // Bare `$1`/`$2` are literal in a Hawk string, group refs in the engine.
+    // Bare `$1`/`$2` are literal in a Thera string, group refs in the engine.
     testing.assert_eq(actual: re.replace('x@y and p@q', with: '$2-$1'), expected: 'y-x and p@q')?;
     testing.assert_eq(actual: re.replace_all('x@y and p@q', with: '$2-$1'), expected: 'y-x and q-p')?;
     return Result.Ok(void);

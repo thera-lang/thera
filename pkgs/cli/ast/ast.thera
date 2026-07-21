@@ -1,7 +1,7 @@
-// The abstract syntax tree — the Hawk mirror of the Dart toolchain's ast.dart.
+// The abstract syntax tree — the Thera mirror of the Dart toolchain's ast.dart.
 //
 // Dart's sealed class hierarchies (Decl / Stmt / Expr / TypeRef / Pattern /
-// StringPart) become one Hawk `enum` per base, with each node a variant. Nodes
+// StringPart) become one Thera `enum` per base, with each node a variant. Nodes
 // with several fields carry a named payload struct; small nodes carry their
 // fields positionally. Dart's record fields (`List<(String, TypeRef)>`, …)
 // become small named structs (`FieldDef`, `MapEntry`, `FieldInit`).

@@ -1,16 +1,16 @@
 // The Thera command-line front-end — argument parsing (on the declarative
 // `std.cli` Command) and dispatch to the real pipeline (driver/runner/lsp).
 //
-//   hawk run   <file> [args] run a Thera program (args after <file> go to it)
-//   hawk check <file|dir>…   type-check programs without running them
-//   hawk emit  <file> <out>  compile a program to a .thera-bc artifact
-//   hawk test  <file|dir>…   run @test functions
-//   hawk fmt   <file|dir>…   format source files in place
-//   hawk lint  <file|dir>…   report non-idiomatic shapes with a known rewrite
-//   hawk fix   <file|dir>…   apply those rewrites (UX provisional)
-//   hawk lsp                 start the language server
+//   thera run   <file> [args] run a Thera program (args after <file> go to it)
+//   thera check <file|dir>…   type-check programs without running them
+//   thera emit  <file> <out>  compile a program to a .thera-bc artifact
+//   thera test  <file|dir>…   run @test functions
+//   thera fmt   <file|dir>…   format source files in place
+//   thera lint  <file|dir>…   report non-idiomatic shapes with a known rewrite
+//   thera fix   <file|dir>…   apply those rewrites (UX provisional)
+//   thera lsp                 start the language server
 //
-// Per-command help (`hawk <command> --help`) documents each command's stdout/
+// Per-command help (`thera <command> --help`) documents each command's stdout/
 // stderr contract and exit codes; see `build_app` below.
 
 import std.cli;
@@ -126,7 +126,7 @@ fn main(parameters: List<String>) -> Result<Int, Error> {
                     return run_subcommand(sel.name, sel.matches);
                 },
                 None => {
-                    // Unreachable: `hawk` has subcommands, so the adapter turns a
+                    // Unreachable: `thera` has subcommands, so the adapter turns a
                     // no-command invocation into an exit, never `Proceed`.
                     return Result.Ok(0);
                 },
@@ -234,7 +234,7 @@ fn default_cwd(_ positionals: List<String>) -> List<String> {
     return positionals;
 }
 
-// `hawk check [file|dir]...` — type-check each target, printing
+// `thera check [file|dir]...` — type-check each target, printing
 // `file:line:col: message` for every diagnostic and a closing summary line
 // (proof of work even when clean). A directory is searched recursively for
 // `*.thera`; a file is checked directly; no target means the current directory.
@@ -281,7 +281,7 @@ fn do_check(_ targets: List<String>, _ sdk_root: Option<String>) -> Result<Int, 
         match fs.read_text(file) {
             Ok(source) => {
                 // Diagnostics are `check`'s product (it emits no artifact), so
-                // they go to stdout — like `hawk test`, and like the linters/
+                // they go to stdout — like `thera test`, and like the linters/
                 // analyzers it resembles (eslint, ruff, mypy). stderr is reserved
                 // for operational failures (below) and `emit`, which is a compiler
                 // whose product is the `.thera-bc`. (See docs/architecture.md.)
@@ -328,7 +328,7 @@ fn do_check(_ targets: List<String>, _ sdk_root: Option<String>) -> Result<Int, 
     return Result.Ok(0);
 }
 
-// `hawk fmt <file|dir>...` — format each target in place, or (with `check`) list
+// `thera fmt <file|dir>...` — format each target in place, or (with `check`) list
 // the unformatted files without touching them.
 fn do_fmt(_ targets: List<String>, check: Bool = false) -> Result<Int, Error> {
     let files: List<String> = [];
@@ -404,7 +404,7 @@ fn do_fmt(_ targets: List<String>, check: Bool = false) -> Result<Int, Error> {
     return Result.Ok(0);
 }
 
-// `hawk lint <file|dir>...` — report idiomatic-rewrite suggestions, with a
+// `thera lint <file|dir>...` — report idiomatic-rewrite suggestions, with a
 // per-rule tally. Read-only and purely syntactic (no import closure); exits 0
 // regardless of how many sites it finds (it's advice, not an error).
 fn do_lint(_ targets: List<String>) -> Result<Int, Error> {
@@ -457,8 +457,8 @@ fn do_lint(_ targets: List<String>) -> Result<Int, Error> {
     return Result.Ok(0);
 }
 
-// `hawk lint --fix <file|dir>...` — apply the safe lint rewrites in place.
-// The read-only report is plain `hawk lint`; exits 0 (advisory — fixes are
+// `thera lint --fix <file|dir>...` — apply the safe lint rewrites in place.
+// The read-only report is plain `thera lint`; exits 0 (advisory — fixes are
 // opportunistic, not a gate).
 fn do_fix(_ targets: List<String>, only: List<String> = []) -> Result<Int, Error> {
     let files: List<String> = [];
@@ -510,7 +510,7 @@ fn do_fix(_ targets: List<String>, only: List<String> = []) -> Result<Int, Error
     return Result.Ok(0);
 }
 
-// `hawk emit <file> <out>` — compile to a `.thera-bc` file, or print diagnostics.
+// `thera emit <file> <out>` — compile to a `.thera-bc` file, or print diagnostics.
 fn do_emit(_ file: String, _ out: String) -> Result<Int, Error> {
     match fs.read_text(file) {
         Ok(source) => {

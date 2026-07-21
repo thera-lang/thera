@@ -30,7 +30,7 @@ fn escapes() -> Int {
 }
 
 fn references() -> String {
-    let name = 'hawk'; // an interpolation counts
+    let name = 'thera'; // an interpolation counts
     let mut n = 0; // an assignment target counts
     n = 2;
     let base = 3; // a lambda capture counts

@@ -325,7 +325,7 @@ fn expect_one<'b>(args: &'b [Value], who: &str) -> Result<&'b Value, Trap> {
 thread_local! {
     /// A stack of in-memory capture buffers. While the stack is non-empty, the
     /// stdout-bound natives (`println`/`print`/`io.stdout().write`) append to the
-    /// top buffer instead of the program's real stdout. `hawk test` uses this to
+    /// top buffer instead of the program's real stdout. `thera test` uses this to
     /// buffer each test's output and reveal it only when the test fails. A stack
     /// (rather than a single buffer) keeps nested captures composing cleanly.
     static CAPTURE: std::cell::RefCell<Vec<Vec<u8>>> =
@@ -369,7 +369,7 @@ fn native_print(out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
 }
 
 /// `test_capture_begin()` — start buffering program stdout (push a fresh capture
-/// buffer). Paired with [`native_test_capture_end`]; used only by the `hawk test`
+/// buffer). Paired with [`native_test_capture_end`]; used only by the `thera test`
 /// driver to isolate one test's output.
 fn native_test_capture_begin(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     if !args.is_empty() {
@@ -953,9 +953,9 @@ fn as_option(v: &Value, who: &str) -> Result<(u16, Vec<Value>), Trap> {
     }
 }
 
-/// Park the running fiber on a blocking syscall: run `job` off the Hawk thread on
-/// the worker pool, then map its owned, `Send` result into a Hawk `Value` with
-/// `build` back on the Hawk thread (where allocating a `Value` is safe). The native
+/// Park the running fiber on a blocking syscall: run `job` off the Thera thread on
+/// the worker pool, then map its owned, `Send` result into a Thera `Value` with
+/// `build` back on the Thera thread (where allocating a `Value` is safe). The native
 /// itself returns a discarded placeholder — `build`'s value becomes the call's
 /// result when the fiber resumes. See the `Await` park model in the scheduler.
 ///
@@ -985,7 +985,7 @@ fn park_syscall<T: Send + 'static>(
 
 /// `fs.read_text(path)` — read a UTF-8 file, `Ok(contents)` or `Err(message)`.
 /// Build an `Err` value for a filesystem error. The String payload is
-/// `"<kind>\u{1}<path>: <message>"`; the Hawk side splits on U+0001 and maps the
+/// `"<kind>\u{1}<path>: <message>"`; the Thera side splits on U+0001 and maps the
 /// kind to the matching `FsError` variant (so callers can `match` on the cause).
 fn fs_err(path: &str, e: &std::io::Error) -> Value {
     use std::io::ErrorKind;
@@ -1069,7 +1069,7 @@ fn native_fs_list_dir(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Tra
     let path = str_contents(expect_one(args, "fs_list_dir")?)?;
     let err_path = path.clone();
     // The worker reads the directory into owned `String` names (or an error); the
-    // `Value` list is built back on the Hawk thread.
+    // `Value` list is built back on the Thera thread.
     park_syscall(
         move || -> std::io::Result<Vec<String>> {
             let mut names = Vec::new();
@@ -1096,7 +1096,7 @@ fn native_fs_list_dir(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Tra
 /// returns it without a syscall; only on filesystems that answer `DT_UNKNOWN` does
 /// it fall back to an `lstat`. The saving is the whole cost of a big walk: this
 /// repo's `runtime/target` is ~106k entries, and stat-ing each took 1.6s per
-/// workspace scan versus 8ms to read every `.hawk` source in the tree.
+/// workspace scan versus 8ms to read every `.thera` source in the tree.
 ///
 /// Kinds are `lstat` semantics (a symlink reports 2, never its target's kind) —
 /// `d_type` cannot follow a link, and following one costs the syscall this native
@@ -1132,7 +1132,7 @@ fn native_fs_read_dir(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Tra
     Ok(Value::Unit)
 }
 
-/// The `[kind, size, modified_millis]` list the Hawk `Metadata` reads, where kind
+/// The `[kind, size, modified_millis]` list the Thera `Metadata` reads, where kind
 /// is 0=file, 1=dir, 2=symlink, 3=other. `modified_millis` is 0 when the platform
 /// can't report it. (`is_symlink` is only ever true for `symlink_metadata`, which
 /// doesn't follow the link; `metadata` follows it, so it reports the target.)
@@ -1161,7 +1161,7 @@ fn metadata_fields(m: &std::fs::Metadata) -> Value {
 }
 
 /// `fs.metadata(path)` — follows symlinks; returns `[kind, size, modified_millis]`.
-/// The Hawk side builds a `Metadata`.
+/// The Thera side builds a `Metadata`.
 fn native_fs_metadata(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let path = str_contents(expect_one(args, "fs_metadata")?)?;
     let err_path = path.clone();
@@ -1292,7 +1292,7 @@ fn native_fs_temp_dir(_out: &mut dyn Write, _args: &[Value]) -> Result<Value, Tr
 // --- streaming file handles (fs.open / fs.create -> File) ---
 //
 // An open file lives in a registry keyed by an `Int` handle (the regex/process
-// pattern). Hawk's `File` carries the handle and dispatches its
+// pattern). Thera's `File` carries the handle and dispatches its
 // Reader/Writer/Seek/Closer methods to the natives below. Dropping a `File`
 // without `close()` leaks the fd until the process exits — there are no
 // finalizers in this GC — so the docs tell callers to close their files.
@@ -1319,7 +1319,7 @@ fn register_file(file: std::fs::File) -> Value {
 }
 
 /// A use-after-close / unknown-handle error, classified like the fs natives so
-/// the Hawk side maps it to `FsError.Other`.
+/// the Thera side maps it to `FsError.Other`.
 fn file_closed_err() -> Value {
     Value::err(Value::new_str("other\u{1}file is closed".to_string()))
 }
@@ -1355,7 +1355,7 @@ fn native_fs_create(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap>
 static TEMP_FILE_COUNTER: AtomicI64 = AtomicI64::new(0);
 
 /// The result of the `fs.temp_file` syscall, produced on a worker thread (owned,
-/// `Send`) and turned into a `Value` on the Hawk thread.
+/// `Send`) and turned into a `Value` on the Thera thread.
 enum TempFileOutcome {
     Created(String),                 // "<handle>\u{1}<path>"
     FsError(String, std::io::Error), // path, error → classified `fs_err`
@@ -1364,7 +1364,7 @@ enum TempFileOutcome {
 
 /// `fs.temp_file(prefix)` — create a new, uniquely-named file in the system temp
 /// directory, opened read+write. Returns `"<handle>\u{1}<path>"` on success (the
-/// Hawk side splits it into a `File` with its path). Creation is atomic
+/// Thera side splits it into a `File` with its path). Creation is atomic
 /// (`create_new` / O_EXCL), so it never clobbers an existing file — a colliding
 /// name is retried with a fresh suffix. The whole retry loop (and registering the
 /// handle in the thread-safe file registry) runs on the worker pool.
@@ -1424,7 +1424,7 @@ fn take_file(handle: i64) -> Option<std::fs::File> {
     file_registry().lock().unwrap().remove(&handle)
 }
 
-/// Return a `File` to the registry after its op completes (on the Hawk thread).
+/// Return a `File` to the registry after its op completes (on the Thera thread).
 fn return_file(handle: i64, file: std::fs::File) {
     file_registry().lock().unwrap().insert(handle, file);
 }
@@ -1582,14 +1582,14 @@ fn native_time_sleep_millis(_out: &mut dyn Write, args: &[Value]) -> Result<Valu
 // --- random natives ---
 //
 // std.random is a SplitMix64 generator whose entire state is a visible `Int`
-// field in Hawk (no hidden runtime state). The state advance, the mixing
-// finalizer, and the unit-Double mapping are all pure Hawk now (bitwise ops +
+// field in Thera (no hidden runtime state). The state advance, the mixing
+// finalizer, and the unit-Double mapping are all pure Thera now (bitwise ops +
 // wrapping multiply); the one remaining native is the entropy seed, which reads
 // the system clock. `splitmix64_mix` stays only because that seed mixes its raw
 // clock reading.
 
 /// SplitMix64 finalizing mix: scramble a state value into a uniformly
-/// distributed 64-bit output. (Mirrored in pure Hawk by `std.random`'s `mix`;
+/// distributed 64-bit output. (Mirrored in pure Thera by `std.random`'s `mix`;
 /// kept here for `random_seed_entropy`.)
 fn splitmix64_mix(mut z: u64) -> u64 {
     z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
@@ -1637,7 +1637,7 @@ pub fn set_program_args(args: Vec<String>) {
 // --- fibers (std.fiber) ---
 
 /// `fiber.spawn(work)` — schedule `work` (a `() -> T` closure) as a new fiber and
-/// return its id (the Hawk surface wraps it in a `Fiber<T>`).
+/// return its id (the Thera surface wraps it in a `Fiber<T>`).
 fn native_fiber_spawn(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let closure = *expect_one(args, "fiber_spawn")?;
     Ok(Value::Int(super::sched_spawn(closure) as i64))
@@ -1674,7 +1674,7 @@ fn native_chan_is_ready(_out: &mut dyn Write, args: &[Value]) -> Result<Value, T
 
 /// Park until any of `handles` is ready, or `deadline_millis` passes (< 0 for no
 /// deadline), or another fiber makes progress. The primitive under `fiber.select`;
-/// the Hawk side re-checks every source when this returns.
+/// the Thera side re-checks every source when this returns.
 fn native_select_park(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let (hv, dv) = args2(args, "select_park")?;
     let handles = with_list(hv, "select_park", |items| {
@@ -1687,7 +1687,7 @@ fn native_select_park(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Tra
     let deadline = if deadline_millis < 0 {
         None
     } else {
-        // The Hawk side passes a wall-clock deadline; the scheduler's timers are
+        // The Thera side passes a wall-clock deadline; the scheduler's timers are
         // `Instant`s, so turn it back into a duration from now. Saturating: an
         // already-past deadline parks for zero, and the driver wakes it at once.
         let now = std::time::SystemTime::now()
@@ -1699,7 +1699,7 @@ fn native_select_park(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Tra
     };
     super::park_multi(deadline, handles);
     // The call's actual result: a `Multi` park resumes *after* the call (the native
-    // is not re-run — that would just re-park); the Hawk-side loop re-probes.
+    // is not re-run — that would just re-park); the Thera-side loop re-probes.
     Ok(Value::Unit)
 }
 
@@ -1712,7 +1712,7 @@ fn native_fiber_yield(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Tra
 }
 
 /// `channel(capacity)` — create a channel buffering up to `capacity`, returning
-/// its id (the Hawk surface wraps it in a `Channel<T>`).
+/// its id (the Thera surface wraps it in a `Channel<T>`).
 fn native_channel_new(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let cap = as_int(expect_one(args, "channel_new")?, "channel_new")?;
     let cap = if cap < 0 { 0 } else { cap as usize };
@@ -1813,7 +1813,7 @@ fn native_env_current_dir(_out: &mut dyn Write, args: &[Value]) -> Result<Value,
 }
 
 /// `env.current_exe()` — the path to the running executable, or None if it can't
-/// be determined. The SDK uses this to locate its `std/` relative to `bin/hawk`.
+/// be determined. The SDK uses this to locate its `std/` relative to `bin/thera`.
 fn native_env_current_exe(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     expect_no_args(args, "env_current_exe")?;
     Ok(match std::env::current_exe() {
@@ -1853,7 +1853,7 @@ fn native_term_is_tty(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Tra
 }
 
 /// `term.size()` — the terminal as `[cols, rows]`, or None when the size can't be
-/// determined (stdout is not a terminal). The Hawk layer assembles the `TermSize`
+/// determined (stdout is not a terminal). The Thera layer assembles the `TermSize`
 /// so this native never hardcodes a struct type-id (the std.regex ABI).
 fn native_term_size(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     expect_no_args(args, "term_size")?;
@@ -1920,7 +1920,7 @@ fn native_double_to_int(_out: &mut dyn Write, args: &[Value]) -> Result<Value, T
 
 /// `d.to_bits()` — reinterpret the IEEE-754 bit pattern of `d` as an `Int`
 /// (i64). The inverse of the bit-mixing in `std.random`; lets the bytecode
-/// writer emit a Double's raw bytes from pure Hawk (via `write_u64_le`).
+/// writer emit a Double's raw bytes from pure Thera (via `write_u64_le`).
 fn native_double_to_bits(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let x = as_double(expect_one(args, "double_to_bits")?, "double_to_bits")?;
     Ok(Value::Int(x.to_bits() as i64))
@@ -2291,7 +2291,7 @@ fn process_registry() -> &'static Mutex<HashMap<i64, RunningProcess>> {
     REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-// Process errors come back kind-tagged ("<kind>\u{1}<message>"); the Hawk side
+// Process errors come back kind-tagged ("<kind>\u{1}<message>"); the Thera side
 // maps the kind to a `ProcessError` variant. `io` covers everything that isn't a
 // missing executable.
 fn proc_err_io(msg: impl Into<String>) -> Value {
@@ -2392,7 +2392,7 @@ fn native_process_run(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Tra
     command.stderr(Stdio::piped());
 
     // The child runs to completion on the worker pool (parking the fiber); the
-    // captured `Output` is turned into the result struct on the Hawk thread.
+    // captured `Output` is turned into the result struct on the Thera thread.
     park_syscall(
         move || command.output(),
         move |res| match res {
@@ -2666,7 +2666,7 @@ fn read_pipe_owned<R: Read>(
 
 /// Park a child-pipe read on the worker pool: `stream` is taken from the registry,
 /// read off-thread, and the (possibly-drained) pipe is put back by `restore` on the
-/// Hawk thread. `restore` writes the stream into the right `RunningProcess` field.
+/// Thera thread. `restore` writes the stream into the right `RunningProcess` field.
 fn park_pipe_read<R, F>(id: i64, stream: Option<R>, max: usize, restore: F)
 where
     R: Read + Send + 'static,
@@ -2770,9 +2770,9 @@ fn native_str_byte_slice(_out: &mut dyn Write, args: &[Value]) -> Result<Value, 
 // --- std.regex: compiled patterns held in a registry, referenced by Int handle ---
 //
 // A compiled `regex::Regex` lives in a process-global registry (the same shape as
-// std.process's child table); Hawk holds an opaque `Int` handle and never sees the
+// std.process's child table); Thera holds an opaque `Int` handle and never sees the
 // compiled object. Match offsets are UTF-8 **byte** positions (docs/stdlib.md
-// principle 8); the Hawk layer slices substrings out with `String.byte_slice`.
+// principle 8); the Thera layer slices substrings out with `String.byte_slice`.
 // Replacement (`$1` / `${name}` expansion) is performed here by the crate.
 //
 // Compiled patterns are not freed (compile-once / match-many), like the process
@@ -2786,7 +2786,7 @@ fn regex_registry() -> &'static Mutex<HashMap<i64, regex::Regex>> {
 }
 
 /// Run `f` with the compiled regex for `handle`. An unknown handle is a bug —
-/// Hawk only ever passes a handle it received from `regex_compile`.
+/// Thera only ever passes a handle it received from `regex_compile`.
 fn with_regex<R>(handle: i64, who: &str, f: impl FnOnce(&regex::Regex) -> R) -> Result<R, Trap> {
     let reg = regex_registry().lock().unwrap();
     match reg.get(&handle) {
@@ -2796,7 +2796,7 @@ fn with_regex<R>(handle: i64, who: &str, f: impl FnOnce(&regex::Regex) -> R) -> 
 }
 
 /// Compile a pattern -> `Result<Int handle, String error>`. A syntax error is a
-/// value, not a trap (the Hawk layer wraps it in `RegexError.Syntax`).
+/// value, not a trap (the Thera layer wraps it in `RegexError.Syntax`).
 fn native_regex_compile(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let pattern = str_contents(expect_one(args, "regex_compile")?)?;
     match regex::Regex::new(&pattern) {
@@ -2901,7 +2901,7 @@ fn native_regex_replace_all(_out: &mut dyn Write, args: &[Value]) -> Result<Valu
 //
 // The internal layer under `std.net` (and, above it, `std.http`). Unlike every
 // other blocking family here, sockets do **not** use the worker pool: their fds are
-// non-blocking, so each syscall runs inline on the Hawk thread and returns at once.
+// non-blocking, so each syscall runs inline on the Thera thread and returns at once.
 // A `WouldBlock` parks the fiber on the readiness poller instead (`park_ready`),
 // and the `call.native` re-runs when the kernel reports readiness. A blocking
 // `accept` on the four-thread pool would pin a worker indefinitely and stall every
@@ -2915,13 +2915,13 @@ fn native_regex_replace_all(_out: &mut dyn Write, args: &[Value]) -> Result<Valu
 //     requirement, not a fast path.
 //  2. **Every native must be idempotent across the retry.** `read`/`accept` are
 //     naturally so. `write` is only safe because it returns a *count* and lets the
-//     Hawk side loop (`io.write_all`) — a write-all native here would re-send the
+//     Thera side loop (`io.write_all`) — a write-all native here would re-send the
 //     bytes it already wrote on every retry. `connect` is split in two for the same
 //     reason: `socket_connect` starts it and `socket_connect_finish` polls for the
 //     result, because re-issuing `connect(2)` on a pending fd gets `EALREADY`, not
 //     a fresh attempt.
 //
-// Because the ops never leave the Hawk thread, sockets need none of the
+// Because the ops never leave the Thera thread, sockets need none of the
 // take-out/return discipline the `File` registry uses, and concurrent read + write
 // on one socket from two fibers works (unlike a `File`, where it does not).
 
@@ -2956,7 +2956,7 @@ pub(super) fn reset_sockets() {
 }
 
 /// Build an `Err` for a socket error, kind-tagged `"<kind>\u{1}<message>"` like
-/// `fs_err`; the Hawk side maps the kind to a `NetError` variant.
+/// `fs_err`; the Thera side maps the kind to a `NetError` variant.
 fn socket_err(e: &std::io::Error) -> Value {
     let kind = match e.kind() {
         ErrorKind::ConnectionRefused => "refused",
@@ -2977,7 +2977,7 @@ fn socket_closed_err() -> Value {
     Value::err(Value::new_str("closed\u{1}socket is closed"))
 }
 
-/// An `Err` for a malformed address, tagged so the Hawk side can report it as a
+/// An `Err` for a malformed address, tagged so the Thera side can report it as a
 /// distinct `NetError::Addr` rather than a generic I/O failure.
 fn socket_addr_err(addr: &str) -> Value {
     Value::err(Value::new_str(format!(
@@ -3129,7 +3129,7 @@ fn native_socket_read(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Tra
 /// `stream.write(data)` — returns the number of bytes *actually* written, which may
 /// be short. Returning a count (rather than writing all of `data`) is what keeps
 /// this idempotent under the retry: nothing is written on a `WouldBlock`, and the
-/// Hawk side (`io.write_all`) loops over the remainder.
+/// Thera side (`io.write_all`) loops over the remainder.
 fn native_socket_write(_out: &mut dyn Write, args: &[Value]) -> Result<Value, Trap> {
     let (hv, dv) = args2(args, "socket_write")?;
     let handle = as_int(hv, "socket_write")?;
@@ -3260,7 +3260,7 @@ fn native_socket_resolve(_out: &mut dyn Write, args: &[Value]) -> Result<Value, 
             ))),
             Ok(joined) => Value::ok(Value::new_str(joined)),
             // Resolution failures surface as a grab-bag of io kinds across
-            // platforms; tag them all as `dns` so the Hawk side reports the cause
+            // platforms; tag them all as `dns` so the Thera side reports the cause
             // the user can act on.
             Err(e) => Value::err(Value::new_str(format!("dns\u{1}{err_host}: {e}"))),
         },

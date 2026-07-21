@@ -1,5 +1,5 @@
 // Tests for the LSP position math — in particular the UTF-16 boundary (LS6):
-// an astral code point (here '\u{1D54F}', 𝕏) is one Hawk code point but two
+// an astral code point (here '\u{1D54F}', 𝕏) is one Thera code point but two
 // UTF-16 units, so every position after it on the line differs between the
 // two worlds.
 

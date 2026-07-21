@@ -2,7 +2,7 @@
 // exercised on hand-built `LibrarySource`s so they need no file system, plus
 // the canonical-identity contract (`canonical_path`), which uses a real
 // fixture tree under the temp dir. The rest of the file-resolution +
-// import-closure walk is covered end-to-end by the driver (the Hawk CLI emits
+// import-closure walk is covered end-to-end by the driver (the Thera CLI emits
 // byte-identical `.thera-bc` for a std-using program).
 
 import std.testing;
@@ -16,7 +16,7 @@ import 'parser/parser' as _;
 import 'loader' as _;
 
 // Parse `src`, stamping a distinct `path` as its `file_path` — the loader keys
-// re-export-cycle detection on `file_path` (Hawk has no object identity), which
+// re-export-cycle detection on `file_path` (Thera has no object identity), which
 // `parse_file_or_null` sets for every real file.
 fn prog_of(_ src: String, _ path: String) -> Program {
     let prog = parse_tokens(tokenize(src).tokens).program;

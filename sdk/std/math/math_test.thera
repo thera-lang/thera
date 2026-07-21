@@ -1,7 +1,7 @@
 //! Tests for std.math and the Int/Double numeric methods.
 //!
 //! Written ahead of the `@test` runner (see docs/roadmap.md); they type-check
-//! today (`hawk check`). The math functions are reached white-box (sibling
+//! today (`thera check`). The math functions are reached white-box (sibling
 //! import); the abs/min/max/clamp methods come from the auto-imported core
 //! prelude. Inexact (transcendental) results are checked within a tolerance.
 
@@ -83,7 +83,7 @@ fn test_inverse_trig() -> Result<Void, Error> {
 
 // INFINITY/NAN are module-level `let`s (no literal form). These exercise the
 // stored globals via their defining properties rather than a magnitude literal
-// (Hawk has no float-exponent literals).
+// (Thera has no float-exponent literals).
 @test
 fn test_infinity_and_nan() -> Result<Void, Error> {
     testing.assert(INFINITY > 1000000.0)?;

@@ -7,7 +7,7 @@
 //! and `local_count` is tracked from the slots that `load`/`store` touch.
 //!
 //! This is developer tooling (tests, demos, and eventually a textual assembly
-//! format); it is also the shape the Hawk front-end's emit step will take.
+//! format); it is also the shape the Thera front-end's emit step will take.
 
 use crate::instr::{Addr, Instr, Slot};
 use crate::module::Function;

@@ -1,4 +1,4 @@
-// Source edits — the currency of code fixes (`hawk lint --fix`) and LSP code actions.
+// Source edits — the currency of code fixes (`thera lint --fix`) and LSP code actions.
 // An edit replaces a code-point range of the source with new text; applying a
 // batch of non-overlapping edits reassembles the source.
 //

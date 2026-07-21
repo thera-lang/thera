@@ -7,12 +7,12 @@
 //! JSON) awaits the reflection arc — until then, `Json` plus the lowercase
 //! constructors (`json.obj`, `json.int`, …) are how you build values.
 //!
-//! ```hawk
+//! ```thera
 //! // Decode + navigate:
 //! let root = json.parse(text)?;
 //! let name = root.get('user').get('name').as_string().unwrap_or('?');
 //!
-//! // Encode (each leaf wrapped — Hawk has no heterogeneous literal):
+//! // Encode (each leaf wrapped — Thera has no heterogeneous literal):
 //! let doc = json.obj({
 //!     'name': json.str('build'),
 //!     'tags': json.arr([json.str('a'), json.str('b')]),
@@ -21,7 +21,7 @@
 //! let text = json.stringify(doc, pretty: true);
 //! ```
 //!
-//! Implementation: a hand-written scanner + recursive-descent parser, pure Hawk.
+//! Implementation: a hand-written scanner + recursive-descent parser, pure Thera.
 
 import std.char;
 

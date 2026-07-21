@@ -6,7 +6,7 @@
 //! a sibling rather than part of either so that importing the server never drags
 //! in the client — and, with it, TLS.
 //!
-//! Everything here is pure Hawk over `io.Reader`/`io.Writer`, so it is testable
+//! Everything here is pure Thera over `io.Reader`/`io.Writer`, so it is testable
 //! with no sockets: point it at `io.from_bytes(...)` and an `io.StringWriter`.
 //! The two directions are mirror images — the server parses a `Request` and writes
 //! a `Response`, the client does the reverse — so both live together.
@@ -116,7 +116,7 @@ impl Request {
     }
 }
 
-// These are *readers*, and Hawk has no overloading, so `std.http.server`'s
+// These are *readers*, and Thera has no overloading, so `std.http.server`'s
 // response *constructors* are free functions named distinctly (`server.text`,
 // `server.json`) — see docs/stdlib.md § `std.http`.
 fn parse_json_body(_ body: Bytes) -> Result<json.Json, Error> {

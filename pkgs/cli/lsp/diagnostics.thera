@@ -68,7 +68,7 @@ fn diagnostic_to_json(_ d: diagnostic.Diagnostic) -> Json {
     ]);
 }
 
-// Hawk `Severity` -> the LSP `DiagnosticSeverity` code (1 Error, 2 Warning,
+// Thera `Severity` -> the LSP `DiagnosticSeverity` code (1 Error, 2 Warning,
 // 3 Information). Every compile-phase diagnostic is an Error today.
 fn lsp_severity(_ s: diagnostic.Severity) -> Int {
     return match s {

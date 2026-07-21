@@ -1,6 +1,6 @@
 //! std.core — the Set type.
 //!
-//! `Set<T>` is a collection of unique values. It is implemented in Hawk over
+//! `Set<T>` is a collection of unique values. It is implemented in Thera over
 //! `Map<T, Bool>`: membership is a present key (the Bool value is unused but
 //! keeps the backing a plain map). Iteration order is insertion order, matching
 //! the backing map.
@@ -16,7 +16,7 @@ impl Set<T> {
 
     /// A set of the elements of `items`; duplicates collapse.
     ///
-    /// ```hawk
+    /// ```thera
     /// let s = Set.from([1, 2, 2, 3]);   // {1, 2, 3}
     /// ```
     pub fn from(_ items: List<T>) -> Set<T> {

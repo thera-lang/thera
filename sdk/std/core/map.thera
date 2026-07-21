@@ -6,7 +6,7 @@
 //!
 //! Indexing:
 //!
-//! ```hawk
+//! ```thera
 //! let v = scores[key];   // → V; traps if key is absent
 //! scores[key] = v;       // insert / update (the binding must be `mut`)
 //! ```
@@ -53,7 +53,7 @@ impl Map<K, V> {
     /// Value for `key`, or `default` if absent — the unwrap-with-fallback form of
     /// `get`, so a missing key needs no `match`.
     ///
-    /// ```hawk
+    /// ```thera
     /// counts.get_or('x', 0)
     /// ```
     pub fn get_or(self, _ key: K, _ default: V) -> V {

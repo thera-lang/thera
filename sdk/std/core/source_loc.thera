@@ -5,11 +5,11 @@
 //! materialized there), which is how `std.testing` reports the line a failing
 //! assertion was called from without the caller passing anything:
 //!
-//! ```hawk
+//! ```thera
 //! pub fn assert_eq<T: Eq + Debug>(actual: T, expected: T, at: SourceLoc = #loc) -> ...
 //! ```
 //!
-//! Renders as `file:line:column` — the same shape `hawk check` prints — so test
+//! Renders as `file:line:column` — the same shape `thera check` prints — so test
 //! failures and compiler diagnostics share one format.
 pub struct SourceLoc {
     let file: String;

@@ -1,8 +1,8 @@
-// The type checker — the Hawk mirror of checker/type_checker.dart, and the first
+// The type checker — the Thera mirror of checker/type_checker.dart, and the first
 // consumer of the pure inference engine (inference.thera).
 //
 // The Dart checker leans on `Expr.resolvedType`, annotated up front by the
-// `Inferrer`. Hawk's inference is pure (no annotation), so this checker calls
+// `Inferrer`. Thera's inference is pure (no annotation), so this checker calls
 // `infer_expr` *on demand* wherever it needs an expression's type — and threads
 // the contextual `expected` type into call arguments, `let` values, `return`
 // values, and lambda bodies, so bidirectional lambda-parameter typing still
@@ -601,7 +601,7 @@ fn check_reserved_names(_ errors: List<diagnostic.Diagnostic>, _ program: Progra
             _ => Option.None,
         };
         if let Some(f) = found {
-            add_error(errors, '`${f.name}` is a reserved type name (a Hawk core type); '
+            add_error(errors, '`${f.name}` is a reserved type name (a Thera core type); '
                 + 'choose a different name', f.span);
         }
     }
@@ -659,7 +659,7 @@ fn std_tail(_ p: String) -> Option<String> {
 fn reserved_params(_ errors: List<diagnostic.Diagnostic>, _ type_params: List<TypeParam>) -> Void {
     for tp in type_params {
         if is_reserved_type_name(tp.name) {
-            add_error(errors, '`${tp.name}` is a reserved type name (a Hawk core type); '
+            add_error(errors, '`${tp.name}` is a reserved type name (a Thera core type); '
                 + 'choose a different type-parameter name', tp.span);
         }
     }

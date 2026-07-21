@@ -2,9 +2,9 @@
 //!
 //! `Result<T, E>` represents a fallible outcome: `Ok(T)` on success, `Err(E)` on
 //! failure. `Result<T, Error>` is the conventional fallible signature throughout
-//! Hawk. It is one of the two language-blessed enums (the `?` operator, and the
+//! Thera. It is one of the two language-blessed enums (the `?` operator, and the
 //! program entry point's exit-code convention, know it by name), but it is
-//! otherwise an ordinary enum defined here in Hawk.
+//! otherwise an ordinary enum defined here in Thera.
 //!
 //! The variant order is significant: it fixes the runtime tags (Ok = 0,
 //! Err = 1) shared with the bytecode runtime — do not reorder.
@@ -24,7 +24,7 @@ impl Result<T, E> {
     /// Whether this is `Ok`. (To use the value, prefer `?` or `match`; this is
     /// for a plain boolean check.)
     ///
-    /// ```hawk
+    /// ```thera
     /// if parse(s).is_ok() { … }
     /// ```
     pub fn is_ok(self) -> Bool {
@@ -36,7 +36,7 @@ impl Result<T, E> {
 
     /// Whether this is `Err`.
     ///
-    /// ```hawk
+    /// ```thera
     /// if parse(s).is_err() { … }
     /// ```
     pub fn is_err(self) -> Bool {
@@ -49,7 +49,7 @@ impl Result<T, E> {
     /// Transform the `Ok` value, leaving an `Err` unchanged. Reach for it to
     /// adapt a success value without unwrapping or touching the error.
     ///
-    /// ```hawk
+    /// ```thera
     /// let doubled = parse(s).map((n) => n * 2);   // Result<Int, E>
     /// ```
     pub fn map<U>(self, _ f: (T) -> U) -> Result<U, E> {
@@ -62,7 +62,7 @@ impl Result<T, E> {
     /// Transform the `Err` value, leaving an `Ok` unchanged. Reach for it to wrap
     /// a low-level error in a domain error before propagating with `?`.
     ///
-    /// ```hawk
+    /// ```thera
     /// let n = read(path).map_err((e) => ConfigError.Io(e))?;
     /// ```
     pub fn map_err<F>(self, _ f: (E) -> F) -> Result<T, F> {
@@ -76,7 +76,7 @@ impl Result<T, E> {
     /// flattening; short-circuits on `Err`. In a `Result`-returning function `?`
     /// is usually clearer — reach for `and_then` in expression position.
     ///
-    /// ```hawk
+    /// ```thera
     /// let v = parse(s).and_then((n) => in_range(n));   // Result<Int, E>
     /// ```
     pub fn and_then<U>(self, _ f: (T) -> Result<U, E>) -> Result<U, E> {
@@ -89,7 +89,7 @@ impl Result<T, E> {
     /// The `Ok` value, or `fallback` on `Err`. Reach for it to supply a default
     /// and discard the error.
     ///
-    /// ```hawk
+    /// ```thera
     /// let port = parse(s).unwrap_or(8080);
     /// ```
     pub fn unwrap_or(self, _ fallback: T) -> T {
@@ -102,7 +102,7 @@ impl Result<T, E> {
     /// The `Ok` value, or the result of `f` applied to the error. Reach for it
     /// over `unwrap_or` when the fallback depends on the error (or is expensive).
     ///
-    /// ```hawk
+    /// ```thera
     /// let n = parse(s).unwrap_or_else((e) => default_for(e));
     /// ```
     pub fn unwrap_or_else(self, _ f: (E) -> T) -> T {
@@ -115,7 +115,7 @@ impl Result<T, E> {
     /// Discard the error, converting to an `Option`: `Ok(v)` → `Some(v)`,
     /// `Err(_)` → `None`. Reach for it when only presence matters, not the error.
     ///
-    /// ```hawk
+    /// ```thera
     /// let maybe = parse(s).ok();   // Option<Int>
     /// ```
     pub fn ok(self) -> Option<T> {

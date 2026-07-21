@@ -1,6 +1,6 @@
 //! The runtime CLI. In its bare form (`thera-rt`) it loads and runs a `.thera-bc`.
 //! The SDK build embeds the compiled front-end (`frontend.thera-bc`) into this same
-//! binary and ships it as `hawk`: then a subcommand (`run`/`check`/…) boots the
+//! binary and ships it as `thera`: then a subcommand (`run`/`check`/…) boots the
 //! embedded front-end, while a `.thera-bc` path (or `--entry`) still runs directly.
 
 use std::process::ExitCode;
@@ -15,7 +15,7 @@ use thera::module::Module;
 use thera::value::{Obj, TAG_OK, TY_RESULT, Value};
 
 /// The compiled front-end, embedded by `build.rs`. Empty in a bare `cargo build`
-/// (this is `thera-rt`); the SDK build supplies the real bytes (this is `hawk`).
+/// (this is `thera-rt`); the SDK build supplies the real bytes (this is `thera`).
 const FRONTEND_BC: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/frontend.thera-bc"));
 
 const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+", env!("THERA_BUILD_SHA"));
@@ -60,7 +60,7 @@ fn is_bytecode_path(arg: &str) -> bool {
 }
 
 /// Boot the embedded front-end: decode `frontend.thera-bc` and call its `main` with
-/// the CLI arguments (`run foo.hawk`, `check .`, …) as a `List<String>`.
+/// the CLI arguments (`run foo.thera`, `check .`, …) as a `List<String>`.
 fn cmd_frontend(args: &[String]) -> ExitCode {
     let module = match decode_module(FRONTEND_BC) {
         Ok(m) => m,
@@ -100,7 +100,7 @@ fn cmd_frontend(args: &[String]) -> ExitCode {
 }
 
 /// Load a `.thera-bc` file and run its entry function. `args` is an optional
-/// `--entry NAME` (default `main`) selecting the entry — used by `hawk test`,
+/// `--entry NAME` (default `main`) selecting the entry — used by `thera test`,
 /// whose synthesized driver avoids colliding with a tested module's own `main` —
 /// then the `.thera-bc` path, then the program arguments.
 fn cmd_run(args: &[String]) -> ExitCode {
@@ -174,7 +174,7 @@ fn cmd_run(args: &[String]) -> ExitCode {
 }
 
 /// Map `main`'s return value to a process exit code. A bare `Int` is the code; a
-/// `Result` is unwrapped per Hawk's convention — `Ok(Int)` is the code, `Ok(_)`
+/// `Result` is unwrapped per Thera's convention — `Ok(Int)` is the code, `Ok(_)`
 /// succeeds, and `Err(e)` prints `e` to stderr and fails. Anything else exits 0.
 fn exit_code(v: &Value) -> ExitCode {
     match v {

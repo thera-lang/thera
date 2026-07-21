@@ -1,10 +1,10 @@
 //! In-VM deterministic profiler, enabled by the `THERA_PROFILE` environment
 //! variable. Unlike the dev-only `native-stats` feature, this is **always
-//! compiled** into the runtime — the engine behind `hawk run --profile` — and
+//! compiled** into the runtime — the engine behind `thera run --profile` — and
 //! costs a single predictable branch on the interpreter's hot path when off
 //! (`run_loop` reads [`enabled`] once and gates every per-instruction hook).
 //!
-//! Per Hawk function it reports:
+//! Per Thera function it reports:
 //!   - **call counts** (exact, counted at frame entry),
 //!   - **self / inclusive time** via *instruction-budget* sampling: every
 //!     `THERA_PROFILE_INTERVAL` (default 1000) bytecode instructions the live

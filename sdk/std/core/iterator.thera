@@ -1,6 +1,6 @@
 //! std.core — the lazy `Iterator` protocol and its adapters.
 //!
-//! `Iterator<T>` is Hawk's pull-based sequence protocol: `next()` yields the next
+//! `Iterator<T>` is Thera's pull-based sequence protocol: `next()` yields the next
 //! element as `Some(v)`, or `None` once the sequence is exhausted. It is part of
 //! the prelude (always in scope) because the language drives it directly: a
 //! `for x in it` loop iterates any `Iterator`. A `List` bridges to this protocol
@@ -11,7 +11,7 @@
 //! lazy adapters (`map`/`filter`/`take`/`enumerate`) and eager consumers
 //! (`to_list`/`count`) — so any iterator is fluent without an import:
 //!
-//! ```hawk
+//! ```thera
 //! import std.iter
 //!
 //! let evens = iter.range(0, 10)

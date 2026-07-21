@@ -1,12 +1,12 @@
 // Suggestion diagnostics — a read-only pass that locates non-idiomatic code
 // shapes that have a mechanical, more-idiomatic rewrite (e.g. a two-arm `match`
 // with an empty catch-all arm → `if let`). This is the shared shape-matching the
-// `hawk lint --fix` / LSP code actions are built from; by default it only *reports*
+// `thera lint --fix` / LSP code actions are built from; by default it only *reports*
 // (and the CLI tallies) convertible sites, to measure how many wins each rewrite
 // would actually yield before any rewriter is built.
 //
 // Purely syntactic: it walks the parsed AST and needs no resolution or types, so
-// `hawk lint` parses each file in isolation (no import closure). A site is only
+// `thera lint` parses each file in isolation (no import closure). A site is only
 // flagged when the shape is unambiguous — precision over recall, so each tally is
 // a floor. The rules partition: a given `match` matches at most one of them (an
 // empty arm → `if let`; an error-propagating arm → `?`; a diverging arm in a

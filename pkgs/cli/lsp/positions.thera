@@ -3,7 +3,7 @@
 // (LS-D2's consolidation point).
 //
 // LSP positions default to **UTF-16** code units (we declare `utf-16` in the
-// initialize result), while Hawk spans and offsets are code-point based, so
+// initialize result), while Thera spans and offsets are code-point based, so
 // every boundary crossing converts: an astral code point (>= U+10000) is one
 // code point but two UTF-16 units (LS6).
 

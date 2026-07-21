@@ -108,7 +108,7 @@ fn test_workspace_diagnostic_covers_unopened_files() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// The server applies `hawk.exclude` (sent in `initializationOptions`): an excluded
+// The server applies `thera.exclude` (sent in `initializationOptions`): an excluded
 // file is omitted from the workspace report — no client-side filtering needed.
 @test
 fn test_server_side_exclude_hides_diagnostics() -> Result<Void, Error> {

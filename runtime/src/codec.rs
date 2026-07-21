@@ -1124,7 +1124,8 @@ mod tests {
     #[test]
     fn file_round_trips() {
         let m = factorial_module();
-        let path = std::env::temp_dir().join(format!("hawk_codec_{}.thera-bc", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("thera_codec_{}.thera-bc", std::process::id()));
         write_module_to_file(&path, &m).unwrap();
         let loaded = read_module_from_file(&path).unwrap();
         let _ = std::fs::remove_file(&path);

@@ -1,4 +1,4 @@
-// The semantic type lattice — the Hawk mirror of element/types.dart.
+// The semantic type lattice — the Thera mirror of element/types.dart.
 //
 // A `Type` is the *meaning* of a syntactic `TypeRef` after name resolution. The
 // Dart `InterfaceType` holds the target element by object; here it holds the

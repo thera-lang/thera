@@ -98,7 +98,7 @@ pub struct Regex {
 impl Regex {
     /// Compile `pattern`. An invalid pattern is a `RegexError.Syntax`.
     ///
-    /// ```hawk
+    /// ```thera
     /// let re = regex.Regex.compile('(\\w+)@(\\w+)')?;
     /// ```
     pub fn compile(_ pattern: String) -> Result<Regex, RegexError> {
@@ -158,8 +158,8 @@ impl Regex {
     /// Replace the first match in `text`. `replacement` may reference capture
     /// groups with `$1` / `$name` (a literal `$` is `$$`).
     ///
-    /// Note: the braced group form `${1}` collides with Hawk's own `${…}` string
-    /// interpolation, so prefer the bare `$1` form in a Hawk string literal (use a
+    /// Note: the braced group form `${1}` collides with Thera's own `${…}` string
+    /// interpolation, so prefer the bare `$1` form in a Thera string literal (use a
     /// non-word character after a numbered group when text follows it, e.g.
     /// `'$1-$2'`).
     pub fn replace(self, _ text: String, with replacement: String) -> String {

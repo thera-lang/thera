@@ -1,4 +1,4 @@
-// Minimal glob matching for the LSP's `hawk.exclude` patterns — the
+// Minimal glob matching for the LSP's `thera.exclude` patterns — the
 // workspace-relative path filters a client sends (e.g. `tests/lang/**`). Supports
 // `*` (any run within a path segment), `**` (any run, crossing `/`), and `?` (one
 // non-`/` character); every other character is literal. Deliberately small — no
@@ -25,7 +25,7 @@ pub fn matches(_ pattern: String, _ path: String) -> Bool {
 // apply to a *directory* on the evidence of a *file* filter.
 //
 // Everything else conservatively returns false, even when it would in fact
-// exclude the subtree (`tests/**/*.thera` excludes every Hawk file under `tests`,
+// exclude the subtree (`tests/**/*.thera` excludes every Thera file under `tests`,
 // but proving that in general means deciding the pattern language). A missed
 // prune costs a walk; a wrong one silently hides a file's diagnostics.
 pub fn prunes_dir(_ pattern: String, _ rel: String) -> Bool {

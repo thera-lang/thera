@@ -1,4 +1,4 @@
-//! Tests for Result's combinator methods (implemented in Hawk over `match`).
+//! Tests for Result's combinator methods (implemented in Thera over `match`).
 
 import std.testing;
 

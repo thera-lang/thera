@@ -28,7 +28,7 @@ pub let separator: String = if env.os() == 'windows' { '\\' } else { '/' };
 /// an external, separator-sensitive tool — the filesystem natives accept '/' on
 /// every platform, so this is not needed to open files.
 ///
-/// ```hawk
+/// ```thera
 /// path.to_native('src/main.thera')  // 'src/main.thera' (POSIX) | 'src\main.thera' (Windows)
 /// ```
 pub fn to_native(_ p: String) -> String {
@@ -40,7 +40,7 @@ pub fn to_native(_ p: String) -> String {
 /// leaving existing '/' alone. Use it to normalize external input before the
 /// slash-based functions here operate on it.
 ///
-/// ```hawk
+/// ```thera
 /// path.from_native('src\\main.thera')  // 'src/main.thera' (Windows)
 /// ```
 pub fn from_native(_ p: String) -> String {
@@ -51,7 +51,7 @@ pub fn from_native(_ p: String) -> String {
 /// leading empty component (the root marker); interior and trailing empty
 /// components (from '//' or a trailing '/') are dropped.
 ///
-/// ```hawk
+/// ```thera
 /// path.components('src/main.thera')  // ['src', 'main.thera']
 /// path.components('/usr/bin')       // ['', 'usr', 'bin']
 /// path.components('a//b/')          // ['a', 'b']
@@ -72,7 +72,7 @@ pub fn components(_ path: String) -> List<String> {
 /// Join two path components, inserting a separator as needed. An absolute
 /// `part` (one beginning with '/') replaces `base` entirely.
 ///
-/// ```hawk
+/// ```thera
 /// path.join('src', 'main.thera')   // 'src/main.thera'
 /// path.join('src/', 'main.thera')  // 'src/main.thera'
 /// path.join('', 'main.thera')      // 'main.thera'
@@ -94,11 +94,11 @@ pub fn join(_ base: String, _ part: String) -> String {
 }
 
 /// Join a list of components with separators, left to right — the n-ary form of
-/// [join] (Hawk has no variadics). Empty segments are absorbed, and an absolute
+/// [join] (Thera has no variadics). Empty segments are absorbed, and an absolute
 /// segment (one beginning with '/') resets the accumulated path, exactly as
 /// repeated [join] calls would. An empty list yields the empty path.
 ///
-/// ```hawk
+/// ```thera
 /// path.join_all(['usr', 'local', 'bin'])  // 'usr/local/bin'
 /// path.join_all(['a', '', 'b'])           // 'a/b'
 /// path.join_all(['x', '/abs', 'y'])       // '/abs/y'
@@ -114,10 +114,10 @@ pub fn join_all(_ segments: List<String>) -> String {
 /// Return the directory portion of a path (all components except the last).
 /// Returns '.' for paths with no directory component, and '/' for a root child.
 ///
-/// ```hawk
+/// ```thera
 /// path.dirname('src/main.thera')  // 'src'
 /// path.dirname('main.thera')      // '.'
-/// path.dirname('/usr/bin/hawk')  // '/usr/bin'
+/// path.dirname('/usr/bin/thera')  // '/usr/bin'
 /// path.dirname('/file')          // '/'
 /// ```
 pub fn dirname(_ path: String) -> String {
@@ -145,9 +145,9 @@ pub fn dirname(_ path: String) -> String {
 /// Return the final component of a path (with extension). Returns '/' for the
 /// root path.
 ///
-/// ```hawk
+/// ```thera
 /// path.basename('src/main.thera')  // 'main.thera'
-/// path.basename('/usr/bin/hawk')  // 'hawk'
+/// path.basename('/usr/bin/thera')  // 'thera'
 /// ```
 pub fn basename(_ path: String) -> String {
     let parts = components(path);
@@ -165,7 +165,7 @@ pub fn basename(_ path: String) -> String {
 /// string when the file has no extension; a leading-dot name (e.g. '.bashrc') is
 /// treated as having no extension, not as an all-extension name.
 ///
-/// ```hawk
+/// ```thera
 /// path.extension('src/main.thera')  // '.thera'
 /// path.extension('archive.tar.gz') // '.gz'
 /// path.extension('Makefile')       // ''
@@ -186,7 +186,7 @@ pub fn extension(_ path: String) -> String {
 
 /// Return the final component of a path without its extension.
 ///
-/// ```hawk
+/// ```thera
 /// path.stem('src/main.thera')   // 'main'
 /// path.stem('archive.tar.gz')  // 'archive.tar'
 /// path.stem('Makefile')        // 'Makefile'
@@ -211,7 +211,7 @@ pub fn stem(_ path: String) -> String {
 /// on `ext` is optional; an empty `ext` removes the extension. The directory
 /// portion is preserved.
 ///
-/// ```hawk
+/// ```thera
 /// path.with_extension('src/main.thera', 'md')   // 'src/main.md'
 /// path.with_extension('main.thera', '.txt')     // 'main.txt'
 /// path.with_extension('main.thera', '')         // 'main'
@@ -231,7 +231,7 @@ pub fn with_extension(_ path: String, _ ext: String) -> String {
 
 /// Return true if the path is absolute (begins with '/').
 ///
-/// ```hawk
+/// ```thera
 /// path.is_absolute('/usr/bin')  // true
 /// path.is_absolute('src/main')  // false
 /// ```
@@ -246,7 +246,7 @@ pub fn is_absolute(_ path: String) -> Bool {
 /// above `/`), while a leading `..` in a relative path is kept. A path that
 /// reduces to nothing (including the empty path) normalizes to `.`.
 ///
-/// ```hawk
+/// ```thera
 /// path.normalize('a/./b/../c')   // 'a/c'
 /// path.normalize('/usr/../bin')  // '/bin'
 /// path.normalize('a/../../b')    // '../b'
@@ -294,7 +294,7 @@ pub fn normalize(_ path: String) -> String {
 /// absolute and the other relative, or `from` keeps a leading `..` that `to` does
 /// not share (so the climb-out is undefined).
 ///
-/// ```hawk
+/// ```thera
 /// path.relative(from: '/a/b', to: '/a/c')     // Ok('../c')
 /// path.relative(from: '/a', to: '/a/b/c')     // Ok('b/c')
 /// path.relative(from: 'x/y', to: 'x/y')       // Ok('.')

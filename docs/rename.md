@@ -45,6 +45,6 @@ independent.
 - [x] **5. VS Code extension.** Language id/scope, `.thera` association,
   `hawk.*` commands/settings → `thera.*`, syntax/snippet file renames, README;
   verify the LSP server side against the new language id.
-- [ ] **6. Docs & org.** Prose sweep of `docs/`, `README.md`, `CLAUDE.md`,
+- [x] **6. Docs & org.** Prose sweep of `docs/`, `README.md`, `CLAUDE.md`,
   `AGENTS.md`, code comments, `.github` profile. Create `thera-lang/thera` and
   `thera-lang/thera-ext` GitHub repos and wire up remotes.

@@ -1,10 +1,10 @@
-// Canonical, span-free rendering of AST nodes — the Hawk mirror of the Dart
+// Canonical, span-free rendering of AST nodes — the Thera mirror of the Dart
 // nodes' `describe()` methods (ast.dart). Behavior over the enums lives in free
 // functions that `match`, per the port's node-as-data design.
 //
 // These compact one-liners are the parser port's diff key: a parsed expression
 // renders to the same string as Dart's `Expr.describe()`, so a corpus can be
-// diffed against the Dart oracle (and Hawk tests read clearly). Declaration and
+// diffed against the Dart oracle (and Thera tests read clearly). Declaration and
 // statement describers — Dart's multi-line, indented forms — are added with the
 // driver; expressions/types/patterns are what the parser tests exercise.
 

@@ -63,7 +63,7 @@ pub const RBRACE: Int = 125;     // }
 pub const TILDE: Int = 126;      // ~
 pub const DEL: Int = 127;
 
-// --- Predicates (ASCII only; pure Hawk — no native fn required) ---
+// --- Predicates (ASCII only; pure Thera — no native fn required) ---
 
 /// True for an ASCII decimal digit, 0-9.
 pub fn is_digit(_ cp: Int) -> Bool {

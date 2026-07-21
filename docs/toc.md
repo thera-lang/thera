@@ -1,15 +1,15 @@
-# Hawk documentation
+# Thera documentation
 
-The entry point to Hawk's design docs. Each doc opens with a one-line "what this
+The entry point to Thera's design docs. Each doc opens with a one-line "what this
 is"; read top-down for progressive detail.
 
 - [overview.md](overview.md) — the **why**: an external-facing whitepaper on
-  what Hawk is, the LLM-native design rationale, the CLI-tooling target domain,
+  what Thera is, the LLM-native design rationale, the CLI-tooling target domain,
   the runtime, and the key design trade-offs.
 - [language.md](language.md) — the language **reference**: syntax and semantics
   (types, functions, control flow, tail expressions, error handling, interfaces,
   generics & assignability, visibility & libraries, name resolution & scoping),
-  the standard `hawk` tool, the SDK layout, and open design questions.
+  the standard `thera` tool, the SDK layout, and open design questions.
 - [grammar.md](grammar.md) — the **EBNF grammar**: the keyword set, the
   operator/precedence table, every production, and a parser-completeness
   checklist of what's not yet in the syntax.

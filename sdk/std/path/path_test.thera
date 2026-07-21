@@ -1,7 +1,7 @@
 //! Tests for std.path.
 //!
 //! These are written ahead of the `@test` runner being reimplemented on the
-//! bytecode pipeline (`hawk test` is a stub today — see docs/roadmap.md). They
+//! bytecode pipeline (`thera test` is a stub today — see docs/roadmap.md). They
 //! follow the `_test.thera` convention: a sibling test file with white-box access
 //! to its library, `@test` functions taking no arguments and returning
 //! `Result<Void, Error>`.
@@ -52,7 +52,7 @@ fn test_platform_separator() -> Result<Void, Error> {
 fn test_dirname() -> Result<Void, Error> {
     testing.assert_eq(actual: dirname('src/main.thera'), expected: 'src')?;
     testing.assert_eq(actual: dirname('main.thera'), expected: '.')?;
-    testing.assert_eq(actual: dirname('/usr/bin/hawk'), expected: '/usr/bin')?;
+    testing.assert_eq(actual: dirname('/usr/bin/thera'), expected: '/usr/bin')?;
     testing.assert_eq(actual: dirname('/file'), expected: '/')?;
     return Result.Ok(void);
 }

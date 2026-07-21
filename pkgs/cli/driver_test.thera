@@ -1,6 +1,6 @@
 // Tests for the front-end driver: the source-to-bytecode pipeline as one call.
 // `compile_source` is diffed byte-for-byte against the Dart oracle, confirming
-// the whole Hawk front-end lowers a program identically end to end. The
+// the whole Thera front-end lowers a program identically end to end. The
 // `*_source_at` closure-checking tests use a real fixture tree under the temp
 // dir (like loader_test).
 
@@ -43,7 +43,7 @@ fn test_check_reports_parse_error_with_location() -> Result<Void, Error> {
 // best-effort through its parse cache (R1), exactly as imported files behave.
 @test
 fn test_primary_lex_error_reports_lex_first() -> Result<Void, Error> {
-    // '`' is not a Hawk token (lex error); the dangling 'fn g(' is a parse error.
+    // '`' is not a Thera token (lex error); the dangling 'fn g(' is a parse error.
     let src = 'fn f() -> Int { return 1; }\n`\nfn g( {\n';
     let diags = check_source_at(src, '/mem/lexbad.thera', Option.None);
     testing.assert(diags.len() >= 2, message: 'lex and parse diagnostics: ${diags.len()}')?;
@@ -54,7 +54,7 @@ fn test_primary_lex_error_reports_lex_first() -> Result<Void, Error> {
 
 // A check error in an *imported* file surfaces when checking the importer —
 // attributed to the imported file — and blocks compilation (previously only the
-// primary was checked: `hawk check importer.thera` exited 0 and `hawk run`
+// primary was checked: `thera check importer.thera` exited 0 and `thera run`
 // shipped the broken import to bytecode).
 @test
 fn test_imported_file_check_errors_surface() -> Result<Void, Error> {

@@ -1,4 +1,4 @@
-//! std.core — the built-in List<T> type's higher-order methods, written in Hawk.
+//! std.core — the built-in List<T> type's higher-order methods, written in Thera.
 //!
 //! List<T> is a built-in, growable sequence: always in scope, never explicitly
 //! imported (there is no `import std.list`). It is not constructed via a struct
@@ -6,11 +6,11 @@
 //!
 //! `.len()`, `.get(i)`, `.push(v)`, and `.join(sep)` are declared below as
 //! `native fn`s backed by runtime natives; indexing (`xs[i]`) is built-in syntax.
-//! The transforms further down are ordinary Hawk methods that take a closure and
+//! The transforms further down are ordinary Thera methods that take a closure and
 //! are compiled like any other code — the payoff of closures (see
 //! examples/closures.thera, docs/bytecode.md).
 //!
-//! ```hawk
+//! ```thera
 //! let evens = [1, 2, 3, 4].filter(n => n % 2 == 0);   // [2, 4]
 //! let names = users.map(u => u.name);
 //! ```
@@ -116,7 +116,7 @@ impl List<T> {
     /// `a` should come before `b`. The sort is **stable** (equal elements keep
     /// their input order) and runs in O(n log n) via a bottom-up merge.
     ///
-    /// ```hawk
+    /// ```thera
     /// names.sort((a, b) => a < b);          // ascending
     /// nums.sort((a, b) => b < a);           // descending
     /// people.sort((a, b) => a.age < b.age); // by a field
@@ -166,7 +166,7 @@ impl List<T> {
     /// index in hand — `for p in xs.enumerate() { … p.index … p.value … }` — in
     /// place of a manual `while i < xs.len()` index loop.
     ///
-    /// ```hawk
+    /// ```thera
     /// for p in ['a', 'b'].enumerate() {
     ///     println('${p.index}: ${p.value}');   // 0: a\n1: b
     /// }
@@ -186,7 +186,7 @@ impl List<T> {
     /// early (`take(n)`), or when the data is large enough that fusing the passes
     /// matters — `iter()` runs the whole chain in one walk with no intermediates:
     ///
-    /// ```hawk
+    /// ```thera
     /// // eager: one intermediate list, then the final list — fine for small input
     /// let a = xs.map((n) => n * n).filter((n) => n > 10);
     ///
@@ -223,7 +223,7 @@ impl List<T> {
     /// Reduce the list to a single value: start from `initial` and fold each
     /// element in with `combine`, left to right.
     ///
-    /// ```hawk
+    /// ```thera
     /// let sum = nums.fold(0, (acc, n) => acc + n);
     /// ```
     pub fn fold<A>(self, _ initial: A, _ combine: (A, T) -> A) -> A {
@@ -238,7 +238,7 @@ impl List<T> {
     /// are clamped to the list's bounds, so out-of-range or reversed ranges yield
     /// a shorter or empty list rather than an error.
     ///
-    /// ```hawk
+    /// ```thera
     /// [10, 20, 30, 40].slice(1, 3)   // [20, 30]
     /// ```
     pub fn slice(self, _ start: Int, _ end: Int) -> List<T> {

@@ -7,7 +7,7 @@
 //! default methods, so `for x in it` and `it.map(…).to_list()` work without an
 //! import. This module provides the *sources* that build an iterator.
 //!
-//! ```hawk
+//! ```thera
 //! for x in iter.range(0, 3) { println(x); }            // 0, 1, 2
 //! let xs = iter.from_list([1, 2, 3]).to_list();        // [1, 2, 3]
 //! let ys = iter.range(0, 5).filter((n) => n % 2 == 0)

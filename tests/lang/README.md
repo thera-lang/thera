@@ -1,17 +1,17 @@
 # Language conformance tests
 
-These tests pin Hawk's **specification** (the `docs/` reference), as distinct from
-the `*_test.hawk` suites in `pkgs/cli` and `sdk/std`, which test the
+These tests pin Thera's **specification** (the `docs/` reference), as distinct from
+the `*_test.thera` suites in `pkgs/cli` and `sdk/std`, which test the
 implementation behaviorally. A conformance test asserts what a documented
 language feature *should* do — including features the implementation does not yet
 provide (see [xfail](#expected-failures-xfail)).
 
-Each test is a real `.hawk` file whose expectations live in comments, so the test
+Each test is a real `.thera` file whose expectations live in comments, so the test
 and its oracle are a single artifact you can also just run by hand
-(`hawk run <file>` / `hawk check <file>`). They are grouped into subdirectories
+(`thera run <file>` / `thera check <file>`). They are grouped into subdirectories
 by spec area (`expressions/`, `control_flow/`, `errors/`, …).
 
-The harness is [`tests/lang_runner.hawk`](../lang_runner.hawk); `bin/test.sh`
+The harness is [`tests/lang_runner.thera`](../lang_runner.thera); `bin/test.sh`
 runs it.
 
 ## Directives
@@ -34,7 +34,7 @@ A leading `//!` comment block configures the test:
 
 Anchored to the line they appear on:
 
-```hawk
+```thera
 println('${1 + 2}');     // expect: 3                  (run)   one ordered stdout line
 let x = if c { 1 };      // expect error: missing else  (check)  diagnostic on this line, message contains the text
 import std.fs;           // expect warning: unused import (check)  a `warning:`-tagged diagnostic on this line
@@ -67,7 +67,7 @@ An `XPASS` fails the suite on purpose: it means the feature landed, so the
 
 ## Support files (multi-file tests)
 
-A `.hawk` file with **no `//!` directive block** is treated as a *support file*,
+A `.thera` file with **no `//!` directive block** is treated as a *support file*,
 not a test: the harness skips running it directly. This is how a multi-file test
 (e.g. an import or white-box-visibility test) ships the library it imports — the
 test file carries the `//!` header and `import`s its sibling support file.
@@ -75,10 +75,10 @@ test file carries the `//!` header and `import`s its sibling support file.
 ## Running
 
 ```
-hawk run tests/lang_runner.hawk <hawk-cmd> <test-root> [coverage-map]
+thera run tests/lang_runner.thera <thera-cmd> <test-root> [coverage-map]
 ```
 
-`<hawk-cmd>` is the `hawk` launcher under test (`bin/thera.sh` in the dev tree);
+`<thera-cmd>` is the `thera` launcher under test (`bin/thera.sh` in the dev tree);
 `<test-root>` is this directory. `bin/test.sh` wires this up.
 
 ## Coverage report

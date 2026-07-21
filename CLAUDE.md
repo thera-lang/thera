@@ -1,6 +1,6 @@
-# Hawk
+# Thera
 
-Hawk is a proof-of-concept programming language designed to maximize the
+Thera is a proof-of-concept programming language designed to maximize the
 productivity of LLMs and coding agents (strong static typing, errors as values,
 immutability by default, brace-delimited, batteries-included stdlib).
 
@@ -9,18 +9,18 @@ Full design docs: start at **[docs/toc.md](docs/toc.md)**.
 ## Repo map
 
 - `runtime/` — a Rust runtime: a Tier-0 bytecode interpreter, the serialized
-  `.hawkbc` format, GC, and the cooperative fiber scheduler. Builds `thera-rt`
+  `.thera-bc` format, GC, and the cooperative fiber scheduler. Builds `thera-rt`
   (the bare runtime).
-- `pkgs/cli/` — **the active front-end**, written in Hawk: lexer → parser →
+- `pkgs/cli/` — **the active front-end**, written in Thera: lexer → parser →
   resolver → checker → inference → codegen → encoder, plus the
   `check`/`emit`/`run`/`test`/`fmt`/`lsp` CLI. It self-hosts.
-- `sdk/std/` — Hawk standard library sources (`.hawk`, with `native fn` decls).
-  Each library lives in its own named subdir (`sdk/std/path/path.hawk`), with
-  Hawk tests beside it as `<name>_test.hawk`.
-- `bootstrap/frontend.hawkbc` — the checked-in self-hosting bootstrap (the
+- `sdk/std/` — Thera standard library sources (`.thera`, with `native fn` decls).
+  Each library lives in its own named subdir (`sdk/std/path/path.thera`), with
+  Thera tests beside it as `<name>_test.thera`.
+- `bootstrap/frontend.thera-bc` — the checked-in self-hosting bootstrap (the
   front-end compiled to bytecode); compiles the next revision of the front-end
   so the build needs no external toolchain. See `bootstrap/README.md`.
-- `examples/` — example `.hawk` programs. `bench/` — perf/GC benchmark
+- `examples/` — example `.thera` programs. `bench/` — perf/GC benchmark
   harnesses. `bin/` — dev entry scripts.
 - `docs/` — design docs.
 
@@ -29,9 +29,9 @@ Full design docs: start at **[docs/toc.md](docs/toc.md)**.
 The Rust runtime executes bytecode covering `Int`/`Double`/`Bool`/`Unit`,
 control flow, functions + recursion, closures, enums, structs + a type table,
 `List`/`Map`/`Set`, cooperative fibers + channels, and observable output.
-Bytecode serializes to/from `.hawkbc` (constant pool; natives bound by name).
-**The front-end is self-hosted in Hawk** (`pkgs/cli/`) — it parses/checks/runs
-`.hawk` and emits `.hawkbc`, and `bin/build_sdk.sh` reproduces it byte-for-byte
+Bytecode serializes to/from `.thera-bc` (constant pool; natives bound by name).
+**The front-end is self-hosted in Thera** (`pkgs/cli/`) — it parses/checks/runs
+`.thera` and emits `.thera-bc`, and `bin/build_sdk.sh` reproduces it byte-for-byte
 (fixpoint). The Dart toolchain that bootstrapped it has been retired.
 
 Notable front-end facts (easy to get wrong): `Result`/`Option` are ordinary
@@ -52,12 +52,12 @@ The runtime is the main thing to build and test:
 ```
 cd runtime
 cargo test          # also: cargo clippy, cargo fmt
-cargo build         # builds `thera-rt` — the bare runtime (runs a .hawkbc)
-cargo run -- emit-demo /tmp/x.hawkbc   # write a sample module
-cargo run -- /tmp/x.hawkbc             # load + run it
+cargo build         # builds `thera-rt` — the bare runtime (runs a .thera-bc)
+cargo run -- emit-demo /tmp/x.thera-bc   # write a sample module
+cargo run -- /tmp/x.thera-bc             # load + run it
 ```
 
-The self-hosted front-end runs current Hawk via
+The self-hosted front-end runs current Thera via
 `bin/thera.sh <run|check|test|emit> <args>` — it compiles the current `pkgs/cli`
 with the checked-in bootstrap snapshot and runs the result on `thera-rt` (caching
 the dev front-end in `build/`, rebuilt when `pkgs/cli`/`sdk/std` change). No
@@ -66,11 +66,11 @@ external toolchain.
 `bin/test.sh` runs everything: cargo tests, the `pkgs/cli` and `sdk/std` @test
 suites, and the examples.
 
-`bin/build_sdk.sh` assembles the binary SDK in `build/sdk/`: `bin/hawk` (the
+`bin/build_sdk.sh` assembles the binary SDK in `build/sdk/`: `bin/thera` (the
 runtime with the compiled front-end embedded) + `std/` + a `version` stamp. So
-`thera-rt` = bare runtime (from `cargo build`); `hawk` = runtime + embedded
+`thera-rt` = bare runtime (from `cargo build`); `thera` = runtime + embedded
 front-end (the SDK launcher). The build bootstraps from
-`bootstrap/frontend.hawkbc` and ends with a fixpoint check (the SDK re-emits its
+`bootstrap/frontend.thera-bc` and ends with a fixpoint check (the SDK re-emits its
 own front-end and the bytes must match). Refresh the snapshot after front-end
 changes (see `bootstrap/README.md`).
 

@@ -1,6 +1,6 @@
-// Tests for the Hawk `.thera-bc` encoder, diffed byte-for-byte against golden
+// Tests for the Thera `.thera-bc` encoder, diffed byte-for-byte against golden
 // arrays. The headline test rebuilds a `double`/`main` module and asserts the
-// encoded bytes exactly — pinning the Hawk encoder to the runtime's `codec.rs`
+// encoded bytes exactly — pinning the Thera encoder to the runtime's `codec.rs`
 // (the round-trip oracle). Two smaller hand-derived goldens cover the type
 // table, the dispatch section, and the numeric/bool/negative-immediate opcodes
 // the demo doesn't exercise.

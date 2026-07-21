@@ -81,9 +81,9 @@ impl BytesBuilder {
     pub native fn finish(self) -> Bytes
 
     // --- fixed-width integers / floats (little- and big-endian) ---
-    // Pure Hawk over `write_u8` + bitwise ops (each `write_u8` keeps the low 8
+    // Pure Thera over `write_u8` + bitwise ops (each `write_u8` keeps the low 8
     // bits). The little-endian writers mirror the runtime's `serialize.rs`, so
-    // the bytecode writer can be expressed in Hawk; the big-endian writers are the
+    // the bytecode writer can be expressed in Thera; the big-endian writers are the
     // network / wire-format order (most-significant byte first). `>>>` (logical
     // shift) extracts each byte of the raw bit pattern regardless of sign.
 
@@ -194,7 +194,7 @@ impl BytesBuilder {
 /// for the multi-byte reads, when fewer bytes remain than the read needs), so a
 /// truncated stream is a clean `None` rather than a trap. The integer decoders
 /// are the exact inverses of `BytesBuilder`'s writers, so a value written there
-/// round-trips through here. Pure Hawk over `Bytes.get` + bitwise ops.
+/// round-trips through here. Pure Thera over `Bytes.get` + bitwise ops.
 pub struct BytesReader {
     let data: Bytes;
     let mut pos: Int;

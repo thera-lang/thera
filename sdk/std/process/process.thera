@@ -4,17 +4,17 @@
 //!
 //! Run a command to completion, capturing its output:
 //!
-//! ```hawk
+//! ```thera
 //! let result = process.run('git', args: ['status', '--short'])?;
 //! println(result.stdout);
 //! ```
 //!
 //! Or start one and stream its pipes through the std.io Reader/Writer protocol:
 //!
-//! ```hawk
+//! ```thera
 //! import std.io;
-//! let child = process.start('grep', args: ['hawk'])?;
-//! child.stdin().write('hawk\nrust\n'.bytes())?;   // stdin(): Writer
+//! let child = process.start('grep', args: ['thera'])?;
+//! child.stdin().write('thera\nrust\n'.bytes())?;   // stdin(): Writer
 //! let out = io.read_all(child.stdout())?;          // stdout(): Reader
 //! let code = child.wait()?;
 //! ```

@@ -46,7 +46,7 @@ const SRC: String = 'struct S { let count: Int; }\n'
 fn test_hover_self_resolves_to_the_impl_type() -> Result<Void, Error> {
     // `self` in `return self.helper(...)` → the enclosing impl's type.
     let code = rendered(SRC, at(SRC, 'return self.helper', 7));
-    testing.assert_eq(actual: code, expected: '```hawk\nself: S\n```')?;
+    testing.assert_eq(actual: code, expected: '```thera\nself: S\n```')?;
     return Result.Ok(void);
 }
 
@@ -97,9 +97,9 @@ fn test_hover_enum_variant_definition_name() -> Result<Void, Error> {
     let src = 'enum Priority { Low, Medium, High }\n'
         + 'enum Shape { Circle(Int), Square(Int, Int) }\n';
     let bare = rendered(src, at(src, 'Medium, High', 0));
-    testing.assert_eq(actual: bare, expected: '```hawk\nPriority.Medium\n```')?;
+    testing.assert_eq(actual: bare, expected: '```thera\nPriority.Medium\n```')?;
     let payload = rendered(src, at(src, 'Square(Int, Int)', 0));
-    testing.assert_eq(actual: payload, expected: '```hawk\nShape.Square(Int, Int)\n```')?;
+    testing.assert_eq(actual: payload, expected: '```thera\nShape.Square(Int, Int)\n```')?;
     return Result.Ok(void);
 }
 
@@ -168,7 +168,7 @@ fn test_hover_bare_variant_pattern() -> Result<Void, Error> {
         + '    };\n'
         + '}\n';
     let code = rendered_with_types(src, at(src, 'Medium => 2', 2));
-    testing.assert_eq(actual: code, expected: '```hawk\nPriority.Medium\n```')?;
+    testing.assert_eq(actual: code, expected: '```thera\nPriority.Medium\n```')?;
     return Result.Ok(void);
 }
 
@@ -186,10 +186,10 @@ fn test_hover_for_loop_variable_shows_element_type() -> Result<Void, Error> {
         + 'struct Task { let title: String; }\n';
     // At the declaration (`for x in xs`)...
     let decl_site = rendered_with_types(src, at(src, 'for x in xs', 4));
-    testing.assert_eq(actual: decl_site, expected: '```hawk\nx: Task\n```')?;
+    testing.assert_eq(actual: decl_site, expected: '```thera\nx: Task\n```')?;
     // ...and at a use site in the body.
     let use_site = rendered_with_types(src, at(src, 'x.title', 0));
-    testing.assert_eq(actual: use_site, expected: '```hawk\nx: Task\n```')?;
+    testing.assert_eq(actual: use_site, expected: '```thera\nx: Task\n```')?;
     return Result.Ok(void);
 }
 
@@ -198,10 +198,10 @@ fn test_hover_unannotated_local_shows_inferred_type() -> Result<Void, Error> {
     let src = 'fn f() -> Int { let xs = [1, 2]; return xs[0]; }';
     // At the use site (the `Ident`'s committed record)...
     let use_site = rendered_with_types(src, at(src, 'xs[0]', 0));
-    testing.assert_eq(actual: use_site, expected: '```hawk\nxs: List<Int>\n```')?;
+    testing.assert_eq(actual: use_site, expected: '```thera\nxs: List<Int>\n```')?;
     // ...and on the declaration name (the `let` name-span record).
     let decl_site = rendered_with_types(src, at(src, 'xs = ', 0));
-    testing.assert_eq(actual: decl_site, expected: '```hawk\nxs: List<Int>\n```')?;
+    testing.assert_eq(actual: decl_site, expected: '```thera\nxs: List<Int>\n```')?;
     return Result.Ok(void);
 }
 
@@ -210,7 +210,7 @@ fn test_hover_annotated_local_keeps_the_annotation() -> Result<Void, Error> {
     // A written annotation still renders as written (no record consulted).
     let src = 'fn f() -> Int { let n: Int = 1; return n; }';
     let code = rendered_with_types(src, at(src, 'return n', 7));
-    testing.assert_eq(actual: code, expected: '```hawk\nn: Int\n```')?;
+    testing.assert_eq(actual: code, expected: '```thera\nn: Int\n```')?;
     return Result.Ok(void);
 }
 
@@ -219,6 +219,6 @@ fn test_hover_local_without_record_degrades_to_the_name() -> Result<Void, Error>
     // No record (the pre-check state): the render degrades to the bare name.
     let src = 'fn f() -> Int { let xs = [1, 2]; return xs[0]; }';
     let code = rendered(src, at(src, 'xs[0]', 0));
-    testing.assert_eq(actual: code, expected: '```hawk\nxs\n```')?;
+    testing.assert_eq(actual: code, expected: '```thera\nxs\n```')?;
     return Result.Ok(void);
 }

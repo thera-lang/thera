@@ -20,7 +20,7 @@
 //! A `--help` / `-h` flag is registered automatically. Parsing never exits on
 //! its own — you decide when to show help:
 //!
-//! ```hawk
+//! ```thera
 //! import std.cli;
 //!
 //! fn main(argv: List<String>) -> Result<Int, cli.CliError> {
@@ -266,7 +266,7 @@ impl Command {
     /// Capture a trailing argv verbatim: once the first positional token is seen,
     /// it and every token after it (including `--flag` / `-x` forms) are collected
     /// as positionals with no further parsing. For a launcher that forwards args to
-    /// a wrapped program — `hawk run <file> --flag` passes `--flag` to `<file>`,
+    /// a wrapped program — `thera run <file> --flag` passes `--flag` to `<file>`,
     /// no `--` separator needed. The command's own flags must precede the first
     /// positional.
     pub fn trailing_var_arg(self, _ enabled: Bool) -> Command {
@@ -381,7 +381,7 @@ impl Command {
                 if ci >= 0 {
                     let rest = args.slice(i + 1, args.len());
                     // Rewrap a subcommand's error under its name, so the path
-                    // records where parsing actually failed (`hawk run --bad` ->
+                    // records where parsing actually failed (`thera run --bad` ->
                     // path `['run']`, not the top level).
                     match self.subcommands[ci].parse(rest) {
                         Ok(sm) => {
@@ -434,7 +434,7 @@ impl Command {
     /// error) are the library's opinion; a client wanting different policy uses
     /// `parse` directly.
     ///
-    /// ```hawk
+    /// ```thera
     /// fn main(argv: List<String>) -> Result<Int, Error> {
     ///     match app().run(argv) {
     ///         Exit(code) => return Result.Ok(code),

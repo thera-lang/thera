@@ -6,7 +6,7 @@
 //! indexes the running frame's instruction vec; the `jump` family redirects it.
 //!
 //! `Instr::Call` pushes a new frame and `Instr::Return` pops one — calls do
-//! **not** recurse through the Rust stack, so deep Hawk recursion is bounded by
+//! **not** recurse through the Rust stack, so deep Thera recursion is bounded by
 //! the heap (the frame `Vec`), not the host stack. Keeping every active frame in
 //! one `Vec` is also what lets a precise GC enumerate the roots, and it is the
 //! structure fibers will pause/resume.
@@ -55,7 +55,7 @@ pub enum Trap {
     /// error that slipped past the checker (its deliberate `Unknown` leniency,
     /// or a checker gap). The bytecode is a *faithful* compile of the program;
     /// it is the program's static types that were wrong, so this is reported as
-    /// a program fault, not a producer bug. `expected`/`found` are Hawk type
+    /// a program fault, not a producer bug. `expected`/`found` are Thera type
     /// names (`found` via the v3 type/enum name tables). See docs/language.md,
     /// "Runtime faults".
     TypeError { expected: String, found: String },
@@ -74,7 +74,7 @@ pub enum Trap {
 /// it in well under a second and a few tens of MiB.
 pub const MAX_CALL_DEPTH: usize = 1_000_000;
 
-/// The human-readable fault message shown to the user (`hawk: trap: <this>`).
+/// The human-readable fault message shown to the user (`thera: trap: <this>`).
 /// The format is specified in docs/language.md, "Runtime faults". This is
 /// distinct from the `Debug` form, which the runtime's own tests still use.
 impl std::fmt::Display for Trap {
@@ -121,7 +121,7 @@ pub(crate) fn bug(msg: impl Into<String>) -> Trap {
     Trap::Bug(msg.into())
 }
 
-/// The Hawk type name of a heap object, for runtime type-error messages. Struct
+/// The Thera type name of a heap object, for runtime type-error messages. Struct
 /// and enum values resolve to their declared names via the v3 name tables when a
 /// `module` is given; without one (e.g. a native, which has no module handle)
 /// they fall back to a generic `struct`/`enum`.
@@ -142,7 +142,7 @@ pub(crate) fn obj_type_name(obj: &Obj, module: Option<&Module>) -> String {
     }
 }
 
-/// The Hawk type name of any value — primitives directly, heap values via
+/// The Thera type name of any value — primitives directly, heap values via
 /// [`obj_type_name`]. Drives the `found` half of a [`Trap::TypeError`].
 pub(crate) fn value_type_name(v: &Value, module: Option<&Module>) -> String {
     match v {
@@ -264,13 +264,13 @@ enum RunOutcome {
     Parked(ParkRequest),
 }
 
-/// A blocking syscall shipped to the worker pool: it runs off the Hawk thread and
-/// returns an owned, `Send` payload (never a `Value` — the Hawk heap is
-/// thread-local, so only the Hawk thread may allocate one).
+/// A blocking syscall shipped to the worker pool: it runs off the Thera thread and
+/// returns an owned, `Send` payload (never a `Value` — the Thera heap is
+/// thread-local, so only the Thera thread may allocate one).
 type IoJob = Box<dyn FnOnce() -> Box<dyn Any + Send> + Send + 'static>;
 
-/// Turns a completed [`IoJob`]'s payload into a Hawk `Value`, run back **on the
-/// Hawk thread** (the scheduler driver) so the allocation is safe. May `Trap`.
+/// Turns a completed [`IoJob`]'s payload into a Thera `Value`, run back **on the
+/// Thera thread** (the scheduler driver) so the allocation is safe. May `Trap`.
 type IoFinish = Box<dyn FnOnce(Box<dyn Any + Send>) -> Result<Value, Trap>>;
 
 /// How a parked fiber resumes — set by the native that suspended it. Not `Copy`:
@@ -288,7 +288,7 @@ enum ParkRequest {
     /// Like `YieldReady` it resumes *right after* the call (the native's result is
     /// kept, not recomputed — so no retry); unlike it, the fiber is parked, not
     /// runnable, until the scheduler's timer wakes it. Progress here comes from
-    /// outside Hawk (the clock), so a program with only timer-blocked fibers is
+    /// outside Thera (the clock), so a program with only timer-blocked fibers is
     /// not a deadlock — the driver sleeps the thread until the earliest deadline.
     Timer(Instant),
     /// A blocking syscall: run `job` on the worker pool, and on completion build
@@ -301,7 +301,7 @@ enum ParkRequest {
     /// handle it is waiting on**, and the `call.native` re-executes — exactly
     /// [`BlockRetry`](ParkRequest::BlockRetry)'s discipline, but woken by the
     /// poller rather than by another fiber's progress. Readiness comes from
-    /// outside Hawk (the kernel), so poll-blocked fibers are not a deadlock.
+    /// outside Thera (the kernel), so poll-blocked fibers are not a deadlock.
     ///
     /// The handle is the routing key: it doubles as the socket's `mio::Token`, so
     /// an event names the fiber(s) to wake without a scan. Note what this makes
@@ -321,7 +321,7 @@ enum ParkRequest {
     /// Park on **several sources at once**, waking on whichever fires first. Unlike
     /// `BlockRetry`/`Ready` the native is *not* re-run: it resumes right after the
     /// call and returns, because the source that fired is re-checked by `select`'s
-    /// **Hawk-level loop**, not by the native. (Re-running it would just re-park,
+    /// **Thera-level loop**, not by the native. (Re-running it would just re-park,
     /// and the loop would never see the wake — an instant deadlock.)
     ///
     /// This is what `select` parks on, and the only request that lists a fiber in
@@ -368,7 +368,7 @@ pub(super) fn park_timer(deadline: Instant) {
 }
 
 /// Park the running fiber on a blocking syscall: `job` runs on the worker pool,
-/// then `finish` turns its payload into the call's `Value` on the Hawk thread.
+/// then `finish` turns its payload into the call's `Value` on the Thera thread.
 /// Called by the blocking `fs`/`stdin`/`process` natives; the fiber resumes right
 /// after the call with the delivered value (the native's own return is a discarded
 /// placeholder).
@@ -386,7 +386,7 @@ pub(super) fn park_ready(handle: i64) {
 
 /// Block the running fiber until *any* of several sources is ready, re-running this
 /// native on resume. Called by `select`'s native after it has found every source
-/// not-ready; the Hawk-level loop then re-checks them all.
+/// not-ready; the Thera-level loop then re-checks them all.
 ///
 /// `blocked` is always joined (channel/join progress); `deadline` and `handles` add
 /// a timer and socket waits. Passing neither is still meaningful — it is a wait for
@@ -408,7 +408,7 @@ struct Fiber {
     state: FiberState,
     /// Set while the fiber is parked on a worker-pool syscall (`Await`): the
     /// `finish` that turns the worker's payload into the resume value, run on the
-    /// Hawk thread when the completion arrives.
+    /// Thera thread when the completion arrives.
     pending: Option<IoFinish>,
     /// Whether this fiber is already sitting in `ready`. Makes waking **idempotent**,
     /// which a `Multi` park requires: a fiber listed under several sources would
@@ -808,7 +808,7 @@ fn gather_scheduler_roots(roots: &mut Vec<Value>) {
 // --- the readiness poller ---
 //
 // Stage (2) of the I/O staging in architecture.md §Concurrency: the event loop.
-// Sockets are non-blocking, so their syscalls run *inline on the Hawk thread* and
+// Sockets are non-blocking, so their syscalls run *inline on the Thera thread* and
 // never reach the worker pool — a blocking `accept` would pin one of its four
 // threads indefinitely, and four such ops would stall every other fiber's I/O.
 // Instead a socket native that gets `EWOULDBLOCK` parks (`ParkRequest::Ready`) and
@@ -937,11 +937,11 @@ fn reset_poller() {
 
 // --- the blocking-syscall worker pool ---
 //
-// The `Await` park model runs a blocking syscall off the single Hawk thread so the
+// The `Await` park model runs a blocking syscall off the single Thera thread so the
 // fiber that issued it can park (letting others run) instead of blocking everyone.
-// Workers run only Rust — no Hawk code, no Hawk-heap access — so the "single Hawk
+// Workers run only Rust — no Thera code, no Thera-heap access — so the "single Thera
 // thread" guarantee holds; each worker returns an owned, `Send` payload that the
-// driver turns into a `Value` back on the Hawk thread. This is stage (1) of the I/O
+// driver turns into a `Value` back on the Thera thread. This is stage (1) of the I/O
 // staging in architecture.md §Concurrency (a thread pool, no event loop yet).
 
 /// Number of worker threads. Bounds how many blocking syscalls run at once; excess
@@ -1028,8 +1028,8 @@ fn reset_worker_pool() {
 
 /// Block until at least one worker completion is available (bounded by `timeout`,
 /// if a timer is also pending), then drain every completion ready now. Returns the
-/// completions; empty if it timed out with none ready. Runs on the Hawk thread with
-/// no Hawk-heap borrow held, so building the delivered `Value`s afterwards is safe.
+/// completions; empty if it timed out with none ready. Runs on the Thera thread with
+/// no Thera-heap borrow held, so building the delivered `Value`s afterwards is safe.
 fn await_completions(timeout: Option<std::time::Duration>) -> Vec<Completion> {
     WORKER_POOL.with(|p| {
         let p = p.borrow();
@@ -1286,7 +1286,7 @@ impl<'a> Vm<'a> {
 
     /// Turn each completed syscall's payload into its `Value` and hand it to the
     /// fiber that issued it, making it runnable. The `finish` closures run here — on
-    /// the Hawk thread, with no heap borrow held — which is the only place a
+    /// the Thera thread, with no heap borrow held — which is the only place a
     /// worker's result may allocate.
     fn deliver_completions(&mut self, completions: Vec<Completion>) -> Result<(), Trap> {
         for (fiber_id, payload) in completions {

@@ -1,7 +1,7 @@
-// The typing engine — the Hawk mirror of element/inference.dart.
+// The typing engine — the Thera mirror of element/inference.dart.
 //
 // Dart's `Inferrer` walks the program and *annotates* every `Expr` with its
-// resolved `Type` (`Expr.resolvedType`). Hawk's `Expr` values are immutable, so
+// resolved `Type` (`Expr.resolvedType`). Thera's `Expr` values are immutable, so
 // the port drops the annotation entirely: typing is a **pure function**
 // `infer_expr(expr, scope, ctx, expected) -> Type` the checker calls on demand.
 // This avoids mutating the AST and lines the front-end up with a memoizable

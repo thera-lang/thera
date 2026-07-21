@@ -1,6 +1,6 @@
 # Standard library design
 
-**What this is:** the design for Hawk's "batteries included" standard library —
+**What this is:** the design for Thera's "batteries included" standard library —
 the principles that make it self-consistent, the tiers that decide what ships in
 core vs. the ecosystem, and a module-by-module catalog with representative APIs.
 It is the artifact that guides future stdlib work; it describes the **target**,
@@ -40,8 +40,8 @@ enough to reduce hallucination.
    `read_bytes`; their streaming counterparts are `open`.
 
    **Layout:** every library lives in its own named subdirectory —
-   `sdk/std/<name>/<name>.hawk` (even single-file libs, ready to grow into a
-   barrel) — with Hawk tests beside it as `<name>_test.hawk`.
+   `sdk/std/<name>/<name>.thera` (even single-file libs, ready to grow into a
+   barrel) — with Thera tests beside it as `<name>_test.thera`.
 
 3. **I/O is `Reader`/`Writer` underneath, whole-value on top.** Streaming is one
    protocol — the `Reader` / `Writer` / `Closer` / `Seek` interfaces in `std.io`
@@ -57,7 +57,7 @@ enough to reduce hallucination.
    uniform currency at boundaries and the conventional `E` in library-agnostic
    code. No exceptions, no hidden control flow (see [overview.md](overview.md)).
 
-5. **Concurrency is invisible.** Hawk uses single-threaded cooperative fibers
+5. **Concurrency is invisible.** Thera uses single-threaded cooperative fibers
    ([language.md](language.md) §Concurrency): I/O parks the calling fiber and
    resumes another, so **stdlib I/O looks synchronous and blocking but never
    blocks the thread.** No `async`/`await`, no `Future<T>` in any signature, no
@@ -122,7 +122,7 @@ The shared vocabulary the modules are built from. These live in `std.core`
 
 ### `Bytes` — immutable byte buffer _(implemented, prelude)_
 
-Runtime-backed opaque types in the prelude (`std.core/bytes.hawk`);
+Runtime-backed opaque types in the prelude (`std.core/bytes.thera`);
 `String.bytes()` returns `Bytes` (use `.to_list()` for the raw byte values).
 
 ```
@@ -140,7 +140,7 @@ impl Bytes {
 }
 
 // Accumulate bytes, then freeze (the binary-writer vocabulary; write_u8 masks
-// to the low 8 bits). The fixed-width and LEB128 writers are pure Hawk over
+// to the low 8 bits). The fixed-width and LEB128 writers are pure Thera over
 // write_u8 + bitwise ops.
 pub struct BytesBuilder { let /* mutable */; }
 impl BytesBuilder {
@@ -161,7 +161,7 @@ impl BytesBuilder {
 // Read a Bytes back — the reader counterpart to BytesBuilder. A forward cursor
 // (mut pos); each read advances and returns None at/over the end, so a truncated
 // stream is a clean None, not a trap. The integer decoders are exact inverses of
-// the writers above (a written value round-trips). Pure Hawk over Bytes.get.
+// the writers above (a written value round-trips). Pure Thera over Bytes.get.
 pub struct BytesReader { let /* mutable cursor over a Bytes */; }
 impl BytesReader {
     pub fn new(_ data: Bytes) -> BytesReader;
@@ -215,7 +215,7 @@ The concrete carrier is a private implementation detail you never name —
 deliberately, so the always-in-scope prelude doesn't claim a common noun like
 `Message` (which would collide with user types; the prelude is the one surface
 even per-namespace resolution can't disambiguate). `Error` is an interface
-(`std.core/error.hawk`); domain modules define their own error enums and
+(`std.core/error.thera`); domain modules define their own error enums and
 `impl Error` for them, so a value `match`-able on its cause still passes where
 `Result<_, Error>` is expected (`std.cli`'s `CliError` is the first example, and
 `?` propagates it into an `Error`-returning caller).
@@ -238,11 +238,11 @@ Each entry: **purpose**, **key types**, **representative API** (illustrative,
 not exhaustive), and **status** in its heading (`implemented` / `partial` /
 `new`). This catalog is the single source of truth for module status.
 
-### `std.io` — streaming I/O foundation _(implemented, pure Hawk)_
+### `std.io` — streaming I/O foundation _(implemented, pure Thera)_
 
 Purpose: the `Reader`/`Writer`/`Closer`/`Seek` interfaces, the standard streams,
 line iteration, and the generic combinators every other I/O module builds on.
-Everything streams as `Bytes`. Implemented in pure Hawk over the
+Everything streams as `Bytes`. Implemented in pure Thera over the
 interface-dispatch arc (the combinators take interface-typed parameters); small
 stream natives back stdin/stdout/stderr.
 
@@ -284,7 +284,7 @@ line is still yielded. `io.from_string`/`from_bytes` provide an in-memory
 in the prelude — see § Core types — with the typed `read_u16_le`/be family still
 a follow-up.)
 
-### `std.iter` — lazy iteration _(implemented, pure Hawk)_
+### `std.iter` — lazy iteration _(implemented, pure Thera)_
 
 Purpose: the sources that seed the `Iterator<T>` protocol. `Iterator<T>` itself
 is a generic interface in the **prelude** (`fn next(self) -> Option<T>`), with
@@ -368,10 +368,10 @@ write-only-truncating; the OS enforces the mode. The handle lives in a runtime
 registry; **`close()` when done** — there are no GC finalizers, so an unclosed
 file leaks its descriptor until the process exits.
 
-### `std.path` — pure path manipulation _(implemented, pure Hawk)_
+### `std.path` — pure path manipulation _(implemented, pure Thera)_
 
 Purpose: string-only path operations, no filesystem access. **Implemented
-entirely in Hawk** (the worked example of stdlib-in-Hawk; one native,
+entirely in Thera** (the worked example of stdlib-in-Thera; one native,
 `env.os()`, backs the separator). Provides
 `join`/`join_all`/`dirname`/`basename`/`stem`/`extension`/`is_absolute` plus
 `components`, `with_extension`, and the OS boundary (`separator`/`to_native`/
@@ -400,7 +400,7 @@ display or interop boundary (the filesystem natives accept `/` everywhere, so
 most code never needs them). Full OS-native path _parsing_ (Windows drive
 letters, UNC) is deliberately out of scope — keep application logic in slash
 form. `normalize` (Go `path.Clean`), `relative` (Go `filepath.Rel`), and the
-n-ary `join_all` (Hawk has no variadics) are all in.
+n-ary `join_all` (Thera has no variadics) are all in.
 
 ### `std.env` — environment & process info _(implemented)_
 
@@ -470,7 +470,7 @@ pub enum ProcessError { NotFound(String), Io(String) }   // implements Error + D
 
 Notes: `exec` is the inherit-stdio counterpart to `run` (capture) — use it to
 launch a child whose console you want to share (a REPL, a pager, a subcommand
-whose output should stream as it happens); it's how the Hawk CLI's `run`/`test`
+whose output should stream as it happens); it's how the Thera CLI's `run`/`test`
 drive the runtime. `run` pipes and captures; `exec` shares the parent fds and
 returns only the exit code. Pipes stream `Bytes` (the `Reader`/`Writer`
 currency), so writing text is `child.stdin().write(s.bytes())`. `close_stdin()`
@@ -485,7 +485,7 @@ kind-tagged and a private helper maps them — the same pattern as `std.fs`.
 Purpose: wall-clock and monotonic time, durations, and RFC 3339 formatting and
 parsing. `Duration`/`Instant` carry nanoseconds (so `elapsed()` keeps
 sub-millisecond precision); `DateTime` is Unix milliseconds, UTC. The civil-date
-math and the RFC 3339 format/parse are pure Hawk; only the monotonic clock and
+math and the RFC 3339 format/parse are pure Thera; only the monotonic clock and
 `sleep` need a native.
 
 ```
@@ -562,7 +562,7 @@ scheduling, and GC keeps parked fibers' and channels' values alive. Channels are
 fiber sleeps. Blocking **syscalls** park too: the `fs` ops (path ops, `open`/
 `create`, and `File` read/write/seek), `stdin` read, and `std.process`
 (`run`/`exec`/`wait` + pipe I/O) run on a worker-thread pool (the worker returns
-owned data; the `Value` is built back on the Hawk thread), so a slow read never
+owned data; the `Value` is built back on the Thera thread), so a slow read never
 stalls the other fibers — and one fiber can feed a child's stdin while another
 drains its stdout. Only fast, effectively-non-blocking calls stay inline
 (`fs.exists`, `process.start`/`kill`/`close_stdin`).
@@ -597,7 +597,7 @@ since landed — a socket read now takes a deadline.
 
 ### `std.math` — numeric functions _(implemented)_
 
-Hawk has no function overloading and no implicit `Int`→`Double` coercion, so the
+Thera has no function overloading and no implicit `Int`→`Double` coercion, so the
 surface splits by a single rule: **type-preserving ops that also apply to `Int`
 are methods on the numeric types; inherently-`Double` ops are `std.math`
 functions.**
@@ -649,16 +649,16 @@ impl Rng {
 
 Notes: an `Rng` value, not a global, per principle 7 (no hidden state) — the
 whole state is a visible `Int` field, so `seeded(n)` is fully reproducible.
-Algorithm: **SplitMix64**, now **pure Hawk** — both the state advance (a
+Algorithm: **SplitMix64**, now **pure Thera** — both the state advance (a
 wrapping add of the golden-ratio constant) and the bit-mixing finalizer (`^` /
 `>>>` over the bitwise operators, which have since landed). Only
 `from_entropy`'s seed is a native (it reads the system clock). Not
 cryptographically secure.
 
-### `std.sort` — sorting & extrema over `Ord` _(implemented, pure Hawk)_
+### `std.sort` — sorting & extrema over `Ord` _(implemented, pure Thera)_
 
 Purpose: order a `List<T>` and pick extrema, generic over the `Ord` interface
-(`Ord`/`Ordering` live in the prelude). Pure Hawk over `List.sort` and
+(`Ord`/`Ordering` live in the prelude). Pure Thera over `List.sort` and
 `Ord.compare`.
 
 ```
@@ -673,11 +673,11 @@ explicit comparator); they work for any element type with an `impl Ord` (the
 primitives included). Living in their own module keeps the common names
 `sorted`/`min`/`max` qualified rather than in the prelude.
 
-### `std.json` — JSON _(implemented, pure Hawk; the flagship data format)_
+### `std.json` — JSON _(implemented, pure Thera; the flagship data format)_
 
 Purpose: parse and serialize JSON. A structural `Json` value, with a
-hand-written scanner + recursive-descent parser in pure Hawk
-(`sdk/std/json/json.hawk`) — the worked stand-in for self-hosting the front-end.
+hand-written scanner + recursive-descent parser in pure Thera
+(`sdk/std/json/json.thera`) — the worked stand-in for self-hosting the front-end.
 
 ```
 pub enum Json {
@@ -705,14 +705,14 @@ pub enum JsonError { Syntax(String) }                // implements Error + Displ
 and construct cleanly (`json.int(42)`); the parser picks the variant by syntax
 (a `.`/`e`/`E` → `Double`), and `as_int`/`as_double` cross-tolerate. `get`/`at`
 return `Json` (Null on miss) rather than `Option`, so navigation chains —
-`root.get('user').get('name').as_string()` — which matters because Hawk's
+`root.get('user').get('name').as_string()` — which matters because Thera's
 `Option` has no `and_then` yet. Strings handle the full escape set including
 `\uXXXX` with surrogate-pair combining. `JsonError` is `Syntax`-only for v1
 (parse is the only fallible op; a `Type`/`Missing` variant returns with typed
 `decode`).
 
 **Encoding ergonomics — three layers.** Building a heterogeneous value needs
-`Json` (Hawk has no heterogeneous map/list literal — a raw `['a': 1, 'b': true]`
+`Json` (Thera has no heterogeneous map/list literal — a raw `['a': 1, 'b': true]`
 is a `Map`, not a `Json`, and won't pass to `stringify`). The layers:
 
 1. **Constructors (today):**
@@ -740,13 +740,13 @@ Typed `encode<T>`/`decode<T>` (layer 3) is the committed direction for closing
 that gap; **decode is the higher-value half** (typed parsing with
 `Type`/`Missing` errors) and the harder one. It's gated on the generics strategy
 (monomorphized compile-time reflection vs. today's dynamic dispatch), so it's a
-deliberate arc — but the goal is explicit: a Hawk struct should round-trip to
+deliberate arc — but the goal is explicit: a Thera struct should round-trip to
 JSON without manual wrapping. See § Sequencing #1.
 
 **YAML/TOML/CSV are ecosystem** — this is where an agent looks first and finds
 the pointer.
 
-### `std.encoding` — base64 / hex / url _(implemented, pure Hawk)_
+### `std.encoding` — base64 / hex / url _(implemented, pure Thera)_
 
 Flat functions on the one module. The binary codecs take/return `Bytes`; the URL
 codec works on text. Decoding is fallible — malformed input is a `Result.Err`,
@@ -761,7 +761,7 @@ pub fn url_encode(_ s: String) -> String;               // RFC 3986 percent-enco
 pub fn url_decode(_ s: String) -> Result<String, Error>;
 ```
 
-Notes: pure Hawk over `Bytes`/`String` + the bitwise operators (no natives, no
+Notes: pure Thera over `Bytes`/`String` + the bitwise operators (no natives, no
 lookup tables — an arithmetic char mapping keeps each codec self-contained).
 base64 is the standard `+/` alphabet with `=` padding (decode rejects a bad
 length, non-alphabet character, or misplaced padding). `url_encode` uses RFC
@@ -784,7 +784,7 @@ Notes: enough for checksums and content addressing (common agent tasks); render
 a digest with `std.encoding` (`hex_encode`/`base64_encode`). Full crypto
 (signing, TLS primitives, AEAD) stays ecosystem.
 
-**Backed by audited Rust crates, not reimplemented in Hawk** — hashing is
+**Backed by audited Rust crates, not reimplemented in Thera** — hashing is
 crypto-adjacent and wants battle-tested code: the RustCrypto `sha2` / `sha1` /
 `md-5` crates and `crc32fast` (IEEE 802.3, the zip/gzip/PNG variant). These are
 the **runtime's first external dependencies**, taken deliberately for this
@@ -836,7 +836,7 @@ pub enum HttpError { Connect(String), Timeout, Status(Int), Body(String),
                      Protocol(String) }   // implements Error
 ```
 
-Notes: TLS is provided by a runtime native (not reimplemented in Hawk).
+Notes: TLS is provided by a runtime native (not reimplemented in Thera).
 Streaming bodies use `std.io.Reader`.
 
 **The simple server (`std.http.server`).** One fiber per connection over the
@@ -846,7 +846,7 @@ renders as 500.
 
 ```
 // A handler is `(Request) -> Result<Response, Error>`, written out at each use:
-// Hawk has no type aliases, so there is no `Handler` name. Pass a named `fn` or a
+// Thera has no type aliases, so there is no `Handler` name. Pass a named `fn` or a
 // lambda — either is a function value.
 
 pub fn serve(_ addr: String, _ handler: …) -> Result<Void, HttpError>;  // blocks; accept loop
@@ -854,7 +854,7 @@ pub fn serve_listener(_ listener: net.TcpListener, _ handler: …) -> Result<Voi
 pub fn serve_connection(_ conn: net.TcpStream, _ handler: …) -> Void;
 
 // Response constructors for the common cases. Free functions, since the client's
-// `Response.text()`/`.json()` are *readers* (Hawk has no overloading), so
+// `Response.text()`/`.json()` are *readers* (Thera has no overloading), so
 // building a Response is named distinctly from reading one.
 pub fn text(_ status: Int, _ body: String) -> Response;
 pub fn json(_ status: Int, _ value: Json) -> Response;
@@ -995,9 +995,9 @@ expected-type-directed auto-boxing JSON encoding needs (§ Sequencing #1) rather
 than a second heterogeneous-map path; until that lands the message is a plain
 interpolated string. Sequenced after it, not before.
 
-**Implementation — pure Hawk, no natives.** Level resolution, prefix filtering,
+**Implementation — pure Thera, no natives.** Level resolution, prefix filtering,
 and Text/JSON rendering (the JSON via `std.json`, so messages escape correctly)
-are all Hawk. The mutable config is a Hawk global: `let config = Config { … }`
+are all Thera. The mutable config is a Thera global: `let config = Config { … }`
 with `mut` fields — the binding is an immutable module initializer (computed
 once), but the struct it points at mutates in place, so `set_level` etc. need no
 mutable global or native cell. Output reuses `std.io`: the ambient logger writes
@@ -1007,7 +1007,7 @@ path the `to_writer` sink takes. (Landing this drove the front-end fix that
 infers an un-annotated module global's type from its initializer — see
 [roadmap.md](roadmap.md) changelog; before it, `config`'s type was `Unknown` and
 member access failed in codegen.) A _global_ `set_output` to redirect the
-ambient sink to an arbitrary `Writer` is deferred — it would mean holding a Hawk
+ambient sink to an arbitrary `Writer` is deferred — it would mean holding a Thera
 value in the config as a GC root — and `to_writer` already covers the
 custom-sink and capture cases.
 
@@ -1017,12 +1017,12 @@ network / syslog / journald sinks, and span / trace correlation. Core stops at
 named loggers + per-source filtering + text/JSON on stderr; a server that
 outgrows that builds or brings its own.
 
-### `std.cli` — argument parsing _(implemented, pure Hawk)_
+### `std.cli` — argument parsing _(implemented, pure Thera)_
 
 Purpose: declarative CLI parsing with subcommands, typed options, and a
 generated `--help`. The richer `Command` builder sits alongside the thin
 `std.cli/args` (`Args`), which stays for raw access. **Implemented entirely in
-Hawk** (`sdk/std/cli/command.hawk`).
+Thera** (`sdk/std/cli/command.thera`).
 
 ```
 pub struct Command { name, about, flags, options, positionals, subcommands }   // field types elided
@@ -1078,7 +1078,7 @@ stdout → `Exit(0)`; on a bare no-command invocation of a command that has
 subcommands prints help to stderr → `Exit(1)`; otherwise `Proceed(matches)`, and
 the client dispatches, typically `match matches.selected() { Some(sel) => … }`.
 A client wanting a different stdout/stderr or exit-code policy uses `parse`
-directly. `pkgs/cli/main.hawk` is the reference client — its `main` is now the
+directly. `pkgs/cli/main.thera` is the reference client — its `main` is now the
 adapter plus a subcommand switch (the ~40 lines of parse/help/error glue are
 gone).
 
@@ -1104,11 +1104,11 @@ tuples aren't in the language, `size` returns a small `TermSize` struct rather
 than an `(Int, Int)` — the same call as `List.enumerate`'s `Indexed`. `is_tty`
 rides on Rust's `std::io::IsTerminal`; `size` is the runtime's **3rd deliberate
 dependency** (`terminal_size`, portable across unix + windows). The `term_size`
-native returns the raw `[cols, rows]` pair and the Hawk layer assembles
+native returns the raw `[cols, rows]` pair and the Thera layer assembles
 `TermSize`, so the native never hardcodes a struct type-id (the `std.regex`
 ABI).
 
-### `std.char` — ASCII code points _(implemented, pure Hawk)_
+### `std.char` — ASCII code points _(implemented, pure Thera)_
 
 Purpose: name the ASCII range so it never has to be rewritten from memory (the
 constants are the point — they're copied by hand in languages that lack them),
@@ -1132,8 +1132,8 @@ case folding belong to a Unicode/ICU package, not core. Identifier predicates
 > **Status: implemented** (the runtime's **2nd deliberate dependency**, after
 > `std.hash`). Backed by the Rust team's `regex` crate (RE2-derived) — the same
 > "take a vetted, best-of-breed crate" call. A compiled pattern lives in a
-> runtime-held registry (the `std.process` handle pattern); Hawk holds an opaque
-> `Int` handle inside `Regex`. The earlier pure-Hawk version over `re2_*`
+> runtime-held registry (the `std.process` handle pattern); Thera holds an opaque
+> `Int` handle inside `Regex`. The earlier pure-Thera version over `re2_*`
 > natives that didn't survive the runtime migration has been replaced wholesale.
 
 Compile a pattern once, then match / find / capture / replace against Unicode
@@ -1168,10 +1168,10 @@ pub enum RegexError { Syntax(String) }   // implements Error + Display (mirrors 
 
 Group 0 is the full match, `1..` the numbered subgroups; a group that did not
 participate is `None`. Replacements expand `$1` / `$name`; **note** the braced
-`${1}` form collides with Hawk's own `${…}` string interpolation, so use the
-bare `$1` form in a Hawk literal. A compile syntax error is a
+`${1}` form collides with Thera's own `${…}` string interpolation, so use the
+bare `$1` form in a Thera literal. A compile syntax error is a
 `RegexError.Syntax` (principle 4), as `std.json` does. The compiled handle is
-module-private. (The ABI: natives return byte-offset `List<Int>`s and the Hawk
+module-private. (The ABI: natives return byte-offset `List<Int>`s and the Thera
 layer assembles `Match`/`Captures` via `String.byte_slice` — so the natives
 never hardcode a struct type-id.)
 
@@ -1180,7 +1180,7 @@ never hardcode a struct type-id.)
 `assert` / `assert_eq` / `assert_ne` / `assert_ok` / `assert_err`, plus the
 `fixed_clock` / `fixed_env` test doubles. The equality assertions are generic
 over `<T: Eq + Debug>` (the generics arc), rendering mismatches via the
-structural `debug`. Self-tested in `testing_test.hawk`. Because `Error` extends
+structural `debug`. Self-tested in `testing_test.thera`. Because `Error` extends
 `Debug` (interface inheritance), `assert_ok`/`assert_err` inspect a
 `Result<_, Error>` directly — the interface-typed error satisfies their
 `E: Debug` bound.
@@ -1243,7 +1243,7 @@ remains:
      boxes its values to `Json.Object`. So
      `let doc: Json = ['two': 123, 'tags': ['a', 'b'], 'ok': true]` works.
      Scoped to literals/primitives in `Json` context (not arbitrary coercion),
-     and **encode-only**. It introduces Hawk's first implicit _primitive_ boxing
+     and **encode-only**. It introduces Thera's first implicit _primitive_ boxing
      — softened by the `Ok`-wrap precedent (same mechanism, another blessed
      type) and by being lossless. Highest ergonomic-return-per-effort; the most
      LLM-friendly for inline JSON.
@@ -1274,7 +1274,7 @@ remains:
    What remains is **`std.http`** itself (client + simple server, both committed
    to core). The order to build it in, and why:
    - **The wire codec first** — `Request`/`Response`, status codes, and HTTP/1.1
-     framing (`Content-Length`, chunked). Pure Hawk over `io.Reader`/`Writer`, so
+     framing (`Content-Length`, chunked). Pure Thera over `io.Reader`/`Writer`, so
      it unit-tests against `Bytes`/`StringWriter` with no sockets at all.
    - **Then the server**, which is not gated on TLS (terminated upstream) and
      writes the harder half of that codec — parsing an untrusted request is

@@ -925,8 +925,8 @@ fn test_reserved_name_exempt_across_sdk_locations() -> Result<Void, Error> {
     // prelude was loaded from vs the repo copy being edited — is still the owner:
     // keys agreeing from the last `/std/` segment on are the same stdlib source.
     // Guards the LSP-editing-the-repo case.
-    let installed = program_at('pub enum Result { Ok, Err }', '/opt/hawk/std/core/result.thera');
-    let repo = program_at('pub enum Result { Ok, Err }', '/home/me/hawk/sdk/std/core/result.thera');
+    let installed = program_at('pub enum Result { Ok, Err }', '/opt/thera/std/core/result.thera');
+    let repo = program_at('pub enum Result { Ok, Err }', '/home/me/thera/sdk/std/core/result.thera');
     testing.assert_eq(actual: reserved_errors(repo, [installed]).len(), expected: 0)?;
     return Result.Ok(void);
 }
@@ -1405,7 +1405,7 @@ fn test_unused_variable_warns() -> Result<Void, Error> {
 fn test_used_variables_are_clean() -> Result<Void, Error> {
     // Interpolation, lambda capture, and a later assignment target all count.
     testing.assert_eq(actual: warning_messages(errors_of(
-        'fn f() -> String {\n  let name = \'hawk\';\n  return \'hi \${name}\';\n}')).len(),
+        'fn f() -> String {\n  let name = \'thera\';\n  return \'hi \${name}\';\n}')).len(),
         expected: 0)?;
     testing.assert_eq(actual: warning_messages(errors_of(
         'fn f() -> Int {\n  let base = 10;\n  let g = (n: Int) => n + base;\n  return g(1);\n}')).len(),

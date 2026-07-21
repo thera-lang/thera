@@ -28,7 +28,7 @@ pub enum Value {
     Ref(u32),
 }
 
-/// Render a `Double` to its Hawk string form. Unlike Rust's `f64::to_string`
+/// Render a `Double` to its Thera string form. Unlike Rust's `f64::to_string`
 /// (which prints `1.0` as `"1"`), an integral `Double` keeps a trailing `.0`, so
 /// `Double` output is always visibly distinct from `Int` — `1.0` → `"1.0"`,
 /// `3.14` → `"3.14"`, `-2.0` → `"-2.0"`. Non-finite values (`inf`/`NaN`) and any

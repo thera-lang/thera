@@ -84,7 +84,7 @@ fn test_builder_write_u8_masks() -> Result<Void, Error> {
     return Result.Ok(void);
 }
 
-// The pure-Hawk little-endian / LEB128 writers (over write_u8 + bitwise ops),
+// The pure-Thera little-endian / LEB128 writers (over write_u8 + bitwise ops),
 // mirroring the runtime's serialize.rs — the bytecode-writer primitives.
 
 @test

@@ -1,11 +1,11 @@
-// Module-wide codegen tables — the Hawk mirror of the `_ModuleScope` half of the
+// Module-wide codegen tables — the Thera mirror of the `_ModuleScope` half of the
 // Dart toolchain's codegen/codegen.dart.
 //
 // Every module's functions, types, and methods register into one shared scope
 // (so cross-module references resolve) before any body is compiled. Functions
 // and impl methods become a flat list of "units"; a unit's position is the
 // function-table index used by `call`. The scope is a mutable struct: its `impl`
-// methods grow the tables in place (Hawk structs are references — `self.x = …`
+// methods grow the tables in place (Thera structs are references — `self.x = …`
 // and `self.list.push(…)` both persist), mirroring the Dart class's mutation.
 
 import '../ast/ast' as _;
@@ -111,7 +111,7 @@ pub fn type_key(_ owner: String, _ name: String) -> String {
 
 // The shared codegen scope. The mutable lists/maps are filled during
 // registration; `library` backs the on-demand inference codegen consumes for
-// opcode selection (Hawk has no `Expr.resolvedType`).
+// opcode selection (Thera has no `Expr.resolvedType`).
 pub struct ModuleScope {
     let units: List<FnDecl>;              // index -> declaration
     let unit_names: List<String>;         // index -> mangled name (e.g. Point.area)
@@ -146,7 +146,7 @@ pub struct ModuleScope {
     let globals: Map<String, Map<String, Int>>;
     let global_inits: List<GlobalInit>;
     let mut next_global_slot: Int;
-    // Top-level `native fn`s, keyed by **owning file** then Hawk name (owner-
+    // Top-level `native fn`s, keyed by **owning file** then Thera name (owner-
     // correct): name -> the runtime symbol it binds to. A library's ordinary
     // `pub fn get` can no longer be hijacked by an unrelated import's native
     // `get`, and two libraries' same-named natives bind their own symbols.

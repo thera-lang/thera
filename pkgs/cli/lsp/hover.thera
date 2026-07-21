@@ -22,7 +22,7 @@ fn hover_result(_ code: String, _ span: SourceSpan) -> Json {
     return json.obj([
         'contents': json.obj([
             'kind': json.str('markdown'),
-            'value': json.str('```hawk\n${code}\n```'),
+            'value': json.str('```thera\n${code}\n```'),
         ]),
         'range': positions.span_to_range(span),
     ]);

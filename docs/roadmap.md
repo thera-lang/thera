@@ -1,6 +1,6 @@
-# Hawk roadmap
+# Thera roadmap
 
-**What this is:** where Hawk is today and what's next. Design details for
+**What this is:** where Thera is today and what's next. Design details for
 _completed_ work live in [architecture.md](architecture.md) and
 [language.md](language.md); this doc focuses on what's open. As an arc lands,
 its open-work entry is removed and condensed into a one-line note in the
@@ -8,12 +8,12 @@ its open-work entry is removed and condensed into a one-line note in the
 
 ## Current state
 
-**Checkpoint (2026-06).** Hawk **self-hosts**. The front-end (`pkgs/cli/`,
-written in Hawk) lexes, parses, resolves, type-checks, infers, and lowers Hawk
+**Checkpoint (2026-06).** Thera **self-hosts**. The front-end (`pkgs/cli/`,
+written in Thera) lexes, parses, resolves, type-checks, infers, and lowers Thera
 to `.thera-bc`, and runs the `check`/`emit`/`run`/`test`/`lsp` CLI (see
 [architecture.md](architecture.md) for the commands and their output streams).
 It compiles its own sources and the whole stdlib; `bin/build_sdk.sh` embeds it
-into the `hawk` binary with a **fixpoint check** that the front-end reproduces
+into the `thera` binary with a **fixpoint check** that the front-end reproduces
 itself byte-for-byte. The Dart toolchain that bootstrapped it has been removed —
 the build bootstraps from a checked-in `bootstrap/frontend.thera-bc` snapshot (see
 `bootstrap/README.md`), and `bin/test.sh` (cargo + the `pkgs/cli`/`sdk/std`
@@ -53,20 +53,20 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
 
 ### Stdlib
 
-- **Stdlib breadth.** `String.*`/`List.*`/`Map.*`/`Option.*` (native + Hawk),
+- **Stdlib breadth.** `String.*`/`List.*`/`Map.*`/`Option.*` (native + Thera),
   and
   `std.cli`/`std.fs`/`std.process`/`std.random`/`std.time`/`std.json`/`std.io`
-  exist; `List.map`/`filter`/`fold` are written in Hawk over closures. The
-  collection/string/bytes staples are now in (pure Hawk over the existing
+  exist; `List.map`/`filter`/`fold` are written in Thera over closures. The
+  collection/string/bytes staples are now in (pure Thera over the existing
   primitives, except the two `trim_*` natives): `List.first`/`last`/`is_empty`/
   `contains`/`index_of`/`reverse`/`sort` (comparator-based — a no-arg `sort()`
   waits on an `Ord` interface); `String.replace`/`repeat`/`reverse`/`find`/
   `pad_start`/`pad_end`/`trim_start`/`trim_end`; `Map.get_or`; `Bytes.is_empty`
   and a `BytesReader` (the reader counterpart to `BytesBuilder`:
   `read_u8`/`read_bytes`/`read_u32_le`/`read_u64_le`/`read_uvarint`/`read_ivarint`,
-  pure Hawk, round-trips the writer). (`slice` on `String`/`List`/`Bytes` was
+  pure Thera, round-trips the writer). (`slice` on `String`/`List`/`Bytes` was
   already there.) The `Ord` interface + `std.sort` (`sorted`/`min`/`max`) are
-  now in — see _Changelog_. `std.encoding` (base64/hex/url, pure Hawk),
+  now in — see _Changelog_. `std.encoding` (base64/hex/url, pure Thera),
   `std.hash` (native digests), and `std.regex` (the `regex` crate) are in too.
   The **lazy iteration arc** has landed: `Iterator<T>` with
   `map`/`filter`/`take`/`enumerate`
@@ -85,7 +85,7 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     the review found (see below).
   - **`zip` iterator adapter** (and `flat_map`/`chain`, the other wrapped
     adapters the `enumerate` parser extension opened). `zip(a, b)` pairs two
-    iterators; the **design dependency** is what it yields — Hawk has no tuple,
+    iterators; the **design dependency** is what it yields — Thera has no tuple,
     so it needs a blessed `Pair<A, B>` (the way `enumerate` yields `Indexed<T>`)
     or settling the deferred `Tuple` open question (see
     [language.md](language.md) → Types → Open questions). Motivated by the
@@ -122,8 +122,8 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     sleeps the thread until the earliest deadline when nothing else is
     runnable), and an `Await{job, finish}` request that offloads a blocking
     syscall to a **worker-thread pool** (4 threads, lazily created) — the worker
-    returns owned Rust data and the `Value` is built back on the Hawk thread
-    (the heap is thread-local), keeping the single Hawk thread. A program left
+    returns owned Rust data and the `Value` is built back on the Thera thread
+    (the heap is thread-local), keeping the single Thera thread. A program left
     with only timer- or I/O-blocked fibers is no longer a deadlock. Parked: `fs`
     path ops, `stdin` read, `fs.open`/`create` + `File` read/write/seek, and
     `std.process` `run`/`exec`/`wait` + pipe I/O. Handle resources (open files,
@@ -137,7 +137,7 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     hand-rolled alternative needs `libc` for the syscalls anyway, making the real
     cost one extra crate versus two unsafe backends and no windows). Sockets are
     **non-blocking**, so unlike every other blocking family their syscalls run
-    inline on the Hawk thread and never reach the worker pool — a blocking
+    inline on the Thera thread and never reach the worker pool — a blocking
     `accept` would pin one of its four threads indefinitely, and four such ops
     would stall every other fiber's I/O. Instead `EWOULDBLOCK` parks the fiber
     (`ParkRequest::Ready`) and the `call.native` re-runs when the kernel reports
@@ -151,7 +151,7 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     `EWOULDBLOCK`, so any earlier edge was stale and the next transition fires a
     fresh one — the syscall is the ground truth, and every socket native
     therefore attempts its op *before* parking (a correctness rule, not a fast
-    path). And because the ops never leave the Hawk thread, sockets need none of
+    path). And because the ops never leave the Thera thread, sockets need none of
     phase 3's take-out/return discipline, so concurrent read + write on one
     socket from two fibers works (unlike a `File`, where it does not).
 
@@ -210,7 +210,7 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     shared-state mutation between yield points race-free; a lock only matters to
     hold a section _across_ a yield, which is a one-token semaphore.
 - **Interpreter performance — profiled (2026-06); the easy wins are in.**
-  Probes: the front-end **self-compile** (`hawk emit pkgs/cli/main.hawk`) ≈ 11.6
+  Probes: the front-end **self-compile** (`thera emit pkgs/cli/main.thera`) ≈ 11.6
   s release, and **mandelbrot** ≈ 0.81 s (a call-free arithmetic/loop guard).
   Measured with the built-in `native-stats` feature (per-native call counts) +
   macOS `sample` (time). Findings:
@@ -247,36 +247,36 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   closure re-enters the heap to allocate/compare.
 - **Native resource finalization — GC-owned `Obj::Foreign` (Drop on sweep).**
   Native-backed resources currently live in a process-global registry keyed by
-  an `Int` handle the Hawk wrapper holds (`std.regex` compiled patterns;
+  an `Int` handle the Thera wrapper holds (`std.regex` compiled patterns;
   `std.process` children; `std.fs` open `File`s). The registry is never pruned,
   so a `Regex` that becomes unreachable **leaks** its compiled engine — benign
   for the compile-a-handful-at-startup norm, but unbounded for dynamic
   compilation (e.g. a server compiling user-supplied patterns in a loop).
   `std.fs.File` already follows the guidance below (explicit `close()` frees its
   fd; an unclosed file leaks until exit) — the GC-drop **backstop** is the part
-  still missing. The fix is **not** Hawk-level finalizers (resurrection /
+  still missing. The fix is **not** Thera-level finalizers (resurrection /
   ordering / latency footguns) **nor** a finalizer-closure registry, but letting
-  a Hawk object _own_ the Rust resource: add an `Obj::Foreign` variant that
+  a Thera object _own_ the Rust resource: add an `Obj::Foreign` variant that
   holds the resource, and the existing sweep's `*slot = None` drops it —
   **Rust's `Drop` glue is the finalizer**, run exactly when the object is
-  collected, with no Hawk code and no resurrection. `std.regex` stops using the
+  collected, with no Thera code and no resurrection. `std.regex` stops using the
   registry/handle: the compiled engine lives in the `Foreign` object the `Regex`
   value points at, and frees when unreachable.
   - **Perf:** per-object free cost is **unchanged** — drop dispatch is static
     per `Obj` variant (no "has a finalizer?" branch); only `Foreign` objects run
     a non-trivial destructor, and they're rare. Allocation is one slab slot like
     any object plus one `Rc` for the resource, only at `compile`. A compiled
-    regex holds no Hawk `Value`s, so it's also a GC leaf (`for_each_child`
+    regex holds no Thera `Value`s, so it's also a GC leaf (`for_each_child`
     yields nothing).
   - **The one invariant:** the sweep drops objects **while holding the `HEAP`
-    `RefCell` borrow**, so a `Foreign` `Drop` must not re-enter the Hawk heap
+    `RefCell` borrow**, so a `Foreign` `Drop` must not re-enter the Thera heap
     (no allocating, no touching `Value`s). True for regex / files / sockets
-    (they release memory or OS handles, not Hawk objects) — document it on the
+    (they release memory or OS handles, not Thera objects) — document it on the
     variant.
   - **Impl:** add `Obj::Foreign`; arms in `for_each_child` (none) /
     `heap_bytes`; the `derive(Clone, PartialEq)` won't cover `dyn Any`, so a
     small newtype with manual `Clone` (`Rc` bump) + `PartialEq` (`Rc::ptr_eq` —
-    identity). The `str_byte_slice` primitive and the Hawk `std.regex` layer are
+    identity). The `str_byte_slice` primitive and the Thera `std.regex` layer are
     untouched.
   - **Scope it to _pure_ resources.** Collect-on-unreachable is right for a
     regex (no external effect). It is **wrong** for `std.process` — a spawned
@@ -302,9 +302,9 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   stays trivial because the tag survives) and defer the untagged + stackmap work
   to a second pass — decoupling "JIT works" from "JIT is fast", which de-risks
   bring-up.
-- **Profiling Hawk code — planned, staged.** OS-level samplers (`perf`,
-  Instruments, samply) are nearly blind to an interpreter: every Hawk function
-  is the same `run_loop` native frame, and the Hawk call stack lives in the VM's
+- **Profiling Thera code — planned, staged.** OS-level samplers (`perf`,
+  Instruments, samply) are nearly blind to an interpreter: every Thera function
+  is the same `run_loop` native frame, and the Thera call stack lives in the VM's
   `Vec<Frame>`. So the runtime grows its own profiler — as CPython
   (cProfile/py-spy), Ruby (stackprof/rbspy), and Lua do. The primary audience is
   **coding agents**, which shifts the design toward _deterministic,
@@ -312,7 +312,7 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   1. **In-VM profiler — done (v1).** Implemented as an always-shipping runtime
      feature gated by the **`THERA_PROFILE`** env var (not a compile-time feature
      like `native-stats`; `run_loop` reads it once into a local, so a
-     non-profiled run pays one predictable branch — `src/profile.rs`). Per Hawk
+     non-profiled run pays one predictable branch — `src/profile.rs`). Per Thera
      function: exact **call counts**, **self + inclusive time** via
      **instruction-budget sampling** (every `THERA_PROFILE_INTERVAL`=1000
      instructions, sample the live frame stack at the loop top), and
@@ -321,18 +321,18 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
      **deterministic** (instruction-keyed, not wall-clock — two runs are
      byte-identical, what an agent's before/after needs), guarded by a
      presence + determinism smoke in `bin/test.sh`. Because the env var
-     propagates to the child runtime and the front-end is itself a Hawk program,
-     it profiles both a user program (`THERA_PROFILE=1 hawk run x.hawk`) and the
-     front-end's own compilation (`THERA_PROFILE=1 hawk check pkgs/cli` — which
+     propagates to the child runtime and the front-end is itself a Thera program,
+     it profiles both a user program (`THERA_PROFILE=1 thera run x.thera`) and the
+     front-end's own compilation (`THERA_PROFILE=1 thera check pkgs/cli` — which
      already shows the lexer at ~50% self-time and ~55M allocations, the data
-     for the check-perf work). A `hawk run --profile` flag is thin sugar to add
+     for the check-perf work). A `thera run --profile` flag is thin sugar to add
      later; line/allocation call-site precision is #2 below.
   2. **Line attribution — enhancement.** A bytecode→source-line table in
-     `.thera-bc` (debug info) so a sample/counter resolves to a Hawk line. Demoted
+     `.thera-bc` (debug info) so a sample/counter resolves to a Thera line. Demoted
      from a v1 prerequisite once we accepted function-level is enough for
      _algorithmic_ issues. The same debug info gives traps a source location and
      backs the test-failure / stack-trace needs.
-  3. **OS-profiler integration — JIT tier.** Once Cranelift lands, JITed Hawk
+  3. **OS-profiler integration — JIT tier.** Once Cranelift lands, JITed Thera
      functions are real native frames; emit `perf`'s `/tmp/perf-<pid>.map` or
      `jitdump` (the V8/JVM/.NET trick) so `perf`/samply/Instruments resolve
      them. The deep-dive view; #1 stays the portable always-on view. #1 and #3
@@ -370,11 +370,11 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     the root cause. The resolver should distinguish "undefined" from
     "unavailable because its source file errored" and either suppress the
     cascade or name the cause
-    (`helper.greet is unavailable: helper.hawk failed to parse`). Rides partly
+    (`helper.greet is unavailable: helper.thera failed to parse`). Rides partly
     on **better parser recovery** (recover a decl's _signature_ past a body
     error — see the LSP parser-recovery item) so fewer decls drop in the first
     place.
-  - **Check-path closure scope.** `check app.hawk` body-checks only the primary
+  - **Check-path closure scope.** `check app.thera` body-checks only the primary
     program, so an error _inside_ an imported body isn't reported by a
     single-file check (directory/project checking covers it, checking each
     file). Defensible as request-scoping, but the eventual target is
@@ -440,7 +440,7 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   a CH12 residual — an out-of-order labeled/positional argument mix maps by
   index in the checker but in sequence in codegen; fold into a single
   arg-resolution cleanup.
-- **Codegen extraction seams (audit CG-R tail).** `codegen.hawk` is large; the
+- **Codegen extraction seams (audit CG-R tail).** `codegen.thera` is large; the
   match-compilation and shared closure/free-variable walker seams landed. Still
   to extract: the module-global init subsystem, the infer-oracle / operator
   tables, and the `emit_virtual_call` / `emit_ordered_args` argument-loop dedup.
@@ -448,7 +448,7 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
 ### LSP
 
 - **Query layer + incremental engine — landed; Phase-3 follow-ups remain.** The
-  analysis session (one engine shared by `hawk check` + LSP), owner-correct
+  analysis session (one engine shared by `thera check` + LSP), owner-correct
   value+type resolution, the resolved-library cache with dependency-graph
   invalidation, `type_at` (inference-at-offset), and semantic references/rename
   all shipped (see _Changelog_). The remaining follow-ups, all deferred:
@@ -463,20 +463,20 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     perceived-performance battle (requests no longer block behind the full
     workspace analysis); this only smooths the _initial_ scan's fill-in, so it's
     worth doing only if that first pass feels slow in practice.
-  - **Reconcile `files.watcherExclude` with `hawk.exclude`.** The on-disk scan is
+  - **Reconcile `files.watcherExclude` with `thera.exclude`.** The on-disk scan is
     now cached and invalidated by `didChangeWatchedFiles` (see _Changelog_), so
     the watcher is the sole source of truth for on-disk state. VS Code's watcher
     honors the user's `files.watcherExclude`, which the server never sees: a
-    directory excluded there reports no events, so a `.hawk` file under it is
+    directory excluded there reports no events, so a `.thera` file under it is
     scanned once and then frozen at that content for the session — no diagnostic
     ever updates for it. Nothing warns; it just goes quiet. Options: read
     `files.watcherExclude` via `workspace/configuration` and either fold it into
     the scan's prune set (don't analyze what we can't be told about — consistent,
     and the file simply drops out) or report the overlap as a diagnostic. The
-    same question in reverse says `hawk.exclude`'s `<base>/**` prunes could seed
+    same question in reverse says `thera.exclude`'s `<base>/**` prunes could seed
     the watcher registration, so we don't ask to be told about subtrees we never
     scan. Low priority: the default `files.watcherExclude` covers `node_modules`
-    and `.git/objects`, neither of which holds Hawk sources.
+    and `.git/objects`, neither of which holds Thera sources.
   - **Primitive-receiver member resolution.** Hover / definition / member
     resolution on a primitive receiver (`"s".split()`) don't resolve — a
     `Primitive` value carries no `TypeId`. Ties to _Primitive vtables_
@@ -487,7 +487,7 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   - **Segregate intentional-error test fixtures.** Workspace diagnostics surface
     every file's errors — including the conformance fixtures under
     `tests/lang/`, which are _deliberately_ broken (an `xfail` spec, an
-    `// expect:` error directive). A server-side `hawk.exclude` now hides them
+    `// expect:` error directive). A server-side `thera.exclude` now hides them
     (see _Changelog_), but that's a blunt path filter the user has to configure,
     and the server still analyzes the files. Better: split "should analyze
     clean" fixtures from "carries intentional diagnostics" ones — by directory
@@ -517,7 +517,7 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
 
 ### Developer tooling
 
-- **Verify the code snippets in docs.** Nothing checks that a fenced `hawk` block
+- **Verify the code snippets in docs.** Nothing checks that a fenced `thera` block
   in `docs/*.md` or a `///`/`//!` doc comment compiles, and they rot silently —
   which is the worst way for them to fail, because a snippet's whole audience is
   someone (or something) learning the language from it. An LLM reading a doc that
@@ -525,8 +525,8 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   exists to avoid.
 
   Not hypothetical: the `std.net`/`std.http` arc (2026-07) shipped a module header
-  using `loop { … }`, which is not Hawk (there is `while`/`for` and no `loop`), and
-  `docs/stdlib.md` plus a `server.hawk` example both showed `serve(addr, handler)`
+  using `loop { … }`, which is not Thera (there is `while`/`for` and no `loop`), and
+  `docs/stdlib.md` plus a `server.thera` example both showed `serve(addr, handler)`
   with a named function — the form that motivated the first-class-functions fix,
   and that did not compile when it was written. Both were caught by hand, which is
   exactly the thing that doesn't scale.
@@ -562,7 +562,7 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   a pass re-associating each `///`/`//!` comment to the decl it precedes by
   span, threaded onto the AST (or a side table) — the one piece the side channel
   directly unblocks; (2) **LSP hover** surfaces the item/file doc (today
-  `hover.hawk` shows the signature only); (3) a **doc generator** extracts a
+  `hover.thera` shows the signature only); (3) a **doc generator** extracts a
   package's `pub` surface + barrel `//!` into an index for agent navigation (no
   `doc` subcommand yet); (4) **reference resolution + lint** — resolve
   `[Symbol]` references (link them in hover/doc-gen, flag ones that no longer
@@ -573,7 +573,7 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
 - **Tools — refactorings (suggestion diagnostics + code actions).** Now that the
   ergonomics features have landed (`if let`, `let … else`, `?` on `Option`, the
   Option/Result combinators), the common verbose shapes they replace are
-  **mechanically detectable**, so the front-end can suggest (and a `hawk fix` /
+  **mechanically detectable**, so the front-end can suggest (and a `thera fix` /
   LSP code action can apply) the rewrite. These are tracked here but **decoupled
   from the language work** — shipping `if let` does not require building its
   suggester. The candidate refactorings, roughly highest-value first:
@@ -628,22 +628,22 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     level, then re-indent) so the edit is **localized**: only the rewritten span
     changes, the rest of the file is byte-identical (fmt stays a separate,
     whole-file concern). This avoids needing a faithful unparser — the kept
-    regions carry arbitrary code. Landed: `pkgs/cli/edit/edit.hawk`
+    regions carry arbitrary code. Landed: `pkgs/cli/edit/edit.thera`
     (`TextEdit` + `apply_edits` + `span_edit` + offset↔line/col +
     `line_indent_at`), `fmt.format_fragment`, the `MatchExpr.origin` marker
     (`Source`/`IfLet`/`LetElse`, retiring the `span.text()` heuristic — a
     desugared node never re-fires), `lint.match_if_let` (structured site:
-    scrutinee/pattern/body), and `pkgs/cli/fix/fix.hawk` — `if_let_edit` +
+    scrutinee/pattern/body), and `pkgs/cli/fix/fix.thera` — `if_let_edit` +
     `fix_source` (parse → collect → per-edit format → apply), directly
     unit-tested (incl. comment preservation, a reindent-the-spliced-region case,
     and a minimal-edit-leaves-the-rest-untouched case). Each rule adds a
     structured `lint.match_*` site + a `fix.*_edit`; a single `fix.fix_sites`
     walk emits at most one rewrite per `match` (the rules partition) plus
     `let … else` at the enclosing `let`. The transforms are vehicle-independent;
-    a `hawk fix` CLI and an LSP code action both drive them.
-  - **`hawk fix` CLI — _landed, since folded into `hawk lint --fix` (2026-07:
+    a `thera fix` CLI and an LSP code action both drive them.
+  - **`thera fix` CLI — _landed, since folded into `thera lint --fix` (2026-07:
     one analysis command, the eslint/ruff/clippy shape; the provisional UX
-    resolved)._** Originally `hawk fix <file|dir>…` (main.hawk) drives the
+    resolved)._** Originally `thera fix <file|dir>…` (main.thera) drives the
     machinery: the lint report is the preview, `--fix` applies (an explicit
     target required — it writes). Historical detail (the LSP code action is the
     primary per-site vehicle). `fix_source` loops non-overlapping edit batches
@@ -666,7 +666,7 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     deliberately left for the **LSP code action** to dogfood.
   - **LSP code action — _landed (`if let`, `?`, `unwrap_or`, `map`,
     `let … else`)._** `textDocument/codeAction`
-    (`pkgs/cli/lsp/code_action.hawk`, registered in the server capabilities)
+    (`pkgs/cli/lsp/code_action.thera`, registered in the server capabilities)
     offers a `refactor.rewrite` action for each rewrite site overlapping the
     request range, driving the same `fix.fix_sites` (each site carries its
     edit + title). The `WorkspaceEdit` is the localized, self-formatted
@@ -680,8 +680,8 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     empty, and the `only` filter (ancestor / exact / unrelated / sibling). This
     is the per-site vehicle for dogfooding the rest of the corpus. (Not yet: the
     `while → for` rewriter, which needs a loop-body rewrite.)
-  - **First step — a read-only count — _landed._** `hawk lint <file|dir>`
-    (`pkgs/cli/lint/lint.hawk`) walks the parsed AST — purely syntactic, no
+  - **First step — a read-only count — _landed._** `thera lint <file|dir>`
+    (`pkgs/cli/lint/lint.thera`) walks the parsed AST — purely syntactic, no
     import closure — and reports + per-rule tallies convertible sites. Source
     `match`es are told from desugared `if let`/`let … else` (an
     indistinguishable `MatchExpr`) by the keyword the span starts at — no AST
@@ -708,8 +708,8 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
     labeled param) is the next one but needs resolution, not just AST shape.
 
   - **Ecosystem payoff.** These aren't one-off cleanups: the same
-    shape-matching + located-suggestion + auto-fix machinery is what a Hawk
-    `lint` / `hawk fix` is built from, and what the LSP surfaces as code
+    shape-matching + located-suggestion + auto-fix machinery is what a Thera
+    `lint` / `thera fix` is built from, and what the LSP surfaces as code
     actions. Investing here (diagnostics that flag non-idiomatic code, with a
     mechanical fix) pays off for every future idiom, not just this batch — so
     lean into it rather than hand-editing files. Migration of existing code is
@@ -720,16 +720,16 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   canonical form for each common shape (the _Choosing a form_ table in
   [language.md](language.md), and the per-combinator "reach for it when…" docs),
   but that is reference material. The open piece is **prescriptive guidance an
-  agent loads** — "write Hawk this way": prefer `if let`/`let … else`/`?`/
+  agent loads** — "write Thera this way": prefer `if let`/`let … else`/`?`/
   combinators over `match`-as-guard, `for`/`enumerate` over `while i <`, the
   doc-comment conventions, etc. Surfaced by the ergonomics sprint, which found
   that a lot of **existing** code predates these features and doesn't use them —
-  so idiomatic Hawk has to be written down somewhere consulted, not just
+  so idiomatic Thera has to be written down somewhere consulted, not just
   implied. Open question is **where**: (a) a section in
   [language.md](language.md), (b) a separate `docs/idioms.md` (best-practices
   doc), or (c) a **skill / rules file** an agent auto-loads (the most actionable
   for the LLM-native goal). Likely (c) backed by (b) — the rules file doubles as
-  the **primer that gets an LLM up to speed on writing Hawk**, and is the
+  the **primer that gets an LLM up to speed on writing Thera**, and is the
   successor home for the (now-retired) ergonomics review's idiom guidance: the
   canonical-form-per-shape table, the `match`-as-guard anti-pattern, and the
   reach-for-it-when rationale behind each combinator. Pairs with _Tools —
@@ -740,7 +740,7 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
 
 - **Only an identifier or a field may be a call target.** `maker()(5)` and
   `fns[0](10)` are rejected with `unsupported call target`
-  ([codegen.hawk](../pkgs/cli/codegen/codegen.hawk) → `call_expr`) — an arbitrary
+  ([codegen.thera](../pkgs/cli/codegen/codegen.thera) → `call_expr`) — an arbitrary
   expression in callee position doesn't compile, so a function value has to be
   bound to a name before it can be called. Equally true of a lambda, so it is not
   about function *references*; it surfaced next to them (2026-07) because a
@@ -802,13 +802,13 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
 - **Generic operators** (`<T: Add>`, operators-as-traits) — the remaining piece
   of the generics arc (bound enforcement + `call.virtual` dispatch on `T` are
   done). This is also where the language's **implicit operator/literal
-  lowerings** would gain a Hawk-level surface: `==`, `+`/interpolation,
+  lowerings** would gain a Thera-level surface: `==`, `+`/interpolation,
   `[]`/`[]=`, and the `[k: v]` map literal are emitted by codegen straight to
   runtime natives (`eq`, `str_concat`, `stringify`,
-  `list_index`/`list_set`/`map_index`, `map_new`/`map_set`) with no named Hawk
+  `list_index`/`list_set`/`map_index`, `map_new`/`map_set`) with no named Thera
   method behind them — the one category of addressable behaviour not represented
   in `sdk/std`. Operators-as-interfaces (`Eq`, `Add`, and `Indexable` below) is
-  what turns those into ordinary Hawk methods; revisit the exact shape then (the
+  what turns those into ordinary Thera methods; revisit the exact shape then (the
   `[]` half is the _Index operator_ item).
 - **Primitive vtables — scope it (runtime / generics / soundness).** A primitive
   reached through _virtual_ dispatch — `call.virtual('display'|'eq'|'debug')`
@@ -834,14 +834,14 @@ resolution and `pub`/privacy enforced; see _Changelog_.)
   fallback. Surfaced while scoping the `Display` Option B follow-up.
 - **Index operator (`[]`) overloading.** `a[i]` / `a[i] = v` are hardcoded in
   codegen to the built-in `List`/`Map` natives by static type; any other
-  receiver is a compile error (`pkgs/cli/codegen/codegen.hawk`). Small–medium,
+  receiver is a compile error (`pkgs/cli/codegen/codegen.thera`). Small–medium,
   self-contained: desugar to a method call reusing static/`call.virtual`
   dispatch (inference resolves `a[i]` from the receiver's index method;
   codegen's two `throw` branches become method-call lowerings; List/Map keep
   their native fast path). Design leaning: a single `Indexable<K, V>` interface
   (one `get`- and one `set`-style method) rather than separate
-  `Index`/`IndexSet`. Also a prerequisite for a Hawk `Map` (which additionally
-  needs map-literal lowering and a native↔Hawk-map bridge).
+  `Index`/`IndexSet`. Also a prerequisite for a Thera `Map` (which additionally
+  needs map-literal lowering and a native↔Thera-map bridge).
 
 ### Language spec punchlist
 
@@ -855,7 +855,7 @@ implementation work stay open here until decided.
 **Open — design/behavior follow-ups from the 2026-07 review:** none currently —
 the review's follow-ups all landed, summarized in the [Changelog](#changelog):
 the doc sweep, the eager-`List` + `List.iter()` bridge decision,
-`hawk test`/`check` LLM-output UX, `collect()`→`to_list()`, named structural
+`thera test`/`check` LLM-output UX, `collect()`→`to_list()`, named structural
 `Debug`, and the OOM/stack-overflow traps.
 
 ### Type system punchlist
@@ -939,7 +939,7 @@ findings recorded.
   support anyway.
 - **Type aliases** — **deferred indefinitely, by design.** An alias is a
   _transparent_ name (`type Fallible = Result<Void, Error>`), which adds exactly
-  the indirection Hawk's local-reasoning thesis is built to avoid: an LLM seeing
+  the indirection Thera's local-reasoning thesis is built to avoid: an LLM seeing
   `Fallible` must resolve it elsewhere. The verbosity win (the top candidate,
   `Result<Void, Error>`, is frequent but not _complex_) doesn't outweigh giving
   a reader more work; genuinely meaningful nested types are better served by a
@@ -1051,7 +1051,7 @@ networking arc is headed.
    completion in the program, re-probes all its sources, and re-parks. That is
    the per-fd-routing problem (item 1 above) reappearing one layer up: N
    connections each select-waiting with a timeout do O(N) spurious re-probes
-   per channel operation. Cheap targeted fix when a profile asks: the Hawk-side
+   per channel operation. Cheap targeted fix when a profile asks: the Thera-side
    `select` already knows whether any source returned `SelectSource.Progress`,
    so `_select_park` can take that as a flag and skip `blocked` when none did.
    The full fix is per-resource waiter lists for channels and joins (already
@@ -1098,7 +1098,7 @@ See [architecture.md](architecture.md) for the design behind each tier.
 
 1. ~~Tree-walker POC (settle semantics); define the bytecode IR.~~ _Done._
 2. ~~Tier-0 interpreter + precise non-moving mark-sweep GC.~~ _Done_ — runs real
-   Hawk apps with fast startup.
+   Thera apps with fast startup.
 3. **Cranelift JIT tier** for hot functions (or trial copy-and-patch); decide
    the JIT GC-root strategy here. This is what forces the tagged→untagged
    value-representation move (interpreted and compiled frames must share a
@@ -1173,7 +1173,7 @@ conformance specs. Newest first.
   only reads `retriggerRequest` on document pulls), so this is truthfulness for
   other clients, not observable behavior for VS Code.
 - **LSP: an idle server costs ~nothing (and stops going stale)** (2026-07). An
-  idle `hawk lsp` sat at 40–80% CPU with the editor untouched. Not a scheduler
+  idle `thera lsp` sat at 40–80% CPU with the editor untouched. Not a scheduler
   spin: the server measures 0% idle and never wakes itself. The cause is that
   `vscode-languageclient`'s `pullWorkspace` re-arms `setTimeout(…, 2000)`
   unconditionally after every reply — idle or not, forever — so a pull's cost is
@@ -1184,7 +1184,7 @@ conformance specs. Newest first.
   simply assumes an unchanged pull is cheap. Three fixes, warm pull 2.19s → 60ms
   (~52% CPU → ~3%): (1) `fs.read_dir` — the walk stat-ed every entry to ask "file
   or directory?", which `readdir` already answers (1593ms → 255ms); (2)
-  `hawk.exclude` prunes subtrees during the walk rather than filtering files
+  `thera.exclude` prunes subtrees during the walk rather than filtering files
   after it, and this repo excludes `runtime/target/**`; (3) a content-keyed scan
   cache — identical texts in, identical diagnostics out, so an unchanged pull
   skips checking entirely. Along the way this turned up a **pre-existing
@@ -1225,8 +1225,8 @@ conformance specs. Newest first.
     Generic functions stay `Unknown`: `show<T: Display>` is a family, not a type,
     and choosing a member needs an instantiation the position doesn't supply.
 
-  Pinned by `tests/lang/functions/fn_reference.hawk` (the xfail written when the
-  gap was found, now a passing test) and `fn_reference_reject.hawk` (the typing).
+  Pinned by `tests/lang/functions/fn_reference.thera` (the xfail written when the
+  gap was found, now a passing test) and `fn_reference_reject.thera` (the typing).
   Uncovered next door, still open: only an identifier or a field may be a **call
   target** (`fns[0](10)` doesn't compile) — see _Open work → Language_.
 
@@ -1248,7 +1248,7 @@ conformance specs. Newest first.
   a fiber parks only *after* its syscall returned `EWOULDBLOCK`, since any
   earlier edge was stale by construction; the syscall is the ground truth, which
   promotes "attempt before parking" to a correctness rule. And because the ops
-  never leave the Hawk thread, sockets skip phase 3's take-out/return discipline
+  never leave the Thera thread, sockets skip phase 3's take-out/return discipline
   entirely, so concurrent read + write on one socket from two fibers works
   (unlike a `File`). The retry does make **idempotency** a rule: `write` returns a
   *count* rather than writing all (a write-all native would re-send on retry),
@@ -1282,7 +1282,7 @@ conformance specs. Newest first.
   policy, kebab-case rule names, `// ignore: <rule>` suppression — with four
   rules (`unused-import` incl. `as _` attribution, `unreachable-code`,
   `unreachable-arm`, `unused-variable`) and the `_`-prefix intentionally-unused
-  convention spec'd; and **`hawk fix` folded into `hawk lint --fix`**. Decided
+  convention spec'd; and **`thera fix` folded into `thera lint --fix`**. Decided
   along the way: hard errors stay ID-less (message + span — a `CAxxxx` code is
   context noise for LLMs); kebab-case slugs only where selection is meaningful
   (warning rules, lint rules). The sweeps themselves paid for the arc: two
@@ -1302,7 +1302,7 @@ conformance specs. Newest first.
   (`NamedType.name`, struct-literal type names, impl targets and interface
   names, super-interfaces, generic bounds), which the namespace-only attribution
   never needed. The sweep found **five genuinely dead `as _` imports** (removed)
-  and one spelling fix (`lsp/workspace.hawk` imported `std.path as _` but used
+  and one spelling fix (`lsp/workspace.thera` imported `std.path as _` but used
   it qualified — now a plain import). And language.md §Variables now specs the
   `_`-prefix convention: a leading underscore declares a local intentionally
   unused; referencing one contradicts the marker (a future warning candidate,
@@ -1342,7 +1342,7 @@ conformance specs. Newest first.
   reachable — under-reports, never flags a live arm. Source matches only
   (`if let`/`let … else` fabricate their own wildcard arm). Zero corpus hits on
   production code; the two deliberately-broken fixtures the rules also caught
-  now carry ignore comments. `stmt_span` moved from the parser to `ast.hawk` as
+  now carry ignore comments. `stmt_span` moved from the parser to `ast.thera` as
   the third span accessor. Specs `warn-unreachable-code`,
   `warn-unreachable-arm`; language.md §Errors and warnings.
 
@@ -1350,7 +1350,7 @@ conformance specs. Newest first.
   (2026-07). The diagnostic model's dormant `Severity.Warning` gained its first
   producer and full plumbing. Semantics: an error is invalid code (blocks
   `run`/`emit`/`test`, exits 1); a **warning** is legal-but-probably-a-bug —
-  `hawk check` and the LSP report it (`path:line:col: warning: … (<rule>)`),
+  `thera check` and the LSP report it (`path:line:col: warning: … (<rule>)`),
   nothing gates, exit stays 0, and the summary appends `; N warnings`. Every
   gate now filters by severity (`diagnostic.error_count`), so warnings ride the
   same diagnostics list end to end. Warnings carry **kebab-case rule names** and
@@ -1506,7 +1506,7 @@ conformance specs. Newest first.
   `Ok`/`Some` fallback for `Result`/`Option`. This is the enabling primitive for
   runtime reflection/introspection. Format in bytecode.md.
 
-- **`hawk test`/`check`/`lint` UX for LLM output** (2026-07). The analyzers stop
+- **`thera test`/`check`/`lint` UX for LLM output** (2026-07). The analyzers stop
   emitting lines just for doing work: quiet-by-default reports (failure blocks
   only), a one-line proof-of-work summary
   (`Ran N tests for M test files; K failures.` /
@@ -1514,7 +1514,7 @@ conformance specs. Newest first.
   per-test report, and no-argument invocations defaulting to the current
   directory. The test runner now captures the child's output and reads the
   per-test failure count from a stdout trailer (the exit code stays pass/fail
-  only). Spec in language.md §The `hawk` tool / §`hawk test`.
+  only). Spec in language.md §The `thera` tool / §`thera test`.
 
 - **`Iterator.collect()` renamed `to_list()`** (2026-07). The drain consumer now
   follows the `to_X` conversion convention (`Set.to_list()`, `Bytes.to_list()`,
@@ -1563,7 +1563,7 @@ conformance specs. Newest first.
   and the supporting docs were cross-checked against the implementation — stdlib
   surfaces, the CLI, the runtime — with every suspect behavioral claim verified
   empirically before reporting. The confirmed-stale sections were rewritten
-  (Pipelines, interpolation/`Debug`, `std.process`, `hawk test` + command
+  (Pipelines, interpolation/`Debug`, `std.process`, `thera test` + command
   tables, Concurrency/fibers, `Map`/`Set` ordering, Style/formatter, SDK layout,
   runtime-fault conditions, `.graphemes()`, `let mut` field spelling; plus
   architecture.md's fiber banner, conformance.md's stale white-box finding, and
@@ -1571,7 +1571,7 @@ conformance specs. Newest first.
   needed: the trap-message table, the reserved-name list, the `Option`/`Result`
   combinator sets, the `std.testing` assertion table, `Args`, `Bytes`, and the
   entry-point forms. The design follow-ups it spawned (iterator consumer naming,
-  lazy `List` transforms, `hawk test` UX, `Trap::OutOfMemory`) have all since
+  lazy `List` transforms, `thera test` UX, `Trap::OutOfMemory`) have all since
   landed — see the entries above.
 
 - **Front-end O(n²) source-slicing removed** (2026-07). `String.slice` /
@@ -1581,7 +1581,7 @@ conformance specs. Newest first.
   / `same_tokens` / `scan_lines` / `apply_edits`) now materialize the source's
   code points once and index that list; and `String.slice` itself is now a
   native (`str_slice`) that walks to the range's end in one O(end) pass instead
-  of building a whole-string code-point list. `hawk fmt` on a 110 KB file
+  of building a whole-string code-point list. `thera fmt` on a 110 KB file
   dropped from ~4 s to ~0.2 s (~20×) and now scales linearly. See _Stdlib_ →
   `String.slice cost` for the residual O(end) note.
 - **Map-literal migration follow-ups (checker diagnostic, rendering, legacy
@@ -1599,7 +1599,7 @@ conformance specs. Newest first.
   Conformance: `cf-match-void-arm`. (2) **Map/Set `Display`** now follows the
   source syntax: `['x': 1]` / `[:]` (round-trips as code); `Set` renders
   `(1, 2, 3)`. (3) **Legacy `match` sites converted to `if let`** — the 28
-  pre-`if let` two-arm matches, via `hawk fix --only match-to-if-let --write` +
+  pre-`if let` two-arm matches, via `thera fix --only match-to-if-let --write` +
   one hand rewrite. Doing so surfaced and fixed a **position bug in the fix
   machinery**: the `if let` rewrite (an else-less `if`) was offered from _any_
   expression position but only parses as a statement or a block tail — rewriting
@@ -1669,7 +1669,7 @@ conformance specs. Newest first.
   needed, and it is shared across the document and workspace channels (same
   content → same id). (2) **Surface-gated refresh nudge**: an edit now nudges a
   workspace re-pull only when it could alter _another_ file's diagnostics — a
-  change to the file's public-surface _signature_ (`pkgs/cli/lsp/surface.hawk`:
+  change to the file's public-surface _signature_ (`pkgs/cli/lsp/surface.thera`:
   the source with fn/method body interiors elided, since importers type-check
   against declarations, never bodies). A body-only edit — typing inside a
   function — no longer triggers a project-wide re-check; the file's own
@@ -1683,7 +1683,7 @@ conformance specs. Newest first.
   between files, so a large project's first pass no longer blocks
   hover/edits/completion. The scheduler runs the worker during the loop's stdin
   parks; the worker delivers its report through a new **outbox**
-  (`pkgs/cli/lsp/outbox.hawk`) — a single serialized outbound sink so the
+  (`pkgs/cli/lsp/outbox.thera`) — a single serialized outbound sink so the
   dispatch loop and the worker never interleave bytes of one framed message.
   `serve` installs an _async_ outbox (a writer fiber draining a channel, joined
   on exit so buffered replies flush); `handle` (the one-shot/test path) installs
@@ -1700,7 +1700,7 @@ conformance specs. Newest first.
   the file from the repo copy, the core types (`List<T>`, …) existed twice with
   distinct identities, so a core file's own generic methods stopped
   type-checking against their own `List<T>` and every top-level decl looked like
-  it shadowed the prelude copy of itself. `hawk check sdk/std` via a foreign SDK
+  it shadowed the prelude copy of itself. `thera check sdk/std` via a foreign SDK
   is now clean (was ~8 false diagnostics). Ordinary project files (not under a
   `std` tree) are unaffected — they keep resolving against the configured SDK —
   and the normal build resolves identically (fixpoint holds). Also: an
@@ -1714,11 +1714,11 @@ conformance specs. Newest first.
   proactive signal is the `workspace/diagnostic/refresh` nudge. This removes the
   push/pull duplication (a file no longer got diagnostics on two channels).
   Diagnostic filtering also moved from the VS Code extension to the server: the
-  client sends its `hawk.exclude` globs via `initializationOptions` (live
+  client sends its `thera.exclude` globs via `initializationOptions` (live
   changes via `workspace/didChangeConfiguration`), and the server withholds
   matching files from both reports — uniform across channels and
   client-agnostic, replacing the extension's per-channel glob middleware. A
-  small workspace-relative glob matcher (`pkgs/cli/lsp/glob.hawk`, `*` / `**` /
+  small workspace-relative glob matcher (`pkgs/cli/lsp/glob.thera`, `*` / `**` /
   `?`) does the matching. Closing a file now marks a change (a re-pull nudge)
   rather than clearing via push.
 - **Workspace-wide diagnostics — pull model (LSP)** (2026-07). Diagnostics are
@@ -1727,7 +1727,7 @@ conformance specs. Newest first.
   answers `textDocument/diagnostic` (one document) and `workspace/diagnostic`
   (every workspace file, opened or not — a full report per file, empty items =
   clean). The workspace pull reuses the session's shared check and checked-clean
-  dedup — the same `hawk check <dir>` loop — so a shared import is checked once
+  dedup — the same `thera check <dir>` loop — so a shared import is checked once
   per pass, not once per importer, and `diagnostics.group_by_file` folds each
   file's own errors out of the closure result (the push path filtered them to
   one URI). The proactive signal is the pull model's
@@ -1777,8 +1777,8 @@ conformance specs. Newest first.
   (`Edit`/`Decline`/`Collision`) the server maps to a WorkspaceEdit, a null
   result, or a `RequestFailed` error. Scoped to file-scope targets — a local
   shadows legally, so it isn't pre-checked.
-- **Formatter (`hawk fmt`)** (2026-07). A line-preserving formatter
-  (`pkgs/cli/fmt.hawk`): re-indents each line (token-only anchor stack),
+- **Formatter (`thera fmt`)** (2026-07). A line-preserving formatter
+  (`pkgs/cli/fmt.thera`): re-indents each line (token-only anchor stack),
   normalizes intra-line spacing (a token-driven **gap-edit** pass — rewrites
   only the whitespace between adjacent same-line tokens, so comments and lexemes
   are untouched), collapses blank runs, trims trailing whitespace. Keeps every
@@ -1789,7 +1789,7 @@ conformance specs. Newest first.
   makes "never breaks a compile" a checked invariant. No config knobs, by
   design. The corpus is a fmt fixpoint, gated by `bin/test.sh`. Philosophy (no
   config, bounded scope) in
-  [architecture.md](architecture.md#the-formatter-hawk-fmt).
+  [architecture.md](architecture.md#the-formatter-thera-fmt).
 - **Struct fields are `let`-declarations terminated by `;` — DONE.** A field is
   `let name: T;` (`let mut name: T;` for a reassignable one):
   `struct Point { let x: Int; let y: Int; }`. The `let`/`;` form reads as a
@@ -1799,7 +1799,7 @@ conformance specs. Newest first.
 - **Unified diagnostic model (audit LD15 tail)** (2026-07). Every phase — lex,
   parse, check, codegen, load — now produces one
   `Diagnostic {message, span, file, severity}` directly (new
-  `pkgs/cli/diagnostic.hawk`), retiring the five per-phase error structs
+  `pkgs/cli/diagnostic.thera`), retiring the five per-phase error structs
   (`LexError`/`ParseError`/`CheckError`/`CodegenError`/ `LoadDiagnostic`) and
   the session-level converters that mapped them. `file` is still derived from
   the span (the loader stamps an explicit file); `severity` is a three-level
@@ -1845,7 +1845,7 @@ conformance specs. Newest first.
   base-build; `layer_primary` types only the primary, honoring the frozen-base
   invariant). Making the resolver able to call inference required breaking the
   `inference → resolver` import cycle: `resolve_type_ref_in` / `resolve_opt_in`
-  moved down to `scope.hawk` (a layer both import), so `inference` no longer
+  moved down to `scope.thera` (a layer both import), so `inference` no longer
   imports `resolver` and `resolver` now imports `inference`.
   Annotation-preserving and safe (inference degrades to `Unknown`), so no
   existing global — all annotated — changes. Unblocks the "final global struct
@@ -1865,9 +1865,9 @@ conformance specs. Newest first.
   its config is the one **sanctioned exception** to "no global state" —
   write-only diagnostics set once by the app — while the capability `to_writer`
   logger (own sink/level, testable) is the escape hatch. Implemented **pure
-  Hawk, no natives**: the config is a `let config = Config { … }` module global
+  Thera, no natives**: the config is a `let config = Config { … }` module global
   (an immutable binding whose `mut` fields mutate in place), rendering is pure
-  Hawk (JSON via `std.json`), and output writes through `io.stderr()`. An
+  Thera (JSON via `std.json`), and output writes through `io.stderr()`. An
   ambient `error` free function is a TODO — a top-level `error` collides with
   the prelude `error()` constructor; pending the prelude-value-shadow relaxation
   below (until then `error` is available as a `Logger` method). See
@@ -1881,7 +1881,7 @@ conformance specs. Newest first.
   hover/definition on **inferred** receivers: local `let`/loop-variable types (a
   committed type-record, `session.type_at`), members on computed receivers
   (`f().x`, `xs[i].y`), struct fields, generic type parameters, and names inside
-  `${…}`. Retires the parked lexical-only `references.hawk`/`rename.hawk`.
+  `${…}`. Retires the parked lexical-only `references.thera`/`rename.thera`.
 
 - **Owner-correct type resolution — `TypeId`** (2026-07). Completes the
   type-origin arc the roadmap flagged as foundational: nominal type identity is
@@ -1892,7 +1892,7 @@ conformance specs. Newest first.
   architecture-review checkpoint chose the `TypeId` struct over an interned int
   (keeps inference pure) and over a bare positional owner.
 
-- **LSP incremental analysis engine + `type_at`** (2026-07). `hawk check` and
+- **LSP incremental analysis engine + `type_at`** (2026-07). `thera check` and
   the LSP now share one long-lived analysis session (`session.Session` /
   `Analysis`) with a resolved-library cache + dependency-graph invalidation, so
   a keystroke re-parses only the edited file and re-checks only the affected
@@ -1964,19 +1964,19 @@ conformance specs. Newest first.
   [stdlib.md](stdlib.md) §std.regex.
 - **`std.hash` — native digests + the runtime's first external deps** (2026-06).
   `sha256`/`sha1`/`md5` (as `Bytes`) and `crc32` (as `Int`), thin wrappers over
-  audited RustCrypto crates rather than reimplemented in Hawk — hashing is
+  audited RustCrypto crates rather than reimplemented in Thera — hashing is
   crypto-adjacent. This deliberately added the runtime's first external
   dependencies (each named in its function's doc); checked against published
   vectors.
 
 - **`std.encoding` — base64 / hex / url** (2026-06). `base64`/`hex`/`url`
-  encode+decode, **pure Hawk** over `Bytes`/`String` + bitwise ops (no natives,
+  encode+decode, **pure Thera** over `Bytes`/`String` + bitwise ops (no natives,
   no lookup tables); decoding is fallible (`Result`), never a trap. RFC
   4648/3986 vectors + binary round-trip + malformed-input cases covered.
   `std.path` `normalize`/`relative` also landed.
 
 - **Struct-definition keyword: `type Foo = { … }` → `struct Foo { … }`**
-  (2026-06). Hawk is nominal, but `type Foo = { … }` read as a structural alias
+  (2026-06). Thera is nominal, but `type Foo = { … }` read as a structural alias
   (the wrong prior); structs now use the nominal keyword-name-braces form,
   rhyming with `enum`/`interface`. Purely surface — same `TypeDecl` AST,
   byte-identical re-emit — landed as a three-cycle ratchet (additive parser +
@@ -1990,9 +1990,9 @@ conformance specs. Newest first.
   bunched edits ≈ the cost of 1. Next lever: caching the resolved/element-model
   closure (the incremental engine).
 
-- **In-VM profiler + `hawk check` ~7.7× faster** (2026-06). A deterministic
+- **In-VM profiler + `thera check` ~7.7× faster** (2026-06). A deterministic
   instruction-budget profiler (`THERA_PROFILE`) drove a measure-then-fix pass on
-  `hawk check pkgs/cli` (80s): a cross-file parse cache (the `std.core` prelude
+  `thera check pkgs/cli` (80s): a cross-file parse cache (the `std.core` prelude
   was parsed 46× → once) plus string-constant interning took it to **~10.4s**,
   byte-identical fixpoint. Surfaced that a top-level `const` keyword map can't
   replace a `match` without load-time init — the motivation for _Module
@@ -2019,7 +2019,7 @@ conformance specs. Newest first.
 
 - **Bitwise operators** (2026-06). `& | ^ << >> >>> ~` on `Int` (wrapping i64),
   lexer → parser precedence → checker (Int-only) → opcodes. Let `std.random`'s
-  SplitMix64 and the LEB128 / little-endian `Bytes` codecs move into pure Hawk
+  SplitMix64 and the LEB128 / little-endian `Bytes` codecs move into pure Thera
   (the `random_mix` native is gone). Specs `expr-bitwise`/`expr-shift`.
 
 - **Generics: static-method type args, struct/enum bounds, inference cleanup**
@@ -2045,7 +2045,7 @@ conformance specs. Newest first.
   compiler metaconstant evaluating to a `SourceLoc`; as a default parameter
   value it captures the call site. `std.testing` assertions take
   `at: SourceLoc = #loc` and prefix failures `file:line:column:` — the same
-  format `hawk check` prints. Spec `expr-loc`. _Open tail above (single-hop
+  format `thera check` prints. Spec `expr-loc`. _Open tail above (single-hop
   limit; runtime backtraces)._
 - **Total rendering — `Display`-preferred, `Debug`-fallback** (2026-06). `${x}`
   / `println(x)` are total: a value renders via its `Display` impl if present,
@@ -2080,7 +2080,7 @@ conformance specs. Newest first.
   form, generic inference from context (incl. the assignment target), and
   match-arm unification. A broad "reject `Unknown`" flip was ruled out — ~330
   `Result.Ok(x)` → `Result<T, Unknown>` make leniency load-bearing.
-- **`hawk test` per-test stdout capture** (2026-06). Each test's output is
+- **`thera test` per-test stdout capture** (2026-06). Each test's output is
   buffered via the `test_capture_*` runtime natives and shown only on failure
   (or always with `--show-output`). _Open: per-test source locations,
   machine-readable output (above)._

@@ -3,7 +3,7 @@
 //!
 //! Import as: import std.http
 //!
-//! ```hawk
+//! ```thera
 //! let resp = http.get('http://example.com/api/thing')?;
 //! if resp.is_ok() {
 //!     let doc = resp.json()?;

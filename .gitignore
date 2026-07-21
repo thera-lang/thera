@@ -1,4 +1,4 @@
-# Compiled Hawk bytecode (build artifacts; emit/run write these anywhere).
+# Compiled Thera bytecode (build artifacts; emit/run write these anywhere).
 *.thera-bc
 # …except the checked-in self-hosting bootstrap (see bootstrap/README.md).
 !bootstrap/frontend.thera-bc

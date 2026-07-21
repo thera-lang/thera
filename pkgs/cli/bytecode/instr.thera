@@ -1,4 +1,4 @@
-// The in-memory bytecode instruction model — the Hawk mirror of the runtime's
+// The in-memory bytecode instruction model — the Thera mirror of the runtime's
 // `Instr` enum (runtime/src/instr.rs) and the Dart toolchain's bytecode/instr.dart.
 // The front-end emits a list of these per function; `encode_module` serializes
 // them to the `.thera-bc` wire format.

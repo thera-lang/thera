@@ -3,7 +3,7 @@
 /// `Option<T>` represents an optional value: `Some(T)` when present, `None` when
 /// absent. It is one of the two language-blessed enums (the `?` operator and the
 /// built-in helper methods know it by name), but it is otherwise an ordinary
-/// enum defined here in Hawk.
+/// enum defined here in Thera.
 ///
 /// The variant order is significant: it fixes the runtime tags (Some = 0,
 /// None = 1) shared with the bytecode runtime — do not reorder.
@@ -23,7 +23,7 @@ impl Option<T> {
     /// Convert to a `Result`, treating `None` as the error `err`. Reach for it to
     /// turn an absent value into a failure you can propagate with `?`.
     ///
-    /// ```hawk
+    /// ```thera
     /// let port = config.port.ok_or(error('port is required'))?;
     /// ```
     pub fn ok_or<E>(self, _ err: E) -> Result<T, E> {
@@ -37,7 +37,7 @@ impl Option<T> {
     /// a default when the fallback is a cheap, already-computed value (use
     /// `unwrap_or_else` if it is expensive).
     ///
-    /// ```hawk
+    /// ```thera
     /// let port = config.port.unwrap_or(8080);
     /// ```
     pub fn unwrap_or(self, _ fallback: T) -> T {
@@ -50,7 +50,7 @@ impl Option<T> {
     /// Whether a value is present. (To use the value, prefer `if let` / `?`; this
     /// is for a plain boolean check.)
     ///
-    /// ```hawk
+    /// ```thera
     /// if config.port.is_some() { … }
     /// ```
     pub fn is_some(self) -> Bool {
@@ -62,7 +62,7 @@ impl Option<T> {
 
     /// Whether a value is absent.
     ///
-    /// ```hawk
+    /// ```thera
     /// if config.port.is_none() { … }
     /// ```
     pub fn is_none(self) -> Bool {
@@ -76,7 +76,7 @@ impl Option<T> {
     /// `Some(f(x))`. Reach for it over a `match` to apply a pure function inline,
     /// keeping the optional shape.
     ///
-    /// ```hawk
+    /// ```thera
     /// let initial = name.map((s) => s.slice(0, 1));   // Option<String>
     /// ```
     pub fn map<U>(self, _ f: (T) -> U) -> Option<U> {
@@ -90,7 +90,7 @@ impl Option<T> {
     /// present, flattening the result. Reach for it over nested `match`/`map`
     /// when the next step can also be absent.
     ///
-    /// ```hawk
+    /// ```thera
     /// let port = config.get('port').and_then((s) => s.to_int());   // Option<Int>
     /// ```
     pub fn and_then<U>(self, _ f: (T) -> Option<U>) -> Option<U> {
@@ -104,7 +104,7 @@ impl Option<T> {
     /// it over `unwrap_or` when the fallback is expensive or has a side effect —
     /// `f` runs only on `None`.
     ///
-    /// ```hawk
+    /// ```thera
     /// let conf = cached.unwrap_or_else(() => load_config());
     /// ```
     pub fn unwrap_or_else(self, _ f: () -> T) -> T {

@@ -14,7 +14,7 @@ import '../session';
 import 'resolve';         // ResolveCtx
 import 'references';       // collect_in / matching_spans (semantic)
 import 'rename';           // edits_for / is_identifier (semantic rename)
-import 'workspace';       // hawk_files (on-disk project scan)
+import 'workspace';       // thera_files (on-disk project scan)
 import 'diagnostics';     // render_diagnostics
 import 'surface';         // surface_signature (cross-file-change detection)
 import 'glob';             // exclude-pattern matching
@@ -41,7 +41,7 @@ pub struct Analysis {
     // the client is folder-less (a single loose file). These bound the on-disk
     // scan that makes references/rename project-wide — see `workspace_files`.
     let mut roots: List<String>;
-    // Workspace-relative `hawk.exclude` globs (from `initialize`'s
+    // Workspace-relative `thera.exclude` globs (from `initialize`'s
     // `initializationOptions`, updated by `workspace/didChangeConfiguration`). A
     // file matching one has its diagnostics withheld — used to hide the
     // intentionally-broken conformance fixtures under `tests/lang/`. The file is
@@ -392,7 +392,7 @@ impl Analysis {
         return self.roots;
     }
 
-    // Record the `hawk.exclude` globs (`initialize` / `didChangeConfiguration`).
+    // Record the `thera.exclude` globs (`initialize` / `didChangeConfiguration`).
     // Idempotent — a new set replaces the old.
     pub fn set_exclude(self, _ patterns: List<String>) -> Void {
         self.input_generation = self.input_generation + 1;
@@ -407,7 +407,7 @@ impl Analysis {
         self.drop_disk_cache();
     }
 
-    // Whether `path`'s diagnostics are suppressed by a `hawk.exclude` glob —
+    // Whether `path`'s diagnostics are suppressed by a `thera.exclude` glob —
     // matched against the file's path relative to the workspace root that contains
     // it (the form the client's globs are written in, e.g. `tests/lang/**`).
     pub fn is_excluded(self, _ path: String) -> Bool {
@@ -423,7 +423,7 @@ impl Analysis {
         return false;
     }
 
-    // Whether an `hawk.exclude` glob excludes the whole subtree under `dir`, so
+    // Whether an `thera.exclude` glob excludes the whole subtree under `dir`, so
     // the scan can skip it rather than walk it and drop each file on the way out
     // (`is_excluded` filters files, which is correct but pays for the walk first —
     // and a build tree is almost all of a walk). Only `<base>/**` patterns prune,
@@ -534,7 +534,7 @@ impl Analysis {
         let gen = self.input_generation;
         let out: List<ScanFile> = [];
         let seen: Set<String> = Set.new();
-        for p in workspace.hawk_files(self.roots, prune: (d) => self.prunes_dir(d)) {
+        for p in workspace.thera_files(self.roots, prune: (d) => self.prunes_dir(d)) {
             let key = loader.canonical_path(p);
             if !seen.has(key) {
                 seen.add(key);
@@ -747,7 +747,7 @@ impl Analysis {
     // A `WorkspaceDiagnosticReport` (LSP pull model) — one full report per
     // workspace file (and open buffer), each carrying that file's own diagnostics.
     // This is what makes diagnostics project-wide with no file open. It reuses the
-    // session's shared check and checked-clean dedup — the `hawk check <dir>` loop
+    // session's shared check and checked-clean dedup — the `thera check <dir>` loop
     // — so a shared import is checked once per pass, not once per importer; a
     // clean file gets an empty full report so the client releases prior squiggles.
     //

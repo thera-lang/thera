@@ -4,7 +4,7 @@
 //!
 //! Import as: import std.fs
 //!
-//! ```hawk
+//! ```thera
 //! let text = fs.read_text('config.json')?;
 //! for name in fs.list_dir('.')? { ... }
 //!
@@ -441,7 +441,7 @@ pub fn create(_ path: String) -> Result<File, FsError> {
 /// to locate it. **Temp files are not auto-deleted**: `close()` it, then
 /// `fs.remove(f.path())` when done (there are no finalizers).
 ///
-/// ```hawk
+/// ```thera
 /// let f = fs.temp_file(prefix: 'build-')?;
 /// io.write_all(f, someBytes)?;
 /// f.close()?;

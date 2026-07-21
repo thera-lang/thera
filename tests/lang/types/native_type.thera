@@ -3,7 +3,7 @@
 
 // A `native type` is an opaque, runtime-represented type: it has no field layout
 // (no struct literal, no field access), but `impl` blocks — both `native fn`s and
-// ordinary Hawk methods — attach to it like any other type. This is how the
+// ordinary Thera methods — attach to it like any other type. This is how the
 // built-in types (List, Map, String, …) get a declaration site.
 //
 // `check`-only: the runtime natives below have no binding in a hermetic run.
@@ -14,7 +14,7 @@ impl Handle<T> {
     @extern('handle_describe')
     native fn describe(self) -> String
 
-    // An ordinary Hawk method body resolves against the opaque receiver.
+    // An ordinary Thera method body resolves against the opaque receiver.
     fn kind(self) -> String {
         return 'handle';
     }

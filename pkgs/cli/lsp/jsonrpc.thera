@@ -1,5 +1,5 @@
 // JSON-RPC 2.0 transport over a byte stream, with the LSP `Content-Length`
-// framing. This is the Hawk stand-in for the Dart `package:lsp_server`
+// framing. This is the Thera stand-in for the Dart `package:lsp_server`
 // `Connection`: it reads length-framed JSON messages from a `Reader` and writes
 // them to a `Writer`, leaving message dispatch to the caller (see server.thera).
 //

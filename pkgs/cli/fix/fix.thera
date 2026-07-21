@@ -7,7 +7,7 @@
 // arbitrary code and comments that slicing preserves as-is.
 //
 // V1 implements `match → if let`; other rules plug in the same way (a structured
-// site from `lint`, an edit here). This is the shared machinery a `hawk fix` CLI
+// site from `lint`, an edit here). This is the shared machinery a `thera fix` CLI
 // and an LSP code action both drive.
 
 import '../ast/ast' as _; // Program/Decl/Stmt/Expr + span accessors
@@ -156,7 +156,7 @@ fn let_else_body_text(_ e: Expr) -> String {
 // A located, ready-to-apply rewrite: the `rule` id it came from (matching the
 // `lint` rule ids, for `--only` filtering), the anchor `span` (for overlap tests /
 // code actions), the `edit`, a human `title` (the code-action label), and a short
-// `message` (the `hawk fix` preview line).
+// `message` (the `thera fix` preview line).
 pub struct FixSite {
     let rule: String;
     let span: SourceSpan;
@@ -251,7 +251,7 @@ fn non_overlapping(_ edits: List<edit.TextEdit>) -> List<edit.TextEdit> {
     return out;
 }
 
-// A fix's location and label, for previewing what `hawk fix` would change.
+// A fix's location and label, for previewing what `thera fix` would change.
 pub struct FixLocation {
     let line: Int;
     let column: Int;

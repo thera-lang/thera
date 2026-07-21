@@ -1,4 +1,4 @@
-// Tests for the Hawk lexer, with token streams derived from the Dart lexer's
+// Tests for the Thera lexer, with token streams derived from the Dart lexer's
 // behavior (the oracle this port transcribes). Each test pins token kinds and,
 // where it matters, lexemes / spans / error messages for a representative slice
 // of the grammar: keywords, identifiers, every punctuation and operator, the

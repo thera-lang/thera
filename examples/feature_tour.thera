@@ -1,4 +1,4 @@
-//! feature_tour.thera — a wide, shallow tour of Hawk language features.
+//! feature_tour.thera — a wide, shallow tour of Thera language features.
 //!
 //! This is less a program than a spread of language constructs placed in many
 //! different AST positions. Its purpose is to be a hand-driven integration

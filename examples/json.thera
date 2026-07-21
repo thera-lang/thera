@@ -9,7 +9,7 @@ fn main() -> Result<Int, Error> {
     // whitespace.
     let source = '
         {
-            "service": "hawk",
+            "service": "thera",
             "port": 8080,
             "debug": false,
             "tags": ["build", "test"],
@@ -28,7 +28,7 @@ fn main() -> Result<Int, Error> {
 
     println('${service}: port ${port}, ${mem} MB, ${tags.len()} tags');
 
-    // Build a derived document with the lowercase constructors. Hawk has no
+    // Build a derived document with the lowercase constructors. Thera has no
     // heterogeneous literal, so each leaf is wrapped in its Json variant.
     let summary = json.obj([
         'service': json.str(service),

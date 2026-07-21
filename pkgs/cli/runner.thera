@@ -1,4 +1,4 @@
-// Runtime invocation for the CLI: `hawk run` and `hawk test`.
+// Runtime invocation for the CLI: `thera run` and `thera test`.
 //
 // `run` compiles a program to a temporary `.thera-bc` and executes it on the Rust
 // runtime; `test` synthesizes a driver `main` that runs each `@test` function
@@ -36,7 +36,7 @@ struct TestCounts {
 
 // --- run ---
 
-// `hawk run <file> [args]` — compile `file`, then execute it on the runtime,
+// `thera run <file> [args]` — compile `file`, then execute it on the runtime,
 // passing `program_args` through to the program's `main`. Returns the child's
 // exit code (or a non-zero code if compilation or spawning failed).
 pub fn run_file(_ file: String, _ program_args: List<String>, _ sdk_root: Option<String>) -> Result<Int, Error> {
@@ -68,7 +68,7 @@ pub fn run_file(_ file: String, _ program_args: List<String>, _ sdk_root: Option
 
 // --- test ---
 
-// `hawk test [file|dir]...` — discover `*_test.thera` files under each target,
+// `thera test [file|dir]...` — discover `*_test.thera` files under each target,
 // run their `@test` functions, and report. The default output is quiet — only
 // failure blocks, then one summary line (proof of work; agents shouldn't pay
 // tokens for green tests). `verbose` (or `show_output`, which needs the
@@ -398,7 +398,7 @@ fn run_bytecode_captured(_ runtime: String, _ bytes: Bytes, _ entry: Option<Stri
 
 // The bare-runtime binary that executes a compiled `.thera-bc`. In the in-repo
 // checkout that's `<root>/runtime/target/debug/thera-rt`; in a distributed SDK the
-// launcher (`bin/hawk`) *is* the runtime, so we hand back our own executable —
+// launcher (`bin/thera`) *is* the runtime, so we hand back our own executable —
 // invoked on a `.thera-bc` it runs it directly. None if neither resolves.
 pub fn find_runtime_binary(_ sdk_root: Option<String>) -> Option<String> {
     // The runtime already executing us runs a `.thera-bc` path directly (see the

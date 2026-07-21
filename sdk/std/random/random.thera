@@ -8,7 +8,7 @@
 //! with `seeded` for reproducible runs (tests, simulations), or with
 //! `from_entropy` for an unpredictable sequence. Not cryptographically secure.
 //!
-//! Algorithm: SplitMix64, in pure Hawk: the state advances by a wrapping add of
+//! Algorithm: SplitMix64, in pure Thera: the state advances by a wrapping add of
 //! the golden-ratio constant, the mixing finalizer scrambles it into a uniform
 //! draw (bitwise ops + wrapping multiply), and a 53-bit slice maps to a Double.
 //! Only the entropy seed is a native (it reads the system clock).
@@ -49,7 +49,7 @@ pub struct Rng {
 /// A generator seeded deterministically: the same seed always yields the same
 /// sequence. Use for reproducible tests and simulations.
 ///
-/// ```hawk
+/// ```thera
 /// let rng = random.seeded(42);
 /// ```
 pub fn seeded(_ seed: Int) -> Rng {
@@ -59,7 +59,7 @@ pub fn seeded(_ seed: Int) -> Rng {
 /// A generator seeded from system entropy: each call yields an unpredictable
 /// sequence. Use when you want different results every run.
 ///
-/// ```hawk
+/// ```thera
 /// let rng = random.from_entropy();
 /// ```
 pub fn from_entropy() -> Rng {
@@ -80,7 +80,7 @@ impl Rng {
 
     /// A uniform Int in [low, high). Returns `low` when the range is empty.
     ///
-    /// ```hawk
+    /// ```thera
     /// let dice = rng.int(1, 7);   // 1..=6
     /// ```
     pub fn int(self, low: Int, high: Int) -> Int {
@@ -98,7 +98,7 @@ impl Rng {
 
     /// A uniformly chosen element, or None if the list is empty.
     ///
-    /// ```hawk
+    /// ```thera
     /// let pick = rng.choice(['rock', 'paper', 'scissors']);
     /// ```
     pub fn choice<T>(self, _ items: List<T>) -> Option<T> {

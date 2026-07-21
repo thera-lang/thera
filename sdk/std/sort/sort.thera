@@ -6,14 +6,14 @@
 //!
 //! These are the `Ord`-driven counterparts to `List.sort(less)` (which takes an
 //! explicit comparator): they work for any element type that implements `Ord`
-//! (the primitives, and any user type with an `impl Ord`). Implemented in Hawk
+//! (the primitives, and any user type with an `impl Ord`). Implemented in Thera
 //! over `List.sort` and `Ord.compare` — they live in their own module (not the
 //! prelude) so the common names `sorted`/`min`/`max` stay qualified.
 
 /// A new list with `xs`'s elements in ascending order. Stable (equal elements
 /// keep their input order — `List.sort` is a stable merge sort).
 ///
-/// ```hawk
+/// ```thera
 /// sort.sorted([3, 1, 2])        // [1, 2, 3]
 /// sort.sorted(['b', 'a', 'c'])  // ['a', 'b', 'c']
 /// ```

@@ -1,13 +1,13 @@
-# Hawk runtime architecture
+# Thera runtime architecture
 
-**What this is:** how a Hawk program executes — the tiered VM, the execution
+**What this is:** how a Thera program executes — the tiered VM, the execution
 pipeline, garbage collection, and the native-function ABI. For the bytecode
 format itself see [bytecode.md](bytecode.md); for status and sequencing see
 [roadmap.md](roadmap.md).
 
 ## Priorities
 
-For the production runtime (how a real Hawk app executes), in order:
+For the production runtime (how a real Thera app executes), in order:
 
 1. **Fast startup**, measured as _source/IR → running_, not just process launch.
    A short-lived CLI tool should feel instant.
@@ -19,12 +19,12 @@ For the production runtime (how a real Hawk app executes), in order:
 
 ## Direction: a tiered VM (bytecode interpreter → Cranelift JIT)
 
-We own the execution pipeline: compile Hawk to our own bytecode, run it
+We own the execution pipeline: compile Thera to our own bytecode, run it
 immediately in a fast interpreter, and JIT only the hot code to native via
 Cranelift.
 
 ```
-Hawk source ──(compile, off the hot path)──► Hawk bytecode  (our IR; serializable, compact)
+Thera source ──(compile, off the hot path)──► Thera bytecode  (our IR; serializable, compact)
                                                    │
                                           ┌────────┴─────────┐
                                           ▼                  ▼
@@ -34,8 +34,8 @@ Hawk source ──(compile, off the hot path)──► Hawk bytecode  (our IR; s
                                    run-once code)         IR → native code)
 ```
 
-- **`bin/hawk` is the runtime**: bytecode interpreter + Cranelift JIT + GC +
-  stdlib, written in **Rust**. A compile step (implicit for `hawk run foo.hawk`)
+- **`bin/thera` is the runtime**: bytecode interpreter + Cranelift JIT + GC +
+  stdlib, written in **Rust**. A compile step (implicit for `thera run foo.thera`)
   produces bytecode.
 - **The interpreter tier earns its place for the CLI domain.** A CLI tool
   starts, does bounded work, and exits — most code paths run _once_. A
@@ -44,21 +44,21 @@ Hawk source ──(compile, off the hot path)──► Hawk bytecode  (our IR; s
   cost, and Cranelift is spent only on genuine hot loops.
 - **Static typing is the key simplifier.** The complexity in V8/SpiderMonkey/
   PyPy comes from _speculation_: hidden classes, inline caches, type feedback,
-  deoptimization. Hawk's bytecode carries concrete types, so the JIT does
+  deoptimization. Thera's bytecode carries concrete types, so the JIT does
   straight-line typed lowering with no guards and no deopt — roughly 80% of what
   makes a tiered VM hard simply does not apply.
 
 Why our own stack-based bytecode (rather than Wasm/JVM/CPython) is argued in
 [bytecode.md](bytecode.md); the short version is that off-the-shelf formats
-discard Hawk's static types, which is exactly what keeps the JIT
+discard Thera's static types, which is exactly what keeps the JIT
 speculation-free.
 
 ## Execution pipeline
 
-How a single `hawk run foo.hawk` flows through the runtime:
+How a single `thera run foo.thera` flows through the runtime:
 
 ```
-hawk source ──[front-end]──► Module (in-memory bytecode)
+thera source ──[front-end]──► Module (in-memory bytecode)
                                │
                                ▼
                         Tier-0 interpreter ── per-function execution counter++
@@ -108,7 +108,7 @@ finding interesting.
 - **The interpreter uses an explicit call-frame stack** (`Vm::run_loop` over
   `self.frames`, a `Vec<Frame>` where each frame owns its operand stack +
   locals), not Rust recursion. That is the precise-roots prerequisite: every
-  active frame's values are enumerable from one place, and deep Hawk recursion
+  active frame's values are enumerable from one place, and deep Thera recursion
   is bounded by the heap rather than the host stack. The stack lives on the `Vm`
   and is **shared across re-entrant interpreter calls** (e.g. structural `debug`
   invoking a user impl runs a nested `run_loop` that pushes onto the same stack)
@@ -135,7 +135,7 @@ finding interesting.
   one re-entrant path — the structural `debug`/`display` fallback, which calls
   back into the interpreter while its values sit in Rust locals — pauses
   collection for its duration (atomic w.r.t. the GC, like a native). Validated
-  by `bench/gc_stress.hawk`: ~16 MB of churn that leaked to ~500 MB under the
+  by `bench/gc_stress.thera`: ~16 MB of churn that leaked to ~500 MB under the
   no-collect heap now holds flat at a few MB resident.
 - **The collection heuristic is byte-budgeted and allocation-driven.** `alloc`
   tracks a running byte estimate (`Obj::heap_bytes` — slot + payload capacity)
@@ -205,7 +205,7 @@ priority order:
   slab and improve locality. (Still non-moving — handles stay stable.)
 - **Diagnostics.** A `THERA_GC_STATS`-style knob (collections, bytes reclaimed,
   pause time) — `object_count` is the seed. **Weak references / finalizers**
-  stay unbuilt until a Hawk object owns a native resource; the hook would live
+  stay unbuilt until a Thera object owns a native resource; the hook would live
   in the sweep loop.
 
 A **moving/compacting** collector is the one direction the stable-handle
@@ -222,11 +222,11 @@ offload for blocking fs/stdin/process calls are all in (see
 sockets is the open phase. The narrative below is the design reference — written
 ahead of the implementation, and how it works as built._
 
-Hawk's concurrency is single-threaded cooperative fibers: blocking-looking I/O
+Thera's concurrency is single-threaded cooperative fibers: blocking-looking I/O
 parks the calling fiber and resumes another, with no `async`/`await` coloring.
 The runtime structure already built for the GC makes this cheap to implement.
 
-**Why it's cheap here.** Hawk calls don't use the Rust call stack — `run_loop`
+**Why it's cheap here.** Thera calls don't use the Rust call stack — `run_loop`
 keeps an explicit `frames: Vec<Frame>` (each `Frame` owning its `pc`, locals,
 and operand stack) and pushes/pops it on `Call`/`Return`; a `Return` with no
 caller frame already exits the loop. So a fiber's **entire** resumable state is
@@ -260,7 +260,7 @@ else is saved — the frames _are_ the continuation.
 when the Rust stack is _just_ `run_loop`, not when a native has re-entered it
 (the structural-`debug`/virtual-dispatch path that pushes onto the same frame
 stack within one Rust call — see GC above). Blocking I/O is always called at
-Hawk level, so this is the normal case; the rule is simply "a blocking native is
+Thera level, so this is the normal case; the rule is simply "a blocking native is
 never invoked from inside a nested interpreter re-entry." (If that ever needs
 lifting, the nested path can be reworked to loop instead of recurse.)
 
@@ -289,9 +289,9 @@ target is `Done`, else parks the caller on its completion; a finishing fiber
 re-queues its joiners with its result.
 
 **I/O integration — two stages.** (1) _Implemented:_ a first cut keeps syscalls
-blocking but runs them on a small worker-thread pool, parking the Hawk fiber
-until a worker signals completion — the single-thread _Hawk_ guarantee still
-holds (workers run no Hawk code) and it needs no event loop, so it unblocked
+blocking but runs them on a small worker-thread pool, parking the Thera fiber
+until a worker signals completion — the single-thread _Thera_ guarantee still
+holds (workers run no Thera code) and it needs no event loop, so it unblocked
 `std.fiber` soonest. (2) The scaling goal is readiness-based non-blocking I/O
 via `kqueue`/`epoll` in the scheduler's poller, so thousands of fibers park on
 one thread. Both preserve the "blocking-looking, never blocks the thread"
@@ -308,10 +308,10 @@ is already in place.
 
 ## Persistence and the native ABI
 
-`bin/hawk` is the Rust runtime with an **embedded `frontend.thera-bc`** (the
-front-end, compiled to bytecode, `include_bytes!`'d in). `hawk run foo.hawk`
-runs that embedded front-end _on our own interpreter_; it parses `foo.hawk`,
-emits a `Module`, and runs it. The front-end is just another Hawk program riding
+`bin/thera` is the Rust runtime with an **embedded `frontend.thera-bc`** (the
+front-end, compiled to bytecode, `include_bytes!`'d in). `thera run foo.thera`
+runs that embedded front-end _on our own interpreter_; it parses `foo.thera`,
+emits a `Module`, and runs it. The front-end is just another Thera program riding
 the runtime — the self-hosting endgame.
 
 This makes the **native-function table an ABI**: every `native fn` in `sdk/std/`
@@ -323,18 +323,18 @@ constant pool.
 
 ## The CLI: commands and output streams
 
-`bin/hawk` exposes the toolchain as subcommands:
+`bin/thera` exposes the toolchain as subcommands:
 
 | command                         | what it does                                                                              |
 | ------------------------------- | ----------------------------------------------------------------------------------------- |
-| `hawk run <file> [args…]`       | compile `<file>` to bytecode and run it; trailing args pass to the program                |
-| `hawk check [target]`           | type-check a `.hawk` file or directory (default: cwd); diagnostics + summary              |
-| `hawk emit <file> <out.thera-bc>` | compile `<file>` to a `.thera-bc` bytecode file                                             |
-| `hawk test [file\|dir]`         | run the `@test` functions in a file, or in `*_test.hawk` under a directory (default: cwd) |
-| `hawk fmt <file\|dir>…`         | format source in place (`--check` reports unformatted files, writes nothing)              |
-| `hawk lint [file\|dir]`         | report non-idiomatic code shapes with a known rewrite (read-only; default: cwd)           |
-| `hawk lint --fix <file\|dir>`   | apply the safe lint rewrites in place (explicit target required)                          |
-| `hawk lsp`                      | start the language server (LSP over stdin/stdout)                                         |
+| `thera run <file> [args…]`       | compile `<file>` to bytecode and run it; trailing args pass to the program                |
+| `thera check [target]`           | type-check a `.thera` file or directory (default: cwd); diagnostics + summary              |
+| `thera emit <file> <out.thera-bc>` | compile `<file>` to a `.thera-bc` bytecode file                                             |
+| `thera test [file\|dir]`         | run the `@test` functions in a file, or in `*_test.thera` under a directory (default: cwd) |
+| `thera fmt <file\|dir>…`         | format source in place (`--check` reports unformatted files, writes nothing)              |
+| `thera lint [file\|dir]`         | report non-idiomatic code shapes with a known rewrite (read-only; default: cwd)           |
+| `thera lint --fix <file\|dir>`   | apply the safe lint rewrites in place (explicit target required)                          |
+| `thera lsp`                      | start the language server (LSP over stdin/stdout)                                         |
 
 **stdout vs. stderr.** The rule: stdout carries a command's _expected output_;
 stderr carries the _unexpected_ (progress, operational failures, crashes). Which
@@ -346,14 +346,14 @@ is which turns on whether the command's product is an **artifact** or its
   closing summary line) **are** the product and go to **stdout**. This matches
   linters (eslint, ruff, mypy) and test runners (`cargo test`, `go test`,
   pytest), and keeps a future `--json`/SARIF mode on the same stream so
-  `hawk check --json | jq` works. Pass/fail is _also_ on the **exit code**
+  `thera check --json | jq` works. Pass/fail is _also_ on the **exit code**
   (`check`: 0 clean / 1 diagnostics / 2 missing or unreadable target —
   operational trumps diagnostics; `test`: 0 all passed / 1 any failed or none
   found — never a count, which would collide with a trap's exit 1 and wrap at
   u8). Note the asymmetry this implies: a test file that fails to **compile**
   produces no test results — that's an operational failure of the run, so
-  `hawk test` sends those compile diagnostics to **stderr**, even though
-  `hawk check` would put the identical lines on stdout (where they are the
+  `thera test` sends those compile diagnostics to **stderr**, even though
+  `thera check` would put the identical lines on stdout (where they are the
   product). Deliberate, not drift.
 - `emit` is a **compiler** — its product is the `.thera-bc`, so its diagnostics
   are "why the build failed" and go to **stderr** (the rustc/clang convention),
@@ -366,24 +366,24 @@ is which turns on whether the command's product is an **artifact** or its
 
 **Diagnostic format.** Every diagnostic — a `check` type error, an `emit` build
 failure, a `run`/`test` compile error — is one line:
-**`path:line:column: message`** (`users.hawk:42:5: undefined name: total`). The
+**`path:line:column: message`** (`users.thera:42:5: undefined name: total`). The
 file is resolved to where the error _originates_: an error in an imported file
 names **that** file, not the entrypoint that triggered the compile (a diagnostic
 span carries its source text, and the driver maps it back to the owning file).
 This is the editor- and `grep`-friendly convention rustc/gcc/clang/eslint use,
-and it is the **same shape `hawk test` prints for a failing assertion** —
+and it is the **same shape `thera test` prints for a failing assertion** —
 `std.testing` stamps the call site via the `#loc` caller-location metaconstant
 (see [roadmap.md](roadmap.md)), so `assert_eq failed` is reported as
-`users_test.hawk:42:5: assert_eq failed …` (indented under the failing test's
-name — see [language.md](language.md) §`hawk test` for the report layout). One
+`users_test.thera:42:5: assert_eq failed …` (indented under the failing test's
+name — see [language.md](language.md) §`thera test` for the report layout). One
 format spans compiler errors and test failures, so an agent or editor parses
 both with a single rule. Multi-line messages indent continuation lines under the
 location; diagnostics are emitted in a deterministic order, and pass/fail is
 _also_ on the exit code (above).
 
-### The formatter (`hawk fmt`)
+### The formatter (`thera fmt`)
 
-`hawk fmt` canonicalizes source layout, and the expectation is that **most Hawk
+`thera fmt` canonicalizes source layout, and the expectation is that **most Thera
 projects run it** (in an editor on save, and as a CI `fmt --check` gate). It has
 **no configuration options, by design**: there is one canonical layout, so a
 project never spends effort choosing or arguing a style. The goal is to
@@ -406,7 +406,7 @@ token-equality + re-parse guard enforces this) — running it is always safe.
 
 ## Options considered and rejected
 
-- **Wasmtime as the runtime.** The Wasm sandbox fights Hawk's central use case:
+- **Wasmtime as the runtime.** The Wasm sandbox fights Thera's central use case:
   subprocess spawning and broad filesystem access are exactly what it restricts,
   and WASI has no mature subprocess/exec API — so shelling out would require
   host shims, eroding the sandbox's value while adding friction. We would also

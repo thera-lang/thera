@@ -3,14 +3,14 @@
 //! Assertions return Result<Void, Error>. A failure throws `error(...)` (the
 //! general-purpose `Error`) that propagates out of the test function via ?. Test
 //! functions must therefore return Result<Void, Error> and call each assertion
-//! with ?. `hawk test` catches that `Err` and renders the message.
+//! with ?. `thera test` catches that `Err` and renders the message.
 //!
 //! Eq, Display, and Debug are defined in std.core, which is auto-imported.
 //!
 //! Each assertion takes a trailing `at: SourceLoc = #loc` parameter. Callers never
 //! pass it: `#loc` is a compiler metaconstant whose default is filled in **at the
 //! call site**, so a failure names the line the assertion was written on. The
-//! message is prefixed `file:line:column:` — the same shape `hawk check` prints —
+//! message is prefixed `file:line:column:` — the same shape `thera check` prints —
 //! so test failures and compiler diagnostics share one format.
 //!
 //! All assertion functions are plain functions — not built-in statements —
@@ -18,7 +18,7 @@
 
 /// Assert that `condition` is true.
 ///
-/// ```hawk
+/// ```thera
 /// testing.assert(x > 0)?;
 /// testing.assert(x > 0, message: 'must be positive')?;
 /// ```
@@ -31,7 +31,7 @@ pub fn assert(_ condition: Bool, message: String = 'assertion failed', at: Sourc
 
 /// Assert that `actual` equals `expected`.
 ///
-/// ```hawk
+/// ```thera
 /// testing.assert_eq(actual: result, expected: 5)?;
 /// ```
 pub fn assert_eq<T: Eq + Debug>(actual: T, expected: T, at: SourceLoc = #loc) -> Result<Void, Error> {
@@ -43,7 +43,7 @@ pub fn assert_eq<T: Eq + Debug>(actual: T, expected: T, at: SourceLoc = #loc) ->
 
 /// Assert that `actual` does not equal `unexpected`.
 ///
-/// ```hawk
+/// ```thera
 /// testing.assert_ne(actual: result, unexpected: 0)?;
 /// ```
 pub fn assert_ne<T: Eq + Debug>(actual: T, unexpected: T, at: SourceLoc = #loc) -> Result<Void, Error> {
@@ -56,7 +56,7 @@ pub fn assert_ne<T: Eq + Debug>(actual: T, unexpected: T, at: SourceLoc = #loc) 
 /// Assert that `result` is Ok, and return the inner value.
 /// Useful for unwrapping in a test without a manual match.
 ///
-/// ```hawk
+/// ```thera
 /// let value = testing.assert_ok(some_result)?;
 /// ```
 pub fn assert_ok<T, E: Debug>(_ result: Result<T, E>, at: SourceLoc = #loc) -> Result<T, Error> {
@@ -68,7 +68,7 @@ pub fn assert_ok<T, E: Debug>(_ result: Result<T, E>, at: SourceLoc = #loc) -> R
 
 /// Assert that `result` is Err.
 ///
-/// ```hawk
+/// ```thera
 /// testing.assert_err(parse_port('99999'))?;
 /// ```
 pub fn assert_err<T, E>(_ result: Result<T, E>, at: SourceLoc = #loc) -> Result<Void, Error> {

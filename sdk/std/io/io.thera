@@ -7,7 +7,7 @@
 //! against any `Reader`/`Writer`, so files, pipes, sockets, and in-memory
 //! buffers compose uniformly.
 //!
-//! ```hawk
+//! ```thera
 //! import std.io;
 //!
 //! fn main() -> Result<Int, Error> {
@@ -20,7 +20,7 @@
 //! Read a source line by line with `lines`, which returns a `BufReader` — an
 //! `Iterator<String>`, so a `for` loop and the iterator adapters both drive it:
 //!
-//! ```hawk
+//! ```thera
 //! for line in io.lines(io.stdin()) { println(line); }
 //!
 //! let nonblank = io.lines(io.from_string(text))

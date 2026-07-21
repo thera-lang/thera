@@ -129,7 +129,7 @@ pub interface Selectable {
 /// `receive`, `join`, `read` — is the caller's next step, and is guaranteed not to
 /// block, because nothing else runs in between.
 ///
-/// ```hawk
+/// ```thera
 /// let i = fiber.select([jobs, quit]);
 /// if i == 0 {
 ///     match jobs.receive() { Some(job) => run(job), None => void }
@@ -205,7 +205,7 @@ pub struct Timer {
 
 /// A [Selectable] that becomes ready once `d` has elapsed.
 ///
-/// ```hawk
+/// ```thera
 /// let i = fiber.select([work, fiber.after(time.Duration.seconds(5))]);
 /// ```
 pub fn after(_ d: time.Duration) -> Timer {
