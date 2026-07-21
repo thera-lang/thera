@@ -42,7 +42,7 @@ independent.
   launcher `bin/hawk` → `bin/thera`; CLI usage text; Rust crate `hawk` →
   `thera` and binary `hawkrt` → `thera-rt`; `HAWK_*` → `THERA_*` env vars
   (clean cut, no compat aliases).
-- [ ] **5. VS Code extension.** Language id/scope, `.thera` association,
+- [x] **5. VS Code extension.** Language id/scope, `.thera` association,
   `hawk.*` commands/settings → `thera.*`, syntax/snippet file renames, README;
   verify the LSP server side against the new language id.
 - [ ] **6. Docs & org.** Prose sweep of `docs/`, `README.md`, `CLAUDE.md`,
