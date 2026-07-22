@@ -3939,7 +3939,7 @@ mod tests {
         let dog = Value::new_struct(0, vec![Value::new_str("Rex"), Value::Int(3)]);
         // Direct receiver and nested (inside a list) both use the impl.
         assert_eq!(
-            super::run(&m, 0, &[dog.clone()]),
+            super::run(&m, 0, &[dog]),
             Ok(Value::new_str("custom"))
         );
         assert_eq!(
@@ -3968,7 +3968,7 @@ mod tests {
         let a = Value::new_struct(0, vec![Value::Int(1)]);
         let b = Value::new_struct(0, vec![Value::Int(1)]);
         let c = Value::new_struct(0, vec![Value::Int(2)]);
-        assert_eq!(super::run(&m, 0, &[a.clone(), b]), Ok(Value::Bool(true)));
+        assert_eq!(super::run(&m, 0, &[a, b]), Ok(Value::Bool(true)));
         assert_eq!(super::run(&m, 0, &[a, c]), Ok(Value::Bool(false)));
     }
 }
