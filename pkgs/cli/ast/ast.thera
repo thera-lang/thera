@@ -330,6 +330,13 @@ pub enum Expr {
     // by codegen to a `SourceLoc` value. As a default parameter value it captures
     // the *call site* (defaults are materialized there); elsewhere, its own site.
     Loc(SourceSpan),
+    // A parser recovery placeholder: an expression was required but none could be
+    // parsed (`let x =` ⏎, `a +` ⏎, an empty argument slot). It carries only its
+    // span. The resolver/checker/inference treat it as `Unknown` and emit no
+    // semantic diagnostic — the anti-cascade contract, so the user sees the
+    // *syntax* error alone. Codegen traps defensively (unreachable after a clean
+    // `check`). See docs/parser-recovery.md.
+    Error(SourceSpan),
 }
 
 // A string literal's segments: literal text and `${...}` interpolations.
@@ -457,6 +464,7 @@ pub fn expr_span(_ e: Expr) -> SourceSpan {
         Return(s, _) => s,
         Throw(s, _) => s,
         Loc(s) => s,
+        Error(s) => s,
     };
 }
 

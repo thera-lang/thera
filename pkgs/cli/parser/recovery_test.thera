@@ -1,0 +1,103 @@
+// Parser error-recovery tests (docs/parser-recovery.md). These pin recovery
+// *behavior*, not the language spec, so they live in the @test suite rather than
+// tests/lang. Every case asserts two directions: the broken input yields the
+// expected partial tree, AND the well-formed counterpart is unchanged — the
+// build's fixpoint guards the no-op-on-valid invariant globally, these lock it
+// locally and document intent.
+//
+// STAGE 0 scope: this file establishes the harness (the structural dumper +
+// `Expr.Error`) and locks in the behavior already reachable. `expect` is still
+// fatal, so a hole inside a *declaration* is still discarded at the decl boundary
+// (`parse_tokens`); but `parse_expression` has no such boundary, so an expression
+// parsed in isolation already surfaces its holes as `Expr.Error` / empty-name
+// `Field` nodes. Stage 1 makes `expect` non-fatal, at which point holes survive
+// inside full declarations too — the cases below extend there.
+
+import std.testing;
+
+import '../lexer/lexer' as _;
+import '../ast/ast' as _;
+import '../ast/describe' as _;
+import '../ast/dump' as _;
+import 'parser' as _;
+
+// Parse `src` as a single expression and render it canonically (holes visible:
+// `Expr.Error` → `<error>`, an empty `Field` member → a trailing `.`).
+fn expr_str(_ src: String) -> String {
+    return describe_expr(parse_expression(tokenize(src).tokens));
+}
+
+// Parse `src` as a program and render its structure.
+fn dump_str(_ src: String) -> String {
+    return dump_program(parse_tokens(tokenize(src).tokens).program);
+}
+
+// --- The structural dumper (the golden oracle for later stages) ---
+
+@test
+fn test_dump_well_formed_function() -> Result<Void, Error> {
+    // The dumper renders declaration/statement/block structure that describe_expr
+    // omits; expressions within it delegate to describe_expr.
+    let src = 'fn add(_ a: Int, _ b: Int) -> Int { return a + b; }';
+    let expected = 'fn add(a: Int, b: Int) -> Int\n'
+        + '  block\n'
+        + '    return (a + b)';
+    testing.assert_eq(actual: dump_str(src), expected: expected)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_dump_statements_and_control_flow() -> Result<Void, Error> {
+    let src = 'fn f() -> Int {\n'
+        + '  let mut x = 0;\n'
+        + '  if x { x = 1; }\n'
+        + '  return x;\n'
+        + '}';
+    let expected = 'fn f() -> Int\n'
+        + '  block\n'
+        + '    let mut x = 0\n'
+        + '    if x\n'
+        + '      block\n'
+        + '        assign x = 1\n'
+        + '    return x';
+    testing.assert_eq(actual: dump_str(src), expected: expected)?;
+    return Result.Ok(void);
+}
+
+// --- Expression holes (already reachable in Stage 0 via parse_expression) ---
+
+@test
+fn test_error_expr_replaces_unit_placeholder() -> Result<Void, Error> {
+    // A missing right-hand side yields `Binary(a, +, Error)`, rendered `<error>`.
+    // Before Stage 0 the placeholder was `Expr.Unit` (rendered `void`), which
+    // types as `Void` and cascades in a typed slot; `Expr.Error` types as
+    // `Unknown` and stays quiet. The reroute is what this asserts.
+    testing.assert_eq(actual: expr_str('a +'), expected: '(a + <error>)')?;
+    // Well-formed counterpart unchanged.
+    testing.assert_eq(actual: expr_str('a + b'), expected: '(a + b)')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_dangling_dot_yields_empty_field() -> Result<Void, Error> {
+    // `user.` → a `Field` whose member is the empty string — the completion
+    // anchor. It renders as a trailing `.` (empty member name).
+    testing.assert_eq(actual: expr_str('user.'), expected: 'user.')?;
+    // Well-formed counterpart unchanged.
+    testing.assert_eq(actual: expr_str('user.name'), expected: 'user.name')?;
+    return Result.Ok(void);
+}
+
+// --- Baseline: recovery still doesn't cascade or spin (unchanged by Stage 0) ---
+
+@test
+fn test_decl_recovery_still_isolates_siblings() -> Result<Void, Error> {
+    // A malformed declaration is still discarded at the decl boundary and the
+    // parser resyncs to the next `fn` (Stage 0 changes the placeholder node, not
+    // the decl-level recovery mechanism).
+    let r = parse_tokens(tokenize('fn { } fn good() -> Int { return 1; }').tokens);
+    testing.assert(r.has_errors(), message: 'expected a parse error')?;
+    let dumped = dump_program(r.program);
+    testing.assert_eq(actual: dumped, expected: 'fn good() -> Int\n  block\n    return 1')?;
+    return Result.Ok(void);
+}

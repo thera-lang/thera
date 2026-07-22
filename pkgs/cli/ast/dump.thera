@@ -1,0 +1,182 @@
+// Structural, indented dump of AST declarations, statements, and blocks — the
+// golden oracle for parser-recovery tests (docs/parser-recovery.md). Unlike
+// `describe_expr`'s surface-syntax one-liners, this renders the *node structure*
+// at the declaration/statement/block level, so a test can assert what survived
+// recovery: which siblings remain, whether a broken body kept its signature, and
+// where a hole sits.
+//
+// Expressions delegate to `describe_expr`, which already makes recovery holes
+// visible: an empty `Field` member renders as a trailing `.` (`user.`), and
+// `Expr.Error` as `<error>`. The structural layer this file adds is exactly the
+// piece `describe.thera` deferred ("added with the driver") — statements and
+// declarations — which recovery needs to frame those holes.
+
+import 'ast' as _;
+import 'describe' as _;
+
+pub fn dump_program(_ p: Program) -> String {
+    return p.decls.map((d) => dump_decl(d, 0)).join('\n');
+}
+
+pub fn dump_decl(_ d: Decl, _ depth: Int) -> String {
+    return match d {
+        Import(x) => pad(depth) + 'import ' + x.path + dump_alias(x.alias),
+        Fn(x) => dump_fn(x, depth),
+        Type(x) => dump_type(x, depth),
+        Impl(x) => dump_impl(x, depth),
+        Interface(x) => dump_interface(x, depth),
+        Const(x) => pad(depth) + 'const ' + x.name + dump_ann(x.type_ann) + ' = ' + describe_expr(x.value),
+        Let(x) => pad(depth) + 'let ' + x.name + dump_ann(x.type_ann) + ' = ' + describe_expr(x.value),
+        Enum(x) => dump_enum(x, depth),
+    };
+}
+
+pub fn dump_block(_ b: Block, _ depth: Int) -> String {
+    let mut lines = [pad(depth) + 'block'];
+    for s in b.stmts {
+        lines.push(dump_stmt(s, depth + 1));
+    }
+    if let Some(t) = b.tail {
+        lines.push(pad(depth + 1) + 'tail ' + describe_expr(t));
+    }
+    return lines.join('\n');
+}
+
+pub fn dump_stmt(_ s: Stmt, _ depth: Int) -> String {
+    return match s {
+        Let(x) => pad(depth) + 'let ' + dump_mut(x.is_mut) + x.name + dump_ann(x.type_ann)
+            + ' = ' + describe_expr(x.value),
+        Return(_, v) => pad(depth) + 'return' + dump_opt_expr(v),
+        Throw(_, e) => pad(depth) + 'throw ' + describe_expr(e),
+        Expr(_, e) => pad(depth) + 'expr ' + describe_expr(e),
+        Assign(_, target, op, value) => pad(depth) + 'assign ' + describe_expr(target)
+            + ' ' + dump_op(op) + '= ' + describe_expr(value),
+        If(x) => dump_if_stmt(x, depth),
+        For(x) => pad(depth) + 'for ' + describe_pattern(x.pattern) + ' in '
+            + describe_expr(x.iterable) + '\n' + dump_block(x.body, depth + 1),
+        While(x) => pad(depth) + 'while ' + describe_expr(x.condition) + '\n'
+            + dump_block(x.body, depth + 1),
+        Break(_) => pad(depth) + 'break',
+        Continue(_) => pad(depth) + 'continue',
+    };
+}
+
+// --- helpers ---
+
+fn dump_fn(_ x: FnDecl, _ depth: Int) -> String {
+    let sig = pad(depth) + 'fn ' + x.name + '(' + dump_params(x.params) + ')' + dump_ret(x.return_type);
+    return match x.body {
+        Some(b) => sig + '\n' + dump_block(b, depth + 1),
+        None => sig, // native fn — no body
+    };
+}
+
+fn dump_type(_ x: TypeDecl, _ depth: Int) -> String {
+    let head = pad(depth) + 'type ' + x.name;
+    if x.fields.len() == 0 {
+        return head;
+    }
+    let body = x.fields.map((f) => pad(depth + 1) + 'field ' + f.name + ': '
+        + describe_type(f.type_ann)).join('\n');
+    return head + '\n' + body;
+}
+
+fn dump_enum(_ x: EnumDecl, _ depth: Int) -> String {
+    let head = pad(depth) + 'enum ' + x.name;
+    if x.variants.len() == 0 {
+        return head;
+    }
+    let body = x.variants.map((v) => pad(depth + 1) + 'variant ' + v.name).join('\n');
+    return head + '\n' + body;
+}
+
+fn dump_impl(_ x: ImplDecl, _ depth: Int) -> String {
+    let iface = match x.interface_name {
+        Some(n) => n + ' for ',
+        None => '',
+    };
+    let head = pad(depth) + 'impl ' + iface + x.type_name;
+    if x.methods.len() == 0 {
+        return head;
+    }
+    let body = x.methods.map((m) => dump_fn(m, depth + 1)).join('\n');
+    return head + '\n' + body;
+}
+
+fn dump_interface(_ x: InterfaceDecl, _ depth: Int) -> String {
+    let head = pad(depth) + 'interface ' + x.name;
+    if x.methods.len() == 0 {
+        return head;
+    }
+    let body = x.methods.map((m) => dump_fn(m, depth + 1)).join('\n');
+    return head + '\n' + body;
+}
+
+fn dump_if_stmt(_ x: IfStmt, _ depth: Int) -> String {
+    let mut out = pad(depth) + 'if ' + describe_expr(x.condition) + '\n'
+        + dump_block(x.then_block, depth + 1);
+    if let Some(eb) = x.else_block {
+        out = out + '\n' + pad(depth) + 'else\n' + dump_block(eb, depth + 1);
+    }
+    return out;
+}
+
+fn dump_params(_ ps: List<Param>) -> String {
+    return ps.map((p) => dump_param(p)).join(', ');
+}
+
+fn dump_param(_ p: Param) -> String {
+    return match p.type_ann {
+        Some(t) => p.name + ': ' + describe_type(t),
+        None => p.name,
+    };
+}
+
+fn dump_ret(_ t: Option<TypeRef>) -> String {
+    return match t {
+        Some(ty) => ' -> ' + describe_type(ty),
+        None => '',
+    };
+}
+
+fn dump_ann(_ t: Option<TypeRef>) -> String {
+    return match t {
+        Some(ty) => ': ' + describe_type(ty),
+        None => '',
+    };
+}
+
+fn dump_alias(_ a: Option<String>) -> String {
+    return match a {
+        Some(n) => ' as ' + n,
+        None => '',
+    };
+}
+
+fn dump_opt_expr(_ v: Option<Expr>) -> String {
+    return match v {
+        Some(e) => ' ' + describe_expr(e),
+        None => '',
+    };
+}
+
+fn dump_op(_ op: Option<String>) -> String {
+    return match op {
+        Some(o) => o,
+        None => '',
+    };
+}
+
+fn dump_mut(_ is_mut: Bool) -> String {
+    return if is_mut { 'mut ' } else { '' };
+}
+
+fn pad(_ depth: Int) -> String {
+    let mut s = '';
+    let mut i = 0;
+    while i < depth {
+        s = s + '  ';
+        i = i + 1;
+    }
+    return s;
+}

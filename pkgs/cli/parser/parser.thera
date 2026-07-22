@@ -277,7 +277,10 @@ impl Parser {
     // --- throwaway nodes returned after `fail` (discarded at the boundary) ---
 
     fn err_expr(self) -> Expr {
-        return Expr.Unit(self.current().span);
+        // A recovery placeholder that types as `Unknown` (unlike the old `Unit`,
+        // which is `Void` and would cascade in a typed slot). Discarded at the
+        // decl boundary today; Stage 1 lets it survive to anchor completion.
+        return Expr.Error(self.current().span);
     }
 
     fn err_type(self) -> TypeRef {

@@ -906,6 +906,7 @@ fn walk_expr(_ e: Expr, _ out: List<Suggestion>) -> Void {
         Unit(_) => void,
         Ident(_, _) => void,
         Loc(_) => void,
+        Error(_) => void,
     }
 }
 
