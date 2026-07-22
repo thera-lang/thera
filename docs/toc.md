@@ -1,7 +1,7 @@
 # Thera documentation
 
-The entry point to Thera's design docs. Each doc opens with a one-line "what this
-is"; read top-down for progressive detail.
+The entry point to Thera's design docs. Each doc opens with a one-line "what
+this is"; read top-down for progressive detail.
 
 - [overview.md](overview.md) — the **why**: an external-facing whitepaper on
   what Thera is, the LLM-native design rationale, the CLI-tooling target domain,
@@ -31,5 +31,9 @@ is"; read top-down for progressive detail.
 - [parser-recovery.md](parser-recovery.md) — **parser error recovery**:
   resilient parsing design, AST preservation, and incremental implementation
   plan.
+- [http-tls.md](http-tls.md) — **TLS for `std.http`**: the plan to add `https`
+  to the client — the `rustls` crate choice, the native ABI, how a TLS session
+  rides the socket park/retry model, the `TlsStream` surface, and a hermetic
+  test strategy.
 
 (A concise orientation for agents lives in the repo-root `CLAUDE.md`.)
