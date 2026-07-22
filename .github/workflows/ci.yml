@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel superseded runs on the same ref (e.g. rapid pushes to a PR).
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Rust runtime: format, lint, and unit tests. Fast, and gates the rest.
+  runtime:
+    name: runtime (cargo)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: runtime
+    steps:
+      - uses: actions/checkout@v7
+
+      # edition 2024 needs a recent stable toolchain; the repo's rust-toolchain
+      # (if any) is honored, otherwise this pins the components we need.
+      - name: Install Rust
+        run:
+          rustup toolchain install stable --profile minimal --component
+          rustfmt,clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: runtime
+
+      - name: cargo fmt --check
+        run: cargo fmt --check
+
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test
+
+  # Full self-hosted suite: front-end + stdlib @tests, examples, conformance.
+  # Runs bin/test.sh, which builds the runtime and the dev front-end itself.
+  suite:
+    name: full suite (bin/test.sh)
+    runs-on: ubuntu-latest
+    needs: runtime
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: runtime
+
+      - name: bin/test.sh
+        run: bin/test.sh

@@ -26,8 +26,9 @@ See [docs/overview.md](docs/overview.md) for the full architectural rationale,
 ## Status
 
 A proof of concept under active development. A Rust bytecode interpreter runs
-`.thera-bc`; a Thera front-end type-checks and compiles Thera source to it; and a
-core stdlib is written in Thera (plus natives). Real CLI programs compile and run
-end to end (see [examples/](examples/)). The front-end now **self-hosts** — it
-compiles its own sources and the stdlib, and the build reproduces the front-end
-byte-for-byte. Work continues on broadening the language, stdlib, and toolchain.
+`.thera-bc`; a Thera front-end type-checks and compiles Thera source to it; and
+a core stdlib is written in Thera (plus natives). Real CLI programs compile and
+run end to end (see [examples/](examples/)). The front-end now **self-hosts** —
+it compiles its own sources and the stdlib, and the build reproduces the
+front-end byte-for-byte. Work continues on broadening the language, stdlib, and
+toolchain.
