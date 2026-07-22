@@ -18,9 +18,9 @@ native-stats = []
 [dependencies]
 # std.hash digests — best-of-breed, battle-tested implementations (the runtime's
 # first external dependencies, added deliberately; see docs/stdlib.md §std.hash).
-sha2 = "0.10"       # SHA-256 (RustCrypto)
-sha1 = "0.10"       # SHA-1 (RustCrypto)
-md-5 = "0.10"       # MD5 (RustCrypto)
+sha2 = "0.11"       # SHA-256 (RustCrypto)
+sha1 = "0.11"       # SHA-1 (RustCrypto)
+md-5 = "0.11"       # MD5 (RustCrypto)
 crc32fast = "1.4"   # CRC-32 (IEEE 802.3)
 # std.regex — RE2-derived, linear-time engine, the Rust team's reference crate
 # (the runtime's 2nd deliberate dependency; see docs/stdlib.md §std.regex).
