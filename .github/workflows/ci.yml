@@ -45,12 +45,26 @@ jobs:
       - name: cargo test
         run: cargo test
 
-  # Full self-hosted suite: front-end + stdlib @tests, examples, conformance.
-  # Runs bin/test.sh, which builds the runtime and the dev front-end itself.
+  # Self-hosted suite, sharded across parallel jobs. Each shard builds the dev
+  # front-end once, then runs its bin/test.sh group(s). `cargo` is omitted — the
+  # runtime job above already runs the cargo tests.
+  #
+  # The `stdlib` group (thera test sdk/std) is the long pole (~3min) and can't be
+  # split further, so it gets its own shard; everything else consolidates into
+  # `rest` (~2min), which still finishes first. A third shard wouldn't lower the
+  # wall-clock floor — it would just add another redundant release build.
   suite:
-    name: full suite (bin/test.sh)
+    name: suite (${{ matrix.name }})
     runs-on: ubuntu-latest
     needs: runtime
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: stdlib
+            groups: stdlib
+          - name: rest
+            groups: frontend checks conformance examples
     steps:
       - uses: actions/checkout@v7
 
@@ -61,5 +75,5 @@ jobs:
         with:
           workspaces: runtime
 
-      - name: bin/test.sh
-        run: bin/test.sh
+      - name: bin/test.sh ${{ matrix.groups }}
+        run: bin/test.sh ${{ matrix.groups }}
