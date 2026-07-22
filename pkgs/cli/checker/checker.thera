@@ -1081,6 +1081,7 @@ fn check_missing_return_type(_ cc: CheckCtx, _ value: Option<Expr>) -> Void {
     if let Some(v) = value {
         match v {
             Unit(_) => void,   // `return void;` → Void
+            Error(_) => void,  // recovery hole — don't demand a return type for a syntax error
             _ => {
                 add_error(cc.errors,
                     'this function returns a value but has no return type; add one, e.g. -> Int',
@@ -1991,6 +1992,7 @@ fn check_expr_inner(_ cc: CheckCtx, _ expr: Expr, _ expected: Option<Type>) -> V
         Bool(_, _) => void,
         Unit(_) => void,
         Loc(_) => void, // `#loc` is always valid; codegen resolves it
+        Error(_) => void, // parser recovery hole — the syntax error is already reported
     }
 }
 

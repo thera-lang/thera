@@ -1,0 +1,374 @@
+// Parser error-recovery tests (docs/parser-recovery.md). These pin recovery
+// *behavior*, not the language spec, so they live in the @test suite rather than
+// tests/lang. Every case asserts two directions: the broken input yields the
+// expected partial tree, AND the well-formed counterpart is unchanged — the
+// build's fixpoint guards the no-op-on-valid invariant globally, these lock it
+// locally and document intent.
+//
+// The stages these exercise (docs/parser-recovery.md):
+//   0  `Expr.Error` + the structural dumper (the suppression contract).
+//   1  non-fatal `expect`, so a *known hole* (a missing `)`, a field after `.`)
+//      survives in place instead of discarding the declaration.
+//   2a statement-level recovery in statement blocks: a broken statement's
+//      siblings survive and a broken body keeps its signature. A stray decl
+//      keyword inside a block is a block boundary, so the next decl is reclaimed.
+//   3  graceful EOF (open constructs recover with synthesized delimiters, outer
+//      decls survive), the position-sensitive completion catalog, and anchor span
+//      fidelity (a synthetic hole is a zero-length span at the cursor).
+// Still open: Stage 2b (recovery inside expression blocks — match arms / block
+// expressions). The termination sweep guards the forward-progress invariant (§3)
+// across every construct these stages touch.
+
+import std.testing;
+
+import '../lexer/lexer' as _;
+import '../ast/ast' as _; // Expr/Identifier destructuring in the span-fidelity tests
+import '../ast/describe' as _;
+import '../ast/dump' as _;
+import 'parser' as _;
+
+// Parse `src` as a single expression and render it canonically (holes visible:
+// `Expr.Error` → `<error>`, an empty `Field` member → a trailing `.`).
+fn expr_str(_ src: String) -> String {
+    return describe_expr(parse_expression(tokenize(src).tokens));
+}
+
+// Parse `src` as a program and render its structure.
+fn dump_str(_ src: String) -> String {
+    return dump_program(parse_tokens(tokenize(src).tokens).program);
+}
+
+// --- The structural dumper (the golden oracle for later stages) ---
+
+@test
+fn test_dump_well_formed_function() -> Result<Void, Error> {
+    // The dumper renders declaration/statement/block structure that describe_expr
+    // omits; expressions within it delegate to describe_expr.
+    let src = 'fn add(_ a: Int, _ b: Int) -> Int { return a + b; }';
+    let expected = 'fn add(a: Int, b: Int) -> Int\n'
+        + '  block\n'
+        + '    return (a + b)';
+    testing.assert_eq(actual: dump_str(src), expected: expected)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_dump_statements_and_control_flow() -> Result<Void, Error> {
+    let src = 'fn f() -> Int {\n'
+        + '  let mut x = 0;\n'
+        + '  if x { x = 1; }\n'
+        + '  return x;\n'
+        + '}';
+    let expected = 'fn f() -> Int\n'
+        + '  block\n'
+        + '    let mut x = 0\n'
+        + '    if x\n'
+        + '      block\n'
+        + '        assign x = 1\n'
+        + '    return x';
+    testing.assert_eq(actual: dump_str(src), expected: expected)?;
+    return Result.Ok(void);
+}
+
+// --- Expression holes (already reachable in Stage 0 via parse_expression) ---
+
+@test
+fn test_error_expr_replaces_unit_placeholder() -> Result<Void, Error> {
+    // A missing right-hand side yields `Binary(a, +, Error)`, rendered `<error>`.
+    // Before Stage 0 the placeholder was `Expr.Unit` (rendered `void`), which
+    // types as `Void` and cascades in a typed slot; `Expr.Error` types as
+    // `Unknown` and stays quiet. The reroute is what this asserts.
+    testing.assert_eq(actual: expr_str('a +'), expected: '(a + <error>)')?;
+    // Well-formed counterpart unchanged.
+    testing.assert_eq(actual: expr_str('a + b'), expected: '(a + b)')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_dangling_dot_yields_empty_field() -> Result<Void, Error> {
+    // `user.` → a `Field` whose member is the empty string — the completion
+    // anchor. It renders as a trailing `.` (empty member name).
+    testing.assert_eq(actual: expr_str('user.'), expected: 'user.')?;
+    // Well-formed counterpart unchanged.
+    testing.assert_eq(actual: expr_str('user.name'), expected: 'user.name')?;
+    return Result.Ok(void);
+}
+
+// --- Stage 1: known holes survive inside a full declaration ---
+
+@test
+fn test_dangling_dot_survives_in_full_function() -> Result<Void, Error> {
+    // THE completion win: `user.` deep in a function body no longer discards the
+    // whole declaration. The `Field(user, "")` node survives — with its empty
+    // member as the completion anchor — and so do the statements around it.
+    let src = 'fn f(_ user: Int) -> Int { let name = user.; return 0; }';
+    let r = parse_tokens(tokenize(src).tokens);
+    testing.assert(r.has_errors(), message: 'expected a parse error for the dangling dot')?;
+    let expected = 'fn f(user: Int) -> Int\n'
+        + '  block\n'
+        + '    let name = user.\n'
+        + '    return 0';
+    testing.assert_eq(actual: dump_program(r.program), expected: expected)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_missing_call_paren_survives() -> Result<Void, Error> {
+    // A missing `)` is a known hole: the arg loop closes on its structural check
+    // and `expect` fills the delimiter. The call — and its declaration — survive.
+    let src = 'fn f() -> Int { let x = g(1, 2; return x; }';
+    let r = parse_tokens(tokenize(src).tokens);
+    testing.assert(r.has_errors(), message: 'expected a parse error for the missing `)`')?;
+    let expected = 'fn f() -> Int\n'
+        + '  block\n'
+        + '    let x = g(1, 2)\n'
+        + '    return x';
+    testing.assert_eq(actual: dump_program(r.program), expected: expected)?;
+    return Result.Ok(void);
+}
+
+// --- Stage 2: statement-level recovery (siblings + signature-past-body) ---
+
+@test
+fn test_broken_statement_preserves_siblings() -> Result<Void, Error> {
+    // A statement that can't parse (`let y = ` with no initializer — a `;` where
+    // an expression must begin, i.e. genuine confusion) is replaced by an
+    // `Expr.Error` placeholder; the statements before AND after it survive.
+    let src = 'fn f() -> Int { let x = 1; let y = ; return x; }';
+    let r = parse_tokens(tokenize(src).tokens);
+    testing.assert(r.has_errors(), message: 'expected a parse error for the empty initializer')?;
+    let expected = 'fn f() -> Int\n'
+        + '  block\n'
+        + '    let x = 1\n'
+        + '    expr <error>\n'
+        + '    return x';
+    testing.assert_eq(actual: dump_program(r.program), expected: expected)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_broken_body_keeps_signature() -> Result<Void, Error> {
+    // Signature-past-body (§5): a body full of garbage no longer discards the
+    // declaration — the block recovers internally, so `parse_block` returns and
+    // the `FnDecl` keeps its real signature (name, params, return type). A
+    // dependent in another file can still resolve against it.
+    let src = 'fn compute(_ x: Int) -> Int { ) ) ) }';
+    let r = parse_tokens(tokenize(src).tokens);
+    testing.assert(r.has_errors(), message: 'expected a parse error for the garbage body')?;
+    let expected = 'fn compute(x: Int) -> Int\n'
+        + '  block\n'
+        + '    expr <error>';
+    testing.assert_eq(actual: dump_program(r.program), expected: expected)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_broken_body_does_not_swallow_next_decl() -> Result<Void, Error> {
+    // A broken body must not consume the following declaration. Even when the hole
+    // leaves the body unclosed, the stray `fn` is treated as a block boundary, so
+    // both declarations survive.
+    let src = 'fn a() -> Int { % } fn b() -> Int { return 2; }';
+    let r = parse_tokens(tokenize(src).tokens);
+    testing.assert(r.has_errors(), message: 'expected a parse error in a\'s body')?;
+    let expected = 'fn a() -> Int\n'
+        + '  block\n'
+        + '    expr <error>\n'
+        + 'fn b() -> Int\n'
+        + '  block\n'
+        + '    return 2';
+    testing.assert_eq(actual: dump_program(r.program), expected: expected)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_broken_match_arm_does_not_cascade() -> Result<Void, Error> {
+    // Anti-cascade regression: a panic raised *inside* a match's braces (a missing
+    // `,` after an arm) must resync to the statement's own brace depth, not mistake
+    // the match's closing `}` for the block's. Otherwise the block ends early and
+    // the rest of the body spills to top level as spurious "expected a declaration"
+    // errors. Exactly one error (the missing `,`), and `return x` survives.
+    let src = 'fn f() -> Int { let x = match n { 1 => 10 2 => 20 }; return x; }';
+    let r = parse_tokens(tokenize(src).tokens);
+    testing.assert_eq(actual: r.errors.len(), expected: 1)?;
+    let expected = 'fn f() -> Int\n'
+        + '  block\n'
+        + '    expr <error>\n'
+        + '    return x';
+    testing.assert_eq(actual: dump_program(r.program), expected: expected)?;
+    return Result.Ok(void);
+}
+
+// --- Baseline: genuine confusion still unwinds and isolates siblings ---
+
+@test
+fn test_genuine_confusion_still_isolates_siblings() -> Result<Void, Error> {
+    // `fn { }` is genuine confusion, not a known hole — a `{` where the parameter
+    // list belongs makes `parse_param` `fail`, which unwinds and drops the decl.
+    // The parser resyncs to the next `fn` and the good sibling survives. (This is
+    // the "lost case" the plan keeps unwinding to the declaration boundary.)
+    let r = parse_tokens(tokenize('fn { } fn good() -> Int { return 1; }').tokens);
+    testing.assert(r.has_errors(), message: 'expected a parse error')?;
+    let dumped = dump_program(r.program);
+    testing.assert_eq(actual: dumped, expected: 'fn good() -> Int\n  block\n    return 1')?;
+    return Result.Ok(void);
+}
+
+// --- Stage 3: graceful EOF (open constructs recover, outer decls survive) ---
+
+@test
+fn test_eof_inside_block_keeps_prior_decls() -> Result<Void, Error> {
+    // EOF mid-body: the earlier declaration is untouched and the open one recovers
+    // with a synthesized `}` — recovery unwinds to the root, never dropping outer
+    // declarations.
+    let src = 'fn a() -> Int { return 1; } fn b() -> Int {';
+    let r = parse_tokens(tokenize(src).tokens);
+    testing.assert(r.has_errors(), message: 'expected an unterminated-block error')?;
+    let expected = 'fn a() -> Int\n'
+        + '  block\n'
+        + '    return 1\n'
+        + 'fn b() -> Int\n'
+        + '  block';
+    testing.assert_eq(actual: dump_program(r.program), expected: expected)?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_eof_mid_call_and_signature_recover() -> Result<Void, Error> {
+    // EOF inside a call closes the argument list; EOF inside a method signature
+    // closes the parameter list. In both, the enclosing declaration survives.
+    let call = parse_tokens(tokenize('fn f() -> Int { let x = foo(').tokens);
+    testing.assert_eq(actual: dump_program(call.program),
+        expected: 'fn f() -> Int\n  block\n    let x = foo()')?;
+    let sig = parse_tokens(tokenize('impl Foo { fn a() {} fn b(').tokens);
+    testing.assert_eq(actual: dump_program(sig.program),
+        expected: 'impl Foo\n  fn a()\n    block\n  fn b()')?;
+    return Result.Ok(void);
+}
+
+@test
+fn test_eof_incomplete_enum_keeps_decl() -> Result<Void, Error> {
+    // An incomplete `enum E {` keeps the declaration (empty variant list) so `E`
+    // still resolves for variant completion — and a following declaration parses.
+    let r = parse_tokens(tokenize('fn a() -> Int { return 1; } enum E {').tokens);
+    testing.assert(r.has_errors(), message: 'expected an empty-enum error')?;
+    let expected = 'fn a() -> Int\n'
+        + '  block\n'
+        + '    return 1\n'
+        + 'enum E';
+    testing.assert_eq(actual: dump_program(r.program), expected: expected)?;
+    return Result.Ok(void);
+}
+
+// --- Stage 3: position-sensitive holes (the completion catalog) ---
+
+@test
+fn test_position_sensitive_holes() -> Result<Void, Error> {
+    // A type-annotation hole, a parameter-type hole, an incomplete struct field,
+    // an operator with no RHS, and an empty match all recover in place, leaving a
+    // node the LSP can complete against. Each asserted structurally.
+    testing.assert_eq(actual: dump_str('struct User { let name:'),
+        expected: 'type User\n  field name: ')?;
+    testing.assert_eq(actual: dump_str('fn f(a: ) -> Int { return 0; }'),
+        expected: 'fn f(a: ) -> Int\n  block\n    return 0')?;
+    testing.assert_eq(actual: dump_str('fn f() -> Int { return match v { }; }'),
+        expected: 'fn f() -> Int\n  block\n    return match v {  }')?;
+    // A missing operator RHS is genuine confusion at the statement level, so the
+    // statement becomes an `Expr.Error` placeholder and its siblings survive.
+    testing.assert_eq(actual: dump_str('fn f() -> Int { let x = a + ; return 0; }'),
+        expected: 'fn f() -> Int\n  block\n    expr <error>\n    return 0')?;
+    return Result.Ok(void);
+}
+
+// --- Stage 3: completion-anchor span fidelity (§1) ---
+
+@test
+fn test_dangling_dot_anchor_carries_cursor_span() -> Result<Void, Error> {
+    // The synthetic member token must be a zero-length span at the cursor — a
+    // wrong offset silently breaks completion. `user.` → the empty member sits at
+    // offset 5 (just past the dot), length 0.
+    let src = 'user.';
+    let e = parse_expression(tokenize(src).tokens);
+    if let Field(_, _, member) = e {
+        testing.assert_eq(actual: member.name, expected: '')?;
+        testing.assert_eq(actual: member.span.length, expected: 0)?;
+        testing.assert_eq(actual: member.span.offset, expected: src.len())?;
+    } else {
+        testing.assert(false, message: 'expected a Field expression')?;
+    }
+    return Result.Ok(void);
+}
+
+@test
+fn test_error_expr_carries_cursor_span() -> Result<Void, Error> {
+    // `a +` → `Binary(a, +, Error)`; the `Expr.Error` placeholder anchors at the
+    // cursor (offset 3, just past the operator) with zero length.
+    let src = 'a +';
+    let e = parse_expression(tokenize(src).tokens);
+    if let Binary(_, _, _, rhs) = e {
+        if let Error(sp) = rhs {
+            testing.assert_eq(actual: sp.length, expected: 0)?;
+            testing.assert_eq(actual: sp.offset, expected: src.len())?;
+        } else {
+            testing.assert(false, message: 'expected an Error rhs')?;
+        }
+    } else {
+        testing.assert(false, message: 'expected a Binary expression')?;
+    }
+    return Result.Ok(void);
+}
+
+// --- Forward-progress invariant: recovery never spins (§3) ---
+
+// Parse every token-prefix of `src` (each re-terminated with EOF) and count them.
+// A non-advancing recovery loop would hang instead of returning — exactly the
+// mid-edit fragment the LSP feeds the parser on each keystroke.
+fn count_prefix_parses(_ src: String) -> Int {
+    let toks = tokenize(src).tokens;
+    let eof = toks[toks.len() - 1];
+    let mut count = 0;
+    let mut n = 1;
+    while n < toks.len() {
+        let prefix = toks.slice(0, n);
+        prefix.push(eof);
+        let _r = parse_tokens(prefix);
+        count = count + 1;
+        n = n + 1;
+    }
+    return count;
+}
+
+@test
+fn test_recovery_terminates_on_changed_constructs() -> Result<Void, Error> {
+    // Non-fatal `expect` let sub-parsers return without consuming; every prefix of
+    // these must still parse to completion. The snippets stress the constructs
+    // whose recovery non-fatal `expect` changed — impl/interface method bodies
+    // (the loop with the forward-progress guard), enum/struct fields, match arms,
+    // generic argument lists, and dangling members/delimiters.
+    let samples: List<String> = [
+        'impl Foo { fn bar() -> Int { return 1; } fn baz(',
+        'impl Eq for Foo { fn eq(self, _ o: Foo) -> Bool { return true; } }',
+        'interface Show { fn show(self) -> String; }',
+        'enum Color { Red, Green, Blue }',
+        'struct P { let x: Int; let y: Int; }',
+        'fn f() -> Int { return match x { Some(v) => v, None => 0 }; }',
+        'fn f() -> List<Map<String, Int>> { return xs.map(x => x.).first(); }',
+        'fn f() -> Int { let p = P { x: 1, y: }; return p.x; }',
+        'fn f() -> Int { let x = 1; % ; let y = 2; return x; }',
+        'fn a() -> Int { ) ) } fn b() -> Int { return 2; }',
+        'fn f() -> Int { if c { let x = ; } return 0; }',
+        'fn f() -> Int { for x in xs { @ } return 0; }',
+        // EOF-truncated fragments (graceful-EOF, §3): each open construct must
+        // recover to completion rather than hang.
+        'fn a() -> Int { let x = foo(',
+        'impl I for T { fn m(self) -> Int {',
+        'enum E {',
+        'struct S { let x:',
+        'fn f() -> Int { return match v {',
+    ];
+    let mut total = 0;
+    for s in samples {
+        total = total + count_prefix_parses(s);
+    }
+    testing.assert(total > 0, message: 'expected prefixes to be parsed')?;
+    return Result.Ok(void);
+}

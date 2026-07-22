@@ -3,13 +3,17 @@
 //
 // Two shape changes from Dart, both because Thera lacks the control flow:
 //
-//  * Error recovery. Dart throws a `_ParseFail` sentinel from `_fail` and catches
-//    it at the single declaration boundary. Thera has no exceptions, so this is a
-//    **panic flag**: `fail` records the error and sets `panicking`; the
-//    token-consuming primitives (`advance`/`match_kind`) and every parse loop
-//    short-circuit while it is set (so no tokens are consumed and no cascading
-//    errors are recorded during the unwind); methods return a throwaway node that
-//    the boundary discards. `parse_decl_or_recover` clears the flag and resyncs.
+//  * Error recovery (docs/parser-recovery.md). Two mechanisms, split by whether
+//    the parser knows what it wanted:
+//     - A **known hole** (a missing `)`, a field name after `.`): `expect`
+//       records one error and synthesizes the token in place, WITHOUT unwinding —
+//       parsing continues and the surrounding tree (the completion anchor)
+//       survives. Loops stay terminating via the forward-progress invariant (§3).
+//     - **Genuine confusion** (a token that starts nothing): `fail` records the
+//       error and sets the **panic flag**; the token-consuming primitives
+//       (`advance`/`match_kind`) and every parse loop short-circuit while it is
+//       set (no tokens consumed, no cascading errors), and `parse_decl_or_recover`
+//       clears the flag and resyncs to the next declaration.
 //  * No `break`. Dart's comma-separated list loops `break` after a missing
 //    separator; here each carries a `going` flag the body clears instead.
 
@@ -56,6 +60,13 @@ struct Parser {
     let mut pos: Int;
     let errors: List<diagnostic.Diagnostic>;
     let mut panicking: Bool;
+    // The count of `{` consumed minus `}` consumed — the current brace-nesting
+    // depth, maintained by `advance`. Statement recovery snapshots it at a
+    // statement's start and resyncs back to that depth, so a panic raised deep
+    // inside nested braces (a match arm, a nested block) doesn't mistake an inner
+    // `}` for the enclosing block's close. Unused on valid input (it only steers
+    // recovery), so it never perturbs the happy path. docs/parser-recovery.md §4.
+    let mut brace_depth: Int;
     // Generic-delimiter offsets accumulated as the parse consumes `<`/`>` in a
     // type-argument / type-parameter position; surfaced on ParseResult.
     let generic_opens: Set<Int>;
@@ -71,6 +82,7 @@ pub fn parse_tokens(_ tokens: List<Token>) -> ParseResult {
         pos: 0,
         errors: [],
         panicking: false,
+        brace_depth: 0,
         generic_opens: Set.new(),
         generic_closes: Set.new(),
     };
@@ -85,6 +97,7 @@ pub fn parse_expression(_ tokens: List<Token>) -> Expr {
         pos: 0,
         errors: [],
         panicking: false,
+        brace_depth: 0,
         generic_opens: Set.new(),
         generic_closes: Set.new(),
     };
@@ -153,6 +166,11 @@ impl Parser {
             return self.current(); // frozen during recovery: consume nothing
         }
         let t = self.tokens[self.pos];
+        if t.kind == TokenKind.LBrace {
+            self.brace_depth = self.brace_depth + 1;
+        } else if t.kind == TokenKind.RBrace {
+            self.brace_depth = self.brace_depth - 1;
+        }
         if !self.at_end() {
             self.pos = self.pos + 1;
         }
@@ -174,6 +192,19 @@ impl Parser {
         return false;
     }
 
+    // Consume the expected token, or recover a *known hole* in place. On a
+    // mismatch the parser knows exactly which token it wanted, so it records one
+    // error and returns a synthesized token of that kind at the cursor — WITHOUT
+    // consuming input or entering panic mode. Parsing continues past the hole, so
+    // the surrounding tree (the completion anchor) survives. Genuine confusion — a
+    // token that can start nothing — still goes through `fail`, which unwinds to a
+    // recovery point. See docs/parser-recovery.md §1.
+    //
+    // The forward-progress invariant (§3) is what keeps this from spinning: a list
+    // loop whose element parser filled entirely from synthetic tokens (consuming
+    // nothing) must force one token of progress; see `parse_impl` and the loop
+    // guards. Most loops get progress for free — a comma separator, a required
+    // starter keyword, or `parse_primary`'s `fail` on an unstartable token.
     fn expect(self, _ kind: TokenKind, _ description: String) -> Token {
         if self.check(kind) {
             return self.advance();
@@ -184,8 +215,21 @@ impl Parser {
         } else {
             '"${t.span.text()}"'
         };
-        self.fail('expected ${description}, found ${found}');
-        return self.current();
+        self.record_error('expected ${description}, found ${found}', t.span);
+        return self.synthetic_token(kind);
+    }
+
+    // A zero-width token of `kind` at the cursor, standing in for an
+    // expected-but-missing token. Its text is empty (`lexeme()` == ''), so an
+    // `obj.` field or a missing type name reads as the empty-name recovery hole;
+    // its span is zero-length, so span-keyed consumers skip it (PA6).
+    fn synthetic_token(self, _ kind: TokenKind) -> Token {
+        return Token {
+            kind: kind,
+            span: synthetic_span(self.current().span),
+            value: Option.Some(''),
+            interps: [],
+        };
     }
 
     // Records an error and enters panic mode, to be unwound at the declaration
@@ -196,11 +240,21 @@ impl Parser {
     }
 
     fn fail_at(self, _ message: String, _ span: SourceSpan) -> Void {
+        if self.record_error(message, span) {
+            self.panicking = true;
+        }
+    }
+
+    // Record one diagnostic unless we're already unwinding a panic (one error per
+    // panic episode — the dedup `fail` has always had). Returns whether it was
+    // recorded, so `fail_at` knows whether to enter panic mode. `expect` uses this
+    // directly to note a *known hole* without unwinding (docs/parser-recovery.md).
+    fn record_error(self, _ message: String, _ span: SourceSpan) -> Bool {
         if self.panicking {
-            return;
+            return false;
         }
         self.errors.push(diagnostic.at(message, span));
-        self.panicking = true;
+        return true;
     }
 
     fn sync_to_decl(self) -> Void {
@@ -235,6 +289,42 @@ impl Parser {
         }
     }
 
+    // Resync to the next statement boundary within the current block, after a
+    // statement failed mid-parse. Consumes a terminating `;`; stops *before* a
+    // statement-leading keyword or the block's closing `}` (the block loop
+    // consumes those and resumes with a fresh statement). `target_depth` is the
+    // running `brace_depth` at the statement's start, so a `;`/`}` *deeper* than it
+    // (inside a nested block the broken statement opened) doesn't end the outer
+    // statement early — only a boundary back at `target_depth` does. The caller has
+    // already cleared `panicking`, so `advance` consumes normally. §4.
+    fn sync_to_stmt(self, _ target_depth: Int) -> Void {
+        while !self.at_end() {
+            // A stray top-level decl keyword means we've overrun the block (a hole
+            // already ate its `}`); stop at *any* depth so decl-level recovery
+            // reclaims the declaration rather than the sync swallowing it.
+            if self.at_block_terminating_decl() {
+                return;
+            }
+            // Only tokens at the statement's own brace depth are boundaries; a `}`
+            // (or `;`) deeper than that closes a brace the broken statement opened
+            // and is consumed on the way (advance keeps `brace_depth` current).
+            if self.brace_depth == target_depth {
+                let k = self.current().kind;
+                if k == TokenKind.RBrace {
+                    return; // the enclosing block's close — leave it for the block loop
+                }
+                if k == TokenKind.Semi {
+                    self.advance(); // consume the terminator; resume after it
+                    return;
+                }
+                if self.is_stmt_keyword(k) || k == TokenKind.KwIf || k == TokenKind.KwThrow {
+                    return;
+                }
+            }
+            self.advance();
+        }
+    }
+
     fn starts_decl(self, _ k: TokenKind) -> Bool {
         return k == TokenKind.KwFn
             || k == TokenKind.KwStruct
@@ -251,6 +341,24 @@ impl Parser {
 
     fn prev_span(self) -> SourceSpan {
         return self.tokens[self.pos - 1].span;
+    }
+
+    // Whether the cursor is a top-level declaration keyword that cannot begin a
+    // statement (`fn`, `struct`, … — but not the statement-legal `let`/`const`).
+    // Inside a statement block it can only mean the block is unclosed (a prior
+    // hole ate its `}`); the block loop and `sync_to_stmt` treat it as a block
+    // boundary and bail to decl-level recovery, so the declaration it starts
+    // survives rather than being swallowed. Never true on valid input — these
+    // keywords never appear inside a statement block. docs/parser-recovery.md §4.
+    fn at_block_terminating_decl(self) -> Bool {
+        let k = self.current().kind;
+        return k == TokenKind.KwFn
+            || k == TokenKind.KwStruct
+            || k == TokenKind.KwImpl
+            || k == TokenKind.KwInterface
+            || k == TokenKind.KwImport
+            || k == TokenKind.KwEnum
+            || k == TokenKind.KwNative;
     }
 
     // --- generic-delimiter side channel (see `GenericDelims`) ---
@@ -277,7 +385,10 @@ impl Parser {
     // --- throwaway nodes returned after `fail` (discarded at the boundary) ---
 
     fn err_expr(self) -> Expr {
-        return Expr.Unit(self.current().span);
+        // A recovery placeholder that types as `Unknown` (unlike the old `Unit`,
+        // which is `Void` and would cascade in a typed slot). Discarded at the
+        // decl boundary today; Stage 1 lets it survive to anchor completion.
+        return Expr.Error(self.current().span);
     }
 
     fn err_type(self) -> TypeRef {
@@ -805,6 +916,7 @@ impl Parser {
         self.expect(TokenKind.LBrace, '{');
         let methods: List<FnDecl> = [];
         while !self.panicking && !self.check(TokenKind.RBrace) && !self.at_end() {
+            let before = self.pos;
             let method_start_tok = self.current();
             let decos: List<Decorator> = [];
             while !self.panicking && self.check(TokenKind.At) {
@@ -822,6 +934,14 @@ impl Parser {
                 method_start_tok.span
             };
             methods.push(self.parse_fn_decl(decos, m_native, m_pub, m_start));
+            // Forward-progress guard (docs/parser-recovery.md §3): unlike the
+            // interface-method loop, a bad method start here has no required
+            // keyword to `fail` on — with non-fatal `expect`, `parse_fn_decl` can
+            // synthesize an entire signature without consuming a token, which would
+            // spin this loop. If nothing was consumed, drop one token to advance.
+            if self.pos == before && !self.panicking {
+                self.advance();
+            }
         }
         let rbrace = self.expect(TokenKind.RBrace, '}');
         return Decl.Impl(ImplDecl {
@@ -1015,10 +1135,13 @@ impl Parser {
         let rbrace = self.expect(TokenKind.RBrace, '}');
         // A zero-variant enum is uninhabited — almost certainly an editing
         // accident (there is no never-type story that would give it meaning).
+        // Record the error but keep the declaration (with its empty variant list)
+        // rather than discarding it: an incomplete `enum E {` is a real mid-typing
+        // state, and the LSP wants `E` to resolve so variant completion has an
+        // anchor. Non-fatal, so a following declaration still parses. §3/§5.
         if variants.len() == 0 {
-            self.fail_at('an enum must declare at least one variant',
+            self.record_error('an enum must declare at least one variant',
                 start.cover(rbrace.span));
-            return self.err_decl();
         }
         return Decl.Enum(EnumDecl {
             span: start.cover(rbrace.span),
@@ -1094,7 +1217,16 @@ impl Parser {
     fn parse_block(self) -> Block {
         let start = self.expect(TokenKind.LBrace, '{');
         let stmts: List<Stmt> = [];
-        while !self.panicking && !self.check(TokenKind.RBrace) && !self.at_end() {
+        // The `!panicking` guard stays: it distinguishes an *external* panic — one
+        // raised in the signature, which reaches here through the frozen `{` and
+        // must propagate to discard the whole declaration — from an *internal*
+        // statement panic, which `parse_stmt_or_recover` clears in place so the
+        // loop continues and the broken statement's siblings survive (§4). Because
+        // recovery clears the flag, `panicking` is only ever true here on entry
+        // during an external panic; each iteration otherwise consumes ≥1 token (a
+        // stray `;`, or the statement/recovery), so the loop can't spin.
+        while !self.panicking && !self.check(TokenKind.RBrace) && !self.at_end()
+            && !self.at_block_terminating_decl() {
             // Tolerate a stray `;` (an empty statement) — notably one trailing a
             // block-form statement (`if cond { … };`), which `parse_expr_block`
             // already accepts in match arms / block expressions. Keeping the two
@@ -1104,7 +1236,7 @@ impl Parser {
             if self.check(TokenKind.Semi) {
                 self.advance();
             } else {
-                stmts.push(self.parse_stmt());
+                stmts.push(self.parse_stmt_or_recover());
             }
         }
         let end = self.expect(TokenKind.RBrace, '}');
@@ -1149,6 +1281,32 @@ impl Parser {
         let start = self.current().span;
         let expr = self.parse_expr();
         return self.finish_expr_stmt(start, expr);
+    }
+
+    // Parse one statement, recovering within the block on failure. A statement
+    // that hits genuine confusion (`fail`) no longer unwinds the whole
+    // declaration: this clears the panic, resyncs to the next statement boundary,
+    // and contributes an `Expr.Error` placeholder at the broken statement's start.
+    // So the statements *around* the hole survive, and — because the enclosing
+    // `parse_block` now returns normally instead of unwinding past the signature —
+    // a broken function body keeps its signature (signature-past-body, §5).
+    // docs/parser-recovery.md §4.
+    fn parse_stmt_or_recover(self) -> Stmt {
+        let before = self.pos;
+        let target_depth = self.brace_depth; // the block's interior depth
+        let start = self.current().span;
+        let s = self.parse_stmt();
+        if !self.panicking {
+            return s;
+        }
+        self.panicking = false; // clear before syncing (sync consumes tokens)
+        self.sync_to_stmt(target_depth);
+        // Forward progress (§3): guarantee the block loop advances even when the
+        // statement failed at its very first token and the sync stopped at once.
+        if self.pos == before && !self.at_end() {
+            self.advance();
+        }
+        return Stmt.Expr(start, Expr.Error(start));
     }
 
     // Whether `k` begins a statement-leading keyword (parsed as a statement,
@@ -2378,6 +2536,7 @@ impl Parser {
                         pos: 0,
                         errors: [],
                         panicking: false,
+                        brace_depth: 0,
                         generic_opens: Set.new(),
                         generic_closes: Set.new(),
                     };

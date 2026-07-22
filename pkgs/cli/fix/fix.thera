@@ -492,6 +492,7 @@ fn fs_expr(_ e: Expr, _ out: List<FixSite>) -> Void {
         Unit(_) => void,
         Ident(_, _) => void,
         Loc(_) => void,
+        Error(_) => void,
     }
 }
 

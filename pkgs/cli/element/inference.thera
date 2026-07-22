@@ -156,6 +156,7 @@ pub fn infer_expr(_ expr: Expr, _ scope: Map<String, Type>, _ ctx: InferCtx,
         Return(_, _) => Type.Never, // diverges — never yields a value here
         Throw(_, _) => Type.Never,
         Loc(_) => iface(ctx, 'SourceLoc', []), // the `#loc` metaconstant
+        Error(_) => Type.Unknown, // parser recovery hole — lenient, no cascade
     };
 }
 

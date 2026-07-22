@@ -1061,6 +1061,9 @@ impl FnCompiler {
             Lambda(x) => { self.lambda_expr(x, expected); },
             Range(span, _, _) => { self.error('a range is only valid as a for-loop iterable', span); },
             Loc(span) => { self.emit_source_loc(span); },
+            // Unreachable after a clean `check` (recovery holes are rejected there);
+            // a defensive trap in case codegen ever runs on an unchecked tree.
+            Error(span) => { self.error('internal: unresolved parse error reached codegen', span); },
         }
     }
 
@@ -2644,6 +2647,7 @@ fn walk_expr(_ e: Expr, _ bound: Set<String>, _ v: TreeVisitor) -> Void {
         Bool(_, _) => void,
         Unit(_) => void,
         Loc(_) => void, // a leaf metaconstant
+        Error(_) => void, // a recovery leaf — no free references
         Str(_, parts) => {
             for p in parts {
                 if let Interp(_, ie) = p { walk_expr(ie, bound, v); }

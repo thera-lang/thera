@@ -5,6 +5,63 @@ _resilient_ — producing a structurally useful AST from incomplete or malformed
 source, so the LSP can offer completion/hover mid-keystroke and the compiler can
 report precise, non-cascading errors.
 
+## Status
+
+**Implemented: Stages 0–3** (branch `parser_recovery_stage0`). The parser now
+recovers _known holes_ in place and confines the "lost" case to the nearest
+statement/declaration boundary; the LSP-facing wins — a preserved cursor anchor,
+signature-past-body, graceful EOF — are in. Every stage is fixpoint-clean and the
+full `@test` + conformance suites are green.
+
+| Stage  | What landed                                                                                                                                                                                                      |
+| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **0**  | `Expr.Error(SourceSpan)` (types as `Unknown`); lenient arms in resolver/checker/inference + a codegen trap; the structural dumper (`ast/dump.thera`) and the `parser/recovery_test.thera` harness.               |
+| **1**  | Non-fatal `expect` — a known hole records one error and fills a zero-width synthetic token in place (no unwind), so a dangling dot / missing delimiter survives inside the enclosing declaration.                 |
+| **2a** | Statement-level recovery in **statement blocks** (`parse_stmt_or_recover` / `sync_to_stmt`): a broken statement's siblings survive and a broken function body keeps its signature.                                |
+| **3**  | Graceful EOF verified (open constructs recover, outer decls survive; incomplete `enum E {` now kept); the position-sensitive completion catalog; anchor span fidelity (a synthetic hole is zero-length at cursor). |
+
+**How the implementation diverged from the plan below — all improvements:**
+
+- **The known-hole vs. genuine-confusion split is cleaner than sketched.** Only
+  `expect` became non-fatal. The `fail` sites that already existed for genuinely
+  unstartable tokens (`parse_param` on a `{`, `parse_primary`'s fallback) still
+  unwind — so malformed cases behave exactly as before and the change is surgical.
+  A consequence: `a +` / `let x =` (a _missing expression_, where `parse_primary`
+  fails, not `expect`) still unwind rather than leaving a surviving `Binary(_, +,
+  Error)` inside a full declaration. They _do_ surface as `Expr.Error` when parsed
+  in isolation (`parse_expression`), and at the statement level they become an
+  `Expr.Error` placeholder statement (§4).
+- **A running `brace_depth` drives statement resync**, not a local counter. A panic
+  raised deep inside nested braces (a match arm) must resync to the _statement's_
+  nesting depth, not the first `}` it sees — a naive local counter cascaded (the
+  conformance suite caught it: a broken match arm spilled the rest of the body to
+  top level as spurious "expected a declaration" errors). `brace_depth` is
+  maintained by `advance` and snapshotted at each statement start. Relatedly, a
+  stray top-level decl keyword inside a block is treated as a block boundary, so an
+  inner hole that ate the block's `}` can't swallow the next declaration.
+- **`parse_block` keeps its `!panicking` guard** (contrary to "retire the guards"):
+  it is what distinguishes an _external_ signature panic that must propagate from an
+  _internal_ statement panic that recovery clears in place.
+- **Forward-progress (§3) was needed in one place, not everywhere.** Most list loops
+  already terminate for free (a comma-exit, a required starter keyword, or
+  `parse_primary`'s `fail`); only the `impl`-method loop needed an explicit guard.
+
+**Remaining:**
+
+- **Stage 2b — recovery inside expression blocks** (`parse_expr_block`: match-arm
+  `{…}` bodies and block-expressions). A broken statement there still discards the
+  enclosing declaration. Its interleaved tail-expression handling makes per-element
+  recovery fiddlier than the statement-block case.
+- **Stage 4 is largely obsolete.** Its premise — "once no site sets `panicking`,
+  remove the field" — does not hold: `panicking` is retained _by design_ as the
+  genuine-confusion mechanism. The error-dedup half (§6) is already covered by the
+  existing panic suppression (a broken statement yields at most one error), so no
+  extra dedup was required.
+- **The behavioral `complete_at` oracle** lands with the LSP `textDocument/completion`
+  item; until then the structural dump + span assertions are the oracle.
+
+The design and rationale that produced this — kept for reference — follow.
+
 ## Goals & non-goals
 
 - **Primary goal — code completion.** The LSP parses source that is _almost
@@ -42,9 +99,11 @@ carry a marker the resolver/checker treat as "incomplete — analyze leniently,
 report nothing."** That marker is what lets the LSP keep the rich tree while the
 compiler stays quiet on the holes.
 
-## Where we are today
+## Where we started (pre-Stage-0 baseline)
 
-The parser uses a **panic flag** with a single recovery point (`parser.thera`):
+_This section describes the parser before this work; see **Status** above for what
+changed._ The parser used a **panic flag** with a single recovery point
+(`parser.thera`):
 
 - `fail`/`fail_at` record **one** error and set `panicking`.
 - While `panicking`, `advance`/`match_kind` freeze (consume nothing) and **every
@@ -234,35 +293,44 @@ the cursor**) _and_ that the well-formed counterpart is unchanged.
 
 ## Staged plan
 
-Each stage is independently useful and **fixpoint-clean** (valid input
-untouched).
+_Status markers reflect what shipped; see **Status** at the top for the summary
+and the divergences. Each stage is independently useful and **fixpoint-clean**
+(valid input untouched)._
 
-- **Stage 0 — contract first (no recovery yet).** Add `Expr.Error`; route the
+- **Stage 0 — contract first (no recovery yet).** ✅ **Done.** Add `Expr.Error`; route the
   existing `err_*` throwaways to it; give the resolver/checker/inference their
   lenient arm and codegen its defensive trap. Add the structural AST dump + the
   recovery test harness. This establishes the **suppression contract before any
   partial node is produced** — fixing the original plan's entanglement, where
   synthetic nodes would have cascaded. Pure scaffolding; byte-identical
   fixpoint.
-- **Stage 1 — non-fatal `expect` + progress invariant.** `expect` records +
+- **Stage 1 — non-fatal `expect` + progress invariant.** ✅ **Done.** `expect` records +
   returns a synthetic token instead of failing; add the forward-progress guard
-  to the list loops. Now a missing delimiter / `obj.` / `a +` yields a _partial
+  to the list loops. Now a missing delimiter / `obj.` yields a _partial
   node_ instead of a discarded declaration — the first real completion win. The
   lost case still unwinds to the declaration boundary (today's behavior), which
   is fine for now. (Load-bearing flip; the fixpoint proves valid input is
-  unchanged because the non-fatal path is never taken there.)
-- **Stage 2 — statement-level recovery + signature-past-body.** Add
-  `parse_stmt_or_recover` / `sync_to_stmt`; the block loop recovers per
-  statement, so siblings survive and a broken body keeps its signature. Retire
-  `!panicking` guards as each loop is touched and confirmed handled by the
-  structural + progress checks.
-- **Stage 3 — graceful EOF, completion polish, full case suite.** Synthesize
-  closing delimiters when EOF lands inside an open block/expression (unwind to
-  the root rather than dropping outer decls); verify every dot/type/keyword/arg
-  anchor carries the cursor span; build out the catalog and validate against
-  `complete_at`.
-- **Stage 4 — cleanup.** Once no site sets `panicking`, remove the field;
-  finalize error dedup/cap.
+  unchanged because the non-fatal path is never taken there.) _As built, the
+  progress guard was needed only on the `impl`-method loop, and `a +`/`let x =`
+  survive at the statement level rather than in the full declaration — see
+  **Status**._
+- **Stage 2 — statement-level recovery + signature-past-body.** ✅ **Stage 2a done**
+  (statement blocks); **Stage 2b remaining** (expression blocks —
+  `parse_expr_block`). Add `parse_stmt_or_recover` / `sync_to_stmt`; the block
+  loop recovers per statement, so siblings survive and a broken body keeps its
+  signature. _`parse_block` kept its `!panicking` guard and resync uses a running
+  `brace_depth`, not the local counter these notes imagined — see **Status**._
+- **Stage 3 — graceful EOF, completion polish, full case suite.** ✅ **Done** (except
+  the `complete_at` oracle). Synthesize closing delimiters when EOF lands inside
+  an open block/expression (unwind to the root rather than dropping outer decls);
+  verify every dot/type/keyword/arg anchor carries the cursor span; build out the
+  catalog. _Graceful EOF fell out of Stages 1 + 2a; this stage verified it and
+  closed the incomplete-`enum` gap. The behavioral `complete_at` validation waits
+  on the LSP completion item._
+- **Stage 4 — cleanup.** ⚠️ **Largely obsolete.** The premise — remove `panicking`
+  once nothing sets it — does not hold: `panicking` is retained by design for
+  genuine confusion. Error dedup/cap (§6) is already covered by panic suppression.
+  See **Status**.
 
 The ordering rationale: **the contract (Stage 0) precedes the first partial node
 (Stage 1)**, so recovery never ships a cascade; and the leaf win (Stage 1)
