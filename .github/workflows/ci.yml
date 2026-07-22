@@ -48,6 +48,11 @@ jobs:
   # Self-hosted suite, sharded across parallel jobs. Each shard builds the dev
   # front-end once, then runs its bin/test.sh group(s). `cargo` is omitted — the
   # runtime job above already runs the cargo tests.
+  #
+  # The `stdlib` group (thera test sdk/std) is the long pole (~3min) and can't be
+  # split further, so it gets its own shard; everything else consolidates into
+  # `rest` (~2min), which still finishes first. A third shard wouldn't lower the
+  # wall-clock floor — it would just add another redundant release build.
   suite:
     name: suite (${{ matrix.name }})
     runs-on: ubuntu-latest
@@ -56,12 +61,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: frontend
-            groups: frontend
           - name: stdlib
-            groups: stdlib examples
-          - name: checks
-            groups: checks conformance
+            groups: stdlib
+          - name: rest
+            groups: frontend checks conformance examples
     steps:
       - uses: actions/checkout@v7
 
