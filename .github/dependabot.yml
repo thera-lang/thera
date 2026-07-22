@@ -1,0 +1,23 @@
+version: 2
+
+updates:
+  # Rust runtime dependencies (runtime/Cargo.toml).
+  - package-ecosystem: cargo
+    directory: /runtime
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      cargo:
+        patterns:
+          - "*"
+
+  # GitHub Actions used in .github/workflows/.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns:
+          - "*"
