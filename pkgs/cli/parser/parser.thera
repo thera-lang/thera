@@ -1135,10 +1135,13 @@ impl Parser {
         let rbrace = self.expect(TokenKind.RBrace, '}');
         // A zero-variant enum is uninhabited — almost certainly an editing
         // accident (there is no never-type story that would give it meaning).
+        // Record the error but keep the declaration (with its empty variant list)
+        // rather than discarding it: an incomplete `enum E {` is a real mid-typing
+        // state, and the LSP wants `E` to resolve so variant completion has an
+        // anchor. Non-fatal, so a following declaration still parses. §3/§5.
         if variants.len() == 0 {
-            self.fail_at('an enum must declare at least one variant',
+            self.record_error('an enum must declare at least one variant',
                 start.cover(rbrace.span));
-            return self.err_decl();
         }
         return Decl.Enum(EnumDecl {
             span: start.cover(rbrace.span),
